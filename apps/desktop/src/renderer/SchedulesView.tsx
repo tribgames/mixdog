@@ -1,5 +1,5 @@
 import { AlarmClock, Plus, Search, X } from 'lucide-react';
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
@@ -17,6 +17,7 @@ import {
 import { modelDisplayName, normalizeModelOptions } from './provider-display';
 import { SidebarPanelAction } from './session-sidebar';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
+import { acquireTitleBarDim } from './titlebar-dim';
 import {
   useSidebarReferences,
   type SidebarReferenceKey,
@@ -252,6 +253,9 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
   if (cwd && !projectOptions.some((option) => option.value === cwd)) {
     projectOptions.push({ value: cwd, label: cwd });
   }
+  // The scrim cannot dim the NATIVE caption band — hold the titlebar claim
+  // while this dialog is mounted (user: - ㅁ x 딤드 안 먹음).
+  useEffect(() => acquireTitleBarDim(), []);
   // The editor portals to document.body: the list lives in the session
   // panel, so the dialog must escape the sidebar's clipped/transformed box.
   return createPortal(<div className="schedules-dialog-layer"

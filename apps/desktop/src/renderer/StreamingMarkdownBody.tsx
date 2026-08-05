@@ -24,11 +24,13 @@ interface RenderedMarkdownAst {
 
 const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   text,
+  parseText,
   live,
   deferAsyncPromotion,
   copyControl,
 }: {
   text: string;
+  parseText: string;
   live: boolean;
   deferAsyncPromotion: boolean;
   copyControl: MarkdownCopyControl;
@@ -36,29 +38,29 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   const persistentCodeSource = isFencedCodeOnlyMarkdown(text);
   const [rendered, setRendered] = useState<RenderedMarkdownAst | null>(() => {
     if (persistentCodeSource) return null;
-    const root = readCachedStreamingMarkdownAst(text);
-    return root ? { text, root } : null;
+    const root = readCachedStreamingMarkdownAst(parseText);
+    return root ? { text: parseText, root } : null;
   });
-  const requestedText = useRef(text);
+  const requestedText = useRef(parseText);
   const deferAsyncPromotionRef = useRef(deferAsyncPromotion);
   const queue = useRef<LatestMarkdownAstQueue | null>(null);
   queue.current ??= new LatestMarkdownAstQueue();
-  requestedText.current = text;
+  requestedText.current = parseText;
   deferAsyncPromotionRef.current = deferAsyncPromotion;
-  const exact = rendered?.text === text ? rendered : null;
+  const exact = rendered?.text === parseText ? rendered : null;
 
   useEffect(() => {
     if (persistentCodeSource) return;
-    const cachedRoot = readCachedStreamingMarkdownAst(text);
+    const cachedRoot = readCachedStreamingMarkdownAst(parseText);
     if (cachedRoot) {
       if (!deferAsyncPromotion) {
-        setRendered((current) => current?.text === text && current.root === cachedRoot
+        setRendered((current) => current?.text === parseText && current.root === cachedRoot
           ? current
-          : { text, root: cachedRoot });
+          : { text: parseText, root: cachedRoot });
       }
       return;
     }
-    queue.current?.request(text, (root, parsedText) => {
+    queue.current?.request(parseText, (root, parsedText) => {
       // A live suffix is never partially promoted. Only the exact immutable
       // chunk may replace its source-shaped fallback, so worker latency cannot
       // move the AST/plain split and rewrite layout under bottom-follow.
@@ -70,7 +72,7 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
         setRendered({ text: parsedText, root });
       }
     });
-  }, [deferAsyncPromotion, persistentCodeSource, text]);
+  }, [deferAsyncPromotion, parseText, persistentCodeSource]);
   useEffect(() => () => queue.current?.dispose(), []);
 
   if (!persistentCodeSource && exact) {
@@ -92,11 +94,13 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
 
 const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   text,
+  parseText,
   live = false,
   deferAsyncPromotion = false,
   copyControl,
 }: {
   text: string;
+  parseText?: string;
   live?: boolean;
   deferAsyncPromotion?: boolean;
   copyControl: MarkdownCopyControl;
@@ -104,7 +108,10 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   // Stable chunks promote exactly (immutable text -> exact AST). The live
   // tail renders the latest COMPLETED parse and trails the raw text by worker
   // latency, mirroring OpenCode's paced streaming markdown.
-  return <ParsedMarkdownBody text={text} live={live}
+  // `parseText` is the healed form of `text` for the live tail: the parser
+  // sees closed markers while the source fallback still shows exactly what
+  // the model has emitted.
+  return <ParsedMarkdownBody text={text} parseText={parseText ?? text} live={live}
     deferAsyncPromotion={deferAsyncPromotion} copyControl={copyControl} />;
 });
 

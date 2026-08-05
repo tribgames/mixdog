@@ -602,9 +602,13 @@ try {
   assert.ok(metadata.liveAssertions.settings.large.populatedRowCount > 0);
   assert.equal(metadata.liveAssertions.settings.large.dialog.width, 980);
   assert.equal(metadata.liveAssertions.settings.large.rail.width, 240);
+  assert.equal(metadata.liveAssertions.settings.large.fullBleed, false);
+  assert.equal(metadata.liveAssertions.settings.large.dialogClearsWindowControls, true);
   assert.deepEqual(metadata.liveAssertions.settings.compact.viewport, { width: 720, height: 650 });
-  assert.equal(metadata.liveAssertions.settings.compact.dialog.width, 704);
+  assert.equal(metadata.liveAssertions.settings.compact.dialog.width, 720);
+  assert.equal(metadata.liveAssertions.settings.compact.dialog.height, 650);
   assert.equal(metadata.liveAssertions.settings.compact.rail.width, 200);
+  assert.equal(metadata.liveAssertions.settings.compact.fullBleed, true);
   for (const placement of [
     metadata.liveAssertions.settings.large,
     metadata.liveAssertions.settings.compact,
@@ -612,13 +616,40 @@ try {
     assert.equal(placement.centered, true);
     assert.ok(placement.centerDelta.x <= 1);
     assert.ok(placement.centerDelta.y <= 1);
-    assert.ok(placement.layerPadding.top >= placement.windowControlsHeight);
-    assert.equal(placement.dialogClearsWindowControls, true);
+    assert.equal(placement.contentClearsWindowControls, true);
     assert.equal(placement.layerCoversViewport, true);
     assert.equal(placement.dialogFitsViewport, true);
     assert.equal(placement.backdropVisible, true);
     assert.equal(placement.twoPane, true);
     assert.equal(placement.rail.right, placement.pane.left);
+  }
+  assert.ok(metadata.liveAssertions.settings.large.layerPadding.top
+    >= metadata.liveAssertions.settings.large.windowControlsHeight);
+  const narrowSettings = metadata.liveAssertions.settings.narrow;
+  assert.deepEqual(narrowSettings.viewport, { width: 360, height: 600 });
+  assert.equal(narrowSettings.fullScreen, true);
+  assert.equal(narrowSettings.railConnected, true);
+  assert.equal(narrowSettings.rail.width, 48);
+  assert.equal(narrowSettings.railButtonCount, metadata.expectedSettingsCategoryLabels.length);
+  assert.equal(narrowSettings.railButtonsAccessible, true);
+  assert.equal(narrowSettings.closeTouchTarget, true);
+  assert.ok(narrowSettings.rowCount > 0);
+  assert.ok(narrowSettings.filledValueControlCount > 0);
+  assert.equal(narrowSettings.sharedValueAxis, true);
+  assert.equal(narrowSettings.controlsContained, true);
+  assert.equal(narrowSettings.controlsRightAligned, true);
+  assert.equal(narrowSettings.labelsSeparated, true);
+  assert.equal(narrowSettings.valuesFillColumn, true);
+  assert.equal(narrowSettings.overflowFree, true);
+  assert.deepEqual(
+    narrowSettings.categories.map((category) => category.label),
+    metadata.expectedSettingsCategoryLabels,
+  );
+  for (const category of narrowSettings.categories) {
+    assert.equal(category.overflowFree, true, `${category.label} narrow settings must not overflow`);
+    assert.equal(category.controlsContained, true, `${category.label} narrow controls must stay inside rows`);
+    assert.equal(category.controlsRightAligned, true, `${category.label} narrow controls must share the row edge`);
+    assert.equal(category.labelsSeparated, true, `${category.label} narrow labels must not overlap controls`);
   }
   const phoneSettings = metadata.liveAssertions.settings.phone;
   assert.ok(phoneSettings.viewport.width >= 320 && phoneSettings.viewport.width <= 430);

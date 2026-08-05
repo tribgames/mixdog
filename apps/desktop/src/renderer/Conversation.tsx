@@ -199,6 +199,10 @@ export function Conversation({
   const conversation = useRef<HTMLElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
+  // OpenCode's createAutoScroll observes the element that CONTAINS every
+  // growable block of the turn (message container + diffs). The virtual space
+  // alone would miss the review bar that now lives beside it.
+  const thread = useRef<HTMLDivElement>(null);
   const scrollToEndRef = useRef<(behavior?: ScrollBehavior) => void>(() => {});
   // React port of OpenCode's createAutoScroll + message-gesture split.
   const {
@@ -216,7 +220,7 @@ export function Conversation({
     resume: resumeFollow,
   } = useTranscriptFollow({
     viewport,
-    content,
+    content: thread,
     sessionKey: draftMode
       ? "new-task"
       : String(routeSnapshot.sessionId || "new-task"),
@@ -667,7 +671,7 @@ export function Conversation({
         onTouchCancel={handleTranscriptTouchEnd}
         onClick={handleTranscriptInteraction}
         onKeyDown={handleTranscriptKeyDown}>
-        <div className="thread">
+        <div className="thread" ref={thread}>
           {/* An EMPTY draft carries ONLY the centered brand watermark (user:
               VS Code grammar — shortcuts live solely on the fully empty
               workspace; secondary surfaces keep the quiet letterpress).
@@ -684,6 +688,17 @@ export function Conversation({
             rows={transcriptRows} viewport={viewport} content={content}
             shouldAnchorBottom={shouldAnchorTranscriptBottom}
             scrollToEndRef={scrollToEndRef} renderRow={renderTranscriptRow} />
+          {/* OpenCode parity (session-turn-diffs): review belongs to the
+              SCROLLED timeline, as the last block after the turn. In the
+              composer stack its late arrival changed the viewport height
+              instead — measured 118 -> 154px on session entry, shifting the
+              whole surface (user: PANE에 뜰 때 위아래로 쉬프트). Here the
+              bottom anchor already owns the growth. */}
+          {!readOnly && <div className="turn-review-slot">
+            <TurnReviewBar items={settledItems}
+              sessionId={String(snapshot.sessionId || "")}
+              cwd={String(snapshot.currentProject || snapshot.project || snapshot.cwd || "")} />
+          </div>}
         </div>
       </div>
       {showJump && itemCount > 0 && <button type="button" className="jump-to-latest" onClick={() => jumpToLatest()}
@@ -730,14 +745,6 @@ export function Conversation({
             final 20px thinking/tool status band without consuming layout. */}
         {liveWork}
         <InlineErrors messages={errors} />
-        {/* Review is part of the bottom stack: a late worker result grows this
-            region upward, while the transcript ResizeObserver retains its
-            followed bottom. It never overlays transcript or thinking rows. */}
-        <div className="turn-review-slot">
-        <TurnReviewBar items={settledItems}
-          sessionId={String(snapshot.sessionId || "")}
-          cwd={String(snapshot.currentProject || snapshot.project || snapshot.cwd || "")} />
-        </div>
         <Composer
           turnBusy={Boolean(snapshot.busy)}
           commandBusy={!draftMode && Boolean(routeSnapshot.commandBusy)}

@@ -13,6 +13,7 @@ import { ProgressSpinner } from "./ProgressSpinner";
 import { normalizeApplyPatch, parseUnifiedDiff } from "./renderer-logic.mjs";
 import {
   createStreamingMarkdownCache,
+  healStreamingMarkdownTail,
   isPlainTextMarkdown,
   resolveStreamingMarkdownChunks,
 } from "./streaming-markdown";
@@ -474,10 +475,23 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
   const markdownCache = useRef(createStreamingMarkdownCache());
   const workerPipeline = useRef(streaming);
   const fencedScriptGeometryLocked = useRef(false);
+  // The geometry lock belongs to the fenced chunk alone. Applying it to the
+  // whole response froze every following heading/list/bold block as raw
+  // markdown source until the row remounted (user: 트랜스크립트 출력 도중에
+  // 마크다운 포맷이 안 먹는다).
+  const fencedChunks = useRef<Map<string, boolean>>(new Map());
   if (streaming) workerPipeline.current = true;
   if (streaming && containsFencedCodeMarkdown(text)) {
     fencedScriptGeometryLocked.current = true;
   }
+  const chunkDefersPromotion = (key: string, chunk: string): boolean => {
+    if (!fencedScriptGeometryLocked.current) return false;
+    const cached = fencedChunks.current.get(key);
+    if (cached !== undefined) return cached;
+    const fenced = containsFencedCodeMarkdown(chunk);
+    fencedChunks.current.set(key, fenced);
+    return fenced;
+  };
   // Renderer snapshots are already frame-coalesced. Adding another rAF here
   // commits DOM growth after the current ResizeObserver delivery and leaves
   // one painted frame off-bottom. OpenCode projects each arriving delta
@@ -488,12 +502,19 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
       key={markdownParts.stableChunkKeys[index]}>
       {workerPipeline.current
         ? <StreamingMarkdownBody text={chunk} live={false}
-            deferAsyncPromotion={fencedScriptGeometryLocked.current}
+            deferAsyncPromotion={chunkDefersPromotion(markdownParts.stableChunkKeys[index], chunk)}
             copyControl={CopyControl} />
         : <StableMarkdownBody text={chunk} />}
     </Suspense>
   ));
   if (markdownParts.unstableText) {
+    // OpenCode heals the live tail before parsing it, so an unfinished
+    // "**bold" or "`code" is already styled while the model types.
+    const unstableParseText = streaming
+      ? healStreamingMarkdownTail(markdownParts.unstableText)
+      : markdownParts.unstableText;
+    const unstableDefers = fencedScriptGeometryLocked.current
+      && containsFencedCodeMarkdown(markdownParts.unstableText);
     renderedChunks.push(
       <Suspense
         fallback={<MarkdownSourceFallback text={markdownParts.unstableText} copyControl={CopyControl} />}
@@ -501,8 +522,9 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
         {workerPipeline.current
           ? <StreamingMarkdownBody
               text={markdownParts.unstableText}
+              parseText={unstableParseText}
               live={streaming || !markdownParts.parseUnstable}
-              deferAsyncPromotion={fencedScriptGeometryLocked.current}
+              deferAsyncPromotion={unstableDefers}
               copyControl={CopyControl} />
           : <StableMarkdownBody text={markdownParts.unstableText} />}
       </Suspense>,
@@ -697,7 +719,10 @@ export const TranscriptRow = memo(function TranscriptRow({
     return <CompletionStatus item={item} animate={completionAnimate} />;
   }
   if (item.kind === "notice") {
-    return <div className={`notice ${item.tone === "error" ? "error" : ""}`}
+    // Warn-tone notices (watchdog abort, degraded fallback) are not neutral
+    // status: they get the amber status pair, errors the danger pair.
+    const tone = item.tone === "error" ? "error" : item.tone === "warn" ? "warn" : "";
+    return <div className={`notice ${tone}`}
       role={item.tone === "error" ? "alert" : "status"}>{item.text}</div>;
   }
   if (item.kind !== "user" && item.kind !== "assistant") return null;

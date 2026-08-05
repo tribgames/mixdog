@@ -769,7 +769,13 @@ export function useTranscriptWindow({
     stopSmoothScroll();
     scrollTargetRef.current = desired;
     scrollPositionRef.current = Math.max(0, Math.min(maxRows, currentPosition + appliedDelta));
-    setScrollOffset(Math.max(0, Math.round(desired)));
+    // The render path already applied `desired` synchronously through the
+    // absolute anchor lock. Keep the refs as the committed scroll authority;
+    // mirroring the same correction back into React state from a layout effect
+    // creates a render → layout update feedback path when transcript geometry
+    // and viewport geometry change together (React #185). The next manual
+    // scroll writes state from these refs, while anchored renders continue to
+    // resolve directly from the current prefix table.
   }, [transcriptWindow.totalRows, transcriptWindow.maxScrollRows, transcriptRowIndex, transcriptContentHeight, scrollOffset, stopSmoothScroll]);
   useLayoutEffect(() => {
     if (transcriptAnchorRef.current || transcriptAnchorDirtyRef.current || followingRef.current) return;

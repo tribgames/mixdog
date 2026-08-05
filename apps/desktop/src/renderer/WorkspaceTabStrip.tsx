@@ -61,6 +61,71 @@ export interface WorkspaceTabStripProps {
   onOpenFolder?(): void;
 }
 
+/** Tab-kind glyph shared by the compact current-tab button and the switcher
+ *  rows (the full strip keeps its inline chain untouched for the strip
+ *  contract tests). */
+function tabGlyph(tab: WorkspaceTab, size = 14) {
+  switch (tab.selection.kind) {
+    case "agent-session": return <Bot size={size} />;
+    case "project": return <Folder size={size} />;
+    case "file": return <FileText size={size} />;
+    case "diff": return <FileDiff size={size} />;
+    case "studio": return <Sparkles size={size} />;
+    case "terminal": return <Terminal size={size} />;
+    case "folder": return <Folder size={size} />;
+    default: return <MessageCircle size={size} />;
+  }
+}
+
+/* Chromium tab_strip_layout port (refs/chromium-tabs/tab_strip_layout.cc,
+ * user: 구글 OSS쪽에 맞춰): CalculateSpaceFractionAvailable's two layout
+ * domains with our flat-design constants (overlap = 0). Above the crossover
+ * every tab shares one interpolated width; below it the ACTIVE tab pins at
+ * its favicon+close floor while inactive tabs interpolate down to the
+ * sliver. AllocateExtraSpace re-grants the rounded-down remainder +1px
+ * left-to-right. */
+const TAB_STANDARD_WIDTH = 160;
+const TAB_MIN_ACTIVE_WIDTH = 56;
+const TAB_MIN_INACTIVE_WIDTH = 28;
+
+function calculateChromeTabWidths(
+  count: number,
+  activeIndex: number,
+  available: number,
+): number[] {
+  if (count <= 0) return [];
+  const lerp = (a: number, b: number, f: number) => a + (b - a) * f;
+  const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+  const minimum = (count - 1) * TAB_MIN_INACTIVE_WIDTH + TAB_MIN_ACTIVE_WIDTH;
+  const crossover = count * TAB_MIN_ACTIVE_WIDTH;
+  const preferred = count * TAB_STANDARD_WIDTH;
+  let widths: number[];
+  let atPreferred = false;
+  if (available < crossover) {
+    // LayoutDomain::kInactiveWidthBelowActiveWidth
+    const fraction = minimum === crossover
+      ? 1 : clamp01((available - minimum) / (crossover - minimum));
+    widths = Array.from({ length: count }, (_, index) => Math.floor(
+      index === activeIndex
+        ? TAB_MIN_ACTIVE_WIDTH
+        : lerp(TAB_MIN_INACTIVE_WIDTH, TAB_MIN_ACTIVE_WIDTH, fraction)));
+  } else {
+    // LayoutDomain::kInactiveWidthEqualsActiveWidth
+    const fraction = preferred === crossover
+      ? 1 : clamp01((available - crossover) / (preferred - crossover));
+    atPreferred = fraction >= 1;
+    const width = Math.floor(lerp(TAB_MIN_ACTIVE_WIDTH, TAB_STANDARD_WIDTH, fraction));
+    widths = Array.from({ length: count }, () => width);
+  }
+  if (!atPreferred) {
+    let extra = Math.floor(available) - widths.reduce((sum, width) => sum + width, 0);
+    for (let index = 0; index < widths.length && extra > 0; index += 1, extra -= 1) {
+      widths[index] += 1;
+    }
+  }
+  return widths;
+}
+
 export function WorkspaceTabStrip({
   tabs,
   activeKey,
@@ -111,6 +176,46 @@ export function WorkspaceTabStrip({
   const [newMenu, setNewMenu] = useState<{ left: number; top: number } | null>(null);
   const [tabMenu, setTabMenu] = useState<{ key: string; left: number; top: number } | null>(null);
   const tabMenuNode = useRef<HTMLDivElement>(null);
+  // Chrome parity split (user: PC는 크롬처럼 끝까지 축소, 모바일 뷰는
+  // 이름+숫자 스위처): desktop follows Chromium's tab_strip_layout — tabs
+  // shrink to sliver floors and NEVER switch modes — so the count-switcher
+  // collapse only serves TOUCH shells. Headless test DOMs measure 0 width
+  // and keep the full strip.
+  const shellNode = useRef<HTMLDivElement>(null);
+  const [shellWidth, setShellWidth] = useState(0);
+  const [stripAvailable, setStripAvailable] = useState(0);
+  const [tabSwitcher, setTabSwitcher] = useState<{ left: number; top: number } | null>(null);
+  const switcherNode = useRef<HTMLDivElement>(null);
+  const switcherTriggers = useRef(new Set<HTMLElement>());
+  const mobileShell = typeof document !== "undefined"
+    && document.documentElement.getAttribute("data-mixdog-mobile") === "1";
+  const compact = mobileShell && tabs.length >= 2 && shellWidth > 0
+    && shellWidth < tabs.length * 80;
+  // Chromium layout INPUT: the width the tab run may spend — the shell minus
+  // the fixed + slot and the trailing controls (tab_strip.cc passes the
+  // available width into CalculateTabBounds the same way).
+  const measureWidths = useCallback(() => {
+    const shell = shellNode.current;
+    if (!shell) return;
+    const width = shell.clientWidth;
+    setShellWidth((previous) => previous === width ? previous : width);
+    const newButton = shell.querySelector<HTMLElement>(":scope > .workspace-tab-new");
+    const trailingBox = shell.querySelector<HTMLElement>(":scope > .workspace-tabs-trailing");
+    const available = width - (newButton?.offsetWidth ?? 0) - (trailingBox?.offsetWidth ?? 0);
+    setStripAvailable((previous) => previous === available ? previous : available);
+  }, []);
+  const switcherTrigger = useCallback((node: HTMLButtonElement | null) => {
+    if (node) switcherTriggers.current.add(node);
+    else {
+      for (const el of [...switcherTriggers.current]) {
+        if (!el.isConnected) switcherTriggers.current.delete(el);
+      }
+    }
+  }, []);
+  const toggleSwitcher = (element: HTMLElement) => {
+    const rect = element.getBoundingClientRect();
+    setTabSwitcher((current) => current ? null : { left: rect.left, top: rect.bottom + 4 });
+  };
   const newButton = useRef<HTMLButtonElement>(null);
   const newMenuNode = useRef<HTMLDivElement>(null);
   const newMenuAnchor = useRef<{ left: number; top: number } | null>(null);
@@ -164,6 +269,43 @@ export function WorkspaceTabStrip({
       window.removeEventListener("scroll", closeMenu, true);
     };
   }, [tabMenu]);
+  // Compact-mode plumbing: shell width drives the collapse; the switcher
+  // follows the same dismissal grammar as the other strip menus.
+  useLayoutEffect(() => {
+    const shell = shellNode.current;
+    if (!shell || typeof ResizeObserver === "undefined") return undefined;
+    measureWidths();
+    const observer = new ResizeObserver(measureWidths);
+    observer.observe(shell);
+    return () => observer.disconnect();
+  }, [measureWidths]);
+  // Trailing controls and tab-count changes move the available width without
+  // resizing the shell — re-measure on those renders too.
+  useLayoutEffect(() => {
+    measureWidths();
+  }, [tabs.length, trailing, compact, measureWidths]);
+  useEffect(() => {
+    if (!compact) setTabSwitcher(null);
+  }, [compact]);
+  useEffect(() => {
+    if (!tabSwitcher) return undefined;
+    const closeOutside = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && (switcherNode.current?.contains(target)
+        || [...switcherTriggers.current].some((el) => el.contains(target)))) return;
+      setTabSwitcher(null);
+    };
+    const closeMenu = () => setTabSwitcher(null);
+    document.addEventListener("pointerdown", closeOutside);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+    };
+  }, [tabSwitcher]);
+  useLayoutEffect(() => { clampOverlayIntoView(switcherNode.current); }, [tabSwitcher]);
   // Both menus anchor to a trigger that can sit hard against the window's
   // right edge; the measured box is what keeps them on screen.
   useLayoutEffect(() => { clampOverlayIntoView(newMenuNode.current); }, [newMenu]);
@@ -493,9 +635,57 @@ export function WorkspaceTabStrip({
     };
   }, [finishPointerDrag, movePointerDrag]);
 
+  // Chromium CalculateTabBounds output for the current strip input; the
+  // per-tab width variable pins basis/min/max exactly like gfx::Rect bounds.
+  const chromeWidths = !compact && stripAvailable > 0
+    ? calculateChromeTabWidths(
+        tabs.length,
+        Math.max(0, tabs.findIndex((tab) => tab.key === activeKey)),
+        stripAvailable,
+      )
+    : null;
   return (
-      <div className="workspace-tabs-shell" data-slot="workspace-tabs" data-count={tabs.length}
+      <div ref={shellNode} className="workspace-tabs-shell" data-slot="workspace-tabs"
+        data-count={tabs.length} data-compact={compact ? "true" : undefined}
         data-focused={focused ? "true" : "false"}>
+        {compact ? (() => {
+          const activeTab = tabs.find((tab) => tab.key === activeKey) ?? tabs[0];
+          const working = Boolean(activeTab
+            && ((activeTab.selection.kind === "session"
+              && workingSessionIds?.has(activeTab.selection.id) === true)
+              || ((activeTab.selection.kind === "session"
+                || activeTab.selection.kind === "new") && activeBusy)));
+          return <>
+            <button type="button" ref={switcherTrigger}
+              className="workspace-tab-compact-current"
+              aria-haspopup="menu" aria-expanded={Boolean(tabSwitcher)}
+              data-tooltip={activeTab?.title}
+              onClick={(event) => toggleSwitcher(event.currentTarget)}
+              onContextMenu={(event) => {
+                if (!activeTab) return;
+                event.preventDefault();
+                setTabMenu({
+                  key: activeTab.key,
+                  left: Math.max(8, Math.min(event.clientX, window.innerWidth - 208)),
+                  top: Math.max(8, Math.min(event.clientY, window.innerHeight - 264)),
+                });
+              }}>
+              {working
+                ? <ProgressSpinner size={14} className="workspace-tab-status" role="status"
+                  aria-label={t("{{name}} is working", { name: activeTab?.title ?? "" })} />
+                : activeTab ? tabGlyph(activeTab) : null}
+              <span>{activeTab?.title ?? ""}</span>
+            </button>
+            <button type="button" ref={switcherTrigger}
+              className="workspace-tab-count"
+              aria-label={t("Open tabs")} aria-haspopup="menu"
+              aria-expanded={Boolean(tabSwitcher)}
+              data-tooltip={t("Open tabs")}
+              onClick={(event) => toggleSwitcher(event.currentTarget)}>
+              {tabs.length}
+            </button>
+          </>;
+        })() : <>
         {/* VS Code drop-border feedback: the pending insertion index paints
             a 2px line between its two neighboring tabs. */}
         <nav ref={tabStrip} className="workspace-tabs"
@@ -532,7 +722,7 @@ export function WorkspaceTabStrip({
           onPointerLeave={() => {
             setFixedTabWidths(new Map());
           }}>
-          {tabs.map((tab) => {
+          {tabs.map((tab, index) => {
             const active = tab.key === activeKey;
             const dropLeft = draggingKey && dropIndex !== null
               && tabs[dropIndex - 1]?.key === tab.key;
@@ -546,6 +736,7 @@ export function WorkspaceTabStrip({
             const unread = tab.selection.kind === "session" &&
               unreadSessionIds?.has(tab.selection.id) === true;
             const fixedTabWidth = fixedTabWidths.get(tab.key);
+            const pinnedTabWidth = fixedTabWidth ?? chromeWidths?.[index];
             return (
                 <div key={tab.key}
                   ref={(node) => setTabNode(tab.key, node)}
@@ -554,8 +745,8 @@ export function WorkspaceTabStrip({
                   data-active={active}
                   data-working={working || undefined}
                   aria-grabbed={draggingKey === tab.key}
-                  style={fixedTabWidth ? ({
-                    "--workspace-tab-current-width": `${fixedTabWidth}px`,
+                  style={pinnedTabWidth ? ({
+                    "--workspace-tab-current-width": `${pinnedTabWidth}px`,
                   } as React.CSSProperties) : undefined}
                   onPointerDown={(event) => {
                     if (event.button !== 0 || event.pointerType === "touch" ||
@@ -652,6 +843,7 @@ export function WorkspaceTabStrip({
             );
           })}
         </nav>
+        </>}
         {/* The fixed add slot is OUTSIDE the horizontal viewport. At a pane's
             320px floor, tabs may scroll but can never paint beneath this
             control or make it disappear. */}
@@ -706,6 +898,35 @@ export function WorkspaceTabStrip({
               }}>
               {item.icon}<span>{t(item.label)}</span>
             </button>)}
+          </div>,
+          document.body,
+        ) : null}
+        {tabSwitcher ? createPortal(
+          <div ref={switcherNode} className="workspace-tab-new-menu workspace-tab-switcher"
+            role="menu" aria-label={t("Open tabs")}
+            style={{ left: tabSwitcher.left, top: tabSwitcher.top }}>
+            {tabs.map((tab) => {
+              const active = tab.key === activeKey;
+              return <div key={tab.key}
+                className={`workspace-tab-switcher-row${active ? " active" : ""}`}>
+                <button type="button" role="menuitem"
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => {
+                    setTabSwitcher(null);
+                    onSelectTab(tab);
+                  }}>
+                  {tabGlyph(tab, 15)}<span>{tab.title}</span>
+                </button>
+                <button type="button" className="workspace-tab-switcher-close"
+                  aria-label={t("Close {{title}}", { title: tab.title })}
+                  data-tooltip={t("Close tab")}
+                  onClick={() => closeTab(tab)}>
+                  {tab.dirty
+                    ? <span className="workspace-tab-dirty-glyph" aria-hidden="true">●</span>
+                    : <X size={13} aria-hidden="true" />}
+                </button>
+              </div>;
+            })}
           </div>,
           document.body,
         ) : null}

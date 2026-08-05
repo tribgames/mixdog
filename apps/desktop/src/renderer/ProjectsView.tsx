@@ -8,6 +8,7 @@ import { RowOverflowMenu } from './RowOverflowMenu';
 import { projectIdentity, SidebarPanelAction } from './session-sidebar';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { publishSidebarProjects } from './sidebar-reference-cache';
+import { acquireTitleBarDim } from './titlebar-dim';
 
 function displayProjectFolder(path: string): string {
   return path.replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || path;
@@ -64,6 +65,16 @@ export function ProjectsPane({
   const [insBusy, setInsBusy] = useState(false);
   const [insError, setInsError] = useState('');
   const renameInputs = useRef(new Map<string, HTMLInputElement>());
+  // The dialog scrims cannot dim the NATIVE caption band — hold the titlebar
+  // claim while either portal is open (user: - ㅁ x 딤드 안 먹음).
+  useEffect(() => {
+    if (!(active && addOpen)) return;
+    return acquireTitleBarDim();
+  }, [active, addOpen]);
+  useEffect(() => {
+    if (!(active && insTarget)) return;
+    return acquireTitleBarDim();
+  }, [active, insTarget]);
   useLayoutEffect(() => {
     if (!renaming) return;
     const input = renameInputs.current.get(renaming);

@@ -115,21 +115,14 @@
   color: var(--mx-text);
   background: var(--mx-workspace-sheet);
 }
-/* Opening slides the panel up into its already reserved space — transform
-   only, zero re-layout during motion (user: vscode 같은 매끄러움).
-   data-settled (400ms after open) pins the animation off so band crossings
-   never replay it. Reduced-motion disables this in desktop.css. */
-.bottom-panel:not([data-settled="true"]) {
-  animation: bottom-panel-expand var(--mx-side-panel-motion);
-}
+/* Inline (wide) open is instant — same one-frame commit as the left sidebar
+   (user: 오른쪽/아래쪽만 튀듯이 붙는다). Only the ≤940px sheet below keeps
+   its slide-in motion. */
 /* Floor-overlap state: the panel rides OVER the pane bottom once the pane is
    at its floor — lift it above the workspace and read as a covering sheet. */
 .bottom-panel[data-overlaying="true"] {
   z-index: 7;
   box-shadow: 0 -8px 20px var(--mx-alpha-dark-30);
-}
-@keyframes bottom-panel-expand {
-  from { transform: translateY(100%); }
 }
 /* ≤940px: the bottom panel joins the SHEET grammar (user: 하단 탭도 좌우
    탭과 같은 취급 — 레이아웃도 비슷하게, 애니하고): a fixed card over the

@@ -48,13 +48,22 @@ function Harness({
   streamId = STREAM_ID,
   sessionKey = 'jitter-session',
   following = false,
+  viewRows = VIEW_ROWS,
+  floatingPanelRows = 0,
   releasedSelection = null,
   onPaint = noop,
   onFrame = noop,
+  onScrollStateDispatch = noop,
   recordFrame = true,
 }) {
   const [scrollOffset, setScrollOffset] = React.useState(initialScroll);
   const [measuredRowsVersion, setMeasuredRowsVersion] = React.useState(0);
+  const onScrollStateDispatchRef = React.useRef(onScrollStateDispatch);
+  onScrollStateDispatchRef.current = onScrollStateDispatch;
+  const dispatchScrollOffset = React.useCallback((next) => {
+    onScrollStateDispatchRef.current(next);
+    setScrollOffset(next);
+  }, []);
   const transcriptAnchorRef = React.useRef(null);
   const transcriptAnchorDirtyRef = React.useRef(true);
   const scrollTargetRef = React.useRef(initialScroll);
@@ -87,13 +96,13 @@ function Harness({
     themeEpoch: 0,
     frameColumns: COLUMNS,
     toolOutputExpanded: false,
-    transcriptContentHeight: VIEW_ROWS,
+    transcriptContentHeight: viewRows,
     transcriptBottomSlackRows: 1,
     transcriptGuardRows: 1,
-    floatingPanelRows: 0,
+    floatingPanelRows,
     overlayHintRequested: false,
     scrollOffset,
-    setScrollOffset,
+    setScrollOffset: dispatchScrollOffset,
     transcriptAnchorRef,
     transcriptAnchorDirtyRef,
     scrollTargetRef,
@@ -123,8 +132,8 @@ function Harness({
     const physicalRows = measureElement(contentRef.current).height;
     const tailYogaRows = measureElement(tailRef.current).height;
     const renderScrollOffset = transcriptWindow.effectiveScrollOffset;
-    const visibleTopIndexed = transcriptWindow.totalRows - renderScrollOffset - VIEW_ROWS;
-    const visibleTopPhysical = physicalRows - renderScrollOffset - VIEW_ROWS;
+    const visibleTopIndexed = transcriptWindow.totalRows - renderScrollOffset - viewRows;
+    const visibleTopPhysical = physicalRows - renderScrollOffset - viewRows;
     const frame = {
       commit: ++commit,
       step,
@@ -145,11 +154,11 @@ function Harness({
     };
     if (recordFrame) frames.push(frame);
     onFrame(frame);
-  }, [step, text, measuredRowsVersion, transcriptWindow.totalRows, transcriptWindow.effectiveScrollOffset,
+  }, [step, text, viewRows, measuredRowsVersion, transcriptWindow.totalRows, transcriptWindow.effectiveScrollOffset,
     transcriptAnchorRef, transcriptGeomRef]);
 
   return (
-    <Box flexDirection="column" width={COLUMNS} height={VIEW_ROWS} overflow="hidden" justifyContent="flex-end">
+    <Box flexDirection="column" width={COLUMNS} height={viewRows} overflow="hidden" justifyContent="flex-end">
       <Box
         ref={contentRef}
         flexDirection="column"
@@ -418,6 +427,52 @@ for (const fault of pinnedGeometryFaults.slice(0, 4)) {
 }
 if (pinnedGeometryFaults.length > 0) {
   throw new Error(`expected one geometry authority while a bottom-pinned fenced script streams; observed ${pinnedGeometryFaults.length} faults`);
+}
+
+const layoutTransitionFrames = [];
+const layoutTransitionStateDispatches = [];
+const layoutTransitionInstance = render(
+  <Harness
+    text={SCRIPT}
+    step={0}
+    initialScroll={INITIAL_SCROLL}
+    streamId="layout-transition-tail"
+    sessionKey="layout-transition-session"
+    recordFrame={false}
+    onFrame={(frame) => layoutTransitionFrames.push(frame)}
+    onScrollStateDispatch={(next) => layoutTransitionStateDispatches.push(next)}
+  />,
+  { stdout: fakeTty(COLUMNS, VIEW_ROWS), stderr: fakeTty(COLUMNS, VIEW_ROWS), stdin: fakeTty(COLUMNS, VIEW_ROWS), interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 },
+);
+await settle(layoutTransitionInstance);
+const dispatchesBeforeLayoutTransition = layoutTransitionStateDispatches.length;
+const framesBeforeLayoutTransition = layoutTransitionFrames.length;
+layoutTransitionInstance.rerender(
+  <Harness
+    text={`${SCRIPT}\nlayout transition growth`}
+    step={1}
+    initialScroll={INITIAL_SCROLL}
+    streamId="layout-transition-tail"
+    sessionKey="layout-transition-session"
+    viewRows={VIEW_ROWS - 2}
+    floatingPanelRows={2}
+    recordFrame={false}
+    onFrame={(frame) => layoutTransitionFrames.push(frame)}
+    onScrollStateDispatch={(next) => layoutTransitionStateDispatches.push(next)}
+  />,
+);
+await settle(layoutTransitionInstance);
+layoutTransitionInstance.unmount();
+await layoutTransitionInstance.waitUntilExit();
+layoutTransitionInstance.cleanup();
+const transitionFrames = layoutTransitionFrames.slice(framesBeforeLayoutTransition);
+const transitionTopRows = new Set(transitionFrames.map((frame) => frame.visibleTopPhysical));
+const transitionStateDispatches = layoutTransitionStateDispatches.slice(dispatchesBeforeLayoutTransition);
+if (!transitionFrames.length || transitionTopRows.size !== 1) {
+  throw new Error(`layout + transcript transition did not keep one anchored top row: ${JSON.stringify(transitionFrames)}`);
+}
+if (transitionStateDispatches.length > 0) {
+  throw new Error(`anchored layout + transcript transition fed its resolved offset back into React state: ${JSON.stringify(transitionStateDispatches)}`);
 }
 
 const SELECTION_STREAM_ID = 'released-selection-tail';
