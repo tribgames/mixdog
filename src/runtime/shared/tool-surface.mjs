@@ -467,9 +467,14 @@ export function toolWorkUnit(name, args = {}, category = '') {
           noun: 'file',
         });
       }
+      // post_shell runs a verification command inside the SAME tool call after
+      // the patch applies; without the suffix the spinner sits on "Editing 1
+      // file" for the whole (possibly long) verify run and reads like a stuck
+      // edit. Surface both phases in the active label.
+      const verifying = typeof a.post_shell === 'string' && a.post_shell.trim() !== '';
       return unitDescriptor('Patch', {
         count: patchFileCount(a) || 1,
-        active: creating ? 'Creating' : deleting ? 'Deleting' : 'Editing',
+        active: (creating ? 'Creating' : deleting ? 'Deleting' : 'Editing') + (verifying ? ' & verifying' : ''),
         done: creating ? 'Created' : deleting ? 'Deleted' : 'Edited',
         noun: 'file',
       });
