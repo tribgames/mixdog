@@ -28,6 +28,92 @@ const gfmAutolink = /\b(?:https?:\/\/|www\.)/i;
 const gfmStrikethrough = /~~/;
 const blockMarkdownSyntax = /(^|\n)\s{0,3}(?:#{1,6}\s|>\s?|[-+]\s|\d+[.)]\s|---+\s*$)/;
 const streamingBlockParser = unified().use(remarkParse);
+const healableMarkdownSyntax = /[`*_~]/;
+const fenceLine = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+const fencedBlock = /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm;
+const inlineCodeSpan = /`+[^`\n]*`+/g;
+const healedDelimiters = ["~~", "**", "__"];
+
+function hasOpenFence(text: string): boolean {
+  let marker = "";
+  let length = 0;
+  for (const rawLine of text.split("\n")) {
+    const fence = fenceLine.exec(rawLine.replace(/\r$/, ""));
+    if (!fence) continue;
+    const marks = fence[1];
+    if (!marker) {
+      marker = marks[0];
+      length = marks.length;
+    } else if (marks[0] === marker && marks.length >= length && !fence[2].trim()) {
+      marker = "";
+      length = 0;
+    }
+  }
+  return Boolean(marker);
+}
+
+function closeInlineCode(text: string): string {
+  let open = 0;
+  let index = 0;
+  while (index < text.length) {
+    const character = text[index];
+    if (character === "\\") {
+      index += 2;
+      continue;
+    }
+    if (character !== "`") {
+      index += 1;
+      continue;
+    }
+    let end = index + 1;
+    while (end < text.length && text[end] === "`") end += 1;
+    const run = end - index;
+    if (!open) open = run;
+    else if (run === open) open = 0;
+    index = end;
+  }
+  return open > 0 ? `${text}${"`".repeat(open)}` : text;
+}
+
+// Delimiter counting must ignore code, where "**" and "__" are ordinary
+// characters. Masking preserves length, so it stays a pure counting aid.
+function maskCode(text: string): string {
+  fencedBlock.lastIndex = 0;
+  return text
+    .replace(fencedBlock, (block) => block.replace(/[^\n]/g, " "))
+    .replace(inlineCodeSpan, (span) => " ".repeat(span.length));
+}
+
+function closeEmphasis(text: string): string {
+  let healed = text;
+  for (const delimiter of healedDelimiters) {
+    const masked = maskCode(healed);
+    let count = 0;
+    for (
+      let index = masked.indexOf(delimiter);
+      index >= 0;
+      index = masked.indexOf(delimiter, index + delimiter.length)
+    ) {
+      count += 1;
+    }
+    if (count % 2 === 1) healed += delimiter;
+  }
+  return healed;
+}
+
+/**
+ * Close the inline markers the model has not finished typing yet.
+ * OpenCode heals its live tail (remend) before parsing, so "**계획" renders as
+ * bold WHILE it streams; without healing the raw markers stayed visible until
+ * the closing token arrived and the line snapped. Healing only appends
+ * closers — every visible source character survives.
+ */
+export function healStreamingMarkdownTail(text: string): string {
+  const value = String(text ?? "");
+  if (!value || !healableMarkdownSyntax.test(value)) return value;
+  if (hasOpenFence(value)) return value;
+  return closeEmphasis(closeInlineCode(value));
+}
 
 export function createStreamingMarkdownCache(): StreamingMarkdownCache {
   return {

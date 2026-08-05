@@ -196,7 +196,7 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(options, /DESKTOP_BACKGROUND_COLOR\s*=\s*'#0f0f0f'/);
   assert.match(options, /DESKTOP_LIGHT_BACKGROUND_COLOR\s*=\s*'#f0f0f0'/);
   assert.match(options, /DESKTOP_TITLEBAR_HEIGHT\s*=\s*35/);
-  assert.match(options, /color:\s*light\s*\?\s*DESKTOP_LIGHT_BACKGROUND_COLOR\s*:\s*DESKTOP_BACKGROUND_COLOR/);
+  assert.match(options, /color:\s*'#00000000'/);
   assert.match(options, /backgroundColor:\s*DESKTOP_BACKGROUND_COLOR/);
   assert.match(options, /symbolColor:\s*light\s*\?\s*'black'\s*:\s*'white'/);
   assert.match(options, /Math\.max\(DESKTOP_TITLEBAR_HEIGHT,\s*Math\.round\(DESKTOP_TITLEBAR_HEIGHT \* zoom\)\)/);

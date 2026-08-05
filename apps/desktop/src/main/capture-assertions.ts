@@ -140,6 +140,7 @@ export interface LiveCaptureAssertions {
   settings: {
     large: SettingsPlacementAssertions;
     compact: SettingsPlacementAssertions;
+    narrow: SettingsPhoneAssertions;
     phone: SettingsPhoneAssertions;
   };
   lightTheme: LightThemeAssertions;
@@ -163,6 +164,8 @@ export interface SettingsPlacementAssertions {
   backdropVisible: boolean;
   populatedRowCount: number;
   twoPane: boolean;
+  fullBleed: boolean;
+  contentClearsWindowControls: boolean;
 }
 
 export interface SettingsPhoneCategoryAssertions {
@@ -240,10 +243,10 @@ export async function readDesktopAssertions(window: BrowserWindow): Promise<Live
     const main = required('.workspace');
     const composer = required('.composer');
     const modelTrigger = required('.model-trigger');
-    // Desktop pane chrome owns title and controls in the group tab strip; the
-    // in-workspace session header is retained for narrow/mobile layouts.
+    // The active tab owns the pane title; task context/actions live in the
+    // focused workspace's session header below the tab strip.
     const headerTitle = required('.pane-cell.is-focused .workspace-tab.active .workspace-tab-main span');
-    const headerStatus = required('.pane-cell.is-focused .workspace-tabs-shell .session-header-status');
+    const headerStatus = required('.pane-cell.is-focused .workspace > .session-header .session-header-status');
     const textarea = required('textarea[aria-label="Message Mixdog"]');
     // The send button's aria-label mutates with busy state (Queue/Stop);
     // select by its stable class so state races cannot break the capture.
@@ -294,8 +297,13 @@ export async function readSettingsPlacement(window: BrowserWindow): Promise<Sett
     const dialog = layer?.querySelector('.mixdog-settings');
     const rail = dialog?.querySelector('.mixdog-settings__rail');
     const pane = dialog?.querySelector('.mixdog-settings__panel');
+    const header = dialog?.querySelector('.mixdog-settings__header');
+    const close = dialog?.querySelector('.mixdog-settings__close');
+    const firstRailButton = rail?.querySelector('button');
     if (!(layer instanceof HTMLElement) || !(dialog instanceof HTMLElement)
-      || !(rail instanceof HTMLElement) || !(pane instanceof HTMLElement)) {
+      || !(rail instanceof HTMLElement) || !(pane instanceof HTMLElement)
+      || !(header instanceof HTMLElement) || !(close instanceof HTMLElement)
+      || !(firstRailButton instanceof HTMLElement)) {
       throw new Error('Settings dialog is missing from the capture renderer.');
     }
     const rect = (element) => {
@@ -309,6 +317,8 @@ export async function readSettingsPlacement(window: BrowserWindow): Promise<Sett
     const dialogRect = rect(dialog);
     const railRect = rect(rail);
     const paneRect = rect(pane);
+    const closeRect = rect(close);
+    const firstRailButtonRect = rect(firstRailButton);
     const layerStyle = getComputedStyle(layer);
     const layerPadding = {
       top: Number.parseFloat(layerStyle.paddingTop) || 0,
@@ -357,6 +367,12 @@ export async function readSettingsPlacement(window: BrowserWindow): Promise<Sett
         && Math.abs(railRect.right - paneRect.left) <= tolerance
         && Math.abs(paneRect.right - dialogRect.right) <= tolerance
         && railRect.width >= 190 && paneRect.width > railRect.width,
+      fullBleed: Math.abs(dialogRect.left) <= tolerance
+        && Math.abs(dialogRect.top) <= tolerance
+        && Math.abs(dialogRect.right - innerWidth) <= tolerance
+        && Math.abs(dialogRect.bottom - innerHeight) <= tolerance,
+      contentClearsWindowControls: closeRect.top + tolerance >= windowControlsHeight
+        && firstRailButtonRect.top + tolerance >= windowControlsHeight,
     };
   })()`) as Promise<SettingsPlacementAssertions>;
 }

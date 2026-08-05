@@ -3194,7 +3194,9 @@ test("toggling a tool card keeps a pinned view followed and holds the anchor onc
     scrollTop: { value: 800, writable: true, configurable: true },
   });
   const deliverContentResize = () => {
-    const virtualContent = transcript.querySelector(".transcript-virtual-space");
+    // Auto-scroll observes the THREAD (OpenCode parity): it holds both the
+    // virtual rows and the turn-review block that grows after them.
+    const virtualContent = transcript.querySelector(".thread");
     for (const observer of resizeObservers) {
       if (!observer.active || !observer.targets.includes(virtualContent)) continue;
       observer.callback([{
@@ -8935,8 +8937,9 @@ test("virtualized session entry lands at the end and pins growth with one write"
     await Promise.resolve();
     await Promise.resolve();
   });
-  const virtualContent = transcript.querySelector(".transcript-virtual-space");
-
+  // Auto-scroll observes the THREAD (OpenCode parity): it holds both the
+  // virtual rows and the turn-review block that grows after them.
+  const virtualContent = transcript.querySelector(".thread");
   assert.ok(virtualContent);
   await waitForDom(
     () => simulatedScrollTop === bottom(),
@@ -13542,9 +13545,12 @@ test("workspace tabs use VS Code flex sizing and relayout active labels with the
     trailing: React.createElement("div", null, "Task actions"),
   };
   await act(async () => root.render(React.createElement(WorkspaceTabStrip, props)));
-  assert.equal(observers.length, 1,
-    "each pane strip observes only its own width, matching VS Code's explicit layout call");
-  assert.equal(observers[0].targets[0], document.querySelector(".workspace-tabs"));
+  assert.equal(observers.length, 2,
+    "each pane strip observes its own width plus the shell that drives the Chrome-mobile compact collapse");
+  assert.ok(observers.some((observer) => observer.targets[0] === document.querySelector(".workspace-tabs")),
+    "the scroll strip keeps its VS Code explicit-layout observer");
+  assert.ok(observers.some((observer) => observer.targets[0] === document.querySelector(".workspace-tabs-shell")),
+    "the shell observer feeds the compact-mode width");
   assert.ok(Array.from(document.querySelectorAll(".workspace-tab"))
     .every((tab) => tab.style.width === ""));
 

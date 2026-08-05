@@ -5,6 +5,23 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Desktop tab strip follows Chromium's `tab_strip_layout`: tabs shrink
+  together toward the active/inactive floors with every tab visible instead
+  of scrolling, and touch shells collapse to a title + count switcher list.
+- Streaming markdown heals the live tail (unclosed `**`, `` ` ``, `~~`) and
+  scopes the fenced-code geometry lock to its own chunk, so headings, lists,
+  and bold format while the model is still typing.
+- Turn review moved into the scrolled timeline (OpenCode `session-turn-diffs`
+  parity), ending the composer-stack shift on session entry; warn-tone
+  notices now use the amber status pair instead of the neutral one.
+- Native caption band is transparent so the DOM titlebar and dialog scrims
+  dim it directly; the ◀ ▶ pane-cycle pair is retired (Alt+Left/Right keeps
+  the focus cycle) and project dialogs hold the titlebar dim claim.
+- Desktop UI capture drives New task and Settings through Ctrl+N / Ctrl+,,
+  pins the capture language, and asserts the 360px narrow settings layout.
+- TUI transcript window and jitter harness refinements, plus desktop
+  session-selection race probes.
+
 ## v0.9.93 - 2026-08-04
 
 - Dependency audit to zero across core and desktop: `npm audit fix` for

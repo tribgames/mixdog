@@ -34,9 +34,12 @@ function pinNativeThemeSource(source: 'system' | 'light' | 'dark'): void {
 
 function titleBarOverlay(light = false, zoom = 1) {
   return {
-    // Keep the native controls region opaque: Windows may expose this surface
-    // before Chromium repaints newly revealed pixels during maximize/restore.
-    color: light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR,
+    // TRANSPARENT caption band (opencode parity): the native overlay paints
+    // no pixels of its own, so the DOM titlebar — and any fullscreen scrim —
+    // shows through and the band can never sit off-theme for even a frame
+    // (user: - ㅁ x 저기만 짜증나게 계속 튀네). Maximize/restore exposure is
+    // covered by the window backgroundColor, which tracks the theme band.
+    color: '#00000000',
     symbolColor: light ? 'black' : 'white',
     height: Math.max(DESKTOP_TITLEBAR_HEIGHT, Math.round(DESKTOP_TITLEBAR_HEIGHT * zoom)),
   };
@@ -50,7 +53,9 @@ function currentTitleBarOverlay(window: DesktopTitleBarWindow) {
     titleBarZoomFactors.get(window as object) ?? 1,
   );
   const dim = titleBarDims.get(window as object);
-  return dim ? { ...base, color: dim.color, symbolColor: dim.symbolColor } : base;
+  // The band pixels are the DOM's own (transparent overlay), so a scrim dims
+  // them natively — only the SYMBOL ink still needs the composited push.
+  return dim ? { ...base, symbolColor: dim.symbolColor } : base;
 }
 
 function themeId(value: unknown): string {

@@ -50,6 +50,7 @@ import {
 } from './transcript-virtual-cache.ts';
 import {
   createStreamingMarkdownCache,
+  healStreamingMarkdownTail,
   resolveStreamingMarkdownChunks,
 } from './streaming-markdown.ts';
 import { adoptTranscriptIdentity, createTranscriptIdentityReconciler } from './transcript-identity.ts';
@@ -1470,7 +1471,12 @@ test('streaming markdown repartitions without hiding visible source text', async
   assert.match(view, /key=\{markdownParts\.unstableKey\}/);
   assert.match(view, /containsFencedCodeMarkdown\(text\)/);
   assert.match(view, /fencedScriptGeometryLocked\.current = true/);
-  assert.match(view, /deferAsyncPromotion=\{fencedScriptGeometryLocked\.current\}/);
+  assert.match(view, /deferAsyncPromotion=\{chunkDefersPromotion\(/,
+    'only the chunk that carries the fence may keep its source-shaped geometry');
+  assert.doesNotMatch(view, /deferAsyncPromotion=\{fencedScriptGeometryLocked\.current\}/,
+    'locking every chunk froze prose blocks as raw markdown source');
+  assert.match(view, /parseText=\{unstableParseText\}/,
+    'the live tail parses its healed form while the fallback keeps the raw source');
   assert.doesNotMatch(view, /stream-cursor/);
   assert.match(body, /isFencedCodeOnlyMarkdown/);
   assert.match(body, /live=\{live\}/,
@@ -1484,6 +1490,33 @@ test('streaming markdown repartitions without hiding visible source text', async
   assert.doesNotMatch(`${view}\n${body}\n${fallback}`,
     /MarkdownRenderLoading|StreamingMarkdownLoading|markdown-render-loading/,
     'streamed text must never collapse to a fixed-height loading indicator');
+});
+
+// OpenCode heals its live tail (remend) before parsing so styling appears while
+// the model types. Without healing the raw "**"/"`" markers stayed on screen
+// until the closing token arrived (user: 마크다운 포맷이 안 먹어서 이상하게 나온다).
+test('the live markdown tail heals unterminated inline markers before parsing', async () => {
+  assert.equal(healStreamingMarkdownTail('계획 **통합 백그라운드'), '계획 **통합 백그라운드**');
+  assert.equal(healStreamingMarkdownTail('run `npm ru'), 'run `npm ru`');
+  assert.equal(healStreamingMarkdownTail('~~취소'), '~~취소~~');
+  assert.equal(healStreamingMarkdownTail('**done** and `ok` stay'), '**done** and `ok` stay',
+    'balanced markers must never gain a closer');
+  assert.equal(healStreamingMarkdownTail('```ts\nconst a = "**";'), '```ts\nconst a = "**";',
+    'an open fence is literal code — healing must not touch it');
+  assert.equal(healStreamingMarkdownTail('```ts\nconst a = "**";\n```\ntail'),
+    '```ts\nconst a = "**";\n```\ntail',
+    'markers inside a closed fence must not be counted');
+  assert.equal(healStreamingMarkdownTail('plain prose without markers'), 'plain prose without markers');
+
+  const css = await readFile(new URL('./desktop.css', import.meta.url), 'utf8');
+  assert.match(css, /\.notice\s*\{[^}]*padding:\s*8px 12px;/s,
+    'a transcript notice is a card — its copy must not sit flush against the hairline');
+  assert.match(css, /\.notice\.warn\s*\{[^}]*color:\s*var\(--mx-warning\);/s,
+    'warn-tone notices (watchdog abort) must not read as neutral status');
+  assert.match(css, /\.markdown li > p:first-child\s*\{[^}]*display:\s*inline;/s,
+    'loose list items must not double their gap with the prose paragraph margin');
+  assert.match(css, /\.markdown > :first-child\s*\{[^}]*margin-top:\s*0;/s,
+    'a leading heading must not push its own turn down');
 });
 
 // Entering a working session crosses id namespaces (disk restore hist_* ids ↔
@@ -1820,7 +1853,20 @@ test('settings dialog reserves the native window-controls safe area', async () =
   assert.match(settings,
     /\.mixdog-settings-v2\s*\{[^}]*height:\s*min\(650px,\s*calc\(var\(--vvh,\s*100vh\) - var\(--settings-layer-safe-top, 16px\) - var\(--settings-layer-safe-bottom, 16px\)\)\);/s);
   assert.match(settings,
-    /@media \(max-width:\s*760px\)[\s\S]*--settings-layer-safe-top:\s*max\(8px,\s*calc\(env\(titlebar-area-height,\s*0px\) \+ 8px\)\);/);
+    /@media \(max-width:\s*760px\),\s*\(max-height:\s*680px\)[\s\S]*html:not\(\[data-mixdog-mobile="1"\]\) \.mixdog-settings-layer\s*\{[^}]*--settings-layer-safe-top:\s*env\(titlebar-area-height,\s*0px\);[^}]*padding:\s*0;/s,
+    'compact desktop settings must become full-bleed while retaining the native titlebar inset');
+  assert.match(settings,
+    /@media \(max-width:\s*640px\)[\s\S]*html:not\(\[data-mixdog-mobile="1"\]\) \.mixdog-settings-v2\s*\{[^}]*grid-template-columns:\s*48px minmax\(0,\s*1fr\);/s,
+    'very narrow desktop settings must use the main 48px Activity Bar width');
+  assert.match(settings,
+    /html:not\(\[data-mixdog-mobile="1"\]\) \.mixdog-settings__rail-group button\s*\{[^}]*width:\s*47px;[^}]*height:\s*48px;[^}]*border-radius:\s*0;/s,
+    'narrow settings category buttons must match the main Activity Bar cells');
+  assert.match(settings,
+    /html:not\(\[data-mixdog-mobile="1"\]\) \.mixdog-settings__rail-group button svg\s*\{[^}]*width:\s*24px;[^}]*height:\s*24px;/s,
+    'narrow settings icons must match the main Activity Bar icon scale');
+  assert.match(settings,
+    /html:not\(\[data-mixdog-mobile="1"\]\) \.mixdog-settings-v2 \.mixdog-settings__row,[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\) var\(--settings-narrow-value-column\);/s,
+    'narrow desktop option rows must reserve a contained shared value column');
   assert.match(settings,
     /\.settings-resource-title,\s*\.settings-form-row > div\.settings-resource-title\s*\{[^}]*display:\s*flex;[^}]*align-items:\s*center;[^}]*flex-wrap:\s*wrap;/s,
     'form status badges must remain inline with their titles');
@@ -2226,20 +2272,31 @@ test('session title actions, message hover rows, and tool disclosures keep the d
     /\.transcript-virtual-row-content\[data-tag="UserMessage"\],[\s\S]*?padding-bottom:\s*12px;[\s\S]*?\.transcript-turn-gap\s*\{\s*height:\s*20px;/,
     'part and turn spacing must be measured timeline geometry, not a container gap');
   assert.doesNotMatch(styles, /\.conversation:has\(\.turn-review-bar\) \.thread/,
-    'the review bar belongs to the composer stack, never transcript content');
+    'the thread must not reserve review space through a container selector');
   assert.match(styles,
     /\.turn-review-slot\s*\{[^}]*position:\s*relative;[^}]*width:\s*100%;/s);
   assert.doesNotMatch(styles, /\.turn-review-slot\s*\{[^}]*position:\s*absolute;/s,
-    'the review bar must consume bottom-stack layout instead of overlaying rows');
+    'the review bar must consume timeline layout instead of overlaying rows');
   assert.match(styles,
     /\.turn-review-slot:has\(\.turn-review-bar\)\s*\{[^}]*margin-bottom:\s*8px;/s);
   assert.match(styles, /\.turn-review-summary\s*\{[^}]*min-height:\s*28px;/s,
     'the collapsed review must retain a readable control row');
   assert.doesNotMatch(styles, /--mx-turn-review-slot/,
     'an absent review bar must not reserve permanent transcript space');
+  // OpenCode session-turn-diffs: review is the last block of the SCROLLED
+  // timeline. In the composer stack its late arrival resized the viewport and
+  // shifted the whole surface on session entry (measured 118 -> 154px).
   assert.match(app,
-    /<div className="composer-region">[\s\S]*?<div className="turn-review-slot">[\s\S]*?<TurnReviewBar[\s\S]*?<\/div>[\s\S]*?<Composer/,
-    'the review bar must grow the composer stack in normal document flow');
+    /<TranscriptList[\s\S]*?<div className="turn-review-slot">[\s\S]*?<TurnReviewBar[\s\S]*?<\/div>\}?[\s\S]*?<div className="composer-region">/,
+    'the review bar must grow scrolled timeline content, never the viewport');
+  assert.match(app,
+    /<TranscriptList[\s\S]*?<div className="turn-review-slot">[\s\S]*?<TurnReviewBar[\s\S]*?<\/div>\}?[\s\S]*?<div className="composer-region">/,
+    'the review bar must grow scrolled timeline content, never the viewport');
+  assert.match(styles,
+    /@container chat-pane \(min-width: 768px\)[\s\S]*?\.turn-review-slot \{[\s\S]*?max-width: 800px;/,
+    'the review bar must ride the same centered frame as every projected row');
+  assert.match(app, /content: thread,/,
+    'auto-scroll must observe the thread that contains BOTH the rows and the review');
   assert.doesNotMatch(styles, /\.message\.user \+ \.message\.assistant\s*\{[^}]*margin-top:/s);
   assert.match(styles, /\.message\.user \.message-meta-line\s*\{[^}]*position:\s*absolute;[^}]*width:\s*100%;/s);
   assert.match(styles, /\.tool-title\s*\{[^}]*flex:\s*1 1 auto;/s);

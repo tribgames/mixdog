@@ -46,10 +46,30 @@ function resolveCssColor(value: string): Rgba | null {
 const SCRIM_LAYERS = '.onboarding-layer, .schedules-dialog-layer, .mixdog-settings-layer,'
   + ' .settings-confirm-layer, .mx-dialog-layer, .settings-oauth-layer';
 
+/** Compact settings replaces the whole window instead of floating above it.
+ *  Its layer still owns the normal modal scrim token, but that paint is fully
+ *  covered by the opaque dialog and must not darken the native caption band. */
+function fullBleedSettingsSurface(): HTMLElement | null {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return null;
+  const layer = document.querySelector<HTMLElement>('.mixdog-settings-layer[data-surface-active="true"]');
+  const dialog = layer?.querySelector<HTMLElement>('.mixdog-settings');
+  if (!layer || !dialog || layer.getClientRects().length === 0) return null;
+  const rect = dialog.getBoundingClientRect();
+  const tolerance = 1;
+  const coversViewport = rect.left <= tolerance && rect.top <= tolerance
+    && rect.right >= window.innerWidth - tolerance
+    && rect.bottom >= window.innerHeight - tolerance;
+  return coversViewport
+    ? dialog.querySelector<HTMLElement>('.mixdog-settings__panel') || dialog
+    : null;
+}
+
 function visibleScrims(): Rgba[] {
   if (typeof document === 'undefined') return [];
+  const fullBleedSettings = fullBleedSettingsSurface();
   return Array.from(document.querySelectorAll<HTMLElement>(SCRIM_LAYERS))
     .filter((element) => element.getClientRects().length > 0)
+    .filter((element) => !(fullBleedSettings && element.matches('.mixdog-settings-layer')))
     .map((element) => {
       const style = window.getComputedStyle(element);
       const color = parseColor(style.backgroundColor);
@@ -79,6 +99,13 @@ let holds = 0;
 let followFrame = 0;
 let followUntil = 0;
 
+function handleViewportChange(): void {
+  // Crossing the compact width/height breakpoint changes settings from a
+  // floating modal into a replacement surface while it remains mounted.
+  sendCaption();
+  followCaption(180);
+}
+
 /** Track the scrim motion frame-by-frame: WCO colors cannot transition, so
  *  the band re-samples the DOM's animated opacity until the fade settles. */
 function followCaption(durationMs = 450): void {
@@ -99,10 +126,15 @@ function followCaption(durationMs = 450): void {
 function sendCaption(): void {
   // Prefer the ACTUAL painted titlebar over the token: the caption band must
   // read as one surface with the strip beside it (user: 배경이랑 완전히
-  // 동화됐으면), even if a surface tweak moves the token.
+  // 동화됐으면), even if a surface tweak moves the token. Full-bleed settings
+  // replaces that strip, so its panel becomes the native caption surface.
+  const fullBleedSettings = fullBleedSettingsSurface();
   const topbar = typeof document === 'undefined'
     ? null : document.querySelector<HTMLElement>('header.topbar');
-  const painted = topbar ? parseColor(window.getComputedStyle(topbar).backgroundColor) : null;
+  const captionSurface = fullBleedSettings || topbar;
+  const painted = captionSurface
+    ? parseColor(window.getComputedStyle(captionSurface).backgroundColor)
+    : null;
   const band = painted && painted.a === 1 ? painted : resolveCssColor('var(--mx-window-band)');
   if (!band) return;
   const light = window.getComputedStyle(document.documentElement).colorScheme === 'light';
@@ -126,6 +158,9 @@ function sendCaption(): void {
 /** One fullscreen-scrim claim; the returned release drops it (idempotent). */
 export function acquireTitleBarDim(): () => void {
   holds += 1;
+  if (holds === 1 && typeof window !== 'undefined') {
+    window.addEventListener('resize', handleViewportChange);
+  }
   // Every claim re-composites: nested modals deepen the band, releasing one
   // lifts it back a layer.
   sendCaption();
@@ -135,6 +170,9 @@ export function acquireTitleBarDim(): () => void {
     if (released) return;
     released = true;
     holds -= 1;
+    if (holds === 0 && typeof window !== 'undefined') {
+      window.removeEventListener('resize', handleViewportChange);
+    }
     // Resting colors are themed too, so the band never snaps back to the
     // main process's black/white fallback.
     sendCaption();

@@ -17,6 +17,7 @@ import {
 import { modelDisplayName, normalizeModelOptions } from './provider-display';
 import { SidebarPanelAction } from './session-sidebar';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
+import { acquireTitleBarDim } from './titlebar-dim';
 import {
   useSidebarReferences,
   type SidebarReferenceKey,
@@ -221,6 +222,9 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
   if (cwd && !projectOptions.some((option) => option.value === cwd)) {
     projectOptions.push({ value: cwd, label: cwd });
   }
+  // The scrim cannot dim the NATIVE caption band — hold the titlebar claim
+  // while this dialog is mounted (user: - ㅁ x 딤드 안 먹음).
+  useEffect(() => acquireTitleBarDim(), []);
   // Portaled editor: the list lives in the session panel, so the dialog must
   // escape the sidebar's clipped/transformed box.
   return createPortal(<div className="schedules-dialog-layer"

@@ -1547,6 +1547,23 @@ export function App() {
   ) => {
     const key = navigationKey(nextSelection);
     try {
+      window.mixdogDesktop?.perfLog?.(
+        `selection-commit kind=${nextSelection.kind}`
+        + ` target=${nextSelection.kind === "session" ? nextSelection.id : "(none)"}`
+        + ` queued=${pendingResumeTarget.current || "(none)"}`,
+      );
+    } catch { /* diagnostics only */ }
+    // A queued session switch outlives the click that made it: it is armed
+    // while another resume owns the host transition and fires afterwards.
+    // Any OTHER committed navigation (tab click, draft promotion, delete
+    // fallback, startup restore) must disarm it, or that stale target later
+    // yanks the pane onto a session the user never chose (user: 세션 변경
+    // 중 어느 순간 이상한 세션으로 강제로 바뀐다).
+    if (pendingResumeTarget.current
+      && !(nextSelection.kind === "session" && nextSelection.id === pendingResumeTarget.current)) {
+      pendingResumeTarget.current = "";
+    }
+    try {
       if (nextSelection.kind === "session") {
         window.localStorage.setItem(LAST_SESSION_KEY, nextSelection.id);
       } else {
@@ -2232,7 +2249,15 @@ export function App() {
     const pending = pendingResumeTarget.current;
     pendingResumeTarget.current = "";
     if (pending && pending !== completedSessionId) {
-      window.setTimeout(() => { void resumeSessionRef.current(pending, true); }, 0);
+      // The queued click may be superseded within this same tick (a draft, a
+      // tab navigation, another session). Only the navigation that is still
+      // current may be resumed.
+      const queuedEpoch = navigationEpoch.current;
+      window.setTimeout(() => {
+        if (navigationEpoch.current !== queuedEpoch) return;
+        if (pendingResumeTarget.current && pendingResumeTarget.current !== pending) return;
+        void resumeSessionRef.current(pending, true);
+      }, 0);
     } else {
       setRequestedSessionId("");
     }
@@ -4313,7 +4338,11 @@ export function App() {
   });
   const projectsOpenProject = useStableEvent((path: string) => {
     setProjectsOpen(false);
-    startProject(path);
+    // A project row opens the normal NEW TASK draft with the project
+    // preselected (user: 프로젝트 누른 걸로 선택돼서 뉴태스크 생성하면
+    // 되는데) — the bare `project` surface hid the context/remote/project/
+    // workflow cluster, so it is no longer minted from the panel.
+    selectNewTaskProject(path);
   });
   const projectsStartTask = useStableEvent((path: string) => {
     setProjectsOpen(false);
@@ -4983,8 +5012,6 @@ export function App() {
         onTogglePanel={toggleBottomPanel}
         dockOpen={dockOpen}
         onToggleDock={toggleDock}
-        paneCount={paneWorkspace.leaves.length}
-        onFocusSiblingPane={focusSiblingPane}
         dockLabel="utility panel"
         updaterState={updaterState}
         onOpenUpdate={openDesktopUpdate} />

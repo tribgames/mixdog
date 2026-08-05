@@ -424,6 +424,16 @@
   padding: 12px 0;
 }
 
+/* Compact settings replaces the window — a SCREEN, not a popup — so the
+   in-app X swaps to a back arrow in that state only (user: 팝업 아닐 때
+   X 자리에 뒤로가기). Same button, same close-and-return semantics; the
+   floating popup card and the mobile sheet keep the X. */
+.mixdog-settings__close .mixdog-settings__close-back { display: none; }
+@media (max-width: 760px), (max-height: 680px) {
+  html:not([data-mixdog-mobile="1"]) .mixdog-settings__close .mixdog-settings__close-x { display: none; }
+  html:not([data-mixdog-mobile="1"]) .mixdog-settings__close .mixdog-settings__close-back { display: block; }
+}
+
 /* Compact DESKTOP window: stop squeezing the centered card once either axis
    gets tight. The surface fills the viewport while its interactive chrome
    starts below Window Controls Overlay; this reclaims the side/bottom gutters

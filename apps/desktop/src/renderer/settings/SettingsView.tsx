@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   Blocks,
   Brain,
   Cable,
@@ -273,7 +274,7 @@ export function SettingsView({
             <h1 id="mixdog-settings-title">{t(SETTINGS_CATEGORIES.find((item) => item.value === category)?.label || 'Settings')}</h1>
           </div>
           <button ref={closeRef} type="button" className="mixdog-settings__close" onClick={requestClose}
-            aria-label={t('Close settings')}><X aria-hidden="true" size={16} /></button>
+            aria-label={t('Close settings')}><X aria-hidden="true" size={16} className="mixdog-settings__close-x" /><ArrowLeft aria-hidden="true" size={16} className="mixdog-settings__close-back" /></button>
         </header>
         <div ref={bodyRef} className="mixdog-settings__body">
           <div className="mixdog-settings__category-stage">

@@ -182,6 +182,44 @@ test('settings backdrop dims the native Windows caption band', async () => {
   );
 });
 
+test('full-bleed settings replaces the native caption color instead of dimming it', async () => {
+  mount();
+  const style = document.createElement('style');
+  style.textContent = `
+    .mixdog-settings-layer { background-color: rgba(0, 0, 0, .32); opacity: 1; }
+    .mixdog-settings__panel { background-color: rgb(255, 255, 255); }
+  `;
+  document.head.appendChild(style);
+  Object.defineProperties(window, {
+    innerWidth: { configurable: true, value: 360 },
+    innerHeight: { configurable: true, value: 600 },
+  });
+  window.HTMLElement.prototype.getClientRects = () => [{ width: 1, height: 1 }];
+  window.HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+    if (this.matches('.mixdog-settings')) {
+      return { left: 0, top: 0, right: 360, bottom: 600, width: 360, height: 600 };
+    }
+    return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
+  };
+  const topbar = document.createElement('header');
+  topbar.className = 'topbar';
+  topbar.style.backgroundColor = 'rgb(240, 240, 240)';
+  document.body.prepend(topbar);
+  document.documentElement.style.colorScheme = 'light';
+  const titleBarDims = [];
+  window.mixdogDesktop = {
+    setTitleBarDim: async (dim) => { titleBarDims.push(dim); },
+  };
+  const { api } = capabilityApi();
+
+  await renderSettings({ api });
+
+  assert.ok(
+    titleBarDims.some((dim) => dim?.color === '#ffffff' && dim?.symbolColor === '#000000'),
+    `expected the undimmed settings panel caption colors, received ${JSON.stringify(titleBarDims)}`,
+  );
+});
+
 test('switching settings categories resets the shared pane scroll position', async () => {
   mount();
   const { api } = capabilityApi();

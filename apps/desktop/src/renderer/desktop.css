@@ -476,30 +476,8 @@ button:focus-visible { outline-offset: 1.5px; }
   height: 28px;
   border-radius: 6px;
 }
-/* Persistent pane navigation (user: 코덱스처럼 좌우버튼 상시): ◀ n/m ▶ sits
-   left of the layout toggles and cycles reading-order pane focus; at narrow
-   widths the same buttons page the single-pane carousel. */
-/* Hard-centered 28px slot: the icon-button's 6px padding cannot hold an
-   18px glyph in a 28px box (6+18+6=30) and skewed the arrows off the row
-   axis (user: 상하 가운데 정렬이 안 맞음). Ink stays IDENTICAL to the
-   neighboring toggles — a separate muted rest state read as 이질감. */
-.topbar .titlebar-pane-nav {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-}
-.topbar .titlebar-pane-nav:disabled { opacity: var(--mx-op-ghost); cursor: default; }
-.topbar .titlebar-pane-nav:disabled:hover { background: transparent; }
-/* Optical size parity (user: 크기 이질감): the arrow glyph fills its frame
-   edge-to-edge while the panel outlines carry inner padding, so an equal
-   18px frame read bigger — one step down levels the perceived size. */
-.topbar .titlebar-pane-nav .sidebar-toggle-icon {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
-}
+/* The ◀ ▶ pane-cycle pair was removed from the bar (user: 좌우 이동 버튼
+   의미 없는 듯 — 지우자); Alt+Left/Right keeps the same focus cycle. */
 /* Meet the Windows caption glyphs (─ ㅁ ×) halfway (user: 중간점으로
    통일): ONE 1.1px stroke for every window-bar glyph — the left cluster
    steps down from 1.25, the caption-adjacent pair up from hairline — so
@@ -632,44 +610,107 @@ button:focus-visible { outline-offset: 1.5px; }
   align-self: center;
   gap: 0;
   padding: 0;
-  /* VS Code tabs scrollbar: overflow never hides tabs — the run scrolls,
-     with a 3px hover-revealed slider. `overlay` (Chromium) keeps the strip's
-     35px cell height instead of reserving a gutter. */
-  overflow-x: auto;
-  overflow-x: overlay;
-  overflow-y: hidden;
-  /* The run never RESTS mid-tab: a half-clipped label at the strip start
-     read as merge residue over the rail (user: 레일로 병합될 때 폰트가
-     남는다). Snap keeps every settled scroll on a tab boundary. */
-  scroll-snap-type: x mandatory;
-  scroll-timeline: --mx-tabs-scroll x;
+  /* Chrome desktop grammar (user: PC도 크롬식으로): the run NEVER scrolls —
+     tabs shrink together toward the compact floor with every tab visible,
+     and below that floor the strip collapses to the count switcher. */
+  overflow: hidden;
 }
-.workspace-tabs::-webkit-scrollbar { height: 3px; }
-.workspace-tabs::-webkit-scrollbar-thumb { background: transparent; }
-.workspace-tabs:hover::-webkit-scrollbar-thumb { background: var(--mx-scrollbar-thumb); }
-.workspace-tabs::-webkit-scrollbar-thumb:hover { background: var(--mx-scrollbar-thumb-hover); }
 .titlebar-leading, .workspace-tabs-shell, .topbar .titlebar-new { margin-top: 0; }
-.workspace-tabs-shell { position: relative; align-self: center; timeline-scope: --mx-tabs-scroll; }
-/* Scrolled tab runs FADE at their left edge (scroll-driven): a clipped
-   first tab used to read as stray text merged into the rail (user: 레일로
-   병합되면서 폰트가 남네). The scrim rises over the first 24px of scroll,
-   so an unscrolled run stays untouched. */
-.workspace-tabs-shell::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 24px;
-  z-index: 2;
-  pointer-events: none;
-  background: linear-gradient(to right, var(--mx-window-band), transparent);
-  opacity: 0;
-  animation: mx-tabs-left-scrim linear both;
-  animation-timeline: --mx-tabs-scroll;
-  animation-range: 0px 24px;
+.workspace-tabs-shell { position: relative; align-self: center; }
+/* Chrome-mobile compact strip (user: 이름 + 숫자 → 목록 선택): when the
+   shell cannot give every tab a readable cell, the run collapses to
+   [active title][count pill][+] and the count opens the switcher list.
+   Wide panes keep the VS Code scroll strip above. */
+.workspace-tabs-shell[data-compact="true"] {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
-@keyframes mx-tabs-left-scrim { to { opacity: 1; } }
+.workspace-tab-compact-current {
+  min-width: 0;
+  /* The label FILLS the row (user: 라벨 폭이 너무 좁아) so the count and +
+     dock at the right edge like Chrome mobile's control cluster. */
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-medium);
+  cursor: pointer;
+}
+.workspace-tab-compact-current:hover { background: var(--mx-hover); }
+.workspace-tab-compact-current > svg { flex: 0 0 auto; }
+.workspace-tab-compact-current > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Chrome's tab counter: a small rounded box drawing its count in chrome
+   ink — quiet rest, wash on hover only (user: 강조 최소화). */
+.workspace-tab-count {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+  color: var(--mx-text-muted);
+  background: transparent;
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.workspace-tab-count:hover { color: var(--mx-text); background: var(--mx-hover); }
+/* Switcher rows ride the shared menu card; the trailing close keeps its
+   own hit box. Selectors stay ABOVE the menu's `button` grammar. */
+.workspace-tab-switcher { min-width: 220px; }
+.workspace-tab-switcher-row { display: flex; align-items: center; gap: 2px; }
+.workspace-tab-switcher-row > button[role="menuitem"] {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.workspace-tab-switcher-row > button[role="menuitem"] > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-tab-switcher-row.active > button[role="menuitem"] {
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-medium);
+}
+.workspace-tab-switcher .workspace-tab-switcher-close {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--mx-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.workspace-tab-switcher .workspace-tab-switcher-close:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
 .titlebar-caption-space {
   /* WCO shells resolve env() to the real caption edge; plain browsers fall
      back to 100vw → a 0px reserve, so no phantom 138px strip off-Electron. */
@@ -680,10 +721,15 @@ button:focus-visible { outline-offset: 1.5px; }
   --workspace-tab-surface: var(--mx-window-band);
   position: relative;
   height: 35px;
-  scroll-snap-align: start;
-  min-width: var(--workspace-tab-current-width, 50px);
+  /* Chromium tab_strip_layout parity (refs/chromium-tabs, user: 크롬 OSS
+     확인): tabs shrink TOGETHER from the 160px preferred width; below the
+     crossover the ACTIVE tab pins at its close-button floor while inactive
+     tabs keep shrinking to a favicon sliver — no mode switch, no scroll.
+     The frozen width variable still pins cells during pointer closes. */
+  container-type: inline-size;
+  min-width: var(--workspace-tab-current-width, 30px);
   max-width: var(--workspace-tab-current-width, 160px);
-  flex: 1 0 0;
+  flex: 1 1 var(--workspace-tab-current-width, 160px);
   gap: 2px;
   padding: 0 6px 0 10px;
   border: 0;
@@ -698,6 +744,37 @@ button:focus-visible { outline-offset: 1.5px; }
   box-shadow: none;
   cursor: grab;
   -webkit-app-region: no-drag;
+}
+/* Chromium crossover floor: the ACTIVE tab stops at the width that still
+   fits favicon+close (Tab::UpdateIconVisibility shows close on active at
+   EVERY size); inactive cells keep giving width down to the sliver. */
+.workspace-tab.active { min-width: var(--workspace-tab-current-width, 56px); }
+/* Chromium visibility ladder (Tab::UpdateIconVisibility, refs/chromium-tabs):
+   1) inactive tabs drop the close button once contents fall under
+      kMinimumContentsWidthForCloseButtons (68 + our 16px insets = 84);
+   2) labels go icon-only below the favicon+title floor;
+   3) a sliver that fits NOTHING keeps its lone glyph and centers it across
+      the whole cell (center_icon_);
+   4) the ACTIVE tab keeps favicon + close to its floor (real-Chrome look,
+      user: 선택탭 넓이 — icon+close fit at 56px); only its label yields. */
+@container (max-width: 84px) {
+  .workspace-tab:not(.active) .workspace-tab-close { display: none; }
+}
+@container (max-width: 48px) {
+  .workspace-tab-main span,
+  /* Doubled class beats the later base `display: block` (the dot rode the
+     sliver edge half-clipped — user: 레드닷 위치가 잘리네). */
+  .workspace-tab .workspace-tab-unread-dot { display: none; }
+  .workspace-tab:not(.active) .workspace-tab-main {
+    flex: 1;
+    justify-content: center;
+    margin-left: -10px;
+    margin-right: -6px;
+    padding: 0;
+  }
+}
+@container (max-width: 64px) {
+  .workspace-tab.active .workspace-tab-main span { display: none; }
 }
 /* Short dividers define background cells without boxing the active tab into
    the strip. The neighbor immediately before selection also stays open. */
@@ -773,7 +850,11 @@ button:focus-visible { outline-offset: 1.5px; }
   --workspace-tab-surface: var(--mx-workspace-sheet);
   color: var(--mx-text);
   background: var(--workspace-tab-surface);
-  box-shadow: none;
+  /* Chrome-style contour (user: 선택 라벨 좌우 윤곽선이 없어 구분이 안
+     된다): the cell carries its OWN side hairlines, so it reads against
+     sliver neighbors even at the small band↔sheet surface delta. The
+     bottom stays open into the sheet like Chrome's tab shape. */
+  box-shadow: inset 1px 0 0 var(--mx-border), inset -1px 0 0 var(--mx-border);
 }
 .workspace-tab.active::after {
   content: "";
@@ -836,8 +917,7 @@ button:focus-visible { outline-offset: 1.5px; }
   -webkit-app-region: no-drag;
 }
 .workspace-tab-new:hover,
-.workspace-tab-new:focus-visible,
-.workspace-tab-new[aria-expanded="true"] {
+.workspace-tab-new:focus-visible {
   color: var(--mx-text);
   background: transparent;
 }
@@ -848,8 +928,7 @@ button:focus-visible { outline-offset: 1.5px; }
   border-radius: 6px;
 }
 .workspace-tab-new:hover svg,
-.workspace-tab-new:focus-visible svg,
-.workspace-tab-new[aria-expanded="true"] svg { background: var(--mx-hover); }
+.workspace-tab-new:focus-visible svg { background: var(--mx-hover); }
 .workspace-tab-new-menu {
   position: fixed;
   z-index: 10020;
@@ -1408,12 +1487,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: transparent;
   box-shadow: none;
 }
-/* .projects-row doubles specificity so the later generic row:hover (inset
-   outline) cannot re-frame this row. */
-.session-sidebar-panels .projects-common-instructions .schedules-row.projects-row:hover {
-  background: var(--mx-hover);
-  box-shadow: none;
-}
 .session-sidebar-panels .schedules-row {
   gap: 8px;
   /* Two-line cards need vertical air (user-tuned): 10px top/bottom against
@@ -1436,9 +1509,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text-faint);
   font-size: var(--mx-font-minor);
 }
+/* Hover is a background wash only — bumping the inset ring to the -active
+   tint made an outline flash in/out on every pass (user: 호버하면 불필요한
+   윤곽선이 나왔다 사라짐). The -active ring is reserved for persistent
+   states (.selected) and real input focus. */
 .session-sidebar-panels .schedules-row:not(.workflows-model-row):hover {
   background: var(--mx-hover);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
 }
 .session-sidebar-panels .schedules-row.selected {
   background: var(--mx-pressed);
@@ -1547,9 +1623,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   text-align: left;
   cursor: pointer;
 }
+/* Same rule as the sidebar rails: hover never changes the ring. */
 .utility-dock .agent-activity-row:hover {
   background: var(--mx-hover);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
 }
 .utility-dock .agent-activity-state {
   grid-column: 1;
@@ -1662,18 +1738,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   pointer-events: none;
   box-shadow: none;
 }
-/* Compositor-only layout motion (user: vscode 같은 매끄러움 — width
-   transitions re-laid the workspace out every frame and read as jank):
-   the layout snaps once, then the opening rail slides INTO its already
-   reserved space from its window edge. Armed per-kind by
-   useSidePanelOpenFlip only around an OPEN commit, so dock toggles never
-   replay it and closes stay instant (VS Code grammar). The ≤760px drawer
-   keeps its own transform transition. */
-@media (min-width: 761px) {
-  html.mx-open-sidebar .sidebar.session-sidebar {
-    animation: sidebar-slide-in var(--mx-side-panel-motion);
-  }
-}
+/* Inline (wide) toggles for ALL three side panels commit the final layout in
+   one frame — the sidebar's slide-in was the last odd one out once the dock
+   and bottom panel went instant (user: 왼쪽도 같은 방식으로). The ≤760px
+   drawer keeps its own transform transition (keyframe reused at the
+   narrow-desktop drawer frame). */
 @keyframes sidebar-slide-in {
   from { transform: translateX(-100%); }
 }
@@ -2584,8 +2653,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 20px 0 0;
   gap: 0;
 }
-/* Review chrome belongs to the bottom composer stack, not transcript scroll
-   content. The thread keeps its normal 20px footer rhythm above that stack. */
+/* Review chrome rides the SCROLLED thread (OpenCode session-turn-diffs), so a
+   late worker result grows scroll content the bottom anchor already owns
+   instead of resizing the viewport under the composer. */
 .transcript-virtual-space {
   position: relative;
   width: 100%;
@@ -2620,6 +2690,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .transcript-virtual-row-content[data-tag="AssistantPart"],
 .transcript-virtual-row-content[data-tag="Thinking"],
 .transcript-virtual-row-content[data-tag="Error"] { padding-bottom: 12px; }
+/* The hover meta line (top:100% overlay, 24px) must fit INSIDE the clipped
+   row box — user rows reserve its height as padding instead of lifting the
+   clip (user: 차라리 유저 행 아래 패딩을 조금 더 주는 게 낫다). */
+.transcript-virtual-row-content[data-tag="UserMessage"] { padding-bottom: 24px; }
 .transcript-virtual-row-content[data-turn-end="true"] { padding-bottom: 0; }
 .transcript-turn-gap { height: 20px; }
 .transcript-bottom-spacer {
@@ -3193,7 +3267,24 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-minor);
 }
-.notice { border: 0; border-radius: 6px; color: var(--mx-text-muted); background: var(--mx-bg-layer-1); box-shadow: 0 0 0 .5px var(--mx-border); font-size: var(--mx-font-ui); }
+/* Transcript notices are a card, not bare text: without an inset the copy sat
+   flush against the hairline and read as a broken quote block (user: 오류
+   메세지 출력이 이상해). Reference: OpenCode session-turn error Card. */
+.notice {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-layer-1);
+  box-shadow: 0 0 0 .5px var(--mx-border);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* A watchdog/abort notice arrives as 'warn'. Painting it neutral gray hid the
+   only signal the turn died, so warnings carry the amber status pair. */
+.notice.warn { color: var(--mx-warning); background: var(--mx-warning-bg); }
 .notice.error { color: var(--mx-danger); background: var(--mx-danger-bg); }
 /* Empty states center on BOTH axes inside the dock body. Every dock pane is
    a flex column (see .utility-dock-pane), so this one rule centers the
@@ -3492,7 +3583,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .transcript-virtual-row-content[data-tag="UserMessage"],
   .transcript-virtual-row-content[data-tag="AssistantPart"],
   .transcript-virtual-row-content[data-tag="Thinking"],
-  .transcript-virtual-row-content[data-tag="Error"] {
+  .transcript-virtual-row-content[data-tag="Error"],
+  .turn-review-slot {
     max-width: 800px;
     padding-inline: 20px;
   }
@@ -3504,6 +3596,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .transcript-virtual-row-content[data-tag="AssistantPart"],
   .transcript-virtual-row-content[data-tag="Thinking"],
   .transcript-virtual-row-content[data-tag="Error"],
+  .turn-review-slot,
   .composer-region { max-width: 1000px; }
 }
 .composer-context-bar {
@@ -4034,7 +4127,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-.model-provider-setup:hover,
+.model-provider-setup:hover { background: var(--mx-hover); }
 .model-provider-setup:focus-visible { background: var(--mx-hover); outline: 1px solid var(--mx-focus); }
 .model-notice {
   margin: 4px 6px 8px;
@@ -4205,7 +4298,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   box-shadow: 0 0 0 .5px var(--mx-border-strong);
   transition: box-shadow 85ms ease-out;
 }
-.composer-attachments > div:hover,
+/* The ring marks keyboard focus only; hover already darkens the tile. */
 .composer-attachments > div:focus-within { box-shadow: 0 0 0 1px var(--mx-border-strong); }
 .composer-attachments > div.image { height: 64px; }
 .composer-attachments img,
@@ -6690,8 +6783,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: transparent;
   cursor: pointer;
 }
-.row-overflow-trigger:hover,
-.row-overflow-trigger[aria-expanded="true"] { color: var(--mx-text); background: var(--mx-hover); }
+/* Open-menu state carries NO wash (user: ⋯ 눌렀을 때 강조 없도록 — the
+   menu itself already marks the state); hover keeps the quiet ink lift. */
+.row-overflow-trigger:hover { color: var(--mx-text); background: var(--mx-hover); }
+.row-overflow-trigger[aria-expanded="true"] { color: var(--mx-text); background: transparent; }
 .row-overflow-menu {
   position: fixed;
   z-index: 420;
@@ -8631,7 +8726,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   width: auto;
   min-width: 0;
   max-width: 100%;
-  flex: 1 1 auto;
+  /* Chrome flow (user: PC도 크롬식): the run is CONTENT-sized, so the +
+     button rides right after the last tab instead of a far-edge slot;
+     the leftover row stays the shell's drag band. */
+  flex: 0 1 auto;
 }
 /* Fixed sibling slot: overflow is owned only by the tab viewport, so the last
    label scrolls up to this edge rather than underneath the + surface. */
@@ -9650,20 +9748,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   animation: none;
   transition: none;
 }
-/* Opening slides the dock into its already reserved space from the right
-   window edge — transform only, zero re-layout during the motion (user:
-   vscode 같은 매끄러움). Keyed on the mount itself, NOT a settle class: an
-   armed class from a LATER sidebar toggle used to re-match and replay the
-   already-open dock (user: 애니가 두 번 나옴). data-entering pins it off
-   once settled; ≤940px keeps its own sheet slide. */
-@media (min-width: 941px) {
-  .utility-dock--persistent:not([data-entering="true"]) {
-    animation: utility-dock-inline-expand var(--mx-side-panel-motion);
-  }
-}
-@keyframes utility-dock-inline-expand {
-  from { transform: translateX(100%); }
-}
+/* Inline (wide) open commits the FINAL layout in one frame, exactly like the
+   left sidebar toggle (user: 오른쪽/아래쪽만 튀듯이 붙는다 — 왼쪽처럼 즉시).
+   The slide-in lives only in the ≤940px sheet grammar. */
 /* The dock shell can hit width 0, but its tabs/body keep their final
    geometry and are merely clipped. No text rewrap/repaint wave on close. */
 /* Clipping happens at the LEFT edge, the only edge that moves: the inner
@@ -12022,8 +12109,13 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
     /* Card sheet mirroring the drawer: left corners round, ring via ::after. */
     border-left: 0;
     border-radius: 16px 0 0 16px;
-    box-shadow: var(--mx-overlay);
+    /* SAME cast as the left drawer frame, mirrored (user: 오른쪽 그림자가
+       왼쪽이랑 다르다) — the generic overlay elevation read as a different,
+       wider halo next to the drawer's directional 24px throw. */
+    box-shadow: -24px 0 24px var(--mx-alpha-dark-24);
   }
+  /* Phone: the ≤760 drawer wears the overlay elevation, so the dock does too. */
+  html[data-mixdog-mobile] .utility-dock { box-shadow: var(--mx-overlay); }
   /* The ring rides an overlay, not the box: an OUTER ring loses its top
      line to the desktop-body clip (same as the drawer), and an INSET one
      hides under the tabs-header's opaque band (pixel-verified: y35 flat).
@@ -12166,20 +12258,23 @@ html.mx-window-resizing .panel-backdrop {
 .workbench-search-file > button > span { color: var(--mx-text-muted); text-align: right; font-size: var(--mx-font-micro); line-height: var(--mx-line-minor); }
 .workbench-search-file > button > code { overflow: hidden; text-overflow: ellipsis; white-space: pre; font: 11px/17px var(--mx-font-mono); }
 .app-shell > .desktop-body .editor-statusbar { display: none; }
-/* Turn-review bar: normal bottom-stack flow. A late worker result grows the
-   composer region upward and shrinks the transcript viewport; sticky-bottom
-   follows that one layout change without ever covering a transcript row. */
+/* Turn-review bar: the last block of the scrolled thread, on the same
+   centered frame as every projected row. A late worker result grows scroll
+   content — never the viewport — so nothing outside the timeline moves. */
 .turn-review-slot {
   position: relative;
   z-index: 6;
   width: 100%;
+  max-width: 100%;
   min-height: 0;
+  margin-inline: auto;
+  padding-inline: 16px;
   display: flex;
   justify-content: center;
   pointer-events: none;
 }
 .turn-review-slot:empty { display: none; }
-.turn-review-slot:has(.turn-review-bar) { margin-bottom: 8px; }
+.turn-review-slot:has(.turn-review-bar) { margin-top: 4px; margin-bottom: 8px; }
 .turn-review-slot > * { pointer-events: auto; }
 .turn-review-bar {
   width: 100%;
@@ -12833,6 +12928,14 @@ html[data-mixdog-mobile] select { font-size: 16px; }
   height: auto;
   border-radius: 8px;
 }
+/* Loose lists wrap every item's content in <p>, which then inherited the 12px
+   prose margin and doubled each bullet gap. Reference markdown.css collapses
+   the first paragraph into the marker line instead. */
+.markdown li > p:first-child { display: inline; margin: 0; }
+.markdown li > p + p { display: block; margin-top: 8px; }
+/* A response that opens with a heading must not push its own turn down by the
+   heading's block margin (reference markdown.css `> *:first-child`). */
+.markdown > :first-child { margin-top: 0; }
 .markdown ul.contains-task-list { padding-left: 18px; list-style: none; }
 .markdown li.task-list-item > input[type="checkbox"] {
   margin: 0 6px 0 0;
@@ -13825,7 +13928,11 @@ html[data-mixdog-mobile] select { font-size: 16px; }
   z-index: 940;
   display: grid;
   place-items: center;
-  padding: calc(var(--titlebar-height, 36px) + 14px) 24px 24px;
+  /* SYMMETRIC block padding: the one-sided caption reserve pushed every
+     card 12-13px below true center (user: 가운데 정렬 안 맞는다). Mirroring
+     the reserve keeps cards clear of min/max/close AND dead-centered; tall
+     editors give up ~25px of height for the balance. */
+  padding: calc(var(--titlebar-height, 36px) + 14px) 24px;
   background: var(--mx-scrim);
   backdrop-filter: blur(2px);
 }

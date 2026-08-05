@@ -99,6 +99,7 @@ async function captureWindow(): Promise<void> {
     });
     await window.webContents.executeJavaScript(`(() => {
       localStorage.setItem('mixdog.desktop-theme-preference', 'dark');
+      localStorage.setItem('mixdog.desktop.ui-language.v1', 'en');
       setTimeout(() => location.reload(), 0);
       return true;
     })()`);
@@ -133,15 +134,15 @@ async function captureWindow(): Promise<void> {
     }
     // The pane workspace now starts with a deliberate empty guidance surface.
     // Normal capture assertions exercise the task UI, so materialize a draft
-    // explicitly instead of depending on the retired implicit first tab.
-    const captureTaskActivated = await window.webContents.executeJavaScript(`(() => {
-      if (document.querySelector('.composer')) return true;
-      const trigger = document.querySelector('button[aria-label="New task"]');
-      if (!(trigger instanceof HTMLButtonElement)) return false;
-      trigger.click();
-      return true;
-    })()`) as boolean;
-    if (!captureTaskActivated) throw new Error('New task trigger is missing for UI capture.');
+    // through the product's real Ctrl+N contract instead of reaching for the
+    // retired Activity Bar button.
+    const captureTaskAlreadyActive = await window.webContents.executeJavaScript(
+      "Boolean(document.querySelector('.composer'))",
+    ) as boolean;
+    if (!captureTaskAlreadyActive) {
+      window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['control'] });
+      window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'N', modifiers: ['control'] });
+    }
     await waitForRenderer(
       window,
       "document.querySelector('.composer') && document.querySelector('.workspace-tab')",
@@ -204,6 +205,14 @@ async function captureWindow(): Promise<void> {
     window.setMinimumSize(320, 600);
     window.setSize(720, 650);
     await new Promise((resolve) => setTimeout(resolve, 250));
+    await window.webContents.executeJavaScript(`(() => {
+      const toggle = document.querySelector('.toolbar-sidebar');
+      if (toggle instanceof HTMLButtonElement && toggle.getAttribute('aria-expanded') !== 'true') {
+        toggle.click();
+      }
+      return true;
+    })()`);
+    await new Promise((resolve) => setTimeout(resolve, 250));
     const mobileViewport = await window.webContents.executeJavaScript(
       '({ width: innerWidth, height: innerHeight })',
     ) as { width: number; height: number };
@@ -230,13 +239,16 @@ async function captureWindow(): Promise<void> {
     }
     window.setSize(1_280, 820);
     await new Promise((resolve) => setTimeout(resolve, 250));
-    const openedSettings = await withCaptureTimeout(window.webContents.executeJavaScript(`(() => {
-      const trigger = document.querySelector('[aria-label="Open settings"]');
-      if (!(trigger instanceof HTMLButtonElement)) return false;
-      trigger.click();
-      return true;
-    })()`), 'open settings');
-    if (!openedSettings) throw new Error('Open settings trigger is missing.');
+    const settingsAlreadyOpen = await withCaptureTimeout(
+      window.webContents.executeJavaScript(
+        "Boolean(document.querySelector('.mixdog-settings-layer[data-surface-active=\"true\"]'))",
+      ),
+      'read settings state',
+    ) as boolean;
+    if (!settingsAlreadyOpen) {
+      window.webContents.sendInputEvent({ type: 'keyDown', keyCode: ',', modifiers: ['control'] });
+      window.webContents.sendInputEvent({ type: 'keyUp', keyCode: ',', modifiers: ['control'] });
+    }
     await waitForRenderer(
       window,
       `document.querySelector('.mixdog-settings__body .settings-group')
@@ -341,6 +353,10 @@ async function captureWindow(): Promise<void> {
     window.setSize(720, 650);
     await new Promise((resolve) => setTimeout(resolve, 250));
     const compactSettings = await readSettingsPlacement(window);
+    window.setSize(360, 600);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const narrowSettings = await readPhoneSettingsAssertions(window);
+    const expectedNarrowSettingsCategoryLabels = SETTINGS_CATEGORIES.map((category) => category.label);
     window.setSize(390, 740);
     await new Promise((resolve) => setTimeout(resolve, 250));
     await window.webContents.executeJavaScript(`(() => {
@@ -354,17 +370,37 @@ async function captureWindow(): Promise<void> {
       labels.length === capturedSettingsCategoryLabels.length
       && labels.every((label, index) => label === capturedSettingsCategoryLabels[index]))
       ?? [];
-    const liveSettings = { large: largeSettings, compact: compactSettings, phone: phoneSettings };
+    const liveSettings = {
+      large: largeSettings,
+      compact: compactSettings,
+      narrow: narrowSettings,
+      phone: phoneSettings,
+    };
     if (largeSettings.viewport.width !== 1_280 || largeSettings.viewport.height !== 820
       || !largeSettings.centered || !largeSettings.layerCoversViewport
       || !largeSettings.dialogClearsWindowControls
+      || largeSettings.fullBleed || !largeSettings.contentClearsWindowControls
       || !largeSettings.dialogFitsViewport || !largeSettings.backdropVisible || !largeSettings.twoPane
       || largeSettings.dialog.width !== 980 || largeSettings.rail.width !== 240 || largeSettings.populatedRowCount < 1
       || !compactSettings.centered || !compactSettings.layerCoversViewport
-      || !compactSettings.dialogClearsWindowControls
+      || !compactSettings.fullBleed || !compactSettings.contentClearsWindowControls
       || !compactSettings.dialogFitsViewport || !compactSettings.backdropVisible || !compactSettings.twoPane
       || compactSettings.viewport.width !== 720 || compactSettings.viewport.height !== 650
-      || compactSettings.dialog.width !== 704 || compactSettings.rail.width !== 200
+      || compactSettings.dialog.width !== 720 || compactSettings.dialog.height !== 650
+      || compactSettings.rail.width !== 200
+      || narrowSettings.viewport.width !== 360 || narrowSettings.viewport.height !== 600
+      || !narrowSettings.fullScreen || !narrowSettings.railConnected || narrowSettings.rail.width !== 48
+      || narrowSettings.railButtonCount !== expectedNarrowSettingsCategoryLabels.length
+      || narrowSettings.categories.some((category, index) =>
+        category.label !== expectedNarrowSettingsCategoryLabels[index])
+      || !narrowSettings.railButtonsAccessible
+      || !narrowSettings.closeTouchTarget || narrowSettings.rowCount < 1
+      || narrowSettings.filledValueControlCount < 1 || !narrowSettings.sharedValueAxis
+      || !narrowSettings.controlsContained || !narrowSettings.controlsRightAligned
+      || !narrowSettings.labelsSeparated || !narrowSettings.valuesFillColumn
+      || !narrowSettings.overflowFree || narrowSettings.categories.some((category) =>
+        !category.overflowFree || !category.controlsContained
+        || !category.controlsRightAligned || !category.labelsSeparated)
       || phoneSettings.viewport.width > 430 || phoneSettings.viewport.width < 320
       || !phoneSettings.fullScreen || !phoneSettings.railConnected || phoneSettings.rail.width !== 52
       || phoneSettings.railButtonCount !== expectedSettingsCategoryLabels.length

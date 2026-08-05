@@ -6,7 +6,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import { type FormEvent, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type {
@@ -31,6 +31,7 @@ import {
   RouteEditor,
   routeOption,
 } from './settings/capability-controls';
+import { acquireTitleBarDim } from './titlebar-dim';
 
 type RecordValue = Record<string, unknown>;
 export type WorkflowsApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels'>>;
@@ -136,6 +137,9 @@ function WorkflowEditorDialog({ pack, agents, busy, error = '', onCancel, onSave
   const [agentsConfigured, setAgentsConfigured] = useState(() => editing && pack?.agentsConfigured === true);
   const [formError, setFormError] = useState('');
   const available = agents.filter((agent) => !selected.includes(agent.id));
+  // The scrim cannot dim the NATIVE caption band — hold the titlebar claim
+  // while this dialog is mounted (user: - ㅁ x 딤드 안 먹음).
+  useEffect(() => acquireTitleBarDim(), []);
   // Portaled editor: the list lives in the session panel, so the dialog must
   // escape the sidebar's clipped/transformed box.
   return createPortal(<div className="schedules-dialog-layer"
@@ -250,6 +254,7 @@ function AgentEditorDialog({ agent, models, busy, error = '', onCancel, onSave }
   const editing = Boolean(agent);
   const [route, setRoute] = useState<RecordValue>(() => record(agent?.route));
   const [formError, setFormError] = useState('');
+  useEffect(() => acquireTitleBarDim(), []);
   return createPortal(<div className="schedules-dialog-layer"
     onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
     onKeyDown={(event) => {
@@ -320,6 +325,7 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
   onSave(route: RecordValue): void;
 }) {
   const [route, setRoute] = useState<RecordValue>(() => target.route);
+  useEffect(() => acquireTitleBarDim(), []);
   return createPortal(<div className="schedules-dialog-layer"
     onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
     onKeyDown={(event) => {
@@ -380,6 +386,7 @@ function AgentDeleteDialog({ target, busy, error = '', onCancel, onDelete }: {
   onDelete(): void;
 }) {
   const inUse = target.workflowNames.length > 0;
+  useEffect(() => acquireTitleBarDim(), []);
   return createPortal(<div className="schedules-dialog-layer"
     onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
     onKeyDown={(event) => {
