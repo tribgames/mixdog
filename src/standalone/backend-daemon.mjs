@@ -1,8 +1,11 @@
-// Machine-global channels daemon entry.
+// Machine-global BACKEND daemon entry — the single mixdog backend process.
 //
-// One process per machine hosts the channels runtime (worker-main) and exposes
-// it to many TUIs over a local HTTP + SSE transport (see
-// channel-daemon-transport.mjs) instead of the old per-TUI fork + node-IPC.
+// One process per machine hosts the whole backend: the channels runtime
+// (worker-main), the memory runtime, and the session ENGINE pool. It exposes
+// two local front doors — channel-daemon-transport.mjs (pointer-routed channel
+// calls) and engine-daemon-transport.mjs (broadcast engine frames) — so the
+// terminal TUI and the desktop app are views over ONE writer instead of each
+// booting its own engine and arbitrating ownership on disk.
 // Spawned (or attached-to) by createStandaloneChannelWorker; ownership is a
 // pid-verified singleton lock (singleton-owner.mjs) — NOT the try-once
 // active-instance lock that starved under 6 contending workers. A stale daemon
@@ -14,6 +17,9 @@
 // lets this entry own start()/stop() + the transport.
 process.env.MIXDOG_CHANNEL_DAEMON = '1';
 process.env.MIXDOG_WORKER_MODE = process.env.MIXDOG_WORKER_MODE || '1';
+// This process IS the engine host: its own createEngineSession() must build
+// REAL engines, never a proxy back into itself.
+process.env.MIXDOG_ENGINE_DAEMON_HOST = '1';
 
 // V8 compile cache: the daemon is a standalone child entry (not via cli.mjs);
 // caching compiled bytecode across restarts removes the channels+memory
@@ -33,6 +39,8 @@ import { setChannelNotifySink } from '../runtime/channels/lib/parent-bridge.mjs'
 import { setOwnerContext } from '../runtime/channels/lib/runtime-paths.mjs';
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
 import { createChannelDaemonTransport } from './channel-daemon-transport.mjs';
+import { createEngineDaemonTransport } from './engine-daemon-transport.mjs';
+import { createEngineDaemonService } from './engine-daemon-service.mjs';
 import { createStandaloneMemoryRuntime } from './memory-runtime-proxy.mjs';
 
 function runtimeRoot() {
@@ -45,6 +53,10 @@ const RUNTIME_ROOT = runtimeRoot();
 const DATA_DIR = process.env.MIXDOG_DATA_DIR ? path.resolve(process.env.MIXDOG_DATA_DIR) : RUNTIME_ROOT;
 const CWD = process.cwd();
 const DISCOVERY_PATH = path.join(RUNTIME_ROOT, 'channel-daemon.json');
+// Engine views discover the SAME process through their own endpoint: one
+// daemon, two front doors (channel routing is pointer-targeted, engine frames
+// are broadcast — they must not share a router).
+const ENGINE_DISCOVERY_PATH = path.join(RUNTIME_ROOT, 'engine-daemon.json');
 // Owner-election lock, separate from the channels seat/bridge state. Reused
 // pid-verified claim primitive with real claim-lock retry inside.
 const OWNER_PATH = path.join(DATA_DIR, 'channel-daemon-owner.json');
@@ -62,7 +74,7 @@ const MEMORY_ENTRY = fileURLToPath(new URL('../runtime/memory/index.mjs', import
 const LOG_PATH = path.join(DATA_DIR, 'channels-worker-standalone.log');
 let fileLogging = false;
 function log(line) {
-  const text = `[channel-daemon] ${line}`;
+  const text = `[backend-daemon] ${line}`;
   // Exactly ONE sink per line: before ready the spawner mirrors our stderr into
   // the log, so write stderr only; after ready we own the file, so write the
   // file only — never both (no duplicate around the ready handoff).
@@ -110,6 +122,8 @@ function installDaemonLogRedirect() {
 
 let channels = null;
 let transport = null;
+let engineTransport = null;
+let engineService = null;
 let memoryRuntime = null;
 let shuttingDown = false;
 
@@ -118,12 +132,33 @@ async function shutdown(reason, code = 0) {
   shuttingDown = true;
   log(`shutting down (${reason})`);
   try { setChannelNotifySink(null); } catch {}
+  try { await engineService?.stop?.(reason); } catch (e) { log(`engine.stop failed: ${e?.message || e}`); }
+  try { await engineTransport?.stop?.(); } catch (e) { log(`engine transport.stop failed: ${e?.message || e}`); }
   try { await channels?.stop?.(); } catch (e) { log(`channels.stop failed: ${e?.message || e}`); }
   // Detach the memory client (never hard-kills the shared memory daemon).
   try { await memoryRuntime?.stop?.(); } catch (e) { log(`memory.stop failed: ${e?.message || e}`); }
   try { await transport?.stop?.(); } catch (e) { log(`transport.stop failed: ${e?.message || e}`); }
   try { releaseSingletonOwner(OWNER_PATH, process.pid); } catch {}
   process.exit(code);
+}
+
+/** One process, two front doors (channels + engines): an idle side must never
+ *  evict a busy one, so every self-shutdown trigger checks BOTH registries. */
+function maybeSelfShutdown(reason) {
+  const channelClients = transport?.clientCount ?? 0;
+  const engineClients = engineTransport?.clientCount ?? 0;
+  if (channelClients > 0 || engineClients > 0) {
+    log(`shutdown deferred (${reason}): channels=${channelClients} engines=${engineClients}`);
+    return;
+  }
+  // A turn in flight outlives every view — closing the app or the terminal is
+  // not a reason to abandon work the daemon is still running.
+  const busyEngines = engineService?.busyCount ?? 0;
+  if (busyEngines > 0) {
+    log(`shutdown deferred (${reason}): ${busyEngines} engine(s) still working`);
+    return;
+  }
+  void shutdown(reason);
 }
 
 async function main() {
@@ -140,18 +175,44 @@ async function main() {
   }
   process.on('exit', () => { try { releaseSingletonOwner(OWNER_PATH, process.pid); } catch {} });
 
-  // Import the channels runtime AFTER the daemon env is set so worker-main
-  // skips runWorkerIpc; this triggers its boot side effects (config/backend).
-  channels = await import('../runtime/channels/index.mjs');
+  // The channels runtime is imported AFTER the daemon env is set so worker-main
+  // skips runWorkerIpc; that import also triggers its boot side effects
+  // (config/backend). It is now deferred past the ready handshake: an engine
+  // view attaching to this same process must not wait out the channels graph,
+  // and every channels call awaits this promise anyway.
+  let channelsReady = null;
+  function ensureChannels() {
+    if (!channelsReady) {
+      channelsReady = import('../runtime/channels/index.mjs').then((module) => {
+        channels = module;
+        return module;
+      });
+    }
+    return channelsReady;
+  }
+
+  // Channels bring automation with them (schedules, webhook listener + tunnel,
+  // optional messaging backend). A daemon spawned by a TUI starts them exactly
+  // as before; a daemon spawned for ENGINE views stays dormant until a channels
+  // client actually registers, so an app-only backend runs no tunnels.
+  let channelsStarted = false;
+  function startChannels() {
+    if (channelsStarted) return;
+    channelsStarted = true;
+    const messaging = String(process.env.MIXDOG_REMOTE_INTENT || '') === 'explicit';
+    void ensureChannels().then((module) => module.start({ messaging }))
+      .catch((e) => log(`channels.start failed (non-fatal): ${e?.message || e}`));
+  }
 
   // Accepted owner controls refresh active-instance context. The transport
   // admits rebind only for the current manual owner.
   const POINTER_TOOLS = new Set(['activate_channel_bridge', 'rebind_current_transcript']);
-  const handleCall = (name, args, ctx) => {
+  const handleCall = async (name, args, ctx) => {
+    const module = await ensureChannels();
     if (ctx && POINTER_TOOLS.has(name)) {
       try { setOwnerContext({ leadPid: ctx.leadPid, cwd: ctx.cwd }); } catch {}
     }
-    return channels.handleToolCallWithBridgeRetry(name, args || {});
+    return module.handleToolCallWithBridgeRetry(name, args || {});
   };
   transport = createChannelDaemonTransport({
     handleCall,
@@ -162,10 +223,41 @@ async function main() {
     log,
     // Self-shutdown when the last attached TUI leaves (reuses the SSE/client
     // registry as the liveness signal — mirrors the memory daemon grace).
-    onClientsEmpty: () => { void shutdown('no live clients'); },
+    onClientsEmpty: () => { maybeSelfShutdown('no live channel clients'); },
+    // First channels client in: bring the channels runtime up (see startChannels).
+    onClientRegistered: () => { startChannels(); },
   });
   setChannelNotifySink((method, params) => transport.notify(method, params));
   const { port, token } = await transport.start();
+
+  // ── Engine front door ───────────────────────────────────────────────────────
+  // Session engines live in THIS process too, so the terminal TUI and the
+  // desktop app share ONE writer instead of arbitrating ownership on disk. The
+  // engine module is the whole runtime graph, so it is imported lazily on the
+  // first open — a channels-only spawn never pays for it.
+  engineService = createEngineDaemonService({
+    createEngine: async (options) => {
+      const engineModule = await import('../tui/engine.mjs');
+      return engineModule.createEngineSession(options);
+    },
+    onFrame: (frame) => engineTransport?.broadcast(frame),
+    log,
+  });
+  engineTransport = createEngineDaemonTransport({
+    // ctx carries the CLIENT token: the engine pool refcounts views across
+    // processes with it, so a terminal exiting cannot destroy the engine a
+    // desktop window is still streaming.
+    handleCall: (name, args, ctx) => engineService.handleCall(name, args, ctx),
+    discoveryPath: ENGINE_DISCOVERY_PATH,
+    log,
+    // `busy` is what stops a newer install from draining a daemon that is
+    // mid-turn: work outlives views AND installs.
+    getStatus: () => ({ engines: engineService.size, busy: engineService.busyCount }),
+    onClientsEmpty: () => { maybeSelfShutdown('no live engine views'); },
+    onClientDropped: (token) => { try { engineService.releaseClient(token); } catch {} },
+  });
+  const engineEndpoint = await engineTransport.start();
+  log(`engine front door on 127.0.0.1:${engineEndpoint.port}`);
 
   // Ready handshake for the spawner FIRST (mirrors the memory daemon's ready
   // port). Transport is already listening; signal ready before the heavy
@@ -198,16 +290,23 @@ async function main() {
   // spawn the shared daemon with no remote intent; keep schedules/webhooks live
   // without connecting the channel backend until a manual Remote ON arrives.
   // Legacy `auto` intent is deliberately ignored.
-  const remoteIntent = String(process.env.MIXDOG_REMOTE_INTENT || '');
-  const messaging = remoteIntent === 'explicit';
-  void Promise.resolve().then(() => channels.start({ messaging }))
-    .catch((e) => log(`channels.start failed (non-fatal): ${e?.message || e}`));
+  // A TUI-spawned daemon keeps the historical eager start (its channels client
+  // is already on the way). An engine-spawned one waits for a real channels
+  // client — see the transport's onClientRegistered hook.
+  if (process.env.MIXDOG_DAEMON_SPAWNED_FOR !== 'engine') startChannels();
 
   // Fold memory startup in: eagerly ensure the memory runtime is up under the
   // daemon's lifecycle (spawn-or-attach singleton). Fire-and-forget — memory
   // boot is heavy (DB/embeddings) and must NOT delay the ready handshake below
   // (the spawner's ready wait would time out); the proxy publishes memory_port
   // to active-instance.json when ready and memory-client buffers until then.
+  // Isolated test roots opt out (MIXDOG_DAEMON_SKIP_MEMORY=1): spinning a
+  // throwaway Postgres cluster per test run is pure cost, and a hard-killed
+  // daemon would orphan it.
+  if (process.env.MIXDOG_DAEMON_SKIP_MEMORY === '1') {
+    log('memory runtime skipped (MIXDOG_DAEMON_SKIP_MEMORY=1)');
+    return;
+  }
   try {
     memoryRuntime = createStandaloneMemoryRuntime({ entry: MEMORY_ENTRY, dataDir: DATA_DIR, cwd: CWD });
     void memoryRuntime.start().catch((e) => log(`memory.start failed (non-fatal): ${e?.message || e}`));

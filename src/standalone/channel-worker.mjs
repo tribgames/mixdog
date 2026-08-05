@@ -35,7 +35,8 @@ const WORKER_PRELOAD = fileURLToPath(new URL('./channel-worker-preload.cjs', imp
 function daemonEntry() {
   return process.env.MIXDOG_CHANNEL_DAEMON_ENTRY
     ? resolve(process.env.MIXDOG_CHANNEL_DAEMON_ENTRY)
-    : fileURLToPath(new URL('./channel-daemon.mjs', import.meta.url));
+    // ONE backend process: channels, memory, and the session engine pool.
+    : fileURLToPath(new URL('./backend-daemon.mjs', import.meta.url));
 }
 
 // A global package update can briefly remove channel-worker-preload.cjs while
@@ -447,7 +448,7 @@ export function createStandaloneChannelWorker({
         return;
       }
       // Mirror daemon stderr into the shared log ONLY until it is ready. After
-      // ready the daemon appends its own lines directly (channel-daemon.mjs), and
+      // ready the daemon appends its own lines directly (backend-daemon.mjs), and
       // this TUI may exit at any time — a live mirror would both duplicate those
       // lines and die with the parent. Detach the listener at the ready boundary.
       const mirrorDaemonStderr = (chunk) => {

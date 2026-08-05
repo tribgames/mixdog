@@ -47,6 +47,7 @@ export function createChannelDaemonTransport({
   dispatchControl = null,
   registrationReplayTtlMs = 60_000,
   remoteStatePath = null,
+  onClientRegistered = null,
 } = {}) {
   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
 
@@ -399,6 +400,12 @@ export function createChannelDaemonTransport({
     cancelGrace();
     startSweep();
     log(`client registered token=${token} lead=${pid} cwd=${cwd || '-'}`);
+    // The unified backend starts the channels runtime (automation, webhooks,
+    // messaging backend) only once a CHANNELS client is actually present — an
+    // engine-only daemon must not run tunnels nobody asked for.
+    if (typeof onClientRegistered === 'function') {
+      try { onClientRegistered({ token, leadPid: pid, cwd: cwd || null }); } catch {}
+    }
     const rememberReplacement = (freshToken) => {
       if (!replayId) return freshToken;
       const replay = {
@@ -697,6 +704,9 @@ export function createChannelDaemonTransport({
     notify,
     get port() { return boundPort; },
     get token() { return serverToken; },
+    // The unified daemon hosts channels AND engines: it may only self-shutdown
+    // when BOTH sides are empty, so each transport has to expose its liveness.
+    get clientCount() { return clients.size; },
     _clientsForTest: clients,
     _registrationReplaysForTest: registrationReplays,
     _resolveTargetForTest: resolveTarget,
