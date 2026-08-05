@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.94 - 2026-08-05
+
 - Desktop tab strip follows Chromium's `tab_strip_layout`: tabs shrink
   together toward the active/inactive floors with every tab visible instead
   of scrolling, and touch shells collapse to a title + count switcher list.
