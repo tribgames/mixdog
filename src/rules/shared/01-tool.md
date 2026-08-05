@@ -19,9 +19,12 @@
   nonzero `content_with_context` result is final for its returned range. Read
   is allowed for new/uncovered lines; do not call read when grep/read already
   fully covers the requested range. Only zero/error results justify new scope.
-- Verify changes in proportion to risk with one decisive batched boundary
-  probe. A pass is final; on failure, fix and rerun only what failed. Keep
-  optional diagnostics non-fatal; report verified vs assumed.
+- Verify in proportion to risk, inside the same chain that produces the
+  artifact — one decisive boundary probe covering its failure modes. Output
+  already observed to match the intent IS the verification; never re-derive
+  or re-count it in a later turn. A pass is final; on failure fix and rerun
+  only what failed. Keep optional diagnostics non-fatal; report verified vs
+  assumed.
 - `apply_patch` is the primary edit tool: once target path and new content are
   known, include the patch in the current tool batch, hunk context verbatim
   from the newest tool output of that span (post-patch content after edits);
