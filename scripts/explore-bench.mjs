@@ -167,9 +167,11 @@ function readTraceSince(ts) {
 }
 
 const t0 = Date.now();
-// Parallel round: all queries fire at once. Per-session trace attribution is
-// by session_id so counts stay correct; per-query ms includes queueing.
-const results = await Promise.all(QUERIES.map(async ({ q, expect, expectFail, pathOnly }) => {
+// Parallel round by default: all queries fire at once (per-query ms includes
+// queueing). EXPLORE_BENCH_SERIAL=1 runs them one at a time to split tool-time
+// inflation caused by in-process contention from intrinsic tool cost.
+const SERIAL = /^(?:1|true|on|yes)$/i.test(String(process.env.EXPLORE_BENCH_SERIAL || ''));
+const runOne = async ({ q, expect, expectFail, pathOnly }) => {
   const qt0 = Date.now();
   const res = await runExplore({ query: q, cwd: CWD }, { callerCwd: CWD });
   const text = res?.content?.[0]?.text || '';
@@ -201,7 +203,14 @@ const results = await Promise.all(QUERIES.map(async ({ q, expect, expectFail, pa
           (e) => aLines.some((l) => l.toLowerCase().includes(e.toLowerCase())),
         ));
   return { q: q.slice(0, 48), ms: Date.now() - qt0, anchors, failed, hit, badAnchors, bytes: text.length };
-}));
+};
+let results;
+if (SERIAL) {
+  results = [];
+  for (const query of QUERIES) results.push(await runOne(query));
+} else {
+  results = await Promise.all(QUERIES.map(runOne));
+}
 
 // Identify explorer sessions from trace rows, then attribute both tool calls
 // and LLM send time per session.
@@ -235,6 +244,29 @@ const sendP50 = sendMsPer[Math.floor(sendMsPer.length / 2)] ?? 0;
 const sendMax = sendMsPer[sendMsPer.length - 1] ?? 0;
 const sendCount = [...sendBySession.values()].reduce((a, s) => a + s.sends, 0);
 
+// Harness-side split: per-session tool execution time (tool_ms) and the
+// session span (first..last trace row). residual = span - send - tool is the
+// harness's own cost: dispatch/init, queueing, merge, trace, scheduling.
+const toolMsBySession = new Map();
+const spanBySession = new Map();
+for (const r of rows) {
+  if (!explorerSessions.has(r.session_id)) continue;
+  const span = spanBySession.get(r.session_id) || { min: r.ts, max: r.ts };
+  span.min = Math.min(span.min, r.ts); span.max = Math.max(span.max, r.ts);
+  spanBySession.set(r.session_id, span);
+  if (r.kind === 'tool') {
+    toolMsBySession.set(r.session_id, (toolMsBySession.get(r.session_id) || 0) + (Number(r.tool_ms) || 0));
+  }
+}
+const perSessionSplit = [...spanBySession.entries()].map(([id, span]) => {
+  const send = sendBySession.get(id)?.ms || 0;
+  const tool = toolMsBySession.get(id) || 0;
+  const spanMs = span.max - span.min;
+  return { id, spanMs, send, tool, residual: Math.max(0, spanMs - send - tool) };
+});
+const pick = (key) => perSessionSplit.map((s) => s[key]).sort((a, b) => a - b);
+const mid = (arr) => arr[Math.floor(arr.length / 2)] ?? 0;
+
 console.log(`\n=== explore-bench round=${ROUND} ===`);
 for (const r of results) {
   console.log(`  [${String(r.ms).padStart(6)}ms] ${r.hit ? 'HIT ' : 'MISS'} anchors=${r.anchors} bad=${r.badAnchors} failed=${r.failed} bytes=${r.bytes}  ${r.q}`);
@@ -245,4 +277,5 @@ console.log(`  sessions=${bySession.size} toolcalls p50=${p50} max=${callCounts[
 for (const [id, s] of bySession) console.log(`    ${id.slice(-8)}: ${s.tools.join(',')}`);
 const wallMs = Date.now() - t0;
 console.log(`  llm-send: sessions=${sendBySession.size} sends=${sendCount} ms/session p50=${sendP50} max=${sendMax} total=${sendTotal}`);
+console.log(`  split/session p50: span=${mid(pick('spanMs'))} send=${mid(pick('send'))} tool=${mid(pick('tool'))} residual=${mid(pick('residual'))} (max residual=${pick('residual').at(-1) ?? 0})`);
 console.log(`  wall total=${(wallMs / 1000).toFixed(1)}s  send/wall=${wallMs > 0 ? (sendTotal / wallMs).toFixed(2) : '0.00'}x`);

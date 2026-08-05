@@ -4,9 +4,14 @@
 //
 // Single-daemon premise: tool execution is in-process, so a module-level
 // singleton semaphore CAN bound the number of concurrent child processes (rg,
-// mixdog-graph, …) across ALL agents/workers in this daemon. By default the
-// gate is UNBOUNDED — parallel waves must never queue behind it — and it only
-// becomes a real cap when MIXDOG_CHILD_SPAWN_MAX_INFLIGHT is set explicitly.
+// mixdog-graph, …) across ALL agents/workers in this daemon.
+//
+// Default: 1 on win32, unbounded elsewhere. Measured on Windows (explore-bench
+// 13-way fan-out, 2026-08-05): concurrent rg spawns thrash the AV child-scan
+// path — wall 31-61s unbounded vs 20-23s at cap 1, monotonic 1<2<6≈∞, tool
+// p50 14.6s→11.0s, quality unchanged. Spawns are short (rg/graph only; shell
+// is deliberately NOT gated), so serializing them overlaps LLM waits instead
+// of starving anything. MIXDOG_CHILD_SPAWN_MAX_INFLIGHT still overrides.
 //
 // IMPORTANT: this is a resource-control knob and is deliberately NOT exposed
 // on any tool JSON schema / tool parameter surface. The only tuning surface
@@ -15,7 +20,7 @@
 function _defaultMaxInflight() {
   const override = Number(process.env.MIXDOG_CHILD_SPAWN_MAX_INFLIGHT);
   if (Number.isFinite(override) && override >= 1) return Math.floor(override);
-  return Infinity;
+  return process.platform === 'win32' ? 1 : Infinity;
 }
 
 const MAX_INFLIGHT = _defaultMaxInflight();

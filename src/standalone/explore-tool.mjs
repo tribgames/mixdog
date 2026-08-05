@@ -34,7 +34,7 @@ export const EXPLORE_TOOL = {
 // (50MB) plus a smart-read summariser downstream; the standalone path returns
 // the merged text in-turn, so we keep a sane bound to protect the Lead context.
 const EXPLORE_OUTPUT_CHAR_CAP = 24_000;
-const EXPLORE_TRUNCATION_MARKER = '\n\n[explore: output truncated; narrow cwd or split queries to see more]';
+const EXPLORE_TRUNCATION_MARKER = '\n\n[explore: output capped; remainder omitted]';
 // Bound fan-out so a hostile/poisoned query array cannot spawn unbounded subs.
 export const MAX_FANOUT_QUERIES = 8;
 // Mechanical turn cap per explorer sub-session: 3 free turns (contract: tool
