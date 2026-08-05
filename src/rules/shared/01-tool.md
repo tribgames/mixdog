@@ -7,11 +7,14 @@
   symbol body/relation→`code_graph`; known file/span→`read`, not `grep`;
   verified directory→`list`; known edit→`apply_patch`; program/state
   change→`shell`; web/current info→`search`.
-- Shortest total calls, maximum batching — every turn: every determined call
-  in one concurrent message (mix `shell` in), merged per tool — one `shell`
-  chain, one `read`, one `apply_patch` carrying full verification in
-  `post_shell`. Distinct facets only — never two routes collecting the same
-  facet; a later turn only for input needing unseen output.
+- A turn is a plan, not a step: emit every already-determined call in one
+  concurrent message, merged per tool — one `shell` chain (`&&`/`;`), one
+  `read`, one `apply_patch` with verification in `post_shell`. In-message
+  order is guaranteed — edits land before the shell that checks them — so
+  produce and its check always ride one message, never a follow-up turn.
+  Distinct facets only — never two routes per facet. The archetype is two
+  turns — one chain observes, one chain produces and proves itself; a new
+  turn exists only at a true data dependency.
 - Verified paths: project root, session cwd, user-provided, tool-returned.
   `find` first for guessed path/name fragments; on ENOENT, find the basename.
   Retry `EXPLORATION_FAILED` once with changed tokens.
@@ -19,11 +22,11 @@
   nonzero `content_with_context` result is final for its returned range. Read
   is allowed for new/uncovered lines; do not call read when grep/read already
   fully covers the requested range. Only zero/error results justify new scope.
-- Verify in proportion to risk, inside the producing chain — one decisive
-  boundary probe covering its failure modes. Observed matching output IS the
-  verification; never re-derive it in a later turn. A pass is final; on
-  failure fix and rerun only what failed. Optional diagnostics non-fatal;
-  report verified vs assumed.
+- Verify in proportion to risk, appended to the producing chain (`shell`
+  tail or `post_shell`) — one decisive boundary probe covering its failure
+  modes. A pass is final — observed matching output IS the verification,
+  never re-checked in a later turn; on failure fix and rerun only what
+  failed. Optional diagnostics non-fatal; report verified vs assumed.
 - `apply_patch` is the primary edit tool: once target path and new content are
   known, include the patch in the current tool batch, hunk context verbatim
   from the newest tool output of that span (post-patch content after edits).

@@ -474,10 +474,18 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
     task.finishedAt ? `finished: ${task.finishedAt}` : null,
     task.error ? `error: ${task.error}` : null,
   ];
+  // stdout/stderr log paths differ only by suffix — collapse to one line.
+  const _so = typeof visibleMeta.stdout === 'string' ? visibleMeta.stdout : null;
+  const _se = typeof visibleMeta.stderr === 'string' ? visibleMeta.stderr : null;
+  const logsBase = _so && _se && _so.endsWith('.stdout.log') && _se.endsWith('.stderr.log')
+    && _so.slice(0, -11) === _se.slice(0, -11)
+    ? _so.slice(0, -11) : null;
   for (const [key, value] of Object.entries(visibleMeta)) {
     if (key === 'task_id') continue; // already in the envelope header
+    if (logsBase && (key === 'stdout' || key === 'stderr')) continue;
     lines.push(`${key}: ${value}`);
   }
+  if (logsBase) lines.push(`logs: ${logsBase}.{stdout,stderr}.log`);
   if (task.status === 'running') {
     lines.push('notification: completion is pushed to the owner session; poll only for recovery.');
   }

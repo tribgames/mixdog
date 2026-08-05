@@ -495,11 +495,13 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
                 const r = orderedResults[i];
                 const path = normalizeOutputPath(r.path);
                 const mode = r.n !== undefined ? `${r.mode} n=${r.n}` : r.mode;
+                // Default full mode carries no information — tag only non-default modes.
+                const modeTag = mode && mode !== 'full' ? ` [${mode}]` : '';
                 const status = bodyFailed(r.body) ? 'error' : 'ok';
                 const textBody = bodyTextFor(r.body);
                 const match = /\[TRUNCATED (?:—|-) file is (\d+) lines \/ (\d+) KB\./.exec(textBody);
                 const suffix = match ? ` (truncated ${match[1]}L/${match[2]}KB)` : '';
-                const entryHeader = `${path} [${mode}] [${status}]${suffix}`;
+                const entryHeader = `${path}${modeTag} [${status}]${suffix}`;
                 const richParts = richPartsFor(r.body);
                 let priorIdx;
                 if (richParts) {
@@ -538,16 +540,17 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
         const body = orderedResults.map((r, _i) => {
             const path = normalizeOutputPath(r.path);
             const mode = r.n !== undefined ? `${r.mode} n=${r.n}` : r.mode;
+            const modeTag = mode && mode !== 'full' ? ` [${mode}]` : '';
             const status = classifyResultKind(String(r.body || '')) === 'error' ? 'error' : 'ok';
             const dupKey = JSON.stringify([path, mode, r.body || '']);
             const priorIdx = _seenEntryBody.get(dupKey);
             if (priorIdx !== undefined) {
-                return `${path} [${mode}] [${status}] [= entry #${priorIdx + 1}, identical result omitted]`;
+                return `${path}${modeTag} [${status}] [= entry #${priorIdx + 1}, identical result omitted]`;
             }
             _seenEntryBody.set(dupKey, _i);
             const match = /\[TRUNCATED (?:—|-) file is (\d+) lines \/ (\d+) KB\./.exec(r.body || '');
             const suffix = match ? ` (truncated ${match[1]}L/${match[2]}KB)` : '';
-            return `${path} [${mode}] [${status}]${suffix}\n${r.body}`;
+            return `${path}${modeTag} [${status}]${suffix}\n${r.body}`;
         }).join('\n\n');
         return `${header}\n\n${body}${args._batchCapNote ? `\n\n${args._batchCapNote}` : ''}`;
     }

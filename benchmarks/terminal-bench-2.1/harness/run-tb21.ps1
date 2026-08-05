@@ -122,8 +122,9 @@ function Expand-Tasks([string[]]$names) {
 foreach ($t in (Expand-Tasks $Include)) { $harborArgs += @("-i", $t) }
 foreach ($t in (Expand-Tasks $Exclude)) { $harborArgs += @("-x", $t) }
 # Anti-429 boot-spread window scales with actual concurrency instead of a
-# fixed 30s worst case; explicit -AgentEnv entries appended later still win.
-$harborArgs += @("--ae", "MIXDOG_BOOT_JITTER_MS=$([Math]::Min(30000, $Concurrent * 2500))")
+# fixed 30s worst case; a single trial has no herd to spread, so jitter is 0.
+# Explicit -AgentEnv entries appended later still win.
+$harborArgs += @("--ae", "MIXDOG_BOOT_JITTER_MS=$([Math]::Min(30000, ($Concurrent - 1) * 2500))")
 if ($hasModel) { $harborArgs += @("-m", $Model) }
 if ($hasProvider) { $harborArgs += @("--ak", "provider=$Provider") }
 if ($Effort) { $harborArgs += @("--ak", "effort=$Effort") }

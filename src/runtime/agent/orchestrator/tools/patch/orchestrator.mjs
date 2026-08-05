@@ -544,8 +544,8 @@ function _scopePatchedFiles(scopeKey) {
   return seen;
 }
 const POST_PATCH_EXCERPT_MAX_FILES = 3;
-const POST_PATCH_EXCERPT_MAX_LINES = 10;
-const POST_PATCH_EXCERPT_MAX_CHARS = 1400;
+const POST_PATCH_EXCERPT_MAX_LINES = 6;
+const POST_PATCH_EXCERPT_MAX_CHARS = 700;
 export function appendPostPatchExcerpts(outputText, patchStr, requestedFormat, basePath, readStateScope) {
   try {
     if (isPatchErrorText(outputText)) return outputText;
