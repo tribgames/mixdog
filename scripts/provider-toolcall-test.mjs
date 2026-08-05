@@ -65,9 +65,12 @@ import { _test as _anthropicOAuthTest } from '../src/runtime/agent/orchestrator/
 import {
     EFFORT_BETA_HEADER,
     LEGACY_EFFORT_BUDGET,
+    effortValuesForModel,
     modelSupportsEffort,
     modelSupportsMaxEffort,
+    modelSupportsXhighEffort,
     normalizeAnthropicEffortInput,
+    setModelEffortCapabilities,
     shouldIncludeEffortBeta,
 } from '../src/runtime/agent/orchestrator/providers/anthropic-effort.mjs';
 import { buildAnthropicBetaHeaders } from '../src/runtime/agent/orchestrator/providers/anthropic-betas.mjs';
@@ -2125,6 +2128,63 @@ test('anthropic effort: explicit thinkingBudgetTokens wins over effort', () => {
     assert.deepEqual(body.thinking, { type: 'enabled', budget_tokens: 2048 });
     assert.equal(body.output_config, undefined);
     assert.equal(shouldIncludeEffortBeta(model, { effort: 'low', thinkingBudgetTokens: 2048 }), false);
+});
+
+test('anthropic effort: bare version id claude-opus-5 gets effort + adaptive thinking', () => {
+    // The catalog mints version-tier ids WITHOUT a dated suffix, which the old
+    // `/^claude-opus-5-/` gate missed — every request silently fell back to a
+    // fixed 16K legacy thinking budget.
+    setModelEffortCapabilities([]);
+    const model = 'claude-opus-5';
+    assert.equal(modelSupportsEffort(model), true);
+    assert.equal(shouldIncludeEffortBeta(model, { effort: 'high' }), true);
+    const body = _buildRequestBodyForCacheSmoke(
+        [{ role: 'user', content: 'hi' }],
+        model,
+        [],
+        { effort: 'high' },
+    );
+    assert.deepEqual(body.output_config, { effort: 'high' });
+    assert.deepEqual(body.thinking, { type: 'adaptive', display: 'summarized' });
+    assert.equal(body.temperature, undefined);
+});
+
+test('anthropic effort: bare pre-5 aliases stay on the legacy budget path', () => {
+    setModelEffortCapabilities([]);
+    assert.equal(modelSupportsEffort('claude-opus-4'), false);
+    assert.equal(modelSupportsEffort('claude-sonnet-4'), false);
+    assert.equal(modelSupportsEffort('claude-haiku-5'), false);
+});
+
+test('anthropic effort: catalog capabilities outrank the regex ladder', () => {
+    setModelEffortCapabilities([
+        { id: 'claude-mythos-9-20260401', reasoningOptions: [{ type: 'effort', values: ['low', 'high', 'max'] }] },
+        { id: 'claude-opus-5', reasoningOptions: [{ type: 'budget_tokens', min: 1024 }] },
+        // No reasoningOptions at all = unknown record: the regex fallback must
+        // still decide (offline/static lists carry no capability data).
+        { id: 'claude-fable-5' },
+    ]);
+    try {
+        // Unknown to every regex, but advertised by the catalog — the dated id
+        // and its bare alias resolve to the same record.
+        assert.equal(modelSupportsEffort('claude-mythos-9'), true);
+        assert.equal(modelSupportsMaxEffort('claude-mythos-9-20260401'), true);
+        assert.equal(modelSupportsXhighEffort('claude-mythos-9'), false);
+        // Catalog says budget_tokens only → no effort, regex opinion ignored.
+        assert.equal(modelSupportsEffort('claude-opus-5'), false);
+        assert.equal(modelSupportsEffort('claude-fable-5'), true);
+    } finally {
+        setModelEffortCapabilities([]);
+    }
+});
+
+test('anthropic effort: catalog normalization drops control keys from levels', () => {
+    // `supported` is a control flag on capabilities.effort, not a level; it
+    // leaked into the persisted catalog and into the effort picker.
+    assert.deepEqual(
+        effortValuesForModel({ effort: { supported: true, low: true, high: true, max: true } }, 'claude-opus-5'),
+        ['low', 'high', 'max'],
+    );
 });
 // === 9. OpenAI OAuth WS cache tracing ======================================
 

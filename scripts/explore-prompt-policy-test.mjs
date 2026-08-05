@@ -47,15 +47,19 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   const rule = readFileSync(new URL('../src/rules/shared/01-tool.md', import.meta.url), 'utf8');
   const policy = rule.replace(/\s+/g, ' ');
   assert.match(policy, /one shortest route per facet/i);
-  assert.match(policy, /broad\/uncertain→\s*`explore`.*partial path\/name→\s*`find`.*verified root\+wildcard→\s*`glob`.*text\/code location→\s*`grep`.*symbol body\/relation→\s*`code_graph`/i);
-  assert.match(policy, /shortest total calls, maximum batching.*every determined call in one concurrent message \(mix `shell` in\), merged per tool — one `shell` chain, one `read`, one `apply_patch` carrying full verification in `post_shell`; a later turn only for steps needing unseen output/i);
+  assert.match(policy, /broad\/uncertain→\s*`explore`.*known name fragment→\s*`find`.*verified root\+wildcard→\s*`glob`.*text\/code→\s*`grep`.*symbol body\/relation→\s*`code_graph`/i);
+  assert.match(policy, /a turn is a plan, not a step: batch to the maximum the plan allows — every already-required call rides one concurrent message, merged per tool: one `shell` chain \(`&&`\/`;`\), one `read`, one `apply_patch` with the whole edit set/i);
+  assert.match(policy, /each facet keeps its single route, dedicated tools carry observation, and `shell` joins when the plan already needs a program\/state change or a check/i);
+  assert.match(policy, /an edit set and its check ride one message and a new turn starts at a true data dependency/i);
+  assert.doesNotMatch(policy, /maximum batching|archetype is two turns|`shell` beside them|every already-determined call/i);
   assert.doesNotMatch(policy, /shell that tests\/checks the edit|runtime starts that shell only after/i);
-  assert.match(policy, /verify changes in proportion to risk with one decisive batched boundary probe/i);
+  assert.match(policy, /close the edit set with its own proof: the `apply_patch` that finishes it carries the check in `post_shell` \(or a `shell` tail in the same message\) — one probe for the whole set, sized to the risk it introduces/i);
+  assert.match(policy, /probe where the change can actually fail; report a low-risk edit as done on the patch result alone/i);
   assert.doesNotMatch(policy, /one composite boundary probe|send the patch as soon/i);
-  assert.match(policy, /gather every known facet — environment, capability, artifact, and failure checks — in one bounded tool message/i);
+  assert.match(policy, /gather every known facet — environment, capability, artifact, failure checks — in one bounded tool message/i);
   assert.match(policy, /do not call read when grep\/read already fully covers the requested range/i);
   assert.match(policy, /stop when evidence covers the deliverable/i);
-  assert.match(policy, /known file\/span→`read` directly without `grep`/i);
+  assert.match(policy, /known file\/span→`read`, not `grep`/i);
   assert.doesNotMatch(policy, /retrieval[^.]{0,120}\b(?:one|at most \d+)\s+(?:lookup|inspection|turn|call)/i);
   assert.doesNotMatch(policy, /\bone lookup\b[^.]{0,80}\bat most\b[^.]{0,40}\binspection\b/i);
 });
@@ -67,7 +71,7 @@ test('explorer locator policy retains its compact behavioral contract', () => {
     /Return only WHERE \(`path:line`\), never WHY[\s\S]*You ARE `explore`; never call it/i,
     /only grep\/find\/glob\/code_graph[\s\S]*`read` and `list` are forbidden/i,
     /Turn 1 \(`turn 1\/3`\) is the whole search[\s\S]*Split broad\/uncertain input into every known facet[\s\S]*one batch under the shared one-route contract[\s\S]*upstream producer\/derivation layer[\s\S]*SAME batch[\s\S]*Follow-up turns batch every unresolved facet in parallel[\s\S]*single-tool turn is allowed only when exactly one pre-anchor\/zero-hit facet remains/i,
-    /broad grep use `output_mode:"files_with_matches"`[\s\S]*`content_with_context` with `head_limit` only on paths returned this session/i,
+    /Grep defaults to `output_mode:"content_with_context"` with `context:0`[\s\S]*tight `head_limit` \(≤20\)[\s\S]*`files_with_matches` only as a cheap existence probe/i,
     /Each pattern is one identifier, camel\/snake variant, or concept synonym[\s\S]*never a prose phrase[\s\S]*Spaces and non-ASCII are allowed only in verbatim quoted error\/log literals[\s\S]*Translate other non-English queries to English identifiers/i,
     /Scope is session cwd[\s\S]*For unverified `src` paths, use `find` first[\s\S]*never guess or invent directories[\s\S]*`path:"\."` with guessed `src\/\*\*`[\s\S]*exact find-returned path[\s\S]*no earlier than turn 2[\s\S]*After zero hits, change tokens or scope, never wording or guessed paths/i,
     /anchor is a `path:line` containing a query token or synonym[\s\S]*code_graph hit[\s\S]*Generic terms without query specificity are zero[\s\S]*Never re-locate, reconfirm, or upgrade an anchor[\s\S]*path without `:line` is a pre-anchor and counts as zero/i,

@@ -48,7 +48,7 @@ export async function processToolBatch(ctx) {
     const {
         calls, messages, tools, cwd, sessionId, sessionRef, signal, opts,
         iterations, assistantTurnMsg, pending, epoch, startEagerRun,
-        crossTurnCalls, crossTurnCap, sessionAgent, steeringLadder,
+        crossTurnCalls, crossTurnCap, sessionAgent,
         pushToolResultMessage, throwIfAborted, repeatFailLimit,
     } = ctx;
     const executeToolFn = typeof ctx.executeToolFn === 'function' ? ctx.executeToolFn : executeTool;
@@ -730,10 +730,6 @@ export async function processToolBatch(ctx) {
                 } catch { /* best-effort: PostToolBatch hook must never break the loop */ }
             }
         }
-        // Completion-first steering hints (missed-parallelism / all-read-only /
-        // serial-rewording). At most ONE hint per turn. The ladder controller
-        // owns the cumulative counters and streaks.
-        steeringLadder.emitPostBatchSteering(calls, false);
         // Mid-turn steering is drained at the next loop's pre-send point,
         // AFTER any auto-compact pass. Draining here would put the steering
         // user turn after the fresh tool results before compaction runs; then

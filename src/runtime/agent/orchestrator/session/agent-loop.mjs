@@ -91,7 +91,6 @@ import {
     isOutputLimitStopReason,
     providerContinuationSignal,
 } from './loop/termination.mjs';
-import { createSteeringLadder } from './loop/steering-ladder.mjs';
 import { runPreSendCompactPass } from './pre-send-compact.mjs';
 import { createEagerDispatcher } from './eager-dispatch.mjs';
 import { sendWithRecovery } from './send-with-recovery.mjs';
@@ -366,9 +365,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     };
     const maxLoopIterations = resolveSessionMaxLoopIterations(sessionRef);
     // ---- Completion-first loop guards (worker runaway prevention) ----
-    // Step 1 (escalation ladder) + the missed-parallelism / serial-rewording
-    // steering hints live in the createSteeringLadder controller below; it owns
-    // their cumulative counters and emits at most one hint per turn.
+    // Behavior-steering hints (missed-parallelism, all-read-only, read-only
+    // shell, level-2 "stop exploring") were removed: they nudged tool shape
+    // instead of protecting resources. Only the staged iteration warnings, the
+    // hard cap, and the cross-turn dedup stub remain.
     // _editCount counts any executed tool call whose def lacks readOnlyHint
     // (i.e. edit/progress: apply_patch, bash, MCP writes, skills, ...).
     let _editCount = 0;
@@ -415,20 +415,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         const name = String(call?.name || call?.toolName || call?.function?.name || '').toLowerCase();
         return name === 'sleep' || name.endsWith('/sleep') || name.endsWith('.sleep');
     };
-    // Completion-first steering ladder controller. Owns the (cumulative) level-1
-    // fire count, the all-read-only / serial-single / same-file-grep streaks,
-    // and the level-2 latch. Threaded via live getters so it reads the loop's
-    // current `iterations` / `_editCount` on every call (no stale snapshots).
-    const _steeringLadder = createSteeringLadder({
-        sessionId,
-        sessionAgent,
-        tools,
-        getIterations: () => iterations,
-        getEditCount: () => _editCount,
-        readOnlyRole: String(sessionRef?.permission || sessionRef?.toolPermission || '') === 'read',
-        pushUserMessage: (msg) => messages.push(msg),
-        pushSystemReminder: (text) => messages.push({ role: 'user', content: `<system-reminder>\n${text}\n</system-reminder>`, meta: 'hook' }),
-    });
     // Tool execution must use the session cwd even when the caller omitted the
     // legacy positional cwd argument. Agent workers always carry their cwd on
     // sessionRef; falling through to pwd()/process.cwd() resolves relatives
@@ -792,11 +778,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // tool-call-blocked vs contract-required oscillation.
         if (!response.toolCalls?.length) {
             // No tool calls. Decide between final-answer accept vs nudge.
-            // Reviewer fix: a zero-tool turn (final-pre-send steering drain or
-            // contract nudge `continue`) must not bridge the all-read-only
-            // streak across non-tool turns — that would fire level-2 early on
-            // a worker that paused to synthesize text mid-run.
-            _steeringLadder.resetAllReadOnlyStreak();
             //   - has content + non-hidden role → valid final, break.
             //   - empty content + hidden role → contract allows text-only
             //     terminal turn, break.
@@ -1064,7 +1045,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             pending: eager.pending, epoch: eager.epoch, startEagerRun: eager.startEagerRun,
             crossTurnCalls: _crossTurnCalls, crossTurnCap: _CROSS_TURN_CAP,
             dedupStubTotal: _dedupStubTotal, editCount: _editCount,
-            sessionAgent, steeringLadder: _steeringLadder,
+            sessionAgent,
             pushToolResultMessage, throwIfAborted,
             repeatFailLimit: REPEAT_FAIL_LIMIT,
         }));

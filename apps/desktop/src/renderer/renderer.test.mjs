@@ -1204,6 +1204,67 @@ test('session lanes order by authoritative content generation, never by arrival'
     'a renderer result replaces content without contradicting the recorded generation');
 });
 
+test('a lane frame without a route keeps the route the pane already knows', () => {
+  const sessionId = 'route-retention';
+  const store = createSessionLaneStore({ maxEntries: 4, maxBytes: 1024 * 1024 });
+  const row = (index) => ({ id: `row-${index}`, kind: 'assistant', text: `t${index}` });
+  store.apply({
+    sessionId,
+    snapshot: {
+      sessionId,
+      items: [row(1), row(2)],
+      queued: [],
+      provider: 'anthropic-oauth',
+      model: 'claude-opus-5',
+      effort: 'high',
+      fast: false,
+    },
+    frameSource: 'live',
+    contentRevision: 1,
+  });
+  // A disk/peek projection publishes the route as EMPTY strings, not as
+  // missing fields: the pane must not fall back to "Select model".
+  store.apply({
+    sessionId,
+    snapshot: {
+      sessionId,
+      items: [row(1), row(2), row(3)],
+      queued: [],
+      provider: '',
+      model: '',
+      effort: '',
+    },
+    frameSource: 'replay',
+    contentRevision: 2,
+  });
+  assert.equal(store.get(sessionId).model, 'claude-opus-5',
+    'a route-less projection keeps the last known model');
+  assert.equal(store.get(sessionId).provider, 'anthropic-oauth');
+  assert.equal(store.get(sessionId).effort, 'high');
+  assert.equal(store.get(sessionId).items.length, 3, 'the frame still owns its transcript');
+
+  // A frame that names its own route always wins, and effort belongs to the
+  // route it was chosen for.
+  const switched = decideSessionLaneFrame(
+    store.get(sessionId),
+    2,
+    { sessionId, items: [row(1), row(2), row(3)], queued: [], provider: 'openai', model: 'gpt-5' },
+    { source: 'session-lane', frameSource: 'live', contentRevision: 3 },
+  );
+  assert.equal(switched.snapshot.model, 'gpt-5');
+  assert.equal(switched.snapshot.provider, 'openai');
+  assert.equal(switched.snapshot.effort ?? '', '',
+    'effort is never carried across a model change');
+
+  const unknown = decideSessionLaneFrame(
+    { sessionId, items: [row(1)], queued: [] },
+    1,
+    { sessionId, items: [row(1)], queued: [], provider: '', model: '' },
+    { source: 'session-lane', frameSource: 'replay', contentRevision: 2 },
+  );
+  assert.equal(unknown.snapshot.model, '', 'a pane that never knew a route stays unset');
+});
+
 test('a tail-windowed replay keeps the identity baseline for the next full frame', () => {
   const reconciler = createTranscriptIdentityReconciler();
   const sessionId = 'identity-window';

@@ -183,16 +183,20 @@ export { cleanupStaleTranscriptSpillDirs, createTranscriptSpillBuffer, refillTra
 export { parseBackgroundTaskEnvelope } from './engine/agent-envelope.mjs';
 
 // ── Engine daemon seam ───────────────────────────────────────────────────────
-// With MIXDOG_ENGINE_DAEMON=1 the engine runs inside the machine-global engine
-// daemon and this process holds a VIEW of it, so the terminal TUI and the
-// desktop app can edit the same live session at once instead of arbitrating
-// ownership through the session store. The daemon host itself always builds
-// REAL engines (MIXDOG_ENGINE_DAEMON_HOST=1) — that is what stops this factory
-// from recursing into its own proxy.
+// The engine runs inside the machine-global engine daemon and this process
+// holds a VIEW of it, so the terminal TUI and every desktop window edit the
+// same live session instead of arbitrating ownership through the session
+// store. This is the DEFAULT: one writer means there is no owner/viewer role
+// to negotiate and no cross-process hand-off that can swallow a prompt.
+// `MIXDOG_ENGINE_DAEMON=0` opts out (tests/diagnostics keep an in-process
+// engine); `strict` additionally refuses the local fallback. The daemon host
+// itself always builds REAL engines (MIXDOG_ENGINE_DAEMON_HOST=1) — that is
+// what stops this factory from recursing into its own proxy.
 function engineDaemonRequested() {
   if (process.env.MIXDOG_ENGINE_DAEMON_HOST === '1') return false;
   const value = String(process.env.MIXDOG_ENGINE_DAEMON || '').trim().toLowerCase();
-  return value === '1' || value === 'true' || value === 'on' || value === 'strict';
+  if (value === '0' || value === 'false' || value === 'off') return false;
+  return true;
 }
 
 export async function createEngineSession(options = {}) {
@@ -910,12 +914,21 @@ export async function createLocalEngineSession({
     getPublishedState: () => publishedState,
     listeners,
     onRemoteSubmit: (text, meta) => {
-      if (flags.disposed || state.sessionRemoteAttached) return;
+      // A refusal must be REPORTED, never silent. This engine can be unable to
+      // take a foreign prompt (disposed, or it became an attached viewer
+      // itself); swallowing it here is what made a submitted message vanish
+      // with no transcript row and no error (user: 입력이 씹힘). The ack sent
+      // by live-share carries this verdict back so the sender can re-deliver.
+      if (flags.disposed || state.sessionRemoteAttached) return false;
       // Preserve the viewer's submission id end-to-end: the queue entry and
       // the settled user item then carry the id the submitting surface used
       // for its optimistic row, so that row releases instead of duplicating.
-      bag.enqueue(text, meta && meta.id ? { id: meta.id, submittedAt: meta.submittedAt } : {});
+      const queued = bag.enqueue(
+        text,
+        meta && meta.id ? { id: meta.id, submittedAt: meta.submittedAt } : {},
+      ) !== false;
       void bag.drain();
+      return queued;
     },
     onRemoteAbort: () => {
       // Forwarded viewer stop: interrupt OUR active turn (we are the owner).
@@ -966,8 +979,17 @@ export async function createLocalEngineSession({
         // directly to the durable owner spool instead of starting a fake local
         // turn that renders an error/synthetic assistant message.
         try { liveShare.ensure(); } catch { /* durable fallback below */ }
-        if (text && liveShare.sendSubmit(text, { id: options.id, submittedAt: options.submittedAt })) return true;
-        return runtime.enqueueRemoteAttachedPrompt?.(prompt) === true;
+        const spoolFallback = () => runtime.enqueueRemoteAttachedPrompt?.(prompt) === true;
+        // A pipe WRITE is not a delivery: the owner may refuse the prompt or
+        // the socket may die between write and read. sendSubmit stays
+        // synchronous (the store contract), but an unacknowledged submit is
+        // re-delivered through the durable spool — late, never lost.
+        if (text && liveShare.sendSubmit(text, {
+          id: options.id,
+          submittedAt: options.submittedAt,
+          onUndelivered: spoolFallback,
+        })) return true;
+        return spoolFallback();
       }
       return baseSubmit(prompt, options);
     };

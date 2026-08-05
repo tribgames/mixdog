@@ -8,20 +8,22 @@
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { makeModelCache } from './model-cache.mjs';
-import { effortValuesForModel } from './anthropic-effort.mjs';
+import { effortValuesForModel, setModelEffortCapabilities } from './anthropic-effort.mjs';
 
 // Disk-backed cache so repeated process starts (cron, tool calls) don't
 // hammer /v1/models. 24h TTL matches the upstream client cadence.
 const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
 // Bump when the on-disk cache shape changes so stale-shape entries are
 // discarded instead of misread.
-const ANTHROPIC_MODEL_CACHE_SCHEMA_VERSION = 1;
+// v2: effort level lists no longer carry the `supported` control flag as a
+// selectable level, so v1 caches are discarded rather than replayed.
+const ANTHROPIC_MODEL_CACHE_SCHEMA_VERSION = 2;
 
 const _modelCache = makeModelCache({
     fileName: 'anthropic-oauth-models.json',
     ttlMs: MODEL_CACHE_TTL_MS,
     version: ANTHROPIC_MODEL_CACHE_SCHEMA_VERSION,
-    onSave: (m) => { _inMemoryCatalog = Array.isArray(m) ? m.slice() : null; },
+    onSave: (m) => { _setInMemoryCatalog(m); },
 });
 
 // Async wrappers so callers can keep awaiting; the shared cache CRUD is sync.
@@ -42,6 +44,9 @@ let _inMemoryCatalog = null;
 // listModels() warm path, so expose a setter instead of the raw binding.
 export function _setInMemoryCatalog(models) {
     _inMemoryCatalog = Array.isArray(models) ? models.slice() : null;
+    // The request builder resolves effort capability from the catalog, so the
+    // capability index moves with the mirror — one write, one source of truth.
+    setModelEffortCapabilities(_inMemoryCatalog || []);
 }
 
 export function _catalogHas(id) {
@@ -185,7 +190,9 @@ export function _catalogOutputTokens(model) {
     try {
         if (!Array.isArray(_inMemoryCatalog)) {
             const cached = _modelCache.loadSync();
-            if (Array.isArray(cached)) _inMemoryCatalog = cached.slice();
+            // Route the lazy warm through the setter: a direct assignment left
+            // the effort-capability index empty even though the mirror was warm.
+            if (Array.isArray(cached)) _setInMemoryCatalog(cached);
         }
         if (!Array.isArray(_inMemoryCatalog)) return null;
         const entry = _inMemoryCatalog.find(m => m?.id === model);

@@ -25,6 +25,23 @@ export function createSessionFlow(bag) {
   // settles. Do NOT raise this to cover compaction worst cases.
   const AUTO_CLEAR_COMPACT_TIMEOUT_MS = 60_000;
 
+  // Submission-id memory for idempotent re-delivery. A prompt can legitimately
+  // reach this queue TWICE when its transport retries across a failed response
+  // (daemon view retry, live-share spool fallback after a missing ack). The id
+  // the surface minted is the identity of the message, so a repeat of an id we
+  // already queued is dropped instead of posting the prompt twice.
+  const SUBMISSION_ID_MEMORY = 256;
+  const acceptedSubmissionIds = new Set();
+
+  function rememberSubmissionId(id) {
+    if (!id) return;
+    acceptedSubmissionIds.add(id);
+    while (acceptedSubmissionIds.size > SUBMISSION_ID_MEMORY) {
+      const oldest = acceptedSubmissionIds.values().next().value;
+      acceptedSubmissionIds.delete(oldest);
+    }
+  }
+
     const leadSessionId = () => runtime.id;
 
   function shouldMirrorSteeringEntry(entry) {
@@ -274,11 +291,19 @@ export function createSessionFlow(bag) {
     }
   }
   function enqueue(text, options = {}) {
+    const submissionId = String(options.id || '').trim();
+    // Idempotent intake: a transport that re-sent this exact submission (its
+    // first attempt landed but the response was lost) must not double-post.
+    if (submissionId && acceptedSubmissionIds.has(submissionId)) {
+      tuiDebug(`prompt-duplicate id=${submissionId} ignored`);
+      return false;
+    }
     const entry = makeQueueEntry(text, options);
     if (entry.mode === 'task-notification' && entry.key) {
       if (pendingNotificationKeys.has(entry.key)) return false;
       pendingNotificationKeys.add(entry.key);
     }
+    rememberSubmissionId(submissionId);
     pending.push(entry);
     if (getState().busy && shouldMirrorSteeringEntry(entry)) {
       appendTuiSteeringPersist(leadSessionId(), entry);

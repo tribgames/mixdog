@@ -236,6 +236,18 @@ export function resolveJobOwnerHostPid(clientHostPid) {
     return null;
 }
 
+// Resolve the SESSION that owns a freshly-spawned job. The owner pid alone is
+// not an ownership answer where one host process multiplexes many sessions
+// (the desktop pools every pane's engine in one process): without this stamp a
+// blank New task pane displayed another session's running shell. Agent
+// sub-sessions stamp their OWNER session id — tool-exec threads callerSessionId
+// as `notifySessionId || sessionRef.ownerSessionId` — because that is the
+// session a pane actually renders.
+export function resolveJobOwnerSessionId(sessionId) {
+    const value = String(sessionId ?? '').trim();
+    return value || null;
+}
+
 export function writeShellJobDetail(detail) {
     // Session scope stamp: every job record is tagged with the CC host pid
     // that owns it (the claude.exe pid). This is the SAME physical pid the
