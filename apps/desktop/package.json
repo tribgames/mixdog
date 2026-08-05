@@ -16,6 +16,7 @@
     "test:parity": "node --import tsx --test src/renderer/tui-parity.test.mjs",
     "test:settings": "node --max-old-space-size=1024 --import ./scripts/test-env.mjs --import tsx --test --test-concurrency=1 src/main/settings-store.test.mjs src/main/agent-awake.test.mjs src/renderer/settings/SettingsView.test.mjs src/renderer/SchedulesView.test.mjs src/renderer/WebhooksView.test.mjs src/renderer/sidebar-reference-cache.test.mjs src/renderer/sidebar-reference-panels.dom.test.mjs",
     "test:packaging": "node --import tsx --test src/main/packaging.test.mjs src/main/window-state.test.mjs src/main/live-layout-probe.test.mjs src/main/viewport-guard.test.mjs",
+    "test:engine-daemon": "node --import ./scripts/test-env.mjs --import tsx --test src/main/engine-daemon-host.test.mjs",
     "verify:packaged-runtime": "node scripts/verify-packaged-runtime.mjs",
     "test:updater": "node --import tsx --test src/main/updater-controller.test.mjs",
     "e2e:direct": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/direct-e2e-windows.ps1",

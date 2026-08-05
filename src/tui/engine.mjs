@@ -182,7 +182,34 @@ import { tuiDebug, nextId, cleanupStaleTranscriptSpillDirs, createTranscriptSpil
 export { cleanupStaleTranscriptSpillDirs, createTranscriptSpillBuffer, refillTranscriptViewOverlap, replaceEngineItemsState, createEngineItemMutators, TRANSCRIPT_LIVE_ITEM_CAP, TRANSCRIPT_SPILL_CHUNK_ITEMS } from './engine/transcript-spill.mjs';
 export { parseBackgroundTaskEnvelope } from './engine/agent-envelope.mjs';
 
-export async function createEngineSession({
+// ── Engine daemon seam ───────────────────────────────────────────────────────
+// With MIXDOG_ENGINE_DAEMON=1 the engine runs inside the machine-global engine
+// daemon and this process holds a VIEW of it, so the terminal TUI and the
+// desktop app can edit the same live session at once instead of arbitrating
+// ownership through the session store. The daemon host itself always builds
+// REAL engines (MIXDOG_ENGINE_DAEMON_HOST=1) — that is what stops this factory
+// from recursing into its own proxy.
+function engineDaemonRequested() {
+  if (process.env.MIXDOG_ENGINE_DAEMON_HOST === '1') return false;
+  const value = String(process.env.MIXDOG_ENGINE_DAEMON || '').trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'on' || value === 'strict';
+}
+
+export async function createEngineSession(options = {}) {
+  if (!engineDaemonRequested()) return createLocalEngineSession(options);
+  try {
+    const { createRemoteEngineSession } = await import('../standalone/engine-daemon-client.mjs');
+    return await createRemoteEngineSession(options);
+  } catch (err) {
+    // A missing/broken daemon must never leave the user without an engine.
+    // `strict` is the diagnostic mode that refuses the fallback instead.
+    if (String(process.env.MIXDOG_ENGINE_DAEMON || '').trim().toLowerCase() === 'strict') throw err;
+    console.warn(`Mixdog engine daemon unavailable (${err?.message || err}); running the engine in-process.`);
+    return createLocalEngineSession(options);
+  }
+}
+
+export async function createLocalEngineSession({
   provider: providerName,
   model,
   toolMode = 'full',

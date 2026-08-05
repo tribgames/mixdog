@@ -94,6 +94,8 @@
     "test:patch-binary-cache": "node --test scripts/patch-binary-cache-test.mjs",
     "test:patch-parity": "node --test scripts/v4a-codex-parity-test.mjs",
     "test:project-registry": "node --test scripts/project-registry-isolation-test.mjs",
+    "test:engine-daemon": "node --test scripts/engine-daemon-test.mjs scripts/engine-daemon-tui-parity-test.mjs scripts/engine-daemon-recovery-test.mjs",
+    "smoke:engine-daemon": "node scripts/engine-daemon-smoke.mjs",
     "test:session": "node --test scripts/session-orphan-sweep-test.mjs scripts/interrupted-turn-history-test.mjs scripts/turn-checkpoint-crash-test.mjs scripts/turn-outcome-fault-matrix-test.mjs scripts/session-save-fault-store-test.mjs scripts/session-disk-authority-test.mjs scripts/session-load-cache-race-test.mjs scripts/agent-loop-complete-turn-test.mjs scripts/session-heartbeat-lifecycle-test.mjs scripts/remote-transition-order-test.mjs scripts/session-new-reset-test.mjs",
     "test:live-canary": "node --test scripts/live-canary-test.mjs",
     "test:rebindtail": "node --test scripts/forwarder-rebind-tail-test.mjs",
