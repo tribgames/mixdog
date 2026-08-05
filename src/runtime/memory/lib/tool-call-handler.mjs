@@ -1,3 +1,17 @@
+import { capLineOrientedToolOutput, RECALL_OUTPUT_MAX_BYTES } from '../../agent/orchestrator/tools/builtin/tool-output-limit.mjs'
+
+// Byte cap for recall's model-facing text. Line-oriented: complete leading
+// rows are preserved and the omitted tail becomes a factual continuation
+// footer, so a huge multi-query/grouped browse cannot flood the caller's
+// context (42KB single-call observed before the cap).
+function capRecallText(text) {
+  return capLineOrientedToolOutput(
+    text,
+    RECALL_OUTPUT_MAX_BYTES,
+    (kept, lines) => `... [recall output capped at ${Math.round(RECALL_OUTPUT_MAX_BYTES / 1024)}KB after ${kept.length} of ${lines.length} lines; narrow query[]/category/period or page with limit/offset for the rest]`,
+  )
+}
+
 export function createToolCallHandler({ handleSearch, handleMemoryAction }) {
   async function handleToolCall(name, args, signal) {
     try {
@@ -40,7 +54,8 @@ export function createToolCallHandler({ handleSearch, handleMemoryAction }) {
           ...(a.currentSessionId ? { currentSessionId: a.currentSessionId } : {}),
         }
         const result = await handleSearch(searchArgs, signal)
-        return { ...result, content: [{ type: 'text', text: result.text }], isError: result.isError || false }
+        const cappedText = capRecallText(result.text)
+        return { ...result, text: cappedText, content: [{ type: 'text', text: cappedText }], isError: result.isError || false }
       }
       if (name === 'memory') {
         const result = await handleMemoryAction(args || {}, signal)
