@@ -38,6 +38,7 @@ export function createEngineDaemonTransport({
   clientGraceMs = 10_000,
   sweepMs = 5_000,
   onClientsEmpty = null,
+  onClientDropped = null,
   getStatus = () => ({}),
 } = {}) {
   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
@@ -64,7 +65,10 @@ export function createEngineDaemonTransport({
   function maybeArmGrace(reason) {
     if (closed || !everHadClient || typeof onClientsEmpty !== 'function') return;
     if (clients.size > 0) return;
-    cancelGrace();
+    // Never re-arm an ALREADY armed grace: the 5s sweep also calls this, and
+    // cancel+rearm on every tick pushed the 10s deadline out forever — the
+    // daemon could never self-shut down through the engine front door.
+    if (graceTimer) return;
     graceTimer = setTimeout(() => {
       graceTimer = null;
       if (closed || clients.size > 0) return;
@@ -84,6 +88,12 @@ export function createEngineDaemonTransport({
   function dropClient(token, reason) {
     if (!clients.has(token)) return;
     removeClientRecord(token);
+    // The engine pool refcounts VIEWS by client token: a client that is gone
+    // must stop holding engines open (and must stop being counted as the
+    // reason another client's engine survives).
+    if (typeof onClientDropped === 'function') {
+      try { onClientDropped(token, reason); } catch {}
+    }
     log(`client dropped token=${token} (${reason})`);
     maybeArmGrace(reason);
   }

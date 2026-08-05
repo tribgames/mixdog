@@ -10,7 +10,10 @@ import { join } from 'node:path';
 const ROOT = mkdtempSync(join(tmpdir(), 'mixdog-engine-daemon-recovery-'));
 process.env.MIXDOG_RUNTIME_ROOT = ROOT;
 process.env.MIXDOG_DATA_DIR = ROOT;
-delete process.env.MIXDOG_ENGINE_DAEMON;
+process.env.MIXDOG_ENGINE_DAEMON = '0';
+// This test HARD-KILLS the daemon; a throwaway memory runtime under it would
+// be orphaned by that kill, so the isolated root runs without one.
+process.env.MIXDOG_DAEMON_SKIP_MEMORY = '1';
 
 const {
   createRemoteEngineSession,
@@ -19,6 +22,7 @@ const {
   shutdownEngineDaemon,
 } = await import('../src/standalone/engine-daemon-client.mjs');
 const { ENGINE_DAEMON_PROTOCOL, engineRuntimeVersion } = await import('../src/standalone/engine-daemon-protocol.mjs');
+const { killProcessesUnder } = await import('./lib/isolated-root-cleanup.mjs');
 
 function waitFor(predicate, message, timeoutMs = 30_000) {
   return new Promise((resolve, reject) => {
@@ -42,8 +46,10 @@ test('version skew decides between attaching, draining, and staying in-process',
   assert.equal(negotiateEngineDaemon({ protocol: ENGINE_DAEMON_PROTOCOL, version }), 'ok');
   assert.equal(negotiateEngineDaemon({ protocol: ENGINE_DAEMON_PROTOCOL - 1, version }), 'restart');
   assert.equal(negotiateEngineDaemon({ protocol: ENGINE_DAEMON_PROTOCOL + 1, version }), 'defer');
-  assert.equal(negotiateEngineDaemon({ protocol: ENGINE_DAEMON_PROTOCOL, version: '0.0.1' }), 'restart');
-  assert.equal(negotiateEngineDaemon({ protocol: ENGINE_DAEMON_PROTOCOL, version: '999.0.0' }), 'defer');
+  // Only the WIRE protocol decides. A different build is not a reason to drain
+  // a live daemon mid-turn — closing every view is what picks up new code.
+  assert.equal(negotiateEngineDaemon({ protocol: ENGINE_DAEMON_PROTOCOL, version: '0.0.1' }), 'ok');
+  assert.equal(negotiateEngineDaemon({ protocol: ENGINE_DAEMON_PROTOCOL, version: '999.0.0' }), 'ok');
   // A daemon that answers nothing at all is treated as ancient, never accepted.
   assert.equal(negotiateEngineDaemon({}), 'restart');
 });
@@ -51,6 +57,7 @@ test('version skew decides between attaching, draining, and staying in-process',
 test('a killed daemon is replaced and the view re-seats itself', async (t) => {
   t.after(async () => {
     await shutdownEngineDaemon();
+    killProcessesUnder(ROOT);
     try { rmSync(ROOT, { recursive: true, force: true }); } catch {}
   });
 

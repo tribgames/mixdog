@@ -11,10 +11,14 @@ import { join } from 'node:path';
 const ROOT = mkdtempSync(join(tmpdir(), 'mixdog-engine-daemon-parity-'));
 process.env.MIXDOG_RUNTIME_ROOT = ROOT;
 process.env.MIXDOG_DATA_DIR = ROOT;
-delete process.env.MIXDOG_ENGINE_DAEMON;
+// Daemon attach is the default; this test needs BOTH sides, so it opts out
+// explicitly for the local leg and re-enables the seam for the remote one.
+process.env.MIXDOG_ENGINE_DAEMON = '0';
+process.env.MIXDOG_DAEMON_SKIP_MEMORY = '1';
 
 const engineModule = await import('../src/tui/engine.mjs');
 const { shutdownEngineDaemon } = await import('../src/standalone/engine-daemon-client.mjs');
+const { killProcessesUnder } = await import('./lib/isolated-root-cleanup.mjs');
 
 // Values that cannot cross a process boundary by construction; the TUI reads
 // them through store METHODS, never off the snapshot.
@@ -26,6 +30,7 @@ function wireCarryable(value) {
 test('a daemon-hosted store carries the same snapshot contract as an in-process one', async (t) => {
   t.after(async () => {
     await shutdownEngineDaemon();
+    killProcessesUnder(ROOT);
     try { rmSync(ROOT, { recursive: true, force: true }); } catch {}
   });
 
@@ -38,7 +43,7 @@ test('a daemon-hosted store carries the same snapshot contract as an in-process 
   try {
     remote = await engineModule.createEngineSession({ toolMode: 'full', cwd: process.cwd() });
   } finally {
-    delete process.env.MIXDOG_ENGINE_DAEMON;
+    process.env.MIXDOG_ENGINE_DAEMON = '0';
   }
   assert.equal(remote.isRemoteEngine, true, 'the seam returns a daemon view when the daemon is requested');
 
