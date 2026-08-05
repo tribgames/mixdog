@@ -30,6 +30,29 @@ apt-get install -y nodejs
 npm install -g --ignore-scripts mixdog@__VERSION__
 node --version
 mixdog --help >/dev/null 2>&1 && echo "mixdog ok"
+# Bench containers never run local embeddings (memory features are disabled
+# by the pristine contract), and the ONNX/transformers stack is ~344MB of the
+# ~502MB dependency tree. Prune it from the bench-only shell, then prove the
+# session runtime still imports without it (all references are lazy).
+MIXDOG_PKG="$(npm root -g)/mixdog"
+rm -rf "$MIXDOG_PKG/node_modules/onnxruntime-node" \
+  "$MIXDOG_PKG/node_modules/onnxruntime-web" \
+  "$MIXDOG_PKG/node_modules/@huggingface"
+# Warm the V8 compile cache for the whole import graph while proving the
+# runtime still imports. Published deps are immutable across runs, so their
+# cache entries stay valid per trial; only overlaid src files recompile.
+mkdir -p /opt/mixdog-v8-cache
+NODE_COMPILE_CACHE=/opt/mixdog-v8-cache node --input-type=module -e "await import('$MIXDOG_PKG/src/mixdog-session-runtime.mjs'); console.log('runtime import ok after prune')"
+chmod -R a+rwX /opt/mixdog-v8-cache
+# Static curl + CA bundle ride the tar so trials never pay the apt leg (the
+# apt-get update on curl-less task images was the 18-20s setup critical
+# path). Verified executable here before packing; install() only uses it
+# when the task image lacks curl/certs.
+mkdir -p /opt/static-curl
+curl -fsSL -o /opt/static-curl/curl https://github.com/moparisthebest/static-curl/releases/latest/download/curl-amd64
+chmod 0755 /opt/static-curl/curl
+/opt/static-curl/curl --version | head -n 1
+cp /etc/ssl/certs/ca-certificates.crt /opt/static-curl/ca-certificates.crt
 # uv 0.9.5 rides the tar too: install() re-runs the uv provision command in
 # every trial, and its "already available" fast path turns the per-trial
 # network bootstrap (astral.sh download, 5-15s + flake risk) into a ~1s no-op.
@@ -45,7 +68,7 @@ rm -f /tmp/uv-install.sh
 # with the in-container gunzip cost.
 tar -C / -czf /out/mixdog-node-prebake.tar.gz \
   usr/bin/node usr/bin/npm usr/bin/npx usr/bin/mixdog usr/bin/rg usr/lib/node_modules \
-  root/.local/bin
+  root/.local/bin opt/mixdog-v8-cache opt/static-curl
 echo "prebake tar written"
 '@ -replace '__VERSION__', $MixdogVersion
 # The here-string inherits this file's CRLF endings; bash -lc treats a

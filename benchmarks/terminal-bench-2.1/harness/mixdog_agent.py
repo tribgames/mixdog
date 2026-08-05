@@ -27,6 +27,7 @@ import asyncio
 import hashlib
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from harbor.agents.installed.base import (
@@ -322,6 +323,10 @@ class MixdogAgent(BaseInstalledAgent):
         self._route_profile = (
             load_route_profile(route_profile) if route_profile else None
         )
+        # Host-side Anthropic preflight overlapped with container install.
+        self._anthropic_preflight_task = None
+        self._anthropic_preflight_dir = None
+        self._anthropic_snapshot_path = None
         super().__init__(*args, **kwargs)
 
     @staticmethod
@@ -331,7 +336,50 @@ class MixdogAgent(BaseInstalledAgent):
     def get_version_command(self) -> str | None:
         return "mixdog --help >/dev/null 2>&1 && echo mixdog-" + self._mixdog_version
 
+    def _required_providers(self) -> set[str]:
+        routes = self._route_profile["routes"]
+        if self._mode == "worker":
+            return {routes["worker"]["provider"]}
+        required = {route["provider"] for route in routes.values()}
+        fallback = self._route_profile.get("leadFallback")
+        if fallback:
+            required.add(fallback["provider"])
+        return required
+
+    def _start_anthropic_preflight(self) -> None:
+        """Kick the host-side lease refresh so it overlaps container install."""
+        if self._route_profile is None or self._anthropic_preflight_task is not None:
+            return
+        if "anthropic-oauth" not in self._required_providers():
+            return
+        self._anthropic_preflight_dir = tempfile.TemporaryDirectory(
+            prefix="mixdog-tb-anthropic-lease-"
+        )
+        self._anthropic_snapshot_path = (
+            Path(self._anthropic_preflight_dir.name)
+            / "anthropic-oauth-credentials.json"
+        )
+        self._anthropic_preflight_task = asyncio.create_task(
+            asyncio.to_thread(
+                _run_anthropic_preflight,
+                _host_credentials_path(),
+                self._anthropic_snapshot_path,
+            )
+        )
+        # Retrieve a failure quietly if run() never consumes the task.
+        self._anthropic_preflight_task.add_done_callback(
+            lambda task: task.exception() if not task.cancelled() else None
+        )
+
     async def install(self, environment: BaseEnvironment) -> None:
+        self._start_anthropic_preflight()
+        timings = {}
+
+        async def _timed(label, coro):
+            started = time.monotonic()
+            result = await coro
+            timings[label] = time.monotonic() - started
+            return result
         prebake_tar = Path(
             os.environ.get(PREBAKE_TAR_ENV, "") or DEFAULT_PREBAKE_TAR
         )
@@ -342,47 +390,61 @@ class MixdogAgent(BaseInstalledAgent):
                 environment, command="command -v apt-get >/dev/null 2>&1 && echo apt || true"
             )
             if "apt" in (getattr(probe, "stdout", "") or ""):
-                # Setup critical path = max(apt, upload+extract), not their
-                # sum: the apt step (network, 10-40s) only feeds the LATER uv
-                # provision/curl tooling, while the tar staging only needs the
-                # container filesystem — so the two legs run concurrently.
-                async def _apt_leg() -> None:
-                    await self.exec_as_root(
-                        environment,
-                        command=(
-                            "set -eu; "
-                            "apt-get update && "
-                            # node/npm/mixdog AND rg ride the prebake tar; debian
-                            # ships coreutils as essential, so only curl/certs (for
-                            # uv provisioning + task tooling) come from apt here.
-                            "apt-get install -y curl ca-certificates"
-                        ),
-                        env={"DEBIAN_FRONTEND": "noninteractive"},
-                    )
-
-                async def _stage_leg() -> None:
+                async def _stage_leg():
                     await environment.upload_file(prebake_tar, CONTAINER_PREBAKE_TAR)
-                    await self.exec_as_root(
+                    return await self.exec_as_root(
                         environment,
                         command=(
                             "set -eu; "
                             f"tar -C / -xzf {CONTAINER_PREBAKE_TAR}; "
                             f"rm -f {CONTAINER_PREBAKE_TAR}; "
+                            # Prebaked dep-layer compile cache lives OUTSIDE
+                            # /opt/mixdog (which _inject_credentials recreates);
+                            # agent-user warmup/driver must be able to append.
+                            "mkdir -p /opt/mixdog-v8-cache; "
+                            "chmod -R a+rwX /opt/mixdog-v8-cache; "
+                            # Static curl + CA bundle from the tar replace the
+                            # old parallel apt leg (18-20s network critical
+                            # path on curl-less images). Additive only: the
+                            # image's own curl/certs always win.
+                            "if ! command -v curl >/dev/null 2>&1 && [ -x /opt/static-curl/curl ]; then "
+                            "install -m 0755 /opt/static-curl/curl /usr/local/bin/curl; fi; "
+                            "if [ ! -s /etc/ssl/certs/ca-certificates.crt ] && [ -s /opt/static-curl/ca-certificates.crt ]; then "
+                            "mkdir -p /etc/ssl/certs; "
+                            "cp /opt/static-curl/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt; fi; "
                             "timeout --version | grep -q 'GNU coreutils'; node --version; "
                             "mixdog --help >/dev/null 2>&1 && echo 'mixdog installed (prebaked)'; "
                             "for dep in rg node timeout tar grep; do "
                             "command -v \"$dep\" >/dev/null 2>&1 || { echo \"tool-dep missing: $dep\" >&2; exit 1; }; "
-                            "done; echo 'tool-dep preflight ok: rg node timeout tar grep'"
+                            "done; echo 'tool-dep preflight ok: rg node timeout tar grep'; "
+                            "if command -v curl >/dev/null 2>&1 && [ -s /etc/ssl/certs/ca-certificates.crt ]; then "
+                            "echo CURL_READY; else echo CURL_MISSING; fi"
                         ),
                     )
 
-                await asyncio.gather(_apt_leg(), _stage_leg())
+                stage_result = await _timed("stage", _stage_leg())
+                if "CURL_MISSING" in (getattr(stage_result, "stdout", "") or ""):
+                    # Old tar without the static bundle: uniform network
+                    # fallback (no task conditionals).
+                    await _timed("apt-fallback", self.exec_as_root(
+                        environment,
+                        command=(
+                            "set -eu; apt-get update && "
+                            "apt-get install -y curl ca-certificates"
+                        ),
+                        env={"DEBIAN_FRONTEND": "noninteractive"},
+                    ))
                 # uv 0.9.5 rides the prebake tar (root/.local/bin), so this
                 # hits the "already available" fast path (~1s, no network);
                 # older tars without uv fall back to the bounded download.
-                await self.exec_as_root(
+                await _timed("uv", self.exec_as_root(
                     environment,
                     command=_uv_provision_command(),
+                ))
+                print(
+                    "[setup-timing] "
+                    + " ".join(f"{k}={v:.1f}s" for k, v in timings.items()),
+                    flush=True,
                 )
                 return
         # System deps + Node.js >= 22 (root). NodeSource for apt; distro pkg for apk/yum.
@@ -450,23 +512,22 @@ class MixdogAgent(BaseInstalledAgent):
         boot_files = _collect_provider_files(required_providers)
         credential_snapshot_dir = None
         generated_dir = tempfile.TemporaryDirectory(prefix="mixdog-tb-pristine-")
+        timings = {}
         try:
             if "anthropic-oauth" in required_providers:
-                credential_snapshot_dir = tempfile.TemporaryDirectory(
-                    prefix="mixdog-tb-anthropic-lease-"
-                )
-                credential_snapshot = (
-                    Path(credential_snapshot_dir.name)
-                    / "anthropic-oauth-credentials.json"
-                )
-                await asyncio.to_thread(
-                    _run_anthropic_preflight,
-                    boot_files["anthropic-oauth-credentials.json"],
-                    credential_snapshot,
-                )
+                # Started during install(); only the residual wait shows here.
+                self._start_anthropic_preflight()
+                wait_started = time.monotonic()
+                await self._anthropic_preflight_task
+                timings["preflight-wait"] = time.monotonic() - wait_started
                 # Never distribute the mutable host file. Every trial receives
                 # the owner-only snapshot written inside the serialized lease.
-                boot_files["anthropic-oauth-credentials.json"] = credential_snapshot
+                credential_snapshot_dir = self._anthropic_preflight_dir
+                boot_files["anthropic-oauth-credentials.json"] = (
+                    self._anthropic_snapshot_path
+                )
+                self._anthropic_preflight_task = None
+                self._anthropic_preflight_dir = None
 
             generated_root = Path(generated_dir.name)
             generated_config = generated_root / "mixdog-config.json"
@@ -520,13 +581,25 @@ class MixdogAgent(BaseInstalledAgent):
             )
             upload_files = {"mixdog-config.json": generated_config, **boot_files}
             # docker cp each file — token bytes never appear in a shell command/log.
-            for name, host_path in upload_files.items():
-                await environment.upload_file(
-                    host_path, f"{CONTAINER_DATA_DIR}/{name}"
-                )
-            await environment.upload_file(
-                generated_audit, CONTAINER_PERSONAL_STATE_AUDIT
+            # Every docker-cp leg is independent; run them concurrently with
+            # the src-snapshot upload to shorten the serial pre-driver window.
+            snapshot = self._load_src_snapshot()
+            uploads_started = time.monotonic()
+            await asyncio.gather(
+                *(
+                    environment.upload_file(
+                        host_path, f"{CONTAINER_DATA_DIR}/{name}"
+                    )
+                    for name, host_path in upload_files.items()
+                ),
+                environment.upload_file(
+                    generated_audit, CONTAINER_PERSONAL_STATE_AUDIT
+                ),
+                environment.upload_file(
+                    snapshot.archive_path, CONTAINER_SRC_SNAPSHOT
+                ),
             )
+            timings["uploads"] = time.monotonic() - uploads_started
             print(
                 format_resolved_routes(
                     self._route_profile_name, self._route_profile
@@ -543,7 +616,9 @@ class MixdogAgent(BaseInstalledAgent):
             generated_dir.cleanup()
             if credential_snapshot_dir is not None:
                 credential_snapshot_dir.cleanup()
-        await self._inject_src_snapshot(environment)
+        swap_started = time.monotonic()
+        await self._inject_src_snapshot(environment, upload=False)
+        timings["swap+warmup"] = time.monotonic() - swap_started
         # Own/secure the copied setup so the user mixdog can read it; OAuth
         # refresh is explicitly forbidden below. default_user None => root.
         user = getattr(environment, "default_user", None)
@@ -563,18 +638,30 @@ class MixdogAgent(BaseInstalledAgent):
                 f"{CONTAINER_DATA_DIR}/*-oauth.json 2>/dev/null || true"
             ),
         )
+        print(
+            "[predriver-timing] "
+            + " ".join(f"{k}={v:.1f}s" for k, v in timings.items()),
+            flush=True,
+        )
 
-    async def _inject_src_snapshot(self, environment: BaseEnvironment) -> None:
+    @staticmethod
+    def _load_src_snapshot():
         # The launcher captures this once before Harbor creates any trials.
         snapshot_path = os.environ.get(SNAPSHOT_ENV)
         if not snapshot_path:
             raise RuntimeError(
                 f"{SNAPSHOT_ENV} is required; run Terminal-Bench through run-tb21.ps1"
             )
-        snapshot = load_src_snapshot(Path(snapshot_path))
-        await environment.upload_file(
-            snapshot.archive_path, CONTAINER_SRC_SNAPSHOT
-        )
+        return load_src_snapshot(Path(snapshot_path))
+
+    async def _inject_src_snapshot(
+        self, environment: BaseEnvironment, upload: bool = True
+    ) -> None:
+        if upload:
+            snapshot = self._load_src_snapshot()
+            await environment.upload_file(
+                snapshot.archive_path, CONTAINER_SRC_SNAPSHOT
+            )
         await self.exec_as_root(
             environment,
             command=(
@@ -604,14 +691,14 @@ class MixdogAgent(BaseInstalledAgent):
             ),
         )
         # Warm the V8 module compile cache for the runtime's import graph so
-        # the driver's cold boot (~25s of module compilation in-container)
-        # is paid in the SETUP phase, not in agent execution. The driver run
-        # exports the same NODE_COMPILE_CACHE and reuses the cache. Import
-        # only — no runtime is created, no credentials are touched.
+        # the driver's cold boot (~25s of module compilation in-container) is
+        # paid once before the driver boots. The driver run exports the same
+        # NODE_COMPILE_CACHE and reuses the cache. Import only — no runtime is
+        # created, no credentials are touched.
         await self.exec_as_agent(
             environment,
             command=(
-                "set -u; export NODE_COMPILE_CACHE=/opt/mixdog/v8-cache; "
+                "set -u; export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; "
                 'export MIXDOG_SRC="$(npm root -g)/mixdog/src"; '
                 "timeout 120s node --input-type=module -e "
                 "'const { pathToFileURL } = await import(\"node:url\"); "
@@ -882,7 +969,7 @@ class MixdogAgent(BaseInstalledAgent):
             run_env["MIXDOG_WORKFLOW"] = self._workflow
         lead_pipeline = (
             "mkdir -p /logs/agent; "
-            "export NODE_COMPILE_CACHE=/opt/mixdog/v8-cache; "
+            "export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; "
             'export MIXDOG_SRC="$(npm root -g)/mixdog/src"; '
             f"node {CONTAINER_LEAD_DRIVER} "
             "2>&1 | tee /logs/agent/mixdog.txt"
