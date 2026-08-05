@@ -36,6 +36,16 @@ test('snapshotHasActiveWork mirrors renderer activity plus background shell jobs
   assert.equal(snapshotHasActiveWork({ commandStatus: { active: false } }), false);
   assert.equal(snapshotHasActiveWork({ shellJobs: { count: 2 } }), true);
   assert.equal(snapshotHasActiveWork({ shellJobs: { count: 0 } }), false);
+  // Pane-scoped shellJobs must not shrink keep-awake: a background session's
+  // async command still holds the machine awake through the host aggregate.
+  assert.equal(snapshotHasActiveWork({
+    shellJobs: { count: 0 },
+    hostShellJobs: { count: 2 },
+  }), true);
+  assert.equal(snapshotHasActiveWork({
+    shellJobs: { count: 2 },
+    hostShellJobs: { count: 0 },
+  }), false, 'the host aggregate is authoritative when present');
 });
 
 test('awake service blocks only while enabled AND working, without churn', () => {

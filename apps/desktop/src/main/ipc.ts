@@ -206,7 +206,7 @@ const SUBMIT_OPTION_KEYS = new Set([
   'id', 'submittedAt', 'displayText', 'priority', 'pastedImages', 'pastedTexts',
 ]);
 const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId', 'remote']);
-const CAPABILITY_REQUEST_KEYS = new Set(['capability', 'args']);
+const CAPABILITY_REQUEST_KEYS = new Set(['capability', 'args', 'sessionId']);
 const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast']);
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh']);
@@ -527,7 +527,13 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
       throw new TypeError('provider setup options are invalid.');
     }
   }
-  return { capability, args };
+  // The issuing surface's session, when it has one: a command belongs to the
+  // session that surface paints, never to whatever holds focus.
+  const sessionId = input.sessionId === undefined || input.sessionId === null
+      || input.sessionId === ''
+    ? undefined
+    : requiredSessionId(input.sessionId);
+  return { capability, args, ...(sessionId ? { sessionId } : {}) };
 }
 
 export function requiredDesktopCapabilityReadRequests(value: unknown): DesktopCapabilityReadRequest[] {
@@ -1545,11 +1551,21 @@ export function registerDesktopIpc(
   });
   handle(DESKTOP_IPC.listProviderModels, (_event, options) =>
     host.listProviderModels(requiredModelCatalogOptions(options)));
-  handle(DESKTOP_IPC.setModelRoute, (_event, selection) =>
-    host.setModelRoute(requiredModelSelection(selection)));
-  handle(DESKTOP_IPC.setFast, (_event, enabled) => {
+  handle(DESKTOP_IPC.setModelRoute, (_event, selection, sessionId) =>
+    host.setModelRoute(
+      requiredModelSelection(selection),
+      sessionId === undefined || sessionId === null || sessionId === ''
+        ? undefined
+        : requiredSessionId(sessionId),
+    ));
+  handle(DESKTOP_IPC.setFast, (_event, enabled, sessionId) => {
     if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
-    return host.setFast(enabled);
+    return host.setFast(
+      enabled,
+      sessionId === undefined || sessionId === null || sessionId === ''
+        ? undefined
+        : requiredSessionId(sessionId),
+    );
   });
   if (settingsStore) {
     handle(DESKTOP_IPC.readSettings, () => settingsStore.read());
@@ -1628,7 +1644,7 @@ export function registerDesktopIpc(
   });
   handle(DESKTOP_IPC.invokeCapability, async (_event, input) => {
     const request = requiredDesktopCapabilityRequest(input);
-    return host.invokeCapability(request.capability, request.args);
+    return host.invokeCapability(request.capability, request.args, request.sessionId);
   });
   handle(DESKTOP_IPC.readCapabilities, (_event, input) =>
     host.readCapabilities(requiredDesktopCapabilityReadRequests(input)));

@@ -274,6 +274,9 @@ export interface DesktopEngineState extends Readonly<Record<string, unknown>> {
     search: DesktopActiveToolState;
   } | null;
   shellJobs?: DesktopShellJobsState;
+  /** Host-wide background shell totals (keep-awake). `shellJobs` above is the
+   *  pane's OWN session bucket and must stay that way. */
+  hostShellJobs?: DesktopShellJobsState;
   workflow?: DesktopWorkflowState | null;
   remoteEnabled?: boolean;
 }
@@ -635,11 +638,16 @@ export type DesktopReadCapability = typeof DESKTOP_READ_CAPABILITIES[number];
 export interface DesktopCapabilityRequest {
   capability: DesktopCapability;
   args?: unknown[];
+  /** The session the SURFACE that issued this command is painting. Focus
+   *  decides nothing: a queue ×, /clear or /compact belongs to the session
+   *  its own surface shows, not to whichever pane holds the caret. */
+  sessionId?: string;
 }
 
 export interface DesktopCapabilityReadRequest {
   capability: DesktopReadCapability;
   args?: unknown[];
+  sessionId?: string;
 }
 
 export type DesktopCapabilityReadResult =
@@ -773,6 +781,11 @@ export interface DesktopSessionSummary {
   /** Automation delivery mode: 'channel'-only runs hide from Automations
    *  (they surface on the messaging channel; the session lands in Archived). */
   sourceDelivery?: 'app' | 'channel' | 'both';
+  /** Last known route of this session. The catalog row is the FIRST-FRAME
+   *  source for pane chrome: naming the model must not wait for a lane
+   *  snapshot, a peek, or pane focus. */
+  provider?: string;
+  model?: string;
 }
 
 export interface DesktopProjectSummary {
@@ -1547,8 +1560,11 @@ export interface DesktopApi {
   /** Per-session live snapshot lane covering every pooled engine. */
   subscribeSessionState?(listener: (update: DesktopSessionStateUpdate) => void): () => void;
   listProviderModels(options?: DesktopModelCatalogOptions): Promise<DesktopModelOption[]>;
-  setModelRoute(selection: DesktopModelSelection): Promise<EngineSnapshot>;
-  setFast(enabled: boolean): Promise<EngineSnapshot>;
+  /** sessionId addresses a PANE's session. Focus decides nothing here: each
+   *  pane owns its own model/effort/fast. Omitted = the window's current
+   *  surface (draft panes, settings). */
+  setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<EngineSnapshot>;
+  setFast(enabled: boolean, sessionId?: string): Promise<EngineSnapshot>;
   readSettings(): Promise<DesktopSettings>;
   updateSetting(key: DesktopSettingKey, enabled: boolean): Promise<DesktopSettings>;
   getZoomFactor(): Promise<number>;

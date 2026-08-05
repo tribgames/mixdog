@@ -476,8 +476,9 @@ const api: DesktopApi = {
     };
   },
   listProviderModels: (options) => ipcRenderer.invoke(DESKTOP_IPC.listProviderModels, options),
-  setModelRoute: (selection) => ipcRenderer.invoke(DESKTOP_IPC.setModelRoute, selection),
-  setFast: (enabled) => ipcRenderer.invoke(DESKTOP_IPC.setFast, enabled),
+  setModelRoute: (selection, sessionId) =>
+    ipcRenderer.invoke(DESKTOP_IPC.setModelRoute, selection, sessionId),
+  setFast: (enabled, sessionId) => ipcRenderer.invoke(DESKTOP_IPC.setFast, enabled, sessionId),
   readSettings: () => ipcRenderer.invoke(DESKTOP_IPC.readSettings),
   updateSetting: (key, enabled) => ipcRenderer.invoke(DESKTOP_IPC.updateSetting, key, enabled),
   getZoomFactor: () => ipcRenderer.invoke(DESKTOP_IPC.getZoomFactor),

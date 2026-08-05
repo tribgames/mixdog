@@ -129,7 +129,12 @@ export interface DesktopOAuthFlow {
 }
 
 export interface StatuslineSegmentsModule {
-  shellJobsStatus(options?: { clientHostPid?: number }): { count?: number; elapsedLabel?: string };
+  shellJobsStatus(options?: { clientHostPid?: number; sessionId?: string }): {
+    count?: number;
+    elapsedLabel?: string;
+    /** Per-session buckets (omitted by older runtimes). */
+    sessions?: Record<string, { count?: number; elapsedLabel?: string }>;
+  };
 }
 
 export interface StoredSessionLiveViewer {
@@ -285,6 +290,32 @@ export function statuslineSegmentsModuleUrl(
     ? join(resourcesPath, 'runtime.asar', 'node_modules', 'mixdog', 'src', 'ui', 'statusline-segments.mjs')
     : resolve(requiredApplicationPath(appPath), '../../src/ui/statusline-segments.mjs');
   return pathToFileURL(modulePath).href;
+}
+
+/** Client for the machine-global engine daemon. The desktop is a VIEW over it,
+ *  so a request for a session no local view holds is addressed to the daemon
+ *  instead of being rejected. */
+export function engineDaemonClientModuleUrl(
+  packaged = false,
+  resourcesPath = process.resourcesPath,
+  appPath?: string,
+): string {
+  const modulePath = packaged
+    ? join(resourcesPath, 'runtime.asar', 'node_modules', 'mixdog', 'src', 'standalone',
+      'engine-daemon-client.mjs')
+    : resolve(requiredApplicationPath(appPath), '../../src/standalone/engine-daemon-client.mjs');
+  return pathToFileURL(modulePath).href;
+}
+
+export interface EngineDaemonClientModule {
+  callDaemonSession(options: {
+    sessionId: string;
+    method: string;
+    args?: unknown[];
+    open?: Record<string, unknown>;
+    cwd?: string;
+    log?: (line: string) => void;
+  }): Promise<{ value?: unknown; engineId?: string; sessionId?: string }>;
 }
 
 export function requiredApplicationPath(appPath: string | undefined): string {

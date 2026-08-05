@@ -83,11 +83,15 @@ export interface DesktopEngineHost {
     decision: ToolApprovalDecision,
   ): boolean | Promise<boolean>;
   listProviderModels(options?: DesktopModelCatalogOptions): Promise<DesktopModelOption[]>;
-  setModelRoute(selection: DesktopModelSelection): Promise<EngineSnapshot>;
-  setFast(enabled: boolean): Promise<EngineSnapshot>;
+  /** Optional sessionId targets a PANE's session instead of the window's
+   *  current surface — focus never decides which session a route change hits. */
+  setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<EngineSnapshot>;
+  setFast(enabled: boolean, sessionId?: string): Promise<EngineSnapshot>;
   invokeCapability<T = unknown>(
     capability: DesktopCapability,
     args?: unknown[],
+    /** Session the issuing surface paints; omitted = the window's surface. */
+    sessionId?: string,
   ): Promise<DesktopCapabilityResult<T>>;
   readCapabilities(
     requests: ReadonlyArray<DesktopCapabilityReadRequest>,

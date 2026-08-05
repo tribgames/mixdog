@@ -193,7 +193,7 @@ export const WorkflowSelect = memo(function WorkflowSelect({
 
 export const ModelSelector = memo(function ModelSelector({
   provider, model, effort, fast, fastCapable, modelDisabled, tuningDisabled,
-  invokeResult, applySnapshot, onOpenSettings, onDraftSelection,
+  invokeResult, applySnapshot, onOpenSettings, onDraftSelection, sessionId,
 }: {
   provider: string;
   model: string;
@@ -202,6 +202,9 @@ export const ModelSelector = memo(function ModelSelector({
   fastCapable: boolean;
   modelDisabled: boolean;
   tuningDisabled: boolean;
+  /** The pane's session. Route changes address it directly, so a background
+   *  pane can change ITS model without the window's focus deciding. */
+  sessionId?: string;
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
   applySnapshot: (snapshot: EngineSnapshot | null) => void;
   onOpenSettings: (section?: SettingsSection | null) => void;
@@ -396,7 +399,9 @@ export const ModelSelector = memo(function ModelSelector({
     setRouting(true);
     let applied = false;
     try {
-      const next = await invokeResult(() => window.mixdogDesktop.setModelRoute(selection));
+      const next = await invokeResult(
+        () => window.mixdogDesktop.setModelRoute(selection, sessionId),
+      );
       if (next !== undefined) {
         applySnapshot(next);
         applied = true;
@@ -446,7 +451,7 @@ export const ModelSelector = memo(function ModelSelector({
     restoreAfterRoute.current = fastControl.current?.querySelector('button') || null;
     setRouting(true);
     try {
-      const next = await invokeResult(() => window.mixdogDesktop.setFast(enabled));
+    const next = await invokeResult(() => window.mixdogDesktop.setFast(enabled, sessionId));
       if (next !== undefined) applySnapshot(next);
     } finally {
       setOptimisticFast(null);

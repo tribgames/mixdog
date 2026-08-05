@@ -31,8 +31,8 @@ import {
   promptTitle
 } from '../shared/session-title.mjs';
 import { desktopSessionSummaries, desktopSnapshot } from './desktop-state';
-import type { DesktopSessionScope, EngineFactory, EngineHostOptions, MixdogEngine, MixdogProjectsModule, MixdogSessionStoreModule, SnapshotListener, StoredSessionLiveViewer } from "./engine-host-support";
-import { DESKTOP_CAPABILITY_SET, DESKTOP_PERF_ENABLED, DESKTOP_TRANSCRIPT_ITEM_LIMIT, ENGINE_PUBLICATION_INTERVAL_MS, FOREGROUND_SESSION_PUBLICATION_INTERVAL_MS, SESSIONS_CHANGED_DEBOUNCE_MS, copyCapabilityValue, copySnapshot, isInternalTranscriptItem, normalizedProjectKey, normalizedProviderModels, projectsModuleUrl, recordValue, requiredApplicationPath, sessionStoreModuleUrl, statuslineSegmentsModuleUrl } from "./engine-host-support";
+import type { DesktopSessionScope, EngineDaemonClientModule, EngineFactory, EngineHostOptions, MixdogEngine, MixdogProjectsModule, MixdogSessionStoreModule, SnapshotListener, StoredSessionLiveViewer } from "./engine-host-support";
+import { DESKTOP_CAPABILITY_SET, DESKTOP_PERF_ENABLED, DESKTOP_TRANSCRIPT_ITEM_LIMIT, ENGINE_PUBLICATION_INTERVAL_MS, FOREGROUND_SESSION_PUBLICATION_INTERVAL_MS, SESSIONS_CHANGED_DEBOUNCE_MS, copyCapabilityValue, copySnapshot, engineDaemonClientModuleUrl, isInternalTranscriptItem, normalizedProjectKey, normalizedProviderModels, projectsModuleUrl, recordValue, requiredApplicationPath, sessionStoreModuleUrl, statuslineSegmentsModuleUrl } from "./engine-host-support";
 import {
   createEngineLifecycle,
   engineHasActiveWork,
@@ -386,6 +386,14 @@ export class EngineHost {
   private engineDesktopSession: DesktopSessionScope | null = null;
   private readonly parkedEngines = new Map<string, ParkedEngine>();
   private readonly parkedEngineDisposals = new Set<Promise<void>>();
+  // Sessions whose parked view is the rollback target of an in-flight
+  // transition: releasing one mid-resume left a failed resume with nothing to
+  // restore (the window then held no session at all).
+  private readonly transitionRollbackHolds = new Set<string>();
+  // The daemon is the backend; this host is one of its views. Requests for a
+  // session no local view holds are addressed to it (see submitToSession).
+  private engineDaemonClientModule: Promise<EngineDaemonClientModule> | null = null;
+  private readonly sessionViewAttachments = new Map<string, Promise<void>>();
   private readonly visibleSessionIds = new Set<string>();
   private readonly visibleSessionViewers = new Map<string, StoredSessionLiveViewer>();
   // The pane key a viewer's callbacks publish under. Held in a mutable box so a
@@ -471,7 +479,10 @@ export class EngineHost {
   private readonly shellJobsPoller = createShellJobsPoller({
     getEngineState: () => (this.engine?.getState() as Record<string, unknown> | undefined) ?? null,
     moduleUrl: () => statuslineSegmentsModuleUrl(this.packaged, this.resourcesPath, this.appPath),
-    onChange: () => this.publishEngineEvent(),
+    onChange: (changedSessionIds) => {
+      this.publishEngineEvent();
+      this.republishShellJobSessions(changedSessionIds);
+    },
   });
   // Provider login flows in flight; the registry owns ids, expiry and cancel.
   private readonly oauthFlows = createOAuthFlowRegistry();
@@ -726,7 +737,7 @@ export class EngineHost {
    *  older, diverged, middle-row-rewritten or payload-rewritten engine frame
    *  therefore never wins the lane. */
   private projectSessionLaneFrame(engine: MixdogEngine): EngineSnapshot {
-    const snapshot = desktopSnapshot(copySnapshot(engine), null, []);
+    const snapshot = this.withSessionShellJobs(desktopSnapshot(copySnapshot(engine), null, []));
     this.pendingSessionLaneFrame = null;
     const hold = this.sessionLaneResumeHolds.get(engine);
     if (!hold) return snapshot;
@@ -912,6 +923,27 @@ export class EngineHost {
     if (desired.length > 0) await this.ensureVisibleSessionStorageWatcher();
     else this.stopVisibleSessionStorageWatcher();
     await Promise.all(desired.map((sessionId) => this.reconcileVisibleSession(sessionId)));
+    // NOT here: opening a view for every visible pane at registration booted a
+    // burst of engines in one daemon process, and their startup spool drains
+    // (steering queue / foreign injections) deadlocked on the shared
+    // session-pending-messages lock — every submit then hung at "Requesting".
+    // A pane gets its view when it is actually used (submit, route, command),
+    // which is also when the user can tell the difference.
+    // A pane that went away releases its view — unless work is still running
+    // on it, which outlives the window by design.
+    for (const [sessionId, parked] of [...this.parkedEngines]) {
+      if (this.visibleSessionIds.has(sessionId)) continue;
+      if (parked.engine === this.engine) continue;
+      if (engineHasActiveWork(parked.engine, this.pendingSubmitLeases)) continue;
+      this.parkedEngines.delete(sessionId);
+      this.sessionLanes.detach(parked.engine);
+      const disposal = Promise.resolve(
+        parked.engine.dispose('desktop-pane-closed', { keepBackgroundWork: true }),
+      ).catch((error: unknown) => {
+        console.error('Failed to release a closed pane view:', error);
+      }).finally(() => { this.parkedEngineDisposals.delete(disposal); });
+      this.parkedEngineDisposals.add(disposal);
+    }
     return true;
   }
 
@@ -1284,7 +1316,12 @@ export class EngineHost {
     const decorated = {
       ...snapshot,
       ...(desktopSessionTitle ? { desktopSessionTitle } : {}),
-      shellJobs: { ...this.shellJobsPoller.status },
+      // Pane-scoped: a session (or a blank New task draft) only ever shows the
+      // background shells IT started.
+      shellJobs: { ...this.shellJobsPoller.statusFor(sessionId) },
+      // Host-wide aggregate for keep-awake: an async command started by ANY
+      // pooled session must still hold the machine awake.
+      hostShellJobs: { ...this.shellJobsPoller.status },
       remoteEnabled: Boolean(remoteSessionId),
       remoteSessionId: remoteSessionId || null,
     };
@@ -1820,29 +1857,60 @@ export class EngineHost {
       : null;
   }
 
-  async setModelRoute(selection: DesktopModelSelection): Promise<EngineSnapshot> {
+  /** The view a route/preference change belongs to. A pane addresses ITS
+   *  session; only a draft surface (no session yet) falls back to the view the
+   *  window currently reads. Resolved OUTSIDE the transition lock because
+   *  attaching a view takes it. */
+  private async routeTargetEngine(sessionId: string): Promise<MixdogEngine | null> {
+    if (!sessionId) return null;
+    const pooled = this.pooledEngineById(sessionId);
+    if (pooled) return pooled;
+    await this.attachSessionView(sessionId);
+    const attached = this.pooledEngineById(sessionId);
+    if (!attached) throw new Error('Session engine is not live.');
+    return attached;
+  }
+
+  /** A background pane's own frame: its lane carries the change, and the
+   *  window's focused channel is left alone. */
+  private publishRouteChange(engine: MixdogEngine): EngineSnapshot {
+    if (engine === this.engine) {
+      const snapshot = this.getSnapshot();
+      this.publish();
+      return snapshot;
+    }
+    const snapshot = desktopSnapshot(copySnapshot(engine), this.currentProject, this.recentProjects);
+    this.sessionLanes.replay(engine);
+    return snapshot;
+  }
+
+  async setModelRoute(
+    selection: DesktopModelSelection,
+    sessionId = '',
+  ): Promise<EngineSnapshot> {
+    const target = await this.routeTargetEngine(sessionId);
     let result: EngineSnapshot = null;
     await this.exclusive(async () => {
-      const engine = this.requireEngine();
+      const engine = target ?? this.requireEngine();
       await this.applyModelSelection(engine, selection);
       this.rememberEngineRoute(engine);
-      result = this.getSnapshot();
-      this.publish();
+      result = this.publishRouteChange(engine);
     });
     return result;
   }
 
-  async setFast(enabled: boolean): Promise<EngineSnapshot> {
+  async setFast(enabled: boolean, sessionId = ''): Promise<EngineSnapshot> {
+    const target = await this.routeTargetEngine(sessionId);
     let result: EngineSnapshot = null;
     await this.exclusive(async () => {
-      if (!this.engine) {
+      if (!target && !this.engine) {
         const workspace = await this.taskWorkspace();
         await this.replaceEngine(workspace, {
           classification: 'task',
           projectPath: null,
         }, 'desktop-fast-preference');
       }
-      const engine = this.requireEngine();
+      const engine = target ?? this.requireEngine();
       const state = engine.getState();
       if (state.busy === true || state.commandBusy === true) {
         throw new Error('Engine is busy.');
@@ -1891,6 +1959,17 @@ export class EngineHost {
     const retainedResumeFrame: VisibleSessionResumeFrame | null = visibleFrame?.live
       ? { snapshot: visibleFrame.snapshot }
       : null;
+    // Parked-for-rollback marker, released once this transition settles.
+    let heldOutgoingId: string | null = null;
+    // Claim the hold BEFORE parking: parking replays the view's lane, and that
+    // replay runs the settled-release hook — which reclaimed the very view this
+    // transition may have to roll back onto.
+    const holdCurrentOutgoing = (): void => {
+      const outgoing = String(this.engine?.getState()?.sessionId || '');
+      if (!outgoing) return;
+      this.transitionRollbackHolds.add(outgoing);
+      heldOutgoingId = outgoing;
+    };
     try {
       await this.exclusive(async () => {
       await this.withPublicationsHeld(async () => {
@@ -1987,6 +2066,7 @@ export class EngineHost {
         let cleanupOnResumeFailure = !sameManagedContext;
         let nextEngine: MixdogEngine;
         if (this.parkedEngines.has(sessionId)) {
+          holdCurrentOutgoing();
           const parkedOutgoing = this.parkCurrentEngine();
           if (parkedOutgoing) {
             parkedOutgoingId = parkedOutgoing;
@@ -2002,6 +2082,7 @@ export class EngineHost {
           needsResume = false;
           cleanupOnResumeFailure = true;
         } else if (this.currentEngineIsRunning()) {
+          holdCurrentOutgoing();
           parkedOutgoingId = this.parkCurrentEngine();
           cleanupOnResumeFailure = true;
           try {
@@ -2019,18 +2100,33 @@ export class EngineHost {
             throw error;
           }
         } else {
-          nextEngine = sameManagedContext
+          // A view that already carries a session is never spare capacity,
+          // idle or not: recycling it re-points whatever pane painted it
+          // (blank body, empty model selector, transcript jumping on focus
+          // changes). Only a session-less draft view is reused.
+          const outgoingSessionId = String(this.engine?.getState()?.sessionId || '');
+          if (outgoingSessionId) {
+            holdCurrentOutgoing();
+            parkedOutgoingId = this.parkCurrentEngine(true);
+            cleanupOnResumeFailure = true;
+          }
+          nextEngine = sameManagedContext && !outgoingSessionId
             ? this.requireEngine()
             : await (async () => {
               const replaceStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
-              const engine = await this.replaceEngine(
-                workspace,
-                targetDesktopSession,
-                'desktop-session-resume',
-                { forResume: true },
-              );
-              if (DESKTOP_PERF_ENABLED) stageNote += ` replace-engine=${(performance.now() - replaceStarted).toFixed(0)}ms`;
-              return engine;
+              try {
+                const engine = await this.replaceEngine(
+                  workspace,
+                  targetDesktopSession,
+                  'desktop-session-resume',
+                  { forResume: true },
+                );
+                if (DESKTOP_PERF_ENABLED) stageNote += ` replace-engine=${(performance.now() - replaceStarted).toFixed(0)}ms`;
+                return engine;
+              } catch (error) {
+                if (parkedOutgoingId) this.activateParkedEngine(parkedOutgoingId);
+                throw error;
+              }
             })();
         }
         const resumeStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
@@ -2077,7 +2173,12 @@ export class EngineHost {
               try {
                 await this.disposeCurrent('desktop-session-resume-failed', { keepBackgroundWork: true });
               } finally {
-                if (parkedOutgoingId) this.activateParkedEngine(parkedOutgoingId);
+                // Rollback is best-effort: a failed re-activation must never
+                // replace the real reason this resume failed.
+                if (parkedOutgoingId) {
+                  try { this.activateParkedEngine(parkedOutgoingId); }
+                  catch (error) { console.error('Failed to restore the outgoing session engine:', error); }
+                }
               }
             }
             throw new Error('Session could not be resumed.');
@@ -2097,7 +2198,10 @@ export class EngineHost {
             try {
               await this.disposeCurrent('desktop-session-resume-mismatch', { keepBackgroundWork: true });
             } finally {
-              if (parkedOutgoingId) this.activateParkedEngine(parkedOutgoingId);
+              if (parkedOutgoingId) {
+                try { this.activateParkedEngine(parkedOutgoingId); }
+                catch (error) { console.error('Failed to restore the outgoing session engine:', error); }
+              }
             }
           }
           throw new Error('Session resume returned an unexpected session.');
@@ -2161,6 +2265,7 @@ export class EngineHost {
       }
       return result;
     } finally {
+      if (heldOutgoingId) this.transitionRollbackHolds.delete(heldOutgoingId);
       for (const visibleSessionId of this.visibleSessionIds) {
         void this.reconcileVisibleSession(visibleSessionId);
       }
@@ -2245,7 +2350,31 @@ export class EngineHost {
     const activeEngine = String(this.engine?.getState?.()?.sessionId || '') === sessionId
       ? this.engine
       : null;
-    return activeEngine ?? this.parkedEngines.get(sessionId)?.engine ?? null;
+    // Same identity rule as the submit path: a pane must never be told a
+    // moved-on (or released) view still owns its session.
+    return activeEngine ?? this.pooledSessionEngine(sessionId);
+  }
+
+  /** Background shell jobs are host-wide facts carrying a per-session owner
+   *  stamp, so every pane frame reports only its OWN jobs (user: a blank New
+   *  task pane displayed another session's running shell). */
+  private withSessionShellJobs(snapshot: EngineSnapshot): EngineSnapshot {
+    if (!snapshot) return snapshot;
+    const sessionId = String(snapshot.sessionId || '');
+    (snapshot as Record<string, unknown>).shellJobs = {
+      ...this.shellJobsPoller.statusFor(sessionId),
+    };
+    return snapshot;
+  }
+
+  /** The poller has no engine event behind it, so a session whose shell count
+   *  moved re-emits its own lane; unaffected panes never repaint. */
+  private republishShellJobSessions(sessionIds: readonly string[]): void {
+    for (const sessionId of sessionIds) {
+      if (!sessionId || !this.visibleSessionIds.has(sessionId)) continue;
+      const engine = this.sessionEngineFor(sessionId);
+      if (engine) this.sessionLanes.replay(engine);
+    }
   }
 
   private async refreshVisibleSessionContextProjection(sessionId: string): Promise<void> {
@@ -2317,13 +2446,25 @@ export class EngineHost {
         preparedContextProjection: false,
       };
     }
-    const provider = String(peek.provider || '');
-    const model = String(peek.model || '');
+    // A stored/peeked frame that carries no route blanked the pane's model
+    // controls ("Choose model") every time a lane re-published — the route is
+    // session state, not transcript state, so stamp the one we remember.
+    const remembered = this.sessionRoutes.get(sessionId);
+    const provider = String(peek.provider || '') || String(remembered?.provider || '');
+    const model = String(peek.model || '') || String(remembered?.model || '');
+    const rememberedMatches = Boolean(remembered)
+      && provider === String(remembered?.provider || '')
+      && model === String(remembered?.model || '');
+    const effort = String(peek.effort || '')
+      || (rememberedMatches ? String(remembered?.effort || '') : '');
+    const fast = typeof peek.fast === 'boolean'
+      ? peek.fast === true
+      : (rememberedMatches && remembered?.fast === true);
     if (provider && model && !this.sessionRoutes.has(sessionId)) {
       this.sessionRoutes.set(sessionId, {
         provider,
         model,
-        ...(typeof peek.effort === 'string' && peek.effort ? { effort: peek.effort } : {}),
+        ...(effort ? { effort } : {}),
         ...(typeof peek.fast === 'boolean' ? { fast: peek.fast } : {}),
       });
     }
@@ -2344,8 +2485,8 @@ export class EngineHost {
       items: Array.isArray(peek.items) ? peek.items : [],
       provider,
       model,
-      effort: String(peek.effort || ''),
-      fast: peek.fast === true,
+      effort,
+      fast,
       busy: false,
       commandBusy: false,
       queued: [],
@@ -2546,7 +2687,8 @@ export class EngineHost {
         const timer = setTimeout(() => {
           if (!expected || this.visibleSessionViewers.get(pane.sessionId) !== expected) return;
           this.disposeVisibleSessionViewer(pane.sessionId);
-          void this.reconcileVisibleSession(pane.sessionId);
+          void this.reconcileVisibleSession(pane.sessionId)
+            .then(() => this.promoteOwnerlessVisibleSession(pane.sessionId));
         }, 1_500);
         timer.unref?.();
       },
@@ -2570,6 +2712,34 @@ export class EngineHost {
     // An installation that lands INTO an open hold is this pane's live source:
     // the hold becomes viewer-backed, so its suppression stays bounded.
     this.markVisibleResumeHoldViewerBacked(sessionId);
+  }
+
+  /** The external owner (a co-editing terminal) left. Without a view this
+   *  process only re-reads disk: the pane freezes on a projection with no live
+   *  turn state, and NOTHING drains that session's steering spool, so queued
+   *  messages sit there forever (user report: 터미널을 끄면 렌더링과 스티어링이
+   *  망가진다). Attaching a view promotes the session here — one engine, only
+   *  for the pane that just lost its owner, never the boot-time burst. */
+  private async promoteOwnerlessVisibleSession(sessionId: string): Promise<void> {
+    if (this.disposed || !this.visibleSessionIds.has(sessionId)) return;
+    if (this.sessionEngineFor(sessionId)) return;
+    // A detached child (agent worker) belongs to its external runtime: its tab
+    // is read-only and must never resume — that would take the worker's
+    // session away from it.
+    if (this.detachedAgentSessions.has(sessionId)) return;
+    try {
+      await this.attachSessionView(sessionId);
+    } catch (error) {
+      console.error('Failed to promote a session whose owner closed:', error);
+      return;
+    }
+    const engine = this.sessionEngineFor(sessionId);
+    if (!engine || !this.visibleSessionIds.has(sessionId)) return;
+    // The engine is the authoritative source now; a viewer installed by the
+    // reconcile that ran just before this promotion would publish stale
+    // owner-less frames over it.
+    this.disposeVisibleSessionViewer(sessionId);
+    this.sessionLanes.replay(engine);
   }
 
   private async submitActiveEngine(
@@ -2727,13 +2897,41 @@ export class EngineHost {
     if (this.engine && String(this.engine.getState()?.sessionId || '') === sessionId) {
       return this.engine;
     }
-    return this.parkedEngines.get(sessionId)?.engine ?? null;
+    return this.pooledSessionEngine(sessionId);
+  }
+
+  /** A park entry is valid only while its view still CARRIES that session.
+   *  A daemon adoption moves a view onto another session's engine, and a
+   *  released view stops delivering entirely — either way the entry is stale.
+   *  Trusting it fed a pane another session's lane (or none: the pane went
+   *  blank with no model on its composer) and could address a prompt at the
+   *  wrong session, so a stale key is dropped and the pane re-sourced. */
+  private pooledSessionEngine(sessionId: string): MixdogEngine | null {
+    const parked = this.parkedEngines.get(sessionId);
+    if (!parked) return null;
+    const engine = parked.engine;
+    let carries = false;
+    try {
+      carries = engine.disposedView !== true
+        && String(engine.getState()?.sessionId || '') === sessionId;
+    } catch {
+      carries = false;
+    }
+    if (carries) return engine;
+    // The view moved on; it keeps publishing under ITS session, so never
+    // detach it here — only this session's claim on it is gone.
+    this.parkedEngines.delete(sessionId);
+    if (this.visibleSessionIds.has(sessionId)) void this.reconcileVisibleSession(sessionId);
+    return null;
   }
 
   /** Split panes: submit addressed to any pooled live session. The active
    *  session takes the full first-submit path; a parked engine accepts the
    *  prompt directly — it already owns a materialized session — and records
-   *  the same submit lease so the next park decision sees it as running. */
+   *  the same submit lease so the next park decision sees it as running.
+   *  A session no local view holds is NOT a failure: the engine pool lives in
+   *  the machine-global daemon, so the prompt is handed to it and a view is
+   *  attached afterwards so the pane streams the answer. */
   async submitToSession(
     sessionId: string,
     prompt: DesktopPromptContent,
@@ -2742,34 +2940,174 @@ export class EngineHost {
     if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new TypeError('session id is invalid.');
     if (!hasPromptContent(prompt)) return false;
     let accepted = false;
+    let unowned = false;
     await this.exclusive(async () => {
       if (this.engine && String(this.engine.getState()?.sessionId || '') === sessionId) {
         ({ accepted } = await this.submitActiveEngine(prompt, options));
         return;
       }
-      const parked = this.parkedEngines.get(sessionId)?.engine;
-      if (!parked) throw new Error('Session engine is not live.');
+      const parked = this.pooledSessionEngine(sessionId);
+      if (!parked) { unowned = true; return; }
       const submitState = parked.getState();
       accepted = parked.submit(prompt, options);
+      // A view that refuses the prompt (released mid-submit) must fall through
+      // to the daemon rather than report a phantom acceptance.
       if (accepted) this.recordSubmitLease(parked, submitState, sessionId);
+      else unowned = true;
     });
+    if (!unowned) return accepted;
+    accepted = await this.callDaemonSession(sessionId, 'submit', [prompt, {
+      ...options,
+      // A stable submission id is what makes a transport retry idempotent.
+      id: String(options.id || '').trim()
+        || `desktop-pane-${sessionId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    }]) === true;
+    if (accepted) {
+      void this.attachSessionView(sessionId).catch((error: unknown) => {
+        console.error('Failed to attach a view to a daemon-hosted session:', error);
+      });
+    }
     return accepted;
   }
 
-  abortSession(sessionId: string): unknown {
+  async abortSession(sessionId: string): Promise<unknown> {
     const engine = this.pooledEngineById(sessionId);
-    if (!engine) throw new Error('Session engine is not live.');
-    return engine.abort();
+    if (engine) return engine.abort();
+    return this.callDaemonSession(sessionId, 'abort', []);
   }
 
-  resolveToolApprovalForSession(
+  async resolveToolApprovalForSession(
     sessionId: string,
     id: string,
     decision: ToolApprovalDecision,
-  ): boolean {
+  ): Promise<boolean> {
     const engine = this.pooledEngineById(sessionId);
-    if (!engine) throw new Error('Session engine is not live.');
-    return engine.resolveToolApproval(id, decision);
+    if (engine) return engine.resolveToolApproval(id, decision);
+    return await this.callDaemonSession(sessionId, 'resolveToolApproval', [id, decision]) === true;
+  }
+
+  /** True while this host runs over the engine daemon — the default. Only a
+   *  deliberately daemon-less host (tests injecting their own engines,
+   *  MIXDOG_ENGINE_DAEMON=0) has no backend to address a session to. */
+  private daemonSessionRouteAvailable(): boolean {
+    if (this.engine?.isRemoteEngine === true) return true;
+    for (const parked of this.parkedEngines.values()) {
+      if (parked.engine.isRemoteEngine === true) return true;
+    }
+    if (this.createEngineOverride) return false;
+    const preference = String(process.env.MIXDOG_ENGINE_DAEMON || '').trim().toLowerCase();
+    return preference !== '0' && preference !== 'false' && preference !== 'off';
+  }
+
+  private loadEngineDaemonClient(): Promise<EngineDaemonClientModule> {
+    this.engineDaemonClientModule ??= import(
+      /* @vite-ignore */ engineDaemonClientModuleUrl(this.packaged, this.resourcesPath, this.appPath)
+    ) as Promise<EngineDaemonClientModule>;
+    return this.engineDaemonClientModule;
+  }
+
+  /** Session-addressed backend call. The daemon owns (or loads) the engine for
+   *  that session, so the renderer never has to own one to be heard. */
+  private async callDaemonSession(
+    sessionId: string,
+    method: string,
+    args: unknown[],
+  ): Promise<unknown> {
+    if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new TypeError('session id is invalid.');
+    if (!this.daemonSessionRouteAvailable()) throw new Error('Session engine is not live.');
+    const client = await this.loadEngineDaemonClient();
+    const result = await client.callDaemonSession({
+      sessionId,
+      method,
+      args,
+      open: await this.sessionOpenHints(sessionId),
+      cwd: this.engineWorkspace || undefined,
+      log: (line: string) => this.perfLog(`engine-daemon ${line}`),
+    });
+    return result?.value ?? null;
+  }
+
+  /** Open hints for a daemon-side session load: the workspace and desktop
+   *  scope the resumed engine must carry. Cached listing rows only — a pane's
+   *  prompt must never wait out a full store rescan. */
+  private async sessionOpenHints(sessionId: string): Promise<Record<string, unknown>> {
+    const hints: Record<string, unknown> = {
+      resumeOptions: { transcriptItemLimit: DESKTOP_TRANSCRIPT_ITEM_LIMIT },
+    };
+    const row = (this.lastSessionRows || []).find(
+      (entry) => String(entry?.id || '') === sessionId,
+    );
+    if (!row) return hints;
+    const stored = row.desktopSession && typeof row.desktopSession === 'object'
+      ? row.desktopSession as Record<string, unknown>
+      : null;
+    const classification = String(stored?.classification || '');
+    try {
+      if (classification === 'task') {
+        hints.cwd = await this.taskWorkspace();
+        hints.desktopSession = { classification: 'task', projectPath: null };
+        return hints;
+      }
+      const workspace = await this.canonicalDirectory(String(row.projectPath || row.cwd || ''));
+      hints.cwd = workspace;
+      // Legacy CLI/TUI sessions resume WITHOUT a desktop marker (see
+      // resumeSession); only a desktop-managed row carries its scope.
+      hints.desktopSession = classification === 'project'
+        ? { classification: 'project', projectPath: workspace }
+        : null;
+      return hints;
+    } catch {
+      // An unresolvable workspace leaves the choice to the daemon's own cwd.
+      return hints;
+    }
+  }
+
+  /** Give a daemon-hosted session a LOCAL view so its pane streams live. The
+   *  daemon adopts the engine that already owns the session (one writer per
+   *  session), so this costs a mirror — never a second engine. */
+  private attachSessionView(sessionId: string): Promise<void> {
+    const pending = this.sessionViewAttachments.get(sessionId);
+    if (pending) return pending;
+    if (!this.daemonSessionRouteAvailable()) return Promise.resolve();
+    let attach: Promise<void>;
+    attach = (async () => {
+      await this.exclusive(async () => {
+        if (this.disposed || this.sessionEngineFor(sessionId)) return;
+        const hints = await this.sessionOpenHints(sessionId);
+        const workspace = String(hints.cwd || this.engineWorkspace || process.cwd());
+        const desktopSession = (hints.desktopSession ?? null) as DesktopSessionScope | null;
+        const engine = await this.engineLifecycle.loadEngine({
+          remote: false,
+          cwd: workspace,
+          ...(desktopSession ? { desktopSession } : {}),
+        });
+        let resumed = false;
+        try {
+          resumed = await engine.resume(sessionId, {
+            transcriptItemLimit: DESKTOP_TRANSCRIPT_ITEM_LIMIT,
+          }) === true;
+        } catch (error) {
+          await engine.dispose('desktop-session-view-failed', { keepBackgroundWork: true });
+          throw error;
+        }
+        const state = engine.getState();
+        const loaded = String(state?.sessionId || '');
+        if (!resumed || (loaded !== sessionId && String(state?.sessionForkedFrom || '') !== sessionId)) {
+          await engine.dispose('desktop-session-view-mismatch', { keepBackgroundWork: true });
+          return;
+        }
+        this.parkedEngines.set(loaded || sessionId, { engine, workspace, desktopSession });
+        this.sessionLanes.attach(engine);
+        this.sessionLanes.replay(engine);
+      });
+      if (this.visibleSessionIds.has(sessionId)) void this.reconcileVisibleSession(sessionId);
+    })().finally(() => {
+      if (this.sessionViewAttachments.get(sessionId) === attach) {
+        this.sessionViewAttachments.delete(sessionId);
+      }
+    });
+    this.sessionViewAttachments.set(sessionId, attach);
+    return attach;
   }
 
   submitNewTask(
@@ -2970,6 +3308,7 @@ export class EngineHost {
   async invokeCapability<T = unknown>(
     capability: DesktopCapability,
     args: unknown[] = [],
+    sessionId = '',
   ): Promise<DesktopCapabilityResult<T>> {
     if (!DESKTOP_CAPABILITY_SET.has(capability)) {
       throw new TypeError('Desktop capability is unavailable.');
@@ -2999,7 +3338,9 @@ export class EngineHost {
     // startup probes owned the transition lock while the user's first session
     // click waited. Both are reads; only the engine lease needs the lock.
     if (DESKTOP_READ_CAPABILITY_SET.has(capability)) {
+      const readTarget = await this.routeTargetEngine(sessionId);
       await this.exclusive(async () => {
+        if (readTarget) return;
         if (this.engine) return;
         const workspace = await this.taskWorkspace();
         await this.replaceEngine(workspace, {
@@ -3007,7 +3348,7 @@ export class EngineHost {
           projectPath: null,
         }, `desktop-capability-${capability}`);
       });
-      const engine = this.requireEngine();
+      const engine = readTarget ?? this.requireEngine();
       const method = engine[capability];
       if (typeof method !== 'function') {
         throw new Error(`The active Mixdog engine does not support ${capability}.`);
@@ -3017,19 +3358,27 @@ export class EngineHost {
       if (DESKTOP_PERF_ENABLED) {
         this.perfLog(`capability-unlocked ${capability} ms=${(performance.now() - started).toFixed(0)}`);
       }
-      return { value: copyCapabilityValue(rawValue) as T, snapshot: this.getSnapshot() };
+      return {
+        value: copyCapabilityValue(rawValue) as T,
+        snapshot: engine === this.engine
+          ? this.getSnapshot()
+          : desktopSnapshot(copySnapshot(engine), this.currentProject, this.recentProjects),
+      };
     }
     let result: DesktopCapabilityResult<T> = { value: undefined as T, snapshot: null };
     const lockedStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
+    // The addressed session's view — resolved OUTSIDE the lock (attaching one
+    // takes it). Null means "the surface this window currently reads".
+    const target = await this.routeTargetEngine(sessionId);
     await this.exclusive(async () => {
-      if (!this.engine) {
+      if (!target && !this.engine) {
         const workspace = await this.taskWorkspace();
         await this.replaceEngine(workspace, {
           classification: 'task',
           projectPath: null,
         }, `desktop-capability-${capability}`);
       }
-      const engine = this.requireEngine();
+      const engine = target ?? this.requireEngine();
       const method = engine[capability];
       if (typeof method !== 'function') {
         throw new Error(`The active Mixdog engine does not support ${capability}.`);
@@ -3049,8 +3398,10 @@ export class EngineHost {
           this.sessionMetadata.rememberGeneratedTitle(scheduleSessionId, scheduleName);
         }
       }
-      result = { value: copyCapabilityValue(value) as T, snapshot: this.getSnapshot() };
-      this.publish();
+      result = {
+        value: copyCapabilityValue(value) as T,
+        snapshot: this.publishRouteChange(engine),
+      };
     });
     if (DESKTOP_PERF_ENABLED) {
       // Attribution for boot-time lock contention: which capability made the
@@ -3130,6 +3481,12 @@ export class EngineHost {
     } catch {
       return;
     }
+    // A pane showing this session keeps its OWN view for as long as it is on
+    // screen. Reclaiming it left that pane with no source at all — blank body,
+    // empty model selector — and re-attaching later made the transcript jump.
+    if (this.visibleSessionIds.has(sessionId)) return;
+    // Nor may a transition's rollback target be reclaimed mid-flight.
+    if (this.transitionRollbackHolds.has(sessionId)) return;
     const parked = this.parkedEngines.get(sessionId);
     if (!parked || parked.engine !== engine) return;
     // The lane has already emitted this settled frame. Drop ownership before
@@ -3312,8 +3669,8 @@ export class EngineHost {
     return this.engineLifecycle.currentEngineIsRunning();
   }
 
-  private parkCurrentEngine(): string | null {
-    return this.engineLifecycle.parkCurrentEngine();
+  private parkCurrentEngine(force = false): string | null {
+    return this.engineLifecycle.parkCurrentEngine({ force });
   }
 
   private activateParkedEngine(sessionId: string): MixdogEngine {

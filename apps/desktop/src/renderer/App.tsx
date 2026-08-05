@@ -1352,9 +1352,22 @@ export function App() {
   // A cold target still needs its own route identity. Falling through to the
   // shared EMPTY snapshot made Conversation treat it as "new-task", mixing a
   // session transition with the draft's saved scroll position.
-  const frozenSeedFor = (targetSessionId: string): Snapshot =>
-    availableFrozenSeedFor(targetSessionId)
-    || { ...EMPTY_SNAPSHOT, sessionId: targetSessionId };
+  // A session's ROUTE is catalog data, not stream data. The sidebar row keeps
+  // the last provider/model, so a pane names its model on the first frame —
+  // focus, lane arrival and catalog warmup no longer decide whether the label
+  // exists (user: 세션에 처음 들어가면 모델명이 비고, 비포커스 패널은 아예 안 뜸).
+  const frozenSeedFor = (targetSessionId: string): Snapshot => {
+    const seed = availableFrozenSeedFor(targetSessionId)
+      || { ...EMPTY_SNAPSHOT, sessionId: targetSessionId };
+    if (seed.provider && seed.model) return seed;
+    const row = sessions.find((entry) => entry.id === targetSessionId);
+    if (!row?.provider && !row?.model) return seed;
+    return {
+      ...seed,
+      provider: seed.provider || String(row?.provider || ""),
+      model: seed.model || String(row?.model || ""),
+    };
+  };
   // The prepared host route belongs to ONE draft. A process-wide boolean let
   // a fresh split inherit an older draft's readiness and submit into the
   // currently active session instead of materializing its own session.

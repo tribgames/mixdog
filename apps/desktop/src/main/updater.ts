@@ -91,6 +91,19 @@ export function startAutoUpdater(
     autoUpdater.allowDowngrade = false;
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
+    // Dev loop (scripts/dev-update-windows.ps1 -ViaUpdater): point THIS code —
+    // the shipping update path — at a build served from the working tree. The
+    // production feed is untouched unless the variable is set, and an
+    // unpackaged app never reaches this branch at all.
+    const devFeed = String(process.env.MIXDOG_UPDATER_DEV_FEED || '').trim();
+    if (devFeed) {
+      autoUpdater.allowPrerelease = true;
+      autoUpdater.allowDowngrade = true;
+      autoUpdater.setFeedURL({ provider: 'generic', url: devFeed });
+      console.info('Mixdog updater dev feed:', devFeed);
+    }
+    // Nobody is sitting in Settings to press Install during an automated loop.
+    const devAutoInstall = Boolean(devFeed) && process.env.MIXDOG_UPDATER_DEV_AUTO_INSTALL === '1';
     controller = createUpdaterController({
       enabled: true,
       currentVersion: app.getVersion(),
@@ -106,6 +119,11 @@ export function startAutoUpdater(
       console.info('Mixdog updater status:', next);
       report?.('updater state', next);
       publish(next);
+      if (devAutoInstall && next.status === 'ready') {
+        void desktopUpdater.install().catch((error: unknown) => {
+          console.warn('Mixdog dev auto-install failed:', error);
+        });
+      }
     });
     void controller.start();
     checkInterval = setInterval(() => {

@@ -45,6 +45,11 @@ import {
   turnPromptText,
   type TranscriptRowModel,
 } from "./transcript-rows";
+import {
+  nextDraftTranscriptNamespace,
+  rememberTranscriptRowNamespace,
+  transcriptRowNamespace,
+} from "./transcript-virtual-cache";
 import { LiveActivity, resetToolDisclosureScope, TranscriptRow } from "./TranscriptView";
 import { TurnReviewBar } from "./TurnReview";
 import { useTranscriptFollow } from "./use-transcript-follow";
@@ -58,8 +63,17 @@ export type PendingPromptItem = TranscriptItem & {
   accepted: boolean;
   submittedAt: number;
   queuedBehindTurn?: boolean;
-  queueAcknowledged?: boolean;
+  /** User rows already settled in this session when the prompt was sent. The
+   *  durable row is the (baseline + 1)-th user row, which releases this
+   *  optimistic twin even if the runtime normalized its id. */
+  settledUserBaseline?: number;
 };
+
+function settledUserRowCount(items: readonly TranscriptItem[]): number {
+  let count = 0;
+  for (const item of items) if (item?.kind === "user") count += 1;
+  return count;
+}
 
 let desktopSubmissionSequence = 0;
 
@@ -94,36 +108,45 @@ function pendingPromptImages(options?: DesktopSubmitOptions): NonNullable<Transc
 export function pendingPromptTranscriptItems(
   optimistic: PendingPromptItem[],
   settled: TranscriptItem[],
-  queued: unknown[] = [],
 ): PendingPromptItem[] {
   const settledIds = new Set(settled
     .map((item) => item?.id)
     .filter((id) => id !== undefined && id !== null)
     .map(String));
-  const queuedIds = new Set(queued
-    .map((item) => asRecord(item)?.id)
-    .filter((id) => id !== undefined && id !== null)
-    .map(String));
+  const settledUsers = settledUserRowCount(settled);
   const byId = new Map<string, PendingPromptItem>();
   for (const item of optimistic) {
     if (item?.id === undefined || item.id === null || !String(item.text || "").trim()) continue;
     byId.set(String(item.id), item);
   }
-  return [...byId.entries()]
-    .filter(([id]) => !settledIds.has(id))
-    // A queued follow-up stays in the transcript across host acknowledgement:
-    // moving it into the composer queue changed both boxes at once and visibly
-    // kicked every script row. Once the observed queue entry drains, the
-    // authoritative user transcript takes over (even if the runtime normalized
-    // its durable id). Idle submits still release on acknowledgement.
-    .filter(([id, item]) => item.accepted !== true
-      || queuedIds.has(id)
-      || (item.queuedBehindTurn === true && item.queueAcknowledged !== true))
-    .map(([, item]) => ({
-      ...item,
-      pending: true,
-    }))
-    .sort((left, right) => left.submittedAt - right.submittedAt);
+  // Host acknowledgement is NOT settlement. Releasing on the RPC result took
+  // the bubble back out of the thread for the whole ack -> publication window
+  // (measured 77ms to 4s on the daemon-hosted engine): the bottom-pinned
+  // timeline lost the prompt's height, snapped back, then snapped forward
+  // again when the durable row arrived — the double kick the reader sees as
+  // one big jerk (user: 프롬프트 입력 들어갈 때 스크롤이 크게 투둑 튄다).
+  // The optimistic row is therefore held until its OWN durable row lands.
+  const rows: PendingPromptItem[] = [];
+  const ordered = [...byId.values()].sort((left, right) => left.submittedAt - right.submittedAt);
+  // Durable user rows already claimed by an earlier optimistic prompt: this
+  // prompt's own row is the (baseline + claimed + 1)-th user row.
+  let claimed = 0;
+  for (const item of ordered) {
+    if (settledIds.has(String(item.id))) {
+      claimed += 1;
+      continue;
+    }
+    // Id-agnostic safety net: a runtime that renames the submission id still
+    // releases the twin once its ordinal user row exists, so a lost id can
+    // never strand a permanent ghost bubble.
+    const baseline = Number(item.settledUserBaseline);
+    if (Number.isFinite(baseline) && settledUsers >= baseline + claimed + 1) {
+      claimed += 1;
+      continue;
+    }
+    rows.push({ ...item, pending: true });
+  }
+  return rows;
 }
 
 export function Conversation({
@@ -155,6 +178,7 @@ export function Conversation({
   streamingTailSlot,
   readOnly = false,
   warmPaintHandoff = false,
+  transcriptPending = false,
 }: {
   snapshot: Snapshot;
   routeSnapshot: Snapshot;
@@ -192,17 +216,15 @@ export function Conversation({
    *  the prior watermark for one frame so Chromium uploads its raster before
    *  it becomes visible. Route identity and interaction are already current. */
   warmPaintHandoff?: boolean;
-  /** A session is opening with nothing cached to paint yet. Transitions stay
-   *  wordless, so the thread shows placeholder rows — never the empty-task
-   *  welcome, which read as a hang on the first cold open. */
+  /** The rich Markdown chunk this session's rows need has not resolved yet.
+   *  The timeline stays UNMOUNTED until it has (the surface cover holds the
+   *  frame): OpenCode mounts its timeline once, with the real rows, so the
+   *  entry offset is resolved exactly once. */
+  transcriptPending?: boolean;
 }) {
   const conversation = useRef<HTMLElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  // OpenCode's createAutoScroll observes the element that CONTAINS every
-  // growable block of the turn (message container + diffs). The virtual space
-  // alone would miss the review bar that now lives beside it.
-  const thread = useRef<HTMLDivElement>(null);
   const scrollToEndRef = useRef<(behavior?: ScrollBehavior) => void>(() => {});
   // React port of OpenCode's createAutoScroll + message-gesture split.
   const {
@@ -218,12 +240,15 @@ export function Conversation({
     handleInteraction: handleTranscriptInteraction,
     handleKeyDown: handleTranscriptKeyDown,
     resume: resumeFollow,
+    arm: armFollow,
+    markProgrammaticScroll: markTranscriptProgrammaticScroll,
   } = useTranscriptFollow({
     viewport,
-    content: thread,
+    content,
     sessionKey: draftMode
       ? "new-task"
       : String(routeSnapshot.sessionId || "new-task"),
+    contentMounted: !transcriptPending,
   });
   const [optimisticPrompts, setOptimisticPrompts] = useState<PendingPromptItem[]>([]);
   // A first submit already replaced the blank watermark with its optimistic
@@ -303,6 +328,42 @@ export function Conversation({
     ? 'new-task'
     : String(routeSnapshot.sessionId || 'new-task');
   const previousTranscriptSessionKey = useRef(transcriptSessionKey);
+  // A pane's OWN draft -> session promotion must NOT rebuild the timeline. The
+  // virtual list AND its row keys are namespaced by this identity, which
+  // survives the promotion; only the geometry cache follows the real session
+  // key. Keying them by the session key remounted the list mid-turn, dropped
+  // every measured row, and repainted the first prompt from the flat estimate
+  // (user: 첫 프롬 입력 후 화면이 툭 튀고 말풍선이 엉뚱한 위치로 튄다).
+  const transcriptIdentity = useRef("");
+  const transcriptIdentitySource = useRef("");
+  // Set on the promotion render, where the submit marker is still armed, and
+  // consumed by the effect below; never cleared in render, so a repeated
+  // render of the same commit cannot lose it.
+  const promotedOwnDraft = useRef(false);
+  // The pending gate below belongs to a COLD session entry. Once this identity
+  // has painted its timeline, it must never be unmounted again — a promotion
+  // whose Markdown-readiness flag lags one tick would otherwise discard every
+  // measured row exactly like a remount.
+  const timelineMounted = useRef(false);
+  if (transcriptIdentitySource.current !== transcriptSessionKey) {
+    const ownPromotion = transcriptIdentitySource.current === 'new-task'
+      && transcriptSessionKey !== 'new-task'
+      && suppressDraftSubmitPaintHandoff.current;
+    transcriptIdentitySource.current = transcriptSessionKey;
+    if (ownPromotion) {
+      promotedOwnDraft.current = true;
+      // Re-entry must still match the geometry cached under the REAL session
+      // key, so the draft's namespace outlives this mount.
+      rememberTranscriptRowNamespace(transcriptSessionKey, transcriptIdentity.current);
+    } else {
+      transcriptIdentity.current = transcriptSessionKey === 'new-task'
+        ? nextDraftTranscriptNamespace()
+        : transcriptRowNamespace(transcriptSessionKey);
+      timelineMounted.current = false;
+    }
+  }
+  const showTranscriptTimeline = !transcriptPending || timelineMounted.current;
+  if (showTranscriptTimeline) timelineMounted.current = true;
   // Session ENTRY resets this visit's tool disclosures before the first row
   // renders (user: tool cards must always start collapsed; remembered
   // expansions from an earlier visit reopened them "randomly"). Idempotent
@@ -313,20 +374,13 @@ export function Conversation({
     disclosureVisitKey.current = transcriptSessionKey;
     resetToolDisclosureScope(transcriptSessionKey);
   }
-  const queuedPromptIds = useMemo(
-    () => new Set((Array.isArray(snapshot.queued) ? snapshot.queued : [])
-      .map((item) => asRecord(item)?.id)
-      .filter((id) => id !== undefined && id !== null)
-      .map(String)),
-    [snapshot.queued],
-  );
+  // Submit-time baseline for the id-agnostic release path below.
+  const settledUsers = useMemo(() => settledUserRowCount(settledItems), [settledItems]);
+  const settledUsersRef = useRef(settledUsers);
+  settledUsersRef.current = settledUsers;
   const pendingPromptItems = useMemo(
-    () => pendingPromptTranscriptItems(
-      optimisticPrompts,
-      settledItems,
-      Array.isArray(snapshot.queued) ? snapshot.queued : [],
-    ),
-    [optimisticPrompts, settledItems, snapshot.queued],
+    () => pendingPromptTranscriptItems(optimisticPrompts, settledItems),
+    [optimisticPrompts, settledItems],
   );
   const pendingPromptIds = useMemo(
     () => pendingPromptItems.map((item) => item.id),
@@ -342,24 +396,19 @@ export function Conversation({
   useEffect(() => {
     if (previousTranscriptSessionKey.current === transcriptSessionKey) return;
     previousTranscriptSessionKey.current = transcriptSessionKey;
+    // A promotion is not a navigation: the in-flight prompt stays visible
+    // until its own settled row lands (released by id), instead of blinking
+    // out of the thread for the publication interval after the first submit.
+    if (promotedOwnDraft.current) {
+      promotedOwnDraft.current = false;
+      return;
+    }
     setOptimisticPrompts([]);
   }, [transcriptSessionKey]);
   useEffect(() => {
-    if (queuedPromptIds.size === 0) return;
-    setOptimisticPrompts((current) => {
-      let changed = false;
-      const next = current.map((item) => {
-        if (item.queueAcknowledged === true || !queuedPromptIds.has(String(item.id))) return item;
-        changed = true;
-        return { ...item, queueAcknowledged: true };
-      });
-      return changed ? next : current;
-    });
-  }, [queuedPromptIds]);
-  useEffect(() => {
-    // Queue acknowledgement is not settlement: keep the optimistic card
-    // visible (and hide only its duplicate queue row) until the same id lands
-    // in the transcript after provider injection.
+    // Neither host acknowledgement nor queue publication is settlement: the
+    // optimistic card is dropped from state only once its own durable row is
+    // in the transcript.
     const acknowledged = new Set(settledItems
       .map((item) => item?.id)
       .filter((id) => id !== undefined && id !== null)
@@ -394,7 +443,7 @@ export function Conversation({
   // ONE projection owns visibility, completion folding, and failed-turn status
   // rows, so the virtual list never carries invisible or zero-height rows.
   const transcriptRows = useMemo(() => projectTranscriptRows({
-    sessionKey: transcriptSessionKey,
+    sessionKey: transcriptIdentity.current,
     items: settledRowItems,
     turnKeys: settledTurnKeys,
     failedTurns,
@@ -475,8 +524,11 @@ export function Conversation({
   useLayoutEffect(() => {
     if (armedFollowSessionKey.current === transcriptSessionKey) return;
     armedFollowSessionKey.current = transcriptSessionKey;
-    resumeFollow();
-  }, [resumeFollow, transcriptSessionKey]);
+    // Entry re-arms following ONLY. The virtual timeline owns the end
+    // position; writing scrollTop here too made two authorities aim at
+    // different offsets across the first frames (re-entry jump/flicker).
+    armFollow();
+  }, [armFollow, transcriptSessionKey]);
   const shouldAnchorTranscriptBottom = following
     || armedFollowSessionKey.current !== transcriptSessionKey;
   // Submit mirrors OpenCode resumeScroll: re-arm auto-scroll, then ask the
@@ -501,6 +553,7 @@ export function Conversation({
       accepted: false,
       submittedAt: trackedSubmittedAt,
       queuedBehindTurn: queuedBehindTurnAtSubmit.current,
+      settledUserBaseline: settledUsersRef.current,
       ...(images.length ? { images } : {}),
     };
     const materializingDraft = draftModeRef.current;
@@ -671,7 +724,7 @@ export function Conversation({
         onTouchCancel={handleTranscriptTouchEnd}
         onClick={handleTranscriptInteraction}
         onKeyDown={handleTranscriptKeyDown}>
-        <div className="thread" ref={thread}>
+        <div className="thread">
           {/* An EMPTY draft carries ONLY the centered brand watermark (user:
               VS Code grammar — shortcuts live solely on the fully empty
               workspace; secondary surfaces keep the quiet letterpress).
@@ -684,21 +737,15 @@ export function Conversation({
               <span className="welcome-logo"><BrandTile crop /></span>
             </div>
           )}
-          <TranscriptList key={transcriptSessionKey} sessionKey={transcriptSessionKey}
+          {/* ONE mount per session, always with the real rows: a placeholder
+              shell mounted first made the virtual core resolve its end anchor
+              against an empty list and again on the 0 -> N row swap — the
+              visible up/down bounce on entering a session. */}
+          {showTranscriptTimeline && <TranscriptList key={transcriptIdentity.current} sessionKey={transcriptSessionKey}
             rows={transcriptRows} viewport={viewport} content={content}
             shouldAnchorBottom={shouldAnchorTranscriptBottom}
-            scrollToEndRef={scrollToEndRef} renderRow={renderTranscriptRow} />
-          {/* OpenCode parity (session-turn-diffs): review belongs to the
-              SCROLLED timeline, as the last block after the turn. In the
-              composer stack its late arrival changed the viewport height
-              instead — measured 118 -> 154px on session entry, shifting the
-              whole surface (user: PANE에 뜰 때 위아래로 쉬프트). Here the
-              bottom anchor already owns the growth. */}
-          {!readOnly && <div className="turn-review-slot">
-            <TurnReviewBar items={settledItems}
-              sessionId={String(snapshot.sessionId || "")}
-              cwd={String(snapshot.currentProject || snapshot.project || snapshot.cwd || "")} />
-          </div>}
+            markProgrammaticScroll={markTranscriptProgrammaticScroll}
+            scrollToEndRef={scrollToEndRef} renderRow={renderTranscriptRow} />}
         </div>
       </div>
       {showJump && itemCount > 0 && <button type="button" className="jump-to-latest" onClick={() => jumpToLatest()}
@@ -745,6 +792,14 @@ export function Conversation({
             final 20px thinking/tool status band without consuming layout. */}
         {liveWork}
         <InlineErrors messages={errors} />
+        {/* Review sits attached ABOVE the input (user: 채팅창 위에 붙어야 한다).
+            It is not a timeline row: as scroll content it read as a detached
+            card floating over the composer. */}
+        <div className="turn-review-slot">
+          <TurnReviewBar items={settledItems}
+            sessionId={String(snapshot.sessionId || "")}
+            cwd={String(snapshot.currentProject || snapshot.project || snapshot.cwd || "")} />
+        </div>
         <Composer
           turnBusy={Boolean(snapshot.busy)}
           commandBusy={!draftMode && Boolean(routeSnapshot.commandBusy)}
@@ -755,6 +810,7 @@ export function Conversation({
               routeSnapshot.project || routeSnapshot.cwd || 'new-task')}
           projectScope={draftMode ? activeProjectPath
             : String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || '')}
+          sessionId={draftMode ? '' : String(routeSnapshot.sessionId || '')}
           hasConversation={itemCount > 0
             || (Array.isArray(snapshot.queued) && snapshot.queued.length > 0)}
           promptHistoryList={routeSnapshot.promptHistoryList}

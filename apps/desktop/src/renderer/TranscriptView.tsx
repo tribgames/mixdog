@@ -287,6 +287,11 @@ export function LiveActivity({
   // reads as flicker. Hold each verb for a minimum dwell before accepting
   // the next one — appearance/disappearance stays immediate.
   const heldVerb = useRef<{ text: string; at: number }>({ text: "", at: 0 });
+  // Re-entering a session REMOUNTS this band. Replaying the enter animation
+  // then slid the whole status row 4px on every visit (user: 들어갈 때마다
+  // 애니메이션이 다시 나와서 튄다). Only work that actually began after this
+  // mount is new; a turn already in flight is restored, not started.
+  const mountedAt = useRef(Date.now());
   useEffect(() => {
     if (!activity || !startedAt) return undefined;
     setNow(Date.now());
@@ -330,8 +335,10 @@ export function LiveActivity({
     outputTokens > 0 ? `${formatTokenCount(outputTokens)} tokens` : "",
   ].filter(Boolean).join(" · ");
   const reasoning = publicThinkingSummary(snapshot.thinking);
+  const animateEnter = startedAt > 0 && startedAt >= mountedAt.current;
   return <div className="live-activity" data-mode={mode}>
-    <div className="live-activity-status" role="status" aria-live="polite">
+    <div className="live-activity-status" role="status" aria-live="polite"
+      data-animate={animateEnter ? "true" : undefined}>
       <span className="live-activity-icon" aria-hidden="true">
         <ProgressSpinner className="live-activity-spinner" size={15} />
       </span>

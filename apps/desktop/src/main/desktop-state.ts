@@ -84,6 +84,11 @@ export function desktopSessionSummaries(
     const sourceDelivery = ['app', 'channel', 'both'].includes(String(row.sourceDelivery || '').trim())
       ? String(row.sourceDelivery).trim() as 'app' | 'channel' | 'both'
       : null;
+    // The store index already carries each session's last route. Passing it
+    // through lets pane chrome name the model on its first frame instead of
+    // blanking until a lane snapshot arrives.
+    const provider = String(row.provider || '').trim();
+    const model = String(row.model || '').trim();
     // Empty and synthetic runtime previews both normalize to no usable title.
     // Keep compacted handoffs when their earliest real user prompt can be
     // recovered, but hide abandoned/interrupted/internal rows instead of
@@ -107,6 +112,8 @@ export function desktopSessionSummaries(
         ...(sourceName ? { sourceName } : {}),
         ...(sourceDelivery ? { sourceDelivery } : {}),
       } : {}),
+      ...(provider ? { provider } : {}),
+      ...(model ? { model } : {}),
     }];
   }).filter((row) => /^[A-Za-z0-9_-]+$/.test(row.id));
 }

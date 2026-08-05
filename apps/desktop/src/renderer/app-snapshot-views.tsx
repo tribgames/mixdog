@@ -3,7 +3,7 @@
 // re-renders the conversation (and vice versa). Extracted from App.tsx, which
 // keeps composition and session flow.
 import { Unplug } from "lucide-react";
-import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { ActiveAgentsIndicator } from "./ActiveAgentsIndicator";
 import {
@@ -36,6 +36,47 @@ import { ContextUsageIndicator, LiveWorkStatus, TranscriptRow } from "./Transcri
 import { UtilityDock } from "./UtilityDock";
 
 export const selectDesktopSnapshot = (snapshot: Snapshot) => snapshot;
+
+type StickySessionRoute = {
+  provider: string;
+  model: string;
+  effort: string;
+  fast: boolean;
+  fastCapable: boolean;
+};
+
+// A pane's lane can deliver a frame with no route: a disk projection, a
+// partial delta, or the gap right after focus moves and the lane republishes.
+// Rendering that frame verbatim emptied the model controls of every unfocused
+// pane back to "Choose model" (user report: 포커스를 옮길 때마다 모델 정보가
+// 날아간다). The route is SESSION state, not per-frame state, so a frame that
+// omits it keeps the last route this pane knew.
+function useStickySessionRoute(sessionId: string, snapshot: Snapshot): Snapshot {
+  const remembered = useRef<{ sessionId: string; route: StickySessionRoute | null }>({
+    sessionId,
+    route: null,
+  });
+  return useMemo(() => {
+    if (remembered.current.sessionId !== sessionId) {
+      remembered.current = { sessionId, route: null };
+    }
+    if (!sessionId) return snapshot;
+    const provider = String(snapshot?.provider || "");
+    const model = String(snapshot?.model || "");
+    if (provider && model) {
+      remembered.current.route = {
+        provider,
+        model,
+        effort: String(snapshot?.effort || ""),
+        fast: snapshot?.fast === true,
+        fastCapable: snapshot?.fastCapable === true,
+      };
+      return snapshot;
+    }
+    const route = remembered.current.route;
+    return route ? { ...snapshot, ...route } as Snapshot : snapshot;
+  }, [sessionId, snapshot]);
+}
 
 // The viewed tab scopes which LIVE frames may paint the conversation surface:
 // frames carrying another session's id (background engines publishing) are
@@ -99,23 +140,14 @@ function useSelectedDesktopSnapshot(
   return useDesktopSnapshotSelector(store, selector, isEqual, enabled);
 }
 
-type LiveConversationProps = Omit<React.ComponentProps<typeof Conversation>, "snapshot" | "routeSnapshot"> & {
+type LiveConversationProps =
+  Omit<React.ComponentProps<typeof Conversation>, "snapshot" | "routeSnapshot" | "transcriptPending"> & {
   snapshotStore: DesktopSnapshotStore;
   frozenSnapshot: Snapshot | null;
   hidden: boolean;
   transcriptPending?: boolean;
   sessionScope?: SnapshotSessionScope;
 };
-
-function transcriptShellSnapshot(snapshot: Snapshot): Snapshot {
-  return {
-    ...snapshot,
-    items: EMPTY_TRANSCRIPT_ITEMS,
-    streamingTail: null,
-    failedTurnKeys: [],
-    transcriptTurnKeys: [],
-  };
-}
 
 type PaneStreamingTailProps = {
   focused: boolean;
@@ -188,10 +220,11 @@ export const LiveConversation = memo(function LiveConversation({
     desktopConversationSnapshotsEqual,
     sessionScope,
   );
-  const visibleSnapshot = hidden
-    ? EMPTY_SNAPSHOT
-    : transcriptPending ? transcriptShellSnapshot(selectedSnapshot) : selectedSnapshot;
-  return <Conversation snapshot={visibleSnapshot} routeSnapshot={selectedSnapshot} {...props} />;
+  const visibleSnapshot = hidden ? EMPTY_SNAPSHOT : selectedSnapshot;
+  // Readiness gates the TIMELINE, never the snapshot: emptying items produced a
+  // 0 -> N row swap that resolved the entry anchor twice (the entry bounce).
+  return <Conversation snapshot={visibleSnapshot} routeSnapshot={selectedSnapshot}
+    transcriptPending={transcriptPending} {...props} />;
 });
 
 // Every split-pane chat keeps ONE Conversation instance mounted for its whole
@@ -199,7 +232,8 @@ export const LiveConversation = memo(function LiveConversation({
 // tree; it must never swap LiveConversation <-> LaneConversation because that
 // remount consumes the first control click and resets open picker state.
 type PaneConversationProps =
-  Omit<React.ComponentProps<typeof Conversation>, "snapshot" | "routeSnapshot" | "streamingTailSlot"> & {
+  Omit<React.ComponentProps<typeof Conversation>,
+    "snapshot" | "routeSnapshot" | "streamingTailSlot" | "transcriptPending"> & {
     focused: boolean;
     sessionId: string;
     fallback?: Snapshot | null;
@@ -248,9 +282,9 @@ export const PaneConversation = memo(function PaneConversation({
   const laneSnapshot = lane ?? fallback ?? EMPTY_SNAPSHOT;
   const selectedSessionId = String(selectedSnapshot.sessionId || "");
   const selectedOwnsDraft = selectedSessionId === "";
-  const routeSnapshot = sessionId
+  const routeSnapshot = useStickySessionRoute(sessionId, sessionId
     ? laneSnapshot
-    : focused && selectedOwnsDraft ? selectedSnapshot : EMPTY_SNAPSHOT;
+    : focused && selectedOwnsDraft ? selectedSnapshot : EMPTY_SNAPSHOT);
   const paneSnapshot = hidden ? EMPTY_SNAPSHOT : routeSnapshot;
   const cachedTranscriptReady = Boolean(fallback?.items?.length);
   const surfaceReady = hidden || !sessionId
@@ -290,6 +324,7 @@ export const PaneConversation = memo(function PaneConversation({
       snapshot={paneSnapshot}
       routeSnapshot={routeSnapshot}
       draftMode={draftMode}
+      transcriptPending={transcriptPending}
       warmPaintHandoff={warmDraftHandoff}
       liveWork={<PaneLiveWork
         focused={focused}

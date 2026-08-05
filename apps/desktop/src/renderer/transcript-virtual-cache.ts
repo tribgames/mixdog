@@ -23,6 +23,39 @@ export interface TranscriptVirtualSnapshot {
 }
 
 const snapshots = new Map<string, TranscriptVirtualSnapshot>();
+// A materialized draft keeps the row-key namespace it painted with.
+const namespaces = new Map<string, string>();
+let draftNamespaces = 0;
+
+/**
+ * A draft's own row-key namespace. It is UNIQUE per draft so the session it
+ * materializes can keep it: promotion must not re-key the rows (nor the
+ * measured sizes) the reader is already looking at.
+ */
+export function nextDraftTranscriptNamespace(): string {
+  draftNamespaces += 1;
+  return `draft-${draftNamespaces}`;
+}
+
+/** The namespace a session's rows are keyed with — its own, unless it was
+ *  promoted from a draft whose namespace its cached geometry still uses. */
+export function transcriptRowNamespace(sessionKey: string): string {
+  return namespaces.get(sessionKey) || sessionKey;
+}
+
+export function rememberTranscriptRowNamespace(
+  sessionKey: string,
+  namespace: string,
+): void {
+  if (!sessionKey || !namespace || sessionKey === namespace) return;
+  namespaces.delete(sessionKey);
+  namespaces.set(sessionKey, namespace);
+  while (namespaces.size > TRANSCRIPT_VIRTUAL_CACHE_LIMIT) {
+    const oldest = namespaces.keys().next().value;
+    if (oldest === undefined) break;
+    namespaces.delete(oldest);
+  }
+}
 
 function remember(sessionKey: string, snapshot: TranscriptVirtualSnapshot): void {
   snapshots.delete(sessionKey);
@@ -55,4 +88,5 @@ export function rememberTranscriptVirtualMeasurements(
 
 export function clearTranscriptVirtualSnapshots(): void {
   snapshots.clear();
+  namespaces.clear();
 }

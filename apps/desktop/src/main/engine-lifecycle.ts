@@ -103,8 +103,12 @@ export function createEngineLifecycle(deps: EngineLifecycleDeps) {
     return engineHasActiveWork(current, deps.pendingSubmitLeases);
   }
 
-  function parkCurrentEngine(): string | null {
-    if (!currentEngineIsRunning()) return null;
+  /** force: park a view that is merely IDLE too. With the engine pool in the
+   *  daemon there is no "active engine" to recycle — a view that already
+   *  paints a session keeps it, so navigation never re-points someone else's
+   *  pane (blank pane / lost model / jumping transcript on focus changes). */
+  function parkCurrentEngine({ force = false } = {}): string | null {
+    if (!force && !currentEngineIsRunning()) return null;
     const current = deps.requireEngine();
     const sessionId = String(current.getState()?.sessionId || '');
     if (!sessionId) return null;
@@ -136,7 +140,12 @@ export function createEngineLifecycle(deps: EngineLifecycleDeps) {
 
   function activateParkedEngine(sessionId: string): MixdogEngine {
     const parked = deps.parkedEngines.get(sessionId);
-    if (!parked) throw new Error('Parked session engine is unavailable.');
+    if (!parked) {
+      // Name what IS parked: a rollback that cannot find its target used to
+      // report only that something was missing.
+      const available = [...deps.parkedEngines.keys()].join(', ') || 'none';
+      throw new Error(`Parked session engine is unavailable: ${sessionId} (parked: ${available}).`);
+    }
     const previousCwd = process.cwd();
     process.chdir(parked.workspace);
     deps.setEngine(parked.engine);
@@ -397,6 +406,9 @@ export function createEngineLifecycle(deps: EngineLifecycleDeps) {
     disposeCurrent,
     replaceEngineForNavigation,
     replaceEngine,
+    // Background view for a session the active engine does not hold. The
+    // daemon adopts an already-hosted session, so this costs a mirror.
+    loadEngine,
     preloadEngineModule,
   };
 }
