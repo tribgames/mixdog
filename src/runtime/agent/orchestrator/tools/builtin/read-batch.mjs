@@ -54,7 +54,7 @@ export function sliceReadBodyByLines(body, origOffset, origLimit) {
     const _remaining = haveTotal ? totalNum - emittedLast : null;
     const continuationPart = moreToRead && Number.isFinite(emittedLast)
         ? (_remaining !== null && _remaining > 0 && _remaining <= 600
-            ? `; ${_remaining} lines left — take the rest in ONE window: offset:${emittedLast}, limit:${_remaining}`
+            ? `; ${_remaining} left — ONE window: offset:${emittedLast} limit:${_remaining}`
             : `; pass offset:${emittedLast} to continue`)
         : '';
     const newFooter = `[lines ${firstLine}-${emittedLast}${totalPart}${continuationPart}]`;

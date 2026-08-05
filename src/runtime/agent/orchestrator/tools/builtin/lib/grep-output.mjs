@@ -159,7 +159,7 @@ export function formatGrepContextOutput({ allLines, workDir, outputMode, filenam
         ? `\n[Showing ${shown} of ${totalStr} matches${totalKnown ? '' : ' (results partial)'}; pass offset:${nextOffset} for more]`
         : '';
     return {
-        text: `[Raw source spans; apply_patch context may be copied verbatim]\n${segments.join('\n')}${notice}`,
+        text: `${segments.join('\n')}${notice}`,
         total,
         shown,
         omitted,

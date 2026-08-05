@@ -378,9 +378,9 @@ function renderFocusedContext(selected, sources, radius, _budget, notice) {
         )).join('\n')}`
         : '';
     const header = compact.length
-        ? `[Top ${rawBlocks.length} of ${ordered.length} matches as raw source spans; remaining matches as path:line anchors]`
-        : '[Raw source spans; apply_patch context may be copied verbatim]';
-    const text = `${header}\n${raw}${anchors}${notice}`;
+        ? `[Top ${rawBlocks.length} of ${ordered.length}; remaining as path:line anchors]`
+        : null;
+    const text = `${header ? `${header}\n` : ''}${raw}${anchors}${notice}`;
     return {
         text,
         sourceComplete: rawBlocks.every((block) => block.sourceComplete),

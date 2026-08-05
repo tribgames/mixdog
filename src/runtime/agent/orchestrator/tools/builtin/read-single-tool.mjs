@@ -693,7 +693,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
                 const _remaining = lineCount - emittedEnd;
                 const _cont = emittedEnd < lineCount
                     ? (_remaining <= 600
-                        ? `; ${_remaining} lines left — take the rest in ONE window: offset:${emittedEnd}, limit:${_remaining}`
+                        ? `; ${_remaining} left — ONE window: offset:${emittedEnd} limit:${_remaining}`
                         : `; pass offset:${emittedEnd} to continue`)
                     : '';
                 const footer = `[lines ${emittedStart}-${emittedEnd} of ${lineCount}${_cont}]`;

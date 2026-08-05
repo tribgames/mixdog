@@ -468,8 +468,6 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
   const lines = [
     'background task',
     `task_id: ${task.taskId}`,
-    `surface: ${task.surface}`,
-    `operation: ${task.operation}`,
     task.label ? `label: ${task.label}` : null,
     `status: ${task.status}`,
     `started: ${task.startedAt}`,
@@ -477,10 +475,11 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
     task.error ? `error: ${task.error}` : null,
   ];
   for (const [key, value] of Object.entries(visibleMeta)) {
+    if (key === 'task_id') continue; // already in the envelope header
     lines.push(`${key}: ${value}`);
   }
   if (task.status === 'running') {
-    lines.push('notification: completion will be delivered to the owner session; use status/read only for manual recovery.');
+    lines.push('notification: completion is pushed to the owner session; poll only for recovery.');
   }
   if (includeResult) {
     const body = resultTextForTask(task);
