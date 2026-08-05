@@ -25,6 +25,24 @@ function _defaultMaxInflight() {
 
 const MAX_INFLIGHT = _defaultMaxInflight();
 
+// ── Lanes ────────────────────────────────────────────────────────────────
+// One shared cap number, applied PER LANE with independent counters/queues:
+//   'default' — short-lived spawns (rg). Holding time is one search run.
+//   'build'   — long-lived builds (code-graph worker / graph binary). A cold
+//               graph build can hold its slot for seconds-to-minutes; on the
+//               win32 cap=1 default a single shared lane would let one build
+//               stall every rg spawn behind it. Separate lanes remove that
+//               starvation class while keeping each spawn family bounded.
+function _makeLane() {
+  return { inflight: 0, queue: [] };
+}
+const _lanes = new Map();
+function _lane(name) {
+  let lane = _lanes.get(name);
+  if (!lane) { lane = _makeLane(); _lanes.set(name, lane); }
+  return lane;
+}
+
 // Warn (once-throttled, stderr only) when a waiter sat in the queue longer
 // than this — a coarse signal that the cap is undersized for the load. Kept
 // intentionally quiet so a busy daemon does not spam stderr.
@@ -34,32 +52,29 @@ const SLOW_WAIT_MS = Math.max(
 );
 const SLOW_WARN_THROTTLE_MS = 30000;
 
-let _inflight = 0;
-/** @type {Array<{ resolve: () => void, reject: (e: any) => void, signal: AbortSignal | null, onAbort: (() => void) | null, enqueuedAt: number }>} */
-const _queue = [];
 let _lastSlowWarnAt = 0;
 
-function _maybeWarnSlow(waitedMs) {
+function _maybeWarnSlow(waitedMs, laneName, lane) {
   if (waitedMs < SLOW_WAIT_MS) return;
   const now = Date.now();
   if (now - _lastSlowWarnAt < SLOW_WARN_THROTTLE_MS) return;
   _lastSlowWarnAt = now;
   try {
     process.stderr.write(
-      `[child-spawn-gate] queue wait ${waitedMs}ms (inflight cap=${MAX_INFLIGHT}, queued=${_queue.length}); `
+      `[child-spawn-gate] lane=${laneName} queue wait ${waitedMs}ms (inflight cap=${MAX_INFLIGHT}, queued=${lane.queue.length}); `
       + 'raise MIXDOG_CHILD_SPAWN_MAX_INFLIGHT if this persists\n',
     );
   } catch { /* ignore */ }
 }
 
-function _drain() {
-  while (_inflight < MAX_INFLIGHT && _queue.length > 0) {
-    const waiter = _queue.shift();
+function _drain(laneName, lane) {
+  while (lane.inflight < MAX_INFLIGHT && lane.queue.length > 0) {
+    const waiter = lane.queue.shift();
     if (waiter.onAbort && waiter.signal) {
       try { waiter.signal.removeEventListener('abort', waiter.onAbort); } catch { /* ignore */ }
     }
-    _inflight++;
-    _maybeWarnSlow(Date.now() - waiter.enqueuedAt);
+    lane.inflight++;
+    _maybeWarnSlow(Date.now() - waiter.enqueuedAt, laneName, lane);
     waiter.resolve();
   }
 }
@@ -74,22 +89,24 @@ function _drain() {
  * call release().
  *
  * @param {AbortSignal | null} [signal]
+ * @param {string} [laneName] — 'default' (short spawns) or 'build'.
  * @returns {Promise<() => void>}
  */
-export function acquire(signal = null) {
+export function acquire(signal = null, laneName = 'default') {
   if (signal && signal.aborted) {
     return Promise.reject(signal.reason ?? _abortError());
   }
+  const lane = _lane(laneName);
   return new Promise((resolve, reject) => {
     let released = false;
     const release = () => {
       if (released) return;
       released = true;
-      _inflight = Math.max(0, _inflight - 1);
-      _drain();
+      lane.inflight = Math.max(0, lane.inflight - 1);
+      _drain(laneName, lane);
     };
-    if (_inflight < MAX_INFLIGHT && _queue.length === 0) {
-      _inflight++;
+    if (lane.inflight < MAX_INFLIGHT && lane.queue.length === 0) {
+      lane.inflight++;
       resolve(release);
       return;
     }
@@ -102,14 +119,14 @@ export function acquire(signal = null) {
     };
     if (signal) {
       waiter.onAbort = () => {
-        const idx = _queue.indexOf(waiter);
-        if (idx !== -1) _queue.splice(idx, 1);
+        const idx = lane.queue.indexOf(waiter);
+        if (idx !== -1) lane.queue.splice(idx, 1);
         try { signal.removeEventListener('abort', waiter.onAbort); } catch { /* ignore */ }
         reject(signal.reason ?? _abortError());
       };
       try { signal.addEventListener('abort', waiter.onAbort, { once: true }); } catch { /* ignore */ }
     }
-    _queue.push(waiter);
+    lane.queue.push(waiter);
   });
 }
 
@@ -130,8 +147,9 @@ function _abortError() {
  * best-effort work. Real queries must use acquire()/withGate() and never gate
  * themselves on this.
  */
-export function hasSpareCapacity() {
-  return _inflight < MAX_INFLIGHT && _queue.length === 0;
+export function hasSpareCapacity(laneName = 'default') {
+  const lane = _lane(laneName);
+  return lane.inflight < MAX_INFLIGHT && lane.queue.length === 0;
 }
 
 /**
@@ -141,10 +159,11 @@ export function hasSpareCapacity() {
  * @template T
  * @param {(args: { signal: AbortSignal | null }) => Promise<T> | T} fn
  * @param {AbortSignal | null} [signal]
+ * @param {string} [laneName]
  * @returns {Promise<T>}
  */
-async function withGate(fn, signal = null) {
-  const release = await acquire(signal);
+async function withGate(fn, signal = null, laneName = 'default') {
+  const release = await acquire(signal, laneName);
   try {
     return await fn({ signal: signal || null });
   } finally {
