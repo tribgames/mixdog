@@ -10,19 +10,64 @@ export interface ShellJobsStatus {
   elapsedLabel: string;
 }
 
+/** Nothing running — shared so an unowned scope never allocates. */
+const EMPTY_STATUS: ShellJobsStatus = Object.freeze({ count: 0, elapsedLabel: '' });
+
 export interface ShellJobsPollerOptions {
   /** Live engine state, or null once the engine is gone (polling stops). */
   getEngineState(): Record<string, unknown> | null;
   /** Resolved statusline module URL — imported lazily on the first poll. */
   moduleUrl(): string;
-  /** Called only when the status actually changed. */
-  onChange(): void;
+  /** Called only when the status actually changed, carrying the sessions whose
+   *  OWN bucket moved so their panes can be republished individually. */
+  onChange(changedSessionIds: readonly string[]): void;
+}
+
+function normalizedStatus(value: { count?: unknown; elapsedLabel?: unknown } | null | undefined): ShellJobsStatus {
+  return {
+    count: Math.max(0, Number(value?.count) || 0),
+    elapsedLabel: String(value?.elapsedLabel || ''),
+  };
+}
+
+function normalizedSessions(value: unknown): Map<string, ShellJobsStatus> {
+  const sessions = new Map<string, ShellJobsStatus>();
+  if (!value || typeof value !== 'object') return sessions;
+  for (const [sessionId, bucket] of Object.entries(value as Record<string, unknown>)) {
+    const id = String(sessionId || '').trim();
+    if (!id) continue;
+    const status = normalizedStatus(bucket as { count?: unknown; elapsedLabel?: unknown });
+    if (status.count > 0) sessions.set(id, status);
+  }
+  return sessions;
+}
+
+function movedSessionIds(
+  previous: ReadonlyMap<string, ShellJobsStatus>,
+  next: ReadonlyMap<string, ShellJobsStatus>,
+): string[] {
+  const moved: string[] = [];
+  for (const [sessionId, status] of next) {
+    const before = previous.get(sessionId);
+    if (!before || before.count !== status.count || before.elapsedLabel !== status.elapsedLabel) {
+      moved.push(sessionId);
+    }
+  }
+  // A session whose last job finished must repaint too (its pane still shows
+  // the spinner until the empty bucket lands).
+  for (const sessionId of previous.keys()) {
+    if (!next.has(sessionId)) moved.push(sessionId);
+  }
+  return moved;
 }
 
 export function createShellJobsPoller({ getEngineState, moduleUrl, onChange }: ShellJobsPollerOptions) {
   let timer: NodeJS.Timeout | null = null;
   let delayMs = 0;
-  let status: ShellJobsStatus = { count: 0, elapsedLabel: '' };
+  let status: ShellJobsStatus = EMPTY_STATUS;
+  // Per-session buckets: one host process owns every pooled pane's jobs, so
+  // the aggregate alone cannot say whose shell is running.
+  let sessions: ReadonlyMap<string, ShellJobsStatus> = new Map();
   let modulePromise: Promise<StatuslineSegmentsModule> | null = null;
 
   function schedule(immediate = false): void {
@@ -50,13 +95,13 @@ export function createShellJobsPoller({ getEngineState, moduleUrl, onChange }: S
       modulePromise ??= import(/* @vite-ignore */ moduleUrl()) as Promise<StatuslineSegmentsModule>;
       const module = await modulePromise;
       const value = module.shellJobsStatus({ clientHostPid: ownerPid });
-      const next: ShellJobsStatus = {
-        count: Math.max(0, Number(value?.count) || 0),
-        elapsedLabel: String(value?.elapsedLabel || ''),
-      };
-      if (next.count !== status.count || next.elapsedLabel !== status.elapsedLabel) {
+      const next = normalizedStatus(value);
+      const nextSessions = normalizedSessions(value?.sessions);
+      const moved = movedSessionIds(sessions, nextSessions);
+      if (next.count !== status.count || next.elapsedLabel !== status.elapsedLabel || moved.length > 0) {
         status = next;
-        onChange();
+        sessions = nextSessions;
+        onChange(moved);
       }
     } catch {
       // The strip is optional: engine activity stays publishable when the
@@ -67,7 +112,14 @@ export function createShellJobsPoller({ getEngineState, moduleUrl, onChange }: S
   }
 
   return {
+    /** Host-wide aggregate: keep-awake and the CLI statusline own the process,
+     *  not one pane. */
     get status(): ShellJobsStatus { return status; },
+    /** One session's own jobs. A blank id (New task pane) owns nothing. */
+    statusFor(sessionId: string): ShellJobsStatus {
+      const id = String(sessionId || '').trim();
+      return (id ? sessions.get(id) : undefined) ?? EMPTY_STATUS;
+    },
     start(): void {
       this.stop();
       schedule(true);

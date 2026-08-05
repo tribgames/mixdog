@@ -86,16 +86,23 @@ export interface TranscriptFollow {
   handleKeyDown(event: { key: string }): void;
   pause(): void;
   resume(): void;
+  arm(): void;
+  /** Reported by the virtual timeline for every offset IT writes. */
+  markProgrammaticScroll(top: number, intended?: number): void;
 }
 
 export function useTranscriptFollow({
   viewport,
   content,
   sessionKey,
+  contentMounted = true,
 }: {
   viewport: RefObject<HTMLDivElement | null>;
   content: RefObject<HTMLDivElement | null>;
   sessionKey: string;
+  /** The timeline mounts only once its rows can be rendered for real, so the
+   *  content observer has to re-attach when that mount finally happens. */
+  contentMounted?: boolean;
 }): TranscriptFollow {
   const [following, setFollowing] = useState(true);
   const [showJump, setShowJump] = useState(false);
@@ -106,6 +113,15 @@ export function useTranscriptFollow({
   const autoTimer = useRef(0);
   const scrollStateFrame = useRef(0);
   const scrollStateTarget = useRef<HTMLDivElement | null>(null);
+  // Offsets WRITTEN by the virtual timeline (append follow, measured-size
+  // adjustments, entry anchoring) all route through its scrollToFn, which
+  // reports them here. They are the timeline keeping its own promise, never
+  // reader intent — counted as a gesture they released follow mid-stream
+  // (user: 자동스크롤이 너무 자주 풀린다).
+  const programmatic = useRef<{ tops: number[]; time: number } | undefined>(undefined);
+  const programmaticTimer = useRef(0);
+  // Last observed offset, so a release demands an actual UPWARD move.
+  const lastTop = useRef(0);
 
   const publish = useCallback((next: boolean) => {
     followingRef.current = next;
@@ -140,6 +156,28 @@ export function useTranscriptFollow({
       return false;
     }
     return Math.abs(element.scrollTop - value.top) < 2;
+  }, []);
+
+  const markProgrammaticScroll = useCallback((top: number, intended?: number) => {
+    const tops = [Math.round(top)];
+    if (typeof intended === "number" && Number.isFinite(intended)) tops.push(Math.round(intended));
+    programmatic.current = { tops, time: Date.now() };
+    window.clearTimeout(programmaticTimer.current);
+    programmaticTimer.current = window.setTimeout(() => {
+      programmatic.current = undefined;
+      programmaticTimer.current = 0;
+    }, 1_500);
+  }, []);
+
+  const isProgrammatic = useCallback((element: HTMLElement) => {
+    const value = programmatic.current;
+    if (!value) return false;
+    if (Date.now() - value.time > 1_500) {
+      programmatic.current = undefined;
+      return false;
+    }
+    const top = Math.round(element.scrollTop);
+    return value.tops.some((candidate) => Math.abs(top - candidate) < 2);
   }, []);
 
   const scrollToBottomNow = useCallback((
@@ -198,31 +236,40 @@ export function useTranscriptFollow({
     });
   }, [updateScrollState]);
 
-  const handleAutoScroll = useCallback(() => {
+  const handleAutoScroll = useCallback((previousTop: number): boolean => {
     const element = viewport.current;
-    if (!element) return;
+    if (!element) return false;
     if (!canScroll(element)) {
       if (!followingRef.current) publish(true);
-      return;
+      return false;
     }
     if (distanceFromBottom(element) < BOTTOM_THRESHOLD_PX) {
       if (!followingRef.current) publish(true);
-      return;
+      return false;
     }
     if (followingRef.current && isAuto(element)) {
       scrollToBottom(false);
-      return;
+      return false;
     }
+    // The timeline's own write is not a gesture, and neither is a scroll that
+    // did not move UP: append-follow and reflow corrections keep the reader at
+    // the tail, so only an actual upward move carries release intent.
+    if (isProgrammatic(element)) return false;
+    if (element.scrollTop >= previousTop) return false;
     stop();
-  }, [isAuto, publish, scrollToBottom, stop, viewport]);
+    return true;
+  }, [isAuto, isProgrammatic, publish, scrollToBottom, stop, viewport]);
 
   const handleScroll = useCallback(() => {
     const element = viewport.current;
     if (!element) return;
     scheduleScrollState(element);
+    const previousTop = lastTop.current;
+    lastTop.current = element.scrollTop;
     if (!hasGesture()) return;
-    handleAutoScroll();
-    markGesture();
+    // Only a scroll actually attributed to the reader keeps the gesture window
+    // alive; a stream of timeline writes must not hold it open forever.
+    if (handleAutoScroll(previousTop)) markGesture();
   }, [handleAutoScroll, hasGesture, markGesture, scheduleScrollState, viewport]);
 
   const handleWheel = useCallback((event: WheelLike) => {
@@ -294,6 +341,16 @@ export function useTranscriptFollow({
     const element = viewport.current;
     if (element) scheduleScrollState(element);
   }, [publish, scheduleScrollState, scrollToBottom, viewport]);
+  // Session ENTRY only re-arms following; it must not write scrollTop. The
+  // virtual timeline already resolves its end position (initialOffset +
+  // scrollToEnd), and a raw `scrollTop = scrollHeight` here made entry carry
+  // TWO scroll authorities aiming at different offsets — the multi-frame
+  // jump/flicker on re-entering a session.
+  const arm = useCallback(() => {
+    publish(true);
+    const element = viewport.current;
+    if (element) scheduleScrollState(element);
+  }, [publish, scheduleScrollState, viewport]);
 
   useEffect(() => {
     const target = content.current;
@@ -333,10 +390,11 @@ export function useTranscriptFollow({
     // the same pre-paint ResizeObserver transaction.
     if (element !== target) observer.observe(element);
     return () => observer.disconnect();
-  }, [content, publish, scheduleScrollState, scrollToBottom, sessionKey, viewport]);
+  }, [content, contentMounted, publish, scheduleScrollState, scrollToBottom, sessionKey, viewport]);
 
   useEffect(() => () => {
     window.clearTimeout(autoTimer.current);
+    window.clearTimeout(programmaticTimer.current);
     if (scrollStateFrame.current) window.cancelAnimationFrame(scrollStateFrame.current);
   }, []);
 
@@ -356,5 +414,7 @@ export function useTranscriptFollow({
     handleKeyDown,
     pause,
     resume,
+    arm,
+    markProgrammaticScroll,
   };
 }

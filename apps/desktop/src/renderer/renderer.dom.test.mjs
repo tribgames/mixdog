@@ -1301,6 +1301,88 @@ test("focused and unfocused panes render the identical failed-turn contract", as
   defaultSessionLaneStore.clear();
 });
 
+// A pane republishing (focus move, disk projection, partial delta) could ship a
+// frame with no provider/model. Rendering it verbatim reset every unfocused
+// pane's control to "Select model" (user: 포커싱 바꿀 때마다 모델 정보 날아감).
+test("a routeless lane frame keeps the pane's model label", async () => {
+  installDom();
+  const sessionId = "pane-route-memory";
+  const raw = {
+    sessionId,
+    cwd: "C:\\work",
+    items: [{ id: "user-route", kind: "user", text: "keep my model" }],
+    queued: [],
+    busy: false,
+    commandBusy: false,
+    provider: "openai",
+    model: "gpt-real",
+  };
+  defaultSessionLaneStore.clear();
+  defaultSessionLaneStore.apply({ sessionId, snapshot: raw });
+  const snapshotStore = {
+    getSnapshot: () => ({ sessionId: "", items: [], queued: [] }),
+    subscribe: () => () => {},
+  };
+  const modelOption = {
+    provider: "openai",
+    model: "gpt-real",
+    display: "GPT Real",
+    effortOptions: [],
+    fastCapable: false,
+  };
+  window.localStorage.setItem("mixdog.desktop-model-catalog.v1", JSON.stringify({
+    updatedAt: Date.now(),
+    models: [modelOption],
+  }));
+  window.mixdogDesktop = { listProviderModels: async () => [modelOption] };
+  const props = {
+    focused: false,
+    sessionId,
+    fallback: null,
+    snapshotStore,
+    frozenSnapshot: null,
+    hidden: false,
+    invoke: async (action) => { await action(); },
+    invokeResult: async (action) => await action(),
+    errors: [],
+    submit: async () => null,
+    applySnapshot() {},
+    transitioning: false,
+    composerFocusRequest: 0,
+    onNewTask() {},
+    onResumeSession() {},
+    onOpenSessions() {},
+    onOpenSettings() {},
+    projects: [],
+    showProjectSelector: false,
+    activeProjectPath: "C:\\work",
+    activeProjectLabel: "work",
+    onSelectProject() {},
+    onChooseProject() {},
+    onOpenCommandSurface() {},
+  };
+  await act(async () => root.render(React.createElement(PaneConversation, props)));
+  const label = () => (document.querySelector(".model-trigger")?.textContent || "").trim();
+  const routed = label();
+  assert.ok(routed && !/select model/i.test(routed),
+    `expected the routed model label, got "${routed}"`);
+  await act(async () => {
+    defaultSessionLaneStore.apply({
+      sessionId,
+      snapshot: { ...raw, provider: "", model: "" },
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+  });
+  assert.equal(label(), routed,
+    "a routeless lane frame must not blank the pane's model controls");
+  await act(async () => root.render(React.createElement(PaneConversation, {
+    ...props,
+    hidden: true,
+  })));
+  window.localStorage.removeItem("mixdog.desktop-model-catalog.v1");
+  defaultSessionLaneStore.clear();
+});
+
 test("cold session panes stay covered until their authoritative transcript is stable", async () => {
   installDom();
   const sessionId = "cold-pane-stable-reveal";
@@ -3194,9 +3276,9 @@ test("toggling a tool card keeps a pinned view followed and holds the anchor onc
     scrollTop: { value: 800, writable: true, configurable: true },
   });
   const deliverContentResize = () => {
-    // Auto-scroll observes the THREAD (OpenCode parity): it holds both the
-    // virtual rows and the turn-review block that grows after them.
-    const virtualContent = transcript.querySelector(".thread");
+    // ONE scroll authority: auto-scroll observes exactly the virtualizer
+    // container, and the review block is a projected row inside it.
+    const virtualContent = transcript.querySelector(".transcript-virtual-space");
     for (const observer of resizeObservers) {
       if (!observer.active || !observer.targets.includes(virtualContent)) continue;
       observer.callback([{
@@ -7607,6 +7689,94 @@ test("a materialized draft session promotes before the submit acknowledgement se
   });
 });
 
+test("the first prompt keeps ONE mounted timeline through draft promotion", async () => {
+  installDom();
+  let publishState;
+  let finishSubmit;
+  let submittedId = "";
+  let current = { sessionId: "", items: [], queued: [] };
+  const session = {
+    id: "promoted-session",
+    title: "Promoted task",
+    preview: "First prompt",
+    updatedAt: 2,
+    currentSession: true,
+    cwd: "C:\\work",
+    classification: "task",
+    projectPath: null,
+  };
+  window.mixdogDesktop = {
+    getSnapshot: async () => current,
+    subscribeState: (listener) => { publishState = listener; return () => {}; },
+    listProjects: async () => [],
+    listSessions: async () => (current.sessionId ? [session] : []),
+    startTask: async () => {
+      current = { sessionId: session.id, items: [], queued: [] };
+      publishState(current);
+      return current;
+    },
+    submit: async (_content, options) => {
+      submittedId = String(options?.id || "");
+      // The engine echoes the prompt only once the session exists: the frame
+      // between the optimistic row and that echo IS the promotion.
+      return new Promise((resolve) => {
+        finishSubmit = () => {
+          current = {
+            sessionId: session.id,
+            desktopSessionTitle: session.title,
+            items: [{ id: submittedId, kind: "user", text: "First prompt" }],
+            queued: [],
+            busy: true,
+          };
+          publishState(current);
+          resolve(true);
+        };
+      });
+    },
+  };
+
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+  await act(async () => {
+    setValue.call(textarea, "First prompt");
+    textarea.dispatchEvent(new window.InputEvent("input", {
+      bubbles: true,
+      data: "First prompt",
+    }));
+  });
+  await act(async () => {
+    document.querySelector(".send-button").click();
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+
+  const promptRow = () => [...document.querySelectorAll(".transcript-virtual-row")]
+    .find((row) => row.textContent.includes("First prompt"));
+  assert.equal(document.querySelector(".transcript")?.getAttribute("data-session-key"), "new-task",
+    "the draft still owns the transcript while its submit is in flight");
+  const draftSpace = document.querySelector(".transcript-virtual-space");
+  const draftRow = promptRow();
+  assert.ok(draftSpace && draftRow, "the optimistic prompt paints in the draft timeline");
+
+  await act(async () => {
+    finishSubmit();
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+
+  assert.equal(document.querySelector(".transcript")?.getAttribute("data-session-key"), session.id,
+    "the materialized session owns the transcript route after promotion");
+  assert.equal(document.querySelector(".transcript-virtual-space"), draftSpace,
+    "the timeline stays mounted: a remount discards every measured row and repaints from the estimate");
+  assert.equal(promptRow(), draftRow,
+    "the first prompt keeps its measured row through the promotion");
+});
+
 test("tool cards use the shared TUI surface and expose copy for shell and diff output", async () => {
   installDom();
   await act(async () => root.render(React.createElement(TranscriptRow, {
@@ -8899,6 +9069,21 @@ test("virtualized session entry lands at the end and pins growth with one write"
     },
   });
   const bottom = () => transcriptHeight - transcriptClientHeight;
+  // The virtualizer commits its position through elementScroll -> scrollTo,
+  // which jsdom does not implement. Route it to the simulated scrollTop so the
+  // END ANCHOR is what this test observes — previously only the follow hook's
+  // raw scrollTop write was visible here, which hid who actually anchors.
+  // rawScrollWrites stays the FOLLOW HOOK's counter: virtual-core adjustments
+  // move the position without counting as a redundant DOM write.
+  Object.defineProperty(transcript, "scrollTo", {
+    configurable: true,
+    writable: true,
+    value: (...args) => {
+      const top = args.length === 1 && typeof args[0] === "object" ? args[0]?.top : args[1];
+      if (typeof top !== "number") return;
+      simulatedScrollTop = Math.min(bottom(), Math.max(0, top));
+    },
+  });
   const deliverResize = async (passes = 1, contentOnly = false) => {
     await act(async () => {
       for (let pass = 0; pass < passes; pass += 1) {
@@ -8937,9 +9122,9 @@ test("virtualized session entry lands at the end and pins growth with one write"
     await Promise.resolve();
     await Promise.resolve();
   });
-  // Auto-scroll observes the THREAD (OpenCode parity): it holds both the
-  // virtual rows and the turn-review block that grows after them.
-  const virtualContent = transcript.querySelector(".thread");
+  // ONE scroll authority: auto-scroll observes exactly the virtualizer
+  // container, and the review block is a projected row inside it.
+  const virtualContent = transcript.querySelector(".transcript-virtual-space");
   assert.ok(virtualContent);
   await waitForDom(
     () => simulatedScrollTop === bottom(),

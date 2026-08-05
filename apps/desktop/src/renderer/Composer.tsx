@@ -47,6 +47,7 @@ export const Composer = memo(function Composer({
   focusRequest,
   historyScope,
   projectScope,
+  sessionId,
   hasConversation,
   promptHistoryList,
   provider,
@@ -75,6 +76,9 @@ export const Composer = memo(function Composer({
   focusRequest: number;
   historyScope: string;
   projectScope: string;
+  /** This pane's session, so route changes address it instead of whatever the
+   *  window happens to be focused on. */
+  sessionId?: string;
   hasConversation: boolean;
   promptHistoryList?: unknown[];
   provider: string;
@@ -327,10 +331,16 @@ export const Composer = memo(function Composer({
   }, []);
 
   const invokeCapability = useCallback(async <T,>(capability: DesktopCapability, args: unknown[] = []) => {
-    const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<T>({ capability, args }));
+    // Every command this composer issues belongs to the session IT paints —
+    // the queue ×/Edit, /clear, /compact. Focus decides nothing.
+    const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<T>({
+      capability,
+      args,
+      ...(sessionId ? { sessionId } : {}),
+    }));
     if (result?.snapshot !== undefined) applySnapshot(result.snapshot);
     return result?.value;
-  }, [applySnapshot, invokeResult]);
+  }, [applySnapshot, invokeResult, sessionId]);
 
   const insertAttachment = useCallback((attachment: ComposerAttachment) => {
     const currentAttachments = attachmentsRef.current;
@@ -959,6 +969,20 @@ export const Composer = memo(function Composer({
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const composing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
+    // A newline chord pressed while an IME syllable is still composing is
+    // swallowed by the commit: the composition ends and NOTHING breaks the
+    // line (user: 개행이 안돼). Let the commit land, then insert the break the
+    // user asked for — unless the platform already inserted one.
+    if (composing && event.key === 'Enter' && !event.altKey &&
+      (event.shiftKey || event.ctrlKey || event.metaKey)) {
+      const element = event.currentTarget;
+      window.setTimeout(() => {
+        const caret = element.selectionStart;
+        if (element.value.slice(Math.max(0, caret - 1), caret) === '\n') return;
+        insertNewline(element);
+      }, 0);
+      return;
+    }
     if (composing && (event.key === 'Enter' || event.key === 'Escape' || event.key === 'Tab' ||
       event.key.startsWith('Arrow'))) return;
     if (event.key === 'Enter' && event.repeat) return;
@@ -1220,6 +1244,7 @@ export const Composer = memo(function Composer({
         <button type="button" className="composer-tool" disabled={transitioning} aria-label={t("Attach files")} data-tooltip={t("Attach images, PDFs, or text files")} data-tooltip-side="top"
         onClick={() => fileInput.current?.click()}><MxIcon name="plus" size={16} /></button>
         <ModelSelector provider={provider} model={model} effort={effort} fast={fast} fastCapable={fastCapable}
+          sessionId={sessionId}
           modelDisabled={commandBusy || transitioning}
           // Effort/Fast stay live during a turn: the running turn already
           // captured its own effort/fast at turn start, so a change here lands

@@ -23,6 +23,7 @@ import {
   sessionSnapshotWithRememberedRoute,
 } from "./engine-host.ts";
 import { createSessionLiveLanes } from "./session-live-lanes.ts";
+import { createShellJobsPoller } from "./shell-jobs-poller.ts";
 import { searchProjectDirectory } from "./project-file-search.ts";
 import { registerDesktopIpc, requiredWorkspaceSearchLimit } from "./ipc.ts";
 import { TerminalDataBufferer } from "./terminal-data-buffer.ts";
@@ -1274,6 +1275,130 @@ test("visible cold panes mirror external owner frames without creating engines",
     await host.setVisibleSessions([]);
     assert.equal(mirrorDisposals, 2, "closing the pane must release its replacement owner pipe");
     unsubscribe();
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// A projection that carries no route blanked the pane's model controls; the
+// route belongs to the SESSION, so the host stamps the one it remembers.
+test("a routeless stored projection keeps the session's remembered model route", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-route-stamp-"));
+  const originalCwd = process.cwd();
+  const workspace = join(root, "workspace", "unclassified");
+  await mkdir(workspace, { recursive: true });
+  let route = { provider: "openai", model: "gpt-test", effort: "high", fast: true };
+  const host = new EngineHost({
+    userDataPath: root,
+    createEngine: async () => ({
+      getState: () => ({ sessionId: null, items: [] }),
+      subscribe: () => () => {},
+      dispose: async () => {},
+    }),
+    loadSessionStore: async () => ({
+      listStoredSessionSummaries: () => [],
+      async readStoredSessionTranscript(sessionId) {
+        return {
+          sessionId,
+          items: [{ id: "persisted-user", kind: "user", text: "keep my model" }],
+          ...route,
+          cwd: workspace,
+          desktopSession: { classification: "task", projectPath: null },
+        };
+      },
+    }),
+  });
+  try {
+    const updates = [];
+    const unsubscribe = host.subscribeSessionStates((update) => updates.push(update));
+    assert.equal(await host.setVisibleSessions(["desktop_route_memory"]), true);
+    assert.equal(updates.at(-1)?.snapshot.model, "gpt-test");
+    route = {};
+    assert.equal(await host.peekSession("desktop_route_memory"), true);
+    assert.equal(updates.at(-1)?.snapshot.provider, "openai",
+      "a routeless projection must not blank the pane's model controls");
+    assert.equal(updates.at(-1)?.snapshot.model, "gpt-test");
+    assert.equal(updates.at(-1)?.snapshot.effort, "high");
+    assert.equal(updates.at(-1)?.snapshot.fast, true);
+    unsubscribe();
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// Co-editing with a terminal: when the terminal (the owner) exits, a viewer-only
+// pane froze on a disk projection and NOTHING drained the session's steering
+// spool. The pane takes the session over instead.
+test("a closed external owner promotes its visible pane instead of freezing it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-owner-promote-"));
+  const originalCwd = process.cwd();
+  const workspace = join(root, "workspace", "unclassified");
+  await mkdir(workspace, { recursive: true });
+  const resumes = [];
+  let mirrorOptions = null;
+  const host = new EngineHost({
+    userDataPath: root,
+    createEngine: async () => {
+      let state = { sessionId: null, items: [] };
+      const listeners = new Set();
+      return {
+        // The daemon route is what makes a pane view attachable; a test engine
+        // that claims it exercises the same promotion path.
+        isRemoteEngine: true,
+        getState: () => state,
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+        listSessions: () => [],
+        newSession: async () => true,
+        resume: async (id) => {
+          resumes.push(id);
+          state = {
+            sessionId: id,
+            items: [{ id: "promoted", kind: "assistant", text: "promoted frame" }],
+          };
+          for (const listener of listeners) listener();
+          return true;
+        },
+        dispose: async () => {},
+      };
+    },
+    loadSessionStore: async () => ({
+      listStoredSessionSummaries: () => [],
+      async readStoredSessionTranscript(sessionId) {
+        return {
+          sessionId,
+          items: [{ id: "persisted-user", kind: "user", text: "owned by the terminal" }],
+          provider: "openai",
+          model: "gpt-test",
+          cwd: workspace,
+          desktopSession: { classification: "task", projectPath: null },
+        };
+      },
+      async createStoredSessionLiveViewer(_sessionId, options) {
+        mirrorOptions = options;
+        return { dispose() {} };
+      },
+    }),
+  });
+  try {
+    await host.startTask();
+    assert.equal(await host.setVisibleSessions(["desktop_owner_left"]), true);
+    assert.ok(mirrorOptions, "a cold pane attaches to the external owner's pipe");
+    assert.deepEqual(resumes, [],
+      "a pane with a live external owner must NOT resume the session itself");
+    mirrorOptions.onOwnerClosed();
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && !resumes.includes("desktop_owner_left")) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.deepEqual(resumes, ["desktop_owner_left"],
+      "a pane whose owner exited must take the session over (steering drain + live frames)");
   } finally {
     await host.dispose();
     process.chdir(originalCwd);
@@ -3032,24 +3157,33 @@ test("host reuses one legacy workspace context and publishes the detached resume
   }));
   let state = { sessionId: null, items: [], queued: [] };
   const resumed = [];
-  let switched = 0;
-  let disposed = 0;
-  const engine = {
-    getState: () => state,
-    subscribe: () => () => {},
-    listSessions: () => rows,
-    switchContext: async () => {
-      switched += 1;
-      return true;
-    },
-    resume: async (id) => {
-      resumed.push(id);
-      state = { sessionId: id, items: [], queued: [] };
-      return true;
-    },
-    dispose: async () => { disposed += 1; },
+  // One view per session: the daemon owns the engines, so a view that already
+  // carries a session is never recycled onto the next one.
+  const engines = [];
+  const makeEngine = () => {
+    let own = state;
+    const engine = {
+      switched: 0,
+      disposed: 0,
+      getState: () => own,
+      subscribe: () => () => {},
+      listSessions: () => rows,
+      switchContext: async () => {
+        engine.switched += 1;
+        return true;
+      },
+      resume: async (id) => {
+        resumed.push(id);
+        own = { sessionId: id, items: [], queued: [] };
+        state = own;
+        return true;
+      },
+      dispose: async () => { engine.disposed += 1; },
+    };
+    engines.push(engine);
+    return engine;
   };
-  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
+  const host = new EngineHost({ userDataPath: root, createEngine: async () => makeEngine() });
   const publications = [];
   const unsubscribe = host.subscribe((snapshot) => publications.push(snapshot));
   try {
@@ -3058,8 +3192,12 @@ test("host reuses one legacy workspace context and publishes the detached resume
     const snapshot = await host.resumeSession("legacy_second");
 
     assert.deepEqual(resumed, ["legacy_first", "legacy_second"]);
-    assert.equal(switched, 1, "only the initial task-to-legacy context transition should reset context");
-    assert.equal(disposed, 0);
+    assert.equal(engines[0].switched, 1,
+      "only the initial task-to-legacy context transition should reset context");
+    assert.equal(engines.length, 2, "the second legacy session gets its OWN view");
+    // No pane shows the first session here, so its idle view is reclaimed by
+    // the settled-release path; a VISIBLE session keeps its view (covered by
+    // the pane-ownership test).
     assert.equal(publications.length, 1);
     assert.equal(publications[0], snapshot,
       "the held state publication should reuse the detached snapshot returned by resume");
@@ -3067,7 +3205,8 @@ test("host reuses one legacy workspace context and publishes the detached resume
   } finally {
     unsubscribe();
     await host.dispose();
-    assert.equal(disposed, 1);
+    assert.ok(engines.every((engine) => engine.disposed === 1),
+      "every view is released when the host shuts down");
     process.chdir(originalCwd);
     await rm(root, { recursive: true, force: true });
   }
@@ -3088,14 +3227,16 @@ test("host rejects a resume result that remains bound to the previous session", 
     sessionId: "desktop_first",
     items: [{ kind: "user", id: "first", text: "Previous task" }],
   };
-  const engine = {
+  // A dedicated view per open: the mismatch must roll back onto the parked
+  // view that still carries the previous session.
+  const makeEngine = () => ({
     getState: () => state,
     subscribe: () => () => {},
     listSessions: () => rows,
     resume: async () => true,
     dispose: async () => {},
-  };
-  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
+  });
+  const host = new EngineHost({ userDataPath: root, createEngine: async () => makeEngine() });
   try {
     await host.startTask();
     await assert.rejects(
@@ -3103,6 +3244,72 @@ test("host rejects a resume result that remains bound to the previous session", 
       /unexpected session/i,
     );
     assert.equal(host.getSnapshot().sessionId, "desktop_first");
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("desktop IPC session id validation rejects path-like input", () => {
+  assert.equal(requiredSessionId(" session_123 "), "session_123");
+});
+
+test("a route change addresses the pane's session, never the focused one", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-route-session-"));
+  const originalCwd = process.cwd();
+  const workspace = join(root, "workspace", "unclassified");
+  await mkdir(workspace, { recursive: true });
+  const rows = ["route_a", "route_b"].map((id, index) => ({
+    id,
+    preview: `Route ${index + 1}`,
+    updatedAt: 2 - index,
+    cwd: workspace,
+    desktopSession: { classification: "task", projectPath: null },
+  }));
+  const engines = [];
+  const makeEngine = () => {
+    let state = { sessionId: "", items: [] };
+    const engine = {
+      routes: [],
+      getState: () => state,
+      subscribe: () => () => {},
+      listSessions: () => rows,
+      // The catalog speaks the runtime's shape: the model id lives in `id`.
+      listProviderModels: async () => [{ provider: "p", id: "m", display: "M" }],
+      setRoute: async (selection) => {
+        engine.routes.push(selection);
+        state = { ...state, provider: selection.provider, model: selection.model };
+        return true;
+      },
+      resume: async (id) => {
+        state = { sessionId: id, items: [] };
+        return true;
+      },
+      dispose: async () => {},
+    };
+    engines.push(engine);
+    return engine;
+  };
+  const host = new EngineHost({
+    userDataPath: root,
+    createEngine: async () => makeEngine(),
+    loadSessionStore: async () => ({ listStoredSessionSummaries: () => rows }),
+  });
+  try {
+    await host.resumeSession("route_a");
+    await host.resumeSession("route_b");
+    // Both sessions are on screen, so both keep their own view.
+    await host.setVisibleSessions(["route_a", "route_b"]);
+    const selection = { provider: "p", model: "m" };
+    const routed = await host.setModelRoute(selection, "route_a");
+    assert.equal(routed.sessionId, "route_a", "the answer describes the ADDRESSED session");
+    assert.equal(host.getSnapshot().sessionId, "route_b",
+      "a background pane's model change never moves the window's surface");
+    const engineA = engines.find((engine) => engine.getState().sessionId === "route_a");
+    const engineB = engines.find((engine) => engine.getState().sessionId === "route_b");
+    assert.deepEqual(engineA.routes, [selection]);
+    assert.deepEqual(engineB.routes, [], "the focused session keeps its own route");
   } finally {
     await host.dispose();
     process.chdir(originalCwd);
@@ -4264,6 +4471,10 @@ test("host start/list/resume persists desktop scope, restores transcript, and pu
     preview: "Shared CLI session",
     cwd: project,
     desktopSession: null,
+    // First-open projection fixture: a session this window has never shown
+    // loads from storage, which is where envelope/reminder stripping and tool
+    // sanitization are exercised.
+    transcript: persistedTranscript,
   }, {
     id: "cli_media_title",
     preview: "",
@@ -4392,13 +4603,23 @@ test("host start/list/resume persists desktop scope, restores transcript, and pu
     assert.equal(legacyResponse.sessionId, "cli_lead");
     assert.equal(engines.at(-1).options.desktopSession, undefined);
 
+    const enginesBeforeReturn = engines.length;
     const resumeResponse = await host.resumeSession(desktopId);
-    const activeDesktopEngine = engines.at(-1);
-    assert.deepEqual(activeDesktopEngine.options.desktopSession, { classification: "task", projectPath: null });
+    // Returning to a session re-activates ITS OWN parked view — no view is
+    // recycled onto another session, and none is created twice.
+    assert.equal(engines.length, enginesBeforeReturn,
+      "returning to a session reuses that session's view instead of opening another");
+    assert.deepEqual(engines[0].options.desktopSession, { classification: "task", projectPath: null });
     assert.equal(resumeResponse.currentProject, null);
     assert.deepEqual(resumeResponse.recentProjects, []);
     assert.equal(resumeResponse.sessionId, desktopId);
-    assert.deepEqual(resumeResponse.items, [
+    // Returning to a live view keeps its OWN in-memory turn: no disk reload,
+    // no repaint from a stale projection.
+    assert.equal(resumeResponse.items.at(-1)?.text, "Fresh desktop task");
+    // The stored-transcript projection (envelope stripping, hidden runtime
+    // injections, tool sanitization) is exercised by the first resume of a
+    // session this window had not opened yet.
+    assert.deepEqual(legacyResponse.items, [
       { kind: "user", id: "u1", text: "Persisted prompt" },
       { kind: "user", id: "session-envelope", text: "Visible prompt after envelope" },
       {
@@ -4433,6 +4654,12 @@ test("host start/list/resume persists desktop scope, restores transcript, and pu
         metadata: { source: "runtime" },
       },
     ]);
+    // Point the window back at the stored-transcript session: its own view is
+    // still parked, so this is a pointer move rather than a reload.
+    await host.resumeSession("cli_lead");
+    // The view the window publishes from carries BOTH subscriptions (focused
+    // channel + its own lane); every other view keeps only its lane.
+    const activeDesktopEngine = engines.find((engine) => engine.listeners.size === 2);
     assert.deepEqual(
       activeDesktopEngine.getState().items,
       persistedTranscript,
@@ -4474,7 +4701,9 @@ test("host start/list/resume persists desktop scope, restores transcript, and pu
       visibleStreamingTail,
       "a visible streaming tail must remain an immutable display copy",
     );
-    assert.equal(engines[0].listeners.size, 0);
+    // A view the window is not publishing from keeps ITS OWN lane: that is
+    // what lets another pane keep painting that session.
+    assert.equal(engines[0].listeners.size, 1);
     assert.equal(activeDesktopEngine.listeners.size, 2);
 
     const projectResponse = await host.startProject(project);
@@ -6079,5 +6308,53 @@ test("a reused engine's previous hold never rekeys onto the next session's lane"
     await host.dispose();
     process.chdir(originalCwd);
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+// One host process owns every pooled pane's background shells, so the poller
+// must hand each pane its OWN bucket: a blank New task pane was showing another
+// session's running shell (user report).
+test("shell job polling scopes counts to the dispatching session", async () => {
+  const segments = `data:text/javascript,${encodeURIComponent(`
+    let poll = 0;
+    export function shellJobsStatus() {
+      poll += 1;
+      return poll === 1
+        ? { count: 2, elapsedLabel: "7s", sessions: { "session-a": { count: 2, elapsedLabel: "7s" } } }
+        : { count: 0, elapsedLabel: "", sessions: {} };
+    }
+  `)}`;
+  const changes = [];
+  let announce = () => {};
+  const nextChange = () => new Promise((resolve) => { announce = resolve; });
+  // The poller unrefs its timers so it never pins the app; the test must hold
+  // the loop open itself while it waits for a tick.
+  const keepAlive = setInterval(() => {}, 10);
+  const poller = createShellJobsPoller({
+    getEngineState: () => ({ clientHostPid: process.pid, busy: true }),
+    moduleUrl: () => segments,
+    onChange: (changedSessionIds) => {
+      changes.push([...changedSessionIds]);
+      announce();
+    },
+  });
+  const started = nextChange();
+  poller.start();
+  await started;
+  try {
+    assert.deepEqual(changes[0], ["session-a"], "only the owning session's pane is republished");
+    assert.equal(poller.status.count, 2, "the host-wide aggregate still drives keep-awake");
+    assert.equal(poller.statusFor("session-a").count, 2);
+    assert.equal(poller.statusFor("session-b").count, 0,
+      "another session's pane must never inherit the job");
+    assert.equal(poller.statusFor("").count, 0, "a blank New task pane owns no jobs");
+
+    // The finished job repaints the owning pane exactly once more.
+    await nextChange();
+    assert.deepEqual(changes[1], ["session-a"]);
+    assert.equal(poller.statusFor("session-a").count, 0);
+  } finally {
+    clearInterval(keepAlive);
+    poller.stop();
   }
 });

@@ -358,7 +358,7 @@ test('editor file hydration starts disk and backup reads once before the editor 
   assert.deepEqual(calls, ['file', 'backup']);
 });
 
-test('optimistic prompts end when host acknowledgement transfers presentation ownership', () => {
+test('optimistic prompts end at durable settlement, never at host acknowledgement', () => {
   const prompt = {
     id: 'submit-1',
     kind: 'user',
@@ -366,34 +366,43 @@ test('optimistic prompts end when host acknowledgement transfers presentation ow
     pending: true,
     accepted: false,
     submittedAt: 10,
+    settledUserBaseline: 0,
   };
-  assert.equal(pendingPromptTranscriptItems([prompt], [], [])[0]?.pending, true,
+  assert.equal(pendingPromptTranscriptItems([prompt], [])[0]?.pending, true,
     'a submit awaiting host acknowledgement remains pending');
+  // The reported jerk: releasing on the RPC result emptied the thread for the
+  // whole acknowledgement -> publication window, so the bottom-pinned
+  // timeline lost the prompt's height and snapped twice.
   assert.equal(pendingPromptTranscriptItems(
     [{ ...prompt, accepted: true }],
     [],
-    [{ id: prompt.id }],
-  ).length, 1, 'an acknowledged queue entry stays in the transcript without moving the layout');
+  ).length, 1, 'an acknowledged prompt holds its row until the durable one lands');
   assert.equal(pendingPromptTranscriptItems(
-    [{ ...prompt, accepted: true }],
+    [{ ...prompt, accepted: true, queuedBehindTurn: true }],
     [],
-    [],
-  ).length, 0, 'an accepted prompt absent from the queue is no longer renderer-owned');
-  assert.equal(pendingPromptTranscriptItems(
-    [{ ...prompt, accepted: true, queuedBehindTurn: true, queueAcknowledged: false }],
-    [],
-    [],
-  ).length, 1, 'a queued submit survives an RPC acknowledgement that beats queue publication');
-  assert.equal(pendingPromptTranscriptItems(
-    [{ ...prompt, accepted: true, queuedBehindTurn: true, queueAcknowledged: true }],
-    [],
-    [],
-  ).length, 0, 'an observed queued submit releases after its queue entry drains');
+  ).length, 1, 'a queued submit stays visible until the engine injects it');
   assert.deepEqual(pendingPromptTranscriptItems(
     [{ ...prompt, accepted: true }],
     [{ id: prompt.id, kind: 'user', text: prompt.text }],
-    [],
   ), [], 'the durable transcript row replaces its optimistic twin');
+  // Id-agnostic safety net: a runtime that renames the submission id must not
+  // strand a permanent ghost bubble.
+  assert.equal(pendingPromptTranscriptItems(
+    [{ ...prompt, accepted: true }],
+    [{ id: 'runtime-renamed', kind: 'user', text: prompt.text }],
+  ).length, 0, 'the ordinal user row releases a twin whose id was normalized');
+  assert.deepEqual(pendingPromptTranscriptItems(
+    [
+      { ...prompt, id: 'submit-1', submittedAt: 10 },
+      { ...prompt, id: 'submit-2', submittedAt: 20 },
+    ],
+    [{ id: 'runtime-renamed', kind: 'user', text: prompt.text }],
+  ).map((item) => item.id), ['submit-2'],
+  'two in-flight prompts release in submit order, one per durable user row');
+  assert.equal(pendingPromptTranscriptItems(
+    [{ ...prompt, accepted: true, settledUserBaseline: 3 }],
+    [{ id: 'old', kind: 'user', text: 'older turn' }],
+  ).length, 1, 'user rows that predate the submit never release it');
 });
 
 test('file editor classifies browser-native image, PDF, audio, and video previews', () => {
@@ -1790,7 +1799,7 @@ test('renderer uses the preload bridge name', async () => {
 test('desktop startup and automation never implicitly activate the remote bridge', async () => {
   const [runtime, daemon] = await Promise.all([
     readFile(new URL('../../../../src/session-runtime/runtime-core.mjs', import.meta.url), 'utf8'),
-    readFile(new URL('../../../../src/standalone/channel-daemon.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../../../../src/standalone/backend-daemon.mjs', import.meta.url), 'utf8'),
   ]);
   assert.doesNotMatch(runtime, /remoteAutoStartRequested|claimIfVacant/);
   assert.match(runtime,
@@ -1848,6 +1857,14 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
   assert.match(list, /\.\.\.activeIndexesRef\.current/,
     'the active output rows stay mounted while the reader scrolls history');
   assert.match(list, /className="transcript-bottom-spacer"/);
+  assert.match(renderer,
+    /<TranscriptList key=\{transcriptIdentity\.current\} sessionKey=\{transcriptSessionKey\}/,
+    'a draft that materializes its session keeps ONE mounted timeline; only the geometry cache follows the session key');
+  assert.match(renderer, /sessionKey: transcriptIdentity\.current,/,
+    'row keys ride the promotion-stable namespace, never the session key that changes mid-turn');
+  assert.match(renderer,
+    /rememberTranscriptRowNamespace\(transcriptSessionKey, transcriptIdentity\.current\);/,
+    're-entering a promoted session must still match its cached geometry');
   // 2. Outer follow is the React port of OpenCode createAutoScroll.
   assert.match(follow, /new ResizeObserver/);
   assert.match(follow, /element\.scrollTop = element\.scrollHeight/);
@@ -2344,20 +2361,13 @@ test('session title actions, message hover rows, and tool disclosures keep the d
     'the collapsed review must retain a readable control row');
   assert.doesNotMatch(styles, /--mx-turn-review-slot/,
     'an absent review bar must not reserve permanent transcript space');
-  // OpenCode session-turn-diffs: review is the last block of the SCROLLED
-  // timeline. In the composer stack its late arrival resized the viewport and
-  // shifted the whole surface on session entry (measured 118 -> 154px).
   assert.match(app,
-    /<TranscriptList[\s\S]*?<div className="turn-review-slot">[\s\S]*?<TurnReviewBar[\s\S]*?<\/div>\}?[\s\S]*?<div className="composer-region">/,
-    'the review bar must grow scrolled timeline content, never the viewport');
-  assert.match(app,
-    /<TranscriptList[\s\S]*?<div className="turn-review-slot">[\s\S]*?<TurnReviewBar[\s\S]*?<\/div>\}?[\s\S]*?<div className="composer-region">/,
-    'the review bar must grow scrolled timeline content, never the viewport');
-  assert.match(styles,
-    /@container chat-pane \(min-width: 768px\)[\s\S]*?\.turn-review-slot \{[\s\S]*?max-width: 800px;/,
-    'the review bar must ride the same centered frame as every projected row');
-  assert.match(app, /content: thread,/,
-    'auto-scroll must observe the thread that contains BOTH the rows and the review');
+    /<div className="composer-region">[\s\S]*?<div className="turn-review-slot">[\s\S]*?<TurnReviewBar[\s\S]*?<\/div>[\s\S]*?<Composer/,
+    'the review bar stays attached above the input in the bottom stack');
+  assert.doesNotMatch(app, /content: thread,/,
+    'ONE scroll authority: auto-scroll observes exactly the virtualizer container');
+  assert.match(app, /armFollow\(\);/,
+    'session entry re-arms following without writing scrollTop itself');
   assert.doesNotMatch(styles, /\.message\.user \+ \.message\.assistant\s*\{[^}]*margin-top:/s);
   assert.match(styles, /\.message\.user \.message-meta-line\s*\{[^}]*position:\s*absolute;[^}]*width:\s*100%;/s);
   assert.match(styles, /\.tool-title\s*\{[^}]*flex:\s*1 1 auto;/s);
@@ -2430,6 +2440,14 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.doesNotMatch(styles, /\.composer-region:has\(\.turn-review-bar\) \.chat-live-work/);
   assert.match(styles, /\.chat-live-work \.live-work-status\s*\{[^}]*height:\s*20px;/s);
   assert.match(styles, /\.live-activity-status\s*\{[^}]*min-height:\s*24px;/s);
+  // Re-entry remounts the busy band; an ungated enter animation slid it 4px
+  // on every visit (user: 들어갈 때마다 애니메이션이 다시 나와서 튄다).
+  assert.doesNotMatch(styles,
+    /\.live-activity-status\s*\{[^}]*animation:\s*transcript-milestone-enter/s,
+    'the busy band must not replay its enter animation on every mount');
+  assert.match(styles,
+    /\.live-activity-status\[data-animate="true"\]\s*\{[^}]*animation:\s*transcript-milestone-enter/s,
+    'only work that starts on screen animates in');
   // The stop state shares the send-button surface verbatim: same disc, same
   // 15px glyph scale, no pulse animation (user: match the send button).
   assert.doesNotMatch(styles, /send-stop-pulse/);

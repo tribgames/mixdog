@@ -63,6 +63,7 @@ export function TranscriptList({
   shouldAnchorBottom,
   scrollToEndRef,
   renderRow,
+  markProgrammaticScroll,
 }: {
   sessionKey: string;
   rows: readonly TranscriptRowModel[];
@@ -71,10 +72,15 @@ export function TranscriptList({
   shouldAnchorBottom: boolean;
   scrollToEndRef: MutableRefObject<(behavior?: ScrollBehavior) => void>;
   renderRow: (row: TranscriptRowModel) => ReactNode;
+  /** Every offset this list writes is reported to the follow hook, which
+   *  would otherwise read the core's own scrolls as a reader gesture. */
+  markProgrammaticScroll?: (top: number, intended?: number) => void;
 }) {
   const spacer = useRef<HTMLDivElement>(null);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  const markProgrammaticScrollRef = useRef(markProgrammaticScroll);
+  markProgrammaticScrollRef.current = markProgrammaticScroll;
   // Rows that changed size by more than a viewport stay in the range for two
   // frames: a rewrap must never unmount the rows the reader is looking at.
   const resizePinned = useRef<number[]>([]);
@@ -131,6 +137,12 @@ export function TranscriptList({
     scrollToFn: (offset, options, instance) => {
       if (spacer.current) spacer.current.style.height = `${instance.getTotalSize()}px`;
       elementScroll(offset, options, instance);
+      // Report the offset that actually landed (and the requested one, which a
+      // smooth write only reaches later) so the follow hook can tell this
+      // write apart from a reader scroll.
+      const element = viewport.current;
+      const intended = offset + (options?.adjustments ?? 0);
+      markProgrammaticScrollRef.current?.(element ? element.scrollTop : intended, intended);
     },
   });
   // React re-renders reuse one virtualizer instance. Patch resizeItem exactly

@@ -23,7 +23,10 @@ export function snapshotHasActiveWork(snapshot: EngineSnapshot): boolean {
   const active = (value: unknown): boolean => Boolean(
     value && typeof value === 'object' && (value as { active?: unknown }).active !== false,
   );
-  const shellJobs = state.shellJobs as { count?: unknown } | null | undefined;
+  // `shellJobs` is PANE-scoped (one session's own jobs); keep-awake is a
+  // machine-wide concern, so the host-wide aggregate wins when present and the
+  // pane field is only the fallback for older/remote frames.
+  const shellJobs = (state.hostShellJobs ?? state.shellJobs) as { count?: unknown } | null | undefined;
   return Boolean(
     state.busy
     || state.commandBusy

@@ -70,7 +70,6 @@ const HEADER_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
   "agentWorkers",
   "agentJobs",
   "activeTools",
-  "shellJobs",
   "remoteEnabled",
   "remoteSessionId",
 ];
@@ -81,7 +80,6 @@ const DOCK_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
   "agentWorkers",
   "agentJobs",
   "activeTools",
-  "shellJobs",
 ];
 
 function dockToolItem(snapshot: Snapshot) {
@@ -125,6 +123,17 @@ function dockToolSignalsEqual(left: Snapshot, right: Snapshot): boolean {
 function preservesInitialBoundary(left: Snapshot, right: Snapshot): boolean {
   if (left === EMPTY_SNAPSHOT || right === EMPTY_SNAPSHOT) return left === right;
   return true;
+}
+
+// The host polls background shell counts on its own cadence and every
+// publication clones the bucket, so identity comparison would repaint the
+// header and dock on each tick. Compare the two values instead.
+function shellJobsEqual(left: Snapshot, right: Snapshot): boolean {
+  const previous = left.shellJobs;
+  const next = right.shellJobs;
+  if (previous === next) return true;
+  return Number(previous?.count || 0) === Number(next?.count || 0)
+    && String(previous?.elapsedLabel || "") === String(next?.elapsedLabel || "");
 }
 
 // App-owned navigation/chrome excludes transcript text and live counters. A
@@ -226,12 +235,13 @@ export function desktopStreamingTailSnapshotsEqual(left: Snapshot, right: Snapsh
 export function desktopHeaderSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
   if (left === right) return true;
   if (!preservesInitialBoundary(left, right)) return false;
-  return snapshotFieldsEqual(left, right, HEADER_SNAPSHOT_FIELDS);
+  return snapshotFieldsEqual(left, right, HEADER_SNAPSHOT_FIELDS) && shellJobsEqual(left, right);
 }
 
 export function desktopDockSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
   if (left === right) return true;
   if (!preservesInitialBoundary(left, right)) return false;
   return snapshotFieldsEqual(left, right, DOCK_SNAPSHOT_FIELDS)
+    && shellJobsEqual(left, right)
     && dockToolSignalsEqual(left, right);
 }

@@ -195,6 +195,56 @@ function mergedLaneFrame(
   return merged;
 }
 
+// The ROUTE (provider/model/effort/fast) is session state, not transcript
+// state, and a disk projection or a partial delta publishes it as an EMPTY
+// string instead of omitting the field — so the null-only fill above let such
+// a frame blank a pane's model controls to "Select model" on every focus swap
+// (user report: 판 3개가 "모델 선택"으로 비었다). The last route a lane knew
+// for a session survives until a frame names a real one.
+function laneRouteText(snapshot: Snapshot | null, field: "provider" | "model" | "effort"): string {
+  const value = snapshot?.[field];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function laneFrameWithRetainedRoute(prior: Snapshot | null, next: Snapshot): Snapshot {
+  if (!prior) return next;
+  const priorSessionId = String(prior.sessionId || "");
+  const nextSessionId = String(next.sessionId || "");
+  if (priorSessionId && nextSessionId && priorSessionId !== nextSessionId) return next;
+  const priorProvider = laneRouteText(prior, "provider");
+  const priorModel = laneRouteText(prior, "model");
+  const provider = laneRouteText(next, "provider") || priorProvider;
+  const model = laneRouteText(next, "model") || priorModel;
+  if (!provider || !model) return next;
+  const merged: Snapshot = { ...next };
+  let changed = false;
+  if (laneRouteText(next, "provider") !== provider) {
+    merged.provider = provider;
+    changed = true;
+  }
+  if (laneRouteText(next, "model") !== model) {
+    merged.model = model;
+    changed = true;
+  }
+  // Effort/fast belong to the route they were chosen for: only a frame that
+  // lands on the SAME provider+model may inherit them.
+  if (provider === priorProvider && model === priorModel) {
+    if (!laneRouteText(next, "effort") && laneRouteText(prior, "effort")) {
+      merged.effort = laneRouteText(prior, "effort");
+      changed = true;
+    }
+    if (typeof next.fast !== "boolean" && typeof prior.fast === "boolean") {
+      merged.fast = prior.fast;
+      changed = true;
+    }
+    if (typeof next.fastCapable !== "boolean" && typeof prior.fastCapable === "boolean") {
+      merged.fastCapable = prior.fastCapable;
+      changed = true;
+    }
+  }
+  return changed ? merged : next;
+}
+
 export function laneFrameRetainingSettledRows(
   prior: Snapshot | null,
   next: Snapshot,
@@ -305,7 +355,12 @@ export function decideSessionLaneFrame(
     // Explicit authoritative answer, epoch/target guarded by its caller. It
     // replaces the content and leaves the recorded generation untouched, so
     // the next owner publication still orders normally against it.
-    return { accept: true, snapshot: next, revision: priorRevision, reason: "authoritative" };
+    return {
+      accept: true,
+      snapshot: laneFrameWithRetainedRoute(prior, next),
+      revision: priorRevision,
+      reason: "authoritative",
+    };
   }
   if (prior) {
     const rejected = rejectedSessionLaneRevision(priorRevision, provenance);
@@ -314,7 +369,12 @@ export function decideSessionLaneFrame(
       // A newer durable generation (the owner process wrote the session
       // file), or a newer owner generation: clear, trailing deletion, rewrite
       // and growth land as published.
-      return { accept: true, snapshot: next, revision, reason: "newer-generation" };
+      return {
+        accept: true,
+        snapshot: laneFrameWithRetainedRoute(prior, next),
+        revision,
+        reason: "newer-generation",
+      };
     }
     if (revision !== null && priorRevision !== null && revision === priorRevision) {
       const priorItems = laneTranscript(prior);
@@ -324,15 +384,21 @@ export function decideSessionLaneFrame(
       // Same-generation OWNER frames still carry fresh busy/queue/tail state,
       // but their settled transcript is byte-for-byte the generation already
       // painted. Reuse its array identity so focus churn cannot remount rows.
-      return { accept: true, snapshot, revision, reason: "same-generation" };
+      return {
+        accept: true,
+        snapshot: laneFrameWithRetainedRoute(prior, snapshot),
+        revision,
+        reason: "same-generation",
+      };
     }
   }
   const snapshot = laneFrameRetainingSettledRows(prior, next, provenance.source);
+  const reason = snapshot === next ? "adopted" : "aligned";
   return {
     accept: true,
-    snapshot,
+    snapshot: laneFrameWithRetainedRoute(prior, snapshot),
     revision: revision ?? priorRevision,
-    reason: snapshot === next ? "adopted" : "aligned",
+    reason,
   };
 }
 
