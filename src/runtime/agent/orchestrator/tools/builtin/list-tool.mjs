@@ -70,6 +70,20 @@ function _splitFindBudget(total, count, index) {
     return base + (index < (total % count) ? 1 : 0);
 }
 
+// Entry paths render relative to the listed root — the caller supplied the
+// base via `path`, so repeating the absolute prefix on every row is pure
+// duplication (~2KB per 80 rows). Falls back to the absolute form when the
+// entry escapes the root (drive change / `..`), where a relative form would
+// be ambiguous. Cache-safe: keys already include the absolute root, and the
+// rendered rows no longer depend on the session workDir.
+function displayRelPath(entPath, rootPath) {
+    const rel = relative(rootPath, entPath);
+    if (!rel || rel === '.' || rel.startsWith('..') || /^[A-Za-z]:/.test(rel)) {
+        return normalizeOutputPath(entPath);
+    }
+    return normalizeOutputPath(rel);
+}
+
 export async function executeListTool(args, workDir, options = {}) {
     args.path = coerceReadFamilyPathArg(args.path, workDir);
     if (Array.isArray(args.path)) {
@@ -230,7 +244,7 @@ export async function executeListTool(args, workDir, options = {}) {
     // Paths and entry types are the list contract. Size/mtime columns were
     // neither exposed in the model schema nor used by routing, yet consumed
     // roughly 28–40% of live list output and forced a stat per visible entry.
-    const lines = sliced.map(r => `${normalizeOutputPath(r.path)}\t${r.type}`);
+    const lines = sliced.map(r => `${displayRelPath(r.path, fullPath)}\t${r.type}`);
     if (windowed.length > sliced.length) lines.push(`... [entries ${offset + 1}-${offset + sliced.length} of ${rows.length}; pass offset:${offset + sliced.length} to continue]`);
     if (truncatedByCap) lines.push(`... walk truncated at ${LIST_ABSOLUTE_CAP} rows or ${LIST_WALK_TIMEOUT_MS}ms timeout; narrow the path or lower depth for a complete listing`);
     let emptyMsg = '(empty directory)';
@@ -1063,7 +1077,7 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
     const windowed = offset > 0 ? matches.slice(offset) : matches;
     const sliced = headLimit > 0 ? windowed.slice(0, headLimit) : windowed;
     const lines = sliced.map(m =>
-        `${normalizeOutputPath(m.path)}\t${formatListSize('file', m.size)}\t${formatMtime(m.mtimeMs)}`);
+        `${displayRelPath(m.path, fullPath)}\t${formatListSize('file', m.size)}\t${formatMtime(m.mtimeMs)}`);
     if (windowed.length > sliced.length) lines.push(`... [entries ${offset + 1}-${offset + sliced.length} of ${matches.length}; pass offset:${offset + sliced.length} to continue]`);
     if (rgStdoutTruncated) lines.push('... [warning] rg stdout truncated at 20MB cap; results incomplete');
     if (rgStdoutPartial) lines.push('... [warning] rg exit 2 (partial results); listing may be incomplete');

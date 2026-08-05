@@ -94,7 +94,13 @@ function fuzzyScore(query, str) {
 // order but scattered mid-word, no contiguity/boundary structure) is treated
 // as noise rather than a real hit. Contiguous substring / basename matches
 // bypass the floor entirely — an exact hit must never be filtered.
-const SUBSEQUENCE_MIN_PER_CHAR = 4;
+// Measured separation for scattered junk vs real hits ("readme" probe):
+// genuine matches score ≥8/char (boundary + contiguity structure), while
+// incidental subsequences on unrelated paths land at 5–6/char — 6.5 splits
+// them. The floor is tested against the RAW subsequence score (see
+// fuzzyRank), never the +40 basename rank bonus, which otherwise vaults
+// weak basename subsequences straight past any floor.
+const SUBSEQUENCE_MIN_PER_CHAR = 6.5;
 
 // Separator/case-insensitive normalization used for the "contiguous substring"
 // strong-match test. Mirrors the query normalization in fuzzyScore so
@@ -163,7 +169,7 @@ export function fuzzyRank(query, items, limit = 0) {
     const score = prepareFuzzyScore(query);
     // Floor scales with query length: a scattered subsequence earns ~1 point
     // per char, while any contiguous run (+5/char) or word-boundary hit
-    // (+8) pushes a genuine match well past 4/char.
+    // (+8) pushes a genuine match well past 6.5/char.
     const floor = normQuery.length * SUBSEQUENCE_MIN_PER_CHAR;
     const scored = [];
     // Preserve slice's legacy coercion behavior for non-integer public callers;
@@ -185,7 +191,10 @@ export function fuzzyRank(query, items, limit = 0) {
         // Otherwise it is subsequence-only: keep it only if it clears the
         // per-char floor. Weak scattered matches (the pgAdmin-style junk that
         // merely contains the query chars in order) fall below it and drop out.
-        if (!strong && sc < floor) continue;
+        // Compare the RAW subsequence score — the +40 basename rank bonus is
+        // for ordering only and must not lift junk over the quality floor.
+        const rawSc = Math.max(pathScore ?? -Infinity, baseScore ?? -Infinity);
+        if (!strong && rawSc < floor) continue;
         const entry = { item, score: sc };
         if (bounded) retainTopRanked(scored, entry, ordinal, limit);
         else scored.push(entry);

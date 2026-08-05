@@ -259,13 +259,15 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                 }
                 const perBudget = Math.max(512, Math.floor(callContextCharBudget / roots.length));
                 const sections = [];
+                const noMatchRoots = [];
                 for (let i = 0; i < roots.length; i++) {
                     const r = roots[i];
                     const linesFor = byRoot[i];
                     const noMatch = `(no matches) pattern=${JSON.stringify(pattern)} path=${r.arg}; path exists (${r.isDir ? 'dir' : 'file'})`;
                     let body;
                     if (linesFor.length === 0) {
-                        body = noMatch;
+                        noMatchRoots.push(r.arg);
+                        continue;
                     } else if (outMode === 'content' && contextN > 0) {
                         const ctx = await expandGrepAnchorContextOutput({
                             allLines: linesFor,
@@ -325,6 +327,9 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                         });
                     }
                     sections.push(`# grep ${r.arg}\n${body}`);
+                }
+                if (noMatchRoots.length > 0) {
+                    sections.push(`(no matches) pattern=${JSON.stringify(pattern)} paths: ${noMatchRoots.join(', ')}; paths exist`);
                 }
                 return sections.join('\n\n');
             }
@@ -653,12 +658,14 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
             const noMatchBody = (p) => `(no matches) pattern=${JSON.stringify(p)} path=${searchPath}${globStr}; path exists (dir)`;
             const sections = [];
+            const noMatchPatterns = [];
             for (let i = 0; i < patterns.length; i++) {
                 const p = patterns[i];
                 const linesFor = byPattern[i];
                 let body;
                 if (linesFor.length === 0) {
-                    body = noMatchBody(p);
+                    noMatchPatterns.push(p);
+                    continue;
                 } else if (adaptive) {
                     const ctx = await expandGrepAnchorContextOutput({
                         allLines: linesFor,
@@ -704,6 +711,9 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                     });
                 }
                 sections.push(`# grep pattern:${JSON.stringify(p)}\n${dedupeFanoutMatchLines(body, seenCombined)}`);
+            }
+            if (noMatchPatterns.length > 0) {
+                sections.push(`(no matches) pattern=${JSON.stringify(noMatchPatterns)} path=${searchPath}${globStr}; path exists`);
             }
             if (residual.length > 0) {
                 // Rust/JS regex divergence or --max-columns truncation left
@@ -756,8 +766,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                     if (pre.complete && !pre.partial) {
                         if (pre.lines.length === 0) {
                             const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
-                            const parts = patterns.map((p) => `# grep pattern:${JSON.stringify(p)}\n(no matches) pattern=${JSON.stringify(p)} path=${searchPath}${globStr}; path exists (dir)`);
-                            return patternCapNote + parts.join('\n\n');
+                            return `${patternCapNote}(no matches) pattern=${JSON.stringify(patterns)} path=${searchPath}${globStr}; path exists (dir)`;
                         }
                         fanoutCandidateFiles = pre.lines;
                     }
@@ -785,7 +794,22 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         const subs = options._grepPathFanout
             ? await patterns.reduce(async (all, p) => [...await all, await runPattern(p)], Promise.resolve([]))
             : await Promise.all(patterns.map(runPattern));
-        const parts = patterns.map((p, i) => `# grep pattern:${JSON.stringify(p)}\n${dedupeFanoutMatchLines(subs[i], seen)}`);
+        // Consolidate single-line no-match sub-results: K missed patterns
+        // collapse into ONE summary line instead of K header+body sections.
+        const parts = [];
+        const missedPatterns = [];
+        for (let i = 0; i < patterns.length; i++) {
+            const body = dedupeFanoutMatchLines(subs[i], seen);
+            if (typeof body === 'string' && body.startsWith('(no matches) ') && !body.includes('\n')) {
+                missedPatterns.push(patterns[i]);
+                continue;
+            }
+            parts.push(`# grep pattern:${JSON.stringify(patterns[i])}\n${body}`);
+        }
+        if (missedPatterns.length > 0) {
+            const missGlob = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
+            parts.push(`(no matches) pattern=${JSON.stringify(missedPatterns)} path=${searchPath}${missGlob}; path exists`);
+        }
         return patternCapNote + parts.join('\n\n');
     }
 

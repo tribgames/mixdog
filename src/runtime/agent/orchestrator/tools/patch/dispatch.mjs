@@ -172,9 +172,9 @@ export async function dispatchNativePatch({ entries, basePath, nativePatchStr, f
     const added = entry.added || 0;
     const removed = entry.removed || 0;
     const parts = [];
-    if (added > 0) parts.push(`+${countLabel(added, 'Line')}`);
-    if (removed > 0) parts.push(`-${countLabel(removed, 'Line')}`);
-    const detail = parts.join(' · ');
+    if (added > 0) parts.push(`+${added}`);
+    if (removed > 0) parts.push(`-${removed}`);
+    const detail = parts.join('/');
     lines.push(detail
       ? `  OK ${kindLabel(entry.kind)} ${entry.displayPath} — ${detail}`
       : `  OK ${kindLabel(entry.kind)} ${entry.displayPath}`);

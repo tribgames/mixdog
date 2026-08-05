@@ -437,7 +437,7 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
         ].join('\n')
         : '';
       if (!failed) {
-        const head = `apply_patch sequence: ${verb} ${units.length} section(s) in listed order`;
+        const head = `apply_patch: ${verb} ${units.length} section(s)`;
         const body = (appliedTexts ? `${head}\n${appliedTexts}` : head) + dryNote + rejectedTail;
         return wrapPatchMutationOutput(body, mutationPlan, { backend });
       }

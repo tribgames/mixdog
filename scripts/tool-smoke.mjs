@@ -661,8 +661,8 @@ if (!/^read 2\b/m.test(String(readRegionBatchOut))
   || (String(readRegionBatchOut).match(/scripts\/smoke\.mjs \[full\] \[ok\]/g) || []).length < 2
   || !/1→import \{ spawnSync \}/.test(String(readRegionBatchOut))
   || !/3→import \{ fileURLToPath \}/.test(String(readRegionBatchOut))
-  || !/(pass offset:2 to continue|ONE window: offset:2, limit:\d+)/.test(String(readRegionBatchOut))
-  || !/(pass offset:4 to continue|ONE window: offset:4, limit:\d+)/.test(String(readRegionBatchOut))) {
+  || !/(pass offset:2 to continue|ONE window: offset:2,? limit:\d+)/.test(String(readRegionBatchOut))
+  || !/(pass offset:4 to continue|ONE window: offset:4,? limit:\d+)/.test(String(readRegionBatchOut))) {
   throw new Error(`read region batch must preserve both requested spans:\n${readRegionBatchOut}`);
 }
 

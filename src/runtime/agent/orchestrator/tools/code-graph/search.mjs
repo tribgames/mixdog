@@ -251,8 +251,7 @@ export function _formatCalleeRow(row) {
   }
   const decl = row.declPath ? `decl ${row.declPath}:${row.declLine}` : 'decl (unresolved)';
   const enclosing = row.enclosing ? `(in ${row.enclosing})` : '(in ?)';
-  const next = `next: find_symbol({symbol:"${row.name}"})`;
-  return `${row.name}\t${callsite}\t${decl}\t${enclosing}\t${next}`;
+  return `${row.name}\t${callsite}\t${decl}\t${enclosing}`;
 }
 export async function _prewarmReferenceSourceText(graph, symbol, language) {
   const candidateNodes = _lookupCandidateNodes(graph, symbol, language);
@@ -635,8 +634,7 @@ function _collectCheapKeywordSymbolEntries(graph, keyword, { language = null } =
 
 function _formatSearchSymbolRow(name, hit) {
   const loc = hit ? _formatSymbolHitLocation(hit) : '(unresolved)';
-  const next = `next: find_symbol({symbol:"${name}"})`;
-  return `${name}\t${loc}\t${next}`;
+  return `${name}\t${loc}`;
 }
 
 const KEYWORD_SEARCH_CACHE_MAX_ENTRIES = Math.max(
