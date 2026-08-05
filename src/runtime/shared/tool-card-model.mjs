@@ -160,9 +160,13 @@ export function shellDisplayStatus({ pending = false, failedCount = 0, exitFaile
   return 'completed';
 }
 
-export function shellHeader(status, count = 1) {
+export function shellHeader(status, count = 1, verifying = false) {
   const n = Math.max(1, Number(count) || 1);
   const object = `${n} ${plural(n, 'command')}`;
+  // A shell that follows an edit in the same batch IS the verification —
+  // label it as such while healthy; failures keep the neutral Ran + detail.
+  if (verifying && status === 'running') return `Verifying ${object}`;
+  if (verifying && status === 'completed') return `Verified ${object}`;
   if (status === 'running') return `Running ${object}`;
   return `Ran ${object}`;
 }
@@ -708,7 +712,7 @@ export function deriveToolCardModel(input = {}, options = {}) {
   if (isAgentResponse) labelText = agentResponseTitle(parsedArgs, groupCount);
   else if (isBackgroundResponse) labelText = backgroundTaskResultTitle(normalizedName, backgroundMeta || parsedArgs);
   else if (isBackgroundMetadataResult) labelText = backgroundTaskActionTitle(normalizedName, backgroundMeta);
-  else if (isShellSurface) labelText = shellHeader(shellStatus, groupCount);
+  else if (isShellSurface) labelText = shellHeader(shellStatus, groupCount, parsedArgs?.verifyShell === true);
   else labelText = (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs) : '')
     || formatToolActionHeader(name, args, { pending: headerPending, count: groupCount });
   labelText = safeInlineText(labelText);

@@ -482,7 +482,10 @@ export function createRunTurn(bag) {
     const syncAggregateHeader = (aggregate) => {
       if (!aggregate?.itemId) return;
       const patch = {
-        args: { categoryOrder: aggregate.categoryOrder.slice() },
+        args: {
+          categoryOrder: aggregate.categoryOrder.slice(),
+          ...(aggregate.verifyShell ? { verifyShell: true } : {}),
+        },
         count: aggregate.calls.size,
         completedCount: [...aggregate.calls.values()].filter((r) => r.resolved || r.completedEarly).length,
         categories: Object.fromEntries(aggregate.categories),
@@ -943,6 +946,10 @@ export function createRunTurn(bag) {
           // row for. Flushed AFTER the syncAggregateHeader loop so any earlier-seq
           // aggregate it would flush-through already has its pendingSpec built.
           let standaloneReserve = null;
+          // Shell-after-edit tracking: a shell call that follows an edit call
+          // in the SAME provider batch is its verification — the Shell card
+          // header renders Verifying/Verified instead of Running/Ran.
+          let sawEditInBatch = false;
           for (let i = 0; i < displayCalls.length; i++) {
             const c = displayCalls[i];
             const name = toolCallName(c);
@@ -950,6 +957,8 @@ export function createRunTurn(bag) {
             // Category drives the aggregate bucket so only same-category calls
             // merge into one card; classify first, then bucket by it.
             const category = classifyToolCategory(name, args);
+            const shellAfterEdit = category === 'Shell' && sawEditInBatch;
+            if (category === 'Patch' && args?.dry_run !== true) sawEditInBatch = true;
             // Agent actions aggregate only within this provider-emitted batch.
             // They stay outbound category cards; asynchronous inbound Responses
             // are separately tailed by the notification feed and never mix here.
@@ -1010,6 +1019,7 @@ export function createRunTurn(bag) {
 
             const categoryEntry = aggregateToolCategoryEntry(name, args, category);
             const aggregateCard = ensureAggregateCard(bucket);
+            if (shellAfterEdit) aggregateCard.verifyShell = true;
             if (!aggregateCard.categories.has(categoryEntry.key)) aggregateCard.categoryOrder.push(categoryEntry.key);
             const prevCategory = aggregateCard.categories.get(categoryEntry.key);
             aggregateCard.categories.set(categoryEntry.key, {

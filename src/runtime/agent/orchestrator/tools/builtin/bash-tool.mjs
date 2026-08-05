@@ -375,7 +375,10 @@ export async function executeBashTool(args, workDir, options = {}) {
         // anywhere in the chain) used to hard-fail via foregroundLongCommandHint
         // (~22 wasted turns/14d measured). Promote them to a background task —
         // the exact remedy the deny message pointed at — same as sleep chains.
-        const _blockedSleep = detectBlockedSleepPattern(command) || detectLongForegroundReason(command);
+        // Short (2-29s) leading sleep chains stay SYNC: a 5s settle before a
+        // verification probe must not detach produce→verify into an async
+        // notification round-trip — blocking a few seconds is strictly cheaper.
+        const _blockedSleep = detectBlockedSleepPattern(command, 30) || detectLongForegroundReason(command);
         if (_blockedSleep) {
             runInBackground = true;
             autoAsyncReason = _blockedSleep;
