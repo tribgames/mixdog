@@ -56,6 +56,17 @@ export function createPromptSubmit({
   pastedImagesRef,
   pastedTextsRef,
 }) {
+  const submitPrompt = (prompt, options) => {
+    if (typeof store.submitAsync !== 'function') return store.submit(prompt, options);
+    void Promise.resolve(store.submitAsync(prompt, options)).then((accepted) => {
+      if (accepted === false) store.pushNotice('prompt was not accepted by the session backend', 'error');
+    }).catch((error) => {
+      store.pushNotice(`prompt submit failed: ${error?.message || error}`, 'error');
+    });
+    // Input clearing remains synchronous; the daemon ACK is responsible for
+    // durable intake, while provider execution continues independently.
+    return true;
+  };
   const onSubmit = (raw) => {
     const text = String(raw ?? '');
     const commandText = text.trim();
@@ -370,7 +381,7 @@ export function createPromptSubmit({
           }
           const prompt = `$${skillName}${commandText ? ` ${commandText}` : ''}`;
           setSettingsPrompt(null);
-          const accepted = store.submit(prompt);
+          const accepted = submitPrompt(prompt);
           if (accepted) armTranscriptFollow();
           return accepted;
         }
@@ -475,7 +486,7 @@ export function createPromptSubmit({
     const hasTextSnapshot = Object.keys(textSnapshot).length > 0;
     const expandedText = hasTextSnapshot ? expandPastedTextTokens(text, textSnapshot) : text;
     const content = buildPromptContentWithImages(expandedText, imageSnapshot);
-    const accepted = store.submit(content, {
+    const accepted = submitPrompt(content, {
       // Store the EXPANDED text in the transcript/history so a later prompt-
       // history recall resubmits the real content, not the literal token
       // (pastedTexts entries are cleared on accept). History recall therefore

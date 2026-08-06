@@ -7,10 +7,10 @@ import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
 
 const INTERRUPT_MESSAGE = '[Request interrupted by user]';
 const INTERRUPT_MESSAGE_FOR_TOOL_USE = '[Request interrupted by user for tool use]';
-const STREAMING_INTERRUPTED_TOOL_RESULT = 'Interrupted by user';
 const PROCESS_RESTART_INTERRUPT_MESSAGE = '[Request interrupted by process restart]';
-const PROCESS_RESTART_TOOL_RESULT = 'Interrupted by process restart';
-const TOOL_USE_REJECT_RESULT = "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.";
+// OpenCode-style short tool_result body for any unfinished call closed by
+// cancel/crash. UI maps this (and legacy long reject bodies) to Cancelled.
+const INTERRUPTED_TOOL_RESULT = 'Cancelled';
 
 // Abort reasons that represent an EXPLICIT user cancellation of this turn.
 // Only these rewind a not-yet-answered user turn out of history — the TUI/
@@ -136,11 +136,7 @@ function finalizeInterruptedTurn({
         const executionStarted = phase === 'tools' || observed?.eagerStarted === true;
         messages.push({
             role: 'tool',
-            content: abortReason === 'process-crash'
-                ? PROCESS_RESTART_TOOL_RESULT
-                : (executionStarted
-                    ? TOOL_USE_REJECT_RESULT
-                    : STREAMING_INTERRUPTED_TOOL_RESULT),
+            content: INTERRUPTED_TOOL_RESULT,
             toolCallId: callId,
             toolKind: 'error',
         });

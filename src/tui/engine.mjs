@@ -188,29 +188,15 @@ export { parseBackgroundTaskEnvelope } from './engine/agent-envelope.mjs';
 // same live session instead of arbitrating ownership through the session
 // store. This is the DEFAULT: one writer means there is no owner/viewer role
 // to negotiate and no cross-process hand-off that can swallow a prompt.
-// `MIXDOG_ENGINE_DAEMON=0` opts out (tests/diagnostics keep an in-process
-// engine); `strict` additionally refuses the local fallback. The daemon host
-// itself always builds REAL engines (MIXDOG_ENGINE_DAEMON_HOST=1) — that is
-// what stops this factory from recursing into its own proxy.
-function engineDaemonRequested() {
-  if (process.env.MIXDOG_ENGINE_DAEMON_HOST === '1') return false;
-  const value = String(process.env.MIXDOG_ENGINE_DAEMON || '').trim().toLowerCase();
-  if (value === '0' || value === 'false' || value === 'off') return false;
-  return true;
-}
-
 export async function createEngineSession(options = {}) {
-  if (!engineDaemonRequested()) return createLocalEngineSession(options);
-  try {
-    const { createRemoteEngineSession } = await import('../standalone/engine-daemon-client.mjs');
-    return await createRemoteEngineSession(options);
-  } catch (err) {
-    // A missing/broken daemon must never leave the user without an engine.
-    // `strict` is the diagnostic mode that refuses the fallback instead.
-    if (String(process.env.MIXDOG_ENGINE_DAEMON || '').trim().toLowerCase() === 'strict') throw err;
-    console.warn(`Mixdog engine daemon unavailable (${err?.message || err}); running the engine in-process.`);
+  // Only the singleton daemon may construct a real engine. Product TUI/CLI
+  // callers never fall back to a second in-process writer; tests that need a
+  // local store call createLocalEngineSession() explicitly.
+  if (process.env.MIXDOG_ENGINE_DAEMON_HOST === '1') {
     return createLocalEngineSession(options);
   }
+  const { createRemoteEngineSession } = await import('../standalone/engine-daemon-client.mjs');
+  return await createRemoteEngineSession(options);
 }
 
 export async function createLocalEngineSession({
@@ -902,7 +888,16 @@ export async function createLocalEngineSession({
   const drainRemoteInjections = () => {
     const injected = runtime.takeRemoteInjections?.() || [];
     if (injected.length === 0) return;
-    for (const text of injected) bag.enqueue(text);
+    for (const item of injected) {
+      // New shape: { text, id }. Legacy drains still yield bare strings.
+      if (item && typeof item === 'object' && (item.text != null || item.content != null)) {
+        const text = item.text ?? item.content;
+        const id = typeof item.id === 'string' && item.id.trim() ? item.id.trim() : undefined;
+        bag.enqueue(text, id ? { id } : {});
+      } else {
+        bag.enqueue(item);
+      }
+    }
     void bag.drain();
   };
   const liveShare = createLiveShare({
@@ -979,13 +974,20 @@ export async function createLocalEngineSession({
         // directly to the durable owner spool instead of starting a fake local
         // turn that renders an error/synthetic assistant message.
         try { liveShare.ensure(); } catch { /* durable fallback below */ }
-        const spoolFallback = () => runtime.enqueueRemoteAttachedPrompt?.(prompt) === true;
+        const submissionId = options.id != null && String(options.id).trim()
+          ? String(options.id).trim()
+          : `view-submit-${process.pid}-${Date.now()}`;
+        const spoolFallback = () => runtime.enqueueRemoteAttachedPrompt?.({
+          content: prompt,
+          text: text,
+          id: submissionId,
+        }) === true;
         // A pipe WRITE is not a delivery: the owner may refuse the prompt or
         // the socket may die between write and read. sendSubmit stays
         // synchronous (the store contract), but an unacknowledged submit is
         // re-delivered through the durable spool — late, never lost.
         if (text && liveShare.sendSubmit(text, {
-          id: options.id,
+          id: submissionId,
           submittedAt: options.submittedAt,
           onUndelivered: spoolFallback,
         })) return true;

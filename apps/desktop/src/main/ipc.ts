@@ -6,17 +6,11 @@ import type {
   Dialog,
   IpcMain,
   IpcMainInvokeEvent,
+  PowerMonitor,
   Shell,
 } from 'electron';
-// Optional namespace access: powerMonitor only exists in a real Electron main
-// process, not in the test stubs or a plain-node import of this module.
-import * as electronModule from 'electron';
-const powerMonitorRef = (electronModule as { powerMonitor?: import('electron').PowerMonitor }).powerMonitor;
-const nativeImageRef = (electronModule as { nativeImage?: typeof import('electron').nativeImage }).nativeImage;
 
-import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { watch as fsWatch, type FSWatcher } from 'node:fs';
 import { mkdir as fsMkdir, readFile as fsReadFile, writeFile as fsWriteFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import {
@@ -37,7 +31,6 @@ import {
   type DesktopCapabilityReadRequest,
   type DesktopCapabilityRequest,
   type DesktopGitGlobalConfigKey,
-  type DesktopGitPreferences,
   type DesktopLspDocumentInput,
   type DesktopLspRequestInput,
   type DesktopLspRequestMethod,
@@ -50,149 +43,60 @@ import {
   type DesktopSettings,
   type DesktopSubmitOptions,
   type DesktopUpdaterState,
+  type DesktopWorkspace,
   type DesktopWorkspaceFolder,
   type DesktopWorkspaceTextWrite,
   type EngineSnapshot,
   type ToolApprovalDecision,
 } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
-import { listShellProfiles, resolveShellProfileSpawn } from './shell-profiles';
 import type { TerminalSpawnProfile } from './terminal-worker-protocol';
-import {
-  deleteEditorBackup,
-  readEditorBackup,
-  writeEditorBackup,
-} from './editor-backups';
 import type { DesktopEngineHost } from './engine-host-api';
 import { streamingTailAppendEpoch } from './engine-host-support';
 import { registerFilePreview } from './file-preview';
 import {
   browsableFolderPath,
-  copyFolderEntriesAbs,
-  createFolderEntryAbs,
-  listFolderDirAbs,
   listFolderPlaces,
-  moveFolderEntriesAbs,
-  renameFolderEntryAbs,
 } from './folder-explorer';
 import {
-  gitAbortOperation,
-  gitAmend,
-  gitApplyPatch,
-  gitBranches,
-  gitCheckoutBranch,
-  gitCheckoutCommit,
-  gitCherryPickCommit,
-  gitCommit,
-  gitCommitPaths,
-  gitContinue,
-  gitCreateBranch,
-  gitCreateBranchAtCommit,
-  gitCreateTag,
-  gitDeleteBranch,
-  gitDeleteTag,
-  gitDiff,
-  gitFetch,
-  gitIgnore,
-  gitLog,
-  gitMergeBranch,
-  gitPull,
-  gitPush,
-  gitRenameBranch,
-  gitResetToCommit,
-  gitRevertCommit,
-  gitRevertFile,
-  gitReview,
-  gitReviewDiff,
-  gitShow,
-  gitShowDiff,
-  gitShowFile,
-  gitStage,
-  gitStash,
-  gitStashApply,
-  gitStashDrop,
-  gitStashList,
-  gitStashPop,
-  gitStatus,
-  gitSync,
-  gitUndoLastCommit,
-  gitUnstage,
   requiredCommitHash,
   requiredGitIgnoreScope,
   requiredGitResetMode,
   requiredRepositoryCwd,
-} from './git-cli';
-import {
-  ghPrCheckout,
-  ghPrCreate,
-  ghPrDefaultBranch,
-  ghPrDiff,
-  ghPrList,
-  ghPrMerge,
-  ghPrView,
-} from './gh-cli';
-import {
-  cancelGithubCliLogin,
-  githubCliAccount,
-  githubCliLoginStart,
-  githubCliLoginStatus,
-  githubCliLogout,
-  githubCliStatus,
-  gitGlobalConfig,
-  installGithubCli,
-  setGitGlobalConfig,
-} from './github-cli';
-import { LanguageServerManager } from './language-server-manager';
+} from './git-contract.mjs';
 import {
   projectEntryPathIn,
-  readProjectTextFileIn,
-  statProjectFileIn,
-  writeProjectTextFileIn,
-  writeProjectTextFilesIn,
 } from './project-files';
 import type { DesktopSettingsStore } from './settings-store';
 import {
   createSnapshotDeltaEncoder,
+  releaseHiddenSessionStateEntries,
   shouldPublishSessionState,
   type SnapshotDeltaEncoder,
 } from './state-delta';
 import { TerminalDataBufferer } from './terminal-data-buffer';
-import { setDesktopTitleBarDim, setDesktopTitleBarTheme, setDesktopTitleBarZoom } from './window-options';
-import {
-  readScopedEditorSettings,
-  readWorkspaceFile,
-  writeWorkspaceFile,
-} from './workspace-config';
-import { replaceWorkspaceTextIn, searchWorkspaceTextIn } from './workspace-search';
 
 const MAX_PROMPT_LENGTH = 1_000_000;
 const MAX_IMAGE_BASE64_LENGTH = 16_000_000;
 // 20 MiB of raw attachment bytes per submit (~28M base64).
 const MAX_FILE_BASE64_LENGTH = 28_000_000;
 
-// Settings → About: star the repo through the user's gh CLI when it is signed
-// in; the renderer falls back to opening the repo page otherwise.
-const GITHUB_REPO_SLUG = 'tribgames/mixdog';
-function runGh(args: string[]): Promise<{ ok: boolean; stderr: string }> {
-  return new Promise((resolve) => {
-    execFile('gh', args, { timeout: 8_000, windowsHide: true }, (error, _stdout, stderr) => {
-      resolve({ ok: !error, stderr: String(stderr || '') });
-    });
-  });
-}
-async function githubStarStatus(): Promise<{ available: boolean; starred: boolean }> {
-  const probe = await runGh(['api', `user/starred/${GITHUB_REPO_SLUG}`, '--silent']);
-  if (probe.ok) return { available: true, starred: true };
-  // HTTP 404 = gh is authenticated but the repo is not starred; anything else
-  // (gh missing, signed out, offline) downgrades the button to a plain link.
-  if (/HTTP 404/i.test(probe.stderr)) return { available: true, starred: false };
-  return { available: false, starred: false };
-}
-async function starGithub(): Promise<{ starred: boolean }> {
-  const result = await runGh(['api', '-X', 'PUT', `user/starred/${GITHUB_REPO_SLUG}`, '--silent']);
-  if (!result.ok) throw new Error(result.stderr.trim() || 'gh could not star the repository.');
-  return { starred: true };
-}
+const BACKEND_OPERATION_NAMES = [
+  'githubStarStatus', 'starGithub', 'githubCliStatus', 'installGithubCli',
+  'githubCliLoginStart', 'githubCliLoginStatus', 'cancelGithubCliLogin',
+  'githubCliLogout', 'githubCliAccount', 'gitGlobalConfig', 'setGitGlobalConfig',
+  'gitAbortOperation', 'gitAmend', 'gitApplyPatch', 'gitBranches',
+  'gitCheckoutBranch', 'gitCheckoutCommit', 'gitCherryPickCommit', 'gitCommit',
+  'gitCommitPaths', 'gitContinue', 'gitCreateBranch', 'gitCreateBranchAtCommit',
+  'gitCreateTag', 'gitDeleteBranch', 'gitDeleteTag', 'gitDiff', 'gitFetch',
+  'gitIgnore', 'gitLog', 'gitMergeBranch', 'gitPull', 'gitPush',
+  'gitRenameBranch', 'gitResetToCommit', 'gitRevertCommit', 'gitRevertFile',
+  'gitReview', 'gitReviewDiff', 'gitShow', 'gitShowDiff', 'gitShowFile',
+  'gitStage', 'gitStash', 'gitStashApply', 'gitStashDrop', 'gitStashList',
+  'gitStashPop', 'gitStatus', 'gitSync', 'gitUndoLastCommit', 'gitUnstage',
+  'ghPrCheckout', 'ghPrCreate', 'ghPrDefaultBranch', 'ghPrDiff', 'ghPrList',
+  'ghPrMerge', 'ghPrView',
+] as const;
 const MAX_STRUCTURED_STRING_TOTAL = 32_000_000;
 const CAPABILITY_SET = new Set<string>(DESKTOP_CAPABILITIES);
 const READ_CAPABILITY_SET = new Set<string>(DESKTOP_READ_CAPABILITIES);
@@ -695,17 +599,12 @@ interface DesktopIpcDependencies {
   dialog: Pick<Dialog, 'showOpenDialog' | 'showMessageBox'>
     & Partial<Pick<Dialog, 'showSaveDialog'>>;
   shell: Pick<Shell, 'openPath' | 'openExternal' | 'showItemInFolder' | 'trashItem'>;
+  powerMonitor?: Pick<PowerMonitor, 'on' | 'removeListener'>;
+  nativeImage?: Pick<typeof import('electron').nativeImage, 'createThumbnailFromPath'>;
   settingsStore?: Pick<DesktopSettingsStore,
     'read' | 'update' | 'readZoom' | 'updateZoom' | 'readGitPreferences' | 'updateGitPreferences'>;
   /** Fires after a successful desktop-settings write (keep-awake wiring). */
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
-  /** Settings → Git auto commit message: one-shot maintenance-model
-   *  completion over the included files' diffs. */
-  generateCommitMessage?: (
-    cwd: string,
-    files: Array<{ path: string; untracked?: boolean }>,
-    preferences: DesktopGitPreferences | null,
-  ) => Promise<string>;
   /** Settings → Connection pairing card; resolves null while the bridge is off. */
   remoteAccessInfo?: () => Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: mint a new pairing token (revokes paired phones). */
@@ -717,7 +616,7 @@ interface DesktopIpcDependencies {
     install(): Promise<void>;
   };
   terminals?: {
-    ensure(id: string | null, cwd: string | null, profile?: TerminalSpawnProfile | null):
+    ensure(id: string | null, cwd: string | null, profile?: TerminalSpawnProfile | string | null):
       { id: string; replay: string } | Promise<{ id: string; replay: string }>;
     write(id: string, data: string): void;
     resize(id: string, cols: number, rows: number): void;
@@ -781,10 +680,22 @@ function requiredWorkspaceFolders(value: unknown): DesktopWorkspaceFolder[] {
 export function registerDesktopIpc(
   window: BrowserWindow,
   host: DesktopEngineHost,
-  { app, ipcMain, dialog, shell, settingsStore, onDesktopSettingsChanged, generateCommitMessage, updater, terminals, remoteAccessInfo, rotateRemoteAccess }: DesktopIpcDependencies,
+  {
+    app,
+    ipcMain,
+    dialog,
+    shell,
+    powerMonitor: powerMonitorRef,
+    nativeImage: nativeImageRef,
+    settingsStore,
+    onDesktopSettingsChanged,
+    updater,
+    terminals,
+    remoteAccessInfo,
+    rotateRemoteAccess,
+  }: DesktopIpcDependencies,
 ): () => void {
   let quitPromise: Promise<void> | null = null;
-  const languageServers = new LanguageServerManager();
   const assertSender = (event: IpcMainInvokeEvent): void => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) {
       throw new Error('IPC call rejected.');
@@ -799,6 +710,78 @@ export function registerDesktopIpc(
       return listener(event, ...args);
     });
   };
+  const backendInvoke = <T>(
+    method: string,
+    args: unknown[],
+  ): Promise<T> => host.backendInvoke(method, args) as Promise<T>;
+  type BackendOperation = (...args: any[]) => Promise<any>;
+  const backendOperation = (name: string): BackendOperation =>
+    (...args: unknown[]) => backendInvoke(name, args);
+  const {
+    githubStarStatus,
+    starGithub,
+    githubCliStatus,
+    installGithubCli,
+    githubCliLoginStart,
+    githubCliLoginStatus,
+    cancelGithubCliLogin,
+    githubCliLogout,
+    githubCliAccount,
+    gitGlobalConfig,
+    setGitGlobalConfig,
+    gitAbortOperation,
+    gitAmend,
+    gitApplyPatch,
+    gitBranches,
+    gitCheckoutBranch,
+    gitCheckoutCommit,
+    gitCherryPickCommit,
+    gitCommit,
+    gitCommitPaths,
+    gitContinue,
+    gitCreateBranch,
+    gitCreateBranchAtCommit,
+    gitCreateTag,
+    gitDeleteBranch,
+    gitDeleteTag,
+    gitDiff,
+    gitFetch,
+    gitIgnore,
+    gitLog,
+    gitMergeBranch,
+    gitPull,
+    gitPush,
+    gitRenameBranch,
+    gitResetToCommit,
+    gitRevertCommit,
+    gitRevertFile,
+    gitReview,
+    gitReviewDiff,
+    gitShow,
+    gitShowDiff,
+    gitShowFile,
+    gitStage,
+    gitStash,
+    gitStashApply,
+    gitStashDrop,
+    gitStashList,
+    gitStashPop,
+    gitStatus,
+    gitSync,
+    gitUndoLastCommit,
+    gitUnstage,
+    ghPrCheckout,
+    ghPrCreate,
+    ghPrDefaultBranch,
+    ghPrDiff,
+    ghPrList,
+    ghPrMerge,
+    ghPrView,
+  } = Object.fromEntries(BACKEND_OPERATION_NAMES
+    .map((name) => [name, backendOperation(name)])) as Record<
+      (typeof BACKEND_OPERATION_NAMES)[number],
+      BackendOperation
+    >;
   const selectedFileGrants = new Map<string, string>();
   let selectedFileGrantsLoaded = false;
   const selectedFileGrantStore = typeof app.getPath === 'function'
@@ -888,22 +871,51 @@ export function registerDesktopIpc(
     return value.map((path) => browsableFolderPath(path));
   };
   handle(DESKTOP_IPC.listFolderDir, (_event, dir) =>
-    listFolderDirAbs(browsableFolderPath(dir)));
+    backendInvoke('listFolderDirAbs', [browsableFolderPath(dir)]));
   handle(DESKTOP_IPC.createFolderEntry, (_event, dir, name, isDir) =>
-    createFolderEntryAbs(browsableFolderPath(dir), requiredString(name, 'name', 255), isDir === true));
-  handle(DESKTOP_IPC.renameFolderEntry, (_event, path, newName) =>
-    renameFolderEntryAbs(browsableFolderPath(path), requiredString(newName, 'newName', 255)));
-  handle(DESKTOP_IPC.moveFolderEntry, (_event, paths, targetDir, strategy) =>
-    moveFolderEntriesAbs(
-      requiredFolderPaths(paths),
-      browsableFolderPath(targetDir),
-      strategy === 'replace' || strategy === 'keepBoth' || strategy === 'skip'
-        ? strategy
-        : 'ask',
-      (path) => shell.trashItem(path),
+    backendInvoke(
+      'createFolderEntryAbs',
+      [browsableFolderPath(dir), requiredString(name, 'name', 255), isDir === true],
     ));
+  handle(DESKTOP_IPC.renameFolderEntry, (_event, path, newName) =>
+    backendInvoke(
+      'renameFolderEntryAbs',
+      [browsableFolderPath(path), requiredString(newName, 'newName', 255)],
+    ));
+  handle(DESKTOP_IPC.moveFolderEntry, (_event, paths, targetDir, strategy) => {
+    const sources = requiredFolderPaths(paths);
+    const target = browsableFolderPath(targetDir);
+    const mode = strategy === 'replace' || strategy === 'keepBoth' || strategy === 'skip'
+      ? strategy
+      : 'ask';
+    // Replace keeps Electron's recoverable OS trash, but both the conflict
+    // scan and the actual move execute in the daemon. If the second scan sees
+    // a new race it reports conflicts instead of deleting anything.
+    if (mode === 'replace') {
+      return backendInvoke<{ conflicts?: string[]; moved: Array<{ from: string; to: string }> }>(
+        'moveFolderEntriesAbs',
+        [sources, target, 'ask'],
+      ).then(async (first) => {
+        if (!first.conflicts?.length) return first;
+        for (const name of first.conflicts) {
+          await shell.trashItem(resolvePath(target, pathBasename(name)));
+        }
+        return backendInvoke(
+          'moveFolderEntriesAbs',
+          [sources, target, 'ask'],
+        );
+      });
+    }
+    return backendInvoke(
+      'moveFolderEntriesAbs',
+      [sources, target, mode],
+    );
+  });
   handle(DESKTOP_IPC.copyFolderEntry, (_event, paths, targetDir) =>
-    copyFolderEntriesAbs(requiredFolderPaths(paths), browsableFolderPath(targetDir)));
+    backendInvoke(
+      'copyFolderEntriesAbs',
+      [requiredFolderPaths(paths), browsableFolderPath(targetDir)],
+    ));
   handle(DESKTOP_IPC.trashFolderEntry, async (_event, path) => {
     await shell.trashItem(browsableFolderPath(path));
   });
@@ -937,48 +949,14 @@ export function registerDesktopIpc(
     }
     return '';
   });
-  // Explorer pane live refresh: one refcounted fs.watch per directory, with a
-  // 250ms debounce so bursty writes collapse into one renderer ping.
-  const folderWatchers = new Map<string, {
-    watcher: FSWatcher; count: number; timer: NodeJS.Timeout | null;
-  }>();
-  const folderWatchKey = (dir: string) =>
-    process.platform === 'win32' ? dir.toLowerCase() : dir;
+  // Explorer pane live refresh is daemon-owned and refcounted there.
   handle(DESKTOP_IPC.folderWatch, (_event, dirRaw) => {
     const dir = browsableFolderPath(dirRaw);
-    const key = folderWatchKey(dir);
-    const existing = folderWatchers.get(key);
-    if (existing) {
-      existing.count += 1;
-      return;
-    }
-    try {
-      const watcher = fsWatch(dir, { persistent: false }, () => {
-        const state = folderWatchers.get(key);
-        if (!state || state.timer) return;
-        state.timer = setTimeout(() => {
-          state.timer = null;
-          try { window.webContents.send(DESKTOP_IPC.folderChanged, dir); } catch { /* window gone */ }
-        }, 250);
-      });
-      watcher.on('error', () => {
-        const state = folderWatchers.get(key);
-        if (state?.timer) clearTimeout(state.timer);
-        folderWatchers.delete(key);
-      });
-      folderWatchers.set(key, { watcher, count: 1, timer: null });
-    } catch { /* unwatchable directory (permissions) — refresh stays manual */ }
+    return backendInvoke('folderWatch', [dir]);
   });
   handle(DESKTOP_IPC.folderUnwatch, (_event, dirRaw) => {
-    const key = folderWatchKey(browsableFolderPath(dirRaw));
-    const state = folderWatchers.get(key);
-    if (!state) return;
-    state.count -= 1;
-    if (state.count <= 0) {
-      if (state.timer) clearTimeout(state.timer);
-      try { state.watcher.close(); } catch { /* already closed */ }
-      folderWatchers.delete(key);
-    }
+    const dir = browsableFolderPath(dirRaw);
+    return backendInvoke('folderUnwatch', [dir]);
   });
   handle(DESKTOP_IPC.chooseFile, async (_event, defaultPath) => {
     const result = await dialog.showOpenDialog(window, {
@@ -1029,7 +1007,10 @@ export function registerDesktopIpc(
     });
     const file = result.canceled ? '' : result.filePaths[0] || '';
     if (!file) return null;
-    const workspace = await readWorkspaceFile(file);
+    const workspace = await backendInvoke<DesktopWorkspace>(
+      'readWorkspaceFile',
+      [file],
+    );
     for (const folder of workspace.folders) await host.addProject(folder.path);
     return workspace;
   });
@@ -1050,7 +1031,10 @@ export function registerDesktopIpc(
       if (result.canceled || !result.filePath) return null;
       file = result.filePath;
     }
-    return writeWorkspaceFile(file, folders);
+    return backendInvoke(
+      'writeWorkspaceFile',
+      [file, folders],
+    );
   });
   handle(DESKTOP_IPC.readEditorSettings, async (
     _event,
@@ -1063,11 +1047,11 @@ export function registerDesktopIpc(
     const workspace = typeof workspaceFile === 'string' && workspaceFile.trim()
       ? resolvePath(workspaceFile)
       : undefined;
-    return readScopedEditorSettings(
-      typeof app.getPath === 'function' ? app.getPath('userData') : '',
-      root,
-      requiredString(relPath, 'relPath', 4_096),
-      workspace,
+    const userDataPath = typeof app.getPath === 'function' ? app.getPath('userData') : '';
+    const cleanRel = requiredString(relPath, 'relPath', 4_096);
+    return backendInvoke(
+      'readScopedEditorSettings',
+      [userDataPath, root, cleanRel, workspace],
     );
   });
   handle(DESKTOP_IPC.startProject, (_event, projectPath) =>
@@ -1127,30 +1111,19 @@ export function registerDesktopIpc(
     const directory = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
     return resolvePath(directory, '.mixdog', 'instructions.md');
   };
-  const readInstructionsFile = async (file: string): Promise<string | null> => {
-    try {
-      return await fsReadFile(file, 'utf8');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
-      throw error;
-    }
-  };
   handle(DESKTOP_IPC.readInstructions, async (_event, projectPath) => {
-    const primary = await readInstructionsFile(await instructionsFilePath(projectPath));
-    if (primary != null) return primary;
-    if (projectPath == null || projectPath === '') {
-      const legacy = await readInstructionsFile(resolvePath(commonDataDir(), 'user-workflow.md'));
-      if (legacy != null) return legacy;
-    }
-    return '';
+    const file = await instructionsFilePath(projectPath);
+    const legacy = projectPath == null || projectPath === ''
+      ? resolvePath(commonDataDir(), 'user-workflow.md')
+      : '';
+    return backendInvoke('readInstructions', [file, legacy]);
   });
   handle(DESKTOP_IPC.writeInstructions, async (_event, projectPath, content) => {
     if (typeof content !== 'string' || content.length > 65_536) {
       throw new TypeError('instructions content is invalid.');
     }
     const file = await instructionsFilePath(projectPath);
-    await fsMkdir(pathDirname(file), { recursive: true });
-    await fsWriteFile(file, content, 'utf8');
+    await backendInvoke('writeInstructions', [file, content]);
   });
   handle(DESKTOP_IPC.listProjectDir, (_event, projectPath, relDir) =>
     host.listProjectDir(
@@ -1160,7 +1133,10 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.readProjectFile, async (_event, projectPath, relPath, accessToken) => {
     if (typeof accessToken === 'string' && accessToken) {
       const granted = await grantedFile(accessToken, projectPath, relPath);
-      return readProjectTextFileIn(granted.root, granted.rel);
+      return backendInvoke(
+        'readProjectTextFileIn',
+        [granted.root, granted.rel],
+      );
     }
     return host.readProjectTextFile(
       requiredString(projectPath, 'projectPath'),
@@ -1173,13 +1149,19 @@ export function registerDesktopIpc(
     if (typeof accessToken === 'string' && accessToken) {
       const granted = await grantedFile(accessToken, projectPath, relPath);
       file = granted.absolute;
-      info = await statProjectFileIn(granted.root, granted.rel);
+      info = await backendInvoke(
+        'statProjectFileIn',
+        [granted.root, granted.rel],
+      );
     } else {
       const cleanProject = requiredString(projectPath, 'projectPath');
       const cleanRel = requiredString(relPath, 'relPath');
       const root = await host.projectDirectory(cleanProject);
       file = projectEntryPathIn(root, cleanRel);
-      info = await statProjectFileIn(root, cleanRel);
+      info = await backendInvoke(
+        'statProjectFileIn',
+        [root, cleanRel],
+      );
     }
     const preview = registerFilePreview(file, `${info.mtimeMs}:${info.size}`);
     if (!preview) throw new Error('This file type does not support an in-app preview.');
@@ -1209,7 +1191,10 @@ export function registerDesktopIpc(
     }
     if (typeof accessToken === 'string' && accessToken) {
       const granted = await grantedFile(accessToken, projectPath, relPath);
-      return writeProjectTextFileIn(granted.root, granted.rel, content, expectedContent, encoding);
+      return backendInvoke(
+        'writeProjectTextFileIn',
+        [granted.root, granted.rel, content, expectedContent, encoding],
+      );
     }
     const cleanProject = requiredString(projectPath, 'projectPath');
     const cleanRel = requiredString(relPath, 'relPath');
@@ -1223,9 +1208,10 @@ export function registerDesktopIpc(
   });
   handle(DESKTOP_IPC.readEditorBackup, async (_event, projectPath, relPath, accessToken) => {
     if (!editorBackupRoot) return null;
-    return readEditorBackup(
-      editorBackupRoot,
-      await editorFilePath(projectPath, relPath, accessToken),
+    const file = await editorFilePath(projectPath, relPath, accessToken);
+    return backendInvoke(
+      'readEditorBackup',
+      [editorBackupRoot, file],
     );
   });
   handle(DESKTOP_IPC.writeEditorBackup, async (
@@ -1237,24 +1223,27 @@ export function registerDesktopIpc(
     accessToken,
   ) => {
     if (!editorBackupRoot) throw new Error('Editor backup storage is unavailable.');
-    return writeEditorBackup(
-      editorBackupRoot,
-      await editorFilePath(projectPath, relPath, accessToken),
-      content as string,
-      expectedContent as string,
+    const file = await editorFilePath(projectPath, relPath, accessToken);
+    return backendInvoke(
+      'writeEditorBackup',
+      [editorBackupRoot, file, content, expectedContent],
     );
   });
   handle(DESKTOP_IPC.deleteEditorBackup, async (_event, projectPath, relPath, accessToken) => {
     if (!editorBackupRoot) return;
-    await deleteEditorBackup(
-      editorBackupRoot,
-      await editorFilePath(projectPath, relPath, accessToken),
+    const file = await editorFilePath(projectPath, relPath, accessToken);
+    await backendInvoke(
+      'deleteEditorBackup',
+      [editorBackupRoot, file],
     );
   });
   handle(DESKTOP_IPC.statProjectFile, async (_event, projectPath, relPath, accessToken) => {
     if (typeof accessToken === 'string' && accessToken) {
       const granted = await grantedFile(accessToken, projectPath, relPath);
-      return statProjectFileIn(granted.root, granted.rel);
+      return backendInvoke(
+        'statProjectFileIn',
+        [granted.root, granted.rel],
+      );
     }
     return host.statProjectFile(
       requiredString(projectPath, 'projectPath'),
@@ -1382,25 +1371,28 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.lspDocument, async (_event, rawInput) => {
     const input = requiredLspDocument(rawInput);
     const root = await host.projectDirectory(input.projectPath);
-    return languageServers.document(input.projectPath, root, input);
+    return backendInvoke('lspDocument', [input.projectPath, root, input]);
   });
   handle(DESKTOP_IPC.lspRequest, async (_event, rawInput) => {
     const input = requiredLspRequest(rawInput);
     const root = await host.projectDirectory(input.projectPath);
-    return languageServers.request(
+    return backendInvoke('lspRequest', [
       input.projectPath,
       root,
       input.relPath,
       input.languageId,
       input.method,
       input.params ?? {},
-    );
+    ]);
   });
   handle(DESKTOP_IPC.lspApplyWorkspaceEdit, async (_event, projectPath, rawWrites) => {
     const project = requiredString(projectPath, 'projectPath');
     const root = await host.projectDirectory(project);
     const writes = requiredWorkspaceWrites(rawWrites);
-    return writeProjectTextFilesIn(root, writes);
+    return backendInvoke(
+      'writeProjectTextFilesIn',
+      [root, writes],
+    );
   });
   handle(DESKTOP_IPC.listSessions, () => host.listSessions());
   handle(DESKTOP_IPC.listAgentPool, () => host.listAgentPool());
@@ -1427,6 +1419,18 @@ export function registerDesktopIpc(
     const normalized = [...new Set(sessionIds.map((sessionId) => requiredSessionId(sessionId)))];
     visibleSessionStateIds.clear();
     for (const sessionId of normalized) visibleSessionStateIds.add(sessionId);
+    releaseHiddenSessionStateEntries(
+      visibleSessionStateIds,
+      [sessionStateEncoders, latestSessionStates, latestSessionProvenance],
+      (sessionId) => {
+        if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+        const encoder = sessionStateEncoders.get(sessionId);
+        window.webContents.send(DESKTOP_IPC.sessionState, {
+          sessionId,
+          wire: encoder ? encoder.encode(null) : null,
+        });
+      },
+    );
     return (await host.setVisibleSessions?.(normalized)) === true;
   });
   handle(DESKTOP_IPC.resumeSession, async (_event, sessionId) => {
@@ -1473,9 +1477,11 @@ export function registerDesktopIpc(
   };
   handle(DESKTOP_IPC.searchWorkspaceText, async (_event, projectPath, rawOptions) => {
     const project = requiredString(projectPath, 'projectPath');
-    return searchWorkspaceTextIn(
-      await host.projectDirectory(project),
-      requiredWorkspaceSearchOptions(rawOptions),
+    const root = await host.projectDirectory(project);
+    const options = requiredWorkspaceSearchOptions(rawOptions);
+    return backendInvoke(
+      'searchWorkspaceTextIn',
+      [root, options],
     );
   });
   handle(DESKTOP_IPC.replaceWorkspaceText, async (
@@ -1490,11 +1496,11 @@ export function registerDesktopIpc(
     if (typeof replacement !== 'string' || replacement.length > 1_000_000) {
       throw new TypeError('Replacement text is invalid.');
     }
-    return replaceWorkspaceTextIn(
-      root,
-      requiredWorkspaceSearchOptions(rawOptions),
-      replacement,
-      relPaths === undefined ? undefined : requiredGitPaths(relPaths),
+    const options = requiredWorkspaceSearchOptions(rawOptions);
+    const paths = relPaths === undefined ? undefined : requiredGitPaths(relPaths);
+    return backendInvoke(
+      'replaceWorkspaceTextIn',
+      [root, options, replacement, paths],
     );
   });
   handle(DESKTOP_IPC.getSnapshot, () => host.getSnapshot());
@@ -1567,58 +1573,70 @@ export function registerDesktopIpc(
         : requiredSessionId(sessionId),
     );
   });
-  if (settingsStore) {
-    handle(DESKTOP_IPC.readSettings, () => settingsStore.read());
-    handle(DESKTOP_IPC.updateSetting, (_event, key, enabled) => {
-      if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
-      const settingKey = requiredDesktopSettingKey(key);
-      return settingsStore.update(settingKey, enabled).then((saved) => {
-        onDesktopSettingsChanged?.(saved);
-        return saved;
-      });
+  handle(DESKTOP_IPC.readSettings, () =>
+    settingsStore?.read() ?? backendInvoke('readSettings', []));
+  handle(DESKTOP_IPC.updateSetting, (_event, key, enabled) => {
+    if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
+    const settingKey = requiredDesktopSettingKey(key);
+    const update = settingsStore
+      ? settingsStore.update(settingKey, enabled)
+      : backendInvoke<DesktopSettings>('updateSetting', [settingKey, enabled]);
+    return update.then((saved) => {
+      onDesktopSettingsChanged?.(saved);
+      return saved;
     });
-    handle(DESKTOP_IPC.readGitPreferences, () => settingsStore.readGitPreferences());
-    handle(DESKTOP_IPC.updateGitPreferences, (_event, preferences) => {
-      const source = preferences && typeof preferences === 'object' && !Array.isArray(preferences)
-        ? preferences as Record<string, unknown>
-        : {};
-      requireAllowedKeys(
-        source,
-        new Set(['commitTemplate', 'commitPreset', 'autoCommitMessage']),
-        'preferences',
-      );
-      const template = source.commitTemplate;
-      if (template !== undefined && (typeof template !== 'string' || template.length > 20_000)) {
-        throw new TypeError('commitTemplate must be a string of at most 20,000 characters.');
-      }
-      const preset = source.commitPreset;
-      if (preset !== undefined
-        && (typeof preset !== 'string' || !['none', 'conventional', 'custom'].includes(preset))) {
-        throw new TypeError('commitPreset must be none, conventional, or custom.');
-      }
-      const auto = source.autoCommitMessage;
-      if (auto !== undefined && typeof auto !== 'boolean') {
-        throw new TypeError('autoCommitMessage must be a boolean.');
-      }
-      return settingsStore.updateGitPreferences({
-        ...(typeof template === 'string' ? { commitTemplate: template } : {}),
-        ...(typeof preset === 'string'
-          ? { commitPreset: preset as 'none' | 'conventional' | 'custom' }
-          : {}),
-        ...(typeof auto === 'boolean' ? { autoCommitMessage: auto } : {}),
-      });
-    });
-  }
+  });
+  handle(DESKTOP_IPC.readGitPreferences, () =>
+    settingsStore?.readGitPreferences() ?? backendInvoke('readGitPreferences', []));
+  handle(DESKTOP_IPC.updateGitPreferences, (_event, preferences) => {
+    const source = preferences && typeof preferences === 'object' && !Array.isArray(preferences)
+      ? preferences as Record<string, unknown>
+      : {};
+    requireAllowedKeys(
+      source,
+      new Set(['commitTemplate', 'commitPreset', 'autoCommitMessage']),
+      'preferences',
+    );
+    const template = source.commitTemplate;
+    if (template !== undefined && (typeof template !== 'string' || template.length > 20_000)) {
+      throw new TypeError('commitTemplate must be a string of at most 20,000 characters.');
+    }
+    const preset = source.commitPreset;
+    if (preset !== undefined
+      && (typeof preset !== 'string' || !['none', 'conventional', 'custom'].includes(preset))) {
+      throw new TypeError('commitPreset must be none, conventional, or custom.');
+    }
+    const auto = source.autoCommitMessage;
+    if (auto !== undefined && typeof auto !== 'boolean') {
+      throw new TypeError('autoCommitMessage must be a boolean.');
+    }
+    const value = {
+      ...(typeof template === 'string' ? { commitTemplate: template } : {}),
+      ...(typeof preset === 'string'
+        ? { commitPreset: preset as 'none' | 'conventional' | 'custom' }
+        : {}),
+      ...(typeof auto === 'boolean' ? { autoCommitMessage: auto } : {}),
+    };
+    return settingsStore
+      ? settingsStore.updateGitPreferences(value)
+      : backendInvoke('updateGitPreferences', [value]);
+  });
   handle(DESKTOP_IPC.getZoomFactor, async () => {
-    const factor = settingsStore ? await settingsStore.readZoom() : 1;
+    const factor = settingsStore
+      ? await settingsStore.readZoom()
+      : await backendInvoke<number>('readZoom', []);
     window.webContents.setZoomFactor(factor);
+    const { setDesktopTitleBarZoom } = await import('./window-options');
     setDesktopTitleBarZoom(window, factor);
     return factor;
   });
   handle(DESKTOP_IPC.setZoomFactor, async (_event, value) => {
     const requested = requiredZoomFactor(value);
-    const factor = settingsStore ? await settingsStore.updateZoom(requested) : requested;
+    const factor = settingsStore
+      ? await settingsStore.updateZoom(requested)
+      : await backendInvoke<number>('updateZoom', [requested]);
     window.webContents.setZoomFactor(factor);
+    const { setDesktopTitleBarZoom } = await import('./window-options');
     setDesktopTitleBarZoom(window, factor);
     window.webContents.send(DESKTOP_IPC.zoomFactorChanged, factor);
     return factor;
@@ -1628,16 +1646,18 @@ export function registerDesktopIpc(
   // theme. The engine/TUI theme is a separate user setting — the old
   // getTheme/setTheme capability hook let it overwrite this band with a
   // mismatched palette, so capabilities stay theme-neutral now.
-  handle(DESKTOP_IPC.applyTitleBarTheme, (_event, theme, systemPreference) => {
+  handle(DESKTOP_IPC.applyTitleBarTheme, async (_event, theme, systemPreference) => {
+    const { setDesktopTitleBarTheme } = await import('./window-options');
     setDesktopTitleBarTheme(window, requiredString(theme, 'theme'), systemPreference === true);
   });
   // Fullscreen-modal dim for the native WCO caption band: the renderer sends
   // pre-composited hex colors; anything malformed clears back to the theme.
-  handle(DESKTOP_IPC.setTitleBarDim, (_event, dim) => {
+  handle(DESKTOP_IPC.setTitleBarDim, async (_event, dim) => {
     const record = (dim && typeof dim === 'object' ? dim : {}) as Record<string, unknown>;
     const hex = /^#[0-9a-f]{6}$/i;
     const valid = typeof record.color === 'string' && hex.test(record.color)
       && typeof record.symbolColor === 'string' && hex.test(record.symbolColor);
+    const { setDesktopTitleBarDim } = await import('./window-options');
     setDesktopTitleBarDim(window, valid
       ? { color: record.color as string, symbolColor: record.symbolColor as string }
       : null);
@@ -1649,13 +1669,11 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.readCapabilities, (_event, input) =>
     host.readCapabilities(requiredDesktopCapabilityReadRequests(input)));
   handle(DESKTOP_IPC.dispose, async () => {
-    await languageServers.dispose();
     return host.dispose();
   });
   handle(DESKTOP_IPC.quit, () => {
     quitPromise ??= (async () => {
       try {
-        await languageServers.dispose();
         await host.dispose();
       } finally {
         app.quit();
@@ -1900,16 +1918,12 @@ export function registerDesktopIpc(
       window.webContents.send(DESKTOP_IPC.updaterState, next);
     }
   }) ?? (() => {});
-  const unsubscribeLspDiagnostics = languageServers.subscribeDiagnostics((event) => {
-    if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
-      window.webContents.send(DESKTOP_IPC.lspDiagnostics, event);
-    }
-  });
-  const unsubscribeLspStatus = languageServers.subscribeStatus((event) => {
-    if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
-      window.webContents.send(DESKTOP_IPC.lspStatus, event);
-    }
-  });
+  const unsubscribeBackendEvents = host.subscribeBackendEvents?.(({ name, value }) => {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+    if (name === 'folder-changed') window.webContents.send(DESKTOP_IPC.folderChanged, value);
+    else if (name === 'lsp-diagnostics') window.webContents.send(DESKTOP_IPC.lspDiagnostics, value);
+    else if (name === 'lsp-status') window.webContents.send(DESKTOP_IPC.lspStatus, value);
+  }) ?? (() => {});
   // Renderer perf lines ride a fire-and-forget event channel (no invoke).
   const onPerfLog = (_event: Electron.IpcMainEvent, line: unknown): void => {
     (host as { perfLog?: (line: string) => void }).perfLog?.(String(line ?? ''));
@@ -1935,14 +1949,12 @@ export function registerDesktopIpc(
     32 * 1024,
   );
   if (terminals) {
-    handle(DESKTOP_IPC.termEnsure, async (_event, id, cwd, shell) => terminals.ensure(
+    handle(DESKTOP_IPC.termEnsure, (_event, id, cwd, shell) => terminals.ensure(
       typeof id === 'string' && id ? id : null,
       typeof cwd === 'string' && cwd ? cwd : null,
-      // The renderer names a detected profile id only; unknown ids fall back
-      // to the platform default shell.
-      await resolveShellProfileSpawn(shell),
+      typeof shell === 'string' && shell ? shell : null,
     ));
-    handle(DESKTOP_IPC.termProfiles, () => listShellProfiles());
+    handle(DESKTOP_IPC.termProfiles, () => backendInvoke('termProfiles', []));
     handle(DESKTOP_IPC.termDispose, (_event, id) => {
       const terminalId = requiredString(id, 'terminal id', 128);
       terminalDataBufferer.release(terminalId);
@@ -2002,15 +2014,16 @@ export function registerDesktopIpc(
       requiredGitPaths(paths),
     ));
   handle(DESKTOP_IPC.gitGenerateCommitMessage, async (_event, cwd, files) => {
-    if (!generateCommitMessage) {
-      throw new Error('Commit message generation is unavailable in this build.');
-    }
     const repository = requiredRepositoryCwd(cwd);
     const entries = requiredCommitMessageFiles(files);
     const preferences = settingsStore
       ? await settingsStore.readGitPreferences().catch(() => null)
-      : null;
-    return { message: await generateCommitMessage(repository, entries, preferences) };
+      : await backendInvoke('readGitPreferences', []).catch(() => null);
+    const message = await backendInvoke<string>(
+      'gitGenerateCommitMessage',
+      [repository, entries, preferences],
+    );
+    return { message };
   });
   handle(DESKTOP_IPC.gitAmend, (_event, cwd, message) =>
     gitAmend(requiredRepositoryCwd(cwd), requiredGitOptionalMessage(message)));
@@ -2180,17 +2193,14 @@ export function registerDesktopIpc(
     unsubscribeSessions();
     unsubscribeAgentPool();
     unsubscribeSessionStates();
+    sessionStateEncoders.clear();
+    latestSessionStates.clear();
+    latestSessionProvenance.clear();
+    visibleSessionStateIds.clear();
     unsubscribeUpdater();
     unsubscribeTerminals();
-    for (const state of folderWatchers.values()) {
-      if (state.timer) clearTimeout(state.timer);
-      try { state.watcher.close(); } catch { /* already closed */ }
-    }
-    folderWatchers.clear();
+    unsubscribeBackendEvents();
     terminalDataBufferer.dispose();
-    unsubscribeLspDiagnostics();
-    unsubscribeLspStatus();
-    void languageServers.dispose();
     if (typeof powerMonitorRef?.removeListener === 'function') {
       powerMonitorRef.removeListener('resume', onSystemResume);
     }

@@ -84,7 +84,7 @@ const session = {
   rawContextWindow: 12_000,
   compactBoundaryTokens: 12_000,
   // Keep this fixture on the reactive-overflow path; main/user now compacts at
-  // 75% by default, while this explicit sub-boundary limit remains authoritative.
+  // 100% by default, while this explicit sub-boundary limit remains authoritative.
   autoCompactTokenLimit: 11_500,
   compaction: { auto: true, semantic: true, type: 1, compactType: 1, lastStage: 'compacting' },
   cwd: process.cwd(),

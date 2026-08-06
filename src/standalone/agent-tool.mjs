@@ -106,15 +106,15 @@ export function createStandaloneAgent({
       || session?.ownerSessionId,
     );
     const handle = beginAgentTurnReview(ownerSessionId, session?.id, { tag, agent });
-    const patches = [];
+    let latestPatch = null;
     return {
       onToolResult(message) {
-        if (typeof message?.uiDiff === 'string' && message.uiDiff.trim()) {
-          patches.push(message.uiDiff);
+        if (Object.hasOwn(message || {}, 'uiDiff') && typeof message.uiDiff === 'string') {
+          latestPatch = message.uiDiff;
         }
       },
       complete() {
-        completeAgentTurnReview(handle, patches);
+        completeAgentTurnReview(handle, latestPatch === null ? [] : [latestPatch]);
       },
     };
   }

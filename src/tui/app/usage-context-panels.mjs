@@ -233,7 +233,12 @@ export function createUsageContextPanels({
           triggerTokens: compactTrigger,
           boundaryTokens: compactBoundary,
           type: compaction.compactType || compaction.type || null,
-          bufferTokens: Number(compaction.bufferTokens || (compactBoundary && compactTrigger ? Math.max(0, compactBoundary - compactTrigger) : 0)) || null,
+          bufferTokens: (() => {
+            const raw = Number(compaction.bufferTokens);
+            if (Number.isFinite(raw)) return Math.max(0, raw);
+            if (compactBoundary && compactTrigger) return Math.max(0, compactBoundary - compactTrigger);
+            return null;
+          })(),
           pressureTokens: Number(compaction.lastPressureTokens || compaction.currentEstimatedTokens || 0) || null,
           lastChanged: compaction.lastChanged === true,
         },

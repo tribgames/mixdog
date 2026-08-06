@@ -38,18 +38,19 @@ export function createEngineDaemonTransport({
   clientGraceMs = 10_000,
   sweepMs = 5_000,
   onClientsEmpty = null,
+  onClientRegistered = null,
   onClientDropped = null,
   getStatus = () => ({}),
 } = {}) {
   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
 
-  // token -> { token, leadPid, cwd, sse, pending, lastSeen }
+  // token -> { token, leadPid, cwd, lifecycle, sse, pending, lastSeen }
   const clients = new Map();
   let boundPort = null;
   let server = null;
   let graceTimer = null;
   let sweepTimer = null;
-  let everHadClient = false;
+  let everHadLifecycleClient = false;
   let closed = false;
   // Idempotency cache: a transport retry of the SAME callId must never run a
   // second engine mutation (submit/abort are not idempotent).
@@ -58,20 +59,28 @@ export function createEngineDaemonTransport({
 
   function nowMs() { return Date.now(); }
 
+  function lifecycleClientCount() {
+    let count = 0;
+    for (const client of clients.values()) {
+      if (client.lifecycle) count += 1;
+    }
+    return count;
+  }
+
   function cancelGrace() {
     if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
   }
 
   function maybeArmGrace(reason) {
-    if (closed || !everHadClient || typeof onClientsEmpty !== 'function') return;
-    if (clients.size > 0) return;
+    if (closed || !everHadLifecycleClient || typeof onClientsEmpty !== 'function') return;
+    if (lifecycleClientCount() > 0) return;
     // Never re-arm an ALREADY armed grace: the 5s sweep also calls this, and
     // cancel+rearm on every tick pushed the 10s deadline out forever — the
     // daemon could never self-shut down through the engine front door.
     if (graceTimer) return;
     graceTimer = setTimeout(() => {
       graceTimer = null;
-      if (closed || clients.size > 0) return;
+      if (closed || lifecycleClientCount() > 0) return;
       log(`no clients remain (${reason}) — signalling shutdown`);
       try { onClientsEmpty(); } catch {}
     }, clientGraceMs);
@@ -110,41 +119,55 @@ export function createEngineDaemonTransport({
     sweepTimer.unref?.();
   }
 
-  function registerClient({ leadPid, cwd } = {}) {
+  function registerClient({ leadPid, cwd, lifecycle = true } = {}) {
     const pid = parsePid(leadPid) || 0;
     const token = randomUUID();
+    const ownsLifecycle = lifecycle !== false;
     clients.set(token, {
       token,
       leadPid: pid,
       cwd: cwd || null,
+      lifecycle: ownsLifecycle,
       sse: null,
       // Frames are latest-wins per key while a client has no stream: a
       // reconnecting viewer wants the CURRENT snapshot, never a backlog.
       pending: new Map(),
       lastSeen: nowMs(),
     });
-    everHadClient = true;
-    cancelGrace();
+    if (ownsLifecycle) {
+      everHadLifecycleClient = true;
+      cancelGrace();
+    }
     startSweep();
-    log(`client registered token=${token} lead=${pid} cwd=${cwd || '-'}`);
+    log(`client registered token=${token} lead=${pid} cwd=${cwd || '-'} lifecycle=${ownsLifecycle}`);
+    if (typeof onClientRegistered === 'function') {
+      try { onClientRegistered({ token, leadPid: pid, cwd: cwd || null, lifecycle: ownsLifecycle }); } catch {}
+    }
     return token;
   }
 
-  function writeFrame(client, frame) {
-    const json = JSON.stringify(frame);
+  function writeFrame(client, frame, json) {
     if (!client.sse) {
-      client.pending.set(frame.key || `${frame.type}:${frame.engineId || ''}`, json);
+      client.pending.set(frame.key || `${frame.type}:${frame.sessionId || frame.desktopId || ''}`, json);
       return;
     }
     try { client.sse.write(`data: ${json}\n\n`); }
     catch { client.sse = null; }
   }
 
-  /** Shared engine state reaches EVERY attached client — that fan-out is the
-   *  whole point of the engine daemon (terminal and desktop viewing one live
-   *  session together). */
-  function broadcast(frame) {
-    for (const client of clients.values()) writeFrame(client, frame);
+  /** Session and desktop state reaches only subscribed client tokens. Calls
+   *  without a target set retain the transport-level broadcast used by
+   *  diagnostics and compatibility tests. */
+  function broadcast(frame, targetTokens = null) {
+    const json = JSON.stringify(frame);
+    if (targetTokens) {
+      for (const token of targetTokens) {
+        const client = clients.get(String(token || ''));
+        if (client) writeFrame(client, frame, json);
+      }
+      return;
+    }
+    for (const client of clients.values()) writeFrame(client, frame, json);
   }
 
   function attachSse(token, res) {
@@ -190,7 +213,8 @@ export function createEngineDaemonTransport({
         sendJson(res, {
           status: 'ok',
           pid: process.pid,
-          clients: clients.size,
+          clients: lifecycleClientCount(),
+          connections: clients.size,
           protocol: ENGINE_DAEMON_PROTOCOL,
           version: engineRuntimeVersion(),
           ...getStatus(),
@@ -202,7 +226,11 @@ export function createEngineDaemonTransport({
 
       if (req.method === 'POST' && pathName === '/client/register') {
         const body = await readBody(req);
-        const clientToken = registerClient({ leadPid: body.leadPid, cwd: body.cwd });
+        const clientToken = registerClient({
+          leadPid: body.leadPid,
+          cwd: body.cwd,
+          lifecycle: body.lifecycle !== false,
+        });
         sendJson(res, { token: clientToken, pid: process.pid });
         return;
       }
@@ -309,5 +337,12 @@ export function createEngineDaemonTransport({
     });
   }
 
-  return { start, stop, broadcast, get port() { return boundPort; }, get clientCount() { return clients.size; } };
+  return {
+    start,
+    stop,
+    broadcast,
+    get port() { return boundPort; },
+    get clientCount() { return lifecycleClientCount(); },
+    get connectionCount() { return clients.size; },
+  };
 }

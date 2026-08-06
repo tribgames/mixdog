@@ -33,19 +33,41 @@ const turnReviewPatchCache = new Map<string, Array<{
   deletions: number;
   part: TurnReviewPatchPart;
 }>>();
+const TURN_REVIEW_PATCH_CACHE_MAX_CHARS = 4 * 1024 * 1024;
+const TURN_REVIEW_PATCH_CACHE_ENTRY_MAX_CHARS = 512 * 1024;
 
 // Last known worker-review result per turn scope. The floating bar consumes no
 // transcript layout, while the cache still avoids repeating patch parsing and
 // lets a revisited turn show its known review immediately.
 const AGENT_REVIEW_CACHE_LIMIT = 32;
+const AGENT_REVIEW_SCOPE_MAX_CHARS = 4 * 1024 * 1024;
+const AGENT_REVIEW_CACHE_MAX_CHARS = 8 * 1024 * 1024;
 const agentReviewCache = new Map<string, AgentTurnReview[]>();
-function rememberAgentReviews(scopeKey: string, reviews: AgentTurnReview[]): void {
+const leadReviewCache = new Map<string, string | null>();
+function reviewChars(reviews: AgentTurnReview[], leadPatch: string | null): number {
+  return (leadPatch?.length || 0) + reviews.reduce((total, review) => total + review.patch.length, 0);
+}
+function retainedReviewChars(): number {
+  let total = 0;
+  for (const [scopeKey, reviews] of agentReviewCache) {
+    total += reviewChars(reviews, leadReviewCache.get(scopeKey) ?? null);
+  }
+  return total;
+}
+function rememberAgentReviews(scopeKey: string, reviews: AgentTurnReview[], leadPatch: string | null): void {
   agentReviewCache.delete(scopeKey);
+  leadReviewCache.delete(scopeKey);
+  if (reviewChars(reviews, leadPatch) > AGENT_REVIEW_SCOPE_MAX_CHARS) return;
   agentReviewCache.set(scopeKey, reviews);
-  while (agentReviewCache.size > AGENT_REVIEW_CACHE_LIMIT) {
+  leadReviewCache.set(scopeKey, leadPatch);
+  while (
+    agentReviewCache.size > AGENT_REVIEW_CACHE_LIMIT
+    || retainedReviewChars() > AGENT_REVIEW_CACHE_MAX_CHARS
+  ) {
     const oldest = agentReviewCache.keys().next().value;
     if (oldest === undefined) break;
     agentReviewCache.delete(oldest);
+    leadReviewCache.delete(oldest);
   }
 }
 
@@ -67,9 +89,19 @@ function analyzeTurnReviewPatch(patch: string) {
     }
     return [{ name, additions, deletions, part }];
   });
-  turnReviewPatchCache.set(patch, analyzed);
-  if (turnReviewPatchCache.size > PATCH_CACHE_LIMIT) {
-    turnReviewPatchCache.delete(turnReviewPatchCache.keys().next().value as string);
+  if (patch.length <= TURN_REVIEW_PATCH_CACHE_ENTRY_MAX_CHARS) {
+    turnReviewPatchCache.set(patch, analyzed);
+    let retainedChars = [...turnReviewPatchCache.keys()]
+      .reduce((total, value) => total + value.length, 0);
+    while (
+      turnReviewPatchCache.size > PATCH_CACHE_LIMIT
+      || retainedChars > TURN_REVIEW_PATCH_CACHE_MAX_CHARS
+    ) {
+      const oldest = turnReviewPatchCache.keys().next().value;
+      if (oldest === undefined) break;
+      retainedChars -= oldest.length;
+      turnReviewPatchCache.delete(oldest);
+    }
   }
   return analyzed;
 }
@@ -156,15 +188,20 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   const [agentReviewState, setAgentReviewState] = useState<{
     scopeKey: string;
     reviews: AgentTurnReview[];
+    leadPatch: string | null;
   }>(() => ({
     scopeKey: turnScopeKey,
     reviews: agentReviewCache.get(turnScopeKey) || [],
+    leadPatch: leadReviewCache.get(turnScopeKey) ?? null,
   }));
   // Keying the read as well as the write prevents a one-frame stale bar before
   // effects run when the user switches sessions or opens New task.
   const agentReviews = agentReviewState.scopeKey === turnScopeKey
     ? agentReviewState.reviews
     : (agentReviewCache.get(turnScopeKey) || []);
+  const authoritativeLeadPatch = agentReviewState.scopeKey === turnScopeKey
+    ? agentReviewState.leadPatch
+    : (leadReviewCache.get(turnScopeKey) ?? null);
   const capabilityFailures = useRef(0);
   const capabilityRequestInFlight = useRef(false);
   const lastAgentReviewSignature = useRef<string | null>(null);
@@ -188,16 +225,29 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   }, [items]);
   const refreshAgentReviews = useCallback(async () => {
     const api = window.mixdogDesktop as {
-      invokeCapability?: (request: { capability: string; args: unknown[] }) => Promise<{ value?: unknown }>;
+      invokeCapability?: (request: {
+        capability: string;
+        args: unknown[];
+        sessionId?: string;
+      }) => Promise<{ value?: unknown }>;
     } | undefined;
     if (!sessionId || !api?.invokeCapability || capabilityFailures.current >= 3) return;
     if (capabilityRequestInFlight.current || document.visibilityState === "hidden") return;
     const requestedScope = turnScopeKey;
     capabilityRequestInFlight.current = true;
     try {
-      const result = await api.invokeCapability({ capability: TURN_REVIEW_CAPABILITY, args: [] });
+      // This bar belongs to the pane's session. During a tab switch the host's
+      // focused view can already point elsewhere, so omitting this address
+      // mixed another turn's diff into the bar and could hit a stale view.
+      const result = await api.invokeCapability({
+        capability: TURN_REVIEW_CAPABILITY,
+        args: [],
+        sessionId,
+      });
       const value = (result?.value ?? null) as {
         supported?: boolean;
+        authoritative?: boolean;
+        patch?: unknown;
         agents?: Array<{
           sessionId?: unknown;
           agent?: unknown;
@@ -210,6 +260,9 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
         return;
       }
       capabilityFailures.current = 0;
+      const leadPatch = value.authoritative === true
+        ? (typeof value.patch === "string" ? value.patch : "")
+        : null;
       const reviews = (Array.isArray(value.agents) ? value.agents : []).flatMap((review) => {
         const childSessionId = String(review?.sessionId || "");
         const patch = typeof review?.patch === "string" ? review.patch : "";
@@ -221,14 +274,15 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
           patch,
         }];
       });
-      const signature = JSON.stringify(reviews);
-      rememberAgentReviews(requestedScope, reviews);
+      const signature = JSON.stringify([leadPatch, reviews]);
+      rememberAgentReviews(requestedScope, reviews, leadPatch);
       if (lastAgentReviewSignature.current === signature) return;
       lastAgentReviewSignature.current = signature;
       if (activeScope.current === requestedScope) {
         setAgentReviewState({
           scopeKey: requestedScope,
           reviews,
+          leadPatch,
         });
       }
     } catch {
@@ -275,15 +329,29 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
       if (items[index]?.kind === "user") { lastUser = index; break; }
     }
     const patches: string[] = [];
+    let latestUiDiff: string | null = null;
     for (let index = lastUser + 1; index < items.length; index++) {
       const item = items[index];
       if (!item || item.kind !== "tool") continue;
+      if (Object.hasOwn(item, "uiDiff")) {
+        latestUiDiff = typeof item.uiDiff === "string" ? item.uiDiff : "";
+        continue;
+      }
+      const count = Math.max(1, Number(item.count || 1));
+      const failed = item.isError === true || Number(item.errorCount || 0) >= count;
+      if (failed) continue;
       const patch = findPatch(item);
       if (typeof patch !== "string" || !patch) continue;
       patches.push(patch);
     }
-    return summarizeTurnReviewPatch(patches.join("\n"));
-  }, [items]);
+    // The completed tool item is published in the same frame as the mutation
+    // and therefore beats the polled capability snapshot during rapid,
+    // same-card edits. An explicit empty uiDiff is authoritative too: it means
+    // the latest apply_patch restored the turn baseline.
+    return summarizeTurnReviewPatch(
+      latestUiDiff ?? authoritativeLeadPatch ?? patches.join("\n"),
+    );
+  }, [authoritativeLeadPatch, items]);
   const agentSources = useMemo(() => agentReviews.flatMap((review, index) => {
     const reviewSummary = summarizeTurnReviewPatch(review.patch);
     if (reviewSummary.files.size === 0) return [];

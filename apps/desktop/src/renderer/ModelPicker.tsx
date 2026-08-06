@@ -234,6 +234,9 @@ export function ModelPicker({
     ...recentModels.map((option) => modelKey(option, 'recent:')),
     ...visibleProviderEntries.flatMap(([, options]) => options.map((option) => modelKey(option))),
   ];
+  const currentModel = openModels.find((option) =>
+    option.provider === provider && option.model === model)
+    || models.find((option) => option.provider === provider && option.model === model);
 
   useEffect(() => {
     if (!open) return;
@@ -371,16 +374,33 @@ export function ModelPicker({
       }}>
         <section ref={dialog} id={dialogId} className="model-picker-dialog"
           data-component="dialog" role="dialog" aria-modal="true"
-          aria-labelledby={`${dialogId}-title`} tabIndex={-1}>
+          aria-labelledby={`${dialogId}-title`} aria-describedby={`${dialogId}-description`} tabIndex={-1}>
           <header className="model-picker-header" data-slot="dialog-header">
-            <h2 id={`${dialogId}-title`} data-slot="dialog-title">{t('Select model')}</h2>
-            {onOpenProviders && <button type="button" className="model-provider-add" aria-label={t('Add provider')}
-              data-tooltip={t('Add provider')} onClick={() => {
-                close();
-                onOpenProviders();
-              }}>
-              <Plus size={16} aria-hidden="true" />
-            </button>}
+            <div className="model-picker-heading">
+              <h2 id={`${dialogId}-title`} data-slot="dialog-title">{t('Select model')}</h2>
+              <p id={`${dialogId}-description`}>
+                {currentModel
+                  ? `${providerDisplayName(currentModel.provider)} · ${modelDisplayName(
+                    currentModel.model,
+                    currentModel.provider,
+                    currentModel.display,
+                  )}`
+                  : t('Available models')}
+              </p>
+            </div>
+            <div className="model-picker-actions">
+              {onOpenProviders && <button type="button" className="model-provider-add" aria-label={t('Add provider')}
+                data-tooltip={t('Add provider')} onClick={() => {
+                  close();
+                  onOpenProviders();
+                }}>
+                <Plus size={16} aria-hidden="true" />
+              </button>}
+              <button type="button" className="model-picker-close" aria-label={t('Close')}
+                data-tooltip={t('Close')} onClick={() => close(true)}>
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
           </header>
           <div className="model-picker-body" data-slot="dialog-body">
             <PaneSurfaceGate ready={catalogLoaded || openModels.length > 0} label={t('Loading models…')}>
@@ -416,7 +436,7 @@ export function ModelPicker({
                     : normalizedQuery ? t('No matching models.') : t('No connected provider models.')}
                 </p>}
                 {recentModels.length > 0 && <section className="model-group model-group--recent">
-                  <h3>{t('Recent')}</h3>
+                  <h3>RECENT</h3>
                   <div className="model-items" data-slot="list-items">
                     {recentModels.map((option) => renderModelOption(option, 'recent:'))}
                   </div>

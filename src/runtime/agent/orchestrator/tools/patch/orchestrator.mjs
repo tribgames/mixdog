@@ -16,6 +16,7 @@ import {
 import { withAdvisoryLocks } from '../builtin/advisory-lock.mjs';
 import { getPluginData } from '../../config.mjs';
 import { markCodeGraphDirtyPaths } from '../code-graph-state.mjs';
+import { recordTurnDiffChanges } from '../../../../shared/turn-snapshot.mjs';
 import { prepareInput, isV4APatchInput, hasUnifiedBareV4AHunk, canFallbackCountedUnified, parseV4APatch, parseUnifiedBareV4APatch, parseUnifiedCountedAsV4APatch, isCompactedPlaceholderPatch, salvageV4AOpening } from './parsing.mjs';
 import {
   resolveBasePath,
@@ -199,6 +200,7 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
   const {
     v4aConvertOpts, dryRun, fuzz, fuzzy, rejectPartial,
     readStateScope, abortSignal, mutationPlan, rollbackOnFailure,
+    toolCallId, sessionId,
   } = ctx;
 
   // Build the ordered section "units". Each unit resolves its own parsed
@@ -362,11 +364,19 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
         }
       }
       let rollbackSnapshots = [];
+      let uiBeforeSnapshots = [];
       if (!dryRun && rollbackOnFailure) {
         try {
           rollbackSnapshots = capturePatchRollbackState(lockPaths);
+          uiBeforeSnapshots = rollbackSnapshots;
         } catch (err) {
           return `Error: ${err?.message || String(err)}`;
+        }
+      } else if (!dryRun && toolCallId && sessionId) {
+        try {
+          uiBeforeSnapshots = capturePatchRollbackState(lockPaths);
+        } catch {
+          uiBeforeSnapshots = [];
         }
       }
       const applied = [];
@@ -437,6 +447,15 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
         ].join('\n')
         : '';
       if (!failed) {
+        if (!dryRun && uiBeforeSnapshots.length > 0) {
+          registerCommittedPatchUiDiff({
+            callId: toolCallId,
+            sessionId,
+            basePath,
+            beforeSnapshots: uiBeforeSnapshots,
+            paths: lockPaths,
+          });
+        }
         const head = `apply_patch: ${verb} ${units.length} section(s)`;
         const body = (appliedTexts ? `${head}\n${appliedTexts}` : head) + dryNote + rejectedTail;
         return wrapPatchMutationOutput(body, mutationPlan, { backend });
@@ -445,6 +464,19 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
       const rollbackErrors = (!dryRun && rollbackOnFailure)
         ? restorePatchRollbackState(rollbackSnapshots, readStateScope)
         : [];
+      if (
+        !dryRun
+        && uiBeforeSnapshots.length > 0
+        && ((!rollbackOnFailure && applied.length > 0) || rollbackErrors.length > 0)
+      ) {
+        registerCommittedPatchUiDiff({
+          callId: toolCallId,
+          sessionId,
+          basePath,
+          beforeSnapshots: uiBeforeSnapshots,
+          paths: lockPaths,
+        });
+      }
       const committedPhrase = dryRun
         ? `${applied.length} earlier section(s) were validated`
         : (rollbackOnFailure
@@ -479,7 +511,7 @@ const APPLY_PATCH_UI_DIFF_REGISTRY_MAX = 64;
 const _applyPatchUiDiffByCallId = new Map();
 
 function registerApplyPatchUiDiff(callId, diff) {
-  if (!callId || typeof diff !== 'string' || !diff.trim()) return;
+  if (!callId || typeof diff !== 'string') return;
   let text = diff;
   if (text.length > APPLY_PATCH_UI_DIFF_MAX_CHARS) {
     text = `${text.slice(0, APPLY_PATCH_UI_DIFF_MAX_CHARS)}\n… [diff truncated for display]`;
@@ -493,9 +525,70 @@ function registerApplyPatchUiDiff(callId, diff) {
 
 export function takeApplyPatchUiDiff(callId) {
   if (!callId) return null;
-  const value = _applyPatchUiDiffByCallId.get(callId) || null;
-  if (value != null) _applyPatchUiDiffByCallId.delete(callId);
+  if (!_applyPatchUiDiffByCallId.has(callId)) return null;
+  const value = _applyPatchUiDiffByCallId.get(callId);
+  _applyPatchUiDiffByCallId.delete(callId);
   return value;
+}
+
+function snapshotByPath(snapshots) {
+  return new Map((snapshots || []).map((snapshot) => [
+    patchPathKey(snapshot.fullPath),
+    snapshot,
+  ]));
+}
+
+function registerCommittedPatchUiDiff({
+  callId,
+  sessionId,
+  basePath,
+  beforeSnapshots,
+  paths,
+  renameSections = [],
+}) {
+  if (!callId || !sessionId || !Array.isArray(beforeSnapshots) || beforeSnapshots.length === 0) return;
+  try {
+    const afterSnapshots = capturePatchRollbackState(paths);
+    const beforeByPath = snapshotByPath(beforeSnapshots);
+    const afterByPath = snapshotByPath(afterSnapshots);
+    const renamedPaths = new Set();
+    const changes = [];
+    for (const section of renameSections || []) {
+      const sourcePath = resolveV4AEntryPath(basePath, section.path);
+      const destinationPath = resolveV4AEntryPath(basePath, section.movePath);
+      const sourceKey = patchPathKey(sourcePath);
+      const destinationKey = patchPathKey(destinationPath);
+      const before = beforeByPath.get(sourceKey);
+      const after = afterByPath.get(destinationKey);
+      changes.push({
+        path: sourcePath,
+        displayPath: patchHeaderPathForResolved(basePath, sourcePath),
+        newPath: destinationPath,
+        newDisplayPath: patchHeaderPathForResolved(basePath, destinationPath),
+        before: before?.existed ? before.content : null,
+        after: after?.existed ? after.content : null,
+      });
+      renamedPaths.add(sourceKey);
+      renamedPaths.add(destinationKey);
+    }
+    for (const fullPath of paths || []) {
+      const key = patchPathKey(fullPath);
+      if (renamedPaths.has(key)) continue;
+      const before = beforeByPath.get(key);
+      const after = afterByPath.get(key);
+      changes.push({
+        path: fullPath,
+        displayPath: patchHeaderPathForResolved(basePath, fullPath),
+        before: before?.existed ? before.content : null,
+        after: after?.existed ? after.content : null,
+      });
+    }
+    const turnDiff = recordTurnDiffChanges(sessionId, changes);
+    registerApplyPatchUiDiff(callId, turnDiff);
+  } catch {
+    // Review collection is a side channel and must never affect committed
+    // apply_patch success/failure semantics.
+  }
 }
 
 function planApplyPatchMutationRoute(args, patchStr, requestedFormat) {
@@ -677,6 +770,8 @@ async function apply_patch(args, cwd, options = {}) {
       v4aConvertOpts, dryRun, fuzz, fuzzy, rejectPartial,
       readStateScope, abortSignal, mutationPlan,
       rollbackOnFailure: patchMode !== 'partial',
+      toolCallId: options?.toolCallId || null,
+      sessionId: options?.sessionId || null,
     });
     return dryRun ? seqOut : appendPostPatchExcerpts(seqOut, patchStr, requestedFormat, basePath, readStateScope);
   }
@@ -842,10 +937,6 @@ async function apply_patch(args, cwd, options = {}) {
     if (renameLines.length > 0 && !isPatchErrorText(combined)) {
       combined = `${renameLines.join('\n')}\n${combined}`;
     }
-    if (!isPatchErrorText(combined) && options?.toolCallId) {
-      const allRewrites = waveDispatch.flatMap((wd) => wd.headerRewrites);
-      registerApplyPatchUiDiff(options.toolCallId, rewriteHeaderPaths(normalizedPatchStr, allRewrites));
-    }
     if (!isPatchErrorText(combined) && rejectedV4AHunks.length > 0) {
       const tail = [
         '',
@@ -877,9 +968,12 @@ async function apply_patch(args, cwd, options = {}) {
       // reported verbatim so the caller never reads a false all-or-nothing.
       const withRollback = (outcome) => {
         const rollbackErrors = restorePatchRollbackState(rollbackSnapshots, readStateScope);
-        return rollbackErrors.length === 0
-          ? `${outcome}\n--- rolled back: every touched path was restored to its pre-patch state ---`
-          : [outcome, '--- rollback incomplete ---', ...rollbackErrors].join('\n');
+        return {
+          text: rollbackErrors.length === 0
+            ? `${outcome}\n--- rolled back: every touched path was restored to its pre-patch state ---`
+            : [outcome, '--- rollback incomplete ---', ...rollbackErrors].join('\n'),
+          rollbackErrors,
+        };
       };
       let outcome;
       try {
@@ -888,10 +982,43 @@ async function apply_patch(args, cwd, options = {}) {
         // A thrown failure (e.g. V4A rename) took the same path to disk as a
         // returned one, so it takes the same path back out.
         if (dryRun) throw err;
-        return withRollback(`Error: ${err?.message || String(err)}`);
+        const rolledBack = withRollback(`Error: ${err?.message || String(err)}`);
+        if (rolledBack.rollbackErrors.length > 0) {
+          registerCommittedPatchUiDiff({
+            callId: options?.toolCallId,
+            sessionId: options?.sessionId,
+            basePath,
+            beforeSnapshots: rollbackSnapshots,
+            paths: _lockPaths,
+            renameSections: v4aRenamePlan?.renameSections,
+          });
+        }
+        return rolledBack.text;
       }
-      if (dryRun || !isPatchErrorText(outcome)) return outcome;
-      return withRollback(outcome);
+      if (dryRun) return outcome;
+      if (!isPatchErrorText(outcome)) {
+        registerCommittedPatchUiDiff({
+          callId: options?.toolCallId,
+          sessionId: options?.sessionId,
+          basePath,
+          beforeSnapshots: rollbackSnapshots,
+          paths: _lockPaths,
+          renameSections: v4aRenamePlan?.renameSections,
+        });
+        return outcome;
+      }
+      const rolledBack = withRollback(outcome);
+      if (rolledBack.rollbackErrors.length > 0) {
+        registerCommittedPatchUiDiff({
+          callId: options?.toolCallId,
+          sessionId: options?.sessionId,
+          basePath,
+          beforeSnapshots: rollbackSnapshots,
+          paths: _lockPaths,
+          renameSections: v4aRenamePlan?.renameSections,
+        });
+      }
+      return rolledBack.text;
     }));
 }
 

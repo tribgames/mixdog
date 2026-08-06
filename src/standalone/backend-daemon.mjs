@@ -39,6 +39,7 @@ import { setChannelNotifySink } from '../runtime/channels/lib/parent-bridge.mjs'
 import { setOwnerContext } from '../runtime/channels/lib/runtime-paths.mjs';
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
 import { createChannelDaemonTransport } from './channel-daemon-transport.mjs';
+import { installEngineDaemonLocalBridge } from './engine-daemon-local-bridge.mjs';
 import { createEngineDaemonTransport } from './engine-daemon-transport.mjs';
 import { createEngineDaemonService } from './engine-daemon-service.mjs';
 import { createStandaloneMemoryRuntime } from './memory-runtime-proxy.mjs';
@@ -124,15 +125,25 @@ let channels = null;
 let transport = null;
 let engineTransport = null;
 let engineService = null;
+let localEngineBridge = null;
+let uninstallLocalEngineBridge = null;
 let memoryRuntime = null;
 let shuttingDown = false;
+let shutdownRecheckTimer = null;
 
 async function shutdown(reason, code = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
+  if (shutdownRecheckTimer) {
+    clearTimeout(shutdownRecheckTimer);
+    shutdownRecheckTimer = null;
+  }
   log(`shutting down (${reason})`);
   try { setChannelNotifySink(null); } catch {}
   try { await engineService?.stop?.(reason); } catch (e) { log(`engine.stop failed: ${e?.message || e}`); }
+  try { await localEngineBridge?.close?.(reason); } catch (e) { log(`local engine bridge.close failed: ${e?.message || e}`); }
+  try { uninstallLocalEngineBridge?.(); } catch {}
+  uninstallLocalEngineBridge = null;
   try { await engineTransport?.stop?.(); } catch (e) { log(`engine transport.stop failed: ${e?.message || e}`); }
   try { await channels?.stop?.(); } catch (e) { log(`channels.stop failed: ${e?.message || e}`); }
   // Detach the memory client (never hard-kills the shared memory daemon).
@@ -147,8 +158,13 @@ async function shutdown(reason, code = 0) {
 function maybeSelfShutdown(reason) {
   const channelClients = transport?.clientCount ?? 0;
   const engineClients = engineTransport?.clientCount ?? 0;
-  if (channelClients > 0 || engineClients > 0) {
-    log(`shutdown deferred (${reason}): channels=${channelClients} engines=${engineClients}`);
+  const remoteClients = engineService?.externalClientCount ?? 0;
+  if (channelClients > 0 || engineClients > 0 || remoteClients > 0) {
+    if (shutdownRecheckTimer) {
+      clearTimeout(shutdownRecheckTimer);
+      shutdownRecheckTimer = null;
+    }
+    log(`shutdown deferred (${reason}): channels=${channelClients} engines=${engineClients} remote=${remoteClients}`);
     return;
   }
   // A turn in flight outlives every view — closing the app or the terminal is
@@ -156,6 +172,13 @@ function maybeSelfShutdown(reason) {
   const busyEngines = engineService?.busyCount ?? 0;
   if (busyEngines > 0) {
     log(`shutdown deferred (${reason}): ${busyEngines} engine(s) still working`);
+    if (!shutdownRecheckTimer) {
+      shutdownRecheckTimer = setTimeout(() => {
+        shutdownRecheckTimer = null;
+        maybeSelfShutdown('busy engines settled');
+      }, 1_000);
+      shutdownRecheckTimer.unref?.();
+    }
     return;
   }
   void shutdown(reason);
@@ -174,6 +197,16 @@ async function main() {
     process.exit(0);
   }
   process.on('exit', () => { try { releaseSingletonOwner(OWNER_PATH, process.pid); } catch {} });
+  process.on('mixdog:turn-timing', (row = {}) => {
+    const ms = (value) => Number.isFinite(value) ? Math.round(value) : -1;
+    log(
+      `turn timing status=${row.status || 'unknown'} session=${row.sessionId || '-'}`
+      + ` e2e=${ms(row.endToEndTtftMs)}ms runtime=${ms(row.ttftMs)}ms`
+      + ` queue=${ms(row.queueMs)}ms route=${ms(row.routeMs)}ms`
+      + ` preflight=${ms(row.preflightMs)}ms mcp=${ms(row.mcpMs)}ms`
+      + ` provider=${ms(row.providerMs)}ms`,
+    );
+  });
 
   // The channels runtime is imported AFTER the daemon env is set so worker-main
   // skips runWorkerIpc; that import also triggers its boot side effects
@@ -233,14 +266,105 @@ async function main() {
   // ── Engine front door ───────────────────────────────────────────────────────
   // Session engines live in THIS process too, so the terminal TUI and the
   // desktop app share ONE writer instead of arbitrating ownership on disk. The
-  // engine module is the whole runtime graph, so it is imported lazily on the
-  // first open — a channels-only spawn never pays for it.
+  // engine module is the whole runtime graph, so it is imported when the first
+  // engine client registers — early enough to overlap user think time, while a
+  // channels-only spawn still never pays for it.
+  const localEngineClients = new Map();
+  let nextLocalEngineClient = 0;
+  localEngineBridge = {
+    attach({ onFrame = () => {}, onFatal = () => {} } = {}) {
+      const clientToken = `daemon_local_${process.pid}_${++nextLocalEngineClient}`;
+      let closed = false;
+      localEngineClients.set(clientToken, { onFrame, onFatal });
+      return {
+        call(name, args = {}, options = {}) {
+          if (closed) throw new Error('engine daemon local bridge is closed');
+          return engineService.handleCall(name, args, {
+            clientToken,
+            ...(options?.callId ? { callId: String(options.callId) } : {}),
+          });
+        },
+        async close(reason = 'local engine view closed') {
+          if (closed) return;
+          closed = true;
+          localEngineClients.delete(clientToken);
+          try { engineService.releaseClient(clientToken); } catch {}
+          log(`${reason} (${clientToken})`);
+        },
+      };
+    },
+    publish(frame, targetTokens = null) {
+      const targets = targetTokens ? new Set(targetTokens) : null;
+      for (const [clientToken, client] of localEngineClients) {
+        if (targets && !targets.has(clientToken)) continue;
+        try { client.onFrame(frame); } catch {}
+      }
+    },
+    async close(reason = 'daemon shutdown') {
+      for (const [clientToken, client] of localEngineClients) {
+        try { client.onFatal(reason); } catch {}
+        try { engineService.releaseClient(clientToken); } catch {}
+      }
+      localEngineClients.clear();
+    },
+  };
+  uninstallLocalEngineBridge = installEngineDaemonLocalBridge(localEngineBridge);
+  const engineDaemonClientModule = () => import('./engine-daemon-client.mjs');
+  const desktopRuntime = {
+    async createRemoteEngineSession(options) {
+      return (await engineDaemonClientModule()).createRemoteEngineSession(options);
+    },
+    async callDaemonSession(options) {
+      return (await engineDaemonClientModule()).callDaemonSession(options);
+    },
+    loadProjects: () => import('./projects.mjs'),
+    loadSessionStore: () => import('../runtime/agent/orchestrator/session/store-summary-reader.mjs'),
+    loadStatuslineSegments: () => import('../ui/statusline-segments.mjs'),
+    loadConfig: () => import('../runtime/shared/config.mjs'),
+    loadCommitCompletion: () => import(
+      '../runtime/agent/orchestrator/agent-runtime/commit-message-completion.mjs'
+    ),
+    async executeCodeGraphTool(name, args, cwd) {
+      const graph = await import('../runtime/agent/orchestrator/tools/code-graph/dispatch.mjs');
+      return graph.executeCodeGraphTool(name, args, cwd);
+    },
+  };
+  let engineModulePromise = null;
+  let engineRuntimePrewarmStarted = false;
+  function loadEngineModule() {
+    if (!engineModulePromise) {
+      engineModulePromise = import('../tui/engine.mjs').catch((error) => {
+        engineModulePromise = null;
+        throw error;
+      });
+    }
+    return engineModulePromise;
+  }
+  function prewarmEngineRuntime() {
+    if (engineRuntimePrewarmStarted) return;
+    engineRuntimePrewarmStarted = true;
+    void loadEngineModule()
+      .then((engineModule) => {
+        engineModule.preloadSessionRuntimeModule?.();
+        engineModule.preloadKeychainSecrets?.();
+        log('engine runtime/keychain prewarm started');
+      })
+      .catch((error) => {
+        engineRuntimePrewarmStarted = false;
+        log(`engine runtime/keychain prewarm failed (non-fatal): ${error?.message || error}`);
+      });
+  }
   engineService = createEngineDaemonService({
     createEngine: async (options) => {
-      const engineModule = await import('../tui/engine.mjs');
+      const engineModule = await loadEngineModule();
       return engineModule.createEngineSession(options);
     },
-    onFrame: (frame) => engineTransport?.broadcast(frame),
+    desktopRuntime,
+    onFrame: (frame, targetTokens) => {
+      localEngineBridge?.publish(frame, targetTokens);
+      engineTransport?.broadcast(frame, targetTokens);
+    },
+    onExternalClientsChanged: () => { maybeSelfShutdown('remote clients changed'); },
     log,
   });
   engineTransport = createEngineDaemonTransport({
@@ -254,6 +378,7 @@ async function main() {
     // mid-turn: work outlives views AND installs.
     getStatus: () => ({ engines: engineService.size, busy: engineService.busyCount }),
     onClientsEmpty: () => { maybeSelfShutdown('no live engine views'); },
+    onClientRegistered: () => { prewarmEngineRuntime(); },
     onClientDropped: (token) => { try { engineService.releaseClient(token); } catch {} },
   });
   const engineEndpoint = await engineTransport.start();

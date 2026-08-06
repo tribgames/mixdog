@@ -272,12 +272,11 @@ export function createMcpGlue({
     return { name, config };
   }
 
-  // First-turn gate: await the in-flight INITIAL connect, bounded by the global
-  // startup budget. Boot/UI never call this; only the first ask awaits so
-  // servers that connect within the budget land in THIS request's tool surface.
-  // Resolves (never rejects): a server still connecting after the budget flows
-  // through the existing late-tool deferred announcement path unchanged.
-  async function awaitInitialMcpConnect() {
+  // Turn gate: await the in-flight INITIAL connect, bounded by both the global
+  // server startup budget and the caller's TTFT grace. A server still
+  // connecting after the grace flows through the existing late-tool deferred
+  // announcement path unchanged.
+  async function awaitInitialMcpConnect(maxWaitMs = undefined) {
     const inFlight = state.mcpConnectInFlight;
     if (!inFlight) return;
     let budgetMs = 10000;
@@ -285,6 +284,12 @@ export function createMcpGlue({
       const resolved = mcpClient.resolveMcpStartupTimeoutMs?.({});
       if (Number.isFinite(resolved)) budgetMs = resolved;
     } catch { /* fall back to default budget */ }
+    if (maxWaitMs !== null && maxWaitMs !== undefined) {
+      const requestedMaxWaitMs = Number(maxWaitMs);
+      if (Number.isFinite(requestedMaxWaitMs) && requestedMaxWaitMs >= 0) {
+        budgetMs = Math.min(budgetMs, requestedMaxWaitMs);
+      }
+    }
     // Swallow the in-flight rejection: failures are already captured in
     // state.mcpFailures, and this gate must never reject the turn.
     const settled = Promise.resolve(inFlight).catch(() => {});

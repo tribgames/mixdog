@@ -130,6 +130,10 @@ export class CaptureEngineHost extends EngineHost {
   private jitterLiveSnapshot: EngineSnapshot = null;
   private jitterColdSnapshot: EngineSnapshot = null;
 
+  async backendInvoke(): Promise<unknown> {
+    throw new Error('The capture harness has no backend daemon.');
+  }
+
   prepareJitterRemoteResume(stored: EngineSnapshot, live: EngineSnapshot): void {
     this.jitterStoredSnapshot = stored;
     this.jitterLiveSnapshot = live;

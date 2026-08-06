@@ -3,6 +3,8 @@
 import { _normalizeAbs, _statTuple, _statEqual } from './util.mjs';
 import { clearScopedToolsForSession, clearScopedCounters } from './scoped-cache.mjs';
 import { clearPostEditMarks } from './post-edit-marks.mjs';
+import { registerSessionPurgeHook } from '../store.mjs';
+import { releaseReadSnapshotScope } from '../../tools/builtin/snapshot-store.mjs';
 
 const MAX_PER_SESSION = 100;
 
@@ -259,6 +261,11 @@ export function clearReadDedupSession(sessionId) {
     clearScopedToolsForSession(sessionId);
     clearScopedCounters(sessionId);
 }
+
+registerSessionPurgeHook((sessionId) => {
+    clearReadDedupSession(sessionId);
+    releaseReadSnapshotScope(sessionId, { deletePersisted: true, persist: false });
+});
 
 /**
  * Extract the set of touched filesystem paths from a unified-diff patch text.

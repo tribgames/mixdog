@@ -104,7 +104,7 @@ export const BUILTIN_TOOLS = [
             type: 'object',
             properties: {
                 task_id: { type: 'string', description: 'shell async task_id.' },
-                action: { type: 'string', enum: ['list', 'status', 'read', 'wait', 'cancel'], description: 'Action; avoid polling loops.' },
+                action: { type: 'string', enum: ['list', 'status', 'read', 'wait', 'cancel'], description: 'Defaults to list, or wait when task_id is set; avoid polling loops.' },
                 timeout_ms: { type: 'number', description: 'Wait timeout ms.' },
             },
             required: [],

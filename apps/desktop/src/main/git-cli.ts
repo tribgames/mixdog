@@ -8,6 +8,20 @@ import {
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import {
+  requiredCommitHash,
+  requiredGitIgnoreScope,
+  requiredGitResetMode,
+  type GitIgnoreScope,
+  type GitResetMode,
+} from './git-contract.mjs';
+export {
+  requiredCommitHash,
+  requiredGitIgnoreScope,
+  requiredGitResetMode,
+  requiredRepositoryCwd,
+} from './git-contract.mjs';
+export type { GitIgnoreScope, GitResetMode } from './git-contract.mjs';
 
 export type GitOperation = '' | 'merge' | 'rebase' | 'cherry-pick' | 'revert';
 
@@ -208,12 +222,6 @@ function streamNulRecords(
       resolvePromise();
     });
   });
-}
-
-export function requiredRepositoryCwd(value: unknown): string {
-  const cwd = typeof value === 'string' ? value.trim() : '';
-  if (!cwd || !isAbsolute(cwd)) throw new TypeError('A project directory is required.');
-  return cwd;
 }
 
 function emptyStatus(): GitStatusResult {
@@ -659,14 +667,6 @@ export async function gitUnstage(cwd: string, paths: string[]): Promise<void> {
  * rule (app/src/ui/changes/filter-changes-list.tsx:755 → sidebar.tsx:274 →
  * lib/git/gitignore.ts:63 `appendIgnoreRule`).
  */
-export type GitIgnoreScope = 'file' | 'extension';
-
-export function requiredGitIgnoreScope(value: unknown): GitIgnoreScope {
-  if (value === undefined || value === 'file') return 'file';
-  if (value === 'extension') return 'extension';
-  throw new TypeError('Git ignore scope is invalid.');
-}
-
 /** Glob metacharacters inside text that must match literally. */
 function escapedIgnoreLiteral(value: string): string {
   return value.replace(/([*?[\]\\])/g, '\\$1');
@@ -2209,13 +2209,6 @@ export async function gitAbortOperation(cwd: string): Promise<string> {
   return run(cwd, ['revert', '--abort']);
 }
 
-const COMMIT_HASH_PATTERN = /^[0-9a-f]{4,64}$/i;
-export function requiredCommitHash(value: unknown): string {
-  const hash = typeof value === 'string' ? value.trim() : '';
-  if (!COMMIT_HASH_PATTERN.test(hash)) throw new TypeError('A commit hash is required.');
-  return hash;
-}
-
 // ── History context menu ───────────────────
 // Every action below moves HEAD, the index or a ref — but GitHub Desktop does
 // NOT gate them all alike, so neither do we:
@@ -2239,14 +2232,6 @@ export function requiredCommitHash(value: unknown): string {
 // What git itself leaves half-done (a conflicted cherry-pick or revert) is
 // left exactly as git left it, so the dock's existing continue/abort path can
 // still finish or undo it.
-
-/** `git reset` writes different amounts of state; the caller says which. */
-export type GitResetMode = 'soft' | 'mixed' | 'hard';
-
-export function requiredGitResetMode(value: unknown): GitResetMode {
-  if (value === 'soft' || value === 'mixed' || value === 'hard') return value;
-  throw new TypeError('Git reset mode is invalid.');
-}
 
 async function assertNoOperationInProgress(cwd: string, action: string): Promise<void> {
   const inFlight = await currentGitOperation(cwd);

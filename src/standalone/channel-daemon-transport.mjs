@@ -14,7 +14,7 @@
 // (stub runtime, no Discord token).
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { rmSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { readBody, sendJson, sendError } from '../runtime/memory/lib/http-wire.mjs';
@@ -47,12 +47,15 @@ export function createChannelDaemonTransport({
   dispatchControl = null,
   registrationReplayTtlMs = 60_000,
   remoteStatePath = null,
+  remoteIntentPath = null,
   onClientRegistered = null,
 } = {}) {
   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
 
   const resolvedRemoteStatePath = remoteStatePath
     || (discoveryPath ? join(dirname(discoveryPath), 'channel-remote-state.json') : null);
+  const resolvedRemoteIntentPath = remoteIntentPath
+    || (discoveryPath ? join(dirname(discoveryPath), 'channel-remote-intent.json') : null);
   // token -> { token, leadPid, cwd, sse, lastSeen, registeredAt }
   const clients = new Map();
   // The routing pointer is set ONLY by an explicit manual Remote ON. Client
@@ -71,6 +74,8 @@ export function createChannelDaemonTransport({
   let stickyRemoteFrame = null;
   let remoteAcquired = false;
   let remoteStateSignature = '';
+  let remoteIntent = readRemoteIntent();
+  let remoteRestorePromise = null;
   // Idempotency cache: callId -> { promise }. A retried /call with the SAME
   // callId awaits/returns the ORIGINAL run's result, so a transport-failure
   // retry never double-runs a non-idempotent tool (e.g. reply). Short TTL.
@@ -97,6 +102,121 @@ export function createChannelDaemonTransport({
     if (!transcriptPath) return null;
     const inferred = basename(transcriptPath).replace(/\.[^.]+$/, '');
     return /^[A-Za-z0-9_-]+$/.test(inferred) ? inferred : null;
+  }
+
+  function normalizeRemoteIntent(value) {
+    if (!value || typeof value !== 'object') return null;
+    const sessionId = String(value.sessionId || '').trim();
+    const transcriptPath = String(value.transcriptPath || '').trim();
+    const ownerLeadPid = parsePid(value.ownerLeadPid);
+    const cwd = value.cwd == null ? null : String(value.cwd);
+    if (!ownerLeadPid || !/^[A-Za-z0-9_-]+$/.test(sessionId) || !transcriptPath) return null;
+    const inferredSessionId = basename(transcriptPath).replace(/\.[^.]+$/, '');
+    if (inferredSessionId !== sessionId) return null;
+    return {
+      version: 1,
+      sessionId,
+      transcriptPath,
+      ownerLeadPid,
+      cwd,
+      updatedAt: Number(value.updatedAt) || nowMs(),
+    };
+  }
+
+  function readRemoteIntent() {
+    if (!resolvedRemoteIntentPath) return null;
+    try {
+      const intent = normalizeRemoteIntent(JSON.parse(readFileSync(resolvedRemoteIntentPath, 'utf8')));
+      if (!intent || !isPidAlive(intent.ownerLeadPid)) {
+        try { rmSync(resolvedRemoteIntentPath, { force: true }); } catch {}
+        return null;
+      }
+      return intent;
+    } catch {
+      try { rmSync(resolvedRemoteIntentPath, { force: true }); } catch {}
+      return null;
+    }
+  }
+
+  function writeRemoteIntent(client, args, sessionId) {
+    if (!resolvedRemoteIntentPath) return;
+    const intent = normalizeRemoteIntent({
+      sessionId,
+      transcriptPath: args?.transcriptPath,
+      ownerLeadPid: client?.leadPid,
+      cwd: client?.cwd ?? null,
+      updatedAt: nowMs(),
+    });
+    if (!intent) {
+      log(`remote intent not persisted: session/transcript mismatch for lead=${client?.leadPid ?? '?'}`);
+      return;
+    }
+    remoteIntent = intent;
+    try {
+      writeJsonAtomicSync(resolvedRemoteIntentPath, intent, { compact: true });
+    } catch (err) {
+      log(`remote intent write failed: ${err?.message || err}`);
+    }
+  }
+
+  function clearRemoteIntent(reason, client = null) {
+    if (client && remoteIntent && (
+      remoteIntent.ownerLeadPid !== client.leadPid
+      || remoteIntent.cwd !== (client.cwd || null)
+      || remoteIntent.sessionId !== String(client.remoteSessionId || '')
+    )) return false;
+    remoteIntent = null;
+    if (resolvedRemoteIntentPath) {
+      try { rmSync(resolvedRemoteIntentPath, { force: true }); }
+      catch (err) { log(`remote intent clear failed (${reason}): ${err?.message || err}`); }
+    }
+    log(`remote intent cleared (${reason})`);
+    return true;
+  }
+
+  function maybeRestoreRemoteIntent(client) {
+    const intent = remoteIntent;
+    if (closed || remoteRestorePromise || pointerToken || remoteAcquired || !intent) return;
+    if (!isPidAlive(intent.ownerLeadPid)
+        || client.leadPid !== intent.ownerLeadPid
+        || (client.cwd || null) !== intent.cwd) return;
+    const token = client.token;
+    remoteRestorePromise = Promise.resolve().then(async () => {
+      if (closed || pointerToken || remoteAcquired || remoteIntent !== intent
+          || clients.get(token) !== client || !isPidAlive(client.leadPid)) return;
+      client.remoteSessionId = intent.sessionId;
+      movePointer(token, 'daemon restart restore', { notifyDisplaced: false });
+      try {
+        const result = await handleCall(ACTIVATE_TOOL, {
+          active: true,
+          sessionId: intent.sessionId,
+          transcriptPath: intent.transcriptPath,
+          restore: true,
+        }, {
+          clientToken: token,
+          leadPid: client.leadPid,
+          cwd: client.cwd,
+        });
+        if (result?.isError === true) {
+          throw new Error(result?.content?.[0]?.text || 'restored activation failed');
+        }
+        if (pointerToken === token && remoteIntent === intent) {
+          log(`remote intent restored session=${intent.sessionId} lead=${intent.ownerLeadPid}`);
+          publishRemoteOwnerState();
+        }
+      } catch (err) {
+        if (pointerToken === token) {
+          pointerToken = null;
+          client.remoteSessionId = null;
+          remoteAcquired = false;
+          stickyRemoteFrame = null;
+          publishRemoteOwnerState();
+        }
+        log(`remote intent restore failed session=${intent.sessionId}: ${err?.message || err}`);
+      }
+    }).finally(() => {
+      remoteRestorePromise = null;
+    });
   }
 
   function publishRemoteOwnerState() {
@@ -160,6 +280,7 @@ export function createChannelDaemonTransport({
     if (wasPointer) {
       remoteAcquired = false;
       stickyRemoteFrame = null;
+      if (reason !== 'transport stop') clearRemoteIntent(`owner removed: ${reason}`, c);
     }
     publishRemoteOwnerState();
     if (shouldDeactivate && !closed && typeof dispatchControl === 'function') {
@@ -338,6 +459,7 @@ export function createChannelDaemonTransport({
       // would wrongly stop a fresh remote client.
       remoteAcquired = false;
       stickyRemoteFrame = null;
+      clearRemoteIntent('remote superseded');
       publishRemoteOwnerState();
       let delivered = false;
       for (const [, c] of liveClients()) {
@@ -406,6 +528,7 @@ export function createChannelDaemonTransport({
     if (typeof onClientRegistered === 'function') {
       try { onClientRegistered({ token, leadPid: pid, cwd: cwd || null }); } catch {}
     }
+    queueMicrotask(() => maybeRestoreRemoteIntent(clients.get(token)));
     const rememberReplacement = (freshToken) => {
       if (!replayId) return freshToken;
       const replay = {
@@ -599,10 +722,16 @@ export function createChannelDaemonTransport({
               }
               if (deactivating && pointerToken === clientToken
                   && c.remoteSessionId === bindingSessionId) {
+                clearRemoteIntent('explicit Remote OFF', c);
                 pointerToken = null;
                 c.remoteSessionId = null;
                 remoteAcquired = false;
                 stickyRemoteFrame = null;
+              }
+              if (activating && result?.isError !== true
+                  && pointerToken === clientToken
+                  && c.remoteSessionId === bindingSessionId) {
+                writeRemoteIntent(c, args, bindingSessionId);
               }
               publishRemoteOwnerState();
               return result;
@@ -711,5 +840,6 @@ export function createChannelDaemonTransport({
     _registrationReplaysForTest: registrationReplays,
     _resolveTargetForTest: resolveTarget,
     get _pointerTokenForTest() { return pointerToken; },
+    get _remoteIntentForTest() { return remoteIntent; },
   };
 }

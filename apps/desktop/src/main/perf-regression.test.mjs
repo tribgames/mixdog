@@ -470,17 +470,17 @@ test("more than eight pane lanes retain incremental 5,000-row delta baselines", 
   assert.ok(deltaBytes < initialBytes / 10,
     `pane event-storm deltas are too large (${deltaBytes} vs initial ${initialBytes})`);
 
-  const [host, ipc, worker, utility, preload, rendererEntry] = await Promise.all([
+  const [host, ipc, backend, utility, preload, rendererEntry] = await Promise.all([
     readFile(new URL("./engine-host.ts", import.meta.url), "utf8"),
     readFile(new URL("./ipc.ts", import.meta.url), "utf8"),
-    readFile(new URL("./engine-worker.ts", import.meta.url), "utf8"),
+    readFile(new URL("./desktop-backend.ts", import.meta.url), "utf8"),
     readFile(new URL("./utility-engine-host.ts", import.meta.url), "utf8"),
     readFile(new URL("../preload/index.ts", import.meta.url), "utf8"),
     readFile(new URL("../renderer/main.tsx", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(host, /MAX_VISIBLE_SESSION_LIVE_VIEWS|slice\(0,\s*8\)/);
   assert.doesNotMatch(ipc, /sessionStateEncoders\.size\s*>\s*8|slice\(0,\s*8\)/);
-  assert.doesNotMatch(worker, /SESSION_STATE_DELTA_CACHE_LIMIT|sessionStateEncoders\.size\s*>\s*8/);
+  assert.doesNotMatch(backend, /SESSION_STATE_DELTA_CACHE_LIMIT|sessionStateEncoders\.size\s*>\s*8/);
   assert.doesNotMatch(utility, /sessionStateDecoders\.size\s*>\s*8|slice\(0,\s*8\)/);
   assert.doesNotMatch(preload, /decoders\.size\s*>\s*8/);
   assert.doesNotMatch(rendererEntry, /slice\(0,\s*8\)/);
@@ -491,14 +491,14 @@ test("more than eight pane lanes retain incremental 5,000-row delta baselines", 
   assert.equal(shouldPublishSessionState("pane_hidden", {}, visible), false);
   assert.equal(shouldPublishSessionState("pane_hidden", null, visible), true,
     "release frames must cross the visibility gate");
-  assert.match(worker,
+  assert.match(backend,
     /shouldPublishSessionState\(update\.sessionId, update\.snapshot, visibleSessionIds\)/,
-    "utility-process pane IPC must stay proportional to visible panes");
+    "daemon backend pane IPC must stay proportional to visible panes");
   assert.match(ipc,
     /shouldPublishSessionState\(sessionId, update\.snapshot, visibleSessionStateIds\)/,
     "main-process pane IPC must stay proportional to visible panes");
-  assert.match(worker, /snapshot === null[\s\S]*?sessionStateEncoders\.delete\(sessionId\)/,
-    "closed panes must release utility-process delta baselines");
+  assert.match(backend, /snapshot === null[\s\S]*?sessionStateEncoders\.delete\(sessionId\)/,
+    "closed panes must release daemon-backend delta baselines");
   assert.match(ipc, /update\.snapshot === null[\s\S]*?sessionStateEncoders\.delete\(sessionId\)/,
     "closed panes must release main-process delta baselines");
   assert.match(utility, /message\.wire === null\) this\.sessionStateDecoders\.delete\(sessionId\)/,
@@ -682,7 +682,7 @@ test("heavy renderer surfaces remain dynamic imports", async () => {
     snapshotViews,
     rendererRecovery,
     paneWorkspaceState,
-    engineWorker,
+    desktopBackend,
     studioLoader,
     sessionSidebar,
     sourceControl,
@@ -700,7 +700,7 @@ test("heavy renderer surfaces remain dynamic imports", async () => {
     readFile(new URL("../renderer/app-snapshot-views.tsx", import.meta.url), "utf8"),
     readFile(new URL("../renderer/RendererRecovery.tsx", import.meta.url), "utf8"),
     readFile(new URL("../renderer/pane-workspace-state.ts", import.meta.url), "utf8"),
-    readFile(new URL("./engine-worker.ts", import.meta.url), "utf8"),
+    readFile(new URL("./desktop-backend.ts", import.meta.url), "utf8"),
     readFile(new URL("../renderer/studio-loader.ts", import.meta.url), "utf8"),
     readFile(new URL("../renderer/session-sidebar.tsx", import.meta.url), "utf8"),
     readFile(new URL("../renderer/SourceControlDock.tsx", import.meta.url), "utf8"),
@@ -813,11 +813,10 @@ test("heavy renderer surfaces remain dynamic imports", async () => {
   assert.doesNotMatch(sessionSidebar, /SessionSidebarBootShell|sidebarChromeReady|recentStartupReady/);
   assert.doesNotMatch(sessionSidebar, /\{rows\.map\(\(session\) => <SessionSidebarRow/,
     "the cold sidebar must not construct every historical session row");
-  assert.match(engineWorker,
-    /stateMailbox\.publish\(next\.getSnapshot\(\)\);\s*post\(\{ kind: 'ready' \}\);/,
-    "the worker should accept pane capabilities as soon as its lightweight state is published");
-  assert.doesNotMatch(engineWorker, /next\.listSessions\(\)/,
-    "worker startup must not enumerate the session catalog before pane requests");
+  assert.match(desktopBackend, /stateMailbox\.publish\(host\.getSnapshot\(\)\)/,
+    "the daemon backend should publish lightweight state before pane requests");
+  assert.doesNotMatch(desktopBackend, /host\.listSessions\(\)/,
+    "daemon backend startup must not enumerate the session catalog before pane requests");
 });
 
 test("cold desktop entry keeps optional native and network modules behind dynamic imports", async () => {

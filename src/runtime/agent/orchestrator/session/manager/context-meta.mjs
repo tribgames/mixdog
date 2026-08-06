@@ -210,7 +210,7 @@ export function resolveSessionContextMeta(provider, model, seed = {}) {
 }
 export function compactTriggerForSession(session, boundaryTokens) {
     // Delegates to the shared session-compaction policy (context-utils):
-    // agent semantic -> 90% (default buffer), main/user -> 75% (default),
+    // agent semantic -> 90% (default buffer), main/user -> 100% (buffer 0),
     // truly-explicit sub-boundary limit wins.
     return resolveSessionCompactPolicy(session, boundaryTokens).triggerTokens;
 }

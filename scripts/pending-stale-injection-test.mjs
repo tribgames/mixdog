@@ -72,9 +72,11 @@ test('foreign drain injects fresh submits and late-delivers stale ones', () => {
 
   const taken = drainForeignUserInjections(sid);
   assert.equal(taken.length, 2);
-  assert.match(taken[0], /^\[late delivery: queued ~3h ago/);
-  assert.ok(taken[0].endsWith('stale cross-surface submit'), 'original text preserved under the header');
-  assert.equal(taken[1], 'fresh cross-surface submit');
+  assert.match(taken[0].text, /^\[late delivery: queued ~3h ago/);
+  assert.ok(taken[0].text.endsWith('stale cross-surface submit'), 'original text preserved under the header');
+  assert.equal(taken[0].id, 'foreign_stale');
+  assert.equal(taken[1].text, 'fresh cross-surface submit');
+  assert.equal(taken[1].id, 'foreign_fresh');
   const store = JSON.parse(readFileSync(spoolPath, 'utf8'));
   assert.equal(store.sessions[sid], undefined, 'both submits removed alongside the drain');
 });

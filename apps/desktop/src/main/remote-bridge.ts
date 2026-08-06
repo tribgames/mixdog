@@ -32,12 +32,14 @@ export interface RemoteBridgeOptions extends RemoteMethodDependencies {
   userDataPath: string;
   rendererDir: string;
   subscribeTerminalData?: (listener: (event: { id: string; data: string }) => void) => () => void;
+  onClientCountChanged?: () => void;
 }
 
 export interface RemoteBridgeHandle {
   port: number;
   token: string;
   urls: string[];
+  readonly clientCount: number;
   close(): Promise<void>;
 }
 
@@ -256,6 +258,7 @@ export async function startRemoteBridge(options: RemoteBridgeOptions): Promise<R
   // each socket tracks its own shared prefix, so a fresh phone gets one full
   // snapshot and then pays only for appended/changed items.
   const deltaEncoders = new WeakMap<WebSocket, SnapshotDeltaEncoder>();
+  let liveClientCount = 0;
   const broadcastState = (snapshot: unknown): void => {
     for (const client of wss.clients) {
       if (client.readyState !== client.OPEN) continue;
@@ -266,12 +269,18 @@ export async function startRemoteBridge(options: RemoteBridgeOptions): Promise<R
   };
 
   wss.on('connection', (client) => {
+    liveClientCount += 1;
+    options.onClientCountChanged?.();
     const encoder = createSnapshotDeltaEncoder();
     deltaEncoders.set(client, encoder);
     const live = client as WebSocket & { isAlive?: boolean };
     live.isAlive = true;
     client.on('pong', () => { live.isAlive = true; });
     client.on('error', () => { /* connection errors surface as close */ });
+    client.once('close', () => {
+      liveClientCount = Math.max(0, liveClientCount - 1);
+      options.onClientCountChanged?.();
+    });
     client.on('message', (raw) => {
       live.isAlive = true;
       void (async () => {
@@ -333,7 +342,15 @@ export async function startRemoteBridge(options: RemoteBridgeOptions): Promise<R
     }
     await new Promise<void>((resolveClose) => wss.close(() => resolveClose()));
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    liveClientCount = 0;
+    options.onClientCountChanged?.();
   };
 
-  return { port, token, urls: lanUrls(port), close };
+  return {
+    port,
+    token,
+    urls: lanUrls(port),
+    get clientCount() { return liveClientCount; },
+    close,
+  };
 }

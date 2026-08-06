@@ -2,8 +2,9 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
+import { executePatchTool, takeApplyPatchUiDiff } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
+import { beginTurnSnapshot, getTurnReviewDiff } from '../src/runtime/shared/turn-snapshot.mjs';
 
 // Keep the smoke's intentional failure cases out of the real diagnostic sinks
 // (tool-failure log + patch-replay captures). Both env vars are read lazily.
@@ -26,6 +27,8 @@ const tmp = mkdtempSync(join(tmpdir(), 'mixdog-apply-patch-smoke-'));
 
 try {
   writeFileSync(join(tmp, 'target.txt'), 'alpha\nbeta\ngamma\n', 'utf8');
+  const reviewSession = `apply-patch-review-${process.pid}`;
+  await beginTurnSnapshot(tmp, reviewSession);
 
   const editResult = await executePatchTool('apply_patch', {
     base_path: tmp,
@@ -41,8 +44,11 @@ try {
 +second line
 *** End Patch
 `,
-  }, tmp, {});
+  }, tmp, { sessionId: reviewSession, toolCallId: 'review-edit' });
   assertOk('apply_patch edit', editResult);
+  const editUiDiff = takeApplyPatchUiDiff('review-edit');
+  assert(/target\.txt/.test(String(editUiDiff)) && /created\.txt/.test(String(editUiDiff)),
+    `apply_patch did not publish the committed turn diff:\n${editUiDiff}`);
 
   assert(
     readFileSync(join(tmp, 'target.txt'), 'utf8') === 'alpha\nbravo\ngamma\n',
@@ -59,8 +65,11 @@ try {
 *** Delete File: created.txt
 *** End Patch
 `,
-  }, tmp, {});
+  }, tmp, { sessionId: reviewSession, toolCallId: 'review-delete' });
   assertOk('apply_patch delete', deleteResult);
+  const deleteUiDiff = takeApplyPatchUiDiff('review-delete');
+  assert(/target\.txt/.test(String(deleteUiDiff)) && !/created\.txt/.test(String(deleteUiDiff)),
+    `add-then-delete did not cancel from the turn diff:\n${deleteUiDiff}`);
 
   let deleteMissing = false;
   try {
@@ -70,6 +79,9 @@ try {
     else throw err;
   }
   assert(deleteMissing, 'apply_patch delete left created.txt on disk');
+  const review = await getTurnReviewDiff(tmp, reviewSession);
+  assert(review.authoritative === true && /-beta/.test(review.patch) && /\+bravo/.test(review.patch),
+    `turn review did not retain the first-before/latest-after diff:\n${review.patch}`);
 
   writeFileSync(join(tmp, 'rollback-blocker.txt'), 'present\n', 'utf8');
   const targetMtimeBeforeRejectedPatch = statSync(join(tmp, 'target.txt')).mtimeMs;

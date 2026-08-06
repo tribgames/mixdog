@@ -31,7 +31,8 @@ export type EngineWorkerOutbound =
     contentRevision?: number;
   }
   | { kind: 'sessions'; sessions: DesktopSessionSummary[] }
-  | { kind: 'agent-pool'; agents: DesktopAgentPoolRow[] };
+  | { kind: 'agent-pool'; agents: DesktopAgentPoolRow[] }
+  | { kind: 'backend-event'; name: string; value: unknown };
 
 export interface LatestStateMailbox<T> {
   publish(value: T): void;

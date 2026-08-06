@@ -37,7 +37,8 @@ const INJECTED_DISPLAY_BLOCK_TAGS = Object.freeze([
 
 const SYNTHETIC_SESSION_TEXT_PATTERNS = Object.freeze([
   /^\[mixdog-runtime\]/i,
-  /^\[(?:truncated|request interrupted by user)\]$/i,
+  // User-cancel + process-restart control rows must never title/preview a session.
+  /^\[(?:truncated|request interrupted by (?:user(?: for tool use)?|process restart))\]$/i,
   /^a previous model worked on this task and produced the compacted handoff summary below\b/i,
   // Compact/auto-clear re-seed handoff variants: these lead the FIRST user
   // message of every post-compaction session, so titling from them painted

@@ -176,7 +176,11 @@ export function createContextStatus({
         compaction: {
           boundaryTokens: Number(session?.compactBoundaryTokens || emptyCompactPolicy?.boundaryTokens || 0) || null,
           triggerTokens: Number(emptyCompactPolicy?.triggerTokens || 0) || null,
-          bufferTokens: Number(emptyCompactPolicy?.bufferTokens || 0) || null,
+          // Preserve explicit 0 (main full-window buffer). `|| null` would
+          // collapse a real zero buffer into "unset".
+          bufferTokens: Number.isFinite(Number(emptyCompactPolicy?.bufferTokens))
+            ? Math.max(0, Number(emptyCompactPolicy.bufferTokens))
+            : null,
           bufferRatio: Number.isFinite(emptyCompactPolicy?.bufferRatio)
             ? emptyCompactPolicy.bufferRatio
             : null,
@@ -275,7 +279,9 @@ export function createContextStatus({
     const usedTokens = compactionPressureTokens;
     const freeTokens = displayWindow ? Math.max(0, displayWindow - usedTokens) : 0;
     const compactTriggerTokens = compactPolicy.triggerTokens || 0;
-    const compactBufferTokens = compactPolicy.bufferTokens || 0;
+    const compactBufferTokens = Number.isFinite(Number(compactPolicy.bufferTokens))
+      ? Math.max(0, Number(compactPolicy.bufferTokens))
+      : 0;
     const compactBufferRatio = Number.isFinite(compactPolicy.bufferRatio)
       ? compactPolicy.bufferRatio
       : null;
@@ -299,7 +305,7 @@ export function createContextStatus({
         ...(session?.compaction || {}),
         boundaryTokens: compactBoundaryTokens || null,
         triggerTokens: compactTriggerTokens || null,
-        bufferTokens: compactBufferTokens || null,
+        bufferTokens: Number.isFinite(compactBufferTokens) ? compactBufferTokens : null,
         bufferRatio: compactBufferRatio,
         currentEstimatedTokens: compactionPressureTokens,
         lastApiRequestTokens: lastContextTokens || 0,

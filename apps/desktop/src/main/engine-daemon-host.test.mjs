@@ -19,14 +19,20 @@ const { createEngineDaemonService } = await import("../../../../src/standalone/e
 const { attachEngineDaemon, createRemoteEngineSession } = await import("../../../../src/standalone/engine-daemon-client.mjs");
 
 function createStubEngine(knownSessions = []) {
-  let state = { sessionId: "daemon-session", items: [], busy: false, cwd: RUNTIME_ROOT };
+  let state = { sessionId: "", items: [], busy: false, cwd: RUNTIME_ROOT };
   const listeners = new Set();
   const publish = () => { for (const listener of [...listeners]) listener(); };
   // A real store lists every persisted session, not just the loaded one.
-  const known = new Set(["daemon-session", ...knownSessions]);
+  const known = new Set(knownSessions);
   return {
     getState: () => state,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    reserveSession(id) {
+      known.add(String(id));
+      state = { ...state, sessionId: String(id) };
+      publish();
+      return true;
+    },
     listSessions: () => [...known].map((id, index) => ({
       id, title: `Session ${id}`, updatedAt: index + 1, cwd: RUNTIME_ROOT, classification: "task",
     })),
@@ -62,10 +68,10 @@ async function withDaemon(run, { knownSessions = [] } = {}) {
   const service = createEngineDaemonService({
     createEngine: async () => createStubEngine(knownSessions),
     publishIntervalMs: 5,
-    onFrame: (frame) => transport.broadcast(frame),
+    onFrame: (frame, targetTokens) => transport.broadcast(frame, targetTokens),
   });
   const transport = createEngineDaemonTransport({
-    handleCall: (name, args) => service.handleCall(name, args),
+    handleCall: (name, args, ctx) => service.handleCall(name, args, ctx),
     discoveryPath: join(RUNTIME_ROOT, "engine-daemon.json"),
     clientGraceMs: 10_000,
     sweepMs: 1_000,
@@ -102,12 +108,12 @@ test("the desktop host projects a daemon-hosted engine and shares it with a term
       createEngine: async (options) => createRemoteEngineSession(options),
       loadSessionStore: async () => ({ listStoredSessionSummaries: () => [] }),
     });
-    const terminalFrames = [];
+    let terminalSessionId = "";
     // The daemon streams DELTAS against the revision each view holds, so a
     // terminal view mirrors frames exactly like the real client does.
     const terminalState = { snapshot: null };
     const foldFrame = (frame) => {
-      if (frame?.type !== "engine-state") return;
+      if (frame?.type !== "session-state" || frame.sessionId !== terminalSessionId) return;
       if (frame.full !== undefined && frame.full !== null) { terminalState.snapshot = frame.full; return; }
       if (!frame.patch) return;
       const base = terminalState.snapshot || {};
@@ -123,11 +129,13 @@ test("the desktop host projects a daemon-hosted engine and shares it with a term
     const terminal = await attachEngineDaemon({
       discovery,
       cwd: RUNTIME_ROOT,
-      onFrame: (frame) => { terminalFrames.push(frame); foldFrame(frame); },
+      onFrame: (frame) => { foldFrame(frame); },
     });
     try {
       const snapshot = await host.startTask();
-      assert.equal(snapshot.sessionId, "daemon-session", "desktop projects the daemon engine's session");
+      terminalSessionId = snapshot.sessionId;
+      assert.match(terminalSessionId, /^sess_daemon_/, "desktop projects the daemon session");
+      await terminal.call("session.subscribe", { sessionId: terminalSessionId });
 
       // Desktop submit -> the terminal view observes the same transcript.
       await host.submit([{ type: "text", text: "hello from desktop" }]);
@@ -138,10 +146,8 @@ test("the desktop host projects a daemon-hosted engine and shares it with a term
       assert.equal(mirrored.items[0].text, "hello from desktop");
 
       // Terminal submit -> the desktop projection follows without a resume.
-      const engineId = terminalFrames.find((frame) => frame.type === "engine-state")?.engineId;
-      assert.ok(engineId, "the terminal view learned the engine id from the shared stream");
-      await terminal.call("engine.call", {
-        engineId, method: "submit", args: ["hello from terminal"],
+      await terminal.call("session.submit", {
+        sessionId: terminalSessionId, prompt: "hello from terminal",
       });
       await waitFor(
         () => (host.getSnapshot()?.items?.length ?? 0) === 2,
@@ -190,6 +196,38 @@ test("switching sessions and coming back leaves the composer usable", async () =
   }, { knownSessions: ["session-one", "session-two"] });
 });
 
+test("a disposed desktop projection reroutes its prompt to the daemon and reattaches", async () => {
+  await withDaemon(async ({ service }) => {
+    const host = new EngineHost({
+      userDataPath: RUNTIME_ROOT,
+      appPath: join(import.meta.dirname, "..", ".."),
+      createEngine: async (options) => createRemoteEngineSession(options),
+      loadSessionStore: async () => ({ listStoredSessionSummaries: () => [] }),
+    });
+    try {
+      const opened = await host.startTask();
+      const sessionId = opened.sessionId;
+      assert.match(sessionId, /^sess_daemon_/);
+      await host.setVisibleSessions([sessionId]);
+      const zombie = host.engine;
+      await zombie.dispose("simulate-stale-desktop-view");
+      assert.equal(zombie.disposedView, true);
+      assert.equal(host.sessionEngineFor(sessionId), null,
+        "a disposed projection must not remain the session owner");
+
+      assert.equal(await host.submit("heard after the view was disposed"), true);
+      const hosted = await service.handleCall("session.read", { sessionId });
+      assert.equal(hosted.full.items.at(-1).text, "heard after the view was disposed");
+      await waitFor(
+        () => host.sessionEngineFor(sessionId)?.disposedView === false,
+        "desktop attaches a fresh projection after the daemon accepts the prompt",
+      );
+    } finally {
+      await host.dispose();
+    }
+  });
+});
+
 test("a pane prompt for a session no local view holds goes to the daemon", async () => {
   await withDaemon(async ({ service }) => {
     const rows = [{
@@ -207,7 +245,8 @@ test("a pane prompt for a session no local view holds goes to the daemon", async
     const unsubscribe = host.subscribeSessionStates((update) => updates.push(update));
     try {
       await host.startTask();
-      assert.equal(host.getSnapshot().sessionId, "daemon-session");
+      const focusedSessionId = host.getSnapshot().sessionId;
+      assert.match(focusedSessionId, /^sess_daemon_/);
       // The pane's session has NO local engine — settled views are released and
       // a restarted app has none at all. Pre-daemon this threw "Session engine
       // is not live." and the composer restored the draft (user: 채팅이 안 쳐짐).
@@ -216,15 +255,13 @@ test("a pane prompt for a session no local view holds goes to the daemon", async
         true,
         "a pane addressed at the backend is always heard",
       );
-      const owner = service.list().engines.find((entry) => entry.sessionId === "pane-session");
-      assert.ok(owner, "the daemon loaded the pane's session");
-      const hosted = await service.handleCall("engine.snapshot", { engineId: owner.engineId });
-      assert.equal(hosted.snapshot.items.at(-1).text, "from a background pane");
+      const hosted = await service.handleCall("session.read", { sessionId: "pane-session" });
+      assert.equal(hosted.full.items.at(-1).text, "from a background pane");
       // The pane also gets a live lane, so it streams the answer it asked for.
       await waitFor(() => updates.some((update) => update.sessionId === "pane-session"),
         "the pane receives a live lane frame for the daemon-hosted session");
       // …and another pane's prompt never moves the active view.
-      assert.equal(host.getSnapshot().sessionId, "daemon-session",
+      assert.equal(host.getSnapshot().sessionId, focusedSessionId,
         "a background pane's submit leaves the focused session alone");
     } finally {
       unsubscribe();

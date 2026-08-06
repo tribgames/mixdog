@@ -34,12 +34,10 @@ export const TOOL_DEFS = [
         status: { type: 'string', enum: ['pending','active','archived'], description: 'Lifecycle status.' },
         limit: { type: 'number', description: 'Max rows/items.' },
         confirm: { type: 'string', description: 'Exact confirmation phrase for destructive actions.' },
-        project_id: { type: 'string', description: 'Optional core pool override: common or slug. Omitted values are inferred from cwd/session, then fall back to common.' },
+        project_id: { type: 'string', description: 'Core pool: common or slug; inferred from cwd/session when omitted.' },
       },
-      anyOf: [
-        { properties: { action: { const: 'status' } }, required: ['action'] },
-        { properties: { action: { const: 'core' } }, required: ['action', 'op'] },
-      ],
+      // `op` is required for action=core — stated in its own description and
+      // enforced by the handler; the anyOf branches only restated that.
       additionalProperties: false,
       required: ['action'],
     },
@@ -58,7 +56,9 @@ export const TOOL_DEFS = [
         limit: { type: 'number', description: 'Max entries.' },
         offset: { type: 'number', description: 'Skip entries.' },
         sort: { type: 'string', enum: ['importance', 'date'], description: 'importance or date.' },
-        category: { anyOf: [{ type: 'string', enum: ['rule','constraint','decision','fact','goal','preference','task','issue'] }, { type: 'array', items: { type: 'string', enum: ['rule','constraint','decision','fact','goal','preference','task','issue'] }, minItems: 1 }], description: 'Category filter.' },
+        // Categories are listed once here instead of twice as enums; the
+        // handler validates against VALID_CATEGORY.
+        category: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Category filter, string or array: rule|constraint|decision|fact|goal|preference|task|issue.' },
         includeArchived: { type: 'boolean', description: 'Include archived entries.' },
         includeMembers: { type: 'boolean', description: 'Include chunk members.' },
         includeRaw: { type: 'boolean', description: 'Include raw/episode rows.' },

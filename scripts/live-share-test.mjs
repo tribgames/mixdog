@@ -29,6 +29,14 @@ const ACK_PIPE_ID = `${PIPE_ID}_ack`;
 const ackPipePath = process.platform === 'win32'
   ? `\\\\.\\pipe\\mixdog-live-${ACK_PIPE_ID}`
   : join(tmpdir(), `mixdog-live-${ACK_PIPE_ID}.sock`);
+const RESET_PIPE_ID = `${PIPE_ID}_reset`;
+const resetPipePath = process.platform === 'win32'
+  ? `\\\\.\\pipe\\mixdog-live-${RESET_PIPE_ID}`
+  : join(tmpdir(), `mixdog-live-${RESET_PIPE_ID}.sock`);
+const RESET_NEXT_PIPE_ID = `${PIPE_ID}_reset_next`;
+const resetNextPipePath = process.platform === 'win32'
+  ? `\\\\.\\pipe\\mixdog-live-${RESET_NEXT_PIPE_ID}`
+  : join(tmpdir(), `mixdog-live-${RESET_NEXT_PIPE_ID}.sock`);
 
 function waitFor(check, label, timeoutMs = 4000) {
   return new Promise((resolvePromise, rejectPromise) => {
@@ -484,6 +492,75 @@ test('switching the viewer session clears mirrored owner activity', async () => 
       && viewer.store.activeToolSummary === null
       && viewer.store.ownerClientHostPid === 0,
     'mirrored activity cleared on session switch');
+  } finally {
+    owner.dispose();
+    viewerShare.dispose();
+  }
+});
+
+test('an owner session reset never blanks the co-open viewer over the old pipe', async () => {
+  // Regression (user: 터미널에서 /new를 치면 앱 화면이 반짝임): /new empties the
+  // owner store BEFORE ensureShare() rebinds the pipe, so the old session's
+  // socket broadcast an empty transcript to the desktop viewer, which then
+  // restored it seconds later through the close/promote path.
+  const listeners = new Set();
+  let ownerId = RESET_PIPE_ID;
+  let ownerState = {
+    items: [{ id: 'keep-1', kind: 'assistant', text: 'shared conversation' }],
+    streamingTail: null,
+    spinner: null,
+  };
+  const owner = createLiveShare({
+    ownerSessionId: () => ownerId,
+    viewerSessionId: () => '',
+    socketPathFor: (id) => (id === RESET_PIPE_ID ? resetPipePath : resetNextPipePath),
+    getPublishedState: () => ownerState,
+    listeners,
+    onRemoteSubmit: () => {},
+    onOwnerClosed: () => {},
+    viewerApply: null,
+  });
+  const publish = (next) => {
+    ownerState = next;
+    for (const listener of listeners) listener();
+  };
+
+  const viewer = createViewerStore();
+  let ownerClosedCount = 0;
+  const viewerShare = createLiveShare({
+    ownerSessionId: () => '',
+    viewerSessionId: () => RESET_PIPE_ID,
+    socketPathFor: () => resetPipePath,
+    getPublishedState: () => ({ items: [], streamingTail: null, spinner: null }),
+    listeners: new Set(),
+    onRemoteSubmit: () => {},
+    onOwnerClosed: () => { ownerClosedCount += 1; },
+    viewerApply: viewer.apply,
+  });
+
+  try {
+    owner.ensure();
+    await waitFor(() => {
+      viewerShare.ensure();
+      return viewerShare.viewerConnected();
+    }, 'viewer connect');
+    await waitFor(() => viewer.store.items[0]?.id === 'keep-1', 'initial full frame');
+
+    // /new: the reset drops this surface's ownership first, then empties the
+    // store. Neither frame may reach the viewer of the OLD session.
+    ownerId = '';
+    publish({ items: [], streamingTail: null, spinner: null, busy: false });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(viewer.store.items[0]?.id, 'keep-1',
+      'a session reset must not wipe the co-open viewer transcript');
+
+    // The new session rebinds the pipe: the viewer is told the owner left and
+    // promotes itself, still holding the transcript it was showing.
+    ownerId = RESET_NEXT_PIPE_ID;
+    owner.ensure();
+    await waitFor(() => ownerClosedCount === 1, 'owner close after the rebind');
+    assert.equal(viewer.store.items[0]?.id, 'keep-1',
+      'the viewer keeps the old session transcript through the promotion');
   } finally {
     owner.dispose();
     viewerShare.dispose();

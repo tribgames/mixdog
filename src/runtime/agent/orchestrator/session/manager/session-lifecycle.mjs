@@ -169,7 +169,14 @@ export function createSession(opts) {
     const provider = getProvider(providerName);
     if (!provider)
         throw new Error(`Provider "${providerName}" not found or not enabled`);
-    const id = mintSessionId();
+    const requestedId = String(opts.id || '').trim();
+    if (requestedId && !/^[A-Za-z0-9_-]+$/.test(requestedId)) {
+        throw new Error('createSession: id is invalid');
+    }
+    // The daemon may reserve the durable address before provider/session
+    // materialization. Supplying that reservation here keeps the address
+    // stable across intake -> queued turn -> provider execution.
+    const id = requestedId || mintSessionId();
     // Provider cache strategy — agentRuntime.resolveSync() above is a
     // best-effort injection point (setAgentRuntime() has no live caller
     // today, so that branch never fires); build it directly here so every

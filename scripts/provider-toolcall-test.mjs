@@ -1427,7 +1427,7 @@ test('anthropic API-key and OAuth lower interrupted tool results with is_error',
         },
         {
             role: 'tool',
-            content: 'Interrupted by user',
+            content: 'Cancelled',
             toolCallId: 'toolu_interrupted_1',
             toolKind: 'error',
         },

@@ -27,6 +27,45 @@ export function createEngineApiA(bag) {
   const {
     runtime, nextId, flags, pending, listeners, getState, getPublishedState = getState, set, flushEmitImmediate, pushItem, patchItem, replaceItems, restoreOlderTranscript, restoreNewerTranscript, settleStreamingTail, clearStreamingTail, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, resetStatsAndSyncContext, drain, flushDeferredExecutionPendingResumeKick, discardExecutionPendingResume,
   } = bag;
+  const submit = (text, options = {}) => {
+    const t = promptDisplayText(text, options).trim();
+    if (!t) return false;
+    const mode = options.mode || 'prompt';
+   // Prompt input queued while a turn is active keeps the
+   // default `next` priority, so it is injected at the next tool/model
+   // boundary. Explicit options.priority still wins.
+   const priority = options.priority;
+    const queueOptions = {
+      ...options,
+      // Always mint a submission id so daemon retries / dual-path intake
+      // can dedupe instead of booking the same prompt twice.
+      id: String(options.id || '').trim() || nextId(),
+      mode,
+      displayText: promptDisplayText(text, options),
+      priority,
+    };
+    // A running clear (idle auto-clear or session_manage) sets commandBusy;
+    // queue the prompt instead of dropping it — it drains after the clear.
+    if (flags.autoClearRunning) {
+      return enqueue(text, queueOptions) !== false;
+    }
+    // Any in-flight session command (clear/setModel/newSession/resume/...)
+    // holds commandBusy. Previously the prompt was dropped here and only the
+    // prompt-history side effect survived. Queue it instead: drain bails while
+    // commandBusy, and the central release hook re-kicks drain once the
+    // command settles, so the prompt runs afterwards rather than vanishing.
+    if (getState().commandBusy) {
+      return enqueue(text, queueOptions) !== false;
+    }
+    if (getState().busy) {
+      return enqueue(text, queueOptions) !== false;
+    }
+    // If autoClearBeforeSubmit rejects (e.g. compaction timeout throws), the
+    // prompt must still be queued — swallow the rejection so enqueue always
+    // runs and the submit is never silently lost.
+    void autoClearBeforeSubmit().catch(() => {}).then(() => enqueue(text, queueOptions));
+    return true;
+  };
   return {
     getState: () => getPublishedState(),
     patchItem,
@@ -36,44 +75,14 @@ export function createEngineApiA(bag) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    submit: (text, options = {}) => {
-      const t = promptDisplayText(text, options).trim();
-      if (!t) return false;
-      const mode = options.mode || 'prompt';
-     // Prompt input queued while a turn is active keeps the
-     // default `next` priority, so it is injected at the next tool/model
-     // boundary. Explicit options.priority still wins.
-     const priority = options.priority;
-      const queueOptions = {
-        ...options,
-        mode,
-        displayText: promptDisplayText(text, options),
-        priority,
-      };
-      // A running clear (idle auto-clear or session_manage) sets commandBusy;
-      // queue the prompt instead of dropping it — it drains after the clear.
-      if (flags.autoClearRunning) {
-        enqueue(text, queueOptions);
-        return true;
-      }
-      // Any in-flight session command (clear/setModel/newSession/resume/...)
-      // holds commandBusy. Previously the prompt was dropped here and only the
-      // prompt-history side effect survived. Queue it instead: drain bails while
-      // commandBusy, and the central release hook re-kicks drain once the
-      // command settles, so the prompt runs afterwards rather than vanishing.
-      if (getState().commandBusy) {
-        enqueue(text, queueOptions);
-        return true;
-      }
-      if (getState().busy) {
-        enqueue(text, queueOptions);
-        return true;
-      }
-      // If autoClearBeforeSubmit rejects (e.g. compaction timeout throws), the
-      // prompt must still be queued — swallow the rejection so enqueue always
-      // runs and the submit is never silently lost.
-      void autoClearBeforeSubmit().catch(() => {}).then(() => enqueue(text, queueOptions));
-      return true;
+    submit,
+    submitAsync: async (text, options = {}) => submit(text, options),
+    reserveSession: (sessionId) => {
+      const id = runtime.reserveSessionId?.(sessionId);
+      if (!id) return false;
+      set({ ...routeState() });
+      flushEmitImmediate();
+      return String(getState().sessionId || '') === String(id);
     },
     restoreQueued,
     setModel: async (m) => {

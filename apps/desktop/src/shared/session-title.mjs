@@ -11,7 +11,8 @@ const INJECTED_DISPLAY_BLOCK_TAGS = Object.freeze([
 
 const GENERATED_TITLE_NOISE = Object.freeze([
   /^\[mixdog-runtime\]/i,
-  /^\[(?:truncated|request interrupted by user)\]$/i,
+  // Same control-row set as session-text: never title from cancel/restart markers.
+  /^\[(?:truncated|request interrupted by (?:user(?: for tool use)?|process restart))\]$/i,
   /^a previous model worked on this task and produced the compacted handoff summary below\b/i,
   // Compact/auto-clear re-seed variants (mirror of the core
   // SYNTHETIC_SESSION_TEXT_PATTERNS): the file re-attach block leads the

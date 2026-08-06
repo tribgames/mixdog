@@ -28,11 +28,12 @@ const gfmAutolink = /\b(?:https?:\/\/|www\.)/i;
 const gfmStrikethrough = /~~/;
 const blockMarkdownSyntax = /(^|\n)\s{0,3}(?:#{1,6}\s|>\s?|[-+]\s|\d+[.)]\s|---+\s*$)/;
 const streamingBlockParser = unified().use(remarkParse);
-const healableMarkdownSyntax = /[`*_~]/;
+const healableMarkdownSyntax = /[`*_~[]/;
 const fenceLine = /^ {0,3}(`{3,}|~{3,})(.*)$/;
 const fencedBlock = /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm;
 const inlineCodeSpan = /`+[^`\n]*`+/g;
-const healedDelimiters = ["~~", "**", "__"];
+const emphasisMarkers = new Set(["*", "_", "~"]);
+const markdownPunctuation = /[!-/:-@[-`{-~\u00A1-\u00BF\u2010-\u2027\u2030-\u205E]/;
 
 function hasOpenFence(text: string): boolean {
   let marker = "";
@@ -84,35 +85,125 @@ function maskCode(text: string): string {
     .replace(inlineCodeSpan, (span) => " ".repeat(span.length));
 }
 
-function closeEmphasis(text: string): string {
-  let healed = text;
-  for (const delimiter of healedDelimiters) {
-    const masked = maskCode(healed);
-    let count = 0;
-    for (
-      let index = masked.indexOf(delimiter);
-      index >= 0;
-      index = masked.indexOf(delimiter, index + delimiter.length)
-    ) {
-      count += 1;
+interface EmphasisRun {
+  marker: string;
+  length: number;
+  canOpen: boolean;
+  canClose: boolean;
+}
+
+function isMarkdownSpace(character: string): boolean {
+  return !character || /\s/.test(character);
+}
+
+function isMarkdownPunctuation(character: string): boolean {
+  return Boolean(character) && markdownPunctuation.test(character);
+}
+
+// CommonMark flanking rules, so a literal "2 * 3", a "* item" bullet, or an
+// intraword snake_case never counts as an unfinished emphasis delimiter.
+// Plain parity counting healed all three into visible junk markers.
+function scanEmphasisRuns(masked: string): EmphasisRun[] {
+  const runs: EmphasisRun[] = [];
+  for (let index = 0; index < masked.length;) {
+    const marker = masked[index];
+    if (marker === "\\") {
+      index += 2;
+      continue;
     }
-    if (count % 2 === 1) healed += delimiter;
+    if (!emphasisMarkers.has(marker)) {
+      index += 1;
+      continue;
+    }
+    let end = index + 1;
+    while (masked[end] === marker) end += 1;
+    const length = end - index;
+    const before = index > 0 ? masked[index - 1] : "";
+    const after = end < masked.length ? masked[end] : "";
+    const beforeSpace = isMarkdownSpace(before);
+    const afterSpace = isMarkdownSpace(after);
+    const beforePunctuation = isMarkdownPunctuation(before);
+    const afterPunctuation = isMarkdownPunctuation(after);
+    const left = !afterSpace && (!afterPunctuation || beforeSpace || beforePunctuation);
+    const right = !beforeSpace && (!beforePunctuation || afterSpace || afterPunctuation);
+    if (marker === "~") {
+      // GFM strikethrough only exists as a pair.
+      if (length >= 2) runs.push({ marker, length: 2, canOpen: left, canClose: right });
+    } else if (marker === "_") {
+      runs.push({
+        marker,
+        length,
+        canOpen: left && (!right || beforePunctuation),
+        canClose: right && (!left || afterPunctuation),
+      });
+    } else {
+      runs.push({ marker, length, canOpen: left, canClose: right });
+    }
+    index = end;
+  }
+  return runs;
+}
+
+function closeEmphasis(text: string): string {
+  const open: { marker: string; length: number }[] = [];
+  for (const run of scanEmphasisRuns(maskCode(text))) {
+    let length = run.length;
+    while (run.canClose && length > 0) {
+      let match = -1;
+      for (let index = open.length - 1; index >= 0; index -= 1) {
+        if (open[index].marker === run.marker) {
+          match = index;
+          break;
+        }
+      }
+      if (match < 0) break;
+      const opener = open[match];
+      const used = Math.min(opener.length, length);
+      opener.length -= used;
+      length -= used;
+      // Delimiters opened INSIDE the span this closer terminates can never be
+      // closed any more, so they leave with it.
+      open.length = opener.length > 0 ? match + 1 : match;
+    }
+    if (length > 0 && run.canOpen) open.push({ marker: run.marker, length });
+  }
+  let healed = text;
+  for (let index = open.length - 1; index >= 0; index -= 1) {
+    healed += open[index].marker.repeat(Math.min(open[index].length, 3));
   }
   return healed;
+}
+
+// remend's "text-only" link mode: an unfinished link or image renders as its
+// label until the destination closes, instead of leaving "[docs](https://exa"
+// on screen and then snapping into an anchor.
+function healIncompleteLink(text: string): string {
+  const masked = maskCode(text);
+  const open = masked.lastIndexOf("[");
+  if (open < 0) return text;
+  const start = open > 0 && masked[open - 1] === "!" ? open - 1 : open;
+  const label = masked.indexOf("]", open);
+  if (label < 0) return `${text.slice(0, start)}${text.slice(open + 1)}`;
+  // A reference use ("[docs][1]") or a task-list box stays exactly as typed.
+  if (masked[label + 1] !== "(") return text;
+  if (masked.indexOf(")", label + 1) >= 0) return text;
+  return `${text.slice(0, start)}${text.slice(open + 1, label)}`;
 }
 
 /**
  * Close the inline markers the model has not finished typing yet.
  * OpenCode heals its live tail (remend) before parsing, so "**계획" renders as
  * bold WHILE it streams; without healing the raw markers stayed visible until
- * the closing token arrived and the line snapped. Healing only appends
- * closers — every visible source character survives.
+ * the closing token arrived and the line snapped. The result feeds the PARSER
+ * only: emphasis and code gain their closers, and an unfinished link keeps its
+ * label as prose (remend's text-only mode). The source fallback still shows
+ * exactly what the model emitted.
  */
 export function healStreamingMarkdownTail(text: string): string {
   const value = String(text ?? "");
   if (!value || !healableMarkdownSyntax.test(value)) return value;
   if (hasOpenFence(value)) return value;
-  return closeEmphasis(closeInlineCode(value));
+  return closeEmphasis(healIncompleteLink(closeInlineCode(value)));
 }
 
 export function createStreamingMarkdownCache(): StreamingMarkdownCache {

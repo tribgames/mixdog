@@ -31,8 +31,6 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
-          'engine-worker': resolve(__dirname, 'src/main/engine-worker.ts'),
-          'terminal-worker': resolve(__dirname, 'src/main/terminal-worker.ts'),
           'capture-window': resolve(__dirname, 'src/main/capture-window.ts'),
         },
       },
@@ -64,6 +62,18 @@ export default defineConfig({
           replacement: resolve(
             __dirname,
             'node_modules/decode-named-character-reference/index.js',
+          ),
+        },
+        {
+          // rehype-katex reaches this package from the Markdown Web Worker.
+          // Vite applies the renderer's `browser` condition to worker imports,
+          // selecting a DOMParser/document implementation that crashes before
+          // the worker can receive its first message. The package explicitly
+          // exports this default entry for `worker`; pin it for both contexts.
+          find: /^hast-util-from-html-isomorphic$/,
+          replacement: resolve(
+            __dirname,
+            'node_modules/hast-util-from-html-isomorphic/index.js',
           ),
         },
         {

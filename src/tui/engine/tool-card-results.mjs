@@ -122,6 +122,9 @@ export function createToolCardResults({
         result: displayDetail,
         text: displayDetail,
         rawResult: rawResult || null,
+        ...(Object.hasOwn(message || {}, 'uiDiff')
+          ? { uiDiff: typeof message.uiDiff === 'string' ? message.uiDiff : '' }
+          : {}),
         isError: errors > 0,
         errorCount: errors,
         callErrorCount: callErrors,
@@ -152,6 +155,9 @@ export function createToolCardResults({
     const patch = {
       result: displayResult,
       text: displayResult,
+      ...(Object.hasOwn(message || {}, 'uiDiff')
+        ? { uiDiff: typeof message.uiDiff === 'string' ? message.uiDiff : '' }
+        : {}),
       isError: group.errors > 0,
       errorCount: group.errors,
       callErrorCount: group.callErrors || 0,

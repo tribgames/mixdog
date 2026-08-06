@@ -18,6 +18,31 @@ export interface SnapshotDeltaDecoder {
   reset(): void;
 }
 
+interface SessionStateRetentionStore {
+  keys(): IterableIterator<string>;
+  delete(sessionId: string): boolean;
+}
+
+/** Release transport baselines for panes that are no longer visible. */
+export function releaseHiddenSessionStateEntries(
+  visibleSessionIds: ReadonlySet<string>,
+  stores: readonly SessionStateRetentionStore[],
+  beforeRelease?: (sessionId: string) => void,
+): string[] {
+  const retained = new Set<string>();
+  for (const store of stores) {
+    for (const sessionId of store.keys()) retained.add(sessionId);
+  }
+  const released: string[] = [];
+  for (const sessionId of retained) {
+    if (visibleSessionIds.has(sessionId)) continue;
+    beforeRelease?.(sessionId);
+    for (const store of stores) store.delete(sessionId);
+    released.push(sessionId);
+  }
+  return released;
+}
+
 /** Pane transports publish only mounted/observed sessions. A null frame is
  * always forwarded because it releases a baseline retained by every hop. */
 export function shouldPublishSessionState(

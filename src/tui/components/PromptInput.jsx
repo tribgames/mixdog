@@ -119,6 +119,9 @@ export function PromptInput({
   // moved on can detect staleness and drop its result instead of mutating
   // whatever prompt is now in the box.
   const pasteGenerationRef = useRef(0);
+  // One physical Enter must not enqueue twice when the terminal delivers the
+  // chord as multiple input events before the draft clears (Windows CR/LF).
+  const submitGateRef = useRef(false);
   if (valueRef) valueRef.current = draftRef.current.value;
   const { isRawModeSupported } = useStdin();
   // The text box's ink DOM node. We mark it as the cursor anchor (forked ink
@@ -504,15 +507,22 @@ export function PromptInput({
   }, [selectionRef]);
 
   const submitDraft = (next) => {
+    if (submitGateRef.current) return;
     const text = next.value;
+    if (!String(text || '').trim()) return;
+    submitGateRef.current = true;
     const accepted = onSubmit?.(text) !== false;
     if (!accepted) {
+      submitGateRef.current = false;
       commitDraft(next);
       return;
     }
     pasteGenerationRef.current += 1;
     commitDraft({ value: '', cursor: 0, selectionAnchor: null }, { skipHistory: true });
     resetUndo();
+    // Unlock after this input batch drains so a second return event in the
+    // same chord cannot re-submit the pre-clear draft.
+    queueMicrotask(() => { submitGateRef.current = false; });
   };
 
   const submitEnterChunk = (prefix = '') => {

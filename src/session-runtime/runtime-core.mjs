@@ -499,6 +499,10 @@ export async function createMixdogSessionRuntime({
   bootProfile('config:ready', { ms: (performance.now() - configStartedAt).toFixed(1) });
   rt.mode = normalizeToolMode(toolMode);
   rt.session = null;
+  // A daemon-issued address may exist before provider setup. It is consumed by
+  // createCurrentSession on the first actual turn, avoiding eager auth/model
+  // work while still giving submit a stable session key.
+  rt.reservedSessionId = null;
   rt.sessionCreatePromise = null;
   rt.currentCwd = cwd;
   rt.sessionNeedsCwdRefresh = false;
@@ -559,6 +563,7 @@ export async function createMixdogSessionRuntime({
     statuslineUsageRefreshDelayMs,
     channelStartDelayMs,
     backgroundBusyRetryMs,
+    mcpTurnGraceMs,
     remoteAutoStartDelayMs,
     providerWarmupEnabled,
     modelPrefetchEnabled,
@@ -1422,7 +1427,10 @@ export async function createMixdogSessionRuntime({
   });
   const lifecycleApi = createLifecycleApi({
     getSession: () => rt.session,
-    setSession: (v) => { rt.session = v; },
+    setSession: (v) => {
+      rt.session = v;
+      if (v?.id) rt.reservedSessionId = null;
+    },
     getRoute: () => rt.route,
     setRoute: (v) => { rt.route = v; },
     getConfig: () => rt.config,
@@ -1450,6 +1458,7 @@ export async function createMixdogSessionRuntime({
     flushAllConfigSavesAsync,
     withTeardownDeadline,
     closePatchRuntimeIfLoaded,
+    stopSelfUpdateBootCheck: () => selfUpdate.stopBootCheck(),
     createCurrentSession,
     refreshRouteEffort,
     invalidateContextStatusCache,
@@ -1493,7 +1502,10 @@ export async function createMixdogSessionRuntime({
     getRoute: () => rt.route,
     setRouteState: (v) => { rt.route = v; },
     getSession: () => rt.session,
-    setSession: (v) => { rt.session = v; },
+    setSession: (v) => {
+      rt.session = v;
+      if (v?.id) rt.reservedSessionId = null;
+    },
     getConfigHasSecrets: () => rt.configHasSecrets,
     getSearchRouteState: () => rt.searchRoute,
     setSearchRouteState: (v) => { rt.searchRoute = v; },
@@ -1525,7 +1537,10 @@ export async function createMixdogSessionRuntime({
     getRoute: () => rt.route,
     setRouteState: (v) => { rt.route = v; },
     getSession: () => rt.session,
-    setSession: (v) => { rt.session = v; },
+    setSession: (v) => {
+      rt.session = v;
+      if (v?.id) rt.reservedSessionId = null;
+    },
     getConfigHasSecrets: () => rt.configHasSecrets,
     cfgMod,
     reg,
@@ -1553,7 +1568,10 @@ export async function createMixdogSessionRuntime({
   });
   const sessionTurnApi = createSessionTurnApi({
     getSession: () => rt.session,
-    setSession: (v) => { rt.session = v; },
+    setSession: (v) => {
+      rt.session = v;
+      if (v?.id) rt.reservedSessionId = null;
+    },
     getCurrentCwd: () => rt.currentCwd,
     getMode: () => rt.mode,
     setMode: (v) => { rt.mode = v; },
@@ -1600,6 +1618,7 @@ export async function createMixdogSessionRuntime({
     notificationListeners,
     remoteStateListeners,
     awaitInitialMcpConnect,
+    mcpTurnGraceMs,
     awaitRoutePreparation: () => routePreparation.wait(),
     sessionTitles,
   });
@@ -1613,7 +1632,18 @@ export async function createMixdogSessionRuntime({
     // Lead patches are read from its transcript by the renderer.
     getTurnReviewDiff: () => getTurnSnapshotReviewDiff(rt.currentCwd, rt.session?.id),
     get id() {
-      return rt.session?.id || null;
+      return rt.session?.id || rt.reservedSessionId || null;
+    },
+    reserveSessionId(sessionId) {
+      const id = String(sessionId || '').trim();
+      if (!id || !/^[A-Za-z0-9_-]+$/.test(id)) {
+        throw new TypeError('session id is invalid');
+      }
+      if (rt.session?.id && rt.session.id !== id) {
+        throw new Error(`session ${rt.session.id} is already materialized`);
+      }
+      rt.reservedSessionId = id;
+      return id;
     },
     get provider() {
       return rt.route.provider;

@@ -61,16 +61,16 @@ async function benchmark(itemCount) {
   const service = createEngineDaemonService({
     createEngine: async () => (engineRef = createBenchEngine(itemCount)),
     publishIntervalMs: 50,
-    onFrame: (frame) => {
+    onFrame: (frame, targetTokens) => {
       frames += 1;
       const bytes = JSON.stringify(frame).length;
       if (frame.full !== undefined) firstFrameBytes = bytes;
       else { deltaFrames += 1; deltaFrameBytes += bytes; }
-      transport.broadcast(frame);
+      transport.broadcast(frame, targetTokens);
     },
   });
   const transport = createEngineDaemonTransport({
-    handleCall: (name, args) => service.handleCall(name, args),
+    handleCall: (name, args, ctx) => service.handleCall(name, args, ctx),
     discoveryPath: join(ROOT, 'engine-daemon.json'),
   });
   const { port, token } = await transport.start();

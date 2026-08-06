@@ -45,7 +45,7 @@ export function createLifecycleApi(deps) {
     hooks, hookCommonPayload, mgr, statusRoutes, channels, agentTool, mcpClient,
     warmupTimers, prewarmTimers,
     flushAllConfigSavesAsync,
-    withTeardownDeadline, closePatchRuntimeIfLoaded,
+    withTeardownDeadline, closePatchRuntimeIfLoaded, stopSelfUpdateBootCheck,
     createCurrentSession, refreshRouteEffort,
     invalidateContextStatusCache, invalidatePreSessionToolSurface,
     applyResolvedCwd, resolveRoute, applyDeferredToolSurface, getStandaloneTools,
@@ -168,6 +168,7 @@ export function createLifecycleApi(deps) {
       // of reaping every session's jobs. CLI exit paths never set this.
       const keepBackgroundWork = options?.keepBackgroundWork === true;
       setCloseRequested(true);
+      try { stopSelfUpdateBootCheck?.(); } catch {}
       try { disposeSessionTitles?.(); } catch {}
       // Self-update now stages in the background and swaps on the next clean
       // launch (see staged-update.mjs) — nothing installs at shutdown. On a
@@ -178,6 +179,19 @@ export function createLifecycleApi(deps) {
         if (!isProcessExit) return;
         try { unregisterLiveSession(); } catch { /* advisory refcount only */ }
       };
+      // Background work (shell jobs, background tasks) belongs to the SESSION
+      // that started it, but its registries are process-global. A non-exit
+      // dispose — a daemon session projection release or an idle
+      // eviction — must therefore reap ONLY this session's jobs; the
+      // process-wide sweep is reserved for a real process exit. Without this
+      // scope, disposing one engine force-killed another session's running
+      // build, and because that sweep cancels with notify:false the owner
+      // never received a completion (user report: 백그라운드 잡이 조용히 멈춤,
+      // 알림도 안 옴). An unattributable non-exit dispose reaps nothing.
+      const closingSessionId = String(getSession()?.id || '');
+      const scopedTeardown = !isProcessExit;
+      const teardownReapsWork = !keepBackgroundWork
+        && (!scopedTeardown || Boolean(closingSessionId));
       // SessionEnd: bridge teardown to the standard hook bus. reason mapped to
       // standard values ('clear'/'exit' where applicable, else 'other'). Short
       // await guard so a slow hook cannot wedge teardown; best-effort.
@@ -228,7 +242,15 @@ export function createLifecycleApi(deps) {
           warmupTimers[timerKey] = null;
         }
       }
-      try { if (!keepBackgroundWork) cancelBackgroundTasks({ reason, notify: false }); } catch {}
+      try {
+        // A scoped cancel ALWAYS notifies: a task that dies for a reason its
+        // owner never asked for must still be reported.
+        if (teardownReapsWork) {
+          cancelBackgroundTasksForLifecycle(scopedTeardown
+            ? { reason, notify: true, callerSessionId: closingSessionId }
+            : { reason, notify: false });
+        }
+      } catch {}
       const channelStop = channels.stop(reason, detach ? { waitForExit: false } : undefined);
       try { agentTool.closeAll(reason); } catch {}
       let mcpStop = null;
@@ -270,12 +292,20 @@ export function createLifecycleApi(deps) {
       invalidateContextStatusCache();
       notificationListeners?.clear?.();
       remoteStateListeners?.clear?.();
-      const shellJobsStop = !keepBackgroundWork && globalThis.__mixdogShellJobsRuntimeLoaded === true
+      const shellJobsStop = teardownReapsWork && globalThis.__mixdogShellJobsRuntimeLoaded === true
         ? import('../runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs')
-          .then((mod) => mod?.shutdownShellJobs?.(reason, { sync: !detach }))
+          .then((mod) => mod?.shutdownShellJobs?.(reason, {
+            sync: !detach,
+            ...(scopedTeardown ? { scope: { ownerSessionId: closingSessionId } } : {}),
+          }))
           .catch(() => {})
         : null;
-      const bashSessionsStop = !keepBackgroundWork && globalThis.__mixdogBashSessionRuntimeLoaded === true
+      // Persistent bash sessions have their own bounded idle reaper but no
+      // owner metadata for explicit session_id values. A per-engine dispose
+      // therefore cannot safely select one; preserve the pool until the real
+      // process exit rather than killing another engine's shell.
+      const bashSessionsStop = isProcessExit && !keepBackgroundWork
+        && globalThis.__mixdogBashSessionRuntimeLoaded === true
         ? import('../runtime/agent/orchestrator/tools/bash-session.mjs')
           .then((mod) => mod?.shutdownBashSessions?.(reason))
           .catch(() => {})

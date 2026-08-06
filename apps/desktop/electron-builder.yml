@@ -2,6 +2,11 @@ appId: io.mixdog.desktop
 productName: Mixdog
 artifactName: mixdog-desktop-${os}-${arch}.${ext}
 asar: true
+asarUnpack:
+  # The singleton backend may be owned by the plain Node CLI. Keep its one-file
+  # adapter and remote UI assets readable without Electron's ASAR fs patch.
+  - out/main/desktop-backend-daemon.cjs
+  - out/renderer/**
 # Native modules ship as prebuilt binaries mirrored into runtime.asar.unpacked
 # by prepare-runtime.mjs; never rebuild them against Electron headers here.
 npmRebuild: false

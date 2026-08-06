@@ -164,6 +164,21 @@ const LAST_PROJECT_KEY = 'mixdog.desktop-last-project.v1';
 const LAST_SESSION_KEY = 'mixdog.desktop-last-session.v1';
 const DRAFT_PANE_PREFS_KEY = 'mixdog.desktop-draft-pane-prefs.v1';
 const LAST_NEW_TASK_PREFS_KEY = 'mixdog.desktop-last-new-task-prefs.v1';
+function desktopProjectPathKey(value: unknown): string {
+  return String(value || "")
+    .trim()
+    .replace(/[\\/]+/g, "/")
+    .replace(/\/$/, "")
+    .toLocaleLowerCase();
+}
+function registeredDesktopProjectPath(
+  projects: readonly DesktopProjectSummary[],
+  candidate: unknown,
+): string {
+  const key = desktopProjectPathKey(candidate);
+  if (!key) return "";
+  return projects.find((project) => desktopProjectPathKey(project.path) === key)?.path || "";
+}
 interface EditorSaveHandle {
   save(): Promise<boolean>;
   discard(): Promise<void>;
@@ -377,15 +392,20 @@ interface DraftSessionMaterialization {
   hasTranscript: boolean;
   title: string;
   firstUserText: string;
+  userItemIds: readonly string[];
 }
 const selectDraftSessionMaterialization = (snapshot: Snapshot): DraftSessionMaterialization => {
   const items = Array.isArray(snapshot.items) ? snapshot.items : [];
-  const firstUser = items.find((item) => item?.kind === "user");
+  const userItems = items.filter((item) => item?.kind === "user");
+  const firstUser = userItems[0];
   return {
     sessionId: String(snapshot.sessionId || ""),
     hasTranscript: items.length > 0,
     title: String(snapshot.desktopSessionTitle || "").trim(),
     firstUserText: String(firstUser?.text || ""),
+    userItemIds: userItems
+      .map((item) => String(item?.id || ""))
+      .filter(Boolean),
   };
 };
 const draftSessionMaterializationsEqual = (
@@ -394,7 +414,9 @@ const draftSessionMaterializationsEqual = (
 ) => left.sessionId === right.sessionId
   && left.hasTranscript === right.hasTranscript
   && left.title === right.title
-  && left.firstUserText === right.firstUserText;
+  && left.firstUserText === right.firstUserText
+  && left.userItemIds.length === right.userItemIds.length
+  && left.userItemIds.every((id, index) => id === right.userItemIds[index]);
 const draftModelSelectionFromSnapshot = (snapshot: Snapshot): DesktopModelSelection | null => {
   const provider = String(snapshot.provider || "");
   const model = String(snapshot.model || "");
@@ -911,6 +933,39 @@ export function App() {
   }, [updaterState.status]);
   const [projects, setProjects] = useState<DesktopProjectSummary[]>([]);
   const [projectCatalogReady, setProjectCatalogReady] = useState(false);
+  const registeredProjectPath = useCallback(
+    (candidate: unknown) => registeredDesktopProjectPath(projects, candidate),
+    [projects],
+  );
+  // `snapshot.project` is the engine workspace, not a desktop project. For a
+  // projectless task it may be an internal folder or the process cwd (the
+  // reported `C:\Users\tempe`), so only currentProject + the authoritative
+  // recent registry order may seed a New task.
+  const preferredDraftProjectPath = useMemo(() => {
+    const recent = Array.isArray(snapshot.recentProjects) ? snapshot.recentProjects : [];
+    const candidates = [
+      String(snapshot.currentProject || ""),
+      ...recent.map((path) => String(path || "")),
+      String(projects[0]?.path || ""),
+    ].filter(Boolean);
+    if (!projectCatalogReady) return candidates[0] || "";
+    for (const candidate of candidates) {
+      const registered = registeredProjectPath(candidate);
+      if (registered) return registered;
+    }
+    return "";
+  }, [
+    projectCatalogReady,
+    projects,
+    registeredProjectPath,
+    snapshot.currentProject,
+    snapshot.recentProjects,
+  ]);
+  const effectiveDraftProjectPath = useCallback((candidate: unknown): string => {
+    const requested = String(candidate || "").trim();
+    if (!requested || !projectCatalogReady) return requested;
+    return registeredProjectPath(requested) || preferredDraftProjectPath;
+  }, [preferredDraftProjectPath, projectCatalogReady, registeredProjectPath]);
   // Persisted pane layout is the startup authority. Its focused active tab is
   // available synchronously, before catalog/model/engine RPCs begin.
   const paneWorkspace = usePaneWorkspace();
@@ -1073,15 +1128,22 @@ export function App() {
     [selection.kind, snapshot.sessionId, snapshot.effort, snapshot.fast, snapshot.model,
       snapshot.provider],
   );
-  const inheritedDraftPrefs = useCallback((): DraftPanePrefs => ({
-    projectPath: newTaskProjectPathRef.current
-      || lastNewTaskPrefs.current?.projectPath || "",
-    modelSelection: newTaskModelSelectionRef.current
-      ?? lastNewTaskPrefs.current?.modelSelection
-      ?? snapshotDraftModelSelection,
-    workflow: newTaskWorkflowRef.current
-      ?? lastNewTaskPrefs.current?.workflow ?? null,
-  }), [snapshotDraftModelSelection]);
+  const inheritedDraftPrefs = useCallback((): DraftPanePrefs => {
+    const last = lastNewTaskPrefs.current;
+    return {
+      // An explicit empty path means No project and must not fall through to a
+      // previous non-empty value. With no saved preference, seed the registry's
+      // most recently selected project.
+      projectPath: effectiveDraftProjectPath(last
+        ? last.projectPath
+        : newTaskProjectPathRef.current || preferredDraftProjectPath),
+      modelSelection: newTaskModelSelectionRef.current
+        ?? last?.modelSelection
+        ?? snapshotDraftModelSelection,
+      workflow: newTaskWorkflowRef.current
+        ?? last?.workflow ?? null,
+    };
+  }, [effectiveDraftProjectPath, preferredDraftProjectPath, snapshotDraftModelSelection]);
   // ONE display/restore rule for a draft's effective prefs (focused and
   // unfocused): the entry's explicit values, with unset fields inheriting the
   // last-used prefs. Without the shared rule a null-model entry showed
@@ -1095,6 +1157,11 @@ export function App() {
   const resolvedDraftPrefsFor = useCallback((draftKey: string): DraftPanePrefs => {
     const entry = draftKey ? draftPanePrefs.current.get(draftKey) : undefined;
     const last = lastNewTaskPrefs.current;
+    const projectPath = entry
+      ? entry.projectPath
+      : last
+        ? last.projectPath
+        : preferredDraftProjectPath;
     if (draftKey && snapshotDraftModelSelection
       && !draftSnapshotModelSeeds.current.has(draftKey)) {
       draftSnapshotModelSeeds.current.set(draftKey, snapshotDraftModelSelection);
@@ -1105,14 +1172,14 @@ export function App() {
       }
     }
     return {
-      projectPath: entry?.projectPath || last?.projectPath || "",
+      projectPath: effectiveDraftProjectPath(projectPath),
       modelSelection: entry?.modelSelection
         ?? last?.modelSelection
         ?? (draftKey ? draftSnapshotModelSeeds.current.get(draftKey) : undefined)
         ?? snapshotDraftModelSelection,
       workflow: entry?.workflow ?? last?.workflow ?? null,
     };
-  }, [snapshotDraftModelSelection]);
+  }, [effectiveDraftProjectPath, preferredDraftProjectPath, snapshotDraftModelSelection]);
   // Prefs survive reloads: without persistence a restored pane layout showed
   // fallback chrome until focused, then snapped to "Select model" because the
   // freshly-seeded entry was empty (user report).
@@ -1272,6 +1339,38 @@ export function App() {
     persistDraftPanePrefs();
     setDraftPrefsVersion((value) => value + 1);
   }, [activeDraftKey, inheritedDraftPrefs, persistDraftPanePrefs, resolvedDraftPrefsFor]);
+  useEffect(() => {
+    if (!projectCatalogReady) return;
+    let changed = false;
+    for (const [key, prefs] of draftPanePrefs.current) {
+      const projectPath = effectiveDraftProjectPath(prefs.projectPath);
+      if (projectPath === prefs.projectPath) continue;
+      draftPanePrefs.current.set(key, { ...prefs, projectPath });
+      changed = true;
+    }
+    const last = lastNewTaskPrefs.current;
+    if (last) {
+      const projectPath = effectiveDraftProjectPath(last.projectPath);
+      if (projectPath !== last.projectPath) {
+        lastNewTaskPrefs.current = { ...last, projectPath };
+        changed = true;
+      }
+    }
+    if (activeDraftKey) {
+      const resolved = resolvedDraftPrefsFor(activeDraftKey);
+      newTaskProjectPathRef.current = resolved.projectPath;
+      setNewTaskProjectPath(resolved.projectPath);
+    }
+    if (!changed) return;
+    persistDraftPanePrefs();
+    setDraftPrefsVersion((value) => value + 1);
+  }, [
+    activeDraftKey,
+    effectiveDraftProjectPath,
+    persistDraftPanePrefs,
+    projectCatalogReady,
+    resolvedDraftPrefsFor,
+  ]);
   // Requested navigation is lightweight sidebar chrome only. The pane,
   // title, transcript and scroll state stay on the committed selection until
   // the final host response can replace that whole surface in one render.
@@ -1394,6 +1493,8 @@ export function App() {
     epoch: number;
     originSessionId: string;
     submitInFlight: boolean;
+    publicationRecovery: boolean;
+    submitId: string;
   };
   const draftMaterializations = useRef(new Map<object, DraftMaterializationOwner>());
   const armDraftMaterialization = (owner: DraftMaterializationOwner): object => {
@@ -1859,7 +1960,7 @@ export function App() {
       window.requestAnimationFrame(settleStartup);
       return;
     }
-    if (!sessionCatalogReady || snapshot === EMPTY_SNAPSHOT) return;
+    if (!sessionCatalogReady || !projectCatalogReady || snapshot === EMPTY_SNAPSHOT) return;
     restoredStartupNavigation.current = true;
     // The persisted LAST VIEWED selection outranks the engine's current
     // session. The engine-first order made every renderer reload (crash
@@ -1900,24 +2001,26 @@ export function App() {
       void resumeSessionRef.current(plan.sessionId, true).finally(settleStartup);
       return;
     }
-    if (String(snapshot.currentProject || snapshot.project || "")) {
-      settleStartup();
-      return;
-    }
     let storedProject = "";
     try { storedProject = window.localStorage.getItem(LAST_PROJECT_KEY) || ""; } catch { /* fall through */ }
-    if (!storedProject) {
+    const cachedDraftProject = lastNewTaskPrefs.current
+      ? effectiveDraftProjectPath(lastNewTaskPrefs.current.projectPath)
+      : effectiveDraftProjectPath(storedProject || preferredDraftProjectPath);
+    if (!cachedDraftProject) {
       setNewTaskDeferred(true);
       settleStartup();
       return;
     }
-    resetNewTaskDraft(storedProject);
+    resetNewTaskDraft(cachedDraftProject);
     activateSelection({ kind: "new" }, "New task");
     newTaskReady.current = "";
     setNewTaskActive(false);
     settleStartup();
   }, [
     activateSelection,
+    effectiveDraftProjectPath,
+    preferredDraftProjectPath,
+    projectCatalogReady,
     resetNewTaskDraft,
     sessionCatalogReady,
     sessions,
@@ -1984,16 +2087,16 @@ export function App() {
     const active = selectionRef.current;
     if (active.kind !== "new") return;
     const sessionId = draftSessionMaterialization.sessionId;
-    // A publication names only the session the host created, so it can be
-    // attributed to a draft only while exactly ONE draft submit is pending
-    // and that record still owns the active draft and navigation epoch. With
-    // two drafts in flight the authoritative per-submit acknowledgement (which
-    // carries the real id) promotes instead — nothing is lost, and draft B can
-    // never be promoted onto session A.
+    // Only legacy two-step hosts need publication recovery. Atomic
+    // submitNewTask owns an addressed acknowledgement, so a focused snapshot
+    // from any existing session must never promote its draft before that ACK.
     const pendingDraft = soleDraftMaterialization();
     if (!pendingDraft
       || pendingDraft.owner.draftKey !== navigationKey(active)
       || pendingDraft.owner.epoch !== navigationEpoch.current) return;
+    if (!pendingDraft.owner.publicationRecovery
+      || !pendingDraft.owner.submitId
+      || !draftSessionMaterialization.userItemIds.includes(pendingDraft.owner.submitId)) return;
     // The host publishes the authoritative session before the submit RPC can
     // acknowledge it. Once that draft-owned snapshot has durable transcript
     // content, promote immediately instead of leaving a live conversation
@@ -2303,9 +2406,10 @@ export function App() {
     // New task again opens a fresh tab that inherits its staged
     // project/model/workflow instead of resetting the draft.
     if (newTaskDeferred && tabs.some((tab) => tab.selection.kind === "new")) return;
-    const lastProject = String(snapshot.currentProject || snapshot.project ||
-      (Array.isArray(snapshot.recentProjects) ? snapshot.recentProjects[0] : "") || "");
-    resetNewTaskDraft(lastProject);
+    const cached = lastNewTaskPrefs.current;
+    resetNewTaskDraft(cached
+      ? effectiveDraftProjectPath(cached.projectPath)
+      : preferredDraftProjectPath);
   };
   const resumeSession = async (
     sessionId: string,
@@ -2550,6 +2654,7 @@ export function App() {
   // stable event facades let React.memo retain it while each callback still
   // dispatches through the latest render state.
   const conversationNewTask = useStableEvent(() => startTask());
+  const conversationClearProject = useStableEvent(() => stageNewTaskProject(""));
   const conversationResumeSession = useStableEvent((sessionId: string) => {
     void resumeSession(sessionId);
   });
@@ -2601,6 +2706,10 @@ export function App() {
         epoch: submitEpoch,
         originSessionId: String(snapshotRef.current.sessionId || ""),
         submitInFlight: true,
+        publicationRecovery: !(selection.kind === "new"
+          && !draftReady
+          && typeof host.submitNewTask === "function"),
+        submitId: String(options?.id || ""),
       })
       : null;
     pending.submitInFlight = true;
@@ -2614,15 +2723,15 @@ export function App() {
     const newTaskRemoteRequested = selection.kind === "new"
       && remoteNewTaskMode() === "on";
     const submittedProjectPath = selection.kind === "new"
-      ? newTaskProjectPathRef.current
+      ? effectiveDraftProjectPath(newTaskProjectPathRef.current)
       : "";
     let atomicNewTask = false;
     try {
       if (selection.kind === "new" && !draftReady && host.submitNewTask) {
         atomicNewTask = true;
         const result = await host.submitNewTask(content, options, {
-          ...(newTaskProjectPathRef.current
-            ? { projectPath: newTaskProjectPathRef.current }
+          ...(submittedProjectPath
+            ? { projectPath: submittedProjectPath }
             : {}),
           ...(newTaskModelSelectionRef.current
             ? { route: newTaskModelSelectionRef.current }
@@ -2633,7 +2742,11 @@ export function App() {
           ...(newTaskRemoteRequested ? { remote: true } : {}),
         });
         accepted = result.accepted;
-        startedSessionId = result.accepted ? result.sessionId : "";
+        startedSessionId = result.accepted ? String(result.sessionId || "") : "";
+        if (result.accepted && !startedSessionId) {
+          throw new Error("New task submission was accepted without a session id.");
+        }
+        let acknowledgedSnapshot: EngineSnapshot = null;
         // Seed the materialized session's lane with the acknowledgement frame
         // BEFORE the pane switches its route onto the new sessionId. Without
         // it the promoted pane has no lane for one publication interval and
@@ -2645,8 +2758,15 @@ export function App() {
         // the key switch, nothing behind it — user: 첫 프롬 직후 잠시 빈
         // 화면). Synthesize the submitted user row into the seed; the first
         // authoritative lane frame replaces it wholesale.
-        if (result.accepted && String(asRecord(result.snapshot)?.sessionId || "")) {
-          const ackRecord = asRecord(result.snapshot) || {};
+        if (result.accepted && startedSessionId) {
+          const resultRecord = asRecord(result.snapshot);
+          const resultSessionId = String(resultRecord?.sessionId || "");
+          // The addressed ACK owns promotion. If a stale desktop projection
+          // accompanies it, retain only the acknowledged id and synthesize the
+          // optimistic prompt — never seed another session's transcript.
+          const ackRecord = resultSessionId === startedSessionId
+            ? resultRecord || {}
+            : { sessionId: startedSessionId, items: [], queued: [] };
           const ackItems = Array.isArray(ackRecord.items) ? ackRecord.items : [];
           const seededText = String(options?.displayText
             || (typeof content === "string" ? content : "")).trim();
@@ -2679,6 +2799,7 @@ export function App() {
                 },
               }),
             };
+          acknowledgedSnapshot = seed as EngineSnapshot;
           applyFocusedSnapshotToSessionLane(seed as Snapshot, defaultSessionLaneStore, {
             source: "renderer-result",
           });
@@ -2688,9 +2809,7 @@ export function App() {
           // the materialized session. A rare id-wait timeout returns a blank
           // frame; applying it wiped the optimistic prompt back to the New
           // task watermark until the next live publication (user report).
-          if (String(asRecord(result.snapshot)?.sessionId || "")) {
-            applySnapshot(result.snapshot);
-          }
+          if (acknowledgedSnapshot) applySnapshot(acknowledgedSnapshot);
           clearNewTaskPreferences();
           newTaskReady.current = draftKey;
           setNewTaskActive(true);
@@ -2763,9 +2882,11 @@ export function App() {
       // the user already navigated away: the seat is taken either way.
       if (newTaskRemoteRequested) setRemoteNewTaskMode("off");
       if (selection.kind === "new" && draftStillSelected()) {
-        let activeSessionId = startedSessionId
-          || String(snapshotRef.current.sessionId || "")
-          || String(asRecord(await host.getSnapshot())?.sessionId || "");
+        let activeSessionId = atomicNewTask
+          ? startedSessionId
+          : startedSessionId
+            || String(snapshotRef.current.sessionId || "")
+            || String(asRecord(await host.getSnapshot())?.sessionId || "");
         if (!activeSessionId && !atomicNewTask) {
           // A utility-process state mailbox can still hold the materialized
           // session behind an older in-flight frame when the legacy submit RPC
@@ -3030,12 +3151,13 @@ export function App() {
     closeHeaderTitleEditor();
     if (title !== visibleSessionTitle) void renameSession(selectedSession.id, title);
   };
-  const snapshotProjectPath = String(asRecord(visibleSnapshot)?.currentProject ||
-    asRecord(visibleSnapshot)?.project || "");
+  const snapshotProjectPath = registeredProjectPath(
+    String(asRecord(visibleSnapshot)?.currentProject || ""),
+  );
   const activeProjectPath = navigationSelection.kind === "session"
-    ? String(selectedSession?.projectPath || snapshotProjectPath)
+    ? registeredProjectPath(selectedSession?.projectPath || snapshotProjectPath)
     : navigationSelection.kind === "project" ? navigationSelection.path
-      : newTaskProjectPath || snapshotProjectPath;
+      : effectiveDraftProjectPath(newTaskProjectPath);
   const focusedPaneProjectPath = focusedPaneSelection?.kind === "file"
     || focusedPaneSelection?.kind === "diff"
     || focusedPaneSelection?.kind === "pull-request"
@@ -3079,9 +3201,7 @@ export function App() {
     ? activeProjectSummary.alias?.trim() || activeProjectSummary.name?.trim() ||
       displayProject(activeProjectSummary.path).name || "Project"
     : "";
-  const recentProjectPaths = Array.isArray(snapshot.recentProjects) ? snapshot.recentProjects : [];
-  const selectedProjectPath = activeProjectPath ||
-    String(recentProjectPaths[0] || "");
+  const selectedProjectPath = activeProjectPath || preferredDraftProjectPath;
   const activeTabKey = navigationKey(navigationSelection);
   const paneTranscriptRendererPending = paneWorkspace.leaves.some((leaf) =>
     paneActiveSelection(leaf)?.kind === "session")
@@ -4549,8 +4669,6 @@ export function App() {
   // tree mounted. Focus only selects the command/snapshot owner. Because the
   // root and picker instances survive that prop change, the pointer event that
   // focuses a pane continues into the control the user actually clicked.
-  const draftSnapshotView = snapshot as Record<string, unknown>;
-  const snapshotProjectFallback = String(draftSnapshotView.currentProject || draftSnapshotView.project || "");
   const projectChromeLabel = useCallback((path: string): string => {
     const summary = projects.find((project) =>
       project.path.replace(/[\\/]+/g, "/").toLocaleLowerCase() ===
@@ -4587,8 +4705,10 @@ export function App() {
       ? frozenSeedFor(paneSessionId)
       : EMPTY_SNAPSHOT;
     const paneProjectPath = paneSessionId
-      ? String(sessionRow?.projectPath || paneFallback.currentProject || paneFallback.project || "")
-      : prefs.projectPath || snapshotProjectFallback;
+      ? registeredProjectPath(
+        sessionRow?.projectPath || paneFallback.currentProject || "",
+      )
+      : prefs.projectPath;
     const paneProjectLabel = projectChromeLabel(paneProjectPath);
     const paneTitle = paneSessionId && sessionRow
       ? sessionSummaryTitle(sessionRow)
@@ -4679,6 +4799,7 @@ export function App() {
             transitioning={false}
             composerFocusRequest={focused ? composerFocusRequest : 0}
             onNewTask={conversationNewTask}
+            onClearProject={conversationClearProject}
             onResumeSession={conversationResumeSession}
             onOpenSessions={openSidebar}
             onOpenSettings={openSettings}
@@ -5167,6 +5288,7 @@ export function App() {
               transitioning={false}
               composerFocusRequest={composerFocusRequest}
               onNewTask={conversationNewTask}
+              onClearProject={conversationClearProject}
               onResumeSession={conversationResumeSession}
               onOpenSessions={openSidebar}
               onOpenSettings={openSettings}

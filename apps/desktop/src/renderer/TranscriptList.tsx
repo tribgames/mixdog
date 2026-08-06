@@ -23,6 +23,7 @@ import {
   TRANSCRIPT_ROW_ESTIMATE,
   TRANSCRIPT_VIRTUAL_OVERSCAN,
 } from "./transcript-virtual-cache";
+import { scheduleConnectedMeasure } from "./transcript-measure";
 
 /**
  * The virtualized transcript timeline.
@@ -34,6 +35,9 @@ import {
  * owned by virtual-core.
  */
 function measureTranscriptRow(element: Element, entry?: ResizeObserverEntry): number {
+  if (!(element instanceof HTMLElement) || !element.isConnected) {
+    return Math.max(1, element instanceof HTMLElement ? element.offsetHeight : 0) || 1;
+  }
   const box = entry?.borderBoxSize?.[0];
   const observed = Number(box?.blockSize);
   if (Number.isFinite(observed) && observed > 0) return Math.round(observed);
@@ -188,8 +192,18 @@ export function TranscriptList({
   const overscanFrame = useRef(0);
   const bottomAnchorFrame = useRef(0);
   const bottomAnchorSession = useRef("");
+  // OpenCode prepend-anchor: when rows are inserted ABOVE the reader (older
+  // history, cold restore growth), keep the previously visible top row still
+  // by correcting scrollTop against its key + viewport offset.
+  const readingAnchor = useRef<{ key: string; offset: number } | null>(null);
+  const prependAnchorFrame = useRef(0);
+  const prevFirstKey = useRef<string | number | null>(rows[0]?.key ?? null);
+  const prevRowCount = useRef(rows.length);
   const measureRow = useCallback((element: HTMLDivElement | null) => {
-    virtualizerRef.current.measureElement(element);
+    if (!element) return;
+    scheduleConnectedMeasure(element, (node) => {
+      virtualizerRef.current.measureElement(node);
+    });
   }, []);
   const bindSpacer = useCallback((element: HTMLDivElement | null) => {
     spacer.current = element;
@@ -235,6 +249,18 @@ export function TranscriptList({
   }, [sessionKey, shouldAnchorBottom]);
 
   useLayoutEffect(() => {
+    // Session entry resets the prepend-reading bookkeeping so a prior visit's
+    // top-row anchor never corrects a different timeline.
+    readingAnchor.current = null;
+    prevFirstKey.current = rows[0]?.key ?? null;
+    prevRowCount.current = rows.length;
+    if (prependAnchorFrame.current) {
+      window.cancelAnimationFrame(prependAnchorFrame.current);
+      prependAnchorFrame.current = 0;
+    }
+  }, [sessionKey]);
+
+  useLayoutEffect(() => {
     // OpenCode maybeAnchorBottom: one entry anchor per session key, the first
     // time the timeline has rows. Live appends are followed by the core's
     // followOnAppend — re-running this on every rows change added a second,
@@ -253,10 +279,81 @@ export function TranscriptList({
     };
   }, [rows.length, sessionKey, shouldAnchorBottom]);
 
+  useLayoutEffect(() => {
+    const root = viewport.current;
+    const firstKey = rows[0]?.key ?? null;
+    const count = rows.length;
+    const prepended = prevRowCount.current > 0
+      && count > prevRowCount.current
+      && firstKey != null
+      && firstKey !== prevFirstKey.current
+      && !shouldAnchorBottom;
+    prevFirstKey.current = firstKey;
+    prevRowCount.current = count;
+    if (!prepended || !root || !readingAnchor.current) return undefined;
+    const anchor = readingAnchor.current;
+    if (prependAnchorFrame.current) window.cancelAnimationFrame(prependAnchorFrame.current);
+    let frames = 0;
+    let stable = 0;
+    const apply = () => {
+      prependAnchorFrame.current = 0;
+      const element = root.querySelector<HTMLElement>(
+        `[data-timeline-key="${CSS.escape(String(anchor.key))}"]`,
+      );
+      if (element) {
+        const delta = element.getBoundingClientRect().top
+          - root.getBoundingClientRect().top
+          - anchor.offset;
+        if (Math.abs(delta) > 0.5) {
+          root.scrollTop += delta;
+          markProgrammaticScroll?.(root.scrollTop);
+          stable = 0;
+        } else {
+          stable += 1;
+        }
+      }
+      frames += 1;
+      if (stable >= 8 || frames >= 60) return;
+      prependAnchorFrame.current = window.requestAnimationFrame(apply);
+    };
+    prependAnchorFrame.current = window.requestAnimationFrame(apply);
+    return () => {
+      if (!prependAnchorFrame.current) return;
+      window.cancelAnimationFrame(prependAnchorFrame.current);
+      prependAnchorFrame.current = 0;
+    };
+  }, [markProgrammaticScroll, rows, shouldAnchorBottom, viewport]);
+
+  useEffect(() => {
+    const root = viewport.current;
+    if (!root || shouldAnchorBottom) {
+      readingAnchor.current = null;
+      return undefined;
+    }
+    const capture = () => {
+      const view = root.getBoundingClientRect();
+      const candidates = [...root.querySelectorAll<HTMLElement>("[data-timeline-key]")]
+        .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+        .filter((item) => item.rect.bottom > view.top && item.rect.top < view.bottom)
+        .sort((a, b) => a.rect.top - b.rect.top);
+      const top = candidates[0];
+      const key = top?.element.dataset.timelineKey;
+      if (!top || !key) return;
+      readingAnchor.current = {
+        key,
+        offset: top.rect.top - view.top,
+      };
+    };
+    capture();
+    root.addEventListener("scroll", capture, { passive: true });
+    return () => root.removeEventListener("scroll", capture);
+  }, [shouldAnchorBottom, sessionKey, viewport]);
+
   useEffect(() => () => {
     if (resizePinFrame.current) window.cancelAnimationFrame(resizePinFrame.current);
     if (overscanFrame.current) window.cancelAnimationFrame(overscanFrame.current);
     if (bottomAnchorFrame.current) window.cancelAnimationFrame(bottomAnchorFrame.current);
+    if (prependAnchorFrame.current) window.cancelAnimationFrame(prependAnchorFrame.current);
   }, []);
 
   const virtualRows = virtualizer.getVirtualItems();
@@ -276,7 +373,9 @@ export function TranscriptList({
           // transaction. The row keeps its natural content height; geometry
           // corrections land before paint, so nothing is clipped a frame late.
           <div className="transcript-virtual-row" key={virtualRow.key}
-            data-index={virtualRow.index} ref={measureRow}
+            data-index={virtualRow.index}
+            data-timeline-key={String(virtualRow.key)}
+            ref={measureRow}
             style={{ transform: `translateY(${virtualRow.start}px)` }}>
             <div className="transcript-virtual-row-content"
               data-slot="session-turn-message-container" data-index={virtualRow.index}

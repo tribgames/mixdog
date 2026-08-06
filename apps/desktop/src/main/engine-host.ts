@@ -31,7 +31,7 @@ import {
   promptTitle
 } from '../shared/session-title.mjs';
 import { desktopSessionSummaries, desktopSnapshot } from './desktop-state';
-import type { DesktopSessionScope, EngineDaemonClientModule, EngineFactory, EngineHostOptions, MixdogEngine, MixdogProjectsModule, MixdogSessionStoreModule, SnapshotListener, StoredSessionLiveViewer } from "./engine-host-support";
+import type { DesktopSessionScope, EngineDaemonClientModule, EngineFactory, EngineHostOptions, MixdogEngine, MixdogProjectsModule, MixdogSessionStoreModule, SnapshotListener, StatuslineSegmentsModule, StoredSessionLiveViewer } from "./engine-host-support";
 import { DESKTOP_CAPABILITY_SET, DESKTOP_PERF_ENABLED, DESKTOP_TRANSCRIPT_ITEM_LIMIT, ENGINE_PUBLICATION_INTERVAL_MS, FOREGROUND_SESSION_PUBLICATION_INTERVAL_MS, SESSIONS_CHANGED_DEBOUNCE_MS, copyCapabilityValue, copySnapshot, engineDaemonClientModuleUrl, isInternalTranscriptItem, normalizedProjectKey, normalizedProviderModels, projectsModuleUrl, recordValue, requiredApplicationPath, sessionStoreModuleUrl, statuslineSegmentsModuleUrl } from "./engine-host-support";
 import {
   createEngineLifecycle,
@@ -141,16 +141,22 @@ type SessionLaneResumeHold = {
 // per-visible-session map; an evicted session simply restarts at revision 1.
 const SESSION_CONTENT_REVISION_LIMIT = 32;
 
-/** Identity of one authoritative transcript GENERATION. Deliberately derived
- * from the settled transcript only: growth, clear, trailing deletion and
- * rewrite all change it, while re-projecting the same content does not. */
-export function sessionTranscriptGeneration(snapshot: EngineSnapshot): string {
-  const items = snapshotTranscriptItems(snapshot);
-  const serialized = JSON.stringify(items);
-  // Two independent 32-bit rolling hashes keep the retained generation
-  // compact while covering every rendered transcript field. The old
-  // length/head/tail summary missed same-length rewrites and middle-row tool
-  // updates, incorrectly labelling different frames as one generation.
+// Generation caches keyed by IDENTITY. Transcript items are immutable by
+// identity (see sanitizedItemClone) and copySnapshot reuses the very same
+// items array object whenever the engine's settled transcript did not change.
+// A streaming turn only moves streamingTail, so every one of its ~60
+// publications per second hits the array cache and pays nothing; a turn that
+// does append rows serializes ONLY the new item objects. Re-serializing the
+// whole transcript per publication made the cost grow with session length
+// (measured: 1.41ms per 300KB transcript, i.e. 88% of a core at 60Hz).
+const transcriptItemGenerations = new WeakMap<object, string>();
+const transcriptGenerations = new WeakMap<object, string>();
+
+/** Two independent 32-bit rolling hashes: compact, and covering every
+ *  character of the input. A length/head/tail summary missed same-length
+ *  rewrites and middle-row tool updates, incorrectly labelling different
+ *  frames as one generation. */
+function rollingGeneration(serialized: string): string {
   let first = 0x811c9dc5;
   let second = 0x9e3779b9;
   for (let index = 0; index < serialized.length; index += 1) {
@@ -158,7 +164,38 @@ export function sessionTranscriptGeneration(snapshot: EngineSnapshot): string {
     first = Math.imul(first ^ code, 0x01000193);
     second = Math.imul(second ^ code, 0x85ebca6b);
   }
-  return `${items.length}:${(first >>> 0).toString(36)}:${(second >>> 0).toString(36)}`;
+  return `${(first >>> 0).toString(36)}:${(second >>> 0).toString(36)}`;
+}
+
+/** Generation of ONE transcript row, memoized on the row object itself. */
+function transcriptItemGeneration(item: Record<string, unknown>): string {
+  const cached = transcriptItemGenerations.get(item);
+  if (cached !== undefined) return cached;
+  const generation = rollingGeneration(JSON.stringify(item) ?? 'null');
+  transcriptItemGenerations.set(item, generation);
+  return generation;
+}
+
+/** Identity of one authoritative transcript GENERATION. Deliberately derived
+ * from the settled transcript only: growth, clear, trailing deletion and
+ * rewrite all change it, while re-projecting the same content does not. */
+export function sessionTranscriptGeneration(snapshot: EngineSnapshot): string {
+  const source = snapshot && typeof snapshot === 'object'
+    ? (snapshot as Record<string, unknown>).items
+    : null;
+  const cacheKey = Array.isArray(source) ? source as unknown as object : null;
+  if (cacheKey) {
+    const cached = transcriptGenerations.get(cacheKey);
+    if (cached !== undefined) return cached;
+  }
+  const items = snapshotTranscriptItems(snapshot);
+  // NUL joins the per-row generations so a row boundary always participates:
+  // two different splits of the same characters can never collide.
+  const generation = `${items.length}:${rollingGeneration(
+    items.map(transcriptItemGeneration).join('\u0000'),
+  )}`;
+  if (cacheKey) transcriptGenerations.set(cacheKey, generation);
+  return generation;
 }
 
 function snapshotTranscriptItems(snapshot: EngineSnapshot): Array<Record<string, unknown>> {
@@ -371,6 +408,8 @@ export class EngineHost {
   private readonly loadProjectsModule: () => Promise<MixdogProjectsModule>;
   private readonly projects: DesktopProjectRegistry;
   private readonly loadSessionStoreOverride: (() => Promise<MixdogSessionStoreModule>) | null;
+  private readonly loadStatuslineSegmentsModule: (() => Promise<StatuslineSegmentsModule>) | null;
+  private readonly executeCodeGraphToolOverride: EngineHostOptions['executeCodeGraphTool'];
   private sessionStoreModule: Promise<MixdogSessionStoreModule> | null = null;
   // Newest raw session rows seen by any listing. Resuming only needs ONE row
   // (classification, workspace, desktop marker), and re-scanning the whole
@@ -479,6 +518,15 @@ export class EngineHost {
   private readonly shellJobsPoller = createShellJobsPoller({
     getEngineState: () => (this.engine?.getState() as Record<string, unknown> | undefined) ?? null,
     moduleUrl: () => statuslineSegmentsModuleUrl(this.packaged, this.resourcesPath, this.appPath),
+    loadModule: () => this.loadStatuslineSegmentsModule
+      ? this.loadStatuslineSegmentsModule()
+      : import(
+        /* @vite-ignore */ statuslineSegmentsModuleUrl(
+          this.packaged,
+          this.resourcesPath,
+          this.appPath,
+        )
+      ) as Promise<StatuslineSegmentsModule>,
     onChange: (changedSessionIds) => {
       this.publishEngineEvent();
       this.republishShellJobSessions(changedSessionIds);
@@ -515,6 +563,11 @@ export class EngineHost {
     this.remoteStatePath = channelRemoteStatePath(options.runtimeRoot);
     this.searchProjectDirectory = options.searchProjectDirectory ?? searchProjectDirectory;
     this.loadSessionStoreOverride = options.loadSessionStore ?? null;
+    this.loadStatuslineSegmentsModule = options.loadStatuslineSegments ?? null;
+    this.executeCodeGraphToolOverride = options.executeCodeGraphTool;
+    this.engineDaemonClientModule = options.engineDaemonClient
+      ? Promise.resolve(options.engineDaemonClient)
+      : null;
     this.engineLifecycle = createEngineLifecycle({
       getEngine: () => this.engine,
       setEngine: (engine) => { this.engine = engine; },
@@ -1490,6 +1543,7 @@ export class EngineHost {
       packaged: this.packaged,
       resourcesPath: this.resourcesPath,
       appPath: this.appPath,
+      executeCodeGraphTool: this.executeCodeGraphToolOverride,
     });
   }
 
@@ -1720,16 +1774,10 @@ export class EngineHost {
 
   async listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
     const started = DESKTOP_PERF_ENABLED ? performance.now() : 0;
-    if (!this.engine) {
-      await this.exclusive(async () => {
-        if (this.engine) return;
-        const workspace = await this.taskWorkspace();
-        await this.replaceEngine(workspace, {
-          classification: 'task',
-          projectPath: null,
-        }, 'desktop-model-selector');
-      });
-    }
+    // Catalog is host-level, not session-state. A disposed remote view left as
+    // `this.engine` used to fail the picker with "This session view is disposed"
+    // while recent models still rendered from localStorage.
+    await this.ensureLiveEngine('desktop-model-selector');
     const engine = this.requireEngine();
     if (DESKTOP_PERF_ENABLED) {
       this.perfLog(`model-catalog engine-ready ms=${(performance.now() - started).toFixed(0)}`);
@@ -1738,7 +1786,7 @@ export class EngineHost {
       ? 'refresh'
       : options.quick === true ? 'quick' : 'full';
     const existing = this.modelCatalogRequests.get(requestKey);
-    if (existing?.engine === engine) {
+    if (existing?.engine === engine && this.engineViewIsLive(engine)) {
       if (DESKTOP_PERF_ENABLED) {
         this.perfLog(`model-catalog joined mode=${requestKey} ms=${(performance.now() - started).toFixed(0)}`);
       }
@@ -2347,8 +2395,10 @@ export class EngineHost {
   }
 
   private sessionEngineFor(sessionId: string): MixdogEngine | null {
-    const activeEngine = String(this.engine?.getState?.()?.sessionId || '') === sessionId
-      ? this.engine
+    const active = this.engine;
+    const activeEngine = this.engineViewIsLive(active)
+      && String(active?.getState?.()?.sessionId || '') === sessionId
+      ? active
       : null;
     // Same identity rule as the submit path: a pane must never be told a
     // moved-on (or released) view still owns its session.
@@ -2761,7 +2811,9 @@ export class EngineHost {
       await this.applyPendingFastPreference(engine);
     }
     const submitState = engine.getState();
-    const accepted = engine.submit(prompt, options);
+    const accepted = typeof engine.submitAsync === 'function'
+      ? await engine.submitAsync(prompt, options)
+      : engine.submit(prompt, options);
     let sessionId = String(engine.getState()?.sessionId || '');
     if (accepted && !sessionId) {
       // engine.newSession() clears the runtime session id and submit defers
@@ -2866,6 +2918,13 @@ export class EngineHost {
   async submit(prompt: DesktopPromptContent, options: DesktopSubmitOptions = {}): Promise<boolean> {
     if (!hasPromptContent(prompt)) return false;
     const submitStartedAt = DESKTOP_PERF_ENABLED ? performance.now() : 0;
+    const activeSessionId = String(this.engine?.getState()?.sessionId || '');
+    if (activeSessionId && !this.engineViewIsLive(this.engine)) {
+      const accepted = await this.submitToSession(activeSessionId, prompt, options);
+      this.logSubmitAcceptance(submitStartedAt, accepted, options);
+      return accepted;
+    }
+    await this.ensureLiveEngine('desktop-submit');
     let accepted = false;
     await this.exclusive(async () => {
       ({ accepted } = await this.submitActiveEngine(prompt, options));
@@ -2894,14 +2953,17 @@ export class EngineHost {
   /** The pooled engine that owns sessionId — the active engine first, then
    *  the park registry. Null when that session has no live engine. */
   private pooledEngineById(sessionId: string): MixdogEngine | null {
-    if (this.engine && String(this.engine.getState()?.sessionId || '') === sessionId) {
+    // A disposed active remote view is not a live owner — treat it as absent
+    // so attach/catalog paths re-source instead of calling through a zombie.
+    if (this.engineViewIsLive(this.engine)
+      && String(this.engine?.getState()?.sessionId || '') === sessionId) {
       return this.engine;
     }
     return this.pooledSessionEngine(sessionId);
   }
 
   /** A park entry is valid only while its view still CARRIES that session.
-   *  A daemon adoption moves a view onto another session's engine, and a
+   *  A daemon projection can move onto another session, and a
    *  released view stops delivering entirely — either way the entry is stale.
    *  Trusting it fed a pane another session's lane (or none: the pane went
    *  blank with no model on its composer) and could address a prompt at the
@@ -2942,14 +3004,17 @@ export class EngineHost {
     let accepted = false;
     let unowned = false;
     await this.exclusive(async () => {
-      if (this.engine && String(this.engine.getState()?.sessionId || '') === sessionId) {
+      if (this.engineViewIsLive(this.engine)
+        && String(this.engine?.getState()?.sessionId || '') === sessionId) {
         ({ accepted } = await this.submitActiveEngine(prompt, options));
         return;
       }
       const parked = this.pooledSessionEngine(sessionId);
       if (!parked) { unowned = true; return; }
       const submitState = parked.getState();
-      accepted = parked.submit(prompt, options);
+      accepted = typeof parked.submitAsync === 'function'
+        ? await parked.submitAsync(prompt, options)
+        : parked.submit(prompt, options);
       // A view that refuses the prompt (released mid-submit) must fall through
       // to the daemon rather than report a phantom acceptance.
       if (accepted) this.recordSubmitLease(parked, submitState, sessionId);
@@ -3062,9 +3127,9 @@ export class EngineHost {
     }
   }
 
-  /** Give a daemon-hosted session a LOCAL view so its pane streams live. The
-   *  daemon adopts the engine that already owns the session (one writer per
-   *  session), so this costs a mirror — never a second engine. */
+  /** Give a daemon-hosted session a local projection so its pane streams live.
+   *  The daemon keeps the existing session owner (one writer per session), so
+   *  this adds only a subscription — never a second engine. */
   private attachSessionView(sessionId: string): Promise<void> {
     const pending = this.sessionViewAttachments.get(sessionId);
     if (pending) return pending;
@@ -3296,7 +3361,7 @@ export class EngineHost {
   ): boolean {
     const engine = this.engine;
     const currentScope = this.engineDesktopSession;
-    if (!engine || !this.engineWorkspace || !currentScope
+    if (!engine || !this.engineViewIsLive(engine) || !this.engineWorkspace || !currentScope
       || engineHasActiveWork(engine, this.pendingSubmitLeases)) return false;
     if (normalizedProjectKey(this.engineWorkspace) !== normalizedProjectKey(workspace)
       || currentScope.classification !== desktopSession.classification) return false;
@@ -3340,15 +3405,20 @@ export class EngineHost {
     if (DESKTOP_READ_CAPABILITY_SET.has(capability)) {
       const readTarget = await this.routeTargetEngine(sessionId);
       await this.exclusive(async () => {
-        if (readTarget) return;
-        if (this.engine) return;
+        if (readTarget && this.engineViewIsLive(readTarget)) return;
+        if (this.engineViewIsLive(this.engine)) return;
+        if (this.engine && !this.engineViewIsLive(this.engine)) {
+          await this.disposeCurrent(`desktop-capability-${capability}-stale`, { keepBackgroundWork: true });
+        }
         const workspace = await this.taskWorkspace();
         await this.replaceEngine(workspace, {
           classification: 'task',
           projectPath: null,
         }, `desktop-capability-${capability}`);
       });
-      const engine = readTarget ?? this.requireEngine();
+      const engine = (readTarget && this.engineViewIsLive(readTarget))
+        ? readTarget
+        : this.requireEngine();
       const method = engine[capability];
       if (typeof method !== 'function') {
         throw new Error(`The active Mixdog engine does not support ${capability}.`);
@@ -3371,14 +3441,23 @@ export class EngineHost {
     // takes it). Null means "the surface this window currently reads".
     const target = await this.routeTargetEngine(sessionId);
     await this.exclusive(async () => {
-      if (!target && !this.engine) {
+      if (target && this.engineViewIsLive(target)) {
+        // Addressed live view already resolved outside the lock.
+      } else if (this.engineViewIsLive(this.engine)) {
+        // Focused live view is fine for draft/window-scoped capabilities.
+      } else {
+        if (this.engine && !this.engineViewIsLive(this.engine)) {
+          await this.disposeCurrent(`desktop-capability-${capability}-stale`, { keepBackgroundWork: true });
+        }
         const workspace = await this.taskWorkspace();
         await this.replaceEngine(workspace, {
           classification: 'task',
           projectPath: null,
         }, `desktop-capability-${capability}`);
       }
-      const engine = target ?? this.requireEngine();
+      const engine = (target && this.engineViewIsLive(target))
+        ? target
+        : this.requireEngine();
       const method = engine[capability];
       if (typeof method !== 'function') {
         throw new Error(`The active Mixdog engine does not support ${capability}.`);
@@ -3414,20 +3493,9 @@ export class EngineHost {
   async readCapabilities(
     requests: ReadonlyArray<DesktopCapabilityReadRequest>,
   ): Promise<DesktopCapabilityReadResult[]> {
-    // Only a MISSING engine needs the transition lock. Taking it unconditionally
-    // queued read sweeps behind any lock holder — including the settings sweep's
-    // own memoryControl call — so the second batch of a hydration could wait on
-    // the memory daemon and leave those sections empty for seconds.
-    if (!this.engine) {
-      await this.exclusive(async () => {
-        if (this.engine) return;
-        const workspace = await this.taskWorkspace();
-        await this.replaceEngine(workspace, {
-          classification: 'task',
-          projectPath: null,
-        }, 'desktop-capability-read');
-      });
-    }
+    // Only a missing or disposed view takes the transition lock. The read sweep
+    // itself remains outside it so settings hydration cannot block navigation.
+    await this.ensureLiveEngine('desktop-capability-read');
     const engine = this.requireEngine();
     const started = DESKTOP_PERF_ENABLED ? performance.now() : 0;
     const results: DesktopCapabilityReadResult[] = [];
@@ -3556,6 +3624,36 @@ export class EngineHost {
   private requireEngine(): MixdogEngine {
     if (!this.engine) throw new Error('No Mixdog project is active.');
     return this.engine;
+  }
+
+  /** Remote session views flip disposedView after dispose(); the host can still
+   *  hold the zombie as `this.engine` until the next navigation. Catalog and
+   *  capability reads must not call through a disposed view. */
+  private engineViewIsLive(engine: MixdogEngine | null | undefined): boolean {
+    if (!engine) return false;
+    try {
+      return engine.disposedView !== true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Ensure a non-disposed engine exists for host-level reads (model catalog,
+   *  provider setup). Recovers from a disposed active remote view without
+   *  requiring the user to switch sessions first. */
+  private async ensureLiveEngine(reason: string): Promise<void> {
+    if (this.engineViewIsLive(this.engine)) return;
+    await this.exclusive(async () => {
+      if (this.engineViewIsLive(this.engine)) return;
+      if (this.engine) {
+        await this.disposeCurrent(`${reason}-stale`, { keepBackgroundWork: true });
+      }
+      const workspace = await this.taskWorkspace();
+      await this.replaceEngine(workspace, {
+        classification: 'task',
+        projectPath: null,
+      }, reason);
+    });
   }
 
   private async applyPendingFastPreference(engine: MixdogEngine): Promise<void> {

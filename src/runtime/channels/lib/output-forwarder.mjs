@@ -299,7 +299,12 @@ class OutputForwarder {
   /** Extract new assistant text + tool logs from transcript since readFileSize */
   extractNewText(uncapped = false) {
     const { lines: newLines, nextFileSize } = this.readNewLines(uncapped);
-    let newText = "";
+    // One JSONL assistant entry is one semantic output block. Joining entries
+    // with a single newline glued a preamble directly onto its following tool
+    // card, and glued consecutive Run/Update cards into one dense script wall.
+    // Preserve every block's internal Markdown, but put exactly one blank line
+    // between visible entry blocks.
+    const blocks = [];
     for (const l of newLines) {
       try {
         const entry = JSON.parse(l);
@@ -323,7 +328,7 @@ class OutputForwarder {
               let diffContent = shown.join("\n");
               if (diffLines.length > 15) diffContent += "\n... +" + (diffLines.length - 15) + " lines";
               const block = safeCodeBlock(diffContent, "diff");
-              newText += block + "\n";
+              blocks.push(block);
             }
           }
           continue;
@@ -368,12 +373,15 @@ class OutputForwarder {
               }
             }
           }
-          if (parts.length) newText += parts.join("\n") + "\n";
+          if (parts.length) {
+            const block = parts.join("\n").trim();
+            if (block) blocks.push(block);
+          }
         }
       } catch {
       }
     }
-    return { text: newText.trim(), nextFileSize };
+    return { text: blocks.join("\n\n"), nextFileSize };
   }
   // ── Single-send gate ──────────────────────────────────────────────
   // All Discord sends pass through sendOnce() so duplicate concurrent sends are avoided.
@@ -410,6 +418,13 @@ class OutputForwarder {
       this.commitReadProgress(item.nextFileSize);
       return;
     }
+    // The active transcript/turn owns Discord continuation spacing. A daemon
+    // backend is shared by every client and scheduler, so backend-global send
+    // counts cannot decide whether THIS session's item is its first response.
+    // Freeze the decision on the queue item so retries remain byte-identical.
+    if (typeof item._continuation !== "boolean") {
+      item._continuation = this.sentCount > 0;
+    }
     // Backend owns chunking + send retry: pass the whole (unchunked) text once.
     // On failure the backend has already exhausted its per-chunk retries and
     // throws; we re-throw so drainQueue/scheduleRetry requeues the whole item.
@@ -418,7 +433,10 @@ class OutputForwarder {
       // failure so the backend resumes at the failed chunk instead of
       // re-sending chunks that already landed. The token is opaque here —
       // the forwarder only stores/passes/clears it, never interprets it.
-      await this.cb.send(targetChannelId, formatted, item._resumeToken ? { resumeToken: item._resumeToken } : undefined);
+      await this.cb.send(targetChannelId, formatted, {
+        continuation: item._continuation,
+        ...(item._resumeToken ? { resumeToken: item._resumeToken } : {}),
+      });
       dropTrace("discord.send.ok", null);
       // A zombie completion (send abandoned past the settlement cap, gen bumped)
       // must not mutate ANY item/queue state — including the resume token.
@@ -426,6 +444,7 @@ class OutputForwarder {
       // Full success — drop any stale token so a later reuse of this item
       // object can't carry a dead token.
       item._resumeToken = undefined;
+      item._continuation = undefined;
     } catch (err) {
       // Persist the opaque resume token (if any) on the item so the requeued
       // retry resumes from the failed chunk.

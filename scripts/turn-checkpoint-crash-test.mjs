@@ -148,7 +148,8 @@ if (process.argv.includes('--crash-child')) {
         const peekedText = JSON.stringify(peeked.items);
         assert.match(peekedText, /completed iteration/);
         assert.match(peekedText, /partial after completed tool/);
-        assert.match(peekedText, /Request interrupted by process restart/);
+        // Display maps the model-only process-restart marker to Cancelled.
+        assert.match(peekedText, /"kind":"turndone"[^}]*"status":"cancelled"/);
         assert.equal(existsSync(checkpointPath), false);
 
         const resumed = await resumeSession(ready.sessionId, 'readonly');

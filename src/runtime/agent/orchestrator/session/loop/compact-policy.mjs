@@ -112,8 +112,8 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
     if (!boundaryTokens) return null;
     const compactBoundaryTokens = Math.max(1, Math.floor(boundaryTokens * COMPACT_SAFETY_PERCENT));
     // Shared session-compaction policy (context-utils): agent semantic keeps the
-    // default early-trigger buffer (90%); main/user use their independently
-    // configurable 25% default headroom (75%);
+    // default early-trigger buffer (90%); main/user default to full-window
+    // trigger (buffer 0 / 100%), still overridable via mainBuffer*;
     // a truly-explicit sub-boundary limit wins. explicitAutoCompactTokenLimit
     // is the sanitized (null when legacy full-window) value so telemetry never
     // re-persists a boundary-collapsing limit.

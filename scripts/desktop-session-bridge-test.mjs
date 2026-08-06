@@ -18,6 +18,7 @@ import {
 } from '../src/runtime/agent/orchestrator/session/store-summary-reader.mjs';
 import { createLifecycleApi, resolveResumeCwd } from '../src/session-runtime/lifecycle-api.mjs';
 import { createSessionTurnApi } from '../src/session-runtime/session-turn-api.mjs';
+import { createMcpGlue } from '../src/session-runtime/mcp-glue.mjs';
 import { createRoutePreparationGate } from '../src/session-runtime/route-preparation.mjs';
 import { createCwdPlugins } from '../src/session-runtime/cwd-plugins.mjs';
 import {
@@ -71,7 +72,7 @@ test('worker save payload removes disk-ineligible media before structured clone'
   assert.doesNotThrow(() => structuredClone(payload));
 });
 
-test('heavy runtime prewarm is armed by the first real turn, never idle startup', () => {
+test('heavy runtime prewarm is armed after the first stream delta, never idle startup', () => {
   const core = readFileSync(
     fileURLToPath(new URL('../src/session-runtime/runtime-core.mjs', import.meta.url)),
     'utf8',
@@ -86,7 +87,112 @@ test('heavy runtime prewarm is armed by the first real turn, never idle startup'
   );
   assert.doesNotMatch(startup, /scheduleLeadSessionPrewarm|scheduleToolRuntimeWarmup\(\)|scheduleCodeGraphPrewarm\(/);
   assert.match(turn, /scheduleToolRuntimeWarmup\?\.\(0\)/);
-  assert.match(turn, /scheduleCodeGraphPrewarm\?\.\(0, 'first-turn'\)/);
+  assert.match(turn, /scheduleCodeGraphPrewarm\?\.\(0, reason\)/);
+  assert.match(turn, /armHeavyRuntimeWarmup\('first-stream'\)/);
+});
+
+test('first stream delta wins the TTFT path before heavy runtime prewarm', async () => {
+  const events = [];
+  let current = {
+    id: 'ttft_session',
+    provider: 'test',
+    model: 'model',
+    messages: [],
+    tools: [],
+    deferredToolCatalog: [],
+    deferredInitialRefreshPending: false,
+  };
+  let activeTurns = 0;
+  let firstTurnCompleted = false;
+  let prewarmDone = false;
+  let timing = null;
+  const timingListener = (row) => { timing = row; };
+  process.once('mixdog:turn-timing', timingListener);
+  try {
+    const runtime = createSessionTurnApi({
+      getSession: () => current,
+      setSession: (value) => { current = value; },
+      getCurrentCwd: () => '/project',
+      getActiveTurnCount: () => activeTurns,
+      setActiveTurnCount: (value) => { activeTurns = value; },
+      isFirstTurnCompleted: () => firstTurnCompleted,
+      setFirstTurnCompleted: (value) => { firstTurnCompleted = value; },
+      getCodeGraphFirstTurnPrewarmDone: () => prewarmDone,
+      setCodeGraphFirstTurnPrewarmDone: (value) => { prewarmDone = value; },
+      getRemoteEnabled: () => false,
+      refreshSessionForCwdIfNeeded: async () => {},
+      createCurrentSession: async () => current,
+      scheduleToolRuntimeWarmup: () => events.push('tool-prewarm'),
+      scheduleCodeGraphPrewarm: (_delay, reason) => events.push(`graph-prewarm:${reason}`),
+      hooks: {
+        emit: () => {},
+        dispatch: async () => ({}),
+      },
+      hookCommonPayload: (value) => value,
+      mgr: {
+        askSession: async (...args) => {
+          events.push('provider-dispatch');
+          assert.deepEqual(events, ['mcp:150', 'provider-dispatch']);
+          args[6].onStreamDelta('text');
+          events.push('provider-streaming');
+          return { content: 'done' };
+        },
+        getSession: () => current,
+        enqueuePendingMessage: () => 0,
+      },
+      notifyFnForSession: () => () => {},
+      awaitInitialMcpConnect: async (graceMs) => { events.push(`mcp:${graceMs}`); },
+      mcpTurnGraceMs: 150,
+      awaitRoutePreparation: async () => {},
+      sessionTitles: {},
+      scheduleProviderWarmup: () => {},
+      scheduleProviderModelWarmup: () => {},
+    });
+
+    const submittedAt = Date.now() - 20;
+    const response = await runtime.ask('hello', { id: 'ttft-request', submittedAt });
+    assert.equal(response.result.content, 'done');
+    assert.deepEqual(events, [
+      'mcp:150',
+      'provider-dispatch',
+      'tool-prewarm',
+      'graph-prewarm:first-stream',
+      'provider-streaming',
+    ]);
+    assert.equal(activeTurns, 0);
+    assert.equal(prewarmDone, true);
+    assert.equal(timing?.status, 'first-delta');
+    assert.equal(timing?.sessionId, current.id);
+    assert.equal(timing?.requestId, 'ttft-request');
+    assert.ok(timing?.endToEndTtftMs >= 20);
+    assert.ok(timing?.queueMs >= 20);
+    assert.ok(timing?.ttftMs >= timing?.providerMs);
+  } finally {
+    process.off('mixdog:turn-timing', timingListener);
+  }
+});
+
+test('MCP connect wait is capped by the turn TTFT grace', async () => {
+  const state = {
+    mcpFailures: [],
+    mcpConnectGeneration: 0,
+    mcpConnectInFlight: new Promise(() => {}),
+  };
+  const glue = createMcpGlue({
+    mcpClient: {
+      resolveMcpStartupTimeoutMs: () => 10_000,
+    },
+    getConfig: () => ({}),
+    getCurrentCwd: () => '/project',
+    state,
+  });
+  let settled = false;
+  const startedAt = performance.now();
+  const waiting = glue.awaitInitialMcpConnect(25).then(() => { settled = true; });
+  await delay(5);
+  assert.equal(settled, false);
+  await waiting;
+  assert.ok(performance.now() - startedAt < 300);
 });
 
 test('generated titles persist through the shared session file and summary catalog', async () => {

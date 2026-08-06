@@ -87,7 +87,6 @@ class TelegramBackend {
   configFile;
   isStatic;
   initialAccess;
-  sendCount = 0;
   // Long-poll state.
   _polling = false;
   _pollAbort = null;
@@ -301,9 +300,6 @@ class TelegramBackend {
     this._typingIntervals.clear();
     this._connectPromise = null;
   }
-  resetSendCount() {
-    this.sendCount = 0;
-  }
   // ── Outbound ───────────────────────────────────────────────────────
   // Mirrors DiscordBackend.sendMessage: OWNS chunking + per-chunk retry + the
   // opaque resume-token contract so output-forwarder (which passes whole text
@@ -421,7 +417,6 @@ class TelegramBackend {
           }
         }
       }
-      this.sendCount += sentIds.length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const wrapped = new Error(`send failed after ${sentIds.length}/${chunks.length} chunk(s): ${msg}`);

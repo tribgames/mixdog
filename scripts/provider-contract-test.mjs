@@ -33,7 +33,17 @@ import {
     isInclusiveProvider,
 } from '../src/runtime/shared/llm/cost.mjs';
 import { createProviderAuthApi } from '../src/session-runtime/provider-auth-api.mjs';
+import { createProviderModels } from '../src/session-runtime/provider-models.mjs';
+import {
+    providerModelCacheRow,
+    sortProviderModels,
+} from '../src/session-runtime/model-recency.mjs';
 import { createProviderUsage } from '../src/session-runtime/provider-usage.mjs';
+import {
+    _withLoadedProviderCtorForTest,
+    providerCatalogRevision,
+    refreshProviderCatalogsOnStartup,
+} from '../src/runtime/agent/orchestrator/providers/registry.mjs';
 import {
     consumeOpenAICodexResetCredit,
     fetchOpenAICodexResetCredits,
@@ -52,6 +62,77 @@ function stream(events) {
         },
     };
 }
+
+test('startup provider catalog refresh runs once for every session runtime in the process', async () => {
+    let refreshes = 0;
+    class CatalogProvider {
+        async _refreshModelCache() {
+            refreshes += 1;
+            return [{ id: 'catalog-model' }];
+        }
+    }
+    const before = providerCatalogRevision();
+    const requests = _withLoadedProviderCtorForTest('catalog-startup-test', CatalogProvider, () => {
+        const first = refreshProviderCatalogsOnStartup();
+        const second = refreshProviderCatalogsOnStartup();
+        assert.equal(first, second);
+        return [first, second];
+    });
+    await Promise.all(requests);
+    assert.equal(refreshes, 1);
+    assert.equal(providerCatalogRevision(), before + 1);
+});
+
+test('session runtimes share one provider catalog read and rebuild only their local preferences', async () => {
+    let reads = 0;
+    let revision = 73001;
+    const provider = {
+        async listModels() {
+            reads += 1;
+            return [{ id: `shared-${revision}`, display: 'Shared model', mode: 'chat' }];
+        },
+    };
+    const registry = {
+        getAllProviders: () => new Map([['shared-provider', provider]]),
+        providerCatalogRevision: () => revision,
+    };
+    const factory = () => createProviderModels({
+        caches: {
+            providerModelsCache: { models: null, at: 0 },
+            providerModelsPromise: null,
+            providerModelsLoadSeq: 0,
+            searchProviderModelsCache: { models: null, at: 0 },
+        },
+        modelMetaByRoute: new Map(),
+        getRoute: () => ({ provider: 'shared-provider' }),
+        getConfig: () => ({}),
+        getReg: () => registry,
+        searchCapableFor: () => false,
+        sortProviderModelsRaw: sortProviderModels,
+        providerModelCacheRowRaw: providerModelCacheRow,
+        normalizeSearchProviderId: (value) => value,
+        isSearchCapableProvider: () => false,
+        ensureFullConfig: () => {},
+        awaitKeychainPrewarm: async () => {},
+        ensureProvidersReady: async () => {},
+        bootProfile: () => {},
+        scheduleProviderModelWarmup: () => {},
+        quickHelpers: {},
+    });
+    const first = factory();
+    const second = factory();
+    const [left, right] = await Promise.all([
+        first.collectProviderModels(),
+        second.collectProviderModels(),
+    ]);
+    assert.equal(reads, 1);
+    assert.equal(left[0].id, right[0].id);
+
+    revision += 1;
+    const refreshed = await second.collectProviderModels();
+    assert.equal(reads, 2);
+    assert.equal(refreshed[0].id, `shared-${revision}`);
+});
 
 test('provider setup refresh waits for keychain readiness and bypasses stale setup state', async () => {
     const calls = [];

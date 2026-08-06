@@ -246,7 +246,25 @@ function isInstantPanelCloseTransition(prevSignature, nextSignature, initialProj
   return false;
 }
 
-export function App({ store, initialStatusLine = '', forceOnboarding = false }) {
+// First-run gate. The daemon-backed engine store answers any method it does
+// not implement locally with an async remote call, so a synchronous
+// getOnboardingStatus() probe can hand back a Promise instead of the status
+// object — which read as "not completed" and re-opened a dismissed wizard on
+// every launch. runTui resolves the status before mount and passes the verdict
+// in; only a local store (tests, direct mounts) falls back to the sync probe,
+// and anything unresolvable counts as completed.
+function resolveOnboardingCompleted(store, onboardingCompleted) {
+  if (typeof onboardingCompleted === 'boolean') return onboardingCompleted;
+  try {
+    const status = store.getOnboardingStatus?.();
+    if (!status || typeof status !== 'object' || typeof status.then === 'function') return true;
+    return status.completed === true;
+  } catch {
+    return true;
+  }
+}
+
+export function App({ store, initialStatusLine = '', forceOnboarding = false, onboardingCompleted = undefined }) {
   const state = useEngine(store);
   const [toolOutputExpanded, setToolOutputExpanded] = useState(false);
   // True for the entire first-run onboarding wizard (every step + nested depth)
@@ -409,11 +427,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   const initialPickerBuiltRef = useRef(false);
   if (!initialPickerBuiltRef.current) {
     initialPickerBuiltRef.current = true;
-    let onboardingOwnsScreen = false;
-    try {
-      const status = store.getOnboardingStatus?.();
-      onboardingOwnsScreen = status?.completed !== true || forceOnboarding;
-    } catch { /* status probe failed → fall through to the project picker */ }
+    const onboardingOwnsScreen = !resolveOnboardingCompleted(store, onboardingCompleted) || forceOnboarding;
     if (!onboardingOwnsScreen && state.items.length === 0) {
       setPicker(projectPicker.buildProjectPickerState({ initialEntry: true }));
     }
@@ -913,22 +927,17 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
 
   useEffect(() => {
     if (onboardingStartedRef.current) return undefined;
+    if (resolveOnboardingCompleted(store, onboardingCompleted) && !forceOnboarding) return undefined;
     let canceled = false;
-    try {
-      const status = store.getOnboardingStatus?.();
-      if (status?.completed === true && !forceOnboarding) return undefined;
-      onboardingStartedRef.current = true;
-      setOnboardingActive(true);
-      setTimeout(() => {
-        if (!canceled) openOnboardingAuthStep();
-      }, 0);
-    } catch {
-      // If status probing fails, do not block normal TUI startup.
-    }
+    onboardingStartedRef.current = true;
+    setOnboardingActive(true);
+    setTimeout(() => {
+      if (!canceled) openOnboardingAuthStep();
+    }, 0);
     return () => {
       canceled = true;
     };
-  }, [store, forceOnboarding]);
+  }, [store, forceOnboarding, onboardingCompleted]);
 
   // Prompt submit dispatcher (text-entry prompts, slash commands, chat
   // submit + pasted-token expansion): app/prompt-submit.mjs.

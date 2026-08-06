@@ -24,6 +24,10 @@ export function readRuntimeTunables() {
     statuslineUsageRefreshDelayMs: envDelayMs('MIXDOG_STATUSLINE_USAGE_REFRESH_MS', 240_000, { min: 30_000, max: 540_000 }),
     channelStartDelayMs: envDelayMs('MIXDOG_CHANNEL_START_DELAY_MS', 10_000, { min: 0, max: 120_000 }),
     backgroundBusyRetryMs: envDelayMs('MIXDOG_BACKGROUND_BUSY_RETRY_MS', 1_000, { min: 50, max: 10_000 }),
+    // MCP startup must not own the first-token critical path. Servers that do
+    // not connect inside this small grace period join through the existing
+    // late-tool announcement path on the next turn.
+    mcpTurnGraceMs: envDelayMs('MIXDOG_MCP_TURN_GRACE_MS', 150, { min: 0, max: 2_000 }),
     // Boot-time remote start is deferred past the first frame; see the caller.
     remoteAutoStartDelayMs: envDelayMs('MIXDOG_REMOTE_AUTOSTART_DELAY_MS', 1_500, { min: 0, max: 60_000 }),
     providerWarmupEnabled: !envFlag('MIXDOG_DISABLE_PROVIDER_WARMUP')

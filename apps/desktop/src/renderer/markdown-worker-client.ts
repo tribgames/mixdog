@@ -18,6 +18,7 @@ const AST_CACHE_MAX_ENTRY_CHARACTERS = 128 * 1024;
 const astCache = new Map<string, MarkdownAstRoot>();
 let astCacheCharacters = 0;
 let markdownWorker: Worker | null = null;
+let markdownWorkerFailure: Error | null = null;
 let requestSequence = 0;
 const pendingRequests = new Map<number, PendingMarkdownRequest>();
 
@@ -55,14 +56,20 @@ function rejectPendingRequests(error: Error): void {
   pendingRequests.clear();
 }
 
-function resetWorker(error: Error): void {
+function resetWorker(
+  error: Error,
+  permanentlyUnavailable = false,
+  failedWorker: Worker | null = markdownWorker,
+): void {
   rejectPendingRequests(error);
-  markdownWorker?.terminate();
-  markdownWorker = null;
+  failedWorker?.terminate();
+  if (markdownWorker === failedWorker) markdownWorker = null;
+  if (permanentlyUnavailable) markdownWorkerFailure = error;
 }
 
 function getMarkdownWorker(): Worker {
   if (markdownWorker) return markdownWorker;
+  if (markdownWorkerFailure) throw markdownWorkerFailure;
   if (typeof Worker === "undefined") {
     throw new Error("Markdown Worker is unavailable");
   }
@@ -82,10 +89,15 @@ function getMarkdownWorker(): Worker {
     request.resolve(event.data.root);
   });
   worker.addEventListener("error", (event) => {
-    resetWorker(new Error(event.message || "Markdown Worker failed"));
+    // A worker bootstrap error is also dispatched at window. Cancel that
+    // duplicate global error and stop recreating the same broken worker on
+    // every streaming publication; source-shaped Markdown remains readable.
+    event.preventDefault?.();
+    resetWorker(new Error(event.message || "Markdown Worker failed"), true, worker);
   });
-  worker.addEventListener("messageerror", () => {
-    resetWorker(new Error("Markdown Worker returned an unreadable response"));
+  worker.addEventListener("messageerror", (event) => {
+    event.preventDefault?.();
+    resetWorker(new Error("Markdown Worker returned an unreadable response"), true, worker);
   });
   markdownWorker = worker;
   return worker;

@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 
 /** Bump on any incompatible change to the /call contract or frame shapes. */
-export const ENGINE_DAEMON_PROTOCOL = 1;
+export const ENGINE_DAEMON_PROTOCOL = 3;
 
 let cachedVersion = null;
 

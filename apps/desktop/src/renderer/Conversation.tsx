@@ -159,6 +159,7 @@ export function Conversation({
   transitioning,
   composerFocusRequest,
   onNewTask,
+  onClearProject,
   onResumeSession,
   onOpenSessions,
   onOpenSettings,
@@ -189,6 +190,7 @@ export function Conversation({
   transitioning: boolean;
   composerFocusRequest: number;
   onNewTask: () => void;
+  onClearProject: () => void;
   onResumeSession: (id: string) => void;
   onOpenSessions: () => void;
   onOpenSettings: (section?: SettingsSection | null) => void;
@@ -378,9 +380,31 @@ export function Conversation({
   const settledUsers = useMemo(() => settledUserRowCount(settledItems), [settledItems]);
   const settledUsersRef = useRef(settledUsers);
   settledUsersRef.current = settledUsers;
+  // Cross-surface queue parity (Claude Code: ONE queue owns every prompt
+  // waiting behind an active turn, whatever typed it). The moment the engine
+  // publishes this submission in `queued`, the composer's reserved-message
+  // list owns its display — so an app-typed prompt stacks in engine order
+  // beside terminal-typed ones and drains on the next turn loop, instead of
+  // hiding inside the transcript as a private "Queued" card. The optimistic
+  // item stays in state: a prompt that leaves the queue before its durable
+  // row lands falls back to the transcript card instead of blinking out.
+  // Only a prompt submitted BEHIND an active turn hands over. EVERY submit
+  // rides the engine queue for one drain hop (idle ones included, via
+  // autoClearBeforeSubmit), so keying on the queue publication alone put a
+  // brand-new task's very first prompt into the reserved list with an empty
+  // transcript (user report).
+  const engineQueuedIdKey = useMemo(() => (Array.isArray(snapshot.queued)
+    ? snapshot.queued.map((entry) => String(asRecord(entry)?.id ?? "")).join("\u0000")
+    : ""), [snapshot.queued]);
+  const engineQueuedIds = useMemo(
+    () => new Set(engineQueuedIdKey.split("\u0000").filter(Boolean)),
+    [engineQueuedIdKey],
+  );
   const pendingPromptItems = useMemo(
-    () => pendingPromptTranscriptItems(optimisticPrompts, settledItems),
-    [optimisticPrompts, settledItems],
+    () => pendingPromptTranscriptItems(optimisticPrompts, settledItems)
+      .filter((item) => item.queuedBehindTurn !== true
+        || !engineQueuedIds.has(String(item.id))),
+    [engineQueuedIds, optimisticPrompts, settledItems],
   );
   const pendingPromptIds = useMemo(
     () => pendingPromptItems.map((item) => item.id),
@@ -782,7 +806,7 @@ export function Conversation({
           <ProjectContextSelector projects={projects}
             activePath={activeProjectPath} activeLabel={activeProjectLabel}
             disabled={transitioning || Boolean(snapshot.busy)}
-            onClear={onNewTask} onSelect={onSelectProject} onChoose={onChooseProject} />
+            onClear={onClearProject} onSelect={onSelectProject} onChoose={onChooseProject} />
           <WorkflowSelect workflow={(draftWorkflow || routeSnapshot.workflow as RecordValue | null) ?? null}
             disabled={transitioning || (!draftMode && Boolean(routeSnapshot.busy || routeSnapshot.commandBusy))}
             invokeResult={composerInvokeResult} applySnapshot={composerApplySnapshot}

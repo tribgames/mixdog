@@ -2,7 +2,9 @@ import { isAgentOwner } from '../agent-owner.mjs';
 
 export const DEFAULT_COMPACTION_BUFFER_TOKENS = 0;
 export const DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
-export const DEFAULT_MAIN_COMPACTION_BUFFER_RATIO = 0.05;
+// Main/user sessions default to full-window trigger (buffer 0): RFT compact
+// runs at the boundary. Agent sessions keep DEFAULT_COMPACTION_BUFFER_RATIO.
+export const DEFAULT_MAIN_COMPACTION_BUFFER_RATIO = 0;
 export const MAX_COMPACTION_BUFFER_RATIO = 0.25;
 const MAX_BUFFER_INPUT_RATIO = 0.999_999;
 export const DEFAULT_COMPACTION_KEEP_TOKENS = 8_000;
@@ -16,9 +18,14 @@ function envTokenInt(name) {
     return positiveTokenInt(process.env[name]);
 }
 export function normalizeCompactionBufferRatio(value, fallback = DEFAULT_COMPACTION_BUFFER_RATIO) {
+    // Explicit 0 is a valid buffer (main full-window trigger). Only nullish /
+    // empty / non-finite / negative values fall back. Do not treat Number(null)
+    // as zero here — null must mean "unset".
+    if (value == null || value === '') return fallback;
     const n = Number(value);
-    if (Number.isFinite(n) && n > 0) return n > 1 ? n / 100 : n;
-    return fallback;
+    if (!Number.isFinite(n) || n < 0) return fallback;
+    if (n === 0) return 0;
+    return n > 1 ? n / 100 : n;
 }
 export function resolveBufferRatioCandidate(percentInputs = [], ratioInputs = []) {
     for (const raw of percentInputs) {

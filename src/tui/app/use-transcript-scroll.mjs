@@ -502,8 +502,14 @@ export function useTranscriptScroll({
     // exact 0 that re-engages auto-follow. A downward scroll that lands within
     // one notch of the bottom is an unambiguous "go back to the tail" intent —
     // snap it to 0 so re-pinning is deterministic.
-    const BOTTOM_SNAP_ROWS = 3;
-    if (deltaRows < 0 && target > 0 && target <= BOTTOM_SNAP_ROWS) target = 0;
+    // One notch (3 rows) was too tight: fast output adds more rows than that
+    // between two wheel events, so the last notch kept landing one or two rows
+    // short and follow never re-armed (user: 스크롤이 너무 자주 풀린다). The
+    // band now scales with the viewport, mirroring the desktop hook's
+    // REATTACH_THRESHOLD_PX re-attach band.
+    const snapViewRows = Math.max(1, Number(publishedGeometry.viewRows) || 1);
+    const bottomSnapRows = Math.max(3, Math.min(8, Math.ceil(snapViewRows * 0.15)));
+    if (deltaRows < 0 && target > 0 && target <= bottomSnapRows) target = 0;
     const appliedDelta = target - scrollTargetRef.current;
     const blockedReadbackIntent = deltaRows > 0
       && appliedDelta === 0

@@ -4,11 +4,11 @@ import { constants as osConstants, setPriority } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { app, BrowserWindow, dialog, ipcMain, powerMonitor, powerSaveBlocker, screen, session, shell, utilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, powerMonitor, powerSaveBlocker, screen, session, shell } from 'electron';
 
-import { EngineHost } from './engine-host';
 import type { DesktopEngineHost } from './engine-host-api';
 import { UtilityEngineHost } from './utility-engine-host';
+import { DaemonEngineTransport } from './daemon-engine-transport';
 import { readDesktopModelBootstrapSnapshot } from './model-bootstrap';
 import { AgentAwakeService } from './agent-awake';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
@@ -21,15 +21,11 @@ import {
   type GpuFallbackEnvironment,
 } from './gpu-recovery';
 import { registerDesktopIpc } from './ipc';
-import { createCommitMessageGenerator } from './commit-message';
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
 import { installNativeMenu } from './menu';
 import { DesktopSettingsStore } from './settings-store';
-import { TerminalManager } from './terminal-manager';
-import { TerminalHost } from './terminal-host';
 import { desktopUpdater, startAutoUpdater } from './updater';
-import type { RemoteBridgeHandle } from './remote-bridge';
-import type { RemoteRelayHandle } from './remote-relay';
+import type { RemoteAccessDescriptor } from './remote-access-window';
 import {
   DESKTOP_WINDOW_OPTIONS,
   configureTitleBarThemePersistence,
@@ -54,7 +50,7 @@ for (const stream of [process.stdout, process.stderr]) {
   stream?.on?.('error', () => { /* dead stdio pipe: logging is best-effort */ });
 }
 // V8 compile cache for the main process's dynamic imports (remote bridge/
-// relay, dialogs) and the in-main engine fallback. Best-effort no-op when the
+// relay, dialogs) and the daemon backend adapter. Best-effort no-op when the
 // running Node build lacks the API.
 try {
   (nodeModule as { enableCompileCache?: () => unknown }).enableCompileCache?.();
@@ -178,54 +174,54 @@ if (process.env.MIXDOG_DESKTOP_PERF === '1') {
   });
 }
 
-const directEngineHostOptions = {
-  getUserDataPath: () => app.getPath('userData'),
-  packaged: app.isPackaged,
-  resourcesPath: process.resourcesPath,
-  appPath: app.getAppPath(),
-};
-const engineInMain = String(process.env.MIXDOG_ENGINE_PROCESS || '').trim().toLowerCase() === 'main';
-const utilityHost = engineInMain
-  ? null
-  : new UtilityEngineHost({
-    spawn: () => utilityProcess.fork(join(__dirname, 'engine-worker.js'), [], {
-      cwd: process.cwd(),
-      serviceName: 'Mixdog Engine',
-      stdio: 'inherit',
-    }),
-    engineOptions: () => ({
-      userDataPath: app.getPath('userData'),
-      packaged: app.isPackaged,
-      resourcesPath: process.resourcesPath,
-      appPath: app.getAppPath(),
-    }),
-    initialSnapshot: readDesktopModelBootstrapSnapshot(),
-    onDiagnostic: (event, data) => {
-      console.error(`[mixdog] ${event}`, data);
-    },
-  });
-const host: DesktopEngineHost = utilityHost ?? new EngineHost(directEngineHostOptions);
-let engineWorkerBootReported = false;
-function startUtilityEngineWorker(): void {
-  if (!utilityHost) return;
-  if (!engineWorkerBootReported) {
-    engineWorkerBootReported = true;
-    diagnostics?.write('engine-worker-start', {
+const utilityHost = new UtilityEngineHost({
+  spawn: () => new DaemonEngineTransport(
+    pathToFileURL(app.isPackaged
+      ? join(
+        process.resourcesPath,
+        'app.asar.unpacked',
+        'out',
+        'main',
+        'desktop-backend-daemon.cjs',
+      )
+      : join(__dirname, 'desktop-backend-daemon.cjs')).href,
+    process.cwd(),
+  ),
+  engineOptions: () => ({
+    userDataPath: app.getPath('userData'),
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+    rendererDir: app.isPackaged
+      ? join(process.resourcesPath, 'app.asar.unpacked', 'out', 'renderer')
+      : join(__dirname, '../renderer'),
+  }),
+  initialSnapshot: readDesktopModelBootstrapSnapshot(),
+  onDiagnostic: (event, data) => {
+    console.error(`[mixdog] ${event}`, data);
+  },
+});
+const host: DesktopEngineHost = utilityHost;
+let daemonBackendBootReported = false;
+function startDaemonBackend(): void {
+  if (!daemonBackendBootReported) {
+    daemonBackendBootReported = true;
+    diagnostics?.write('daemon-backend-start', {
       totalMs: Date.now() - desktopProcessStartedAt,
     });
   }
   void utilityHost.start()
     .then(() => {
-      diagnostics?.write('engine-worker-ready', {
+      diagnostics?.write('daemon-backend-ready', {
         totalMs: Date.now() - desktopProcessStartedAt,
       });
     })
     .catch((error: unknown) => {
-      diagnostics?.write('engine-worker-start-failed', {
+      diagnostics?.write('daemon-backend-start-failed', {
         totalMs: Date.now() - desktopProcessStartedAt,
         errorName: error instanceof Error ? error.name : typeof error,
       });
-      console.error('Failed to start the Mixdog engine worker:', error);
+      console.error('Failed to start the Mixdog backend daemon:', error);
     });
 }
 // Scheme privileges must be declared before the app is ready, otherwise the
@@ -238,24 +234,58 @@ const settingsStore = new DesktopSettingsStore({
 });
 let mainWindow: BrowserWindow | null = null;
 let removeIpc: (() => void) | null = null;
-// PTYs default to a dedicated utility process (VS Code ptyHost parity) so a
-// flooding shell can never stall the main-process event loop. The in-main
-// backend stays available behind MIXDOG_TERMINAL_PROCESS=main for triage.
-const terminalsInMain = String(process.env.MIXDOG_TERMINAL_PROCESS || '').trim().toLowerCase() === 'main';
-const terminalManager = terminalsInMain
-  ? new TerminalManager()
-  : new TerminalHost(() => utilityProcess.fork(join(__dirname, 'terminal-worker.js'), [], {
-    serviceName: 'Mixdog Terminal',
-    stdio: 'inherit',
-  }));
+// PTYs are daemon-owned; Electron forwards control and receives output events.
+const backendTerminalManager = {
+  async ensure(
+    id: string | null,
+    cwd: string | null,
+    profile?: import('./terminal-worker-protocol').TerminalSpawnProfile | string | null,
+  ): Promise<{ id: string; replay: string }> {
+    const value = await utilityHost.backendInvoke('termEnsure', [id, cwd, profile ?? null]);
+    if (!value || typeof value !== 'object') {
+      throw new Error('The backend terminal did not return a session.');
+    }
+    const result = value as Record<string, unknown>;
+    return { id: String(result.id || ''), replay: String(result.replay || '') };
+  },
+  write(id: string, data: string): void {
+    void utilityHost.backendInvoke('termWrite', [id, data]).catch(() => {});
+  },
+  resize(id: string, cols: number, rows: number): void {
+    void utilityHost.backendInvoke('termResize', [id, cols, rows]).catch(() => {});
+  },
+  pauseOutput(id: string): void {
+    void utilityHost.backendInvoke('termPause', [id]).catch(() => {});
+  },
+  resumeOutput(id: string): void {
+    void utilityHost.backendInvoke('termResume', [id]).catch(() => {});
+  },
+  dispose(id: string): void {
+    void utilityHost.backendInvoke('termDispose', [id]).catch(() => {});
+  },
+  disposeAll(): void {},
+  subscribe(listener: (event: { id: string; data: string }) => void): () => void {
+    return utilityHost.subscribeBackendEvents(({ name, value }) => {
+      if (name !== 'terminal-data' || !value || typeof value !== 'object') return;
+      const event = value as Record<string, unknown>;
+      listener({ id: String(event.id || ''), data: String(event.data || '') });
+    });
+  },
+};
 // Keep-awake spans the app lifetime, not one window: agents keep working
 // while the window is closed on macOS and through renderer reloads.
 const awakeService = new AgentAwakeService(powerSaveBlocker);
 let turnAttention: TurnAttention | null = null;
 let unsubscribeAwake: (() => void) | null = null;
+let unsubscribeBackendSettings: (() => void) | null = null;
 const applyDesktopSettings = (settings: DesktopSettings): void => {
   awakeService.setEnabled(settings.keepAwake !== false);
 };
+unsubscribeBackendSettings = utilityHost.subscribeBackendEvents(({ name, value }) => {
+  if (name === 'desktop-settings-changed' && value && typeof value === 'object') {
+    applyDesktopSettings(value as DesktopSettings);
+  }
+});
 let quitAfterDispose = false;
 let disposalPromise: Promise<void> | null = null;
 const DESKTOP_DISPOSE_TIMEOUT_MS = 4_000;
@@ -264,12 +294,8 @@ let windowStateFlush: Promise<void> = Promise.resolve();
 let diagnostics: DesktopDiagnostics | null = null;
 let diagnosticsMemoryTimer: NodeJS.Timeout | null = null;
 let diagnosticsEventLoopTimer: NodeJS.Timeout | null = null;
-let remoteBridge: RemoteBridgeHandle | null = null;
-let remoteRelay: RemoteRelayHandle | null = null;
 let deferredServicesPromise: Promise<void> | null = null;
 let deferredServicesScheduled = false;
-let remoteBridgeLegPromise: Promise<void> | null = null;
-let remoteRelayLegPromise: Promise<void> | null = null;
 let gpuCrashTimes: number[] = [];
 let gpuFallbackScheduled = softwareRenderingThisLaunch;
 let gpuFallbackPromptOpen = false;
@@ -314,14 +340,13 @@ function installDesktopMenu(): void {
     zoomIn: () => { void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) + 0.2); },
     zoomOut: () => { void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) - 0.2); },
   }, {
-    // Always installed: the click handler starts (or retries) the remote legs
-    // itself, so Ctrl+Shift+R shows real QRs on the first open instead of a
-    // "close this window and try again" note.
+    // The OS window stays in Electron; the daemon owns both remote transports.
     showRemoteAccess: () => {
       void (async () => {
-        if (!await ensureRemoteAccessServices()) return;
+        const info = await remoteAccessInfo();
+        if (!info) return;
         const { showRemoteAccessWindow } = await import('./remote-access-window');
-        await showRemoteAccessWindow(remoteBridge, remoteRelay, mainWindow);
+        await showRemoteAccessWindow(info, mainWindow);
       })().catch((error: unknown) => {
         console.error('Failed to open the remote access window:', error);
       });
@@ -329,117 +354,25 @@ function installDesktopMenu(): void {
   });
 }
 
-// Each remote leg is independently retryable: a failed attempt clears its
-// in-flight guard in `finally`, so the next Settings → Connection read (or
-// Ctrl+Shift+R) tries again instead of leaving a permanent QR-less card.
-function startRemoteBridgeLeg(): Promise<void> {
-  if (remoteBridge) return Promise.resolve();
-  remoteBridgeLegPromise ??= (async () => {
-    try {
-      const { resolveRemoteBridgePort, startRemoteBridge } = await import('./remote-bridge');
-      const remoteBridgePort = resolveRemoteBridgePort(process.env);
-      if (remoteBridgePort === null) return;
-      remoteBridge = await startRemoteBridge({
-        port: remoteBridgePort,
-        host,
-        settingsStore,
-        onDesktopSettingsChanged: applyDesktopSettings,
-        terminals: terminalManager,
-        subscribeTerminalData: (listener) => terminalManager.subscribe(listener),
-        userDataPath: app.getPath('userData'),
-        rendererDir: join(__dirname, '../renderer'),
-      });
-      diagnostics?.write('remote-bridge-started', { port: remoteBridge.port });
-      for (const url of remoteBridge.urls) {
-        // The pairing token is a full remote-control credential — it stays
-        // out of stdout/log files; the QR in Settings → Connection carries it.
-        console.info(`[mixdog] remote bridge ready: ${url} (pair from Settings → Connection)`);
-      }
-    } catch (error) {
-      diagnostics?.write('remote-bridge-failed', {
-        errorName: error instanceof Error ? error.name : typeof error,
-      });
-      console.error('Failed to start the Mixdog remote bridge:', error);
-    } finally {
-      remoteBridgeLegPromise = null;
-    }
-  })();
-  return remoteBridgeLegPromise;
-}
-
-function startRemoteRelayLeg(): Promise<void> {
-  if (remoteRelay) return Promise.resolve();
-  remoteRelayLegPromise ??= (async () => {
-    try {
-      const { resolveRelayUrl, startRemoteRelay } = await import('./remote-relay');
-      const relayUrl = resolveRelayUrl(process.env);
-      if (!relayUrl) return;
-      remoteRelay = await startRemoteRelay({
-        relayUrl,
-        host,
-        settingsStore,
-        onDesktopSettingsChanged: applyDesktopSettings,
-        terminals: terminalManager,
-        subscribeTerminalData: (listener) => terminalManager.subscribe(listener),
-        userDataPath: app.getPath('userData'),
-      });
-      diagnostics?.write('remote-relay-started', {});
-      console.info(`[mixdog] relay client URL: ${remoteRelay.clientUrl}`);
-    } catch (error) {
-      diagnostics?.write('remote-relay-failed', {
-        errorName: error instanceof Error ? error.name : typeof error,
-      });
-      console.error('Failed to start the Mixdog relay client:', error);
-    } finally {
-      remoteRelayLegPromise = null;
-    }
-  })();
-  return remoteRelayLegPromise;
-}
-
 function startDeferredDesktopServices(): Promise<void> {
-  deferredServicesPromise ??= (async () => {
-    await startRemoteBridgeLeg();
-    await startRemoteRelayLeg();
-  })();
+  deferredServicesPromise ??= host.backendInvoke('remoteAccessStart', [])
+    .then(() => undefined)
+    .finally(() => { deferredServicesPromise = null; });
   return deferredServicesPromise;
 }
 
-// Settings → Connection / Ctrl+Shift+R entry point: make sure both remote
-// legs exist, retrying any leg whose earlier start failed. Either leg alone
-// is enough for a pairing card — relay-only covers the bridge-port-conflict
-// case (live + dev app running side by side).
-async function ensureRemoteAccessServices(): Promise<boolean> {
-  await startDeferredDesktopServices();
-  if (!remoteBridge || !remoteRelay) {
-    await Promise.all([startRemoteBridgeLeg(), startRemoteRelayLeg()]);
-  }
-  return Boolean(remoteBridge || remoteRelay);
+async function remoteAccessInfo(): Promise<DesktopRemoteAccessInfo | null> {
+  const descriptor = await host.backendInvoke('remoteAccessInfo', []);
+  if (!descriptor || typeof descriptor !== 'object') return null;
+  const { buildRemoteAccessInfo } = await import('./remote-access-window');
+  return buildRemoteAccessInfo(descriptor as RemoteAccessDescriptor);
 }
 
-// Revocation path: queue the current VPS registration for authenticated
-// deletion, replace both local credentials immediately, then restart the
-// remote legs. QR refresh stays local-first even while the relay is offline;
-// the next successful relay connection drains the deletion queue.
 async function rotateRemoteAccess(): Promise<DesktopRemoteAccessInfo | null> {
-  await startDeferredDesktopServices();
-  const bridge = remoteBridge;
-  const relay = remoteRelay;
-  const { rotateRemoteToken } = await import('./remote-bridge');
-  const { rotateRemoteDevice } = await import('./remote-relay');
-  await Promise.all([
-    rotateRemoteToken(app.getPath('userData')),
-    rotateRemoteDevice(app.getPath('userData')),
-  ]);
-  remoteBridge = null;
-  remoteRelay = null;
-  deferredServicesPromise = null;
-  try { await bridge?.close(); } catch { /* already gone */ }
-  try { await relay?.close(); } catch { /* already gone */ }
-  await startDeferredDesktopServices();
-  if (!remoteBridge && !remoteRelay) return null;
+  const descriptor = await host.backendInvoke('remoteAccessRotate', []);
+  if (!descriptor || typeof descriptor !== 'object') return null;
   const { buildRemoteAccessInfo } = await import('./remote-access-window');
-  return buildRemoteAccessInfo(remoteBridge, remoteRelay);
+  return buildRemoteAccessInfo(descriptor as RemoteAccessDescriptor);
 }
 
 function scheduleDeferredDesktopServices(window: BrowserWindow): void {
@@ -498,17 +431,17 @@ function disposeDesktopResources(): Promise<void> {
   }
   unsubscribeAwake?.();
   unsubscribeAwake = null;
+  unsubscribeBackendSettings?.();
+  unsubscribeBackendSettings = null;
   awakeService.dispose();
   if (!disposalPromise) diagnostics?.write('desktop-stop');
-  terminalManager.disposeAll();
+  backendTerminalManager.disposeAll();
   if (!disposalPromise) {
     const cleanup = Promise.all([
       host.dispose(),
       windowStateFlush,
       windowState?.flush(),
       diagnostics?.flush(),
-      remoteBridge?.close(),
-      remoteRelay?.close(),
     ])
       .then(() => undefined)
       .catch((error: unknown) => {
@@ -698,16 +631,12 @@ async function createWindow(): Promise<void> {
     ipcMain,
     dialog,
     shell,
-    settingsStore,
+    powerMonitor,
+    nativeImage,
     onDesktopSettingsChanged: applyDesktopSettings,
-    generateCommitMessage: createCommitMessageGenerator({ packaged: app.isPackaged }),
     updater: desktopUpdater,
-    terminals: terminalManager,
-    remoteAccessInfo: async () => {
-      if (!await ensureRemoteAccessServices()) return null;
-      const { buildRemoteAccessInfo } = await import('./remote-access-window');
-      return buildRemoteAccessInfo(remoteBridge, remoteRelay);
-    },
+    terminals: backendTerminalManager,
+    remoteAccessInfo,
     rotateRemoteAccess,
   });
   diagnostics?.write('window-created', {
@@ -868,10 +797,10 @@ async function createWindow(): Promise<void> {
       });
     }
     rendererCommitted = true;
-    // The shell has completed its first React frame. Starting the utility
-    // worker here avoids competing with Chromium module/font/bootstrap work;
+    // The shell has completed its first React frame. Starting the daemon
+    // adapter here avoids competing with Chromium module/font/bootstrap work;
     // renderer data reads may have already started the same idempotent promise.
-    startUtilityEngineWorker();
+    startDaemonBackend();
     showWhenComposed();
     scheduleDeferredDesktopServices(window);
   };
@@ -967,7 +896,7 @@ if (!app.requestSingleInstanceLock()) {
       electronVersion: process.versions.electron,
       chromeVersion: process.versions.chrome,
       nodeVersion: process.versions.node,
-      engineProcess: engineInMain ? 'main' : 'utility',
+      engineProcess: 'daemon',
       gpuRendering: softwareRenderingThisLaunch ? 'software-fallback' : 'hardware',
       ...(gpuFallbackMarker
         ? { gpuFallbackCrashes: gpuFallbackMarker.crashesInWindow }
@@ -986,7 +915,7 @@ if (!app.requestSingleInstanceLock()) {
       // The blocker may have been dropped across sleep; re-assert it, and
       // redial the relay leg instead of waiting for the ping cycle.
       awakeService.reevaluate();
-      remoteRelay?.resume();
+      void host.backendInvoke('remoteAccessResume', []).catch(() => {});
     });
     diagnosticsMemoryTimer = setInterval(() => {
       diagnostics?.write('process-memory', { processes: currentProcessMemory() });

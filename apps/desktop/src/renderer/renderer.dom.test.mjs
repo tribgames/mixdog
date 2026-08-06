@@ -471,6 +471,79 @@ test("streamed fenced scripts retain one code wrapper through promotion and sett
     "settlement must preserve the code wrapper");
 });
 
+// The renderer publishes at 20 Hz while a worker parse of a long tail can take
+// longer than one publication. Requiring an exact text match before promoting
+// a parse discarded every result of such a stream, so the tail kept its raw
+// "**" markers until output stopped (user: 문장이 완성되기 전까지 마크다운
+// 포맷이 적용 안 된다). OpenCode keeps `html.latest` mounted instead.
+test("the live markdown tail keeps its styling while the parser trails the stream", async () => {
+  installDom();
+  await preloadStreamingMarkdownBody();
+  const { parseMarkdownToHast } = await import("./markdown-ast.ts");
+  let queued = [];
+  let worker = null;
+  class TrailingMarkdownWorker {
+    constructor() {
+      this.handlers = new Map();
+      worker = this;
+    }
+    addEventListener(type, handler) {
+      if (!this.handlers.has(type)) this.handlers.set(type, []);
+      this.handlers.get(type).push(handler);
+    }
+    emit(type, event) {
+      for (const handler of this.handlers.get(type) || []) handler(event);
+    }
+    postMessage(message) {
+      queued.push(() => this.emit("message", {
+        data: { id: message.id, root: parseMarkdownToHast(String(message.text ?? "")) },
+      }));
+    }
+    terminate() {}
+  }
+  globalThis.Worker = TrailingMarkdownWorker;
+  const renderResponse = async (text) => act(async () => {
+    root.render(React.createElement(MarkdownResponse, { text, streaming: true }));
+    await Promise.resolve();
+  });
+  const deliverParses = async () => {
+    // The queue is single-flight: answering the in-flight parse starts the
+    // next one, which posts another message.
+    for (let round = 0; round < 4 && queued.length > 0; round += 1) {
+      const pending = queued;
+      queued = [];
+      await act(async () => {
+        for (const deliver of pending) deliver();
+        await Promise.resolve();
+      });
+    }
+  };
+  try {
+    await renderResponse("## Trailing parse\n\n**bold tail");
+    await deliverParses();
+    const markdown = document.querySelector(".markdown");
+    assert.ok(markdown.querySelector("strong"), "the healed live tail must render as bold");
+
+    // Two further publications land while the worker still owes a result.
+    await renderResponse("## Trailing parse\n\n**bold tail keeps");
+    await renderResponse("## Trailing parse\n\n**bold tail keeps growing");
+    assert.ok(markdown.querySelector("strong"),
+      "a trailing parse must keep the last completed AST mounted");
+    assert.doesNotMatch(markdown.textContent, /\*\*/,
+      "raw markers must never reappear while the parser catches up");
+
+    await deliverParses();
+    assert.match(markdown.textContent, /bold tail keeps growing/,
+      "the caught-up parse must show the newest text");
+    assert.doesNotMatch(markdown.textContent, /\*\*/);
+  } finally {
+    // Restore the worker-less default for every later suite: the client caches
+    // its worker instance, so it must be told this one died.
+    worker?.emit("error", { message: "test teardown" });
+    delete globalThis.Worker;
+  }
+});
+
 test("active conversation DOM survives pane reparenting, sibling deletion, and slot moves", async () => {
   installDom();
   const selections = Object.fromEntries(["a", "b", "c"].map((id) => [
@@ -2843,7 +2916,10 @@ test("legacy messages omit unavailable metadata without losing actions", async (
   })));
   assert.equal(document.querySelector(".response-footer .message-time") === null, true,
     "selector .response-footer .message-time should be absent");
-  assert.equal(document.querySelector(".response-footer [aria-label='Copy response']") != null, true);
+  // Without a settled turn completion the part is a preamble: no footer, and
+  // therefore no copy overlay covering the row beneath it.
+  assert.equal(document.querySelector(".response-footer") === null, true,
+    "selector .response-footer should be absent from an unsettled assistant part");
 });
 
 test("unknown transcript kinds stay hidden", async () => {
@@ -2919,7 +2995,7 @@ test("turn review bar keeps worker apply_patch review attributed to the worker",
   const capabilityCalls = [];
   window.mixdogDesktop = {
     invokeCapability: async (request) => {
-      capabilityCalls.push(request.capability);
+      capabilityCalls.push(request);
       return {
         value: {
           supported: true,
@@ -2954,8 +3030,10 @@ test("turn review bar keeps worker apply_patch review attributed to the worker",
     sessionId: "lead-session",
   })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-  assert.ok(capabilityCalls.includes("getTurnReviewDiff"),
+  assert.ok(capabilityCalls.some((request) => request.capability === "getTurnReviewDiff"),
     "the bar must read attributed worker reviews");
+  assert.equal(capabilityCalls[0]?.sessionId, "lead-session",
+    "the bar must read the review from the session its own pane paints");
   assert.match(document.querySelector(".turn-review-summary")?.textContent || "", /1 file changed/);
   assert.match(document.querySelector(".turn-review-attribution")?.textContent || "", /Lead 0 · Agents 1/);
   assert.match(document.querySelector(".turn-review-summary .diff-stats")?.textContent || "", /\+3/);
@@ -2982,6 +3060,94 @@ test("turn review bar keeps worker apply_patch review attributed to the worker",
   });
   assert.equal(bar?.dataset.expanded, "false", "an outside pointer must collapse the review");
   assert.equal(document.querySelector(".turn-review-summary")?.getAttribute("aria-expanded"), "false");
+});
+
+test("turn review bar renders the authoritative committed net diff instead of proposed tool patches", async () => {
+  installDom();
+  const proposedPatch = [
+    "diff --git a/src/app.mjs b/src/app.mjs",
+    "--- a/src/app.mjs",
+    "+++ b/src/app.mjs",
+    "@@ -1 +1 @@",
+    "-old",
+    "+intermediate",
+    "",
+  ].join("\n");
+  const committedPatch = [
+    "diff --git a/src/app.mjs b/src/app.mjs",
+    "--- a/src/app.mjs",
+    "+++ b/src/app.mjs",
+    "@@ -1 +1 @@",
+    "-old",
+    "+final",
+    "",
+  ].join("\n");
+  window.mixdogDesktop = {
+    invokeCapability: async () => ({
+      value: {
+        supported: true,
+        authoritative: true,
+        patch: committedPatch,
+        agents: [],
+      },
+    }),
+  };
+  await act(async () => root.render(React.createElement(TurnReviewBar, {
+    items: [
+      { id: 1, kind: "user", text: "change it" },
+      {
+        id: 2,
+        kind: "tool",
+        name: "apply_patch",
+        args: { patch: proposedPatch },
+        result: "applied",
+        completedCount: 1,
+      },
+    ],
+    cwd: "C:/proj",
+    sessionId: "lead-net-session",
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  assert.match(document.querySelector(".turn-review-summary")?.textContent || "", /1 file changed/);
+  await act(async () => document.querySelector(".turn-review-summary")?.click());
+  await act(async () => document.querySelector(".turn-review-file")?.click());
+  const text = document.querySelector(".turn-review-diff")?.textContent || "";
+  assert.match(text, /final/);
+  assert.doesNotMatch(text, /intermediate/);
+});
+
+test("turn review transcript fallback excludes a failed proposed patch without a committed uiDiff", async () => {
+  installDom();
+  window.mixdogDesktop = {
+    invokeCapability: async () => ({ value: { supported: true, authoritative: false, agents: [] } }),
+  };
+  await act(async () => root.render(React.createElement(TurnReviewBar, {
+    items: [
+      { id: 1, kind: "user", text: "change it" },
+      {
+        id: 2,
+        kind: "tool",
+        name: "apply_patch",
+        args: {
+          patch: [
+            "diff --git a/src/app.mjs b/src/app.mjs",
+            "--- a/src/app.mjs",
+            "+++ b/src/app.mjs",
+            "@@ -1 +1 @@",
+            "-old",
+            "+never-applied",
+          ].join("\n"),
+        },
+        result: "Error: context not found",
+        isError: true,
+        completedCount: 1,
+      },
+    ],
+    cwd: "C:/proj",
+    sessionId: "lead-failed-session",
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  assert.equal(document.querySelector(".turn-review-bar"), null);
 });
 
 test("turn review bar clears synchronously when switching to an empty session", async () => {
@@ -6475,6 +6641,111 @@ test("atomic draft submit keeps local route and workflow isolated after navigati
   assert.doesNotMatch(document.querySelector(".transcript")?.textContent || "", /Atomic prompt/);
 });
 
+test("atomic New task ignores foreign session publications until its addressed acknowledgement", async () => {
+  installDom();
+  const source = {
+    id: "atomic-owner-source",
+    title: "Owner source",
+    preview: "Owner source",
+    updatedAt: 1,
+    currentSession: true,
+    cwd: "C:\\work",
+    classification: "task",
+    projectPath: null,
+  };
+  const foreign = {
+    id: "atomic-foreign-session",
+    title: "Foreign session",
+    preview: "Foreign transcript",
+    updatedAt: 2,
+    currentSession: false,
+    cwd: "C:\\work",
+    classification: "task",
+    projectPath: null,
+  };
+  const targetSessionId = "atomic-addressed-target";
+  const sourceSnapshot = {
+    sessionId: source.id,
+    items: [{ id: "owner-source-row", kind: "user", text: "Owner transcript" }],
+    queued: [],
+  };
+  let current = sourceSnapshot;
+  let publishState = () => {};
+  let finishAtomic;
+  window.mixdogDesktop = {
+    getSnapshot: async () => current,
+    subscribeState: (listener) => {
+      publishState = listener;
+      return () => {};
+    },
+    listProjects: async () => [],
+    listSessions: async () => [source, foreign],
+    resumeSession: async () => sourceSnapshot,
+    submitNewTask: async (_prompt, options = {}) => {
+      current = {
+        sessionId: foreign.id,
+        desktopSessionTitle: foreign.title,
+        items: [{ id: "foreign-row", kind: "user", text: "Foreign transcript" }],
+        queued: [],
+        busy: true,
+      };
+      publishState(current);
+      return new Promise((resolve) => {
+        finishAtomic = () => {
+          // The addressed result is authoritative even if a stale focused
+          // projection accompanies it. The renderer must synthesize the first
+          // prompt under targetSessionId, never import this foreign snapshot.
+          resolve({ accepted: true, sessionId: targetSessionId, snapshot: current });
+        };
+      });
+    },
+    submit: async () => { throw new Error("legacy submit must not run"); },
+  };
+
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  await act(async () => {
+    document.querySelector(".session-new-task").click();
+    await Promise.resolve();
+  });
+  const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+  await act(async () => {
+    setValue.call(textarea, "Addressed first prompt");
+    textarea.dispatchEvent(new window.InputEvent("input", {
+      bubbles: true,
+      data: "Addressed first prompt",
+    }));
+  });
+  await act(async () => {
+    document.querySelector(".send-button").click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  assert.equal(typeof finishAtomic, "function");
+  assert.match(document.querySelector(".workspace-tab.active")?.textContent || "", /New task/,
+    "an unrelated focused snapshot must not claim the pending draft");
+  assert.doesNotMatch(document.querySelector(".transcript")?.textContent || "", /Foreign transcript/);
+
+  await act(async () => {
+    finishAtomic();
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  assert.equal(
+    document.querySelector(".workspace-tab.active")?.getAttribute("data-tab-key"),
+    `session:${targetSessionId}`,
+  );
+  assert.match(document.querySelector(".transcript")?.textContent || "", /Addressed first prompt/);
+  assert.doesNotMatch(document.querySelector(".transcript")?.textContent || "", /Foreign transcript/);
+});
+
 test("a split New task materializes independently without replaying the blank watermark", async () => {
   installDom();
   await preloadMarkdownBody();
@@ -7639,12 +7910,12 @@ test("a materialized draft session promotes before the submit acknowledgement se
       publishState(current);
       return current;
     },
-    submit: async () => {
+    submit: async (_content, options = {}) => {
       current = {
         sessionId: session.id,
         desktopSessionTitle: session.title,
         items: [
-          { id: "materialized-user", kind: "user", text: "Materialized prompt" },
+          { id: String(options.id || "materialized-user"), kind: "user", text: "Materialized prompt" },
           { id: "materialized-assistant", kind: "assistant", text: "Materialized response" },
         ],
         queued: [],
@@ -8229,15 +8500,21 @@ test("launch discards a missing last-session key and keeps the fresh task fallba
 test("new tasks choose a registered project or open a folder from the composer context control", async () => {
   installDom();
   const starts = [];
+  const added = [];
   let submits = 0;
   const projectPath = "C:\\work\\sample";
   const openedPath = "C:\\work\\opened";
+  const registered = [{ path: projectPath, alias: "Sample", pinned: false }];
   window.mixdogDesktop = {
     getSnapshot: async () => ({ items: [], queued: [] }),
     subscribeState: () => () => {},
-    listProjects: async () => [{ path: projectPath, alias: "Sample", pinned: false }],
+    listProjects: async () => registered.slice(),
     listSessions: async () => [],
     chooseProject: async () => openedPath,
+    addProject: async (path) => {
+      added.push(path);
+      registered.unshift({ path, alias: "Opened", pinned: false });
+    },
     startProjectTask: async (path) => {
       starts.push(path);
       return { sessionId: `draft-${starts.length}`, currentProject: path, items: [], queued: [] };
@@ -8284,9 +8561,8 @@ test("new tasks choose a registered project or open a folder from the composer c
     await Promise.resolve();
   });
   assert.deepEqual(starts, [], "opening a folder must not initialize an engine before submit");
-  assert.match(document.querySelector('button[aria-label="Project context"]').textContent, /Project/i);
-  assert.doesNotMatch(document.querySelector('button[aria-label="Project context"]').textContent, /opened/i,
-    "an unregistered cwd must not be presented as a project");
+  assert.deepEqual(added, [openedPath], "a chosen folder must enter the shared project registry");
+  assert.match(document.querySelector('button[aria-label="Project context"]').textContent, /Opened/i);
   const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
   const setValue = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
   await act(async () => {
@@ -8303,6 +8579,108 @@ test("new tasks choose a registered project or open a folder from the composer c
   });
   assert.deepEqual(starts, [openedPath], "first submit materializes only the final project context");
   assert.equal(submits, 1);
+});
+
+test("New task ignores engine workspaces, repairs stale project prefs, and keeps No project explicit", async () => {
+  installDom();
+  const projectPath = "C:\\Project\\mixdog";
+  const foreignWorkspace = "C:\\Users\\tempe";
+  const stalePrefs = {
+    projectPath: foreignWorkspace,
+    modelSelection: null,
+    workflow: null,
+  };
+  window.localStorage.setItem(
+    "mixdog.desktop-last-new-task-prefs.v1",
+    JSON.stringify(stalePrefs),
+  );
+  let capturedDraft;
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({
+      items: [],
+      queued: [],
+      currentProject: null,
+      project: foreignWorkspace,
+      recentProjects: [projectPath],
+    }),
+    subscribeState: () => () => {},
+    listProjects: async () => [{
+      path: projectPath,
+      name: "mixdog",
+      alias: null,
+      pinned: false,
+    }],
+    listSessions: async () => [],
+    submitNewTask: async (_prompt, _options, draft) => {
+      capturedDraft = draft;
+      return {
+        accepted: false,
+        sessionId: "",
+        snapshot: { items: [], queued: [] },
+      };
+    },
+  };
+
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+
+  let selector = document.querySelector('button[aria-label="Project context"]');
+  assert.match(selector.textContent, /mixdog/i,
+    "a stale engine workspace must fall back to the registered recent project");
+  assert.doesNotMatch(selector.textContent, /tempe/i);
+  assert.equal(
+    JSON.parse(window.localStorage.getItem("mixdog.desktop-last-new-task-prefs.v1")).projectPath,
+    projectPath,
+    "the repaired canonical project must replace the stale persisted path",
+  );
+
+  const tabCount = document.querySelectorAll(".workspace-tab").length;
+  await act(async () => {
+    selector.click();
+    await Promise.resolve();
+  });
+  const labels = Array.from(document.querySelectorAll('[role="option"]'), (option) =>
+    option.textContent.trim());
+  assert.equal(labels.some((label) => /tempe/i.test(label)), false,
+    "an unregistered workspace must never appear as a temporary project option");
+  await act(async () => {
+    Array.from(document.querySelectorAll('[role="option"]'))
+      .find((option) => option.textContent.trim() === "No project").click();
+    await Promise.resolve();
+  });
+  selector = document.querySelector('button[aria-label="Project context"]');
+  assert.match(selector.textContent, /Project/i);
+  assert.equal(document.querySelectorAll(".workspace-tab").length, tabCount,
+    "No project must clear the current draft instead of opening another New task");
+
+  const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
+  const setValue = Object.getOwnPropertyDescriptor(
+    window.HTMLTextAreaElement.prototype,
+    "value",
+  ).set;
+  await act(async () => {
+    setValue.call(textarea, "Project-free prompt");
+    textarea.dispatchEvent(new window.InputEvent("input", {
+      bubbles: true,
+      data: "Project-free prompt",
+    }));
+  });
+  await act(async () => {
+    document.querySelector(".send-button").click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal("projectPath" in capturedDraft, false,
+    "an explicit No project draft must omit projectPath from atomic submit");
+  assert.equal(
+    JSON.parse(window.localStorage.getItem("mixdog.desktop-last-new-task-prefs.v1")).projectPath,
+    "",
+    "No project must persist as the next draft's explicit empty project choice",
+  );
 });
 
 test("project sessions show their project beside the session title", async () => {
@@ -11592,6 +11970,9 @@ test("model selector shows Recent and provider-grouped models in one stable list
   assert.doesNotMatch(dialog.textContent, /Anthropic|Ollama|Needs setup/,
     "disconnected providers must stay out of the model picker");
   assert.ok(dialog.querySelector('button[aria-label="Add provider"]'));
+  assert.ok(dialog.querySelector('button[aria-label="Close"]'));
+  assert.match(dialog.querySelector(".model-picker-heading p").textContent, /OpenAI API · GPT-Real/);
+  assert.equal(dialog.getAttribute("aria-describedby"), dialog.querySelector(".model-picker-heading p").id);
   assert.equal(dialog.querySelectorAll(".model-provider-row, .provider-icon, .model-provider-chevron").length, 0);
   assert.equal(dialog.querySelector(".model-option-row").getAttribute("aria-selected"), "true");
   assert.equal(dialog.querySelector(".model-option-row").getAttribute("data-tooltip"), null);
@@ -11835,31 +12216,34 @@ test("model control styles keep the reference compact geometry and bounded list"
     "the effort picker should use its full intrinsic label width beside the model");
   assert.doesNotMatch(themeCss, /\.effort-control \.mx-select-trigger\s*\{\s*width:\s*100%;/s);
   assert.match(themeCss,
-    /\.mx-menu\[aria-label="Project context"\] \.mx-menu-item\s*\{[^}]*line-height:\s*20px;/s,
+    /\.mx-menu\[aria-label="Project context"\] \.mx-menu-item\s*\{[^}]*line-height:\s*var\(--mx-line-ui\);/s,
     "project labels need enough line height for descenders");
   assert.match(themeCss,
-    /\.effort-control \.mx-select-trigger\s*\{[^}]*height:\s*28px;[^}]*padding:\s*0 5px 0 8px;[^}]*line-height:\s*20px;/s,
+    /\.effort-control \.mx-select-trigger\s*\{[^}]*height:\s*28px;[^}]*padding:\s*0 5px 0 8px;[^}]*line-height:\s*var\(--mx-line-ui\);/s,
     "the effort trigger needs a full text line box inside its fixed control height");
-  assert.match(themeCss, /\.effort-control \.mx-select-value\s*\{[^}]*line-height:\s*20px;/s);
+  assert.match(themeCss, /\.effort-control \.mx-select-value\s*\{[^}]*line-height:\s*var\(--mx-line-ui\);/s);
   assert.match(themeCss, /\.model-picker-layer\s*\{[^}]*background:[^}]*backdrop-filter:\s*blur\(2px\);/s);
-  assert.match(themeCss, /\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;[^}]*background:\s*transparent;/s);
-  assert.match(themeCss, /\.model-picker-header\s*\{[^}]*padding:\s*16px 12px 16px 20px;/s);
-  assert.match(themeCss, /\.model-provider-add\s*\{[^}]*margin-left:\s*auto;/s);
+  assert.match(themeCss, /\.model-provider-add,\s*\.model-picker-close\s*\{[^}]*width:\s*30px;[^}]*height:\s*30px;[^}]*background:\s*var\(--mx-bg-layer-1\);/s);
+  assert.match(themeCss, /\.model-picker-header\s*\{[^}]*padding:\s*18px 16px 16px 20px;/s);
+  assert.match(themeCss, /\.model-picker-actions\s*\{[^}]*margin-left:\s*auto;[^}]*display:\s*flex;/s);
   assert.match(themeCss, /\.model-picker-dialog\s*\{[^}]*width:\s*min\(calc\(100vw - 16px\), 640px\);[^}]*height:\s*min\(calc\(var\(--vvh, 100vh\) - 16px\), 512px\);/s,
     "the centered dialog should use the reference dialog container geometry");
-  assert.match(themeCss, /\.model-picker-dialog\s*\{[^}]*border-radius:\s*10px;/s,
+  assert.match(themeCss, /\.model-picker-dialog\s*\{[^}]*border-radius:\s*12px;/s,
     "the model dialog should use the reference --radius-xl value");
   assert.match(themeCss,
-    /\.model-option-row\s*\{[^}]*min-height:\s*48px;[^}]*padding:\s*6px 8px;/s,
+    /\.model-option-row\s*\{[^}]*min-height:\s*56px;[^}]*padding:\s*8px 10px;/s,
     "model rows should leave room for stable secondary metadata");
   assert.match(themeCss, /\.model-row-copy\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*align-items:\s*flex-start;/s);
-  assert.match(themeCss, /\.model-row-copy > small\s*\{[^}]*color:\s*var\(--mx-text-faint\);[^}]*font-size:\s*var\(--mx-font-meta\);/s);
-  assert.match(themeCss, /\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/s);
+  assert.match(themeCss, /\.model-row-copy > small\s*\{[^}]*color:\s*var\(--mx-text-muted\);[^}]*font-size:\s*var\(--mx-font-meta\);/s);
+  assert.match(themeCss, /\.model-provider-add,\s*\.model-picker-close\s*\{[^}]*width:\s*30px;[^}]*height:\s*30px;/s);
   assert.doesNotMatch(themeCss, /\.model-provider-row|\.model-provider-chevron|\.model-list-heading/);
-  assert.match(themeCss, /\.model-row-copy strong\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-regular\);/s);
+  assert.match(themeCss, /\.model-row-copy strong\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-medium\);/s);
+  assert.match(themeCss, /\.mx-menu\s*\{[^}]*padding:\s*6px;[^}]*border-radius:\s*10px;[^}]*background:[^}]*var\(--mx-bg-layer-1\);/s);
+  assert.match(themeCss, /\.mx-menu-item\s*\{[^}]*height:\s*34px;[^}]*border-radius:\s*7px;/s);
+  assert.match(themeCss, /\.studio-model-panel\s*\{[^}]*padding:\s*8px;[^}]*border-radius:\s*12px;[^}]*background:[^}]*var\(--mx-bg-layer-1\);/s);
   assert.doesNotMatch(themeCss, /\.model-tag\s*\{/);
   assert.match(themeCss, /\.model-provider-setup\s*\{[^}]*height:\s*20px;/s);
-  assert.match(themeCss, /\.model-notice\s*\{[^}]*padding:\s*7px 9px;[^}]*line-height:\s*16px;/s);
+  assert.match(themeCss, /\.model-notice\s*\{[^}]*padding:\s*7px 9px;[^}]*line-height:\s*var\(--mx-line-meta\);/s);
   assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 12px 16px;/s,
     "the composer should sit close to the workspace bottom edge");
   assert.match(themeCss, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--mx-bg-base\);[^}]*box-shadow:\s*var\(--mx-raised\);/s,
@@ -11921,6 +12305,7 @@ test("model selection applies the secure route result, hides unrelated effort, a
   assert.equal(document.activeElement === document.querySelector(".model-trigger"), true, "successful model selection should restore trigger focus");
   assert.equal(document.querySelector(".inline-error") === null, true, "selector .inline-error should be absent");
   await act(async () => document.querySelector(".model-trigger").click());
+  assert.equal(document.querySelector(".model-group--recent > h3")?.textContent, "RECENT");
   assert.match(document.querySelector(".model-group--recent")?.textContent || "", /Claude Real/);
   assert.equal(document.querySelector('[aria-label="Reasoning effort"]') === null, true, "selector [aria-label=\"Reasoning effort\"] should be absent");
 });
