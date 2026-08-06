@@ -83,6 +83,8 @@ function createDiffTracker(meta = {}) {
   return {
     ownerSessionId: clean(meta.ownerSessionId) || null,
     ownerGeneration: Number(meta.ownerGeneration) || 0,
+    worktreeRequest: clean(meta.worktreeRequest),
+    worktreeContended: false,
     valid: true,
     sealed: false,
     revision: 0,
@@ -336,13 +338,31 @@ export async function beginTurnSnapshot(_worktree, sessionId) {
     generation,
     agents: new Map(),
   });
-  const tracker = resetDiffTracker(ownerSessionId);
+  const worktreeRequest = pathKey(_worktree);
+  const tracker = resetDiffTracker(ownerSessionId, { worktreeRequest });
   trimTurnCache();
   if (!tracker) return;
+  for (const [otherSessionId, other] of _diffTrackersBySession) {
+    if (otherSessionId === ownerSessionId || other.sealed) continue;
+    if (!worktreeRequest || other.worktreeRequest !== worktreeRequest) continue;
+    tracker.worktreeContended = true;
+    other.worktreeContended = true;
+  }
   try {
     const snapshot = await createTurnWorktreeSnapshot(_worktree);
     if (_diffTrackersBySession.get(ownerSessionId) === tracker) {
       tracker.worktreeSnapshot = snapshot;
+      if (snapshot?.root) {
+        for (const [otherSessionId, other] of _diffTrackersBySession) {
+          if (otherSessionId === ownerSessionId) continue;
+          if (other.worktreeSnapshot?.root !== snapshot.root) continue;
+          // A whole-worktree baseline cannot attribute concurrent mutations
+          // to either session. Mark both turns permanently contended and fall
+          // back to their exact session-owned mutation trackers.
+          tracker.worktreeContended = true;
+          other.worktreeContended = true;
+        }
+      }
     }
   } catch {
     // Git is optional. Exact apply_patch tracking remains the fallback.
@@ -421,7 +441,7 @@ export function completeAgentTurnReview(handle, patches = []) {
 export async function completeTurnSnapshot(sessionId) {
   const tracker = _diffTrackersBySession.get(clean(sessionId));
   if (!tracker) return false;
-  if (tracker.worktreeSnapshot) {
+  if (tracker.worktreeSnapshot && !tracker.worktreeContended) {
     try { await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot); } catch {}
   }
   tracker.sealed = true;
@@ -435,10 +455,13 @@ export async function getTurnReviewDiff(_worktree, sessionId) {
   const ownerSessionId = clean(sessionId);
   const turn = _turnsBySession.get(ownerSessionId);
   const tracker = _diffTrackersBySession.get(ownerSessionId);
-  if (tracker?.worktreeSnapshot && !tracker.sealed) {
-    try { await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot); } catch {}
+  const isolatedWorktreeSnapshot = tracker?.worktreeContended
+    ? null
+    : tracker?.worktreeSnapshot || null;
+  if (isolatedWorktreeSnapshot && !tracker.sealed) {
+    try { await refreshTurnWorktreeSnapshot(isolatedWorktreeSnapshot); } catch {}
   }
-  const snapshot = tracker?.worktreeSnapshot || null;
+  const snapshot = isolatedWorktreeSnapshot;
   return {
     supported: true,
     files: snapshot?.files || [],
@@ -455,6 +478,9 @@ export async function getTurnReviewDiff(_worktree, sessionId) {
 export async function revertTurnReviewFile(_worktree, sessionId, file) {
   const ownerSessionId = clean(sessionId);
   const tracker = _diffTrackersBySession.get(ownerSessionId);
+  if (tracker?.worktreeContended) {
+    throw new Error('turn review revert is unavailable while sessions share a worktree');
+  }
   if (!tracker?.worktreeSnapshot) throw new Error('turn worktree snapshot is unavailable');
   await revertTurnWorktreeFile(tracker.worktreeSnapshot, file);
   return await getTurnReviewDiff(_worktree, ownerSessionId);

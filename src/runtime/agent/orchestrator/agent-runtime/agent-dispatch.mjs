@@ -36,6 +36,7 @@ import {
     abortAgentProgressWatchdog,
     agentWatchdogPolicyActive,
     evaluateAgentWatchdogAbort,
+    partialHandoffTextFromSession,
     resolveAgentWatchdogPolicy,
     resolveHandoffMessageStartIndex,
     watchdogPartialHandoffFromError,
@@ -63,6 +64,17 @@ function formatCompactElapsedSeconds(ms) {
     const value = Math.max(0, Number(ms) || 0);
     if (value <= 0) return '';
     return `${Math.max(1, Math.ceil(value / 1000))}s`;
+}
+
+// True when an abort explicitly opted into partial salvage — the error object
+// or the abort reason carries `salvagePartial: true`. A DEADLINE-driven caller
+// (explore hard timeout) sets it so the anchors the sub-agent already produced
+// are returned instead of discarded; user cancellation (ESC) never sets it and
+// keeps the throw-everything behaviour.
+function salvagePartialRequested(error, signal) {
+    if (error && typeof error === 'object' && error.salvagePartial === true) return true;
+    const reason = signal?.reason;
+    return !!(reason && typeof reason === 'object' && reason.salvagePartial === true);
 }
 
 function agentCompactEventLabel(event = {}) {
@@ -471,7 +483,10 @@ export function makeAgentDispatch(opts = {}) {
             try { closeSession(session.id, 'ephemeral-done'); } catch { /* ignore */ }
             return out;
         } catch (err) {
-            const partial = watchdogPartialHandoffFromError(err, getSession(session.id), _handoffMsgStart);
+            const partial = watchdogPartialHandoffFromError(err, getSession(session.id), _handoffMsgStart)
+                ?? (salvagePartialRequested(err, _abortLink?.signal)
+                    ? partialHandoffTextFromSession(getSession(session.id), _handoffMsgStart)
+                    : null);
             if (partial) {
                 terminalStatus = 'idle';
                 try { closeSession(session.id, 'ephemeral-done'); } catch { /* ignore */ }

@@ -14,9 +14,7 @@ import {
   normalizeApplyPatch,
   parseUnifiedDiff,
   reconcileTurnFailures,
-  shouldAdoptForeignSessionFrame,
   shouldNavigatePromptHistory,
-  shouldPromoteDraftMaterialization,
   startupRestorePlan,
   shouldShowFastControl,
   toolInputRows,
@@ -97,7 +95,11 @@ import {
   parseEditorAnsi,
   visibleEditorAnsiText,
 } from './editor-ansi.ts';
-import { pendingPromptTranscriptItems } from './Conversation.tsx';
+import {
+  pendingPromptTranscriptItems,
+  promptWaitsBehindActiveTurn,
+  unsettledQueueEntries,
+} from './Conversation.tsx';
 import {
   isMonacoRestoreCancellation,
   isResizeObserverDeliveryWarning,
@@ -403,6 +405,27 @@ test('optimistic prompts end at durable settlement, never at host acknowledgemen
     [{ ...prompt, accepted: true, settledUserBaseline: 3 }],
     [{ id: 'old', kind: 'user', text: 'older turn' }],
   ).length, 1, 'user rows that predate the submit never release it');
+});
+
+test('desktop prompt ownership follows reference queue and new-thread semantics', () => {
+  assert.equal(promptWaitsBehindActiveTurn(true, {
+    busy: true,
+    queued: [{ id: 'foreign-queue' }],
+  }), false, 'a draft first prompt never inherits the previous session queue');
+  assert.equal(promptWaitsBehindActiveTurn(false, {
+    busy: true,
+    queued: [],
+  }), true, 'an existing busy session queues its follow-up');
+
+  const settled = [{ id: 'submit-1', kind: 'user', text: 'continue' }];
+  const distinctSameText = { id: 'submit-2', displayText: 'continue' };
+  const idless = { displayText: 'system follow-up' };
+  assert.deepEqual(unsettledQueueEntries([
+    { id: 'submit-1', displayText: 'continue' },
+    distinctSameText,
+    idless,
+  ], settled), [distinctSameText, idless],
+  'durable ownership removes only the same submission id, never matching text');
 });
 
 test('file editor classifies browser-native image, PDF, audio, and video previews', () => {
@@ -1912,8 +1935,11 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
   assert.match(follow, /element\.style\.overflowAnchor = followingRef\.current \? "none" : "auto"/);
   assert.match(follow, /observer\.observe\(element\);/,
     'the shrinking composer/bottom-panel stack re-pins the bottom on viewport resize');
-  assert.doesNotMatch(follow, /observer\.observe\(target\);/,
-    'virtual-core must exclusively own content growth and measured-row anchoring');
+  assert.match(follow, /observer\.observe\(target\);/,
+    'the streaming tail grows with no rows commit, so a lost tail needs the content observer');
+  assert.match(follow,
+    /if \(!viewportHeightChanged && distanceFromBottom\(root\) < BOTTOM_THRESHOLD_PX\) return;/,
+    'virtual-core still owns every growth it follows itself: the observer writes only once the tail was lost');
   assert.doesNotMatch(follow, /inlineReflowFrame|viewportObserver|previousInlineSize/,
     'OpenCode parity must not add a second pane-width observer grammar');
   const widthProbe = probe.slice(
@@ -2404,12 +2430,15 @@ test('session title actions, message hover rows, and tool disclosures keep the d
     'the review bar must consume timeline layout instead of overlaying rows');
   assert.match(styles,
     /\.turn-review-slot:has\(\.turn-review-bar\)\s*\{[^}]*margin-bottom:\s*8px;/s);
+  assert.match(styles,
+    /\.turn-review-slot\[data-reserved="true"\]\s*\{[^}]*min-height:\s*28px;[^}]*margin-bottom:\s*8px;/s,
+    'a live turn reserves the collapsed review row before a late diff arrives');
   assert.match(styles, /\.turn-review-summary\s*\{[^}]*min-height:\s*28px;/s,
     'the collapsed review must retain a readable control row');
   assert.doesNotMatch(styles, /--mx-turn-review-slot/,
     'an absent review bar must not reserve permanent transcript space');
   assert.match(app,
-    /<div className="composer-region">[\s\S]*?<div className="turn-review-slot">[\s\S]*?<TurnReviewBar[\s\S]*?<\/div>[\s\S]*?<Composer/,
+    /<div className="composer-region">[\s\S]*?<div className="turn-review-slot"[\s\S]*?data-reserved=\{reviewSlotReserved[\s\S]*?<TurnReviewBar[\s\S]*?<\/div>[\s\S]*?<Composer/,
     'the review bar stays attached above the input in the bottom stack');
   assert.doesNotMatch(app, /content: thread,/,
     'ONE scroll authority: auto-scroll observes exactly the virtualizer container');
@@ -3292,88 +3321,18 @@ test('toolInputRows curates per-tool key order, explodes arrays, and flags long 
 test('session-scoped snapshot gate suppresses foreign background frames', () => {
   const gate = createSessionScopedSnapshotGate('sess_b');
   const mine = { sessionId: 'sess_b', items: [1] };
-  assert.equal(gate.select(mine, false).snapshot, mine);
+  assert.equal(gate.select(mine).snapshot, mine);
   // A background session's frame must not repaint the viewed session…
   const foreign = { sessionId: 'sess_a', items: [2] };
-  const gated = gate.select(foreign, false);
+  const gated = gate.select(foreign);
   assert.equal(gated.snapshot, mine);
   assert.equal(gated.suppressedSessionId, 'sess_a');
   // …and blank swap-gap frames hold the last matching content.
-  assert.equal(gate.select({ sessionId: '' }, false).snapshot, mine);
+  assert.equal(gate.select({ sessionId: '' }).snapshot, mine);
   // Before any matching frame arrived, a foreign frame yields nothing.
   const cold = createSessionScopedSnapshotGate('sess_b');
-  assert.equal(cold.select(foreign, false).snapshot, null);
-  assert.equal(cold.select(foreign, false).suppressedSessionId, 'sess_a');
-});
-
-test('session-scoped snapshot gate adopts renderer-initiated session moves', () => {
-  const gate = createSessionScopedSnapshotGate('sess_b');
-  gate.select({ sessionId: 'sess_b' }, false);
-  // /clear or auto-clear legitimately moves the view onto a fresh id while a
-  // renderer-initiated host action window is open: follow and latch it.
-  const cleared = { sessionId: 'sess_c', items: [] };
-  assert.equal(gate.select(cleared, true).snapshot, cleared);
-  assert.equal(gate.adoptedSessionId(), 'sess_c');
-  // Later frames of the adopted id keep flowing without the action window.
-  const next = { sessionId: 'sess_c', items: [1] };
-  assert.equal(gate.select(next, false).snapshot, next);
-  // Other sessions remain foreign after adoption.
-  assert.equal(gate.select({ sessionId: 'sess_a' }, false).suppressedSessionId, 'sess_a');
-});
-
-test('session-scoped snapshot gate consults a lazy adoption fn only for foreign frames', () => {
-  const gate = createSessionScopedSnapshotGate('sess_b');
-  const calls = [];
-  const decide = (live) => { calls.push(String(live?.sessionId || '')); return live?.sessionId === 'sess_c'; };
-  // Matching and blank frames never invoke the decision fn.
-  const mine = { sessionId: 'sess_b', items: [1] };
-  assert.equal(gate.select(mine, decide).snapshot, mine);
-  assert.equal(gate.select({ sessionId: '' }, decide).snapshot, mine);
-  assert.deepEqual(calls, []);
-  // A declined foreign frame is suppressed; an approved one is adopted.
-  assert.equal(gate.select({ sessionId: 'sess_a' }, decide).suppressedSessionId, 'sess_a');
-  const cleared = { sessionId: 'sess_c', items: [] };
-  assert.equal(gate.select(cleared, decide).snapshot, cleared);
-  assert.deepEqual(calls, ['sess_a', 'sess_c']);
-  assert.equal(gate.adoptedSessionId(), 'sess_c');
-});
-
-test('foreign-frame adoption requires lineage, never a busy-window alone', () => {
-  const known = new Set(['sess_a', 'sess_b']);
-  const base = {
-    rendererActionInFlight: true,
-    viewedSessionId: 'sess_a',
-    liveSessionId: 'sess_b',
-    liveSessionForkedFrom: '',
-    isKnownSession: (id) => known.has(id),
-  };
-  // Regression: viewing busy A while background B publishes = no switch.
-  assert.equal(shouldAdoptForeignSessionFrame(base), false);
-  // Outside a renderer action window nothing is ever adopted.
-  assert.equal(shouldAdoptForeignSessionFrame({ ...base, rendererActionInFlight: false }), false);
-  assert.equal(shouldAdoptForeignSessionFrame({
-    ...base, rendererActionInFlight: false, liveSessionId: 'sess_new',
-  }), false);
-  // Auto-clear//clear continuation: a genuinely new id may be adopted.
-  assert.equal(shouldAdoptForeignSessionFrame({ ...base, liveSessionId: 'sess_new' }), true);
-  // Fork-on-resume naming the viewed session is a continuation of it.
-  assert.equal(shouldAdoptForeignSessionFrame({
-    ...base, liveSessionForkedFrom: 'sess_a',
-  }), true);
-  // A fork of some OTHER session stays foreign.
-  assert.equal(shouldAdoptForeignSessionFrame({
-    ...base, liveSessionForkedFrom: 'sess_x',
-  }), false);
-  // Blank frames are the gate's swap-gap concern, never adopted here.
-  assert.equal(shouldAdoptForeignSessionFrame({ ...base, liveSessionId: '' }), false);
-  // Draft scope ('' viewed) keeps its submit-window adoption behavior.
-  assert.equal(shouldAdoptForeignSessionFrame({
-    ...base, viewedSessionId: '', liveSessionId: 'sess_new',
-  }), true);
-  // A broken catalog probe fails open to adoption of an unknown id, closed on throw.
-  assert.equal(shouldAdoptForeignSessionFrame({
-    ...base, liveSessionId: 'sess_new', isKnownSession: () => { throw new Error('boom'); },
-  }), true);
+  assert.equal(cold.select(foreign).snapshot, null);
+  assert.equal(cold.select(foreign).suppressedSessionId, 'sess_a');
 });
 
 test('startup restore prefers the last viewed selection over the engine session', () => {
@@ -3400,44 +3359,19 @@ test('startup restore prefers the last viewed selection over the engine session'
   }), { action: 'fallback', sessionId: '', clearStored: true });
 });
 
-test('draft-scoped gate matches blank frames and adopts only on submit', () => {
+test('draft-scoped gate matches blank frames and never adopts a session publication', () => {
   const gate = createSessionScopedSnapshotGate('');
   const blank = { sessionId: '' };
-  assert.equal(gate.select(blank, false).snapshot, blank);
+  assert.equal(gate.select(blank).snapshot, blank);
   // Background session frames must not paint the idle New task draft.
   const foreign = { sessionId: 'sess_bg', items: [1] };
-  const gated = gate.select(foreign, false);
+  const gated = gate.select(foreign);
   assert.equal(gated.snapshot, blank);
   assert.equal(gated.suppressedSessionId, 'sess_bg');
-  // A submit from the draft materializes and adopts the new session.
+  // Only an addressed ACK may change the pane scope; publications stay foreign.
   const materialized = { sessionId: 'sess_new', items: [1] };
-  assert.equal(gate.select(materialized, true).snapshot, materialized);
-  assert.equal(gate.adoptedSessionId(), 'sess_new');
-});
-
-test('draft promotion requires an armed submit, never a foreign publication', () => {
-  const base = {
-    newTaskActive: true,
-    submitInFlight: false,
-    sessionId: 'sess_a',
-    hasTranscript: true,
-    originSessionId: '',
-  };
-  // Regression: idle prepared draft + background session frame = no steal.
-  assert.equal(shouldPromoteDraftMaterialization({ ...base, armed: false }), false);
-  assert.equal(shouldPromoteDraftMaterialization({ ...base, armed: true }), true);
-  // An in-flight submit before newTaskActive commits still promotes…
-  assert.equal(shouldPromoteDraftMaterialization({
-    armed: true, newTaskActive: false, submitInFlight: true,
-    sessionId: 'sess_a', hasTranscript: true, originSessionId: '',
-  }), true);
-  // …except for frames of the previous session that hosted the draft start.
-  assert.equal(shouldPromoteDraftMaterialization({
-    armed: true, newTaskActive: false, submitInFlight: true,
-    sessionId: 'sess_prev', hasTranscript: true, originSessionId: 'sess_prev',
-  }), false);
-  assert.equal(shouldPromoteDraftMaterialization({ ...base, armed: true, sessionId: '' }), false);
-  assert.equal(shouldPromoteDraftMaterialization({ ...base, armed: true, hasTranscript: false }), false);
+  assert.equal(gate.select(materialized).snapshot, blank);
+  assert.equal(gate.select(materialized).suppressedSessionId, 'sess_new');
 });
 
 test('streaming Markdown worker AST is cloneable, GFM-complete, and HTML-safe', () => {
@@ -3493,9 +3427,14 @@ test('pane actions stay session-addressed without focused-session fallbacks', as
   ]);
   assert.match(app, /host\.submitToSession\(sessionId, content, options\)/);
   assert.doesNotMatch(app, /Legacy host without session-addressed submit|return submit\(content, options\)/);
-  assert.match(conversation, /sessionId \? host\.abortSession\(sessionId\) : host\.abort\(\)/);
+  assert.match(conversation,
+    /sessionId \? host\.abortSession\(sessionId, options\) : \{ aborted: false \}/);
+  assert.doesNotMatch(conversation, /host\.abort\(/,
+    'a renderer-only draft must not target whichever backend session is active');
   assert.match(conversation,
     /\? host\.resolveToolApprovalForSession\(sessionId, approvalId, \{ approved \}\)/);
+  assert.doesNotMatch(conversation, /host\.resolveToolApproval\(/,
+    'tool approval is valid only for the session carried by the pane');
   assert.doesNotMatch(conversation,
     /typeof host\.(?:abortSession|resolveToolApprovalForSession)/);
   for (const source of [hostApi, contract]) {

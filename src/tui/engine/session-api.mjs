@@ -58,27 +58,34 @@ export function createEngineApiA(bag) {
   const {
     runtime, nextId, flags, pending, listeners, getState, getPublishedState = getState, set, flushEmitImmediate, pushItem, patchItem, replaceItems, restoreOlderTranscript, restoreNewerTranscript, settleStreamingTail, clearStreamingTail, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, resetStatsAndSyncContext, drain, flushDeferredExecutionPendingResumeKick, discardExecutionPendingResume,
   } = bag;
-  const submit = (text, options = {}) => {
+  const submission = (text, options = {}) => {
     const t = promptDisplayText(text, options).trim();
-    if (!t) return false;
+    if (!t) return null;
     const mode = options.mode || 'prompt';
-   // Prompt input queued while a turn is active keeps the
-   // default `next` priority, so it is injected at the next tool/model
-   // boundary. Explicit options.priority still wins.
+    // Prompt input queued while a turn is active keeps the default `next`
+    // priority, so it is injected at the next tool/model boundary. Explicit
+    // options.priority still wins.
    const priority = options.priority;
-    const queueOptions = {
-      ...options,
-      // Always mint a submission id so daemon retries / dual-path intake
-      // can dedupe instead of booking the same prompt twice.
-      id: String(options.id || '').trim() || nextId(),
-      mode,
-      displayText: promptDisplayText(text, options),
-      priority,
+    return {
+      text,
+      queueOptions: {
+        ...options,
+        // Always mint a submission id so daemon retries / dual-path intake
+        // can dedupe instead of booking the same prompt twice.
+        id: String(options.id || '').trim() || nextId(),
+        mode,
+        displayText: promptDisplayText(text, options),
+        priority,
+      },
     };
+  };
+  const submit = (text, options = {}) => {
+    const intake = submission(text, options);
+    if (!intake) return false;
     // A running clear (idle auto-clear or session_manage) sets commandBusy;
     // queue the prompt instead of dropping it — it drains after the clear.
     if (flags.autoClearRunning) {
-      return enqueue(text, queueOptions) !== false;
+      return enqueue(intake.text, intake.queueOptions) !== false;
     }
     // Any in-flight session command (clear/setModel/newSession/resume/...)
     // holds commandBusy. Previously the prompt was dropped here and only the
@@ -86,16 +93,30 @@ export function createEngineApiA(bag) {
     // commandBusy, and the central release hook re-kicks drain once the
     // command settles, so the prompt runs afterwards rather than vanishing.
     if (getState().commandBusy) {
-      return enqueue(text, queueOptions) !== false;
+      return enqueue(intake.text, intake.queueOptions) !== false;
     }
     if (getState().busy) {
-      return enqueue(text, queueOptions) !== false;
+      return enqueue(intake.text, intake.queueOptions) !== false;
     }
     // If autoClearBeforeSubmit rejects (e.g. compaction timeout throws), the
     // prompt must still be queued — swallow the rejection so enqueue always
     // runs and the submit is never silently lost.
-    void autoClearBeforeSubmit().catch(() => {}).then(() => enqueue(text, queueOptions));
+    void autoClearBeforeSubmit().catch(() => {}).then(
+      () => enqueue(intake.text, intake.queueOptions),
+    );
     return true;
+  };
+  const submitAsync = async (text, options = {}) => {
+    const intake = submission(text, options);
+    if (!intake) return false;
+    // Daemon intake needs an acknowledgement boundary stronger than the TUI's
+    // synchronous submit(): by the time this Promise resolves, the prompt is
+    // present either as a visible queue entry or as the first durable user row.
+    // Provider execution still runs detached through drain().
+    if (!flags.autoClearRunning && !getState().commandBusy && !getState().busy) {
+      await autoClearBeforeSubmit().catch(() => {});
+    }
+    return enqueue(intake.text, intake.queueOptions) !== false;
   };
   return {
     getState: () => getPublishedState(),
@@ -107,7 +128,7 @@ export function createEngineApiA(bag) {
       return () => listeners.delete(listener);
     },
     submit,
-    submitAsync: async (text, options = {}) => submit(text, options),
+    submitAsync,
     reserveSession: (sessionId) => {
       const id = runtime.reserveSessionId?.(sessionId);
       if (!id) return false;
@@ -116,6 +137,46 @@ export function createEngineApiA(bag) {
       return String(getState().sessionId || '') === String(id);
     },
     restoreQueued,
+    // Claude Code's message selector ("jump back to a previous message"):
+    // rewind the conversation to just before a user prompt and hand its text
+    // back for editing. Idle-only — a live turn must be interrupted first.
+    rewindToItem: async (itemId) => {
+      const target = String(itemId ?? '').trim();
+      if (!target) return null;
+      if (getState().busy || getState().commandBusy) return null;
+      const items = getState().items || [];
+      const index = items.findIndex(
+        (item) => item?.kind === 'user' && String(item?.id) === target,
+      );
+      if (index < 0) return null;
+      const text = String(items[index]?.text || '').trim();
+      if (!text) return null;
+      set({ commandBusy: true });
+      try {
+        const rewound = await runtime.rewindMessages?.({ text });
+        if (!rewound) return null;
+        const restoreKey = promptHistoryKey(text);
+        set({
+          items: replaceItems(items.slice(0, index), {
+            preserveSpill: true,
+            preserveTranscriptView: true,
+          }),
+          spinner: null,
+          thinking: null,
+          lastTurn: null,
+          // The prompt returns to the draft, so it must not ALSO sit in the
+          // Up-arrow history — otherwise it shows up twice.
+          promptHistoryList: (getState().promptHistoryList || [])
+            .filter((entry) => promptHistoryKey(entry) !== restoreKey),
+        });
+        syncContextStats({ allowEstimated: true });
+        set({ stats: { ...getState().stats } });
+        flushEmitImmediate?.();
+        return { text, removed: items.length - index, messages: rewound.removed };
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
     setModel: async (m) => {
       if (getState().commandBusy) return false;
       set({ commandBusy: true });

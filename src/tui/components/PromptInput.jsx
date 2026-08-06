@@ -101,6 +101,7 @@ export function PromptInput({
   onCommandPaletteComplete,
   onRestoreQueued,
   hasQueuedMessages = false,
+  hasMessages = false,
   onHistoryNavigate,
   onPasteText,
   selectionRef,
@@ -822,6 +823,7 @@ export function PromptInput({
       let escape = classifyPromptEscape({
         interruptActive,
         hasQueuedMessages,
+        hasMessages,
         value: currentValue,
         lastClearPressAt: escapeClearAtRef.current,
       });
@@ -834,6 +836,7 @@ export function PromptInput({
         // Fall through to the normal draft/idle action in that case.
         escape = classifyPromptEscape({
           interruptActive,
+          hasMessages,
           value: currentValue,
           lastClearPressAt: escapeClearAtRef.current,
         });
@@ -856,6 +859,16 @@ export function PromptInput({
       if (escape.action === 'clear') {
         onEscape?.(currentValue, { phase: 'clear' });
         commitDraft({ value: '', cursor: 0, selectionAnchor: null });
+        return;
+      }
+      // Empty draft + conversation history: first press arms, the second
+      // opens the message selector (Claude Code's jump-back list).
+      if (escape.action === 'arm-select') {
+        onEscape?.('', { phase: 'select-arm' });
+        return;
+      }
+      if (escape.action === 'message-selector') {
+        onEscape?.('', { phase: 'select' });
         return;
       }
       onEscape?.('', { phase: 'empty' });

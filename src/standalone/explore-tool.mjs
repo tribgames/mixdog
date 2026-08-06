@@ -96,10 +96,45 @@ function abortRejectionPromise(signal) {
 function armExploreHardTimeout(controller, timeoutMs = EXPLORE_COMPUTE_HARD_TIMEOUT_MS) {
   if (!(timeoutMs > 0)) return () => {};
   const timer = setTimeout(() => {
-    try { controller.abort(new Error(`explorer timed out after ${timeoutMs}ms`)); } catch { /* ignore */ }
+    // The deadline is a HAND-OFF point, not a discard: `salvagePartial` tells
+    // agent-dispatch to return the assistant text the explorer already produced
+    // (usually the anchors) instead of throwing the whole run away.
+    const err = new Error(`explorer timed out after ${timeoutMs}ms`);
+    err.salvagePartial = true;
+    err.exploreHardTimeout = true;
+    try { controller.abort(err); } catch { /* ignore */ }
   }, timeoutMs);
   if (typeof timer.unref === 'function') timer.unref();
   return () => clearTimeout(timer);
+}
+
+// Bounded window granted to a hard-timed-out compute to settle with its
+// salvaged partial answer before the timeout error is surfaced. Without it the
+// abort rejection wins the race instantly and the salvage never arrives.
+// 0 disables salvage entirely (pre-existing behaviour).
+const EXPLORE_TIMEOUT_SALVAGE_GRACE_MS = (() => {
+  const raw = Number(process.env.MIXDOG_EXPLORE_SALVAGE_GRACE_MS);
+  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 2000;
+})();
+
+// Race the compute against its abort, EXCEPT for an opted-in salvage abort
+// (the wall-clock hard timeout): there, wait up to the grace window for the
+// compute to settle with the partial answer and return that. A caller
+// cancellation (no salvagePartial) still rejects immediately, so ESC keeps
+// releasing the tool call at once.
+function settleWithSalvageGrace(computePromise, abortedPromise) {
+  const salvaged = abortedPromise.catch(async (err) => {
+    if (!(err && err.salvagePartial === true) || !(EXPLORE_TIMEOUT_SALVAGE_GRACE_MS > 0)) throw err;
+    const EXPIRED = Symbol('explore-salvage-grace');
+    const grace = new Promise((resolve) => {
+      const t = setTimeout(() => resolve(EXPIRED), EXPLORE_TIMEOUT_SALVAGE_GRACE_MS);
+      if (typeof t.unref === 'function') t.unref();
+    });
+    const settled = await Promise.race([computePromise.catch(() => EXPIRED), grace]);
+    if (settled === EXPIRED) throw err;
+    return settled;
+  });
+  return Promise.race([computePromise, salvaged]);
 }
 
 // Cascade a parent AbortSignal into a compute controller (immediately if the
@@ -151,7 +186,7 @@ export function runExploreComputeWithAbort(compute, parentSignal = null, timeout
   const disarm = armExploreHardTimeout(controller, timeoutMs);
   const { promise: aborted } = abortRejectionPromise(controller.signal);
   const computePromise = Promise.resolve().then(() => compute(controller.signal));
-  return Promise.race([computePromise, aborted]).finally(() => {
+  return settleWithSalvageGrace(computePromise, aborted).finally(() => {
     disarm();
     if (detachParent) detachParent();
   });
@@ -423,7 +458,7 @@ function startSharedCompute(key, compute, timeoutMs = EXPLORE_COMPUTE_HARD_TIMEO
   const disarm = armExploreHardTimeout(controller, timeoutMs);
   const { promise: aborted } = abortRejectionPromise(controller.signal);
   const computePromise = Promise.resolve().then(() => compute(controller.signal));
-  entry.promise = Promise.race([computePromise, aborted])
+  entry.promise = settleWithSalvageGrace(computePromise, aborted)
     .then((value) => {
       // Identity-guard EVERY eventual write: only cache/purge when THIS entry is
       // still the live one. A hard-timeout TTL eviction (runExploreCached) may

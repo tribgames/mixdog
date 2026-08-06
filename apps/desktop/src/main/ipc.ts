@@ -122,7 +122,7 @@ const isDesktopLspRequestMethod = (method: string): method is DesktopLspRequestM
   LSP_REQUEST_METHODS.has(method);
 
 const CAPABILITY_ARITY = {
-  restoreQueued: [0, 2], setEffort: [1, 1], setToolMode: [1, 1], getAutoClear: [0, 0],
+  restoreQueued: [0, 2], rewindToItem: [1, 1], setEffort: [1, 1], setToolMode: [1, 1], getAutoClear: [0, 0],
   setAutoClear: [0, 1], getUpdateSettings: [0, 0], setAutoUpdate: [1, 1], checkForUpdate: [0, 1],
   runUpdateNow: [0, 0], getUpdateStatus: [0, 0], getProfile: [0, 0], setProfile: [0, 1],
   getCompactionSettings: [0, 0], setCompactionSettings: [0, 1], getRecapSettings: [0, 0],

@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
-import { withRetry } from './retry-classifier.mjs';
+import { canFallbackNonStreaming, withRetry } from './retry-classifier.mjs';
 import { traceAgentUsage, appendAgentTrace } from '../agent-trace.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
@@ -156,6 +156,53 @@ export class GeminiProvider {
 
     _getApiKey() {
         return this.config?.apiKey || process.env.GEMINI_API_KEY || '';
+    }
+
+    /**
+     * cc parity (claude.ts:2504): re-issue a dead stream ONCE as a
+     * non-streaming generateContent call instead of failing the turn.
+     * Narrower than cc by design — canFallbackNonStreaming() clears only a
+     * stream that exposed nothing, so rendered text is never duplicated and a
+     * dispatched tool can never run twice. Returns the aggregated response, or
+     * null when the failure is ineligible or the fallback itself fails.
+     */
+    async _recoverGeminiNonStreaming({ streamErr, signal, opts, model, generate }) {
+        if (!canFallbackNonStreaming(streamErr, { signal })) return null;
+        let aggregated;
+        try {
+            try { opts?.onStageChange?.('requesting'); } catch { /* heartbeat best-effort */ }
+            aggregated = await generate(signal || undefined);
+        } catch {
+            return null;
+        }
+        if (!aggregated || !Array.isArray(aggregated.candidates) || aggregated.candidates.length === 0) {
+            return null;
+        }
+        try {
+            process.stderr.write(
+                `[gemini] stream failed (${streamErr?.code || streamErr?.message || 'unknown'}); `
+                + `recovered via non-streaming generateContent\n`,
+            );
+        } catch { /* best-effort */ }
+        try {
+            appendAgentTrace({
+                sessionId: opts?.sessionId || opts?.session?.id || null,
+                iteration: Number.isFinite(Number(opts?.iteration)) ? Number(opts.iteration) : null,
+                kind: 'transport_fallback',
+                provider: 'gemini',
+                model,
+                transport: 'non-streaming',
+                payload: {
+                    from: 'stream',
+                    to: 'non-streaming',
+                    reason: streamErr?.retryClassifier || streamErr?.code || streamErr?.message || 'stream_failed',
+                    error_code: streamErr?.code || null,
+                    error_http_status: Number(streamErr?.httpStatus || streamErr?.status || 0) || null,
+                    error_classifier: streamErr?.retryClassifier || streamErr?.midstreamClassifier || null,
+                },
+            });
+        } catch { /* best-effort */ }
+        return aggregated;
     }
 
     // Explicit cachedContents API. The implicit cache layer on Gemini 3.x
@@ -655,7 +702,30 @@ export class GeminiProvider {
                     }
                     return await this._doSend(messages, model, tools, opts, { skipExplicitCache: true });
                 }
-                throw err;
+                const recovered = await this._recoverGeminiNonStreaming({
+                    streamErr: err,
+                    signal: totalSignal,
+                    opts,
+                    model: useModel,
+                    generate: async (fallbackSignal) => {
+                        const nonStreamUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(useModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+                        const res = await this._fetch(nonStreamUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(body),
+                            signal: fallbackSignal,
+                            dispatcher: getLlmDispatcher(),
+                        });
+                        if (!res.ok) {
+                            const text = await res.text().catch(() => '');
+                            throw geminiRestError(res, text, 'Gemini REST generateContent');
+                        }
+                        return await res.json();
+                    },
+                });
+                if (!recovered) throw err;
+                textLeakGuard = null;
+                response = recovered;
             } finally {
                 restPassthrough.cleanup();
             }
@@ -749,6 +819,23 @@ export class GeminiProvider {
                         },
                     },
                 );
+            } catch (err) {
+                const recovered = await this._recoverGeminiNonStreaming({
+                    streamErr: err,
+                    signal: totalSignal,
+                    opts,
+                    model: useModel,
+                    generate: async (fallbackSignal) => {
+                        const result = await genModel.generateContent(
+                            { contents },
+                            { signal: fallbackSignal },
+                        );
+                        return result?.response ?? null;
+                    },
+                });
+                if (!recovered) throw err;
+                textLeakGuard = null;
+                response = recovered;
             } finally {
                 sdkPassthrough.cleanup();
             }

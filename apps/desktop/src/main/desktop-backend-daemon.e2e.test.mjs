@@ -78,6 +78,25 @@ test('plain-Node daemon loads the unpacked desktop adapter and serves pane catal
       ]);
       assert.ok(Array.isArray(projects));
       assert.ok(Array.isArray(sessions));
+      const submitted = await client.call('desktop.invoke', {
+        desktopId: initialized.desktopId,
+        method: 'submitNewTask',
+        args: [
+          'Atomic daemon prompt',
+          { id: 'desktop-backend-e2e-submit', submittedAt: Date.now() },
+          {},
+        ],
+      });
+      assert.equal(submitted.accepted, true);
+      assert.match(submitted.sessionId, /^[A-Za-z0-9_-]+$/);
+      assert.equal(submitted.snapshot?.sessionId, submitted.sessionId);
+      assert.ok(
+        submitted.snapshot?.items?.some((item) =>
+          item?.id === 'desktop-backend-e2e-submit'
+          && item?.kind === 'user'
+          && item?.text === 'Atomic daemon prompt'),
+        'the atomic ACK must contain its own durable first user row',
+      );
       await client.call('desktop.unsubscribe', { desktopId: initialized.desktopId });
     } finally {
       await client.close('desktop backend e2e');

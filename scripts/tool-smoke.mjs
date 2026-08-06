@@ -1782,9 +1782,13 @@ const patchDescription = patchTool?.inputSchema?.properties?.patch?.description 
 if (!/V4A/i.test(patchDescription)) {
   throw new Error('apply_patch JSON fallback must describe the patch string as V4A');
 }
-if (Object.keys(patchTool?.inputSchema?.properties || {}).join(',') !== 'patch,post_shell'
+if (Object.keys(patchTool?.inputSchema?.properties || {}).join(',') !== 'patch,post_shell,root'
     || JSON.stringify(patchTool?.inputSchema?.required || []) !== '["patch"]') {
-  throw new Error(`apply_patch JSON fallback must expose patch + optional post_shell: ${JSON.stringify(patchTool?.inputSchema)}`);
+  throw new Error(`apply_patch JSON fallback must expose patch + optional post_shell/root: ${JSON.stringify(patchTool?.inputSchema)}`);
+}
+const patchRootDescription = patchTool?.inputSchema?.properties?.root?.description || '';
+if (!/outside the session directory/i.test(patchRootDescription)) {
+  throw new Error(`apply_patch root must state the out-of-session write contract: ${patchRootDescription}`);
 }
 const postShellDescription = patchTool?.inputSchema?.properties?.post_shell?.description || '';
 if (!/skipped on patch failure/i.test(postShellDescription)) {

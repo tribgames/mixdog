@@ -461,6 +461,7 @@ export interface DesktopNewTaskSubmitResult {
 // available to the GUI.
 export const DESKTOP_CAPABILITIES = [
   'restoreQueued',
+  'rewindToItem',
   'setEffort',
   'setToolMode',
   'getAutoClear',
@@ -1541,7 +1542,7 @@ export interface DesktopApi {
   showDesktopUpdate(): Promise<DesktopUpdaterState>;
   submit(prompt: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<boolean>;
   /** Atomically materialize a renderer-only draft and accept its first prompt. */
-  submitNewTask?(
+  submitNewTask(
     prompt: DesktopPromptContent,
     options?: DesktopSubmitOptions,
     draft?: DesktopNewTaskDraft,

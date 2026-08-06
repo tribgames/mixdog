@@ -9,7 +9,7 @@ import { MxIcon } from "./MxIcon";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { shouldNavigatePromptHistory } from "./renderer-logic.mjs";
 import { SLASH_COMMANDS, type CommandSurface as CommandSurfaceName, type SettingsSection } from "./slash-commands";
-import { TURN_LOCKED_SLASH_COMMANDS, asRecord } from "./text-format";
+import { TURN_LOCKED_SLASH_COMMANDS, asRecord, oneLine } from "./text-format";
 import { registerImagePreview } from "./transcript-metrics";
 // @ts-expect-error Shared prompt policies are plain ESM modules.
 import { classifyPromptEscape, PROMPT_ESCAPE_CLEAR_WINDOW_MS } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
@@ -63,6 +63,7 @@ export const Composer = memo(function Composer({
   onDraftModelSelection,
   queued,
   hiddenQueueIds,
+  userMessages,
   submit,
   abort,
   invokeResult,
@@ -94,6 +95,8 @@ export const Composer = memo(function Composer({
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
   queued?: unknown[];
   hiddenQueueIds?: Array<string | number>;
+  /** Rewindable user prompts (oldest → newest) for the Esc-Esc selector. */
+  userMessages?: Array<{ id: string; text: string }>;
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
   abort: (options?: DesktopAbortOptions) => Promise<unknown>;
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
@@ -138,6 +141,10 @@ export const Composer = memo(function Composer({
   const [mentionLoading, setMentionLoading] = useState(false);
   const [mentionDismissed, setMentionDismissed] = useState('');
   const [restoring, setRestoring] = useState(false);
+  // Esc-Esc message selector (TUI/Claude Code parity): pick a previous prompt,
+  // rewind the conversation to it, and edit it in the composer.
+  const [selectorOpen, setSelectorOpen] = useState(false);
+  const [selectorIndex, setSelectorIndex] = useState(0);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [persistedHistory, setPersistedHistory] = useState(() => readPromptHistory(historyScope));
   const activeHistoryScope = useRef(historyScope);
@@ -158,6 +165,7 @@ export const Composer = memo(function Composer({
   const hasRestorableQueuedMessages = () => Boolean(queuedProjectionKey)
     && restoredQueueProjectionRef.current !== queuedProjectionKey;
   const slashPalette = useRef<HTMLDivElement>(null);
+  const messagePalette = useRef<HTMLDivElement>(null);
   const mentionPalette = useRef<HTMLDivElement>(null);
   const mentionSearchGeneration = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -192,6 +200,8 @@ export const Composer = memo(function Composer({
     setMentionDismissed('');
     setRestoring(false);
     setDraggingFiles(false);
+    setSelectorOpen(false);
+    setSelectorIndex(0);
     setPersistedHistory(readPromptHistory(historyScope));
     historyNavigation.current = { index: -1, seed: '' };
   }, [historyScope]);
@@ -331,6 +341,11 @@ export const Composer = memo(function Composer({
     slashPalette.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
       ?.scrollIntoView?.({ block: 'nearest' });
   }, [slashIndex, slashOpen, slashQuery]);
+  useEffect(() => {
+    if (!selectorOpen) return;
+    messagePalette.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
+      ?.scrollIntoView?.({ block: 'nearest' });
+  }, [selectorIndex, selectorOpen]);
   useEffect(() => {
     if (!mentionOpen) return;
     mentionPalette.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
@@ -707,6 +722,41 @@ export const Composer = memo(function Composer({
     }
   };
 
+  // Rewindable prompts, oldest → newest (the newest row is preselected).
+  const selectableMessages = Array.isArray(userMessages) ? userMessages : [];
+  const openMessageSelector = () => {
+    if (selectableMessages.length === 0) {
+      showComposerNotice(t("No message to jump back to."));
+      return;
+    }
+    setSelectorIndex(selectableMessages.length - 1);
+    setSelectorOpen(true);
+  };
+  // Selecting a row drops the conversation from that prompt onward (engine
+  // side) and returns its text for editing — Claude Code's "restore
+  // conversation".
+  const rewindToMessage = async (messageId: string) => {
+    if (!messageId || restoring) return;
+    setSelectorOpen(false);
+    setRestoring(true);
+    try {
+      const value = asRecord(await invokeCapability<RecordValue>('rewindToItem', [messageId]));
+      const text = String(value?.text || '');
+      if (!text) {
+        showComposerNotice(t("Could not restore that message."));
+        return;
+      }
+      historyNavigation.current = { index: -1, seed: '' };
+      setDraft(text);
+      window.setTimeout(() => {
+        textarea.current?.focus();
+        textarea.current?.setSelectionRange(text.length, text.length);
+      }, 0);
+    } finally {
+      setRestoring(false);
+    }
+  };
+
   const executeSlash = async (raw: string): Promise<boolean> => {
     let invocationFailed = false;
     const commandCapability = async <T,>(capability: DesktopCapability, args: unknown[] = []) => {
@@ -1006,6 +1056,40 @@ export const Composer = memo(function Composer({
     setSlashIndex(move);
     return true;
   };
+  const navigateMessageSelector = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!selectorOpen) return false;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setSelectorOpen(false);
+      escapeClearAtRef.current = 0;
+      return true;
+    }
+    // Typing is an implicit dismissal: the character still reaches the draft.
+    if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      setSelectorOpen(false);
+      return false;
+    }
+    if (selectableMessages.length === 0) return false;
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void rewindToMessage(selectableMessages[selectorIndex]?.id || '');
+      return true;
+    }
+    const last = selectableMessages.length - 1;
+    const moves: Record<string, (index: number) => number> = {
+      ArrowDown: (index) => Math.min(last, index + 1),
+      ArrowUp: (index) => Math.max(0, index - 1),
+      Home: () => 0,
+      End: () => last,
+      PageUp: (index) => Math.max(0, index - 8),
+      PageDown: (index) => Math.min(last, index + 8),
+    };
+    const move = moves[event.key];
+    if (!move) return false;
+    event.preventDefault();
+    setSelectorIndex(move);
+    return true;
+  };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Escape') escapeClearAtRef.current = 0;
     const composing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
@@ -1042,6 +1126,7 @@ export const Composer = memo(function Composer({
       insertNewline(event.currentTarget);
       return;
     }
+    if (navigateMessageSelector(event)) return;
     if (navigateMentionPalette(event)) return;
     if (navigateSlashPalette(event)) return;
     if (slashOpen && slashCommands.length && event.key === 'Enter' &&
@@ -1069,6 +1154,7 @@ export const Composer = memo(function Composer({
       const escape = classifyPromptEscape({
         interruptActive: turnBusy,
         hasQueuedMessages: hasRestorableQueuedMessages(),
+        hasMessages: selectableMessages.length > 0,
         value: draft || (attachments.length ? 'attachment' : ''),
         lastClearPressAt: escapeClearAtRef.current,
       });
@@ -1088,6 +1174,13 @@ export const Composer = memo(function Composer({
         clearAttachments();
         showComposerNotice('');
         historyNavigation.current = { index: -1, seed: '' };
+      } else if (escape.action === 'arm-select') {
+        event.preventDefault();
+        showComposerNotice(t("Esc again to pick a message"), PROMPT_ESCAPE_CLEAR_WINDOW_MS);
+      } else if (escape.action === 'message-selector') {
+        event.preventDefault();
+        showComposerNotice('');
+        openMessageSelector();
       }
       return;
     }
@@ -1184,6 +1277,21 @@ export const Composer = memo(function Composer({
           const target = event.target as HTMLElement;
           if (!target.closest('button, input, textarea, [role="listbox"]')) textarea.current?.focus();
         }}>
+      {selectorOpen && (
+        <div ref={messagePalette} id="composer-message-selector"
+          className="slash-palette message-selector" role="listbox" aria-label={t("Previous messages")}>
+          <header><span>{t("Jump back to a message")}</span></header>
+          {selectableMessages.map((message, index) => (
+            <button type="button" role="option" aria-selected={index === selectorIndex} key={message.id}
+              id={`composer-message-option-${index}`} title={message.text}
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setSelectorIndex(index)}
+              onClick={() => { void rewindToMessage(message.id); }}>
+              <span>{oneLine(queuedFollowupPreview(message.text), 90)}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {slashOpen && (
         <div ref={slashPalette} id="composer-slash-palette" className="slash-palette" role="listbox" aria-label={t("Slash commands")}>
           <header><Command size={14} /><span>{t("Commands")}</span></header>

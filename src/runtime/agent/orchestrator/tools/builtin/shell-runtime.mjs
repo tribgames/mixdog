@@ -66,9 +66,39 @@ function firstExistingPathFromPath(commandName, excludeRe = null) {
         .find((candidate) => !excludeRe || !excludeRe.test(candidate)) || null;
 }
 
+// Well-known pwsh (PowerShell 7+) install roots, probed on the filesystem when
+// PATH does not carry pwsh.exe. A long-lived daemon frequently inherits an env
+// without the PowerShell 7 directory, which silently downgraded every command
+// to Windows PowerShell 5.1 — the shell that lacks `&&` and drives the bashism
+// preflight blocks. Newest major first, then the Store alias.
+function pwshFromKnownWindowsRoots() {
+    const env = process.env;
+    const bases = [env.ProgramW6432, env.ProgramFiles, env['ProgramFiles(x86)'], 'C:\\Program Files', 'C:\\Program Files (x86)']
+        .filter(Boolean)
+        .map((base) => join(base, 'PowerShell'));
+    const versions = ['7', '7-preview', '8', '9'];
+    for (const base of bases) {
+        for (const version of versions) {
+            const candidate = join(base, version, 'pwsh.exe');
+            if (existsSync(candidate)) return candidate;
+        }
+    }
+    if (env.LOCALAPPDATA) {
+        const storeAlias = join(env.LOCALAPPDATA, 'Microsoft', 'WindowsApps', 'pwsh.exe');
+        if (existsSync(storeAlias)) return storeAlias;
+    }
+    return null;
+}
+
 function resolveWindowsPowerShell() {
+    // Priority: pwsh on PATH → pwsh in a known install root → bundled 5.1 →
+    // any powershell.exe on PATH. PowerShell 7 is preferred wherever it exists
+    // because 5.1 rejects `&&` chains and several modern operators.
     const pwsh = firstExistingPathFromPath('pwsh.exe');
     if (pwsh) return shellSpec(pwsh, 'powershell');
+
+    const installed = pwshFromKnownWindowsRoots();
+    if (installed) return shellSpec(installed, 'powershell');
 
     const systemRoot = process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows';
     const bundled = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');

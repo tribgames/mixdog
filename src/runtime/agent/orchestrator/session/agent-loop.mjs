@@ -403,8 +403,12 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // Continuations since the last executed tool batch — bounds the text-only
     // continuation runaway (see PROVIDER_CONTINUATION_NO_TOOL_LIMIT).
     let _continuationsSinceToolBatch = 0;
-    // Loop-level transport replays consumed this ask (see send-with-recovery
-    // TRANSPORT_RETRY_MAX): bounded per turn, reset only with a fresh ask.
+    // Loop-level transport replays consumed since the last SUCCESSFUL send
+    // (see send-with-recovery TRANSPORT_RETRY_MAX). Reference parity: codex
+    // starts each sampling request at retries=0 (and resets on transport
+    // fallback), cc's withRetry budget is per request, opencode schedules
+    // retries per stream call. A per-ask budget instead let one early blip in
+    // a long turn leave every later iteration with zero replays.
     let _transportRetriesUsed = 0;
     // Queued prompt/task notifications are attached after a
     // tool batch, before the continuation provider send. Normal batches drain
@@ -664,6 +668,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         opts.onToolCall = undefined;
         delete opts.cacheBreakIntent;
         contextOverflowRetryUsed = false;
+        // A completed send ends the outage this budget was covering; the next
+        // iteration is a fresh request and must get the full replay budget
+        // again (mirrors contextOverflowRetryUsed above).
+        _transportRetriesUsed = 0;
         // Capture opaque state for the next turn only when the provider
         // explicitly returned the field. Absence means "no update"; an own
         // property with null/undefined means "clear".

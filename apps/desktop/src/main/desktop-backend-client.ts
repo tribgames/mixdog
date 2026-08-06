@@ -106,6 +106,7 @@ export class DesktopBackendClient implements DesktopEngineHost {
   private bootstrapSnapshot: EngineSnapshot;
   private cachedSessions: DesktopSessionSummary[] | null = null;
   private cachedAgentPool: DesktopAgentPoolRow[] | null = null;
+  private activeSessionId = '';
   private sessionCacheFresh = false;
   private agentPoolCacheFresh = false;
   private visibleSessionIds: string[] = [];
@@ -286,7 +287,11 @@ export class DesktopBackendClient implements DesktopEngineHost {
       const sessions = Array.isArray(message.sessions) ? message.sessions.slice() : [];
       this.cachedSessions = sessions;
       this.sessionCacheFresh = true;
-      for (const listener of this.sessionListeners) listener(sessions.slice());
+      const projected = sessions.map((session) => ({
+        ...session,
+        currentSession: session.id === this.activeSessionId,
+      }));
+      for (const listener of this.sessionListeners) listener(projected);
       return;
     }
     if (message.kind === 'agent-pool') {
@@ -325,6 +330,7 @@ export class DesktopBackendClient implements DesktopEngineHost {
           : {}),
       };
       for (const listener of this.sessionStateListeners) listener(update);
+      if (sessionId === this.activeSessionId) this.publish(update.snapshot);
       return;
     }
     if (message.kind !== 'response') return;
@@ -535,14 +541,23 @@ export class DesktopBackendClient implements DesktopEngineHost {
     });
   }
 
-  startProject(projectPath: string): Promise<EngineSnapshot> {
-    return this.invoke('startProject', [projectPath]);
+  async startProject(projectPath: string): Promise<EngineSnapshot> {
+    const snapshot = await this.invoke<EngineSnapshot>('startProject', [projectPath]);
+    this.activeSessionId = '';
+    this.publish(snapshot);
+    return snapshot;
   }
-  startProjectTask(projectPath: string): Promise<EngineSnapshot> {
-    return this.invoke('startProjectTask', [projectPath]);
+  async startProjectTask(projectPath: string): Promise<EngineSnapshot> {
+    const snapshot = await this.invoke<EngineSnapshot>('startProjectTask', [projectPath]);
+    this.activeSessionId = '';
+    this.publish(snapshot);
+    return snapshot;
   }
-  startTask(): Promise<EngineSnapshot> {
-    return this.invoke('startTask');
+  async startTask(): Promise<EngineSnapshot> {
+    const snapshot = await this.invoke<EngineSnapshot>('startTask');
+    this.activeSessionId = '';
+    this.publish(snapshot);
+    return snapshot;
   }
   listProjects(): Promise<DesktopProjectSummary[]> {
     return this.invokeRead('listProjects');
@@ -614,11 +629,17 @@ export class DesktopBackendClient implements DesktopEngineHost {
     await this.start();
     if (this.sessionCacheFresh && this.cachedSessions) {
       this.sessionCacheFresh = false;
-      return this.cachedSessions.slice();
+      return this.cachedSessions.map((session) => ({
+        ...session,
+        currentSession: session.id === this.activeSessionId,
+      }));
     }
     const sessions = await this.invokeRead<DesktopSessionSummary[]>('listSessions');
     this.cachedSessions = Array.isArray(sessions) ? sessions.slice() : [];
-    return this.cachedSessions.slice();
+    return this.cachedSessions.map((session) => ({
+      ...session,
+      currentSession: session.id === this.activeSessionId,
+    }));
   }
   async listAgentPool(): Promise<DesktopAgentPoolRow[]> {
     await this.start();
@@ -657,8 +678,11 @@ export class DesktopBackendClient implements DesktopEngineHost {
     );
     return this.invokeRead('setVisibleSessions', [this.visibleSessionIds]);
   }
-  resumeSession(sessionId: string): Promise<EngineSnapshot> {
-    return this.invoke('resumeSession', [sessionId]);
+  async resumeSession(sessionId: string): Promise<EngineSnapshot> {
+    const snapshot = await this.invoke<EngineSnapshot>('resumeSession', [sessionId]);
+    this.activeSessionId = String(snapshot?.sessionId || sessionId);
+    this.publish(snapshot);
+    return snapshot;
   }
   searchProjectFiles(
     projectIdOrWorkspaceId: string,
@@ -668,20 +692,31 @@ export class DesktopBackendClient implements DesktopEngineHost {
     return this.invokeRead('searchProjectFiles', [projectIdOrWorkspaceId, query, limit]);
   }
   submit(prompt: DesktopPromptContent, options: DesktopSubmitOptions = {}): Promise<boolean> {
-    return this.invoke('submit', [prompt, options]);
+    if (!this.activeSessionId) return Promise.resolve(false);
+    return this.submitToSession(this.activeSessionId, prompt, options);
   }
-  submitNewTask(
+  async submitNewTask(
     prompt: DesktopPromptContent,
     options: DesktopSubmitOptions = {},
     draft: DesktopNewTaskDraft = {},
   ): Promise<DesktopNewTaskSubmitResult> {
-    return this.invoke('submitNewTask', [prompt, options, draft]);
+    const result = await this.invoke<DesktopNewTaskSubmitResult>(
+      'submitNewTask',
+      [prompt, options, draft],
+    );
+    if (result.accepted && result.sessionId) {
+      this.activeSessionId = result.sessionId;
+      if (result.snapshot) this.publish(result.snapshot);
+    }
+    return result;
   }
   abort(options: DesktopAbortOptions = {}): Promise<unknown> {
-    return this.invoke('abort', [options]);
+    if (!this.activeSessionId) return Promise.resolve({ aborted: false });
+    return this.abortSession(this.activeSessionId, options);
   }
   resolveToolApproval(id: string, decision: ToolApprovalDecision): Promise<boolean> {
-    return this.invoke('resolveToolApproval', [id, decision]);
+    if (!this.activeSessionId) return Promise.resolve(false);
+    return this.resolveToolApprovalForSession(this.activeSessionId, id, decision);
   }
   submitToSession(
     sessionId: string,
@@ -703,17 +738,24 @@ export class DesktopBackendClient implements DesktopEngineHost {
   listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
     return this.invokeRead('listProviderModels', [options]);
   }
-  setModelRoute(selection: DesktopModelSelection): Promise<EngineSnapshot> {
-    return this.invoke('setModelRoute', [selection]);
+  setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<EngineSnapshot> {
+    const target = sessionId || this.activeSessionId;
+    return this.invoke('setModelRoute', [selection, target || undefined]);
   }
-  setFast(enabled: boolean): Promise<EngineSnapshot> {
-    return this.invoke('setFast', [enabled]);
+  setFast(enabled: boolean, sessionId?: string): Promise<EngineSnapshot> {
+    const target = sessionId || this.activeSessionId;
+    return this.invoke('setFast', [enabled, target || undefined]);
   }
   invokeCapability<T = unknown>(
     capability: DesktopCapability,
     args: unknown[] = [],
+    sessionId?: string,
   ): Promise<DesktopCapabilityResult<T>> {
-    return this.invoke('invokeCapability', [capability, args]);
+    return this.invoke('invokeCapability', [
+      capability,
+      args,
+      sessionId || this.activeSessionId || undefined,
+    ]);
   }
   readCapabilities(
     requests: ReadonlyArray<DesktopCapabilityReadRequest>,

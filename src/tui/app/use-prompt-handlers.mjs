@@ -46,6 +46,7 @@ export function usePromptHandlers({
   recentPromptHistory,
   resetPromptHistoryNav,
   restoreQueuedToPrompt,
+  openMessageSelector,
   usagePanel,
   closeUsagePanel,
   contextPanel,
@@ -203,7 +204,8 @@ export function usePromptHandlers({
   // - prompt-local overlays such as the slash palette close first.
   // - active work is cancelled before queue/draft handling.
   // - idle non-empty text uses Claude Code's "Esc again to clear" guard.
-  // - idle empty input restores queued editable messages.
+  // - idle empty input restores queued editable messages, and a double press
+  //   opens the message selector (jump back to a previous prompt).
   const handlePromptEscape = useCallback((text = '', meta = {}) => {
     if (usagePanel) { closeUsagePanel(); return true; }
     if (contextPanel) { setContextPanel(null); return true; }
@@ -211,6 +213,17 @@ export function usePromptHandlers({
     if (meta.phase === 'clear-arm') {
       showPromptHint('Esc again to clear', 'plain', PROMPT_ESCAPE_CLEAR_WINDOW_MS);
       return true;
+    }
+    if (meta.phase === 'select-arm') {
+      showPromptHint('Esc again to pick a message', 'plain', PROMPT_ESCAPE_CLEAR_WINDOW_MS);
+      return true;
+    }
+    if (meta.phase === 'select') {
+      clearPromptHint();
+      // Queue first (Claude Code order): a stale queue projection must not let
+      // the selector shadow an editable follow-up that is still waiting.
+      if (restoreQueuedToPrompt({ restoreDraft: true, showHint: false, currentText: text })) return true;
+      return openMessageSelector?.() === true;
     }
     if (meta.phase === 'clear') {
       try {
@@ -225,10 +238,9 @@ export function usePromptHandlers({
     if (meta.phase === 'empty') {
       return restoreQueuedToPrompt({ restoreDraft: true, showHint: false, currentText: text });
     }
-    // Idle + empty + nothing to restore: nothing (double-press from empty
-    // opens message selector, but we don't have that feature yet).
+    // Idle + empty + no transcript to jump back into: nothing to do.
     return false;
-  }, [contextPanel, usagePanel, closeUsagePanel, restoreQueuedToPrompt, showPromptHint, clearPromptHint, clearPastedImagesSnapshot, clearPastedTextsSnapshot, store]);
+  }, [contextPanel, usagePanel, closeUsagePanel, restoreQueuedToPrompt, openMessageSelector, showPromptHint, clearPromptHint, clearPastedImagesSnapshot, clearPastedTextsSnapshot, store]);
 
   const commitAsyncInterruptRestore = useCallback((pending) => {
     if (!pending || pending.generation !== interruptGenerationRef.current) return true;

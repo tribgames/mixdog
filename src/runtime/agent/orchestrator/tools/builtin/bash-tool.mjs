@@ -1,4 +1,9 @@
 import { getAbortSignalForSession } from '../../session/abort-lookup.mjs';
+import { unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join as pathJoin } from 'node:path';
+import { isLegitimateShellExit } from '../../session/result-classification.mjs';
+import { makeToolEnvelope } from '../../session/tool-envelope.mjs';
 import { acquireShellLeaseBounded, execShellCommand, stripAnsi } from '../shell-command.mjs';
 import { wrapCommandWithSnapshot } from '../shell-snapshot.mjs';
 import { getDestructiveCommandWarning } from '../destructive-warning.mjs';
@@ -29,6 +34,7 @@ import {
     foregroundLongCommandHint,
     hasPowerShellOnlySyntax,
     isAutobackgroundingAllowed,
+    planInlineScriptHoist,
     preflightPowerShellHygiene,
     shellSplitSegments,
     shellSplitPipelineSegments,
@@ -213,6 +219,14 @@ export function formatShellToolFailure(message) {
     return `Error: [shell-tool-failed] ${text}`;
 }
 
+// A legitimate non-zero exit keeps its `[exit code: N]` marker but must not be
+// CLASSIFIED as a failure downstream — the marker alone would read as an error
+// to classifyResultKind. The explicit-success envelope is the documented
+// channel for output that looks like an error and is not one.
+function _finalizeShellResult(legitExit, text) {
+    return legitExit ? makeToolEnvelope(text, [], { explicitSuccess: true }) : text;
+}
+
 export function _shellFailureStatus(result, timeout) {
     // Prefer the signal reported by the process. `killed` is only a fallback
     // for platforms (notably taskkill on Windows) that close without one.
@@ -382,6 +396,26 @@ export async function executeBashTool(args, workDir, options = {}) {
     if (_execPolicyBlock) {
         return formatShellToolFailure(_execPolicyBlock);
     }
+    // Inline-script hoisting (sync runs only — a background job would outlive
+    // the temp file). The body is written verbatim and the invocation becomes a
+    // file run, so the host shell never has to carry the script through its
+    // quoting layer. planInlineScriptHoist refuses every case where file
+    // semantics would differ, so this is a transport change only.
+    let _inlineHoistPath = null;
+    if (!runInBackground && args.persistent !== true) {
+        const hoist = planInlineScriptHoist(command);
+        if (hoist) {
+            try {
+                const file = pathJoin(
+                    tmpdir(),
+                    `mixdog-inline-${process.pid}-${Date.now().toString(36)}${hoist.extension}`,
+                );
+                writeFileSync(file, hoist.body, 'utf8');
+                _inlineHoistPath = file;
+                command = hoist.replace(file.replace(/\\/g, '/'));
+            } catch { _inlineHoistPath = null; }
+        }
+    }
 
     // Sleep-chain auto-promotion: a leading `sleep N && …` / `Start-Sleep N; …`
     // used to be DENIED preflight (CC detectBlockedSleepPattern parity).
@@ -480,11 +514,30 @@ export async function executeBashTool(args, workDir, options = {}) {
     // the value stays a soft hint clamped below `timeout` so the hard ceiling
     // remains a separate, later bound. Never applies to run_in_background
     // (already detached) or persistent sessions (handled far above).
-    const _autoBgEnvMs = Number(process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS);
-    const DEFAULT_AUTO_BACKGROUND_MS = Number.isFinite(_autoBgEnvMs) && _autoBgEnvMs > 0
+    // Promotion threshold (Codex `yield_time_ms` / CC startBackgrounding
+    // analogue). Previously 0 = OFF, so every long command held the turn open
+    // to the full foreground timeout and, at the cap, produced a wasted wait.
+    // 30 s keeps ordinary builds/tests inline (measured shell p90 ~ 18 s) while
+    // detaching the long tail (measured: 111 calls/day above 30 s, 30 of them
+    // burning the entire 120 s cap) as a tracked job with partial output.
+    // MIXDOG_SHELL_AUTO_BACKGROUND_MS overrides; an explicit 0 disables.
+    const _autoBgEnvRaw = process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
+    const _autoBgEnvMs = Number(_autoBgEnvRaw);
+    const DEFAULT_AUTO_BACKGROUND_MS = (_autoBgEnvRaw != null && String(_autoBgEnvRaw).trim() !== ''
+      && Number.isFinite(_autoBgEnvMs) && _autoBgEnvMs >= 0)
       ? Math.floor(_autoBgEnvMs)
-      : 0;
-    const autoBackgroundMs = (runInBackground || DEFAULT_AUTO_BACKGROUND_MS <= 0)
+      : 30_000;
+    // Gate on backgroundOnTimeout rather than just `runInBackground`: it already
+    // encodes "promotion is available for this command" (not detached, background
+    // tasks enabled, command shape allows it), so the soft threshold can never
+    // promote something the hard timeout would refuse to.
+    // An EXPLICIT caller timeout is a deliberate "I intend to wait this long"
+    // (a long build/test/install), so the soft threshold never overrides it —
+    // the call stays inline until its own deadline, where backgroundOnTimeout
+    // still promotes instead of killing. Auto-promotion therefore only applies
+    // to the OMITTED-timeout default, which is exactly the case where nobody
+    // declared how long the command should be allowed to hold the turn.
+    const autoBackgroundMs = (!backgroundOnTimeout || hasExplicitTimeout || DEFAULT_AUTO_BACKGROUND_MS <= 0)
       ? 0
       : Math.min(DEFAULT_AUTO_BACKGROUND_MS, timeout);
 
@@ -729,7 +782,17 @@ export async function executeBashTool(args, workDir, options = {}) {
         const failureStatus = _shellFailureStatus(result, timeout);
         const { signal, exitCode, shellToolFailed } = failureStatus;
         const benignExitOne = _isBenignSearchExitOne(command, exitCode, signal, stderr);
-        const shellRunFailed = !shellToolFailed && (!!signal || (exitCode !== 0 && exitCode !== null && !benignExitOne));
+        // Legitimate non-zero exit: the command printed its result and ended
+        // with 1 without writing a single byte to stderr (probes, reports,
+        // `git diff --exit-code`-shaped checks). It keeps its `[exit code: 1]`
+        // marker so the caller sees the code, but it is NOT framed as a tool
+        // error and NOT classified as a failure — measured as the dominant
+        // shape among non-zero exits.
+        const legitExit = !shellToolFailed
+            && !benignExitOne
+            && isLegitimateShellExit({ exitCode, signal, stdout, stderr });
+        const shellRunFailed = !shellToolFailed
+            && (!!signal || (exitCode !== 0 && exitCode !== null && !benignExitOne && !legitExit));
         const isReallyErrored = shellToolFailed || shellRunFailed;
         // Filter-swallow rescue: the tee file is ALWAYS consumed (deleted)
         // here; its tail is attached only when the run failed with an empty
@@ -754,8 +817,16 @@ export async function executeBashTool(args, workDir, options = {}) {
         const statusDetail = failureStatus.statusDetail;
         const statusMarker = shellToolFailed
             ? `[shell-tool-failed] ${statusDetail}`
-            : (shellRunFailed ? `[shell-run-failed] ${statusDetail}` : '');
+            : (shellRunFailed ? `[shell-run-failed] ${statusDetail}` : (legitExit ? statusDetail : ''));
         const errorPrefix = isReallyErrored ? 'Error: ' : '';
+        // Three outcomes, three labels: a TOOL error (`[shell-tool-failed]`),
+        // a command that RAN AND FAILED (`Error: [shell-run-failed]`), and a
+        // command that RAN TO COMPLETION and merely ended non-zero. The last
+        // one keeps its exit code but says so in words, so neither the model
+        // nor the failure log treats a finished report as a failure.
+        const completionNote = legitExit
+            ? '\n[completed: the command finished and wrote nothing to stderr; the exit code is its own report, not a tool failure]'
+            : '';
         if (mergeStderr) {
             // Post-exit concatenation. True chunk-level interleaving would
             // require shell-level `2>&1` redirection (bash) or `*>&1`
@@ -765,7 +836,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             // cross-stream interleaving. Acceptable for most diagnostic
             // outputs; flag in shell-command if exact interleaving is required.
             const merged = stdout + stderr;
-            if (statusMarker) return _prependDestructiveWarning(command, errorPrefix + smartMiddleTruncate(`${statusMarker}\n\n${merged || '(no output)'}`) + _rescueNote + _driftNote);
+            if (statusMarker) return _finalizeShellResult(legitExit, _prependDestructiveWarning(command, errorPrefix + smartMiddleTruncate(`${statusMarker}${completionNote}\n\n${merged || '(no output)'}`) + _rescueNote + _driftNote));
             return _prependDestructiveWarning(command, smartMiddleTruncate(merged || '(no output)') + _driftNote);
         }
         const truncatedStdout = smartMiddleTruncate(stdout);
@@ -789,11 +860,14 @@ export async function executeBashTool(args, workDir, options = {}) {
             shellRescueNote,
         ].filter(Boolean).join('\n');
         const payload = `${body}${stderrBlock}${spillBlock}${_rescueNote}${_driftNote}`;
-        if (statusMarker) return _prependDestructiveWarning(command, _composeShellFailure(statusMarker, errorPrefix, warningBlock, payload));
+        if (statusMarker) return _finalizeShellResult(legitExit, _prependDestructiveWarning(command, _composeShellFailure(`${statusMarker}${completionNote}`, errorPrefix, warningBlock, payload)));
         return _prependDestructiveWarning(command, warningBlock ? `${warningBlock}\n${payload}` : payload);
     }
     finally {
         combinedBashAbort?.cleanup?.();
+        if (_inlineHoistPath) {
+            try { unlinkSync(_inlineHoistPath); } catch { /* best-effort cleanup */ }
+        }
         if (shellEffects.mutationMode === 'paths') {
             invalidateBuiltinResultCache(shellEffects.paths);
             markCodeGraphDirtyPaths(shellEffects.paths);

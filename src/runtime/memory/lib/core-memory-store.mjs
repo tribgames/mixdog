@@ -29,6 +29,20 @@ export const CORE_DEDUP_TOP_K = 5
 
 const CORE_ELEMENT_DERIVE_LENGTH = 40
 
+// Op aliases: the surface verbs are add/edit/delete/list/…, and a caller
+// naming the same intent differently ("update", "remove") used to get a hard
+// rejection. Only unambiguous synonyms map through.
+const CORE_OP_ALIASES = {
+  update: 'edit', modify: 'edit', change: 'edit', set: 'edit',
+  create: 'add', new: 'add', insert: 'add', store: 'add', save: 'add',
+  remove: 'delete', rm: 'delete', del: 'delete', forget: 'delete',
+  show: 'list', get: 'list', read: 'list',
+}
+export function normalizeCoreOp(op) {
+  const raw = String(op ?? '').trim().toLowerCase()
+  return CORE_OP_ALIASES[raw] ?? raw
+}
+
 function trimOrNull(v) {
   if (v == null) return null
   const s = String(v).trim()
@@ -36,7 +50,10 @@ function trimOrNull(v) {
 }
 
 export function normalizeCoreInput(input = {}, options = {}) {
-  const summary = trimOrNull(input.summary ?? input.content)
+  // Summary aliases: the field is `summary`, but callers routinely send the
+  // synonym they'd use in prose. Accepting them costs nothing and removes a
+  // measured class of bounced calls.
+  const summary = trimOrNull(input.summary ?? input.content ?? input.text ?? input.value ?? input.note)
   const element = trimOrNull(input.element) ?? (summary ? summary.slice(0, CORE_ELEMENT_DERIVE_LENGTH) : null)
   const suppliedCategory = trimOrNull(input.category)
   const category = (suppliedCategory ?? 'fact').toLowerCase()

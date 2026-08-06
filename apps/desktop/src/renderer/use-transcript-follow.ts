@@ -451,15 +451,23 @@ export function useTranscriptFollow({
       // the virtual timeline: its end anchor absorbs every rewrap delta
       // pre-paint. Writing scrollTop here too made two scroll authorities race
       // mid-drag — exactly the up/down bounce while narrowing.
-      if (!viewportHeightChanged) return;
+      // CONTENT growth is the other half of this rule. The streaming tail
+      // grows inside its own selector-driven row, so no append and no rows
+      // commit run while it does, and virtual-core re-pins only while the
+      // offset sits inside its own end band: one tall row in a short split
+      // pane leaves that band and the rest of the turn piles up below the fold
+      // with follow still armed (user: 어시스턴트 턴에 자동 스크롤이 안 된다).
+      // A timeline that KEPT its promise leaves the distance at zero, so this
+      // re-pin writes nothing unless the tail was actually lost.
+      if (!viewportHeightChanged && distanceFromBottom(root) < BOTTOM_THRESHOLD_PX) return;
       scrollToBottom(false);
     });
-    // Virtual-core exclusively owns append and measured-row anchoring. Watching
-    // its content spacer here added a second scrollTop writer for every new
-    // row: the core followed the append, then this observer followed the
-    // resulting spacer resize. Observe only the viewport so a composer or
-    // bottom-panel resize still re-pins in the same pre-paint transaction.
+    // Virtual-core still owns append and measured-row anchoring; the guard
+    // above keeps this observer silent for every growth the core follows on
+    // its own. Watching the viewport as well re-pins a composer or
+    // bottom-panel resize in the same pre-paint transaction.
     observer.observe(element);
+    observer.observe(target);
     return () => observer.disconnect();
   }, [content, contentMounted, following, publish, scheduleScrollState, scrollToBottom, sessionKey, viewport]);
 

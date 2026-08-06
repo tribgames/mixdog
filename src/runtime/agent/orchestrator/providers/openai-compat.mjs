@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
-import { withRetry } from './retry-classifier.mjs';
+import { canFallbackNonStreaming, withRetry } from './retry-classifier.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
 import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
@@ -437,44 +437,52 @@ export class OpenAICompatProvider {
         params.stream_options = { include_usage: true };
         let assembled;
         try {
-            assembled = await withRetry(
-                async ({ signal: attemptSignal }) => {
-                    try { opts.onStageChange?.('requesting'); } catch { /* heartbeat best-effort */ }
-                    const stream = await withRetry(
-                        ({ signal: openSignal }) => this.client.chat.completions.create(params, { signal: openSignal }),
-                        {
+            try {
+                assembled = await withRetry(
+                    async ({ signal: attemptSignal }) => {
+                        try { opts.onStageChange?.('requesting'); } catch { /* heartbeat best-effort */ }
+                        const stream = await withRetry(
+                            ({ signal: openSignal }) => this.client.chat.completions.create(params, { signal: openSignal }),
+                            {
+                                signal: attemptSignal,
+                                // Single attempt: this inner wrapper exists only to
+                                // apply the first-byte per-attempt timeout. Retry is
+                                // owned by the outer withRetry — nesting retry loops
+                                // here multiplied tail latency (5x5).
+                                maxAttempts: 1,
+                                perAttemptTimeoutMs: PROVIDER_FIRST_BYTE_TIMEOUT_MS,
+                                perAttemptLabel: `${this.name} first byte`,
+                            },
+                        );
+                        try { opts.onStageChange?.('streaming'); } catch { /* heartbeat best-effort */ }
+                        return consumeCompatChatCompletionStream(stream, {
                             signal: attemptSignal,
-                            // Single attempt: this inner wrapper exists only to
-                            // apply the first-byte per-attempt timeout. Retry is
-                            // owned by the outer withRetry — nesting retry loops
-                            // here multiplied tail latency (5x5).
-                            maxAttempts: 1,
-                            perAttemptTimeoutMs: PROVIDER_FIRST_BYTE_TIMEOUT_MS,
-                            perAttemptLabel: `${this.name} first byte`,
-                        },
-                    );
-                    try { opts.onStageChange?.('streaming'); } catch { /* heartbeat best-effort */ }
-                    return consumeCompatChatCompletionStream(stream, {
-                        signal: attemptSignal,
-                        label: this.name,
-                        onStreamDelta: opts.onStreamDelta,
-                        onToolCall: opts.onToolCall,
-                        onTextDelta: opts.onTextDelta,
-                        parseToolCalls,
-                        // Known tool names for the leaked-tool-call guard:
-                        // recovered leaked calls only synthesize when they name
-                        // a tool actually offered to this request.
-                        knownToolNames: knownToolNamesFromOpenAITools(params.tools),
-                    });
-                },
-                {
-                    signal: totalSignal.signal,
-                    onRetry: ({ attempt, lastErr, delayMs, delayReason }) => {
-                        const delayLabel = Number.isFinite(Number(delayMs)) ? `, delay ${delayMs}ms${delayReason ? ` (${delayReason})` : ''}` : '';
-                        process.stderr.write(`[${this.name}] retry attempt ${attempt + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}${delayLabel}\n`);
+                            label: this.name,
+                            onStreamDelta: opts.onStreamDelta,
+                            onToolCall: opts.onToolCall,
+                            onTextDelta: opts.onTextDelta,
+                            parseToolCalls,
+                            // Known tool names for the leaked-tool-call guard:
+                            // recovered leaked calls only synthesize when they name
+                            // a tool actually offered to this request.
+                            knownToolNames: knownToolNamesFromOpenAITools(params.tools),
+                        });
                     },
-                },
-            );
+                    {
+                        signal: totalSignal.signal,
+                        onRetry: ({ attempt, lastErr, delayMs, delayReason }) => {
+                            const delayLabel = Number.isFinite(Number(delayMs)) ? `, delay ${delayMs}ms${delayReason ? ` (${delayReason})` : ''}` : '';
+                            process.stderr.write(`[${this.name}] retry attempt ${attempt + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}${delayLabel}\n`);
+                        },
+                    },
+                );
+            } catch (streamErr) {
+                const recovered = await this._recoverCompatNonStreaming({
+                    streamErr, params, opts, signal: totalSignal.signal, useModel,
+                });
+                if (!recovered) throw streamErr;
+                assembled = recovered;
+            }
         } finally {
             totalSignal.cleanup();
         }
@@ -584,6 +592,83 @@ export class OpenAICompatProvider {
             })() : undefined,
         };
     }
+    /**
+     * cc parity (claude.ts:2504): when a stream dies, re-issue the SAME request
+     * with `stream:false` rather than failing the turn. Narrower than cc on
+     * purpose — canFallbackNonStreaming() clears only a stream that exposed
+     * NOTHING, so an eagerly dispatched tool can never run twice and rendered
+     * text is never duplicated (that case belongs to the loop's retraction
+     * replay). Returns the same assembled shape the stream consumer produces,
+     * or null when the failure is ineligible or the fallback itself fails.
+     */
+    async _recoverCompatNonStreaming({ streamErr, params, opts, signal, useModel }) {
+        if (!canFallbackNonStreaming(streamErr, { signal })) return null;
+        const nonStreamParams = { ...params, stream: false };
+        delete nonStreamParams.stream_options;
+        let response;
+        try {
+            try { opts.onStageChange?.('requesting'); } catch { /* heartbeat best-effort */ }
+            response = await withRetry(
+                ({ signal: attemptSignal }) => this.client.chat.completions.create(
+                    nonStreamParams,
+                    { signal: attemptSignal },
+                ),
+                {
+                    signal,
+                    maxAttempts: 1,
+                    // A non-streaming call returns only when generation is done,
+                    // so the first-byte bound would false-abort it.
+                    perAttemptTimeoutMs: PROVIDER_GENERATE_TOTAL_TIMEOUT_MS,
+                    perAttemptLabel: `${this.name} non-streaming fallback`,
+                },
+            );
+        } catch {
+            return null;
+        }
+        const choice = response?.choices?.[0] || null;
+        if (!choice) return null;
+        const message = choice.message || {};
+        let toolCalls;
+        try {
+            toolCalls = parseToolCalls(choice, this.name);
+        } catch {
+            return null;
+        }
+        try {
+            process.stderr.write(
+                `[${this.name}] stream failed (${streamErr?.code || streamErr?.message || 'unknown'}); `
+                + `recovered via non-streaming request\n`,
+            );
+        } catch { /* best-effort */ }
+        try {
+            appendAgentTrace({
+                sessionId: opts?.sessionId || opts?.session?.id || null,
+                iteration: Number.isFinite(Number(opts?.iteration)) ? Number(opts.iteration) : null,
+                kind: 'transport_fallback',
+                provider: this.name,
+                model: useModel,
+                transport: 'non-streaming',
+                payload: {
+                    from: 'stream',
+                    to: 'non-streaming',
+                    reason: streamErr?.retryClassifier || streamErr?.code || streamErr?.message || 'stream_failed',
+                    error_code: streamErr?.code || null,
+                    error_http_status: Number(streamErr?.httpStatus || streamErr?.status || 0) || null,
+                    error_classifier: streamErr?.retryClassifier || streamErr?.midstreamClassifier || null,
+                },
+            });
+        } catch { /* best-effort */ }
+        return {
+            response,
+            model: response.model || useModel,
+            content: typeof message.content === 'string' ? message.content : '',
+            toolCalls,
+            stopReason: choice.finish_reason || null,
+            reasoningContent: typeof message.reasoning_content === 'string' ? message.reasoning_content : null,
+            rawUsage: response.usage || null,
+        };
+    }
+
     async _doSendXaiResponses(messages, useModel, tools, opts) {
         const signal = opts.signal || null;
         if (signal?.aborted) {

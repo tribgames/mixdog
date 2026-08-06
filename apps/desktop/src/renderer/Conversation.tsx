@@ -54,7 +54,21 @@ import {
 import { LiveActivity, resetToolDisclosureScope, TranscriptRow } from "./TranscriptView";
 import { TurnReviewBar } from "./TurnReview";
 import { BOTTOM_THRESHOLD_PX, useTranscriptFollow } from "./use-transcript-follow";
+// @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
+import { classifyToolCategory } from "../../../../src/runtime/shared/tool-surface.mjs";
 
+
+/** Does this tool row belong to work that can CHANGE files? The shared
+ *  classifier owns the answer (Patch = apply_patch and its aliases), an
+ *  aggregate card carries its categories as a count map, and a card that
+ *  already published a uiDiff has touched files by definition. */
+function toolTouchesFiles(item: TranscriptItem | null | undefined): boolean {
+  if (!item || item.kind !== "tool") return false;
+  if (typeof item.uiDiff === "string" && item.uiDiff) return true;
+  const categories = asRecord(item.categories);
+  if (categories && Object.hasOwn(categories, "Patch")) return true;
+  return classifyToolCategory(String(item.name || "")) === "Patch";
+}
 
 export type PendingPromptItem = TranscriptItem & {
   id: string | number;
@@ -150,9 +164,39 @@ export function pendingPromptTranscriptItems(
   return rows;
 }
 
+export function promptWaitsBehindActiveTurn(
+  draftMode: boolean,
+  snapshot: Pick<Snapshot, "busy" | "queued">,
+): boolean {
+  // OpenCode/Codex/Claude Code parity: a new thread's first prompt belongs to
+  // the new thread, never to the active/queued state of the previously viewed
+  // session. Existing sessions still expose follow-ups through the queue.
+  return !draftMode && (Boolean(snapshot.busy)
+    || (Array.isArray(snapshot.queued) && snapshot.queued.length > 0));
+}
+
+export function unsettledQueueEntries(
+  queued: unknown,
+  settled: readonly TranscriptItem[],
+): unknown[] {
+  if (!Array.isArray(queued) || queued.length === 0) return [];
+  const settledUserIds = new Set(settled
+    .filter((item) => item?.kind === "user" && item.id !== undefined && item.id !== null)
+    .map((item) => String(item.id)));
+  if (settledUserIds.size === 0) return queued;
+  // One owner per submission: once the durable user row exists, it wins over
+  // a delayed queue projection carrying the same id. Text is deliberately not
+  // compared because identical follow-ups with distinct ids are valid.
+  return queued.filter((entry) => {
+    const id = asRecord(entry)?.id;
+    return id === undefined || id === null || !settledUserIds.has(String(id));
+  });
+}
+
 export function Conversation({
   snapshot,
   routeSnapshot,
+  sessionAddress,
   invokeResult,
   errors,
   submit,
@@ -184,6 +228,8 @@ export function Conversation({
 }: {
   snapshot: Snapshot;
   routeSnapshot: Snapshot;
+  /** Pane ownership resolves to this canonical backend session address. */
+  sessionAddress?: string;
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
   errors: string[];
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
@@ -306,9 +352,21 @@ export function Conversation({
   // an active turn. An idle submit — including a draft's first prompt, whose
   // atomic RPC spans session materialization — renders as a normal user row.
   const queuedBehindTurnAtSubmit = useRef(false);
-  queuedBehindTurnAtSubmit.current = Boolean(snapshot.busy)
-    || (Array.isArray(snapshot.queued) && snapshot.queued.length > 0);
+  queuedBehindTurnAtSubmit.current = promptWaitsBehindActiveTurn(draftMode, snapshot);
   const settledItems = Array.isArray(snapshot.items) ? snapshot.items : EMPTY_TRANSCRIPT_ITEMS;
+  // Esc-Esc message selector source: the most recent rewindable user prompts,
+  // oldest → newest (TUI parity, capped like the terminal picker).
+  const composerUserMessages = useMemo(() => {
+    const rows: Array<{ id: string; text: string }> = [];
+    for (let index = settledItems.length - 1; index >= 0 && rows.length < 20; index -= 1) {
+      const item = settledItems[index];
+      if (!item || item.kind !== "user" || item.id == null) continue;
+      const text = String(item.text || "").trim();
+      if (!text) continue;
+      rows.push({ id: String(item.id), text });
+    }
+    return rows.reverse();
+  }, [settledItems]);
   const streamingTail = snapshot.streamingTail as TranscriptItem | null | undefined;
   const streamingTailId = streamingTail?.id;
   // Settled arrays are immutable by identity. Resolve a same-id replacement
@@ -394,9 +452,16 @@ export function Conversation({
   // autoClearBeforeSubmit), so keying on the queue publication alone put a
   // brand-new task's very first prompt into the reserved list with an empty
   // transcript (user report).
-  const engineQueuedIdKey = useMemo(() => (Array.isArray(snapshot.queued)
-    ? snapshot.queued.map((entry) => String(asRecord(entry)?.id ?? "")).join("\u0000")
-    : ""), [snapshot.queued]);
+  const unsettledEngineQueue = useMemo(
+    () => unsettledQueueEntries(snapshot.queued, settledItems),
+    [settledItems, snapshot.queued],
+  );
+  const engineQueuedIdKey = useMemo(
+    () => unsettledEngineQueue
+      .map((entry) => String(asRecord(entry)?.id ?? ""))
+      .join("\u0000"),
+    [unsettledEngineQueue],
+  );
   const engineQueuedIds = useMemo(
     () => new Set(engineQueuedIdKey.split("\u0000").filter(Boolean)),
     [engineQueuedIdKey],
@@ -430,7 +495,7 @@ export function Conversation({
   // published yet. Local entries carry the submission id, so the engine entry
   // replaces its local twin by id the moment it lands.
   const composerQueued = useMemo(() => {
-    const engineQueue = Array.isArray(snapshot.queued) ? snapshot.queued : [];
+    const engineQueue = unsettledEngineQueue;
     if (localQueuedPrompts.length === 0) return engineQueue;
     const published = new Set(engineQueue
       .map((entry) => String(asRecord(entry)?.id ?? ""))
@@ -443,7 +508,7 @@ export function Conversation({
         ...(item.images?.length ? { images: item.images } : {}),
       }));
     return local.length === 0 ? engineQueue : [...engineQueue, ...local];
-  }, [localQueuedPrompts, snapshot.queued]);
+  }, [localQueuedPrompts, unsettledEngineQueue]);
   const optimisticActivityStartedAt = pendingPromptItems.reduce((earliest, item) => {
     if (item.queuedBehindTurn === true) return earliest;
     const startedAt = Number(item.submittedAt || 0);
@@ -451,6 +516,26 @@ export function Conversation({
     return earliest > 0 ? Math.min(earliest, startedAt) : startedAt;
   }, 0);
   const itemCount = liveItemCount + transcriptPendingPromptItems.length;
+  // A turn that can actually produce a diff reserves the collapsed review row,
+  // so a result arriving mid-stream fills existing geometry instead of
+  // shrinking the transcript viewport. Reserving it for EVERY live turn left a
+  // conversation-only turn floating an empty 36px plate above the input
+  // (user: DIFF가 없는 경우에도 스크립트가 좀 떠있네).
+  const turnTouchesFiles = useMemo(() => {
+    for (let index = settledItems.length - 1; index >= 0; index--) {
+      const item = settledItems[index];
+      if (!item) continue;
+      if (item.kind === "user") break;
+      if (toolTouchesFiles(item)) return true;
+    }
+    return toolTouchesFiles(activeStreamingTail);
+  }, [activeStreamingTail, settledItems]);
+  const reviewSlotReserved = turnTouchesFiles && Boolean(
+    snapshot.busy
+    || snapshot.commandBusy
+    || activeStreamingTail
+    || optimisticActivityStartedAt
+  );
   useEffect(() => {
     if (previousTranscriptSessionKey.current === transcriptSessionKey) return;
     previousTranscriptSessionKey.current = transcriptSessionKey;
@@ -709,7 +794,7 @@ export function Conversation({
     (options: DesktopAbortOptions = {}) => composerActions.current.invokeResult(() => {
       const host = window.mixdogDesktop;
       const sessionId = routeSessionIdRef.current;
-      return sessionId ? host.abortSession(sessionId, options) : host.abort(options);
+      return sessionId ? host.abortSession(sessionId, options) : { aborted: false };
     }),
     [],
   );
@@ -874,7 +959,7 @@ export function Conversation({
                 const approvalId = String(snapshot.toolApproval?.id || "");
                 return sessionId
                   ? host.resolveToolApprovalForSession(sessionId, approvalId, { approved })
-                  : host.resolveToolApproval(approvalId, { approved });
+                  : Promise.resolve(false);
               }} />
           </div>
         )}
@@ -901,10 +986,11 @@ export function Conversation({
         {/* Review sits attached ABOVE the input (user: 채팅창 위에 붙어야 한다).
             It is not a timeline row: as scroll content it read as a detached
             card floating over the composer. */}
-        <div className="turn-review-slot">
+        <div className="turn-review-slot"
+          data-reserved={reviewSlotReserved ? "true" : "false"}>
           <TurnReviewBar items={settledItems}
-            sessionId={String(snapshot.sessionId || "")}
-            cwd={String(snapshot.currentProject || snapshot.project || snapshot.cwd || "")} />
+            sessionId={draftMode ? "" : String(sessionAddress || routeSnapshot.sessionId || "")}
+            cwd={String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || "")} />
         </div>
         <Composer
           turnBusy={Boolean(snapshot.busy)}
@@ -929,6 +1015,7 @@ export function Conversation({
           onDraftModelSelection={onDraftModelSelection}
           queued={composerQueued}
           hiddenQueueIds={pendingPromptIds}
+          userMessages={composerUserMessages}
           submit={composerSubmit}
           abort={composerAbort}
           invokeResult={composerInvokeResult}

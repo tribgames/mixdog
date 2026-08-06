@@ -54,6 +54,11 @@ const URGENT_CALLS = new Set([
 const EVENT_STREAM_RECONNECT_BASE_MS = 100;
 const EVENT_STREAM_RECONNECT_MAX_MS = 1_000;
 const EVENT_STREAM_HEALTH_GRACE_MS = 750;
+// A daemon that restarted needs a moment to rebind its port, so one immediate
+// re-attach often lands in the same gap the first call died in. Mirror the
+// event-stream policy above with a short bounded ladder; `callId` keeps a
+// retried submit idempotent on the daemon side, so replaying is safe.
+const CALL_RECOVERY_BACKOFF_MS = Object.freeze([0, 150, 600]);
 
 function request({
   port,
@@ -528,7 +533,7 @@ async function ensureSharedAttachment({ cwd, log }) {
         const bucket = views.get(String(frame?.sessionId || ''));
         if (!bucket) return;
         for (const view of [...bucket]) {
-          if (frame.type === 'session-state') view.applyFrame(frame);
+          if (frame.type === 'session-state') view.applyFrame(frame, state);
           else if (frame.type === 'session-gone') view.applyGone(frame.reason || 'session unloaded');
         }
       },
@@ -588,11 +593,20 @@ export async function createRemoteEngineSession(options = {}) {
   if (!sessionId) throw new Error('session.create returned no sessionId');
   let state = created?.full ?? {};
   let revision = Number(created?.revision) || 0;
+  // A revision belongs to one session projection on one daemon attachment. It
+  // detects a missing patch on that stream; it is not session history and
+  // never crosses a session rebind or daemon restart. This mirrors Codex
+  // thread/resume: seed a full thread snapshot, then consume notifications
+  // from the newly attached listener.
+  let revisionAttachment = attachment;
+  let revisionSessionId = sessionId;
   let sync = created?.sync ?? {};
   let syncRevision = Number(created?.syncRevision) || 0;
+  let syncAttachment = attachment;
   let reservedOnly = created?.reservedOnly === true;
   let disposed = false;
   const listeners = new Set();
+  const resultAttachments = new WeakMap();
 
   function emit() {
     for (const listener of [...listeners]) {
@@ -600,14 +614,29 @@ export async function createRemoteEngineSession(options = {}) {
     }
   }
 
-  function applyBody(body) {
+  function applyBody(body, sourceAttachment = resultAttachments.get(body) || attachment) {
     if (disposed || !body) return false;
+    // A response from the dead attachment may finish after recovery. It cannot
+    // repaint the session that is now subscribed to a replacement daemon.
+    if (sourceAttachment !== attachment) return true;
     if (Object.hasOwn(body, 'reservedOnly')) reservedOnly = body.reservedOnly === true;
     const incomingRevision = Number(body.revision);
+    if (revisionAttachment !== sourceAttachment || revisionSessionId !== sessionId) {
+      // A fresh attachment/session projection has no patch baseline. Only its
+      // authoritative full snapshot may establish the new epoch; numeric
+      // revisions from another projection are deliberately incomparable.
+      if (body.full === undefined || body.full === null) return false;
+      state = body.full;
+      revision = Number.isFinite(incomingRevision) ? incomingRevision : 0;
+      revisionAttachment = sourceAttachment;
+      revisionSessionId = sessionId;
+      emit();
+      return true;
+    }
     if (Number.isFinite(incomingRevision) && incomingRevision < revision) return true;
     if (body.full !== undefined && body.full !== null) {
       state = body.full;
-      revision = Number(body.revision) || revision;
+      revision = Number.isFinite(incomingRevision) ? incomingRevision : revision;
       emit();
       return true;
     }
@@ -631,18 +660,54 @@ export async function createRemoteEngineSession(options = {}) {
     return false;
   }
 
+  function applySyncBody(
+    body,
+    sourceAttachment = resultAttachments.get(body) || attachment,
+  ) {
+    if (!body || sourceAttachment !== attachment) return;
+    const nextSyncRevision = Number.isInteger(body.syncRevision) ? body.syncRevision : null;
+    if (syncAttachment !== sourceAttachment) {
+      if (body.sync) sync = body.sync;
+      syncRevision = nextSyncRevision ?? 0;
+      syncAttachment = sourceAttachment;
+      return;
+    }
+    if (body.sync && (nextSyncRevision === null || nextSyncRevision >= syncRevision)) {
+      sync = body.sync;
+    }
+    if (nextSyncRevision !== null && nextSyncRevision >= syncRevision) {
+      syncRevision = nextSyncRevision;
+    }
+  }
+
+  function baseRevisionFor(
+    sourceAttachment = attachment,
+    targetSessionId = sessionId,
+  ) {
+    return revisionAttachment === sourceAttachment && revisionSessionId === targetSessionId
+      ? revision
+      : null;
+  }
+
+  function baseSyncRevisionFor(sourceAttachment = attachment) {
+    return syncAttachment === sourceAttachment ? syncRevision : null;
+  }
+
   let resyncing = false;
   function resync(reason) {
     if (disposed || resyncing) return;
     resyncing = true;
-    void attachment.client.call('session.read', {
-      sessionId, open: openParams, baseRevision: revision, baseSyncRevision: syncRevision,
+    const requestAttachment = attachment;
+    void requestAttachment.client.call('session.read', {
+      sessionId,
+      open: openParams,
+      baseRevision: baseRevisionFor(requestAttachment),
+      baseSyncRevision: baseSyncRevisionFor(requestAttachment),
     }).then((result) => {
-      if (disposed) return;
-      const nextSyncRevision = Number.isInteger(result?.syncRevision) ? result.syncRevision : null;
-      if (result?.sync && (nextSyncRevision === null || nextSyncRevision >= syncRevision)) sync = result.sync;
-      if (nextSyncRevision !== null && nextSyncRevision >= syncRevision) syncRevision = nextSyncRevision;
-      if (!applyBody(result) && result?.revision !== undefined) {
+      if (disposed || requestAttachment !== attachment) return;
+      if (result && typeof result === 'object') resultAttachments.set(result, requestAttachment);
+      applySyncBody(result, requestAttachment);
+      if (!applyBody(result, requestAttachment) && result?.revision !== undefined) {
         log(`session ${sessionId} resync returned an unusable body`);
       }
     }).catch((err) => {
@@ -661,20 +726,41 @@ export async function createRemoteEngineSession(options = {}) {
         removeSessionView(previousAttachment.views, sessionId, view);
         attachment = nextAttachment;
       }
+      const recoveryAttachment = attachment;
+      // Route notifications before asking the daemon to subscribe. The
+      // session.subscribe response is the full baseline; frames racing after
+      // server-side subscription are either full themselves or trigger a
+      // baseline read, never disappear between the response and local wiring.
+      addSessionView(recoveryAttachment.views, sessionId, view);
+      revisionAttachment = null;
+      revisionSessionId = '';
+      syncAttachment = null;
       let result;
       try {
-        result = await attachment.client.call('session.subscribe', {
-          sessionId, open: openParams, baseRevision: revision, baseSyncRevision: syncRevision,
+        result = await recoveryAttachment.client.call('session.subscribe', {
+          sessionId, open: openParams, baseRevision: null, baseSyncRevision: null,
         });
       } catch {
-        result = await attachment.client.call('session.create', {
+        result = await recoveryAttachment.client.call('session.create', {
           ...openParams, sessionId,
         }, { callId: `session-recreate:${sessionId}` });
       }
-      addSessionView(attachment.views, sessionId, view);
-      if (result?.sync) sync = result.sync;
-      if (Number.isInteger(result?.syncRevision)) syncRevision = result.syncRevision;
-      if (!applyBody(result) && result?.revision !== undefined) resync('recovery body gap');
+      if (disposed || recoveryAttachment !== attachment) return;
+      if (result && typeof result === 'object') resultAttachments.set(result, recoveryAttachment);
+      applySyncBody(result, recoveryAttachment);
+      if (!applyBody(result, recoveryAttachment)) {
+        const baseline = await recoveryAttachment.client.call('session.read', {
+          sessionId, open: openParams, baseRevision: null, baseSyncRevision: null,
+        });
+        if (disposed || recoveryAttachment !== attachment) return;
+        if (baseline && typeof baseline === 'object') {
+          resultAttachments.set(baseline, recoveryAttachment);
+        }
+        applySyncBody(baseline, recoveryAttachment);
+        if (!applyBody(baseline, recoveryAttachment)) {
+          throw new Error(`session ${sessionId} recovery returned no full snapshot`);
+        }
+      }
       log(`session ${sessionId} projection recovered`);
     })();
     try {
@@ -686,9 +772,9 @@ export async function createRemoteEngineSession(options = {}) {
 
   view = {
     sessionId: () => sessionId,
-    applyFrame(frame) {
+    applyFrame(frame, sourceAttachment = attachment) {
       if (disposed) return;
-      if (!applyBody(frame)) resync('revision gap');
+      if (!applyBody(frame, sourceAttachment)) resync('revision gap');
     },
     applyGone(reason) {
       if (disposed) return;
@@ -706,21 +792,34 @@ export async function createRemoteEngineSession(options = {}) {
   liveViews.add(view);
 
   async function sendCall(route, payload, callId) {
-    const send = () => attachment.client.call(route, payload, { callId });
-    try {
-      return await send();
-    } catch (err) {
-      const recoverable = err?.daemonTransportError
-        || /unknown client token/i.test(String(err?.message || ''));
-      if (!recoverable || disposed) throw err;
-      if (shared === attachment) shared = null;
-      const next = await ensureSharedAttachment({ cwd, log });
-      await recover(next);
-      return await send();
+    const send = async () => {
+      const sourceAttachment = attachment;
+      const result = await sourceAttachment.client.call(route, payload, { callId });
+      if (result && typeof result === 'object') {
+        resultAttachments.set(result, sourceAttachment);
+      }
+      return result;
+    };
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await send();
+      } catch (err) {
+        const recoverable = err?.daemonTransportError
+          || /unknown client token/i.test(String(err?.message || ''));
+        if (!recoverable || disposed || attempt >= CALL_RECOVERY_BACKOFF_MS.length) throw err;
+        const waitMs = CALL_RECOVERY_BACKOFF_MS[attempt];
+        if (waitMs > 0) await new Promise((resolve) => { setTimeout(resolve, waitMs); });
+        if (disposed) throw err;
+        if (shared === attachment) shared = null;
+        const next = await ensureSharedAttachment({ cwd, log });
+        await recover(next);
+        if (attempt > 0) log(`session ${sessionId} call ${route} re-attached (attempt ${attempt + 1})`);
+      }
     }
   }
 
   async function applyResult(result, reason) {
+    const sourceAttachment = resultAttachments.get(result) || attachment;
     const nextSessionId = String(result?.sessionId || sessionId);
     if (nextSessionId && nextSessionId !== sessionId) {
       const previousSessionId = sessionId;
@@ -728,10 +827,10 @@ export async function createRemoteEngineSession(options = {}) {
       removeSessionView(attachment.views, previousSessionId, view);
       sessionId = nextSessionId;
     }
-    const nextSyncRevision = Number.isInteger(result?.syncRevision) ? result.syncRevision : null;
-    if (result?.sync && (nextSyncRevision === null || nextSyncRevision >= syncRevision)) sync = result.sync;
-    if (nextSyncRevision !== null && nextSyncRevision >= syncRevision) syncRevision = nextSyncRevision;
-    if (!applyBody(result) && result?.revision !== undefined) resync(`${reason} body gap`);
+    applySyncBody(result, sourceAttachment);
+    if (!applyBody(result, sourceAttachment) && result?.revision !== undefined) {
+      resync(`${reason} body gap`);
+    }
     return result;
   }
 
@@ -745,8 +844,8 @@ export async function createRemoteEngineSession(options = {}) {
   function remoteCall(method, args, callOptions = {}) {
     if (disposed) return Promise.reject(new Error('This session view is disposed.'));
     const targetSessionId = sessionId;
-    const baseRevision = revision;
-    const baseSyncRevision = syncRevision;
+    const baseRevision = baseRevisionFor(attachment, targetSessionId);
+    const baseSyncRevision = baseSyncRevisionFor(attachment);
     const stableCallId = typeof callOptions.callId === 'string' && callOptions.callId.trim()
       ? callOptions.callId.trim()
       : randomUUID();
@@ -776,8 +875,7 @@ export async function createRemoteEngineSession(options = {}) {
     addSessionView(attachment.views, nextSessionId, view);
     removeSessionView(attachment.views, previousSessionId, view);
     sessionId = nextSessionId;
-    if (result?.sync) sync = result.sync;
-    if (Number.isInteger(result?.syncRevision)) syncRevision = result.syncRevision;
+    applySyncBody(result);
     if (!applyBody(result) && result?.revision !== undefined) resync('session rebind body gap');
     if (previousSessionId && previousSessionId !== nextSessionId && lastLocalView) {
       try {
@@ -806,7 +904,10 @@ export async function createRemoteEngineSession(options = {}) {
       if (disposed) throw new Error('This session view is disposed.');
       if (target === sessionId) {
         const result = await sendCall('session.read', {
-          sessionId, open: openParams, baseRevision: revision, baseSyncRevision: syncRevision,
+          sessionId,
+          open: openParams,
+          baseRevision: baseRevisionFor(),
+          baseSyncRevision: baseSyncRevisionFor(),
         }, randomUUID());
         await applyResult(result, 'resume');
         return true;
@@ -816,7 +917,7 @@ export async function createRemoteEngineSession(options = {}) {
         sessionId: target,
         open: { ...openParams, resumeOptions: resumeOptions || undefined },
         baseRevision: null,
-        baseSyncRevision: syncRevision,
+        baseSyncRevision: baseSyncRevisionFor(),
       }, randomUUID());
       await rebindTo(result, previousSessionId);
       return true;
@@ -829,8 +930,8 @@ export async function createRemoteEngineSession(options = {}) {
     const submissionId = String(options?.id || '').trim()
       || `session-submit-${process.pid}-${Date.now()}-${(submitSeq += 1)}`;
     const targetSessionId = sessionId;
-    const baseRevision = revision;
-    const baseSyncRevision = syncRevision;
+    const baseRevision = baseRevisionFor(attachment, targetSessionId);
+    const baseSyncRevision = baseSyncRevisionFor(attachment);
     const result = await sendCall('session.submit', {
       sessionId: targetSessionId,
       prompt,
@@ -847,7 +948,8 @@ export async function createRemoteEngineSession(options = {}) {
     if (disposed) return { aborted: false };
     const result = await sendCall('session.abort', {
       sessionId, open: openParams, options,
-      baseRevision: revision, baseSyncRevision: syncRevision,
+      baseRevision: baseRevisionFor(),
+      baseSyncRevision: baseSyncRevisionFor(),
     }, randomUUID());
     return await applyResult(result, 'abort');
   }
@@ -917,7 +1019,7 @@ export async function createRemoteEngineSession(options = {}) {
           approvalId: id,
           decision,
           open: openParams,
-          baseRevision: revision,
+          baseRevision: baseRevisionFor(),
         }, randomUUID());
         await applyResult(result, 'approval');
       })().catch((err) => log(`session approval failed: ${err?.message || err}`));
