@@ -103,6 +103,18 @@ export function createLiveShare({
     }
   };
 
+  // This pipe is bound to ONE session id (serverId). When the surface changes
+  // session identity — /new, /clear, a resume of another session, a context
+  // switch — the published store frames stop describing the session this pipe
+  // represents. Pushing them anyway handed a co-open viewer an empty (or
+  // foreign) transcript until the close/promote path restored it, which is the
+  // flash seen in the desktop app when the terminal ran /new. Frames are
+  // DROPPED without re-baselining, so a pipe that keeps its id (/clear) still
+  // ships the post-reset delta once the reset settles; a pipe whose id changed
+  // is torn down by the next ensureShare().
+  const ownerFrameStale = () => Boolean(serverId)
+    && String(ownerSessionId() || '') !== serverId;
+
   // Live-state mirror (attach parity): the transcript alone left an attached
   // viewer blind to the owner's activity — busy/stop state, the queued
   // follow-up list, the Explore/Search summary, agent workers/jobs, and the
@@ -159,6 +171,7 @@ export function createLiveShare({
       lastLiveSig = '';
       return;
     }
+    if (ownerFrameStale()) return;
     const frame = { t: 'delta' };
     let dirty = false;
     if (st.items !== lastItems) {
@@ -312,10 +325,18 @@ export function createLiveShare({
           // viewer process has no turn of its own to cancel.
           onRemoteAbort?.();
         } else if (frame.t === 'sync') {
+          if (ownerFrameStale()) return;
           try { socket.write(frameLine(fullFrame(getPublishedState()))); } catch { /* close handles */ }
         }
       }, () => { try { socket.destroy(); } catch { /* already gone */ } });
       try {
+        // Connected mid-reset: this state belongs to another session, and a
+        // baseline taken from it would desync every later delta. Drop the
+        // socket — the viewer's own retry finds the rebound pipe (or promotes).
+        if (ownerFrameStale()) {
+          try { socket.destroy(); } catch { /* already gone */ }
+          return;
+        }
         const st = getPublishedState();
         lastItems = st.items;
         lastTail = st.streamingTail;

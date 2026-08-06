@@ -42,12 +42,15 @@ export function createOnboardingSteps({
   // `mixdog --onboarding` (forceOnboarding) still reopens regardless.
   const onboardingWarnReopen = () => {
     setOnboardingActive(false);
-    try {
-      store.skipOnboarding?.();
-      store.pushNotice('Setup skipped. Run `mixdog --onboarding` to set up later.', 'info');
-    } catch (e) {
-      store.pushNotice(`Couldn’t save skip: ${e?.message || e}`, 'error');
-    }
+    // A daemon-backed store resolves this as an async remote call, so the
+    // failure path must survive a rejected promise too (an unhandled rejection
+    // here would surface as a boot-time crash instead of a notice).
+    void Promise.resolve()
+      .then(() => store.skipOnboarding?.())
+      .then(
+        () => store.pushNotice('Setup skipped. Run `mixdog --onboarding` to set up later.', 'info'),
+        (e) => store.pushNotice(`Couldn’t save skip: ${e?.message || e}`, 'error'),
+      );
   };
 
   // Warm the Step 2 data (provider models + agent roster) in the background as
@@ -153,13 +156,11 @@ export function createOnboardingSteps({
       return;
     }
     // Branch 3 — nothing configured: mark done only, leave config untouched.
-    try {
-      store.skipOnboarding?.();
-    } catch (e) {
-      failed(e);
-      return;
-    }
-    done();
+    // Same async-store caveat as onboardingWarnReopen: report a late failure
+    // rather than assuming the mark landed synchronously.
+    void Promise.resolve()
+      .then(() => store.skipOnboarding?.())
+      .then(done, failed);
   };
 
   // Onboarding Step 2 per-target model picker. `target` is either the pseudo

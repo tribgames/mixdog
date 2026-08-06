@@ -8,7 +8,7 @@ import type {
   DesktopSettings,
 } from '../shared/contract';
 
-interface MixdogConfigModule {
+export interface MixdogConfigModule {
   readConfig(): unknown;
   updateConfigAsync(
     updater: (current: Record<string, unknown>) => Record<string, unknown>,

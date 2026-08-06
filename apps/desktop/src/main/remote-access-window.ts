@@ -7,8 +7,18 @@ import { BrowserWindow } from 'electron';
 import QRCode from 'qrcode';
 
 import type { DesktopRemoteAccessInfo } from '../shared/contract';
-import type { RemoteBridgeHandle } from './remote-bridge';
-import type { RemoteRelayHandle } from './remote-relay';
+
+export interface RemoteAccessDescriptor {
+  bridge: {
+    port: number;
+    token: string;
+    urls: string[];
+  } | null;
+  relay: {
+    clientUrl: string;
+    token: string;
+  } | null;
+}
 
 function preferredUrl(urls: string[]): string {
   // Home-router LAN addresses first: Tailscale/VPN interfaces only work when
@@ -23,9 +33,9 @@ const qrSvg = (value: string): Promise<string> =>
   QRCode.toString(value, { type: 'svg', margin: 1, width: 220, color: { dark: '#141414', light: '#f2f2f2' } });
 
 export async function buildRemoteAccessInfo(
-  bridge: RemoteBridgeHandle | null,
-  relay?: RemoteRelayHandle | null,
+  descriptor: RemoteAccessDescriptor,
 ): Promise<DesktopRemoteAccessInfo> {
+  const { bridge, relay } = descriptor;
   // The LAN leg is optional: when another mixdog instance owns the bridge
   // port (live + dev app side by side) relay-only pairing still works, so
   // the LAN fields simply stay empty instead of failing the whole card.
@@ -71,11 +81,9 @@ export async function buildRemoteAccessInfo(
 }
 
 export async function showRemoteAccessWindow(
-  bridge: RemoteBridgeHandle | null,
-  relay?: RemoteRelayHandle | null,
+  info: DesktopRemoteAccessInfo,
   parent?: BrowserWindow | null,
 ): Promise<void> {
-  const info = await buildRemoteAccessInfo(bridge, relay);
   const browserQr = info.relayBrowserQrSvg;
   const appQr = info.relayAppQrSvg;
   const paired = Boolean(browserQr && appQr);

@@ -180,7 +180,12 @@ test('relays rpc calls and pushes between phone and desktop', async () => {
       });
     });
     host.emit({ items: [], busy: true });
-    assert.equal((await push).busy, true);
+    const pushed = await push;
+    assert.equal(
+      pushed.busy ?? pushed.__statePatch?.changed?.busy,
+      true,
+      'the state lane may carry either its full baseline or a subsequent delta',
+    );
 
     const blocked = await rpc(phone, 2, 'invokeCapability', [
       { capability: 'saveProviderApiKey', args: ['openai', 'sk-test'] },

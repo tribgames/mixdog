@@ -15,6 +15,54 @@ const PROVIDER_MODELS_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(
   process.env.MIXDOG_PROVIDER_MODELS_PROFILE || process.env.MIXDOG_BOOT_PROFILE || '',
 ));
 
+// Raw provider model lists are process-global because the provider registry is
+// process-global in the backend daemon. Session runtimes keep only the cheap
+// hydrated projection (saved effort/fast/current-route ordering). This stops
+// every open pane from repeating the same provider list walk after startup.
+let sharedCatalogRevision = -1;
+let sharedCatalogEntries = null;
+let sharedCatalogPromise = null;
+let sharedCatalogPromiseRevision = -1;
+
+function catalogRevision(registry) {
+  const value = Number(registry?.providerCatalogRevision?.());
+  return Number.isFinite(value) ? value : 0;
+}
+
+async function sharedProviderCatalog(registry) {
+  const revision = catalogRevision(registry);
+  if (sharedCatalogRevision === revision && Array.isArray(sharedCatalogEntries)) {
+    return sharedCatalogEntries;
+  }
+  if (sharedCatalogPromise && sharedCatalogPromiseRevision === revision) {
+    return await sharedCatalogPromise;
+  }
+  const providers = [...registry.getAllProviders()];
+  sharedCatalogPromiseRevision = revision;
+  let request;
+  request = Promise.all(providers.map(async ([name, provider]) => {
+    if (typeof provider?.listModels !== 'function') return { name, models: [], ms: 0 };
+    const startedAt = performance.now();
+    try {
+      const models = await provider.listModels();
+      return { name, models: Array.isArray(models) ? models : [], ms: performance.now() - startedAt };
+    } catch (error) {
+      return { name, models: [], error, ms: performance.now() - startedAt };
+    }
+  })).then((entries) => {
+    sharedCatalogRevision = catalogRevision(registry);
+    sharedCatalogEntries = entries;
+    return entries;
+  }).finally(() => {
+    if (sharedCatalogPromise === request) {
+      sharedCatalogPromise = null;
+      sharedCatalogPromiseRevision = -1;
+    }
+  });
+  sharedCatalogPromise = request;
+  return await request;
+}
+
 export function createProviderModels({
   caches,
   modelMetaByRoute,
@@ -37,6 +85,18 @@ export function createProviderModels({
   const config = () => getConfig();
   const route = () => getRoute();
   const reg = () => getReg();
+  let observedCatalogRevision = catalogRevision(reg());
+  function syncCatalogRevision() {
+    const revision = catalogRevision(reg());
+    if (revision === observedCatalogRevision) return revision;
+    observedCatalogRevision = revision;
+    caches.providerModelsLoadSeq += 1;
+    caches.providerModelsCache = { models: null, at: 0, revision };
+    caches.providerModelsPromise = null;
+    caches.searchProviderModelsCache = { models: null, at: 0, revision };
+    modelMetaByRoute.clear();
+    return revision;
+  }
   function profile(event, fields = {}) {
     if (!PROVIDER_MODELS_PROFILE_ENABLED) return;
     bootProfile(`provider-models:${event}`, fields);
@@ -47,6 +107,7 @@ export function createProviderModels({
   }
 
   async function lookupModelMeta(providerId, modelId, { allowFetch = false } = {}) {
+    syncCatalogRevision();
     const key = modelMetaKey(providerId, modelId);
     if (modelMetaByRoute.has(key)) return modelMetaByRoute.get(key);
     const providerImpl = reg().getProvider(providerId);
@@ -172,43 +233,26 @@ export function createProviderModels({
     const providersStartedAt = performance.now();
     await ensureProvidersReady(config().providers || {});
     profile('providers-ready', { ms: (performance.now() - providersStartedAt).toFixed(1) });
-    const allProviders = [...reg().getAllProviders()];
-    const providerResults = await Promise.all(allProviders.map(async ([name, provider]) => {
-      if (typeof provider?.listModels !== 'function') return [];
-      const providerStartedAt = performance.now();
-      try {
-        let models = null;
-        if (forceRefresh && typeof provider._refreshModelCache === 'function') {
-          models = await provider._refreshModelCache();
-        }
-        if (!Array.isArray(models)) {
-          models = await provider.listModels();
-        }
-        if (!Array.isArray(models)) return [];
-        const rows = [];
-        for (const m of models) {
-          if (!m?.id) continue;
-          if (!isSelectableLlmModel(m)) continue;
-          rows.push(providerModelCacheRow(name, m));
-        }
-        profile('provider:done', {
-          provider: name,
-          ms: (performance.now() - providerStartedAt).toFixed(1),
-          models: models.length,
-          rows: rows.length,
-        });
-        return rows;
-      } catch (error) {
-        profile('provider:failed', {
-          provider: name,
-          ms: (performance.now() - providerStartedAt).toFixed(1),
-          error: error?.message || String(error),
-        });
-        // Ignore per-provider catalog failures so one bad credential or
-        // transient /models error does not hide other authenticated models.
-        return [];
+    if (forceRefresh && typeof reg().refreshCatalogs === 'function') {
+      await reg().refreshCatalogs();
+    }
+    syncCatalogRevision();
+    const catalogEntries = await sharedProviderCatalog(reg());
+    const providerResults = catalogEntries.map(({ name, models, error, ms }) => {
+      const rows = [];
+      for (const m of models) {
+        if (!m?.id || !isSelectableLlmModel(m)) continue;
+        rows.push(providerModelCacheRow(name, m));
       }
-    }));
+      profile(error ? 'provider:failed' : 'provider:done', {
+        provider: name,
+        ms: Number(ms || 0).toFixed(1),
+        models: models.length,
+        rows: rows.length,
+        ...(error ? { error: error?.message || String(error) } : {}),
+      });
+      return rows;
+    });
     const results = [];
     const seen = new Set();
     for (const row of providerResults.flat()) {
@@ -218,7 +262,7 @@ export function createProviderModels({
       results.push(row);
       modelMetaByRoute.set(modelMetaKey(row.provider, row.id), row);
     }
-    profile('load:done', { ms: (performance.now() - startedAt).toFixed(1), providers: allProviders.length, rows: results.length });
+    profile('load:done', { ms: (performance.now() - startedAt).toFixed(1), providers: catalogEntries.length, rows: results.length });
     return results;
   }
 
@@ -234,27 +278,29 @@ export function createProviderModels({
   }
 
   async function collectSearchProviderModels({ force = false } = {}) {
+    const revision = syncCatalogRevision();
     if (!force && Array.isArray(caches.searchProviderModelsCache.models)) {
       return providerModelsFromCacheRows(quickHelpers.searchRowsWithDefault(caches.searchProviderModelsCache.models));
     }
     if (!force && Array.isArray(caches.providerModelsCache.models)) {
       const rows = quickHelpers.searchRowsWithDefault(quickHelpers.searchModelsFromRows(caches.providerModelsCache.models));
-      caches.searchProviderModelsCache = { models: rows, at: Date.now() };
+      caches.searchProviderModelsCache = { models: rows, at: Date.now(), revision };
       return providerModelsFromCacheRows(rows);
     }
     if (!force) {
       const rows = quickHelpers.searchRowsWithDefault(quickHelpers.quickSearchProviderModelRows());
-      caches.searchProviderModelsCache = { models: rows, at: Date.now() };
+      caches.searchProviderModelsCache = { models: rows, at: Date.now(), revision };
       return providerModelsFromCacheRows(rows);
     }
     if (force) {
       const models = await loadSearchProviderModelsFresh({ forceRefresh: true });
-      caches.searchProviderModelsCache = { models, at: Date.now() };
+      caches.searchProviderModelsCache = { models, at: Date.now(), revision: catalogRevision(reg()) };
       return providerModelsFromCacheRows(models);
     }
   }
 
   async function collectProviderModels({ force = false, quick = false } = {}) {
+    syncCatalogRevision();
     if (!force && Array.isArray(caches.providerModelsCache.models)) {
       return providerModelsFromCacheRows(caches.providerModelsCache.models);
     }
@@ -265,14 +311,18 @@ export function createProviderModels({
     if (force) {
       const seq = ++caches.providerModelsLoadSeq;
       const models = await loadProviderModelsFresh({ forceRefresh: true, loadSecrets: true });
-      if (seq === caches.providerModelsLoadSeq) caches.providerModelsCache = { models, at: Date.now() };
+      if (seq === caches.providerModelsLoadSeq) {
+        caches.providerModelsCache = { models, at: Date.now(), revision: catalogRevision(reg()) };
+      }
       return providerModelsFromCacheRows(models);
     }
     if (!caches.providerModelsPromise) {
       const seq = ++caches.providerModelsLoadSeq;
       caches.providerModelsPromise = loadProviderModelsFresh({ loadSecrets: true })
         .then((models) => {
-          if (seq === caches.providerModelsLoadSeq && shouldAdoptProviderModelCache(models, { loadSecrets: true })) caches.providerModelsCache = { models, at: Date.now() };
+          if (seq === caches.providerModelsLoadSeq && shouldAdoptProviderModelCache(models, { loadSecrets: true })) {
+            caches.providerModelsCache = { models, at: Date.now(), revision: catalogRevision(reg()) };
+          }
           return models;
         })
         .finally(() => {
@@ -283,13 +333,14 @@ export function createProviderModels({
   }
 
   function warmProviderModelCache({ loadSecrets = false } = {}) {
+    syncCatalogRevision();
     if (Array.isArray(caches.providerModelsCache.models) || caches.providerModelsPromise) return caches.providerModelsPromise;
     profile('warm:start');
     const seq = ++caches.providerModelsLoadSeq;
     caches.providerModelsPromise = loadProviderModelsFresh({ loadSecrets })
       .then((models) => {
         if (seq === caches.providerModelsLoadSeq && shouldAdoptProviderModelCache(models, { loadSecrets })) {
-          caches.providerModelsCache = { models, at: Date.now() };
+          caches.providerModelsCache = { models, at: Date.now(), revision: catalogRevision(reg()) };
         }
         bootProfile('provider-models:warm-ready', { count: models.length });
         return models;

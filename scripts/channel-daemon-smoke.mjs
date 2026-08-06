@@ -193,6 +193,7 @@ async function main() {
   await reattachBufferTest();
   await pointerFailoverTest();
   await pointerReconnectFollowsTest();
+  await remoteIntentRestoreTest();
   await tokenReplacementRetirementTest();
   await tokenReplacementReplayTest();
   await tokenReplacementResponseLossCloseTest();
@@ -205,6 +206,113 @@ async function main() {
 
   console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
   process.exit(failures === 0 ? 0 : 1);
+}
+
+// A daemon restart is not a Remote OFF. Persist only an explicit owner's exact
+// session/transcript identity, restore it only when that same live leadPid+cwd
+// re-registers, and clear it on an explicit OFF.
+async function remoteIntentRestoreTest() {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'mixdog-remote-intent-'));
+  const discoveryPath = path.join(tmp, 'channel-daemon.json');
+  const intentPath = path.join(tmp, 'channel-remote-intent.json');
+  const transcriptPath = path.join(tmp, 'restore-session.jsonl');
+  writeFileSync(transcriptPath, '');
+  const sleeper = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 60000)'], { stdio: 'ignore' });
+  await delay(80);
+  const REMOTE = 'notifications/mixdog/remote';
+
+  let first = null;
+  first = createChannelDaemonTransport({
+    handleCall: async (name, args, ctx) => ({ ok: true, name, args, leadPid: ctx.leadPid }),
+    discoveryPath,
+    remoteIntentPath: intentPath,
+    clientGraceMs: 2000,
+    sweepMs: 5000,
+    onClientsEmpty: () => {},
+  });
+  const firstEndpoint = await first.start();
+  const firstClient = await attachToDaemon({
+    discovery: { ...firstEndpoint, pid: process.pid },
+    leadPid: sleeper.pid,
+    cwd: 'owner-cwd',
+  });
+  await firstClient.call('activate_channel_bridge', {
+    active: true,
+    sessionId: 'restore-session',
+    transcriptPath,
+  });
+  first.notify(REMOTE, { state: 'acquired' });
+  await waitFor(() => first._remoteIntentForTest?.sessionId === 'restore-session', 1000);
+  check('restore: explicit ON persists exact owner session intent',
+    first._remoteIntentForTest?.ownerLeadPid === sleeper.pid
+    && first._remoteIntentForTest?.cwd === 'owner-cwd'
+    && first._remoteIntentForTest?.transcriptPath === transcriptPath);
+  await first.stop();
+  check('restore: daemon transport stop preserves intent',
+    JSON.parse(readFileSync(intentPath, 'utf8')).sessionId === 'restore-session');
+
+  const restoreCalls = [];
+  let second = null;
+  second = createChannelDaemonTransport({
+    handleCall: async (name, args, ctx) => {
+      restoreCalls.push({ name, args, leadPid: ctx.leadPid });
+      if (name === 'activate_channel_bridge' && args?.restore === true) {
+        second.notify(REMOTE, { state: 'acquired' });
+      }
+      return { ok: true, name, args, leadPid: ctx.leadPid };
+    },
+    discoveryPath,
+    remoteIntentPath: intentPath,
+    clientGraceMs: 2000,
+    sweepMs: 5000,
+    onClientsEmpty: () => {},
+  });
+  const secondEndpoint = await second.start();
+  const observer = await attachToDaemon({
+    discovery: { ...secondEndpoint, pid: process.pid },
+    leadPid: process.pid,
+    cwd: 'observer-cwd',
+  });
+  await delay(100);
+  check('restore: a different live client cannot claim persisted intent',
+    second._pointerTokenForTest === null && restoreCalls.length === 0);
+
+  const restoredNotifies = [];
+  const restoredClient = await attachToDaemon({
+    discovery: { ...secondEndpoint, pid: process.pid },
+    leadPid: sleeper.pid,
+    cwd: 'owner-cwd',
+    onNotify: (message) => restoredNotifies.push(message),
+  });
+  await waitFor(() => second._resolveTargetForTest()?.leadPid === sleeper.pid
+    && restoreCalls.some((call) => call.args?.restore === true), 1500);
+  check('restore: matching owner re-registration reactivates exact session',
+    second._resolveTargetForTest()?.leadPid === sleeper.pid
+    && restoreCalls.some((call) => call.name === 'activate_channel_bridge'
+      && call.args?.restore === true
+      && call.args?.sessionId === 'restore-session'
+      && call.args?.transcriptPath === transcriptPath));
+  await waitFor(() => restoredNotifies.some((message) =>
+    message?.method === REMOTE && message?.params?.state === 'acquired'), 1000);
+  check('restore: acquired state is delivered only after matching restore',
+    restoredNotifies.some((message) => message?.params?.state === 'acquired'));
+
+  await restoredClient.call('activate_channel_bridge', {
+    active: false,
+    sessionId: 'restore-session',
+    transcriptPath,
+  });
+  await delay(80);
+  let intentStillExists = true;
+  try { readFileSync(intentPath, 'utf8'); } catch { intentStillExists = false; }
+  check('restore: explicit Remote OFF clears durable intent',
+    intentStillExists === false && second._remoteIntentForTest === null);
+
+  await observer.close();
+  await restoredClient.close();
+  await second.stop();
+  try { sleeper.kill(); } catch {}
+  try { rmSync(tmp, { recursive: true, force: true }); } catch {}
 }
 
 // Flip coverage: two TUIs attach to ONE daemon via the REAL channel-worker.mjs

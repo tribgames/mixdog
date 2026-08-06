@@ -14,6 +14,19 @@ import {
 
 const STAGE_POLL_MS = 3_000;
 const STAGE_POLL_MAX_MS = 10 * 60 * 1000;
+// A backend daemon can host many session runtimes. Their boot controllers all
+// need the same update state, not one forced registry request per pane.
+const processBootChecks = new Map();
+
+function processBootCheck(dataDir) {
+  const key = String(dataDir || '');
+  let pending = processBootChecks.get(key);
+  if (!pending) {
+    pending = checkLatestVersion({ force: true, dataDir });
+    processBootChecks.set(key, pending);
+  }
+  return pending;
+}
 
 export function createSelfUpdateController({ getConfig, getDataDir, emitNotification }) {
   let checkState = {
@@ -24,6 +37,7 @@ export function createSelfUpdateController({ getConfig, getDataDir, emitNotifica
   };
   // phase: 'idle' | 'checking' | 'installing' | 'installed' | 'failed'
   let processState = { phase: 'idle', version: null, error: null };
+  let bootTimer = null;
 
   function autoUpdateEnabled() {
     return getConfig()?.update?.auto !== false;
@@ -86,9 +100,17 @@ export function createSelfUpdateController({ getConfig, getDataDir, emitNotifica
   // installed version); checkLatestVersion still falls back to it offline.
   // isDevInstall(): a git checkout must never self-update.
   function startBootCheck() {
-    const timer = setTimeout(() => {
+    if (bootTimer) return bootTimer;
+    bootTimer = setTimeout(() => {
+      bootTimer = null;
       void (async () => {
-        await checkForUpdate({ force: true });
+        const result = await processBootCheck(getDataDir());
+        checkState = {
+          currentVersion: result.currentVersion,
+          latestVersion: result.latestVersion,
+          updateAvailable: result.updateAvailable,
+          lastCheckedAt: result.lastCheckedAt,
+        };
         if (!(autoUpdateEnabled() && !isDevInstall() && checkState.updateAvailable)) return;
         const ver = checkState.latestVersion;
         if (!ver) return;
@@ -114,8 +136,14 @@ export function createSelfUpdateController({ getConfig, getDataDir, emitNotifica
         poll.unref?.();
       })().catch(() => {});
     }, 0);
-    timer.unref?.();
-    return timer;
+    bootTimer.unref?.();
+    return bootTimer;
+  }
+
+  function stopBootCheck() {
+    if (!bootTimer) return;
+    clearTimeout(bootTimer);
+    bootTimer = null;
   }
 
   return {
@@ -125,5 +153,6 @@ export function createSelfUpdateController({ getConfig, getDataDir, emitNotifica
     getCheckState: () => checkState,
     getProcessState: () => processState,
     startBootCheck,
+    stopBootCheck,
   };
 }

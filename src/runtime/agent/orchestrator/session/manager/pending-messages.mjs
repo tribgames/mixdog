@@ -1074,7 +1074,16 @@ export function enqueueRemotePendingMessage(sessionId, message) {
     // spool lock (see persistPendingMessages).
     runPendingTestHook('enqueue:beforePublish', { sessionId });
     if (pendingLifecycleInvalidated(sessionId, token)) return 0;
-    const remoteEntry = stampLifecycleToken({ ...normalized, id: newPendingMessageId() }, token);
+    // Preserve the viewer's submission id end-to-end. Minting a fresh id here
+    // made pipe-delivered + spool-fallback twins look like two messages
+    // (owner accepted the pipe copy, then re-took the spool copy).
+    const preservedId = pendingMessageId(normalized) || pendingMessageId(message);
+    const remoteEntry = stampLifecycleToken({
+        ...normalized,
+        id: (typeof preservedId === 'string' && preservedId.trim())
+            ? preservedId.trim()
+            : newPendingMessageId(),
+    }, token);
     return persistPendingMessages(sessionId, [remoteEntry]);
 }
 
@@ -1172,8 +1181,10 @@ export function drainForeignUserInjections(sessionId) {
                 // late-delivery header instead of being silently removed
                 // (user report: remote sends silently discarded around owner
                 // restarts).
-                if (foreignUser && isStaleUserInjection(entry)) taken.push(lateDeliveryText(text, entry));
-                else if (foreignUser) taken.push(text);
+                if (foreignUser && isStaleUserInjection(entry)) {
+                    taken.push({ text: lateDeliveryText(text, entry), id });
+                }
+                else if (foreignUser) taken.push({ text, id });
                 else kept.push(entry);
             }
             if (taken.length === 0) return undefined;

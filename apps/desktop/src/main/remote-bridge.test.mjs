@@ -25,7 +25,7 @@ function createFakeHost() {
   };
 }
 
-async function startTestBridge() {
+async function startTestBridge(extra = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-bridge-'));
   const rendererDir = join(dir, 'renderer');
   mkdirSync(rendererDir, { recursive: true });
@@ -36,9 +36,36 @@ async function startTestBridge() {
     host,
     userDataPath: dir,
     rendererDir,
+    ...extra,
   });
   return { host, bridge, dir };
 }
+
+test('reports live phone clients to the daemon lifetime owner', async () => {
+  let changes = 0;
+  let reportDisconnected;
+  const disconnected = new Promise((resolve) => { reportDisconnected = resolve; });
+  const { bridge } = await startTestBridge({
+    onClientCountChanged: () => {
+      changes += 1;
+      if (changes >= 2) reportDisconnected();
+    },
+  });
+  const socket = await connectClient(bridge, bridge.token);
+  try {
+    assert.equal(bridge.clientCount, 1);
+    assert.ok(changes >= 1);
+    const closed = new Promise((resolve) => socket.once('close', resolve));
+    socket.close();
+    await closed;
+    await disconnected;
+    assert.equal(bridge.clientCount, 0);
+    assert.ok(changes >= 2);
+  } finally {
+    if (socket.readyState === socket.OPEN) socket.terminate();
+    await bridge.close();
+  }
+});
 
 function connectClient(bridge, token) {
   return new Promise((resolve, reject) => {

@@ -1549,11 +1549,14 @@ test('streaming markdown repartitions without hiding visible source text', async
     'the live tail parses its healed form while the fallback keeps the raw source');
   assert.doesNotMatch(view, /stream-cursor/);
   assert.match(body, /isFencedCodeOnlyMarkdown/);
-  assert.match(body, /live=\{live\}/,
+  assert.match(body, /parse=\{parse\}/,
     'the live tail parses too — OpenCode paced streaming markdown');
-  assert.match(body, /live && rendered && !deferAsyncPromotion/,
+  assert.match(body, /text\.startsWith\(rendered\.source\)/,
     'while the newest slice parses, the previous AST stays on screen instead of source text');
-  assert.match(body, /requestedText\.current === parsedText && !deferAsyncPromotionRef\.current/);
+  assert.match(body, /requestedSource\.current\.startsWith\(source\)/,
+    'a parse the stream has already outrun must still promote (OpenCode html.latest)');
+  assert.doesNotMatch(body, /requestedText\.current === parsedText && !deferAsyncPromotionRef\.current/,
+    'exact-match-only promotion discarded every result of a stream faster than the worker');
   assert.match(fallback, /className="markdown-code markdown-code-fallback"/);
   assert.match(fallback, /trimPartialClosingFence/);
   assert.match(fallback, /className=\{part\.language \? `language-\$\{part\.language\}`/);
@@ -1569,6 +1572,25 @@ test('the live markdown tail heals unterminated inline markers before parsing', 
   assert.equal(healStreamingMarkdownTail('계획 **통합 백그라운드'), '계획 **통합 백그라운드**');
   assert.equal(healStreamingMarkdownTail('run `npm ru'), 'run `npm ru`');
   assert.equal(healStreamingMarkdownTail('~~취소'), '~~취소~~');
+  // OpenCode parity (markdown-stream.test.ts): single-marker emphasis and an
+  // unfinished link are healed too, so "*강조" and "[docs](https://exa" never
+  // sit on screen as raw source while the model types.
+  assert.equal(healStreamingMarkdownTail('그리고 *강조'), '그리고 *강조*');
+  assert.equal(healStreamingMarkdownTail('_기울임'), '_기울임_');
+  assert.equal(healStreamingMarkdownTail('see [docs](https://example.com/gu'), 'see docs');
+  assert.equal(healStreamingMarkdownTail('see [doc'), 'see doc');
+  assert.equal(healStreamingMarkdownTail('see [docs](https://example.com) ok'),
+    'see [docs](https://example.com) ok', 'a finished link must stay a link');
+  assert.equal(healStreamingMarkdownTail('[docs][1] and more'), '[docs][1] and more',
+    'reference-style links must not lose their brackets');
+  assert.equal(healStreamingMarkdownTail('- [ ] task item'), '- [ ] task item',
+    'a task-list box is not an unfinished link');
+  assert.equal(healStreamingMarkdownTail('2 * 3 = 6'), '2 * 3 = 6',
+    'a literal asterisk is not an emphasis opener');
+  assert.equal(healStreamingMarkdownTail('- item one\n* item two'), '- item one\n* item two',
+    'list bullets must never gain an emphasis closer');
+  assert.equal(healStreamingMarkdownTail('snake_case_name and file_name'),
+    'snake_case_name and file_name', 'intraword underscores must stay literal');
   assert.equal(healStreamingMarkdownTail('**done** and `ok` stay'), '**done** and `ok` stay',
     'balanced markers must never gain a closer');
   assert.equal(healStreamingMarkdownTail('```ts\nconst a = "**";'), '```ts\nconst a = "**";',
@@ -1852,6 +1874,14 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
     'OpenCode reader anchoring compensates rows above the logical scroll offset');
   assert.match(list, /bottomAnchorSession\.current === sessionKey/,
     'OpenCode maybeAnchorBottom anchors once per session entry, not per rows change');
+  assert.match(list, /scheduleConnectedMeasure/,
+    'OpenCode connected measure must gate virtual row measurement');
+  assert.match(list, /data-timeline-key/,
+    'prepend-anchor restore needs stable row keys in the DOM');
+  assert.match(list, /readingAnchor/,
+    'OpenCode prepend-anchor keeps the visible top row still when history grows above');
+  assert.match(follow, /overflowAnchor = followingRef\.current \? "none" : "auto"/,
+    'OpenCode dynamic overflow-anchor: none while following, auto while reading');
   assert.doesNotMatch(list, /queueMicrotask/,
     'virtual-core wasAtEnd owns the bottom pin during a rewrap — resizeItem must not add a second scroll writer');
   assert.match(list, /\.\.\.activeIndexesRef\.current/,
@@ -1873,7 +1903,7 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
   assert.match(follow, /markAuto|isAuto/);
   assert.doesNotMatch(follow, /style\.width|restoreReadingAnchor|reflowingRef/);
   assert.match(follow, /GESTURE_WINDOW_MS = 250/);
-  assert.match(follow, /element\.style\.overflowAnchor = "none"/);
+  assert.match(follow, /element\.style\.overflowAnchor = followingRef\.current \? "none" : "auto"/);
   assert.match(follow, /if \(element !== target\) observer\.observe\(element\);/,
     'the shrinking composer/bottom-panel stack re-pins the bottom on viewport resize too');
   assert.doesNotMatch(follow, /inlineReflowFrame|viewportObserver|previousInlineSize/,

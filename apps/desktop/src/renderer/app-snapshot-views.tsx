@@ -595,6 +595,7 @@ export const AgentSessionConversation = memo(function AgentSessionConversation({
       transitioning={false}
       composerFocusRequest={0}
       onNewTask={() => {}}
+      onClearProject={() => {}}
       onResumeSession={() => {}}
       onOpenSessions={() => {}}
       onOpenSettings={() => {}}

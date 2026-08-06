@@ -180,6 +180,7 @@ export function TextEntryPanel({
   const [draft, setDraft] = useState(() => ({ value: String(initialValue || ''), cursor: String(initialValue || '').length, selectionAnchor: null }));
   const [, bumpCursorAnchorEpoch] = useState(0);
   const draftRef = useRef(draft);
+  const submitGateRef = useRef(false);
   const boxRef = useRef(null);
   const cursorEnabledRef = useRef(false);
   const contentWidthRef = useRef(80);
@@ -244,20 +245,33 @@ export function TextEntryPanel({
   }, [multiline, draft.value, mask, contentCells, maxContentRows, onContentRowsChange]);
 
   const submit = () => {
+    if (submitGateRef.current) return;
+    if (!String(draftRef.current.value || '').trim()) return;
+    submitGateRef.current = true;
     const accepted = onSubmit?.(draftRef.current.value) !== false;
     if (accepted) {
       commitDraft({ value: '', cursor: 0, selectionAnchor: null });
+      queueMicrotask(() => { submitGateRef.current = false; });
+    } else {
+      submitGateRef.current = false;
     }
   };
 
   const submitEnterChunk = (prefix = '') => {
+    if (submitGateRef.current) return;
     const current = draftRef.current;
     const next = prefix ? insertText(current, prefix) : current;
+    if (!String(next.value || '').trim()) return;
+    submitGateRef.current = true;
     const accepted = onSubmit?.(next.value) !== false;
     if (accepted) {
       commitDraft({ value: '', cursor: 0, selectionAnchor: null });
+      queueMicrotask(() => { submitGateRef.current = false; });
     } else if (next !== current) {
+      submitGateRef.current = false;
       commitDraft(next);
+    } else {
+      submitGateRef.current = false;
     }
   };
 

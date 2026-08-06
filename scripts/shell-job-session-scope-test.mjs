@@ -16,13 +16,13 @@ mkdirSync(jobsDir, { recursive: true });
 // This process is the owner: its pid is alive, so every record passes the
 // liveness filter without spawning anything.
 const ownerPid = process.pid;
-function writeJob(jobId, ownerSessionId) {
+function writeJob(jobId, ownerSessionId, pid = ownerPid) {
   writeFileSync(join(jobsDir, `${jobId}.json`), JSON.stringify({
     jobId,
     kind: 'bash',
     status: 'running',
     command: 'sleep 60',
-    pid: ownerPid,
+    pid,
     ownerHostPid: ownerPid,
     ...(ownerSessionId ? { ownerSessionId } : {}),
   }), 'utf-8');
@@ -72,4 +72,47 @@ test('an unstamped job belongs to no session bucket', async () => {
 test('an unknown owner pid reports nothing', () => {
   assert.equal(shellJobsStatus({ clientHostPid: 0 }).count, 0);
   assert.equal(shellJobsStatus({ clientHostPid: 0, sessionId: 'session-a' }).count, 0);
+});
+
+// A shell job belongs to the session that dispatched it. The registries are
+// process-global, so a NON-exit dispose (daemon engine swap / adopted
+// placeholder / idle eviction) must reap only its own session's jobs — an
+// unscoped sweep force-killed another session's running build and, cancelling
+// with notify:false, swallowed its completion (user report).
+test('a non-exit dispose reaps only the disposing session shell jobs', async () => {
+  const { _registerLiveJobPid, _unregisterLiveJobPid } = await import(
+    '../src/runtime/agent/orchestrator/tools/builtin/shell-job-process.mjs');
+  const { shutdownShellJobs } = await import(
+    '../src/runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs');
+  const { readShellJobDetail } = await import(
+    '../src/runtime/agent/orchestrator/tools/builtin/shell-job-paths.mjs');
+  // Unused pids: the reap DECISION is under test, and no unit test may signal
+  // a real process tree.
+  const pidA = 999_000_001;
+  const pidB = 999_000_002;
+  const jobA = 'job_1700000000011_eeeeee';
+  const jobB = 'job_1700000000012_ffffff';
+  writeJob(jobA, 'session-a', pidA);
+  writeJob(jobB, 'session-b', pidB);
+  _registerLiveJobPid(pidA, jobA);
+  _registerLiveJobPid(pidB, jobB);
+  try {
+    const reaped = shutdownShellJobs('desktop-engine-dispose', {
+      scope: { ownerSessionId: 'session-a' },
+    });
+    assert.equal(reaped.killed, 1, 'only the disposing session job is killed');
+    assert.equal(reaped.cancelledJobs, 1);
+    assert.equal(readShellJobDetail(jobA).status, 'cancelled');
+    assert.equal(readShellJobDetail(jobB).status, 'running',
+      "another session's job must survive an engine dispose");
+
+    // An unattributable dispose (empty placeholder engine) reaps NOTHING.
+    const blank = shutdownShellJobs('desktop-engine-dispose', { scope: { ownerSessionId: '' } });
+    assert.equal(blank.killed, 0);
+    assert.equal(blank.cancelledJobs, 0);
+    assert.equal(readShellJobDetail(jobB).status, 'running');
+  } finally {
+    _unregisterLiveJobPid(pidA);
+    _unregisterLiveJobPid(pidB);
+  }
 });

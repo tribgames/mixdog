@@ -86,7 +86,6 @@ getBackend().onMessage = (msg) => {
   const route = resolveInboundRoute(msg.chatId, msg.parentChatId);
   scheduler.noteActivity();
   startServerTyping(route.targetChatId);
-  getBackend().resetSendCount();
   // Pin the prior turn's bound channel before this fire-and-forget flush so the
   // imminent rebind below (which mutates forwarder.channelId synchronously)
   // cannot redirect the previous turn's final output to the new channel.

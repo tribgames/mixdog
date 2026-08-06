@@ -12,6 +12,7 @@ import {
     rawContentCacheSet,
 } from './cache-layers.mjs';
 import {
+    rememberReadSnapshot,
     readFilesForScope,
     readScopeKey,
     scheduleScopePersist,
@@ -146,7 +147,7 @@ export function recordReadSnapshot(fullPath, st, scope = null, meta = {}) {
     } else if (!batchSliced && sameFile && Number.isFinite(existing?.fileLineCount) && existing.fileLineCount >= 0) {
         next.fileLineCount = Math.trunc(existing.fileLineCount);
     }
-    readFiles.set(fullPath, next);
+    rememberReadSnapshot(fullPath, next, scope, readFiles);
     scheduleScopePersist(readScopeKey(scope));
 }
 

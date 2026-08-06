@@ -632,7 +632,7 @@ export async function processToolBatch(ctx) {
                     toolCallId: call.id,
                     toolKind: _resultKind,
                     ...(_nativeToolSearch ? { nativeToolSearch: _nativeToolSearch } : {}),
-                    ...(_applyPatchUiDiff ? { uiDiff: _applyPatchUiDiff } : {}),
+                    ...(_applyPatchUiDiff !== null ? { uiDiff: _applyPatchUiDiff } : {}),
                 });
                 if (_executeOk) {
                     const _isEager = isEagerDispatchable(call.name, tools);

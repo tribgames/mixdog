@@ -132,8 +132,9 @@ function buildProfilePreferencesContent(dataDir) {
     lines.push(`- User title: ${profile.title}.`);
     lines.push(`- Use "${profile.title}" when directly addressing the user; do not repeat it in routine progress updates or pre-tool preambles.`);
   }
-  const shell = process.platform === 'win32' ? 'powershell' : 'bash';
-  lines.push(`- Shell environment: ${shell}. Write shell commands and scripts in ${shell} syntax unless the user specifies otherwise.`);
+  // Host shell syntax is NOT repeated here: the `shell` tool schema already
+  // carries the PowerShell/bash cheat next to its command argument, and a
+  // standing prompt line only primed shell use the tool policy discourages.
   return lines.length ? `# Profile Preferences\n\n${lines.join('\n')}` : '';
 }
 
@@ -145,7 +146,7 @@ function buildLanguageSection(dataDir) {
     ? ` from system locale ${language.locale}`
     : '';
   const lines = [
-    `- Default user-facing response language${source}: ${language.prompt}. EVERY user-facing message — prose, pre-tool preambles (even single-line), progress updates, questions, final reports, notices — MUST be written in ${language.prompt} and no other language; this overrides any tone implied by the output style. Switch only when the user writes in another language or explicitly asks you to.`,
+    `- Default user-facing response language${source}: ${language.prompt}. Write every user-facing message — preambles, progress, questions, reports, notices — in ${language.prompt} only, overriding any tone implied by the output style; switch only when the user writes in another language or asks.`,
     `- Code identifiers, paths, commands, symbols, API names, and exact errors should remain in their original form.`,
   ];
   return `# Language\n\n${lines.join('\n')}`;

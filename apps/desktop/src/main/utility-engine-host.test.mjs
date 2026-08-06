@@ -397,7 +397,7 @@ test('utility host rejects a lost mutation and keeps bounded restart recovery av
       false,
     );
     assert.equal(snapshots.at(-1).busy, false);
-    assert.match(snapshots.at(-1).toasts.at(-1).text, /engine process stopped/i);
+    assert.match(snapshots.at(-1).toasts.at(-1).text, /backend connection stopped/i);
 
     workers[1].emit('exit', 10);
     await host.start();

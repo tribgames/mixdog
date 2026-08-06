@@ -10,7 +10,7 @@ import {
   refreshInitialDeferredMcpSurface,
 } from './tool-catalog.mjs';
 import { getMcpTools } from '../runtime/agent/orchestrator/mcp/client.mjs';
-import { beginTurnSnapshot } from '../runtime/shared/turn-snapshot.mjs';
+import { beginTurnSnapshot, completeTurnSnapshot } from '../runtime/shared/turn-snapshot.mjs';
 
 export function splitToolStatusCounts(rows) {
   const list = Array.isArray(rows) ? rows : [];
@@ -43,12 +43,14 @@ export function createSessionTurnApi(deps) {
     scheduleProviderWarmup, scheduleProviderModelWarmup, invalidateContextStatusCache,
     agentTool, recreateCurrentSessionIfReady, invalidatePreSessionToolSurface,
     activeToolSurface, applyResolvedCwd, resolveCwdPath, agentStatusState, notificationListeners,
-    awaitInitialMcpConnect, awaitRoutePreparation, sessionTitles,
+    awaitInitialMcpConnect, mcpTurnGraceMs = 150, awaitRoutePreparation, sessionTitles,
   } = deps;
   const enqueueRemoteAttachedPrompt = (prompt) => {
     const attachedSession = getSession();
     if (!attachedSession?.remoteAttached || !attachedSession.id) return false;
     try {
+      // prompt may be a string or { content/text, id } so the submission id
+      // survives spool fallback after a live-share ack miss.
       return Number(mgr.enqueueRemotePendingMessage?.(attachedSession.id, prompt)) > 0;
     } catch {
       return false;
@@ -87,16 +89,63 @@ export function createSessionTurnApi(deps) {
       // Historical-session resume publishes its transcript immediately while
       // provider/model metadata initializes in the background. Only the next
       // actual turn waits, guaranteeing that it cannot run on a stale route.
+      const timingStartedAt = performance.now();
+      const timingStartedAtEpoch = Date.now();
+      const submittedAt = Number(options.submittedAt);
+      const hasSubmittedAt = Number.isFinite(submittedAt) && submittedAt > 0;
+      const routeStartedAt = performance.now();
       await awaitRoutePreparation?.();
+      const routeWaitMs = performance.now() - routeStartedAt;
       setActiveTurnCount(getActiveTurnCount() + 1);
+      let turnSnapshotSessionId = null;
+      let mcpWaitMs = 0;
+      let providerStartedAt = 0;
+      let turnTimingStatus = 'error';
+      let turnTimingEmitted = false;
       // Heavy runtime warmup is one-shot and demand-driven: idle desktop panes
-      // never spawn shell/token/shard helpers or a code-graph worker.
-      if (typeof getCodeGraphFirstTurnPrewarmDone === 'function'
-        && !getCodeGraphFirstTurnPrewarmDone()) {
+      // never spawn shell/token/shard helpers or a code-graph worker. More
+      // importantly, do not start them until the provider has produced its
+      // first stream delta: launching PowerShell + graph workers before that
+      // point directly competes with the first-token critical path.
+      const heavyRuntimeWarmupPending = typeof getCodeGraphFirstTurnPrewarmDone === 'function'
+        && !getCodeGraphFirstTurnPrewarmDone();
+      if (heavyRuntimeWarmupPending) {
         setCodeGraphFirstTurnPrewarmDone(true);
-        scheduleToolRuntimeWarmup?.(0);
-        scheduleCodeGraphPrewarm?.(0, 'first-turn');
       }
+      let heavyRuntimeWarmupArmed = false;
+      const armHeavyRuntimeWarmup = (reason) => {
+        if (!heavyRuntimeWarmupPending || heavyRuntimeWarmupArmed) return;
+        heavyRuntimeWarmupArmed = true;
+        scheduleToolRuntimeWarmup?.(0);
+        scheduleCodeGraphPrewarm?.(0, reason);
+      };
+      const emitTurnTiming = (status) => {
+        if (turnTimingEmitted) return;
+        turnTimingEmitted = true;
+        const now = performance.now();
+        try {
+          process.emit('mixdog:turn-timing', {
+            status,
+            sessionId: String(getSession()?.id || turnSnapshotSessionId || ''),
+            requestId: String(options.id || ''),
+            ttftMs: now - timingStartedAt,
+            endToEndTtftMs: hasSubmittedAt ? Math.max(0, Date.now() - submittedAt) : null,
+            queueMs: hasSubmittedAt ? Math.max(0, timingStartedAtEpoch - submittedAt) : null,
+            routeMs: routeWaitMs,
+            preflightMs: (providerStartedAt || now) - timingStartedAt,
+            mcpMs: mcpWaitMs,
+            providerMs: providerStartedAt ? now - providerStartedAt : null,
+          });
+        } catch { /* timing telemetry must never affect a turn */ }
+      };
+      const awaitMcpGrace = async () => {
+        const startedAt = performance.now();
+        try {
+          await awaitInitialMcpConnect?.(mcpTurnGraceMs);
+        } finally {
+          mcpWaitMs += performance.now() - startedAt;
+        }
+      };
       const startedAt = Date.now();
       try {
         await refreshSessionForCwdIfNeeded('cwd-change');
@@ -130,6 +179,7 @@ export function createSessionTurnApi(deps) {
           }
         }
         const session0 = getSession();
+        turnSnapshotSessionId = session0?.id || null;
         try { sessionTitles?.scheduleFirst(session0, prompt); } catch { /* title fallback stays the preview */ }
         // Turn-review boundary: start a fresh session+turn generation. Lead
         // patches remain transcript-derived; worker apply_patch diffs bind to
@@ -147,11 +197,9 @@ export function createSessionTurnApi(deps) {
           // the fold so a throw still never re-runs it, and a resumed session
           // (flag unset) skips straight to the late path below.
           session0.deferredInitialRefreshPending = false;
-          // First-turn gate: give the in-flight INITIAL MCP connect a bounded
-          // chance to finish so servers that connect within the startup budget
-          // land in THIS request's tool surface. Bounded by the same budget —
-          // UI/boot never blocks here; only this first ask waits, and only once.
-          try { await awaitInitialMcpConnect?.(); }
+          // Give an in-flight INITIAL MCP connect only a short TTFT grace.
+          // Slower servers remain available through the late-tool path.
+          try { await awaitMcpGrace(); }
           catch { /* gate must never break the turn */ }
           try { refreshInitialDeferredMcpSurface(session0, getMcpTools()); }
           catch { /* first-turn MCP fold must never break the turn */ }
@@ -164,10 +212,10 @@ export function createSessionTurnApi(deps) {
           // Context-switch gate: a desktop project switch (and any cwd change)
           // now starts its MCP reset in the background instead of blocking the
           // switch. When such a reconnect is still in flight, give it the same
-          // bounded startup budget BEFORE folding the catalog so this turn's
-          // tool surface reflects the new project's registry. No reconnect in
-          // flight → immediate no-op.
-          try { await awaitInitialMcpConnect?.(); }
+          // short TTFT grace BEFORE folding the catalog so a slow reconnect
+          // cannot hold the provider request. No reconnect in flight →
+          // immediate no-op.
+          try { await awaitMcpGrace(); }
           catch { /* gate must never break the turn */ }
           try {
             reconcileDeferredMcpToolCatalog(session0, getMcpTools(), {
@@ -197,6 +245,7 @@ export function createSessionTurnApi(deps) {
           .map((part) => String(part || '').trim())
           .filter(Boolean)
           .join('\n\n');
+        providerStartedAt = performance.now();
         const result = await mgr.askSession(
           session0.id,
           prompt,
@@ -253,12 +302,23 @@ export function createSessionTurnApi(deps) {
             onToolApproval: options.onToolApproval,
             onCompactEvent: options.onCompactEvent,
             onStageChange: options.onStageChange,
-            onStreamDelta: options.onStreamDelta,
+            onStreamDelta: (...args) => {
+              let value;
+              try {
+                value = options.onStreamDelta?.(...args);
+              } finally {
+                turnTimingStatus = 'first-delta';
+                emitTurnTiming(turnTimingStatus);
+                armHeavyRuntimeWarmup('first-stream');
+              }
+              return value;
+            },
             drainSteering: options.drainSteering,
             onSteerMessage: options.onSteerMessage,
             notifyFn: notifyFnForSession(session0.id),
           },
         );
+        if (!turnTimingEmitted) turnTimingStatus = 'complete-no-delta';
         setSession(mgr.getSession(session0.id) || getSession());
         try { sessionTitles?.observeThird(getSession()); } catch { /* title refresh is best-effort */ }
         if (getRemoteEnabled() && getTranscriptWriter()) {
@@ -290,6 +350,9 @@ export function createSessionTurnApi(deps) {
         } catch { /* best-effort: StopFailure hook must never break teardown */ }
         throw error;
       } finally {
+        emitTurnTiming(turnTimingStatus);
+        armHeavyRuntimeWarmup('turn-settled');
+        try { completeTurnSnapshot(turnSnapshotSessionId); } catch { /* review cleanup never breaks a turn */ }
         setActiveTurnCount(Math.max(0, getActiveTurnCount() - 1));
         if (!isFirstTurnCompleted()) {
           setFirstTurnCompleted(true);

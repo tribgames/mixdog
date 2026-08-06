@@ -45,46 +45,31 @@ function assertCleanOutput(name, value, { maxLines = 3, maxBullets = 3, allowedL
   assert(sentenceMarks.length <= 2, `${name}: too many sentences`);
 }
 
-const defaultStyle = readFileSync(join(root, 'src', 'output-styles', 'default.md'), 'utf8');
-for (const required of [
-  'name: default',
-  'Concise engineering summaries',
-  'Mixdog default — the most detailed style',
-  'State conclusions, not reasoning',
-  'Use labels such as',
-  '`Changes`, `Verification`,',
-  'Synthesize agent or retrieval results',
-  'Do not hide blockers',
-]) {
-  assert(defaultStyle.includes(required), `default.md missing: ${required}`);
-}
-assert(!defaultStyle.includes('Claude Code-compact'), 'default.md must not reference the old compact style name');
-assert(!defaultStyle.includes('Hard cap user-visible replies'), 'default.md must not hard-cap replies to two short sentences');
-assert(!defaultStyle.includes('Be short and direct.'), 'default.md must not keep the old generic concise preset');
-assert(!defaultStyle.includes('Practical concise — outcome-first handoffs'), 'default.md must not use the simple preset body');
-
-const simpleStyle = readFileSync(join(root, 'src', 'output-styles', 'simple.md'), 'utf8');
-for (const required of [
-  'name: simple',
-  'Outcome-first concise handoffs for coding work',
-  'Practical concise — outcome-first handoffs',
-  'file_path:line_number',
-  'Controlled detail',
-  'Synthesize agent or retrieval results',
-  'Do not hide blockers',
-  'verification was not run, say so once',
-]) {
-  assert(simpleStyle.includes(required), `simple.md missing: ${required}`);
-}
-assert(!simpleStyle.includes('Mixdog default — the most detailed of the three styles'), 'simple.md must not duplicate default preset body');
-for (const [name, style] of Object.entries({
-  default: defaultStyle,
-  simple: simpleStyle,
-  minimal: readFileSync(join(root, 'src', 'output-styles', 'minimal.md'), 'utf8'),
-  'extreme-minimal': readFileSync(join(root, 'src', 'output-styles', 'extreme-minimal.md'), 'utf8'),
-})) {
+// Shipped presets. Assertions check the CONTRACT SHAPE (frontmatter, heading,
+// compactness, own budget clause) instead of verbatim sentences, so a wording
+// pass does not break the smoke while a dropped rule still does.
+const STYLE_NAMES = ['simple', 'minimal', 'extreme-minimal', 'detailed'];
+const styles = new Map(STYLE_NAMES.map((name) => [
+  name,
+  readFileSync(join(root, 'src', 'output-styles', `${name}.md`), 'utf8'),
+]));
+for (const [name, style] of styles) {
+  assert(style.includes(`name: ${name}`), `${name}.md missing frontmatter name`);
+  assert(style.includes('keep-coding-instructions: true'), `${name}.md must keep coding instructions`);
+  assert(style.includes('# Output Style'), `${name}.md missing the Output Style heading`);
+  assert(style.length <= 1200, `${name}.md is no longer compact (${style.length} chars)`);
   assert(!style.includes('pre-tool preamble'), `${name} output style must not own language preamble rules`);
   assert(!style.includes('selected/default user language'), `${name} output style must not duplicate profile language rules`);
+  assert(!/\b(?:HALF|TWICE)\b/.test(style), `${name} output style must not size itself against another preset`);
+}
+const simpleStyle = styles.get('simple');
+assert(/~5\u20137\s*\n?\s*lines/.test(simpleStyle), 'simple.md must state its line budget');
+assert(/one or two sentences/i.test(styles.get('minimal')), 'minimal.md must state its sentence budget');
+assert(/under 100 characters/.test(styles.get('extreme-minimal')), 'extreme-minimal.md must state its character cap');
+assert(/~10\u201315\s*lines/.test(styles.get('detailed')), 'detailed.md must state its report budget');
+for (const name of ['simple', 'detailed']) {
+  assert(styles.get(name).includes('never\n  dump raw tool output') || styles.get(name).includes('never dump raw tool output'), `${name}.md must forbid raw tool output`);
+  assert(/blockers and failures/.test(styles.get(name)), `${name}.md must keep the blocker disclosure rule`);
 }
 
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-output-style-smoke-'));
@@ -103,12 +88,12 @@ try {
   writeFileSync(join(dataDir, 'output-styles', 'custom-smoke.md'), '---\nname: custom-smoke\n---\n\n# Custom Output Style\n\ncustom smoke style\n');
   const customRules = rulesBuilder.buildInjectionContent({ PLUGIN_ROOT: join(root, 'src'), DATA_DIR: dataDir });
   assert(customRules.includes('# Custom Output Style'), 'configured outputStyle must select custom style');
-  assert(!customRules.includes('Mixdog default — the most detailed of the three styles'), 'custom outputStyle should not append default style');
+  assert(!customRules.includes('Practical concise'), 'custom outputStyle should not append a shipped preset');
   const profileMeta = rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT: join(root, 'src'), DATA_DIR: dataDir });
   assert(profileMeta.includes('Use "\uD64D\uAE38\uB3D9\uB2D8" when directly addressing the user'), 'profile title must inject into Lead BP3 meta');
   assert(profileMeta.includes('do not repeat it in routine progress updates or pre-tool preambles'), 'profile title must not encourage title in preambles');
   assert(/Default user-facing response language from system locale/.test(profileMeta), 'system profile language must resolve from system locale');
-  assert(profileMeta.includes('pre-tool preambles (even single-line)'), 'profile language must cover pre-tool preambles');
+  assert(/preambles/.test(profileMeta), 'profile language must cover preambles');
 } finally {
   rmSync(dataDir, { recursive: true, force: true });
 }

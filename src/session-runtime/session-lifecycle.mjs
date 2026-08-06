@@ -168,6 +168,7 @@ export function createSessionLifecycle({
       // Load the active WORKFLOW.md pack once for both summary + context block.
       const { summary: workflow, context: workflowContext } = activeWorkflowContext(rt.config, dataDir);
       const sessionOpts = {
+        ...(rt.reservedSessionId ? { id: rt.reservedSessionId } : {}),
         provider: rt.route.provider,
         model: rt.route.model,
         preset: rt.route.preset || undefined,
@@ -193,6 +194,7 @@ export function createSessionLifecycle({
         sessionOpts.effort = rt.route.effectiveEffort || null;
       }
       rt.session = mgr.createSession(sessionOpts);
+      rt.reservedSessionId = null;
       rt.sessionNeedsCwdRefresh = false;
       attachSessionHooks(rt.session, { hooks, hookCommonPayload, getCwd: () => rt.currentCwd });
       // Every-create MCP fold (NO blocking): seed the INITIAL provider-visible

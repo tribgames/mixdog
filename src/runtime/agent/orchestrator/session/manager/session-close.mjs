@@ -12,6 +12,7 @@ import { _dropPendingMessageState } from './pending-messages.mjs';
 import { _stopToolActivityHeartbeat, _getRuntimeEntry, _clearSessionRuntime } from './runtime-liveness.mjs';
 import { _closeBashSessionLazy } from './runtime-loaders.mjs';
 import { clearTurnCheckpoint } from './turn-checkpoint.mjs';
+import { releaseReadSnapshotScope } from '../../tools/builtin/snapshot-store.mjs';
 
 /**
  * Close a session. Plants a `closed=true` tombstone on disk with a bumped
@@ -137,6 +138,7 @@ export function closeSession(id, reason = 'manual', opts = {}) {
     // Drop session-scoped read dedup cache so the Map doesn't accumulate
     // entries across mcp-server lifetime.
     try { clearReadDedupSession(id); } catch { /* ignore */ }
+    try { releaseReadSnapshotScope(id); } catch { /* ignore */ }
     // Drop offload sidecars + module-level counter for this session so a
     // long-running mcp-server doesn't leak disk (tool-results/<id>/*.txt)
     // or Map entries across session lifetime. Fire-and-forget — close path
@@ -226,6 +228,7 @@ export function unloadSessionRuntime(id, reason = 'runtime-unload') {
     try { globalThis.__mixdogCloseProviderConnectionsForSession?.(id, `runtime-unload:${reason}`); } catch { /* ignore */ }
     // Pure caches — a resumed turn rebuilds them from the transcript/disk.
     try { clearReadDedupSession(id); } catch { /* ignore */ }
+    try { releaseReadSnapshotScope(id); } catch { /* ignore */ }
     _clearSessionRuntime(id);
     if (process.env.MIXDOG_DEBUG_SESSION_LOG) {
         try { process.stderr.write(`[agent-unload] session=${id} reason=${reason} shells=${allBashIds.length}\n`); } catch { /* best-effort */ }

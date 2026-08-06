@@ -314,8 +314,31 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   // that is what keeps tab switches cheap on large session catalogs.
   const recentScrollerRef = useRef<HTMLDivElement | null>(null);
   const recentSentinelRef = useRef<HTMLDivElement | null>(null);
+  const recentScrollAnchorRef = useRef<{ sessionId: string; offset: number } | null>(null);
   const hasMoreRecentRows = visibleRecentRows.length < rows.length;
   const visibleRecentRowCount = visibleRecentRows.length;
+  const captureRecentScrollAnchor = useCallback(() => {
+    const scroller = recentScrollerRef.current;
+    if (!scroller || scroller.scrollTop <= 1) {
+      recentScrollAnchorRef.current = null;
+      return;
+    }
+    const scrollerRect = scroller.getBoundingClientRect();
+    const visible = [...scroller.querySelectorAll<HTMLElement>(".session-row[data-session-id]")]
+      .find((row) => {
+        const rect = row.getBoundingClientRect();
+        return rect.bottom > scrollerRect.top && rect.top < scrollerRect.bottom;
+      });
+    const sessionId = String(visible?.dataset.sessionId || "");
+    if (!visible || !sessionId) {
+      recentScrollAnchorRef.current = null;
+      return;
+    }
+    recentScrollAnchorRef.current = {
+      sessionId,
+      offset: visible.getBoundingClientRect().top - scrollerRect.top,
+    };
+  }, []);
   // Fallback for hosts without IntersectionObserver. Proximity is measured
   // against the SENTINEL, not the scroller bottom: Archived (and any other
   // section rendered below Recent) would otherwise keep the scroller far from
@@ -330,6 +353,10 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     if (sentinelTop - scrollerBottom > RECENT_SENTINEL_REVEAL_MARGIN_PX) return;
     revealMoreRecentRows();
   }, [hasMoreRecentRows, open, panelActive, recentOpen, revealMoreRecentRows]);
+  const handleRecentScroll = useCallback(() => {
+    captureRecentScrollAnchor();
+    revealWhenSentinelNear();
+  }, [captureRecentScrollAnchor, revealWhenSentinelNear]);
   useEffect(() => {
     // Nothing to page towards, or the list is not on screen: no observer at
     // all, so a collapsed/hidden/closed sidebar can never spin pages.
@@ -358,6 +385,38 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     // that is STILL in view keeps filling the viewport; the loop ends by
     // construction once every row is visible (the sentinel unmounts).
   }, [hasMoreRecentRows, open, panelActive, recentOpen, revealMoreRecentRows, visibleRecentRowCount]);
+  useLayoutEffect(() => {
+    if (!open || panelActive) return;
+    const scroller = recentScrollerRef.current;
+    const anchor = recentScrollAnchorRef.current;
+    if (scroller && anchor && scroller.scrollTop > 1) {
+      const row = [...scroller.querySelectorAll<HTMLElement>(".session-row[data-session-id]")]
+        .find((candidate) => candidate.dataset.sessionId === anchor.sessionId);
+      if (row) {
+        const delta = row.getBoundingClientRect().top
+          - scroller.getBoundingClientRect().top
+          - anchor.offset;
+        if (Number.isFinite(delta) && Math.abs(delta) > 0.5) {
+          scroller.scrollTop = Math.max(0, scroller.scrollTop + delta);
+        }
+      }
+    }
+    // Store the settled geometry for the next catalog insertion/reorder. The
+    // browser's native anchor is disabled on this scroller, so this is the only
+    // compensation and the same row stays at the same screen coordinate.
+    captureRecentScrollAnchor();
+  }, [
+    allRows,
+    archivedOpen,
+    automationsOpen,
+    captureRecentScrollAnchor,
+    collapsedAutomations,
+    open,
+    panelActive,
+    recentOpen,
+    remoteOpen,
+    visibleRecentRowCount,
+  ]);
   useLayoutEffect(() => {
     if (!open) return;
     beginBootSurface("session-sidebar", "recent");
@@ -505,7 +564,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         data-surface-active={panelActive ? "false" : "true"}
         inert={panelActive ? true : undefined}
         aria-hidden={panelActive ? true : undefined}
-        onScroll={revealWhenSentinelNear}>
+        onScroll={handleRecentScroll}>
         {automationGroups.length > 0 && (
           <section className="sidebar-recent sidebar-automations" aria-label={t("Automations")}>
             <button type="button" className="sidebar-recent-heading sidebar-heading-toggle"

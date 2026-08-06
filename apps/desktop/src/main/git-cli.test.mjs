@@ -2400,7 +2400,14 @@ test("a refused dirty --mixed reset carries its code on the direct AND the remot
     // Remote transport: the same refusal, through the frame executor the LAN
     // bridge and the relay both run, survives a JSON round trip as its own
     // field — a remote caller branches on the contract, not on prose.
-    const methods = createRemoteMethods({ host: {} });
+    const methods = createRemoteMethods({
+      host: {
+        backendInvoke(name, args) {
+          if (name !== "gitResetToCommit") throw new Error(`unexpected backend operation ${name}`);
+          return gitResetToCommit(...args);
+        },
+      },
+    });
     const refused = JSON.parse(JSON.stringify(await executeRemoteFrame(methods, JSON.stringify({
       id: 7, method: "gitResetToCommit", params: [cwd, base, "mixed"],
     }))));

@@ -99,8 +99,8 @@ test('foreign-drain mtime gate is per session, not per process', () => {
     },
     sessionTouchedAt: { [a]: now, [b]: now },
   }));
-  assert.deepEqual(drainForeignUserInjections(a), ['for A']);
-  assert.deepEqual(drainForeignUserInjections(b), ['for B'], 'sibling session must not lose its wake-up');
+  assert.deepEqual(drainForeignUserInjections(a), [{ text: 'for A', id: 'fa' }]);
+  assert.deepEqual(drainForeignUserInjections(b), [{ text: 'for B', id: 'fb' }], 'sibling session must not lose its wake-up');
   const store = JSON.parse(readFileSync(spoolPath, 'utf8'));
   assert.equal(store.sessions[a], undefined);
   assert.equal(store.sessions[b], undefined);

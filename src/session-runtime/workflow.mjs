@@ -285,9 +285,16 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
 
   function workflowContextBlockFromPack(pack, dir) {
     if (!pack) return '';
-    const lines = [`# Active Workflow: ${pack.name}`];
-    if (pack.description) lines.push(pack.description);
-    lines.push(pack.body);
+    // The pack body opens with its own `# <name>` title, so header + description
+    // + body used to repeat the workflow name three times in the prompt. Emit one
+    // header line and drop the body's duplicate title (only when it matches).
+    const rawBody = String(pack.body || '');
+    const firstBreak = rawBody.indexOf('\n');
+    const firstLine = (firstBreak === -1 ? rawBody : rawBody.slice(0, firstBreak)).trim();
+    const body = firstBreak !== -1 && firstLine.toLowerCase() === `# ${String(pack.name || '').toLowerCase()}`
+      ? rawBody.slice(firstBreak + 1).replace(/^\s+/, '')
+      : rawBody;
+    const lines = [`# Active Workflow: ${pack.name}${pack.description ? ` — ${pack.description}` : ''}`, body];
     // A hand-edited pack may name a hidden role in its `agents:` frontmatter;
     // internal roles are never delegatable, so they never enter the catalog.
     // Slot-backed built-ins are equally non-delegatable (they ride the explore

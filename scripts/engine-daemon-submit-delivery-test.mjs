@@ -1,10 +1,7 @@
 // Submit delivery across the daemon seam. A view's submit() answers
-// SYNCHRONOUSLY (the store contract EngineHost depends on), so the surface has
-// already told the user the prompt was accepted by the time the hop happens.
-// Losing it there is invisible: no transcript row, no error (user: 입력이
-// 씹힘). These tests pin the two halves of the guarantee — a failed hop is
-// retried until it lands, and a retry that crosses a lost response is deduped
-// by submission id instead of double-posting.
+// Session submit is acknowledged asynchronously by the daemon. Product
+// clients do not keep a second pending/retry queue; transport call IDs provide
+// idempotence and an engine-side rejection is reported directly.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -65,10 +62,10 @@ async function withDaemon(run, engineFactory) {
   const service = createEngineDaemonService({
     createEngine: engineFactory,
     publishIntervalMs: 5,
-    onFrame: (frame) => transport.broadcast(frame),
+    onFrame: (frame, targetTokens) => transport.broadcast(frame, targetTokens),
   });
   const transport = createEngineDaemonTransport({
-    handleCall: (name, args) => service.handleCall(name, args),
+    handleCall: (name, args, ctx) => service.handleCall(name, args, ctx),
     discoveryPath: join(RUNTIME_ROOT, 'engine-daemon.json'),
     clientGraceMs: 50,
     sweepMs: 50,
@@ -86,17 +83,17 @@ async function withDaemon(run, engineFactory) {
   }
 }
 
-test('a view submit that fails the hop is retried until the engine takes it', async () => {
+test('submitAsync reports a backend rejection without a client retry loop', async () => {
   let engine = null;
   await withDaemon(async () => {
     const view = await createRemoteEngineSession({ cwd: process.cwd() });
     try {
-      // The caller is answered immediately — the surface may paint the prompt.
-      assert.equal(view.submit('retried prompt', { id: 'submission-1' }), true);
-      await waitFor(() => view.getState().items?.length === 1,
-        'the retried submit eventually lands in the engine transcript');
-      assert.ok(engine.attempts >= 3, 'the failed attempts were actually retried');
-      assert.equal(view.getState().items[0].text, 'retried prompt');
+      await assert.rejects(
+        () => view.submitAsync('rejected prompt', { id: 'submission-1' }),
+        /transport fault/,
+      );
+      assert.equal(engine.attempts, 1, 'the client does not replay an engine rejection');
+      assert.equal(view.getState().items.length, 0);
     } finally {
       await view.dispose('test');
     }
@@ -129,6 +126,30 @@ test('a re-delivered submission id is queued exactly once', () => {
   assert.equal(pending.length, 3);
 });
 
+
+test('near-simultaneous same-text busy prompts queue once', () => {
+  const pending = [];
+  const state = { busy: true, commandBusy: false, queued: [] };
+  const flow = createSessionFlow({
+    runtime: { id: 'test-session' },
+    nextId: (() => { let seq = 0; return () => `auto-${seq += 1}`; })(),
+    tuiDebug: () => {},
+    flags: {},
+    pending,
+    pendingNotificationKeys: new Set(),
+    getState: () => state,
+    set: (patch) => Object.assign(state, patch),
+    flushEmitImmediate: () => {},
+  });
+
+  // Root identity is the submission id — the same text may be intentional.
+  // A transport re-delivery reuses the id and is dropped.
+  assert.equal(flow.enqueue('same follow-up', { id: 'a' }), true);
+  assert.equal(flow.enqueue('same follow-up', { id: 'a' }), false);
+  assert.equal(flow.enqueue('same follow-up', { id: 'b' }), true);
+  assert.equal(pending.length, 2);
+  assert.equal(state.queued.length, 2);
+});
 // ── Session-addressed delivery ───────────────────────────────────────────────
 // A view is a RENDERER: the desktop pane (or a TUI tab) showing a session it
 // holds no engine for must still be able to hand the backend a prompt. The
@@ -170,7 +191,7 @@ test('a session no view holds still receives the prompt through the daemon', asy
     publishIntervalMs: 5,
   });
   try {
-    const first = await service.handleCall('engine.session', {
+    const first = await service.handleCall('session.invoke', {
       sessionId: 'stored-session', method: 'submit', args: ['wake up'],
     });
     assert.equal(first.value, true, 'the prompt is accepted without a view owning the session');
@@ -179,21 +200,18 @@ test('a session no view holds still receives the prompt through the daemon', asy
     assert.deepEqual(opened[0].submits, ['wake up']);
 
     // Single writer: a second session-addressed call converges on that engine.
-    const second = await service.handleCall('engine.session', {
+    const second = await service.handleCall('session.invoke', {
       sessionId: 'stored-session', method: 'submit', args: ['and again'],
     });
-    assert.equal(second.engineId, first.engineId);
+    assert.equal(second.sessionId, first.sessionId);
     assert.equal(opened.length, 1);
     assert.deepEqual(opened[0].submits, ['wake up', 'and again']);
 
-    // A view resuming the same session ADOPTS that engine instead of loading a
-    // second copy of it — the split brain the daemon exists to remove.
-    const view = await service.handleCall('engine.open', { cwd: process.cwd() });
-    const adopted = await service.handleCall('engine.call', {
-      engineId: view.engineId, method: 'resume', args: ['stored-session'],
+    const subscribed = await service.handleCall('session.subscribe', {
+      sessionId: 'stored-session',
     });
-    assert.equal(adopted.adoptEngineId, first.engineId,
-      'the view is pointed at the engine the daemon already loaded');
+    assert.equal(subscribed.subscribed, true);
+    assert.equal(opened.length, 1, 'a subscriber joins the existing session owner');
   } finally {
     await service.stop('test end');
   }
@@ -214,10 +232,10 @@ test('two panes submitting at once load the session once', async () => {
   });
   try {
     const [left, right] = await Promise.all([
-      service.handleCall('engine.session', { sessionId: 'shared-session', method: 'submit', args: ['left'] }),
-      service.handleCall('engine.session', { sessionId: 'shared-session', method: 'submit', args: ['right'] }),
+      service.handleCall('session.invoke', { sessionId: 'shared-session', method: 'submit', args: ['left'] }),
+      service.handleCall('session.invoke', { sessionId: 'shared-session', method: 'submit', args: ['right'] }),
     ]);
-    assert.equal(left.engineId, right.engineId, 'both panes address one engine');
+    assert.equal(left.sessionId, right.sessionId, 'both panes address one session');
     assert.equal(opened.length, 1, 'the concurrent load is deduped');
     assert.deepEqual([...opened[0].submits].sort(), ['left', 'right']);
   } finally {

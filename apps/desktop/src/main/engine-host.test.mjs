@@ -4238,6 +4238,70 @@ test("concurrent desktop model catalog reads join one host request per mode", as
   }
 });
 
+test("listProviderModels recovers when the active remote session view is disposed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-disposed-catalog-"));
+  const originalCwd = process.cwd();
+  let disposedCalls = 0;
+  let liveCalls = 0;
+  let disposed = true;
+  const engine = {
+    get disposedView() { return disposed; },
+    getState: () => ({ sessionId: disposed ? "dead_view" : "live_view", busy: false, commandBusy: false }),
+    subscribe: () => () => {},
+    submit: () => true,
+    abort: () => false,
+    resolveToolApproval: () => true,
+    listProviderModels: async () => {
+      if (disposed) {
+        disposedCalls += 1;
+        throw new Error("This session view is disposed.");
+      }
+      liveCalls += 1;
+      return [{ provider: "openai", id: "gpt-recovered", display: "GPT Recovered" }];
+    },
+    setRoute: async () => true,
+    setFast: async (enabled) => enabled,
+    listSessions: () => [],
+    newSession: async () => true,
+    resume: async () => true,
+    dispose: async () => { disposed = true; },
+  };
+  let created = 0;
+  const host = new EngineHost({
+    userDataPath: root,
+    createEngine: async () => {
+      created += 1;
+      if (created === 1) {
+        disposed = true;
+        return engine;
+      }
+      disposed = false;
+      return engine;
+    },
+  });
+  try {
+    await host.startTask();
+    // First engine is already disposedView=true (zombie active view).
+    const models = await host.listProviderModels({ quick: true });
+    assert.equal(disposedCalls, 0, "catalog must not call through a disposed session view");
+    assert.ok(created >= 2, "catalog must recreate an engine after detecting disposedView");
+    assert.ok(liveCalls >= 1, "catalog must use the recovered live engine");
+    assert.equal(models[0]?.model, "gpt-recovered");
+
+    disposed = true;
+    const reads = await host.readCapabilities([
+      { capability: "listProviderModels", args: [{ quick: true }] },
+    ]);
+    assert.equal(reads[0]?.ok, true, "capability batches must recover a disposed session view");
+    assert.equal(disposedCalls, 0, "capability batches must not call through a disposed session view");
+    assert.ok(created >= 3, "capability batches must recreate the disposed engine");
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("host rejects a route when an engine command starts while the catalog is loading", async () => {
   const root = await mkdtemp(join(tmpdir(), "mixdog-model-race-"));
   const originalCwd = process.cwd();

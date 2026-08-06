@@ -14,6 +14,9 @@ const readFilesByScope = new Map(); // scope → Map(fullPath → { mtimeMs, siz
 // apply_patch call may reuse a path correction proven by a read in the live
 // session, but must never inherit a guessed redirect from another process.
 const readRedirectsByScope = new Map(); // scope → Map(requestedPathKey → targetPath)
+export const READ_SNAPSHOT_SCOPE_CACHE_LIMIT = 32;
+export const READ_SNAPSHOT_FILES_PER_SCOPE_LIMIT = 1024;
+export const READ_SNAPSHOT_REDIRECTS_PER_SCOPE_LIMIT = 256;
 
 function snapshotPathKey(fullPath) {
     const value = String(fullPath || '');
@@ -166,6 +169,69 @@ function persistScopeSync(scopeKey, { exitDrain = false } = {}) {
     } catch {}
 }
 
+export function releaseReadSnapshotScope(scope, {
+    deletePersisted = false,
+    persist = !deletePersisted,
+} = {}) {
+    const scopeKey = readScopeKey(scope);
+    if (scopeKey === null) return false;
+    const timer = persistPending.get(scopeKey);
+    if (timer) {
+        try { clearTimeout(timer); } catch {}
+        persistPending.delete(scopeKey);
+    }
+    if (persist && readFilesByScope.has(scopeKey)) {
+        try { persistScopeSync(scopeKey, { exitDrain: true }); } catch {}
+    }
+    const released = readFilesByScope.delete(scopeKey)
+        || readRedirectsByScope.has(scopeKey)
+        || scopeHydrated.has(scopeKey);
+    readRedirectsByScope.delete(scopeKey);
+    scopeHydrated.delete(scopeKey);
+    if (deletePersisted) {
+        const path = snapshotScopeFilePath(scopeKey);
+        try { if (path && existsSync(path)) unlinkSync(path); } catch {}
+    }
+    return released;
+}
+
+function pruneReadSnapshotScopes(protectedScopeKey) {
+    while (readFilesByScope.size > READ_SNAPSHOT_SCOPE_CACHE_LIMIT) {
+        let oldest = readFilesByScope.keys().next().value;
+        if (oldest === protectedScopeKey) {
+            oldest = [...readFilesByScope.keys()].find((key) => key !== protectedScopeKey);
+        }
+        if (oldest === undefined) break;
+        releaseReadSnapshotScope(oldest);
+    }
+}
+
+function dropRedirectsToPath(scopeKey, fullPath) {
+    const redirects = readRedirectsByScope.get(scopeKey);
+    if (!redirects) return;
+    const droppedKey = snapshotPathKey(fullPath);
+    for (const [requestedKey, targetPath] of redirects) {
+        if (requestedKey === droppedKey || snapshotPathKey(targetPath) === droppedKey) {
+            redirects.delete(requestedKey);
+        }
+    }
+    if (redirects.size === 0) readRedirectsByScope.delete(scopeKey);
+}
+
+export function rememberReadSnapshot(fullPath, snapshot, scope, knownReadFiles = null) {
+    const scopeKey = readScopeKey(scope);
+    const readFiles = knownReadFiles || readFilesForScope(scope);
+    readFiles.delete(fullPath);
+    readFiles.set(fullPath, snapshot);
+    while (readFiles.size > READ_SNAPSHOT_FILES_PER_SCOPE_LIMIT) {
+        const oldest = readFiles.keys().next().value;
+        if (oldest === undefined) break;
+        readFiles.delete(oldest);
+        if (scopeKey !== null) dropRedirectsToPath(scopeKey, oldest);
+    }
+    return readFiles;
+}
+
 export function deleteReadSnapshotPathEverywhere(fullPath) {
     for (const [scopeKey, readFiles] of readFilesByScope.entries()) {
         if (readFiles.delete(fullPath)) scheduleScopePersist(scopeKey);
@@ -241,7 +307,13 @@ export function recordReadPathRedirect(requestedFullPath, targetFullPath, scope)
         redirects = new Map();
         readRedirectsByScope.set(scopeKey, redirects);
     }
+    redirects.delete(snapshotPathKey(requested));
     redirects.set(snapshotPathKey(requested), target);
+    while (redirects.size > READ_SNAPSHOT_REDIRECTS_PER_SCOPE_LIMIT) {
+        const oldest = redirects.keys().next().value;
+        if (oldest === undefined) break;
+        redirects.delete(oldest);
+    }
     return true;
 }
 
@@ -278,6 +350,32 @@ export function readFilesForScope(scope) {
         readFiles = scopeHydrated.has(key) ? new Map() : loadScopeFromDisk(key);
         scopeHydrated.add(key);
         readFilesByScope.set(key, readFiles);
+        pruneReadSnapshotScopes(key);
+    } else {
+        readFilesByScope.delete(key);
+        readFilesByScope.set(key, readFiles);
     }
     return readFiles;
+}
+
+export function _readSnapshotStoreStatsForTest(scope = null) {
+    const key = readScopeKey(scope);
+    const readFiles = key === null ? null : readFilesByScope.get(key);
+    return {
+        scopeCount: readFilesByScope.size,
+        hydratedScopeCount: scopeHydrated.size,
+        fileCount: readFiles?.size || 0,
+        redirectCount: key === null ? 0 : (readRedirectsByScope.get(key)?.size || 0),
+        pendingPersistCount: persistPending.size,
+    };
+}
+
+export function _resetReadSnapshotStoreForTest() {
+    for (const timer of persistPending.values()) {
+        try { clearTimeout(timer); } catch {}
+    }
+    persistPending.clear();
+    readFilesByScope.clear();
+    readRedirectsByScope.clear();
+    scopeHydrated.clear();
 }

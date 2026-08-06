@@ -61,8 +61,11 @@ test('a killed daemon is replaced and the view re-seats itself', async (t) => {
     try { rmSync(ROOT, { recursive: true, force: true }); } catch {}
   });
 
-  const engine = await createRemoteEngineSession({ cwd: process.cwd() });
-  const firstEngineId = engine.engineId;
+  const recoveryLog = [];
+  const engine = await createRemoteEngineSession({
+    cwd: process.cwd(),
+    log: (line) => recoveryLog.push(String(line)),
+  });
   const firstDaemon = readEngineDaemonDiscovery();
   assert.ok(firstDaemon?.pid, 'the view is attached to a live daemon');
 
@@ -73,7 +76,8 @@ test('a killed daemon is replaced and the view re-seats itself', async (t) => {
     const current = readEngineDaemonDiscovery();
     return current && Number(current.pid) !== Number(firstDaemon.pid);
   }, 'a replacement daemon takes over discovery');
-  await waitFor(() => engine.engineId !== firstEngineId, 'the view re-seats onto a fresh engine');
+  await waitFor(() => recoveryLog.some((line) => line.includes('projection recovered')),
+    'the session projection re-subscribes to the replacement daemon');
 
   const state = engine.getState();
   assert.ok(state && typeof state === 'object', 'the recovered view still publishes a snapshot');

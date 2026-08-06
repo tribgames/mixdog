@@ -7,6 +7,10 @@ import type { NavigationSelection } from "./navigation";
 import type { Project, Snapshot } from "./desktop-types";
 import { displayProject } from "./text-format";
 
+function projectPathKey(value: string): string {
+  return value.trim().replace(/[\\/]+/g, "/").replace(/\/$/, "").toLocaleLowerCase();
+}
+
 export interface ProjectActionDeps {
   projects: DesktopProjectSummary[];
   /** Runs an action with the shared error/toast plumbing. */
@@ -16,7 +20,7 @@ export interface ProjectActionDeps {
   /** Re-reads the engine's real state after a failed navigation. */
   synchronizeActualHost: () => Promise<void>;
   closeSidebarForNavigation: () => void;
-  refreshProjects: () => Promise<unknown>;
+  refreshProjects: () => Promise<DesktopProjectSummary[]>;
   refreshSessionsBestEffort: (selectCurrent?: boolean) => void;
   beginNavigation: () => void;
   setNewTaskActive: (active: boolean) => void;
@@ -100,7 +104,14 @@ export function createProjectActions(deps: ProjectActionDeps) {
       void invoke(async () => {
         const selected = await window.mixdogDesktop.chooseProject();
         if (!selected) return;
-        activateNewProjectContext(selected);
+        // Atomic submit accepts registered projects only. Register the chosen
+        // folder before staging it, then use the canonical registry spelling
+        // when it is directly matchable.
+        await window.mixdogDesktop.addProject(selected);
+        const refreshed = await refreshProjects();
+        const canonical = refreshed.find((project) =>
+          projectPathKey(project.path) === projectPathKey(selected))?.path || selected;
+        activateNewProjectContext(canonical);
       });
     },
     openProjectInExplorer(project: Project) {

@@ -37,6 +37,17 @@ test('packaged preload path matches electron-vite output', async () => {
   await access(new URL('../../out/preload/index.js', import.meta.url));
 });
 
+test('packaged Markdown worker resolves DOM-dependent parsers through worker-safe entries', async () => {
+  const vite = await readFile(new URL('../../electron.vite.config.ts', import.meta.url), 'utf8');
+  const client = await readFile(new URL('../renderer/markdown-worker-client.ts', import.meta.url), 'utf8');
+  assert.ok(vite.includes('find: /^hast-util-from-html-isomorphic$/'));
+  assert.ok(vite.includes("'node_modules/hast-util-from-html-isomorphic/index.js'"));
+  assert.match(client, /event\.preventDefault\?\.\(\)/,
+    'fatal worker startup errors must not also surface as repeating window errors');
+  assert.match(client, /markdownWorkerFailure/,
+    'a fatal worker startup error must not recreate the same broken worker every publication');
+});
+
 test('a closed stdio pipe cannot crash the main process', async () => {
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
   // EPIPE from a launcher that already exited must never reach Electron's
@@ -44,17 +55,42 @@ test('a closed stdio pipe cannot crash the main process', async () => {
   assert.match(main, /\[process\.stdout, process\.stderr\][\s\S]{0,120}?on\?\.\('error'/);
 });
 
-test('production engine host runs in a packaged utility-process entry with an emergency fallback', async () => {
+test('production engine host uses only the packaged daemon backend adapter', async () => {
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
+  const backend = await readFile(new URL('./desktop-backend.ts', import.meta.url), 'utf8');
+  const ipc = await readFile(new URL('./ipc.ts', import.meta.url), 'utf8');
   const vite = await readFile(new URL('../../electron.vite.config.ts', import.meta.url), 'utf8');
   const builder = await readFile(new URL('../../electron-builder.yml', import.meta.url), 'utf8');
-  assert.match(vite, /'engine-worker':\s*resolve\(__dirname,\s*'src\/main\/engine-worker\.ts'\)/);
-  assert.match(main, /utilityProcess\.fork\(join\(__dirname,\s*'engine-worker\.js'\)/);
-  assert.match(main, /serviceName:\s*'Mixdog Engine'/);
-  assert.match(main, /MIXDOG_ENGINE_PROCESS/);
-  assert.match(main, /===\s*'main'/);
+  const daemonBuild = await readFile(new URL('../../scripts/build-daemon-backend.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(vite, /'desktop-backend':/);
+  assert.match(daemonBuild, /src['"],\s*['"]main['"],\s*['"]desktop-backend\.ts/);
+  assert.match(main, /new DaemonEngineTransport\(/);
+  assert.match(main, /desktop-backend-daemon\.cjs/);
+  assert.match(main, /app\.asar\.unpacked/);
+  assert.doesNotMatch(vite, /engine-worker/);
+  assert.doesNotMatch(vite, /terminal-worker/);
+  assert.doesNotMatch(main, /MIXDOG_ENGINE_PROCESS|Mixdog Engine/);
+  assert.doesNotMatch(main, /startRemoteBridge|startRemoteRelay|rotateRemoteToken|rotateRemoteDevice/);
+  assert.doesNotMatch(
+    main.slice(main.indexOf('registerDesktopIpc('), main.indexOf("diagnostics?.write('window-created'")),
+    /\bsettingsStore\b/,
+    'product IPC settings use the daemon operation service',
+  );
+  assert.match(backend, /startRemoteBridge/);
+  assert.match(backend, /startRemoteRelay/);
+  assert.doesNotMatch(ipc, /import \* as .* from ['"]electron['"]/);
+  assert.doesNotMatch(ipc, /from ['"]\.\/window-options['"];/);
   assert.match(builder, /files:\s+-\s*out\/\*\*/);
-  assert.doesNotMatch(builder, /!out\/main\/engine-worker\.js/);
+  assert.match(builder, /asarUnpack:[\s\S]*out\/main\/desktop-backend-daemon\.cjs/);
+  assert.match(builder, /asarUnpack:[\s\S]*out\/renderer\/\*\*/);
+});
+
+test('plain Node can import the standalone daemon backend artifact', async () => {
+  const backendUrl = new URL('../../out/main/desktop-backend-daemon.cjs', import.meta.url);
+  const source = await readFile(backendUrl, 'utf8');
+  assert.doesNotMatch(source, /(?:from\s+|import\s*\()\s*["']electron["']/);
+  const backend = await import(`${backendUrl.href}?packaging-test=${Date.now()}`);
+  assert.equal(typeof backend.createDesktopBackend, 'function');
 });
 
 test('closed-window cleanup never reacquires the destroyed BrowserWindow webContents getter', async () => {

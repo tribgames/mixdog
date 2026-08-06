@@ -524,6 +524,20 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     process.stderr.write(`mixdog: ${error?.message || error}\n`);
     return 1;
   }
+  // The engine store is a daemon-backed Proxy: every method it does not
+  // implement locally comes back as an ASYNC remote call. A synchronous
+  // getOnboardingStatus() probe inside App therefore sees a Promise, never
+  // `.completed`, and re-opens the finished wizard on every launch. Resolve
+  // the status once here and hand the decided verdict to App. An unreadable
+  // status counts as completed so a transport hiccup cannot resurrect a
+  // wizard the user already dismissed (`mixdog --onboarding` still forces it).
+  let onboardingCompleted = true;
+  try {
+    const onboardingStatus = await store.getOnboardingStatus?.();
+    if (onboardingStatus && typeof onboardingStatus === 'object') {
+      onboardingCompleted = onboardingStatus.completed === true;
+    }
+  } catch { /* status probe failed → treat as completed */ }
   // Stop the spinner BEFORE ink mounts so no stray splash write can land
   // between (or after) ink's first frames.
   splash.stop();
@@ -605,7 +619,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     // its clear-frame → write → relative re-render dance, which scrolls the
     // alt screen one line per stray console line (the streaming newline
     // bounce). See installTuiConsoleGuard.
-    const instance = render(<App store={store} forceOnboarding={forceOnboarding === true} />, { exitOnCtrlC: false, maxFps: TUI_RENDER_FPS, incrementalRendering: true, patchConsole: false, onRender: makeRenderProfiler() });
+    const instance = render(<App store={store} forceOnboarding={forceOnboarding === true} onboardingCompleted={onboardingCompleted} />, { exitOnCtrlC: false, maxFps: TUI_RENDER_FPS, incrementalRendering: true, patchConsole: false, onRender: makeRenderProfiler() });
     bootProfile('render:mounted', { ms: (performance.now() - startedAt).toFixed(1) });
     const { waitUntilExit } = instance;
     // [mixdog fork] Hand the ink renderer's drag-selection setter to the store so

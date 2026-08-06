@@ -56,13 +56,13 @@ function assert(condition, message) {
 }
 
 // 3) compactTriggerForSession: main/user (non-agent) recall-fasttrack keeps
-//    the default 5% headroom (95% trigger); a truly-explicit
+//    the default full-window trigger (buffer 0 / 100%); a truly-explicit
 //    sub-boundary autoCompactTokenLimit still wins. Agent-owned semantic
 //    sessions keep the default 10% buffer (90%).
 {
   const boundary = 200000;
   const legacy = compactTriggerForSession({ autoCompactTokenLimit: boundary, compaction: {} }, boundary);
-  assert(legacy === 190000, `main/user boundary-equal limit should yield 95% trigger 190000, got ${legacy}`);
+  assert(legacy === 200000, `main/user boundary-equal limit should yield 100% trigger 200000, got ${legacy}`);
   const explicit = compactTriggerForSession({ autoCompactTokenLimit: 150000, compaction: {} }, boundary);
   assert(explicit === 150000, `sub-boundary explicit limit should be the trigger, got ${explicit}`);
   const agent = compactTriggerForSession({ owner: 'agent', autoCompactTokenLimit: boundary, compaction: {} }, boundary);
@@ -78,7 +78,7 @@ function assert(condition, message) {
   const agentTrigger = compactTriggerForSession({ owner: 'agent', compaction: { bufferPercent: 5 } }, boundary);
   assert(agentTrigger === 190000, `agent bufferPercent 5 should yield trigger 190000, got ${agentTrigger}`);
   const userTrigger = compactTriggerForSession({ compaction: { bufferPercent: 5 } }, boundary);
-  assert(userTrigger === 190000, `main/user should ignore agent bufferPercent and trigger at 190000, got ${userTrigger}`);
+  assert(userTrigger === 200000, `main/user should ignore agent bufferPercent and trigger at 200000, got ${userTrigger}`);
   const userConfigured = compactTriggerForSession({ compaction: { mainBufferPercent: 15 } }, boundary);
   assert(userConfigured === 170000, `main/user mainBufferPercent 15 should trigger at 170000, got ${userConfigured}`);
 }
@@ -86,7 +86,7 @@ function assert(condition, message) {
 // 5) Legacy/zero buffer telemetry migration is an agent-path concern (the
 //    default-buffer sanitizer). Agent-owned sessions reapply the current 10%
 //    default (trigger 180000); explicit bufferTokens still lowers the agent
-//    trigger. Main/user sessions ignore all of it and compact at 95%.
+//    trigger. Main/user sessions ignore all of it and compact at 100%.
 {
   const boundary = 200000;
   const agentLegacy = compactTriggerForSession({
@@ -107,8 +107,8 @@ function assert(condition, message) {
   const userTelemetry = compactTriggerForSession({
     compaction: { boundaryTokens: boundary, triggerTokens: 180000, bufferTokens: 20000, bufferRatio: 0.1 },
   }, boundary);
-  assert(userTelemetry === 190000,
-    `main/user should ignore agent buffer telemetry and keep 5% headroom at 190000, got ${userTelemetry}`);
+  assert(userTelemetry === 200000,
+    `main/user should ignore agent buffer telemetry and keep 0% headroom at 200000, got ${userTelemetry}`);
 }
 
 // 6) preserveBufferConfigFields copies only finite-positive percent/ratio fields.

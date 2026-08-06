@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import type { DesktopGitPreferences } from '../shared/contract';
 import { gitDiff } from './git-cli';
 
-interface CommitCompletionModule {
+export interface CommitCompletionModule {
   generateCommitMessage(source: string, options?: { style?: string }): Promise<string>;
 }
 

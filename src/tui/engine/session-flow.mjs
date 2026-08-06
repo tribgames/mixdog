@@ -243,10 +243,15 @@ export function createSessionFlow(bag) {
         );
         const batchPastedImages = mergePastedImages(batch);
         const batchPastedTexts = mergePastedTexts(batch);
+        const batchSubmittedAt = batch.reduce((earliest, entry) => {
+          const value = Number(entry.submittedAt);
+          return Number.isFinite(value) && value > 0 ? Math.min(earliest, value) : earliest;
+        }, Infinity);
         const turnStatus = await bag.runTurn(merged, {
           displayText: batch.map((entry) => entry.text).filter((text) => String(text || '').trim()).join('\n'),
           pastedImages: batchPastedImages,
           pastedTexts: batchPastedTexts,
+          submittedAt: Number.isFinite(batchSubmittedAt) ? batchSubmittedAt : Date.now(),
           onCommitted: () => commitSteeringQueueEntries(batch),
           submittedIds: [...ids],
           restorable: nonEditable.length === 0,
@@ -372,13 +377,22 @@ export function createSessionFlow(bag) {
   async function restoreLeadSteeringFromDisk() {
     const rows = await drainTuiSteeringPersist(leadSessionId());
     if (!rows.length) return;
+    const livePersistIds = new Set(
+      pending.map((entry) => entry?.steeringPersistId).filter(Boolean),
+    );
     const restored = [];
     for (const row of rows) {
+      const text = String(row?.text || '').trim();
+      if (!text) continue;
+      // Live enqueue already holds this row (id assigned before the async
+      // disk write). Replaying it is the classic double-booked queue.
+      if (row.steeringPersistId && livePersistIds.has(row.steeringPersistId)) continue;
       const entry = makeQueueEntry(row.text, {
         steeringPersistRestored: true,
         steeringPersistId: row.steeringPersistId || undefined,
       });
       pending.push(entry);
+      if (entry.steeringPersistId) livePersistIds.add(entry.steeringPersistId);
       if (isQueuedEntryVisible(entry)) restored.push(entry);
     }
     if (restored.length > 0) set({ queued: [...getState().queued, ...restored] });

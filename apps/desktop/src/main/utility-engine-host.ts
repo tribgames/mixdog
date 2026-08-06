@@ -26,7 +26,7 @@ import type {
   EngineWorkerInbound,
   EngineWorkerOutbound,
 } from './engine-worker-protocol';
-import { createSnapshotDeltaDecoder } from './state-delta';
+import { createSnapshotDeltaDecoder, releaseHiddenSessionStateEntries } from './state-delta';
 
 export interface EngineWorkerTransport {
   postMessage(message: EngineWorkerInbound): void;
@@ -60,7 +60,7 @@ const DEFAULT_RESTART_BASE_DELAY_MS = 250;
 const DEFAULT_RESTART_MAX_DELAY_MS = 5_000;
 const DEFAULT_RESTART_STABLE_MS = 30_000;
 const DEFAULT_DISPOSE_TIMEOUT_MS = 1_500;
-const PROCESS_FAILURE_TOAST_ID = 'engine-process-stopped';
+const PROCESS_FAILURE_TOAST_ID = 'backend-connection-stopped';
 
 function displayExitCode(code: number): string {
   if (
@@ -74,10 +74,11 @@ function displayExitCode(code: number): string {
   return String(code);
 }
 
-class EngineWorkerExitError extends Error {
-  constructor(readonly exitCode: number) {
-    super(`Mixdog engine worker exited with code ${displayExitCode(exitCode)}.`);
-    this.name = 'EngineWorkerExitError';
+class BackendTransportExitError extends Error {
+  constructor(readonly exitCode: number, cause?: Error) {
+    super(cause?.message || `Mixdog backend transport exited with code ${displayExitCode(exitCode)}.`);
+    this.name = 'BackendTransportExitError';
+    if (cause) this.cause = cause;
   }
 }
 
@@ -92,6 +93,9 @@ export class UtilityEngineHost implements DesktopEngineHost {
   private readonly listeners = new Set<(snapshot: EngineSnapshot) => void>();
   private readonly sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
   private readonly agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
+  private readonly backendEventListeners = new Set<
+    (event: { name: string; value: unknown }) => void
+  >();
   private readonly sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
   private readonly sessionStateDecoders = new Map<string, ReturnType<typeof createSnapshotDeltaDecoder>>();
   private readonly pending = new Map<number, PendingRequest>();
@@ -164,15 +168,19 @@ export class UtilityEngineHost implements DesktopEngineHost {
     this.generation += 1;
     child.on('message', (message: unknown) => this.handleMessage(child, message));
     child.on('error', (type: unknown, location: unknown) => {
-      this.options.onDiagnostic?.('engine-worker-error', {
+      this.options.onDiagnostic?.('backend-transport-error', {
         type: String(type || ''),
         location: String(location || ''),
       });
     });
-    child.on('exit', (code: unknown) => this.handleExit(child, Number(code) || 0));
+    child.on('exit', (code: unknown, cause: unknown) => this.handleExit(
+      child,
+      Number(code) || 0,
+      cause instanceof Error ? cause : undefined,
+    ));
     this.startupTimer = setTimeout(() => {
       if (child !== this.child || !this.readyReject) return;
-      const error = new Error('Mixdog engine worker startup timed out.');
+      const error = new Error('Mixdog backend startup timed out.');
       this.rejectStartup(error);
       child.kill();
     }, this.options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS);
@@ -208,6 +216,11 @@ export class UtilityEngineHost implements DesktopEngineHost {
   subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void {
     this.sessionStateListeners.add(listener);
     return () => this.sessionStateListeners.delete(listener);
+  }
+
+  subscribeBackendEvents(listener: (event: { name: string; value: unknown }) => void): () => void {
+    this.backendEventListeners.add(listener);
+    return () => this.backendEventListeners.delete(listener);
   }
 
   private handleMessage(child: EngineWorkerTransport, value: unknown): void {
@@ -272,6 +285,12 @@ export class UtilityEngineHost implements DesktopEngineHost {
       for (const listener of this.agentPoolListeners) listener(agents.slice());
       return;
     }
+    if (message.kind === 'backend-event') {
+      const event = { name: String(message.name || ''), value: message.value };
+      if (!event.name) return;
+      for (const listener of this.backendEventListeners) listener(event);
+      return;
+    }
     if (message.kind === 'session-state') {
       const sessionId = String(message.sessionId || '');
       if (!sessionId) return;
@@ -306,7 +325,7 @@ export class UtilityEngineHost implements DesktopEngineHost {
     else pending.reject(responseError(message.error));
   }
 
-  private handleExit(child: EngineWorkerTransport, code: number): void {
+  private handleExit(child: EngineWorkerTransport, code: number, cause?: Error): void {
     if (child !== this.child) return;
     this.child = null;
     this.decoder.reset();
@@ -315,7 +334,7 @@ export class UtilityEngineHost implements DesktopEngineHost {
     this.startupTimer = null;
     if (this.stableTimer) clearTimeout(this.stableTimer);
     this.stableTimer = null;
-    const error = new EngineWorkerExitError(code);
+    const error = new BackendTransportExitError(code, cause);
     this.lastExitError = error;
     this.readyReject?.(error);
     this.readyResolve = null;
@@ -337,7 +356,7 @@ export class UtilityEngineHost implements DesktopEngineHost {
       baseDelayMs * (2 ** Math.min(this.consecutiveExitCount - 1, 10)),
     );
     this.nextRestartAt = Date.now() + restartDelayMs;
-    this.options.onDiagnostic?.('engine-worker-exit', {
+    this.options.onDiagnostic?.('backend-transport-exit', {
       code,
       displayCode: displayExitCode(code),
       restartCount: this.consecutiveExitCount,
@@ -346,7 +365,7 @@ export class UtilityEngineHost implements DesktopEngineHost {
     this.publishProcessFailure();
     void this.start().catch((restartError) => {
       if (this.disposing || this.disposed) return;
-      this.options.onDiagnostic?.('engine-worker-restart-failed', {
+      this.options.onDiagnostic?.('backend-transport-restart-failed', {
         errorName: restartError instanceof Error ? restartError.name : 'Error',
       });
     });
@@ -415,7 +434,7 @@ export class UtilityEngineHost implements DesktopEngineHost {
         {
           id: PROCESS_FAILURE_TOAST_ID,
           tone: 'error',
-          text: 'The engine process stopped. Reopen the task to continue.',
+          text: 'The backend connection stopped. Retrying automatically.',
         },
       ].slice(-8),
     } as EngineSnapshot;
@@ -436,7 +455,7 @@ export class UtilityEngineHost implements DesktopEngineHost {
     try {
       return await this.invoke<T>(method, args);
     } catch (error) {
-      if (!(error instanceof EngineWorkerExitError) || this.disposed || this.disposing) throw error;
+      if (!(error instanceof BackendTransportExitError) || this.disposed || this.disposing) throw error;
       return await this.invoke<T>(method, args);
     }
   }
@@ -449,7 +468,7 @@ export class UtilityEngineHost implements DesktopEngineHost {
     const child = this.child;
     if (!child) {
       return Promise.reject(
-        this.lastExitError ?? new Error('Mixdog engine worker is unavailable.'),
+        this.lastExitError ?? new Error('Mixdog backend is unavailable.'),
       );
     }
     const id = this.nextRequestId++;
@@ -588,6 +607,12 @@ export class UtilityEngineHost implements DesktopEngineHost {
     this.visibleSessionIds = [...new Set(sessionIds
       .map((value) => String(value || ''))
       .filter((value) => /^[A-Za-z0-9_-]+$/.test(value)))];
+    const visible = new Set(this.visibleSessionIds);
+    releaseHiddenSessionStateEntries(
+      visible,
+      [this.sessionStateDecoders],
+      (sessionId) => this.sessionStateDecoders.get(sessionId)?.reset(),
+    );
     return this.invokeRead('setVisibleSessions', [this.visibleSessionIds]);
   }
   resumeSession(sessionId: string): Promise<EngineSnapshot> {
@@ -653,6 +678,9 @@ export class UtilityEngineHost implements DesktopEngineHost {
   ): Promise<DesktopCapabilityReadResult[]> {
     return this.invokeRead('readCapabilities', [requests]);
   }
+  backendInvoke(method: string, args: unknown[] = []): Promise<unknown> {
+    return this.invoke('backendInvoke', [method, args]);
+  }
   perfLog(line: string): void {
     void this.invoke('perfLog', [line]).catch(() => { /* diagnostics only */ });
   }
@@ -688,6 +716,7 @@ export class UtilityEngineHost implements DesktopEngineHost {
     this.listeners.clear();
     this.sessionListeners.clear();
     this.agentPoolListeners.clear();
+    this.backendEventListeners.clear();
     this.sessionStateListeners.clear();
     this.visibleSessionIds = [];
   }

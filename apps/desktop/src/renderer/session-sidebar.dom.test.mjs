@@ -79,6 +79,43 @@ function stubScrollMetrics(element, { scrollHeight, scrollTop, clientHeight }) {
   }
 }
 
+function installRecentRowGeometry(scroller, initialScrollTop, rowHeight = 36) {
+  let scrollTop = initialScrollTop;
+  stubRect(scroller, { top: 0, bottom: 180 });
+  Object.defineProperty(scroller, "scrollTop", {
+    get: () => scrollTop,
+    set: (value) => { scrollTop = Number(value); },
+    configurable: true,
+  });
+  for (const row of scroller.querySelectorAll(".recent-session-list .session-row")) {
+    Object.defineProperty(row, "getBoundingClientRect", {
+      value: () => {
+        const currentRows = [...scroller.querySelectorAll(".recent-session-list .session-row")];
+        const index = currentRows.indexOf(row);
+        const top = index * rowHeight - scrollTop;
+        return {
+          top,
+          bottom: top + rowHeight,
+          left: 0,
+          right: 200,
+          width: 200,
+          height: rowHeight,
+          x: 0,
+          y: top,
+        };
+      },
+      configurable: true,
+    });
+  }
+  return {
+    get scrollTop() { return scrollTop; },
+    rowTop(sessionId) {
+      return scroller.querySelector(`[data-session-id="${sessionId}"]`)
+        ?.getBoundingClientRect().top;
+    },
+  };
+}
+
 /** Places the scroller viewport at 0..600 and the sentinel `distance` px below
  *  the viewport bottom, with a tall scroller whose OWN bottom is far away
  *  (the Archived tail): whole-scroller math would never page here. */
@@ -318,6 +355,76 @@ test("a selected row beyond the first page stays rendered", async () => {
   })));
   assert.equal(recentRowCount(), 101);
   assert.ok(document.querySelector('.recent-session-list .session-row[data-session-id="session-100"].selected'));
+});
+
+test("a new leading session preserves the first visible row while scrolled", async () => {
+  installDom();
+  const sessions = makeSessions(20);
+  await act(async () => root.render(renderSidebar({ sessions })));
+  const scroller = scrollerEl();
+  const geometry = installRecentRowGeometry(scroller, 108);
+  await fireScroll(scroller);
+  assert.equal(geometry.rowTop("session-3"), 0);
+
+  const newest = {
+    ...sessions[0],
+    id: "session-new",
+    title: "Newest session",
+    activityAt: sessions[0].activityAt + 1,
+    updatedAt: sessions[0].updatedAt + 1,
+  };
+  await act(async () => root.render(renderSidebar({ sessions: [newest, ...sessions] })));
+
+  assert.equal(geometry.scrollTop, 144,
+    "one inserted row should be absorbed into scrollTop");
+  assert.equal(geometry.rowTop("session-3"), 0,
+    "the previous first visible session must stay at the same screen coordinate");
+});
+
+test("activity promotion preserves the first visible row while scrolled", async () => {
+  installDom();
+  const sessions = makeSessions(20);
+  await act(async () => root.render(renderSidebar({ sessions })));
+  const scroller = scrollerEl();
+  const geometry = installRecentRowGeometry(scroller, 108);
+  await fireScroll(scroller);
+  assert.equal(geometry.rowTop("session-3"), 0);
+
+  const promoted = sessions.map((session) => session.id === "session-10"
+    ? {
+      ...session,
+      activityAt: sessions[0].activityAt + 1,
+      updatedAt: sessions[0].updatedAt + 1,
+    }
+    : session);
+  await act(async () => root.render(renderSidebar({ sessions: promoted })));
+
+  assert.equal(geometry.scrollTop, 144,
+    "a row promoted above the viewport should be absorbed into scrollTop");
+  assert.equal(geometry.rowTop("session-3"), 0,
+    "activity ordering must not move the row the reader was looking at");
+});
+
+test("a new leading session remains visible when the list is already at the top", async () => {
+  installDom();
+  const sessions = makeSessions(20);
+  await act(async () => root.render(renderSidebar({ sessions })));
+  const scroller = scrollerEl();
+  const geometry = installRecentRowGeometry(scroller, 0);
+  await fireScroll(scroller);
+  const newest = {
+    ...sessions[0],
+    id: "session-new-at-top",
+    title: "Newest at top",
+    activityAt: sessions[0].activityAt + 1,
+    updatedAt: sessions[0].updatedAt + 1,
+  };
+
+  await act(async () => root.render(renderSidebar({ sessions: [newest, ...sessions] })));
+
+  assert.equal(geometry.scrollTop, 0);
+  assert.equal(document.querySelector(".recent-session-list .session-row")
+    ?.getAttribute("data-session-id"), newest.id);
 });
 
 test("session rows publish workspace drag frames without triggering their click action", async () => {

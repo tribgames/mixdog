@@ -37,18 +37,14 @@ try {
     cwd: process.cwd(),
     onFrame: (frame) => frames.push(frame),
   });
-  const opened = await client.call('engine.open', { cwd: process.cwd() }, { timeoutMs: 180_000 });
-  if (!opened?.engineId) throw new Error('engine.open returned no engine id');
-  const snapshot = opened.snapshot || {};
-  if (!Array.isArray(snapshot.items)) throw new Error('engine snapshot carries no transcript items array');
-  console.log(`engine opened id=${opened.engineId} session=${snapshot.sessionId || '-'} items=${snapshot.items.length}`);
+  const created = await client.call('session.create', { cwd: process.cwd() }, { timeoutMs: 180_000 });
+  if (!created?.sessionId) throw new Error('session.create returned no session id');
+  const snapshot = created.full || {};
+  if (!Array.isArray(snapshot.items)) throw new Error('session snapshot carries no transcript items array');
+  console.log(`session created id=${created.sessionId} items=${snapshot.items.length}`);
 
-  const listed = await client.call('engine.list', {});
-  if (!listed?.engines?.some((row) => row.engineId === opened.engineId)) {
-    throw new Error('engine.list does not report the opened engine');
-  }
-  const readBack = await client.call('engine.snapshot', { engineId: opened.engineId });
-  if (!readBack?.snapshot) throw new Error('engine.snapshot returned nothing');
+  const readBack = await client.call('session.read', { sessionId: created.sessionId });
+  if (!readBack?.full) throw new Error('session.read returned nothing');
 
   // ONE daemon: the channels front door must belong to the very same process
   // that just hosted this engine.
@@ -61,7 +57,7 @@ try {
   }
   console.log(`one daemon serves both front doors: pid=${discovery.pid} engine=${discovery.port} channels=${channelDiscovery.port}`);
 
-  await client.call('engine.dispose', { engineId: opened.engineId, reason: 'smoke end' }, { timeoutMs: 60_000 });
+  await client.call('session.unsubscribe', { sessionId: created.sessionId }, { timeoutMs: 60_000 });
   console.log('engine-daemon smoke passed ✓');
 } catch (err) {
   fail(err?.stack || err?.message || String(err));

@@ -16,7 +16,7 @@ export type SessionStateUpdate = {
   contentRevision?: number;
 };
 
-type Lane = { unsubscribe: () => void; timer: NodeJS.Timeout | null };
+type Lane = { unsubscribe: () => void; pending: boolean };
 
 export function createSessionLiveLanes(options: {
   intervalMs: number;
@@ -33,6 +33,12 @@ export function createSessionLiveLanes(options: {
 }) {
   const lanes = new Map<MixdogEngine, Lane>();
   const listeners = new Set<(update: SessionStateUpdate) => void>();
+  // ONE frame clock for every lane (opencode packages/app server-sdk.tsx
+  // flush/schedule). Per-lane timers let N streaming panes drift into N
+  // independent publication hops per frame; a shared clock publishes every
+  // lane that changed inside the frame together, so a consumer commits once.
+  let frameTimer: NodeJS.Timeout | null = null;
+  let lastFlushAt = 0;
 
   function laneUpdate(engine: MixdogEngine): SessionStateUpdate | null {
     let sessionId = '';
@@ -72,14 +78,29 @@ export function createSessionLiveLanes(options: {
     return emitted;
   }
 
+  /** Publish every lane that changed during this frame, in attach order. */
+  function flushFrame(): void {
+    frameTimer = null;
+    lastFlushAt = Date.now();
+    for (const [engine, lane] of [...lanes]) {
+      if (!lane.pending) continue;
+      lane.pending = false;
+      if (lanes.has(engine)) emit(engine);
+    }
+  }
+
   function schedule(engine: MixdogEngine): void {
     const lane = lanes.get(engine);
-    if (!lane || lane.timer || (listeners.size === 0 && !options.onAfterEmit)) return;
-    lane.timer = setTimeout(() => {
-      lane.timer = null;
-      if (lanes.has(engine)) emit(engine);
-    }, options.intervalMs);
-    lane.timer.unref?.();
+    if (!lane || (listeners.size === 0 && !options.onAfterEmit)) return;
+    lane.pending = true;
+    if (frameTimer) return;
+    // opencode schedule(): a frame budget that ALREADY elapsed publishes on
+    // the next tick; only a burst inside one frame waits out the remainder.
+    // The previous fixed delay charged every event a full frame of latency
+    // even when the lane had been quiet for seconds.
+    const elapsed = Date.now() - lastFlushAt;
+    frameTimer = setTimeout(flushFrame, Math.max(0, options.intervalMs - elapsed));
+    frameTimer.unref?.();
   }
 
   function attach(engine: MixdogEngine): void {
@@ -90,7 +111,7 @@ export function createSessionLiveLanes(options: {
     } catch {
       return; // an engine without eventing has no live lane
     }
-    lanes.set(engine, { unsubscribe, timer: null });
+    lanes.set(engine, { unsubscribe, pending: false });
     emit(engine);
   }
 
@@ -98,7 +119,7 @@ export function createSessionLiveLanes(options: {
     const lane = lanes.get(engine);
     if (!lane) return;
     lanes.delete(engine);
-    if (lane.timer) clearTimeout(lane.timer);
+    lane.pending = false;
     try {
       lane.unsubscribe();
     } catch {
@@ -108,6 +129,9 @@ export function createSessionLiveLanes(options: {
 
   function detachAll(): void {
     for (const engine of [...lanes.keys()]) detach(engine);
+    if (!frameTimer) return;
+    clearTimeout(frameTimer);
+    frameTimer = null;
   }
 
   /** Replay one attached engine immediately. Main subscribes before the

@@ -23,5 +23,14 @@ export function toolResultTerminalStatus(text) {
   const bracketed = body.match(/^\[status:\s*([^\]]*)\]/mi)?.[1]?.trim();
   if (bracketed) return normalizeToolTerminalStatus(bracketed);
   const inline = body.match(/^(?:status|state):\s*([^\s·,;]+)/mi)?.[1]?.trim();
-  return normalizeToolTerminalStatus(inline);
+  const fromInline = normalizeToolTerminalStatus(inline);
+  if (fromInline) return fromInline;
+  // Bare control bodies written on cancel/crash (current + legacy).
+  const trimmed = body.trim();
+  if (/^(?:cancelled|canceled)$/i.test(trimmed)) return 'cancelled';
+  if (/^(?:interrupted by (?:user|process restart)|tool execution aborted|\[tool execution was interrupted\])$/i.test(trimmed)) {
+    return 'cancelled';
+  }
+  if (/^the user doesn't want to proceed with this tool use\b/i.test(trimmed)) return 'cancelled';
+  return '';
 }

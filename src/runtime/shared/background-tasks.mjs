@@ -128,14 +128,14 @@ function hasScopeCriteria(scope) {
   return Boolean(scope?.callerSessionId || scope?.routingSessionId || scope?.clientHostPid);
 }
 
-function taskMatchesScope(task, options = {}) {
+function taskMatchesScope(task, options = {}, { includeUnattributed = true } = {}) {
   if (!task) return false;
   const scope = normalizeTaskScope(options);
   if (!hasScopeCriteria(scope)) return true;
   const taskSessionId = task.ownerSessionId || task.notifyContext?.callerSessionId || task.notifyContext?.routingSessionId || null;
   const taskClientHostPid = task.clientHostPid || task.notifyContext?.clientHostPid || null;
   // Legacy/unattributed tasks remain visible so old async jobs are still recoverable.
-  if (!taskSessionId && !taskClientHostPid) return true;
+  if (!taskSessionId && !taskClientHostPid) return includeUnattributed;
   if (scope.callerSessionId && taskSessionId === scope.callerSessionId) return true;
   if (scope.routingSessionId && taskSessionId === scope.routingSessionId) return true;
   if (scope.clientHostPid && taskClientHostPid === scope.clientHostPid) return true;
@@ -278,7 +278,10 @@ export function cancelBackgroundTasks(options = {}) {
   let cancelled = 0;
   for (const task of [...tasks.values()]) {
     if (wanted && task.surface !== wanted) continue;
-    if (!taskMatchesScope(task, options)) continue;
+    // Scoped teardown must be exact. Legacy tasks without ownership stay
+    // visible/recoverable, but may not be claimed by whichever session happens
+    // to close first.
+    if (!taskMatchesScope(task, options, { includeUnattributed: false })) continue;
     if (TERMINAL_STATUSES.has(task.status)) continue;
     try { task.cancel?.(); } catch {}
     completeBackgroundTask(task.taskId, { status: 'cancelled', error: reason, notify: options.notify === true });

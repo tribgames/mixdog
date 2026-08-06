@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import {
   ENGINE_DAEMON_PROTOCOL,
 } from './engine-daemon-protocol.mjs';
+import { engineDaemonLocalBridge } from './engine-daemon-local-bridge.mjs';
 
 function runtimeRoot() {
   return process.env.MIXDOG_RUNTIME_ROOT
@@ -90,7 +91,7 @@ function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
  *  restart — the daemon speaks an OLDER protocol; stop it and open fresh
  *            engines on a daemon this client can talk to.
  *  defer   — the daemon is NEWER (another, newer install owns the box); this
- *            client must not kill it, so it falls back to an in-process engine. */
+ *            client must not kill it and must surface the version conflict. */
 export function negotiateEngineDaemon(health) {
   const protocol = Number(health?.protocol) || 0;
   if (protocol > ENGINE_DAEMON_PROTOCOL) return 'defer';
@@ -189,6 +190,7 @@ export async function attachEngineDaemon({
   discovery,
   leadPid = process.pid,
   cwd = process.cwd(),
+  lifecycle = true,
   onFrame = () => {},
   onFatal = () => {},
   log = () => {},
@@ -197,7 +199,7 @@ export async function attachEngineDaemon({
   const { port, token: serverToken } = discovery;
   const reg = await request({
     port, token: serverToken, method: 'POST', path: '/client/register',
-    body: { leadPid, cwd }, timeoutMs: 3000,
+    body: { leadPid, cwd, lifecycle: lifecycle !== false }, timeoutMs: 3000,
   });
   const clientToken = reg?.token;
   if (!clientToken) throw new Error('engine daemon register returned no client token');
@@ -300,32 +302,27 @@ export async function shutdownEngineDaemon(discovery = readEngineDaemonDiscovery
 }
 
 // ── Shared per-process attachment ────────────────────────────────────────────
-// Every remote engine in this process rides ONE attachment: the daemon fan-out
-// is per client, not per engine, and a second stream would double every frame.
+// Every session view in this process rides ONE attachment. Frames and calls are
+// addressed only by durable sessionId; daemon engine handles never cross wire.
 let shared = null;
 
-/** engineId -> Set(mirror). Many VIEWS can hold one engine (that is the whole
- *  point of the daemon), so frames fan out to every mirror on that id. */
-function addMirror(mirrors, engineId, mirror) {
-  let bucket = mirrors.get(engineId);
-  if (!bucket) { bucket = new Set(); mirrors.set(engineId, bucket); }
-  bucket.add(mirror);
+function addSessionView(views, sessionId, view) {
+  let bucket = views.get(sessionId);
+  if (!bucket) { bucket = new Set(); views.set(sessionId, bucket); }
+  bucket.add(view);
 }
 
-function removeMirror(mirrors, engineId, mirror) {
-  const bucket = mirrors.get(engineId);
+function removeSessionView(views, sessionId, view) {
+  const bucket = views.get(sessionId);
   if (!bucket) return;
-  bucket.delete(mirror);
-  if (bucket.size === 0) mirrors.delete(engineId);
+  bucket.delete(view);
+  if (bucket.size === 0) views.delete(sessionId);
 }
 
-function mirrorCount(mirrors, engineId) {
-  return mirrors.get(engineId)?.size ?? 0;
+function sessionViewCount(views, sessionId) {
+  return views.get(sessionId)?.size ?? 0;
 }
 
-/** Apply a daemon frame delta to a mirrored snapshot. Transcript growth is an
- *  append, so a streaming turn ships a few hundred bytes instead of the whole
- *  state. */
 function applyStatePatch(state, patch) {
   const next = { ...state, ...(patch.set || {}) };
   if (patch.itemsAppend) {
@@ -336,10 +333,7 @@ function applyStatePatch(state, patch) {
   return next;
 }
 
-// Every live view in this process. A daemon crash kills its engines, so the
-// views are what the recovery path re-seats onto the replacement daemon.
 const liveViews = new Set();
-let lastDaemonPid = null;
 let reattachTimer = null;
 
 function scheduleReattach({ cwd, log }) {
@@ -348,7 +342,7 @@ function scheduleReattach({ cwd, log }) {
     reattachTimer = null;
     if (liveViews.size === 0) return;
     void ensureSharedAttachment({ cwd, log }).catch((err) => {
-      log(`engine daemon re-attach failed: ${err?.message || err}`);
+      log(`backend daemon re-attach failed: ${err?.message || err}`);
       scheduleReattach({ cwd, log });
     });
   }, 500);
@@ -359,43 +353,44 @@ async function ensureSharedAttachment({ cwd, log }) {
   if (shared?.client) return shared;
   if (shared?.pending) return shared.pending;
   const pending = (async () => {
-    const discovery = await ensureEngineDaemon({ cwd, log });
-    const mirrors = new Map(); // engineId -> Set(mirror)
-    const state = { client: null, mirrors, discovery, refs: 0, log, cwd };
-    state.client = await attachEngineDaemon({
-      discovery,
+    const localBridge = process.env.MIXDOG_ENGINE_DAEMON_HOST === '1'
+      ? engineDaemonLocalBridge()
+      : null;
+    const discovery = localBridge
+      ? { pid: process.pid, local: true }
+      : await ensureEngineDaemon({ cwd, log });
+    const views = new Map();
+    const state = { client: null, views, discovery, refs: liveViews.size, log, cwd };
+    const attachmentOptions = {
       cwd,
       log,
       onFrame: (frame) => {
-        const bucket = mirrors.get(String(frame?.engineId || ''));
+        const bucket = views.get(String(frame?.sessionId || ''));
         if (!bucket) return;
-        for (const mirror of [...bucket]) {
-          if (frame.type === 'engine-state') mirror.applyFrame(frame);
-          else if (frame.type === 'engine-gone') mirror.applyGone(frame.reason || 'engine closed');
+        for (const view of [...bucket]) {
+          if (frame.type === 'session-state') view.applyFrame(frame);
+          else if (frame.type === 'session-gone') view.applyGone(frame.reason || 'session unloaded');
         }
       },
       onFatal: (reason) => {
-        log(`engine daemon attachment lost (${reason})`);
+        log(`backend daemon attachment lost (${reason})`);
         if (shared === state) shared = null;
-        for (const bucket of mirrors.values()) {
-          for (const mirror of [...bucket]) mirror.applyDetached(reason);
+        for (const bucket of views.values()) {
+          for (const view of [...bucket]) view.applyDetached(reason);
         }
-        // The engines may have died with the daemon; a bounded retry loop puts
-        // every surviving view back onto a live one.
         scheduleReattach({ cwd: state.cwd, log });
       },
-    });
+    };
+    state.client = localBridge
+      ? await localBridge.attach(attachmentOptions)
+      : await attachEngineDaemon({ discovery, ...attachmentOptions });
     shared = state;
-    // A DIFFERENT pid means the engines this process was viewing are gone.
-    const freshDaemon = lastDaemonPid !== null && Number(discovery.pid) !== Number(lastDaemonPid);
-    lastDaemonPid = Number(discovery.pid);
     for (const view of liveViews) {
-      addMirror(mirrors, view.engineId(), view.mirror);
-      if (freshDaemon) {
-        void view.recover(state).catch((err) => log(`view recovery failed: ${err?.message || err}`));
-      }
+      addSessionView(views, view.sessionId(), view);
+      void view.recover(state).catch((err) => {
+        log(`session ${view.sessionId()} recovery failed: ${err?.message || err}`);
+      });
     }
-    state.refs += liveViews.size;
     return state;
   })();
   shared = { pending };
@@ -408,12 +403,12 @@ async function ensureSharedAttachment({ cwd, log }) {
 }
 
 const LOCAL_ENGINE_KEYS = new Set([
-  'getState', 'subscribe', 'dispose', 'engineId', 'isRemoteEngine', 'disposedView',
+  'getState', 'subscribe', 'dispose', 'isRemoteEngine', 'disposedView',
   'then', 'catch', 'finally', 'toJSON', 'inspect', Symbol.toStringTag,
 ]);
 
-/** Remote counterpart of createEngineSession(): the engine runs in the daemon,
- *  this object is the local view of it. */
+/** Remote counterpart of createEngineSession(): this is a session projection,
+ *  while execution and durable intake stay in the backend daemon. */
 export async function createRemoteEngineSession(options = {}) {
   const log = typeof options.log === 'function' ? options.log : () => {};
   const cwd = options.cwd || process.cwd();
@@ -425,32 +420,24 @@ export async function createRemoteEngineSession(options = {}) {
     remote: options.remote === true,
     desktopSession: options.desktopSession ?? null,
   };
-  // The attachment can be REPLACED under this view (daemon restart), so it is
-  // read through the binding rather than captured once.
   let attachment = await ensureSharedAttachment({ cwd, log });
-  const opened = await attachment.client.call('engine.open', openParams);
-  // The bound engine can MOVE: resuming a session another view already holds
-  // adopts that engine instead of loading a second copy of the same session.
-  let engineId = opened.engineId;
-
-  let state = opened.snapshot ?? {};
-  // Revision of the mirrored state. A frame whose base does not match ours
-  // means we missed one (fresh attach, buffered coalescing) — resync in full.
-  let revision = Number(opened.revision) || 0;
-  // Mirror of the store's SYNCHRONOUS surface (see the service): callers read
-  // these inline and cannot await a round trip.
-  let sync = opened.sync ?? {};
+  const created = await attachment.client.call('session.create', openParams, {
+    callId: `session-create:${process.pid}:${randomUUID()}`,
+  });
+  let sessionId = String(created?.sessionId || '');
+  if (!sessionId) throw new Error('session.create returned no sessionId');
+  let state = created?.full ?? {};
+  let revision = Number(created?.revision) || 0;
+  let sync = created?.sync ?? {};
   let disposed = false;
   const listeners = new Set();
 
   function emit() {
     for (const listener of [...listeners]) {
-      try { listener(); } catch (err) { log(`engine listener threw: ${err?.message || err}`); }
+      try { listener(); } catch (err) { log(`session listener threw: ${err?.message || err}`); }
     }
   }
 
-  /** Fold a daemon body (full snapshot or delta) into the mirror. Returns false
-   *  when the body cannot be applied, which forces a resync. */
   function applyBody(body) {
     if (disposed || !body) return false;
     if (body.full !== undefined && body.full !== null) {
@@ -477,229 +464,210 @@ export async function createRemoteEngineSession(options = {}) {
   function resync(reason) {
     if (disposed || resyncing) return;
     resyncing = true;
-    void attachment.client.call('engine.snapshot', { engineId })
-      .then((full) => {
-        if (disposed) return;
-        if (full?.snapshot !== undefined) {
-          state = full.snapshot;
-          revision = Number(full.revision) || revision;
-          if (full.sync) sync = full.sync;
-          emit();
-        }
-      })
-      .catch((err) => log(`resync after ${reason} failed: ${err?.message || err}`))
-      .finally(() => { resyncing = false; });
+    void attachment.client.call('session.read', {
+      sessionId, open: openParams, baseRevision: revision,
+    }).then((result) => {
+      if (disposed) return;
+      if (result?.sync) sync = result.sync;
+      if (!applyBody(result) && result?.revision !== undefined) {
+        log(`session ${sessionId} resync returned an unusable body`);
+      }
+    }).catch((err) => {
+      log(`session ${sessionId} resync after ${reason} failed: ${err?.message || err}`);
+    }).finally(() => { resyncing = false; });
   }
 
-  const mirror = {
+  let recoveryPromise = null;
+  let view;
+  async function recover(nextAttachment) {
+    if (disposed) return;
+    if (recoveryPromise) return recoveryPromise;
+    recoveryPromise = (async () => {
+      const previousAttachment = attachment;
+      if (previousAttachment !== nextAttachment) {
+        removeSessionView(previousAttachment.views, sessionId, view);
+        attachment = nextAttachment;
+      }
+      let result;
+      try {
+        result = await attachment.client.call('session.subscribe', {
+          sessionId, open: openParams, baseRevision: revision,
+        });
+      } catch {
+        result = await attachment.client.call('session.create', {
+          ...openParams, sessionId,
+        }, { callId: `session-recreate:${sessionId}` });
+      }
+      addSessionView(attachment.views, sessionId, view);
+      if (result?.sync) sync = result.sync;
+      if (!applyBody(result) && result?.revision !== undefined) resync('recovery body gap');
+      log(`session ${sessionId} projection recovered`);
+    })();
+    try {
+      return await recoveryPromise;
+    } finally {
+      recoveryPromise = null;
+    }
+  }
+
+  view = {
+    sessionId: () => sessionId,
     applyFrame(frame) {
       if (disposed) return;
       if (!applyBody(frame)) resync('revision gap');
     },
     applyGone(reason) {
       if (disposed) return;
-      // The engine went away under a LIVE attachment (idle eviction, or a peer
-      // client that let go). Killing this view here is what turned "the other
-      // window was closed" into a cut-off turn and a stalled pane, so re-seat
-      // onto a replacement engine instead of going dead.
-      void recoverFromGone(reason);
+      void recover(attachment).catch((err) => {
+        log(`session ${sessionId} reload after ${reason} failed: ${err?.message || err}`);
+      });
     },
     applyDetached(reason) {
-      // The engine keeps running in the daemon; only this view went dark. A
-      // fresh attach re-opens the stream, so surface the loss without killing
-      // the local snapshot.
-      log(`remote engine ${engineId} view detached (${reason})`);
+      log(`session ${sessionId} projection detached (${reason})`);
     },
+    recover,
   };
-  addMirror(attachment.mirrors, engineId, mirror);
+  addSessionView(attachment.views, sessionId, view);
   attachment.refs += 1;
-
-  /** Re-seat this view after a daemon restart: open a fresh engine on the
-   *  replacement daemon and resume whatever session this view was holding —
-   *  which also re-converges two views that shared one engine. */
-  async function recover(nextAttachment) {
-    if (disposed) return;
-    const previousEngineId = engineId;
-    const previousState = state;
-    attachment = nextAttachment;
-    const reopened = await attachment.client.call('engine.open', openParams);
-    removeMirror(attachment.mirrors, previousEngineId, mirror);
-    engineId = reopened.engineId;
-    addMirror(attachment.mirrors, engineId, mirror);
-    state = reopened.snapshot ?? {};
-    revision = Number(reopened.revision) || 0;
-    sync = reopened.sync ?? {};
-    emit();
-    const sessionId = String(previousState?.sessionId || '');
-    if (sessionId) {
-      try { await remoteCall('resume', [sessionId]); }
-      catch (err) { log(`session ${sessionId} could not be resumed after recovery: ${err?.message || err}`); }
-    }
-    // Prompts that were in flight when the old daemon went away belong to the
-    // replacement engine now: re-deliver them onto the resumed session.
-    for (const submissionId of [...pendingSubmits.keys()]) deliverSubmit(submissionId);
-    log(`view recovered onto engine ${engineId}${sessionId ? ` (session ${sessionId})` : ''}`);
-  }
-
-  /** engine-gone under an attachment that is still alive. The view survives:
-   *  it re-opens on the daemon and resumes whatever session it held. A failure
-   *  still does NOT dispose it — a dying attachment reports through onFatal and
-   *  the re-attach loop recovers every live view. */
-  let recoveringFromGone = false;
-  async function recoverFromGone(reason) {
-    if (disposed || recoveringFromGone) return;
-    recoveringFromGone = true;
-    try {
-      await recover(attachment);
-      log(`view re-seated after the daemon closed its engine (${reason})`);
-    } catch (err) {
-      log(`remote engine ${engineId} closed by daemon (${reason}); re-seat failed: ${err?.message || err}`);
-    } finally {
-      recoveringFromGone = false;
-    }
-  }
-
-  const view = { engineId: () => engineId, mirror, recover };
   liveViews.add(view);
 
-  /** Rebind this view onto an engine that already hosts the requested session.
-   *  The old engine is released only when it was an idle placeholder — never
-   *  when it still carries a session or in-flight work. */
-  async function adopt(nextEngineId) {
-    if (disposed || !nextEngineId || nextEngineId === engineId) return;
-    const previousEngineId = engineId;
-    const previousState = state;
-    removeMirror(attachment.mirrors, previousEngineId, mirror);
-    engineId = nextEngineId;
-    addMirror(attachment.mirrors, engineId, mirror);
-    log(`view adopted engine ${previousEngineId} -> ${engineId}`);
+  async function sendCall(route, payload, callId) {
+    const send = () => attachment.client.call(route, payload, { callId });
     try {
-      const adopted = await attachment.client.call('engine.snapshot', { engineId });
-      if (adopted?.snapshot !== undefined) {
-        state = adopted.snapshot;
-        revision = Number(adopted.revision) || 0;
-        emit();
-      }
-      if (adopted?.sync) sync = adopted.sync;
+      return await send();
     } catch (err) {
-      log(`adopted snapshot read failed: ${err?.message || err}`);
-    }
-    const idlePlaceholder = !String(previousState?.sessionId || '')
-      && previousState?.busy !== true;
-    if (!idlePlaceholder) return;
-    try {
-      await attachment.client.call('engine.dispose', {
-        engineId: previousEngineId, reason: 'adopted into a live session',
-      });
-    } catch (err) {
-      log(`placeholder dispose failed: ${err?.message || err}`);
+      const recoverable = err?.daemonTransportError
+        || /unknown client token/i.test(String(err?.message || ''));
+      if (!recoverable || disposed) throw err;
+      if (shared === attachment) shared = null;
+      const next = await ensureSharedAttachment({ cwd, log });
+      await recover(next);
+      return await send();
     }
   }
 
-  // Calls are SERIALIZED per view: a synchronous store method dispatches its
-  // work in the background (see the sync surface below), and independent HTTP
-  // requests would otherwise let a later call overtake it.
+  async function applyResult(result, reason) {
+    const nextSessionId = String(result?.sessionId || sessionId);
+    if (nextSessionId && nextSessionId !== sessionId) {
+      const previousSessionId = sessionId;
+      addSessionView(attachment.views, nextSessionId, view);
+      removeSessionView(attachment.views, previousSessionId, view);
+      sessionId = nextSessionId;
+    }
+    if (result?.sync) sync = result.sync;
+    if (!applyBody(result) && result?.revision !== undefined) resync(`${reason} body gap`);
+    return result;
+  }
+
   let callChain = Promise.resolve();
-  function remoteCall(method, args) {
-    const run = callChain.then(async () => {
-      // A released view must FAIL, never answer null: silently dropping a call
-      // here is how a pane's accepted prompt disappeared with no transcript row
-      // and no error (user: 채팅이 씹힘). The caller re-routes instead.
-      if (disposed && method !== 'dispose') {
-        log(`call ${method} refused: this view is disposed`);
-        throw new Error('This engine view is disposed.');
-      }
-      const send = () => attachment.client.call('engine.call', {
-        engineId, method, args, baseRevision: revision,
-      }, { callId: randomUUID() });
-      let result;
-      try {
-        result = await send();
-      } catch (err) {
-        // A dead or deregistered attachment is recoverable — the ENGINE still
-        // lives in the daemon. Re-seat this process's single connection and
-        // try once more instead of failing a user's prompt.
-        const recoverable = err?.daemonTransportError
-          || /unknown client token/i.test(String(err?.message || ''));
-        if (!recoverable || disposed) throw err;
-        if (shared === attachment) shared = null;
-        const next = await ensureSharedAttachment({ cwd, log });
-        if (next !== attachment) {
-          removeMirror(attachment.mirrors, engineId, mirror);
-          attachment = next;
-          addMirror(attachment.mirrors, engineId, mirror);
-        }
-        result = await send();
-      }
-      if (result?.adoptEngineId) await adopt(result.adoptEngineId);
-      else if (!disposed) {
-        // Method returns leave this view consistent immediately — the response
-        // carries the same revision step the other views get as a frame.
-        if (result?.sync) sync = result.sync;
-        if (!applyBody(result) && result?.revision !== undefined) resync('call body gap');
-      }
-      return result?.value ?? null;
-    });
+  function serialize(task) {
+    const run = callChain.then(task);
     callChain = run.then(() => {}, () => {});
     return run;
   }
 
-  function dispatch(method, args) {
-    void remoteCall(method, args).catch((err) => {
-      log(`engine ${method} failed: ${err?.message || err}`);
+  function remoteCall(method, args, callOptions = {}) {
+    return serialize(async () => {
+      if (disposed) throw new Error('This session view is disposed.');
+      const stableCallId = typeof callOptions.callId === 'string' && callOptions.callId.trim()
+        ? callOptions.callId.trim()
+        : randomUUID();
+      const result = await sendCall('session.invoke', {
+        sessionId,
+        method,
+        args,
+        open: openParams,
+        baseRevision: revision,
+      }, stableCallId);
+      await applyResult(result, method);
+      return result?.value ?? null;
     });
   }
 
-  // ── Submit delivery ─────────────────────────────────────────────────────────
-  // submit() is part of the SYNCHRONOUS store surface (EngineHost reads
-  // `const accepted = engine.submit(...)` inline), so it cannot await the hop.
-  // Fire-and-forget was wrong all the same: a failed call only logged, and the
-  // caller had already told the user the prompt was accepted — the message was
-  // gone with no transcript row (user: 입력이 씹힘). Keep the sync contract and
-  // make delivery durable instead: retry with backoff, re-send after a daemon
-  // restart, and rely on the engine's submission-id dedupe so a retry that
-  // crosses a response failure can never double-post.
-  const SUBMIT_RETRY_BASE_MS = 200;
-  const SUBMIT_RETRY_MAX_MS = 2_000;
-  const SUBMIT_RETRY_DEADLINE_MS = 60_000;
-  const pendingSubmits = new Map();
-  let submitSeq = 0;
+  function dispatch(method, args) {
+    void remoteCall(method, args).catch((err) => {
+      log(`session ${method} failed: ${err?.message || err}`);
+    });
+  }
 
-  function deliverSubmit(submissionId) {
-    const record = pendingSubmits.get(submissionId);
-    if (!record || disposed) return;
-    void remoteCall('submit', [record.prompt, record.options]).then(() => {
-      pendingSubmits.delete(submissionId);
-    }, (err) => {
-      if (disposed || pendingSubmits.get(submissionId) !== record) return;
-      if (Date.now() >= record.deadline) {
-        pendingSubmits.delete(submissionId);
-        log(`submit ${submissionId} abandoned after retries: ${err?.message || err}`);
-        return;
+  async function rebindTo(result, previousSessionId) {
+    const nextSessionId = String(result?.sessionId || '');
+    if (!nextSessionId) throw new Error('session route returned no sessionId');
+    const lastLocalView = sessionViewCount(attachment.views, previousSessionId) <= 1;
+    addSessionView(attachment.views, nextSessionId, view);
+    removeSessionView(attachment.views, previousSessionId, view);
+    sessionId = nextSessionId;
+    if (result?.sync) sync = result.sync;
+    if (!applyBody(result) && result?.revision !== undefined) resync('session rebind body gap');
+    if (previousSessionId && previousSessionId !== nextSessionId && lastLocalView) {
+      try {
+        await attachment.client.call('session.unsubscribe', { sessionId: previousSessionId });
+      } catch (err) {
+        log(`session ${previousSessionId} unsubscribe failed: ${err?.message || err}`);
       }
-      record.attempt += 1;
-      const wait = Math.min(SUBMIT_RETRY_MAX_MS, SUBMIT_RETRY_BASE_MS * 2 ** (record.attempt - 1));
-      log(`submit ${submissionId} retry ${record.attempt} in ${wait}ms: ${err?.message || err}`);
-      const timer = setTimeout(() => deliverSubmit(submissionId), wait);
-      timer.unref?.();
+    }
+    return nextSessionId;
+  }
+
+  async function createReservedSession() {
+    return serialize(async () => {
+      if (disposed) throw new Error('This session view is disposed.');
+      const previousSessionId = sessionId;
+      const result = await sendCall('session.create', openParams,
+        `session-create:${process.pid}:${randomUUID()}`);
+      return await rebindTo(result, previousSessionId);
+    });
+  }
+
+  async function resumeSession(targetSessionId, resumeOptions) {
+    const target = String(targetSessionId || '');
+    if (!target) return false;
+    return serialize(async () => {
+      if (disposed) throw new Error('This session view is disposed.');
+      if (target === sessionId) {
+        const result = await sendCall('session.read', {
+          sessionId, open: openParams, baseRevision: revision,
+        }, randomUUID());
+        await applyResult(result, 'resume');
+        return true;
+      }
+      const previousSessionId = sessionId;
+      const result = await sendCall('session.subscribe', {
+        sessionId: target,
+        open: { ...openParams, resumeOptions: resumeOptions || undefined },
+        baseRevision: null,
+      }, randomUUID());
+      await rebindTo(result, previousSessionId);
+      return true;
+    });
+  }
+
+  let submitSeq = 0;
+  async function submitAsync(prompt, options = {}) {
+    if (disposed) throw new Error('This session view is disposed.');
+    const submissionId = String(options?.id || '').trim()
+      || `session-submit-${process.pid}-${Date.now()}-${(submitSeq += 1)}`;
+    return serialize(async () => {
+      const result = await sendCall('session.submit', {
+        sessionId,
+        prompt,
+        options: { ...(options || {}), id: submissionId },
+        open: openParams,
+        baseRevision: revision,
+      }, `session-submit:${sessionId}:${submissionId}`);
+      await applyResult(result, 'submit');
+      return result?.accepted === true;
     });
   }
 
   const base = {
     isRemoteEngine: true,
-    get engineId() { return engineId; },
-    /** True once this view was released; the engine may still live in the
-     *  daemon, so callers re-address the session instead of using it. */
     get disposedView() { return disposed; },
     getState: () => state,
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    // ── Synchronous store surface ─────────────────────────────────────────────
-    // In-process these return VALUES, not promises, and callers consume them
-    // inline (EngineHost: `engine.listSessions().flatMap(...)`, `const accepted
-    // = engine.submit(...)`). Answer from the mirror and dispatch the real work.
     listSessions(options) {
       if (options?.refreshFromStorage) dispatch('listSessions', [options]);
       return Array.isArray(sync.sessions) ? sync.sessions : [];
@@ -707,67 +675,77 @@ export async function createRemoteEngineSession(options = {}) {
     sessionStoreDir() {
       return typeof sync.sessionStoreDir === 'string' ? sync.sessionStoreDir : null;
     },
-    submit(prompt, options) {
-      // Never claim acceptance for a view that can no longer deliver.
-      if (disposed) {
-        log('submit refused: this view is disposed');
-        return false;
-      }
-      // Every submit gets a stable id: it is what makes a retry idempotent and
-      // what lets the surface's optimistic row settle onto the real item.
-      const submissionId = String(options?.id || '').trim()
-        || `view-submit-${process.pid}-${Date.now()}-${(submitSeq += 1)}`;
-      pendingSubmits.set(submissionId, {
-        prompt,
-        options: { ...(options || {}), id: submissionId },
-        attempt: 0,
-        deadline: Date.now() + SUBMIT_RETRY_DEADLINE_MS,
+    async newSession() {
+      await createReservedSession();
+      return true;
+    },
+    resume: resumeSession,
+    async prefetchSession(targetSessionId) {
+      const target = String(targetSessionId || '');
+      if (!target) return false;
+      await callDaemonSession({
+        sessionId: target,
+        method: 'read',
+        open: openParams,
+        cwd,
+        log,
+        attempts: 1,
       });
-      deliverSubmit(submissionId);
+      return true;
+    },
+    submitAsync,
+    submit(prompt, options) {
+      if (disposed) return false;
+      void submitAsync(prompt, options).catch((err) => {
+        log(`legacy submit failed: ${err?.message || err}`);
+      });
       return true;
     },
     abort() {
-      dispatch('abort', []);
+      void serialize(async () => {
+        const result = await sendCall('session.abort', {
+          sessionId, open: openParams, baseRevision: revision,
+        }, randomUUID());
+        await applyResult(result, 'abort');
+      }).catch((err) => log(`session abort failed: ${err?.message || err}`));
       return true;
     },
     resolveToolApproval(id, decision) {
-      dispatch('resolveToolApproval', [id, decision]);
+      void serialize(async () => {
+        const result = await sendCall('session.approve', {
+          sessionId,
+          approvalId: id,
+          decision,
+          open: openParams,
+          baseRevision: revision,
+        }, randomUUID());
+        await applyResult(result, 'approval');
+      }).catch((err) => log(`session approval failed: ${err?.message || err}`));
       return true;
     },
-    async dispose(reason = 'view dispose', disposeOptions = {}) {
+    async dispose(reason = 'view dispose') {
       if (disposed) return;
       disposed = true;
-      pendingSubmits.clear();
       liveViews.delete(view);
-      const releasedEngineId = engineId;
-      removeMirror(attachment.mirrors, releasedEngineId, mirror);
-      attachment.refs = Math.max(0, attachment.refs - 1);
-      // Closing ONE view must never end a session another view is still
-      // holding — the engine dies with its last viewer, not its first.
-      if (mirrorCount(attachment.mirrors, releasedEngineId) === 0) {
+      const releasedSessionId = sessionId;
+      const lastLocalView = sessionViewCount(attachment.views, releasedSessionId) <= 1;
+      if (lastLocalView) {
         try {
-          await attachment.client.call('engine.dispose', {
-            engineId: releasedEngineId,
-            reason,
-            keepBackgroundWork: disposeOptions?.keepBackgroundWork === true,
-          });
+          await attachment.client.call('session.unsubscribe', { sessionId: releasedSessionId });
         } catch (err) {
-          log(`remote dispose failed: ${err?.message || err}`);
+          log(`session ${releasedSessionId} unsubscribe failed: ${err?.message || err}`);
         }
       }
-      // The attachment belongs to the PROCESS, not to one view. Closing it
-      // while another view (a background pane's session) still holds it left
-      // that view calling with a deregistered token.
+      removeSessionView(attachment.views, releasedSessionId, view);
+      listeners.clear();
+      attachment.refs = Math.max(0, attachment.refs - 1);
       if (attachment.refs === 0 && liveViews.size === 0) {
-        try { await attachment.client.close('last engine disposed'); } catch {}
+        try { await attachment.client.close(reason); } catch {}
         if (shared === attachment) shared = null;
       }
     },
   };
 
-  // Any store method that is not handled locally is forwarded by name. The
-  // engine surface is large (the whole TUI store API) and still growing, so a
-  // name-forwarding proxy keeps the daemon contract from having to enumerate it.
   return new Proxy(base, {
     get(target, property, receiver) {
       if (property in target || LOCAL_ENGINE_KEYS.has(property)) {
@@ -800,13 +778,44 @@ export async function callDaemonSession({
   if (!id) throw new TypeError('sessionId is required');
   const name = String(method || '');
   if (!name) throw new TypeError('method is required');
+  let route = 'session.invoke';
+  let payload = { sessionId: id, method: name, args, open: openHints || {} };
+  if (name === 'submit') {
+    route = 'session.submit';
+    payload = {
+      sessionId: id,
+      prompt: args?.[0],
+      options: args?.[1] || {},
+      open: openHints || {},
+    };
+  } else if (name === 'abort') {
+    route = 'session.abort';
+    payload = { sessionId: id, open: openHints || {} };
+  } else if (name === 'resolveToolApproval') {
+    route = 'session.approve';
+    payload = {
+      sessionId: id,
+      approvalId: args?.[0],
+      decision: args?.[1],
+      open: openHints || {},
+    };
+  }
+  // One id for the whole retry sequence. In particular, a submit whose HTTP
+  // response was lost must hit the transport cache instead of being accepted
+  // twice by the daemon.
+  const submissionId = name === 'submit' ? String(args?.[1]?.id || '').trim() : '';
+  const callId = submissionId
+    ? `session-submit:${id}:${submissionId}`
+    : randomUUID();
   let lastError = null;
   for (let attempt = 0; attempt < Math.max(1, attempts); attempt += 1) {
     const attachment = await ensureSharedAttachment({ cwd, log });
     try {
-      return await attachment.client.call('engine.session', {
-        sessionId: id, method: name, args, open: openHints || {},
-      }, { callId: randomUUID() });
+      const result = await attachment.client.call(route, payload, { callId });
+      if (name === 'submit') return { ...result, value: result?.accepted === true };
+      if (name === 'abort') return { ...result, value: result?.aborted === true };
+      if (name === 'resolveToolApproval') return { ...result, value: result?.approved === true };
+      return result;
     } catch (err) {
       if (!err?.daemonTransportError) throw err;
       lastError = err;

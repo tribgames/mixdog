@@ -11,6 +11,11 @@ import {
   _seedWebSocketEntryForTest,
   closeOpenaiWsPoolForSession,
 } from '../src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs';
+import {
+  cancelBackgroundTasks,
+  getBackgroundTask,
+  registerBackgroundTask,
+} from '../src/runtime/shared/background-tasks.mjs';
 
 function socket() {
   return {
@@ -52,6 +57,7 @@ function lifecycleFor(session, overrides = {}) {
     flushAllConfigSavesAsync: async () => {},
     withTeardownDeadline: (promise) => promise,
     closePatchRuntimeIfLoaded: () => null,
+    stopSelfUpdateBootCheck: () => {},
     invalidateContextStatusCache: () => {},
     invalidatePreSessionToolSurface: () => {},
     notificationListeners: { clear: () => {} },
@@ -96,6 +102,71 @@ test('closing an attached viewer does not close the live owner session', async (
 
   assert.equal(await lifecycle.close('desktop-dispose'), true);
   assert.equal(closeCalls, 0);
+});
+
+test('lifecycle cancels the pending self-update boot check before yielding', async () => {
+  const events = [];
+  await lifecycleFor(null, {
+    setCloseRequested: () => { events.push('close-requested'); },
+    stopSelfUpdateBootCheck: () => { events.push('update-check-stopped'); },
+    flushAllConfigSavesAsync: async () => { events.push('first-await'); },
+  }).close('test-dispose');
+  assert.deepEqual(events.slice(0, 3), [
+    'close-requested',
+    'update-check-stopped',
+    'first-await',
+  ]);
+});
+
+test('background work is reaped per session, and a scoped cancel notifies', async () => {
+  // A non-exit dispose (daemon session projection release) must reap
+  // only its own session's background work — the process-wide silent sweep
+  // killed another session's running job with no completion notification.
+  const paneCalls = [];
+  await lifecycleFor({ id: 'pane-session', messages: [], liveTurnMessages: [] }, {
+    cancelBackgroundTasks: (options) => { paneCalls.push(options); return { cancelled: 0 }; },
+  }).close('desktop-engine-dispose');
+  assert.deepEqual(paneCalls, [{
+    reason: 'desktop-engine-dispose', notify: true, callerSessionId: 'pane-session',
+  }]);
+
+  // Real process exit keeps the process-wide sweep (nothing survives it).
+  const exitCalls = [];
+  await lifecycleFor({ id: 'exit-session', messages: [], liveTurnMessages: [] }, {
+    cancelBackgroundTasks: (options) => { exitCalls.push(options); return { cancelled: 0 }; },
+  }).close('cli-exit');
+  assert.deepEqual(exitCalls, [{ reason: 'cli-exit', notify: false }]);
+
+  // An empty runtime owns no session: it reaps nothing at all.
+  const emptyRuntimeCalls = [];
+  await lifecycleFor(null, {
+    cancelBackgroundTasks: (options) => { emptyRuntimeCalls.push(options); return { cancelled: 0 }; },
+  }).close('empty runtime release');
+  assert.deepEqual(emptyRuntimeCalls, []);
+});
+
+test('a scoped background-task sweep never claims unattributed legacy work', () => {
+  const owned = registerBackgroundTask({
+    taskId: 'task_lifecycle_owned',
+    surface: 'test',
+    context: { callerSessionId: 'pane-session' },
+  });
+  const unattributed = registerBackgroundTask({
+    taskId: 'task_lifecycle_unattributed',
+    surface: 'test',
+  });
+  try {
+    const result = cancelBackgroundTasks({
+      reason: 'desktop-engine-dispose',
+      callerSessionId: 'pane-session',
+    });
+    assert.equal(result.cancelled, 1);
+    assert.equal(getBackgroundTask(owned.taskId)?.status, 'cancelled');
+    assert.equal(getBackgroundTask(unattributed.taskId)?.status, 'running',
+      'ownership-free work must survive a scoped engine dispose');
+  } finally {
+    cancelBackgroundTasks({ reason: 'test-cleanup', surface: 'test' });
+  }
 });
 
 test('lifecycle barrier drains a direct updateSectionAsync with no queued lifecycle save', async () => {

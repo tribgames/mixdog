@@ -219,6 +219,24 @@ async function grabVideoFrame(sourcePath, spec) {
 // Two tiles asking for the same missing rendition must not both encode it.
 const inflight = new Map();
 const failedUntil = new Map();
+const FAILED_RENDITION_CACHE_MAX = 256;
+
+function pruneFailedRenditions(now = Date.now()) {
+  for (const [key, expiresAt] of failedUntil) {
+    if (expiresAt <= now) failedUntil.delete(key);
+  }
+  while (failedUntil.size > FAILED_RENDITION_CACHE_MAX) {
+    const oldest = failedUntil.keys().next().value;
+    if (oldest === undefined) break;
+    failedUntil.delete(oldest);
+  }
+}
+
+function rememberFailedRendition(key) {
+  failedUntil.delete(key);
+  failedUntil.set(key, Date.now() + FAILED_RENDITION_COOLDOWN_MS);
+  pruneFailedRenditions();
+}
 
 async function generate({ id, kind, sourcePath, variant, spec, cacheDir }) {
   if (kind === 'video') {
@@ -254,6 +272,7 @@ export async function ensureRendition({
   if (cached) return cached;
   if (!generate) return null;
   const key = `${variant}:${id}`;
+  pruneFailedRenditions();
   if ((failedUntil.get(key) || 0) > Date.now()) return null;
   const pending = inflight.get(key)
     ?? scheduleRendition(
@@ -262,11 +281,11 @@ export async function ensureRendition({
     )
       .then((result) => {
         if (result) failedUntil.delete(key);
-        else failedUntil.set(key, Date.now() + FAILED_RENDITION_COOLDOWN_MS);
+        else rememberFailedRendition(key);
         return result;
       })
       .catch(() => {
-        failedUntil.set(key, Date.now() + FAILED_RENDITION_COOLDOWN_MS);
+        rememberFailedRendition(key);
         return null;
       })
       .finally(() => { inflight.delete(key); });

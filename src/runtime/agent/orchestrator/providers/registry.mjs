@@ -35,6 +35,12 @@ let _initChain = Promise.resolve();
 let _inFlightPromise = null;
 let _inFlightSig = null;
 let _lastAppliedSig = null;
+// Provider instances are process-global inside the backend daemon. Catalog
+// readers use this revision to share one raw model snapshot while still
+// rebuilding their cheap route/config projection after auth/config changes.
+let _providerCatalogRevision = 0;
+let _startupCatalogRefreshPromise = null;
+let _catalogRefreshPromise = null;
 
 // Deterministic structural signature of a provider config. Recursively sorts
 // object keys so signature equality reflects config-value equality regardless
@@ -141,7 +147,12 @@ export async function initProviders(config, { signal = null } = {}) {
         }
     };
     const tracked = next.then(
-        (v) => { _lastAppliedSig = sig; settle(); return v; },
+        (v) => {
+            if (_lastAppliedSig !== sig) _providerCatalogRevision += 1;
+            _lastAppliedSig = sig;
+            settle();
+            return v;
+        },
         (err) => { settle(); throw err; },
     );
     _inFlightSig = sig;
@@ -236,6 +247,7 @@ export function getProvider(name) {
         if (!Ctor) return undefined;
         const inst = wrapProviderAdmission(new Ctor({}), name);
         providers.set(name, inst);
+        _providerCatalogRevision += 1;
         return inst;
     }
     if (name === 'openai-oauth' && hasOpenAIOAuthCredentials()) {
@@ -243,6 +255,7 @@ export function getProvider(name) {
         if (!Ctor) return undefined;
         const inst = wrapProviderAdmission(new Ctor({}), name);
         providers.set(name, inst);
+        _providerCatalogRevision += 1;
         return inst;
     }
     if (name === 'grok-oauth' && hasGrokOAuthCredentials()) {
@@ -250,6 +263,7 @@ export function getProvider(name) {
         if (!Ctor) return undefined;
         const inst = wrapProviderAdmission(new Ctor({}), name);
         providers.set(name, inst);
+        _providerCatalogRevision += 1;
         return inst;
     }
     return undefined;
@@ -286,6 +300,9 @@ export function getAllProviders() {
     // Defensive copy — callers must not mutate the live registry or retain
     // stale entries across re-init (initProviders rebuilds the map in place).
     return new Map(providers);
+}
+export function providerCatalogRevision() {
+    return _providerCatalogRevision;
 }
 // Narrow synchronous test seam for the lazy-OAuth boundary. It models a
 // constructor whose module is already loaded while guaranteeing every touched
@@ -336,7 +353,9 @@ function warmupCatalogs() {
     }
 }
 
-// Force-refresh each provider's /models catalog on every MCP start. Unlike
+// Force-refresh each provider's /models catalog ONCE per backend-daemon
+// lifetime. Every session runtime joins this process-global promise and then
+// reads the same provider-instance caches. Unlike
 // warmupCatalogs (which calls listModels() and so respects the 24h provider
 // TTL → no-op when the cache is fresh), this bypasses the TTL via
 // _refreshModelCache so a model released since the last refresh is picked up
@@ -345,6 +364,7 @@ function warmupCatalogs() {
 // context metadata stays on its own 24h TTL. Fire-and-forget: never awaited,
 // per-provider failures logged to stderr like warmupCatalogs.
 export function refreshProviderCatalogsOnStartup() {
+    if (_startupCatalogRefreshPromise) return _startupCatalogRefreshPromise;
     const pending = [];
     for (const [name, provider] of providers) {
         const refreshFn = typeof provider?._refreshModelCache === 'function'
@@ -361,7 +381,11 @@ export function refreshProviderCatalogsOnStartup() {
     // Returns a completion promise so callers can invalidate stale model
     // caches once the fresh catalogs land. Still fire-and-forget: unawaited
     // callers keep the previous nonblocking startup behavior.
-    return Promise.allSettled(pending);
+    _startupCatalogRefreshPromise = Promise.allSettled(pending).then((results) => {
+        _providerCatalogRevision += 1;
+        return results;
+    });
+    return _startupCatalogRefreshPromise;
 }
 
 // Force-refresh provider catalogs after an operator changes model/provider
@@ -369,6 +393,7 @@ export function refreshProviderCatalogsOnStartup() {
 // the shared LiteLLM metadata cache first so context/pricing metadata follows
 // newly released models without waiting for the next process restart.
 export function refreshCatalogs() {
+    if (_catalogRefreshPromise) return _catalogRefreshPromise;
     const pending = [];
     const metadataReady = Promise.resolve()
         .then(() => refreshMetadataCatalog())
@@ -391,5 +416,13 @@ export function refreshCatalogs() {
             }));
     }
     // Completion promise: lets callers drop stale model caches after refresh.
-    return Promise.allSettled([metadataReady, ...pending]);
+    _catalogRefreshPromise = Promise.allSettled([metadataReady, ...pending])
+        .then((results) => {
+            _providerCatalogRevision += 1;
+            return results;
+        })
+        .finally(() => {
+            _catalogRefreshPromise = null;
+        });
+    return _catalogRefreshPromise;
 }

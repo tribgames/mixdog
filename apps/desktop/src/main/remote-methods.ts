@@ -7,7 +7,6 @@ import type { DesktopEngineHost } from './engine-host-api';
 import type { DesktopSettingsStore } from './settings-store';
 import type { DesktopSettings } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
-import { listShellProfiles, resolveShellProfileSpawn } from './shell-profiles';
 import type { TerminalSpawnProfile } from './terminal-worker-protocol';
 import {
   projectDisplayName,
@@ -34,48 +33,11 @@ import {
   sessionDisplayName,
 } from './ipc';
 import {
-  gitAmend,
-  gitApplyPatch,
-  gitBranches,
-  gitCheckoutBranch,
-  gitCheckoutCommit,
-  gitCherryPickCommit,
-  gitCommit,
-  gitCommitPaths,
-  gitAbortOperation,
-  gitContinue,
-  gitCreateBranch,
-  gitCreateBranchAtCommit,
-  gitCreateTag,
-  gitDeleteBranch,
-  gitDeleteTag,
-  gitDiff,
-  gitFetch,
-  gitIgnore,
-  gitLog,
-  gitMergeBranch,
-  gitPull,
-  gitPush,
-  gitRenameBranch,
-  gitResetToCommit,
-  gitReview,
-  gitReviewDiff,
-  gitRevertCommit,
-  gitRevertFile,
-  gitShow,
-  gitShowDiff,
-  gitStage,
-  gitStash,
-  gitStashPop,
-  gitStatus,
-  gitSync,
-  gitUndoLastCommit,
-  gitUnstage,
   requiredCommitHash,
   requiredGitIgnoreScope,
   requiredGitResetMode,
   requiredRepositoryCwd,
-} from './git-cli';
+} from './git-contract.mjs';
 
 // Secrets and OAuth flows stay desktop-local: tokens must not transit the
 // bridge link until end-to-end encryption lands, and OAuth logins open a
@@ -110,7 +72,7 @@ export interface RemoteMethodDependencies {
   /** Fires after a successful desktop-settings write (keep-awake wiring). */
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
   terminals?: {
-    ensure(id: string | null, cwd: string | null, profile?: TerminalSpawnProfile | null):
+    ensure(id: string | null, cwd: string | null, profile?: TerminalSpawnProfile | string | null):
       { id: string; replay: string } | Promise<{ id: string; replay: string }>;
     write(id: string, data: string): void;
     resize(id: string, cols: number, rows: number): void;
@@ -122,6 +84,61 @@ export type RemoteMethod = (params: unknown[]) => unknown;
 export function createRemoteMethods(
   { host, settingsStore, onDesktopSettingsChanged, terminals }: RemoteMethodDependencies,
 ): Record<string, RemoteMethod> {
+  const backendInvoke = (name: string, args: unknown[]): Promise<unknown> =>
+    host.backendInvoke(name, args);
+  const operation = (name: string) => (...args: unknown[]) => backendInvoke(name, args);
+  // Remote bridge/relay are transport clients, not another backend. Keep their
+  // existing validation grammar while every Git mutation executes in the same
+  // daemon operation service as Electron IPC.
+  const {
+    gitAbortOperation,
+    gitAmend,
+    gitApplyPatch,
+    gitBranches,
+    gitCheckoutBranch,
+    gitCheckoutCommit,
+    gitCherryPickCommit,
+    gitCommit,
+    gitCommitPaths,
+    gitContinue,
+    gitCreateBranch,
+    gitCreateBranchAtCommit,
+    gitCreateTag,
+    gitDeleteBranch,
+    gitDeleteTag,
+    gitDiff,
+    gitFetch,
+    gitIgnore,
+    gitLog,
+    gitMergeBranch,
+    gitPull,
+    gitPush,
+    gitRenameBranch,
+    gitResetToCommit,
+    gitRevertCommit,
+    gitRevertFile,
+    gitReview,
+    gitReviewDiff,
+    gitShow,
+    gitShowDiff,
+    gitStage,
+    gitStash,
+    gitStashPop,
+    gitStatus,
+    gitSync,
+    gitUndoLastCommit,
+    gitUnstage,
+  } = Object.fromEntries([
+    'gitAbortOperation', 'gitAmend', 'gitApplyPatch', 'gitBranches',
+    'gitCheckoutBranch', 'gitCheckoutCommit', 'gitCherryPickCommit', 'gitCommit',
+    'gitCommitPaths', 'gitContinue', 'gitCreateBranch', 'gitCreateBranchAtCommit',
+    'gitCreateTag', 'gitDeleteBranch', 'gitDeleteTag', 'gitDiff', 'gitFetch',
+    'gitIgnore', 'gitLog', 'gitMergeBranch', 'gitPull', 'gitPush',
+    'gitRenameBranch', 'gitResetToCommit', 'gitRevertCommit', 'gitRevertFile',
+    'gitReview', 'gitReviewDiff', 'gitShow', 'gitShowDiff', 'gitStage',
+    'gitStash', 'gitStashPop', 'gitStatus', 'gitSync', 'gitUndoLastCommit',
+    'gitUnstage',
+  ].map((name) => [name, operation(name)])) as Record<string, (...args: unknown[]) => Promise<unknown>>;
   const methods: Record<string, RemoteMethod> = {
     startProject: ([projectPath]) => host.startProject(requiredString(projectPath, 'projectPath')),
     startProjectTask: ([projectPath]) =>
@@ -316,12 +333,12 @@ export function createRemoteMethods(
     };
   }
   if (terminals) {
-    methods.termEnsure = async ([id, cwd, shell]) => terminals.ensure(
+    methods.termEnsure = ([id, cwd, shell]) => terminals.ensure(
       typeof id === 'string' && id ? id : null,
       typeof cwd === 'string' && cwd ? cwd : null,
-      await resolveShellProfileSpawn(shell),
+      typeof shell === 'string' && shell ? shell : null,
     );
-    methods.termProfiles = () => listShellProfiles();
+    methods.termProfiles = () => backendInvoke('termProfiles', []);
     methods.termWrite = ([id, data]) => {
       terminals.write(String(id || ''), String(data ?? ''));
     };

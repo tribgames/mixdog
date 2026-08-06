@@ -43,6 +43,8 @@ const context: DesktopBootContext = typeof window !== "undefined"
   };
 const globalStages = new Set<string>();
 const surfaceMetrics = new Map<string, { startedAt: number; stages: Set<string> }>();
+const BOOT_METRIC_ENTRY_LIMIT = 512;
+const BOOT_SURFACE_CACHE_LIMIT = 256;
 type BootSurfaceBarrierState = {
   pending: Set<string>;
   listeners: Set<() => void>;
@@ -51,6 +53,20 @@ type BootSurfaceBarrierState = {
 };
 const activeSurfaceBarriers = new Set<BootSurfaceBarrierState>();
 const queuedBarrierRegistrations = new Set<string>();
+
+function pruneSurfaceMetrics(): void {
+  while (surfaceMetrics.size > BOOT_SURFACE_CACHE_LIMIT) {
+    let oldestReady = "";
+    for (const [id, metric] of surfaceMetrics) {
+      if (metric.stages.has("ready")) {
+        oldestReady = id;
+        break;
+      }
+    }
+    if (!oldestReady) break;
+    surfaceMetrics.delete(oldestReady);
+  }
+}
 
 function publishBarrier(state: BootSurfaceBarrierState): void {
   state.snapshot = {
@@ -138,6 +154,9 @@ function append(entry: BootMetricEntry): void {
   if (typeof window === "undefined") return;
   const metrics = window.__mixdogBootMetrics ||= [];
   metrics.push(entry);
+  if (metrics.length > BOOT_METRIC_ENTRY_LIMIT) {
+    metrics.splice(0, metrics.length - BOOT_METRIC_ENTRY_LIMIT);
+  }
   try {
     window.mixdogDesktop?.perfLog?.(
       `boot id=${cleanToken(entry.bootId)}`
@@ -180,11 +199,14 @@ export function beginBootSurface(surface: string, rawKey: string): string {
   const id = `${cleanSurface}:${key}`;
   const existing = surfaceMetrics.get(id);
   if (existing) {
+    surfaceMetrics.delete(id);
+    surfaceMetrics.set(id, existing);
     if (!existing.stages.has("ready")) queueBarrierRegistration(id);
     return id;
   }
   const startedAt = totalMs();
   surfaceMetrics.set(id, { startedAt, stages: new Set(["request"]) });
+  pruneSurfaceMetrics();
   queueBarrierRegistration(id);
   append({
     bootId: context.bootId,
@@ -212,6 +234,7 @@ export function reportBootSurfaceStage(
   metric.stages.add(cleanStage);
   if (cleanStage === "ready") {
     for (const barrier of activeSurfaceBarriers) resolveBarrierSurface(barrier, id);
+    pruneSurfaceMetrics();
   }
   const total = totalMs();
   append({
@@ -246,6 +269,21 @@ export function reportBootSurfaceReady(
       reportBootSurfaceStage(surface, rawKey, "paint");
       reportBootSurfaceStage(surface, rawKey, "ready");
     }, 0);
+  }
+}
+
+export function _bootMetricStatsForTest() {
+  return {
+    surfaceCount: surfaceMetrics.size,
+    entryCount: typeof window === "undefined" ? 0 : (window.__mixdogBootMetrics?.length || 0),
+  };
+}
+
+export function _resetBootMetricsForTest() {
+  surfaceMetrics.clear();
+  queuedBarrierRegistrations.clear();
+  if (typeof window !== "undefined" && window.__mixdogBootMetrics) {
+    window.__mixdogBootMetrics.length = 0;
   }
 }
 

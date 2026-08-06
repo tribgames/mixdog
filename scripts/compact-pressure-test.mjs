@@ -54,13 +54,13 @@ test('OpenAI cache write usage survives provider parsing and warmup accounting',
 
 test('Lead/main auto-compaction uses an independent configurable early buffer', () => {
     const leadPolicy = policyFor({ contextWindow: 100_000, compaction: {} });
-    assert.equal(leadPolicy.triggerTokens, 95_000);
-    assert.equal(leadPolicy.bufferTokens, 5_000);
-    assert.equal(leadPolicy.bufferRatio, 0.05);
+    assert.equal(leadPolicy.triggerTokens, 100_000);
+    assert.equal(leadPolicy.bufferTokens, 0);
+    assert.equal(leadPolicy.bufferRatio, 0);
 
     const noReserve = { ...leadPolicy, reserveTokens: 0 };
-    assert.equal(shouldCompactForSession(94_999, noReserve), false);
-    assert.equal(shouldCompactForSession(95_000, noReserve), true);
+    assert.equal(shouldCompactForSession(99_999, noReserve), false);
+    assert.equal(shouldCompactForSession(100_000, noReserve), true);
 
     const agentPolicy = policyFor({ owner: 'agent', contextWindow: 100_000, compaction: {} });
     assert.equal(agentPolicy.triggerTokens, 90_000, 'agent default 10% headroom must remain unchanged');
@@ -290,7 +290,7 @@ test('image payload bytes do not inflate live gauge or fallback compaction estim
         `image-aware live gauge must remain below compaction threshold, got ${status.usedTokens}`);
     assert.ok(status.usedTokens < status.contextWindow,
         `raw base64 must not pin the live gauge at 100%, got ${status.usedTokens}/${status.contextWindow}`);
-    assert.equal(status.compaction.bufferRatio, 0.05,
+    assert.equal(status.compaction.bufferRatio, 0,
         'context status buffer ratio must match the shared compaction policy');
 
     recordProviderContextBaseline(session, messages, { inputTokens: 70_000, outputTokens: 0 });
@@ -638,7 +638,7 @@ test('provider callback usage counts assistant output once and estimates only la
         deltaInput: 5_000,
         deltaOutput: 800,
         deltaPrompt: 0,
-        deltaCachedRead: 88_000,
+        deltaCachedRead: 93_200,
         deltaCacheWrite: 1_000,
     }), true);
     messages.push({
@@ -653,10 +653,10 @@ test('provider callback usage counts assistant output once and estimates only la
     const wholeEstimate = estimateMessagesTokens(messages);
     assert.ok(wholeEstimate < policy.triggerTokens, 'fixture must reproduce local estimator undercount');
     const pressure = compactionTelemetryPressureTokens(wholeEstimate, policy, { messages, sessionRef: session });
-    const expectedPressure = 94_800
+    const expectedPressure = 100_000
         + Math.round(estimateMessagesTokens([laterToolResult]) * providerTokenCalibration('anthropic'));
     assert.equal(pressure, expectedPressure, 'assistant output/reasoning must stay in actual usage, not be estimated again');
-    assert.ok(pressure >= 95_000, `actual usage plus later tool growth should cross trigger, got ${pressure}`);
+    assert.ok(pressure >= 100_000, `actual usage plus later tool growth should cross trigger, got ${pressure}`);
     assert.equal(shouldCompactForSession(wholeEstimate, policy, {
         messages,
         sessionRef: session,
@@ -739,7 +739,7 @@ test('OpenAI OAuth WS warmup remains billed but does not double the main context
         assert.equal(persisted.lastContextTokens, 167_635, 'incremental context snapshot must exclude warmup');
         assert.equal(persisted.contextPressureBaselineTokens, 168_246, 'stored baseline must use main request usage');
         assert.equal(pressure, 168_246, 'resolved pressure must use the stored baseline without transcript growth');
-        assert.equal(policy.triggerTokens, 258_400, 'fixture trigger must match the reported premature-compaction threshold');
+        assert.equal(policy.triggerTokens, 272_000, 'fixture trigger must match the main full-window threshold');
         assert.equal(shouldCompactForSession(messageTokens, policy, {
             messages: persisted.messages,
             sessionRef: persisted,
@@ -804,7 +804,8 @@ test('successful compact invalidates stale usage and cannot immediately compact 
     const session = { provider: 'openai', contextWindow: 100_000, compaction: {} };
     const policy = { ...policyFor(session), reserveTokens: 0 };
     const before = [{ role: 'user', content: 'old context' }];
-    recordProviderContextBaseline(session, before, { inputTokens: 99_000, outputTokens: 500 });
+    // Main default trigger is full boundary (100k); baseline must cross it.
+    recordProviderContextBaseline(session, before, { inputTokens: 99_600, outputTokens: 500 });
     assert.equal(shouldCompactForSession(estimateMessagesTokens(before), policy, {
         messages: before,
         sessionRef: session,
@@ -812,9 +813,9 @@ test('successful compact invalidates stale usage and cannot immediately compact 
 
     rememberCompactTelemetry(session, policy, {
         compactChanged: true,
-        beforeTokens: 99_500,
+        beforeTokens: 100_100,
         afterTokens: 20,
-        pressureTokens: 99_500,
+        pressureTokens: 100_100,
     });
     const compacted = [{ role: 'user', content: 'short summary' }];
     const compactedEstimate = estimateMessagesTokens(compacted);

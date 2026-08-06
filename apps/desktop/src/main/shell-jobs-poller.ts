@@ -18,6 +18,9 @@ export interface ShellJobsPollerOptions {
   getEngineState(): Record<string, unknown> | null;
   /** Resolved statusline module URL — imported lazily on the first poll. */
   moduleUrl(): string;
+  /** Daemon-hosted backends inject their own source module so plain Node never
+   *  has to import an Electron ASAR path. */
+  loadModule?: () => Promise<StatuslineSegmentsModule>;
   /** Called only when the status actually changed, carrying the sessions whose
    *  OWN bucket moved so their panes can be republished individually. */
   onChange(changedSessionIds: readonly string[]): void;
@@ -61,7 +64,12 @@ function movedSessionIds(
   return moved;
 }
 
-export function createShellJobsPoller({ getEngineState, moduleUrl, onChange }: ShellJobsPollerOptions) {
+export function createShellJobsPoller({
+  getEngineState,
+  moduleUrl,
+  loadModule,
+  onChange,
+}: ShellJobsPollerOptions) {
   let timer: NodeJS.Timeout | null = null;
   let delayMs = 0;
   let status: ShellJobsStatus = EMPTY_STATUS;
@@ -92,7 +100,9 @@ export function createShellJobsPoller({ getEngineState, moduleUrl, onChange }: S
       return;
     }
     try {
-      modulePromise ??= import(/* @vite-ignore */ moduleUrl()) as Promise<StatuslineSegmentsModule>;
+      modulePromise ??= loadModule
+        ? loadModule()
+        : import(/* @vite-ignore */ moduleUrl()) as Promise<StatuslineSegmentsModule>;
       const module = await modulePromise;
       const value = module.shellJobsStatus({ clientHostPid: ownerPid });
       const next = normalizedStatus(value);

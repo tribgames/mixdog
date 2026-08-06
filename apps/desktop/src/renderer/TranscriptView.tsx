@@ -508,7 +508,7 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
     <Suspense fallback={<MarkdownSourceFallback text={chunk} copyControl={CopyControl} />}
       key={markdownParts.stableChunkKeys[index]}>
       {workerPipeline.current
-        ? <StreamingMarkdownBody text={chunk} live={false}
+        ? <StreamingMarkdownBody text={chunk}
             deferAsyncPromotion={chunkDefersPromotion(markdownParts.stableChunkKeys[index], chunk)}
             copyControl={CopyControl} />
         : <StableMarkdownBody text={chunk} />}
@@ -530,7 +530,7 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
           ? <StreamingMarkdownBody
               text={markdownParts.unstableText}
               parseText={unstableParseText}
-              live={streaming || !markdownParts.parseUnstable}
+              parse={markdownParts.parseUnstable}
               deferAsyncPromotion={unstableDefers}
               copyControl={CopyControl} />
           : <StableMarkdownBody text={markdownParts.unstableText} />}
@@ -737,13 +737,9 @@ export const TranscriptRow = memo(function TranscriptRow({
   const text = user ? userTranscriptDisplayText(item) : String(item.text || "");
   // Crash-recovery control row: persisted as a plain user message so the next
   // model step sees where a force-killed turn stopped, but it is not human
-  // chat — render the standard interrupted status row instead of leaking the
-  // raw "[Request interrupted by process restart]" marker into the thread.
+  // chat — same Cancelled status row as a live abort (TUI turndone cancelled).
   if (user && /^\[request interrupted by process restart\]$/i.test(text)) {
-    return <div className="turn-status interrupted" role="status">
-      <X className="turn-status-icon" size={15} aria-hidden="true" />
-      <span>{t("Interrupted by app restart")}</span>
-    </div>;
+    return <CompletionStatus item={{ kind: "turndone", status: "cancelled", elapsedMs: 0 } as TranscriptItem} />;
   }
   // The projection already dropped hidden rows; this is the final guard for a
   // row rendered outside it (the live tail, an optimistic prompt).
@@ -808,12 +804,15 @@ export const TranscriptRow = memo(function TranscriptRow({
           <CopyControl value={text} label={t("Copy message")}
             className="message-actions user-copy" />
         </footer>}
-        {!user && !item.streaming && (text || completion) && <footer className="response-footer"
+        {/* The footer belongs to a SETTLED turn only. A mid-turn preamble part
+            carried a hover-only copy overlay that sat on top of the following
+            tool row and hid it (user: 프리엠블에서는 복사 버튼 빼자). */}
+        {!user && !item.streaming && completion && <footer className="response-footer"
           aria-label={t("Response details")}>
-          {completion && <CompletionStatus item={completion} animate={completionAnimate} />}
+          <CompletionStatus item={completion} animate={completionAnimate} />
           {/* Timestamp marks the END of a turn: mid-turn assistant paragraphs
               (tool calls still running) must not carry a clock (user). */}
-          {Boolean(completion) && metadata.shortTime &&
+          {metadata.shortTime &&
             <time className="message-time">{metadata.shortTime}</time>}
           {text && <CopyControl value={text} label={t("Copy response")}
             className="message-actions response-copy" />}
@@ -1011,6 +1010,21 @@ export function toolIcon(category: unknown) {
 
 const normalizedPatchCache = new Map<string, string>();
 export const PATCH_CACHE_LIMIT = 24;
+const PATCH_CACHE_MAX_CHARS = 8 * 1024 * 1024;
+const PATCH_CACHE_ENTRY_MAX_CHARS = 1024 * 1024;
+
+function pruneNormalizedPatchCache(): void {
+  const retainedChars = () => [...normalizedPatchCache]
+    .reduce((total, [input, normalized]) => total + input.length + normalized.length, 0);
+  while (
+    normalizedPatchCache.size > PATCH_CACHE_LIMIT
+    || retainedChars() > PATCH_CACHE_MAX_CHARS
+  ) {
+    const oldest = normalizedPatchCache.keys().next().value;
+    if (oldest === undefined) break;
+    normalizedPatchCache.delete(oldest);
+  }
+}
 
 export function findPatch(item: TranscriptItem) {
   const args = asRecord(item.args);
@@ -1027,9 +1041,9 @@ export function findPatch(item: TranscriptItem) {
     if (!(/^@@/m.test(value) || /^diff --git/m.test(value)
       || /^\*\*\* (?:Begin Patch|Add File:|Delete File:)/m.test(value))) continue;
     const normalized = normalizeApplyPatch(value);
-    normalizedPatchCache.set(value, normalized);
-    if (normalizedPatchCache.size > PATCH_CACHE_LIMIT) {
-      normalizedPatchCache.delete(normalizedPatchCache.keys().next().value as string);
+    if (value.length + normalized.length <= PATCH_CACHE_ENTRY_MAX_CHARS) {
+      normalizedPatchCache.set(value, normalized);
+      pruneNormalizedPatchCache();
     }
     return normalized;
   }

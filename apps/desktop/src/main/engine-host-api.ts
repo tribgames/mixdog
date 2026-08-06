@@ -96,6 +96,12 @@ export interface DesktopEngineHost {
   readCapabilities(
     requests: ReadonlyArray<DesktopCapabilityReadRequest>,
   ): Promise<DesktopCapabilityReadResult[]>;
+  /** Non-UI desktop backend domains (Git, files, LSP, PTY) hosted by the
+   * singleton daemon. Product hosts never execute these domains locally. */
+  backendInvoke(method: string, args?: unknown[]): Promise<unknown>;
+  subscribeBackendEvents?(
+    listener: (event: { name: string; value: unknown }) => void,
+  ): () => void;
   perfLog(line: string): void;
   dispose(): Promise<void>;
 }
@@ -141,6 +147,7 @@ export const ENGINE_HOST_RPC_METHODS = [
   'setFast',
   'invokeCapability',
   'readCapabilities',
+  'backendInvoke',
   'perfLog',
   'dispose',
 ] as const;
@@ -152,5 +159,6 @@ export interface SerializableEngineHostOptions {
   packaged: boolean;
   resourcesPath: string;
   appPath: string;
+  rendererDir?: string;
   runtimeRoot?: string;
 }

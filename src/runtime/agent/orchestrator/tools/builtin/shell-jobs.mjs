@@ -564,10 +564,24 @@ export function endShellJobWait(jobId) {
 export function clearShellJobNotifyCtx(jobId) {
     jobNotifyCtxByJobId.delete(jobId);
 }
-export function shutdownShellJobs(reason = 'runtime-close', { sync = false } = {}) {
-    const livePids = [..._liveJobPids];
-    const jobIds = new Set([..._liveJobIdsByPid.values()].filter(Boolean));
-    const watcherJobIds = [...backgroundShellJobWatchers.keys()];
+// scope: reap only the jobs a single session owns (`{ ownerSessionId }`).
+// Omitted => the process-wide sweep, which is correct ONLY on a real process
+// exit: the registries here are process-global, so an unscoped sweep run by
+// one engine's dispose killed other sessions' live jobs (user report).
+// A scope without an owner id matches nothing — never everything.
+export function shutdownShellJobs(reason = 'runtime-close', { sync = false, scope = null } = {}) {
+    const scoped = Boolean(scope);
+    const scopeSessionId = scoped ? String(scope.ownerSessionId || '') : '';
+    if (scoped && !scopeSessionId) return { killed: 0, cancelledJobs: 0, cancelledWatchers: 0 };
+    const ownsJob = (jobId) => {
+        if (!scoped) return true;
+        if (!jobId) return false;
+        try { return String(readShellJobDetail(jobId)?.ownerSessionId || '') === scopeSessionId; }
+        catch { return false; }
+    };
+    const livePids = [..._liveJobPids].filter((pid) => ownsJob(_liveJobIdsByPid.get(pid)));
+    const jobIds = new Set([..._liveJobIdsByPid.values()].filter((jobId) => jobId && ownsJob(jobId)));
+    const watcherJobIds = [...backgroundShellJobWatchers.keys()].filter((jobId) => ownsJob(jobId));
     for (const jobId of watcherJobIds) {
         jobIds.add(jobId);
         try { cancelBackgroundShellJobWatch(jobId); } catch { /* ignore */ }
@@ -576,6 +590,18 @@ export function shutdownShellJobs(reason = 'runtime-close', { sync = false } = {
     let marked = 0;
     for (const jobId of jobIds) {
         try { if (markShellJobCancelledByShutdown(jobId, reason)) marked += 1; } catch { /* ignore */ }
+    }
+    if (scoped) {
+        // Per-job teardown only: another session's watchers, safety pollers and
+        // notify contexts must survive this dispose so its completions still fire.
+        for (const jobId of jobIds) {
+            unpersistedTerminalJobs.delete(jobId);
+            backgroundShellJobWatchers.delete(jobId);
+            clearShellTaskSafetyNet(jobId);
+            jobNotifyCtxByJobId.delete(jobId);
+            jobWaitWaiterCountByJobId.delete(jobId);
+        }
+        return { killed: livePids.length, cancelledJobs: marked, cancelledWatchers: watcherJobIds.length };
     }
     unpersistedTerminalJobs.clear();
     backgroundShellJobWatchers.clear();

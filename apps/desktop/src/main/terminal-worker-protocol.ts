@@ -1,7 +1,6 @@
-// Wire protocol between the main-process TerminalHost proxy and the terminal
-// utility process (terminal-worker.ts). PTYs live in the worker so a flooding
-// shell can never saturate the main process event loop (VS Code ptyHost
-// parity); the main process keeps only this thin message surface.
+// Wire-compatible terminal message types shared by Electron and the singleton
+// daemon. PTYs live in the daemon, so a flooding shell cannot saturate the main
+// process event loop or split terminal ownership across clients.
 /** Spawn spec for one detected shell profile (shell-profiles.ts). The
  *  renderer only ever names a profile ID; main resolves it to this spec. */
 export interface TerminalSpawnProfile {

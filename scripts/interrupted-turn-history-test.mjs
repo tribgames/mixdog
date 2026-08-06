@@ -20,8 +20,7 @@ const PACKAGE_PATH = fileURLToPath(new URL('../package.json', import.meta.url));
 const USER_INTERRUPTION_MESSAGE = '[Request interrupted by user]';
 const TOOL_USE_INTERRUPTION_MESSAGE = '[Request interrupted by user for tool use]';
 const PROCESS_RESTART_MESSAGE = '[Request interrupted by process restart]';
-const STREAMING_INTERRUPTED_TOOL_RESULT = 'Interrupted by user';
-const TOOL_USE_REJECT_RESULT = "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.";
+const INTERRUPTED_TOOL_RESULT = 'Cancelled';
 
 test('unchanged failed-turn snapshot reports an already-retained queued prompt', () => {
     const messages = [{ role: 'user', content: 'queued prompt already in preflight session' }];
@@ -30,8 +29,8 @@ test('unchanged failed-turn snapshot reports an already-retained queued prompt',
 });
 
 // Display filtering hides model-only control rows, but the process-restart
-// marker is the crash-recovery evidence a human needs after a force kill.
-test('transcript display hides user cancel rows and keeps the process-restart marker', async () => {
+// marker stays model-visible while the TUI maps it to a Cancelled status row.
+test('transcript display hides user cancel rows and shows process-restart as cancelled', async () => {
     const { isInternalTranscriptDisplayText } = await import(
         '../src/runtime/shared/tool-execution-contract.mjs'
     );
@@ -49,7 +48,14 @@ test('transcript display hides user cancel rows and keeps the process-restart ma
     ], { sessionId: 'interrupt_display' });
     assert.deepEqual(
         items.filter((item) => item.kind === 'user').map((item) => item.text),
-        ['do the work', PROCESS_RESTART_MESSAGE],
+        ['do the work'],
+    );
+    assert.deepEqual(
+        items.filter((item) => item.kind === 'turndone').map((item) => ({
+            status: item.status,
+            elapsedMs: item.elapsedMs,
+        })),
+        [{ status: 'cancelled', elapsedMs: 0 }],
     );
 });
 
@@ -238,7 +244,7 @@ test('interrupted turns keep Claude Code-compatible model history boundaries', {
             )),
             {
                 role: 'tool',
-                content: STREAMING_INTERRUPTED_TOOL_RESULT,
+                content: INTERRUPTED_TOOL_RESULT,
                 toolCallId: 'streaming_patch',
                 toolKind: 'error',
             },
@@ -285,7 +291,7 @@ test('interrupted turns keep Claude Code-compatible model history boundaries', {
         ));
         assert.ok(assistant, 'streamed tool_use is retained before send() returns');
         assert.ok(result, 'completed eager result is retained');
-        assert.notEqual(result.content, STREAMING_INTERRUPTED_TOOL_RESULT);
+        assert.notEqual(result.content, INTERRUPTED_TOOL_RESULT);
         assert.equal(persisted.messages.at(-1)?.content, USER_INTERRUPTION_MESSAGE);
     });
 
@@ -323,10 +329,10 @@ test('interrupted turns keep Claude Code-compatible model history boundaries', {
         const readResult = results.find((message) => message.toolCallId === 'read_one');
         const shellResult = results.find((message) => message.toolCallId === 'slow_shell');
         assert.ok(readResult, 'completed read result is retained');
-        assert.notEqual(readResult.content, TOOL_USE_REJECT_RESULT);
+        assert.notEqual(readResult.content, INTERRUPTED_TOOL_RESULT);
         assert.deepEqual(
             { content: shellResult?.content, kind: shellResult?.toolKind },
-            { content: TOOL_USE_REJECT_RESULT, kind: 'error' },
+            { content: INTERRUPTED_TOOL_RESULT, kind: 'error' },
         );
         assert.equal(persisted.messages.at(-1)?.content, TOOL_USE_INTERRUPTION_MESSAGE);
     });
@@ -343,7 +349,7 @@ test('interrupted turns keep Claude Code-compatible model history boundaries', {
         assert.equal(capturedMessages.some((message) => (
             message.role === 'tool'
             && message.toolCallId === 'slow_shell'
-            && message.content === TOOL_USE_REJECT_RESULT
+            && message.content === INTERRUPTED_TOOL_RESULT
         )), true);
         assert.equal(capturedMessages.some((message) => message.content === TOOL_USE_INTERRUPTION_MESSAGE), true);
     });
@@ -1232,7 +1238,7 @@ test('a tombstoned session neither receives nor loses foreign spool input', { co
     writeSpoolRow(open.id, { id: 'foreign_row_open', message: 'foreign submit for an open owner', enqueuedAt: Date.now() });
     assert.deepEqual(
         pending.drainForeignUserInjections(open.id),
-        ['foreign submit for an open owner'],
+        [{ text: 'foreign submit for an open owner', id: 'foreign_row_open' }],
     );
     assert.deepEqual(spoolRows(open.id), [], 'the open owner consumed the row');
     closeSession(open.id, 'foreign-drain-open-cleanup');
@@ -1351,7 +1357,7 @@ test('a generation move refusing a foreign drain leaves the spool pollable witho
     // the SAME unchanged spool file and still sees the row.
     assert.deepEqual(
         pending.drainForeignUserInjections(session.id),
-        ['foreign submit racing a reopen'],
+        [{ text: 'foreign submit racing a reopen', id: 'foreign_row_generation_move' }],
         'pollable immediately after reopen, with no intervening spool write',
     );
     assert.deepEqual(spoolRows(session.id), [], 'and the row is consumed exactly once');

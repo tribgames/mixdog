@@ -56,7 +56,6 @@ class DiscordBackend {
   bootAccess = null;
   initialAccess;
   recentSentIds = /* @__PURE__ */ new Set();
-  sendCount = 0;
   _resetFailures = 0;
   _loginFailures = 0;
   typingIntervals = /* @__PURE__ */ new Map();
@@ -171,9 +170,6 @@ class DiscordBackend {
     if (this.client && this.client.ws?.status === 0) return;
     await this._resetClient();
   }
-  resetSendCount() {
-    this.sendCount = 0;
-  }
   startTyping(channelId) {
     this.stopTyping(channelId);
     if (!this.client) return;
@@ -234,18 +230,14 @@ class DiscordBackend {
     // passes it back so we resume at the failed chunk instead of re-sending
     // chunks that already landed.
     //
-    // The "\u3164\n" prefix is applied from this.sendCount, which advances when
-    // ANY backend send fully succeeds. Between the original partial failure and
-    // this retry, an unrelated send (scheduler/lifecycle/permission) can flip
-    // sendCount from 0 to >0, which would change the prefix — and therefore the
-    // chunked text and its hash — breaking the token match and forcing a
-    // duplicate full-resend. To keep the retry byte-identical to the original
-    // attempt, freeze the prefix decision in the token and reuse it here instead
-    // of recomputing from the (possibly changed) current sendCount.
+    // Continuation spacing is decided by the session/turn-local OutputForwarder.
+    // This backend is daemon-global, so scheduler traffic or another client
+    // must never change the first/subsequent-message decision. A retry token
+    // remains authoritative so a partial resend is byte-identical.
     const resumeToken = opts?.resumeToken;
     const applyPrefix = (resumeToken && typeof resumeToken.prefixed === "boolean")
       ? resumeToken.prefixed
-      : (text && this.sendCount > 0 ? true : false);
+      : opts?.continuation === true;
     if (text && applyPrefix) {
       text = "\u3164\n" + text;
     }
@@ -364,7 +356,6 @@ class DiscordBackend {
           }
         }
       }
-      this.sendCount += sentIds.length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const wrapped = new Error(`send failed after ${sentIds.length}/${chunks.length} chunk(s): ${msg}`);

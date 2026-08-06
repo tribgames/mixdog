@@ -46,12 +46,14 @@ export interface RemoteRelayOptions extends RemoteMethodDependencies {
   relayUrl: string;
   userDataPath: string;
   subscribeTerminalData?: (listener: (event: { id: string; data: string }) => void) => () => void;
+  onClientCountChanged?: () => void;
 }
 
 export interface RemoteRelayHandle {
   /** URL a phone opens (relay origin + pairing token). */
   clientUrl: string;
   token: string;
+  readonly clientCount: number;
   /** System resume: the socket is likely half-dead after sleep — drop it and
    *  redial immediately instead of waiting for the ping cycle to notice. */
   resume(): void;
@@ -218,6 +220,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   // upstream 24/7 — the relay lane then costs keepalive bytes only. Each
   // join restarts the delta lane with a full snapshot, so nothing is lost.
   const activeClients = new Set<string>();
+  const notifyClientCount = (): void => options.onClientCountChanged?.();
   // Media streams currently pumping to the relay, keyed by request id: an
   // aborted phone request (scrolled away, closed tab) must stop the read.
   // Two independent stalls can pause a pump — this socket's backlog, and the
@@ -380,7 +383,10 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       deltaEncoder.reset();
       // A fresh desktop leg supersedes the old one and the relay closed its
       // phone legs; phones re-open and re-announce themselves.
-      activeClients.clear();
+      if (activeClients.size > 0) {
+        activeClients.clear();
+        notifyClientCount();
+      }
       // Announce the lanes this build serves BEFORE the pairing token, so the
       // relay can answer a phone's media request the moment a client leg
       // binds. An older relay ignores the frame; a newer one stops proxying
@@ -402,7 +408,11 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           return;
         }
         if (envelope.type === 'client-open') {
-          if (typeof envelope.clientId === 'string') activeClients.add(envelope.clientId);
+          if (typeof envelope.clientId === 'string') {
+            const before = activeClients.size;
+            activeClients.add(envelope.clientId);
+            if (activeClients.size !== before) notifyClientCount();
+          }
           // A phone joined mid-stream: restart the delta lane with one full
           // snapshot so it has a base revision to patch against.
           deltaEncoder.reset();
@@ -410,7 +420,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           return;
         }
         if (envelope.type === 'client-close') {
-          if (typeof envelope.clientId === 'string') activeClients.delete(envelope.clientId);
+          if (typeof envelope.clientId === 'string' && activeClients.delete(envelope.clientId)) {
+            notifyClientCount();
+          }
           return;
         }
         // Relay flow control for the phone leg: its HTTP response filled up,
@@ -460,7 +472,10 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     ws.on('error', () => { /* connection errors surface as close */ });
     ws.on('close', () => {
       clearInterval(heartbeat);
-      activeClients.clear();
+      if (activeClients.size > 0) {
+        activeClients.clear();
+        notifyClientCount();
+      }
       // The relay dropped every waiting response with this leg; stop pumping.
       for (const pump of mediaStreams.values()) {
         try { pump.stream.destroy(); } catch { /* already gone */ }
@@ -486,6 +501,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   return {
     clientUrl: relayClientUrl(options.relayUrl, token),
     token,
+    get clientCount() { return activeClients.size; },
     resume: (): void => {
       if (closed) return;
       retryMs = 1_000;
@@ -575,6 +591,10 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       if (socket) {
         try { socket.terminate(); } catch { /* already gone */ }
         socket = null;
+      }
+      if (activeClients.size > 0) {
+        activeClients.clear();
+        notifyClientCount();
       }
     },
   };

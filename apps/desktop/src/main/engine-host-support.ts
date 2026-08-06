@@ -33,6 +33,7 @@ export interface MixdogEngine {
   getState(): Record<string, unknown>;
   subscribe(listener: () => void): () => void;
   submit(prompt: DesktopPromptContent, options?: DesktopSubmitOptions): boolean;
+  submitAsync?(prompt: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<boolean>;
   abort(): unknown;
   resolveToolApproval(id: string, decision: ToolApprovalDecision): boolean;
   listProviderModels(options: DesktopModelCatalogOptions): Promise<unknown>;
@@ -74,8 +75,15 @@ export interface EngineHostOptions {
   userDataPath?: string;
   getUserDataPath?: () => string;
   createEngine?: EngineFactory;
+  engineDaemonClient?: EngineDaemonClientModule;
   loadProjects?: () => Promise<MixdogProjectsModule>;
   loadSessionStore?: () => Promise<MixdogSessionStoreModule>;
+  loadStatuslineSegments?: () => Promise<StatuslineSegmentsModule>;
+  executeCodeGraphTool?: (
+    name: string,
+    args: Record<string, unknown>,
+    cwd: string,
+  ) => Promise<unknown>;
   packaged?: boolean;
   resourcesPath?: string;
   appPath?: string;
@@ -315,7 +323,7 @@ export interface EngineDaemonClientModule {
     open?: Record<string, unknown>;
     cwd?: string;
     log?: (line: string) => void;
-  }): Promise<{ value?: unknown; engineId?: string; sessionId?: string }>;
+  }): Promise<{ value?: unknown; sessionId?: string }>;
 }
 
 export function requiredApplicationPath(appPath: string | undefined): string {

@@ -832,7 +832,12 @@ export function createRunTurn(bag) {
         }
         if (shellPart !== null) {
           flushToolResults([
-            { role: 'tool', tool_call_id: parentCallId, content: patchPart },
+            {
+              role: 'tool',
+              tool_call_id: parentCallId,
+              content: patchPart,
+              ...(Object.hasOwn(message || {}, 'uiDiff') ? { uiDiff: message.uiDiff } : {}),
+            },
             { role: 'tool', tool_call_id: twinCallId, content: shellPart },
           ], toolCards, cardByCallId, toolGroups, resultsDone);
           return;
@@ -850,6 +855,8 @@ export function createRunTurn(bag) {
 
     try {
       const { result, session } = await runtime.ask(userText, {
+        id: submittedIds[0],
+        submittedAt: options.submittedAt,
         transcriptMeta: turnTranscriptMeta,
         drainSteering: (_sessionId, drainOptions) => (isCurrentTurn() ? drainPendingSteering(drainOptions) : []),
         onStreamDelta: () => {

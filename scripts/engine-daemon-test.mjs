@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const RUNTIME_ROOT = mkdtempSync(join(tmpdir(), 'mixdog-engine-daemon-'));
 process.env.MIXDOG_RUNTIME_ROOT = RUNTIME_ROOT;
@@ -36,13 +37,159 @@ test('only the wire protocol decides whether a live daemon is usable', () => {
     'a NEWER protocol is never touched, busy or not');
 });
 
-function createStubEngine(sessionId = 'stub-session') {
+test('desktop clients reuse the daemon-owned adapter across different install module URLs', async () => {
+  const firstModule = join(RUNTIME_ROOT, 'desktop-backend-first.mjs');
+  const secondModule = join(RUNTIME_ROOT, 'desktop-backend-second.mjs');
+  const adapterSource = (label) => `
+    export async function createDesktopBackend() {
+      return {
+        invoke(method) { return { label: ${JSON.stringify(label)}, method }; },
+        async control() {},
+        async dispose() {},
+      };
+    }
+  `;
+  writeFileSync(firstModule, adapterSource('first'));
+  writeFileSync(secondModule, adapterSource('second'));
+  const service = createEngineDaemonService({ createEngine: async () => createStubEngine() });
+  try {
+    const first = await service.handleCall('desktop.init', {
+      desktopId: 'desktop_first',
+      moduleUrl: pathToFileURL(firstModule).href,
+    }, { clientToken: 'client_first' });
+    const second = await service.handleCall('desktop.init', {
+      desktopId: 'desktop_second',
+      moduleUrl: pathToFileURL(secondModule).href,
+    }, { clientToken: 'client_second' });
+    assert.equal(first.desktopId, 'desktop_first');
+    assert.equal(second.desktopId, 'desktop_first',
+      'the live daemon keeps its canonical adapter instead of rejecting another install');
+    const invoked = await service.handleCall('desktop.invoke', {
+      desktopId: second.desktopId,
+      method: 'probe',
+      args: [],
+    }, { clientToken: 'client_second' });
+    assert.deepEqual(invoked, { label: 'first', method: 'probe' });
+  } finally {
+    await service.stop('test end');
+  }
+});
+
+test('the daemon injects its process-local runtime into the desktop adapter', async () => {
+  const modulePath = join(RUNTIME_ROOT, 'desktop-backend-runtime.mjs');
+  writeFileSync(modulePath, `
+    export async function createDesktopBackend({ runtime }) {
+      return {
+        invoke(method) { return method === 'runtime-marker' ? runtime.marker : null; },
+        async control() {},
+        async dispose() {},
+      };
+    }
+  `);
+  const desktopRuntime = { marker: 'daemon-process-runtime' };
+  const service = createEngineDaemonService({
+    createEngine: async () => createStubEngine(),
+    desktopRuntime,
+  });
+  try {
+    const initialized = await service.handleCall('desktop.init', {
+      desktopId: 'desktop_runtime',
+      moduleUrl: pathToFileURL(modulePath).href,
+    }, { clientToken: 'desktop_runtime_client' });
+    const marker = await service.handleCall('desktop.invoke', {
+      desktopId: initialized.desktopId,
+      method: 'runtime-marker',
+      args: [],
+    }, { clientToken: 'desktop_runtime_client' });
+    assert.equal(marker, desktopRuntime.marker);
+  } finally {
+    await service.stop('test end');
+  }
+});
+
+test('session calls log only a bounded result summary, never the transcript body', async () => {
+  const logs = [];
+  const service = createEngineDaemonService({
+    createEngine: async () => ({
+      ...createStubEngine('bounded_log_session'),
+      hugeResult: () => ({
+        items: Array.from({ length: 200 }, (_, index) => ({
+          id: index,
+          text: `private-transcript-${index}-${'x'.repeat(500)}`,
+        })),
+      }),
+    }),
+    log: (line) => logs.push(line),
+  });
+  try {
+    const result = await service.handleCall('session.invoke', {
+      sessionId: 'bounded_log_session',
+      method: 'hugeResult',
+      args: [],
+    }, { clientToken: 'bounded_log_client' });
+    assert.equal(result.value.items.length, 200);
+    const line = logs.find((entry) => entry.includes('session call hugeResult'));
+    assert.match(line, /result=object items=200/);
+    assert.doesNotMatch(line, /private-transcript/);
+    assert.ok(line.length < 200);
+  } finally {
+    await service.stop('test end');
+  }
+});
+
+test('daemon lifetime sees phone clients owned by the desktop adapter', async () => {
+  const modulePath = join(RUNTIME_ROOT, 'desktop-backend-clients.mjs');
+  writeFileSync(modulePath, `
+    export async function createDesktopBackend({ onClientCountChanged }) {
+      let clientCount = 0;
+      return {
+        get clientCount() { return clientCount; },
+        invoke(method, args) {
+          if (method === 'clients') {
+            clientCount = Number(args[0]) || 0;
+            onClientCountChanged();
+          }
+          return clientCount;
+        },
+        async control() {},
+        async dispose() {},
+      };
+    }
+  `);
+  let changed = 0;
+  const service = createEngineDaemonService({
+    createEngine: async () => createStubEngine(),
+    onExternalClientsChanged: () => { changed += 1; },
+  });
+  try {
+    await service.handleCall('desktop.init', {
+      desktopId: 'desktop_clients',
+      moduleUrl: pathToFileURL(modulePath).href,
+    }, { clientToken: 'desktop_client' });
+    await service.handleCall('desktop.invoke', {
+      desktopId: 'desktop_clients',
+      method: 'clients',
+      args: [2],
+    }, { clientToken: 'desktop_client' });
+    assert.equal(service.externalClientCount, 2);
+    assert.equal(changed, 1);
+  } finally {
+    await service.stop('test end');
+  }
+});
+
+function createStubEngine(sessionId = '') {
   let state = { sessionId, items: [], busy: false };
   const listeners = new Set();
   const publish = () => { for (const listener of [...listeners]) listener(); };
   return {
     getState: () => state,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    reserveSession(id) {
+      state = { ...state, sessionId: String(id) };
+      publish();
+      return true;
+    },
     submit(text) {
       state = { ...state, items: [...state.items, { id: state.items.length + 1, text: String(text) }] };
       publish();
@@ -67,6 +214,7 @@ function createStubEngine(sessionId = 'stub-session') {
 
 async function withDaemon(run, {
   engineFactory = async () => createStubEngine(), idleEvictMs = null, evictSweepMs = null,
+  onClientRegistered = null,
 } = {}) {
   let clientsEmptyReason = null;
   // Client identity is what the pool refcounts views by; the tests need it to
@@ -75,7 +223,7 @@ async function withDaemon(run, {
   const service = createEngineDaemonService({
     createEngine: engineFactory,
     publishIntervalMs: 5,
-    onFrame: (frame) => transport.broadcast(frame),
+    onFrame: (frame, targetTokens) => transport.broadcast(frame, targetTokens),
     idleEvictMs,
     evictSweepMs,
   });
@@ -88,6 +236,7 @@ async function withDaemon(run, {
     clientGraceMs: 50,
     sweepMs: 50,
     onClientsEmpty: () => { clientsEmptyReason = 'empty'; },
+    onClientRegistered,
     onClientDropped: (token) => { service.releaseClient(token); },
   });
   const { port, token } = await transport.start();
@@ -104,6 +253,23 @@ async function withDaemon(run, {
     await transport.stop();
   }
 }
+
+test('the first engine client can start runtime prewarm before creating a session', async () => {
+  const registrations = [];
+  await withDaemon(async ({ discovery, service }) => {
+    const client = await attachEngineDaemon({ discovery, cwd: process.cwd() });
+    try {
+      assert.equal(service.size, 0);
+      assert.equal(registrations.length, 1);
+      assert.equal(registrations[0].lifecycle, true);
+      assert.equal(registrations[0].cwd, process.cwd());
+    } finally {
+      await client.close('registration prewarm test');
+    }
+  }, {
+    onClientRegistered: (row) => registrations.push(row),
+  });
+});
 
 function waitFor(predicate, message, timeoutMs = 4000) {
   return new Promise((resolve, reject) => {
@@ -126,7 +292,7 @@ function waitFor(predicate, message, timeoutMs = 4000) {
 function itemsFromFrames(frames) {
   let items = [];
   for (const frame of frames) {
-    if (frame.type !== 'engine-state') continue;
+    if (frame.type !== 'session-state') continue;
     if (frame.full) { items = Array.isArray(frame.full.items) ? frame.full.items : []; continue; }
     const patch = frame.patch;
     if (!patch) continue;
@@ -138,25 +304,57 @@ function itemsFromFrames(frames) {
   return items;
 }
 
-test('every attached client observes the same engine snapshot stream', async () => {
+function sessionSnapshotFromFrames(frames, sessionId) {
+  let snapshot = null;
+  for (const frame of frames) {
+    if (frame.type !== 'session-state' || frame.sessionId !== sessionId) continue;
+    if (frame.full) { snapshot = frame.full; continue; }
+    if (!frame.patch) continue;
+    const base = snapshot || {};
+    const next = { ...base, ...(frame.patch.set || {}) };
+    if (frame.patch.itemsAppend) {
+      next.items = (Array.isArray(base.items) ? base.items : [])
+        .slice(0, frame.patch.itemsAppend.from)
+        .concat(frame.patch.itemsAppend.values || []);
+    }
+    for (const key of frame.patch.remove || []) delete next[key];
+    snapshot = next;
+  }
+  return snapshot;
+}
+
+test('every attached client observes the same session snapshot stream', async () => {
   await withDaemon(async ({ discovery }) => {
     const terminalFrames = [];
     const desktopFrames = [];
+    const unrelatedFrames = [];
     const terminal = await attachEngineDaemon({
       discovery, cwd: process.cwd(), onFrame: (frame) => terminalFrames.push(frame),
     });
     const desktop = await attachEngineDaemon({
       discovery, cwd: process.cwd(), onFrame: (frame) => desktopFrames.push(frame),
     });
-    const opened = await terminal.call('engine.open', { cwd: process.cwd() });
-    assert.equal(opened.snapshot.sessionId, 'stub-session');
-
-    // The DESKTOP view never called open, yet it must see the engine.
-    await waitFor(() => desktopFrames.some((frame) => frame.engineId === opened.engineId),
-      'desktop view receives the opened engine frame');
+    const unrelated = await attachEngineDaemon({
+      discovery, cwd: process.cwd(), onFrame: (frame) => unrelatedFrames.push(frame),
+    });
+    const created = await terminal.call('session.create', { cwd: process.cwd() });
+    assert.match(created.sessionId, /^sess_daemon_/);
+    const subscribed = await desktop.call('session.subscribe', { sessionId: created.sessionId });
+    assert.equal(subscribed.subscribed, true);
+    // Subscription state is the RPC baseline; SSE carries only later changes
+    // to subscribed clients and never broadcasts another session globally.
+    desktopFrames.push({
+      type: 'session-state',
+      sessionId: created.sessionId,
+      revision: subscribed.revision,
+      full: subscribed.full,
+      patch: subscribed.patch,
+    });
 
     // A terminal-side submit reaches the desktop view as shared state.
-    await terminal.call('engine.call', { engineId: opened.engineId, method: 'submit', args: ['from terminal'] });
+    await terminal.call('session.submit', {
+      sessionId: created.sessionId, prompt: 'from terminal',
+    });
     const seen = await waitFor(
       () => {
         const items = itemsFromFrames(desktopFrames);
@@ -167,30 +365,157 @@ test('every attached client observes the same engine snapshot stream', async () 
     assert.equal(seen[0].text, 'from terminal');
 
     // ... and the reverse direction is symmetric.
-    await desktop.call('engine.call', { engineId: opened.engineId, method: 'submit', args: ['from desktop'] });
+    await desktop.call('session.submit', {
+      sessionId: created.sessionId, prompt: 'from desktop',
+    });
     await waitFor(
       () => itemsFromFrames(terminalFrames).length === 2,
       'terminal view receives the desktop submission',
     );
+    assert.equal(
+      unrelatedFrames.some((frame) => frame.sessionId === created.sessionId),
+      false,
+      'an unrelated client never receives another session transcript',
+    );
 
     await terminal.close('test');
     await desktop.close('test');
+    await unrelated.close('test');
   });
+});
+
+test('an in-daemon transport connection receives frames without owning daemon lifetime', async () => {
+  await withDaemon(async ({ discovery, transport, clientsEmpty }) => {
+    const external = await attachEngineDaemon({ discovery, cwd: process.cwd() });
+    const internal = await attachEngineDaemon({
+      discovery,
+      cwd: process.cwd(),
+      lifecycle: false,
+    });
+    assert.equal(transport.clientCount, 1);
+    assert.equal(transport.connectionCount, 2);
+    await external.close('external client closed');
+    await waitFor(() => clientsEmpty() === 'empty', 'lifecycle emptiness ignores internal connection');
+    assert.equal(transport.clientCount, 0);
+    assert.equal(transport.connectionCount, 1);
+    await internal.close('test');
+  });
+});
+
+test('session protocol ACKs intake and unsubscribe never interrupts execution', async () => {
+  let finishWork = null;
+  let abortCalls = 0;
+  let eagerSessionCreates = 0;
+  const engineFactory = async () => {
+    let state = { sessionId: '', items: [], busy: false };
+    const listeners = new Set();
+    const publish = () => { for (const listener of [...listeners]) listener(); };
+    return {
+      getState: () => state,
+      subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+      reserveSession(id) {
+        state = { ...state, sessionId: String(id) };
+        publish();
+        return true;
+      },
+      async newSession() {
+        eagerSessionCreates += 1;
+        state = { ...state, sessionId: 'durable-session' };
+        publish();
+        return true;
+      },
+      async resume(id) {
+        state = { ...state, sessionId: String(id) };
+        publish();
+        return true;
+      },
+      submit(text) {
+        state = {
+          ...state,
+          busy: true,
+          items: [...state.items, { id: 'prompt', text: String(text) }],
+        };
+        publish();
+        finishWork = () => {
+          state = {
+            ...state,
+            busy: false,
+            items: [...state.items, { id: 'answer', text: 'completed after detach' }],
+          };
+          publish();
+        };
+        return true;
+      },
+      abort() {
+        abortCalls += 1;
+        state = { ...state, busy: false };
+        publish();
+        return true;
+      },
+      resolveToolApproval() { return true; },
+      async dispose() {},
+    };
+  };
+
+  await withDaemon(async ({ discovery, service }) => {
+    const terminalFrames = [];
+    const terminal = await attachEngineDaemon({
+      discovery,
+      cwd: process.cwd(),
+      onFrame: (frame) => terminalFrames.push(frame),
+    });
+    const desktop = await attachEngineDaemon({ discovery, cwd: process.cwd() });
+    const created = await terminal.call('session.create', { cwd: process.cwd() });
+    assert.match(created.sessionId, /^sess_daemon_/, 'create returns a daemon-reserved stable address');
+    assert.equal(eagerSessionCreates, 0, 'reservation does not eagerly materialize a provider session');
+    const subscribed = await desktop.call('session.subscribe', { sessionId: created.sessionId });
+    assert.equal(subscribed.subscribed, true);
+
+    const submitted = await terminal.call('session.submit', {
+      sessionId: created.sessionId,
+      prompt: 'keep running',
+      options: { id: 'durable-submit' },
+    }, { callId: 'session-submit:durable-session:durable-submit' });
+    assert.equal(submitted.accepted, true, 'submit ACKs queue intake');
+    await waitFor(
+      () => sessionSnapshotFromFrames(terminalFrames, created.sessionId)?.busy === true,
+      'the session stream reports the accepted turn',
+    );
+    assert.equal(typeof finishWork, 'function', 'execution remains independently finishable after ACK');
+
+    await desktop.call('session.unsubscribe', { sessionId: created.sessionId });
+    await desktop.close('desktop closed');
+    assert.equal(abortCalls, 0, 'unsubscribe and disconnect do not call abort');
+    assert.equal(service.size, 1, 'the daemon still owns the session engine');
+
+    finishWork();
+    const completed = await waitFor(
+      () => {
+        const snapshot = sessionSnapshotFromFrames(terminalFrames, created.sessionId);
+        return snapshot?.items?.at(-1)?.text === 'completed after detach' ? snapshot : null;
+      },
+      'terminal observes completion after desktop detach',
+    );
+    assert.equal(completed.busy, false);
+    assert.equal(abortCalls, 0);
+    await terminal.call('session.unsubscribe', { sessionId: created.sessionId });
+    await terminal.close('test');
+  }, { engineFactory });
 });
 
 test('engine faults answer as call errors and non-serializable values are dropped', async () => {
   await withDaemon(async ({ discovery }) => {
     const client = await attachEngineDaemon({ discovery, cwd: process.cwd() });
-    const { engineId } = await client.call('engine.open', { cwd: process.cwd() });
+    const { sessionId } = await client.call('session.create', { cwd: process.cwd() });
     await assert.rejects(
-      () => client.call('engine.call', { engineId, method: 'boom', args: [] }),
+      () => client.call('session.invoke', { sessionId, method: 'boom', args: [] }),
       /stub failure/,
     );
     await assert.rejects(
-      () => client.call('engine.call', { engineId, method: 'missingMethod', args: [] }),
+      () => client.call('session.invoke', { sessionId, method: 'missingMethod', args: [] }),
       /unavailable/,
     );
-    const described = await client.call('engine.call', { engineId, method: 'describe', args: [] });
+    const described = await client.call('session.invoke', { sessionId, method: 'describe', args: [] });
     assert.deepEqual(described.value, { ok: true, when: '1970-01-01T00:00:00.000Z' });
     await client.close('test');
   });
@@ -199,12 +524,12 @@ test('engine faults answer as call errors and non-serializable values are droppe
 test('a retried call with the same id runs exactly one engine mutation', async () => {
   await withDaemon(async ({ discovery }) => {
     const client = await attachEngineDaemon({ discovery, cwd: process.cwd() });
-    const { engineId } = await client.call('engine.open', { cwd: process.cwd() });
+    const { sessionId } = await client.call('session.create', { cwd: process.cwd() });
     const callId = 'stable-call-id';
-    await client.call('engine.call', { engineId, method: 'submit', args: ['once'] }, { callId });
-    await client.call('engine.call', { engineId, method: 'submit', args: ['once'] }, { callId });
-    const { snapshot } = await client.call('engine.snapshot', { engineId });
-    assert.equal(snapshot.items.length, 1);
+    await client.call('session.invoke', { sessionId, method: 'submit', args: ['once'] }, { callId });
+    await client.call('session.invoke', { sessionId, method: 'submit', args: ['once'] }, { callId });
+    const read = await client.call('session.read', { sessionId });
+    assert.equal(read.full.items.length, 1);
     await client.close('test');
   });
 });
@@ -213,7 +538,7 @@ test('the remote engine proxy keeps the store contract', async () => {
   await withDaemon(async () => {
     const engine = await createRemoteEngineSession({ cwd: process.cwd() });
     assert.equal(engine.isRemoteEngine, true);
-    assert.equal(engine.getState().sessionId, 'stub-session');
+    assert.match(engine.getState().sessionId, /^sess_daemon_/);
 
     let notified = 0;
     const unsubscribe = engine.subscribe(() => { notified += 1; });
@@ -222,9 +547,9 @@ test('the remote engine proxy keeps the store contract', async () => {
     assert.ok(notified > 0, 'subscribers observe the mirrored snapshot');
     unsubscribe();
 
-    // A second view of the SAME daemon shares the attachment and the engine.
+    // A second view shares the process attachment but owns another session.
     const second = await createRemoteEngineSession({ cwd: process.cwd() });
-    assert.notEqual(second.engineId, engine.engineId);
+    assert.notEqual(second.getState().sessionId, engine.getState().sessionId);
     await second.dispose('test');
     await engine.dispose('test');
   });
@@ -233,29 +558,26 @@ test('the remote engine proxy keeps the store contract', async () => {
 test('the daemon signals shutdown once the last view leaves', async () => {
   await withDaemon(async ({ discovery, clientsEmpty }) => {
     const client = await attachEngineDaemon({ discovery, cwd: process.cwd() });
-    await client.call('engine.open', { cwd: process.cwd() });
+    await client.call('session.create', { cwd: process.cwd() });
     await client.close('test');
     await waitFor(() => clientsEmpty() === 'empty', 'client grace elapses into shutdown');
   });
 });
 
-test('resuming a session another view already holds adopts that engine', async () => {
+test('resuming a session another view already holds converges on one owner', async () => {
   await withDaemon(async ({ service }) => {
-    // Fresh placeholder engines (no session) — exactly what a new terminal or a
-    // new desktop window boots with before the user opens a session.
     const terminal = await createRemoteEngineSession({ cwd: process.cwd() });
     const desktop = await createRemoteEngineSession({ cwd: process.cwd() });
-    assert.equal(service.size, 2, 'each view starts on its own placeholder engine');
+    assert.equal(service.size, 2, 'each new-task view starts with a reserved session');
 
     await terminal.resume('shared-session');
     await waitFor(() => terminal.getState().sessionId === 'shared-session',
       'the terminal view holds the resumed session');
 
-    // The desktop resumes the SAME session: it must join the live engine, not
-    // load a second copy of it.
+    // The desktop resumes the SAME session: it joins the same daemon owner.
     await desktop.resume('shared-session');
-    assert.equal(desktop.engineId, terminal.engineId, 'both views converge on one engine');
-    await waitFor(() => service.size === 1, 'the idle placeholder engine is released');
+    assert.equal(desktop.getState().sessionId, terminal.getState().sessionId);
+    await waitFor(() => service.size === 1, 'unclaimed reservations are reclaimed internally');
 
     await desktop.submit('typed in the desktop');
     await waitFor(() => terminal.getState().items.some((item) => item.text === 'typed in the desktop'),
@@ -286,7 +608,7 @@ test('a method return leaves the view consistent immediately', async () => {
   }, { engineFactory: async () => createStubEngine('') });
 });
 
-test('a working engine outlives its last view and the next one adopts it', async () => {
+test('a working engine outlives its last view and the next one rejoins it', async () => {
   await withDaemon(async ({ service }) => {
     const before = await createRemoteEngineSession({ cwd: process.cwd() });
     await before.resume('long-running');
@@ -314,33 +636,25 @@ test('one client leaving never ends the engine another client is watching', asyn
     // Two SEPARATE clients (terminal process + desktop process), not two views
     // in one process: the mirror refcount inside a client cannot see the peer.
     const terminal = await attachEngineDaemon({ discovery, cwd: process.cwd() });
-    const desktopFrames = [];
     const desktop = await attachEngineDaemon({
-      discovery, cwd: process.cwd(), onFrame: (frame) => desktopFrames.push(frame),
+      discovery, cwd: process.cwd(),
     });
-    const { engineId } = await terminal.call('engine.open', { cwd: process.cwd() });
-    // The desktop joins the same engine exactly as an adoption does.
-    await desktop.call('engine.snapshot', { engineId });
+    const { sessionId } = await terminal.call('session.create', { cwd: process.cwd() });
+    await desktop.call('session.subscribe', { sessionId });
 
     // The terminal quits.
-    const released = await terminal.call('engine.dispose', { engineId, reason: 'terminal exit' });
-    assert.equal(released.retained, true, 'the engine is retained for the remaining viewer');
-    assert.equal(service.size, 1, 'the engine survives the terminal exit');
-    assert.ok(!desktopFrames.some((frame) => frame.type === 'engine-gone'),
-      'the surviving view is never told its engine is gone');
+    await terminal.close('terminal exit');
+    assert.equal(service.size, 1, 'the session survives the terminal exit');
 
-    // …and the desktop keeps working on the very same engine.
-    await desktop.call('engine.call', { engineId, method: 'submit', args: ['after terminal exit'] });
-    const { snapshot } = await desktop.call('engine.snapshot', { engineId });
-    assert.equal(snapshot.items.at(-1).text, 'after terminal exit');
+    // …and the desktop keeps working on the same session.
+    await desktop.call('session.submit', { sessionId, prompt: 'after terminal exit' });
+    const read = await desktop.call('session.read', { sessionId });
+    assert.equal(read.full.items.at(-1).text, 'after terminal exit');
 
-    // The LAST viewer leaving still does not end it: an EMPTY placeholder is
-    // the only thing a dispose may reclaim, and this engine carries a session.
-    await desktop.call('engine.call', { engineId, method: 'resume', args: ['kept-session'] });
-    await desktop.call('engine.dispose', { engineId, reason: 'desktop exit' });
+    // The last viewer leaving still does not end a materialized session.
+    await desktop.call('session.unsubscribe', { sessionId });
     assert.equal(service.size, 1, 'a session-carrying engine outlives every view');
 
-    await terminal.close('test');
     await desktop.close('test');
   }, { engineFactory: async () => createStubEngine('') });
 });
@@ -349,18 +663,18 @@ test('a client that disappears releases its view without killing the engine', as
   await withDaemon(async ({ discovery, service }) => {
     const terminal = await attachEngineDaemon({ discovery, cwd: process.cwd() });
     const desktop = await attachEngineDaemon({ discovery, cwd: process.cwd() });
-    const { engineId } = await terminal.call('engine.open', { cwd: process.cwd() });
-    await desktop.call('engine.snapshot', { engineId });
+    const { sessionId } = await terminal.call('session.create', { cwd: process.cwd() });
+    await desktop.call('session.subscribe', { sessionId });
 
     // Terminal window closed with no dispose at all (deregister only).
     await terminal.close('terminal closed');
-    assert.equal(service.size, 1, 'a vanished client never takes the engine with it');
-    await desktop.call('engine.call', { engineId, method: 'submit', args: ['still alive'] });
+    assert.equal(service.size, 1, 'a vanished client never takes the session from another viewer');
+    const read = await desktop.call('session.read', { sessionId });
+    assert.equal(read.sessionId, sessionId);
 
-    // An empty placeholder (no session, no work) is the one thing a view
-    // release may reclaim — otherwise a closed pane would leak an engine.
-    await desktop.call('engine.dispose', { engineId, reason: 'desktop exit' });
-    assert.equal(service.size, 0, 'an empty placeholder is reclaimed on release');
+    // An unclaimed reservation is reclaimed by daemon policy, not client dispose.
+    await desktop.call('session.unsubscribe', { sessionId });
+    assert.equal(service.size, 0, 'an unclaimed reservation is reclaimed on unsubscribe');
     await desktop.close('test');
   }, { engineFactory: async () => createStubEngine('') });
 });
@@ -377,7 +691,7 @@ test('closing every view never ends a live session engine', async () => {
     await terminal.dispose('terminal exit');
     assert.equal(service.size, 1, 'the engine belongs to the daemon, not to the view');
 
-    // Coming back adopts the SAME live engine, in-memory state intact.
+    // Coming back rejoins the SAME live engine, in-memory state intact.
     const desktop = await createRemoteEngineSession({ cwd: process.cwd() });
     await desktop.resume('kept-alive');
     assert.equal(service.size, 1, 'no second engine was loaded for the session');
@@ -387,20 +701,18 @@ test('closing every view never ends a live session engine', async () => {
   }, { engineFactory: async () => createStubEngine('') });
 });
 
-test('a view told its engine is gone comes back instead of stalling', async () => {
+test('a view told its session was unloaded comes back instead of stalling', async () => {
   await withDaemon(async ({ transport, service }) => {
     const view = await createRemoteEngineSession({ cwd: process.cwd() });
     await view.resume('recovered-session');
-    const original = view.engineId;
-
-    // The daemon announces the engine is gone (shutdown, idle eviction). The old
-    // contract killed the view here and every later call answered "this view is
-    // disposed" — the stall. It must re-open and land back on the session.
+    // The daemon announces an idle unload. The projection must subscribe again
+    // without exposing or recovering an internal engine handle.
     transport.broadcast({
-      type: 'engine-gone', key: `engine-state:${original}`, engineId: original, reason: 'evicted',
+      type: 'session-gone', key: 'session-state:recovered-session',
+      sessionId: 'recovered-session', reason: 'evicted',
     });
-    await waitFor(() => view.engineId === original && service.size === 1,
-      'the view re-opened and rejoined the live session engine');
+    await waitFor(() => view.getState().sessionId === 'recovered-session' && service.size === 1,
+      'the view rejoined the session');
     assert.equal(view.disposedView, false, 'the view stays usable');
     assert.equal(view.getState().sessionId, 'recovered-session', 'the session came back with it');
 

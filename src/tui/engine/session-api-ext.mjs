@@ -10,6 +10,7 @@ import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
 import { aggregateToolCategoryEntry, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, summarizeToolResult } from '../../runtime/shared/tool-surface.mjs';
 import { aggregateBucketForCategory, aggregateRawResult, failureDetailText, shellCommandExitCode } from './tool-result-status.mjs';
 import { isInternalTranscriptDisplayText } from '../../runtime/shared/tool-execution-contract.mjs';
+import { toolResultTerminalStatus } from '../../runtime/shared/tool-status.mjs';
 
 export function restoredTranscriptMetadata(message) {
   const value = message?.meta?.transcript;
@@ -96,7 +97,18 @@ function attachRestoredToolResult(message, pendingByCallId) {
   pendingByCallId.delete(callId);
   const text = (typeof message?.content === 'string' ? message.content : toolResultText(message?.content)) || '';
   target.result = text;
-  if (/^\s*(?:error|\[error|failed\b)/i.test(text)) target.isError = true;
+  if (Object.hasOwn(message || {}, 'uiDiff')) {
+    target.uiDiff = typeof message.uiDiff === 'string' ? message.uiDiff : '';
+  }
+  // Cancel/crash control bodies are not red failures — show Cancelled tone.
+  if (toolResultTerminalStatus(text) === 'cancelled') {
+    target.isError = false;
+  } else if (
+    message?.toolKind === 'error'
+    || /^\s*(?:error|\[error|failed\b)/i.test(text)
+  ) {
+    target.isError = true;
+  }
 }
 
 // Collapse a consecutive run (≥2) of restored per-call tool items into ONE
@@ -142,6 +154,9 @@ function buildRestoredAggregateItem(members) {
     ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: calls.find((r) => r.isExitError)?.exitCode })
     : formatAggregateDetail(calls.filter((r) => r.summary).map((r) => r.summary));
   const rawResult = aggregateRawResult(calls);
+  const latestUiDiff = [...members].reverse()
+    .map(({ item }) => item)
+    .find((item) => Object.hasOwn(item || {}, 'uiDiff'));
   const first = members[0].item;
   const last = members[members.length - 1].item;
   return {
@@ -161,6 +176,7 @@ function buildRestoredAggregateItem(members) {
     result: displayDetail,
     text: displayDetail,
     rawResult: rawResult || null,
+    ...(latestUiDiff ? { uiDiff: latestUiDiff.uiDiff } : {}),
     expanded: false,
     headerFinalized: true,
     ...(first.at != null ? { at: first.at } : {}),
@@ -224,6 +240,12 @@ function restoredUserTranscriptItems(message, nextId) {
     : toolResultText(message?.content)).trim();
   if (isInternalTranscriptDisplayText(text)) return [];
   if (!text) return [];
+  // Crash-recovery control row: keep the persisted marker for the next model
+  // step, but render it like a live cancel tail (◈ Cancelled) instead of a
+  // raw user bubble with bracketed internals.
+  if (/^\[request interrupted by process restart\]$/i.test(text)) {
+    return [{ kind: 'turndone', id: nextId(), status: 'cancelled', elapsedMs: 0 }];
+  }
   const synthetic = parseSyntheticAgentMessage(text);
   if (!synthetic) {
     return [{ kind: 'user', id: nextId(), text, ...restoredTranscriptMetadata(message) }];

@@ -1,10 +1,9 @@
 # Lead Brief
 
-- Minimum chars, maximum info: one-line fragments. `Task:` is mandatory and
-  lossless: each role
-  constructs it from the original request and official spec/test acceptance
-  criteria, preserving intent, required and forbidden outcomes,
-  completion/stop boundary, user-supplied exact targets, and exact
+- Minimum chars, maximum info: one-line fragments. Every role's `Task:` is
+  mandatory and lossless — build it from the original request and the official
+  spec/test acceptance criteria, preserving intent, required and forbidden
+  outcomes, completion/stop boundary, user-supplied exact targets, and exact
   replacements/outputs. Never infer exactness from task name, file count, or
   difficulty.
 - Omit role-known rules, repeated context/facts, and padding; split scope

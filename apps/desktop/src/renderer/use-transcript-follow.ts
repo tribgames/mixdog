@@ -11,6 +11,11 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
  */
 const GESTURE_WINDOW_MS = 250;
 const BOTTOM_THRESHOLD_PX = 10;
+// Re-attaching tolerates more slack than releasing does: while a turn streams,
+// the tail keeps moving away between the reader's last scroll frame and this
+// handler, so a deliberate scroll back down lands tens of px above a bottom
+// that has already grown.
+const REATTACH_THRESHOLD_PX = 32;
 const SCROLL_KEYS = ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "];
 
 type WheelLike = {
@@ -68,6 +73,14 @@ function distanceFromBottom(element: HTMLElement): number {
 
 function canScroll(element: HTMLElement): boolean {
   return element.scrollHeight - element.clientHeight > 1;
+}
+
+// The downward-arrival band scales with the pane: on a tall transcript a fast
+// turn appends far more than 32px between the reader's last scroll frame and
+// the scroll event that lands, so a fixed band left the reader detached right
+// under the tail (user: 스크롤이 너무 자주 풀린다).
+function reattachBand(element: HTMLElement): number {
+  return Math.max(REATTACH_THRESHOLD_PX, Math.round(element.clientHeight * 0.12));
 }
 
 export interface TranscriptFollow {
@@ -266,11 +279,44 @@ export function useTranscriptFollow({
     scheduleScrollState(element);
     const previousTop = lastTop.current;
     lastTop.current = element.scrollTop;
+    // Re-attaching at the tail is NOT gesture-gated. Smooth-scroll and inertial
+    // tails deliver their last frames well after the 250ms window closes, and a
+    // streaming turn keeps pushing the bottom down, so requiring an open
+    // gesture window here left a reader who scrolled back to the end detached
+    // forever — new output then piled up below the fold (user: 내려도 다시 안
+    // 붙고 텍스트가 아래로 묻힌다). Only the RELEASE decision needs gesture
+    // attribution; a detached viewport cannot release again.
+    if (!followingRef.current) {
+      // The timeline's own corrective writes are not the reader coming back.
+      if (isProgrammatic(element)) return;
+      // Re-attaching only flips the flag — it never writes scrollTop, so the
+      // reader's offset is never rolled back; the tail is regained by the next
+      // append instead of a jump.
+      const distance = distanceFromBottom(element);
+      if (!canScroll(element)
+        || distance < BOTTOM_THRESHOLD_PX
+        // A DOWNWARD arrival re-attaches from a wider band: while a turn
+        // streams, the bottom keeps moving away between the reader's last
+        // scroll frame and this handler, so the ten-pixel band alone could
+        // never be met on the way back.
+        || (element.scrollTop > previousTop && distance <= reattachBand(element))) {
+        publish(true);
+      }
+      return;
+    }
     if (!hasGesture()) return;
     // Only a scroll actually attributed to the reader keeps the gesture window
     // alive; a stream of timeline writes must not hold it open forever.
     if (handleAutoScroll(previousTop)) markGesture();
-  }, [handleAutoScroll, hasGesture, markGesture, scheduleScrollState, viewport]);
+  }, [
+    handleAutoScroll,
+    hasGesture,
+    isProgrammatic,
+    markGesture,
+    publish,
+    scheduleScrollState,
+    viewport,
+  ]);
 
   const handleWheel = useCallback((event: WheelLike) => {
     const root = event.currentTarget;
@@ -283,6 +329,9 @@ export function useTranscriptFollow({
     const nested = event.target instanceof Element
       ? event.target.closest("[data-scrollable]")
       : null;
+    // OpenCode createAutoScroll.handleWheel: an upward wheel is explicit intent
+    // and releases immediately, however small it is. Re-attaching is the side
+    // that carries the slack (reattachBand).
     if (delta < 0 && (!nested || nested === root)) stop();
   }, [markGesture, stop]);
 
@@ -356,8 +405,11 @@ export function useTranscriptFollow({
     const target = content.current;
     const element = viewport.current;
     if (!target || !element) return undefined;
-    // OpenCode's virtual timeline is the sole browser-anchor authority.
-    element.style.overflowAnchor = "none";
+    // OpenCode createAutoScroll dynamic mode: while following, the virtual
+    // timeline owns anchoring (overflow-anchor:none). Once the reader has left
+    // the tail, browser auto-anchoring helps keep the reading position still
+    // across rewrap/content mutations.
+    element.style.overflowAnchor = followingRef.current ? "none" : "auto";
     // Chromium always provides ResizeObserver. The renderer's jsdom harness
     // intentionally omits it in tests that do not exercise layout delivery.
     if (typeof ResizeObserver !== "function") return undefined;
@@ -390,7 +442,7 @@ export function useTranscriptFollow({
     // the same pre-paint ResizeObserver transaction.
     if (element !== target) observer.observe(element);
     return () => observer.disconnect();
-  }, [content, contentMounted, publish, scheduleScrollState, scrollToBottom, sessionKey, viewport]);
+  }, [content, contentMounted, following, publish, scheduleScrollState, scrollToBottom, sessionKey, viewport]);
 
   useEffect(() => () => {
     window.clearTimeout(autoTimer.current);
