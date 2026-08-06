@@ -12,9 +12,21 @@
   --mx-control-xs: 24px;
   --mx-control-sm: 28px;
   --mx-control-md: 32px;
+  /* THE icon ladder — six steps, no 1px neighbours (the same consolidation
+     the type scale got). Every CSS icon box below reads from here, and the
+     lucide `size={}` literals in TSX are snapped to these values: lucide
+     takes a JS prop, so the tokens cannot drive it and this block is the
+     spec the call sites follow. xs = inline counters/badge glyphs, sm = row
+     and menu glyphs, md = control/toolbar glyphs, lg = pane-header and rail
+     toggles, xl = activity-rail destinations, 2xl = empty-state marks.
+     Anything above 2xl (26/28/40/72/96) is a content illustration, not an
+     icon, and stays literal like the content font sizes. */
   --mx-icon-xs: 12px;
   --mx-icon-sm: 14px;
   --mx-icon-md: 16px;
+  --mx-icon-lg: 18px;
+  --mx-icon-xl: 20px;
+  --mx-icon-2xl: 24px;
   --mx-color-panel: var(--mx-workspace-sheet);
   --mx-color-control: var(--mx-bg-base);
   --mx-color-control-hover: var(--mx-bg-layer-1);

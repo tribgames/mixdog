@@ -117,6 +117,120 @@ function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
+function hasOwn(value, key) {
+  return Object.prototype.hasOwnProperty.call(value || {}, key)
+}
+
+// Canonical on-disk channel shape. Backend-specific ids are durable; the old
+// generic channelId mirror is accepted only long enough to seed an unambiguous
+// active-backend id. Schedule arrays moved to the scheduler DB and prompt
+// injection moved to runtime hooks, so neither belongs in config anymore.
+export function canonicalizeStoredChannelsConfig(value = {}) {
+  const next = isPlainObject(value) ? { ...value } : {}
+  delete next.promptInjection
+  delete next.schedules
+  delete next.nonInteractive
+  delete next.interactive
+
+  const channel = isPlainObject(next.channel) ? { ...next.channel } : {}
+  const legacyId = String(channel.channelId || '').trim()
+  const discordId = String(channel.discordChannelId || '').trim()
+  const telegramId = String(channel.telegramChatId || '').trim()
+  const backend = next.backend === 'telegram' ? 'telegram' : 'discord'
+  if (legacyId) {
+    if (!discordId && !telegramId) {
+      if (backend === 'telegram') channel.telegramChatId = legacyId
+      else channel.discordChannelId = legacyId
+      delete channel.channelId
+    } else if ((backend === 'telegram' && telegramId) || (backend === 'discord' && discordId) || (discordId && telegramId)) {
+      // The mirror is redundant only when its active-backend destination is
+      // already known. Keep ambiguous legacy input rather than guessing.
+      delete channel.channelId
+    }
+  } else {
+    delete channel.channelId
+  }
+  next.channel = channel
+  return next
+}
+
+// Normalize cross-section legacy keys without touching independent domains
+// (ui/theme, desktop, voice, channels access, memory schedules/embedding, …).
+// Reads use this shape in-memory; every subsequent locked write persists it.
+export function canonicalizeUnifiedConfig(value = {}) {
+  const next = isPlainObject(value) ? { ...value } : {}
+  const hadAgent = isPlainObject(next.agent)
+  const agent = hadAgent ? { ...next.agent } : {}
+
+  if (!String(next.outputStyle || '').trim() && String(agent.outputStyle || '').trim()) {
+    next.outputStyle = agent.outputStyle
+  }
+  delete agent.outputStyle
+
+  for (const key of ['autoClear', 'compaction', 'shell']) {
+    if (!isPlainObject(agent[key]) && isPlainObject(next[key])) agent[key] = next[key]
+    delete next[key]
+  }
+  if (isPlainObject(next.mcpServers)) {
+    agent.mcpServers = {
+      ...next.mcpServers,
+      ...(isPlainObject(agent.mcpServers) ? agent.mcpServers : {}),
+    }
+    delete next.mcpServers
+  }
+  if (!isPlainObject(agent.searchRoute) && isPlainObject(agent.search)) {
+    agent.searchRoute = agent.search
+  }
+  delete agent.search
+  delete agent.capabilities
+
+  const modules = isPlainObject(agent.modules) ? { ...agent.modules } : {}
+  if (hasOwn(modules, 'memory')) {
+    const legacyMemory = modules.memory
+    const explicitRecap = isPlainObject(agent.recap) && hasOwn(agent.recap, 'enabled')
+    if (!explicitRecap) {
+      const enabled = isPlainObject(legacyMemory)
+        ? legacyMemory.enabled !== false
+        : legacyMemory !== false
+      agent.recap = { ...(isPlainObject(agent.recap) ? agent.recap : {}), enabled }
+    }
+    delete modules.memory
+    agent.modules = modules
+  }
+
+  if (isPlainObject(next.memory)) {
+    const memory = { ...next.memory }
+    const user = isPlainObject(memory.user) ? { ...memory.user } : {}
+    const legacyTitle = String(user.title || '').trim()
+    if (legacyTitle && !String(agent.profile?.title || '').trim()) {
+      agent.profile = { ...(isPlainObject(agent.profile) ? agent.profile : {}), title: legacyTitle }
+    }
+    delete user.title
+    if (Object.keys(user).length) memory.user = user
+    else delete memory.user
+    if (hasOwn(memory, 'enabled')) {
+      const explicitRecap = isPlainObject(agent.recap) && hasOwn(agent.recap, 'enabled')
+      if (!explicitRecap) {
+        agent.recap = { ...(isPlainObject(agent.recap) ? agent.recap : {}), enabled: memory.enabled !== false }
+      }
+      delete memory.enabled
+    }
+    if (Object.keys(memory).length) next.memory = memory
+    else delete next.memory
+  }
+
+  if (isPlainObject(next.channels)) {
+    next.channels = canonicalizeStoredChannelsConfig(next.channels)
+  }
+  // Both sections are retired. `search` had only a fixed timeout that the
+  // runtime now owns, while `capabilities.homeAccess` never had a live path
+  // consumer or settings writer. Do not keep inert user-facing config.
+  delete next.search
+  delete next.capabilities
+  if (hadAgent || Object.keys(agent).length) next.agent = agent
+  return next
+}
+
 export function stripGeneratedMarker(data) {
   if (!isPlainObject(data) || !Object.prototype.hasOwnProperty.call(data, GENERATED_KEY)) return data
   const { [GENERATED_KEY]: _generated, ...rest } = data
@@ -188,7 +302,7 @@ function writeJsonFile(path, data) {
 
 function readAll() {
   const parsed = readJsonFile(CONFIG_PATH)
-  if (parsed != null) return parsed
+  if (parsed != null) return canonicalizeUnifiedConfig(parsed)
   // Symmetric with readAllForRmW(): a missing/unreadable config on a data
   // dir that was previously initialized means the file was LOST (deleted,
   // failed write), not a fresh install. Self-heal from the newest
@@ -202,7 +316,7 @@ function readAll() {
     const restored = loadLatestMixdogConfigFromBackup(DATA_DIR)
     if (restored && isPlainObject(restored)) {
       process.stderr.write('[config] read: restored mixdog-config.json from latest user-data backup (missing after init)\n')
-      return restored
+      return canonicalizeUnifiedConfig(restored)
     }
   }
   return {}
@@ -259,7 +373,7 @@ function readAllForRmW() {
 }
 
 function writeAll(data) {
-  writeJsonFile(CONFIG_PATH, data)
+  writeJsonFile(CONFIG_PATH, canonicalizeUnifiedConfig(data))
 }
 
 // Serialize a read-modify-write under the same file lock. Concurrent
@@ -268,10 +382,13 @@ function writeAll(data) {
 // silently clobber the earlier section update. Holding the lock across
 // read+modify+write keeps RMW linearizable.
 function withConfigLock(fn) {
-  // secret:true clamps the lock file (which sits beside the API-key
-  // config in a possibly shared home dir) to an owner-only ACL on win32,
-  // fail-closed. POSIX is unaffected.
-  return withFileLockSync(`${CONFIG_PATH}.lock`, fn, { secret: true })
+  // The lock file itself carries no secret — only `<pid> <ts> <token>`, an
+  // integrity marker. Clamping IT owner-only meant two synchronous icacls
+  // spawns (plus whoami) INSIDE the critical section on every config write:
+  // hundreds of ms with the daemon's event loop parked and every other writer
+  // queued behind it. The CONFIG file keeps secret:true, which is where the
+  // API keys actually live.
+  return withFileLockSync(`${CONFIG_PATH}.lock`, fn)
 }
 
 export function readSection(section) {
@@ -288,7 +405,7 @@ export function updateConfig(updater) {
     const current = stripGeneratedMarker(readAllForRmW()) || {}
     const next = typeof updater === 'function' ? updater({ ...current }) : updater
     if (!isPlainObject(next)) throw new Error('[config] updateConfig updater must return an object')
-    saved = stripGeneratedMarker(next) || {}
+    saved = canonicalizeUnifiedConfig(stripGeneratedMarker(next) || {})
     writeAll(saved)
   })
   return saved
@@ -335,13 +452,13 @@ async function writeJsonFileAsync(path, data) {
 }
 
 async function writeAllAsync(data) {
-  await writeJsonFileAsync(CONFIG_PATH, data)
+  await writeJsonFileAsync(CONFIG_PATH, canonicalizeUnifiedConfig(data))
 }
 
-// secret:true clamps the shared-home lock file owner-only on win32 via the
-// ASYNC icacls variant inside withFileLock (fail-closed, non-blocking).
 function withConfigLockAsync(fn) {
-  return withFileLock(`${CONFIG_PATH}.lock`, fn, { secret: true })
+  // Same reasoning as withConfigLock: the ACL belongs on the config file, not
+  // on its lock marker, and icacls has no business inside the lock.
+  return withFileLock(`${CONFIG_PATH}.lock`, fn)
 }
 
 // Process-wide registry at the lock-owning layer: every public async RMW path
@@ -376,7 +493,7 @@ export function updateConfigAsync(updater) {
       const current = stripGeneratedMarker(readAllForRmW()) || {}
       const next = typeof updater === 'function' ? updater({ ...current }) : updater
       if (!isPlainObject(next)) throw new Error('[config] updateConfigAsync updater must return an object')
-      saved = stripGeneratedMarker(next) || {}
+      saved = canonicalizeUnifiedConfig(stripGeneratedMarker(next) || {})
       await writeAllAsync(saved)
     })
     return saved
@@ -398,37 +515,6 @@ export function updateSectionAsync(section, updater) {
     all[section] = stripGeneratedMarker(typeof updater === 'function' ? updater(current) : updater)
     await writeAllAsync(all)
   }))
-}
-
-// ── Capabilities (B2 central path policy) ───────────────────────────
-// Top-level `capabilities` section in mixdog-config.json. Safe defaults
-// win on missing/malformed input — every cap is OFF unless explicitly
-// enabled. Settings round-trip through the setup UI; the in-process
-// path gate reads them via `getCapabilities()`.
-//
-// homeAccess: when true, file tools may write anywhere under $HOME. When
-// false (default), file tools are cwd-scoped — matches the setup UI's
-// out-of-the-box "OFF" toggle so a fresh install is restrictive until the
-// user explicitly opts in. This ONLY controls the main-agent path gate —
-// agent role Edit/Write to HOME paths always go through Discord approval
-// regardless (enforced in hooks/pre-tool-subagent.cjs).
-const CAPABILITY_DEFAULTS = Object.freeze({ homeAccess: false })
-
-function readCapabilities() {
-  const raw = readAll().capabilities
-  const out = { ...CAPABILITY_DEFAULTS }
-  if (raw && typeof raw === 'object') {
-    if (raw.homeAccess === true) out.homeAccess = true
-    else if (raw.homeAccess === false) out.homeAccess = false
-  }
-  return out
-}
-
-// Convenience alias requested by B2 call-site plumbing. Returns the
-// same object shape as readCapabilities(); callers that only need a
-// boolean can read `.homeAccess` directly.
-function getCapabilities() {
-  return readCapabilities()
 }
 
 // ── Secret account names ─────────────────────────────────────────────────────

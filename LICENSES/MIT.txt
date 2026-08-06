@@ -1,0 +1,56 @@
+MIT-licensed components used by Mixdog
+======================================
+
+The permission notice reproduced at the bottom of this file applies to every
+component listed here. Each component keeps its own copyright notice.
+
+  Visual Studio Code
+  https://github.com/microsoft/vscode
+  Copyright (c) 2015 - present Microsoft Corporation
+
+  GitHub Pull Requests and Issues (VS Code extension)
+  https://github.com/microsoft/vscode-pull-request-github
+  Copyright (c) Microsoft Corporation. All rights reserved.
+
+  Files
+  https://github.com/files-community/Files
+  Copyright (c) 2018 - present Files Community
+
+  OpenCode
+  https://github.com/anomalyco/opencode
+  Copyright (c) 2025 opencode
+
+  pi
+  https://github.com/earendil-works/pi
+  Copyright (c) 2025 Mario Zechner
+
+  Orca
+  Copyright (c) 2026 Lovecast Inc.
+
+  Ink (distributed under its own license)
+  https://github.com/vadimdemedes/ink
+  Copyright (c) Vadym Demedes <vadimdemedes@hey.com>
+  Copyright (c) Sindre Sorhus <sindresorhus@gmail.com>
+
+  Seti UI (bundled glyph/colour data; see apps/desktop/THIRD-PARTY-NOTICES.txt)
+  https://github.com/jesseweed/seti-ui
+  Copyright (c) 2014 Jesse Weed
+
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

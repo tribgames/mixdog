@@ -40,8 +40,15 @@ export function DesktopTitlebar({
   updaterState,
   onOpenUpdate,
 }: DesktopTitlebarProps) {
-  const windowsCaptionControls = typeof navigator !== "undefined" &&
-    /Windows/i.test(navigator.userAgent);
+  // The - ㅁ x caption band belongs to the ELECTRON shell alone. A browser or
+  // phone surface serves the SAME bundle through the relay/LAN bridge
+  // (remote-shim installs mixdogRemoteServer there), and reserving a caption
+  // strip there only steals the title row of a window that has no caption.
+  const remoteSurface = typeof window !== "undefined"
+    && Boolean((window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer);
+  const windowsCaptionControls = !remoteSurface
+    && typeof navigator !== "undefined"
+    && /Windows/i.test(navigator.userAgent);
   // Updater badge (user: 다운로드 아이콘을 사이드바 토글 왼쪽으로): the accent
   // circle moved from the Activity Bar foot into the layout-control cluster.
   const updateVisible = Boolean(onOpenUpdate)
@@ -84,7 +91,7 @@ export function DesktopTitlebar({
             data-tooltip={updateInstalling ? t("Installing update") : t("Update")}
           >
             {updateInstalling
-              ? <ProgressSpinner size={10} className="sidebar-update-loader" aria-hidden="true" />
+              ? <ProgressSpinner size={12} className="sidebar-update-loader" aria-hidden="true" />
               : <ArrowDown size={16} strokeWidth={2.6} aria-hidden="true" />}
           </button>
         )}

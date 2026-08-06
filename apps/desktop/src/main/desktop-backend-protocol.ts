@@ -7,6 +7,10 @@ import type {
 export type DesktopBackendInbound =
   | { kind: 'init'; options: SerializableEngineHostOptions }
   | { kind: 'request'; id: number; method: EngineHostRpcMethod; args: unknown[] }
+  /** Fire-and-forget lane: no response frame, no pending entry, no timeout.
+   *  Terminal keystrokes and resizes ride it so a keypress never queues behind
+   *  an engine request's round trip. */
+  | { kind: 'notify'; method: EngineHostRpcMethod; args: unknown[] }
   | { kind: 'state-ack'; sequence: number }
   | { kind: 'session-state-resync'; sessionId: string }
   | { kind: 'state-resync' };

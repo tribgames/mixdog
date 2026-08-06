@@ -9,13 +9,29 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
  * pane-width or viewport observer adapter sits between those two owners.
  */
 const GESTURE_WINDOW_MS = 250;
-const BOTTOM_THRESHOLD_PX = 10;
+export const BOTTOM_THRESHOLD_PX = 10;
 // Re-attaching tolerates more slack than releasing does: while a turn streams,
 // the tail keeps moving away between the reader's last scroll frame and this
 // handler, so a deliberate scroll back down lands tens of px above a bottom
 // that has already grown.
 const REATTACH_THRESHOLD_PX = 32;
 const SCROLL_KEYS = ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "];
+// A release must be a real upward move, not sub-pixel reflow noise. Fractional
+// row heights under a parallel stream deliver 1px scrollTop wobble that is not
+// reader intent; the reference implementation never sees it because it does not
+// virtualize (user: 병렬 작업 중 타이핑하면 스크롤이 계속 풀린다).
+const RELEASE_MOVE_PX = 1;
+
+function reportRelease(reason: string, element: HTMLElement, previousTop: number): void {
+  try {
+    window.mixdogDesktop?.perfLog?.(
+      `transcript-follow-release reason=${reason}`
+      + ` top=${Math.round(element.scrollTop)}`
+      + ` delta=${Math.round(element.scrollTop - previousTop)}`
+      + ` distance=${Math.round(element.scrollHeight - element.clientHeight - element.scrollTop)}`,
+    );
+  } catch { /* diagnostics only */ }
+}
 
 type WheelLike = {
   target: EventTarget | null;
@@ -216,7 +232,7 @@ export function useTranscriptFollow({
     scrollToBottomNow(element, "auto");
   }, [markAuto, publish, scrollToBottomNow, viewport]);
 
-  const stop = useCallback(() => {
+  const stop = useCallback((reason = "gesture", previousTop = 0) => {
     const element = viewport.current;
     if (!element) return;
     if (!canScroll(element)) {
@@ -224,10 +240,11 @@ export function useTranscriptFollow({
       return;
     }
     if (!followingRef.current) return;
+    reportRelease(reason, element, previousTop);
     publish(false);
   }, [publish, viewport]);
 
-  const pause = stop;
+  const pause = useCallback(() => stop("pause"), [stop]);
 
   const updateScrollState = useCallback((element: HTMLDivElement) => {
     const max = element.scrollHeight - element.clientHeight;
@@ -267,8 +284,8 @@ export function useTranscriptFollow({
     // did not move UP: append-follow and reflow corrections keep the reader at
     // the tail, so only an actual upward move carries release intent.
     if (isProgrammatic(element)) return false;
-    if (element.scrollTop >= previousTop) return false;
-    stop();
+    if (previousTop - element.scrollTop <= RELEASE_MOVE_PX) return false;
+    stop("scroll", previousTop);
     return true;
   }, [isAuto, isProgrammatic, publish, scrollToBottom, stop, viewport]);
 
@@ -331,7 +348,7 @@ export function useTranscriptFollow({
     // Wheel rule: an upward wheel is explicit intent
     // and releases immediately, however small it is. Re-attaching is the side
     // that carries the slack (reattachBand).
-    if (delta < 0 && (!nested || nested === root)) stop();
+    if (delta < 0 && (!nested || nested === root)) stop("wheel", lastTop.current);
   }, [markGesture, stop]);
 
   const handlePointerDown = useCallback((event: PointerLike) => {
@@ -369,7 +386,7 @@ export function useTranscriptFollow({
   }, []);
 
   const handleInteraction = useCallback(() => {
-    if (window.getSelection()?.toString()) stop();
+    if (window.getSelection()?.toString()) stop("selection", lastTop.current);
   }, [stop]);
 
   const handleKeyDown = useCallback((event: {
@@ -413,33 +430,36 @@ export function useTranscriptFollow({
     // intentionally omits it in tests that do not exercise layout delivery.
     if (typeof ResizeObserver !== "function") return undefined;
     let viewportHeight = Math.round(element.getBoundingClientRect().height);
-    const observer = new ResizeObserver((entries) => {
+    const observer = new ResizeObserver(() => {
       const root = viewport.current;
       if (!root) return;
       scheduleScrollState(root);
-      const contentResized = entries.some((entry) => entry.target !== root);
-      const height = Math.round(root.getBoundingClientRect().height);
-      const viewportHeightChanged = height !== viewportHeight;
-      viewportHeight = height;
+      // Opencode parity (createAutoScroll): a transcript that no longer
+      // OVERFLOWS holds no reading position, so it re-arms follow. The CONTENT
+      // side of that rule is driven by the rows commit in Conversation, not by
+      // a second observer here — virtual-core stays the only content-growth
+      // scroll authority.
       if (!canScroll(root)) {
         if (!followingRef.current) publish(true);
         return;
       }
+      const height = Math.round(root.getBoundingClientRect().height);
+      const viewportHeightChanged = height !== viewportHeight;
+      viewportHeight = height;
       if (!followingRef.current) return;
       // A width-only viewport resize (pane sash / window edge drag) belongs to
       // the virtual timeline: its end anchor absorbs every rewrap delta
       // pre-paint. Writing scrollTop here too made two scroll authorities race
       // mid-drag — exactly the up/down bounce while narrowing.
-      if (!contentResized && !viewportHeightChanged) return;
+      if (!viewportHeightChanged) return;
       scrollToBottom(false);
     });
-    observer.observe(target);
-    // A floating prompt dock never shrinks its scroll view, so watching the
-    // content alone would do. Mixdog's composer/bottom-panel stack DOES shrink
-    // this viewport (a dock drag changes clientHeight with no content resize),
-    // so the same callback watches the viewport too — the bottom re-pins in
-    // the same pre-paint ResizeObserver transaction.
-    if (element !== target) observer.observe(element);
+    // Virtual-core exclusively owns append and measured-row anchoring. Watching
+    // its content spacer here added a second scrollTop writer for every new
+    // row: the core followed the append, then this observer followed the
+    // resulting spacer resize. Observe only the viewport so a composer or
+    // bottom-panel resize still re-pins in the same pre-paint transaction.
+    observer.observe(element);
     return () => observer.disconnect();
   }, [content, contentMounted, following, publish, scheduleScrollState, scrollToBottom, sessionKey, viewport]);
 

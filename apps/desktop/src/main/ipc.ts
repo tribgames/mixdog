@@ -27,6 +27,7 @@ import {
   DESKTOP_IPC,
   DESKTOP_LSP_REQUEST_METHODS,
   DESKTOP_READ_CAPABILITIES,
+  type DesktopAbortOptions,
   type DesktopCapability,
   type DesktopCapabilityReadRequest,
   type DesktopCapabilityRequest,
@@ -101,7 +102,7 @@ const MAX_STRUCTURED_STRING_TOTAL = 32_000_000;
 const CAPABILITY_SET = new Set<string>(DESKTOP_CAPABILITIES);
 const READ_CAPABILITY_SET = new Set<string>(DESKTOP_READ_CAPABILITIES);
 const BOOLEAN_FIRST_CAPABILITIES = new Set<DesktopCapability>([
-  'setAutoUpdate', 'setMemoryEnabled', 'setChannelsEnabled',
+  'setAutoUpdate', 'setRecapEnabled', 'setChannelsEnabled',
 ]);
 const BOOLEAN_SECOND_CAPABILITIES = new Set<DesktopCapability>([
   'setMcpServerEnabled', 'setHookRuleEnabled', 'setScheduleEnabled', 'setWebhookEnabled',
@@ -109,6 +110,7 @@ const BOOLEAN_SECOND_CAPABILITIES = new Set<DesktopCapability>([
 const SUBMIT_OPTION_KEYS = new Set([
   'id', 'submittedAt', 'displayText', 'priority', 'pastedImages', 'pastedTexts',
 ]);
+const ABORT_OPTION_KEYS = new Set(['restorePrompt']);
 const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId', 'remote']);
 const CAPABILITY_REQUEST_KEYS = new Set(['capability', 'args', 'sessionId']);
 const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast']);
@@ -123,8 +125,8 @@ const CAPABILITY_ARITY = {
   restoreQueued: [0, 2], setEffort: [1, 1], setToolMode: [1, 1], getAutoClear: [0, 0],
   setAutoClear: [0, 1], getUpdateSettings: [0, 0], setAutoUpdate: [1, 1], checkForUpdate: [0, 1],
   runUpdateNow: [0, 0], getUpdateStatus: [0, 0], getProfile: [0, 0], setProfile: [0, 1],
-  getCompactionSettings: [0, 0], setCompactionSettings: [0, 1], getMemorySettings: [0, 0],
-  setMemoryEnabled: [1, 1], getChannelSettings: [0, 1], setChannelsEnabled: [1, 1],
+  getCompactionSettings: [0, 0], setCompactionSettings: [0, 1], getRecapSettings: [0, 0],
+  setRecapEnabled: [1, 1], getChannelSettings: [0, 1], setChannelsEnabled: [1, 1],
   getVoiceStatus: [0, 0], toggleVoice: [0, 0],
   // agentControl accepts (args, { silent }) — the dock agent viewer's read.
   agentControl: [0, 2], toolsStatus: [0, 1], selectTools: [1, 1], getSystemShell: [0, 0],
@@ -142,7 +144,7 @@ const CAPABILITY_ARITY = {
   getWorkflowPack: [1, 1], saveWorkflowPack: [1, 1], createWorkflow: [1, 1], deleteWorkflow: [1, 1],
   getAgentDefinition: [1, 1], saveAgentDefinition: [1, 1], deleteAgentDefinition: [1, 1],
   listThemes: [0, 0], getTheme: [0, 0], setTheme: [1, 2], setAgentRoute: [2, 2],
-  setDefaultProvider: [1, 1], listProviders: [0, 0], getProviderSetup: [0, 1],
+  listProviders: [0, 0], getProviderSetup: [0, 1],
   getUsageDashboard: [0, 1], consumeCodexRateLimitResetCredit: [1, 1],
   getTurnReviewDiff: [0, 0], revertTurnReviewFile: [1, 1],
   getOnboardingStatus: [0, 0], skipOnboarding: [0, 0],
@@ -350,6 +352,19 @@ export function requiredSubmitOptions(value: unknown): DesktopSubmitOptions {
     throw new TypeError('submit display text is invalid.');
   }
   return value as DesktopSubmitOptions;
+}
+
+export function requiredAbortOptions(value: unknown): DesktopAbortOptions {
+  if (value === undefined) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('abort options are invalid.');
+  }
+  const input = value as Record<string, unknown>;
+  requireAllowedKeys(input, ABORT_OPTION_KEYS, 'abort options');
+  if (input.restorePrompt !== undefined && typeof input.restorePrompt !== 'boolean') {
+    throw new TypeError('abort restorePrompt is invalid.');
+  }
+  return value as DesktopAbortOptions;
 }
 
 export function requiredNewTaskDraft(value: unknown): DesktopNewTaskDraft {
@@ -1522,40 +1537,28 @@ export function registerDesktopIpc(
       requiredSubmitOptions(options),
       requiredNewTaskDraft(draft),
     ));
-  handle(DESKTOP_IPC.abort, () => host.abort());
+  handle(DESKTOP_IPC.abort, (_event, options) => host.abort(requiredAbortOptions(options)));
   handle(DESKTOP_IPC.resolveToolApproval, (_event, id, input) =>
     host.resolveToolApproval(
       requiredString(id, 'approval id', 1_024),
       requiredToolApprovalDecision(input),
     ));
   // Split panes: prompt/abort/approval addressed to any pooled live session
-  // (active or parked). Hosts without an engine pool simply reject.
-  handle(DESKTOP_IPC.submitToSession, (_event, sessionId, prompt, options) => {
-    if (typeof host.submitToSession !== 'function') {
-      throw new Error('Session-addressed submit is unavailable.');
-    }
-    return host.submitToSession(
+  // (active or parked). The host contract requires every addressed route.
+  handle(DESKTOP_IPC.submitToSession, (_event, sessionId, prompt, options) =>
+    host.submitToSession(
       requiredSessionId(sessionId),
       requiredPromptContent(prompt),
       requiredSubmitOptions(options),
-    );
-  });
-  handle(DESKTOP_IPC.abortSession, (_event, sessionId) => {
-    if (typeof host.abortSession !== 'function') {
-      throw new Error('Session-addressed abort is unavailable.');
-    }
-    return host.abortSession(requiredSessionId(sessionId));
-  });
-  handle(DESKTOP_IPC.resolveToolApprovalForSession, (_event, sessionId, id, input) => {
-    if (typeof host.resolveToolApprovalForSession !== 'function') {
-      throw new Error('Session-addressed approval is unavailable.');
-    }
-    return host.resolveToolApprovalForSession(
+    ));
+  handle(DESKTOP_IPC.abortSession, (_event, sessionId, options) =>
+    host.abortSession(requiredSessionId(sessionId), requiredAbortOptions(options)));
+  handle(DESKTOP_IPC.resolveToolApprovalForSession, (_event, sessionId, id, input) =>
+    host.resolveToolApprovalForSession(
       requiredSessionId(sessionId),
       requiredString(id, 'approval id', 1_024),
       requiredToolApprovalDecision(input),
-    );
-  });
+    ));
   handle(DESKTOP_IPC.listProviderModels, (_event, options) =>
     host.listProviderModels(requiredModelCatalogOptions(options)));
   handle(DESKTOP_IPC.setModelRoute, (_event, selection, sessionId) =>
@@ -1908,9 +1911,7 @@ export function registerDesktopIpc(
     });
   };
   ipcMain.on(DESKTOP_IPC.sessionStateResync, onSessionStateResync);
-  const unsubscribeSessionStates = typeof host.subscribeSessionStates === 'function'
-    ? host.subscribeSessionStates(sendSessionState)
-    : () => {};
+  const unsubscribeSessionStates = host.subscribeSessionStates(sendSessionState);
   const unsubscribeUpdater = updater?.subscribe((next) => {
     if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
       window.webContents.send(DESKTOP_IPC.updaterState, next);

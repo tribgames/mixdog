@@ -849,7 +849,40 @@ const GUARDS = {
 // key instead of failing the call on a field the caller never set.
 function dropUndefinedArgs(args) {
     for (const key of Object.keys(args)) {
-        if (args[key] === undefined) delete args[key];
+        // `null` gets the same treatment: it is the only way JSON can express
+        // "this optional field was not set", and failing the whole call on it
+        // was measured as a recurring, fully recoverable tool error.
+        if (args[key] === undefined || args[key] === null) delete args[key];
+    }
+}
+
+// string | string[] arguments arrive nested ([["a","b"]] from a batching
+// wrapper), padded with null/empty entries, or empty. The intent is
+// unambiguous, so flatten one level, drop the blanks, and remove a key that
+// ends up empty (the tool then uses its default scope) instead of rejecting
+// the call.
+const STRING_LIST_ARG_KEYS = [
+    'path', 'paths', 'root', 'file', 'files',
+    'pattern', 'patterns', 'query', 'regex', 'needle',
+    'glob', 'file_pattern', 'include', 'type', 'symbols',
+];
+function normalizeStringListArgs(args) {
+    for (const key of STRING_LIST_ARG_KEYS) {
+        if (!hasOwn(args, key) || !Array.isArray(args[key])) continue;
+        const source = args[key];
+        // Flatten ONE nesting level and drop blank entries; every other entry
+        // type is left untouched so the per-tool guards still see (and coerce
+        // or reject) it — `read`'s {path,offset,limit}[] regions must survive
+        // this pass verbatim.
+        const flat = [];
+        for (const entry of source.flat(1)) {
+            if (entry === null || entry === undefined) continue;
+            if (typeof entry === 'string' && entry.trim().length === 0) continue;
+            flat.push(entry);
+        }
+        if (flat.length === source.length && flat.every((entry, idx) => entry === source[idx])) continue;
+        if (flat.length === 0) delete args[key];
+        else args[key] = flat;
     }
 }
 
@@ -863,6 +896,7 @@ export function validateBuiltinArgs(toolName, args) {
         return `Error: ${toolName} arguments must be an object (got ${describeType(args)})`;
     }
     dropUndefinedArgs(args);
+    normalizeStringListArgs(args);
     if (toolName === 'grep') applyGrepContextLeadPolicy(args);
     try {
         return guard(args) || null;

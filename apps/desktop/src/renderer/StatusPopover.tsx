@@ -105,7 +105,7 @@ export function StatusPopover() {
         toggle(event.currentTarget);
       }}
       onPointerCancel={clickGuard.clearPointerActivation}>
-      <span className="runtime-status-icon"><Activity size={15} /><i data-tone={tone} /></span>
+      <span className="runtime-status-icon"><Activity size={16} /><i data-tone={tone} /></span>
     </button>
     {open && createPortal(<div ref={panel} className="runtime-status-popover" role="dialog"
       aria-label={t('Runtime health')} style={{

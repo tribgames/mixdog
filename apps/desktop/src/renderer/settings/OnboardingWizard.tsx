@@ -195,7 +195,7 @@ export function OnboardingWizard({ api, onDone }: {
   const [styles, setStyles] = useState<RecordValue[]>([]);
   const [profile, setProfile] = useState<RecordValue>({});
   const [workflows, setWorkflows] = useState<RecordValue[]>([]);
-  const [memoryEnabled, setMemoryEnabled] = useState(true);
+  const [recapEnabled, setRecapEnabled] = useState(true);
   const [autoClearOn, setAutoClearOn] = useState(true);
   const [compactAuto, setCompactAuto] = useState(true);
   const [channelSetup, setChannelSetup] = useState<RecordValue>({});
@@ -276,7 +276,7 @@ export function OnboardingWizard({ api, onDone }: {
         { capability: 'getSearchRoute' },
         { capability: 'getProfile' },
         { capability: 'listWorkflows' },
-        { capability: 'getMemorySettings' },
+        { capability: 'getRecapSettings' },
         { capability: 'getChannelSetup' },
         { capability: 'getAutoClear' },
         { capability: 'getCompactionSettings' },
@@ -302,7 +302,7 @@ export function OnboardingWizard({ api, onDone }: {
       setStyle(String(record(output.current).id || output.configured || 'default'));
       setProfile(record(values[5]));
       setWorkflows(rows(values[6]));
-      setMemoryEnabled(record(values[7]).enabled !== false);
+      setRecapEnabled(record(values[7]).enabled !== false);
       setChannelSetup(record(values[8]));
       setAutoClearOn(record(values[9]).enabled !== false);
       setCompactAuto(record(values[10]).auto !== false);
@@ -369,7 +369,7 @@ export function OnboardingWizard({ api, onDone }: {
     const hasAgentRoutes = Object.keys(agentRoutes).length > 0;
     const result = defaultRoute || explicitSearchRoute || hasAgentRoutes
       ? await run('completeOnboarding', [{
-        ...(defaultRoute ? { defaultRoute, defaultProvider: defaultRoute.provider } : {}),
+        ...(defaultRoute ? { defaultRoute } : {}),
         ...(explicitSearchRoute ? { searchRoute: explicitSearchRoute } : {}),
         ...(hasAgentRoutes ? { agentRoutes } : {}),
       }], 'finish-onboarding')
@@ -529,9 +529,9 @@ export function OnboardingWizard({ api, onDone }: {
             onChange={(id) => setWorkflows((list) => list.map((workflow) =>
               ({ ...workflow, active: String(workflow.id) === id })))} />}
           {meta.id === 'git' && <GitStep api={api} />}
-          {meta.id === 'memory' && <ContextStep memoryEnabled={memoryEnabled} autoClearOn={autoClearOn}
+          {meta.id === 'memory' && <ContextStep recapEnabled={recapEnabled} autoClearOn={autoClearOn}
             compactAuto={compactAuto} pending={pending} run={run}
-            onMemory={setMemoryEnabled} onAutoClear={setAutoClearOn} onCompact={setCompactAuto} />}
+            onRecap={setRecapEnabled} onAutoClear={setAutoClearOn} onCompact={setCompactAuto} />}
           {meta.id === 'channels' && <ChannelsStep setup={channelSetup} pending={pending} run={run}
             onReload={() => void load(true)} />}
           {meta.id === 'theme' && <ThemeStep mode={themeMode} onSelect={(next) => {
@@ -583,7 +583,7 @@ function OnboardingSkipConfirmation({ onCancel, onConfirm }: {
       data-settings-nested-dialog>
       <header><h3 id="onboarding-skip-title">Skip Mixdog setup?</h3>
         <button type="button" aria-label="Close skip confirmation" onClick={onCancel}>
-          <X aria-hidden="true" size={15} />
+          <X aria-hidden="true" size={16} />
         </button></header>
       <p id="onboarding-skip-description">
         You can configure providers, models, Git, themes, and output style later in Settings.
@@ -921,7 +921,7 @@ function ThemeStep({ mode, onSelect }: {
           : <ThemeChromeMock id={entry.id === 'white' ? 'light' : 'basic'} surface={String(entry.id)} />}
       </span>
       <span className="onboarding-theme-name"><b>{entry.label}</b>
-        {mode === entry.id ? <Check size={13} /> : null}
+        {mode === entry.id ? <Check size={14} /> : null}
         <small>{entry.hint}</small></span>
     </button>
   ))}</div>;
@@ -1168,20 +1168,20 @@ function WorkflowStep({ workflows, pending, run, onChange }: {
 
 // Context step: the memory choice plus the session-lifecycle toggles
 // (auto-compact / auto-clear) — the onboarding face of Settings → Context.
-function ContextStep({ memoryEnabled, autoClearOn, compactAuto, pending, run, onMemory, onAutoClear, onCompact }: {
-  memoryEnabled: boolean;
+function ContextStep({ recapEnabled, autoClearOn, compactAuto, pending, run, onRecap, onAutoClear, onCompact }: {
+  recapEnabled: boolean;
   autoClearOn: boolean;
   compactAuto: boolean;
   pending: string;
   run: RunCapability;
-  onMemory(next: boolean): void;
+  onRecap(next: boolean): void;
   onAutoClear(next: boolean): void;
   onCompact(next: boolean): void;
 }) {
   // On/Off as two radio cards (user request) instead of a state pill + toggle.
-  const memoryOptions = [
-    { value: true, label: 'Memory on', hint: 'Recap recent sessions and keep curated core memories.' },
-    { value: false, label: 'Memory off', hint: 'Start every session clean — nothing carries over.' },
+  const recapOptions = [
+    { value: true, label: 'Recap on', hint: 'Summarize recent sessions in background memory cycles.' },
+    { value: false, label: 'Recap off', hint: 'Pause background recaps; core memories and on-demand recall stay available.' },
   ];
   const lifecycle = [
     { key: 'compact', label: 'Auto-compact', hint: 'Compact automatically as the context reaches its limit',
@@ -1193,17 +1193,17 @@ function ContextStep({ memoryEnabled, autoClearOn, compactAuto, pending, run, on
   ];
   return <div className="onboarding-star-card onboarding-connect-card onboarding-context-card">
     <div>
-      <span className="onboarding-connect-title">Memory</span>
-      <p>Mixdog recaps recent sessions and keeps user-curated core memories, so new sessions start with context.</p>
+      <span className="onboarding-connect-title">Memory recap</span>
+      <p>Choose whether Mixdog summarizes recent sessions in the background. Core memory remains available either way.</p>
     </div>
-    <div className="onboarding-memory-options" role="radiogroup" aria-label="Memory">
-      {memoryOptions.map(({ value, label, hint }) => <button type="button" key={label} role="radio"
-        aria-checked={memoryEnabled === value} className={memoryEnabled === value ? 'selected' : ''}
+    <div className="onboarding-memory-options" role="radiogroup" aria-label="Memory recap">
+      {recapOptions.map(({ value, label, hint }) => <button type="button" key={label} role="radio"
+        aria-checked={recapEnabled === value} className={recapEnabled === value ? 'selected' : ''}
         disabled={Boolean(pending)}
         onClick={() => {
-          if (memoryEnabled === value) return;
-          void run('setMemoryEnabled', [value], 'onboarding-memory').then((result) => {
-            if (result !== undefined) onMemory(value);
+          if (recapEnabled === value) return;
+          void run('setRecapEnabled', [value], 'onboarding-recap').then((result) => {
+            if (result !== undefined) onRecap(value);
           });
         }}>
         <i aria-hidden="true" />

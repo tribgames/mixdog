@@ -1,8 +1,4 @@
-import { isKnownProvider } from '../provider-admin.mjs';
-import {
-  DEFAULT_AGENT_PRESETS,
-  DEFAULT_PROVIDER,
-} from './tool-def.mjs';
+import { configuredAgentRouteCandidates } from '../../runtime/shared/agent-route-config.mjs';
 import {
   agentPresetName,
   clean,
@@ -30,19 +26,10 @@ export function resolveAgentSpawnPreset(config, args = {}) {
   }
 
   const agentName = normalizeAgentName(args.agent);
-  const configuredDefault = clean(config?.defaultProvider);
-  const fallbackProvider = configuredDefault && isKnownProvider(configuredDefault)
-    ? configuredDefault
-    : DEFAULT_PROVIDER;
-  const workflowSlot = agentName === 'explore' ? 'explorer'
-    : (agentName === 'maintainer' ? 'memory' : '');
-  const maintenanceSlot = agentName === 'explore' ? 'explore'
-    : (agentName === 'maintainer' ? 'memory' : '');
   const agentRoute = !clean(args.preset)
-    ? (normalizeAgentRoute(config?.agents?.[agentName], fallbackProvider)
-      || (agentName === 'maintainer' ? normalizeAgentRoute(config?.agents?.maintenance, fallbackProvider) : null)
-      || normalizeAgentRoute(config?.workflowRoutes?.[workflowSlot], fallbackProvider)
-      || normalizeAgentRoute(config?.maintenance?.[maintenanceSlot], fallbackProvider))
+    ? configuredAgentRouteCandidates(config, agentName)
+      .map((candidate) => normalizeAgentRoute(candidate))
+      .find(Boolean) || null
     : null;
   if (agentRoute) {
     return {
@@ -60,14 +47,17 @@ export function resolveAgentSpawnPreset(config, args = {}) {
     };
   }
 
-  const mainPreset = !clean(args.preset) && (agentName === 'explore' || agentName === 'maintainer')
+  const mainPreset = !clean(args.preset)
     ? findPreset(config, config?.default)
     : null;
-  if (mainPreset) return { presetName: mainPreset.id || mainPreset.name, preset: mainPreset };
+  if (normalizeAgentRoute(mainPreset)) {
+    return { presetName: mainPreset.id || mainPreset.name, preset: mainPreset };
+  }
 
-  const presetName = clean(args.preset) || DEFAULT_AGENT_PRESETS[agentName];
-  if (!presetName) throw new Error(`agent: agent "${agentName}" has no model assignment`);
+  const presetName = clean(args.preset);
+  if (!presetName) throw new Error(`agent: agent "${agentName}" has no Main model assignment`);
   const preset = findPreset(config, presetName) || synthesizePreset(config, presetName);
   if (!preset) throw new Error(`agent: preset "${presetName}" not found`);
+  if (!normalizeAgentRoute(preset)) throw new Error(`agent: preset "${presetName}" has no complete route`);
   return { presetName, preset };
 }

@@ -12,6 +12,7 @@ import { resolveWorkerCompactPolicy } from './loop/compact-policy.mjs';
 import { agentContextOverflowError } from './loop/context-overflow.mjs';
 import { estimateMessagesTokensSafe } from './loop/compact-debug.mjs';
 import { isOutputLimitStopReason } from './loop/termination.mjs';
+import { isVisibleStreamProgress } from '../../../shared/stream-progress.mjs';
 
 function normalizedIncompleteUsage(raw) {
     if (!raw || typeof raw !== 'object') return undefined;
@@ -56,7 +57,8 @@ export async function sendWithRecovery(ctx) {
     } = ctx;
     let response;
     // Bench-only turn timing (MIXDOG_TURN_TIMING=1): one stderr line per
-    // provider request — TTFT (first stream delta) and total stream time.
+    // provider request — TTFT (first visible model progress) and total stream
+    // time. Transport/header and response-created acknowledgements do not count.
     // Inert unless the env flag is set; used to profile harness vs model
     // latency in Terminal-Bench runs.
     const turnT0 = process.env.MIXDOG_TURN_TIMING === '1' ? Date.now() : 0;
@@ -67,7 +69,7 @@ export async function sendWithRecovery(ctx) {
         timedOpts = {
             ...(opts || {}),
             onStreamDelta: (kind) => {
-                if (!turnFirstDelta) turnFirstDelta = Date.now();
+                if (!turnFirstDelta && isVisibleStreamProgress(kind)) turnFirstDelta = Date.now();
                 if (prevDelta) prevDelta(kind);
             },
         };
@@ -116,7 +118,15 @@ export async function sendWithRecovery(ctx) {
     }
     try {
         try {
-            response = await provider.send(messages, model, sendTools.length ? sendTools : undefined, timedOpts);
+            const admittedOpts = timedOpts?.admissionOwner
+                ? timedOpts
+                : { ...(timedOpts || {}), admissionOwner: sessionId };
+            response = await provider.send(
+                messages,
+                model,
+                sendTools.length ? sendTools : undefined,
+                admittedOpts,
+            );
             logTurnTiming('ok');
         } catch (sendErr) {
             logTurnTiming(`err:${sendErr?.code || sendErr?.name || 'unknown'}`);

@@ -23,6 +23,7 @@ import {
     NATIVE_SERVER_TOOL_CALL_BLOCK_TYPES,
     NATIVE_SERVER_TOOL_RESULT_BLOCK_TYPES,
 } from './lib/anthropic-native-blocks.mjs';
+import { parseProviderJsonBatch } from './stream-json-pool.mjs';
 import { stampStreamOutcome, STREAM_TRANSPORTS, STREAM_OUTCOME_VERSION } from './lib/stream-outcome.mjs';
 
 /** Bounded mid-stream SSE retries (transient stream loss); shared with anthropic.mjs.
@@ -486,7 +487,10 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                 if (!data) continue;
 
                 try {
-                    const event = JSON.parse(data);
+                    // A completed reader.read() owns this frame even if abort
+                    // races immediately afterward; the next read observes the
+                    // cancellation after this frame is relayed.
+                    const [event] = await parseProviderJsonBatch([data]);
 
                     // SEMANTIC idle reset (Part A): reset the idle timer ONLY for
                     // real progress events, NOT for Anthropic keepalives. Anthropic

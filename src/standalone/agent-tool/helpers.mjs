@@ -151,8 +151,8 @@ export function synthesizePreset(config, key) {
   };
 }
 
-export function normalizeAgentRoute(routeLike, fallbackProvider = '') {
-  const provider = clean(routeLike?.provider) || clean(fallbackProvider);
+export function normalizeAgentRoute(routeLike) {
+  const provider = clean(routeLike?.provider);
   const model = clean(routeLike?.model);
   if (!provider || !model) return null;
   return {

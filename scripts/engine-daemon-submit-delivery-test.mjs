@@ -100,6 +100,39 @@ test('submitAsync reports a backend rejection without a client retry loop', asyn
   }, async () => (engine = createFlakyEngine(2)));
 });
 
+test('a fresh daemon view reuses its first reservation for New task', async () => {
+  let engineCreations = 0;
+  await withDaemon(async () => {
+    const view = await createRemoteEngineSession({ cwd: process.cwd() });
+    try {
+      const reservedSessionId = String(view.getState().sessionId || '');
+      assert.ok(reservedSessionId);
+      assert.equal(engineCreations, 1);
+      assert.equal(await view.newSession({ reuseReservation: true }), true);
+      assert.equal(view.getState().sessionId, reservedSessionId);
+      assert.equal(engineCreations, 1, 'reservation reuse creates no second engine');
+
+      assert.equal(await view.newSession(), true);
+      assert.notEqual(view.getState().sessionId, reservedSessionId);
+      assert.equal(engineCreations, 2, 'an explicit ordinary new session still creates a fresh entry');
+    } finally {
+      await view.dispose('test');
+    }
+  }, async () => {
+    engineCreations += 1;
+    let state = { sessionId: '', items: [], busy: false };
+    return {
+      getState: () => state,
+      subscribe: () => () => {},
+      reserveSession(id) {
+        state = { ...state, sessionId: String(id) };
+        return true;
+      },
+      async dispose() {},
+    };
+  });
+});
+
 test('a re-delivered submission id is queued exactly once', () => {
   const pending = [];
   const state = { busy: false, commandBusy: true, queued: [] };

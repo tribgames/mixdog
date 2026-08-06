@@ -132,6 +132,17 @@ export function preloadSessionRuntimeModule() {
   });
 }
 
+let agentLoopPrewarmPromise = null;
+export function preloadAgentLoopRuntime() {
+  agentLoopPrewarmPromise ??= import(
+    '../runtime/agent/orchestrator/session/manager/runtime-loaders.mjs'
+  ).then((module) => module.prewarmAgentLoop());
+  void agentLoopPrewarmPromise.catch(() => {
+    // Reservation-time prewarm retries through the same shared loader.
+    agentLoopPrewarmPromise = null;
+  });
+}
+
 // Windows keychain reads go through a DPAPI PowerShell host whose cold start
 // dominates a packaged boot (measured ~1.5s). The runtime batches every secret
 // into one call, but it only starts that batch when the runtime is created —

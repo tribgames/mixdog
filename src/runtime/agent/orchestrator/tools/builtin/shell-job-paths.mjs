@@ -213,7 +213,7 @@ export function shellJobDonePath(jobId) { return join(getShellJobsDir(), `${jobI
 // enforces unconditionally and records detail.timeoutEnforced:true.
 export function shellJobEnforcedPath(jobId) { return join(getShellJobsDir(), `${jobId}.enforced`); }
 // Guardian kill receipt: written by the detached child-guardian immediately
-// before it force-kills the job tree (host memory floor / orphaned parent).
+// before it cleans up a job tree whose owning parent exited.
 // Its existence lets refreshShellJob attribute a marker-less death to the
 // guardian instead of reporting an unexplained unknown exit.
 export function shellJobGuardianReceiptPath(jobId) { return join(getShellJobsDir(), `${jobId}.guardian`); }

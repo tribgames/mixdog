@@ -825,7 +825,7 @@ export function createRunTurn(bag) {
           shellPart = combined.slice(headerMatch.index + headerMatch[0].length);
           // Keep the FAILED banner on the shell card so its error state and
           // fix-and-re-verify guidance survive the split.
-          if (headerMatch[1]) shellPart = `Error: post_shell FAILED (patch is applied; fix and re-verify)\n${shellPart}`;
+          if (headerMatch[1]) shellPart = `Error: post_shell${headerMatch[1]}\n${shellPart}`;
         } else if (skippedMatch) {
           patchPart = combined.slice(0, skippedMatch.index);
           shellPart = 'Error: post_shell skipped: patch failed';
@@ -929,12 +929,21 @@ export function createRunTurn(bag) {
             if (typeof patchCallArgs === 'string') {
               try { patchCallArgs = JSON.parse(patchCallArgs); } catch { patchCallArgs = null; }
             }
-            const postShellCmd = typeof patchCallArgs?.post_shell === 'string' ? patchCallArgs.post_shell.trim() : '';
+            // post_shell mirrors the shell tool's argument surface: a bare
+            // command string OR the full shell args object. The twin card is
+            // built from the same args the verification actually runs with.
+            const rawPostShell = patchCallArgs?.post_shell;
+            const postShellArgs = typeof rawPostShell === 'string'
+              ? { command: rawPostShell.trim() }
+              : (rawPostShell && typeof rawPostShell === 'object' && !Array.isArray(rawPostShell)
+                ? { ...rawPostShell, command: typeof rawPostShell.command === 'string' ? rawPostShell.command.trim() : '' }
+                : null);
+            const postShellCmd = postShellArgs?.command || '';
             const parentCallId = toolCallId(c);
             if (!postShellCmd || !parentCallId) continue;
             const twinCallId = `${parentCallId}::post_shell`;
             postShellTwins.set(parentCallId, twinCallId);
-            displayCalls.push({ id: twinCallId, name: 'shell', args: { command: postShellCmd } });
+            displayCalls.push({ id: twinCallId, name: 'shell', args: postShellArgs });
           }
           const agentBatch = ++providerToolBatch;
           const committedAssistantSegment = commitAssistantSegment({ sealToolBlock: true });

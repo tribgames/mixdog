@@ -13,6 +13,7 @@ import {
   measureStreamingMarkdownRenderedRowsUncached,
 } from '../src/tui/markdown/measure-rendered-rows.mjs';
 import {
+  accumulateDirectionalScrollDelta,
   buildTranscriptRowIndex,
   estimateTranscriptItemRowsCached,
   measuredTranscriptRows,
@@ -22,6 +23,14 @@ import {
   transcriptMeasuredRowsCache,
   transcriptRenderWindow,
 } from '../src/tui/app/transcript-window.mjs';
+
+test('wheel direction reversal drops the older coalesced movement', () => {
+  const state = { pendingRows: 6, direction: 1 };
+  assert.equal(accumulateDirectionalScrollDelta(state, -3), true);
+  assert.deepEqual(state, { pendingRows: -3, direction: -1 });
+  assert.equal(accumulateDirectionalScrollDelta(state, -6), false);
+  assert.deepEqual(state, { pendingRows: -9, direction: -1 });
+});
 
 function assertCachedEqualsDirect(text, columns, key) {
   const cached = measureStreamingMarkdownRenderedRows(text, columns, key);

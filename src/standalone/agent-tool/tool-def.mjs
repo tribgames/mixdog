@@ -6,20 +6,6 @@ export const PRESET_ALIASES = new Map([
   ['opus-xhigh', { base: 'opus-high', effort: 'xhigh', id: 'opus-xhigh', name: 'OPUS XHIGH' }],
 ]);
 
-export const DEFAULT_AGENT_PRESETS = Object.freeze({
-  explore: 'sonnet-high',
-  maintainer: 'haiku',
-  worker: 'sonnet-high',
-  'heavy-worker': 'sonnet-high',
-  reviewer: 'opus-xhigh',
-  debugger: 'opus-xhigh',
-});
-
-// Mirrors DEFAULT_PROVIDER in mixdog-session-runtime.mjs. Used only as the
-// last-resort fallback when a stored agent route omits its provider and the
-// config carries no defaultProvider.
-export const DEFAULT_PROVIDER = 'anthropic-oauth';
-
 export const WORKER_INDEX_FILE = 'agent-workers.json';
 
 export const ACTIVE_STAGES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'running', 'cancelling']);

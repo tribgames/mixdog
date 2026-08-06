@@ -63,7 +63,7 @@ getBackend().onMessage = (msg) => {
     : (!getChannelBridgeActive() ? "bridge-inactive" : "");
   if (gateBlocked) {
     if (gateBlocked === "bridge-seat") refreshBridgeOwnershipSafe();
-    // CC parity: an inbound message is never silently swallowed. The bridge
+    // An inbound message is never silently swallowed. The bridge
     // seat may be mid-handover or the channel bridge may still be activating
     // (app relaunch / boot); retry with backoff before giving up, and make
     // the final drop loud so a real loss stays diagnosable.

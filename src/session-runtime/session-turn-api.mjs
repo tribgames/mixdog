@@ -12,6 +12,7 @@ import {
 import { getMcpTools } from '../runtime/agent/orchestrator/mcp/client.mjs';
 import { traceTurnTiming } from '../runtime/agent/orchestrator/agent-trace.mjs';
 import { beginTurnSnapshot, completeTurnSnapshot } from '../runtime/shared/turn-snapshot.mjs';
+import { isVisibleStreamProgress } from '../runtime/shared/stream-progress.mjs';
 
 export function splitToolStatusCounts(rows) {
   const list = Array.isArray(rows) ? rows : [];
@@ -44,7 +45,7 @@ export function createSessionTurnApi(deps) {
     scheduleProviderWarmup, scheduleProviderModelWarmup, invalidateContextStatusCache,
     agentTool, recreateCurrentSessionIfReady, invalidatePreSessionToolSurface,
     activeToolSurface, applyResolvedCwd, resolveCwdPath, agentStatusState, notificationListeners,
-    awaitInitialMcpConnect, mcpTurnGraceMs = 150, awaitRoutePreparation,
+    awaitInitialMcpConnect, mcpTurnGraceMs = 0, awaitRoutePreparation,
     getReservedSessionId, sessionTitles,
   } = deps;
   const enqueueRemoteAttachedPrompt = (prompt) => {
@@ -117,9 +118,10 @@ export function createSessionTurnApi(deps) {
       let turnTimingEmitted = false;
       // Heavy runtime warmup is one-shot and demand-driven: idle desktop panes
       // never spawn shell/token/shard helpers or a code-graph worker. More
-      // importantly, do not start them until the provider has produced its
-      // first stream delta: launching PowerShell + graph workers before that
-      // point directly competes with the first-token critical path.
+      // importantly, do not start them until the provider has produced visible
+      // text/reasoning/tool progress: transport headers and response-created
+      // acknowledgements arrive earlier and would make PowerShell + graph
+      // workers compete with the actual first-token critical path.
       const heavyRuntimeWarmupPending = typeof getCodeGraphFirstTurnPrewarmDone === 'function'
         && !getCodeGraphFirstTurnPrewarmDone();
       if (heavyRuntimeWarmupPending) {
@@ -264,7 +266,6 @@ export function createSessionTurnApi(deps) {
           .map((part) => String(part || '').trim())
           .filter(Boolean)
           .join('\n\n');
-        providerStartedAt = performance.now();
         const result = await mgr.askSession(
           session0.id,
           prompt,
@@ -322,14 +323,26 @@ export function createSessionTurnApi(deps) {
             onToolApproval: options.onToolApproval,
             onCompactEvent: options.onCompactEvent,
             onStageChange: options.onStageChange,
+            onProviderSendStarted: (...args) => {
+              // This callback is emitted immediately before provider.send,
+              // after session locking, history shaping and pre-send compact.
+              // The old timestamp above mgr.askSession mislabeled all of that
+              // Mixdog work as provider latency.
+              if (!providerStartedAt) providerStartedAt = performance.now();
+              return options.onProviderSendStarted?.(...args);
+            },
+            onToolPhaseStarted: options.onToolPhaseStarted,
+            onToolPhaseCompleted: options.onToolPhaseCompleted,
             onStreamDelta: (...args) => {
               let value;
               try {
                 value = options.onStreamDelta?.(...args);
               } finally {
-                turnTimingStatus = 'first-delta';
-                emitTurnTiming(turnTimingStatus);
-                armHeavyRuntimeWarmup('first-stream');
+                if (isVisibleStreamProgress(args[0])) {
+                  turnTimingStatus = 'first-visible';
+                  emitTurnTiming(turnTimingStatus);
+                  armHeavyRuntimeWarmup('first-visible');
+                }
               }
               return value;
             },

@@ -15,6 +15,7 @@ import { loadOrCreateToken, rotateRemoteToken } from './remote-bridge';
 
 function createFakeHost() {
   const listeners = new Set();
+  const sessionListeners = new Set();
   return {
     subscribe(listener) {
       listeners.add(listener);
@@ -22,6 +23,13 @@ function createFakeHost() {
     },
     emit(snapshot) {
       for (const listener of [...listeners]) listener(snapshot);
+    },
+    subscribeSessionStates(listener) {
+      sessionListeners.add(listener);
+      return () => sessionListeners.delete(listener);
+    },
+    emitSession(update) {
+      for (const listener of [...sessionListeners]) listener(update);
     },
     getSnapshot: () => ({ items: [], busy: false }),
     listProjects: () => [{ name: 'demo', path: 'C:/demo', alias: null, pinned: false }],

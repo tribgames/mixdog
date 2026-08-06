@@ -23,7 +23,7 @@ import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs
 import { enrichModels, getModelMetadataSync } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { makeModelCache } from './model-cache.mjs';
-import { OpenAICompatProvider } from './openai-compat.mjs';
+import { OpenAICompatProvider, preloadOpenAICompatRuntime } from './openai-compat.mjs';
 import { createTimeoutSignal } from '../stall-policy.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { normalizeGrokToolSchemas } from './lib/grok-tool-schema.mjs';
@@ -205,6 +205,17 @@ export class GrokOAuthProvider {
     constructor(config) {
         this.config = config || {};
         this.tokens = loadTokens();
+        // The credential/header-bound inner provider is created lazily, but its
+        // heavy SDK + undici graph and proxy socket are not request-specific.
+        // Pay both during the daemon's process-wide provider warmup so first
+        // Grok send only builds the cheap inner client.
+        try { preloadOpenAICompatRuntime(); } catch { /* authoritative send surfaces load failures */ }
+        if (this.config?.preconnect !== false) {
+            const warm = typeof this.config?.preconnectFn === 'function'
+                ? this.config.preconnectFn
+                : preconnect;
+            try { warm(PROXY_BASE_URL); } catch { /* best-effort */ }
+        }
     }
 
     async ensureAuth({ forceRefresh = false } = {}) {

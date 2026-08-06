@@ -1034,6 +1034,7 @@ export function App() {
   // internal registry that keeps dirty file editors mounted and titled.
   const {
     openInFocused: openSelectionInFocusedPane,
+    promoteInLeaf: promoteSelectionInLeaf,
     pinTab: pinPaneTab,
     pinTabByKey: pinPaneTabByKey,
     splitFocused: splitFocusedPane,
@@ -1044,6 +1045,10 @@ export function App() {
   const focusedPaneSelection = paneWorkspace.focusedLeaf
     ? paneActiveSelection(paneWorkspace.focusedLeaf)
     : null;
+  const paneLeavesRef = useRef(paneWorkspace.leaves);
+  paneLeavesRef.current = paneWorkspace.leaves;
+  const focusedLeafIdRef = useRef(paneWorkspace.focusedLeafId);
+  focusedLeafIdRef.current = paneWorkspace.focusedLeafId;
   const activeFileKey = focusedPaneSelection?.kind === "file"
     ? navigationKey(focusedPaneSelection)
     : "";
@@ -1263,15 +1268,20 @@ export function App() {
     setNewTaskWorkflow(workflow);
     rememberDraftPanePrefs({ workflow });
   }, [rememberDraftPanePrefs]);
-  const clearNewTaskPreferences = useCallback(() => {
-    newTaskModelSelectionRef.current = null;
-    newTaskWorkflowRef.current = null;
-    setNewTaskModelSelection(null);
-    setNewTaskWorkflow(null);
+  const clearNewTaskPreferences = useCallback((target?: NavigationSelection) => {
+    const current = target?.kind === "new" ? target : selectionRef.current;
+    const focusedOwnsTarget = current.kind === "new"
+      && selectionRef.current.kind === "new"
+      && navigationKey(selectionRef.current) === navigationKey(current);
+    if (!target || focusedOwnsTarget) {
+      newTaskModelSelectionRef.current = null;
+      newTaskWorkflowRef.current = null;
+      setNewTaskModelSelection(null);
+      setNewTaskWorkflow(null);
+    }
     // Retire the draft's entry (materialized into a session, or torn down) —
     // but never write nulls into lastNewTaskPrefs: the just-used settings
     // stay the seed for the NEXT new task (user rule).
-    const current = selectionRef.current;
     if (current.kind === "new") {
       draftPanePrefs.current.delete(current.draftId || "default");
       // The retired draft key may be reused (the "default" draft): a stale
@@ -1654,12 +1664,46 @@ export function App() {
     error || (!connected ? "Desktop bridge is unavailable. Open this renderer inside Mixdog Desktop." : ""),
   ].filter(Boolean), [connected, error]);
 
-  const activateSelection = useCallback((
+  const registerWorkspaceSelection = useCallback((
     nextSelection: NavigationSelection,
     title: string,
     replaceKey = "",
   ) => {
     const key = navigationKey(nextSelection);
+    setTabs((current) => {
+      const existing = current.findIndex((tab) => tab.key === key);
+      if (replaceKey) {
+        const replaced = current.findIndex((tab) => tab.key === replaceKey);
+        if (replaced >= 0) {
+          // Promote the destination into the draft's exact strip position.
+          // If that session is already open elsewhere, remove the old copy
+          // instead of leaving New task behind or creating a duplicate.
+          const next = [...current];
+          next[replaced] = { key, title, selection: nextSelection };
+          if (existing >= 0 && existing !== replaced) next.splice(existing, 1);
+          return next;
+        }
+      }
+      if (existing >= 0) {
+        if (current[existing].title === title
+          && navigationKey(current[existing].selection) === key) return current;
+        const next = [...current];
+        next[existing] = { key, title, selection: nextSelection };
+        return next;
+      }
+      // Chrome parity: the strip never DROPS a tab. Tabs shrink to their
+      // minimum width and then the strip scrolls (styles.css overflow-x),
+      // instead of silently evicting the oldest — which also stranded
+      // activeKey when the evicted tab was the selected one.
+      return [...current, { key, title, selection: nextSelection }];
+    });
+  }, []);
+
+  const activateSelection = useCallback((
+    nextSelection: NavigationSelection,
+    title: string,
+    replaceKey = "",
+  ) => {
     try {
       window.mixdogDesktop?.perfLog?.(
         `selection-commit kind=${nextSelection.kind}`
@@ -1692,34 +1736,8 @@ export function App() {
     // keeps the pane tree and the classic selection state in lockstep. The
     // focused GROUP opens/activates the tab; replaceKey promotes in place.
     openSelectionInFocusedPane(nextSelection, replaceKey);
-    setTabs((current) => {
-      const existing = current.findIndex((tab) => tab.key === key);
-      if (replaceKey) {
-        const replaced = current.findIndex((tab) => tab.key === replaceKey);
-        if (replaced >= 0) {
-          // Promote the destination into the draft's exact strip position.
-          // If that session is already open elsewhere, remove the old copy
-          // instead of leaving New task behind or creating a duplicate.
-          const next = [...current];
-          next[replaced] = { key, title, selection: nextSelection };
-          if (existing >= 0 && existing !== replaced) next.splice(existing, 1);
-          return next;
-        }
-      }
-      if (existing >= 0) {
-        if (current[existing].title === title
-          && navigationKey(current[existing].selection) === key) return current;
-        const next = [...current];
-        next[existing] = { key, title, selection: nextSelection };
-        return next;
-      }
-      // Chrome parity: the strip never DROPS a tab. Tabs shrink to their
-      // minimum width and then the strip scrolls (styles.css overflow-x),
-      // instead of silently evicting the oldest — which also stranded
-      // activeKey when the evicted tab was the selected one.
-      return [...current, { key, title, selection: nextSelection }];
-    });
-  }, [openSelectionInFocusedPane]);
+    registerWorkspaceSelection(nextSelection, title, replaceKey);
+  }, [openSelectionInFocusedPane, registerWorkspaceSelection]);
   // VS Code-style pane splitting: Ctrl/Cmd+\ opens a pane beside the focused
   // one, +Shift below it. The new pane adopts the current selection, so the
   // outgoing copy immediately demonstrates the live-lane view while the new
@@ -2164,8 +2182,13 @@ export function App() {
     } else if (actualSessionId) {
       activateSelection({ kind: "new" }, "New task");
       clearNewTaskPreferences();
-      newTaskReady.current = navigationKey(selectionRef.current);
-      setNewTaskActive(true);
+      // This is an existing host session that the current catalog cannot
+      // identify, not a draft-owned prepared route. Marking the visual draft
+      // ready made its first prompt call host.submit() and append to that
+      // foreign session. Keep it cold so submitNewTask() must mint/address a
+      // fresh session before accepting the message.
+      newTaskReady.current = "";
+      setNewTaskActive(false);
     } else {
       activateSelection({ kind: "new" }, "New task");
       newTaskReady.current = "";
@@ -2288,8 +2311,11 @@ export function App() {
       // Only the draft this navigation lands on is disarmed; another draft's
       // in-flight submit keeps its own record.
       releaseDraftMaterializationsFor(navigationKey({ kind: "new" }));
-      newTaskReady.current = navigationKey(selectionRef.current);
-      setNewTaskActive(true);
+      // deleteSession() returns host state, not a reservation owned by this
+      // renderer draft. Its first prompt must therefore use the atomic
+      // new-task path instead of whichever session the host exposes next.
+      newTaskReady.current = "";
+      setNewTaskActive(false);
       setRequestedSessionId("");
       activeResumeTarget.current = "";
       pendingResumeTarget.current = "";
@@ -2684,16 +2710,31 @@ export function App() {
     }, delay));
     return () => { for (const timer of timers) window.clearTimeout(timer); };
   }, []);
-  const submit = useCallback(async (
+  type SubmitRoute = {
+    selection: NavigationSelection;
+    leafId: string;
+  };
+  const submitFromRoute = useCallback(async (
+    route: SubmitRoute,
     content: DesktopPromptContent,
     options?: DesktopSubmitOptions,
   ): Promise<unknown> => {
     const host = window.mixdogDesktop;
     if (!host) return false;
-    const draftKey = selection.kind === "new" ? navigationKey(selection) : "";
+    const routeSelection = route.selection;
+    const draftKey = routeSelection.kind === "new" ? navigationKey(routeSelection) : "";
+    const draftPrefsKey = routeSelection.kind === "new"
+      ? routeSelection.draftId || "default"
+      : "";
+    const draftPrefs = draftPrefsKey ? resolvedDraftPrefsFor(draftPrefsKey) : null;
     const draftReady = Boolean(draftKey) && newTaskReady.current === draftKey;
     const submitEpoch = navigationEpoch.current;
-    const draftStillSelected = () => selectionRef.current.kind === "new"
+    const draftRouteStillExists = () => Boolean(draftKey)
+      && paneLeavesRef.current.some((leaf) => leaf.id === route.leafId
+        && leaf.tabs.some((tab) => navigationKey(tab) === draftKey));
+    const draftStillSelected = () => draftRouteStillExists()
+      && focusedLeafIdRef.current === route.leafId
+      && selectionRef.current.kind === "new"
       && navigationKey(selectionRef.current) === draftKey
       && navigationEpoch.current === submitEpoch;
     const pending = sessionRefresh.current;
@@ -2706,8 +2747,7 @@ export function App() {
         epoch: submitEpoch,
         originSessionId: String(snapshotRef.current.sessionId || ""),
         submitInFlight: true,
-        publicationRecovery: !(selection.kind === "new"
-          && !draftReady
+        publicationRecovery: !(routeSelection.kind === "new"
           && typeof host.submitNewTask === "function"),
         submitId: String(options?.id || ""),
       })
@@ -2720,24 +2760,24 @@ export function App() {
     // submit time. The atomic new-task path claims the seat host-side at
     // session creation (attach immediately); success consumes the reservation
     // so the NEXT new task starts remote-off again (user decision).
-    const newTaskRemoteRequested = selection.kind === "new"
+    const newTaskRemoteRequested = routeSelection.kind === "new"
       && remoteNewTaskMode() === "on";
-    const submittedProjectPath = selection.kind === "new"
-      ? effectiveDraftProjectPath(newTaskProjectPathRef.current)
+    const submittedProjectPath = routeSelection.kind === "new"
+      ? effectiveDraftProjectPath(draftPrefs?.projectPath || "")
       : "";
     let atomicNewTask = false;
     try {
-      if (selection.kind === "new" && !draftReady && host.submitNewTask) {
+      if (routeSelection.kind === "new" && host.submitNewTask) {
         atomicNewTask = true;
         const result = await host.submitNewTask(content, options, {
           ...(submittedProjectPath
             ? { projectPath: submittedProjectPath }
             : {}),
-          ...(newTaskModelSelectionRef.current
-            ? { route: newTaskModelSelectionRef.current }
+          ...(draftPrefs?.modelSelection
+            ? { route: draftPrefs.modelSelection }
             : {}),
-          ...(newTaskWorkflowRef.current?.id
-            ? { workflowId: newTaskWorkflowRef.current.id }
+          ...(draftPrefs?.workflow?.id
+            ? { workflowId: draftPrefs.workflow.id }
             : {}),
           ...(newTaskRemoteRequested ? { remote: true } : {}),
         });
@@ -2810,19 +2850,19 @@ export function App() {
           // frame; applying it wiped the optimistic prompt back to the New
           // task watermark until the next live publication (user report).
           if (acknowledgedSnapshot) applySnapshot(acknowledgedSnapshot);
-          clearNewTaskPreferences();
+          clearNewTaskPreferences(routeSelection);
           newTaskReady.current = draftKey;
           setNewTaskActive(true);
           setNewTaskDeferred(false);
         }
       } else {
-        if (selection.kind === "new" && !draftReady) {
-          const activeKey = navigationKey(selectionRef.current);
+        if (routeSelection.kind === "new" && !draftReady) {
+          const activeKey = draftKey;
           let pendingSetup = newTaskSetup.current?.key === activeKey
             ? newTaskSetup.current
             : null;
           if (!pendingSetup) {
-            const projectPath = newTaskProjectPathRef.current;
+            const projectPath = draftPrefs?.projectPath || "";
             pendingSetup = {
               key: activeKey,
               promise: projectPath
@@ -2855,11 +2895,11 @@ export function App() {
               source: "renderer-result",
             });
           }
-          clearNewTaskPreferences();
+          clearNewTaskPreferences(routeSelection);
           newTaskReady.current = draftKey;
           setNewTaskActive(true);
           setNewTaskDeferred(false);
-        } else if (selection.kind === "new") {
+        } else if (routeSelection.kind === "new") {
           startedSessionId = String(snapshot.sessionId || "");
         }
         accepted = await host.submit(content, options);
@@ -2881,7 +2921,7 @@ export function App() {
       // Consume the reservation once a session actually claimed it, even when
       // the user already navigated away: the seat is taken either way.
       if (newTaskRemoteRequested) setRemoteNewTaskMode("off");
-      if (selection.kind === "new" && draftStillSelected()) {
+      if (routeSelection.kind === "new" && draftRouteStillExists()) {
         let activeSessionId = atomicNewTask
           ? startedSessionId
           : startedSessionId
@@ -2932,11 +2972,21 @@ export function App() {
             currentSession: true,
             working: true,
           }));
-          navigationEpoch.current += 1;
-          activateSelection({ kind: "session", id: activeSessionId }, title, draftKey);
+          const sessionSelection = { kind: "session", id: activeSessionId } as const;
+          if (draftStillSelected()) {
+            navigationEpoch.current += 1;
+            activateSelection(sessionSelection, title, draftKey);
+            setNewTaskActive(false);
+            setNewTaskDeferred(false);
+          } else {
+            // The ACK belongs to the pane/draft that dispatched it. A focus
+            // change while it was in flight may not redirect the promotion or
+            // pull the user back from the pane they moved to.
+            promoteSelectionInLeaf(route.leafId, sessionSelection, draftKey);
+            registerWorkspaceSelection(sessionSelection, title, draftKey);
+          }
+          if (newTaskReady.current === draftKey) newTaskReady.current = "";
           releaseDraftMaterialization(draftToken);
-          setNewTaskActive(false);
-          setNewTaskDeferred(false);
           // Legacy hosts without submitNewTask still claim through the live
           // capability after the first session exists. The atomic path already
           // claimed at creation, so a second claim here would only re-activate
@@ -2962,7 +3012,29 @@ export function App() {
       releaseDraftMaterialization(draftToken);
     }
     return accepted;
-  }, [activateSelection, applySnapshot, clearNewTaskPreferences, isBusy, refreshSettledSession, selection, setRemoteEnabled, snapshot.sessionId, snapshotStore]);
+  }, [
+    activateSelection,
+    applySnapshot,
+    clearNewTaskPreferences,
+    effectiveDraftProjectPath,
+    isBusy,
+    promoteSelectionInLeaf,
+    refreshSettledSession,
+    registerWorkspaceSelection,
+    resolvedDraftPrefsFor,
+    setRemoteEnabled,
+    snapshot.sessionId,
+    snapshotStore,
+  ]);
+  const submitFromRouteRef = useRef(submitFromRoute);
+  submitFromRouteRef.current = submitFromRoute;
+  const submit = useCallback((
+    content: DesktopPromptContent,
+    options?: DesktopSubmitOptions,
+  ): Promise<unknown> => submitFromRouteRef.current({
+    selection: selectionRef.current,
+    leafId: focusedLeafIdRef.current,
+  }, content, options), []);
   // Split panes: a session pane's prompt path is addressed by ITS sessionId,
   // never by the globally active selection. Snapshot lanes are already
   // pane-local; routing every submit through the active route made a focused
@@ -2976,11 +3048,6 @@ export function App() {
   ): Promise<unknown> => {
     const host = window.mixdogDesktop;
     if (!host) return false;
-    if (typeof host.submitToSession !== "function") {
-      // Legacy host without session-addressed submit: the active route is the
-      // only possible target, so the global path remains correct.
-      return submit(content, options);
-    }
     // Watchdog: a session-addressed submit that never acknowledges must fail
     // loudly — the composer then restores the exact draft — instead of eating
     // the prompt behind an endless "Requesting" state.
@@ -3001,7 +3068,7 @@ export function App() {
     }
     if (accepted === true) refreshSettledSession();
     return accepted;
-  }, [refreshSettledSession, submit]);
+  }, [refreshSettledSession]);
   // Stable per-session submit identity so memoised pane trees do not
   // re-render from a fresh closure on every App commit.
   const paneSessionSubmitCache = useRef(new Map<string, (
@@ -3020,6 +3087,30 @@ export function App() {
         const oldest = paneSessionSubmitCache.current.keys().next().value;
         if (oldest === undefined) break;
         paneSessionSubmitCache.current.delete(oldest);
+      }
+    }
+    return fn;
+  };
+  const paneDraftSubmitCache = useRef(new Map<string, (
+    content: DesktopPromptContent,
+    options?: DesktopSubmitOptions,
+  ) => Promise<unknown>>());
+  const paneDraftSubmitFor = (
+    draftSelection: Extract<NavigationSelection, { kind: "new" }>,
+    leafId: string,
+  ) => {
+    const key = `${leafId}\u0000${navigationKey(draftSelection)}`;
+    let fn = paneDraftSubmitCache.current.get(key);
+    if (!fn) {
+      fn = (content, options) => submitFromRouteRef.current({
+        selection: draftSelection,
+        leafId,
+      }, content, options);
+      paneDraftSubmitCache.current.set(key, fn);
+      while (paneDraftSubmitCache.current.size > 32) {
+        const oldest = paneDraftSubmitCache.current.keys().next().value;
+        if (oldest === undefined) break;
+        paneDraftSubmitCache.current.delete(oldest);
       }
     }
     return fn;
@@ -4792,7 +4883,11 @@ export function App() {
             // Session panes always submit to THEIR session; only a draft pane
             // uses the selection-driven materialization path.
             errors={errors}
-            submit={paneSessionId ? paneSubmitFor(paneSessionId) : submit}
+            submit={paneSessionId
+              ? paneSubmitFor(paneSessionId)
+              : presentedSelection.kind === "new"
+                ? paneDraftSubmitFor(presentedSelection, leafId)
+                : submit}
             applySnapshot={applySnapshot}
             // Pane focus is not a loading mode: the already-mounted surface
             // remains interactive while its engine route catches up.

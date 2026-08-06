@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { buildExplorerPrompt } from '../src/standalone/explore-tool.mjs';
-import { EXPLORE_TOOL } from '../src/standalone/explore-tool.mjs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  buildExplorerPrompt,
+  EXPLORE_TOOL,
+  exploreResultCacheKey,
+  normalizeExploreRoots,
+  settledExplorerResult,
+} from '../src/standalone/explore-tool.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs';
 import { TOOL_SEARCH_TOOL } from '../src/session-runtime/tool-defs.mjs';
@@ -20,6 +27,58 @@ test('explore per-query prompt contains only escaped query XML', () => {
   assert.equal(prompt, '<query>display model usage show usage model_usage provider_usage session cache usage state</query>');
   assert.doesNotMatch(prompt, /Reminder:|BUDGET|TURN 1|STOP and answer|verdicts|ratings|recommendations/i);
   assert.equal(buildExplorerPrompt('where is <agent> & status?'), '<query>where is &lt;agent&gt; &amp; status?</query>');
+  assert.equal(
+    buildExplorerPrompt('cross root', ['C:\\Project', 'C:\\Users\\A&B']),
+    '<query>cross root</query>\n<roots>\n  <root>C:\\Project</root>\n  <root>C:\\Users\\A&amp;B</root>\n</roots>',
+  );
+});
+
+test('explore roots are normalized without a fan-out cap and included in cache identity', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'mixdog-explore-roots-'));
+  try {
+    const candidates = Array.from({ length: 5 }, (_, index) => {
+      const dir = join(cwd, `root-${index}`);
+      mkdirSync(dir);
+      return dir;
+    });
+    const roots = normalizeExploreRoots([
+      candidates[0],
+      candidates[0],
+      ...candidates.slice(1),
+      join(cwd, 'missing'),
+    ], cwd);
+    assert.equal(roots.length, 5);
+    assert.equal(roots[0], candidates[0]);
+    assert.equal(roots.includes(join(cwd, 'missing')), false);
+    const route = { provider: 'test', model: 'model' };
+    assert.notEqual(
+      exploreResultCacheKey({ cwd, roots: [candidates[0]], route, query: 'x' }),
+      exploreResultCacheKey({ cwd, roots: [candidates[1]], route, query: 'x' }),
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('explore hard timeout is an observable tool error, not a normal miss', () => {
+  // Every failure class carries a machine-stable tag so a wedged compute, a
+  // cancellation and a dispatch fault are distinguishable without prose parsing.
+  assert.deepEqual(
+    settledExplorerResult({ status: 'rejected', reason: new Error('explorer timed out after 60000ms') }),
+    { ok: false, text: '[explorer error] [timeout] explorer timed out after 60000ms' },
+  );
+  assert.deepEqual(
+    settledExplorerResult({ status: 'rejected', reason: new Error('explore canceled before dispatch') }),
+    { ok: false, text: '[explorer error] [canceled] explore canceled before dispatch' },
+  );
+  assert.match(
+    settledExplorerResult({ status: 'rejected', reason: new Error('provider exploded') }).text,
+    /^\[explorer error\] \[dispatch-failed\]/,
+  );
+  assert.match(
+    settledExplorerResult({ status: 'fulfilled', value: '   ' }).text,
+    /^\[explorer error\] \[empty-response\]/,
+  );
 });
 
 test('builtin descriptions stay contract-only; routing policy lives in shared rules', () => {
@@ -84,7 +143,7 @@ test('explorer locator policy retains its compact behavioral contract', () => {
     /Turn 1 \(`turn 1\/3`\) is the whole search[\s\S]*Split broad\/uncertain input into every known facet[\s\S]*one batch under the shared one-route contract[\s\S]*upstream producer\/derivation layer[\s\S]*SAME batch[\s\S]*Follow-up turns batch every unresolved facet in parallel[\s\S]*single-tool turn is allowed only when exactly one pre-anchor\/zero-hit facet remains/i,
     /Grep defaults to `output_mode:"content_with_context"` with `context:0`[\s\S]*tight `head_limit` \(≤20\)[\s\S]*`files_with_matches` only as a cheap existence probe/i,
     /Each pattern is one identifier, camel\/snake variant, or concept synonym[\s\S]*never a prose phrase[\s\S]*Spaces and non-ASCII are allowed only in verbatim quoted error\/log literals[\s\S]*Translate other non-English queries to English identifiers/i,
-    /Scope is session cwd[\s\S]*For unverified `src` paths, use `find` first[\s\S]*never guess or invent directories[\s\S]*`path:"\."` with guessed `src\/\*\*`[\s\S]*exact find-returned path[\s\S]*no earlier than turn 2[\s\S]*After zero hits, change tokens or scope, never wording or guessed paths/i,
+    /Scope is every `<roots><root>…<\/root><\/roots>` entry when supplied[\s\S]*otherwise session cwd[\s\S]*Search every supplied root in the turn-1 batch[\s\S]*grep\/glob batch `path\[\]`[\s\S]*find uses one sibling call per root[\s\S]*Never silently fall back to cwd[\s\S]*find result is relative to its exact root[\s\S]*prefix that root[\s\S]*For unverified `src` paths, use `find` first[\s\S]*never guess or invent directories[\s\S]*`path:"\."` with guessed `src\/\*\*`[\s\S]*supplied root or an exact find-returned path[\s\S]*After zero hits, change tokens or scope, never wording or guessed paths/i,
     /anchor is a `path:line` containing a query token or synonym[\s\S]*code_graph hit[\s\S]*Generic terms without query specificity are zero[\s\S]*Never re-locate, reconfirm, or upgrade an anchor[\s\S]*path without `:line` is a pre-anchor and counts as zero/i,
     /After every result, stop and answer on any specific-token anchor[\s\S]*mark a weak anchor `\?`/i,
     /code-location query left only with pre-anchors[\s\S]*sole anchor-minting follow-up[\s\S]*one scoped `content_with_context` grep with `head_limit`[\s\S]*If it returns zero[\s\S]*changed tokens or scope[\s\S]*Never make a second minting hop or fabricate\/estimate a line/i,

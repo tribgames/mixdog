@@ -6,40 +6,56 @@
 // singleton semaphore CAN bound the number of concurrent child processes (rg,
 // mixdog-graph, …) across ALL agents/workers in this daemon.
 //
-// Default: 1 on win32, unbounded elsewhere. Measured on Windows (explore-bench
-// 13-way fan-out, 2026-08-05): concurrent rg spawns thrash the AV child-scan
-// path — wall 31-61s unbounded vs 20-23s at cap 1, monotonic 1<2<6≈∞, tool
-// p50 14.6s→11.0s, quality unchanged. Spawns are short (rg/graph only; shell
-// is deliberately NOT gated), so serializing them overlaps LLM waits instead
-// of starving anything. MIXDOG_CHILD_SPAWN_MAX_INFLIGHT still overrides.
+// Default: unbounded on every platform. A machine whose AV/process policy
+// benefits from serialization may opt into a finite limit with
+// MIXDOG_CHILD_SPAWN_MAX_INFLIGHT, but the product does not silently turn
+// independent session tools into one global FIFO.
 //
-// IMPORTANT: this is a resource-control knob and is deliberately NOT exposed
-// on any tool JSON schema / tool parameter surface. The only tuning surface
-// is the MIXDOG_CHILD_SPAWN_MAX_INFLIGHT env override.
+// IMPORTANT: these are resource-control knobs and are deliberately NOT exposed
+// on any tool JSON schema / tool parameter surface. Operators may set the
+// shared MIXDOG_CHILD_SPAWN_MAX_INFLIGHT fallback or a lane-specific override.
 
 function _defaultMaxInflight() {
   const override = Number(process.env.MIXDOG_CHILD_SPAWN_MAX_INFLIGHT);
   if (Number.isFinite(override) && override >= 1) return Math.floor(override);
-  return process.platform === 'win32' ? 1 : Infinity;
+  return Infinity;
 }
 
-const MAX_INFLIGHT = _defaultMaxInflight();
+const DEFAULT_MAX_INFLIGHT = _defaultMaxInflight();
+const LANE_ALIASES = new Map([
+  ['default', 'search'],
+  ['build', 'code-graph'],
+]);
+
+function _laneName(name) {
+  const clean = String(name || 'search').trim().toLowerCase() || 'search';
+  return LANE_ALIASES.get(clean) || clean;
+}
+
+function _laneLimit(name) {
+  const key = _laneName(name).toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+  const override = Number(process.env[`MIXDOG_CHILD_SPAWN_${key}_MAX_INFLIGHT`]);
+  return Number.isFinite(override) && override >= 1
+    ? Math.floor(override)
+    : DEFAULT_MAX_INFLIGHT;
+}
 
 // ── Lanes ────────────────────────────────────────────────────────────────
-// One shared cap number, applied PER LANE with independent counters/queues:
-//   'default' — short-lived spawns (rg). Holding time is one search run.
-//   'build'   — long-lived builds (code-graph worker / graph binary). A cold
-//               graph build can hold its slot for seconds-to-minutes; on the
-//               win32 cap=1 default a single shared lane would let one build
+// Independent optional limits and queues:
+//   'search'     — short-lived rg processes.
+//   'code-graph' — long-lived graph workers / native graph binaries. A cold
+//               graph build can hold its slot for seconds-to-minutes; a
+//               single shared lane would let one build
 //               stall every rg spawn behind it. Separate lanes remove that
 //               starvation class while keeping each spawn family bounded.
-function _makeLane() {
-  return { inflight: 0, queue: [] };
+function _makeLane(name) {
+  return { inflight: 0, queue: [], limit: _laneLimit(name) };
 }
 const _lanes = new Map();
 function _lane(name) {
-  let lane = _lanes.get(name);
-  if (!lane) { lane = _makeLane(); _lanes.set(name, lane); }
+  const normalized = _laneName(name);
+  let lane = _lanes.get(normalized);
+  if (!lane) { lane = _makeLane(normalized); _lanes.set(normalized, lane); }
   return lane;
 }
 
@@ -61,14 +77,14 @@ function _maybeWarnSlow(waitedMs, laneName, lane) {
   _lastSlowWarnAt = now;
   try {
     process.stderr.write(
-      `[child-spawn-gate] lane=${laneName} queue wait ${waitedMs}ms (inflight cap=${MAX_INFLIGHT}, queued=${lane.queue.length}); `
-      + 'raise MIXDOG_CHILD_SPAWN_MAX_INFLIGHT if this persists\n',
+      `[child-spawn-gate] lane=${laneName} queue wait ${waitedMs}ms (inflight cap=${lane.limit}, queued=${lane.queue.length}); `
+      + 'raise the lane-specific MIXDOG_CHILD_SPAWN_*_MAX_INFLIGHT if this persists\n',
     );
   } catch { /* ignore */ }
 }
 
 function _drain(laneName, lane) {
-  while (lane.inflight < MAX_INFLIGHT && lane.queue.length > 0) {
+  while (lane.inflight < lane.limit && lane.queue.length > 0) {
     const waiter = lane.queue.shift();
     if (waiter.onAbort && waiter.signal) {
       try { waiter.signal.removeEventListener('abort', waiter.onAbort); } catch { /* ignore */ }
@@ -89,23 +105,24 @@ function _drain(laneName, lane) {
  * call release().
  *
  * @param {AbortSignal | null} [signal]
- * @param {string} [laneName] — 'default' (short spawns) or 'build'.
+ * @param {string} [laneName] — 'search' (rg) or 'code-graph'.
  * @returns {Promise<() => void>}
  */
-export function acquire(signal = null, laneName = 'default') {
+export function acquire(signal = null, laneName = 'search') {
   if (signal && signal.aborted) {
     return Promise.reject(signal.reason ?? _abortError());
   }
-  const lane = _lane(laneName);
+  const normalizedLaneName = _laneName(laneName);
+  const lane = _lane(normalizedLaneName);
   return new Promise((resolve, reject) => {
     let released = false;
     const release = () => {
       if (released) return;
       released = true;
       lane.inflight = Math.max(0, lane.inflight - 1);
-      _drain(laneName, lane);
+      _drain(normalizedLaneName, lane);
     };
-    if (lane.inflight < MAX_INFLIGHT && lane.queue.length === 0) {
+    if (lane.inflight < lane.limit && lane.queue.length === 0) {
       lane.inflight++;
       resolve(release);
       return;
@@ -147,9 +164,21 @@ function _abortError() {
  * best-effort work. Real queries must use acquire()/withGate() and never gate
  * themselves on this.
  */
-export function hasSpareCapacity(laneName = 'default') {
+export function hasSpareCapacity(laneName = 'search') {
   const lane = _lane(laneName);
-  return lane.inflight < MAX_INFLIGHT && lane.queue.length === 0;
+  return lane.inflight < lane.limit && lane.queue.length === 0;
+}
+
+export function snapshot() {
+  return {
+    maxInflight: Number.isFinite(DEFAULT_MAX_INFLIGHT) ? DEFAULT_MAX_INFLIGHT : null,
+    lanes: [..._lanes.entries()].map(([name, lane]) => ({
+      name,
+      inflight: lane.inflight,
+      queued: lane.queue.length,
+      limit: Number.isFinite(lane.limit) ? lane.limit : null,
+    })),
+  };
 }
 
 /**
@@ -162,7 +191,7 @@ export function hasSpareCapacity(laneName = 'default') {
  * @param {string} [laneName]
  * @returns {Promise<T>}
  */
-async function withGate(fn, signal = null, laneName = 'default') {
+async function withGate(fn, signal = null, laneName = 'search') {
   const release = await acquire(signal, laneName);
   try {
     return await fn({ signal: signal || null });

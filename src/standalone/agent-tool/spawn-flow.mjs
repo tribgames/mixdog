@@ -76,6 +76,8 @@ export function createSpawnFlow({
         const lease = await resourceAdmission.acquire('agent', {
           signal: admissionController.signal,
           label: jobMeta?.tag || type,
+          ownerKey: notifyContext?.callerSessionId || notifyContext?.sessionId
+            || clientHostPid || null,
         });
         try {
           // Yield one macrotask before doing agent work. startBackgroundTask uses

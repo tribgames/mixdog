@@ -24,20 +24,11 @@ function _stripLineCoordForReach(s) {
         .replace(/:\d+(?:-\d+)?(?::.*)?$/, '');
 }
 
-// Batch fan-out cap: array/object read shapes read only the first N entries
-// (the >N slice below truncates the rest with a `_batchCapNote`). The
-// reachability preflight must honour the SAME cap so a path that will be
-// capped away is never stat-probed and can never reject the batch via a guard.
-const READ_BATCH_PATH_CAP = 10;
-
 function _collectReachCandidates(p) {
     const out = [];
     const push = (s) => { if (typeof s === 'string' && s) out.push(s); };
     if (typeof p === 'string') push(p);
-    // Only the first READ_BATCH_PATH_CAP entries survive the fan-out cap, so
-    // preflight only the paths that will actually be read. Capped-away paths
-    // (incl. UNC/device) must NOT be probed or allowed to fail the batch.
-    else if (Array.isArray(p)) for (const e of p.slice(0, READ_BATCH_PATH_CAP)) push((e && typeof e === 'object') ? (e.path ?? e.file_path) : e);
+    else if (Array.isArray(p)) for (const e of p) push((e && typeof e === 'object') ? (e.path ?? e.file_path) : e);
     return out;
 }
 
@@ -181,14 +172,6 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
     // Single turn can touch many files or swap modes without
     // the agent iterating across multiple tool names.
     if (Array.isArray(args.path) && args.path.length > 0 && args.path[0] && typeof args.path[0] === 'object') {
-        // Cap batch fan-out: never error on an oversized array, just
-        // truncate and note it in the final output (mirrors list-tool.mjs
-        // path[] cap pattern).
-        if (args.path.length > 10) {
-            const _origObjLen = args.path.length;
-            args.path = args.path.slice(0, 10);
-            args._batchCapNote = `... [capped at 10 of ${_origObjLen} paths]`;
-        }
         // Per-file batch: each entry carries its own options.
         // Coalesce same-path entries: multiple chunks for the same
         // file are merged into a single wider read (min offset to max
@@ -244,11 +227,6 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
         args.mode = undefined; args.n = undefined; args.offset = undefined; args.limit = undefined; args.full = undefined;
     }
     if (Array.isArray(args.path)) {
-        if (args.path.length > 10) {
-            const _origStrLen = args.path.length;
-            args.path = args.path.slice(0, 10);
-            if (!args._batchCapNote) args._batchCapNote = `... [capped at 10 of ${_origStrLen} paths]`;
-        }
         // Schema is `path: string | string[]` — array entries are
         // strings only. Top-level mode / n / offset / limit / full
         // apply uniformly to every entry in the batch (the only

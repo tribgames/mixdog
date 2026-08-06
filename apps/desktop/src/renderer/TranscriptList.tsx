@@ -124,8 +124,11 @@ export function TranscriptList({
     },
     initialOffset: () => (shouldAnchorBottom ? Number.MAX_SAFE_INTEGER : 0),
     initialMeasurementsCache: restored?.measurements,
-    anchorTo: "end",
-    followOnAppend: true,
+    // Reader intent wins immediately. Keeping end anchoring active inside the
+    // 80px return band let a small upward wheel move get reversed by the next
+    // append or row measurement even after the follow hook had detached.
+    anchorTo: shouldAnchorBottom ? "end" : "start",
+    followOnAppend: shouldAnchorBottom,
     scrollEndThreshold: 80,
     paddingEnd: TRANSCRIPT_BOTTOM_SPACER,
     // The virtual core commits its state to the DOM in the same task as every
@@ -201,6 +204,14 @@ export function TranscriptList({
   const prevRowCount = useRef(rows.length);
   const measureRow = useCallback((element: HTMLDivElement | null) => {
     if (!element) return;
+    // The FIRST measurement of a row rides the SAME commit that appended it.
+    // Deferring it to the next frame left the new row in geometry at the flat
+    // estimate, so followOnAppend scrolled to an estimated end and the real
+    // height then arrived as a SECOND scroll write — the two-step lurch the
+    // reader sees while the tail is followed.
+    if (element.isConnected) virtualizerRef.current.measureElement(element);
+    // Content that settles AFTER that commit (fonts, promoted Markdown, lazy
+    // media) still re-measures once through the connected guard.
     scheduleConnectedMeasure(element, (node) => {
       virtualizerRef.current.measureElement(node);
     });

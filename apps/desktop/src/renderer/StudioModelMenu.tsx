@@ -96,7 +96,7 @@ export function StudioModelMenu({ entries, lane, model, disabled = false, onSele
       }}
       onPointerCancel={clickGuard.clearPointerActivation}>
       <span>{current?.label || model || 'Select model'}</span>
-      <ChevronDown size={13} aria-hidden="true" />
+      <ChevronDown size={14} aria-hidden="true" />
     </button>
     {open && anchor.current && createPortal(<div className="studio-model-panel" role="listbox"
       aria-label="Generation model" style={{ left: anchor.current.left, bottom: anchor.current.bottom }}>

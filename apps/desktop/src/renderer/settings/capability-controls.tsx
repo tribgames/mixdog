@@ -274,7 +274,7 @@ export function SettingsConfirmDialog({ options, onClose }: { options: SettingsC
       aria-describedby="settings-confirm-description" data-settings-nested-dialog>
       <header><h3 id="settings-confirm-title">{t(options.title)}</h3>
         <button type="button" aria-label={t('Close confirmation')} data-settings-nested-close
-          onClick={onClose}><X aria-hidden="true" size={15} /></button></header>
+          onClick={onClose}><X aria-hidden="true" size={16} /></button></header>
       <p id="settings-confirm-description">{t(options.description)}</p>
       <footer><button ref={cancelRef} type="button" onClick={onClose}>{t('Cancel')}</button>
         <button type="button" className={options.danger ? 'danger' : 'primary'} onClick={accept}>

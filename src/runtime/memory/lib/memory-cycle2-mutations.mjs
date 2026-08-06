@@ -322,6 +322,7 @@ async function _llmJudgePair(summaryA, summaryB, siblingContext = [], options = 
       preset: options.preset || resolveMaintenancePreset('memory'),
       timeout: 30000,
       cwd: null,
+      signal,
     }, prompt)
     throwIfAborted(signal)
     return String(raw ?? '').trim().toLowerCase().startsWith('merge')

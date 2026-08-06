@@ -47,6 +47,7 @@ export function renderAppView(ctx) {
       // actually be accepted — otherwise Enter must submit the raw text as
       // before instead of dead-ending in the palette accept path.
       commandPaletteActive={slashPaletteOpen && slashCommands.length > 0}
+      commandPaletteOpen={slashPaletteOpen}
       onCommandPaletteNavigate={(direction) => {
         setSlashIndex((index) => {
           const total = slashCommands.length;
@@ -65,7 +66,8 @@ export function renderAppView(ctx) {
       onCommandPaletteAccept={acceptSlashPalette}
       onCommandPaletteCancel={cancelSlashPalette}
       onCommandPaletteComplete={completeSlashPalette}
-      onRestoreQueued={(currentText) => restoreQueuedToPrompt({ restoreDraft: true, showHint: false, currentText })}
+      onRestoreQueued={restoreQueuedToPrompt}
+      hasQueuedMessages={Array.isArray(state.queued) && state.queued.length > 0}
     />
   );
 

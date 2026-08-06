@@ -4,18 +4,27 @@ import { requestMemoryPressureSnapshot } from './memory-snapshot.mjs';
 
 const MB = 1024 * 1024;
 
-// Concurrency defaults are UNBOUNDED by design: parallel agent/shell waves
-// must never serialize behind an admission queue. The only default guards are
-// the memory-pressure checks below; hard caps exist solely as opt-in env
-// overrides (MIXDOG_MAX_CONCURRENT_AGENTS / _SHELLS / _HIGH_LOAD).
+// Normal work is parallel by default. Finite concurrency is an explicit
+// operator policy; memory thresholds are diagnostic and never refuse work.
 export const RESOURCE_ADMISSION_DEFAULTS = Object.freeze({
   maxAgents: Infinity,
   maxShells: Infinity,
   maxHighLoad: Infinity,
-  maxQueue: 32,
-  minFreeMemoryMb: 1024,
-  maxRssMb: 3072,
+  maxQueue: 1024,
+  minFreeMemoryMb: 0,
+  maxRssMb: 0,
 });
+
+const PRIORITY_RANK = Object.freeze({
+  'user-blocking': 0,
+  'user-visible': 1,
+  'best-effort': 2,
+});
+
+function normalizePriority(value) {
+  const key = String(value || 'user-visible').toLowerCase();
+  return Object.hasOwn(PRIORITY_RANK, key) ? key : 'user-visible';
+}
 
 function positiveInt(value, fallback) {
   const parsed = Math.floor(Number(value));
@@ -54,19 +63,6 @@ function abortError(signal) {
     : new Error(String(signal?.reason || 'resource admission canceled'));
 }
 
-function sleep(ms, signal) {
-  return new Promise((resolve) => {
-    const finish = () => {
-      clearTimeout(timer);
-      signal?.removeEventListener?.('abort', finish);
-      resolve();
-    };
-    const timer = setTimeout(finish, ms);
-    timer.unref?.();
-    signal?.addEventListener?.('abort', finish, { once: true });
-  });
-}
-
 class ResourcePressureError extends Error {
   constructor(message, details = {}) {
     super(`resource pressure: ${message}`);
@@ -102,48 +98,37 @@ export class ResourceAdmissionController {
     this.metrics = metrics;
     this.now = now;
     this.active = { agent: 0, shell: 0 };
+    this.activeByOwner = { agent: new Map(), shell: new Map() };
+    this.fairCursor = { agent: null, shell: null };
     this.queue = [];
     // Live leases for saturation diagnostics only (labels/ages in snapshot()).
     this.activeLeases = new Set();
     this.context = new AsyncLocalStorage();
-    // Host free memory is an INSTANTANEOUS sample: a GC pause or a just-exited
-    // child can dip it below the floor for a few hundred ms. Re-measure a
-    // bounded number of times before refusing, so a transient dip costs
-    // latency instead of a failed tool call.
-    this.memoryRetry = {
-      attempts: nonNegativeInt(env.MIXDOG_MEMORY_PRESSURE_RETRIES, 3),
-      delayMs: nonNegativeInt(env.MIXDOG_MEMORY_PRESSURE_RETRY_MS, 400),
-    };
   }
 
-  _memoryError(kind) {
+  _recordMemoryPressure(kind) {
+    // Thresholds are an operator-opt-in telemetry trigger only. The OS owns
+    // memory pressure policy; Mixdog never turns a valid agent/shell request
+    // into a failed task because of an RSS or host-free-memory sample.
+    if (this.limits.maxRssMb <= 0 && this.limits.minFreeMemoryMb <= 0) return false;
     let sample;
     try { sample = this.metrics() || {}; }
-    catch (error) {
-      return new ResourcePressureError(`memory metrics unavailable; refusing new ${kind} work`, {
-        kind,
-        cause: error,
-      });
-    }
+    catch { return false; }
     const rssMb = Number(sample.rssBytes) / MB;
     const freeMb = Number(sample.freeMemoryBytes) / MB;
     if (this.limits.maxRssMb > 0 && Number.isFinite(rssMb) && rssMb >= this.limits.maxRssMb) {
-      const error = new ResourcePressureError(
-        `Mixdog RSS ${Math.ceil(rssMb)} MB reached ${this.limits.maxRssMb} MB limit; retry after memory recovers`,
-        { kind, rssMb, limitMb: this.limits.maxRssMb, metric: 'rss' },
+      requestMemoryPressureSnapshot(
+        `diagnostic threshold: Mixdog RSS ${Math.ceil(rssMb)} MB reached ${this.limits.maxRssMb} MB while starting ${kind}`,
       );
-      requestMemoryPressureSnapshot(error.message);
-      return error;
+      return true;
     }
     if (this.limits.minFreeMemoryMb > 0 && Number.isFinite(freeMb) && freeMb < this.limits.minFreeMemoryMb) {
-      const error = new ResourcePressureError(
-        `host free memory ${Math.floor(freeMb)} MB is below ${this.limits.minFreeMemoryMb} MB minimum; retry after memory recovers`,
-        { kind, freeMb, limitMb: this.limits.minFreeMemoryMb, metric: 'free-memory' },
+      requestMemoryPressureSnapshot(
+        `diagnostic threshold: host free memory ${Math.floor(freeMb)} MB is below ${this.limits.minFreeMemoryMb} MB while starting ${kind}`,
       );
-      requestMemoryPressureSnapshot(error.message);
-      return error;
+      return true;
     }
-    return null;
+    return false;
   }
 
   _canStart(kind) {
@@ -158,6 +143,12 @@ export class ResourceAdmissionController {
     if (parent.counted) {
       parent.counted = false;
       this.active[parent.kind] = Math.max(0, this.active[parent.kind] - 1);
+      if (parent.ownerKey) {
+        const owners = this.activeByOwner[parent.kind];
+        const count = Math.max(0, (owners.get(parent.ownerKey) || 0) - 1);
+        if (count > 0) owners.set(parent.ownerKey, count);
+        else owners.delete(parent.ownerKey);
+      }
     }
     return parent;
   }
@@ -175,6 +166,8 @@ export class ResourceAdmissionController {
       queuedAt: this.now(),
       signal: parent.signal,
       parent,
+      ownerKey: parent.ownerKey,
+      priority: parent.priority,
       resolve: pending.resolve,
       reject: pending.reject,
       canceled: false,
@@ -197,8 +190,10 @@ export class ResourceAdmissionController {
     return pending.promise;
   }
 
-  _lease(kind, queuedAt = null, parent = null) {
+  _lease(kind, queuedAt = null, parent = null, ownerKey = '', priority = 'user-visible') {
     this.active[kind] += 1;
+    const owner = String(ownerKey || '');
+    if (owner) this.activeByOwner[kind].set(owner, (this.activeByOwner[kind].get(owner) || 0) + 1);
     const lease = {
       controller: this,
       kind,
@@ -209,6 +204,8 @@ export class ResourceAdmissionController {
       dependencyDepth: 0,
       restorePending: null,
       parent,
+      ownerKey: owner,
+      priority: normalizePriority(priority),
       releasePromise: null,
       startedAt: this.now(),
       queuedMs: queuedAt == null ? 0 : Math.max(0, this.now() - queuedAt),
@@ -227,6 +224,11 @@ export class ResourceAdmissionController {
         if (lease.counted) {
           lease.counted = false;
           this.active[kind] = Math.max(0, this.active[kind] - 1);
+          if (lease.ownerKey) {
+            const count = Math.max(0, (this.activeByOwner[kind].get(lease.ownerKey) || 0) - 1);
+            if (count > 0) this.activeByOwner[kind].set(lease.ownerKey, count);
+            else this.activeByOwner[kind].delete(lease.ownerKey);
+          }
         }
         lease.releasePromise = this._resumeParent(lease.parent);
         this._drain();
@@ -252,29 +254,15 @@ export class ResourceAdmissionController {
     return this.context.run(lease, task);
   }
 
-  async _acquireAfterMemoryDip(kind, options, pressure) {
+  acquire(kind, {
+    signal = null, label = null, dependency = 'scoped', ownerKey = null,
+    priority = 'user-visible',
+  } = {}) {
     const lane = kind === 'shell' ? 'shell' : 'agent';
-    const { attempts, delayMs } = this.memoryRetry;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      await sleep(delayMs, options.signal);
-      if (options.signal?.aborted) throw abortError(options.signal);
-      if (!this._memoryError(lane)) return this.acquire(kind, options);
-    }
-    throw this._memoryError(lane) || pressure;
-  }
-
-  acquire(kind, { signal = null, label = null, dependency = 'scoped' } = {}) {
-    const lane = kind === 'shell' ? 'shell' : 'agent';
+    const owner = ownerKey == null ? '' : String(ownerKey).trim().slice(0, 240);
+    const taskPriority = normalizePriority(priority);
     if (signal?.aborted) return Promise.reject(abortError(signal));
-    const pressure = this._memoryError(lane);
-    if (pressure) {
-      // Only host free memory self-heals on this timescale; our own RSS does
-      // not, so RSS pressure still rejects immediately.
-      if (pressure.metric !== 'free-memory' || this.memoryRetry.attempts < 1) {
-        return Promise.reject(pressure);
-      }
-      return this._acquireAfterMemoryDip(kind, { signal, label, dependency }, pressure);
-    }
+    this._recordMemoryPressure(lane);
     const ambientParent = this.context.getStore();
     const detachedDependency = dependency === 'detached' && ambientParent?.controller === this;
     const parent = detachedDependency ? null : this._suspendParent(ambientParent);
@@ -287,7 +275,7 @@ export class ResourceAdmissionController {
       return Promise.reject(error);
     }
     if (this._canStart(lane) && this.queue.length === 0) {
-      const lease = this._lease(lane, null, parent);
+      const lease = this._lease(lane, null, parent, owner, taskPriority);
       lease.label = label;
       lease.signal = signal;
       return Promise.resolve(lease);
@@ -310,6 +298,8 @@ export class ResourceAdmissionController {
         canceled: false,
         onAbort: null,
         parent,
+        ownerKey: owner,
+        priority: taskPriority,
       };
       if (signal) {
         item.onAbort = () => {
@@ -339,35 +329,64 @@ export class ResourceAdmissionController {
     }
   }
 
-  _drain() {
-    for (let index = 0; index < this.queue.length;) {
+  _nextFairIndex() {
+    const runnable = [];
+    for (let index = 0; index < this.queue.length; index += 1) {
       const item = this.queue[index];
+      if (item.canceled || item.signal?.aborted) continue;
+      if (item.restore && item.parent.released) continue;
+      if (!this._canStart(item.kind)) continue;
+      runnable.push({ index, item });
+    }
+    if (runnable.length === 0) return -1;
+    // USER_BLOCKING work (abort/recovery), then USER_VISIBLE tool work, then
+    // BEST_EFFORT maintenance. Preserve FIFO between resource kinds inside a
+    // priority and round-robin sessions within that lane.
+    const bestRank = Math.min(...runnable.map(({ item }) =>
+      PRIORITY_RANK[normalizePriority(item.priority)]));
+    const prioritized = runnable.filter(({ item }) =>
+      PRIORITY_RANK[normalizePriority(item.priority)] === bestRank);
+    const lane = prioritized[0].item.kind;
+    const laneRows = prioritized.filter((row) => row.item.kind === lane);
+    const owners = [];
+    for (const { item } of laneRows) {
+      const owner = item.ownerKey || '';
+      if (!owners.includes(owner)) owners.push(owner);
+    }
+    let selected = owners[0] || '';
+    if (owners.length > 1) {
+      const previous = this.fairCursor[lane];
+      const previousIndex = owners.indexOf(previous);
+      selected = owners[(previousIndex + 1 + owners.length) % owners.length];
+    }
+    this.fairCursor[lane] = selected;
+    return laneRows.find((row) => (row.item.ownerKey || '') === selected)?.index ?? laneRows[0].index;
+  }
+
+  _drain() {
+    for (;;) {
+      // Remove dead/cancelled rows before selecting an owner. Their callbacks
+      // may enqueue restoration work, so restart selection after each cleanup.
+      let cleaned = false;
+      for (let index = 0; index < this.queue.length; index += 1) {
+        const item = this.queue[index];
       if (item.restore) {
         if (item.parent.released) {
           this.queue.splice(index, 1);
           this._detach(item);
           item.parent.restorePending = null;
           item.resolve();
-          continue;
+          cleaned = true;
+          break;
         }
         if (item.signal?.aborted) {
           this.queue.splice(index, 1);
           this._detach(item);
           item.parent.restorePending = null;
           item.reject(abortError(item.signal));
-          continue;
+          cleaned = true;
+          break;
         }
-        if (!this._canStart(item.kind)) {
-          index += 1;
-          continue;
-        }
-        this.queue.splice(index, 1);
-        this._detach(item);
-        item.parent.restorePending = null;
-        item.parent.counted = true;
-        this.active[item.kind] += 1;
-        item.resolve();
-        continue;
       }
       if (item.canceled || item.signal?.aborted) {
         this.queue.splice(index, 1);
@@ -377,23 +396,37 @@ export class ResourceAdmissionController {
           () => item.reject(error),
           (restoreError) => item.reject(restoreError),
         );
-        continue;
+          cleaned = true;
+          break;
+        }
       }
-      if (!this._canStart(item.kind)) {
-        index += 1;
-        continue;
-      }
-      const pressure = this._memoryError(item.kind);
+      if (cleaned) continue;
+      const index = this._nextFairIndex();
+      if (index < 0) return;
+      const item = this.queue[index];
+      this._recordMemoryPressure(item.kind);
       this.queue.splice(index, 1);
       this._detach(item);
-      if (pressure) {
-        this._resumeParent(item.parent).then(
-          () => item.reject(pressure),
-          (restoreError) => item.reject(restoreError),
-        );
+      if (item.restore) {
+        item.parent.restorePending = null;
+        item.parent.counted = true;
+        this.active[item.kind] += 1;
+        if (item.ownerKey) {
+          this.activeByOwner[item.kind].set(
+            item.ownerKey,
+            (this.activeByOwner[item.kind].get(item.ownerKey) || 0) + 1,
+          );
+        }
+        item.resolve();
         continue;
       }
-      const lease = this._lease(item.kind, item.queuedAt, item.parent);
+      const lease = this._lease(
+        item.kind,
+        item.queuedAt,
+        item.parent,
+        item.ownerKey,
+        item.priority,
+      );
       lease.label = item.label;
       lease.signal = item.signal;
       item.resolve(lease);
@@ -402,15 +435,31 @@ export class ResourceAdmissionController {
 
   snapshot() {
     const now = this.now();
+    const wireLimit = (value) => Number.isFinite(value) ? value : null;
     return {
       active: { ...this.active },
+      activeOwners: {
+        agent: this.activeByOwner.agent.size,
+        shell: this.activeByOwner.shell.size,
+      },
       queued: this.queue.length,
-      limits: { ...this.limits },
+      limits: {
+        ...this.limits,
+        maxAgents: wireLimit(this.limits.maxAgents),
+        maxShells: wireLimit(this.limits.maxShells),
+        maxHighLoad: wireLimit(this.limits.maxHighLoad),
+      },
       activeLeases: [...this.activeLeases].map((lease) => ({
         kind: lease.kind,
         label: lease.label,
+        ownerKey: lease.ownerKey || null,
+        priority: lease.priority,
         ageMs: Math.max(0, now - (lease.startedAt || now)),
       })),
+      oldestQueuedMs: this.queue.reduce(
+        (oldest, item) => Math.max(oldest, Math.max(0, now - (item.queuedAt || now))),
+        0,
+      ),
     };
   }
 }

@@ -193,12 +193,5 @@ export function createProviderAuthApi({
         quick: options.quick === true,
       });
     },
-    async setDefaultProvider(provider) {
-      const requested = clean(provider);
-      if (!requested) throw new Error('provider is required');
-      if (!isKnownProvider(requested)) throw new Error(`unknown provider "${provider}"`);
-      saveConfigAndAdopt({ ...getConfig(), defaultProvider: requested });
-      return requested;
-    },
   };
 }

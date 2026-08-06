@@ -1,7 +1,3 @@
-function suppressed(value) {
-  return typeof value === 'function' ? value() === true : value === true;
-}
-
 export function cancelPromptImmediateFlush(throttle, clearTimer = clearTimeout) {
   if (!throttle || throttle.timer === null) return false;
   clearTimer(throttle.timer);
@@ -11,7 +7,6 @@ export function cancelPromptImmediateFlush(throttle, clearTimer = clearTimeout) 
 
 export function schedulePromptImmediateFlush({
   throttle,
-  isSuppressed = false,
   flush,
   intervalMs = 16,
   now = Date.now,
@@ -21,10 +16,6 @@ export function schedulePromptImmediateFlush({
 }) {
   if (!throttle || typeof flush !== 'function') {
     throw new TypeError('schedulePromptImmediateFlush requires throttle state and a flush function');
-  }
-  if (suppressed(isSuppressed)) {
-    cancelPromptImmediateFlush(throttle, clearTimer);
-    return false;
   }
 
   const current = now();
@@ -39,7 +30,6 @@ export function schedulePromptImmediateFlush({
 
   throttle.timer = setTimer(() => {
     throttle.timer = null;
-    if (suppressed(isSuppressed)) return;
     throttle.lastAt = now();
     flush();
   }, intervalMs - elapsed);

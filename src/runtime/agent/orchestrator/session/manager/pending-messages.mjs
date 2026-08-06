@@ -1,7 +1,8 @@
 // Steering / pending-message queue with sync buffered + atomic-file persistence.
 // Extracted verbatim from manager.mjs (behavior-preserving).
 import { join } from 'path';
-import { readFileSync, statSync } from 'fs';
+import { readFileSync } from 'fs';
+import { stat } from 'fs/promises';
 import { createHash, randomBytes } from 'crypto';
 import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 import { updateJsonAtomic } from '../../../../shared/atomic-file.mjs';
@@ -20,8 +21,8 @@ const PENDING_ORPHAN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const PENDING_ORPHAN_GRACE_MS = 60 * 60 * 1000;
 // Replay window for genuine user/steering entries. A cross-surface submit is
 // meant for a LIVE owner; entries that predate this process and exceeded the
-// window are still DELIVERED (CC parity, reference messageQueueManager.ts:
-// queued user input is never silently discarded), but annotated with an
+// window are still DELIVERED (queued user input is never silently
+// discarded), but annotated with an
 // explicit late-delivery header so a session resumed hours later reads them
 // as clearly-late input instead of a surprise self-injection.
 const STALE_USER_INJECTION_TTL_MS = 30 * 60 * 1000;
@@ -44,7 +45,7 @@ function isStaleUserInjection(entry, now = Date.now()) {
     return (now - enqueuedAt) > STALE_USER_INJECTION_TTL_MS;
 }
 
-// CC parity: never silently discard queued user input. A stale entry is
+// Never silently discard queued user input. A stale entry is
 // delivered with this explicit age-annotated header so neither the user nor
 // the model mistakes it for fresh input.
 function lateDeliveryText(text, entry, now = Date.now()) {
@@ -823,7 +824,7 @@ export function hydratePendingMessages(sessionId, options = {}) {
                 if (!id || inDelivery.has(id) || acked.has(id)) return false;
                 return true;
             });
-            // CC parity: stale genuine user/steering entries DELIVER with a
+            // Stale genuine user/steering entries DELIVER with a
             // late-delivery header instead of being silently dropped (the old
             // behavior discarded them; user report: remote/steering sends
             // silently ignored around owner restarts). Completion entries
@@ -1092,8 +1093,14 @@ export function enqueueRemotePendingMessage(sessionId, message) {
 // several sessions (desktop tabs, TUI + engine hosts) and a single shared
 // counter let the first drain of a tick swallow the mtime bump for every
 // other session, stranding their foreign submits until the next spool write.
-const FOREIGN_SPOOL_SCAN_LIMIT = 64;
+const FOREIGN_SPOOL_SCAN_LIMIT = Math.max(
+    128,
+    Number(process.env.MIXDOG_FOREIGN_SPOOL_SCAN_LIMIT) || 512,
+);
 const _foreignSpoolScanMtimes = new Map();
+const _foreignDrainRequests = new Map();
+let _foreignDrainScheduled = false;
+let _foreignDrainRunning = false;
 
 function _rememberForeignSpoolScan(sessionId, mtime) {
     _foreignSpoolScanMtimes.delete(sessionId);
@@ -1102,6 +1109,134 @@ function _rememberForeignSpoolScan(sessionId, mtime) {
         const oldest = _foreignSpoolScanMtimes.keys().next().value;
         if (oldest === undefined) break;
         _foreignSpoolScanMtimes.delete(oldest);
+    }
+}
+
+function _foreignLocalIds(sessionId) {
+    const localIds = new Set();
+    for (const map of [_sessionPendingMessages, _pendingPersistBuffers, _hydratedPendingMessages]) {
+        for (const entry of map.get(sessionId) || []) {
+            const id = pendingMessageId(entry);
+            if (id) localIds.add(id);
+        }
+    }
+    for (const set of [_inDeliveryPendingIds.get(sessionId), _ackedPendingIds.get(sessionId)]) {
+        for (const id of set || []) localIds.add(id);
+    }
+    // The durable delivered-ledger mirrors the hydrate path's suppression: an
+    // entry whose id was recorded as delivered (but whose spool cleanup has
+    // not landed yet — crash, lock contention, another process) is NOT a
+    // foreign submit and must never re-inject.
+    try {
+        for (const id of loadSession(sessionId)?.deliveredPendingMessageIds || []) {
+            if (typeof id === 'string' && id) localIds.add(id);
+        }
+    } catch { /* ledger unavailable — in-memory sets still guard */ }
+    return localIds;
+}
+
+function _settleForeignDrain(request, value) {
+    for (const resolve of request.waiters) {
+        try { resolve(value); } catch { /* a consumer cannot break the batch */ }
+    }
+}
+
+function _scheduleForeignDrainBatch() {
+    if (_foreignDrainScheduled || _foreignDrainRunning || _foreignDrainRequests.size === 0) return;
+    _foreignDrainScheduled = true;
+    setImmediate(() => {
+        _foreignDrainScheduled = false;
+        void _flushForeignDrainBatch();
+    });
+}
+
+async function _flushForeignDrainBatch() {
+    if (_foreignDrainRunning) return;
+    _foreignDrainRunning = true;
+    const batch = [..._foreignDrainRequests.values()];
+    _foreignDrainRequests.clear();
+    try {
+        let mtime = 0;
+        try { mtime = (await stat(pendingMessagesPath())).mtimeMs || 0; }
+        catch {
+            for (const request of batch) _settleForeignDrain(request, []);
+            return;
+        }
+        const candidates = batch.filter((request) =>
+            _foreignSpoolScanMtimes.get(request.sessionId) !== mtime
+            && !pendingLifecycleInvalidated(request.sessionId, request.epochToken));
+        for (const request of batch) {
+            if (!candidates.includes(request)) _settleForeignDrain(request, []);
+        }
+        if (candidates.length === 0) return;
+        for (const request of candidates) {
+            request.localIds = _foreignLocalIds(request.sessionId);
+            request.taken = [];
+            request.lifecycleDecided = false;
+        }
+        await updateJsonAtomic(pendingMessagesPath(), (raw) => {
+            const next = normalizePendingStore(raw);
+            let changed = false;
+            for (const request of candidates) {
+                const { sessionId, epochToken, localIds, taken } = request;
+                // Same authority re-read INSIDE the spool lock: a close/detach
+                // landing in this window must neither deliver to the old owner
+                // nor remove the reopened owner's rows.
+                runPendingTestHook('foreignDrain:beforeCommit', { sessionId });
+                if (pendingLifecycleInvalidated(sessionId, epochToken)) continue;
+                request.lifecycleDecided = true;
+                const q = Array.isArray(next.sessions[sessionId]) ? next.sessions[sessionId] : [];
+                if (q.length === 0) continue;
+                const kept = [];
+                for (const entry of q) {
+                    const id = pendingMessageId(entry);
+                    const text = pendingMessageText(entry);
+                    const foreignUser = id && !localIds.has(id)
+                        && !isCompletionNotificationEntry(entry)
+                        && !isLegacyUnmarkedCompletionNotification(text)
+                        && text && !isInternalRuntimeNotificationText(text);
+                    if (foreignUser && isStaleUserInjection(entry)) {
+                        taken.push({ text: lateDeliveryText(text, entry), id });
+                    } else if (foreignUser) {
+                        taken.push({ text, id });
+                    } else {
+                        kept.push(entry);
+                    }
+                }
+                if (taken.length === 0) continue;
+                changed = true;
+                if (kept.length > 0) next.sessions[sessionId] = kept;
+                else {
+                    delete next.sessions[sessionId];
+                    if (next.sessionTouchedAt) delete next.sessionTouchedAt[sessionId];
+                }
+            }
+            if (!changed) return undefined;
+            next.updatedAt = Date.now();
+            return next;
+        }, {
+            compact: true,
+            lock: true,
+            mode: PENDING_MESSAGES_MODE,
+            fsync: false,
+            // Delivery polling must never wait behind a spool writer. A later
+            // fs.watch/poll tick retries unchanged requests.
+            timeoutMs: 0,
+        });
+        for (const request of candidates) {
+            if (request.lifecycleDecided) _rememberForeignSpoolScan(request.sessionId, mtime);
+            _settleForeignDrain(request, request.taken);
+        }
+    } catch (err) {
+        if (err?.code !== 'ELOCKCONTENDED') {
+            try { process.stderr.write(`[session] foreign-injection drain failed: ${err?.message || err}\n`); } catch {}
+        }
+        for (const request of batch) {
+            if (request.waiters.length > 0) _settleForeignDrain(request, []);
+        }
+    } finally {
+        _foreignDrainRunning = false;
+        _scheduleForeignDrainBatch();
     }
 }
 
@@ -1124,100 +1259,23 @@ export async function drainForeignUserInjections(sessionId) {
     // state as unscanned.
     const epochToken = currentPendingLifecycleToken(sessionId);
     if (pendingLifecycleInvalidated(sessionId)) return [];
-    let mtime = 0;
-    try { mtime = statSync(pendingMessagesPath()).mtimeMs || 0; } catch { return []; }
-    if (_foreignSpoolScanMtimes.get(sessionId) === mtime) return [];
-    const localIds = new Set();
-    for (const map of [_sessionPendingMessages, _pendingPersistBuffers, _hydratedPendingMessages]) {
-        for (const entry of map.get(sessionId) || []) {
-            const id = pendingMessageId(entry);
-            if (id) localIds.add(id);
+    return new Promise((resolve) => {
+        const existing = _foreignDrainRequests.get(sessionId);
+        if (existing && existing.epochToken === epochToken) {
+            existing.waiters.push(resolve);
+        } else {
+            if (existing) _settleForeignDrain(existing, []);
+            _foreignDrainRequests.set(sessionId, {
+                sessionId,
+                epochToken,
+                waiters: [resolve],
+                localIds: null,
+                taken: [],
+                lifecycleDecided: false,
+            });
         }
-    }
-    for (const set of [_inDeliveryPendingIds.get(sessionId), _ackedPendingIds.get(sessionId)]) {
-        for (const id of set || []) localIds.add(id);
-    }
-    // The durable delivered-ledger mirrors the hydrate path's suppression: an
-    // entry whose id was recorded as delivered (but whose spool cleanup has
-    // not landed yet — crash, lock contention, another process) is NOT a
-    // foreign submit and must never re-inject.
-    try {
-        for (const id of loadSession(sessionId)?.deliveredPendingMessageIds || []) {
-            if (typeof id === 'string' && id) localIds.add(id);
-        }
-    } catch { /* ledger unavailable — in-memory sets still guard */ }
-    const taken = [];
-    // The mtime memo may ONLY be armed by a scan that actually reached a
-    // lifecycle-valid decision under the spool lock. Arming it upfront meant a
-    // drain refused in-lock (a close/detach/reopen landing in the window) still
-    // recorded this spool state as "seen": after the reopen the new owner
-    // polled the same unchanged mtime and skipped it, stranding the rows until
-    // some unrelated spool WRITE bumped the file. A refusal must leave the
-    // spool immediately pollable again.
-    let lifecycleDecided = false;
-    try {
-        // ASYNC spool lock. The sync variant parked the owning process's event
-        // loop in Atomics.wait for the whole timeout: in the daemon (PTYs,
-        // engines, IPC and SSE fan-out share one loop) every poll that lost the
-        // race froze the entire app, and it could never win against an async
-        // holder in the SAME process. Waiting off the loop also lets the
-        // in-process lock queue serialize sibling sessions for free.
-        await updateJsonAtomic(pendingMessagesPath(), (raw) => {
-            // Same authority re-read INSIDE the spool lock: a close/detach
-            // landing in this window must neither deliver to the old owner nor
-            // remove the reopened owner's rows.
-            runPendingTestHook('foreignDrain:beforeCommit', { sessionId });
-            if (pendingLifecycleInvalidated(sessionId, epochToken)) return undefined;
-            // Authoritative from here on: whatever this pass decides (take,
-            // drop-stale, or "nothing foreign here") is a real answer for THIS
-            // spool state, so the memo may skip re-scanning it.
-            lifecycleDecided = true;
-            const next = normalizePendingStore(raw);
-            const q = Array.isArray(next.sessions[sessionId]) ? next.sessions[sessionId] : [];
-            if (q.length === 0) return undefined;
-            const kept = [];
-            for (const entry of q) {
-                const id = pendingMessageId(entry);
-                const text = pendingMessageText(entry);
-                const foreignUser = id && !localIds.has(id)
-                    && !isCompletionNotificationEntry(entry)
-                    && !isLegacyUnmarkedCompletionNotification(text)
-                    && text && !isInternalRuntimeNotificationText(text);
-                // CC parity: stale foreign submits still deliver, carrying a
-                // late-delivery header instead of being silently removed
-                // (user report: remote sends silently discarded around owner
-                // restarts).
-                if (foreignUser && isStaleUserInjection(entry)) {
-                    taken.push({ text: lateDeliveryText(text, entry), id });
-                }
-                else if (foreignUser) taken.push({ text, id });
-                else kept.push(entry);
-            }
-            if (taken.length === 0) return undefined;
-            if (kept.length > 0) next.sessions[sessionId] = kept;
-            else {
-                delete next.sessions[sessionId];
-                if (next.sessionTouchedAt) delete next.sessionTouchedAt[sessionId];
-            }
-            next.updatedAt = Date.now();
-            return next;
-        }, {
-            compact: true,
-            lock: true,
-            mode: PENDING_MESSAGES_MODE,
-            fsync: false,
-            // Delivery polling must never wait on an async spool writer in the
-            // same daemon process: waiting synchronously prevents that writer
-            // from ever reaching its finally/release path.
-            timeoutMs: 0,
-        });
-    } catch (err) {
-        if (err?.code === 'ELOCKCONTENDED') return [];
-        try { process.stderr.write(`[session] foreign-injection drain failed sessionId=${sessionId}: ${err?.message || err}\n`); } catch {}
-        return [];
-    }
-    if (lifecycleDecided) _rememberForeignSpoolScan(sessionId, mtime);
-    return taken;
+        _scheduleForeignDrainBatch();
+    });
 }
 
 export function drainPendingMessages(sessionId) {

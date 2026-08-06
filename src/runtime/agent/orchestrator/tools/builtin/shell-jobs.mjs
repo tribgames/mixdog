@@ -140,8 +140,8 @@ export function killShellJob(jobId) {
 // wrapper publishing the done marker. Evidence order:
 //   1. exit file — the wrapper writes exit BEFORE done, so a kill in that
 //      window still left the real exit code; recover it instead of guessing.
-//   2. guardian receipt — the child-guardian records why it force-killed the
-//      tree (host memory floor / orphaned parent) before killing.
+//   2. guardian receipt — the child-guardian records an orphaned parent before
+//      cleaning up the owned tree.
 //   3. otherwise — honest unknown: terminal 'failed' with exitCode null and
 //      an explicit "exit status unknown" error; spilled output is preserved
 //      and the completion notification carries its tail.
@@ -165,12 +165,7 @@ function finalizeMarkerlessShellJob(detail) {
         } catch { /* no guardian receipt */ }
         detail.status = 'failed';
         detail.exitCode = 137;
-        if (receipt?.reason === 'host-memory-floor') {
-            const freeMb = Math.round(Number(receipt.freeBytes || 0) / (1024 * 1024));
-            const floorMb = Math.round(Number(receipt.minFreeMemoryBytes || 0) / (1024 * 1024));
-            detail.killedByGuardian = true;
-            detail.error = `killed by child guardian: host free memory ${freeMb} MB fell below the ${floorMb} MB floor — job tree force-killed to protect the host; retry with lower concurrency or after memory recovers`;
-        } else if (receipt?.reason === 'parent-exit') {
+        if (receipt?.reason === 'parent-exit') {
             detail.killedByGuardian = true;
             detail.error = 'killed by child guardian: owning runtime process exited (session cleanup)';
         } else {

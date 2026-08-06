@@ -112,7 +112,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     // R1: UNC / SMB share reject (\\server\share, //server/share). Reading
     // these on Windows auto-authenticates to the remote host and leaks the
     // NTLM hash of the current user to any attacker-controlled SMB target.
-    // CC parity: FileReadTool.ts:461 rejects the same prefix before stat.
+    // The prefix is rejected before stat.
     // Must run before resolveAgainstCwd so a relative path can't be coerced
     // into a UNC share by the cwd resolution.
     if (typeof isUncPath === 'function' && isUncPath(filePath))
@@ -142,7 +142,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
         return `Error: cannot read Windows device path (reserved name or raw-device namespace): ${normalizeOutputPath(fullPath)}`;
     if (typeof hasUnsafeWin32Component === 'function' && hasUnsafeWin32Component(fullPath))
         return `Error: cannot read Windows path with trailing dot/space or NTFS ADS suffix (bypasses device guard): ${normalizeOutputPath(fullPath)}`;
-    // Pre-read size cap (Anthropic FileReadTool/limits.ts pattern):
+    // Pre-read size cap:
     // throw a small error response when the file is too big rather
     // than truncating to 25K tokens of content. Throw is decisively
     // more token-efficient (Anthropic #21841 reverted truncation).
@@ -712,7 +712,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
                 out = appendReadContextAdvisory(out, { filePath, lineCount, bytes: st.size });
             }
         }
-        // CC parity: empty file gets a system-reminder instead of
+        // An empty file gets a system-reminder instead of
         // a bare `1│` line. The reminder makes the empty-state
         // explicit so the agent doesn't assume content was elided.
         if (content.length === 0) {

@@ -6,7 +6,7 @@
 // The harness imports .tsx/.ts renderer modules, so this file only runs under
 // the tsx loader. Exact wired command (package.json "test:renderer", second
 // leg):
-//   node --max-old-space-size=1536 --import ./scripts/test-env.mjs --import tsx \
+//   node --import ./scripts/test-env.mjs --import tsx \
 //     --test --test-concurrency=1 src/renderer/renderer-dom-test-harness.test.mjs
 // Running it without `--import tsx` fails on the first .tsx import; that is a
 // command error, not a harness failure.

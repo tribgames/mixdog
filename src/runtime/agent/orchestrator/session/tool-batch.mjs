@@ -24,7 +24,7 @@ import {
 import { isInvalidToolArgsMarker, formatInvalidToolArgsResult } from '../providers/openai-compat-stream.mjs';
 import {
     _stripMcpPrefix, _isReadTool, _isMutationTool, _isScopedCacheableTool,
-    _isShellTool, _isOrderedGateSkippable, _intraTurnSig,
+    _isShellTool, _intraTurnSig,
 } from './loop/tool-classify.mjs';
 import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
@@ -103,12 +103,6 @@ export async function processToolBatch(ctx) {
             if (message?.toolCallId) _batchToolResultByCallId.set(message.toolCallId, message);
             else _batchToolResultsWithoutId.push(message);
         };
-        // Ordered-mutation batch gate. Each apply_patch is an eager-dispatch
-        // barrier: side effects overlap within the current segment, but no
-        // later segment starts before the loop crosses the patch in model
-        // order. A failed patch prevents every unstarted later side effect;
-        // known read-only calls may still complete for diagnostics.
-        let _orderedMutationFailed = null;
         for (let callIndex = 0; callIndex < calls.length; callIndex += 1) {
             const call = calls[callIndex];
             if (isBuiltinTool(call.name)) {
@@ -201,22 +195,6 @@ export async function processToolBatch(ctx) {
                     });
                     continue;
                 }
-            }
-            // Ordered-mutation skip: an earlier apply_patch in THIS batch failed,
-            // so this later side-effect call is skipped rather than executed.
-            // Restore a later patch's full body first so it can be re-issued.
-            // `skipped` is deliberate: the call never started, so it is neither
-            // a tool failure nor a cancellation. The earlier patch remains the
-            // structural failure that drives retry/stop-hook behavior.
-            if (_orderedMutationFailed && _isOrderedGateSkippable(call.name) && !pending.has(call.id)) {
-                if (call?.id) restoreToolCallBodyForId(assistantTurnMsg, calls, call.id);
-                _stageToolResultMessage({
-                    role: 'tool',
-                    content: `[prerequisite-failed] an earlier apply_patch in this same tool batch (call index ${_orderedMutationFailed.index + 1}) failed, so this later \`${call.name}\` was skipped without starting. Re-issue it after resolving the patch failure.`,
-                    toolCallId: call.id,
-                    toolKind: 'skipped',
-                });
-                continue;
             }
             if (sessionId) markSessionToolCall(sessionId, call.name, resolveToolSelfDeadlineMs(call.name, call.arguments));
             let result;
@@ -512,14 +490,6 @@ export async function processToolBatch(ctx) {
             }
             if (_isMutationTool(call.name)) {
                 epoch.mutation += 1;
-                // Record the first failed ordered mutation in this batch so any
-                // later side effect is skipped by the gate at the top of the
-                // loop. Keyed on exec outcome (not post-processing): a mutation
-                // whose write succeeded but post-processing threw still landed
-                // on disk, so it must NOT block subsequent ordered patches.
-                if ((!_executeOk || _resultKind === 'error') && !_orderedMutationFailed) {
-                    _orderedMutationFailed = { index: callIndex, callId: call.id, name: call.name };
-                }
             }
             // Bash always clears scoped cache UNCONDITIONALLY — a mutating bash
             // that throws or fails partway can still leave stale find_symbol / grep entries.

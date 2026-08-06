@@ -1,5 +1,5 @@
 import { isAbsolute, resolve } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { makeAgentDispatch, resolveMaintenanceRoute } from '../runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs';
 import { loadConfig } from '../runtime/agent/orchestrator/config.mjs';
@@ -24,6 +24,10 @@ export const EXPLORE_TOOL = {
     properties: {
         query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Narrow locator query; array = independent facets fanned out in parallel.' },
       cwd: { type: 'string', description: 'Project/root directory.' },
+      roots: {
+        anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }],
+        description: 'Search root(s); defaults to cwd. Use multiple roots for cross-project or machine lookup.',
+      },
     },
     required: [],
     additionalProperties: false,
@@ -35,8 +39,10 @@ export const EXPLORE_TOOL = {
 // the merged text in-turn, so we keep a sane bound to protect the Lead context.
 const EXPLORE_OUTPUT_CHAR_CAP = 24_000;
 const EXPLORE_TRUNCATION_MARKER = '\n\n[explore: output capped; remainder omitted]';
-// Bound fan-out so a hostile/poisoned query array cannot spawn unbounded subs.
-export const MAX_FANOUT_QUERIES = 8;
+// Compatibility exports: fan-out is intentionally unbounded at the tool layer.
+// Every requested facet/root starts immediately; output remains context-capped.
+export const MAX_FANOUT_QUERIES = Infinity;
+export const MAX_EXPLORE_ROOTS = Infinity;
 // Mechanical turn cap per explorer sub-session: 3 free turns (contract: tool
 // turn 1 = whole batched search, turns 2-3 = miss recovery), then the agent
 // loop forces one tool-less final-answer turn. Overridable for tuning.
@@ -61,18 +67,6 @@ export const EXPLORE_COMPUTE_HARD_TIMEOUT_MS = (() => {
   return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 60_000;
 })();
 const EXPLORE_RESULT_CACHE = new Map(); // key -> { ts, value?, promise? }
-// Fan-out launch stagger: when >1 query, dispatch the first sub-session
-// immediately and delay the rest by this many ms so they can reuse the first
-// sub's provider prompt-cache write instead of racing cold. Default 0 (off):
-// live A/B (2026-07-07) showed 800ms produced zero cross-sub iter1 cache
-// reads (the first sub's write lands only after its iter1 completes, ~2.5s+)
-// while costing every later sub the full delay. Cross-BATCH reuse works
-// without stagger now that iter1 writes the prefix breakpoint. Env knob kept
-// for tuning experiments.
-const EXPLORE_FANOUT_STAGGER_MS = (() => {
-  const raw = Number(process.env.MIXDOG_EXPLORE_FANOUT_STAGGER_MS);
-  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
-})();
 
 // Build a promise that rejects the MOMENT `signal` aborts (immediately if it is
 // already aborted), plus a `cancel` to detach the listener once the caller has
@@ -169,8 +163,11 @@ function escapeXml(str) {
 
 // Each explorer receives only its own query. The full routing and behavioral
 // contract lives at system level (rules/agent/30-explorer.md).
-export function buildExplorerPrompt(query) {
-  return `<query>${escapeXml(query)}</query>`;
+export function buildExplorerPrompt(query, roots = []) {
+  const queryXml = `<query>${escapeXml(query)}</query>`;
+  if (!Array.isArray(roots) || roots.length === 0) return queryXml;
+  const rootsXml = roots.map((root) => `  <root>${escapeXml(root)}</root>`).join('\n');
+  return `${queryXml}\n<roots>\n${rootsXml}\n</roots>`;
 }
 export function normalizeExploreQueries(rawQuery) {
   let raw = rawQuery;
@@ -190,6 +187,40 @@ export function normalizeExploreQueries(rawQuery) {
     .filter(Boolean);
 }
 
+export function normalizeExploreRoots(rawRoots, cwd) {
+  if (rawRoots === undefined || rawRoots === null || rawRoots === '') return [];
+  let raw = rawRoots;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) raw = parsed;
+      } catch { /* keep as one root */ }
+    }
+  }
+  const roots = Array.isArray(raw) ? raw : [raw];
+  const seen = new Set();
+  const out = [];
+  for (const value of roots) {
+    if (typeof value !== 'string' || !value.trim()) continue;
+    const trimmed = value.trim();
+    const expanded = trimmed.startsWith('~') ? trimmed.replace(/^~/, homedir()) : trimmed;
+    const absolute = isAbsolute(expanded) ? resolve(expanded) : resolve(cwd, expanded);
+    try {
+      if (!existsSync(absolute) || !statSync(absolute).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    const key = process.platform === 'win32' ? absolute.toLowerCase() : absolute;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(absolute);
+    if (out.length >= MAX_EXPLORE_ROOTS) break;
+  }
+  return out;
+}
+
 function resolveExploreCwd(input, callerCwd) {
   const base = (typeof callerCwd === 'string' && callerCwd) ? callerCwd : process.cwd();
   if (typeof input === 'string' && input.trim()) {
@@ -200,18 +231,21 @@ function resolveExploreCwd(input, callerCwd) {
   return base;
 }
 
-function settledExplorerResult(result, cwd = null) {
+export function settledExplorerResult(result, cwd = null, roots = []) {
   if (result?.status !== 'fulfilled') {
     const message = result?.reason?.message || String(result?.reason);
-    // The hard deadline has one caller-visible convention regardless of
-    // whether it expires during provider warmup or child dispatch.
-    if (/^explorer timed out after \d+ms$/.test(message)) {
-      return { ok: true, text: 'EXPLORATION_FAILED' };
-    }
-    return { ok: false, text: `[explorer error] ${message}` };
+    // Tagged failure classes: the caller must be able to tell a wedged
+    // compute (timeout) from a cancellation or a dispatch/provider fault
+    // without parsing free-form provider text.
+    const tag = /timed out after \d+ms/i.test(message)
+      ? 'timeout'
+      : /abort|cancel/i.test(message)
+        ? 'canceled'
+        : 'dispatch-failed';
+    return { ok: false, text: `[explorer error] [${tag}] ${message}` };
   }
-  const text = cleanExplorerText(typeof result.value === 'string' ? result.value : responseText(result.value), cwd);
-  if (!text) return { ok: false, text: '[explorer error] empty response' };
+  const text = cleanExplorerText(typeof result.value === 'string' ? result.value : responseText(result.value), cwd, roots);
+  if (!text) return { ok: false, text: '[explorer error] [empty-response] explorer returned no text' };
   return { ok: true, text };
 }
 
@@ -232,10 +266,10 @@ function fatalExploreError(settled) {
   return (settled || []).find((r) => r?.status === 'rejected' && isFatalExploreError(r.reason))?.reason || null;
 }
 
-function mergeSettled(settled, queries, cwd = null) {
+function mergeSettled(settled, queries, cwd = null, roots = []) {
   const single = queries.length === 1;
   if (single) {
-    const { text: body } = settledExplorerResult(settled[0], cwd);
+    const { text: body } = settledExplorerResult(settled[0], cwd, roots);
     return body.length > EXPLORE_OUTPUT_CHAR_CAP
       ? body.slice(0, EXPLORE_OUTPUT_CHAR_CAP) + EXPLORE_TRUNCATION_MARKER
       : body;
@@ -246,7 +280,7 @@ function mergeSettled(settled, queries, cwd = null) {
   let truncated = false;
   for (let i = 0; i < settled.length; i++) {
     const header = `Q${i + 1}: ${String(queries[i] ?? '').replace(/\s+/g, ' ').slice(0, 60)}`;
-    const { text: body } = settledExplorerResult(settled[i], cwd);
+    const { text: body } = settledExplorerResult(settled[i], cwd, roots);
     const piece = `${header}\n${body}`;
     const addLen = (parts.length === 0 ? 0 : sep.length) + piece.length;
     if (total + addLen > EXPLORE_OUTPUT_CHAR_CAP) {
@@ -279,9 +313,10 @@ function exploreResultCacheEnabled() {
     && !/^(?:0|false|off|no)$/i.test(String(process.env.MIXDOG_EXPLORE_RESULT_CACHE || '1'));
 }
 
-export function exploreResultCacheKey({ cwd, route, query }) {
+export function exploreResultCacheKey({ cwd, roots = [], route, query }) {
   return JSON.stringify({
     cwd: String(cwd || ''),
+    roots: Array.isArray(roots) ? roots.map((root) => String(root)) : [],
     provider: clean(route?.provider),
     model: clean(route?.model),
     effort: clean(route?.effort),
@@ -397,7 +432,7 @@ function startSharedCompute(key, compute, timeoutMs = EXPLORE_COMPUTE_HARD_TIMEO
       if (EXPLORE_RESULT_CACHE.get(key) !== entry) return value;
       const text = typeof value === 'string' ? value : responseText(value);
       const cleaned = cleanExplorerText(text);
-      if (cleaned && cleaned !== 'EXPLORATION_FAILED') {
+      if (cleaned && !isExplorationFailure(cleaned)) {
         EXPLORE_RESULT_CACHE.set(key, { ts: Date.now(), value: text });
         trimExploreResultCache();
       } else {
@@ -508,6 +543,34 @@ const TURN_COUNTER_LINE_RE = /^turn\s+\d+\s*\/\s*\d+\b/i;
 const EXPLORE_MAX_ANCHOR_LINES = 3;
 const FAILED_RE = /\b(?:EXPLORATION_FAILED|exploration failed|no credible (?:anchor|location)|no relevant (?:anchor|location)|not found|could(?: not|n't) find)\b/i;
 
+// Failure taxonomy: every miss carries a machine-stable tag plus the next
+// move, so a caller can tell "the explorer gave up" from "the post-filter
+// dropped an unverifiable answer" instead of reading one bare token.
+const EXPLORE_FAIL_HINT = {
+  reported: 'explorer spent its budget with zero anchors; retry once with changed tokens or an explicit roots[]',
+  'no-anchor': 'explorer answered without a path:line anchor; retry once with different code tokens',
+  'unverified-anchors': 'every cited path is missing on disk; retry with changed tokens or pass the real root via roots[]',
+};
+
+export function isExplorationFailure(text) {
+  return /^EXPLORATION_FAILED\b/i.test(String(text || '').trimStart());
+}
+
+function explorationFailure(tag, detail = '') {
+  const tail = [detail, EXPLORE_FAIL_HINT[tag] || ''].filter(Boolean).join(' — ');
+  return tail ? `EXPLORATION_FAILED [${tag}] — ${tail}` : `EXPLORATION_FAILED [${tag}]`;
+}
+
+// Filter-drop trace: when the post-filter turns a NON-empty explorer answer
+// into a failure, the raw text is the only evidence of why it was dropped.
+// Gated behind MIXDOG_EXPLORE_DEBUG so normal runs stay silent.
+function traceExploreDrop(tag, raw) {
+  if (!/^(?:1|true|on|yes)$/i.test(String(process.env.MIXDOG_EXPLORE_DEBUG || ''))) return;
+  try {
+    process.stderr.write(`[explore] filter drop (${tag}): ${String(raw || '').replace(/\s+/g, ' ').slice(0, 800)}\n`);
+  } catch { /* best-effort */ }
+}
+
 function normalizeExplorerLine(line) {
   return String(line || '')
     .trim()
@@ -521,14 +584,18 @@ function normalizeExplorerLine(line) {
 
 // Anchor existence filter: a locator answer citing a file that does not exist
 // is a hallucination — drop the line. Only enforced when cwd is known.
-function anchorLineExists(line, cwd, captureRe = ANCHOR_PATH_CAPTURE_RE) {
+function anchorLineExists(line, cwd, roots = [], captureRe = ANCHOR_PATH_CAPTURE_RE) {
   const m = line.match(captureRe);
   if (!m) return true;
   const p = m[1].trim();
-  try { return existsSync(isAbsolute(p) ? p : resolve(cwd, p)); } catch { return true; }
+  try {
+    if (isAbsolute(p)) return existsSync(p);
+    const bases = [cwd, ...(Array.isArray(roots) ? roots : [])].filter(Boolean);
+    return bases.some((base) => existsSync(resolve(base, p)));
+  } catch { return true; }
 }
 
-function cleanExplorerText(text, cwd = null) {
+function cleanExplorerText(text, cwd = null, roots = []) {
   const raw = String(text || '').trim();
   if (!raw) return '';
   const anchors = [];
@@ -538,7 +605,11 @@ function cleanExplorerText(text, cwd = null) {
   for (const sourceLine of raw.split(/\r?\n/)) {
     const line = normalizeExplorerLine(sourceLine);
     if (!line || /^-{3,}$/.test(line) || /^#+\s+/.test(line) || TURN_COUNTER_LINE_RE.test(line)) continue;
-    if (/^EXPLORATION_FAILED\b/i.test(line)) return 'EXPLORATION_FAILED';
+    // Already-tagged failure (explorer prompt or the loop's iteration-cap
+    // synthesis) keeps its own tag; an untagged one becomes [reported].
+    if (isExplorationFailure(line)) {
+      return /^EXPLORATION_FAILED\s*\[[a-z-]+\]/i.test(line) ? line : explorationFailure('reported');
+    }
     const coord = line.match(ANCHOR_COORD_CAPTURE_RE)?.[1]
       ?? line.match(ANCHOR_PATHONLY_CAPTURE_RE)?.[1];
     const key = (coord ?? line).toLowerCase().replace(/\\/g, '/');
@@ -549,19 +620,31 @@ function cleanExplorerText(text, cwd = null) {
     else passthrough.push(sourceLine);
   }
   if (anchors.length) {
-    const real = (cwd ? anchors.filter((l) => anchorLineExists(l, cwd)) : anchors)
+    const real = (cwd ? anchors.filter((l) => anchorLineExists(l, cwd, roots)) : anchors)
       .slice(0, EXPLORE_MAX_ANCHOR_LINES);
     // All anchors pointed at nonexistent paths: fail harmlessly instead of
     // forwarding hallucinated locations.
-    return real.length ? real.join('\n') : 'EXPLORATION_FAILED';
+    if (real.length) return real.join('\n');
+    traceExploreDrop('unverified-anchors', raw);
+    return explorationFailure(
+      'unverified-anchors',
+      `dropped ${anchors.length} unverified anchor(s): ${anchors.slice(0, EXPLORE_MAX_ANCHOR_LINES).map((l) => l.match(ANCHOR_COORD_CAPTURE_RE)?.[1] || l).join(', ')}`,
+    );
   }
   if (pathOnly.length) {
-    const real = (cwd ? pathOnly.filter((l) => anchorLineExists(l, cwd, ANCHOR_PATHONLY_CAPTURE_RE)) : pathOnly)
+    const real = (cwd ? pathOnly.filter((l) => anchorLineExists(l, cwd, roots, ANCHOR_PATHONLY_CAPTURE_RE)) : pathOnly)
       .slice(0, EXPLORE_MAX_ANCHOR_LINES);
     if (real.length) return real.join('\n');
-    return 'EXPLORATION_FAILED';
+    traceExploreDrop('unverified-anchors', raw);
+    return explorationFailure(
+      'unverified-anchors',
+      `dropped ${pathOnly.length} unverified path(s): ${pathOnly.slice(0, EXPLORE_MAX_ANCHOR_LINES).map((l) => l.match(ANCHOR_PATHONLY_CAPTURE_RE)?.[1] || l).join(', ')}`,
+    );
   }
-  if (FAILED_RE.test(raw)) return 'EXPLORATION_FAILED';
+  if (FAILED_RE.test(raw)) {
+    traceExploreDrop('no-anchor', raw);
+    return explorationFailure('no-anchor');
+  }
   return passthrough.join('\n').trim() || raw;
 }
 
@@ -575,7 +658,7 @@ function cleanExplorerText(text, cwd = null) {
  *
  * Runs synchronously and returns the bounded locator result in this tool call.
  *
- * @param {object} args         — tool args ({ query, cwd }).
+ * @param {object} args         — tool args ({ query, cwd, roots }).
  * @param {object} ctx          — { callerCwd, callerSessionId }.
  */
 export async function runExplore(args = {}, ctx = {}) {
@@ -593,16 +676,26 @@ async function runExploreSync(args = {}, ctx = {}) {
     return fail('explore canceled before dispatch');
   }
 
-  let working = queries;
-  let capNotice = '';
-  if (working.length > MAX_FANOUT_QUERIES) {
-    capNotice = `[capped ${working.length}->${MAX_FANOUT_QUERIES} queries]\n`;
-    working = working.slice(0, MAX_FANOUT_QUERIES);
-  }
+  const working = queries;
 
   const resolvedCwd = resolveExploreCwd(args.cwd, ctx.callerCwd);
-  scheduleExploreCodeGraphPrewarm(resolvedCwd);
-  scheduleExploreFindPrewarm(resolvedCwd);
+  const explicitRoots = normalizeExploreRoots(args.roots, resolvedCwd);
+  const rootsWereRequested = args.roots !== undefined && args.roots !== null && args.roots !== '';
+  if (rootsWereRequested && explicitRoots.length === 0) {
+    return fail('[explorer error] no valid search roots');
+  }
+  try {
+    if (!existsSync(resolvedCwd) || !statSync(resolvedCwd).isDirectory()) {
+      return fail(`[explorer error] search cwd is not a directory: ${resolvedCwd}`);
+    }
+  } catch {
+    return fail(`[explorer error] search cwd is not a directory: ${resolvedCwd}`);
+  }
+  const scopeRoots = explicitRoots.length ? explicitRoots : [resolvedCwd];
+  if (explicitRoots.length === 0) {
+    scheduleExploreCodeGraphPrewarm(resolvedCwd);
+    scheduleExploreFindPrewarm(resolvedCwd);
+  }
   const config = loadConfig();
   const route = resolveExploreRoute(config);
   const parentSignal = ctx.signal instanceof AbortSignal ? ctx.signal : null;
@@ -625,38 +718,27 @@ async function runExploreSync(args = {}, ctx = {}) {
     maxLoopIterations: EXPLORE_MAX_LOOP_ITERATIONS,
   });
 
-  // Stagger cold sub-session launches so later subs reuse the first sub's
-  // provider prompt-cache write. Index 0 fires immediately; a cached-result
-  // query resolves without delay regardless of index.
-  const stagger = working.length > 1 ? EXPLORE_FANOUT_STAGGER_MS : 0;
   // Caller cancellation (ESC / owner-session abort) cascades into every child
   // dispatch: the per-compute AbortController links this signal (and the hard
   // timeout) so aborting the explore tool call tears down all fan-out subs and
   // their provider calls at once.
-  const settled = await Promise.allSettled(working.map((q, i) => {
-    const key = exploreResultCacheKey({ cwd: resolvedCwd, route, query: q });
+  const settled = await Promise.allSettled(working.map((q) => {
+    const key = exploreResultCacheKey({ cwd: resolvedCwd, roots: scopeRoots, route, query: q });
     return runExploreCached(key, async (computeSignal) => {
       // Provider initialization is part of the timed compute: a wedged init
       // must consume the same 60s wall-clock budget as dispatch, never block
       // runExplore before its hard-timeout AbortController has been armed.
       await ensureExploreProviderReady(config, route, computeSignal);
-      // Interruptible stagger: if the compute signal aborts during the delay,
-      // exploreStaggerDelay rejects and the (now-pointless) child dispatch is
-      // never launched.
-      const delay = (stagger > 0 && i > 0) ? exploreStaggerDelay(stagger, computeSignal) : null;
-      return await (delay
-        ? delay.then(() => llm({ prompt: buildExplorerPrompt(q), parentSignal: computeSignal }))
-        : llm({ prompt: buildExplorerPrompt(q), parentSignal: computeSignal }));
+      return await llm({ prompt: buildExplorerPrompt(q, explicitRoots), parentSignal: computeSignal });
     }, parentSignal);
   }));
 
   const fatal = fatalExploreError(settled);
   if (fatal) return fail(presentErrorText(fatal, { surface: 'explore' }));
 
-  const merged = mergeSettled(settled, working, resolvedCwd);
-  const allFailed = settled.every((r) => !settledExplorerResult(r, resolvedCwd).ok);
-  const out = capNotice + merged;
-  return allFailed ? fail(out) : ok(out);
+  const merged = mergeSettled(settled, working, resolvedCwd, scopeRoots);
+  const allFailed = settled.every((r) => !settledExplorerResult(r, resolvedCwd, scopeRoots).ok);
+  return allFailed ? fail(merged) : ok(merged);
 }
 
 // Test-only hook: inspect the explore result cache so cancellation/timeout

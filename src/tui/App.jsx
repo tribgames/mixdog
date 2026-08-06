@@ -120,6 +120,7 @@ import {
   transcriptMeasuredRowsCache,
   buildTranscriptRowIndex,
   transcriptRenderWindow,
+  transcriptSwapReturnsToTail,
 } from './app/transcript-window.mjs';
 import {
   SEARCH_DEFAULT_ROUTE,
@@ -326,6 +327,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   // same glide back to the bottom.
   const followingRef = useRef(false);
   const lastItemsCountRef = useRef(0);
+  // Head item of the last committed transcript: a bulk swap (session load /
+  // clear / compaction trim) changes it, a live append never does.
+  const lastFirstItemIdRef = useRef(null);
   // picker = null | { type, title, items, onSelect }
   // Rendered as an option panel attached directly above the bottom prompt.
   const pickerOpenedFromEnterRef = useRef(false);
@@ -793,12 +797,17 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     const count = state.items.length;
     const previousCount = lastItemsCountRef.current;
     lastItemsCountRef.current = count;
-    if (count < previousCount || previousCount === 0) {
+    const firstId = count > 0 ? (state.items[0]?.id ?? null) : null;
+    const previousFirstId = lastFirstItemIdRef.current;
+    lastFirstItemIdRef.current = firstId;
+    // A bulk swap (compaction included) is an explicit return to the tail: the
+    // rows the reader was anchored to no longer exist.
+    if (transcriptSwapReturnsToTail({ count, previousCount, firstId, previousFirstId })) {
       resetTranscriptScroll();
       return;
     }
     if (count === previousCount || dragRef.current.active) return;
-  }, [state.items.length, resetTranscriptScroll]);
+  }, [state.items, resetTranscriptScroll]);
 
   // Exit + queued-restore + prompt history: app/use-prompt-queue-history.mjs.
   const {

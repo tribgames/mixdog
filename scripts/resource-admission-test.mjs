@@ -55,15 +55,22 @@ async function waitUntil(predicate, timeoutMs = 5000) {
   }
 }
 
-test('defaults keep memory guards while leaving concurrency unbounded', () => {
-  assert.deepEqual(RESOURCE_ADMISSION_DEFAULTS, {
-    maxAgents: Infinity,
-    maxShells: Infinity,
-    maxHighLoad: Infinity,
-    maxQueue: 32,
-    minFreeMemoryMb: 1024,
-    maxRssMb: 3072,
+test('defaults run independent high-load work without memory-based refusal', () => {
+  assert.equal(RESOURCE_ADMISSION_DEFAULTS.maxAgents, Infinity);
+  assert.equal(RESOURCE_ADMISSION_DEFAULTS.maxShells, Infinity);
+  assert.equal(RESOURCE_ADMISSION_DEFAULTS.maxHighLoad, Infinity);
+  assert.ok(RESOURCE_ADMISSION_DEFAULTS.maxQueue >= 64);
+  assert.equal(RESOURCE_ADMISSION_DEFAULTS.minFreeMemoryMb, 0);
+  assert.equal(RESOURCE_ADMISSION_DEFAULTS.maxRssMb, 0);
+});
+
+test('default admission does not sample or reject on process or host memory', async () => {
+  const admission = new ResourceAdmissionController({
+    metrics: () => { throw new Error('default memory metrics must stay unused'); },
   });
+  const lease = await admission.acquire('agent');
+  assert.equal(admission.snapshot().active.agent, 1);
+  await lease.release();
 });
 
 test('combined and per-kind limits queue without revoking in-flight work', async () => {
@@ -92,6 +99,64 @@ test('combined and per-kind limits queue without revoking in-flight work', async
   queuedLease.release();
 });
 
+test('queued high-load work rotates between session owners without capping a lone owner', async () => {
+  const admission = new ResourceAdmissionController({
+    limits: { maxAgents: 2, maxShells: 2, maxHighLoad: 2, maxQueue: 8 },
+    metrics: healthy,
+  });
+  const active = await Promise.all([
+    admission.acquire('agent', { ownerKey: 'session-a' }),
+    admission.acquire('agent', { ownerKey: 'session-a' }),
+  ]);
+  const order = [];
+  const a1 = admission.acquire('agent', { ownerKey: 'session-a' }).then((lease) => {
+    order.push('a');
+    return lease;
+  });
+  const b1 = admission.acquire('agent', { ownerKey: 'session-b' }).then((lease) => {
+    order.push('b');
+    return lease;
+  });
+  await active[0].release();
+  const first = await Promise.race([a1, b1]);
+  await first.release();
+  const second = await (order[0] === 'a' ? b1 : a1);
+  await second.release();
+  assert.deepEqual(order.sort(), ['a', 'b']);
+  assert.equal(admission.snapshot().activeOwners.agent, 1);
+  await active[1].release();
+});
+
+test('user-blocking work overtakes visible and best-effort queue rows', async () => {
+  const admission = new ResourceAdmissionController({
+    limits: { maxAgents: 1, maxShells: 1, maxHighLoad: 1, maxQueue: 8 },
+    metrics: healthy,
+  });
+  const running = await admission.acquire('agent');
+  const order = [];
+  const background = admission.acquire('agent', {
+    ownerKey: 'background',
+    priority: 'best-effort',
+  }).then((lease) => { order.push('background'); return lease; });
+  const visible = admission.acquire('shell', {
+    ownerKey: 'visible',
+    priority: 'user-visible',
+  }).then((lease) => { order.push('visible'); return lease; });
+  const blocking = admission.acquire('shell', {
+    ownerKey: 'blocking',
+    priority: 'user-blocking',
+  }).then((lease) => { order.push('blocking'); return lease; });
+
+  await running.release();
+  const blockingLease = await blocking;
+  assert.deepEqual(order, ['blocking']);
+  await blockingLease.release();
+  const visibleLease = await visible;
+  assert.deepEqual(order, ['blocking', 'visible']);
+  await visibleLease.release();
+  await (await background).release();
+});
+
 test('saturated parent agents yield their permits while awaited nested work progresses', async () => {
   const admission = new ResourceAdmissionController({
     limits: { maxAgents: 2, maxShells: 2, maxHighLoad: 2, maxQueue: 4 },
@@ -116,6 +181,25 @@ test('saturated parent agents yield their permits while awaited nested work prog
   await Promise.all(nested);
   assert.deepEqual(admission.snapshot().active, { agent: 2, shell: 0 });
   parents.forEach((lease) => lease.release());
+});
+
+test('yielded parents leave and rejoin their owner accounting exactly once', async () => {
+  const admission = new ResourceAdmissionController({
+    limits: { maxAgents: 2, maxHighLoad: 2, maxQueue: 4 },
+    metrics: healthy,
+  });
+  const parent = await admission.acquire('agent', { ownerKey: 'session-parent' });
+  assert.equal(admission.snapshot().activeOwners.agent, 1);
+  await admission.runWithLease(parent, async () => {
+    const child = await admission.acquire('agent', { ownerKey: 'session-child' });
+    assert.equal(admission.snapshot().activeOwners.agent, 1,
+      'the yielded parent is not retained as a phantom active owner');
+    await child.release();
+  });
+  assert.equal(admission.snapshot().activeOwners.agent, 1,
+    'restoration counts the parent owner once');
+  await parent.release();
+  assert.equal(admission.snapshot().activeOwners.agent, 0);
 });
 
 test('yielded parent waits for bounded re-admission after a sibling steals its slot', async () => {
@@ -199,7 +283,7 @@ test('detached nested lifetime keeps parent admitted or refuses without capacity
   await parent.release();
 });
 
-test('memory pressure rejects only new and queued work with actionable errors', async () => {
+test('memory thresholds record diagnostics without rejecting new or queued work', async () => {
   let sample = healthy();
   const admission = new ResourceAdmissionController({
     limits: { maxAgents: 1, maxHighLoad: 1, maxQueue: 2, minFreeMemoryMb: 1024, maxRssMb: 512 },
@@ -209,11 +293,13 @@ test('memory pressure rejects only new and queued work with actionable errors', 
   const queued = admission.acquire('agent');
   sample = { rssBytes: 600 * 1024 * 1024, freeMemoryBytes: 8 * 1024 * 1024 * 1024 };
   running.release();
-  await assert.rejects(queued, (error) => (
-    error?.code === 'ERESOURCEPRESSURE' && /RSS 600 MB reached 512 MB limit/.test(error.message)
-  ));
+  const queuedLease = await queued;
+  assert.deepEqual(admission.snapshot().active, { agent: 1, shell: 0 });
+  const shellPending = admission.acquire('shell');
+  await queuedLease.release();
+  const shellLease = await shellPending;
+  await shellLease.release();
   assert.deepEqual(admission.snapshot().active, { agent: 0, shell: 0 });
-  await assert.rejects(admission.acquire('shell'), /resource pressure: Mixdog RSS/);
 });
 
 test('queued cancellation removes work without affecting the running lease', async () => {

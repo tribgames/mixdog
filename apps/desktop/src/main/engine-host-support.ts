@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 import type {
+  DesktopAbortOptions,
   DesktopAgentPoolRow,
   DesktopEngineState,
   DesktopModelCatalogOptions,
@@ -34,7 +35,7 @@ export interface MixdogEngine {
   subscribe(listener: () => void): () => void;
   submit(prompt: DesktopPromptContent, options?: DesktopSubmitOptions): boolean;
   submitAsync?(prompt: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<boolean>;
-  abort(): unknown;
+  abort(options?: DesktopAbortOptions): unknown;
   resolveToolApproval(id: string, decision: ToolApprovalDecision): boolean;
   listProviderModels(options: DesktopModelCatalogOptions): Promise<unknown>;
   setRoute(options: DesktopModelSelection & { applyToCurrentSession?: boolean }): Promise<boolean>;
@@ -48,7 +49,7 @@ export interface MixdogEngine {
     desktopSession: { classification: 'task' | 'project'; projectPath: string | null } | null;
     forResume?: boolean;
   }): Promise<boolean>;
-  newSession(): Promise<boolean>;
+  newSession(options?: { reuseReservation?: boolean }): Promise<boolean>;
   prefetchSession?(id: string): boolean | Promise<boolean>;
   resume(id: string, options?: { transcriptItemLimit?: number }): Promise<boolean>;
   dispose(reason?: string, options?: { keepBackgroundWork?: boolean }): Promise<void>;

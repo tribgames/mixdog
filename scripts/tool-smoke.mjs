@@ -1291,6 +1291,7 @@ try {
   const agentNotifySmoke = createStandaloneAgent({
     cfgMod: {
       loadConfig: () => ({
+        default: 'sonnet-high',
         providers: { 'openai-oauth': { enabled: true } },
         presets: [
           { id: 'sonnet-high', name: 'sonnet-high', provider: 'openai-oauth', model: 'smoke-model', type: 'agent', tools: 'full' },
@@ -1377,14 +1378,14 @@ const exploreProps = EXPLORE_TOOL.inputSchema?.properties || {};
 if (!/machine-wide locator/i.test(EXPLORE_TOOL.description || '') || !/independent facets/i.test(EXPLORE_TOOL.description || '') || /broad\/uncertain/i.test(EXPLORE_TOOL.description || '') || (EXPLORE_TOOL.description || '').length > 600) {
   throw new Error('explore description must keep the locator + facet fan-out contract');
 }
-if (!/Narrow locator query/i.test(exploreProps.query?.description || '') || !/independent facets/i.test(exploreProps.query?.description || '') || !/Project\/root/i.test(exploreProps.cwd?.description || '')) {
-  throw new Error('explore schema must stay compact and preserve query/cwd shape');
+if (!/Narrow locator query/i.test(exploreProps.query?.description || '') || !/independent facets/i.test(exploreProps.query?.description || '') || !/Project\/root/i.test(exploreProps.cwd?.description || '') || !/multiple roots/i.test(exploreProps.roots?.description || '')) {
+  throw new Error('explore schema must stay compact and preserve query/cwd/roots shape');
 }
 const normalizedExplore = normalizeExploreQueries('["where is model selection?","  ","which file owns agent async?"]');
 if (normalizedExplore.length !== 2 || normalizedExplore[0] !== 'where is model selection?') {
   throw new Error(`explore query normalization failed: ${JSON.stringify(normalizedExplore)}`);
 }
-if (MAX_FANOUT_QUERIES !== 8) throw new Error(`explore fanout cap changed: ${MAX_FANOUT_QUERIES}`);
+if (MAX_FANOUT_QUERIES !== Infinity) throw new Error(`explore fanout must stay unbounded: ${MAX_FANOUT_QUERIES}`);
 const explorerPrompt = buildExplorerPrompt('where is <agent> & status?');
 if (explorerPrompt !== '<query>where is &lt;agent&gt; &amp; status?</query>') {
   throw new Error(`explorer prompt contract failed: ${explorerPrompt}`);
@@ -1774,7 +1775,7 @@ setInternalToolsProvider({
 }
 const patchTool = PATCH_TOOL_DEFS[0];
 const patchDescription = patchTool?.inputSchema?.properties?.patch?.description || '';
-// Codex-shaped public contract plus the one Mixdog extension: the JSON schema
+// V4A public contract plus the one Mixdog extension: the JSON schema
 // is the fallback for providers that cannot carry a custom freeform tool and
 // exposes the patch string and the optional post_shell verification command —
 // no other Mixdog-only options or prior-read/rollback guidance.

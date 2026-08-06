@@ -38,6 +38,7 @@ import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './ant
 import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
 import { CODEX_OAUTH_ORIGINATOR, CODEX_RESPONSES_URL, _displayCodexModel } from './openai-oauth.mjs';
 import { createActiveToolItemTracker } from './tool-stream-state.mjs';
+import { parseProviderJsonBatch } from './stream-json-pool.mjs';
 export { envPositiveInt as _envPositiveInt } from './lib/env-utils.mjs';
 
 // Public OpenAI Responses API endpoint for the api-key `openai` provider.
@@ -112,6 +113,18 @@ function _parseSseFrame(frame) {
     const raw = data.join('\n').trim();
     if (!raw || raw === '[DONE]') return null;
     try { return JSON.parse(raw); } catch { return null; }
+}
+
+function _sseJsonPayload(frame) {
+    const lines = String(frame || '').split('\n');
+    const data = [];
+    for (const line of lines) {
+        if (!line || line.startsWith(':')) continue;
+        if (line.startsWith('data:')) data.push(line.slice(5).trimStart());
+    }
+    if (!data.length) return null;
+    const raw = data.join('\n').trim();
+    return !raw || raw === '[DONE]' ? null : raw;
 }
 
 function _incompleteReasonFromEvent(event) {
@@ -1003,10 +1016,12 @@ export async function sendViaHttpSse({
             buffer += decoder.decode(value, { stream: true });
             const parsed = _sseEventsFromBuffer(buffer);
             buffer = parsed.rest;
-            for (const frame of parsed.frames) {
-                const event = _parseSseFrame(frame);
-                if (event) handleEvent(event);
-            }
+            const payloads = parsed.frames.map(_sseJsonPayload).filter((payload) => payload !== null);
+            // These bytes have already been delivered by reader.read(). Finish
+            // this bounded chunk before observing abort on the next read so
+            // visible text is never lost at the cancellation boundary.
+            const events = await parseProviderJsonBatch(payloads);
+            for (const event of events) handleEvent(event);
         }
         // The read() above can unblock via reader.cancel() as {done:true} on an
         // external/total-timeout abort. Surface that as the abort/timeout error
@@ -1014,10 +1029,9 @@ export async function sendViaHttpSse({
         if (_streamAbortReason) throw _streamAbortReason;
         buffer += decoder.decode();
         const parsed = _sseEventsFromBuffer(buffer + '\n\n');
-        for (const frame of parsed.frames) {
-            const event = _parseSseFrame(frame);
-            if (event) handleEvent(event);
-        }
+        const payloads = parsed.frames.map(_sseJsonPayload).filter((payload) => payload !== null);
+        const events = await parseProviderJsonBatch(payloads);
+        for (const event of events) handleEvent(event);
         // Flush any partial-sentinel tail held back mid-stream so legitimate
         // trailing text is never lost (streamed-text path).
         flushLeak();

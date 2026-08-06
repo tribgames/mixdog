@@ -9,6 +9,7 @@ import { normalizeEffortInput } from './effort.mjs';
 import { isLikelyRawModelId } from './config-helpers.mjs';
 import { readTextSafe, readJsonSafe } from './fs-utils.mjs';
 import { isHiddenAgent } from '../runtime/agent/orchestrator/internal-agents.mjs';
+import { configuredAgentRouteCandidates } from '../runtime/shared/agent-route-config.mjs';
 
 export const WORKFLOW_ROUTE_SLOTS = ['lead', 'agent', 'explorer', 'memory'];
 export const FIXED_AGENT_SLOTS = Object.freeze([
@@ -415,16 +416,16 @@ export function upsertWorkflowPreset(presets, slot, routeLike) {
 // the runtime; created via this factory.
 export function createWorkflowRouteHelpers({ resolveDefaultProvider, findPreset }) {
   function summarizeWorkflowRoutes(config) {
-    const routes = config?.workflowRoutes && typeof config.workflowRoutes === 'object' ? config.workflowRoutes : {};
-    const fallbackProvider = resolveDefaultProvider(config);
     const out = {};
-    for (const slot of WORKFLOW_ROUTE_SLOTS) {
-      const route = routes[slot];
-      // Read/interpret path: a route with a model but no provider falls back to
-      // config.defaultProvider (then DEFAULT_PROVIDER).
-      if (route?.model && (route?.provider || fallbackProvider)) {
-        out[slot] = normalizeWorkflowRoute(route, { provider: fallbackProvider });
-      }
+    const lead = routeFromPreset(config, config?.default);
+    if (lead) out.lead = lead;
+    for (const [slot, agentId] of [
+      ['agent', 'worker'],
+      ['explorer', 'explore'],
+      ['memory', 'maintainer'],
+    ]) {
+      const route = agentRouteFromConfig(config, agentId);
+      if (route) out[slot] = route;
     }
     return out;
   }
@@ -446,22 +447,11 @@ export function createWorkflowRouteHelpers({ resolveDefaultProvider, findPreset 
     // their routes live in config.agents[<id>] like the fixed roles.
     const id = normalizeAgentId(agentId) || normalizeWorkflowId(agentId);
     if (!id) return null;
-    // Read/interpret path: inject config.defaultProvider (then DEFAULT_PROVIDER)
-    // when a stored route omits its provider.
-    const fallback = { provider: resolveDefaultProvider(config) };
-    const explicit = normalizeWorkflowRoute(config?.agents?.[id], fallback)
-      || (id === 'maintainer' ? normalizeWorkflowRoute(config?.agents?.maintenance, fallback) : null);
-    if (explicit) return explicit;
-
-    const agent = FIXED_AGENT_SLOTS.find((item) => item.id === id);
-    if (agent?.workflowSlot) {
-      const workflowRoute = normalizeWorkflowRoute(config?.workflowRoutes?.[agent.workflowSlot], fallback);
-      if (workflowRoute) return workflowRoute;
+    for (const candidate of configuredAgentRouteCandidates(config, id)) {
+      const route = normalizeWorkflowRoute(candidate)
+        || routeFromPreset(config, candidate);
+      if (route) return route;
     }
-
-    if (id === 'explore') return routeFromPreset(config, config?.maintenance?.explore);
-    if (id === 'maintainer') return routeFromPreset(config, config?.maintenance?.memory);
-
     return null;
   }
 

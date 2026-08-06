@@ -18,6 +18,7 @@ import { readFileSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { readBody, sendJson, sendError } from '../runtime/memory/lib/http-wire.mjs';
+import { createFairCallScheduler } from './fair-call-scheduler.mjs';
 
 function parsePid(value) {
   const n = Number(value);
@@ -49,6 +50,7 @@ export function createChannelDaemonTransport({
   remoteStatePath = null,
   remoteIntentPath = null,
   onClientRegistered = null,
+  agentBroker = null,
 } = {}) {
   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
 
@@ -81,6 +83,23 @@ export function createChannelDaemonTransport({
   // retry never double-runs a non-idempotent tool (e.g. reply). Short TTL.
   const callCache = new Map();
   const CALL_CACHE_TTL_MS = 60_000;
+  const configuredLaneLimit = (name) => {
+    const parsed = Math.floor(Number(process.env[name]));
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : Infinity;
+  };
+  const CALL_QUEUE_MAX = Math.max(256, Number(process.env.MIXDOG_CHANNEL_DAEMON_CALL_QUEUE) || 256);
+  const channelCalls = createFairCallScheduler({
+    name: 'channel daemon call',
+    activeMax: configuredLaneLimit('MIXDOG_CHANNEL_DAEMON_ACTIVE_CALLS'),
+    queueMax: CALL_QUEUE_MAX,
+    minOwnerQueue: Math.max(8, Math.floor(CALL_QUEUE_MAX / 16)),
+  });
+  const channelControlCalls = createFairCallScheduler({
+    name: 'channel daemon control call',
+    activeMax: configuredLaneLimit('MIXDOG_CHANNEL_DAEMON_CONTROL_RESERVE'),
+    queueMax: Math.max(16, Math.min(64, CALL_QUEUE_MAX)),
+    minOwnerQueue: 4,
+  });
   // Reconnect register replay: a server may commit replacement just before its
   // HTTP response is lost. The retry supplies this stable id and receives the
   // already-created fresh token instead of creating an orphan replacement.
@@ -615,7 +634,16 @@ export function createChannelDaemonTransport({
     const pathName = url.pathname;
     try {
       if (req.method === 'GET' && pathName === '/health') {
-        sendJson(res, { status: 'ok', pid: process.pid, clients: clients.size, ...getStatus() });
+        sendJson(res, {
+          status: 'ok',
+          pid: process.pid,
+          clients: clients.size,
+          activeCalls: channelCalls.active + channelControlCalls.active,
+          queuedCalls: channelCalls.queued + channelControlCalls.queued,
+          callOwners: channelCalls.snapshot().owners,
+          ...(agentBroker?.snapshot ? { agentBroker: agentBroker.snapshot() } : {}),
+          ...getStatus(),
+        });
         return;
       }
       const token = req.headers['x-mixdog-daemon-token'] || url.searchParams.get('server_token');
@@ -649,6 +677,45 @@ export function createChannelDaemonTransport({
         if (!attachSse(clientToken, res)) { sendError(res, 'unknown client token', 404); return; }
         return; // stream stays open
       }
+      // Internal memory -> backend LLM bridge. It is authenticated with the
+      // daemon discovery token but deliberately does NOT register as a channel
+      // client: background memory work must not acquire remote ownership or
+      // keep the channels client registry alive. The broker itself owns a
+      // parallel fair scheduler and per-call cancellation.
+      if (req.method === 'POST' && pathName === '/agent/dispatch') {
+        if (!agentBroker?.dispatch) { sendError(res, 'agent broker unavailable', 503); return; }
+        const body = await readBody(req);
+        const callId = String(body.callId || '').trim();
+        if (!callId) { sendError(res, 'callId required', 400); return; }
+        res.on('close', () => {
+          if (res.writableFinished) return;
+          try { agentBroker.cancel(callId, 'agent broker client disconnected'); } catch {}
+        });
+        try {
+          const result = await agentBroker.dispatch(body.params || {}, { callId });
+          sendJson(res, { ok: true, result });
+        } catch (error) {
+          sendJson(res, { ok: false, error: error?.message || String(error) }, 200);
+        }
+        return;
+      }
+      if (req.method === 'POST' && pathName === '/agent/cancel') {
+        if (!agentBroker?.cancel) { sendError(res, 'agent broker unavailable', 503); return; }
+        const body = await readBody(req);
+        const callId = String(body.callId || '').trim();
+        if (!callId) { sendError(res, 'callId required', 400); return; }
+        const cancelled = agentBroker.cancelAndWait
+          ? await agentBroker.cancelAndWait(
+              callId,
+              String(body.reason || 'memory agent dispatch canceled'),
+            )
+          : agentBroker.cancel(callId, String(body.reason || 'memory agent dispatch canceled'));
+        sendJson(res, {
+          ok: true,
+          cancelled,
+        });
+        return;
+      }
       if (req.method === 'POST' && pathName === '/call') {
         const body = await readBody(req);
         const clientToken = body.token || null;
@@ -660,13 +727,21 @@ export function createChannelDaemonTransport({
         c.lastSeen = nowMs();
         const name = String(body.name || '');
         const callId = body.callId ? String(body.callId) : null;
+        const addressedSessionId = String(body.args?.sessionId || '').trim()
+          || remoteSessionIdFromBinding(name, body.args || {});
+        const ownerKey = addressedSessionId
+          ? `session:${addressedSessionId}`
+          : c.leadPid
+            ? `pid:${c.leadPid}`
+            : `client:${clientToken}`;
+        const cacheKey = callId ? `${ownerKey}\u0000${callId}` : null;
         let dispatch;
-        if (callId && callCache.has(callId)) {
+        if (cacheKey && callCache.has(cacheKey)) {
           // Replay of a retried call — dedup to the original run (exactly one
           // side-effect) instead of dispatching handleCall a second time.
-          dispatch = callCache.get(callId).promise;
+          dispatch = callCache.get(cacheKey).promise;
         } else {
-          dispatch = Promise.resolve().then(async () => {
+          const run = async () => {
             const args = body.args || {};
             const activationCall = name === ACTIVATE_TOOL;
             const activating = activationCall && args.active === true;
@@ -748,15 +823,20 @@ export function createChannelDaemonTransport({
               }
               throw err;
             }
-          });
-          if (callId) {
-            callCache.set(callId, { promise: dispatch, at: nowMs() });
+          };
+          const scheduler = BINDING_TOOLS.has(name) ? channelControlCalls : channelCalls;
+          dispatch = scheduler.enqueue(ownerKey, run);
+          if (cacheKey) {
+            const record = { promise: dispatch, at: nowMs() };
+            callCache.set(cacheKey, record);
             // Start the TTL only once the call SETTLES: an in-flight call can
             // outlive a fixed-from-dispatch TTL (e.g. a slow reply upload past
             // 60s), and expiring its entry mid-flight would let a transport
             // retry replay-miss and dispatch a second real side-effect.
             dispatch.then(() => {}, () => {}).then(() => {
-              const t = setTimeout(() => callCache.delete(callId), CALL_CACHE_TTL_MS);
+              const t = setTimeout(() => {
+                if (callCache.get(cacheKey) === record) callCache.delete(cacheKey);
+              }, CALL_CACHE_TTL_MS);
               t.unref?.();
             });
           }
@@ -813,6 +893,8 @@ export function createChannelDaemonTransport({
 
   async function stop() {
     closed = true;
+    channelCalls.close('channel daemon transport is closed');
+    channelControlCalls.close('channel daemon transport is closed');
     cancelGrace();
     if (sweepTimer) { try { clearInterval(sweepTimer); } catch {} sweepTimer = null; }
     for (const [token] of clients) dropClient(token, 'transport stop');

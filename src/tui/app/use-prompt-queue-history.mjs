@@ -5,6 +5,7 @@
 import { useCallback, useMemo } from 'react';
 import { PROMPT_HISTORY_LIMIT } from './transcript-window.mjs';
 import { promptHistoryKey } from './app-format.mjs';
+import { mergeQueuedRestoreText } from '../components/prompt-input/restore-policy.mjs';
 
 export function usePromptQueueHistory({
   store,
@@ -60,8 +61,12 @@ export function usePromptQueueHistory({
       if (restoreDraft) {
         if (restored.pastedImages) installPastedImages(restored.pastedImages, { merge: true });
         if (restored.pastedTexts) installPastedTexts(restored.pastedTexts, { merge: true });
-        syncPromptLayoutRows(restored.text);
-        setPromptDraftOverride({ id: Date.now(), value: restored.text });
+        const restoredText = mergeQueuedRestoreText(
+          restored.text,
+          promptValueRef.current ?? currentText,
+        );
+        syncPromptLayoutRows(restoredText);
+        setPromptDraftOverride({ id: Date.now(), value: restoredText });
       }
       if (showHint) {
         showPromptHint(`restored ${restored.count} queued message${restored.count === 1 ? '' : 's'}`, 'info');
@@ -70,7 +75,9 @@ export function usePromptQueueHistory({
       }
       return true;
     };
-    const restored = store.restoreQueued?.(currentText);
+    // Ask the backend for the queued portion only. The live draft remains
+    // renderer-owned and is merged in apply(), after a daemon promise settles.
+    const restored = store.restoreQueued?.('');
     // A daemon-backed store answers this as an ASYNC remote call, so the
     // payload (and with it the queued text) only exists a tick later. Reading
     // `.count`/`.text` off the promise dropped the popped entries on the floor —

@@ -19,8 +19,8 @@ export function isBlockedDevicePath(p) {
 
 // R1: UNC / SMB share paths (\\server\share or //server/share). Reading these
 // causes Windows to auto-authenticate to the remote host, leaking the NTLM
-// hash of the current user to any attacker-controlled SMB target. CC parity:
-// FileReadTool.ts:461 rejects the same prefix before stat. Accepts both
+// hash of the current user to any attacker-controlled SMB target. The prefix
+// is rejected before stat. Accepts both
 // backslash and forward-slash leaders so a normalize that picked either form
 // is caught.
 export function isUncPath(p) {

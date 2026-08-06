@@ -1,7 +1,7 @@
 import { ArrowUp, Command, Mic, X } from "lucide-react";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import type { DesktopCapability, DesktopModelSelection, DesktopPromptAttachment, DesktopPromptContent, DesktopSubmitOptions, EngineSnapshot } from "../shared/contract";
+import type { DesktopAbortOptions, DesktopCapability, DesktopModelSelection, DesktopPromptAttachment, DesktopPromptContent, DesktopSubmitOptions, EngineSnapshot } from "../shared/contract";
 import { type RecordValue } from "./desktop-types";
 import { t } from "./i18n";
 import { ModelSelector } from "./model-controls";
@@ -11,6 +11,10 @@ import { shouldNavigatePromptHistory } from "./renderer-logic.mjs";
 import { SLASH_COMMANDS, type CommandSurface as CommandSurfaceName, type SettingsSection } from "./slash-commands";
 import { TURN_LOCKED_SLASH_COMMANDS, asRecord } from "./text-format";
 import { registerImagePreview } from "./transcript-metrics";
+// @ts-expect-error Shared prompt policies are plain ESM modules.
+import { classifyPromptEscape, PROMPT_ESCAPE_CLEAR_WINDOW_MS } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
+// @ts-expect-error Shared prompt policies are plain ESM modules.
+import { mergeQueuedRestoreText } from "../../../../src/tui/components/prompt-input/restore-policy.mjs";
 
 
 // Project-context pill, attachment budget, prompt history and the queued
@@ -91,7 +95,7 @@ export const Composer = memo(function Composer({
   queued?: unknown[];
   hiddenQueueIds?: Array<string | number>;
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
-  abort: () => Promise<unknown>;
+  abort: (options?: DesktopAbortOptions) => Promise<unknown>;
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
   applySnapshot: (snapshot: EngineSnapshot | null) => void;
   onNewTask: () => void;
@@ -117,11 +121,11 @@ export const Composer = memo(function Composer({
   // Composer notices are transient helpers (mic errors, etc.): auto-dismiss
   // after a beat instead of pinning to the composer forever (user-flagged).
   const composerNoticeTimer = useRef(0);
-  const showComposerNotice = useCallback((message: string) => {
+  const showComposerNotice = useCallback((message: string, durationMs = 6_000) => {
     window.clearTimeout(composerNoticeTimer.current);
     setComposerNotice(message);
     if (message) {
-      composerNoticeTimer.current = window.setTimeout(() => setComposerNotice(''), 6_000);
+      composerNoticeTimer.current = window.setTimeout(() => setComposerNotice(''), durationMs);
     }
   }, []);
   useEffect(() => () => window.clearTimeout(composerNoticeTimer.current), []);
@@ -138,6 +142,21 @@ export const Composer = memo(function Composer({
   const [persistedHistory, setPersistedHistory] = useState(() => readPromptHistory(historyScope));
   const activeHistoryScope = useRef(historyScope);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const escapeClearAtRef = useRef(0);
+  // A daemon response can settle one render before its queue projection does.
+  // Snapshot shaping may clone the queue array, so remember its stable entry
+  // signature rather than its identity. New queue ids re-arm Esc/Up normally.
+  const queuedProjectionKey = Array.isArray(queued)
+    ? queued.map((entry, index) => {
+      const item = asRecord(entry);
+      return String(item?.id ?? `${index}:${item?.text ?? item?.displayText ?? ''}`);
+    }).join('\n')
+    : '';
+  const restoredQueueProjectionRef = useRef('');
+  const hasRestorableQueuedMessages = () => Boolean(queuedProjectionKey)
+    && restoredQueueProjectionRef.current !== queuedProjectionKey;
   const slashPalette = useRef<HTMLDivElement>(null);
   const mentionPalette = useRef<HTMLDivElement>(null);
   const mentionSearchGeneration = useRef(0);
@@ -638,16 +657,36 @@ export const Composer = memo(function Composer({
     return nextText;
   }, [attachmentPolicyError]);
 
-  const restoreQueue = async (currentText = draft, queuedId = '') => {
+  const restoreQueue = async (queuedId = '') => {
     if (restoring) return undefined;
     setRestoring(true);
     try {
-      const args = queuedId ? [currentText, queuedId] : [currentText];
+      const args = queuedId ? ['', queuedId] : [''];
       const value = await invokeCapability<RecordValue>('restoreQueued', args);
       if (value) {
-        const restored = restoredAttachments(value, String(value.text || currentText));
-        setDraft(mergeRestoredAttachments(restored.attachments, restored.text));
-        textarea.current?.focus();
+        const restored = restoredAttachments(value, String(value.text || ''));
+        const queuedText = mergeRestoredAttachments(restored.attachments, restored.text);
+        // Latch the projection ONLY for a restore that actually popped
+        // entries. Marking an empty answer as "already restored" left
+        // ArrowUp/Esc permanently disarmed for every queued message that
+        // followed (user: 예약 메시지가 위쪽 화살표로 회수되지 않는다).
+        const restoredCount = Number(value.count);
+        const restoredAnything = Number.isFinite(restoredCount)
+          ? restoredCount > 0
+          : Boolean(queuedText || restored.attachments.length);
+        if (!restoredAnything) {
+          showComposerNotice('No queued messages to restore');
+          return value;
+        }
+        restoredQueueProjectionRef.current = queuedProjectionKey;
+        setDraft((current) => {
+          const next = mergeQueuedRestoreText(queuedText, current);
+          window.setTimeout(() => {
+            textarea.current?.focus();
+            textarea.current?.setSelectionRange(next.length, next.length);
+          }, 0);
+          return next;
+        });
       }
       return value;
     } finally {
@@ -662,7 +701,7 @@ export const Composer = memo(function Composer({
     if (restoring || !queuedId) return;
     setRestoring(true);
     try {
-      await invokeCapability<RecordValue>('restoreQueued', [draft, queuedId]);
+      await invokeCapability<RecordValue>('restoreQueued', ['', queuedId]);
     } finally {
       setRestoring(false);
     }
@@ -968,13 +1007,14 @@ export const Composer = memo(function Composer({
     return true;
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== 'Escape') escapeClearAtRef.current = 0;
     const composing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
     // A newline chord pressed while an IME syllable is still composing is
     // swallowed by the commit: the composition ends and NOTHING breaks the
     // line (user: 개행이 안돼). Let the commit land, then insert the break the
     // user asked for — unless the platform already inserted one.
-    if (composing && event.key === 'Enter' && !event.altKey &&
-      (event.shiftKey || event.ctrlKey || event.metaKey)) {
+    if (composing && event.key === 'Enter' &&
+      (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey)) {
       const element = event.currentTarget;
       window.setTimeout(() => {
         const caret = element.selectionStart;
@@ -1014,8 +1054,8 @@ export const Composer = memo(function Composer({
     if (event.key === 'Escape') {
       if (slashOpen) {
         event.preventDefault();
-        setDraft('');
-        setSlashDismissedDraft('');
+        setSlashDismissedDraft(draft);
+        escapeClearAtRef.current = 0;
         return;
       }
       const element = event.currentTarget;
@@ -1023,23 +1063,31 @@ export const Composer = memo(function Composer({
         event.preventDefault();
         const end = element.selectionEnd;
         window.setTimeout(() => element.setSelectionRange(end, end), 0);
+        escapeClearAtRef.current = 0;
         return;
       }
-      if (draft || attachments.length) {
+      const escape = classifyPromptEscape({
+        interruptActive: turnBusy,
+        hasQueuedMessages: hasRestorableQueuedMessages(),
+        value: draft || (attachments.length ? 'attachment' : ''),
+        lastClearPressAt: escapeClearAtRef.current,
+      });
+      escapeClearAtRef.current = escape.nextClearPressAt;
+      if (escape.action === 'interrupt') {
+        event.preventDefault();
+        void stop(Boolean(draft || attachments.length));
+      } else if (escape.action === 'restore-queue') {
+        event.preventDefault();
+        void restoreQueue();
+      } else if (escape.action === 'arm-clear') {
+        event.preventDefault();
+        showComposerNotice('Esc again to clear', PROMPT_ESCAPE_CLEAR_WINDOW_MS);
+      } else if (escape.action === 'clear') {
         event.preventDefault();
         setDraft('');
         clearAttachments();
+        showComposerNotice('');
         historyNavigation.current = { index: -1, seed: '' };
-        return;
-      }
-      if (turnBusy) {
-        event.preventDefault();
-        void stop();
-        return;
-      }
-      if (Array.isArray(queued) && queued.length) {
-        event.preventDefault();
-        void restoreQueue();
       }
       return;
     }
@@ -1058,7 +1106,7 @@ export const Composer = memo(function Composer({
     // progress (caret at start) — the engine merges queued text above the
     // current draft, exactly like the terminal's up-arrow restore.
     if (event.key === 'ArrowUp' && historyIntent && !event.altKey &&
-      Array.isArray(queued) && queued.length) {
+      hasRestorableQueuedMessages()) {
       event.preventDefault();
       void restoreQueue();
       return;
@@ -1084,20 +1132,20 @@ export const Composer = memo(function Composer({
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
         insertNewline(event.currentTarget);
-      } else if (!event.altKey) {
+      } else {
         void send();
       }
     }
   };
-  const stop = async () => {
-    const result = asRecord(await abort());
-    if (result?.restoreText) {
+  const stop = async (preserveDraft = false) => {
+    const result = asRecord(await abort({ restorePrompt: !preserveDraft }));
+    if (result?.restoreText && !draftRef.current.trim() && attachmentsRef.current.length === 0) {
       const restoredText = String(result.restoreText);
       const restored = restoredAttachments(result, restoredText);
       const acceptedText = mergeRestoredAttachments(restored.attachments, restored.text);
-      setDraft((current) => [acceptedText, current.trim()].filter(Boolean).join('\n'));
+      setDraft(acceptedText);
       window.setTimeout(() => textarea.current?.focus(), 0);
     }
   };
@@ -1111,7 +1159,7 @@ export const Composer = memo(function Composer({
   return (
     <>
       <QueueList queued={visibleQueued} restoring={restoring}
-        onEdit={(id) => void restoreQueue(draft, id)}
+        onEdit={(id) => void restoreQueue(id)}
         onRemove={(id) => void discardQueued(id)} />
       {/* Error/notice banners float ABOVE the input card (user-flagged: they
           previously rendered inside the pill and read as composer content). */}
@@ -1138,7 +1186,7 @@ export const Composer = memo(function Composer({
         }}>
       {slashOpen && (
         <div ref={slashPalette} id="composer-slash-palette" className="slash-palette" role="listbox" aria-label={t("Slash commands")}>
-          <header><Command size={13} /><span>{t("Commands")}</span></header>
+          <header><Command size={14} /><span>{t("Commands")}</span></header>
           {slashCommands.length ? slashCommands.map((command, index) => (
             <button type="button" role="option" aria-selected={index === slashIndex} key={command.name}
               id={`composer-slash-option-${index}`}
@@ -1154,7 +1202,7 @@ export const Composer = memo(function Composer({
       {mentionOpen && (
         <div ref={mentionPalette} id="composer-mention-palette"
           className="slash-palette mention-palette" role="listbox" aria-label={t("Project files")}>
-          <header><MxIcon name="open-file" size={13} /><span>{t("Files")}</span></header>
+          <header><MxIcon name="open-file" size={14} /><span>{t("Files")}</span></header>
           {mentionResults.length ? mentionResults.map((path, index) => {
             const separator = path.lastIndexOf('/');
             const directory = separator >= 0 ? path.slice(0, separator + 1) : '';
@@ -1176,7 +1224,7 @@ export const Composer = memo(function Composer({
         {attachments.map((attachment) => <div className={`attachment-chip ${attachment.kind}`} key={attachment.id}>
           {attachment.kind === 'image'
             ? <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
-            : <span><MxIcon name="open-file" size={15} /></span>}
+            : <span><MxIcon name="open-file" size={16} /></span>}
           <span data-tooltip={attachment.name}>{attachment.name}</span>
           <button type="button" aria-label={t("Remove {{name}}", { name: attachment.name })} onClick={() => {
             setAttachments((current) => {
@@ -1185,7 +1233,7 @@ export const Composer = memo(function Composer({
               return next;
             });
             setDraft((current) => current.replace(attachment.token, '').replace(/ {2,}/g, ' '));
-          }}><MxIcon name="close-small" size={13} /></button>
+          }}><MxIcon name="close-small" size={14} /></button>
         </div>)}
       </div>}
       <textarea ref={textarea} value={draft} onInput={(event) => {
@@ -1199,6 +1247,7 @@ export const Composer = memo(function Composer({
           }));
         }
         setDraft(event.currentTarget.value);
+        escapeClearAtRef.current = 0;
         setAttachmentError('');
         setComposerNotice('');
         setCaretOffset(event.currentTarget.selectionStart);
@@ -1206,6 +1255,7 @@ export const Composer = memo(function Composer({
         setMentionDismissed('');
         historyNavigation.current = { index: -1, seed: '' };
       }} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)}
+        onPointerDown={() => { escapeClearAtRef.current = 0; }}
         onSelect={(event) => setCaretOffset(event.currentTarget.selectionStart)} onKeyDown={onKeyDown}
         onPaste={(event) => {
           const itemFiles = Array.from(event.clipboardData.items || [])
@@ -1262,7 +1312,7 @@ export const Composer = memo(function Composer({
             : dictationState === 'transcribing' ? t('Transcribing…') : t('Dictate (local Whisper)')}
           data-tooltip-side="top"
           onClick={() => void toggleDictation()}>
-          {dictationState === 'transcribing' ? <ProgressSpinner className="composer-mic-spinner" size={15} /> : <Mic size={15} />}
+          {dictationState === 'transcribing' ? <ProgressSpinner className="composer-mic-spinner" size={16} /> : <Mic size={16} />}
         </button>
         <button type={turnBusy && !draft.trim() ? "button" : "submit"}
           className={`send-button${turnBusy && !draft.trim() ? " stop" : ""}`}
@@ -1279,10 +1329,10 @@ export const Composer = memo(function Composer({
               : commandBusy ? t("Queue after command · Enter") : t("Send · Enter")}
           data-tooltip-side="top">
           {turnBusy && !draft.trim()
-            ? <MxIcon name="stop" size={15} />
+            ? <MxIcon name="stop" size={16} />
             : submitting
-              ? <ProgressSpinner className="composer-mic-spinner" size={15} />
-              : <ArrowUp size={15} />}
+              ? <ProgressSpinner className="composer-mic-spinner" size={16} />
+              : <ArrowUp size={16} />}
         </button>
       </div>
       </form>

@@ -1461,7 +1461,7 @@ test('visible workbench streams stay live while the composer is isolated', async
     readFile(new URL('./StudioView.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./EditorPane.lazy.tsx', import.meta.url), 'utf8'),
   ]);
-  assert.match(conversation, /const resumeFollowOnSubmitRef = useRef\(resumeFollow\)/);
+  assert.match(conversation, /const armFollowOnSubmitRef = useRef\(armFollow\)/);
   assert.match(conversation, /const composerSubmit = useCallback\([\s\S]*?\n  \}, \[\]\);/);
   assert.match(terminal, /if \(event\.id === view\.id\) view\.writer\.push\(event\.id, event\.data\)/,
     'PTY bytes must reach the single-flight writer regardless of pane focus');
@@ -1504,11 +1504,14 @@ test('the transcript timeline paints one contained layer with OpenCode cold over
     /\.transcript-virtual-row-content\[data-tag="UserMessage"\],[\s\S]*?padding-bottom:\s*12px;/,
     'within-turn rhythm belongs to the measured row box');
   assert.match(css,
-    /@container chat-pane \(min-width:\s*768px\)[\s\S]*?max-width:\s*800px;[\s\S]*?padding-inline:\s*20px;/,
-    'OpenCode md row width and inset must follow the chat pane, not the window');
+    /@container chat-pane \(min-width:\s*768px\)[\s\S]*?--pane-inset:\s*24px;[\s\S]*?--pane-column:\s*800px;/,
+    'the pane inset ladder must follow the chat pane container, not the window');
   assert.match(css,
-    /@container chat-pane \(min-width:\s*1536px\)[\s\S]*?max-width:\s*1000px;/,
-    'OpenCode 2xl centered rows must expand to 1000px');
+    /@container chat-pane \(min-width:\s*1536px\)[\s\S]*?--pane-column:\s*1000px;/,
+    'the 2xl step must only widen the one shared pane column');
+  assert.match(css,
+    /\.transcript-virtual-row-content\[data-tag="Error"\]\s*\{[^}]*max-width:\s*var\(--pane-scroll-column\);[^}]*padding-left:\s*var\(--pane-inset\);\s*padding-right:\s*calc\(var\(--pane-inset\) - var\(--mx-scrollbar-size\)\);/s,
+    'transcript rows must pay the scrollbar reserve out of their RIGHT inset so their edges match the composer');
   assert.match(css, /\.transcript-turn-gap\s*\{[^}]*height:\s*20px;/s,
     'turn boundaries must be explicit virtual rows');
 });
@@ -1554,7 +1557,7 @@ test('streaming markdown repartitions without hiding visible source text', async
   assert.match(body, /text\.startsWith\(rendered\.source\)/,
     'while the newest slice parses, the previous AST stays on screen instead of source text');
   assert.match(body, /requestedSource\.current\.startsWith\(source\)/,
-    'a parse the stream has already outrun must still promote (OpenCode html.latest)');
+    'a parse the stream has already outrun must still promote (last completed parse)');
   assert.doesNotMatch(body, /requestedText\.current === parsedText && !deferAsyncPromotionRef\.current/,
     'exact-match-only promotion discarded every result of a stream faster than the worker');
   assert.match(fallback, /className="markdown-code markdown-code-fallback"/);
@@ -1829,7 +1832,7 @@ test('desktop startup and automation never implicitly activate the remote bridge
   assert.match(runtime,
     /bootProfile\('channels:automation-autostart'\);[\s\S]{0,80}?void invokeChannelStart\(\);/);
   assert.match(daemon,
-    /const messaging = remoteIntent === 'explicit';[\s\S]{0,100}?channels\.start\(\{ messaging \}\)/);
+    /const messaging = String\(process\.env\.MIXDOG_REMOTE_INTENT \|\| ''\) === 'explicit';[\s\S]{0,160}?ensureChannels\(\)\.then\(\(module\) => module\.start\(\{ messaging \}\)\)/);
   assert.doesNotMatch(daemon, /remoteIntent === 'auto'/);
 });
 
@@ -1847,8 +1850,8 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
     readFile(new URL('../main/jitter-probe.ts', import.meta.url), 'utf8'),
   ]);
   // 1. Virtual-core owns row geometry, bottom anchoring, and append following.
-  assert.match(list, /anchorTo:\s*"end",/);
-  assert.match(list, /followOnAppend:\s*true,/);
+  assert.match(list, /anchorTo:\s*shouldAnchorBottom \? "end" : "start",/);
+  assert.match(list, /followOnAppend:\s*shouldAnchorBottom,/);
   assert.match(list, /scrollEndThreshold:\s*80,/);
   assert.match(list, /paddingEnd:\s*TRANSCRIPT_BOTTOM_SPACER,/);
   assert.match(list, /directDomUpdates:\s*true,/,
@@ -1871,11 +1874,14 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
     'the anchor-compensation predicate rides on the virtualizer instance');
   assert.match(list, /spacer\.current\.style\.height = `\$\{instance\.getTotalSize\(\)\}px`/);
   assert.match(list, /item\.end <= logicalScrollOffset\(instance\)/,
-    'OpenCode reader anchoring compensates rows above the logical scroll offset');
+    'reader anchoring compensates rows above the logical scroll offset');
   assert.match(list, /bottomAnchorSession\.current === sessionKey/,
-    'OpenCode maybeAnchorBottom anchors once per session entry, not per rows change');
+    'the bottom anchor fires once per session entry, not per rows change');
+  assert.match(list,
+    /if \(element\.isConnected\) virtualizerRef\.current\.measureElement\(element\);/,
+    'the first measurement rides the append commit, so followOnAppend never scrolls to an estimated end and corrects a frame later');
   assert.match(list, /scheduleConnectedMeasure/,
-    'OpenCode connected measure must gate virtual row measurement');
+    'late-settling content still re-measures through the connected guard');
   assert.match(list, /data-timeline-key/,
     'prepend-anchor restore needs stable row keys in the DOM');
   assert.match(list, /readingAnchor/,
@@ -1904,8 +1910,10 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
   assert.doesNotMatch(follow, /style\.width|restoreReadingAnchor|reflowingRef/);
   assert.match(follow, /GESTURE_WINDOW_MS = 250/);
   assert.match(follow, /element\.style\.overflowAnchor = followingRef\.current \? "none" : "auto"/);
-  assert.match(follow, /if \(element !== target\) observer\.observe\(element\);/,
-    'the shrinking composer/bottom-panel stack re-pins the bottom on viewport resize too');
+  assert.match(follow, /observer\.observe\(element\);/,
+    'the shrinking composer/bottom-panel stack re-pins the bottom on viewport resize');
+  assert.doesNotMatch(follow, /observer\.observe\(target\);/,
+    'virtual-core must exclusively own content growth and measured-row anchoring');
   assert.doesNotMatch(follow, /inlineReflowFrame|viewportObserver|previousInlineSize/,
     'OpenCode parity must not add a second pane-width observer grammar');
   const widthProbe = probe.slice(
@@ -1927,7 +1935,10 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
     'the physical sash path must remain write-free and reversal-free');
   assert.match(renderer, /className="transcript-live-part" data-streaming-tail="true"/);
   assert.match(renderer, /data-following=\{following \? "true" : "false"\}/);
-  assert.match(renderer, /resumeFollowOnSubmitRef\.current\(\);/);
+  assert.match(renderer, /armFollowOnSubmitRef\.current\(\);/);
+  assert.match(renderer,
+    /armFollowOnSubmitRef\.current\(\);\s*scrollToEndRef\.current\(\);/,
+    'submit re-arms follow without a stale raw DOM scroll before the timeline resolves the appended row');
   // 3. Everything the hand-rolled anchoring needed is gone.
   assert.doesNotMatch(renderer,
     /TranscriptPinProvider|usePinTranscriptBottomOnCommit|toggleHoldUntil|scrollIntentUntil|pointerScrollIntent|widthReflowing|programmaticScroll|sessionScrollPositions|freezeContentWidth|freezeWidth|entryHoldFrame|data-entry-fade|prewarmRange/,
@@ -1936,6 +1947,12 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
     'submit must not retain a second bottom-scroll authority');
   assert.doesNotMatch(renderer, /skipNextFollowFrame|bottomPinForced|measurementCaptureFrame/);
   assert.doesNotMatch(renderer, /restoringSessionTail|sessionTailRestoreTimer/);
+});
+
+test('a replaced status phrase restarts its shimmer instead of resuming mid-sweep', async () => {
+  const view = await readFile(new URL('./TranscriptView.tsx', import.meta.url), 'utf8');
+  assert.match(view, /<span key=\{text\} data-slot="text-shimmer-char"/,
+    'the sweep tile and duration are derived from the phrase, so swapping the text must restart it');
 });
 
 test('terminal prefers WebGL rendering and safely retains the DOM fallback', async () => {
@@ -2452,10 +2469,10 @@ test('session title actions, message hover rows, and tool disclosures keep the d
     "the predicate must not ride in useVirtualizer options — 3.17 cores ignore it there");
   assert.match(styles, /\.tool-card\[data-open="true"\] \.tool-chevron svg\s*\{[^}]*rotate\(90deg\)/s);
   assert.match(styles, /\.shell-output\s*\{[^}]*border:\s*1px solid var\(--mx-border-muted\);[^}]*border-radius:\s*8px;/s);
-  assert.match(styles, /\.session-header-content\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*100%;[^}]*margin:\s*0 auto;[^}]*padding:\s*12px 16px;/s);
+  assert.match(styles, /\.session-header-content\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*var\(--pane-column\);[^}]*margin:\s*0 auto;[^}]*padding:\s*12px var\(--pane-inset\);/s);
   assert.match(styles,
-    /\.composer-region\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*100%;[^}]*margin:\s*0 auto;[^}]*padding:\s*0 12px 16px;/s,
-    'OpenCode dock parity keeps a 12px outer inset on the shared centered frame');
+    /\.composer-region\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*var\(--pane-column\);[^}]*margin:\s*0 auto;[^}]*padding:\s*0 var\(--pane-inset\) 16px;/s,
+    'the composer spends the SAME pane inset and column as the rows above it');
   assert.match(styles, /\.session-header-content h1\s*\{[^}]*width:\s*fit-content;[^}]*max-width:\s*min\(52ch,\s*100%\);[^}]*flex:\s*0 1 auto;/s);
   assert.match(styles, /\.session-title-trigger\s*\{[^}]*width:\s*100%;[^}]*padding:\s*0;/s);
   assert.match(styles, /\.session-header-title-input\s*\{[^}]*field-sizing:\s*content;[^}]*width:\s*auto;[^}]*max-width:\s*100%;[^}]*padding:\s*0;/s);
@@ -2537,8 +2554,8 @@ test('conversation uses native scrolling and silent session transitions', async 
   assert.doesNotMatch(renderer, /session-switch-overlay|data-settling|data-staging|threadStaging/);
   assert.doesNotMatch(renderer, /useCachedMeasurements:\s*true/);
   assert.doesNotMatch(renderer, /sessionRowMeasurements|revealedTranscriptKey|data-measurement-key/);
-  assert.match(renderer, /anchorTo:\s*"end"/);
-  assert.match(renderer, /followOnAppend:\s*true/);
+  assert.match(renderer, /anchorTo:\s*shouldAnchorBottom \? "end" : "start"/);
+  assert.match(renderer, /followOnAppend:\s*shouldAnchorBottom/);
   assert.match(renderer, /scrollEndThreshold:\s*80/);
   assert.doesNotMatch(renderer, /observer\.observe\(contentElement\)|element\.scrollTop = bottomOffset\(element\)/,
     'virtual-core owns append growth and width reflow without a second layout observer');
@@ -2610,7 +2627,6 @@ test('desktop UI keeps every public TUI command and core capability represented'
     'getOutputStyle',
     'loginOAuthProvider',
     'authenticateProvider',
-    'setDefaultProvider',
     'listProviders',
     'setToolMode',
     'toolsStatus',
@@ -2668,7 +2684,7 @@ test('desktop UI keeps every public TUI command and core capability represented'
     [],
   );
   for (const capability of capabilitiesWithoutPublicTuiControls) {
-    if (['getOutputStyle', 'loginOAuthProvider', 'authenticateProvider', 'setDefaultProvider', 'listProviders']
+    if (['getOutputStyle', 'loginOAuthProvider', 'authenticateProvider', 'listProviders']
       .includes(capability)) continue;
     assert.doesNotMatch(represented, new RegExp(`['\"]${capability}['\"]`),
       `${capability} must stay hidden when no public TUI picker exposes it`);
@@ -3466,6 +3482,26 @@ test('streaming Markdown worker queue drops obsolete waiting snapshots', async (
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(committed, ['first', 'latest']);
   queue.dispose();
+});
+
+test('pane actions stay session-addressed without focused-session fallbacks', async () => {
+  const [app, conversation, hostApi, contract] = await Promise.all([
+    readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./Conversation.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../main/engine-host-api.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../shared/contract.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(app, /host\.submitToSession\(sessionId, content, options\)/);
+  assert.doesNotMatch(app, /Legacy host without session-addressed submit|return submit\(content, options\)/);
+  assert.match(conversation, /sessionId \? host\.abortSession\(sessionId\) : host\.abort\(\)/);
+  assert.match(conversation,
+    /\? host\.resolveToolApprovalForSession\(sessionId, approvalId, \{ approved \}\)/);
+  assert.doesNotMatch(conversation,
+    /typeof host\.(?:abortSession|resolveToolApprovalForSession)/);
+  for (const source of [hostApi, contract]) {
+    assert.doesNotMatch(source,
+      /(?:subscribeSessionStates?|submitToSession|abortSession|resolveToolApprovalForSession)\?\(/);
+  }
 });
 
 // The flat action grammar is two things only: shared flat tokens, and ONE

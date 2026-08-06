@@ -2745,8 +2745,8 @@ test("atomic new-task submit applies draft preferences before queued navigation"
     setWorkflow: async (id) => { events.push(`workflow:${id}`); return { id }; },
     setRoute: async (route) => { events.push(`route:${route.model}`); return true; },
     setFast: async (enabled) => { events.push(`fast:${enabled}`); return enabled; },
-    newSession: async () => {
-      events.push("newSession");
+    newSession: async (options) => {
+      events.push(`newSession:${options?.reuseReservation === true ? "reuse" : "new"}`);
       draftState = { ...draftState, sessionId: "desktop_atomic" };
       return true;
     },
@@ -2790,7 +2790,7 @@ test("atomic new-task submit applies draft preferences before queued navigation"
     assert.deepEqual(events, [
       "workflow:solo",
       "route:claude-draft",
-      "newSession",
+      "newSession:reuse",
       "fast:true",
       "submit:Atomic prompt",
       "claimRemote",
@@ -2883,6 +2883,60 @@ test("idle same-context new-task submit skips context switching and publishes be
     await submission;
   } finally {
     releaseTitle();
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("warm daemon session submit bypasses the desktop transition lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-warm-submit-fast-path-"));
+  const originalCwd = process.cwd();
+  const submissions = [];
+  const engine = {
+    isRemoteEngine: true,
+    getState: () => ({
+      sessionId: "desktop_warm_fast_path",
+      items: [{ kind: "assistant", id: "prior", text: "Ready" }],
+      busy: false,
+      queued: [],
+    }),
+    subscribe: () => () => {},
+    listSessions: () => [],
+    submitAsync: async (prompt, options) => {
+      submissions.push({ prompt, options });
+      return true;
+    },
+    dispose: async () => {},
+  };
+  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
+  let releaseTransition = () => {};
+  try {
+    await host.startTask();
+    let markTransitionEntered = () => {};
+    const transitionEntered = new Promise((resolve) => { markTransitionEntered = resolve; });
+    const transitionGate = new Promise((resolve) => { releaseTransition = resolve; });
+    const blockedTransition = host.exclusive(async () => {
+      markTransitionEntered();
+      await transitionGate;
+    });
+    await transitionEntered;
+
+    const accepted = await Promise.race([
+      host.submitToSession(
+        "desktop_warm_fast_path",
+        "do not wait for navigation",
+        { id: "warm-fast-submit" },
+      ),
+      new Promise((resolve) => setTimeout(() => resolve("timed-out"), 100)),
+    ]);
+    assert.equal(accepted, true, "daemon-addressed intake must not queue behind transition work");
+    assert.equal(submissions.length, 1);
+    assert.equal(submissions[0].options.id, "warm-fast-submit");
+    releaseTransition();
+    await blockedTransition;
+  } finally {
+    releaseTransition();
     await host.dispose();
     process.chdir(originalCwd);
     await rm(root, { recursive: true, force: true });
@@ -3408,6 +3462,7 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
     dispose: async () => { disposeCalls += 1; },
     subscribe: () => () => { unsubscribed = true; },
     subscribeSessions: () => () => {},
+    subscribeSessionStates: () => () => {},
   };
   const remove = registerDesktopIpc(window, host, {
     app: { quit: () => { quitCalls += 1; } },
@@ -3471,7 +3526,7 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
   });
   await invoke(DESKTOP_IPC.setFast, validEvent, true);
   await invoke(DESKTOP_IPC.invokeCapability, validEvent, {
-    capability: "setMemoryEnabled",
+    capability: "setRecapEnabled",
     args: [false],
   });
   const reads = await invoke(DESKTOP_IPC.readCapabilities, validEvent, [
@@ -3554,7 +3609,7 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
   );
   await assert.rejects(
     invoke(DESKTOP_IPC.invokeCapability, validEvent, {
-      capability: "setMemoryEnabled",
+      capability: "setRecapEnabled",
       args: [],
     }),
     /invalid number of arguments/,
@@ -3568,7 +3623,7 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
   );
   assert.throws(
     () => invoke(DESKTOP_IPC.readCapabilities, validEvent, [
-      { capability: "setMemoryEnabled", args: [true] },
+      { capability: "setRecapEnabled", args: [true] },
     ]),
     /not read-only/,
   );
@@ -3645,6 +3700,7 @@ test("desktop IPC state pushes ride identity-prefix transcript deltas", () => {
   const host = {
     subscribe: (listener) => { publish = listener; return () => {}; },
     subscribeSessions: () => () => {},
+    subscribeSessionStates: () => () => {},
     getSnapshot: () => null,
   };
   const remove = registerDesktopIpc(window, host, {
@@ -3740,6 +3796,7 @@ test("desktop IPC streams marked tail suffixes without rebuilding stable settled
   const host = {
     subscribe: (listener) => { publish = listener; return () => {}; },
     subscribeSessions: () => () => {},
+    subscribeSessionStates: () => () => {},
     getSnapshot: () => null,
   };
   const remove = registerDesktopIpc(window, host, {

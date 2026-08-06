@@ -457,14 +457,14 @@ const VIEW_LADDER: Array<
 
 function placeGlyph(place: DesktopFolderPlace): React.ReactNode {
   switch (place.kind) {
-    case "home": return <Home size={15} />;
-    case "desktop": return <Monitor size={15} />;
-    case "downloads": return <Download size={15} />;
-    case "documents": return <FileText size={15} />;
-    case "pictures": return <ImageIcon size={15} />;
-    case "music": return <Music size={15} />;
-    case "videos": return <Film size={15} />;
-    default: return <HardDrive size={15} />;
+    case "home": return <Home size={16} />;
+    case "desktop": return <Monitor size={16} />;
+    case "downloads": return <Download size={16} />;
+    case "documents": return <FileText size={16} />;
+    case "pictures": return <ImageIcon size={16} />;
+    case "music": return <Music size={16} />;
+    case "videos": return <Film size={16} />;
+    default: return <HardDrive size={16} />;
   }
 }
 
@@ -1742,7 +1742,7 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
       </button>
       <button type="button" className="folder-nav-button" data-tooltip="Refresh"
         onClick={refresh} aria-label="Refresh">
-        <RotateCw size={15} />
+        <RotateCw size={16} />
       </button>
       {searchCollapsed && searchExpanded
         ? null
@@ -1759,7 +1759,7 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
                 <button type="button" className="folder-crumb-chevron"
                   aria-label={`Folders in ${crumbs[index - 1].label}`}
                   onClick={(event) => openCrumbMenu(event, crumbs[index - 1].path)}>
-                  <ChevronRight size={13} aria-hidden="true" />
+                  <ChevronRight size={14} aria-hidden="true" />
                 </button>}
               <button type="button" className="folder-crumb"
                 data-drop={dropTarget === crumb.path ? "true" : undefined}
@@ -1781,10 +1781,10 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
       {searchCollapsed && !searchExpanded
         ? <button type="button" className="folder-nav-button" data-tooltip="Search"
             aria-label="Search" onClick={() => setSearchExpanded(true)}>
-            <Search size={15} />
+            <Search size={16} />
           </button>
         : <div className="folder-filter" data-compact={searchCollapsed ? "true" : undefined}>
-            <Search size={13} aria-hidden="true" />
+            <Search size={14} aria-hidden="true" />
             <input value={filter} placeholder={`Search ${folderLabel}`} spellCheck={false}
               autoFocus={searchCollapsed && searchExpanded}
               onChange={(event) => setFilter(event.target.value)}
@@ -1804,54 +1804,54 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
       <button type="button" className="folder-tool-button folder-tool-labeled"
         aria-haspopup="menu" aria-expanded={toolMenu?.kind === "new"}
         onClick={(event) => openToolMenu(event, "new")}>
-        <Plus size={15} />{!compactToolbar && <span>New</span>}
-        <ChevronDown size={13} aria-hidden="true" />
+        <Plus size={16} />{!compactToolbar && <span>New</span>}
+        <ChevronDown size={14} aria-hidden="true" />
       </button>
       <i className="folder-tool-divider" aria-hidden="true" />
       <button type="button" className="folder-tool-button" data-tooltip="Cut"
         disabled={!selected.size} onClick={() => cutOrCopy("cut")} aria-label="Cut">
-        <Scissors size={15} />
+        <Scissors size={16} />
       </button>
       <button type="button" className="folder-tool-button" data-tooltip="Copy"
         disabled={!selected.size} onClick={() => cutOrCopy("copy")} aria-label="Copy">
-        <Copy size={15} />
+        <Copy size={16} />
       </button>
       <button type="button" className="folder-tool-button" data-tooltip="Paste"
         disabled={!pasteEnabled} onClick={paste} aria-label="Paste">
-        <ClipboardPaste size={15} />
+        <ClipboardPaste size={16} />
       </button>
       <button type="button" className="folder-tool-button" data-tooltip="Rename"
         disabled={selected.size !== 1} onClick={startRename} aria-label="Rename">
-        <PenLine size={15} />
+        <PenLine size={16} />
       </button>
       <button type="button" className="folder-tool-button" data-tooltip="Delete"
         disabled={!selected.size} onClick={deleteSelected} aria-label="Delete">
-        <Trash2 size={15} />
+        <Trash2 size={16} />
       </button>
       <span className="folder-toolbar-spring" />
       <button type="button" className="folder-tool-button folder-tool-labeled"
         aria-haspopup="menu" aria-expanded={toolMenu?.kind === "sort"}
         onClick={(event) => openToolMenu(event, "sort")}>
-        {sortAsc ? <ArrowDownAZ size={15} /> : <ArrowUpZA size={15} />}
+        {sortAsc ? <ArrowDownAZ size={16} /> : <ArrowUpZA size={16} />}
         {!compactToolbar && <span>Sort</span>}
-        <ChevronDown size={13} aria-hidden="true" />
+        <ChevronDown size={14} aria-hidden="true" />
       </button>
       <button type="button" className="folder-tool-button folder-tool-labeled"
         aria-haspopup="menu" aria-expanded={toolMenu?.kind === "view"}
         onClick={(event) => openToolMenu(event, "view")}>
-        {viewMode === "grid" ? <LayoutGrid size={15} /> : <List size={15} />}
+        {viewMode === "grid" ? <LayoutGrid size={16} /> : <List size={16} />}
         {!compactToolbar && <span>View</span>}
-        <ChevronDown size={13} aria-hidden="true" />
+        <ChevronDown size={14} aria-hidden="true" />
       </button>
       <button type="button" className="folder-tool-button" data-tooltip="Navigation pane"
         data-active={sidebarOpen ? "true" : undefined}
         onClick={toggleSidebar} aria-label="Navigation pane">
-        <PanelLeft size={15} />
+        <PanelLeft size={16} />
       </button>
       <button type="button" className="folder-tool-button" data-tooltip="Preview pane"
         data-active={previewOpen ? "true" : undefined}
         onClick={togglePreview} aria-label="Preview pane">
-        <PanelRight size={15} />
+        <PanelRight size={16} />
       </button>
     </div>
     <div className="folder-pane-body">
@@ -1896,7 +1896,7 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
                     navigate(path);
                   }} onDoubleClick={() => toggleTree(path)}>
                   {depth === 0
-                    ? <HardDrive size={13} aria-hidden="true" />
+                    ? <HardDrive size={14} aria-hidden="true" />
                     : <FolderGlyph size={14} />}
                   {depth === 0
                     ? <span className="folder-drive-info">
@@ -2136,7 +2136,7 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
         </> : <>
           <button type="button" role="menuitem" aria-expanded={menu.expanded === "sort"}
             onClick={() => setMenu({ ...menu, expanded: menu.expanded === "sort" ? "" : "sort" })}>
-            Sort by<ChevronRight size={13} className="folder-menu-caret" aria-hidden="true" />
+            Sort by<ChevronRight size={14} className="folder-menu-caret" aria-hidden="true" />
           </button>
           {menu.expanded === "sort" && sortOptions.map(([key, label]) =>
             <button type="button" role="menuitem" key={key} className="folder-menu-sub"
@@ -2145,7 +2145,7 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
             </button>)}
           <button type="button" role="menuitem" aria-expanded={menu.expanded === "group"}
             onClick={() => setMenu({ ...menu, expanded: menu.expanded === "group" ? "" : "group" })}>
-            Group by<ChevronRight size={13} className="folder-menu-caret" aria-hidden="true" />
+            Group by<ChevronRight size={14} className="folder-menu-caret" aria-hidden="true" />
           </button>
           {menu.expanded === "group" && groupOptions.map(([key, label]) =>
             <button type="button" role="menuitem" key={key} className="folder-menu-sub"
@@ -2177,11 +2177,11 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
         {toolMenu.kind === "new" && <>
           <button type="button" role="menuitem"
             onClick={() => { setToolMenu(null); createNew(true); }}>
-            <FolderPlus size={15} />New folder
+            <FolderPlus size={16} />New folder
           </button>
           <button type="button" role="menuitem"
             onClick={() => { setToolMenu(null); createNew(false); }}>
-            <FilePlus size={15} />New file
+            <FilePlus size={16} />New file
           </button>
         </>}
         {toolMenu.kind === "sort" && <>
@@ -2244,7 +2244,7 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
                   setCrumbMenu(null);
                   navigate(target);
                 }}>
-                <FolderGlyph size={15} />{entry.name}
+                <FolderGlyph size={16} />{entry.name}
               </button>)}
       </div>,
       document.body,

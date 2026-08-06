@@ -57,15 +57,11 @@ const execFileAsync = promisify(execFile)
 const _envLoadCores = Number(process.env.MIXDOG_EMBED_LOAD_CORES)
 const LOAD_AFFINITY_CORES = Number.isInteger(_envLoadCores) && _envLoadCores >= 1 ? _envLoadCores : 1
 const MODEL_CACHE_DIR = join(resolvePluginData(), 'memory-models')
-// Reclaim the model after a short idle window. The worker remains available,
-// so the next recall reloads on demand without keeping hundreds of MB resident
-// throughout an otherwise idle desktop session. Set 0 to opt into keep-alive.
+// Reclaim the model after a short idle window. The parent retires this worker
+// thread so the next recall reloads on demand without keeping hundreds of MB
+// resident throughout an otherwise idle desktop session.
 const _envIdleMs = Number(process.env.MIXDOG_EMBED_IDLE_TIMEOUT_MS)
-const IDLE_TIMEOUT_MS = Number.isFinite(_envIdleMs) && _envIdleMs >= 0 ? _envIdleMs : 3 * 60_000
-const _envPressureMb = Number(process.env.MIXDOG_EMBED_PRESSURE_MIN_FREE_MB)
-const PRESSURE_MIN_FREE_BYTES = (
-  Number.isFinite(_envPressureMb) && _envPressureMb >= 0 ? _envPressureMb : 1536
-) * 1024 * 1024
+const IDLE_TIMEOUT_MS = Number.isFinite(_envIdleMs) && _envIdleMs >= 0 ? _envIdleMs : 60_000
 
 // Defensive belt against giant model inputs. Callers should already bound text
 // (see memory-embed truncateForEmbed), but the worker is the last line before
@@ -87,6 +83,7 @@ let configuredDtype = DEFAULT_DTYPE
 let _device = 'cpu'
 let _idleTimer = null
 let _embedInFlight = false
+let _reclaiming = false
 const _msgQueue = []
 let ortPatched = false
 // Control ops must never be overtaken by a priority embed: crossing a queued
@@ -155,43 +152,40 @@ function enqueue(msg) {
 // reset / ext.dispose() while the prior extractor is still being torn down.
 const GUARDED_ACTIONS = new Set(['embed', 'embed-batch', 'warmup', 'configure', 'dispose'])
 
-function disposeLoadedExtractor(reason) {
-  if (!extractorPromise) return false
+async function disposeLoadedExtractor(reason) {
+  if (!extractorPromise || _reclaiming) return false
+  _reclaiming = true
   const loaded = extractorPromise
   extractorPromise = null
   const prevDevice = _device
   _device = 'cpu'
-  loaded.then(ext => { try { ext.dispose() } catch {} }).catch(() => {})
-  __mixdogMemoryLog(`[embed-worker] ${reason} — model disposed\n`)
-  parentPort.postMessage({
-    type: 'idle-dispose',
-    reason,
-    device: prevDevice,
-    dtype: configuredDtype,
-  })
-  return true
+  try {
+    try {
+      const ext = await loaded
+      try { await Promise.resolve(ext.dispose()) } catch {}
+    } catch {}
+    __mixdogMemoryLog(`[embed-worker] ${reason} — model disposed\n`)
+    parentPort.postMessage({
+      type: 'idle-dispose',
+      reason,
+      device: prevDevice,
+      dtype: configuredDtype,
+    })
+    return true
+  } finally {
+    _reclaiming = false
+  }
 }
 
 function resetIdleTimer() {
   if (_idleTimer) clearTimeout(_idleTimer)
   if (IDLE_TIMEOUT_MS <= 0) return
   _idleTimer = setTimeout(() => {
-    if (!_embedInFlight) disposeLoadedExtractor('idle timeout')
+    if (!_embedInFlight) void disposeLoadedExtractor('idle timeout')
     _idleTimer = null
   }, IDLE_TIMEOUT_MS)
   _idleTimer.unref?.()
 }
-
-const _pressureTimer = setInterval(() => {
-  if (PRESSURE_MIN_FREE_BYTES <= 0 || _embedInFlight || !extractorPromise) return
-  let freeBytes = Number.POSITIVE_INFINITY
-  try { freeBytes = Number(os.freemem()) } catch {}
-  if (Number.isFinite(freeBytes) && freeBytes < PRESSURE_MIN_FREE_BYTES) {
-    if (_idleTimer) { clearTimeout(_idleTimer); _idleTimer = null }
-    disposeLoadedExtractor('host memory pressure')
-  }
-}, 5_000)
-_pressureTimer.unref?.()
 
 // Set this process's CPU affinity to `mask` (bitmask of allowed logical
 // processors). Windows-only and best-effort: there is no Node API, so go
@@ -243,9 +237,6 @@ function patchOrtThreads() {
 async function loadExtractor() {
   if (!extractorPromise) {
     extractorPromise = (async () => {
-      if (PRESSURE_MIN_FREE_BYTES > 0 && os.freemem() < PRESSURE_MIN_FREE_BYTES) {
-        throw new Error('embedding model load deferred under host memory pressure')
-      }
       parentPort.postMessage({ type: 'profile', record: { phase: 'baseline', model: MODEL_ID, device: _device, dtype: configuredDtype, note: 'pre-load' } })
       patchOrtThreads()
       const { pipeline, env } = await import('@huggingface/transformers')
@@ -441,6 +432,11 @@ async function drainQueue() {
     await processMessage(next)
   }
   _embedInFlight = false
+  // Idle means time since the LAST completed inference, not time since it
+  // started. A cold model load can outlive a short idle window; without this
+  // re-arm that timer fires while busy, is discarded, and the loaded ORT
+  // session then remains resident indefinitely.
+  if (extractorPromise && !_reclaiming) resetIdleTimer()
 }
 
 parentPort.on('message', async (msg) => {

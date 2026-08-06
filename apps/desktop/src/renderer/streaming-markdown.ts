@@ -21,7 +21,17 @@ export interface StreamingMarkdownParts {
   parseUnstable: boolean;
 }
 
-export const MAX_STREAMING_UNSTABLE_MARKDOWN_CHARS = 8 * 1024;
+/* Safety valve, not a rendering mode. opencode's streaming projection
+ * (markdown-stream.ts `stream`) has NO size cap at all: every projection
+ * re-lexes the whole response, freezes all but the last token, and heals that
+ * last token so it is always parsed. Our 8 KiB cap fired on ordinary output —
+ * one long list or an open fence has no stable boundary, so the whole tail
+ * crossed it mid-stream and the reader watched raw `**`/`##` markers appear
+ * (user: 스크립트 완성되기 전에 원문이 나온다). 64 KiB only guards against a
+ * pathological unbounded tail; below it the tail always parses, and above it
+ * the renderer now holds the last completed parse instead of dropping to
+ * source (StreamingMarkdownBody). */
+export const MAX_STREAMING_UNSTABLE_MARKDOWN_CHARS = 64 * 1024;
 const STREAM_APPEND_PROBE_CHARS = 128;
 const nonPlainTextMarkdownSyntax = /[\\`*_[\]<>|&$]/;
 const gfmAutolink = /\b(?:https?:\/\/|www\.)/i;
@@ -174,7 +184,7 @@ function closeEmphasis(text: string): string {
   return healed;
 }
 
-// remend's "text-only" link mode: an unfinished link or image renders as its
+// "Text-only" link healing: an unfinished link or image renders as its
 // label until the destination closes, instead of leaving "[docs](https://exa"
 // on screen and then snapping into an anchor.
 function healIncompleteLink(text: string): string {

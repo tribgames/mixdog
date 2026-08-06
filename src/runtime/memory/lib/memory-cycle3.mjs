@@ -36,7 +36,7 @@ function resourceDir() {
   return process.env.MIXDOG_ROOT || fileURLToPath(new URL('../../../..', import.meta.url))
 }
 
-async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispatch) {
+async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispatch, signal = null) {
   return await llmCall({
     agent: 'cycle3-agent',
     taskType: 'maintenance',
@@ -44,6 +44,7 @@ async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispa
     preset,
     timeout,
     cwd: null,
+    signal,
   }, prompt)
 }
 
@@ -55,6 +56,7 @@ export async function invokeCycle3Maintenance(prompt, options = {}) {
     preset,
     Number(options.timeout ?? 600000),
     options.callLlm,
+    options.signal,
   )
 }
 

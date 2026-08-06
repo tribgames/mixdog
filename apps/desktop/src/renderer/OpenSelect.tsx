@@ -326,7 +326,7 @@ export function OpenSelect({
       {leading && <span className="mx-select-leading">{leading}</span>}
       <span className="mx-select-value">{t(displayValue || selected?.label || options[0]?.label || 'Select…')}</span>
       {routeStyle
-        ? <MxIcon name="chevron-down" size={13} />
+        ? <MxIcon name="chevron-down" size={14} />
         : settingsStyle
         ? <MxIcon name="chevron-grabber-vertical" size={14} />
         : <MxIcon name="chevron-down" size={16} />}

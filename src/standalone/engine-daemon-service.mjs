@@ -10,8 +10,26 @@
 // The engine factory is injected (`createEngine`) so the daemon entry supplies
 // the real createEngineSession while tests supply a stub.
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
 const MAX_CLONE_DEPTH = 24;
+const requireDesktopBackend = createRequire(import.meta.url);
+
+async function loadDesktopBackendModule(moduleUrl) {
+  const parsed = new URL(moduleUrl);
+  if (!parsed.pathname.toLowerCase().endsWith('.cjs')) {
+    return import(moduleUrl);
+  }
+  // Node's CJS bridge ignores URL search parameters and otherwise returns the
+  // previous install's cached exports after an in-place desktop update. Keep
+  // already-instantiated adapters alive, but load this newly keyed artifact
+  // from disk for the new desktop build.
+  const modulePath = fileURLToPath(parsed);
+  const resolved = requireDesktopBackend.resolve(modulePath);
+  delete requireDesktopBackend.cache[resolved];
+  return requireDesktopBackend(resolved);
+}
 
 /** JSON-safe projection of an engine snapshot. Functions, symbols, and
  *  undefined never survive a transport hop; dropping them here (instead of at
@@ -81,8 +99,16 @@ export function createEngineDaemonService({
   // One daemon-owned execution entry per live session. Entries are never
   // addressed by clients; sessionId is the only identity outside this module.
   const sessions = new Set();
-  let desktopBackend = null;
-  let desktopBackendPromise = null;
+  const sessionsById = new Map();
+  let busyEntries = 0;
+  // Desktop builds can overlap during an update (or while a dev preview is
+  // open). Their adapters are build artifacts and therefore must not be
+  // mistaken for one process-global implementation. Reuse an adapter only for
+  // the same module URL; compatible builds otherwise coexist on the stable
+  // daemon wire protocol.
+  const desktopBackendsById = new Map();
+  const desktopBackendsByModule = new Map();
+  const desktopBackendPromises = new Map();
   let closed = false;
   // A turn belongs to the DAEMON, not to whoever is watching it: closing the
   // desktop window or restarting the TUI must never interrupt work. An engine
@@ -91,7 +117,7 @@ export function createEngineDaemonService({
   // destroying anything, this sweep is the ONLY reclaim path besides shutdown.
   const IDLE_EVICT_MS = Number(idleEvictMs) > 0
     ? Number(idleEvictMs)
-    : Math.max(60_000, Number(process.env.MIXDOG_ENGINE_IDLE_EVICT_MS) || 15 * 60_000);
+    : Math.max(60_000, Number(process.env.MIXDOG_ENGINE_IDLE_EVICT_MS) || 2 * 60_000);
   const EVICT_SWEEP_MS = Number(evictSweepMs) > 0 ? Number(evictSweepMs) : 30_000;
   let evictTimer = null;
 
@@ -134,15 +160,30 @@ export function createEngineDaemonService({
       startEvictionSweep();
       log(`session ${currentSessionId(entry) || '(creating)'} unwatched (client ${token} gone) — retained`);
     }
-    if (desktopBackend) desktopBackend.subscribers.delete(token);
+    for (const backend of desktopBackendsById.values()) {
+      backend.subscribers.delete(token);
+    }
     return { ok: true };
   }
 
+  function stateBusy(state) {
+    return state?.busy === true || state?.commandBusy === true
+      || (Array.isArray(state?.queued) && state.queued.length > 0);
+  }
+
+  function updateEntryBusy(entry, state) {
+    const next = stateBusy(state);
+    if (entry.busy === next) return next;
+    if (entry.busy === true) busyEntries = Math.max(0, busyEntries - 1);
+    if (next) busyEntries += 1;
+    entry.busy = next;
+    return next;
+  }
+
   function engineBusy(entry) {
+    if (typeof entry?.busy === 'boolean') return entry.busy;
     try {
-      const state = entry.engine.getState?.() || {};
-      return state.busy === true || state.commandBusy === true
-        || (Array.isArray(state.queued) && state.queued.length > 0);
+      return updateEntryBusy(entry, entry.engine.getState?.() || {});
     } catch {
       // An engine we cannot read is never assumed idle — losing a live turn is
       // far worse than holding an extra process for one sweep.
@@ -164,6 +205,26 @@ export function createEngineDaemonService({
       }
     }, EVICT_SWEEP_MS);
     evictTimer.unref?.();
+  }
+
+  function retainUnwatched(entry, reason = 'headless session budget') {
+    if (!entry || entry.disposed || (entry.subscribers?.size || 0) > 0) return;
+    entry.headless = true;
+    entry.retainedAt = Date.now();
+    releaseProjection(entry);
+    startEvictionSweep();
+  }
+
+  function releaseProjection(entry) {
+    if (!entry) return;
+    entry.snapshotSource = null;
+    entry.snapshotCache = null;
+    entry.fieldCache?.clear?.();
+    entry.itemCache?.clear?.();
+    entry.fieldCache = null;
+    entry.itemCache = null;
+    entry.publishedSnapshot = null;
+    entry.publishedSessionId = '';
   }
 
   function snapshotOf(entry) {
@@ -239,6 +300,8 @@ export function createEngineDaemonService({
   /** Advance the engine's published revision one step. */
   function advance(entry) {
     const snapshot = snapshotOf(entry);
+    indexSessionEntry(entry, snapshot?.sessionId);
+    updateEntryBusy(entry, snapshot);
     const previous = entry.publishedSnapshot;
     const previousRevision = entry.revision || 0;
     if (snapshot === previous) {
@@ -265,6 +328,30 @@ export function createEngineDaemonService({
 
   function currentSessionId(entry) {
     return String(entry?.engine?.getState?.()?.sessionId || '');
+  }
+
+  function indexSessionEntry(entry, sessionId = currentSessionId(entry)) {
+    const nextId = String(sessionId || '');
+    const previousId = String(entry?.indexedSessionId || '');
+    if (previousId && previousId !== nextId && sessionsById.get(previousId) === entry) {
+      sessionsById.delete(previousId);
+    }
+    if (!entry || entry.disposed || !nextId) {
+      if (entry) entry.indexedSessionId = '';
+      return '';
+    }
+    const existing = sessionsById.get(nextId);
+    if (existing && existing !== entry && !existing.disposed) {
+      // Do not redirect an established address to a second engine. The load
+      // coordinator normally makes this impossible; retaining the first owner
+      // is the safest fallback if an embedder mutates a session id directly.
+      entry.indexedSessionId = '';
+      log(`duplicate session address refused session=${nextId}`);
+      return nextId;
+    }
+    sessionsById.set(nextId, entry);
+    entry.indexedSessionId = nextId;
+    return nextId;
   }
 
   /** Publish one durable session-addressed frame. The engine pool is a daemon
@@ -339,18 +426,19 @@ export function createEngineDaemonService({
   function sessionOwner(sessionId) {
     const id = String(sessionId || '');
     if (!id) return null;
-    for (const entry of sessions) {
-      if (entry.disposed) continue;
-      if (currentSessionId(entry) === id) return entry;
+    const entry = sessionsById.get(id) || null;
+    if (!entry || entry.disposed) {
+      if (entry) sessionsById.delete(id);
+      return null;
     }
-    return null;
+    return entry;
   }
 
   // Calls that change WHICH sessions exist or which one is loaded. Only these
   // invalidate the cached sync surface (a store scan).
   const SESSION_SHAPING_METHODS = new Set([
     'resume', 'resumeSession', 'newSession', 'switchContext', 'deleteSession',
-    'renameSessionTitle', 'setSessionArchived', 'prefetchSession', 'submit',
+    'renameSessionTitle', 'setSessionArchived', 'prefetchSession',
   ]);
 
   // Engine LIFETIME belongs to the daemon: a view drives a session, it never
@@ -361,6 +449,16 @@ export function createEngineDaemonService({
   function publish(entry) {
     if (closed || entry.disposed) return;
     try {
+      if ((entry.subscribers?.size || 0) === 0) {
+        // A headless turn still needs busy/index liveness, but no client can
+        // consume a wire projection. Avoid cloning the growing transcript on
+        // every token; the next subscriber receives a fresh full snapshot.
+        const raw = entry.engine.getState?.() || {};
+        indexSessionEntry(entry, raw.sessionId);
+        updateEntryBusy(entry, raw);
+        releaseProjection(entry);
+        return;
+      }
       // Identical state produces no frame at all; a changed one travels as a
       // DELTA against the revision every attached view already holds.
       const step = advance(entry);
@@ -397,8 +495,16 @@ export function createEngineDaemonService({
     const entry = {
       engine, cwd: params.cwd || process.cwd(), timer: null, disposed: false,
       unsubscribe: null, subscribers: new Set(), reservedOnly: false, lastPublishedAt: 0,
+      indexedSessionId: '', busy: null, headless: !subscriberToken(ctx), retainedAt: null,
     };
     sessions.add(entry);
+    try {
+      const initialState = engine.getState?.() || {};
+      indexSessionEntry(entry, initialState.sessionId);
+      updateEntryBusy(entry, initialState);
+    } catch {
+      updateEntryBusy(entry, { busy: true });
+    }
     addSubscriber(entry, ctx);
     try {
       entry.unsubscribe = engine.subscribe?.(() => schedulePublish(entry)) ?? null;
@@ -442,6 +548,11 @@ export function createEngineDaemonService({
       await destroy(entry, 'session load mismatch');
       throw new Error(`session ${sessionId} could not be resumed`);
     }
+    // Publish/index the resumed identity before sessionLoads releases its
+    // single-flight promise. A second pane arriving in the next microtask must
+    // find this owner in O(1), not create a duplicate engine.
+    advance(entry);
+    retainUnwatched(entry, 'headless session load');
     log(`session ${sessionId} loaded on demand`);
     return entry;
   }
@@ -462,9 +573,19 @@ export function createEngineDaemonService({
   }
 
   /** Apply one compatibility store method to whatever engine owns a SESSION. */
+  function syncPayload(entry, baseSyncRevision, options = {}) {
+    const known = Number.isInteger(baseSyncRevision) ? baseSyncRevision : null;
+    if (!options.refresh && known === syncEpoch) return { syncRevision: syncEpoch };
+    return {
+      syncRevision: syncEpoch,
+      sync: syncSurfaceOf(entry, options),
+    };
+  }
+
   async function sessionCall({
     sessionId, method, args = [], open: openHints = {}, baseRevision = null,
-  } = {}) {
+    baseSyncRevision = null,
+  } = {}, ctx = null) {
     if (closed) throw new Error('engine daemon service is closed');
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
@@ -479,7 +600,9 @@ export function createEngineDaemonService({
     const target = entry.engine[name];
     if (typeof target !== 'function') throw new TypeError(`engine method ${name} is unavailable`);
     const value = await target.apply(entry.engine, Array.isArray(args) ? args : []);
-    const shaping = SESSION_SHAPING_METHODS.has(name);
+    const firstSubmit = name === 'submit' && value === true && entry.reservedOnly;
+    if (firstSubmit) entry.reservedOnly = false;
+    const shaping = SESSION_SHAPING_METHODS.has(name) || firstSubmit;
     if (shaping) invalidateSyncSurfaces();
     // Keep one compact record that the call reached the backend without
     // serializing transcripts/catalogs into the daemon log. A cold pane peek
@@ -498,15 +621,12 @@ export function createEngineDaemonService({
     }
     // Still unwatched: keep it on the retention clock exactly like an engine a
     // view released, so an untouched load cannot leak past the idle window.
-    if (entry.headless) {
-      entry.retainedAt = Date.now();
-      startEvictionSweep();
-    }
+    retainUnwatched(entry);
     return {
       value: sanitizeForWire(value) ?? null,
       sessionId: String(entry.engine.getState?.()?.sessionId || id),
       ...bodyForClient(step, Number.isInteger(baseRevision) ? baseRevision : null),
-      sync: syncSurfaceOf(entry, { refresh: shaping }),
+      ...syncPayload(entry, baseSyncRevision, { refresh: shaping }),
     };
   }
 
@@ -516,12 +636,20 @@ export function createEngineDaemonService({
   // dispose. The client addresses a durable session id instead of a
   // client-owned engine handle.
 
-  function sessionResult(entry, step, baseRevision = null, extra = {}) {
+  function sessionResult(
+    entry,
+    step,
+    baseRevision = null,
+    baseSyncRevision = null,
+    extra = {},
+    syncOptions = {},
+  ) {
     return {
       sessionId: currentSessionId(entry),
+      reservedOnly: entry.reservedOnly === true,
       ...extra,
       ...bodyForClient(step, Number.isInteger(baseRevision) ? baseRevision : null),
-      sync: syncSurfaceOf(entry),
+      ...syncPayload(entry, baseSyncRevision, syncOptions),
     };
   }
 
@@ -534,7 +662,7 @@ export function createEngineDaemonService({
       if (owner) {
         addSubscriber(owner, ctx);
         const step = advance(owner);
-        return sessionResult(owner, step);
+        return sessionResult(owner, step, null, params.baseSyncRevision);
       }
     }
     const entry = await createEntry(params, ctx);
@@ -557,23 +685,29 @@ export function createEngineDaemonService({
       if (step.changed) publishStep(entry, step);
       invalidateSyncSurfaces();
       log(`session created session=${sessionId}`);
-      return sessionResult(entry, step);
+      retainUnwatched(entry, 'headless session create');
+      return sessionResult(entry, step, null, params.baseSyncRevision);
     } catch (error) {
       await destroy(entry, 'session creation failed', { keepBackgroundWork: true });
       throw error;
     }
   }
 
-  async function readSession({ sessionId, open: openHints = {}, baseRevision = null } = {}) {
+  async function readSession({
+    sessionId, open: openHints = {}, baseRevision = null, baseSyncRevision = null,
+  } = {}) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
     const entry = await entryForSession(id, openHints || {});
     const step = advance(entry);
-    return sessionResult(entry, step, baseRevision);
+    retainUnwatched(entry, 'headless session read');
+    return sessionResult(entry, step, baseRevision, baseSyncRevision);
   }
 
   async function subscribeSession(
-    { sessionId, open: openHints = {}, baseRevision = null } = {},
+    {
+      sessionId, open: openHints = {}, baseRevision = null, baseSyncRevision = null,
+    } = {},
     ctx = null,
   ) {
     const id = String(sessionId || '');
@@ -581,7 +715,7 @@ export function createEngineDaemonService({
     const entry = await entryForSession(id, openHints || {});
     addSubscriber(entry, ctx);
     const step = advance(entry);
-    return sessionResult(entry, step, baseRevision, { subscribed: true });
+    return sessionResult(entry, step, baseRevision, baseSyncRevision, { subscribed: true });
   }
 
   async function unsubscribeSession({ sessionId } = {}, ctx = null) {
@@ -600,6 +734,7 @@ export function createEngineDaemonService({
         return { sessionId: id, unsubscribed: true };
       }
       entry.retainedAt = Date.now();
+      releaseProjection(entry);
       startEvictionSweep();
     }
     log(`session unsubscribed session=${id}${token ? ` client=${token}` : ''}`);
@@ -608,6 +743,7 @@ export function createEngineDaemonService({
 
   async function submitSession({
     sessionId, prompt, options = {}, open: openHints = {}, baseRevision = null,
+    baseSyncRevision = null,
   } = {}) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
@@ -618,31 +754,49 @@ export function createEngineDaemonService({
     // returns before provider execution. Awaiting Promise.resolve only
     // normalizes embedders; it never waits for the turn.
     const accepted = await Promise.resolve(target.call(entry.engine, prompt, options || {}));
+    const firstSubmit = accepted === true && entry.reservedOnly;
     if (accepted === true) {
       entry.reservedOnly = false;
-      // First submit materializes a reserved session in the store.
-      invalidateSyncSurfaces();
+      // Only the first submit materializes a reserved session in the catalog.
+      // Later turns update their own projection without rescanning the store.
+      if (firstSubmit) invalidateSyncSurfaces();
     }
     const step = advance(entry);
     if (step.changed) publishStep(entry, step);
+    retainUnwatched(entry, 'headless session submit');
     log(`session submit session=${id} accepted=${accepted === true}`);
-    return sessionResult(entry, step, baseRevision, { accepted: accepted === true });
+    return sessionResult(
+      entry,
+      step,
+      baseRevision,
+      baseSyncRevision,
+      { accepted: accepted === true },
+      { refresh: firstSubmit },
+    );
   }
 
-  async function abortSession({ sessionId, open: openHints = {}, baseRevision = null } = {}) {
+  async function abortSession({
+    sessionId, open: openHints = {}, options = {},
+    baseRevision = null, baseSyncRevision = null,
+  } = {}) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
     const entry = await entryForSession(id, openHints || {});
     const target = entry.engine.abort;
     if (typeof target !== 'function') throw new TypeError('engine method abort is unavailable');
-    const aborted = await target.call(entry.engine);
+    const rawResult = await target.call(entry.engine, options || {});
+    const abortResult = rawResult && typeof rawResult === 'object'
+      ? rawResult
+      : { aborted: rawResult === true };
     const step = advance(entry);
     if (step.changed) publishStep(entry, step);
-    return sessionResult(entry, step, baseRevision, { aborted: aborted === true });
+    retainUnwatched(entry, 'headless session abort');
+    return sessionResult(entry, step, baseRevision, baseSyncRevision, abortResult);
   }
 
   async function approveSession({
     sessionId, approvalId, decision, open: openHints = {}, baseRevision = null,
+    baseSyncRevision = null,
   } = {}) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
@@ -654,7 +808,8 @@ export function createEngineDaemonService({
     const approved = await target.call(entry.engine, approvalId, decision);
     const step = advance(entry);
     if (step.changed) publishStep(entry, step);
-    return sessionResult(entry, step, baseRevision, { approved: approved === true });
+    retainUnwatched(entry, 'headless session approval');
+    return sessionResult(entry, step, baseRevision, baseSyncRevision, { approved: approved === true });
   }
 
   async function destroy(
@@ -665,9 +820,15 @@ export function createEngineDaemonService({
     if (!entry || entry.disposed) return { ok: true };
     const sessionId = currentSessionId(entry);
     entry.disposed = true;
+    releaseProjection(entry);
     if (entry.timer) { clearTimeout(entry.timer); entry.timer = null; }
     try { entry.unsubscribe?.(); } catch {}
     sessions.delete(entry);
+    if (entry.indexedSessionId && sessionsById.get(entry.indexedSessionId) === entry) {
+      sessionsById.delete(entry.indexedSessionId);
+    }
+    if (entry.busy === true) busyEntries = Math.max(0, busyEntries - 1);
+    entry.busy = false;
     invalidateSyncSurfaces();
     try { await entry.engine.dispose?.(reason, { keepBackgroundWork }); }
     catch (err) { log(`session dispose failed session=${sessionId}: ${err?.message || err}`); }
@@ -707,13 +868,14 @@ export function createEngineDaemonService({
 
   function publishDesktopEvent(desktopId, message) {
     const wire = sanitizeForWire(message);
-    if (!wire || !desktopBackend || desktopBackend.desktopId !== desktopId) return;
+    const backend = desktopBackendsById.get(desktopId);
+    if (!wire || !backend) return;
     onFrame({
       type: 'desktop-event',
       key: desktopEventKey(desktopId, wire),
       desktopId,
       message: wire,
-    }, desktopBackend.subscribers);
+    }, backend.subscribers);
   }
 
   async function initializeDesktopBackend({ desktopId, moduleUrl, options = {} } = {}) {
@@ -729,19 +891,19 @@ export function createEngineDaemonService({
     if (parsed.protocol !== 'file:') {
       throw new TypeError('desktop backend moduleUrl must be a file URL');
     }
-    if (desktopBackend) {
-      if (desktopBackend.moduleUrl !== requestedModule) {
-        // The daemon owns one canonical backend for its whole lifetime. A dev
-        // and installed Electron can attach concurrently without racing to
-        // replace it; protocol negotiation restarts genuinely incompatible
-        // daemons before desktop.init reaches this point.
-        log(`desktop backend already active; ignoring alternate module ${requestedModule}`);
+    const existingByModule = desktopBackendsByModule.get(requestedModule);
+    if (existingByModule) return existingByModule;
+    const existingById = desktopBackendsById.get(requestedId);
+    if (existingById) {
+      if (existingById.moduleUrl !== requestedModule) {
+        throw new Error(`desktopId ${requestedId} is already bound to another backend module`);
       }
-      return desktopBackend;
+      return existingById;
     }
-    if (desktopBackendPromise) return desktopBackendPromise;
-    desktopBackendPromise = (async () => {
-      const loaded = await import(requestedModule);
+    const pending = desktopBackendPromises.get(requestedModule);
+    if (pending) return pending;
+    const loading = (async () => {
+      const loaded = await loadDesktopBackendModule(requestedModule);
       if (typeof loaded.createDesktopBackend !== 'function') {
         throw new TypeError('desktop backend module has no createDesktopBackend export');
       }
@@ -763,14 +925,18 @@ export function createEngineDaemonService({
         instance,
         subscribers: new Set(),
       };
-      desktopBackend = record;
-      log(`desktop backend loaded id=${requestedId}`);
+      desktopBackendsById.set(requestedId, record);
+      desktopBackendsByModule.set(requestedModule, record);
+      log(`desktop backend loaded id=${requestedId} module=${requestedModule}`);
       return record;
     })();
+    desktopBackendPromises.set(requestedModule, loading);
     try {
-      return await desktopBackendPromise;
+      return await loading;
     } finally {
-      desktopBackendPromise = null;
+      if (desktopBackendPromises.get(requestedModule) === loading) {
+        desktopBackendPromises.delete(requestedModule);
+      }
     }
   }
 
@@ -783,10 +949,9 @@ export function createEngineDaemonService({
 
   function requireDesktopBackend(desktopId) {
     const id = String(desktopId || '');
-    if (!desktopBackend || desktopBackend.desktopId !== id) {
-      throw new Error('desktop backend is not initialized');
-    }
-    return desktopBackend;
+    const backend = desktopBackendsById.get(id);
+    if (!backend) throw new Error('desktop backend is not initialized');
+    return backend;
   }
 
   async function desktopInvoke({ desktopId, method, args = [] } = {}, ctx = null) {
@@ -837,9 +1002,12 @@ export function createEngineDaemonService({
   async function stop(reason = 'service stop') {
     closed = true;
     if (evictTimer) { clearInterval(evictTimer); evictTimer = null; }
-    const backend = desktopBackend;
-    desktopBackend = null;
-    if (backend?.instance?.dispose) {
+    const backends = [...new Set(desktopBackendsById.values())];
+    desktopBackendsById.clear();
+    desktopBackendsByModule.clear();
+    desktopBackendPromises.clear();
+    for (const backend of backends) {
+      if (!backend?.instance?.dispose) continue;
       try { await backend.instance.dispose(reason); }
       catch (error) { log(`desktop backend dispose failed: ${error?.message || error}`); }
     }
@@ -854,11 +1022,32 @@ export function createEngineDaemonService({
     sessionCall, stop, releaseClient,
     get size() { return sessions.size; },
     /** Live work the daemon must not abandon (self-shutdown guard). */
-    get busyCount() { return [...sessions].filter((entry) => engineBusy(entry)).length; },
-    /** Phone clients hosted by the daemon-owned desktop adapter. */
+    get busyCount() { return busyEntries; },
+    get status() {
+      let watched = 0;
+      let retained = 0;
+      let projected = 0;
+      for (const entry of sessions) {
+        if ((entry.subscribers?.size || 0) > 0) watched += 1;
+        else if (entry.retainedAt) retained += 1;
+        if (entry.snapshotCache || entry.publishedSnapshot) projected += 1;
+      }
+      return {
+        live: sessions.size,
+        busy: busyEntries,
+        watched,
+        retained,
+        projected,
+      };
+    },
+    /** Phone clients hosted by daemon-owned desktop adapters. */
     get externalClientCount() {
-      const count = Number(desktopBackend?.instance?.clientCount ?? 0);
-      return Number.isSafeInteger(count) && count > 0 ? count : 0;
+      let total = 0;
+      for (const backend of desktopBackendsById.values()) {
+        const count = Number(backend?.instance?.clientCount ?? 0);
+        if (Number.isSafeInteger(count) && count > 0) total += count;
+      }
+      return total;
     },
   };
 }

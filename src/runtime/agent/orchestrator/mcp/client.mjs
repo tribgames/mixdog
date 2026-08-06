@@ -8,6 +8,7 @@ import { shutdownStdioChild, killStdioChildTreeFast } from './child-tree.mjs';
 import { readServicePort, markServiceUnreachable, isConnRefuseError } from '../../../shared/service-discovery.mjs';
 import { makeToolEnvelope, normalizeToolEnvelope } from '../session/tool-envelope.mjs';
 import { classifyResultKind } from '../session/result-classification.mjs';
+import { createKeyedSingleflight } from './reconnect-singleflight.mjs';
 // --- Types ---
 /** Known auto-detect targets: port file path relative to tmpdir.
  *  Note: `mixdog` used to self-loopback via active-instance.json's
@@ -23,6 +24,7 @@ const DEFAULT_MCP_CALL_TIMEOUT_MS = 120000;
 const DEFAULT_MCP_STARTUP_TIMEOUT_MS = 10000;
 // --- State ---
 const servers = new Map();
+const reconnects = createKeyedSingleflight();
 let mcpSdkPromise = null;
 // Memo for mcpToolHasField(name, field) — keyed by `${toolName}|${field}`.
 // The lookup (regex parse + servers Map get + tools.find + schema property
@@ -173,6 +175,26 @@ export function getMcpServerInstructionsMap() {
     }
     return out;
 }
+
+async function reconnectMcpServer(serverName, failedServer) {
+    return reconnects.run(serverName, async () => {
+        const current = servers.get(serverName);
+        // A peer already completed the replacement while this failed call was
+        // unwinding. Reuse it immediately instead of closing a fresh transport.
+        if (current && current !== failedServer) return current;
+        if (current) {
+            await _closeServer(current);
+            if (servers.get(serverName) === current) servers.delete(serverName);
+        }
+        await connectServer(serverName, failedServer.cfg);
+        const replacement = servers.get(serverName);
+        if (!replacement) {
+            throw new Error(`reconnect succeeded but server "${serverName}" entry is missing from registry`);
+        }
+        return replacement;
+    });
+}
+
 /**
  * Execute an MCP tool call.
  * Name format: `mcp__{serverName}__{toolName}`
@@ -195,20 +217,13 @@ export async function executeMcpTool(name, args) {
             mcpLog(`[mcp-client] Tool call timed out; skipping reconnect retry for "${serverName}/${toolName}".\n`);
             throw firstErr;
         }
-        mcpLog(`[mcp-client] Tool call failed, attempting reconnect...\n`);
-        await new Promise(r => setTimeout(r, 500));
+        mcpLog(`[mcp-client] Tool call failed, attempting shared reconnect...\n`);
+        let retryServer;
         try {
-            await _closeServer(server);
-        } catch { /* ignore close error */ }
-        try {
-            await connectServer(serverName, server.cfg);
+            retryServer = await reconnectMcpServer(serverName, server);
         } catch (reconnectErr) {
             const reconnectMsg = reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr);
             throw new Error(`Tool call failed: ${firstMsg}; reconnect also failed: ${reconnectMsg}`);
-        }
-        const retryServer = servers.get(serverName);
-        if (!retryServer) {
-            throw new Error(`Tool call failed: ${firstMsg}; reconnect succeeded but server "${serverName}" entry is missing from registry`);
         }
         try {
             result = await _callToolWithTimeout(retryServer, toolName, args);
@@ -632,7 +647,7 @@ async function connectServer(name, cfg, genAtStart = _connectAbortGeneration) {
             ...(t.annotations && typeof t.annotations === 'object' ? { annotations: t.annotations } : {}),
         }));
         const toolNames = tools.map(t => t.name);
-        servers.set(name, { name, client, transport, tools, cfg, instructions });
+        servers.set(name, { name, client, transport, tools, cfg, instructions, generation: genAtStart });
         _invalidateMcpToolFieldMemo();
         mcpLog(`[mcp] connected: ${tools.length} tools — ${toolNames.join(', ')}\n`);
     }

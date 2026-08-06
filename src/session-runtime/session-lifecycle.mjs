@@ -30,7 +30,6 @@ export function createSessionLifecycle({
   reg,
   cfgMod,
   activeWorkflowContext,
-  memoryEnabled,
   hooks,
   hookCommonPayload,
   mcpClient,
@@ -140,6 +139,14 @@ export function createSessionLifecycle({
 
     const startedAt = performance.now();
     bootProfile('session:create:start', { mode: rt.mode, reason });
+    // A daemon reservation is deliberate user-think-time prewarm. Start the
+    // one-time agent-loop module load now so the first real prompt does not pay
+    // its ~100ms dynamic-import graph immediately before provider.send.
+    if (reason === 'reservation' && typeof mgr.prewarmAgentLoop === 'function') {
+      void mgr.prewarmAgentLoop().catch((error) => {
+        bootProfile('agent-loop:prewarm-failed', { error: error?.message || String(error) });
+      });
+    }
     const promise = (async () => {
       // Demand-only: this starts only after the user submits (unless an
       // explicitly enabled prewarm caller asks for a session). Core-memory
@@ -187,7 +194,7 @@ export function createSessionLifecycle({
         workflowContext,
         fast: rt.route.fast === true,
         compaction: rt.config.compaction && typeof rt.config.compaction === 'object'
-          ? normalizeCompactionConfig(rt.config.compaction, { memoryEnabled: memoryEnabled() })
+          ? normalizeCompactionConfig(rt.config.compaction)
           : undefined,
       };
       if (hasOwn(rt.route, 'effort') || rt.route.effectiveEffort) {

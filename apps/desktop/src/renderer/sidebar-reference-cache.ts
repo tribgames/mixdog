@@ -118,9 +118,8 @@ const MUTATION_KEYS: Partial<Record<string, readonly SidebarReferenceKey[]>> = {
   completeOAuthProviderLogin: PROVIDER_KEYS,
   loginOpenCodeGoUsage: PROVIDER_KEYS,
   setLocalProvider: PROVIDER_KEYS,
-  setDefaultProvider: PROVIDER_KEYS,
-  // Onboarding finishes by writing the search route, the per-agent routes and
-  // the default provider in ONE capability call.
+  // Onboarding finishes by writing Main, Search, and per-agent routes in one
+  // capability call.
   completeOnboarding: ['searchRoute', 'agents', ...PROVIDER_KEYS],
 };
 

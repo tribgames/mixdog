@@ -229,7 +229,7 @@ export function makeAgentDispatch(opts = {}) {
     }
     const agent = opts.agent;
 
-    return async function agentDispatch({ prompt, preset: presetArg, sourceName: sourceNameArg, parentSignal: callParentSignal, idleTimeoutMs: callIdleTimeoutMs, cwd: callCwd }) {
+    return async function agentDispatch({ prompt, preset: presetArg, sourceName: sourceNameArg, parentSignal: callParentSignal, idleTimeoutMs: callIdleTimeoutMs, cwd: callCwd, sessionId: callSessionId }) {
         if (typeof prompt !== 'string' || !prompt) {
             throw new Error(`[agent-dispatch] prompt required for agent "${agent}"`);
         }
@@ -243,6 +243,7 @@ export function makeAgentDispatch(opts = {}) {
             lease = await admission.acquire('agent', {
                 signal: admissionAbortLink.signal,
                 label: agent,
+                ownerKey: callSessionId || opts.ownerSessionId || opts.parentSessionId || opts.sessionId || null,
             });
         } catch (error) {
             admissionAbortLink.dispose();

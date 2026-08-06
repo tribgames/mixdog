@@ -1,4 +1,5 @@
 import type {
+  DesktopAbortOptions,
   DesktopAgentPoolRow,
   DesktopCapability,
   DesktopCapabilityReadRequest,
@@ -43,6 +44,7 @@ export interface DesktopBackendClientOptions {
   restartBaseDelayMs?: number;
   restartMaxDelayMs?: number;
   restartStableMs?: number;
+  failureNoticeDelayMs?: number;
   onDiagnostic?(event: string, data: Record<string, unknown>): void;
 }
 
@@ -58,6 +60,7 @@ const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
 const DEFAULT_RESTART_BASE_DELAY_MS = 250;
 const DEFAULT_RESTART_MAX_DELAY_MS = 5_000;
 const DEFAULT_RESTART_STABLE_MS = 30_000;
+const DEFAULT_FAILURE_NOTICE_DELAY_MS = 10_000;
 const PROCESS_FAILURE_TOAST_ID = 'backend-connection-stopped';
 
 function displayExitCode(code: number): string {
@@ -115,6 +118,7 @@ export class DesktopBackendClient implements DesktopEngineHost {
   private startupTimer: ReturnType<typeof setTimeout> | null = null;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
   private stableTimer: ReturnType<typeof setTimeout> | null = null;
+  private failureNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   private consecutiveExitCount = 0;
   private nextRestartAt = 0;
   private disposing = false;
@@ -170,6 +174,14 @@ export class DesktopBackendClient implements DesktopEngineHost {
         type: String(type || ''),
         location: String(location || ''),
       });
+    });
+    transport.on('diagnostic', (event: unknown, details: unknown) => {
+      this.options.onDiagnostic?.(
+        String(event || 'backend-transport-diagnostic'),
+        details && typeof details === 'object'
+          ? details as Record<string, unknown>
+          : {},
+      );
     });
     transport.on('exit', (code: unknown, cause: unknown) => this.handleExit(
       transport,
@@ -254,7 +266,8 @@ export class DesktopBackendClient implements DesktopEngineHost {
       try {
         if (this.recovering) {
           this.recovering = false;
-          this.publish(this.processFailureSnapshot(snapshot));
+          this.clearFailureNoticeTimer();
+          this.publish(this.recoveredSnapshot(snapshot));
         } else {
           this.publish(snapshot);
         }
@@ -360,7 +373,7 @@ export class DesktopBackendClient implements DesktopEngineHost {
       restartCount: this.consecutiveExitCount,
       restartDelayMs,
     });
-    this.publishProcessFailure();
+    this.scheduleProcessFailure();
     void this.start().catch((restartError) => {
       if (this.disposing || this.disposed) return;
       this.options.onDiagnostic?.('backend-transport-restart-failed', {
@@ -408,9 +421,40 @@ export class DesktopBackendClient implements DesktopEngineHost {
     return { ...bootstrap, ...state } as EngineSnapshot;
   }
 
-  private publishProcessFailure(): void {
+  private scheduleProcessFailure(): void {
     this.recovering = true;
-    this.publish(this.processFailureSnapshot(this.cachedSnapshot));
+    if (this.failureNoticeTimer) return;
+    const delayMs = Math.max(
+      0,
+      this.options.failureNoticeDelayMs ?? DEFAULT_FAILURE_NOTICE_DELAY_MS,
+    );
+    if (delayMs === 0) {
+      this.publish(this.processFailureSnapshot(this.cachedSnapshot));
+      return;
+    }
+    this.failureNoticeTimer = setTimeout(() => {
+      this.failureNoticeTimer = null;
+      if (!this.recovering || this.disposed || this.disposing) return;
+      this.publish(this.processFailureSnapshot(this.cachedSnapshot));
+    }, delayMs);
+    this.failureNoticeTimer.unref?.();
+  }
+
+  private clearFailureNoticeTimer(): void {
+    if (this.failureNoticeTimer) clearTimeout(this.failureNoticeTimer);
+    this.failureNoticeTimer = null;
+  }
+
+  private recoveredSnapshot(snapshot: EngineSnapshot): EngineSnapshot {
+    if (!snapshot || typeof snapshot !== 'object') return snapshot;
+    const previous = snapshot as Record<string, unknown>;
+    const existingToasts = Array.isArray(previous.toasts) ? previous.toasts : [];
+    const toasts = existingToasts.filter((toast) => (
+      !toast || typeof toast !== 'object'
+      || (toast as Record<string, unknown>).id !== PROCESS_FAILURE_TOAST_ID
+    ));
+    if (toasts.length === existingToasts.length) return snapshot;
+    return { ...previous, toasts } as EngineSnapshot;
   }
 
   private processFailureSnapshot(snapshot: EngineSnapshot): EngineSnapshot {
@@ -633,8 +677,8 @@ export class DesktopBackendClient implements DesktopEngineHost {
   ): Promise<DesktopNewTaskSubmitResult> {
     return this.invoke('submitNewTask', [prompt, options, draft]);
   }
-  abort(): Promise<unknown> {
-    return this.invoke('abort');
+  abort(options: DesktopAbortOptions = {}): Promise<unknown> {
+    return this.invoke('abort', [options]);
   }
   resolveToolApproval(id: string, decision: ToolApprovalDecision): Promise<boolean> {
     return this.invoke('resolveToolApproval', [id, decision]);
@@ -646,8 +690,8 @@ export class DesktopBackendClient implements DesktopEngineHost {
   ): Promise<boolean> {
     return this.invoke('submitToSession', [sessionId, prompt, options]);
   }
-  abortSession(sessionId: string): Promise<unknown> {
-    return this.invoke('abortSession', [sessionId]);
+  abortSession(sessionId: string, options: DesktopAbortOptions = {}): Promise<unknown> {
+    return this.invoke('abortSession', [sessionId, options]);
   }
   resolveToolApprovalForSession(
     sessionId: string,
@@ -679,6 +723,21 @@ export class DesktopBackendClient implements DesktopEngineHost {
   backendInvoke(method: string, args: unknown[] = []): Promise<unknown> {
     return this.invoke('backendInvoke', [method, args]);
   }
+  /** Fire-and-forget backend call. Terminal keystrokes/resizes used to open a
+   *  pending request (with its 120s timer) per keypress and wait for a reply
+   *  behind whatever engine traffic was in flight. */
+  backendNotify(method: string, args: unknown[] = []): void {
+    const transport = this.transport;
+    if (!transport) {
+      // Pre-ready (or mid-restart): fall back to the request lane, which waits
+      // for the transport instead of dropping the input.
+      void this.invoke('backendInvoke', [method, args]).catch(() => { /* input lost */ });
+      return;
+    }
+    try {
+      transport.postMessage({ kind: 'notify', method: 'backendInvoke', args: [method, args] });
+    } catch { /* the next keystroke re-syncs */ }
+  }
   perfLog(line: string): void {
     void this.invoke('perfLog', [line]).catch(() => { /* diagnostics only */ });
   }
@@ -690,6 +749,7 @@ export class DesktopBackendClient implements DesktopEngineHost {
     this.restartTimer = null;
     if (this.stableTimer) clearTimeout(this.stableTimer);
     this.stableTimer = null;
+    this.clearFailureNoticeTimer();
     const transport = this.transport;
     this.transport = null;
     this.disposed = true;

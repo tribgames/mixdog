@@ -14,6 +14,7 @@ import {
   X
 } from "lucide-react";
 import type {
+  DesktopAbortOptions,
   DesktopModelSelection,
   DesktopProjectSummary,
   DesktopPromptContent,
@@ -52,7 +53,7 @@ import {
 } from "./transcript-virtual-cache";
 import { LiveActivity, resetToolDisclosureScope, TranscriptRow } from "./TranscriptView";
 import { TurnReviewBar } from "./TurnReview";
-import { useTranscriptFollow } from "./use-transcript-follow";
+import { BOTTOM_THRESHOLD_PX, useTranscriptFollow } from "./use-transcript-follow";
 
 
 export type PendingPromptItem = TranscriptItem & {
@@ -406,17 +407,50 @@ export function Conversation({
         || !engineQueuedIds.has(String(item.id))),
     [engineQueuedIds, optimisticPrompts, settledItems],
   );
-  const pendingPromptIds = useMemo(
-    () => pendingPromptItems.map((item) => item.id),
+  // A prompt submitted BEHIND an active turn belongs to the reserved list from
+  // its FIRST frame. Keying its transcript row on the engine's queue
+  // publication painted it as a real chat row for one RPC round trip
+  // (user: 예약 메시지가 잠깐 채팅창에 찍힌다). The row is withheld here and the
+  // same prompt is handed to the composer's queue below until the engine
+  // publishes its own entry — the ids match, because submit mints the id the
+  // engine reuses for the queue entry.
+  const transcriptPendingPromptItems = useMemo(
+    () => pendingPromptItems.filter((item) => item.queuedBehindTurn !== true),
     [pendingPromptItems],
   );
+  const localQueuedPrompts = useMemo(
+    () => pendingPromptItems.filter((item) => item.queuedBehindTurn === true),
+    [pendingPromptItems],
+  );
+  const pendingPromptIds = useMemo(
+    () => transcriptPendingPromptItems.map((item) => item.id),
+    [transcriptPendingPromptItems],
+  );
+  // The composer's reserved list = the engine queue plus the submits it has not
+  // published yet. Local entries carry the submission id, so the engine entry
+  // replaces its local twin by id the moment it lands.
+  const composerQueued = useMemo(() => {
+    const engineQueue = Array.isArray(snapshot.queued) ? snapshot.queued : [];
+    if (localQueuedPrompts.length === 0) return engineQueue;
+    const published = new Set(engineQueue
+      .map((entry) => String(asRecord(entry)?.id ?? ""))
+      .filter(Boolean));
+    const local = localQueuedPrompts
+      .filter((item) => !published.has(String(item.id)))
+      .map((item) => ({
+        id: item.id,
+        displayText: item.text,
+        ...(item.images?.length ? { images: item.images } : {}),
+      }));
+    return local.length === 0 ? engineQueue : [...engineQueue, ...local];
+  }, [localQueuedPrompts, snapshot.queued]);
   const optimisticActivityStartedAt = pendingPromptItems.reduce((earliest, item) => {
     if (item.queuedBehindTurn === true) return earliest;
     const startedAt = Number(item.submittedAt || 0);
     if (!Number.isFinite(startedAt) || startedAt <= 0) return earliest;
     return earliest > 0 ? Math.min(earliest, startedAt) : startedAt;
   }, 0);
-  const itemCount = liveItemCount + pendingPromptItems.length;
+  const itemCount = liveItemCount + transcriptPendingPromptItems.length;
   useEffect(() => {
     if (previousTranscriptSessionKey.current === transcriptSessionKey) return;
     previousTranscriptSessionKey.current = transcriptSessionKey;
@@ -471,7 +505,7 @@ export function Conversation({
     items: settledRowItems,
     turnKeys: settledTurnKeys,
     failedTurns,
-    pendingItems: pendingPromptItems,
+    pendingItems: transcriptPendingPromptItems,
     liveItem: activeStreamingTail,
     thinking: Boolean(
       snapshot.busy
@@ -482,7 +516,7 @@ export function Conversation({
   }), [
     failedTurns,
     optimisticActivityStartedAt,
-    pendingPromptItems,
+    transcriptPendingPromptItems,
     settledRowItems,
     settledTurnKeys,
     snapshot.busy,
@@ -553,12 +587,64 @@ export function Conversation({
     // different offsets across the first frames (re-entry jump/flicker).
     armFollow();
   }, [armFollow, transcriptSessionKey]);
+  // A bulk item swap — mid-turn COMPACTION above all — deletes the rows the
+  // reader was anchored to, so the viewport returns to the live tail with
+  // follow re-armed. Mirrors the TUI's transcriptSwapReturnsToTail
+  // (src/tui/app/transcript-window.mjs): live appends never touch index 0, so a
+  // changed HEAD id WITHOUT growth is the swap signal. Growth that changes the
+  // head (older-history restore) is a prepend and keeps the reading position.
+  // Without this the desktop had no return-to-tail path at all: the follow hook
+  // only re-arms on a scroll event or a VIEWPORT resize, and a compaction
+  // shrinks the CONTENT, so auto-scroll stayed released for the rest of the
+  // session (user: 컴팩트 상황에서 자동스크롤이 풀린다).
+  const transcriptSwapRef = useRef({ sessionKey: "", count: 0, headId: "" });
+  useLayoutEffect(() => {
+    const count = settledItems.length;
+    const headId = count > 0 ? String(settledItems[0]?.id ?? "") : "";
+    const previous = transcriptSwapRef.current;
+    transcriptSwapRef.current = { sessionKey: transcriptSessionKey, count, headId };
+    // Session entry owns its own arm; a transient empty or id-less frame during
+    // a snapshot source swap (live route ↔ session lane) is not a swap.
+    if (previous.sessionKey !== transcriptSessionKey) return;
+    if (!previous.count || !count || !previous.headId || !headId) return;
+    if (count > previous.count || headId === previous.headId) return;
+    armFollow();
+    scrollToEndRef.current();
+  }, [armFollow, settledItems, transcriptSessionKey]);
+  // Opencode parity (createAutoScroll's content observer, without a second
+  // observer): a transcript that no longer OVERFLOWS holds no reading
+  // position, so a shrink that fits inside the viewport re-arms follow instead
+  // of leaving auto-scroll released with nothing left to scroll. Driven by the
+  // rows commit, so virtual-core stays the only content-growth authority.
+  useLayoutEffect(() => {
+    if (following) return;
+    const element = viewport.current;
+    if (!element) return;
+    if (element.scrollHeight - element.clientHeight > 1) return;
+    armFollow();
+  }, [armFollow, following, transcriptRows, viewport]);
+  // Opencode parity (createAutoScroll's content observer: every content resize
+  // re-pins while following). Virtual-core's followOnAppend owns the normal
+  // path, but it only follows while the offset sits inside its 80px
+  // scrollEndThreshold: one tall row landing in a SHORT split pane overshoots
+  // that band, the core stops following, and new output then piles up below
+  // the fold with follow still armed (user: 스크롤이 안 되고 아래로 묻힌다).
+  // The re-pin goes through the timeline's own scrollToEnd, so virtual-core
+  // stays the single scroll authority — this never writes scrollTop itself.
+  useLayoutEffect(() => {
+    if (!following) return;
+    const element = viewport.current;
+    if (!element) return;
+    const distance = element.scrollHeight - element.clientHeight - element.scrollTop;
+    if (distance <= BOTTOM_THRESHOLD_PX) return;
+    scrollToEndRef.current();
+  }, [following, transcriptRows, viewport]);
   const shouldAnchorTranscriptBottom = following
     || armedFollowSessionKey.current !== transcriptSessionKey;
   // Submit resumes scrolling: re-arm auto-scroll, then ask the
   // virtual timeline—not the DOM observer—to resolve the final row.
-  const resumeFollowOnSubmitRef = useRef(resumeFollow);
-  resumeFollowOnSubmitRef.current = resumeFollow;
+  const armFollowOnSubmitRef = useRef(armFollow);
+  armFollowOnSubmitRef.current = armFollow;
   const composerSubmit = useCallback(async (
     content: DesktopPromptContent,
     options?: DesktopSubmitOptions,
@@ -587,7 +673,7 @@ export function Conversation({
       optimistic,
     ]);
     window.mixdogDesktop?.perfLog?.(`prompt-submit phase=renderer-queued id=${submissionId}`);
-    resumeFollowOnSubmitRef.current();
+    armFollowOnSubmitRef.current();
     scrollToEndRef.current();
     const acceptedStartedAt = performance.now();
     let accepted: unknown;
@@ -620,13 +706,10 @@ export function Conversation({
     return accepted;
   }, []);
   const composerAbort = useCallback(
-    () => composerActions.current.invokeResult(() => {
+    (options: DesktopAbortOptions = {}) => composerActions.current.invokeResult(() => {
       const host = window.mixdogDesktop;
       const sessionId = routeSessionIdRef.current;
-      if (sessionId && typeof host.abortSession === "function") {
-        return host.abortSession(sessionId);
-      }
-      return host.abort();
+      return sessionId ? host.abortSession(sessionId, options) : host.abort(options);
     }),
     [],
   );
@@ -664,7 +747,7 @@ export function Conversation({
     }
     if (row._tag === "Error") {
       return <div className="turn-status failed" role="status">
-        <X className="turn-status-icon" size={15} aria-hidden="true" />
+        <X className="turn-status-icon" size={16} aria-hidden="true" />
         <span>{t("Failed")}</span>
         {readOnly ? null : <button type="button" className="turn-retry" disabled={retryDisabled}
           onClick={() => retryTurn(row.turnKey)} aria-label={t("Retry failed turn")}>
@@ -754,7 +837,7 @@ export function Conversation({
               workspace; secondary surfaces keep the quiet letterpress).
               Sessions and transitions never show it. */}
           {(((draftMode || (!routeSnapshot.sessionId && Boolean(activeProjectPath)))
-            && itemCount === 0 && pendingPromptItems.length === 0
+            && itemCount === 0 && transcriptPendingPromptItems.length === 0
             && !activeStreamingTail && !transitioning) || visibleWarmPaintHandoff) && (
             <div className={`thread-welcome thread-welcome-task${visibleWarmPaintHandoff
               ? " thread-welcome-paint-handoff" : ""}`} aria-hidden="true">
@@ -790,7 +873,6 @@ export function Conversation({
                 const sessionId = routeSessionIdRef.current;
                 const approvalId = String(snapshot.toolApproval?.id || "");
                 return sessionId
-                  && typeof host.resolveToolApprovalForSession === "function"
                   ? host.resolveToolApprovalForSession(sessionId, approvalId, { approved })
                   : host.resolveToolApproval(approvalId, { approved });
               }} />
@@ -845,7 +927,7 @@ export function Conversation({
           fastCapable={Boolean(routeSnapshot.fastCapable)}
           draftMode={draftMode}
           onDraftModelSelection={onDraftModelSelection}
-          queued={snapshot.queued}
+          queued={composerQueued}
           hiddenQueueIds={pendingPromptIds}
           submit={composerSubmit}
           abort={composerAbort}

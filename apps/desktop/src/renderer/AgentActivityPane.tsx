@@ -211,7 +211,7 @@ export function AgentActivityPane({
               return next;
             })}>
             <span className="agent-session-chevron" aria-hidden="true">
-              {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+              {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
             </span>
             <span className="agent-session-title" title={title}>{title}</span>
             <small>{agents.length}</small>

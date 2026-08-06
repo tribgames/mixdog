@@ -104,7 +104,7 @@ export function ProjectContextSelector({ projects, activePath, activeLabel, disa
   ];
   const value = activeProject?.path || PROJECT_CONTEXT_LOCAL;
   return <div className="composer-project-context">
-    <Folder size={13} />
+    <Folder size={14} />
     <OpenSelect className="context-pill-select project-context-select" ariaLabel="Project context"
       value={value} displayValue={activeProject ? activeLabel || "Project" : "Project"} disabled={disabled}
       options={options} onChange={(next) => {
@@ -135,7 +135,7 @@ export function QueueList({ queued, restoring, onEdit, onRemove }: {
             <span className="queue-item-text" title={text}>{text}</span>
             {imageCount > 0 && <span className="queue-item-attachments"
               aria-label={`${imageCount} attached image${imageCount === 1 ? "" : "s"}`}>
-              <MxIcon name="photo" size={13} />
+              <MxIcon name="photo" size={14} />
               <span>{imageCount}</span>
             </span>}
             <button type="button" className="queue-edit" disabled={restoring || !id}
@@ -145,7 +145,7 @@ export function QueueList({ queued, restoring, onEdit, onRemove }: {
             <button type="button" className="queue-remove" disabled={restoring || !id}
               onClick={() => onRemove(id)} aria-label={`Remove queued follow-up: ${text}`}
               data-tooltip="Remove">
-              <X size={13} />
+              <X size={14} />
             </button>
           </div>;
         })}

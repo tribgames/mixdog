@@ -11,6 +11,7 @@ import {
 import { basename, dirname, join } from 'node:path';
 import {
   SECRET_ACCOUNTS,
+  canonicalizeStoredChannelsConfig,
   deleteSecret,
   diagnoseDiscordTokenValue,
   getDiscordToken,
@@ -46,7 +47,7 @@ const DEFAULT_CHANNELS = Object.freeze({
   backend: 'discord',
   discord: {},
   access: { dmPolicy: 'allowlist', allowFrom: [], channels: {} },
-  channel: { channelId: '', discordChannelId: '', telegramChatId: '' },
+  channel: { discordChannelId: '', telegramChatId: '' },
   webhook: { enabled: true, port: 3333 },
 });
 
@@ -91,13 +92,14 @@ function assertScheduleName(name) {
 }
 
 function normalizeChannelsConfig(raw = {}) {
+  const stored = canonicalizeStoredChannelsConfig(raw);
   return {
     ...DEFAULT_CHANNELS,
-    ...(raw && typeof raw === 'object' ? raw : {}),
-    discord: { ...DEFAULT_CHANNELS.discord, ...(raw?.discord || {}) },
-    access: { ...DEFAULT_CHANNELS.access, ...(raw?.access || {}) },
-    channel: { ...DEFAULT_CHANNELS.channel, ...(raw?.channel || {}) },
-    webhook: { ...DEFAULT_CHANNELS.webhook, ...(raw?.webhook || {}) },
+    ...stored,
+    discord: { ...DEFAULT_CHANNELS.discord, ...(stored.discord || {}) },
+    access: { ...DEFAULT_CHANNELS.access, ...(stored.access || {}) },
+    channel: { ...DEFAULT_CHANNELS.channel, ...(stored.channel || {}) },
+    webhook: { ...DEFAULT_CHANNELS.webhook, ...(stored.webhook || {}) },
   };
 }
 
@@ -214,8 +216,7 @@ export function setChannel({ channelId, backend = null } = {}) {
     const nextEntry = { ...current };
     if (writeBackend === 'telegram') nextEntry.telegramChatId = id;
     else nextEntry.discordChannelId = id;
-    // `channelId` mirrors the active backend's id for legacy readers.
-    nextEntry.channelId = channelIdForBackend(nextEntry, activeBackend);
+    delete nextEntry.channelId;
     return { ...cfg, channel: nextEntry };
   });
 }
@@ -231,7 +232,7 @@ export async function setChannelAsync({ channelId, backend = null } = {}) {
     const nextEntry = { ...current };
     if (writeBackend === 'telegram') nextEntry.telegramChatId = id;
     else nextEntry.discordChannelId = id;
-    nextEntry.channelId = channelIdForBackend(nextEntry, activeBackend);
+    delete nextEntry.channelId;
     return { ...cfg, channel: nextEntry };
   });
 }
@@ -271,9 +272,8 @@ function backendBuilder(value) {
   return (cfg) => {
     const activeBackend = cfg.backend === 'telegram' ? 'telegram' : 'discord';
     const seeded = seedBackendChannelIds(resolveChannelEntry(cfg), activeBackend);
-    // `channelId` now mirrors the newly-selected backend's id; both per-backend
-    // id fields are retained so switching back keeps the other id.
-    const channel = { ...seeded, channelId: channelIdForBackend(seeded, value) };
+    const channel = { ...seeded };
+    delete channel.channelId;
     return { ...cfg, channel, backend: value };
   };
 }

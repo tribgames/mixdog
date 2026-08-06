@@ -28,8 +28,8 @@ export function isOutputLimitStopReason(reason) {
 // NOT a completed assistant turn even when it holds final-looking text: the
 // provider explicitly stated it intends to keep sampling inside the SAME user
 // turn. Two structured shapes are honored:
-//   - `endTurn === false` (Codex/Responses `end_turn=false`; see
-//     codex-rs/core/src/session/turn.rs Completed{ end_turn } → needs_follow_up)
+//   - `endTurn === false` (Responses `end_turn=false` on the completed frame,
+//     which means the turn needs a follow-up)
 //   - Anthropic `stop_reason: 'pause_turn'` (server-side pause; the turn is
 //     resumed by replaying the transcript unchanged)
 // Structural only — no lexical/progress-text heuristic is consulted, and a

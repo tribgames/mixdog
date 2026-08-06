@@ -1,0 +1,98 @@
+[
+  {
+    "id": "eof-marker-midfile",
+    "note": "observed: a mid-file hunk carried *** End of File; the EOF-anchored seek missed and every recovery tier was gated off, so a byte-perfect context failed",
+    "expect": "applied",
+    "expect_content": { "a.txt": "one\nTWO\nthree\nfour\nfive\n" },
+    "file_snapshots": { "a.txt": "one\ntwo\nthree\nfour\nfive\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n one\n-two\n+TWO\n three\n*** End of File\n*** End Patch\n" }
+  },
+  {
+    "id": "deletion-line-one-char-off",
+    "note": "observed: `first divergent line` hints whose expected/actual differ by <= 1 character (retyped from memory) on a deletion line",
+    "expect": "applied",
+    "expect_content": { "src.js": "alpha\nconst total = count + 2;\nbeta\ngamma\n" },
+    "file_snapshots": { "src.js": "alpha\nconst total = count + 1;\nbeta\ngamma\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: src.js\n@@\n alpha\n-const total = cout + 1;\n+const total = count + 2;\n beta\n*** End Patch\n" }
+  },
+  {
+    "id": "stale-outer-context-line",
+    "note": "observed: one unrelated context line copied just outside the real edit",
+    "expect": "applied",
+    "expect_content": { "tools.js": "const tools = {\n  shell_step: {\n    command: 'node test.js',\n  },\n};\n" },
+    "file_snapshots": { "tools.js": "const tools = {\n  shell_step: {\n    command: 'node test.js',\n    cwd: root,\n    timeout: 30000,\n  },\n};\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: tools.js\n@@\n stale outer context\n   shell_step: {\n     command: 'node test.js',\n-    cwd: root,\n-    timeout: 30000,\n   },\n*** End Patch\n" }
+  },
+  {
+    "id": "context-retyped-from-memory",
+    "note": "observed (dominant stale-context shape): the surrounding context was retyped from memory while the edited line itself is current and unique",
+    "expect": "applied",
+    "expect_content": { "cfg.js": "l1\nl2\nl3\nconst flag = false;\nl5\nl6\nl7\n" },
+    "file_snapshots": { "cfg.js": "l1\nl2\nl3\nconst flag = true;\nl5\nl6\nl7\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: cfg.js\n@@\n remembered header\n another stale line\n-const flag = true;\n+const flag = false;\n stale trailer\n*** End Patch\n" }
+  },
+  {
+    "id": "retyped-context-with-duplicate-core",
+    "note": "guard: the same rescue must refuse when the edited line occurs more than once",
+    "expect": "rejected",
+    "expect_error": "context not found",
+    "file_snapshots": { "dupcore.js": "a\nconst flag = true;\nb\nc\nconst flag = true;\nd\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: dupcore.js\n@@\n stale one\n-const flag = true;\n+const flag = false;\n stale two\n*** End Patch\n" }
+  },
+  {
+    "id": "decomposed-unicode-context",
+    "note": "observed: context authored in decomposed Unicode against composed on-disk text",
+    "expect": "applied",
+    "expect_content": { "label.js": "head\nconst label = \"tea\";\ntail\n" },
+    "file_snapshots": { "label.js": "head\nconst label = \"caf\u00e9\";\ntail\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: label.js\n@@\n head\n-const label = \"cafe\u0301\";\n+const label = \"tea\";\n tail\n*** End Patch\n" }
+  },
+  {
+    "id": "stacked-at-anchors",
+    "note": "V4A anchor chain (@@ class + @@ def): consecutive headers must narrow ONE hunk, not silently resolve against the first occurrence",
+    "expect": "applied",
+    "expect_content": { "dup.py": "class A:\n    def run():\n        return 1\n\nclass B:\n    def run():\n        return 2\n" },
+    "file_snapshots": { "dup.py": "class A:\n    def run():\n        return 1\n\nclass B:\n    def run():\n        return 1\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: dup.py\n@@ class B:\n@@     def run():\n-        return 1\n+        return 2\n*** End Patch\n" }
+  },
+  {
+    "id": "divergent-line-far-off",
+    "note": "observed (dominant class, 65 of 91 hinted misses): the quoted context is genuinely different content — must stay a hard miss with a divergence hint",
+    "expect": "rejected",
+    "expect_error": "first divergent line|context not found",
+    "file_snapshots": { "app.js": "head\nawait engine.startWork();\ntail\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: app.js\n@@\n head\n-unsubscribe();\n+cleanup();\n tail\n*** End Patch\n" }
+  },
+  {
+    "id": "shifted-context-first-line-only",
+    "note": "observed (62 misses): the first old line exists but the block does not — must reject and point at the nearest line",
+    "expect": "rejected",
+    "expect_error": "nearest line|context not found",
+    "file_snapshots": { "shift.js": "open();\nmiddle();\nclose();\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: shift.js\n@@\n open();\n-gone();\n-also gone();\n+replacement();\n close();\n*** End Patch\n" }
+  },
+  {
+    "id": "near-miss-in-two-places",
+    "note": "guard: a near-miss context that fits two windows must never be applied to a guessed one",
+    "expect": "rejected",
+    "expect_error": "context not found",
+    "file_snapshots": { "dup.js": "alpha\nvalue = 1;\nbeta\nalpha\nvalue = 1;\nbeta\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: dup.js\n@@\n alpha\n-value = 7;\n+value = 2;\n beta\n*** End Patch\n" }
+  },
+  {
+    "id": "compacted-history-placeholder",
+    "note": "observed (39 rows): the patch argument was replaced by the history-compaction marker",
+    "expect": "rejected",
+    "expect_error": "compacted-history placeholder",
+    "file_snapshots": { "a.txt": "one\ntwo\n" },
+    "args": { "patch": "[mixdog compacted patch: 15983 chars, sha256:9ae407d696803e2a; already applied to a.txt - do not copy]" }
+  },
+  {
+    "id": "missing-patch-argument",
+    "note": "observed (783 rows, single harness burst): apply_patch called with no patch argument — must be a stated contract error, never a runtime type crash",
+    "expect": "rejected",
+    "expect_error": "\"patch\" is required",
+    "file_snapshots": {},
+    "args": { "base_path": null }
+  }
+]

@@ -113,7 +113,7 @@ export function resolveResponsesTransportPolicy(env = process.env, capabilities 
         mode,
         requestedMode,
         transport,
-        // Codex refs behavior: default/auto is WS-first but not WS-only. If the
+        // Reference behavior: default/auto is WS-first but not WS-only. If the
         // websocket path stalls/fails before emitting live output, callers may
         // replay the request over HTTP/SSE. Explicit ws-* modes remain pinned
         // for transport experiments; explicit http-sse bypasses WS entirely.

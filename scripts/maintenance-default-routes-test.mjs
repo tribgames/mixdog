@@ -36,6 +36,15 @@ test('empty Explore and Maintainer routes inherit Main in hidden and public disp
   assert.equal(resolveMaintenanceRoute({ agent: 'scheduler-task', config }), DEFAULT_MAINTENANCE.scheduler);
   assert.equal(resolveAgentSpawnPreset(config, { agent: 'explore' }).preset, main);
   assert.equal(resolveAgentSpawnPreset(config, { agent: 'maintainer' }).preset, main);
+  assert.equal(resolveAgentSpawnPreset(config, { agent: 'worker' }).preset, main);
+  assert.equal(resolveAgentSpawnPreset(config, { agent: 'custom-agent' }).preset, main);
+});
+
+test('agents without an override or configured Main fail instead of using role defaults', () => {
+  assert.throws(
+    () => resolveAgentSpawnPreset({ presets: [] }, { agent: 'worker' }),
+    /no Main model assignment/,
+  );
 });
 
 test('public agent, workflow, and maintenance routes override Main inheritance', () => {
@@ -111,40 +120,57 @@ test('Explore cache identity follows the effective route when Main changes', () 
   );
 });
 
-test('hidden precedence normalizes model-only routes with the public provider fallback', () => {
+test('providerless routes are not overrides and inherit Main', () => {
   const modelOnly = { model: 'model-only' };
-  assert.deepEqual(
+  assert.equal(
     resolveMaintenanceRoute({ agent: 'explorer', config: configWithMain({ defaultProvider: 'openai', agents: { explore: modelOnly } }) }),
-    normalizedRoute(modelOnly, 'openai'),
+    'main',
   );
-  assert.deepEqual(
+  assert.equal(
     resolveMaintenanceRoute({ agent: 'cycle1-agent', config: configWithMain({ defaultProvider: 'gemini', agents: { maintenance: modelOnly } }) }),
-    normalizedRoute(modelOnly, 'gemini'),
+    'main',
   );
-  assert.deepEqual(
+  assert.equal(
     resolveMaintenanceRoute({ agent: 'explorer', config: configWithMain({ defaultProvider: 'xai', workflowRoutes: { explorer: modelOnly } }) }),
-    normalizedRoute(modelOnly, 'xai'),
+    'main',
   );
-  assert.deepEqual(
+  assert.equal(
     resolveMaintenanceRoute({ agent: 'cycle2-agent', config: configWithMain({ maintenance: { ...DEFAULT_MAINTENANCE, memory: modelOnly } }) }),
-    normalizedRoute(modelOnly),
+    'main',
+  );
+  assert.equal(
+    resolveAgentSpawnPreset(configWithMain({ agents: { explore: modelOnly } }), { agent: 'explore' }).preset,
+    main,
   );
 });
 
-test('loadConfig preserves persisted model-only Explore and Maintainer routes with the configured provider', () => {
+test('loadConfig migrates fragmented Explore and Maintainer routes into canonical agents', () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-maintenance-config-'));
   writeFileSync(join(dataDir, 'mixdog-config.json'), JSON.stringify({
     agent: {
-      defaultProvider: 'openai',
       maintenance: {
         explore: { model: 'gpt-test' },
         memory: { model: 'gpt-maintainer-test' },
       },
+      workflowRoutes: {
+        explorer: { provider: 'openai', model: 'ignored-explorer' },
+        memory: { provider: 'openai', model: 'ignored-memory' },
+      },
+      agents: {
+        explore: { provider: 'grok-oauth', model: 'grok-4.5' },
+        maintenance: { provider: 'openai', model: 'gpt-maintainer-canonical' },
+      },
+      searchRoute: { model: 'providerless-search' },
+      presets: [
+        { id: 'workflow-agent-explore', name: 'WORKFLOW AGENT-EXPLORE', type: 'agent', provider: 'openai', model: 'ignored', tools: 'full' },
+        { id: 'keep-me', name: 'KEEP ME', type: 'agent', provider: 'openai', model: 'kept', tools: 'full' },
+      ],
     },
   }));
   const runner = [
     "import { loadConfig } from './src/runtime/agent/orchestrator/config.mjs';",
-    "console.log(JSON.stringify(loadConfig({ secrets: false }).maintenance));",
+    "const config = loadConfig({ secrets: false });",
+    "console.log(JSON.stringify({ defaultProvider: config.defaultProvider, agents: config.agents, maintenance: config.maintenance, workflowRoutes: config.workflowRoutes, presets: config.presets, searchRoute: config.searchRoute }));",
   ].join(' ');
   const result = spawnSync(process.execPath, ['--input-type=module', '--eval', runner], {
     cwd: process.cwd(),
@@ -152,13 +178,21 @@ test('loadConfig preserves persisted model-only Explore and Maintainer routes wi
     encoding: 'utf8',
   });
   assert.equal(result.status, 0, result.stderr);
-  const maintenance = JSON.parse(result.stdout);
-  assert.deepEqual(maintenance.explore, { provider: 'openai', model: 'gpt-test' });
-  assert.deepEqual(maintenance.memory, { provider: 'openai', model: 'gpt-maintainer-test' });
+  const migrated = JSON.parse(result.stdout);
+  assert.deepEqual(migrated.agents.explore, { provider: 'grok-oauth', model: 'grok-4.5' });
+  assert.deepEqual(migrated.agents.maintainer, { provider: 'openai', model: 'gpt-maintainer-canonical' });
+  assert.equal(migrated.agents.maintenance, undefined);
+  assert.equal(migrated.maintenance.explore, undefined);
+  assert.equal(migrated.maintenance.memory, undefined);
+  assert.equal(migrated.workflowRoutes, undefined);
+  assert.deepEqual(migrated.presets.map((preset) => preset.id), ['keep-me']);
+  assert.equal(migrated.defaultProvider, undefined);
+  assert.equal(migrated.presets[0].provider, 'openai');
+  assert.deepEqual(migrated.searchRoute, { provider: 'default', model: 'default' });
 });
 
 test('config maintenance migration has no standalone provider runtime dependency', () => {
   const source = readFileSync(new URL('../src/runtime/agent/orchestrator/config.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /standalone\/provider-admin/);
-  assert.match(source, /CONFIG_PROVIDER_IDS/);
+  assert.doesNotMatch(source, /DEFAULT_AGENT_PROVIDER|CONFIG_PROVIDER_IDS/);
 });

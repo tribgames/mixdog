@@ -227,7 +227,7 @@ async function selectFirstProject() {
 }
 
 async function chooseSessionAction(row, action) {
-  // Codex-style archive-first flow: Recent rows only ARCHIVE (instant, no
+  // Archive-first flow: Recent rows only ARCHIVE (instant, no
   // confirm); destructive delete lives on rows inside the Archived section.
   const archiveButton = row.querySelector(".session-row-archive");
   if (archiveButton) {
@@ -6723,6 +6723,10 @@ test("atomic draft submit keeps local route and workflow isolated after navigati
     route: { provider: "anthropic", model: "claude-draft" },
     workflowId: "custom",
   });
+  assert.ok(
+    document.querySelector(`[data-tab-key="session:${background.id}"]`),
+    "the delayed acknowledgement must promote the draft tab that submitted it",
+  );
   assert.equal(document.querySelector(".session-header h1")?.textContent.trim(), source.title);
   assert.match(document.querySelector(".transcript")?.textContent || "", /Source transcript/);
   assert.doesNotMatch(document.querySelector(".transcript")?.textContent || "", /Atomic prompt/);
@@ -10033,7 +10037,10 @@ test("sidebar session titles reclaim the status column without disturbing usage 
     "project sessions should retain one 16px hierarchy step");
   assert.match(css,
     /\.sidebar-usage-provider-icon\s*\{[^}]*width:\s*20px;[^}]*flex:\s*0 0 20px;/s);
-  assert.match(css, /\.sidebar-usage-provider-icon svg\s*\{[^}]*width:\s*17px;[^}]*height:\s*17px;/s);
+  // The glyph rides THE icon ladder (--mx-icon-md = 16px) inside its 20px box;
+  // the old 17px was an off-ladder stray from before the scale consolidation.
+  assert.match(css,
+    /\.sidebar-usage-provider-icon svg\s*\{[^}]*width:\s*var\(--mx-icon-md\);[^}]*height:\s*var\(--mx-icon-md\);/s);
   assert.match(css, /\.sidebar-usage-line\s*\{[^}]*gap:\s*5px;/s);
   assert.match(css,
     /\.sidebar-usage-meters\s*\{[^}]*padding-left:\s*25px;/s,
@@ -11439,6 +11446,128 @@ test("failed resume preserves a surviving known project session, then clears whe
   assert.match(document.querySelector('[role="alert"]').textContent || "", /Resume failed/);
 });
 
+test("a New task recovered over an unknown host session submits only to a fresh session", async () => {
+  installDom();
+  await preloadMarkdownBody();
+  const active = {
+    id: "recovery-known-active",
+    title: "Known active",
+    preview: "Known active",
+    updatedAt: 2,
+    currentSession: true,
+    cwd: "C:\\work",
+    classification: "task",
+    projectPath: null,
+  };
+  const failed = {
+    ...active,
+    id: "recovery-failed-target",
+    title: "Failed target",
+    preview: "Failed target",
+    updatedAt: 1,
+    currentSession: false,
+  };
+  const activeSnapshot = {
+    sessionId: active.id,
+    items: [{ id: "known-row", kind: "assistant", text: "Known transcript" }],
+    queued: [],
+  };
+  const unknownSnapshot = {
+    sessionId: "recovery-unknown-host-session",
+    items: [{ id: "unknown-row", kind: "assistant", text: "Foreign transcript" }],
+    queued: [],
+  };
+  const freshSessionId = "recovery-fresh-session";
+  let actual = activeSnapshot;
+  let publishState = () => {};
+  let catalog = [active, failed];
+  let atomicSubmits = 0;
+  let legacySubmits = 0;
+  seedActiveSession(active.id, active.title);
+  window.mixdogDesktop = {
+    getSnapshot: async () => actual,
+    subscribeState: (listener) => { publishState = listener; return () => {}; },
+    listProjects: async () => [],
+    listSessions: async () => catalog,
+    resumeSession: async (id) => {
+      if (id === active.id) return activeSnapshot;
+      actual = unknownSnapshot;
+      throw new Error("Resume failed onto an unknown host session");
+    },
+    submitNewTask: async (prompt, options = {}) => {
+      atomicSubmits += 1;
+      const text = typeof prompt === "string"
+        ? prompt
+        : prompt.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+      actual = {
+        sessionId: freshSessionId,
+        items: [{ id: options.id || "fresh-user", kind: "user", text }],
+        queued: [],
+        busy: true,
+      };
+      catalog = [
+        { ...active, currentSession: false },
+        failed,
+        {
+          ...active,
+          id: freshSessionId,
+          title: text,
+          preview: text,
+          updatedAt: 3,
+          currentSession: true,
+        },
+      ];
+      publishState(actual);
+      return { accepted: true, sessionId: freshSessionId, snapshot: actual };
+    },
+    submit: async () => {
+      legacySubmits += 1;
+      return true;
+    },
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    document.querySelector(`[data-session-id="${failed.id}"]`).click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await waitForDom(
+    () => document.querySelector(".session-header h1")?.textContent.trim() === "New task",
+    "failed recovery should expose a safe New task draft",
+  );
+  assert.doesNotMatch(document.querySelector(".transcript")?.textContent || "", /Foreign transcript/);
+
+  const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
+  const setValue = Object.getOwnPropertyDescriptor(
+    window.HTMLTextAreaElement.prototype,
+    "value",
+  ).set;
+  await act(async () => {
+    setValue.call(textarea, "Fresh after recovery");
+    textarea.dispatchEvent(new window.InputEvent("input", {
+      bubbles: true,
+      data: "Fresh after recovery",
+    }));
+  });
+  await act(async () => {
+    document.querySelector(".send-button").click();
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  assert.equal(atomicSubmits, 1,
+    "the recovered draft must mint and address a fresh session");
+  assert.equal(legacySubmits, 0,
+    "the recovered draft must never submit to the host's unknown current session");
+  assert.ok(document.querySelector(`[data-tab-key="session:${freshSessionId}"]`));
+  assert.match(document.querySelector(".transcript")?.textContent || "", /Fresh after recovery/);
+  assert.doesNotMatch(document.querySelector(".transcript")?.textContent || "", /Foreign transcript/);
+});
+
 test("flat recent sessions and the projects page preserve navigation and project actions", async () => {
   installDom();
   const resumed = [];
@@ -12290,7 +12419,7 @@ test("model control styles keep the reference compact geometry and bounded list"
     /\.fast-control \.mx-select-trigger:hover:not\(:disabled\),[\s\S]*?\{[^}]*color:\s*var\(--mx-text\);[^}]*background:\s*var\(--mx-hover\);/s,
     "the Fast picker must expose hover feedback");
   assert.match(themeCss,
-    /\.mx-select-root\.route-select \.mx-select-trigger > svg\s*\{[^}]*width:\s*13px;[^}]*height:\s*13px;/s,
+    /\.mx-select-root\.route-select \.mx-select-trigger > svg\s*\{[^}]*width:\s*var\(--mx-icon-sm\);[^}]*height:\s*var\(--mx-icon-sm\);/s,
     "route pickers must expose the shared compact chevron");
   assert.match(themeCss,
     /\.model-trigger,\s*\.effort-control \.mx-select-trigger\s*\{[^}]*color:\s*var\(--mx-text\);/s,
@@ -12324,15 +12453,17 @@ test("model control styles keep the reference compact geometry and bounded list"
   assert.match(themeCss, /\.model-row-copy > small\s*\{[^}]*color:\s*var\(--mx-text-muted\);[^}]*font-size:\s*var\(--mx-font-meta\);/s);
   assert.match(themeCss, /\.model-provider-add,\s*\.model-picker-close\s*\{[^}]*width:\s*30px;[^}]*height:\s*30px;/s);
   assert.doesNotMatch(themeCss, /\.model-provider-row|\.model-provider-chevron|\.model-list-heading/);
-  assert.match(themeCss, /\.model-row-copy strong\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-medium\);/s);
+  // The 500 middle step is gone from the ramp: chrome rests at 400 and
+  // anything that must read as emphasis takes the 600 strong tier.
+  assert.match(themeCss, /\.model-row-copy strong\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s);
   assert.match(themeCss, /\.mx-menu\s*\{[^}]*padding:\s*6px;[^}]*border-radius:\s*10px;[^}]*background:[^}]*var\(--mx-bg-layer-1\);/s);
   assert.match(themeCss, /\.mx-menu-item\s*\{[^}]*height:\s*34px;[^}]*border-radius:\s*7px;/s);
   assert.match(themeCss, /\.studio-model-panel\s*\{[^}]*padding:\s*8px;[^}]*border-radius:\s*12px;[^}]*background:[^}]*var\(--mx-bg-layer-1\);/s);
   assert.doesNotMatch(themeCss, /\.model-tag\s*\{/);
   assert.match(themeCss, /\.model-provider-setup\s*\{[^}]*height:\s*20px;/s);
   assert.match(themeCss, /\.model-notice\s*\{[^}]*padding:\s*7px 9px;[^}]*line-height:\s*var\(--mx-line-meta\);/s);
-  assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 12px 16px;/s,
-    "the composer should sit close to the workspace bottom edge");
+  assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 var\(--pane-inset\) 16px;/s,
+    "the composer should sit close to the workspace bottom edge on the shared pane inset");
   assert.match(themeCss, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--mx-bg-base\);[^}]*box-shadow:\s*var\(--mx-raised\);/s,
     "the composer should use the solid desktop base and its subtle raised elevation");
 });
@@ -12792,7 +12923,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
     /\.studio-root\s*\{[^}]*container-type:\s*inline-size;/s,
     "Studio responsive gutters must follow the pane width instead of the desktop viewport");
   assert.match(themeCss,
-    /\.studio-results\s*\{[^}]*min-height:\s*0;[^}]*flex:\s*1;[^}]*overflow-y:\s*auto;[^}]*padding:\s*16px calc\(32px - var\(--mx-scrollbar-size\)\) 8px 32px;[^}]*scrollbar-gutter:\s*stable;/s);
+    /\.studio-results\s*\{[^}]*min-height:\s*0;[^}]*flex:\s*1;[^}]*overflow-y:\s*auto;[^}]*padding:\s*16px calc\(var\(--pane-inset\) - var\(--mx-scrollbar-size\)\) 8px var\(--pane-inset\);[^}]*scrollbar-gutter:\s*stable;/s);
   assert.match(themeCss,
     /\.studio-dock\s*\{[^}]*box-sizing:\s*border-box;[^}]*flex:\s*0 0 auto;/s);
   assert.match(themeCss,
@@ -12815,15 +12946,17 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(themeCss,
     /\.studio-composer-bar\s*\{[^}]*height:\s*44px;[^}]*padding:\s*0 8px;/s);
   assert.match(themeCss,
-    /@container \(max-width:\s*720px\)\s*\{[\s\S]*?\.studio-results,[\s\S]*?\.studio-dock,[\s\S]*?\.studio-topbar\s*\{[^}]*padding-inline:\s*18px;/s);
+    /@container studio-pane \(min-width:\s*768px\)\s*\{[\s\S]*?--pane-inset:\s*24px;[\s\S]*?--pane-column:\s*800px;/s,
+    "Studio must ride the SAME pane inset ladder as the chat pane");
   assert.match(themeCss,
-    /@container \(max-width:\s*520px\)\s*\{[\s\S]*?\.studio-results,[\s\S]*?\.studio-dock,[\s\S]*?\.studio-topbar\s*\{[^}]*padding-inline:\s*8px;/s);
-  assert.match(themeCss, /\.studio-topbar\s*\{[^}]*padding:\s*16px 32px 0;/s);
+    /@container studio-pane \(max-width:\s*419px\)\s*\{[\s\S]*?--pane-inset:\s*12px;/s,
+    "the narrowest Studio step must compact monotonically, not widen");
+  assert.match(themeCss, /\.studio-topbar\s*\{[^}]*padding:\s*16px var\(--pane-inset\) 0;/s);
   assert.match(themeCss, /\.studio-header\s*\{[^}]*display:\s*none;/s);
   assert.match(themeCss,
     /@media \(max-width:\s*760px\)\s*\{[\s\S]*?\.studio-header\s*\{[^}]*display:\s*flex;/s);
-  assert.match(themeCss,
-    /\.studio-grid\s*\{[^}]*width:\s*min\(100%,\s*736px\);[^}]*margin:\s*0 auto;/s);
+  assert.match(themeCss, /\.studio-grid\s*\{[^}]*width:\s*min\(100%,\s*var\(--pane-card\)\);[^}]*margin:\s*0 auto;/s,
+    "the gallery card must hold the same inner line as the dock's composer card");
   assert.match(themeCss,
     /\.studio-tile\s*\{[^}]*flex:\s*0 0 auto;[^}]*min-width:\s*0;/s);
   assert.doesNotMatch(themeCss,
@@ -14915,6 +15048,9 @@ test("model selector remains available for a next-session route during turn busy
 test("desktop composer restores queued work, recalls engine history, and executes slash capabilities", async () => {
   installDom();
   const capabilities = [];
+  let publish;
+  let releaseRestore = () => {};
+  const restoreGate = new Promise((resolve) => { releaseRestore = resolve; });
   const row = seedActiveSession('session-1', 'Capability session');
   const snapshot = {
     sessionId: 'session-1',
@@ -14930,14 +15066,17 @@ test("desktop composer restores queued work, recalls engine history, and execute
     getSnapshot: async () => snapshot,
     listSessions: async () => [row],
     resumeSession: async () => snapshot,
-    subscribeState: () => () => {},
+    subscribeState: (listener) => { publish = listener; return () => {}; },
     invokeCapability: async ({ capability, args = [] }) => {
       capabilities.push([capability, args]);
       if (capability === 'getTheme') return { value: 'basic', snapshot };
       if (capability === 'restoreQueued') {
+        await restoreGate;
+        const restoredSnapshot = { ...snapshot, queued: [] };
+        publish?.(restoredSnapshot);
         return {
           value: { text: 'Restored request', pastedImages: null, pastedTexts: null },
-          snapshot: { ...snapshot, queued: [] },
+          snapshot: restoredSnapshot,
         };
       }
       return { value: true, snapshot };
@@ -14954,6 +15093,8 @@ test("desktop composer restores queued work, recalls engine history, and execute
     await Promise.resolve();
   });
   const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
+  const setTextareaValue =
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
   assert.equal(document.querySelector('[aria-label="Prompt history"]') === null, true, "selector [aria-label=\"Prompt history\"] should be absent");
   assert.deepEqual(
     Array.from(document.querySelectorAll('.composer-footer > .composer-tool')).map((button) => button.getAttribute('aria-label')),
@@ -14970,12 +15111,32 @@ test("desktop composer restores queued work, recalls engine history, and execute
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.equal(textarea.value, 'Restored request');
+  await act(async () => {
+    setTextareaValue.call(textarea, 'typed during restore');
+    textarea.dispatchEvent(new window.InputEvent('input', {
+      bubbles: true, inputType: 'insertText', data: 'typed during restore',
+    }));
+  });
+  await act(async () => {
+    releaseRestore();
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  assert.equal(textarea.value, 'Restored request\ntyped during restore');
   assert.ok(capabilities.some(([capability, args]) =>
     capability === 'restoreQueued' && args[0] === '' && args[1] === 'queued-1'));
 
-  const setTextareaValue =
-    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+  await act(async () => {
+    textarea.dispatchEvent(new window.KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    }));
+    await Promise.resolve();
+  });
+  assert.equal(textarea.value, 'Restored request\ntyped during restore');
+  assert.match(document.querySelector('.composer-notice')?.textContent || '', /Esc again to clear/);
   await act(async () => {
     textarea.dispatchEvent(new window.KeyboardEvent('keydown', {
       key: 'Escape',
@@ -15013,6 +15174,7 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   });
   let publish;
   let aborts = 0;
+  const abortOptions = [];
   let rejectCompact = false;
   const capabilities = [];
   const submissions = [];
@@ -15027,14 +15189,25 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
     listSessions: async () => [row],
     startTask: async () => idle,
     submit: async (content, options) => { submissions.push([content, options]); return true; },
-    abort: async () => { aborts += 1; return { aborted: true }; },
+    submitToSession: async (_sessionId, content, options) => {
+      submissions.push([content, options]);
+      return true;
+    },
+    abort: async (options) => { aborts += 1; abortOptions.push(options); return { aborted: true }; },
+    abortSession: async (_sessionId, options) => {
+      aborts += 1;
+      abortOptions.push(options);
+      return { aborted: true };
+    },
     invokeCapability: async ({ capability, args = [] }) => {
       capabilities.push([capability, args]);
       if (capability === 'compact' && rejectCompact) throw new Error('compact failed');
       if (capability === 'restoreQueued') {
+        const restoredSnapshot = { ...idle, busy: false, queued: [] };
+        publish?.(restoredSnapshot);
         return {
           value: { text: 'Restored steering', pastedImages: null, pastedTexts: null },
-          snapshot: { ...idle, busy: true, queued: [] },
+          snapshot: restoredSnapshot,
         };
       }
       if (capability === 'getTheme') return { value: 'basic', snapshot: idle };
@@ -15066,6 +15239,7 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
       getTextarea().dispatchEvent(event);
       await Promise.resolve();
       await Promise.resolve();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
     });
     return event;
   };
@@ -15073,6 +15247,9 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   await act(async () => publish({ ...idle, commandBusy: true }));
   await replaceDraft('/compact');
   await press('Enter');
+  await act(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
   assert.equal(capabilities.some(([capability]) => capability === 'compact'), false);
   assert.equal(getTextarea().value, '/compact');
   assert.match(document.querySelector('.composer-error')?.textContent || '', /current command.*editor/i);
@@ -15085,6 +15262,8 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   assert.equal(aborts, 0);
 
   await replaceDraft('queued while command runs');
+  assert.equal(getTextarea().value, 'queued while command runs');
+  assert.equal(document.querySelector('.send-button')?.disabled, false);
   await press('Enter');
   assert.equal(submissions.length, 1);
   assert.equal(submissions[0][0], 'queued while command runs');
@@ -15109,7 +15288,7 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   assert.equal(capabilities.some(([capability]) => capability === 'compact'), false);
 
   await press('Escape');
-  assert.equal(getTextarea().value, '', 'Escape closes the slash palette and clears its draft like the TUI');
+  assert.equal(getTextarea().value, '/co', 'Escape closes the slash palette without changing its draft');
 
   await replaceDraft('alpha\nbeta');
   getTextarea().setSelectionRange(getTextarea().value.length, getTextarea().value.length);
@@ -15119,9 +15298,11 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   // the composer keeps Shift/Ctrl+Enter for newlines.
   await press('Enter', { shiftKey: true });
   assert.equal(getTextarea().value, 'alpha\n\n');
+  await press('Enter', { altKey: true });
+  assert.equal(getTextarea().value, 'alpha\n\n\n');
 
   await press('Tab');
-  assert.equal(getTextarea().value, 'alpha\n\n');
+  assert.equal(getTextarea().value, 'alpha\n\n\n');
   await replaceDraft('/co');
   await press('Tab');
   assert.equal(getTextarea().value, '/compact ');
@@ -15156,9 +15337,18 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   assert.equal(capabilities.filter(([capability]) => capability === 'compact').length, 2);
   assert.equal(getTextarea().value, '/compact');
   assert.match(document.querySelector('.composer-error')?.textContent || '', /current turn.*\/compact/i);
-  await replaceDraft('');
+  await press('Escape');
+  assert.equal(aborts, 0, 'the first Escape dismisses the slash palette before the prompt handler');
+  assert.equal(document.querySelector('.slash-palette'), null);
+  assert.equal(getTextarea().value, '/compact', 'palette dismissal preserves the steering draft');
   await press('Escape');
   assert.equal(aborts, 1);
+  assert.deepEqual(abortOptions[0], { restorePrompt: false });
+  assert.equal(getTextarea().value, '/compact', 'busy Escape cancels before touching the steering draft');
+  await replaceDraft('');
+  await press('Escape');
+  assert.equal(aborts, 2);
+  assert.deepEqual(abortOptions[1], { restorePrompt: true });
   assert.equal(getTextarea().value, '');
   assert.equal(capabilities.filter(([capability]) => capability === 'restoreQueued').length, 0);
   await act(async () => publish({
@@ -15166,11 +15356,14 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
     busy: false,
     queued: [{ id: 'steer-1', displayText: 'Queued steering' }],
   }));
-  await press('ArrowUp');
-  assert.equal(getTextarea().value, 'Restored steering');
+  await replaceDraft('current draft');
+  await press('Escape');
+  assert.equal(getTextarea().value, 'Restored steering\ncurrent draft');
+  await press('Escape');
+  assert.equal(getTextarea().value, 'Restored steering\ncurrent draft');
   await press('Escape');
   assert.equal(getTextarea().value, '');
-  assert.equal(aborts, 1);
+  assert.equal(aborts, 2);
 });
 
 test("desktop composer folds large pasted text and submits the expanded attachment contract", async () => {
@@ -15666,4 +15859,86 @@ test("a pending draft submit never promotes a newer draft onto its session", asy
   });
   assert.match(activeTabText(), /Draft B prompt|Draft B task/,
     "draft B still promotes through its OWN submit after the older arm cleared");
+});
+
+test("a queued follow-up stays out of the transcript and keeps ArrowUp reclaim armed", async () => {
+  installDom();
+  const capabilities = [];
+  const submissions = [];
+  let publish;
+  const row = seedActiveSession('queue-flash-session', 'Queue flash session');
+  const snapshot = {
+    sessionId: 'queue-flash-session',
+    items: [{ id: 'u-1', kind: 'user', text: 'first prompt' }],
+    queued: [{ id: 'queued-earlier', displayText: 'earlier queued' }],
+    busy: true,
+    promptHistoryList: [],
+    provider: 'openai',
+    model: 'gpt-real',
+  };
+  window.mixdogDesktop = {
+    getSnapshot: async () => snapshot,
+    listSessions: async () => [row],
+    resumeSession: async () => snapshot,
+    subscribeState: (listener) => { publish = listener; return () => {}; },
+    submit: async (content, options) => { submissions.push([content, options]); return true; },
+    submitToSession: async (_sessionId, content, options) => {
+      submissions.push([content, options]);
+      return true;
+    },
+    invokeCapability: async ({ capability, args = [] }) => {
+      capabilities.push([capability, args]);
+      if (capability === 'getTheme') return { value: 'basic', snapshot };
+      // The engine has nothing editable left to pop: the queued entries were
+      // already committed as steering. An empty answer must not disarm Up.
+      if (capability === 'restoreQueued') return { value: { count: 0, text: '' }, snapshot };
+      return { value: true, snapshot };
+    },
+  };
+
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    document.querySelector('.session-row')?.click();
+    await Promise.resolve();
+  });
+  const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
+  const setTextareaValue =
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+  await act(async () => {
+    setTextareaValue.call(textarea, 'ㅎㅇ');
+    textarea.dispatchEvent(new window.InputEvent('input', {
+      bubbles: true, inputType: 'insertText', data: 'ㅎㅇ',
+    }));
+  });
+  await act(async () => {
+    textarea.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  assert.equal(submissions.length, 1, 'the queued follow-up should reach the engine');
+  const transcriptText = document.querySelector('.transcript')?.textContent || '';
+  assert.ok(!transcriptText.includes('ㅎㅇ'),
+    'a prompt submitted behind an active queue must never paint as a transcript row');
+  assert.ok(Array.from(document.querySelectorAll('.queue-item-text'))
+    .some((node) => (node.textContent || '').includes('ㅎㅇ')),
+    'the queued follow-up belongs to the composer reserved list from its first frame');
+
+  const restoreCalls = () => capabilities.filter(([capability]) => capability === 'restoreQueued').length;
+  await act(async () => {
+    textarea.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  assert.equal(restoreCalls(), 1, 'ArrowUp on an empty draft reclaims queued work');
+  await act(async () => {
+    textarea.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  assert.equal(restoreCalls(), 2,
+    'a restore that popped nothing must leave ArrowUp armed instead of latching it off');
 });

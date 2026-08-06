@@ -35,7 +35,6 @@ export function createSettingsApi({
   formatDurationMs,
   localPackageVersion,
   // state getters / feature flags
-  memoryEnabled,
   recapEnabledFn,
   channelsEnabled,
   autoUpdateEnabled,
@@ -173,11 +172,11 @@ export function createSettingsApi({
     },
     getCompactionSettings() {
       const config = getConfig();
-      return normalizeCompactionConfig(config.compaction, { memoryEnabled: memoryEnabled() });
+      return normalizeCompactionConfig(config.compaction);
     },
     setCompactionSettings(input = {}) {
       const config = getConfig();
-      const current = normalizeCompactionConfig(config.compaction, { memoryEnabled: memoryEnabled() });
+      const current = normalizeCompactionConfig(config.compaction);
       const next = { ...current };
       if (hasOwn(input, 'auto')) next.auto = input.auto !== false;
       if (hasOwn(input, 'enabled')) next.auto = input.enabled !== false;
@@ -193,18 +192,18 @@ export function createSettingsApi({
         if (hasOwn(input, key)) next[key] = input[key];
       }
       const nextConfig = { ...config };
-      nextConfig.compaction = normalizeCompactionConfig(next, { memoryEnabled: memoryEnabled() });
+      nextConfig.compaction = normalizeCompactionConfig(next);
       saveConfigAndAdopt(nextConfig);
       const config2 = getConfig();
       const session = getSession();
       if (session) {
         session.compaction = {
           ...(session.compaction || {}),
-          ...normalizeCompactionConfig(config2.compaction, { memoryEnabled: memoryEnabled() }),
+          ...normalizeCompactionConfig(config2.compaction),
         };
       }
       invalidateContextStatusCache();
-      return normalizeCompactionConfig(config2.compaction, { memoryEnabled: memoryEnabled() });
+      return normalizeCompactionConfig(config2.compaction);
     },
     // Recap toggle: user-facing switch that gates ONLY the background memory
     // cycles (1/2/3). The memory module (transcript watcher/ingest, on-demand
@@ -222,17 +221,6 @@ export function createSettingsApi({
       invalidatePreSessionToolSurface();
       invalidateContextStatusCache();
       return this.getRecapSettings();
-    },
-    // Thin aliases kept for the current TUI callsites (updated separately).
-    // enabled here reflects the recap toggle; memory itself is always-on.
-    getMemorySettings() {
-      return {
-        enabled: recapEnabledFn(),
-        compactFastTrackAvailable: true,
-      };
-    },
-    async setMemoryEnabled(enabled) {
-      return this.setRecapEnabled(enabled);
     },
     getChannelSettings(options = {}) {
       return {

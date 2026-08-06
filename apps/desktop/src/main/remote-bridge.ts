@@ -317,6 +317,8 @@ export async function startRemoteBridge(options: RemoteBridgeOptions): Promise<R
   heartbeat.unref?.();
 
   const unsubscribeState = options.host.subscribe(broadcastState);
+  const unsubscribeSessionStates = options.host.subscribeSessionStates((update) =>
+    broadcast({ event: 'sessionState', payload: update }));
   const unsubscribeTerminals = options.subscribeTerminalData?.((event) =>
     broadcast({ event: 'termData', payload: event })) ?? (() => {});
 
@@ -336,6 +338,7 @@ export async function startRemoteBridge(options: RemoteBridgeOptions): Promise<R
     closed = true;
     clearInterval(heartbeat);
     unsubscribeState();
+    unsubscribeSessionStates();
     unsubscribeTerminals();
     for (const client of wss.clients) {
       try { client.terminate(); } catch { /* already gone */ }

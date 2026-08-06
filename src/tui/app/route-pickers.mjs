@@ -86,7 +86,9 @@ export function createRoutePickers({
     const items = agents.map((agent) => ({
       value: agent.id,
       label: agent.label,
-      metaParts: agentModelParts(routeOverrides[agent.id] || agent.route),
+      metaParts: routeOverrides[agent.id] || agent.route
+        ? agentModelParts(routeOverrides[agent.id] || agent.route)
+        : [{ text: '(follows main)', width: 17 }, { text: '', width: 6 }, { text: '', width: 4 }],
       description: agent.description || agent.definition?.description || '',
       _agent: agent,
     }));

@@ -645,10 +645,15 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     onProviderSendStarted: () => {
                         _turnInterruption.markProviderSendStarted();
                         _scheduleTurnCheckpoint(true);
+                        try { askOpts?.onProviderSendStarted?.(); } catch {}
                     },
                     onToolPhaseStarted: () => {
                         _turnInterruption.markToolPhaseStarted();
                         _scheduleTurnCheckpoint(true);
+                        try { askOpts?.onToolPhaseStarted?.(); } catch {}
+                    },
+                    onToolPhaseCompleted: (detail) => {
+                        try { askOpts?.onToolPhaseCompleted?.(detail); } catch {}
                     },
                     onUsageDelta: (d) => {
                         persistIterationMetrics(d).catch(() => {});

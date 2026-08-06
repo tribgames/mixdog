@@ -31,7 +31,16 @@ function compactRecoveredErrorMessage(value) {
         : message;
 }
 
-function traceAgentLoop({ sessionId, iteration, sendMs, messageCount, bodyBytesEst, agent = null }) {
+function traceAgentLoop({
+    sessionId,
+    iteration,
+    sendMs,
+    preSendMs,
+    toolResumeMs,
+    messageCount,
+    bodyBytesEst,
+    agent = null,
+}) {
     // Two emit modes, no behavior change either way:
     //   VERBOSE=1 → full loop row incl. body_bytes_est (payload serialized).
     //   TIMING=1  → lightweight send-latency attribution for high-fanout
@@ -45,6 +54,8 @@ function traceAgentLoop({ sessionId, iteration, sendMs, messageCount, bodyBytesE
         kind: 'loop',
         agent: agent || null,
         send_ms: sendMs,
+        pre_send_ms: preSendMs ?? null,
+        tool_resume_ms: toolResumeMs ?? null,
         message_count: messageCount,
         body_bytes_est: bodyBytesEst ?? null,
     });

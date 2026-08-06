@@ -101,6 +101,7 @@ export {
 // ── Session lifecycle / ask / crud / close / cleanup ──────────────────────
 export { SessionClosedError } from './manager/session-errors.mjs';
 export { setAgentRuntime } from './manager/agent-runtime-singleton.mjs';
+export { prewarmAgentLoop } from './manager/runtime-loaders.mjs';
 export {
     createSession,
     updateSessionRoute,

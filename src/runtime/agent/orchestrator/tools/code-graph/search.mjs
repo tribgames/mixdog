@@ -269,21 +269,12 @@ export async function _prewarmReferenceSourceText(graph, symbol, language) {
   }
   if (uncached.length === 0) return candidateNodes;
   const { readFile } = await import('fs/promises');
-  const concurrency = 64;
-  let next = 0;
-  async function worker() {
-    while (true) {
-      const index = next++;
-      if (index >= uncached.length) return;
-      const node = uncached[index];
-      try {
-        const text = await readFile(node.abs, 'utf8');
-        graph._sourceTextCache?.set(node.rel, { fingerprint: node.fingerprint || '', text });
-      } catch { /* skip unreadable file */ }
-    }
-  }
-  const workerCount = Math.min(Math.max(1, concurrency), uncached.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  await Promise.all(uncached.map(async (node) => {
+    try {
+      const text = await readFile(node.abs, 'utf8');
+      graph._sourceTextCache?.set(node.rel, { fingerprint: node.fingerprint || '', text });
+    } catch { /* skip unreadable file */ }
+  }));
   return candidateNodes;
 }
 

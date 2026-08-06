@@ -11,6 +11,7 @@ import { startRemoteBridge } from './remote-bridge';
 
 function createFakeHost() {
   const listeners = new Set();
+  const sessionListeners = new Set();
   return {
     subscribe(listener) {
       listeners.add(listener);
@@ -19,9 +20,19 @@ function createFakeHost() {
     emit(snapshot) {
       for (const listener of [...listeners]) listener(snapshot);
     },
+    subscribeSessionStates(listener) {
+      sessionListeners.add(listener);
+      return () => sessionListeners.delete(listener);
+    },
+    emitSession(update) {
+      for (const listener of [...sessionListeners]) listener(update);
+    },
     getSnapshot: () => ({ items: [], busy: false }),
     listProjects: () => [{ name: 'demo', path: 'C:/demo', alias: null, pinned: false }],
     invokeCapability: async (capability) => ({ value: `ran:${capability}`, snapshot: null }),
+    submitToSession: async (sessionId) => sessionId === 'remote-pane',
+    abortSession: async (sessionId) => sessionId,
+    resolveToolApprovalForSession: async (sessionId, id) => `${sessionId}:${id}`,
   };
 }
 
@@ -171,6 +182,28 @@ test('routes rpc calls to the engine host', async () => {
     const reply = await rpc(socket, 1, 'listProjects');
     assert.equal(reply.ok, true);
     assert.equal(reply.value[0].name, 'demo');
+    assert.equal((await rpc(socket, 2, 'submitToSession', [
+      'remote-pane',
+      [{ type: 'text', text: 'continue here' }],
+      {},
+    ])).value, true);
+    assert.equal((await rpc(socket, 3, 'abortSession', ['remote-pane'])).value, 'remote-pane');
+    assert.equal((await rpc(socket, 4, 'resolveToolApprovalForSession', [
+      'remote-pane',
+      'approval-1',
+      { approved: true },
+    ])).value, 'remote-pane:approval-1');
+    assert.equal((await rpc(socket, 2, 'submitToSession', [
+      'remote-pane',
+      [{ type: 'text', text: 'continue here' }],
+      {},
+    ])).value, true);
+    assert.equal((await rpc(socket, 3, 'abortSession', ['remote-pane'])).value, 'remote-pane');
+    assert.equal((await rpc(socket, 4, 'resolveToolApprovalForSession', [
+      'remote-pane',
+      'approval-1',
+      { approved: true },
+    ])).value, 'remote-pane:approval-1');
   } finally {
     socket.close();
     await bridge.close();
@@ -189,6 +222,48 @@ test('broadcasts engine state pushes', async () => {
     });
     host.emit({ items: [], busy: true });
     assert.equal((await push).busy, true);
+  } finally {
+    socket.close();
+    await bridge.close();
+  }
+});
+
+test('broadcasts session-addressed pane state independently of focus', async () => {
+  const { host, bridge } = await startTestBridge();
+  const socket = await connectClient(bridge, bridge.token);
+  try {
+    const push = new Promise((resolve) => {
+      socket.on('message', (raw) => {
+        const message = JSON.parse(raw.toString());
+        if (message.event === 'sessionState') resolve(message.payload);
+      });
+    });
+    host.emitSession({
+      sessionId: 'remote-pane',
+      snapshot: { sessionId: 'remote-pane', items: [], busy: true },
+    });
+    assert.equal((await push).sessionId, 'remote-pane');
+  } finally {
+    socket.close();
+    await bridge.close();
+  }
+});
+
+test('broadcasts session-addressed pane state independently of focus', async () => {
+  const { host, bridge } = await startTestBridge();
+  const socket = await connectClient(bridge, bridge.token);
+  try {
+    const push = new Promise((resolve) => {
+      socket.on('message', (raw) => {
+        const message = JSON.parse(raw.toString());
+        if (message.event === 'sessionState') resolve(message.payload);
+      });
+    });
+    host.emitSession({
+      sessionId: 'remote-pane',
+      snapshot: { sessionId: 'remote-pane', items: [], busy: true },
+    });
+    assert.equal((await push).sessionId, 'remote-pane');
   } finally {
     socket.close();
     await bridge.close();

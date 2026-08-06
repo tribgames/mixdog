@@ -34,8 +34,26 @@ function daemonEntry() {
 // Data calls and lifecycle control must never share a socket pool. A burst of
 // long /call requests can occupy every data socket; health/register/deregister
 // still need a reserved lane so a new terminal can always attach or recover.
-const daemonCallAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 8 });
-const daemonControlAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 4 });
+const daemonCallAgent = new http.Agent({
+  keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 64, maxFreeSockets: 8,
+});
+const daemonUrgentAgent = new http.Agent({
+  keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 8, maxFreeSockets: 2,
+});
+const daemonControlAgent = new http.Agent({
+  keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 4, maxFreeSockets: 2,
+});
+const URGENT_CALLS = new Set([
+  'session.submit',
+  'session.abort',
+  'session.approve',
+  'session.unsubscribe',
+  'desktop.control',
+  'desktop.unsubscribe',
+]);
+const EVENT_STREAM_RECONNECT_BASE_MS = 100;
+const EVENT_STREAM_RECONNECT_MAX_MS = 1_000;
+const EVENT_STREAM_HEALTH_GRACE_MS = 750;
 
 function request({
   port,
@@ -45,6 +63,7 @@ function request({
   body = null,
   timeoutMs = 120_000,
   control = false,
+  urgent = false,
 }) {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : null;
@@ -53,7 +72,7 @@ function request({
       port,
       path: urlPath,
       method,
-      agent: control ? daemonControlAgent : daemonCallAgent,
+      agent: control ? daemonControlAgent : urgent ? daemonUrgentAgent : daemonCallAgent,
       headers: {
         'X-Mixdog-Daemon-Token': token,
         ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
@@ -221,6 +240,11 @@ export async function attachEngineDaemon({
   registrationId = randomUUID(),
   onFrame = () => {},
   onFatal = () => {},
+  onStreamDisconnect = () => {},
+  onStreamReconnect = () => {},
+  streamReconnectBaseMs = EVENT_STREAM_RECONNECT_BASE_MS,
+  streamReconnectMaxMs = EVENT_STREAM_RECONNECT_MAX_MS,
+  streamReconnectHealthGraceMs = EVENT_STREAM_HEALTH_GRACE_MS,
   log = () => {},
 } = {}) {
   if (!discovery?.port || !discovery?.token) throw new Error('daemon discovery {port, token} required');
@@ -254,9 +278,62 @@ export async function attachEngineDaemon({
 
   let closed = false;
   let streamRequest = null;
+  let reconnectTimer = null;
+  let reconnectAttempt = 0;
+  let disconnectedAt = 0;
+  let lastLossReason = '';
+  let streamWasReady = false;
+  let fatalSignalled = false;
+  const reconnectBaseMs = Math.max(1, Number(streamReconnectBaseMs) || EVENT_STREAM_RECONNECT_BASE_MS);
+  const reconnectMaxMs = Math.max(
+    reconnectBaseMs,
+    Number(streamReconnectMaxMs) || EVENT_STREAM_RECONNECT_MAX_MS,
+  );
+  const healthGraceMs = Math.max(
+    reconnectBaseMs,
+    Number(streamReconnectHealthGraceMs) || EVENT_STREAM_HEALTH_GRACE_MS,
+  );
+
+  function signalFatal(reason) {
+    if (closed || fatalSignalled) return;
+    fatalSignalled = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    try { onFatal(reason); } catch {}
+  }
+
+  function scheduleStreamReconnect(reason) {
+    if (closed || fatalSignalled || reconnectTimer) return;
+    const now = Date.now();
+    if (!disconnectedAt) {
+      disconnectedAt = now;
+      lastLossReason = String(reason || 'sse disconnected');
+      try { onStreamDisconnect({ reason: lastLossReason }); } catch {}
+    }
+    const attempt = reconnectAttempt + 1;
+    reconnectAttempt = attempt;
+    const delayMs = Math.min(reconnectMaxMs, reconnectBaseMs * (2 ** Math.min(attempt - 1, 8)));
+    log(`engine daemon event stream reconnecting attempt=${attempt} delayMs=${delayMs} reason=${lastLossReason}`);
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      void (async () => {
+        if (closed || fatalSignalled) return;
+        const downtimeMs = Math.max(0, Date.now() - disconnectedAt);
+        if (downtimeMs >= healthGraceMs) {
+          const health = await probeEngineDaemonHealth({ port, token: serverToken, timeoutMs: 500 });
+          if (!health || Number(health.pid) !== Number(discovery.pid)) {
+            signalFatal(`${lastLossReason}; daemon unavailable or replaced`);
+            return;
+          }
+        }
+        openStream();
+      })().catch(() => signalFatal(`${lastLossReason}; daemon health check failed`));
+    }, delayMs);
+    reconnectTimer.unref?.();
+  }
 
   function openStream() {
-    if (closed) return;
+    if (closed || fatalSignalled || streamRequest) return;
     const req = http.request({
       hostname: '127.0.0.1',
       port,
@@ -267,9 +344,24 @@ export async function attachEngineDaemon({
       if (req !== streamRequest || closed) { res.resume(); return; }
       if (res.statusCode !== 200) {
         res.resume();
-        if (!closed) { try { onFatal(`bad sse status ${res.statusCode}`); } catch {} }
+        streamRequest = null;
+        if (res.statusCode === 401 || res.statusCode === 403 || res.statusCode === 404) {
+          signalFatal(`bad sse status ${res.statusCode}`);
+        } else {
+          scheduleStreamReconnect(`bad sse status ${res.statusCode}`);
+        }
         return;
       }
+      const reconnected = streamWasReady && disconnectedAt > 0;
+      const reconnectInfo = reconnected ? {
+        reason: lastLossReason,
+        attempt: reconnectAttempt,
+        downtimeMs: Math.max(0, Date.now() - disconnectedAt),
+      } : null;
+      streamWasReady = true;
+      reconnectAttempt = 0;
+      disconnectedAt = 0;
+      lastLossReason = '';
       res.setEncoding('utf8');
       let buffer = '';
       res.on('data', (chunk) => {
@@ -289,14 +381,31 @@ export async function attachEngineDaemon({
           }
         }
       });
+      let lossHandled = false;
       const lost = (reason) => {
         if (req !== streamRequest || closed) return;
-        try { onFatal(reason); } catch {}
+        if (lossHandled) return;
+        lossHandled = true;
+        streamRequest = null;
+        scheduleStreamReconnect(reason);
       };
       res.on('end', () => lost('sse ended'));
       res.on('error', () => lost('sse error'));
+      res.on('aborted', () => lost('sse aborted'));
+      res.on('close', () => lost('sse closed'));
+      if (reconnectInfo) {
+        log(
+          `engine daemon event stream reconnected attempt=${reconnectInfo.attempt}`
+          + ` downtimeMs=${reconnectInfo.downtimeMs}`,
+        );
+        try { onStreamReconnect(reconnectInfo); } catch {}
+      }
     });
-    req.on('error', () => { if (req === streamRequest && !closed) { try { onFatal('sse request error'); } catch {} } });
+    req.on('error', () => {
+      if (req !== streamRequest || closed) return;
+      streamRequest = null;
+      scheduleStreamReconnect('sse request error');
+    });
     streamRequest = req;
     req.end();
   }
@@ -309,6 +418,7 @@ export async function attachEngineDaemon({
         port, token: serverToken, method: 'POST', path: '/call',
         body: { token: clientToken, name, args: args || {}, ...(callId ? { callId } : {}) },
         timeoutMs,
+        urgent: URGENT_CALLS.has(name),
       });
     } catch (err) {
       // Transport death (daemon restarted/unreachable) is recoverable by
@@ -323,6 +433,8 @@ export async function attachEngineDaemon({
   async function close(reason = 'client close') {
     if (closed) return;
     closed = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
     try { streamRequest?.destroy?.(); } catch {}
     try {
       await request({
@@ -477,6 +589,8 @@ export async function createRemoteEngineSession(options = {}) {
   let state = created?.full ?? {};
   let revision = Number(created?.revision) || 0;
   let sync = created?.sync ?? {};
+  let syncRevision = Number(created?.syncRevision) || 0;
+  let reservedOnly = created?.reservedOnly === true;
   let disposed = false;
   const listeners = new Set();
 
@@ -488,6 +602,9 @@ export async function createRemoteEngineSession(options = {}) {
 
   function applyBody(body) {
     if (disposed || !body) return false;
+    if (Object.hasOwn(body, 'reservedOnly')) reservedOnly = body.reservedOnly === true;
+    const incomingRevision = Number(body.revision);
+    if (Number.isFinite(incomingRevision) && incomingRevision < revision) return true;
     if (body.full !== undefined && body.full !== null) {
       state = body.full;
       revision = Number(body.revision) || revision;
@@ -519,10 +636,12 @@ export async function createRemoteEngineSession(options = {}) {
     if (disposed || resyncing) return;
     resyncing = true;
     void attachment.client.call('session.read', {
-      sessionId, open: openParams, baseRevision: revision,
+      sessionId, open: openParams, baseRevision: revision, baseSyncRevision: syncRevision,
     }).then((result) => {
       if (disposed) return;
-      if (result?.sync) sync = result.sync;
+      const nextSyncRevision = Number.isInteger(result?.syncRevision) ? result.syncRevision : null;
+      if (result?.sync && (nextSyncRevision === null || nextSyncRevision >= syncRevision)) sync = result.sync;
+      if (nextSyncRevision !== null && nextSyncRevision >= syncRevision) syncRevision = nextSyncRevision;
       if (!applyBody(result) && result?.revision !== undefined) {
         log(`session ${sessionId} resync returned an unusable body`);
       }
@@ -545,7 +664,7 @@ export async function createRemoteEngineSession(options = {}) {
       let result;
       try {
         result = await attachment.client.call('session.subscribe', {
-          sessionId, open: openParams, baseRevision: revision,
+          sessionId, open: openParams, baseRevision: revision, baseSyncRevision: syncRevision,
         });
       } catch {
         result = await attachment.client.call('session.create', {
@@ -554,6 +673,7 @@ export async function createRemoteEngineSession(options = {}) {
       }
       addSessionView(attachment.views, sessionId, view);
       if (result?.sync) sync = result.sync;
+      if (Number.isInteger(result?.syncRevision)) syncRevision = result.syncRevision;
       if (!applyBody(result) && result?.revision !== undefined) resync('recovery body gap');
       log(`session ${sessionId} projection recovered`);
     })();
@@ -608,7 +728,9 @@ export async function createRemoteEngineSession(options = {}) {
       removeSessionView(attachment.views, previousSessionId, view);
       sessionId = nextSessionId;
     }
-    if (result?.sync) sync = result.sync;
+    const nextSyncRevision = Number.isInteger(result?.syncRevision) ? result.syncRevision : null;
+    if (result?.sync && (nextSyncRevision === null || nextSyncRevision >= syncRevision)) sync = result.sync;
+    if (nextSyncRevision !== null && nextSyncRevision >= syncRevision) syncRevision = nextSyncRevision;
     if (!applyBody(result) && result?.revision !== undefined) resync(`${reason} body gap`);
     return result;
   }
@@ -621,19 +743,22 @@ export async function createRemoteEngineSession(options = {}) {
   }
 
   function remoteCall(method, args, callOptions = {}) {
-    return serialize(async () => {
-      if (disposed) throw new Error('This session view is disposed.');
-      const stableCallId = typeof callOptions.callId === 'string' && callOptions.callId.trim()
-        ? callOptions.callId.trim()
-        : randomUUID();
-      const result = await sendCall('session.invoke', {
-        sessionId,
-        method,
-        args,
-        open: openParams,
-        baseRevision: revision,
-      }, stableCallId);
-      await applyResult(result, method);
+    if (disposed) return Promise.reject(new Error('This session view is disposed.'));
+    const targetSessionId = sessionId;
+    const baseRevision = revision;
+    const baseSyncRevision = syncRevision;
+    const stableCallId = typeof callOptions.callId === 'string' && callOptions.callId.trim()
+      ? callOptions.callId.trim()
+      : randomUUID();
+    return sendCall('session.invoke', {
+      sessionId: targetSessionId,
+      method,
+      args,
+      open: openParams,
+      baseRevision,
+      baseSyncRevision,
+    }, stableCallId).then(async (result) => {
+      if (!disposed && sessionId === targetSessionId) await applyResult(result, method);
       return result?.value ?? null;
     });
   }
@@ -652,6 +777,7 @@ export async function createRemoteEngineSession(options = {}) {
     removeSessionView(attachment.views, previousSessionId, view);
     sessionId = nextSessionId;
     if (result?.sync) sync = result.sync;
+    if (Number.isInteger(result?.syncRevision)) syncRevision = result.syncRevision;
     if (!applyBody(result) && result?.revision !== undefined) resync('session rebind body gap');
     if (previousSessionId && previousSessionId !== nextSessionId && lastLocalView) {
       try {
@@ -680,7 +806,7 @@ export async function createRemoteEngineSession(options = {}) {
       if (disposed) throw new Error('This session view is disposed.');
       if (target === sessionId) {
         const result = await sendCall('session.read', {
-          sessionId, open: openParams, baseRevision: revision,
+          sessionId, open: openParams, baseRevision: revision, baseSyncRevision: syncRevision,
         }, randomUUID());
         await applyResult(result, 'resume');
         return true;
@@ -690,6 +816,7 @@ export async function createRemoteEngineSession(options = {}) {
         sessionId: target,
         open: { ...openParams, resumeOptions: resumeOptions || undefined },
         baseRevision: null,
+        baseSyncRevision: syncRevision,
       }, randomUUID());
       await rebindTo(result, previousSessionId);
       return true;
@@ -701,17 +828,28 @@ export async function createRemoteEngineSession(options = {}) {
     if (disposed) throw new Error('This session view is disposed.');
     const submissionId = String(options?.id || '').trim()
       || `session-submit-${process.pid}-${Date.now()}-${(submitSeq += 1)}`;
-    return serialize(async () => {
-      const result = await sendCall('session.submit', {
-        sessionId,
-        prompt,
-        options: { ...(options || {}), id: submissionId },
-        open: openParams,
-        baseRevision: revision,
-      }, `session-submit:${sessionId}:${submissionId}`);
-      await applyResult(result, 'submit');
-      return result?.accepted === true;
-    });
+    const targetSessionId = sessionId;
+    const baseRevision = revision;
+    const baseSyncRevision = syncRevision;
+    const result = await sendCall('session.submit', {
+      sessionId: targetSessionId,
+      prompt,
+      options: { ...(options || {}), id: submissionId },
+      open: openParams,
+      baseRevision,
+      baseSyncRevision,
+    }, `session-submit:${targetSessionId}:${submissionId}`);
+    if (!disposed && sessionId === targetSessionId) await applyResult(result, 'submit');
+    return result?.accepted === true;
+  }
+
+  async function abortAsync(options = {}) {
+    if (disposed) return { aborted: false };
+    const result = await sendCall('session.abort', {
+      sessionId, open: openParams, options,
+      baseRevision: revision, baseSyncRevision: syncRevision,
+    }, randomUUID());
+    return await applyResult(result, 'abort');
   }
 
   const base = {
@@ -729,7 +867,13 @@ export async function createRemoteEngineSession(options = {}) {
     sessionStoreDir() {
       return typeof sync.sessionStoreDir === 'string' ? sync.sessionStoreDir : null;
     },
-    async newSession() {
+    async newSession(options = {}) {
+      // A newly-created daemon view already owns a durable reserved address.
+      // New-task setup may ask for a fresh session before the first submit;
+      // reusing that reservation avoids a second session.create round trip and
+      // duplicate provider/session prewarm. Explicit route/workflow changes
+      // omit this flag and retain the ordinary new-session boundary.
+      if (options?.reuseReservation === true && reservedOnly) return true;
       await createReservedSession();
       return true;
     },
@@ -755,17 +899,19 @@ export async function createRemoteEngineSession(options = {}) {
       });
       return true;
     },
-    abort() {
-      void serialize(async () => {
-        const result = await sendCall('session.abort', {
-          sessionId, open: openParams, baseRevision: revision,
-        }, randomUUID());
-        await applyResult(result, 'abort');
-      }).catch((err) => log(`session abort failed: ${err?.message || err}`));
+    abortAsync,
+    abort(options = {}) {
+      // Cancellation must bypass this view's ordered mutation chain. A slow
+      // capability/read call ahead of it must never delay the user's ESC.
+      void abortAsync(options).catch((err) => log(`session abort failed: ${err?.message || err}`));
       return true;
     },
     resolveToolApproval(id, decision) {
-      void serialize(async () => {
+      // Approval unblocks a live turn and has the same priority requirement as
+      // abort. Revision gaps caused by an overlapping ordinary call self-heal
+      // through applyResult()/resync().
+      void (async () => {
+        if (disposed) return;
         const result = await sendCall('session.approve', {
           sessionId,
           approvalId: id,
@@ -774,7 +920,7 @@ export async function createRemoteEngineSession(options = {}) {
           baseRevision: revision,
         }, randomUUID());
         await applyResult(result, 'approval');
-      }).catch((err) => log(`session approval failed: ${err?.message || err}`));
+      })().catch((err) => log(`session approval failed: ${err?.message || err}`));
       return true;
     },
     async dispose(reason = 'view dispose') {
@@ -798,6 +944,7 @@ export async function createRemoteEngineSession(options = {}) {
         // Last view gone: drop pooled keep-alive sockets so an idle connection
         // cannot keep the process (or a test runner) alive.
         try { daemonCallAgent.destroy(); } catch {}
+        try { daemonUrgentAgent.destroy(); } catch {}
         try { daemonControlAgent.destroy(); } catch {}
         if (shared === attachment) shared = null;
       }
@@ -848,7 +995,7 @@ export async function callDaemonSession({
     };
   } else if (name === 'abort') {
     route = 'session.abort';
-    payload = { sessionId: id, open: openHints || {} };
+    payload = { sessionId: id, options: args?.[0] || {}, open: openHints || {} };
   } else if (name === 'resolveToolApproval') {
     route = 'session.approve';
     payload = {

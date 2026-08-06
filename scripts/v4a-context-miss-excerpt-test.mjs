@@ -154,16 +154,23 @@ test('outer-context trimming never tolerates a stale deletion line', () => {
   );
 });
 
-test('outer-context trimming stays disabled for fuzzy:false and EOF hunks', () => {
+test('outer-context trimming stays disabled for fuzzy:false, and an EOF marker no longer blocks it', () => {
   assert.throws(
     () => applyV4AHunksToLines(OUTER_CONTEXT_SOURCE, [STALE_LEADING_OUTER_CONTEXT_HUNK], { fuzzy: false }),
     /context not found/,
   );
-  assert.throws(
-    () => applyV4AHunksToLines(OUTER_CONTEXT_SOURCE, [{
-      ...STALE_LEADING_OUTER_CONTEXT_HUNK,
-      isEndOfFile: true,
-    }]),
-    /context not found/,
-  );
+  // `*** End of File` is a hint: once the EOF-anchored seek misses, the hunk
+  // is treated as unmarked, so every recovery tier applies exactly as it does
+  // for the same hunk without the marker.
+  const applied = applyV4AHunksToLines(OUTER_CONTEXT_SOURCE, [{
+    ...STALE_LEADING_OUTER_CONTEXT_HUNK,
+    isEndOfFile: true,
+  }]);
+  assert.equal(applied.join('\n'), [
+    'const tools = {',
+    '  shell_step: {',
+    "    command: 'node test.js',",
+    '  },',
+    '};',
+  ].join('\n'));
 });

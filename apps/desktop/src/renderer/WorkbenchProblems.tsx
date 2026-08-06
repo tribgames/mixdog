@@ -96,7 +96,7 @@ export const WorkbenchProblemsFilter = memo(function WorkbenchProblemsFilter({
       placeholder={t("Filter problems")}
       aria-label={t("Filter Problems")} />
     {filter.query && <button type="button" aria-label={t("Clear Problems filter")}
-      onClick={() => update({ query: "" })}><X size={13} aria-hidden="true" /></button>}
+      onClick={() => update({ query: "" })}><X size={14} aria-hidden="true" /></button>}
   </label>;
 });
 
@@ -169,10 +169,10 @@ export const WorkbenchProblemsSeverityActions = memo(function WorkbenchProblemsS
 
 function ProblemSeverityIcon({ severity }: { severity: number }) {
   return severity === 1
-    ? <CircleX size={15} aria-hidden="true" />
+    ? <CircleX size={16} aria-hidden="true" />
     : severity === 2
-      ? <TriangleAlert size={15} aria-hidden="true" />
-      : <Info size={15} aria-hidden="true" />;
+      ? <TriangleAlert size={16} aria-hidden="true" />
+      : <Info size={16} aria-hidden="true" />;
 }
 
 export const WorkbenchProblemsPane = memo(function WorkbenchProblemsPane({
@@ -293,7 +293,7 @@ export const WorkbenchProblemsPane = memo(function WorkbenchProblemsPane({
               toggleGroup(relPath);
             }
           }}>
-          <ChevronRight size={15} aria-hidden="true" />
+          <ChevronRight size={16} aria-hidden="true" />
           <FileText size={14} aria-hidden="true" />
           <b>{name}</b>{parent && <small>{parent}</small>}
           <i>{problems.length}</i>

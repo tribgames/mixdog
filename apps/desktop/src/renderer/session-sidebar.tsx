@@ -519,14 +519,14 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                     label: "New Task",
                     ariaLabel: "New task",
                     className: "session-new-task",
-                    icon: <MessageCircle size={15} />,
+                    icon: <MessageCircle size={16} />,
                     run: onNewTask,
                   },
                   {
                     label: "New Studio",
                     ariaLabel: "New studio",
                     className: "session-new-studio",
-                    icon: <Sparkles size={15} />,
+                    icon: <Sparkles size={16} />,
                     run: onOpenStudio,
                     prefetch: onPrefetchStudio,
                   },
@@ -534,14 +534,14 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                     label: "New File",
                     ariaLabel: "New file",
                     className: "session-new-file",
-                    icon: <FileText size={15} />,
+                    icon: <FileText size={16} />,
                     run: onOpenFile,
                   },
                   {
                     label: "New Terminal",
                     ariaLabel: "New terminal",
                     className: "session-new-terminal",
-                    icon: <Terminal size={15} />,
+                    icon: <Terminal size={16} />,
                     run: onNewTerminal,
                   },
                 ].map((item) => <button type="button" role="menuitem" key={item.label}
@@ -597,8 +597,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                           ? <ProgressSpinner size={12} className="session-row-spinner" role="status"
                             aria-label={t("{{name}} is working", { name })} />
                           : expanded
-                            ? <ChevronDown size={13} aria-hidden="true" />
-                            : <ChevronRight size={13} aria-hidden="true" />}
+                            ? <ChevronDown size={14} aria-hidden="true" />
+                            : <ChevronRight size={14} aria-hidden="true" />}
                       </span>
                       <span className="session-row-copy">
                         <b>{name}</b>
@@ -1091,7 +1091,7 @@ const SessionRow = React.memo(function SessionRow({
               if (confirmingDelete) onCancelDelete();
               else void onArchiveSession(session.id, false).catch(() => {});
             }}>
-            {confirmingDelete ? <X size={13} /> : <ArchiveRestore size={13} />}
+            {confirmingDelete ? <X size={14} /> : <ArchiveRestore size={14} />}
           </button>
           <button type="button" className={`session-row-action ${confirmingDelete
             ? "session-row-delete-confirm" : "session-row-delete danger"}`}
@@ -1115,7 +1115,7 @@ const SessionRow = React.memo(function SessionRow({
             event.stopPropagation();
             void onArchiveSession(session.id, true).catch(() => {});
           }}>
-          <Archive size={13} />
+          <Archive size={14} />
         </button>}
       </div>
       {dragging ? createPortal(

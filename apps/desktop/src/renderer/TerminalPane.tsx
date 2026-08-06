@@ -510,7 +510,7 @@ export default function TerminalPane({
           title={t('Change terminal shell')}
           onClick={() => setShellMenuOpen((open) => !open)}>
           <span>{shellLabel}</span>
-          <ChevronDown size={13} aria-hidden="true" />
+          <ChevronDown size={14} aria-hidden="true" />
         </button>
         {shellMenuOpen && <div className="dock-terminal-shell-menu" role="menu"
           aria-label={t('Terminal shells')}>
@@ -527,7 +527,7 @@ export default function TerminalPane({
               setShell('');
             }}>
             <span>{defaultShellLabel}</span>
-            {!shell && <Check size={13} aria-hidden="true" />}
+            {!shell && <Check size={14} aria-hidden="true" />}
           </button>}
           {(profiles ?? []).map((profile) => <button type="button" role="menuitemradio"
             key={profile.id} aria-checked={profile.id === shell} title={profile.path}
@@ -538,7 +538,7 @@ export default function TerminalPane({
               setShell(profile.id);
             }}>
             <span>{profile.label}</span>
-            {profile.id === shell && <Check size={13} aria-hidden="true" />}
+            {profile.id === shell && <Check size={14} aria-hidden="true" />}
           </button>)}
         </div>}
       </div>

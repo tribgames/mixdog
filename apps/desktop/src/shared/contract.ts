@@ -434,6 +434,11 @@ export interface DesktopSubmitOptions {
   pastedTexts?: Record<string, DesktopPastedText>;
 }
 
+export interface DesktopAbortOptions {
+  /** Rewind a submitted prompt only when the composer was empty at cancel. */
+  restorePrompt?: boolean;
+}
+
 export interface DesktopNewTaskDraft {
   projectPath?: string;
   route?: DesktopModelSelection;
@@ -469,8 +474,8 @@ export const DESKTOP_CAPABILITIES = [
   'setProfile',
   'getCompactionSettings',
   'setCompactionSettings',
-  'getMemorySettings',
-  'setMemoryEnabled',
+  'getRecapSettings',
+  'setRecapEnabled',
   'getChannelSettings',
   'setChannelsEnabled',
   'getVoiceStatus',
@@ -536,7 +541,6 @@ export const DESKTOP_CAPABILITIES = [
   'getAgentDefinition',
   'saveAgentDefinition',
   'deleteAgentDefinition',
-  'setDefaultProvider',
   'listProviders',
   'getProviderSetup',
   'getUsageDashboard',
@@ -595,7 +599,7 @@ export const DESKTOP_READ_CAPABILITIES = [
   'getUpdateStatus',
   'getProfile',
   'getCompactionSettings',
-  'getMemorySettings',
+  'getRecapSettings',
   'getChannelSettings',
   'getVoiceStatus',
   'toolsStatus',
@@ -771,7 +775,7 @@ export interface DesktopSessionSummary {
   working?: boolean;
   /** Fresh heartbeat from a running child agent owned by this lead session. */
   agentWorking?: boolean;
-  /** Codex-style archive: hidden from Recent, restorable; file stays on disk. */
+  /** Archive: hidden from Recent, restorable; file stays on disk. */
   archived?: boolean;
   /** Automation origin: present on schedule/webhook runner sessions so the
    *  sidebar groups them under Automations instead of Recent. */
@@ -1542,23 +1546,23 @@ export interface DesktopApi {
     options?: DesktopSubmitOptions,
     draft?: DesktopNewTaskDraft,
   ): Promise<DesktopNewTaskSubmitResult>;
-  abort(): Promise<unknown>;
+  abort(options?: DesktopAbortOptions): Promise<unknown>;
   resolveToolApproval(id: string, decision: ToolApprovalDecision): Promise<boolean>;
   /** Split panes: prompt/abort/approvals addressed to any pooled live
    *  session (active or parked), keyed by sessionId. */
-  submitToSession?(
+  submitToSession(
     sessionId: string,
     prompt: DesktopPromptContent,
     options?: DesktopSubmitOptions,
   ): Promise<boolean>;
-  abortSession?(sessionId: string): Promise<unknown>;
-  resolveToolApprovalForSession?(
+  abortSession(sessionId: string, options?: DesktopAbortOptions): Promise<unknown>;
+  resolveToolApprovalForSession(
     sessionId: string,
     id: string,
     decision: ToolApprovalDecision,
   ): Promise<boolean>;
   /** Per-session live snapshot lane covering every pooled engine. */
-  subscribeSessionState?(listener: (update: DesktopSessionStateUpdate) => void): () => void;
+  subscribeSessionState(listener: (update: DesktopSessionStateUpdate) => void): () => void;
   listProviderModels(options?: DesktopModelCatalogOptions): Promise<DesktopModelOption[]>;
   /** sessionId addresses a PANE's session. Focus decides nothing here: each
    *  pane owns its own model/effort/fast. Omitted = the window's current

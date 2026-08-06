@@ -12,7 +12,6 @@ import {
     isSkillDisabled,
 } from '../../context/collect.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
-import { _isMutationTool } from './tool-classify.mjs';
 
 // Eager-dispatch: tools with readOnlyHint:true in their declaration are safe
 // to execute during SSE parsing so tool work overlaps with the rest of the
@@ -41,16 +40,13 @@ export function isEagerDispatchable(name, tools) {
     return set.has(name);
 }
 
-// Full-parallel dispatch policy: EVERY tool call in an assistant turn starts
-// executing immediately — ordering across dependent work is the MODEL's job
-// (split into separate turns). The only exception is the ordered mutation
-// (apply_patch), which stays in the serial batch body so multi-patch turns
-// keep deterministic order, the all-or-nothing failure gate, and cache
-// invalidation sequencing. isEagerDispatchable above remains the READ-ONLY
-// classifier used for dedup eligibility, steering, and post-mutation result
-// invalidation.
+// Full-parallel dispatch policy: EVERY valid tool call in an assistant turn
+// starts immediately. Mutations rely on their own conflict scope (apply_patch
+// uses per-path locks), so disjoint writes never wait behind a global barrier.
+// isEagerDispatchable above remains the READ-ONLY classifier used for dedup
+// eligibility, steering, and post-mutation result invalidation.
 export function isParallelDispatchable(name) {
-    return typeof name === 'string' && name.length > 0 && !_isMutationTool(name);
+    return typeof name === 'string' && name.length > 0;
 }
 
 // Read-only is necessary but not sufficient for result deduplication. Loader

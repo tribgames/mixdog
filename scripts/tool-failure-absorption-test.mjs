@@ -117,31 +117,20 @@ test('child project roots separate a single tree from a multi-repo parent', () =
   }
 });
 
-test('a transient host free-memory dip is re-measured instead of refused', async () => {
+test('host free-memory telemetry never delays or refuses valid work', async () => {
   let samples = 0;
   const admission = new ResourceAdmissionController({
     limits: { minFreeMemoryMb: 1024, maxRssMb: 0 },
     metrics: () => {
       samples += 1;
-      return { rssBytes: 10 * MB, freeMemoryBytes: (samples === 1 ? 700 : 4096) * MB };
+      return { rssBytes: 10 * MB, freeMemoryBytes: 700 * MB };
     },
     env: { MIXDOG_MEMORY_PRESSURE_RETRY_MS: '5' },
   });
   const lease = await admission.acquire('shell');
   assert.equal(admission.snapshot().active.shell, 1);
   await lease.release();
-});
-
-test('sustained free-memory pressure still rejects after the bounded retries', async () => {
-  const admission = new ResourceAdmissionController({
-    limits: { minFreeMemoryMb: 1024, maxRssMb: 0 },
-    metrics: () => ({ rssBytes: 10 * MB, freeMemoryBytes: 700 * MB }),
-    env: { MIXDOG_MEMORY_PRESSURE_RETRY_MS: '2' },
-  });
-  await assert.rejects(
-    admission.acquire('shell'),
-    (error) => error?.code === 'ERESOURCEPRESSURE' && /host free memory/.test(error.message),
-  );
+  assert.equal(samples, 1);
 });
 
 test('test runs never write to the default tool-failure log', async () => {

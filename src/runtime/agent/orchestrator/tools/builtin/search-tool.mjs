@@ -81,7 +81,7 @@ import {
     parseGrepCountLine,
 } from './lib/search-input-helpers.mjs';
 
-// CC parity (GrepTool.ts): a single glob string may pack multiple filters
+// A single glob string may pack multiple filters
 // separated by whitespace or commas, e.g. "*.ts,*.tsx" or "*.ts *.tsx". Split
 // each into its own --glob. Brace patterns ("*.{ts,tsx}") are left intact so
 // their internal commas are not torn apart.
@@ -127,19 +127,16 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     args = normalizeGrepArgs(args);
     args.path = coerceReadFamilyPathArg(args.path, workDir);
     const callContextCharBudget = _grepContextCharBudget(options);
-    // Fan-out guard: batch multiple string paths with bounded concurrency,
-    // mirroring code_graph files[] batching. Recursive calls pass a single
-    // string path, so recursion bottoms out after one level. Results are
-    // assembled below in input order, regardless of completion order.
+    // Batch multiple string paths concurrently. Recursive calls pass a single
+    // string path, so recursion bottoms out after one level. Results retain
+    // input order even though every path starts immediately.
     if (Array.isArray(args.path)) {
-        const GREP_PATH_CAP = 10;
-        const GREP_PATH_CONCURRENCY = 4;
         const seen = new Set();
         const list = args.path
             .map(p => typeof p === 'string' ? p.trim() : '')
             .filter(p => p && !seen.has(p) && seen.add(p));
         if (list.length > 1) {
-            const capped = list.slice(0, GREP_PATH_CAP);
+            const capped = list;
             // Combined single-spawn path[] fan-out (mirrors the pattern[]
             // combined path below): ONE rg run with every path as a positional
             // operand, then normalized-prefix attribution rebuilds the
@@ -151,7 +148,6 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             // per-path ENOENT/UNC diagnostics). MIXDOG_GREP_PATH_COMBINED=0
             // disables.
             combinedPaths: if (process.env.MIXDOG_GREP_PATH_COMBINED !== '0'
-                && list.length <= GREP_PATH_CAP
                 && !args.glob
                 && !args.type
                 && args.multiline !== true
@@ -340,38 +336,20 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             const configuredOutputCap = Number(options?.toolOutputMaxBytes) > 0
                 ? Math.trunc(Number(options.toolOutputMaxBytes))
                 : Math.trunc(Number(process.env.MIXDOG_TOOL_OUTPUT_MAX_BYTES));
-            const bodies = new Array(capped.length);
-            let next = 0;
-            const runWorker = async () => {
-                while (next < capped.length) {
-                    const index = next++;
-                    const p = capped[index];
-                    try {
-                        bodies[index] = await executeGrepTool(
-                            { ...args, path: p },
-                            workDir,
-                            executeChildBuiltinTool,
-                            readStateScope,
-                            nestedOptions,
-                        );
-                    } catch (err) {
-                        bodies[index] = `Error: ${err && err.message ? err.message : err}`;
-                    }
+            const bodies = await Promise.all(capped.map(async (p) => {
+                try {
+                    return await executeGrepTool(
+                        { ...args, path: p },
+                        workDir,
+                        executeChildBuiltinTool,
+                        readStateScope,
+                        nestedOptions,
+                    );
+                } catch (err) {
+                    return `Error: ${err && err.message ? err.message : err}`;
                 }
-            };
-            await Promise.all(
-                Array.from(
-                    { length: Math.min(GREP_PATH_CONCURRENCY, capped.length) },
-                    () => runWorker(),
-                ),
-            );
+            }));
             const parts = capped.map((p, index) => `# grep ${p}\n${bodies[index]}`);
-            if (list.length > GREP_PATH_CAP) {
-                parts.push(`[capped at ${GREP_PATH_CAP} of ${list.length} paths]`);
-                // Omitted paths mean the returned result cannot cover the whole
-                // requested path set — never let it be cached as complete.
-                if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
-            }
             const output = parts.join('\n\n');
             if (configuredOutputCap > 0
                 && Buffer.byteLength(output, 'utf8') > configuredOutputCap

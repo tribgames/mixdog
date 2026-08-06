@@ -50,6 +50,7 @@ import {
 } from '../src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs';
 import {
     createGeminiTextLeakGuard,
+    geminiChunkProgressKind,
 } from '../src/runtime/agent/orchestrator/providers/gemini-stream.mjs';
 import {
     parseToolCalls as geminiParseToolCalls,
@@ -83,6 +84,7 @@ import {
 } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { _convertMessagesToResponsesInputForTest } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { OpenAIDirectProvider } from '../src/runtime/agent/orchestrator/providers/openai-ws.mjs';
+import { isVisibleStreamProgress } from '../src/runtime/shared/stream-progress.mjs';
 
 // --- Helpers ---------------------------------------------------------------
 
@@ -2947,7 +2949,40 @@ test('responses transport policy: xai ws-full → WS, http-sse → HTTP', () => 
     assert.equal(http.allowHttpFallback, false);
 });
 
-test('openai-compat/xai: HTTP pin uses only the injected preconnect seam', async () => {
+test('stream progress excludes transport and response acknowledgements from visible TTFT', () => {
+    assert.equal(isVisibleStreamProgress('transport'), false);
+    assert.equal(isVisibleStreamProgress('semantic'), false);
+    assert.equal(isVisibleStreamProgress('text'), true);
+    assert.equal(isVisibleStreamProgress('reasoning'), true);
+    assert.equal(isVisibleStreamProgress('tool'), true);
+    assert.equal(isVisibleStreamProgress(undefined), false);
+    assert.equal(geminiChunkProgressKind({ usageMetadata: {} }), 'transport');
+    assert.equal(geminiChunkProgressKind({
+        candidates: [{ content: { parts: [{ thought: true, text: 'thinking' }] } }],
+    }), 'reasoning');
+    assert.equal(geminiChunkProgressKind({
+        candidates: [{ content: { parts: [{ thought: true, thoughtSignature: 'opaque' }] } }],
+    }), 'transport');
+    assert.equal(geminiChunkProgressKind({
+        candidates: [{ content: { parts: [{ text: 'answer' }] } }],
+    }), 'text');
+    assert.equal(geminiChunkProgressKind({
+        candidates: [{ content: { parts: [{ functionCall: { name: 'read' } }] } }],
+    }), 'tool');
+
+    const turnSource = readFileSync(
+        new URL('../src/session-runtime/session-turn-api.mjs', import.meta.url),
+        'utf8',
+    );
+    const recoverySource = readFileSync(
+        new URL('../src/runtime/agent/orchestrator/session/send-with-recovery.mjs', import.meta.url),
+        'utf8',
+    );
+    assert.match(turnSource, /if \(isVisibleStreamProgress\(args\[0\]\)\)/);
+    assert.match(recoverySource, /!turnFirstDelta && isVisibleStreamProgress\(kind\)/);
+});
+
+test('openai-compat/xai: constructor and HTTP send use only the injected preconnect seam', async () => {
     const prevTransport = process.env.MIXDOG_OAI_TRANSPORT;
     const prevFetch = globalThis.fetch;
     let outboundFetchAttempts = 0;
@@ -3042,6 +3077,7 @@ test('openai-compat/xai: HTTP pin uses only the injected preconnect seam', async
                 injectedPreconnectCalls += 1;
             },
         });
+        assert.equal(injectedPreconnectCalls, 1, 'constructor must start the origin warmup');
         let httpCalled = false;
         provider._doSendXaiResponses = async () => {
             httpCalled = true;
@@ -3053,7 +3089,7 @@ test('openai-compat/xai: HTTP pin uses only the injected preconnect seam', async
         const result = await provider._doSend([{ role: 'user', content: 'hi' }], 'grok-build', [], {});
         assert.equal(result.content, 'ok');
         assert.equal(httpCalled, true);
-        assert.equal(injectedPreconnectCalls, 1, 'only the injected preconnect seam must run');
+        assert.equal(injectedPreconnectCalls, 2, 'send must re-enter the injected TTL-gated warmup seam');
         assert.equal(outboundFetchAttempts, 0, 'stubbed provider test must remain network hermetic');
     } finally {
         globalThis.fetch = prevFetch;
@@ -3070,7 +3106,7 @@ test('grok-oauth: every OAuth model is pinned to the CLI proxy over HTTP/SSE', (
         process.env.MIXDOG_OAI_TRANSPORT = 'ws-delta';
         delete process.env.MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT;
         delete process.env.MIXDOG_GROK_OAUTH_TRANSPORT;
-        const provider = new GrokOAuthProvider({});
+        const provider = new GrokOAuthProvider({ preconnect: false });
 
         for (const model of ['grok-build-0.1', 'grok-build', 'grok-4.5']) {
             const inner = provider._ensureInner(`tok-${model}`, model);
@@ -3081,7 +3117,7 @@ test('grok-oauth: every OAuth model is pinned to the CLI proxy over HTTP/SSE', (
         // OAuth routing is a security boundary: even explicit WS settings
         // cannot send the session bearer to the fixed api.x.ai WS endpoint.
         process.env.MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT = 'websocket';
-        const pinnedProvider = new GrokOAuthProvider({ responsesTransport: 'websocket' });
+        const pinnedProvider = new GrokOAuthProvider({ preconnect: false, responsesTransport: 'websocket' });
         const pinned = pinnedProvider._ensureInner('tok-explicit', 'grok-4.5');
         assert.equal(pinned.config.responsesTransport, 'http');
         assert.equal(pinned.baseURL, 'https://cli-chat-proxy.grok.com/v1');
@@ -3132,7 +3168,7 @@ test('codex turn-state: captures server response header once, never synthesizes'
     // Server issues the token on a response header → captured.
     _captureTurnStateFromEvent(entry, { type: 'response.created', headers: { 'x-codex-turn-state': 'tok-1' } });
     assert.equal(entry.turnState, 'tok-1');
-    // OnceLock semantics: a later server token in the same turn does NOT overwrite.
+    // Write-once semantics: a later server token in the same turn does NOT overwrite.
     _captureTurnStateFromEvent(entry, { headers: { 'x-codex-turn-state': 'tok-2' } });
     assert.equal(entry.turnState, 'tok-1');
 });

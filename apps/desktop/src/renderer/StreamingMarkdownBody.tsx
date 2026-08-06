@@ -38,7 +38,9 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
 }) {
   const persistentCodeSource = isFencedCodeOnlyMarkdown(text);
   const [rendered, setRendered] = useState<RenderedMarkdownAst | null>(() => {
-    if (persistentCodeSource || !parse) return null;
+    // A cache read is free, so even a tail past the parse cap opens styled
+    // when the worker already holds its AST.
+    if (persistentCodeSource) return null;
     const root = readCachedStreamingMarkdownAst(parseText);
     return root ? { text: parseText, source: text, root } : null;
   });
@@ -108,7 +110,11 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   // dropping the block back to source-shaped text, at settlement too. Before
   // the first result, with a geometry-locked fenced script, or for a tail too
   // large to reparse per frame, the source fallback still applies.
-  if (!persistentCodeSource && parse && usable) {
+  // `parse` gates only whether NEW parses are requested. A tail past the cap
+  // keeps its last completed parse on screen — falling back to source there
+  // un-styled markdown that was already rendered, which is the one thing the
+  // reader must never see (opencode's projection never shows source either).
+  if (!persistentCodeSource && usable) {
     return <MarkdownAstBody root={usable.root} copyControl={copyControl} />;
   }
   return <MarkdownSourceFallback text={text} copyControl={copyControl} />;

@@ -10,7 +10,6 @@ import {
   workflowPresetId,
   WORKFLOW_ROUTE_SLOTS,
   FIXED_AGENT_SLOTS,
-  agentPresetSlot,
   normalizeAgentId,
   normalizeWorkflowId,
   workflowIdFromName,
@@ -24,6 +23,7 @@ import { ONBOARDING_VERSION } from './quick-search-models.mjs';
 import { findOutputStyle } from './output-styles.mjs';
 import { ensureProviderEnabled } from './config-helpers.mjs';
 import { fastCapableFor } from './model-capabilities.mjs';
+import { canonicalizeAgentRouteStorage } from '../runtime/shared/agent-route-config.mjs';
 
 // Onboarding + agents/workflows/output-style selection surface. Extracted
 // verbatim from the runtime API object; stateless helpers are imported directly
@@ -46,67 +46,54 @@ export function createWorkflowAgentsApi(deps) {
       // Search/agent picks) omits defaultRoute entirely and must NOT persist the
       // current route as Main or recreate the session.
       const config = getConfig();
-      const defaultRoute = hasOwn(payload, 'defaultRoute')
-        ? normalizeWorkflowRoute(payload.defaultRoute, getRoute())
-        : null;
       const workflowInput = payload.workflowRoutes && typeof payload.workflowRoutes === 'object'
         ? payload.workflowRoutes
         : {};
       const nextConfig = { ...config };
-      if (hasOwn(payload, 'defaultProvider')) {
-        const requested = clean(payload.defaultProvider);
-        if (requested) {
-          if (!isKnownProvider(requested)) throw new Error(`unknown provider "${payload.defaultProvider}"`);
-          nextConfig.defaultProvider = requested;
-        }
-      }
+      const defaultRoute = hasOwn(payload, 'defaultRoute')
+        ? normalizeWorkflowRoute(payload.defaultRoute, getRoute())
+        : null;
       let presets = Array.isArray(nextConfig.presets) ? nextConfig.presets.slice() : [];
-      const workflowRoutes = { ...(nextConfig.workflowRoutes || {}) };
-      const touchedWorkflowSlots = new Set();
+      const agentRoutes = { ...(nextConfig.agents || {}) };
 
       if (defaultRoute) {
         presets = upsertWorkflowPreset(presets, 'lead', defaultRoute);
-        workflowRoutes.lead = defaultRoute;
         nextConfig.default = workflowPresetId('lead');
       }
 
       for (const slot of WORKFLOW_ROUTE_SLOTS) {
+        if (!hasOwn(workflowInput, slot)) continue;
         const normalized = normalizeWorkflowRoute(workflowInput[slot]);
-        if (!normalized) continue;
-        workflowRoutes[slot] = normalized;
-        presets = upsertWorkflowPreset(presets, slot, normalized);
-        touchedWorkflowSlots.add(slot);
+        if (slot === 'lead') {
+          if (!normalized) continue;
+          presets = upsertWorkflowPreset(presets, 'lead', normalized);
+          nextConfig.default = workflowPresetId('lead');
+        } else if (slot === 'agent') {
+          if (normalized) agentRoutes.worker = normalized;
+          else delete agentRoutes.worker;
+        } else if (slot === 'explorer') {
+          if (normalized) agentRoutes.explore = normalized;
+          else delete agentRoutes.explore;
+        } else if (slot === 'memory') {
+          if (normalized) agentRoutes.maintainer = normalized;
+          else delete agentRoutes.maintainer;
+        }
       }
 
       nextConfig.presets = presets;
-      nextConfig.workflowRoutes = workflowRoutes;
-      nextConfig.maintenance = {
-        ...(nextConfig.maintenance || {}),
-        ...(touchedWorkflowSlots.has('explorer') ? { explore: normalizeWorkflowRoute(workflowRoutes.explorer) } : {}),
-        ...(touchedWorkflowSlots.has('memory') ? { memory: normalizeWorkflowRoute(workflowRoutes.memory) } : {}),
-      };
+      nextConfig.agents = agentRoutes;
       const agentInput = payload.agentRoutes && typeof payload.agentRoutes === 'object'
         ? payload.agentRoutes
         : null;
       if (agentInput) {
-        const nextAgents = { ...(nextConfig.agents || {}) };
-        const nextMaintenance = { ...(nextConfig.maintenance || {}) };
+        const nextAgents = { ...agentRoutes };
         for (const agent of FIXED_AGENT_SLOTS) {
+          if (!hasOwn(agentInput, agent.id)) continue;
           const routeToSave = normalizeWorkflowRoute(agentInput[agent.id]);
-          if (!routeToSave) continue;
-          nextAgents[agent.id] = routeToSave;
-          presets = upsertWorkflowPreset(presets, agentPresetSlot(agent.id), routeToSave);
-          if (agent.workflowSlot) {
-            workflowRoutes[agent.workflowSlot] = routeToSave;
-            presets = upsertWorkflowPreset(presets, agent.workflowSlot, routeToSave);
-            if (agent.id === 'explore') nextMaintenance.explore = routeToSave;
-            if (agent.id === 'maintainer') nextMaintenance.memory = routeToSave;
-          }
+          if (routeToSave) nextAgents[agent.id] = routeToSave;
+          else delete nextAgents[agent.id];
         }
         nextConfig.agents = nextAgents;
-        nextConfig.presets = presets;
-        nextConfig.workflowRoutes = workflowRoutes;
-        nextConfig.maintenance = nextMaintenance;
       }
       nextConfig.onboarding = {
         ...(nextConfig.onboarding || {}),
@@ -116,11 +103,13 @@ export function createWorkflowAgentsApi(deps) {
       };
 
       if (payload.searchRoute) {
-        const searchToSave = normalizeSearchRouteConfig(payload.searchRoute);
+        const searchToSave = clean(payload.searchRoute.provider)
+          ? normalizeSearchRouteConfig(payload.searchRoute)
+          : normalizeSearchRouteConfig({ provider: 'default', model: 'default', toolType: payload.searchRoute.toolType });
         if (searchToSave) nextConfig.searchRoute = searchToSave;
       }
 
-      saveConfigAndAdopt(nextConfig);
+      saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
       if (defaultRoute) {
         setRouteState(resolveRoute(getConfig(), { provider: defaultRoute.provider, model: defaultRoute.model, effort: defaultRoute.effort }));
         const session = getSession();
@@ -362,12 +351,6 @@ export function createWorkflowAgentsApi(deps) {
       clearAgentDefinitionCache(id);
       if (payload.route) {
         await this.setAgentRoute(id, payload.route);
-      } else if (!FIXED_AGENT_SLOTS.some((agent) => agent.id === id)
-        && !agentRouteFromConfig(getConfig(), id, dataDir)) {
-        // Custom roles have no built-in preset fallback, so a model-less save
-        // would spawn as `agent "<id>" has no model assignment`. Seed the
-        // current default route; an unconfigured install just stays routeless.
-        try { await this.setAgentRoute(id, {}); } catch { /* no default route yet */ }
       }
       return this.getAgentDefinition(id);
     },
@@ -412,10 +395,7 @@ export function createWorkflowAgentsApi(deps) {
           delete agents[id];
           nextConfig.agents = agents;
         }
-        const presetId = workflowPresetId(agentPresetSlot(id));
-        nextConfig.presets = (Array.isArray(nextConfig.presets) ? nextConfig.presets : [])
-          .filter((preset) => clean(preset?.id) !== presetId);
-        saveConfigAndAdopt(nextConfig);
+        saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
       }
       return { id, deleted: true, revertedToBuiltIn };
     },
@@ -435,23 +415,31 @@ export function createWorkflowAgentsApi(deps) {
       const requested = { ...(next || {}) };
       const routeDataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const stored = agentRouteFromConfig(getConfig(), id, routeDataDir) || {};
-      // A request with neither provider nor model is the "seed from the current
-      // default" path (new custom agent) and inherits Main verbatim.
-      const inheritsDefault = !clean(requested.provider) && !clean(requested.model);
-      let selectedRoute = resolveRoute(getConfig(), requested);
-      if (!inheritsDefault) {
-        const sameModel = clean(selectedRoute.provider) === clean(stored.provider)
-          && clean(selectedRoute.model) === clean(stored.model);
-        selectedRoute = {
-          ...selectedRoute,
-          effort: requested.effort !== undefined
-            ? selectedRoute.effort
-            : (sameModel ? (stored.effort || null) : null),
-          fast: requested.fast !== undefined
-            ? selectedRoute.fast === true
-            : (sameModel && stored.fast === true),
-        };
+      // No provider means no explicit override. Remove the stored route so the
+      // agent follows Main dynamically; never synthesize a provider.
+      if (!clean(requested.provider)) {
+        const nextConfig = { ...getConfig() };
+        const agents = { ...(nextConfig.agents || {}) };
+        const hadOverride = Object.prototype.hasOwnProperty.call(agents, id);
+        delete agents[id];
+        nextConfig.agents = agents;
+        if (hadOverride) saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
+        const inherited = normalizeWorkflowRoute(resolveRoute(getConfig(), {}));
+        return { ...(inherited || {}), inherited: true };
       }
+      if (!clean(requested.model)) throw new Error('agent route requires provider and model');
+      let selectedRoute = resolveRoute(getConfig(), requested);
+      const sameModel = clean(selectedRoute.provider) === clean(stored.provider)
+        && clean(selectedRoute.model) === clean(stored.model);
+      selectedRoute = {
+        ...selectedRoute,
+        effort: requested.effort !== undefined
+          ? selectedRoute.effort
+          : (sameModel ? (stored.effort || null) : null),
+        fast: requested.fast !== undefined
+          ? selectedRoute.fast === true
+          : (sameModel && stored.fast === true),
+      };
       await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
       const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
       const fastCapable = fastCapableFor(selectedRoute.provider, modelMeta);
@@ -459,26 +447,12 @@ export function createWorkflowAgentsApi(deps) {
 
       const routeToSave = normalizeWorkflowRoute(selectedRoute);
       if (!routeToSave) throw new Error('agent route requires provider and model');
-      const agent = FIXED_AGENT_SLOTS.find((item) => item.id === id);
       const nextConfig = { ...getConfig() };
       nextConfig.agents = {
         ...(nextConfig.agents || {}),
         [id]: routeToSave,
       };
-      nextConfig.presets = upsertWorkflowPreset(nextConfig.presets, agentPresetSlot(id), routeToSave);
-      if (agent?.workflowSlot) {
-        nextConfig.workflowRoutes = {
-          ...(nextConfig.workflowRoutes || {}),
-          [agent.workflowSlot]: routeToSave,
-        };
-        nextConfig.presets = upsertWorkflowPreset(nextConfig.presets, agent.workflowSlot, routeToSave);
-        nextConfig.maintenance = {
-          ...(nextConfig.maintenance || {}),
-          ...(id === 'explore' ? { explore: routeToSave } : {}),
-          ...(id === 'maintainer' ? { memory: routeToSave } : {}),
-        };
-      }
-      saveConfigAndAdopt(nextConfig);
+      saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
       return routeToSave;
     },
   };

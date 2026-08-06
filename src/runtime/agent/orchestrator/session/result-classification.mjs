@@ -96,3 +96,23 @@ export function isInformationalShellExitOne(result) {
     if (payload.startsWith('[stderr') || payload.includes('\n[stderr')) return false;
     return true;
 }
+
+/**
+ * Shell-result outcome test. The shell tool reports failure through its OWN
+ * status markers (bash-tool.mjs `_shellFailureStatus`): `Error:
+ * [shell-run-failed] …`, `Error: [shell-tool-failed] …`, or a bare
+ * `[exit code: N]` / `[timeout: …]` / `[signal: …]` marker — optionally behind
+ * ⚠️ destructive-warning lines, which are prepended AFTER the error prefix is
+ * composed. A generic leading `Error:` is NOT a shell failure: it is just as
+ * likely the command's own stdout, which is why classifyResultKind (correct
+ * for tools that own the `Error:` convention) over-reports on shell output.
+ *
+ * @param {unknown} result
+ * @returns {boolean}
+ */
+export function isShellFailureResult(result) {
+    if (typeof result !== 'string') return false;
+    const body = result.replace(/^(?:\s*⚠️[^\n]*\n)+/, '').trimStart();
+    if (/^error:\s*\[shell-(?:run|tool)-failed\]/i.test(body)) return true;
+    return /^\[(?:exit code:|timeout:|signal:)/i.test(body);
+}

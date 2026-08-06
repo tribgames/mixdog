@@ -88,16 +88,12 @@ export async function executeListTool(args, workDir, options = {}) {
     args.path = coerceReadFamilyPathArg(args.path, workDir);
     if (Array.isArray(args.path)) {
         const list = [...new Set(args.path.map((p) => (typeof p === 'string' ? p.trim() : '')).filter((p) => p.length > 0))];
-        const capped = list.length > 10;
-        const targets = capped ? list.slice(0, 10) : list;
+        const targets = list;
         if (targets.length > 1) {
-            // Bounded parallel fan-out: each target is an independent listing
+            // Full parallel fan-out: each target is an independent listing
             // (own guard/cache/reachability), so run them concurrently instead
             // of serially. Bodies land in a fixed-index array so the emitted
-            // section order still matches the caller's `path[]` order — only the
-            // wall-clock cost changes. Concurrency is capped so a 10-path batch
-            // cannot exhaust the child-spawn / FS-handle budget.
-            const LIST_FANOUT_CONCURRENCY = 4;
+            // section order still matches the caller's `path[]` order.
             // Collapse semantic-duplicate targets: two spellings that resolve to
             // the same directory (e.g. `foo` and `./foo`) are stat'd/walked ONCE.
             // Each caller label keeps its own `# list <p>` section reusing the
@@ -116,24 +112,14 @@ export async function executeListTool(args, workDir, options = {}) {
                 if (!repByKey.has(k)) { repByKey.set(k, targets[i]); uniqueKeys.push(k); }
             }
             const bodyByKey = new Map();
-            let cursor = 0;
-            const runWorker = async () => {
-                for (;;) {
-                    const i = cursor++;
-                    if (i >= uniqueKeys.length) return;
-                    const k = uniqueKeys[i];
-                    try {
-                        bodyByKey.set(k, await executeListTool({ ...args, path: repByKey.get(k) }, workDir, options));
-                    } catch (err) {
-                        bodyByKey.set(k, `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`);
-                    }
+            await Promise.all(uniqueKeys.map(async (k) => {
+                try {
+                    bodyByKey.set(k, await executeListTool({ ...args, path: repByKey.get(k) }, workDir, options));
+                } catch (err) {
+                    bodyByKey.set(k, `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`);
                 }
-            };
-            await Promise.all(
-                Array.from({ length: Math.min(LIST_FANOUT_CONCURRENCY, uniqueKeys.length) }, runWorker),
-            );
+            }));
             const sections = targets.map((p, i) => `# list ${p}\n${bodyByKey.get(keyByIndex[i])}`);
-            if (capped) sections.push(`... [capped at 10 of ${list.length} paths]`);
             return sections.join('\n\n');
         }
         args.path = targets[0];
@@ -582,8 +568,7 @@ async function getTargetedFindEnumeration({
 export async function executeFuzzyFindTool(args, workDir, options = {}) {
     if (Array.isArray(args.query)) {
         const list = [...new Set(args.query.map((q) => (typeof q === 'string' ? q.trim() : '')).filter((q) => q.length > 0))];
-        const capped = list.length > 5;
-        const targets = capped ? list.slice(0, 5) : list;
+        const targets = list;
         if (targets.length > 1) {
             // head_limit is one call-level result budget, not a multiplier per
             // query. Split it deterministically in caller order; if it cannot
@@ -601,7 +586,6 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
                     + `retry query=${JSON.stringify(omittedByHeadLimit)}]`,
                 );
             }
-            if (capped) notes.push(`... [capped at 5 of ${list.length} queries]`);
             const sectionHeaders = activeTargets.map((query) => `# find ${query}\n`);
             const separatorBytes = Math.max(0, activeTargets.length + notes.length - 1) * 2;
             const fixedBytes = sectionHeaders.reduce(

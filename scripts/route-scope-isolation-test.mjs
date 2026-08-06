@@ -1,4 +1,4 @@
-// Route-scope isolation: Main, workflow-agent, and search routes each own their
+// Route-scope isolation: Main, canonical agent, and search routes each own their
 // model + effort + fast. config.modelSettings[provider/model] is MAIN-only
 // state (resolveRoute reads it with priority over the lead preset), so an agent
 // or search pick that reuses Main's model must neither read nor rewrite it.
@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 import { createWorkflowAgentsApi } from '../src/session-runtime/workflow-agents-api.mjs';
 import { createModelRouteApi } from '../src/session-runtime/model-route-api.mjs';
-import { findPreset, makeResolveRoute } from '../src/session-runtime/config-helpers.mjs';
+import { findPreset, makeResolveDefaultProvider, makeResolveRoute } from '../src/session-runtime/config-helpers.mjs';
 import { createWorkflowRouteHelpers } from '../src/session-runtime/workflow.mjs';
 
 const PROVIDER = 'anthropic-oauth';
@@ -30,7 +30,6 @@ function baseConfig() {
       effort: 'high',
       tools: 'full',
     }],
-    workflowRoutes: { lead: { provider: PROVIDER, model: MAIN_MODEL, effort: 'high' } },
     agents: { worker: { provider: PROVIDER, model: MAIN_MODEL, effort: 'medium' } },
     modelSettings: { [MAIN_KEY]: { effort: 'high', fast: true } },
     fastModels: {},
@@ -122,6 +121,14 @@ test('agent route change preserves the Main model, effort and fast', async () =>
   assert.equal(main.fast, true);
 });
 
+test('providerless raw Main selector uses the selected Main provider', () => {
+  const resolveSelectedMainProvider = makeResolveDefaultProvider((provider) => provider === PROVIDER);
+  const resolveSelectedMainRoute = makeResolveRoute(resolveSelectedMainProvider);
+  const route = resolveSelectedMainRoute(baseConfig(), { model: 'replacement-main-model' });
+  assert.equal(route.provider, PROVIDER);
+  assert.equal(route.model, 'replacement-main-model');
+});
+
 test('agent route without an explicit effort does not inherit Main effort', async () => {
   const { workflowApi, getConfig } = harness();
   await workflowApi.setAgentRoute('worker', { provider: PROVIDER, model: 'claude-sonnet-4-5' });
@@ -135,6 +142,52 @@ test('agent route keeps its own effort when only the effort changes', async () =
   const { workflowApi, getConfig } = harness();
   await workflowApi.setAgentRoute('worker', { provider: PROVIDER, model: MAIN_MODEL });
   assert.equal(getConfig().agents.worker.effort, 'medium');
+});
+
+test('Explore route writes only the canonical agents slot', async () => {
+  const { workflowApi, getConfig } = harness();
+  await workflowApi.setAgentRoute('explore', { provider: PROVIDER, model: 'claude-sonnet-4-5' });
+  const config = getConfig();
+  assert.equal(config.agents.explore.model, 'claude-sonnet-4-5');
+  assert.equal(config.workflowRoutes, undefined);
+  assert.equal(config.maintenance?.explore, undefined);
+  assert.equal(config.presets.some((preset) => String(preset.id).includes('explore')), false);
+});
+
+test('providerless agent selection removes the override and inherits Main', async () => {
+  const { workflowApi, getConfig } = harness();
+  const inherited = await workflowApi.setAgentRoute('worker', { model: 'providerless-model' });
+  assert.equal(inherited.inherited, true);
+  assert.equal(inherited.provider, PROVIDER);
+  assert.equal(inherited.model, MAIN_MODEL);
+  assert.equal(getConfig().agents.worker, undefined);
+});
+
+test('onboarding model-only routes do not create overrides', async () => {
+  const { workflowApi, getConfig } = harness();
+  workflowApi.getOnboardingStatus = () => ({});
+  await workflowApi.setAgentRoute('explore', { provider: PROVIDER, model: 'old-explore-model' });
+  await workflowApi.completeOnboarding({
+    defaultProvider: PROVIDER,
+    workflowRoutes: {
+      explorer: { model: 'claude-sonnet-4-5' },
+    },
+    searchRoute: { model: MAIN_MODEL },
+  });
+  const config = getConfig();
+  assert.equal(config.agents.explore, undefined);
+  assert.deepEqual(config.searchRoute, {
+    provider: 'default',
+    model: 'default',
+  });
+  assert.equal(config.defaultProvider, undefined);
+});
+
+test('providerless search selection stores follows-Main instead of reusing the old provider', async () => {
+  const { modelApi, getConfig } = harness();
+  const route = await modelApi.setSearchRoute({ model: 'ignored-providerless-model' });
+  assert.deepEqual(route, { provider: 'default', model: 'default' });
+  assert.deepEqual(getConfig().searchRoute, { provider: 'default', model: 'default' });
 });
 
 test('search route change preserves the Main model, effort and fast', async () => {

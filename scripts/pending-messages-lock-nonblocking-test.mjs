@@ -58,7 +58,7 @@ test('held pending spool lock does not block the completion-loop drain', async (
   assert.equal(acknowledged.sessions[sid], undefined);
 });
 
-test('foreign-injection polling never waits synchronously on a live spool writer', () => {
+test('foreign-injection polling never waits on a live spool writer', async () => {
   const sid = 'sess_foreign_lock_held';
   const spool = join(dataDir, 'session-pending-messages.json');
   const lock = `${spool}.lock`;
@@ -70,12 +70,39 @@ test('foreign-injection polling never waits synchronously on a live spool writer
   }));
   writeFileSync(lock, `${process.pid} ${Date.now()} async-writer\n`);
   const started = Date.now();
-  assert.deepEqual(drainForeignUserInjections(sid), []);
+  assert.deepEqual(await drainForeignUserInjections(sid), []);
   assert.ok(Date.now() - started < 50, `foreign drain blocked ${Date.now() - started}ms`);
   unlinkSync(lock);
-  assert.deepEqual(drainForeignUserInjections(sid), [
+  assert.deepEqual(await drainForeignUserInjections(sid), [
     { text: 'from another surface', id: 'foreign-1' },
   ]);
+});
+
+test('64 session injection polls collapse into one non-blocking spool batch', async () => {
+  const spool = join(dataDir, 'session-pending-messages.json');
+  const now = Date.now();
+  const sessionIds = Array.from({ length: 64 }, (_, index) => `sess_batch_${index}`);
+  writeFileSync(spool, JSON.stringify({
+    version: 1,
+    updatedAt: now,
+    sessions: Object.fromEntries(sessionIds.map((sid, index) => [
+      sid,
+      [{ id: `foreign-${index}`, message: `message-${index}`, enqueuedAt: now }],
+    ])),
+    sessionTouchedAt: Object.fromEntries(sessionIds.map((sid) => [sid, now])),
+  }));
+  let loopTicked = false;
+  setTimeout(() => { loopTicked = true; }, 0);
+  const started = Date.now();
+  const drained = await Promise.all(sessionIds.map((sid) => drainForeignUserInjections(sid)));
+  assert.equal(loopTicked, true, 'batch yields to the event loop before filesystem work');
+  assert.ok(Date.now() - started < 500, `batched drains took ${Date.now() - started}ms`);
+  assert.deepEqual(
+    drained.map((entries) => entries[0]?.text),
+    sessionIds.map((_, index) => `message-${index}`),
+  );
+  const stored = JSON.parse(readFileSync(spool, 'utf8'));
+  assert.equal(Object.keys(stored.sessions).length, 0);
 });
 
 test.after(() => {

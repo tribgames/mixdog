@@ -1,4 +1,4 @@
-// Free 64-pane stress regression: real daemon HTTP/SSE transport, stub engines.
+// Free 128-pane stress regression: real daemon HTTP/SSE transport, stub engines.
 // No provider, model, memory daemon, or external network request is involved.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,7 +7,7 @@ import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const PANE_COUNT = 64;
+const PANE_COUNT = 128;
 const STREAM_STEPS = 8;
 const ACK_P95_LIMIT_MS = 1_500;
 const FIRST_TOKEN_P95_LIMIT_MS = 1_500;
@@ -134,7 +134,7 @@ function waitFor(predicate, message, timeoutMs = COMPLETION_LIMIT_MS) {
   });
 }
 
-test('64 panes submit and stream concurrently without starvation or cross-session bleed', async (t) => {
+test('128 panes submit and stream concurrently without starvation or cross-session bleed', async (t) => {
   let transport;
   const states = new Map();
   const firstTokenAt = new Map();

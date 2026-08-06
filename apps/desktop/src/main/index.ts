@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import * as nodeModule from 'node:module';
 import { constants as osConstants, setPriority } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -174,17 +174,32 @@ if (process.env.MIXDOG_DESKTOP_PERF === '1') {
   });
 }
 
+function desktopBackendModuleUrl(): string {
+  const modulePath = app.isPackaged
+    ? join(
+      process.resourcesPath,
+      'app.asar.unpacked',
+      'out',
+      'main',
+      'desktop-backend-daemon.cjs',
+    )
+    : join(__dirname, 'desktop-backend-daemon.cjs');
+  const moduleUrl = pathToFileURL(modulePath);
+  let artifact = app.getVersion();
+  try {
+    const stat = statSync(modulePath);
+    artifact = `${artifact}:${stat.size}:${Math.trunc(stat.mtimeMs)}`;
+  } catch {
+    // The daemon reports the eventual import failure with the concrete path.
+  }
+  moduleUrl.searchParams.set('build', artifact);
+  return moduleUrl.href;
+}
+
+let diagnostics: DesktopDiagnostics | null = null;
 const backendClient = new DesktopBackendClient({
   connect: () => new DaemonEngineTransport(
-    pathToFileURL(app.isPackaged
-      ? join(
-        process.resourcesPath,
-        'app.asar.unpacked',
-        'out',
-        'main',
-        'desktop-backend-daemon.cjs',
-      )
-      : join(__dirname, 'desktop-backend-daemon.cjs')).href,
+    desktopBackendModuleUrl(),
     process.cwd(),
   ),
   engineOptions: () => ({
@@ -198,6 +213,12 @@ const backendClient = new DesktopBackendClient({
   }),
   initialSnapshot: readDesktopModelBootstrapSnapshot(),
   onDiagnostic: (event, data) => {
+    diagnostics?.write(
+      event,
+      event === 'backend-transport-error'
+        ? { type: String(data.type || '') }
+        : data,
+    );
     console.error(`[mixdog] ${event}`, data);
   },
 });
@@ -249,10 +270,12 @@ const backendTerminalManager = {
     return { id: String(result.id || ''), replay: String(result.replay || '') };
   },
   write(id: string, data: string): void {
-    void backendClient.backendInvoke('termWrite', [id, data]).catch(() => {});
+    // Keystrokes take the fire-and-forget lane: a response frame per keypress
+    // only queued the input behind whatever engine request was in flight.
+    backendClient.backendNotify('termWrite', [id, data]);
   },
   resize(id: string, cols: number, rows: number): void {
-    void backendClient.backendInvoke('termResize', [id, cols, rows]).catch(() => {});
+    backendClient.backendNotify('termResize', [id, cols, rows]);
   },
   pauseOutput(id: string): void {
     void backendClient.backendInvoke('termPause', [id]).catch(() => {});
@@ -291,7 +314,6 @@ let disposalPromise: Promise<void> | null = null;
 const DESKTOP_DISPOSE_TIMEOUT_MS = 4_000;
 let windowState: ReturnType<typeof persistWindowState> | null = null;
 let windowStateFlush: Promise<void> = Promise.resolve();
-let diagnostics: DesktopDiagnostics | null = null;
 let diagnosticsMemoryTimer: NodeJS.Timeout | null = null;
 let diagnosticsEventLoopTimer: NodeJS.Timeout | null = null;
 let deferredServicesPromise: Promise<void> | null = null;

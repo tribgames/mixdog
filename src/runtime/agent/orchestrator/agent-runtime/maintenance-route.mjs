@@ -1,16 +1,10 @@
-import { isKnownProvider } from '../../../../standalone/provider-admin.mjs';
+import { configuredAgentRouteCandidates } from '../../../shared/agent-route-config.mjs';
 import { loadConfig } from '../config.mjs';
 import { getHiddenAgent } from '../internal-agents.mjs';
 
-const DEFAULT_AGENT_ROUTE_PROVIDER = 'anthropic-oauth';
-
-function normalizeMaintenanceCandidate(candidate, config) {
+function normalizeMaintenanceCandidate(candidate) {
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return candidate || null;
-    const configuredProvider = String(config?.defaultProvider || '').trim();
-    const fallbackProvider = isKnownProvider(configuredProvider)
-        ? configuredProvider
-        : DEFAULT_AGENT_ROUTE_PROVIDER;
-    const provider = String(candidate.provider || fallbackProvider).trim();
+    const provider = String(candidate.provider || '').trim();
     const model = String(candidate.model || '').trim();
     if (!provider || !model) return null;
     return {
@@ -34,20 +28,15 @@ export function resolveMaintenanceRoute({ preset, optsPreset, agent, config: cfg
     if (hidden) {
         try {
             const config = cfgIn || loadConfig({ secrets: false });
-            const maint = config?.maintenance || {};
             const key = hidden.maintKey || hidden.slot;
             const role = key === 'explore' ? 'explore' : (key === 'memory' ? 'maintainer' : '');
-            const workflowSlot = key === 'explore' ? 'explorer' : (key === 'memory' ? 'memory' : '');
-            if (!role) return maint[key] ?? null;
+            if (!role) return config?.maintenance?.[key] ?? null;
             const candidates = [
-                role ? config?.agents?.[role] : null,
-                key === 'memory' ? config?.agents?.maintenance : null,
-                workflowSlot ? config?.workflowRoutes?.[workflowSlot] : null,
-                maint[key],
+                ...configuredAgentRouteCandidates(config, role),
                 role ? config?.default : null,
             ];
             for (const candidate of candidates) {
-                const route = normalizeMaintenanceCandidate(candidate, config);
+                const route = normalizeMaintenanceCandidate(candidate);
                 if (route) return route;
             }
             return null;

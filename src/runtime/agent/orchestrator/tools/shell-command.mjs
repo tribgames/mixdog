@@ -75,8 +75,8 @@ const SHELL_ADMISSION_WAIT_MS = Number.isFinite(_envAdmissionWait) && _envAdmiss
   ? _envAdmissionWait
   : 30_000;
 
-// CC parity default: capture child output via file fds (TaskOutput direct
-// mode) instead of parent-side pipes. Opt back into pipe capture with
+// Default: capture child output via file fds (direct mode) instead of
+// parent-side pipes. Opt back into pipe capture with
 // MIXDOG_SHELL_PIPE_CAPTURE=1 (diagnostic escape hatch).
 // win32 EXCEPTION: fd-based stdio entries are UV_INHERIT_FD, which makes
 // libuv DROP CREATE_NO_WINDOW (libuv PR #1659) — the child shell then
@@ -145,9 +145,13 @@ function _abortableDelay(ms, signal) {
   });
 }
 
-export async function acquireShellLeaseBounded(admission, { abortSignal, label, dependency = 'scoped' } = {}) {
+export async function acquireShellLeaseBounded(admission, {
+  abortSignal, label, dependency = 'scoped', ownerKey = null,
+} = {}) {
   if (!(SHELL_ADMISSION_WAIT_MS > 0)) {
-    return admission.acquire('shell', { signal: abortSignal || null, label, dependency });
+    return admission.acquire('shell', {
+      signal: abortSignal || null, label, dependency, ownerKey,
+    });
   }
   const ctl = new AbortController();
   const onAbort = () => {
@@ -165,7 +169,9 @@ export async function acquireShellLeaseBounded(admission, { abortSignal, label, 
   try {
     for (;;) {
       try {
-        const lease = await admission.acquire('shell', { signal: ctl.signal, label, dependency });
+        const lease = await admission.acquire('shell', {
+          signal: ctl.signal, label, dependency, ownerKey,
+        });
         // Hand governance back to the caller's signal: the internal deadline
         // controller may still fire in a lost race after grant, and a stale
         // aborted signal on the lease would poison later parent-restore paths.
@@ -363,6 +369,7 @@ export function execShellCommand({
       resourceLease = await acquireShellLeaseBounded(admission, {
         abortSignal,
         label: String(command || '').slice(0, 120),
+        ownerKey: ownerSessionId,
       });
       const _policyErr = await _execPolicyBlockMessage(command);
       if (_policyErr) {
@@ -443,7 +450,6 @@ export function execShellCommand({
         childPid: child.pid,
         childGroupPid: child.pid,
         label: 'shell-command',
-        protectHostMemory: true,
       });
       // Windows has no process-group handle. Begin observing while the owned
       // root still exists so descendants can be proven before root exit.
@@ -855,7 +861,7 @@ export function execShellCommand({
         }));
         return;
       }
-      // CC parity (BashTool completed-during-promotion race): the child
+      // Completed-during-promotion race: the child
       // finished while adoption was committing. Report a clean COMPLETED
       // result instead of backgrounded — the caller then never arms the
       // completion watcher, so no redundant task notification fires. Write

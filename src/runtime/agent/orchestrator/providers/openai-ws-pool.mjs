@@ -323,10 +323,9 @@ function _buildHandshakeHeaders({ auth, sessionToken, turnState, cacheKey: _cach
             'chatgpt-account-id': auth.account_id || '',
             'originator': codexOriginator(),
             'OpenAI-Beta': 'responses_websockets=2026-02-06',
-            // codex-rs merges provider http_headers ("version") plus
-            // default_headers (User-Agent) into the WS handshake
-            // (client.rs:970-975, model-provider-info/src/lib.rs:339-343,
-            // login default_client.rs:289-305). The backend fingerprints
+            // The reference client merges provider http_headers ("version")
+            // plus default headers (User-Agent) into the WS handshake.
+            // The backend fingerprints
             // clients on these; missing them can route us onto a different
             // (colder) cache-node class than codex.
             'User-Agent': codexUserAgent(),

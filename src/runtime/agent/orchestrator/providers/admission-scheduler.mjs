@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-// Unbounded by design: provider requests must never serialize behind a local
-// concurrency cap. Rate-limit cooldowns below (server-mandated retry-after)
-// remain the only thing that parks/rejects requests; with an infinite limit
-// the adaptive halving/recovery below is inert.
+// Normal provider traffic is not concurrency-gated. Independent sessions and
+// accounts start immediately; a finite limit exists only when an operator
+// explicitly configures one, or after that account reports a real 429.
 export const PROVIDER_ACCOUNT_CONCURRENCY = Infinity;
 export const PROVIDER_ACCOUNT_MAX_QUEUE = 1024;
 // A cooldown longer than this is a quota-window block (subscription limit),
@@ -13,6 +12,21 @@ export const PROVIDER_ACCOUNT_MAX_QUEUE = 1024;
 export const PROVIDER_COOLDOWN_FAIL_FAST_MS = 60_000;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const currentAdmission = new AsyncLocalStorage();
+const PRIORITY_RANK = Object.freeze({
+    'user-blocking': 0,
+    'user-visible': 1,
+    'best-effort': 2,
+});
+
+function normalizePriority(value) {
+    const key = String(value || 'user-visible').toLowerCase();
+    return Object.hasOwn(PRIORITY_RANK, key) ? key : 'user-visible';
+}
+
+export function currentProviderAdmissionOwner() {
+    const active = currentAdmission.getStore();
+    return active?.ownerKey ? String(active.ownerKey) : null;
+}
 
 function abortError(signal, fallback = 'provider request canceled') {
     return signal?.reason instanceof Error
@@ -110,10 +124,10 @@ export class ProviderAdmissionScheduler {
         setTimer = setTimeout,
         clearTimer = clearTimeout,
     } = {}) {
-        this.concurrency = Math.min(
-            PROVIDER_ACCOUNT_CONCURRENCY,
-            Math.max(1, Math.floor(Number(concurrency) || PROVIDER_ACCOUNT_CONCURRENCY)),
-        );
+        const parsedConcurrency = Math.floor(Number(concurrency));
+        this.concurrency = Number.isFinite(parsedConcurrency) && parsedConcurrency >= 1
+            ? parsedConcurrency
+            : Infinity;
         this.maxQueue = configuredQueueBound(maxQueue);
         this.now = now;
         this.setTimer = setTimer;
@@ -160,7 +174,9 @@ export class ProviderAdmissionScheduler {
             limit: this.concurrency,
             cooldownUntil: 0,
             recoverySuccesses: 0,
+            recoveryTarget: null,
             cooldownTimer: null,
+            fairCursor: null,
         };
         if (!lane.adaptive || until <= lane.cooldownUntil) return false;
         this.lanes.set(laneKey, lane);
@@ -175,8 +191,15 @@ export class ProviderAdmissionScheduler {
         return true;
     }
 
-    run(key, task, { signal = null, onCooldownWait = null } = {}) {
+    run(key, task, {
+        signal = null,
+        onCooldownWait = null,
+        ownerKey = null,
+        priority = 'user-visible',
+    } = {}) {
         const laneKey = String(key || 'provider:default');
+        const owner = String(ownerKey || 'anonymous').trim().slice(0, 240) || 'anonymous';
+        const taskPriority = normalizePriority(priority);
         // Provider-local recovery may recursively call this.send(). It already
         // owns a slot, so reacquiring the same lane could deadlock a full wave.
         const current = this.context.getStore();
@@ -193,7 +216,9 @@ export class ProviderAdmissionScheduler {
             limit: this.concurrency,
             cooldownUntil: 0,
             recoverySuccesses: 0,
+            recoveryTarget: null,
             cooldownTimer: null,
+            fairCursor: null,
         };
         this.lanes.set(laneKey, lane);
         // Long cooldown = quota window. Fail fast with a visible error; short
@@ -206,7 +231,17 @@ export class ProviderAdmissionScheduler {
             return Promise.reject(new ProviderAdmissionQueueOverflowError(laneKey, this.maxQueue));
         }
         return new Promise((resolve, reject) => {
-            const item = { task, signal, resolve, reject, canceled: false, onAbort: null };
+            const item = {
+                task,
+                signal,
+                resolve,
+                reject,
+                canceled: false,
+                onAbort: null,
+                ownerKey: owner,
+                priority: taskPriority,
+                queuedAt: this.now(),
+            };
             if (signal) {
                 item.onAbort = () => {
                     if (item.started || item.canceled) return;
@@ -236,6 +271,28 @@ export class ProviderAdmissionScheduler {
         });
     }
 
+    _nextQueueIndex(lane) {
+        if (!lane.queue.length) return -1;
+        const bestRank = Math.min(...lane.queue.map((item) =>
+            PRIORITY_RANK[normalizePriority(item.priority)]));
+        const eligible = lane.queue
+            .map((item, index) => ({ item, index }))
+            .filter(({ item }) => PRIORITY_RANK[normalizePriority(item.priority)] === bestRank);
+        const owners = [];
+        for (const { item } of eligible) {
+            const owner = item.ownerKey || 'anonymous';
+            if (!owners.includes(owner)) owners.push(owner);
+        }
+        let selected = owners[0] || 'anonymous';
+        if (owners.length > 1) {
+            const prior = owners.indexOf(lane.fairCursor);
+            selected = owners[(prior + 1 + owners.length) % owners.length];
+        }
+        lane.fairCursor = selected;
+        return eligible.find(({ item }) => (item.ownerKey || 'anonymous') === selected)?.index
+            ?? eligible[0].index;
+    }
+
     _drain(key, lane) {
         if (lane.adaptive && lane.cooldownUntil > this.now()) {
             if (lane.cooldownUntil - this.now() > PROVIDER_COOLDOWN_FAIL_FAST_MS) {
@@ -245,7 +302,9 @@ export class ProviderAdmissionScheduler {
             return;
         }
         while (lane.active < lane.limit && lane.queue.length) {
-            const item = lane.queue.shift();
+            const index = this._nextQueueIndex(lane);
+            if (index < 0) break;
+            const [item] = lane.queue.splice(index, 1);
             if (item.canceled) {
                 this._detach(item);
                 continue;
@@ -268,7 +327,14 @@ export class ProviderAdmissionScheduler {
                 item.signal.addEventListener('abort', running.parentAbort, { once: true });
             }
             this.running.add(running);
-            const admission = { scheduler: this, key, lane, rateLimited: false };
+            const admission = {
+                scheduler: this,
+                key,
+                lane,
+                ownerKey: item.ownerKey,
+                priority: item.priority,
+                rateLimited: false,
+            };
             this.context.run(admission, () => Promise.resolve().then(() => item.task(controller.signal)))
                 .then((value) => {
                     // A retry that eventually succeeds is not evidence that
@@ -292,6 +358,25 @@ export class ProviderAdmissionScheduler {
         if (this._canDeleteLane(lane)) this._deleteLane(key, lane);
     }
 
+    snapshot() {
+        const now = this.now();
+        return {
+            concurrency: Number.isFinite(this.concurrency) ? this.concurrency : null,
+            lanes: [...this.lanes.entries()].map(([key, lane]) => ({
+                key,
+                active: lane.active,
+                queued: lane.queue.length,
+                owners: new Set(lane.queue.map((item) => item.ownerKey || 'anonymous')).size,
+                limit: Number.isFinite(lane.limit) ? lane.limit : null,
+                cooldownMs: Math.max(0, lane.cooldownUntil - now),
+                oldestWaitMs: lane.queue.reduce(
+                    (oldest, item) => Math.max(oldest, Math.max(0, now - (item.queuedAt || now))),
+                    0,
+                ),
+            })),
+        };
+    }
+
     _recordFailure(key, lane, error) {
         if (!lane.adaptive) return false;
         const status = Number(error?.httpStatus || error?.status || error?.response?.status || 0);
@@ -300,7 +385,14 @@ export class ProviderAdmissionScheduler {
             if (this.reportedRateLimits.has(error)) return false;
             this.reportedRateLimits.add(error);
         }
-        lane.limit = Math.max(1, Math.floor(lane.limit / 2));
+        const observed = Number.isFinite(lane.limit)
+            ? lane.limit
+            : Math.max(1, lane.active);
+        lane.recoveryTarget = Math.max(
+            Number(lane.recoveryTarget) || 0,
+            observed,
+        );
+        lane.limit = Math.max(1, Math.floor(observed / 2));
         lane.recoverySuccesses = 0;
         const now = this.now();
         lane.cooldownUntil = Math.max(
@@ -348,6 +440,7 @@ export class ProviderAdmissionScheduler {
             lane.cooldownUntil = 0;
             lane.limit = this.concurrency;
             lane.recoverySuccesses = 0;
+            lane.recoveryTarget = null;
             if (lane.cooldownTimer) {
                 this.clearTimer(lane.cooldownTimer);
                 lane.cooldownTimer = null;
@@ -364,11 +457,15 @@ export class ProviderAdmissionScheduler {
     }
 
     _recordSuccess(lane) {
-        if (!lane.adaptive || lane.limit >= this.concurrency) return;
+        if (!lane.adaptive || !Number.isFinite(lane.limit)) return;
         lane.recoverySuccesses += 1;
         if (lane.recoverySuccesses >= lane.limit) {
             lane.limit += 1;
             lane.recoverySuccesses = 0;
+            if (lane.recoveryTarget && lane.limit >= lane.recoveryTarget) {
+                lane.limit = this.concurrency;
+                lane.recoveryTarget = null;
+            }
         }
     }
 
@@ -505,6 +602,8 @@ export function wrapProviderAdmission(provider, providerName, scheduler = provid
             });
         }, {
             signal,
+            ownerKey: opts.admissionOwner || opts.sessionId || null,
+            priority: opts.admissionPriority || 'user-visible',
             onCooldownWait: (waitMs) => {
                 // Display-only: the TUI/desktop 'reconnecting' stage already
                 // renders a custom verb, so no new stage vocabulary is needed.
