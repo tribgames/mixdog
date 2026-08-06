@@ -3,7 +3,9 @@
 // provider, model catalog, or memory runtime.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { mkdtempSync, writeFileSync } from 'node:fs';
+import { performance } from 'node:perf_hooks';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -18,6 +20,34 @@ const { attachEngineDaemon, createRemoteEngineSession, negotiateEngineDaemon } =
   await import('../src/standalone/engine-daemon-client.mjs');
 const { ENGINE_DAEMON_PROTOCOL, engineRuntimeVersion } =
   await import('../src/standalone/engine-daemon-protocol.mjs');
+
+function daemonPost(discovery, path, body) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: discovery.port,
+      path,
+      method: 'POST',
+      headers: {
+        'X-Mixdog-Daemon-Token': discovery.token,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+      },
+    }, (res) => {
+      let raw = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { raw += chunk; });
+      res.on('end', () => {
+        const parsed = raw ? JSON.parse(raw) : {};
+        if (res.statusCode >= 400) reject(new Error(parsed.error || `HTTP ${res.statusCode}`));
+        else resolve(parsed);
+      });
+    });
+    req.on('error', reject);
+    req.end(payload);
+  });
+}
 
 test('only the wire protocol decides whether a live daemon is usable', () => {
   const version = engineRuntimeVersion();
@@ -268,6 +298,57 @@ test('the first engine client can start runtime prewarm before creating a sessio
     }
   }, {
     onClientRegistered: (row) => registrations.push(row),
+  });
+});
+
+test('a lost registration response replays one client token instead of leaking lifecycle refs', async () => {
+  await withDaemon(async ({ discovery, transport }) => {
+    const body = {
+      leadPid: process.pid,
+      cwd: process.cwd(),
+      lifecycle: true,
+      registrationId: 'stable-registration-replay',
+    };
+    const first = await daemonPost(discovery, '/client/register', body);
+    const replay = await daemonPost(discovery, '/client/register', body);
+    assert.equal(replay.token, first.token);
+    assert.equal(transport.connectionCount, 1);
+    await daemonPost(discovery, '/client/deregister', { token: first.token });
+  });
+});
+
+test('health and registration bypass a burst of synchronous session call starts', async () => {
+  await withDaemon(async ({ discovery }) => {
+    const client = await attachEngineDaemon({ discovery, cwd: process.cwd() });
+    const { sessionId } = await client.call('session.create', { cwd: process.cwd() });
+    const work = Promise.all(Array.from({ length: 64 }, (_, index) =>
+      client.call('session.invoke', {
+        sessionId,
+        method: 'briefCpuWork',
+        args: [index],
+      }, { callId: `control-plane-work:${index}` })));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    let newcomer = null;
+    try {
+      const started = performance.now();
+      newcomer = await attachEngineDaemon({ discovery, cwd: process.cwd() });
+      const elapsed = performance.now() - started;
+      assert.ok(elapsed < 100, `registration waited ${elapsed.toFixed(1)}ms behind session calls`);
+    } finally {
+      await newcomer?.close('control-plane test');
+      await work;
+      await client.close('control-plane test');
+    }
+  }, {
+    engineFactory: async () => ({
+      ...createStubEngine(),
+      briefCpuWork(index) {
+        const deadline = performance.now() + 5;
+        while (performance.now() < deadline) { /* deliberate synchronous slice */ }
+        return index;
+      },
+    }),
   });
 });
 

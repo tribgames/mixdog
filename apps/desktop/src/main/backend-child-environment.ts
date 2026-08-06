@@ -1,8 +1,5 @@
 // @ts-expect-error Shared runtime modules are plain ESM without declarations.
-import {
-  scrubProviderSecrets,
-  scrubRuntimeRootVars,
-} from '../../../../src/runtime/agent/orchestrator/tools/env-scrub.mjs';
+import { scrubProviderSecrets, scrubRuntimeRootVars } from '../../../../src/runtime/agent/orchestrator/tools/env-scrub.mjs';
 
 /** Environment for user-facing processes spawned by the daemon-owned desktop
  * backend. Host identity belongs to the daemon itself and must never leak into

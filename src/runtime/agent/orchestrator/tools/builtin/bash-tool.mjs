@@ -256,7 +256,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     // decode + rm token guard; calling it here applies the same allowlist
     // to both persistent and stateless paths.
     const _rawCmd = String(args && args.command != null ? args.command : '');
-    // Codex-parity: `apply_patch` typed into the shell (heredoc/argument/bare
+    // `apply_patch` typed into the shell (heredoc/argument/bare
     // patch forms) routes to the internal patch engine instead of failing as
     // an unknown binary. Runs BEFORE the exec-policy scan so patch BODY lines
     // (e.g. `+ rm -rf …`) are never misread as shell commands. Dynamic import

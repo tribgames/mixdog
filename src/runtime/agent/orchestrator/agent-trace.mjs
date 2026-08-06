@@ -158,6 +158,34 @@ function traceAgentSse({ sessionId, sseParseMs, ttftMs, provider, model, transpo
     });
 }
 
+// Per-turn preflight timing (submit → provider request). The runtime also
+// emits this as a `mixdog:turn-timing` process event for the daemon log, but
+// that sink is process-local and invisible to trace tooling — the row below is
+// what session-bench reads, so TTFT stage regressions stay measurable offline.
+function traceTurnTiming({
+    sessionId, status, requestId, ttftMs, endToEndTtftMs,
+    queueMs, routeMs, preflightMs, mcpMs, providerMs,
+}) {
+    const ms = (value) => (Number.isFinite(Number(value)) ? Math.round(Number(value)) : null);
+    const payload = {
+        status: status || 'unknown',
+        request_id: requestId || null,
+        ttft_ms: ms(ttftMs),
+        end_to_end_ttft_ms: ms(endToEndTtftMs),
+        queue_ms: ms(queueMs),
+        route_ms: ms(routeMs),
+        preflight_ms: ms(preflightMs),
+        mcp_ms: ms(mcpMs),
+        provider_ms: ms(providerMs),
+    };
+    appendAgentTrace({
+        sessionId,
+        kind: 'turn_timing',
+        ...payload,
+        payload,
+    });
+}
+
 function extractThinkingTokens(rawUsage) {
     if (!rawUsage || typeof rawUsage !== 'object') return null;
     const direct = Number(rawUsage.thinking_tokens ?? rawUsage.thinkingTokens);
@@ -294,6 +322,7 @@ export {
     traceAgentToolFailure,
     traceAgentCompact,
     traceAgentUsage,
+    traceTurnTiming,
     resolveTraceUsageInput,
     grokCacheChainTraceFields,
     traceAgentCompress,

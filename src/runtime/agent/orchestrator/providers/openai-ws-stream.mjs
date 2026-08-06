@@ -126,9 +126,8 @@ function _writeWsLifecycleTrace(lifecycle) {
     process.stderr.write(`[ws-trace] t=${new Date().toISOString()} lifecycle=${lifecycle}\n`);
 }
 
-// Wire-level `end_turn` on a terminal Responses frame (codex-rs
-// codex-api/src/sse/responses.rs ResponseCompleted.end_turn: Option<bool>,
-// consumed in core/src/session/turn.rs:2299 as "false ⇒ needs follow-up").
+// Wire-level `end_turn` on a terminal Responses frame: an optional boolean on
+// the completed response, where "false ⇒ needs follow-up".
 // The field is optional: only a real boolean is normalized; anything else —
 // including a missing field — stays undefined so absence is preserved and no
 // caller can mistake "server said nothing" for "server said true/false".

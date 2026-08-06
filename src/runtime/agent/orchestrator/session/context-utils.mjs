@@ -160,11 +160,10 @@ export function providerTokenCalibration(provider) {
     if (p.startsWith('gemini') || p.startsWith('google')) return calibrationEnv('MIXDOG_TOKEN_CALIBRATION_GEMINI') ?? 1.15;
     return calibrationEnv('MIXDOG_TOKEN_CALIBRATION_DEFAULT') ?? 1.0;
 }
-// Claude Code parity (services/tokenEstimation.ts): images/documents count a
-// flat 2000 tokens when dimensions are unknown — the conservative constant CC
-// shares with microCompact's IMAGE_MAX_TOKEN_SIZE. Known dimensions may only
-// RAISE the allowance via Anthropic's real vision formula (w*h/750), capped at
-// the 2000x2000 resize ceiling (5333 tokens).
+// Images/documents count a flat 2000 tokens when dimensions are unknown —
+// the conservative constant also used by the micro-compaction path. Known
+// dimensions may only RAISE the allowance via Anthropic's real vision
+// formula (w*h/750), capped at the 2000x2000 resize ceiling (5333 tokens).
 export const IMAGE_VISUAL_TOKEN_ALLOWANCE = 2_000;
 const IMAGE_MAX_TOKEN_ALLOWANCE = 5_333;
 
@@ -249,8 +248,8 @@ function legacyEstimateTokens(s) {
     // for those runs without penalizing ordinary spaced prose.
     let denseAsciiFloor = 0;
     for (const match of s.matchAll(/[\x21-\x7e]{16,}/g)) {
-        // Claude Code prices dense JSON/JSONL at chars/2 (bytesPerTokenForFileType);
-        // 0.5/char keeps that parity for long unmerged printable runs.
+        // Dense JSON/JSONL prices at chars/2; 0.5/char keeps that ratio for
+        // long unmerged printable runs.
         denseAsciiFloor += match[0].length * 0.5;
     }
     const encodedWords = s.match(/\b(?=[A-Za-z0-9]{8,}\b)(?=[A-Za-z0-9]*[A-Za-z])(?=[A-Za-z0-9]*\d)[A-Za-z0-9]+\b/g) || [];
@@ -272,7 +271,7 @@ function legacyEstimateTokens(s) {
         && (jsonLikeLines >= Math.ceil(lines.length / 2) || structural / nonWhitespace >= 0.12)) {
         // JSONL, compact tables and generated line protocols can consist
         // entirely of short runs while still tokenizing like minified data.
-        // chars/2 on the dense payload chars (Claude Code JSON parity).
+        // chars/2 on the dense payload chars (dense-JSON pricing).
         denseAsciiFloor = Math.max(denseAsciiFloor, (nonWhitespace * 0.5) + ((s.length - nonWhitespace) * 0.25));
     }
     const asciiFloor = s.length / 4; // never below the legacy chars/4 lower bound
@@ -355,8 +354,8 @@ function messageEstimateText(m) {
 function imageDescriptorAllowance(descriptor) {
     if (descriptor.width && descriptor.height) {
         // Anthropic vision cost: tokens = (width * height) / 750, with images
-        // resized down to at most 2000x2000 (5333 tokens) — Claude Code uses
-        // the same formula/cap. Caller-supplied dimensions may RAISE the
+        // resized down to at most 2000x2000 (5333 tokens). Caller-supplied
+        // dimensions may RAISE the
         // allowance above the unknown-image floor but never lower it (the
         // provider normalizer may not preserve caller metadata).
         const formula = Math.ceil((descriptor.width * descriptor.height) / 750);
@@ -365,7 +364,7 @@ function imageDescriptorAllowance(descriptor) {
             Math.max(IMAGE_VISUAL_TOKEN_ALLOWANCE, formula),
         );
     }
-    // Unknown-size images: flat conservative allowance (Claude Code parity).
+    // Unknown-size images: flat conservative allowance.
     return IMAGE_VISUAL_TOKEN_ALLOWANCE;
 }
 function messageImageDescriptors(m) {

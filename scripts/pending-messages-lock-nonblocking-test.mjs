@@ -10,6 +10,7 @@ process.env.MIXDOG_DATA_DIR = dataDir;
 const {
   hydratePendingMessages,
   drainPendingMessages,
+  drainForeignUserInjections,
   acknowledgePendingMessages,
 } = await import('../src/runtime/agent/orchestrator/session/manager/pending-messages.mjs');
 
@@ -55,6 +56,26 @@ test('held pending spool lock does not block the completion-loop drain', async (
   await new Promise((resolve) => setTimeout(resolve, 30));
   const acknowledged = JSON.parse(readFileSync(spool, 'utf8'));
   assert.equal(acknowledged.sessions[sid], undefined);
+});
+
+test('foreign-injection polling never waits synchronously on a live spool writer', () => {
+  const sid = 'sess_foreign_lock_held';
+  const spool = join(dataDir, 'session-pending-messages.json');
+  const lock = `${spool}.lock`;
+  writeFileSync(spool, JSON.stringify({
+    version: 1,
+    updatedAt: Date.now(),
+    sessions: { [sid]: [{ id: 'foreign-1', message: 'from another surface', enqueuedAt: Date.now() }] },
+    sessionTouchedAt: { [sid]: Date.now() },
+  }));
+  writeFileSync(lock, `${process.pid} ${Date.now()} async-writer\n`);
+  const started = Date.now();
+  assert.deepEqual(drainForeignUserInjections(sid), []);
+  assert.ok(Date.now() - started < 50, `foreign drain blocked ${Date.now() - started}ms`);
+  unlinkSync(lock);
+  assert.deepEqual(drainForeignUserInjections(sid), [
+    { text: 'from another surface', id: 'foreign-1' },
+  ]);
 });
 
 test.after(() => {

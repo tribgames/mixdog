@@ -33,8 +33,8 @@ export function createSessionLiveLanes(options: {
 }) {
   const lanes = new Map<MixdogEngine, Lane>();
   const listeners = new Set<(update: SessionStateUpdate) => void>();
-  // ONE frame clock for every lane (opencode packages/app server-sdk.tsx
-  // flush/schedule). Per-lane timers let N streaming panes drift into N
+  // ONE frame clock for every lane. Per-lane timers let N streaming panes
+  // drift into N
   // independent publication hops per frame; a shared clock publishes every
   // lane that changed inside the frame together, so a consumer commits once.
   let frameTimer: NodeJS.Timeout | null = null;
@@ -94,7 +94,7 @@ export function createSessionLiveLanes(options: {
     if (!lane || (listeners.size === 0 && !options.onAfterEmit)) return;
     lane.pending = true;
     if (frameTimer) return;
-    // opencode schedule(): a frame budget that ALREADY elapsed publishes on
+    // A frame budget that ALREADY elapsed publishes on
     // the next tick; only a burst inside one frame waits out the remainder.
     // The previous fixed delay charged every event a full frame of latency
     // even when the lane had been quiet for seconds.

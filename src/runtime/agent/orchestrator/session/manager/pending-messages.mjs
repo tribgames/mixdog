@@ -4,7 +4,7 @@ import { join } from 'path';
 import { readFileSync, statSync } from 'fs';
 import { createHash, randomBytes } from 'crypto';
 import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
-import { updateJsonAtomicSync, updateJsonAtomic } from '../../../../shared/atomic-file.mjs';
+import { updateJsonAtomic } from '../../../../shared/atomic-file.mjs';
 import { promptContentText, isInternalRuntimeNotificationText } from './prompt-utils.mjs';
 import { loadSession, readSessionLifecycleStateFromDisk, saveSessionAsync } from '../store.mjs';
 import { isDeliveredCompletion, logDuplicateSkip } from './delivered-completions.mjs';
@@ -942,11 +942,11 @@ function shouldEvictPendingSession(sessionId, ttlMs, entryTouchedAt, now = Date.
     return entryTouch > 0 && (now - entryTouch) > PENDING_ORPHAN_GRACE_MS;
 }
 
-export function sweepOrphanedPendingMessages({ ttlMs = PENDING_ORPHAN_TTL_MS } = {}) {
+export async function sweepOrphanedPendingMessages({ ttlMs = PENDING_ORPHAN_TTL_MS } = {}) {
     const now = Date.now();
     const removed = [];
     try {
-        updateJsonAtomicSync(pendingMessagesPath(), (raw) => {
+        await updateJsonAtomic(pendingMessagesPath(), (raw) => {
             const next = normalizePendingStore(raw);
             const ids = Object.keys(next.sessions);
             if (ids.length === 0) return undefined;
@@ -988,9 +988,9 @@ function modelVisiblePendingMessages(messages) {
 }
 
 export function _mergePendingMessageEntries(entries) {
-    // CC-parity delivery priority (reference messageQueueManager.ts: user
-    // input enqueues at 'next', task notifications at 'later', and dequeue
-    // always serves 'next' first). Our single merged turn message is the
+    // Delivery priority: user input enqueues at 'next', task notifications at
+    // 'later', and dequeue always serves 'next' first. Our single merged turn
+    // message is the
     // analogue of that dequeue order: genuine user/steering entries are
     // merged BEFORE deferred completion notifications so queued user input
     // is never buried under system notification text. FIFO is preserved
@@ -1113,7 +1113,7 @@ function _rememberForeignSpoolScan(sessionId, mtime) {
  * internal-notification entries are left untouched for the normal
  * askSession hydrate path.
  */
-export function drainForeignUserInjections(sessionId) {
+export async function drainForeignUserInjections(sessionId) {
     if (!isValidPendingSessionId(sessionId)) return [];
     // DELIVERY path, not cleanup: this takes rows out of the spool and hands
     // them to a live turn. A tombstoned (or otherwise invalidated) session may
@@ -1156,7 +1156,13 @@ export function drainForeignUserInjections(sessionId) {
     // spool immediately pollable again.
     let lifecycleDecided = false;
     try {
-        updateJsonAtomicSync(pendingMessagesPath(), (raw) => {
+        // ASYNC spool lock. The sync variant parked the owning process's event
+        // loop in Atomics.wait for the whole timeout: in the daemon (PTYs,
+        // engines, IPC and SSE fan-out share one loop) every poll that lost the
+        // race froze the entire app, and it could never win against an async
+        // holder in the SAME process. Waiting off the loop also lets the
+        // in-process lock queue serialize sibling sessions for free.
+        await updateJsonAtomic(pendingMessagesPath(), (raw) => {
             // Same authority re-read INSIDE the spool lock: a close/detach
             // landing in this window must neither deliver to the old owner nor
             // remove the reopened owner's rows.
@@ -1195,8 +1201,18 @@ export function drainForeignUserInjections(sessionId) {
             }
             next.updatedAt = Date.now();
             return next;
-        }, { compact: true, lock: true, mode: PENDING_MESSAGES_MODE, fsync: false });
+        }, {
+            compact: true,
+            lock: true,
+            mode: PENDING_MESSAGES_MODE,
+            fsync: false,
+            // Delivery polling must never wait on an async spool writer in the
+            // same daemon process: waiting synchronously prevents that writer
+            // from ever reaching its finally/release path.
+            timeoutMs: 0,
+        });
     } catch (err) {
+        if (err?.code === 'ELOCKCONTENDED') return [];
         try { process.stderr.write(`[session] foreign-injection drain failed sessionId=${sessionId}: ${err?.message || err}\n`); } catch {}
         return [];
     }
@@ -1433,5 +1449,5 @@ setImmediate(() => {
     // the cross-process lock against the lead's writes for zero
     // benefit — the lead already sweeps.
     if (process.env.MIXDOG_WORKER_MODE === '1') return;
-    try { sweepOrphanedPendingMessages(); } catch { /* ignore */ }
+    void sweepOrphanedPendingMessages().catch(() => {});
 });

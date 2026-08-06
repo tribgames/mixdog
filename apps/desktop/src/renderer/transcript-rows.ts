@@ -2,8 +2,8 @@ import type { TranscriptItem } from "./desktop-types";
 import { completionTone, isVisibleTranscriptItem } from "./TranscriptView";
 
 /**
- * OpenCode-style transcript projection: turn semantics are preserved as
- * explicit row tags, while the virtualizer consumes one flat stable-key list.
+ * Transcript projection: turn semantics are preserved as explicit row tags,
+ * while the virtualizer consumes one flat stable-key list.
  *
  * Every visibility decision (hidden internal prompts, suppressed tool
  * failures, completions folded into their assistant row, failed-turn status

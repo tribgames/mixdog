@@ -9,7 +9,7 @@
 //     context lines applied with the FILE's version of drifted context.
 //  5. pwsh standby isolates leaked global functions/variables/aliases
 //     between commands (daemon-global pool = cross-session surface).
-//  6. shell-typed `apply_patch` invocations (codex habit) are extracted for
+//  6. shell-typed `apply_patch` invocations are extracted for
 //     routing to the internal patch engine instead of "command not found".
 //  7. successful patches append a numbered post-patch excerpt of the changed
 //     span so follow-up patches have byte-exact context without a read turn.

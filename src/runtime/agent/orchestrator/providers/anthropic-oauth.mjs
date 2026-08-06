@@ -1094,7 +1094,7 @@ export class AnthropicOAuthProvider {
                     continue;
                 }
                 const classifier = _classifyMidstreamError(err, midState);
-                // CC-parity stall recovery (2026-08-03 v3 postmortem): a
+                // Stall recovery (2026-08-03 v3 postmortem): a
                 // stalled stream that exposed NOTHING (no text/thinking
                 // relayed, no tool emitted) is re-issued NON-STREAMING instead
                 // of retrying the same streaming shape. Effort-mode models can
@@ -1103,8 +1103,7 @@ export class AnthropicOAuthProvider {
                 // generation into the same timer (observed live: deterministic
                 // 4×~138s beheading, ~552s per turn), while the non-streaming
                 // transport simply waits for the full body (bounded by
-                // PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS). Claude Code does
-                // exactly this on its watchdog aborts. Replay is trivially
+                // PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS). Replay is trivially
                 // safe here — nothing was relayed or dispatched.
                 if (classifier === 'stream_stalled'
                     && _outcome?.replayUnsafe !== true

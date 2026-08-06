@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Public-runtime regressions for the Codex-parity apply_patch semantics
-// (codex-rs/apply-patch/src/lib.rs compute_replacements / apply_replacements):
+// Public-runtime regressions for the V4A apply_patch semantics
+// (compute_replacements / apply_replacements):
 // pure additions land at end-of-file, several end-of-file additions keep their
 // source order, the trailing-newline sentinel retry works for every chunk
 // (including a single blank old line, which becomes a cursor insertion),

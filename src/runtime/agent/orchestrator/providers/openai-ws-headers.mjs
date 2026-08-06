@@ -41,8 +41,8 @@ export function _envOn(name) {
 // (MIXDOG_OAI_CODEX_WIRE_PARITY=1 + ws-delta + underscore session_id) exactly
 // as-is. These add EXTRA parity dimensions for backend fingerprint probes.
 
-// codex sends dashed RFC-4122 UUIDs as session-id/thread-id (client.rs:1033-
-// 1057); we key those dashed handshake headers off the underscore cacheKey by
+// The reference client sends dashed RFC-4122 UUIDs as session-id/thread-id;
+// we key those dashed handshake headers off the underscore cacheKey by
 // default. Opt in with MIXDOG_OAI_CODEX_WIRE_PARITY_UUID_IDS to reshape ONLY
 // the dashed pair (session-id/thread-id/x-client-request-id) into codex's UUID
 // format. The value is derived deterministically from the id so it stays
@@ -108,11 +108,12 @@ export function _codexBetaFeatures() {
     return out.join(',');
 }
 
-// --- Opt-in raw WS capture for byte-diff against codex-rs -------------------
+// --- Opt-in raw WS capture for wire byte-diff -------------------------------
 // Enabled ONLY when MIXDOG_OAI_WS_DUMP_DIR names a directory. Persists the
 // (redacted) handshake header metadata and the exact serialized
 // response.create frame bytes so our wire format can be byte-diffed against
-// codex. Secrets (Authorization / Cookie / account-id / routing tokens) are
+// the reference client. Secrets (Authorization / Cookie / account-id /
+// routing tokens) are
 // hashed, never written in clear. When the env is unset both helpers are
 // no-ops, so there is no default behavior change.
 const _WS_DUMP_SECRET_RE = /^(authorization|proxy-authorization|cookie|set-cookie|chatgpt-account-id|x-codex-turn-state|session_id|session-id|thread-id|x-codex-parent-thread-id|x-client-request-id|x-session-affinity)$/i;

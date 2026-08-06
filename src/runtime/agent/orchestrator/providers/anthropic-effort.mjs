@@ -298,7 +298,7 @@ export function applyAnthropicEffortToBody(
         // Set unconditionally (independent of `normalized`) so effort-capable
         // turns always carry adaptive thinking + round-trip signatures.
         // MIXDOG_ANTHROPIC_THINKING_DISPLAY=omitted (operator/bench knob):
-        // CC-parity mode — no thinking blocks come back, so nothing is
+        // thinking blocks are omitted entirely, so nothing is
         // replayed into later requests (saves the 1h cache-write + re-read on
         // accumulated thinking) at the cost of losing visible reasoning and
         // cross-iteration thinking continuity. Default stays summarized.

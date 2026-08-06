@@ -144,7 +144,7 @@ test('schema: visible text / reasoning / dispatched tools are replay boundaries'
     assert.equal(isReplaySafe(err('k', { unsafeToRetry: true })), false);
     assert.equal(isReplaySafe(err('l', { partialToolCalls: [{ id: '1', name: 'x' }] })), false);
     // A tool input that merely STARTED was never dispatched: re-requesting it
-    // is idempotent, exactly as in Codex.
+    // is idempotent.
     assert.equal(isReplaySafe(err('h', { partialToolCall: true })), true);
     assert.equal(isReplaySafe(err('i', { startedToolCall: true })), true);
     assert.equal(isReplaySafe(err('j', { partialToolCallStarted: true })), true);
@@ -1422,7 +1422,7 @@ test('midstream WS: response.failed retries on a typed code, never on matching t
     const state = () => ({ attemptIndex: 0, sawResponseCreated: true });
     const failedWith = (payload) => err('WS response.failed', { responseFailed: payload });
 
-    // Explicit code / type fields (Codex's retryable disconnect buckets).
+    // Explicit code / type fields (retryable disconnect buckets).
     assert.equal(
         classifyMidstreamError(failedWith({ response: { error: { code: 'stream_disconnected' } } }), state(), WS_POLICY),
         'response_failed_disconnected',

@@ -88,7 +88,7 @@ export function projectEntryPathIn(root: string, relPath: string): string {
 
 /** Dock Files tab: one lazy directory level inside a registered project.
  *  Traversal-guarded — the resolved target must stay under the project
- *  root, mirroring the opencode file-tree's per-directory loading model. */
+ *  root. One directory level is loaded per request. */
 export async function listProjectDirIn(root: string, relDir: string): Promise<Array<{ name: string; dir: boolean }>> {
   const rel = String(relDir || '').replace(/\\/g, '/');
   const target = resolve(root, rel);

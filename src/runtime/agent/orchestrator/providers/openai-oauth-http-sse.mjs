@@ -126,8 +126,8 @@ function _isMaxOutputIncompleteReason(reason) {
     return /^(?:max_output_tokens|max_tokens|length|output_token_limit)$/i.test(String(reason || '').trim());
 }
 
-// Wire-level `end_turn` on a terminal Responses frame (codex-rs
-// codex-api/src/sse/responses.rs ResponseCompleted.end_turn: Option<bool>).
+// Wire-level `end_turn` on a terminal Responses frame: an optional boolean on
+// the completed response.
 // Optional by contract: only a real boolean normalizes; a missing/non-boolean
 // field stays undefined so absence is never collapsed into false.
 export function _endTurnFromEvent(event) {
@@ -178,9 +178,9 @@ function _buildOpenAIHttpFallbackHeaders({ auth, cacheKey }) {
     };
     if (cacheKey) {
         const sid = String(cacheKey);
-        // Codex-native anchors (see openai-ws-pool _buildHandshakeHeaders):
-        // `session-id`/`thread-id` (hyphen) match codex-rs headers.rs; legacy
-        // underscore `session_id` kept for backward compat.
+        // Backend-native anchors (see openai-ws-pool _buildHandshakeHeaders):
+        // the hyphenated `session-id`/`thread-id` pair; legacy underscore
+        // `session_id` kept for backward compat.
         headers.session_id = sid;
         headers['session-id'] = sid;
         headers['thread-id'] = sid;
@@ -244,9 +244,8 @@ export async function sendViaHttpSse({
     const responsesUrl = auth?.type === 'openai-direct'
         ? OPENAI_DIRECT_RESPONSES_URL
         : CODEX_RESPONSES_URL;
-    // Request-body zstd (codex parity: core client.rs
-    // responses_request_compression enables zstd for the codex backend on the
-    // OpenAI provider — the server decompresses Content-Encoding: zstd).
+    // Request-body zstd: compression is enabled for the codex backend on the
+    // OpenAI provider — the server decompresses Content-Encoding: zstd.
     // openai-direct is excluded: only the codex backend is verified. Env
     // kill-switch plus a process-wide latch flipped on the first 400 seen on
     // a compressed request, which then replays that attempt uncompressed.

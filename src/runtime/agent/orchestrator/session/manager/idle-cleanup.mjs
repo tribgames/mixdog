@@ -150,7 +150,7 @@ export function _runCleanupCycle() {
         // Drain every settled runtime entry on each pass, not just the one or two
         // sessions whose on-disk idle TTL happened to expire in this interval.
         _sweepTerminalSessionRuntimes();
-        sweepOrphanedPendingMessages();
+        await sweepOrphanedPendingMessages();
         await sweepIdleSessions({ includeTombstones: true });
         // Reclaim same-process session snapshots whose state is durable on disk
         // (memory-leak guard: _liveSessions used to grow for process lifetime).

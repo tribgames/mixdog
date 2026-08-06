@@ -1,8 +1,8 @@
 // Regression: a SETTLED abort (runtime.abort unwinds the turn and busy clears)
 // with queued prompts must still end with a drain kick, even when no drain
-// loop owns the aborted turn. Codex parity: abort preserves pending input for
-// the next turn; CC parity: the command queue survives cancel and fires when
-// idle. Before the fix only the STARVED path (recovery timer) re-kicked drain.
+// loop owns the aborted turn. Abort preserves pending input for the next
+// turn, and the command queue survives cancel and fires when idle. Before the
+// fix only the STARVED path (recovery timer) re-kicked drain.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSessionFlow } from '../src/tui/engine/session-flow.mjs';

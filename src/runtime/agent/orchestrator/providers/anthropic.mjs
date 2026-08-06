@@ -604,7 +604,7 @@ export class AnthropicProvider {
                         continue;
                     }
                     const classifier = _classifyMidstreamError(err, midState);
-                    // CC-parity stall recovery (ported from anthropic-oauth,
+                    // Stall recovery (shared with anthropic-oauth,
                     // 2026-08-03): a stalled stream that exposed NOTHING is
                     // re-issued non-streaming instead of retrying the same
                     // streaming shape into the same idle window. Replay is

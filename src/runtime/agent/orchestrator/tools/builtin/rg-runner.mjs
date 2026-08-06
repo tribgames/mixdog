@@ -302,7 +302,7 @@ export async function rgSupportsPcre2() {
 }
 
 // Cap rg stdout accumulation so a runaway producer (huge repo, accidental
-// match-all) cannot balloon the JS string heap. Mirrors CC's ripgrep.ts cap.
+// match-all) cannot balloon the JS string heap.
 const MAX_RG_STDOUT_BYTES = 20 * 1024 * 1024; // 20MB
 
 // SIGTERM → grace → force kill; hard Promise settle if 'close' never fires

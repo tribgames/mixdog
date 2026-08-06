@@ -48,8 +48,8 @@ function measureTranscriptRow(element: Element, entry?: ResizeObserverEntry): nu
   return Math.max(1, element instanceof HTMLElement ? element.offsetHeight : 0);
 }
 
-// OpenCode's core exposes getLogicalScrollOffset(); the resolved core predates
-// it, so read the same scrollOffset + pending scrollAdjustments pair directly.
+// Newer virtual cores expose getLogicalScrollOffset(); the resolved core
+// predates it, so read the scrollOffset + pending scrollAdjustments pair here.
 function logicalScrollOffset(
   instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
 ): number {
@@ -128,11 +128,11 @@ export function TranscriptList({
     followOnAppend: true,
     scrollEndThreshold: 80,
     paddingEnd: TRANSCRIPT_BOTTOM_SPACER,
-    // OpenCode's Solid timeline commits virtual state to the DOM in the same
-    // task as every core notify. React's default async rerender let the core
+    // The virtual core commits its state to the DOM in the same task as every
+    // notify. React's default async rerender let the core
     // move scrollTop pre-paint while rows still painted at their previous
     // translateY — the width-drag shake/ghosting. Direct DOM updates restore
-    // Solid's commit timing: row transforms and the container height are
+    // that commit timing: row transforms and the container height are
     // written inside the core transaction, and React reconciles on range
     // changes only.
     directDomUpdates: true,
@@ -181,7 +181,7 @@ export function TranscriptList({
       resizeItem(index, size);
     };
   }
-  // OpenCode: rows measured above the reading offset keep the reader's content
+  // Rows measured above the reading offset keep the reader's content
   // still. At the end, virtual-core's anchorTo:"end" wasAtEnd path applies the
   // total-size delta BEFORE this predicate is consulted, so the bottom pin has
   // exactly one writer during a rewrap storm (pane drag, window resize).
@@ -192,7 +192,7 @@ export function TranscriptList({
   const overscanFrame = useRef(0);
   const bottomAnchorFrame = useRef(0);
   const bottomAnchorSession = useRef("");
-  // OpenCode prepend-anchor: when rows are inserted ABOVE the reader (older
+  // Prepend anchor: when rows are inserted ABOVE the reader (older
   // history, cold restore growth), keep the previously visible top row still
   // by correcting scrollTop against its key + viewport offset.
   const readingAnchor = useRef<{ key: string; offset: number } | null>(null);
@@ -261,7 +261,7 @@ export function TranscriptList({
   }, [sessionKey]);
 
   useLayoutEffect(() => {
-    // OpenCode maybeAnchorBottom: one entry anchor per session key, the first
+    // Bottom anchor: one entry anchor per session key, the first
     // time the timeline has rows. Live appends are followed by the core's
     // followOnAppend — re-running this on every rows change added a second,
     // one-frame-late scroll writer.
@@ -366,8 +366,8 @@ export function TranscriptList({
         const next = rows[virtualRow.index + 1];
         const turnEnd = !next || next._tag === "TurnGap";
         return (
-          // OpenCode's Solid rows bind position AND measurement to one
-          // reactive element. Position and measurement therefore share the
+          // A row binds position AND measurement to one element.
+          // Position and measurement therefore share the
           // OUTER box here, so applyDirectStyles (elementsCache) moves exactly
           // the element the ResizeObserver measures — in the same pre-paint
           // transaction. The row keeps its natural content height; geometry

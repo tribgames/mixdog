@@ -202,7 +202,7 @@ export async function maybeOffloadToolResult(sessionId, toolCallId, toolName, re
     return `${header}\n\n${preview}${suffix}`;
 }
 
-// Apply per-tool persistence first, then enforce the Claude Code message-level
+// Apply per-tool persistence first, then enforce the message-level
 // budget across the remaining non-Read text results. Selection is
 // largest-first; ties prefer the latest result in the assistant tool batch.
 export async function maybeOffloadToolResultBatch(sessionId, entries, options = {}) {

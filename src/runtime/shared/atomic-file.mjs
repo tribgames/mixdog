@@ -45,6 +45,14 @@ const DEFAULT_LOCK_TIMEOUT_MS = Number.isFinite(_configuredLockTimeoutMs)
 // current lock apart from a same-pid prior/other instance's leftover.
 const _OWNER_TOKEN = randomBytes(12).toString('hex');
 
+// Lock paths whose OS lock is currently held by an ASYNC holder in THIS
+// process. That holder releases from the event loop, so a sync waiter which
+// parks the loop in Atomics.wait can never observe the release: the wait is a
+// self-deadlock that always burns the full timeout (observed: the shared
+// session-pending-messages spool freezing the daemon — PTYs, engines, IPC —
+// for 2s per poll). Sync callers fail fast against it instead of waiting.
+const _osHeldPaths = new Set();
+
 function sleepSync(ms) {
   try {
     const buf = new SharedArrayBuffer(4);
@@ -112,6 +120,13 @@ export async function renameWithRetry(src, dst, opts = {}) {
 export function withFileLockSync(lockPath, fn, opts = {}) {
   const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_LOCK_TIMEOUT_MS;
   const staleMs = Number.isFinite(opts.staleMs) ? opts.staleMs : 30000;
+  // A WAITING sync acquire can never win against this process's async holder.
+  // try-once callers keep the OS-level path so their contract is unchanged.
+  if (timeoutMs > 0 && _osHeldPaths.has(lockPath)) {
+    const selfErr = new Error(`atomic lock contended (async holder in this process): ${lockPath} [${_describeLockHolder(lockPath)}]`);
+    selfErr.code = 'ELOCKCONTENDED';
+    throw selfErr;
+  }
   const deadline = Date.now() + timeoutMs;
   mkdirSync(dirname(lockPath), { recursive: true });
   let attempt = 0;
@@ -378,6 +393,7 @@ async function _withOsFileLock(lockPath, fn, opts = {}) {
       continue;
     }
     try { writeFileSync(fd, `${process.pid} ${Date.now()} ${_OWNER_TOKEN}\n`, 'utf8'); } catch {}
+    _osHeldPaths.add(lockPath);
     try {
       // Async ACL enforcement (promisified execFile) so a secret-bearing
       // async holder never blocks the event loop on icacls; identical
@@ -385,6 +401,7 @@ async function _withOsFileLock(lockPath, fn, opts = {}) {
       if (opts.secret === true) await _enforceOwnerOnlyAclWin32Async(lockPath);
       return await fn();
     } finally {
+      _osHeldPaths.delete(lockPath);
       try { closeSync(fd); } catch {}
       try {
         if (_lockOwnedBySelf(lockPath)) unlinkSync(lockPath);

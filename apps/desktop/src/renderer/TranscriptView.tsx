@@ -265,7 +265,7 @@ export function ContextUsageIndicator({ snapshot, onOpen }: {
 // shared list in src/tui/spinner-verbs.mjs. t() returns the key verbatim when
 // a locale has no entry, which is exactly how English is detected here.
 //
-// Every entry is a member of the shared pool (Claude Code parity) and stays in
+// Every entry is a member of the shared pool and stays in
 // ONE register: quiet mental work. "Thinking" is the honest baseline for any
 // turn, and the rotation only varies its shade or depth (user decision) — no
 // cooking/gardening metaphors, and nothing that claims a concrete activity the
@@ -557,8 +557,8 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
   };
   // Renderer snapshots are already frame-coalesced. Adding another rAF here
   // commits DOM growth after the current ResizeObserver delivery and leaves
-  // one painted frame off-bottom. OpenCode projects each arriving delta
-  // immediately and lets the scroll owner lock the resulting layout.
+  // one painted frame off-bottom. Each arriving delta is projected
+  // immediately and the scroll owner locks the resulting layout.
   const markdownParts = resolveStreamingMarkdownChunks(text, streaming, markdownCache.current);
   const renderedChunks = markdownParts.stableChunks.map((chunk, index) => (
     <Suspense fallback={<MarkdownSourceFallback text={chunk} copyControl={CopyControl} />}
@@ -571,7 +571,7 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
     </Suspense>
   ));
   if (markdownParts.unstableText) {
-    // OpenCode heals the live tail before parsing it, so an unfinished
+    // The live tail is healed before parsing, so an unfinished
     // "**bold" or "`code" is already styled while the model types.
     const unstableParseText = streaming
       ? healStreamingMarkdownTail(markdownParts.unstableText)
@@ -729,8 +729,8 @@ export function userTranscriptDisplayText(item: TranscriptItem): string {
 
 /**
  * The one visibility contract for a transcript item. The row projection uses
- * it to keep invisible rows out of the virtual list entirely (opencode's
- * `renderable(part)`), so the timeline never carries zero-height placeholders.
+ * it to keep invisible rows out of the virtual list entirely, so the timeline
+ * never carries zero-height placeholders.
  */
 export function isVisibleTranscriptItem(item: TranscriptItem | undefined): boolean {
   if (!item) return false;

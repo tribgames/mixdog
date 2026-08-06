@@ -34,7 +34,7 @@ function pinNativeThemeSource(source: 'system' | 'light' | 'dark'): void {
 
 function titleBarOverlay(light = false, zoom = 1) {
   return {
-    // TRANSPARENT caption band (opencode parity): the native overlay paints
+    // TRANSPARENT caption band: the native overlay paints
     // no pixels of its own, so the DOM titlebar — and any fullscreen scrim —
     // shows through and the band can never sit off-theme for even a frame
     // (user: - ㅁ x 저기만 짜증나게 계속 튀네). Maximize/restore exposure is

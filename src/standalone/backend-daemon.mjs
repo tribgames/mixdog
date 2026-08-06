@@ -31,11 +31,13 @@ try {
 
 import os from 'node:os';
 import path from 'node:path';
-import { mkdirSync, appendFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
+import { appendFile, mkdir, open, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { performance } from 'node:perf_hooks';
+import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
+import { inspect } from 'node:util';
 import { claimSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
-import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
+import { PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
 import { setChannelNotifySink } from '../runtime/channels/lib/parent-bridge.mjs';
 import { setOwnerContext } from '../runtime/channels/lib/runtime-paths.mjs';
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
@@ -78,16 +80,91 @@ let fileLogging = false;
 // This process outlives every spawner, so it has to bound its OWN log: the
 // spawner's boot-time rotate never runs again while the daemon lives, and the
 // redirect below sends every hosted module's stderr here too.
-let logAppendsSinceRotate = 0;
-function appendDaemonLog(text) {
+const LOG_LINE_MAX_CHARS = 16_384;
+const LOG_QUEUE_MAX_BYTES = 512 * 1024;
+let logQueue = [];
+let logQueueBytes = 0;
+let logDropped = 0;
+let logFlushTimer = null;
+let logWriter = Promise.resolve();
+
+function boundedLogText(value) {
+  const text = String(value ?? '');
+  if (text.length <= LOG_LINE_MAX_CHARS) return text;
+  return `${text.slice(0, LOG_LINE_MAX_CHARS)}… [truncated ${text.length - LOG_LINE_MAX_CHARS} chars]`;
+}
+
+async function rotateDaemonLogIfNeeded(incomingBytes) {
+  let info;
+  try { info = await stat(LOG_PATH); } catch { return; }
+  if (info.size + incomingBytes <= PLUGIN_LOG_MAX_BYTES) return;
+  const keep = Math.min(info.size, PLUGIN_LOG_KEEP_BYTES);
+  const tail = Buffer.allocUnsafe(keep);
+  const handle = await open(LOG_PATH, 'r');
   try {
-    mkdirSync(path.dirname(LOG_PATH), { recursive: true });
-    if ((logAppendsSinceRotate += 1) >= 200) {
-      logAppendsSinceRotate = 0;
-      rotateBoundedLog(LOG_PATH, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES);
-    }
-    appendFileSync(LOG_PATH, `[${new Date().toISOString()}] ${text}\n`);
-  } catch { /* logging must never fail the daemon */ }
+    const { bytesRead } = await handle.read(tail, 0, keep, Math.max(0, info.size - keep));
+    await writeFile(LOG_PATH, tail.subarray(0, bytesRead));
+  } finally {
+    await handle.close().catch(() => {});
+  }
+}
+
+function takeLogBatch() {
+  if (logQueue.length === 0 && logDropped === 0) return '';
+  const dropped = logDropped;
+  const rows = logQueue;
+  logQueue = [];
+  logQueueBytes = 0;
+  logDropped = 0;
+  if (dropped > 0) {
+    rows.unshift(`[${new Date().toISOString()}] [backend-daemon] dropped ${dropped} log line(s) under backpressure\n`);
+  }
+  return rows.join('');
+}
+
+function queueLogFlush(delayMs = 10) {
+  if (logFlushTimer) return;
+  logFlushTimer = setTimeout(() => {
+    logFlushTimer = null;
+    const batch = takeLogBatch();
+    if (!batch) return;
+    logWriter = logWriter.then(async () => {
+      await mkdir(path.dirname(LOG_PATH), { recursive: true });
+      await rotateDaemonLogIfNeeded(Buffer.byteLength(batch));
+      await appendFile(LOG_PATH, batch, 'utf8');
+    }).catch(() => {});
+    if (logQueue.length > 0 || logDropped > 0) queueLogFlush();
+  }, delayMs);
+  logFlushTimer.unref?.();
+}
+
+function appendDaemonLog(text) {
+  const line = `[${new Date().toISOString()}] ${boundedLogText(text)}\n`;
+  const bytes = Buffer.byteLength(line);
+  if (bytes > LOG_QUEUE_MAX_BYTES || logQueueBytes + bytes > LOG_QUEUE_MAX_BYTES) {
+    logDropped += 1;
+    queueLogFlush();
+    return;
+  }
+  logQueue.push(line);
+  logQueueBytes += bytes;
+  queueLogFlush();
+}
+
+async function flushDaemonLogs() {
+  if (logFlushTimer) {
+    clearTimeout(logFlushTimer);
+    logFlushTimer = null;
+  }
+  const batch = takeLogBatch();
+  if (batch) {
+    logWriter = logWriter.then(async () => {
+      await mkdir(path.dirname(LOG_PATH), { recursive: true });
+      await rotateDaemonLogIfNeeded(Buffer.byteLength(batch));
+      await appendFile(LOG_PATH, batch, 'utf8');
+    }).catch(() => {});
+  }
+  await logWriter;
 }
 function log(line) {
   const text = `[backend-daemon] ${line}`;
@@ -121,10 +198,16 @@ function installDaemonLogRedirect() {
   patch(process.stderr);
   patch(process.stdout);
   for (const m of ['log', 'info', 'warn', 'error', 'debug', 'trace']) {
-    console[m] = (...args) => file(`[console.${m}] ${args.map((a) => {
-      if (typeof a === 'string') return a;
-      try { return JSON.stringify(a); } catch { return String(a); }
-    }).join(' ')}`);
+    console[m] = (...args) => file(`[console.${m}] ${args.map((a) =>
+      typeof a === 'string'
+        ? boundedLogText(a)
+        : boundedLogText(inspect(a, {
+          depth: 4,
+          maxArrayLength: 50,
+          maxStringLength: 4_096,
+          breakLength: Infinity,
+          compact: true,
+        }))).join(' ')}`);
   }
 }
 
@@ -137,6 +220,18 @@ let uninstallLocalEngineBridge = null;
 let memoryRuntime = null;
 let shuttingDown = false;
 let shutdownRecheckTimer = null;
+const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
+eventLoopDelay.enable();
+let eventLoopLagTimer = null;
+
+function eventLoopStatus() {
+  const milliseconds = (value) => Number.isFinite(value) ? Math.round(value / 1e6) : 0;
+  return {
+    eventLoopP95Ms: milliseconds(eventLoopDelay.percentile(95)),
+    eventLoopP99Ms: milliseconds(eventLoopDelay.percentile(99)),
+    eventLoopMaxMs: milliseconds(eventLoopDelay.max),
+  };
+}
 
 async function shutdown(reason, code = 0) {
   if (shuttingDown) return;
@@ -156,7 +251,10 @@ async function shutdown(reason, code = 0) {
   // Detach the memory client (never hard-kills the shared memory daemon).
   try { await memoryRuntime?.stop?.(); } catch (e) { log(`memory.stop failed: ${e?.message || e}`); }
   try { await transport?.stop?.(); } catch (e) { log(`transport.stop failed: ${e?.message || e}`); }
+  if (eventLoopLagTimer) { clearInterval(eventLoopLagTimer); eventLoopLagTimer = null; }
+  eventLoopDelay.disable();
   try { releaseSingletonOwner(OWNER_PATH, process.pid); } catch {}
+  await flushDaemonLogs();
   process.exit(code);
 }
 
@@ -386,7 +484,11 @@ async function main() {
     log,
     // `busy` is what stops a newer install from draining a daemon that is
     // mid-turn: work outlives views AND installs.
-    getStatus: () => ({ engines: engineService.size, busy: engineService.busyCount }),
+    getStatus: () => ({
+      engines: engineService.size,
+      busy: engineService.busyCount,
+      ...eventLoopStatus(),
+    }),
     onClientsEmpty: () => { maybeSelfShutdown('no live engine views'); },
     onClientRegistered: () => { prewarmEngineRuntime(); },
     onClientDropped: (token) => { try { engineService.releaseClient(token); } catch {} },
@@ -420,6 +522,14 @@ async function main() {
     safeIpcSend(process, { type: 'ready', port, token });
   }
   log(`ready port=${port} pid=${process.pid} in ${(performance.now() - startedAt).toFixed(0)}ms`);
+  eventLoopLagTimer = setInterval(() => {
+    const status = eventLoopStatus();
+    if (status.eventLoopP99Ms >= 250) {
+      log(`event-loop lag p95=${status.eventLoopP95Ms}ms p99=${status.eventLoopP99Ms}ms max=${status.eventLoopMaxMs}ms`);
+    }
+    eventLoopDelay.reset();
+  }, 30_000);
+  eventLoopLagTimer.unref?.();
 
   // Boot messaging only for an explicit manual remote request. Automation may
   // spawn the shared daemon with no remote intent; keep schedules/webhooks live

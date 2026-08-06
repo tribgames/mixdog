@@ -2283,8 +2283,8 @@ fn evaluate_fuzzy_candidate(
             continue;
         }
         // Whitespace-only drift (leading OR trailing) is always tolerated and
-        // costs no fuzz, for Context AND Delete lines alike. This mirrors
-        // Codex apply_patch, which normalises whitespace (rstrip/strip) across
+        // costs no fuzz, for Context AND Delete lines alike. Whitespace is
+        // normalised (rstrip/strip) across
         // every context+delete line before comparing, so indentation reflow
         // never blocks a hunk. Content (non-whitespace) drift is unaffected:
         // it still falls through to the outer/interior fuzz-budget logic below
@@ -2306,8 +2306,8 @@ fn evaluate_fuzzy_candidate(
         // exotic spaces is treated as an exact match at ZERO fuzz cost. This
         // is a deterministic code-point normalization (not a heuristic
         // guess), so it is safe for interior context lines too — unlike the
-        // outer-context-only content fuzz below. Mirrors Codex apply_patch's
-        // final normalise() pass in seek_sequence.rs.
+        // outer-context-only content fuzz below. This is the final
+        // normalise() pass of the seek.
         if fuzz_factor > 0
             && matches!(expected.tag, HunkTag::Context | HunkTag::Delete)
             && source_context_line_matches_normalized(
@@ -2392,8 +2392,8 @@ fn source_line_matches(source: &[u8], line: &SourceLine, expected: &HunkLine) ->
 }
 
 fn trim_patch_ws(bytes: &[u8]) -> &[u8] {
-    // Strip leading AND trailing horizontal whitespace, matching Codex's
-    // strip-level context normalisation (not just the old trailing-only trim).
+    // Strip leading AND trailing horizontal whitespace: strip-level context
+    // normalisation (not just the old trailing-only trim).
     let mut start = 0usize;
     let mut end = bytes.len();
     while start < end && matches!(bytes[start], b' ' | b'\t') {
@@ -2424,8 +2424,8 @@ fn source_context_line_matches_fuzzy(
 }
 
 /// Map common typographic code-points to their ASCII equivalents, then trim.
-/// Mirrors Codex apply_patch's `normalise()` (seek_sequence.rs) so an
-/// ASCII-authored patch can still anchor against source containing curly
+/// This is the seek's `normalise()` pass, so an ASCII-authored patch can
+/// still anchor against source containing curly
 /// quotes, em/en dashes, NBSP and other exotic spaces.
 fn normalize_typographic(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes)

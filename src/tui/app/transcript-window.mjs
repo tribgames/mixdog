@@ -88,12 +88,10 @@ export const TRANSCRIPT_MEASURED_ROWS = boolEnvDefaultTrue('MIXDOG_TUI_TRANSCRIP
 // re-attach band). Consecutive notches in one direction within
 // WHEEL_ACCEL_IDLE_MS grow the step by WHEEL_STEP_ROWS up to WHEEL_STEP_MAX_ROWS;
 // a direction change or an idle gap resets to the base step.
-// Refs: claude-code accelerates unconditionally (ScrollKeybindingHandler
-// computeWheelStep), opencode keeps a fixed 3-row speed unless
-// `scroll_acceleration.enabled` is set (packages/tui/src/util/scroll.ts).
-// We default to accelerated (claude-code behavior) and expose opencode's two
-// knobs: MIXDOG_TUI_SCROLL_ACCELERATION=0 gives the fixed-speed mode,
-// MIXDOG_TUI_SCROLL_SPEED is opencode's `scroll_speed`.
+// Two schools exist: accelerate unconditionally, or keep a fixed 3-row speed
+// unless acceleration is explicitly enabled. We default to accelerated and
+// expose both knobs: MIXDOG_TUI_SCROLL_ACCELERATION=0 gives the fixed-speed
+// mode, MIXDOG_TUI_SCROLL_SPEED sets the base row step.
 export const WHEEL_STEP_ROWS = positiveIntEnv('MIXDOG_TUI_SCROLL_SPEED', 3);
 export const WHEEL_ACCEL_ENABLED = boolEnvDefaultTrue('MIXDOG_TUI_SCROLL_ACCELERATION');
 export const WHEEL_STEP_MAX_ROWS = Math.max(

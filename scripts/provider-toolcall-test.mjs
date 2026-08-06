@@ -2101,8 +2101,8 @@ test('anthropic effort: legacy sonnet-4-5 maps effort to thinking budget', () =>
 
 test('anthropic effort: xhigh on opus-4-8 is a first-class level (not downgraded to max)', () => {
     // Opus 4.8 supports xhigh (modelSupportsXhighEffort), so xhigh is kept
-    // verbatim as a first-class effort level — matching codex's ReasoningEffort
-    // enum which lists xhigh between high and max. Only models WITHOUT xhigh
+    // verbatim as a first-class effort level — the effort ladder lists xhigh
+    // between high and max. Only models WITHOUT xhigh
     // support clamp it down to high.
     const model = 'claude-opus-4-8';
     assert.equal(modelSupportsMaxEffort(model), true);
@@ -2934,7 +2934,7 @@ test('responses transport policy: xai ws-delta drives official continuation (ref
     assert.equal(p.transport, 'ws');
     assert.equal(p.allowHttpFallback, false);
     // Official xAI continuation: previous_response_id + incremental input, no
-    // Codex turn-state — refs delta ON.
+    // sticky turn-state — refs delta ON.
     assert.deepEqual(p.delta, { force: false, refs: true, optIn: true });
 });
 
@@ -3116,12 +3116,12 @@ test('responses transport policy: _gateTransportMode down-shifts per capability'
     }
 });
 
-// === 11. Codex x-codex-turn-state parity =================================
-// Server-issued sticky-routing token. codex-rs stores it in a per-turn
-// `OnceLock<String>` (client.rs:277-285): captured ONCE at turn start from the
+// === 11. x-codex-turn-state parity =======================================
+// Server-issued sticky-routing token, held per turn: captured ONCE at turn
+// start from the
 // `x-codex-turn-state` RESPONSE header, replayed unchanged on every request
 // within that turn, never fabricated, and dropped between turns (a fresh
-// ModelClientSession/OnceLock per turn). These tests pin that exact contract
+// per-turn holder). These tests pin that exact contract
 // against our pooled-socket emulation (capture + first-use/turn-id attribution
 // + per-turn drop guard).
 test('codex turn-state: captures server response header once, never synthesizes', () => {

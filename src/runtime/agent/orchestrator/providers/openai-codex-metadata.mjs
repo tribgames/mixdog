@@ -35,8 +35,8 @@ function _codexInstallationId(sendOpts) {
         || `mixdog-${_hashText(`${process.env.USERPROFILE || process.env.HOME || ''}:${process.cwd()}`, 32)}`;
 }
 
-// The identity block codex rebuilds per request (responses_metadata.rs
-// client_metadata()): never cached on the pooled socket, or a later turn would
+// The identity block is rebuilt per request: never cached on the pooled
+// socket, or a later turn would
 // replay the first turn's identity.
 function _codexMetadataBase(entry, { poolKey, cacheKey, sendOpts, handshake = false } = {}) {
     const sessionId = _cleanMetaString(sendOpts?.codexSessionId || sendOpts?.session?.codexSessionId || poolKey || cacheKey)
@@ -49,8 +49,8 @@ function _codexMetadataBase(entry, { poolKey, cacheKey, sendOpts, handshake = fa
         : _sessionStartedAtUnixMs(sessionId);
     const requestKind = _codexRequestKind(sendOpts, sessionId);
     const wireParity = process.env.MIXDOG_OAI_CODEX_WIRE_PARITY === '1';
-    // codex opens the WS with a prewarm (empty turn_id) BEFORE the real turn
-    // (client.rs). Under wire parity the handshake IS that prewarm, so its
+    // The reference client opens the WS with a prewarm (empty turn_id) BEFORE
+    // the real turn. Under wire parity the handshake IS that prewarm, so its
     // turn_id empties and its request_kind becomes 'prewarm' instead of
     // presenting the handshake as a live turn. Parity off is unchanged.
     const isPrewarm = requestKind === 'prewarm' || handshake === true;
@@ -66,7 +66,7 @@ function _codexMetadataBase(entry, { poolKey, cacheKey, sendOpts, handshake = fa
         turn_id: turnId,
         window_id: windowId,
         request_kind: effectiveRequestKind,
-        // Richer codex turn-metadata (responses_metadata.rs:264-280). A/B
+        // Richer turn-metadata. A/B
         // 2026-07-04 showed no effect, so it stays behind a knob for future
         // probes; wire parity implies it.
         ...((process.env.MIXDOG_OAI_TURN_METADATA_RICH === '1' || wireParity) ? {
@@ -98,8 +98,8 @@ export function _metadataTrace(metadata) {
     };
 }
 
-// Handshake projection of the same identity. codex attaches these on every
-// request (client.rs:582-584, responses_metadata.rs:227-252); A/B 2026-07-04
+// Handshake projection of the same identity. These ride on every
+// request; A/B 2026-07-04
 // showed the turn-metadata blob alone lifts prefix-cache hits, so it is ON by
 // default. MIXDOG_OAI_TURN_METADATA overrides:
 //   unset|1|turn-metadata : window-id + turn-metadata + installation-id
@@ -141,7 +141,7 @@ export function _withCodexWsClientMetadata(frame, entry, enabled, context = {}) 
         'x-codex-ws-stream-request-start-ms': String(Date.now()),
     };
     if (entry && typeof entry === 'object') {
-        // codex scopes x-codex-turn-state to ONE turn (client.rs:263-279) while
+        // x-codex-turn-state is scoped to ONE turn while
         // pooled sockets span turns: attribute a captured token to the FIRST
         // turn that observes it, then drop it once turn_id moves on. An empty
         // turn_id (parity prewarm) is a valid owner, so the check is against

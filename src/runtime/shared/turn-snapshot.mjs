@@ -8,11 +8,11 @@ import {
 
 // Turn-scoped review registry.
 //
-// A Git worktree gets an OpenCode-style shadow-index snapshot at turn start,
+// A Git worktree gets a shadow-index snapshot at turn start,
 // then compares that immutable tree with the latest worktree state. This makes
 // the headline authoritative for apply_patch, shell, and external edits while
 // preserving changes that already existed before the turn. Non-Git worktrees
-// retain the Codex-compatible exact apply_patch tracker below.
+// retain the exact apply_patch tracker below.
 //
 // Worker apply_patch trackers remain separate and are frozen into the owning
 // Lead turn as attribution metadata. Their stats are never added a second time

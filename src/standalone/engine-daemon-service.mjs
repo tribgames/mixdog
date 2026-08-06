@@ -299,12 +299,15 @@ export function createEngineDaemonService({
   /** Values the store returns SYNCHRONOUSLY in-process. A view cannot await
    *  them (EngineHost does `engine.listSessions().flatMap(...)` inline), so
    *  they ride every open/call response and the view answers from its mirror. */
+  let sharedSyncCache = null;
+  let sharedSyncEpoch = -1;
+
   function syncSurfaceOf(entry, { refresh = false, refreshFromStorage = false } = {}) {
     // listSessions() reads the session STORE — a scan measured in hundreds of
     // milliseconds on a large store. Recomputing it on every call made each
     // round trip pay for it; only session-shaping calls need a fresh surface.
-    if (!refresh && !refreshFromStorage && entry.syncCache && entry.syncEpoch === syncEpoch) {
-      return entry.syncCache;
+    if (!refresh && !refreshFromStorage && sharedSyncCache && sharedSyncEpoch === syncEpoch) {
+      return sharedSyncCache;
     }
     const surface = {};
     try {
@@ -317,8 +320,8 @@ export function createEngineDaemonService({
       const dir = entry.engine.sessionStoreDir?.();
       if (typeof dir === 'string') surface.sessionStoreDir = dir;
     } catch { /* optional */ }
-    entry.syncCache = surface;
-    entry.syncEpoch = syncEpoch;
+    sharedSyncCache = surface;
+    sharedSyncEpoch = syncEpoch;
     return surface;
   }
 
@@ -327,7 +330,10 @@ export function createEngineDaemonService({
   // surface of every OTHER entry, or a pane keeps serving a list that predates
   // the session another view just created, renamed, or deleted.
   let syncEpoch = 0;
-  function invalidateSyncSurfaces() { syncEpoch += 1; }
+  function invalidateSyncSurfaces() {
+    syncEpoch += 1;
+    sharedSyncCache = null;
+  }
 
   /** Entry that currently holds a session live. */
   function sessionOwner(sessionId) {
@@ -507,8 +513,8 @@ export function createEngineDaemonService({
   // ── Durable session protocol ───────────────────────────────────────────────
   // A connection is only a subscription. Session execution is accepted,
   // queued, and owned here; unsubscribe/client death never calls abort or
-  // dispose. This mirrors OpenCode session IDs, Codex thread IDs, and Claude
-  // Code remote session IDs instead of exposing a client-owned engine handle.
+  // dispose. The client addresses a durable session id instead of a
+  // client-owned engine handle.
 
   function sessionResult(entry, step, baseRevision = null, extra = {}) {
     return {
@@ -684,8 +690,19 @@ export function createEngineDaemonService({
   // with TUI sessions, channels, memory, MCP, and automation.
   function desktopEventKey(desktopId, message) {
     const kind = String(message?.kind || 'event');
-    const sessionId = kind === 'session-state' ? String(message?.sessionId || '') : '';
-    return `desktop-event:${desktopId}:${kind}${sessionId ? `:${sessionId}` : ''}`;
+    if (kind === 'session-state') {
+      return `desktop-event:${desktopId}:${kind}:${String(message?.sessionId || '')}`;
+    }
+    // Backend events are NOT one lane. Under one shared `backend-event` key a
+    // terminal flood clobbered LSP/folder events — and every other terminal —
+    // whenever the stream backed up, because the backlog is latest-wins per
+    // key. Name (and terminal id) keep each producer on its own key.
+    if (kind === 'backend-event') {
+      const name = String(message?.name || '');
+      const terminalId = name === 'terminal-data' ? String(message?.value?.id || '') : '';
+      return `desktop-event:${desktopId}:${kind}:${name}${terminalId ? `:${terminalId}` : ''}`;
+    }
+    return `desktop-event:${desktopId}:${kind}`;
   }
 
   function publishDesktopEvent(desktopId, message) {

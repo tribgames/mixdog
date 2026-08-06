@@ -287,7 +287,7 @@ async function changedWorktreePaths(state) {
     ...trackedPaths.filter((value) => !state.sourceTracked.has(pathKey(value))),
     ...untrackedPaths,
   ])];
-  // Match OpenCode's snapshot bound: never hash a newly-created multi-MB
+  // Snapshot bound: never hash a newly-created multi-MB
   // build artifact just to power a review bar. Existing tracked files remain
   // exact; only large untracked blobs are omitted.
   const allowedUntracked = [];

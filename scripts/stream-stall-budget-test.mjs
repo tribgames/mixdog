@@ -1,7 +1,7 @@
 // Send-scoped stall-retry budget: the wall clock starts at the FIRST stall of
 // a send; stall retries inside the window pass, past it they are denied so the
 // caller surfaces the error for a fresh-request transport retry. Healthy sends
-// never consult the clock. Default budget follows the CC/Codex 300s reference
+// never consult the clock. Default budget follows the 300s reference
 // (MIXDOG_STREAM_STALL_BUDGET_MS overrides).
 import assert from 'node:assert/strict';
 import test from 'node:test';

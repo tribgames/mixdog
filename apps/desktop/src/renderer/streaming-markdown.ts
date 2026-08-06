@@ -192,11 +192,11 @@ function healIncompleteLink(text: string): string {
 
 /**
  * Close the inline markers the model has not finished typing yet.
- * OpenCode heals its live tail (remend) before parsing, so "**계획" renders as
+ * The live tail is healed before parsing, so "**계획" renders as
  * bold WHILE it streams; without healing the raw markers stayed visible until
  * the closing token arrived and the line snapped. The result feeds the PARSER
  * only: emphasis and code gain their closers, and an unfinished link keeps its
- * label as prose (remend's text-only mode). The source fallback still shows
+ * label as prose (text-only healing). The source fallback still shows
  * exactly what the model emitted.
  */
 export function healStreamingMarkdownTail(text: string): string {
@@ -292,8 +292,8 @@ function scanStreamingMarkdownLines(text: string, cache: StreamingMarkdownCache)
   cache.scanOffset = lineStart;
 }
 
-// Match OpenCode's projection model: every complete top-level block except the
-// final block becomes immutable. The remaining block is the sole mutable tail.
+// Projection model: every complete top-level block except the final block
+// becomes immutable. The remaining block is the sole mutable tail.
 function stableMarkdownBoundaries(text: string, cache: StreamingMarkdownCache): number[] {
   scanStreamingMarkdownLines(text, cache);
   const base = cache.stableText.length;

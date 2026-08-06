@@ -338,7 +338,7 @@ export function createAgentJobFeed({
           }
           const enqueued = enqueue(resumeBody, {
             mode: 'task-notification',
-            // Claude Code parity: live execution completions are queued as
+            // Live execution completions are queued as
             // task notifications so the active loop can attach them after the
             // next tool batch; no special pending-resume bypass.
             priority: 'next',
@@ -378,7 +378,7 @@ export function createAgentJobFeed({
       if (!modelContent && imagePaths.length === 0) return true;
       const enqueueOpts = {
         mode: 'task-notification',
-        // Claude Code parity: task/schedule notifications are lower-priority
+        // Task/schedule notifications are lower-priority
         // queue items and drain between turns, behind direct user input.
         priority: 'later',
         key: notificationKey || undefined,

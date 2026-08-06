@@ -50,7 +50,7 @@
  *                        || toolCallsComplete > 0 || toolCallsDispatched > 0
  *   sideEffectDispatched = toolCallsDispatched > 0
  *   replayUnsafe       = the ONE architecture-specific deny MixDog adds on top
- *                        of the Codex retry rules, because it streams UI text
+ *                        of the standard retry rules, because it streams UI text
  *                        and dispatches tools eagerly:
  *                        visibleOutput || sideEffectDispatched
  *                        || dispatchAmbiguous || unsafe marker

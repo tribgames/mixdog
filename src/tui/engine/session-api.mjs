@@ -665,8 +665,8 @@ export function createEngineApiA(bag) {
       // the turn's own finally clears busy within a tick. If that unwind is
       // starved the recovery timer below hard-releases busy. Separately from
       // recovery: queued work must never strand behind a cancelled turn
-      // (Codex parity — abort preserves pending input for the next turn; CC
-      // parity — the command queue survives cancel and fires when idle). The
+      // (abort preserves pending input for the next turn, and the command
+      // queue survives cancel and fires when idle). The
       // drain loop that owns a normal turn continues on its own; this bounded
       // kick covers unwinds where no drain owner re-checks pending after busy
       // clears. drain() self-guards (busy/draining/commandBusy), so the

@@ -31,14 +31,21 @@ function daemonEntry() {
   return fileURLToPath(new URL('./backend-daemon.mjs', import.meta.url));
 }
 
-// Every store method that is not implemented locally becomes one loopback HTTP
-// request, and panels fire several in a row, so an un-pooled socket made each
-// getter pay a fresh TCP connect + teardown. One keep-alive agent for all
-// daemon requests keeps the connection warm; it is destroyed when the last view
-// detaches so idle sockets can never hold the process open.
-const daemonAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 8 });
+// Data calls and lifecycle control must never share a socket pool. A burst of
+// long /call requests can occupy every data socket; health/register/deregister
+// still need a reserved lane so a new terminal can always attach or recover.
+const daemonCallAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 8 });
+const daemonControlAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 4 });
 
-function request({ port, token, method = 'GET', path: urlPath, body = null, timeoutMs = 120_000 }) {
+function request({
+  port,
+  token,
+  method = 'GET',
+  path: urlPath,
+  body = null,
+  timeoutMs = 120_000,
+  control = false,
+}) {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : null;
     const req = http.request({
@@ -46,7 +53,7 @@ function request({ port, token, method = 'GET', path: urlPath, body = null, time
       port,
       path: urlPath,
       method,
-      agent: daemonAgent,
+      agent: control ? daemonControlAgent : daemonCallAgent,
       headers: {
         'X-Mixdog-Daemon-Token': token,
         ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
@@ -77,7 +84,7 @@ function request({ port, token, method = 'GET', path: urlPath, body = null, time
 
 export async function probeEngineDaemonHealth({ port, token, timeoutMs = 800 } = {}) {
   try {
-    const health = await request({ port, token, path: '/health', timeoutMs });
+    const health = await request({ port, token, path: '/health', timeoutMs, control: true });
     return health?.status === 'ok' ? health : null;
   } catch { return null; }
 }
@@ -211,16 +218,37 @@ export async function attachEngineDaemon({
   leadPid = process.pid,
   cwd = process.cwd(),
   lifecycle = true,
+  registrationId = randomUUID(),
   onFrame = () => {},
   onFatal = () => {},
   log = () => {},
 } = {}) {
   if (!discovery?.port || !discovery?.token) throw new Error('daemon discovery {port, token} required');
   const { port, token: serverToken } = discovery;
-  const reg = await request({
-    port, token: serverToken, method: 'POST', path: '/client/register',
-    body: { leadPid, cwd, lifecycle: lifecycle !== false }, timeoutMs: 3000,
-  });
+  const stableRegistrationId = String(registrationId || randomUUID());
+  let reg = null;
+  let registrationError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      reg = await request({
+        port, token: serverToken, method: 'POST', path: '/client/register',
+        body: {
+          leadPid,
+          cwd,
+          lifecycle: lifecycle !== false,
+          registrationId: stableRegistrationId,
+        },
+        timeoutMs: 3000,
+        control: true,
+      });
+      break;
+    } catch (error) {
+      registrationError = error;
+      if (Number(error?.statusCode) >= 400 && Number(error?.statusCode) < 500) throw error;
+      if (attempt < 2) await delay(100 * (attempt + 1));
+    }
+  }
+  if (!reg) throw registrationError || new Error('engine daemon registration failed');
   const clientToken = reg?.token;
   if (!clientToken) throw new Error('engine daemon register returned no client token');
 
@@ -299,7 +327,7 @@ export async function attachEngineDaemon({
     try {
       await request({
         port, token: serverToken, method: 'POST', path: '/client/deregister',
-        body: { token: clientToken }, timeoutMs: 1500,
+        body: { token: clientToken }, timeoutMs: 1500, control: true,
       });
     } catch { /* the daemon sweep reaps us anyway */ }
     log(`detached (${reason})`);
@@ -315,7 +343,7 @@ export async function shutdownEngineDaemon(discovery = readEngineDaemonDiscovery
   try {
     await request({
       port: discovery.port, token: discovery.token, method: 'POST',
-      path: '/shutdown', body: {}, timeoutMs: 3000,
+      path: '/shutdown', body: {}, timeoutMs: 3000, control: true,
     });
     return true;
   } catch { return false; }
@@ -769,7 +797,8 @@ export async function createRemoteEngineSession(options = {}) {
         try { await attachment.client.close(reason); } catch {}
         // Last view gone: drop pooled keep-alive sockets so an idle connection
         // cannot keep the process (or a test runner) alive.
-        try { daemonAgent.destroy(); } catch {}
+        try { daemonCallAgent.destroy(); } catch {}
+        try { daemonControlAgent.destroy(); } catch {}
         if (shared === attachment) shared = null;
       }
     },

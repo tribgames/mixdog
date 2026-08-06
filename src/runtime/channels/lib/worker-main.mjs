@@ -435,7 +435,7 @@ function forwardLifecycleToDiscord(channelId, content) {
 scheduler.setInjectHandler((channelId, name, content, options) => {
   injectAndRecord(channelId, name, content, options);
 });
-// CC-parity interactive schedule fires may only inject while this process
+// Interactive schedule fires may only inject while this process
 // actually holds the live bridge seat; otherwise the scheduler falls back to
 // the visible-session run so the fire is never lost.
 scheduler.setInjectReadyCheck(() => bridgeRuntimeConnected && currentOwnerState().owned);

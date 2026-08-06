@@ -115,7 +115,7 @@ class Scheduler {
   setSendHandler(fn) {
     this.sendFn = fn;
   }
-  /** Probe for a live Lead bridge seat. When set, the CC-parity interactive
+  /** Probe for a live Lead bridge seat. When set, the interactive
    *  inject only fires while it reports true; otherwise the visible-session
    *  fallback keeps the fire from being lost. Unset → inject when wired. */
   setInjectReadyCheck(fn) {

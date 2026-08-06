@@ -18,11 +18,11 @@ import { TOOL_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
 // truncation (proceed with cap) rather than refusing. Hard in-memory cap
 // for loading a full file remains READ_MAX_SIZE_BYTES (10 MiB).
 //
-// READ_MAX_OUTPUT_BYTES (30 KB) — output-truncation cap. Lead-facing default tightened from 50k. Mirrors CC's
-// MAX_OUTPUT_SIZE intent (utils/file.ts:48) and the throw-vs-truncate
+// READ_MAX_OUTPUT_BYTES (30 KB) — output-truncation cap. Lead-facing default tightened from 50k. Follows the
+// common max-output-size intent and the throw-vs-truncate
 // trade-off Anthropic chose in #21841 (throw is more token-efficient).
-// NOTE: CC's parallel output budget is maxTokens = 25,000 tokens
-// (limits.ts:18), enforced post-read via a tokenizer throw. mixdog
+// NOTE: the usual alternative is a ~25,000-token output budget
+// enforced post-read via a tokenizer throw. mixdog
 // caps on BYTES at read time instead (no tokenizer in the hot path);
 // 30 KB ≈ well under a 25k-token budget, so the byte cap is left as-is
 // rather than converted to a token count that can't be expressed

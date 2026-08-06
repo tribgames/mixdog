@@ -563,7 +563,7 @@ const bootstrap = harnessInstalled
   const openCodeShell = {
     // Tabs reorder via pointer capture (aria-grabbed), not HTML draggable.
     workspaceTab: Boolean(document.querySelector('.workspace-tab')),
-    // OpenCode parity: while a draft tab is active it IS the new-task
+    // While a draft tab is active it IS the new-task
     // surface and the + affordance hides, so accept either signal.
     newTask: Boolean(document.querySelector('button[aria-label="New task"]') ||
       document.querySelector('.workspace-tab')),

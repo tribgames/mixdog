@@ -8,8 +8,8 @@ const requireCjs = createRequire(import.meta.url);
 const DEFAULT_READ_MAX_OUTPUT_BYTES = 100 * 1024;
 
 // PDFs at or under this size are emitted as an Anthropic base64 document
-// block (the model reads the rendered PDF directly). Mirrors CC's
-// PDF_TARGET_RAW_SIZE (20MB raw → ~27MB base64, under the 32MB request cap).
+// block (the model reads the rendered PDF directly): 20MB raw → ~27MB
+// base64, which stays under the 32MB request cap.
 // Larger PDFs fall back to pdf-parse TEXT extraction.
 const PDF_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
 
@@ -19,7 +19,7 @@ const PDF_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
 const PDF_MAGIC = Buffer.from('%PDF-', 'latin1');
 
 // Per-output text ceiling inside a notebook. A single cell output larger than
-// this is replaced with a jq hint (port of CC's large-notebook guidance) so a
+// this is replaced with a jq hint (large-notebook guidance) so a
 // runaway stdout / data dump can't blow the read budget.
 const IPYNB_OUTPUT_MAX_CHARS = 10_000;
 

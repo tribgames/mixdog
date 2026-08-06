@@ -65,7 +65,7 @@ export function collectUnifiedNewLines(hunk) {
 }
 
 // Guard a replacement plan before it is applied in DESCENDING order (the
-// Codex `apply_replacements` shape). The plan must already be sorted
+// `apply_replacements` shape). The plan must already be sorted
 // ascending by `start`. Descending application is only content-safe when the
 // replaced ranges are disjoint; the single well-defined exception is several
 // zero-length insertions at one index, which descending application emits in

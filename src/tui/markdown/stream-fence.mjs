@@ -9,7 +9,7 @@
  * so the block height stays stable across deltas.
  *
  * Kept in its own dependency-free module so it can be unit-tested without the
- * ink/JSX render stack. Ref: earendil-works/pi packages/tui/src/components/markdown.ts.
+ * ink/JSX render stack.
  */
 export function trimPartialClosingFences(tokens) {
   const token = tokens?.[tokens.length - 1];

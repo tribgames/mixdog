@@ -41,6 +41,7 @@ import {
 import { createProviderUsage } from '../src/session-runtime/provider-usage.mjs';
 import {
     _withLoadedProviderCtorForTest,
+    _withRegisteredProviderForTest,
     providerCatalogRevision,
     refreshProviderCatalogsOnStartup,
 } from '../src/runtime/agent/orchestrator/providers/registry.mjs';
@@ -72,7 +73,10 @@ test('startup provider catalog refresh runs once for every session runtime in th
         }
     }
     const before = providerCatalogRevision();
-    const requests = _withLoadedProviderCtorForTest('catalog-startup-test', CatalogProvider, () => {
+    // The refresh walks REGISTERED instances (initProviders already built every
+    // enabled provider); a merely loaded constructor is not a startup catalog
+    // participant, so the fixture registers the instance itself.
+    const requests = _withRegisteredProviderForTest('catalog-startup-test', new CatalogProvider(), () => {
         const first = refreshProviderCatalogsOnStartup();
         const second = refreshProviderCatalogsOnStartup();
         assert.equal(first, second);

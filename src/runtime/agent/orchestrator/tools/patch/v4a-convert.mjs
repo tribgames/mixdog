@@ -66,7 +66,7 @@ function v4AHunkLineStats(hunk) {
   return { oldCount, newCount, oldLines, newLines, oldTags };
 }
 
-// Codex parity (seek_sequence): typographic punctuation is normalised to
+// V4A parity: typographic punctuation is normalised to
 // ASCII on the most permissive matching pass, so a patch authored in plain
 // ASCII still locates context in a file containing smart quotes / en dashes.
 function normalizeAnchorText(value) {
@@ -77,7 +77,7 @@ function normalizeAnchorText(value) {
 }
 
 // The anchor seek now falls through the SAME decreasing-strictness passes the
-// body seek uses (seek_sequence.rs: exact -> rstrip -> trim -> normalised).
+// body seek uses (exact -> rstrip -> trim -> normalised).
 // An anchor that is present but differs by trailing whitespace or a smart
 // quote must not report as "anchor not found". Exact stays first, so every
 // currently-resolving patch keeps its existing position.
@@ -132,7 +132,7 @@ function findAnchorLine(lines, anchors, fromLine) {
   return -1;
 }
 
-// Non-fatal ambiguity channel. Codex (and this converter) apply the FIRST
+// Non-fatal ambiguity channel. V4A applies the FIRST
 // context match after the previous hunk, with no uniqueness check — that is
 // the spec, so a duplicate context stays a success. It is reported on the
 // result instead, so a silently misplaced edit is visible in the same turn.
@@ -250,7 +250,7 @@ function cloneTextLinesForPatch(sourceLines) {
   return lines;
 }
 
-// Codex parity (codex-rs/apply-patch/src/lib.rs compute_replacements): a chunk
+// V4A parity (compute_replacements): a chunk
 // with no old lines is a pure addition and is inserted at end-of-file — before
 // the trailing empty line when the file ends with a blank line — never at the
 // current anchor cursor.
@@ -391,15 +391,15 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
       searchFrom,
       { fuzzy, eof },
     );
-    // Codex parity (compute_replacements): when the first seek fails and the
+    // V4A parity (compute_replacements): when the first seek fails and the
     // pattern's last line is the empty string that stands in for the region's
-    // terminating newline, retry without it. Codex runs this retry for EVERY
+    // terminating newline, retry without it. The retry runs for EVERY
     // chunk, not only `*** End of File` ones, so a hunk whose trailing blank
     // context line sits at end-of-file resolves instead of reporting a context
     // miss. When the retry empties the pattern (the old side was that single
-    // blank line) Codex's seek returns the cursor, i.e. the hunk becomes a
+    // blank line) the seek returns the cursor, i.e. the hunk becomes a
     // zero-length insertion at the anchor cursor; `anchorLine` IS that cursor
-    // (Codex `line_index`), so use it directly instead of the seek's
+    // (`line_index`), so use it directly instead of the seek's
     // preferred-line fallback.
     if (oldStartIdx < 0 && oldLinesPattern.length > 0 && oldLinesPattern[oldLinesPattern.length - 1] === '') {
       oldLinesPattern = oldLinesPattern.slice(0, -1);
@@ -493,7 +493,7 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
     oldStartIdx,
     matchLen,
     newLines: newLinesPattern,
-    // Codex parity: a zero-length replacement never advances the cursor
+    // V4A parity: a zero-length replacement never advances the cursor
     // (compute_replacements `continue`s on the pure-addition branch), so a
     // following hunk can still resolve against lines before the insertion
     // point instead of being pushed past end-of-file.
@@ -525,7 +525,7 @@ export function applyV4AHunksToLines(sourceLines, hunks, options = {}) {
     });
     nextSearchLine = loc.nextSearchLine;
   }
-  // Codex parity (compute_replacements sorts by start index before
+  // V4A parity (compute_replacements sorts by start index before
   // apply_replacements walks them in reverse): descending application is only
   // position-safe when the list is ordered by start index. Resolution order is
   // normally already ascending; the sort is stable, so equal starts keep their
@@ -975,7 +975,7 @@ export async function convertV4ASectionsToUnifiedPatch(sections, basePath, optio
         if (prefix === ' ' || prefix === '-') {
           if (i === dropOldAt) {
             // The sentinel line leaves the OLD side. When it is a context line
-            // that the new side still keeps (Codex only trims the new slice
+            // that the new side still keeps (the new slice is only trimmed
             // when it ends with the sentinel), it survives as an addition.
             if (prefix === ' ' && i !== dropNewAt) {
               bodyLines.push(`+${line.slice(1)}`);
