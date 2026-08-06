@@ -4,12 +4,12 @@ import {
   engineDaemonClientModuleUrl,
 } from './engine-host-support';
 import type {
-  EngineWorkerInbound,
-  EngineWorkerOutbound,
-} from './engine-worker-protocol';
+  DesktopBackendInbound,
+  DesktopBackendOutbound,
+} from './desktop-backend-protocol';
 import type {
-  EngineWorkerTransport,
-} from './utility-engine-host';
+  BackendTransport,
+} from './desktop-backend-client';
 
 interface AttachedDaemon {
   call(
@@ -35,11 +35,11 @@ interface EngineDaemonClient {
 }
 
 type EngineDaemonClientLoader = (
-  options: Extract<EngineWorkerInbound, { kind: 'init' }>['options'],
+  options: Extract<DesktopBackendInbound, { kind: 'init' }>['options'],
 ) => Promise<EngineDaemonClient>;
 
-/** UtilityEngineHost transport backed by the singleton backend daemon. */
-export class DaemonEngineTransport implements EngineWorkerTransport {
+/** Desktop backend client transport backed by the singleton daemon. */
+export class DaemonEngineTransport implements BackendTransport {
   private readonly listeners = new Map<string, Set<(...args: any[]) => void>>();
   private readonly requestedDesktopId = `desktop_${process.pid}_${randomUUID().replaceAll('-', '')}`;
   private desktopId = this.requestedDesktopId;
@@ -70,7 +70,7 @@ export class DaemonEngineTransport implements EngineWorkerTransport {
     }
   }
 
-  postMessage(message: EngineWorkerInbound): void {
+  postMessage(message: DesktopBackendInbound): void {
     if (this.closed) throw new Error('Mixdog daemon transport is closed.');
     if (message.kind === 'init') {
       void this.initialize(message).catch((error) => this.fail(error));
@@ -84,7 +84,7 @@ export class DaemonEngineTransport implements EngineWorkerTransport {
   }
 
   private async initialize(
-    message: Extract<EngineWorkerInbound, { kind: 'init' }>,
+    message: Extract<DesktopBackendInbound, { kind: 'init' }>,
   ): Promise<void> {
     if (this.initializing) return this.initializing;
     this.initializing = (async () => {
@@ -107,7 +107,7 @@ export class DaemonEngineTransport implements EngineWorkerTransport {
         onFrame: (frame) => {
           if (frame?.type !== 'desktop-event') return;
           if (String(frame.desktopId || '') !== this.desktopId) return;
-          const outbound = frame.message as EngineWorkerOutbound;
+          const outbound = frame.message as DesktopBackendOutbound;
           if (outbound && typeof outbound === 'object') this.emit('message', outbound);
         },
         onFatal: (reason) => this.fail(new Error(`Mixdog backend daemon disconnected: ${reason}`)),
@@ -127,7 +127,7 @@ export class DaemonEngineTransport implements EngineWorkerTransport {
         desktopId: this.desktopId,
         message: { kind: 'state-resync' },
       });
-      this.emit('message', { kind: 'ready' } satisfies EngineWorkerOutbound);
+      this.emit('message', { kind: 'ready' } satisfies DesktopBackendOutbound);
     })();
     try {
       await this.initializing;
@@ -137,7 +137,7 @@ export class DaemonEngineTransport implements EngineWorkerTransport {
   }
 
   private async request(
-    message: Extract<EngineWorkerInbound, { kind: 'request' }>,
+    message: Extract<DesktopBackendInbound, { kind: 'request' }>,
   ): Promise<void> {
     try {
       if (this.initializing) await this.initializing;
@@ -152,7 +152,7 @@ export class DaemonEngineTransport implements EngineWorkerTransport {
         id: message.id,
         ok: true,
         value: value ?? null,
-      } satisfies EngineWorkerOutbound);
+      } satisfies DesktopBackendOutbound);
     } catch (error) {
       const record = error && typeof error === 'object'
         ? error as Record<string, unknown>
@@ -166,11 +166,11 @@ export class DaemonEngineTransport implements EngineWorkerTransport {
           message: error instanceof Error ? error.message : String(error),
           ...(typeof record?.code === 'string' ? { code: record.code } : {}),
         },
-      } satisfies EngineWorkerOutbound);
+      } satisfies DesktopBackendOutbound);
     }
   }
 
-  private async control(message: EngineWorkerInbound): Promise<void> {
+  private async control(message: DesktopBackendInbound): Promise<void> {
     if (this.initializing) await this.initializing;
     if (!this.client) return;
     await this.client.call('desktop.control', {
@@ -202,10 +202,8 @@ export class DaemonEngineTransport implements EngineWorkerTransport {
     return this.closePromise;
   }
 
-  kill(): boolean {
-    if (this.closed) return false;
-    this.closed = true;
-    void this.closeClient('desktop view closed');
-    return true;
+  async close(): Promise<void> {
+    if (!this.closed) this.closed = true;
+    await this.closeClient('desktop view closed');
   }
 }

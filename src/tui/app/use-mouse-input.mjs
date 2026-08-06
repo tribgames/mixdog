@@ -9,7 +9,13 @@
  */
 import { useCallback, useEffect, useRef } from 'react';
 import { overlayBlocksGlobalTranscriptScroll } from './slash-commands.mjs';
-import { TRANSCRIPT_MEASURED_ROWS } from './transcript-window.mjs';
+import {
+  TRANSCRIPT_MEASURED_ROWS,
+  WHEEL_ACCEL_ENABLED,
+  WHEEL_ACCEL_IDLE_MS,
+  WHEEL_STEP_MAX_ROWS,
+  WHEEL_STEP_ROWS,
+} from './transcript-window.mjs';
 
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
@@ -25,6 +31,8 @@ const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
 const ALT_SCROLL_OFF = '\x1b[?1007l';
 const MOUSE_MODIFIER_MASK = 4 | 8 | 16;
 const MOUSE_CTRL_MASK = 16;
+// Wheel step / acceleration knobs live in transcript-window.mjs next to the
+// other MIXDOG_TUI_* scroll tunables (see the block around WHEEL_STEP_ROWS).
 // Bit 2 (4) of the SGR button byte = shift held during the click. Wheel/ctrl
 // masking above intentionally strips it for scroll routing; button-press
 // handling below reads it separately (before baseButton = button & 3 drops
@@ -161,6 +169,9 @@ export function useMouseInput({
   // Edge auto-scroll timer state (see the effect below). Owned at hook scope so
   // it survives re-subscribes; the drag itself lives on the App-owned dragRef.
   const edgeAutoscrollRef = useRef({ dir: 0, timer: null, noMove: 0 });
+  // Wheel acceleration state (see WHEEL_STEP_ROWS). Hook-scoped so it survives
+  // the input effect's re-subscribes.
+  const wheelAccelRef = useRef({ dir: 0, t: 0, step: WHEEL_STEP_ROWS });
 
   const passthroughCtrlWheelZoom = useCallback(() => {
     // Re-enable with retries. Console stream failures are normally reported to
@@ -400,13 +411,24 @@ export function useMouseInput({
             return;
           }
           if (overlayBlocksGlobalTranscriptScroll(scrollFocusRef.current)) return;
-          const STEP = 3; // rows per wheel notch; immediate updates feel steadier in Windows Terminal
           // Wheel while a selection is live (mid-drag OR after release) scrolls
           // the transcript instead of being dropped: scrollTranscriptRows'
           // active-drag branch rebuilds the rect (anchor→last), the released
           // branch shifts it — both keep the highlight and stitch-harvest the
           // rows that scroll off (ref ScrollKeybindingHandler wheel path).
-          queueScrollCoalesced((up - down) * STEP);
+          const wheelDir = up - down;
+          const nowWheel = Date.now();
+          const accel = wheelAccelRef.current;
+          if (!WHEEL_ACCEL_ENABLED
+            || accel.dir !== wheelDir
+            || (nowWheel - accel.t) > WHEEL_ACCEL_IDLE_MS) {
+            accel.step = WHEEL_STEP_ROWS;
+          } else {
+            accel.step = Math.min(WHEEL_STEP_MAX_ROWS, accel.step + WHEEL_STEP_ROWS);
+          }
+          accel.dir = wheelDir;
+          accel.t = nowWheel;
+          queueScrollCoalesced(wheelDir * accel.step);
         }
         return;
       }

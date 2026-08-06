@@ -807,5 +807,11 @@
   "Fermenting": "Бродит",
   "Incubating": "Вынашивает",
   "Coalescing": "Складывается",
-  "Cultivating": "Взращивает"
+  "Cultivating": "Взращивает",
+  "Contemplating": "Созерцает",
+  "Deliberating": "Взвешивает",
+  "Cogitating": "Соображает",
+  "Inferring": "Делает выводы",
+  "Ideating": "Придумывает",
+  "Envisioning": "Представляет"
 }

@@ -778,8 +778,6 @@ export function createEngineDaemonService({
     if (token) backend.subscribers.add(token);
     const name = String(method || '');
     if (!name) throw new TypeError('desktop backend method is required');
-    // A desktop view closing is an unsubscribe, never a backend/session stop.
-    if (name === 'dispose') return null;
     return sanitizeForWire(await backend.instance.invoke(name, Array.isArray(args) ? args : [])) ?? null;
   }
 

@@ -1,5 +1,5 @@
-// Dock Git panel backend: plain `git` CLI
-// calls from the main process, scoped to the active project directory.
+// Dock Git panel backend: plain `git` CLI calls from the singleton daemon,
+// scoped to the active project directory.
 import { execFile, spawn } from 'node:child_process';
 import {
   access, copyFile, lstat, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat,
@@ -8,6 +8,7 @@ import {
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { backendChildEnvironment } from './backend-child-environment';
 import {
   requiredCommitHash,
   requiredGitIgnoreScope,
@@ -76,12 +77,11 @@ export interface GitBranchEntry {
  * or the repository's own — an inherited value can never choose for us.
  */
 function gitEnvironment(indexFile?: string): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
+  const env = backendChildEnvironment({
     GIT_TERMINAL_PROMPT: '0',
     GIT_EDITOR: 'true',
     GIT_SEQUENCE_EDITOR: 'true',
-  };
+  });
   if (indexFile) env.GIT_INDEX_FILE = indexFile;
   else delete env.GIT_INDEX_FILE;
   return env;

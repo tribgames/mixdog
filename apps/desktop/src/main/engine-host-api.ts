@@ -149,7 +149,6 @@ export const ENGINE_HOST_RPC_METHODS = [
   'readCapabilities',
   'backendInvoke',
   'perfLog',
-  'dispose',
 ] as const;
 
 export type EngineHostRpcMethod = typeof ENGINE_HOST_RPC_METHODS[number];

@@ -60,6 +60,7 @@ export const SUITES = {
     'session-title-controller-test.mjs',
     'set-effort-config-test.mjs',
     'shell-jobs-windows-hide-test.mjs',
+    'spinner-meta-test.mjs',
     'statusline-agents-test.mjs',
     'statusline-quota-hysteresis-test.mjs',
     'steering-fold-provenance-test.mjs',

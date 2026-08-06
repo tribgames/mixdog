@@ -66,16 +66,107 @@ function v4AHunkLineStats(hunk) {
   return { oldCount, newCount, oldLines, newLines, oldTags };
 }
 
-function findAnchorLine(lines, anchors, fromLine) {
+// Codex parity (seek_sequence): typographic punctuation is normalised to
+// ASCII on the most permissive matching pass, so a patch authored in plain
+// ASCII still locates context in a file containing smart quotes / en dashes.
+function normalizeAnchorText(value) {
+  return String(value).trim().replace(/[\u2010-\u2015\u2212]/g, '-')
+    .replace(/[\u2018-\u201B]/g, "'")
+    .replace(/[\u201C-\u201F]/g, '"')
+    .replace(/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g, ' ');
+}
+
+// The anchor seek now falls through the SAME decreasing-strictness passes the
+// body seek uses (seek_sequence.rs: exact -> rstrip -> trim -> normalised).
+// An anchor that is present but differs by trailing whitespace or a smart
+// quote must not report as "anchor not found". Exact stays first, so every
+// currently-resolving patch keeps its existing position.
+function seekAnchor(lines, anchor, cursor) {
+  const passes = [
+    (line) => line.includes(anchor),
+    (line) => line.trimEnd().includes(anchor.trimEnd()),
+    (line) => line.trim().includes(anchor.trim()),
+    (line) => normalizeAnchorText(line).includes(normalizeAnchorText(anchor)),
+  ];
+  for (const matches of passes) {
+    const found = lines.findIndex((line, idx) => idx >= cursor && matches(line));
+    if (found >= 0) return found;
+  }
+  return -1;
+}
+
+function seekAnchorChain(lines, anchors, fromLine) {
   let cursor = Math.max(0, fromLine || 0);
-  for (const anchorRaw of anchors || []) {
-    const anchor = String(anchorRaw || '').trim();
-    if (!anchor) continue;
-    const found = lines.findIndex((line, idx) => idx >= cursor && line.includes(anchor));
+  for (const anchor of anchors) {
+    const found = seekAnchor(lines, anchor, cursor);
     if (found === -1) return -1;
     cursor = found + 1;
   }
   return cursor;
+}
+
+function countAnchorHits(lines, anchor, cap = 2) {
+  let hits = 0;
+  for (const line of lines) {
+    if (line.includes(anchor)) {
+      hits += 1;
+      if (hits >= cap) break;
+    }
+  }
+  return hits;
+}
+
+function findAnchorLine(lines, anchors, fromLine) {
+  const list = (anchors || []).map((anchor) => String(anchor || '').trim()).filter(Boolean);
+  if (list.length === 0) return Math.max(0, fromLine || 0);
+  const forward = seekAnchorChain(lines, list, fromLine);
+  if (forward >= 0) return forward;
+  // Hunks listed out of file order leave the cursor PAST an anchor that is
+  // still present (orderV4AHunksByFilePosition re-sorts most such input; this
+  // covers what its keying cannot resolve). Retrying from the top is only
+  // safe when every anchor occurs exactly once in the file — the position is
+  // then unambiguous, so no other occurrence can be selected instead.
+  if ((fromLine || 0) > 0 && list.every((anchor) => countAnchorHits(lines, anchor) === 1)) {
+    return seekAnchorChain(lines, list, 0);
+  }
+  return -1;
+}
+
+// Non-fatal ambiguity channel. Codex (and this converter) apply the FIRST
+// context match after the previous hunk, with no uniqueness check — that is
+// the spec, so a duplicate context stays a success. It is reported on the
+// result instead, so a silently misplaced edit is visible in the same turn.
+const _v4aAmbiguityNotices = new Set();
+const V4A_AMBIGUITY_NOTICE_CAP = 4;
+
+function countExactWindows(lines, pattern, cap = 2) {
+  if (!Array.isArray(pattern) || pattern.length === 0) return 0;
+  let hits = 0;
+  outer: for (let i = 0; i + pattern.length <= lines.length; i++) {
+    for (let k = 0; k < pattern.length; k++) {
+      if (lines[i + k] !== pattern[k]) continue outer;
+    }
+    hits += 1;
+    if (hits >= cap) break;
+  }
+  return hits;
+}
+
+function noteV4AHunkAmbiguity(displayPath, sourceLines, loc) {
+  if (_v4aAmbiguityNotices.size >= V4A_AMBIGUITY_NOTICE_CAP) return;
+  if (loc.anchored || !(loc.matchLen > 0)) return;
+  if (countExactWindows(sourceLines, loc.pattern) < 2) return;
+  _v4aAmbiguityNotices.add(
+    `${displayPath}: hunk context matches more than one place; applied at line ${loc.oldStartIdx + 1} `
+    + '(first match after the previous hunk). Add an @@ anchor to target a different one.',
+  );
+}
+
+export function drainV4AAmbiguityNotices() {
+  if (_v4aAmbiguityNotices.size === 0) return [];
+  const list = [..._v4aAmbiguityNotices];
+  _v4aAmbiguityNotices.clear();
+  return list;
 }
 
 function formatV4AHunkLocator(hunk) {
@@ -411,6 +502,10 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
     trimmedTrailingNew,
     trimmedLeadingContext,
     trimmedTrailingContext,
+    // Ambiguity-notice inputs: the pattern actually matched, and whether the
+    // hunk carried an @@ anchor (an anchored hunk is never ambiguous).
+    pattern: oldLinesPattern,
+    anchored: (hunk.anchors || []).filter(Boolean).length > 0,
   };
 }
 
@@ -915,6 +1010,7 @@ export async function convertV4ASectionsToUnifiedPatch(sections, basePath, optio
           ...bodyLines,
         ],
       });
+      noteV4AHunkAmbiguity(displayPath, sourceLines, loc);
       nextSearchLine = loc.nextSearchLine;
     }
     sectionHunkEntries.sort((a, b) => (a.start - b.start) || (a.order - b.order));

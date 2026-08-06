@@ -2408,21 +2408,25 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.match(styles,
     /\.live-activity-icon\s*\{[^}]*height:\s*20px;[^}]*align-self:\s*center;[^}]*place-items:\s*center;[^}]*line-height:\s*0;[^}]*transform:\s*translateY\(-1px\);/s);
   assert.match(styles,
-    /\.live-activity-pulse\s*\{[^}]*animation:\s*live-activity-pulse 1800ms ease-in-out infinite;/s);
+    /\.live-activity-glyph::before\s*\{[^}]*animation:\s*live-activity-glyph 1300ms steps\(1, end\) infinite;/s,
+    "the busy band runs the TUI's ◇◆◈ shape sweep, not a rotating spinner");
   assert.doesNotMatch(styles, /\.live-activity-spinner\s*\{/,
     "the busy band carries the shimmer, not a rotating spinner");
   assert.match(styles,
     /\.live-activity \[data-component="text-shimmer"\]\s*\{[^}]*--text-shimmer-duration:\s*2600ms;/s);
   assert.match(styles,
-    /\.live-activity \[data-component="text-shimmer"\]\s*\{[^}]*--text-shimmer-size:\s*200%;/s);
+    /\[data-slot="text-shimmer-char"\]\s*\{[^}]*background-size:\s*24ch 100%;[^}]*animation:\s*live-activity-sweep 2880ms linear infinite;/s,
+    "the status glint travels in character widths so short and long phrases sweep alike");
   assert.match(styles,
     /\.live-activity \[data-component="text-shimmer"\]\s*\{[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s);
   assert.match(styles,
     /\.turn-status\.complete,[\s\S]*?\.turn-status\.interrupted\s*\{[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s);
   assert.match(styles,
-    /\.turn-status\.complete,\s*\.turn-status\.success\s*\{[^}]*color:\s*var\(--mx-accent\);/s);
+    /\.turn-status\.complete,\s*\.turn-status\.success\s*\{[^}]*color:\s*var\(--mx-text-faint\);/s,
+    "a settled turn stays a quiet marker row, never a colored badge");
   assert.match(styles,
-    /\.turn-status\.complete svg,\s*\.turn-status\.success svg\s*\{[^}]*color:\s*var\(--mx-accent\);/s);
+    /\.turn-status\.complete::before,\s*\n?\.turn-status\.success::before\s*\{[^}]*content:\s*"\\25c8";/s,
+    "the completion row carries the TUI ◈ marker");
   assert.match(styles,
     /\.turn-status\.failed\s*\{[^}]*display:\s*inline-flex;[^}]*align-items:\s*center;/s);
   const retryRule = styles.match(/\.turn-retry\s*\{([^}]*)\}/s)?.[1] || "";

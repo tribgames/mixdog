@@ -9,7 +9,8 @@ import { exec } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import type { TerminalSpawnProfile } from './terminal-worker-protocol';
+import { backendChildEnvironment } from './backend-child-environment';
+import type { TerminalSpawnProfile } from './terminal-contract';
 
 export interface DesktopShellProfileInfo {
   id: string;
@@ -47,7 +48,12 @@ function findOnPath(binary: string): string {
 /** `wsl.exe -l -q`: one distribution per line, emitted as UTF-16LE. */
 function wslDistributions(wslPath: string): Promise<string[]> {
   return new Promise((resolve) => {
-    exec(`"${wslPath}" -l -q`, { encoding: 'utf16le', timeout: 3_000, windowsHide: true },
+    exec(`"${wslPath}" -l -q`, {
+      encoding: 'utf16le',
+      timeout: 3_000,
+      windowsHide: true,
+      env: backendChildEnvironment(),
+    },
       (error, stdout) => {
         if (error) {
           resolve([]);

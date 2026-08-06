@@ -1,11 +1,12 @@
 // Settings → Git: GitHub CLI (gh) integration — presence probe, guided
 // install (winget/brew), device-flow login through a PTY (gh insists on a
 // TTY for `auth login`), logout, and the global git identity. Everything in
-// this module is desktop-only surface; the remote shim never reaches it.
+// this module is a desktop-only surface executed by the singleton daemon.
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { backendChildEnvironment } from './backend-child-environment';
 
 import type {
   DesktopGithubCliAccount,
@@ -23,7 +24,11 @@ interface RunResult {
 
 function run(file: string, args: string[], timeout = 15_000): Promise<RunResult> {
   return new Promise((resolve) => {
-    execFile(file, args, { timeout, windowsHide: true }, (error, stdout, stderr) => {
+    execFile(file, args, {
+      timeout,
+      windowsHide: true,
+      env: backendChildEnvironment(),
+    }, (error, stdout, stderr) => {
       if (!error) {
         resolve({ code: 0, stdout: String(stdout || ''), stderr: String(stderr || '') });
         return;
@@ -179,7 +184,7 @@ export async function githubCliLoginStart(): Promise<DesktopGithubCliLoginFlow> 
       cols: 120,
       rows: 30,
       cwd: homedir(),
-      env: process.env as Record<string, string>,
+      env: backendChildEnvironment() as Record<string, string>,
     },
   );
   entry.pty = pty;

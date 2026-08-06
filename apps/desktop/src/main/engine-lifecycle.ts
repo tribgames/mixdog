@@ -2,9 +2,9 @@
 // session engines, dispose paths, navigation-safe engine replacement
 // (switchContext fast path + full boot), and engine-module preloading. All
 // host state (engine ref, workspace/scope markers, watchers, publication)
-// flows through injected callbacks; the park registry and submit leases are
-// shared by reference because resume/submit rollback paths in the host also
-// read them.
+// flows through injected callbacks; the park registry and accepted-submit
+// guards are shared by reference because resume/submit rollback paths in the
+// host also read them.
 import { performance } from 'node:perf_hooks';
 
 import type { MixdogEngine, EngineFactory, DesktopSessionScope } from './engine-host-support';
@@ -17,7 +17,7 @@ export type ParkedEngine = {
   desktopSession: DesktopSessionScope | null;
 };
 
-export type PendingSubmitLease = {
+export type AcceptedSubmitGuard = {
   sessionId: string;
   structureRevision: unknown;
   itemsLength: number;
@@ -34,7 +34,7 @@ export type EngineLifecycleDeps = {
   setEngineDesktopSession(scope: DesktopSessionScope | null): void;
   clearCurrentProject(): void;
   parkedEngines: Map<string, ParkedEngine>;
-  pendingSubmitLeases: WeakMap<MixdogEngine, PendingSubmitLease>;
+  acceptedSubmitGuards: WeakMap<MixdogEngine, AcceptedSubmitGuard>;
   sessionLanes: {
     attach(engine: MixdogEngine): void;
     detach(engine: MixdogEngine): void;
@@ -58,31 +58,31 @@ export type EngineLifecycleDeps = {
 
 export function engineHasActiveWork(
   engine: MixdogEngine,
-  pendingSubmitLeases: WeakMap<MixdogEngine, PendingSubmitLease>,
+  acceptedSubmitGuards: WeakMap<MixdogEngine, AcceptedSubmitGuard>,
 ): boolean {
   const state = engine.getState();
   const sessionId = String(state?.sessionId || '');
   if (!sessionId) {
-    pendingSubmitLeases.delete(engine);
+    acceptedSubmitGuards.delete(engine);
     return false;
   }
   if (state?.busy === true || state?.commandBusy === true
     || (Array.isArray(state?.queued) && state.queued.length > 0)) {
     return true;
   }
-  const lease = pendingSubmitLeases.get(engine);
-  if (!lease) return false;
+  const guard = acceptedSubmitGuards.get(engine);
+  if (!guard) return false;
   const items = Array.isArray(state.items) ? state.items : [];
   const lastItem = items.at(-1);
   const lastItemId = lastItem && typeof lastItem === 'object'
     ? (lastItem as Record<string, unknown>).id ?? null
     : null;
-  const submissionProgressed = lease.sessionId !== sessionId
-    || lease.structureRevision !== (state.structureRevision ?? null)
-    || lease.itemsLength !== items.length
-    || lease.lastItemId !== lastItemId;
+  const submissionProgressed = guard.sessionId !== sessionId
+    || guard.structureRevision !== (state.structureRevision ?? null)
+    || guard.itemsLength !== items.length
+    || guard.lastItemId !== lastItemId;
   if (submissionProgressed) {
-    pendingSubmitLeases.delete(engine);
+    acceptedSubmitGuards.delete(engine);
     return false;
   }
   return true;
@@ -100,7 +100,7 @@ export function createEngineLifecycle(deps: EngineLifecycleDeps) {
   function currentEngineIsRunning(): boolean {
     const current = deps.getEngine();
     if (!current) return false;
-    return engineHasActiveWork(current, deps.pendingSubmitLeases);
+    return engineHasActiveWork(current, deps.acceptedSubmitGuards);
   }
 
   /** force: park a view that is merely IDLE too. With the engine pool in the

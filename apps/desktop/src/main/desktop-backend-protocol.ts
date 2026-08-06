@@ -4,23 +4,23 @@ import type {
   SerializableEngineHostOptions,
 } from './engine-host-api';
 
-export type EngineWorkerInbound =
+export type DesktopBackendInbound =
   | { kind: 'init'; options: SerializableEngineHostOptions }
   | { kind: 'request'; id: number; method: EngineHostRpcMethod; args: unknown[] }
   | { kind: 'state-ack'; sequence: number }
   | { kind: 'session-state-resync'; sessionId: string }
   | { kind: 'state-resync' };
 
-export interface EngineWorkerError {
+export interface DesktopBackendError {
   name: string;
   message: string;
   code?: string;
 }
 
-export type EngineWorkerOutbound =
+export type DesktopBackendOutbound =
   | { kind: 'ready' }
   | { kind: 'response'; id: number; ok: true; value: unknown }
-  | { kind: 'response'; id: number; ok: false; error: EngineWorkerError }
+  | { kind: 'response'; id: number; ok: false; error: DesktopBackendError }
   | { kind: 'state'; sequence: number; wire: unknown }
   | {
     kind: 'session-state';
@@ -41,10 +41,10 @@ export interface LatestStateMailbox<T> {
   clear(): void;
 }
 
-/** One state frame may cross the process boundary at a time. While it is in
+/** One state frame may cross the transport boundary at a time. While it is in
  * flight, publications collapse to the newest value; skipped snapshots are
- * never encoded, so revisions stay contiguous and the transport cannot build
- * an unbounded structured-clone backlog. */
+ * never encoded, so revisions stay contiguous and the connection cannot build
+ * an unbounded serialization backlog. */
 export function createLatestStateMailbox<T>(
   send: (sequence: number, value: T) => void,
 ): LatestStateMailbox<T> {
@@ -84,16 +84,5 @@ export function createLatestStateMailbox<T>(
       inFlight = null;
       latest = undefined;
     },
-  };
-}
-
-export function engineWorkerError(error: unknown): EngineWorkerError {
-  const record = error && typeof error === 'object'
-    ? error as Record<string, unknown>
-    : null;
-  return {
-    name: error instanceof Error ? error.name : typeof error,
-    message: error instanceof Error ? error.message : String(error),
-    ...(typeof record?.code === 'string' ? { code: record.code } : {}),
   };
 }

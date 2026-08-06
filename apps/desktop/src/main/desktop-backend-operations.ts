@@ -3,6 +3,7 @@ import { watch, type FSWatcher } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
+import { backendChildEnvironment } from './backend-child-environment';
 import * as editorBackups from './editor-backups';
 import * as folderExplorer from './folder-explorer';
 import * as gh from './gh-cli';
@@ -38,7 +39,11 @@ const GITHUB_REPO_SLUG = 'tribgames/mixdog';
 
 function runGh(args: string[]): Promise<{ ok: boolean; stderr: string }> {
   return new Promise((done) => {
-    execFile('gh', args, { timeout: 8_000, windowsHide: true }, (error, _stdout, stderr) => {
+    execFile('gh', args, {
+      timeout: 8_000,
+      windowsHide: true,
+      env: backendChildEnvironment(),
+    }, (error, _stdout, stderr) => {
       done({ ok: !error, stderr: String(stderr || '') });
     });
   });
@@ -330,7 +335,7 @@ export function createDesktopBackendOperations({
     ensure(
       id: string | null,
       cwd: string | null,
-      profile?: import('./terminal-worker-protocol').TerminalSpawnProfile | string | null,
+      profile?: import('./terminal-contract').TerminalSpawnProfile | string | null,
     ) {
       return invoke('termEnsure', [id, cwd, profile ?? null]) as Promise<{ id: string; replay: string }>;
     },

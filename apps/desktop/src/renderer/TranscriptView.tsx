@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Code2, FileDiff, Layers3, X } from "lucide-react";
+import { ChevronRight, Code2, FileDiff, Layers3, X } from "lucide-react";
 import React, { Component, Suspense, lazy, memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { resolveContextDisplayUsage } from "./context-usage";
 import { type Snapshot, type TranscriptItem } from "./desktop-types";
@@ -28,6 +28,8 @@ import { deriveToolCardModel, splitLineDeltaTokens } from "../../../../src/runti
 import { isInternalTranscriptDisplayText } from "../../../../src/runtime/shared/tool-execution-contract.mjs";
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { SPINNER_MODE_OVERRIDE_VERBS, SPINNER_VERBS, spinnerVerbFor } from "../../../../src/tui/spinner-verbs.mjs";
+// @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
+import { buildSpinnerMeta } from "../../../../src/tui/spinner-meta.mjs";
 import { stripInjectedDisplayText, stripSessionEnvelope } from "../shared/session-title.mjs";
 
 interface ToolCardModel {
@@ -263,16 +265,15 @@ export function ContextUsageIndicator({ snapshot, onOpen }: {
 // shared list in src/tui/spinner-verbs.mjs. t() returns the key verbatim when
 // a locale has no entry, which is exactly how English is detected here.
 //
-// Every entry is a member of the shared pool (Claude Code parity), narrowed to
-// verbs that stay DELIBERATELY vague: they fit reading, searching, patching or
-// waiting alike, so a phrase drawn at the top of a turn never contradicts what
-// the engine is actually doing. Concrete wording ("Computing", "Running
-// tools") was dropped for exactly that reason.
+// Every entry is a member of the shared pool (Claude Code parity) and stays in
+// ONE register: quiet mental work. "Thinking" is the honest baseline for any
+// turn, and the rotation only varies its shade or depth (user decision) — no
+// cooking/gardening metaphors, and nothing that claims a concrete activity the
+// engine may not be doing.
 const LOCALIZED_ACTIVITY_VERBS: string[] = [
-  "Thinking", "Pondering", "Musing", "Ruminating",
-  "Mulling", "Noodling", "Percolating", "Brewing",
-  "Simmering", "Marinating", "Fermenting", "Incubating",
-  "Coalescing", "Crafting", "Tinkering", "Cultivating",
+  "Thinking", "Pondering", "Musing", "Mulling",
+  "Ruminating", "Contemplating", "Considering", "Deliberating",
+  "Cogitating", "Inferring", "Ideating", "Envisioning",
 ];
 
 function activityVerbPool(): string[] {
@@ -290,7 +291,9 @@ export function LiveActivity({
   const command = snapshot.commandStatus && snapshot.commandStatus.active !== false ? snapshot.commandStatus : null;
   const activity = spinner || command;
   const optimisticActivity = !activity && optimisticStartedAt > 0;
-  const [now, setNow] = useState(Date.now());
+  // The stored value is never read: it exists only to re-render once a second
+  // so the elapsed readout (computed from this render's clock) advances.
+  const [, setNow] = useState(Date.now());
   const startedAt = Number(activity?.startedAt || (optimisticActivity ? optimisticStartedAt : 0));
   // The optimistic band starts on the RENDERER clock, then the engine frame
   // lands carrying the turn's own start — a few hundred ms apart, which was
@@ -303,6 +306,12 @@ export function LiveActivity({
   // 애니메이션이 다시 나와서 튄다). Only work that actually began after this
   // mount is new; a turn already in flight is restored, not started.
   const mountedAt = useRef(Date.now());
+  // Pause accounting (TUI spinner parity): a turn waiting on a tool-approval
+  // answer is waiting on the USER, so that time must not inflate the reported
+  // duration or open the short-turn token gate.
+  const pauseTurnRef = useRef(0);
+  const pausedTotalRef = useRef(0);
+  const pauseStartRef = useRef(0);
   useEffect(() => {
     if (!activity || !startedAt) return undefined;
     setNow(Date.now());
@@ -334,12 +343,42 @@ export function LiveActivity({
       ? String(activity?.verb || "Working")
       : String(spinnerVerbFor(anchorRef.current, nowMs, activityVerbPool())));
   const verb = t(rawVerb);
-  const elapsed = startedAt ? formatElapsed(now - startedAt) : "";
+  if (pauseTurnRef.current !== startedAt) {
+    pauseTurnRef.current = startedAt;
+    pausedTotalRef.current = 0;
+    pauseStartRef.current = 0;
+  }
+  const approvalPaused = Boolean(snapshot.toolApproval);
+  if (approvalPaused && !pauseStartRef.current) {
+    pauseStartRef.current = nowMs;
+  } else if (!approvalPaused && pauseStartRef.current) {
+    pausedTotalRef.current += Math.max(0, nowMs - pauseStartRef.current);
+    pauseStartRef.current = 0;
+  }
+  const pausedMs = pausedTotalRef.current
+    + (pauseStartRef.current ? Math.max(0, nowMs - pauseStartRef.current) : 0);
+  // `now` only exists to re-render once a second; the value itself comes from
+  // this render's clock so the pause subtraction never lags a tick behind.
+  const elapsedMs = startedAt ? Math.max(0, nowMs - startedAt - pausedMs) : 0;
+  const elapsed = formatElapsed(elapsedMs);
   const outputTokens = Math.max(0, Number(activity?.outputTokens || activity?.tokens || 0));
+  // Byline parity with the TUI spinner (src/tui/spinner-meta.mjs): tokens stay
+  // hidden on short turns, and a finished thinking span reads as "thought for
+  // Ns" instead of vanishing.
+  const activityRecord = asRecord(activity) || {};
+  const meta = buildSpinnerMeta({
+    elapsedMs,
+    outputTokens,
+    thinking: Boolean(activityRecord.thinking || snapshot.thinking),
+    thinkingSince: Number(activityRecord.thinkingSegmentStartedAt || 0),
+    thinkingMs: Number(activityRecord.thinkingAccumulatedMs || 0),
+    effort: String(snapshot.effort || ""),
+  });
   const activityText = [
     verb,
     elapsed,
-    outputTokens > 0 ? `${formatTokenCount(outputTokens)} tokens` : "",
+    meta.showTokens ? meta.tokensText : "",
+    meta.thinkingText,
   ].filter(Boolean).join(" · ");
   const reasoning = publicThinkingSummary(snapshot.thinking);
   const animateEnter = startedAt > 0 && startedAt >= mountedAt.current;
@@ -347,10 +386,10 @@ export function LiveActivity({
     <div className="live-activity-status" role="status" aria-live="polite"
       data-animate={animateEnter ? "true" : undefined}>
       <span className="live-activity-icon" aria-hidden="true">
-        {/* The shimmering phrase IS the progress indicator here (user): a
-            rotating glyph beside it competed with the sweep. A quiet pulse
-            keeps a motion cue when the shimmer is disabled. */}
-        <span className="live-activity-pulse" />
+        {/* TUI parity (user: TUI가 깔끔하다): the same ◇◆◈ shape sweep the
+            terminal spinner runs, driven by CSS `content` steps so the band
+            never re-renders for animation. */}
+        <span className="live-activity-glyph" />
       </span>
       <TextShimmer text={activityText} />
     </div>
@@ -416,7 +455,9 @@ export function CompletionStatus({
     : label || t("Complete");
   return <div className="turn-status complete" role="status"
     data-animate={animate ? "true" : undefined}>
-    <Check className="turn-status-icon" size={15} aria-hidden="true" />
+    {/* No check badge: the settled turn is a quiet ◈ marker row like the TUI's
+        TurnDone line. The glyph is a CSS ::before so the row's text stays
+        exactly the completion phrase. */}
     <span>{completionLabel}</span>
     {item.kind === "statusdone" && item.detail && <small>· {item.detail}</small>}
   </div>;

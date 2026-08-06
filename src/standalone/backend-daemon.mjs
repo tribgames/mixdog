@@ -343,7 +343,7 @@ async function main() {
   let engineRuntimePrewarmStarted = false;
   function loadEngineModule() {
     if (!engineModulePromise) {
-      engineModulePromise = import('../tui/engine.mjs').catch((error) => {
+      engineModulePromise = import('../tui/engine-local-session.mjs').catch((error) => {
         engineModulePromise = null;
         throw error;
       });
@@ -367,7 +367,7 @@ async function main() {
   engineService = createEngineDaemonService({
     createEngine: async (options) => {
       const engineModule = await loadEngineModule();
-      return engineModule.createEngineSession(options);
+      return engineModule.createLocalEngineSession(options);
     },
     desktopRuntime,
     onFrame: (frame, targetTokens) => {

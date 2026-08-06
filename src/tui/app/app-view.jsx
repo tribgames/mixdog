@@ -442,6 +442,11 @@ export function renderAppView(ctx) {
                       outputTokens={liveSpinner?.outputTokens ?? liveSpinner?.tokens ?? 0}
                       thinking={!!(state.thinking || liveSpinner?.thinking)}
                       thinkingActiveSince={liveSpinner?.thinkingSegmentStartedAt ?? 0}
+                      thinkingMs={liveSpinner?.thinkingAccumulatedMs ?? 0}
+                      effort={state.effort || ''}
+                      hasActiveTools={!!(activeTools?.explore?.count || activeTools?.search?.count)}
+                      paused={!!toolApproval}
+                      interruptible={!!(state.busy && state.spinner?.active)}
                       mode={liveSpinner?.mode || 'responding'}
                       columns={promptSpinnerColumns}
                       marginTop={0}

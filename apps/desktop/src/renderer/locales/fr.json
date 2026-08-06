@@ -807,5 +807,11 @@
   "Fermenting": "Fermentation",
   "Incubating": "Incubation",
   "Coalescing": "Convergence",
-  "Cultivating": "Maturation"
+  "Cultivating": "Maturation",
+  "Contemplating": "Contemplation",
+  "Deliberating": "Délibération",
+  "Cogitating": "Cogitation",
+  "Inferring": "Déduction",
+  "Ideating": "Idéation",
+  "Envisioning": "Projection"
 }

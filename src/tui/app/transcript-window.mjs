@@ -81,6 +81,27 @@ function boolEnvDefaultTrue(name) {
 
 export const TRANSCRIPT_MEASURED_ROWS = boolEnvDefaultTrue('MIXDOG_TUI_TRANSCRIPT_MEASURED');
 
+// ── Wheel scroll speed / acceleration ─────────────────────────────────────
+// Rows per wheel notch, and the same-direction acceleration that lets a fast
+// stream be caught up with (the reading-anchor lock raises the bottom-relative
+// target between wheel events, so a fixed small notch can never reach the
+// re-attach band). Consecutive notches in one direction within
+// WHEEL_ACCEL_IDLE_MS grow the step by WHEEL_STEP_ROWS up to WHEEL_STEP_MAX_ROWS;
+// a direction change or an idle gap resets to the base step.
+// Refs: claude-code accelerates unconditionally (ScrollKeybindingHandler
+// computeWheelStep), opencode keeps a fixed 3-row speed unless
+// `scroll_acceleration.enabled` is set (packages/tui/src/util/scroll.ts).
+// We default to accelerated (claude-code behavior) and expose opencode's two
+// knobs: MIXDOG_TUI_SCROLL_ACCELERATION=0 gives the fixed-speed mode,
+// MIXDOG_TUI_SCROLL_SPEED is opencode's `scroll_speed`.
+export const WHEEL_STEP_ROWS = positiveIntEnv('MIXDOG_TUI_SCROLL_SPEED', 3);
+export const WHEEL_ACCEL_ENABLED = boolEnvDefaultTrue('MIXDOG_TUI_SCROLL_ACCELERATION');
+export const WHEEL_STEP_MAX_ROWS = Math.max(
+  WHEEL_STEP_ROWS,
+  positiveIntEnv('MIXDOG_TUI_SCROLL_SPEED_MAX', WHEEL_STEP_ROWS * 3),
+);
+export const WHEEL_ACCEL_IDLE_MS = positiveIntEnv('MIXDOG_TUI_SCROLL_ACCEL_IDLE_MS', 150);
+
 export function selectionRectsEqual(a, b) {
   if (a === b) return true;
   if (!a || !b) return false;

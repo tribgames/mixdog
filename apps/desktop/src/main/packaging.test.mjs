@@ -6,6 +6,27 @@ import { fileURLToPath } from 'node:url';
 import { listPackage, statFile } from '@electron/asar';
 
 import { SETTINGS_ITEMS } from '../renderer/settings/settings-items.ts';
+import { backendChildEnvironment } from './backend-child-environment.ts';
+
+test('daemon-owned desktop children never inherit backend identity', () => {
+  const source = {
+    PATH: 'C:\\Windows',
+    NODE_ENV: 'production',
+    MIXDOG_ROOT: 'C:\\runtime.asar',
+    MIXDOG_ENGINE_DAEMON_HOST: '1',
+    MIXDOG_CHANNEL_DAEMON: '1',
+    MIXDOG_WORKER_MODE: '1',
+    MIXDOG_DAEMON_SPAWNED_FOR: 'engine',
+    MIXDOG_SUPERVISOR_PID: '1234',
+  };
+  const env = backendChildEnvironment({ CUSTOM_CHILD_VALUE: 'kept' }, source);
+  assert.equal(env.PATH, source.PATH);
+  assert.equal(env.CUSTOM_CHILD_VALUE, 'kept');
+  for (const key of Object.keys(source).filter((key) => key !== 'PATH')) {
+    assert.equal(env[key], undefined, `${key} must not cross the backend child boundary`);
+  }
+  assert.equal(source.MIXDOG_ENGINE_DAEMON_HOST, '1', 'the source environment is immutable');
+});
 
 async function findRuntimeArchives(directory, depth = 0) {
   if (depth > 8) return [];

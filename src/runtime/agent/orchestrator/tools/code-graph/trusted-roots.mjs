@@ -56,7 +56,9 @@ export function collectTrustedCodeGraphRoots(filesystemRoot, {
   ],
   cached = listCachedCodeGraphRoots,
   directory = isDirectory,
-  projectRoot = _findDirProjectRoot,
+  // Selected paths are promoted to their nearest project root — but a home or
+  // temp sentinel must not widen a selected subfolder into the whole profile.
+  projectRoot = (dir) => _findDirProjectRoot(dir, { stopAtUserBoundary: true }),
 } = {}) {
   const root = resolve(filesystemRoot);
   const rows = [

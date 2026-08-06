@@ -2,7 +2,8 @@
 // resolveSymbolReadSpan, executeCodeGraphTool (entry with cwd re-rooting +
 // batch fan-out + abort race), isCodeGraphTool. Extracted verbatim from
 // code-graph.mjs.
-import { resolve as pathResolve, isAbsolute, relative as pathRelative } from 'node:path';
+import { resolve as pathResolve, isAbsolute, relative as pathRelative, basename as pathBasename } from 'node:path';
+import { homedir as osHomedir } from 'node:os';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { normalizeInputPath, toDisplayPath } from '../builtin.mjs';
 import { findFileByBasename } from '../builtin/path-diagnostics.mjs';
@@ -20,6 +21,7 @@ import {
   _PROJECT_ROOT_SENTINELS,
   _resolveFileProjectRoot,
   _findDirProjectRoot,
+  _childProjectRoots,
   _stripEmptyArgs,
 } from './project-root.mjs';
 import { buildCodeGraphAsync, prewarmCodeGraph, prewarmCodeGraphSymbols } from './build.mjs';
@@ -625,7 +627,11 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
   const fileArg = (args && typeof args.file === 'string' && args.file.trim()) ? args.file.trim() : '';
   const hasAggregateFileArgs = _hasAggregateFileArgs(args);
   let effectiveCwd = baseCwd;
-  const baseProjectRoot = _findDirProjectRoot(baseCwd);
+  // An explicit `cwd` argument is a deliberate target: honour whatever root it
+  // resolves to. A session cwd is a guess, so its ancestor walk stops at the
+  // home/temp boundary instead of adopting a stray sentinel found there.
+  const explicitCwdArg = !!(args && typeof args.cwd === 'string' && args.cwd.trim());
+  const baseProjectRoot = _findDirProjectRoot(baseCwd, { stopAtUserBoundary: !explicitCwdArg });
   const filesystemRootCwd = !baseProjectRoot && _isFilesystemRootPath(baseCwd);
   const aggregateFilesAtBase = _collectGraphFileList(args, { cap: false });
   const rawModeAtBase = String(args?.mode || '').trim();
@@ -635,8 +641,24 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
   const parentDotFederation = !baseProjectRoot
     && !filesystemRootCwd
     && exactDotFederation;
-  if (filesystemRootCwd || parentDotFederation) {
-    const trustedRoots = collectTrustedCodeGraphRoots(baseCwd);
+  // Trusted graph targets living UNDER a sentinel-free cwd. Self is filtered
+  // out: federating a directory into itself would recurse forever.
+  const trustedRootsAtBase = baseProjectRoot
+    ? []
+    : collectTrustedCodeGraphRoots(baseCwd)
+      .filter((root) => pathResolve(root) !== pathResolve(baseCwd));
+  // A sentinel-free cwd (multi-repo parent, vendored reference tree) is still
+  // routable when trusted project roots live under it — federate over those
+  // instead of refusing the call outright.
+  const sentinelFreeFederation = !baseProjectRoot
+    && !filesystemRootCwd
+    && !parentDotFederation
+    && !fileArg
+    && !hasAggregateFileArgs
+    && ROOT_FEDERATED_MODES.has(rawModeAtBase)
+    && trustedRootsAtBase.length > 0;
+  if (filesystemRootCwd || parentDotFederation || sentinelFreeFederation) {
+    const trustedRoots = trustedRootsAtBase;
     const files = exactDotFederation ? [] : aggregateFilesAtBase;
     const rawMode = rawModeAtBase;
     const canFederate = files.length > 0 || ROOT_FEDERATED_MODES.has(rawMode);
@@ -756,15 +778,34 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
     }
   }
   if (!fileArg && !(args && typeof args.cwd === 'string' && args.cwd.trim())) {
-    const projectRoot = _findDirProjectRoot(effectiveCwd);
-    if (!projectRoot) {
-      throw new Error(
-        `${name}: cwd '${effectiveCwd}' is not inside a project (no `
-        + `${_PROJECT_ROOT_SENTINELS.join('/')} at it or any ancestor). Refusing to `
-        + `index an arbitrary tree. Run 'cwd set <repo>', or pass an explicit `
-        + `'cwd' (repo root) or a 'file' anchor.`);
+    const projectRoot = _findDirProjectRoot(effectiveCwd, { stopAtUserBoundary: true });
+    if (projectRoot) {
+      effectiveCwd = projectRoot;
+    } else {
+      // A sentinel-free SINGLE tree (vendored reference checkout, script
+      // folder) indexes as its own root — the same treatment an explicit
+      // 'cwd' argument already gets. Only genuinely unbounded or ambiguous
+      // targets stay refused: a filesystem root, the home directory, or a
+      // parent holding several separate repositories.
+      const childRoots = _childProjectRoots(effectiveCwd);
+      // Non-null only when the sole sentinel sits at/above the home or temp
+      // boundary — name it, so the refusal reads as a deliberate rule rather
+      // than a missing project.
+      const boundaryRoot = _findDirProjectRoot(effectiveCwd);
+      const unbounded = filesystemRootCwd
+        || _isFilesystemRootPath(effectiveCwd)
+        || pathResolve(effectiveCwd) === pathResolve(osHomedir());
+      if (unbounded || childRoots.length > 1) {
+        const listed = childRoots.slice(0, 5).map((root) => `"${pathBasename(root)}"`).join(', ');
+        throw new Error(
+          `${name}: cwd '${effectiveCwd}' is not inside a project (no `
+          + `${_PROJECT_ROOT_SENTINELS.join('/')} at it or any ancestor)`
+          + `${childRoots.length > 1 ? ` and holds ${childRoots.length} separate project roots (${listed})` : ''}. `
+          + `${boundaryRoot ? `The nearest sentinel is at '${boundaryRoot}' (home/temp), which is never auto-adopted. ` : ''}`
+          + `Refusing to index an arbitrary tree. Run 'cwd set <repo>', or pass an explicit `
+          + `'cwd' (repo root) or a 'file' anchor.`);
+      }
     }
-    effectiveCwd = projectRoot;
   }
   if (signal?.aborted) throw new Error('aborted');
   const _work = (() => {

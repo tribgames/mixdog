@@ -41,6 +41,7 @@ import {
   formatV4ARenameSuccessLines,
   convertV4ASectionsToUnifiedPatch,
   isV4ARenameSection,
+  drainV4AAmbiguityNotices,
 } from './v4a-convert.mjs';
 
 function isPatchErrorText(text) {
@@ -607,7 +608,12 @@ function planApplyPatchMutationRoute(args, patchStr, requestedFormat) {
 // script/UI parses the header — measured saving ~30 tokens x ~125 successful
 // patch calls/day. Route diagnostics stay available via plan/extras callers.
 function wrapPatchMutationOutput(text, _plan, _extras = {}) {
-  return text;
+  // Non-fatal duplicate-context notices ride the success output: the edit
+  // landed at the first match (spec), and the caller learns in the same turn
+  // that another location was possible.
+  const notices = drainV4AAmbiguityNotices();
+  if (notices.length === 0) return text;
+  return `${text}\n${notices.map((notice) => `⚠️ ${notice}`).join('\n')}`;
 }
 
 // Post-patch excerpt: a successful patch result carries the changed span's

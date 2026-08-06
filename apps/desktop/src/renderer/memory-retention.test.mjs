@@ -59,7 +59,7 @@ test("desktop large-object caches and transports expose explicit memory guards",
     readFile(new URL("./TranscriptView.tsx", import.meta.url), "utf8"),
     readFile(new URL("./TurnReview.tsx", import.meta.url), "utf8"),
     readFile(new URL("../main/desktop-backend.ts", import.meta.url), "utf8"),
-    readFile(new URL("../main/utility-engine-host.ts", import.meta.url), "utf8"),
+    readFile(new URL("../main/desktop-backend-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../main/ipc.ts", import.meta.url), "utf8"),
   ]);
   assert.match(transcript, /PATCH_CACHE_MAX_CHARS/);

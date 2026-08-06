@@ -726,7 +726,19 @@ function guardFind(a) {
     if (!queryOk) {
         return `Error: find requires non-empty string (or string[]) "query" (got ${describeType(a.query)})`;
     }
+    if (hasOwn(a, 'path')) {
+        // Absorb: a JSON-stringified array ('["apps/desktop"]') or a
+        // single-entry batch (['apps/desktop']). find takes ONE base
+        // directory, and a lone entry IS that directory — no ambiguity.
+        const coerced = coerceShapeFlex(a.path);
+        a.path = (Array.isArray(coerced) && coerced.length === 1 && isString(coerced[0]))
+            ? coerced[0]
+            : coerced;
+    }
     if (hasOwn(a, 'path') && !isString(a.path)) {
+        if (Array.isArray(a.path)) {
+            return `Error: find arg "path" must be a single base directory (got ${a.path.length}) — run find once per base, or widen "query".`;
+        }
         return `Error: find arg "path" must be a string (got ${describeType(a.path)})`;
     }
     if (hasOwn(a, 'head_limit') && a.head_limit !== undefined && a.head_limit !== null) {
@@ -832,6 +844,15 @@ const GUARDS = {
     code_graph: guardCodeGraph,
 };
 
+// A bridge/provider can materialize an optional schema field as an explicit
+// `undefined`. JSON cannot carry undefined, so it means "not sent" — drop the
+// key instead of failing the call on a field the caller never set.
+function dropUndefinedArgs(args) {
+    for (const key of Object.keys(args)) {
+        if (args[key] === undefined) delete args[key];
+    }
+}
+
 export function validateBuiltinArgs(toolName, args) {
     const guard = GUARDS[toolName];
     if (!guard) return null;
@@ -841,6 +862,7 @@ export function validateBuiltinArgs(toolName, args) {
     if (typeof args !== 'object' || Array.isArray(args)) {
         return `Error: ${toolName} arguments must be an object (got ${describeType(args)})`;
     }
+    dropUndefinedArgs(args);
     if (toolName === 'grep') applyGrepContextLeadPolicy(args);
     try {
         return guard(args) || null;

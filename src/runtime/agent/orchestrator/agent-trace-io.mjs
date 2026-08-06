@@ -368,6 +368,10 @@ function _resolveToolFailurePath() {
     if (process.env.MIXDOG_TOOL_FAILURE_LOG_DISABLE === '1') return null;
     if (_toolFailurePath) return _toolFailurePath;
     const explicit = process.env.MIXDOG_TOOL_FAILURE_LOG_PATH;
+    // The repo's own `node --test` suites drive intentional tool failures
+    // (patch ordering, arg guards, ...). Without an explicit path those rows
+    // land in the user's real failure log and read as production incidents.
+    if (!explicit && process.env.NODE_TEST_CONTEXT) return null;
     // Ship-mode default: skip diagnostic tool-failure log file IO unless
     // dev/debug, MIXDOG_DIAGNOSTICS, or an explicit path opts back in.
     if (!explicit && !isDiagnosticIOEnabled()) return null;

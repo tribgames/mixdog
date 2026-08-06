@@ -807,5 +807,11 @@
   "Fermenting": "発酵中",
   "Incubating": "温め中",
   "Coalescing": "まとまり中",
-  "Cultivating": "育成中"
+  "Cultivating": "育成中",
+  "Contemplating": "沈思中",
+  "Deliberating": "熟慮中",
+  "Cogitating": "思案を巡らせ中",
+  "Inferring": "推論中",
+  "Ideating": "発想中",
+  "Envisioning": "構想中"
 }
