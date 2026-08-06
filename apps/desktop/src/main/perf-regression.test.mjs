@@ -272,6 +272,7 @@ test("session prefetch reaches the warm engine without changing its active state
 });
 
 test("slow session prefetch never occupies the foreground transition lock", async () => {
+  const originalCwd = process.cwd();
   const root = await mkdtemp(join(tmpdir(), "mixdog-perf-prefetch-lock-"));
   const workspace = join(root, "workspace", "unclassified");
   await mkdir(workspace, { recursive: true });
@@ -314,8 +315,12 @@ test("slow session prefetch never occupies the foreground transition lock", asyn
     releasePrefetch();
     await warming;
     await resume;
-    await host.dispose();
-    await rm(root, { recursive: true, force: true });
+    try {
+      await host.dispose();
+    } finally {
+      process.chdir(originalCwd);
+      await rm(root, { recursive: true, force: true });
+    }
   }
 });
 
@@ -470,18 +475,18 @@ test("more than eight pane lanes retain incremental 5,000-row delta baselines", 
   assert.ok(deltaBytes < initialBytes / 10,
     `pane event-storm deltas are too large (${deltaBytes} vs initial ${initialBytes})`);
 
-  const [host, ipc, backend, utility, preload, rendererEntry] = await Promise.all([
+  const [host, ipc, backend, backendClient, preload, rendererEntry] = await Promise.all([
     readFile(new URL("./engine-host.ts", import.meta.url), "utf8"),
     readFile(new URL("./ipc.ts", import.meta.url), "utf8"),
     readFile(new URL("./desktop-backend.ts", import.meta.url), "utf8"),
-    readFile(new URL("./utility-engine-host.ts", import.meta.url), "utf8"),
+    readFile(new URL("./desktop-backend-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../preload/index.ts", import.meta.url), "utf8"),
     readFile(new URL("../renderer/main.tsx", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(host, /MAX_VISIBLE_SESSION_LIVE_VIEWS|slice\(0,\s*8\)/);
   assert.doesNotMatch(ipc, /sessionStateEncoders\.size\s*>\s*8|slice\(0,\s*8\)/);
   assert.doesNotMatch(backend, /SESSION_STATE_DELTA_CACHE_LIMIT|sessionStateEncoders\.size\s*>\s*8/);
-  assert.doesNotMatch(utility, /sessionStateDecoders\.size\s*>\s*8|slice\(0,\s*8\)/);
+  assert.doesNotMatch(backendClient, /sessionStateDecoders\.size\s*>\s*8|slice\(0,\s*8\)/);
   assert.doesNotMatch(preload, /decoders\.size\s*>\s*8/);
   assert.doesNotMatch(rendererEntry, /slice\(0,\s*8\)/);
   assert.match(host, /return this\.sessionLanes\.subscribe\(listener\)/,
@@ -501,8 +506,8 @@ test("more than eight pane lanes retain incremental 5,000-row delta baselines", 
     "closed panes must release daemon-backend delta baselines");
   assert.match(ipc, /update\.snapshot === null[\s\S]*?sessionStateEncoders\.delete\(sessionId\)/,
     "closed panes must release main-process delta baselines");
-  assert.match(utility, /message\.wire === null\) this\.sessionStateDecoders\.delete\(sessionId\)/,
-    "closed panes must release utility-host decoders");
+  assert.match(backendClient, /message\.wire === null\) this\.sessionStateDecoders\.delete\(sessionId\)/,
+    "closed panes must release backend-client decoders");
   assert.match(preload, /update\.wire === null\) decoders\.delete\(sessionId\)/,
     "closed panes must release renderer-process decoders");
 });
@@ -819,17 +824,20 @@ test("heavy renderer surfaces remain dynamic imports", async () => {
     "daemon backend startup must not enumerate the session catalog before pane requests");
 });
 
-test("cold desktop entry keeps optional native and network modules behind dynamic imports", async () => {
-  const [entry, terminal, updater, host, hostSupport] = await Promise.all([
+test("cold desktop entry keeps optional native and network modules outside its graph", async () => {
+  const [entry, terminal, updater, host, hostSupport, desktopBackend] = await Promise.all([
     readFile(new URL("./index.ts", import.meta.url), "utf8"),
     readFile(new URL("./terminal-manager.ts", import.meta.url), "utf8"),
     readFile(new URL("./updater.ts", import.meta.url), "utf8"),
     readFile(new URL("./engine-host.ts", import.meta.url), "utf8"),
     readFile(new URL("./engine-host-support.ts", import.meta.url), "utf8"),
+    readFile(new URL("./desktop-backend.ts", import.meta.url), "utf8"),
   ]);
-  assert.doesNotMatch(entry, /^import (?!type\b).*['"]\.\/remote-(?:bridge|relay)['"];?$/m);
-  assert.match(entry, /import\(['"]\.\/remote-bridge['"]\)/);
-  assert.match(entry, /import\(['"]\.\/remote-relay['"]\)/);
+  assert.doesNotMatch(entry,
+    /from ['"]\.\/remote-(?:bridge|relay)['"]|import\(['"]\.\/remote-(?:bridge|relay)['"]\)/,
+    "Electron main must not load backend-owned remote services");
+  assert.match(desktopBackend, /from ['"]\.\/remote-bridge['"]/);
+  assert.match(desktopBackend, /from ['"]\.\/remote-relay['"]/);
   assert.doesNotMatch(terminal, /^import \{[^}]*spawn[^}]*\} from ['"]@homebridge\/node-pty/m);
   assert.match(terminal, /import\(['"]@homebridge\/node-pty-prebuilt-multiarch['"]\)/);
   assert.doesNotMatch(updater, /^import electronUpdater from ['"]electron-updater['"];?$/m);

@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 
-import { createLatestStateMailbox } from './engine-worker-protocol.ts';
+import { createLatestStateMailbox } from './desktop-backend-protocol.ts';
 import { createSnapshotDeltaDecoder, createSnapshotDeltaEncoder } from './state-delta.ts';
-import { UtilityEngineHost } from './utility-engine-host.ts';
+import { DesktopBackendClient } from './desktop-backend-client.ts';
 import { desktopModelBootstrapFromConfig } from './model-bootstrap.ts';
 
-class FakeWorker extends EventEmitter {
+class FakeTransport extends EventEmitter {
   posted = [];
-  killed = false;
+  closed = false;
 
   constructor(onPost) {
     super();
@@ -21,9 +21,8 @@ class FakeWorker extends EventEmitter {
     this.onPost?.(message, this);
   }
 
-  kill() {
-    this.killed = true;
-    return true;
+  async close() {
+    this.closed = true;
   }
 }
 
@@ -34,33 +33,27 @@ const engineOptions = () => ({
   appPath: 'C:\\mixdog-test\\app',
 });
 
-function readyWorker(requestHandler, initialSessions = null) {
-  return new FakeWorker((message, worker) => {
+function readyTransport(requestHandler, initialSessions = null) {
+  return new FakeTransport((message, transport) => {
     if (message.kind === 'init') {
       queueMicrotask(() => {
         if (Array.isArray(initialSessions)) {
-          worker.emit('message', { kind: 'sessions', sessions: initialSessions });
+          transport.emit('message', { kind: 'sessions', sessions: initialSessions });
         }
-        worker.emit('message', {
+        transport.emit('message', {
           kind: 'state',
           sequence: 1,
           wire: { items: [], queued: [], __itemsRevision: 1 },
         });
-        worker.emit('message', { kind: 'ready' });
+        transport.emit('message', { kind: 'ready' });
       });
       return;
     }
-    if (message.kind === 'request' && message.method === 'dispose') {
-      queueMicrotask(() => worker.emit('message', {
-        kind: 'response', id: message.id, ok: true, value: null,
-      }));
-      return;
-    }
-    requestHandler?.(message, worker);
+    requestHandler?.(message, transport);
   });
 }
 
-test('utility snapshot delta reconstruction preserves unchanged transcript identity', () => {
+test('backend snapshot delta reconstruction preserves unchanged transcript identity', () => {
   const encoder = createSnapshotDeltaEncoder();
   const decoder = createSnapshotDeltaDecoder();
   const firstItem = { id: 'one', kind: 'user', text: 'hello' };
@@ -134,8 +127,8 @@ test('latest-state mailbox keeps one frame in flight and collapses intermediate 
   assert.deepEqual(sent[3], { sequence: 4, value: 'after' });
 });
 
-test('utility host serializes RPC responses and enforces bounded request timeouts', async () => {
-  const worker = readyWorker((message, current) => {
+test('backend client serializes RPC responses and enforces bounded request timeouts', async () => {
+  const transport = readyTransport((message, current) => {
     if (message.kind === 'request' && message.method === 'listProjects') {
       queueMicrotask(() => current.emit('message', {
         kind: 'response',
@@ -145,8 +138,8 @@ test('utility host serializes RPC responses and enforces bounded request timeout
       }));
     }
   });
-  const host = new UtilityEngineHost({
-    spawn: () => worker,
+  const host = new DesktopBackendClient({
+    connect: () => transport,
     engineOptions,
     requestTimeoutMs: 15,
   });
@@ -158,36 +151,22 @@ test('utility host serializes RPC responses and enforces bounded request timeout
   }
 });
 
-test('utility host bounds graceful disposal before killing an unresponsive worker', async () => {
-  const worker = new FakeWorker((message, current) => {
-    if (message.kind !== 'init') return;
-    queueMicrotask(() => {
-      current.emit('message', {
-        kind: 'state',
-        sequence: 1,
-        wire: { items: [], queued: [], __itemsRevision: 1 },
-      });
-      current.emit('message', { kind: 'ready' });
-    });
-    // Every request, including dispose, is deliberately left unanswered.
-  });
-  const host = new UtilityEngineHost({
-    spawn: () => worker,
-    engineOptions,
-    disposeTimeoutMs: 5,
-  });
+test('backend client closes its subscription without issuing a backend dispose RPC', async () => {
+  const transport = readyTransport();
+  const host = new DesktopBackendClient({ connect: () => transport, engineOptions });
   await host.start();
-  const startedAt = Date.now();
   await host.dispose();
-  assert.equal(worker.killed, true);
-  assert.ok(Date.now() - startedAt >= 4, 'dispose should first allow its short grace window');
-  assert.ok(Date.now() - startedAt < 100, 'dispose fallback must not inherit the RPC timeout');
+  assert.equal(transport.closed, true);
+  assert.equal(
+    transport.posted.some((message) => message.kind === 'request' && message.method === 'dispose'),
+    false,
+  );
 });
 
-test('utility host serves worker-primed sessions before issuing a catalog RPC', async () => {
+test('backend client serves transport-primed sessions before issuing a catalog RPC', async () => {
   let listRequests = 0;
   const initial = [{ id: 'cached', title: 'Cached session' }];
-  const worker = readyWorker((message, current) => {
+  const transport = readyTransport((message, current) => {
     if (message.kind === 'request' && message.method === 'listSessions') {
       listRequests += 1;
       queueMicrotask(() => current.emit('message', {
@@ -198,7 +177,7 @@ test('utility host serves worker-primed sessions before issuing a catalog RPC', 
       }));
     }
   }, initial);
-  const host = new UtilityEngineHost({ spawn: () => worker, engineOptions });
+  const host = new DesktopBackendClient({ connect: () => transport, engineOptions });
   try {
     assert.deepEqual((await host.listSessions()).map((session) => session.id), ['cached']);
     assert.equal(listRequests, 0);
@@ -209,9 +188,9 @@ test('utility host serves worker-primed sessions before issuing a catalog RPC', 
   }
 });
 
-test('utility host forwards the process-global agent pool push and cached initial read', async () => {
-  const worker = readyWorker();
-  const host = new UtilityEngineHost({ spawn: () => worker, engineOptions });
+test('backend client forwards the process-global agent pool push and cached initial read', async () => {
+  const transport = readyTransport();
+  const host = new DesktopBackendClient({ connect: () => transport, engineOptions });
   const rows = [{
     tag: 'pool-agent',
     sessionId: 'agent_pool_child',
@@ -223,15 +202,15 @@ test('utility host forwards the process-global agent pool push and cached initia
   const unsubscribe = host.subscribeAgentPool((agents) => publications.push(agents));
   try {
     await host.start();
-    worker.emit('message', { kind: 'agent-pool', agents: rows });
+    transport.emit('message', { kind: 'agent-pool', agents: rows });
     assert.equal(publications.at(-1)[0].sessionId, 'agent_pool_child');
     assert.deepEqual(await host.listAgentPool(), rows);
     assert.equal(
-      worker.posted.some((message) => (
+      transport.posted.some((message) => (
         message.kind === 'request' && message.method === 'listAgentPool'
       )),
       false,
-      'the first renderer read should consume the worker-primed pool',
+      'the first renderer read should consume the transport-primed pool',
     );
   } finally {
     unsubscribe();
@@ -239,9 +218,9 @@ test('utility host forwards the process-global agent pool push and cached initia
   }
 });
 
-test('utility host forwards pane peek and publishes the replayed session lane', async () => {
+test('backend client forwards pane peek and publishes the replayed session lane', async () => {
   const encoder = createSnapshotDeltaEncoder();
-  const worker = readyWorker((message, current) => {
+  const transport = readyTransport((message, current) => {
     if (message.kind !== 'request' || message.method !== 'peekSession') return;
     queueMicrotask(() => {
       current.emit('message', {
@@ -261,13 +240,13 @@ test('utility host forwards pane peek and publishes the replayed session lane', 
       });
     });
   });
-  const host = new UtilityEngineHost({ spawn: () => worker, engineOptions });
+  const host = new DesktopBackendClient({ connect: () => transport, engineOptions });
   const updates = [];
   const unsubscribe = host.subscribeSessionStates((update) => updates.push(update));
   try {
     assert.equal(await host.peekSession('desktop_restored'), true);
     assert.deepEqual(
-      worker.posted.find((message) => (
+      transport.posted.find((message) => (
         message.kind === 'request' && message.method === 'peekSession'
       ))?.args,
       ['desktop_restored'],
@@ -281,16 +260,16 @@ test('utility host forwards pane peek and publishes the replayed session lane', 
   }
 });
 
-test('utility host reconstructs pane deltas without replacing settled transcript items', async () => {
-  const worker = readyWorker();
-  const host = new UtilityEngineHost({ spawn: () => worker, engineOptions });
+test('backend client reconstructs pane deltas without replacing settled transcript items', async () => {
+  const transport = readyTransport();
+  const host = new DesktopBackendClient({ connect: () => transport, engineOptions });
   const updates = [];
   const unsubscribe = host.subscribeSessionStates((update) => updates.push(update));
   const encoder = createSnapshotDeltaEncoder();
   const firstItem = { id: 'settled', kind: 'user', text: 'keep identity' };
   try {
     await host.start();
-    worker.emit('message', {
+    transport.emit('message', {
       kind: 'session-state',
       sessionId: 'desktop_delta',
       wire: encoder.encode({
@@ -301,7 +280,7 @@ test('utility host reconstructs pane deltas without replacing settled transcript
       }),
     });
     const displayed = updates[0].snapshot.items[0];
-    worker.emit('message', {
+    transport.emit('message', {
       kind: 'session-state',
       sessionId: 'desktop_delta',
       wire: encoder.encode({
@@ -314,13 +293,13 @@ test('utility host reconstructs pane deltas without replacing settled transcript
     assert.equal(updates[1].snapshot.items[0], displayed);
     assert.equal(updates[1].snapshot.streamingTail.text, 'ab');
 
-    worker.emit('message', {
+    transport.emit('message', {
       kind: 'session-state',
       sessionId: 'desktop_delta',
       wire: { __itemsPatch: { base: 999, revision: 1000, prefix: 0, append: [] } },
     });
     assert.equal(
-      worker.posted.some((message) => (
+      transport.posted.some((message) => (
         message.kind === 'session-state-resync' && message.sessionId === 'desktop_delta'
       )),
       true,
@@ -331,7 +310,7 @@ test('utility host reconstructs pane deltas without replacing settled transcript
   }
 });
 
-test('persisted default model survives the worker route-less startup frame', async () => {
+test('persisted default model survives the transport route-less startup frame', async () => {
   const initialSnapshot = desktopModelBootstrapFromConfig({
     agent: {
       default: 'main',
@@ -356,8 +335,8 @@ test('persisted default model survives the worker route-less startup frame', asy
     effort: 'high',
     fast: true,
   });
-  const worker = readyWorker();
-  const host = new UtilityEngineHost({ spawn: () => worker, engineOptions, initialSnapshot });
+  const transport = readyTransport();
+  const host = new DesktopBackendClient({ connect: () => transport, engineOptions, initialSnapshot });
   try {
     await host.start();
     assert.equal(host.getSnapshot().provider, 'openai-oauth');
@@ -367,12 +346,12 @@ test('persisted default model survives the worker route-less startup frame', asy
   }
 });
 
-test('utility host rejects a lost mutation and keeps bounded restart recovery available', async () => {
-  const workers = [readyWorker(), readyWorker(), readyWorker()];
-  let spawned = 0;
+test('backend client rejects a lost mutation and keeps bounded reconnect recovery available', async () => {
+  const transports = [readyTransport(), readyTransport(), readyTransport()];
+  let connected = 0;
   const snapshots = [];
-  const host = new UtilityEngineHost({
-    spawn: () => workers[spawned++],
+  const host = new DesktopBackendClient({
+    connect: () => transports[connected++],
     engineOptions,
     requestTimeoutMs: 100,
     restartBaseDelayMs: 0,
@@ -382,16 +361,16 @@ test('utility host rejects a lost mutation and keeps bounded restart recovery av
   try {
     await host.start();
     assert.equal(
-      workers[0].posted.some((message) => message.kind === 'state-ack' && message.sequence === 1),
+      transports[0].posted.some((message) => message.kind === 'state-ack' && message.sequence === 1),
       true,
     );
     const pending = host.submit('do not replay', { id: 'one-shot' });
-    workers[0].emit('exit', 9);
+    transports[0].emit('exit', 9);
     await assert.rejects(() => pending, /exited with code 9/);
     await host.start();
-    assert.equal(spawned, 2);
+    assert.equal(connected, 2);
     assert.equal(
-      workers[1].posted.some((message) => (
+      transports[1].posted.some((message) => (
         message.kind === 'request' && message.method === 'submit'
       )),
       false,
@@ -399,25 +378,25 @@ test('utility host rejects a lost mutation and keeps bounded restart recovery av
     assert.equal(snapshots.at(-1).busy, false);
     assert.match(snapshots.at(-1).toasts.at(-1).text, /backend connection stopped/i);
 
-    workers[1].emit('exit', 10);
+    transports[1].emit('exit', 10);
     await host.start();
-    assert.equal(spawned, 3, 'a later crash remains recoverable');
+    assert.equal(connected, 3, 'a later disconnect remains recoverable');
   } finally {
     unsubscribe();
     await host.dispose();
   }
 });
 
-test('utility host retries a read RPC once after worker recovery', async () => {
-  const workers = [
-    readyWorker((message, worker) => {
+test('backend client retries a read RPC once after transport recovery', async () => {
+  const transports = [
+    readyTransport((message, transport) => {
       if (message.kind === 'request' && message.method === 'statProjectFile') {
-        queueMicrotask(() => worker.emit('exit', 0xc0000409));
+        queueMicrotask(() => transport.emit('exit', 0xc0000409));
       }
     }),
-    readyWorker((message, worker) => {
+    readyTransport((message, transport) => {
       if (message.kind === 'request' && message.method === 'statProjectFile') {
-        queueMicrotask(() => worker.emit('message', {
+        queueMicrotask(() => transport.emit('message', {
           kind: 'response',
           id: message.id,
           ok: true,
@@ -426,9 +405,9 @@ test('utility host retries a read RPC once after worker recovery', async () => {
       }
     }),
   ];
-  let spawned = 0;
-  const host = new UtilityEngineHost({
-    spawn: () => workers[spawned++],
+  let connected = 0;
+  const host = new DesktopBackendClient({
+    connect: () => transports[connected++],
     engineOptions,
     restartBaseDelayMs: 0,
     restartMaxDelayMs: 0,
@@ -438,7 +417,7 @@ test('utility host retries a read RPC once after worker recovery', async () => {
       await host.statProjectFile('C:\\project', 'package.json'),
       { mtimeMs: 42, size: 7 },
     );
-    assert.equal(spawned, 2);
+    assert.equal(connected, 2);
   } finally {
     await host.dispose();
   }

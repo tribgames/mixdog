@@ -23,19 +23,19 @@ import type {
   SerializableEngineHostOptions,
 } from './engine-host-api';
 import type {
-  EngineWorkerInbound,
-  EngineWorkerOutbound,
-} from './engine-worker-protocol';
+  DesktopBackendInbound,
+  DesktopBackendOutbound,
+} from './desktop-backend-protocol';
 import { createSnapshotDeltaDecoder, releaseHiddenSessionStateEntries } from './state-delta';
 
-export interface EngineWorkerTransport {
-  postMessage(message: EngineWorkerInbound): void;
-  kill(): boolean;
+export interface BackendTransport {
+  postMessage(message: DesktopBackendInbound): void;
+  close(): Promise<void>;
   on(event: string, listener: (...args: any[]) => void): unknown;
 }
 
-export interface UtilityEngineHostOptions {
-  spawn(): EngineWorkerTransport;
+export interface DesktopBackendClientOptions {
+  connect(): BackendTransport;
   engineOptions(): SerializableEngineHostOptions;
   initialSnapshot?: EngineSnapshot;
   requestTimeoutMs?: number;
@@ -43,7 +43,6 @@ export interface UtilityEngineHostOptions {
   restartBaseDelayMs?: number;
   restartMaxDelayMs?: number;
   restartStableMs?: number;
-  disposeTimeoutMs?: number;
   onDiagnostic?(event: string, data: Record<string, unknown>): void;
 }
 
@@ -59,7 +58,6 @@ const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
 const DEFAULT_RESTART_BASE_DELAY_MS = 250;
 const DEFAULT_RESTART_MAX_DELAY_MS = 5_000;
 const DEFAULT_RESTART_STABLE_MS = 30_000;
-const DEFAULT_DISPOSE_TIMEOUT_MS = 1_500;
 const PROCESS_FAILURE_TOAST_ID = 'backend-connection-stopped';
 
 function displayExitCode(code: number): string {
@@ -89,7 +87,7 @@ function responseError(error: { name: string; message: string; code?: string }):
   return result;
 }
 
-export class UtilityEngineHost implements DesktopEngineHost {
+export class DesktopBackendClient implements DesktopEngineHost {
   private readonly listeners = new Set<(snapshot: EngineSnapshot) => void>();
   private readonly sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
   private readonly agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
@@ -100,7 +98,7 @@ export class UtilityEngineHost implements DesktopEngineHost {
   private readonly sessionStateDecoders = new Map<string, ReturnType<typeof createSnapshotDeltaDecoder>>();
   private readonly pending = new Map<number, PendingRequest>();
   private readonly decoder = createSnapshotDeltaDecoder();
-  private child: EngineWorkerTransport | null = null;
+  private transport: BackendTransport | null = null;
   private cachedSnapshot: EngineSnapshot;
   private bootstrapSnapshot: EngineSnapshot;
   private cachedSessions: DesktopSessionSummary[] | null = null;
@@ -123,14 +121,14 @@ export class UtilityEngineHost implements DesktopEngineHost {
   private disposed = false;
   private recovering = false;
 
-  constructor(private readonly options: UtilityEngineHostOptions) {
+  constructor(private readonly options: DesktopBackendClientOptions) {
     this.cachedSnapshot = options.initialSnapshot ?? null;
     this.bootstrapSnapshot = options.initialSnapshot ?? null;
   }
 
   start(): Promise<void> {
     if (this.disposed || this.disposing) {
-      return Promise.reject(new Error('Mixdog engine host is disposed.'));
+      return Promise.reject(new Error('Mixdog desktop backend client is disposed.'));
     }
     if (this.readyPromise) return this.readyPromise;
     this.readyPromise = new Promise<void>((resolve, reject) => {
@@ -142,55 +140,55 @@ export class UtilityEngineHost implements DesktopEngineHost {
     if (restartDelayMs > 0) {
       this.restartTimer = setTimeout(() => {
         this.restartTimer = null;
-        this.spawnWorker();
+        this.connectBackend();
       }, restartDelayMs);
       this.restartTimer.unref?.();
     } else {
-      this.spawnWorker();
+      this.connectBackend();
     }
     return readyPromise;
   }
 
-  private spawnWorker(): void {
+  private connectBackend(): void {
     if (this.disposed || this.disposing) {
-      this.rejectStartup(new Error('Mixdog engine host is disposed.'));
+      this.rejectStartup(new Error('Mixdog desktop backend client is disposed.'));
       return;
     }
-    let child: EngineWorkerTransport;
+    let transport: BackendTransport;
     try {
-      child = this.options.spawn();
+      transport = this.options.connect();
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));
       this.rejectStartup(failure);
       return;
     }
-    this.child = child;
+    this.transport = transport;
     this.generation += 1;
-    child.on('message', (message: unknown) => this.handleMessage(child, message));
-    child.on('error', (type: unknown, location: unknown) => {
+    transport.on('message', (message: unknown) => this.handleMessage(transport, message));
+    transport.on('error', (type: unknown, location: unknown) => {
       this.options.onDiagnostic?.('backend-transport-error', {
         type: String(type || ''),
         location: String(location || ''),
       });
     });
-    child.on('exit', (code: unknown, cause: unknown) => this.handleExit(
-      child,
+    transport.on('exit', (code: unknown, cause: unknown) => this.handleExit(
+      transport,
       Number(code) || 0,
       cause instanceof Error ? cause : undefined,
     ));
     this.startupTimer = setTimeout(() => {
-      if (child !== this.child || !this.readyReject) return;
+      if (transport !== this.transport || !this.readyReject) return;
       const error = new Error('Mixdog backend startup timed out.');
       this.rejectStartup(error);
-      child.kill();
+      void transport.close().catch(() => {});
     }, this.options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS);
     this.startupTimer.unref?.();
     try {
-      child.postMessage({ kind: 'init', options: this.options.engineOptions() });
+      transport.postMessage({ kind: 'init', options: this.options.engineOptions() });
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));
       this.rejectStartup(failure);
-      child.kill();
+      void transport.close().catch(() => {});
     }
   }
 
@@ -223,9 +221,9 @@ export class UtilityEngineHost implements DesktopEngineHost {
     return () => this.backendEventListeners.delete(listener);
   }
 
-  private handleMessage(child: EngineWorkerTransport, value: unknown): void {
-    if (child !== this.child || !value || typeof value !== 'object') return;
-    const message = value as EngineWorkerOutbound;
+  private handleMessage(transport: BackendTransport, value: unknown): void {
+    if (transport !== this.transport || !value || typeof value !== 'object') return;
+    const message = value as DesktopBackendOutbound;
     if (message.kind === 'ready') {
       if (this.startupTimer) clearTimeout(this.startupTimer);
       this.startupTimer = null;
@@ -249,7 +247,7 @@ export class UtilityEngineHost implements DesktopEngineHost {
     if (message.kind === 'state') {
       const decoded = this.decoder.decode(message.wire);
       if (!decoded.ok) {
-        child.postMessage({ kind: 'state-resync' });
+        transport.postMessage({ kind: 'state-resync' });
         return;
       }
       const snapshot = decoded.snapshot as EngineSnapshot;
@@ -261,12 +259,12 @@ export class UtilityEngineHost implements DesktopEngineHost {
           this.publish(snapshot);
         }
       } finally {
-        // Acknowledge only after decode/publication. The worker keeps at most
+        // Acknowledge only after decode/publication. The transport keeps at most
         // one frame in flight and collapses any intermediate publications.
         try {
-          child.postMessage({ kind: 'state-ack', sequence: message.sequence });
+          transport.postMessage({ kind: 'state-ack', sequence: message.sequence });
         } catch {
-          // Worker exit/recovery owns the failed transport.
+          // Backend reconnect owns the failed transport.
         }
       }
       return;
@@ -301,7 +299,7 @@ export class UtilityEngineHost implements DesktopEngineHost {
       const decoded = decoder.decode(message.wire);
       if (!decoded.ok) {
         decoder.reset();
-        try { child.postMessage({ kind: 'session-state-resync', sessionId }); } catch {}
+        try { transport.postMessage({ kind: 'session-state-resync', sessionId }); } catch {}
         return;
       }
       if (message.wire === null) this.sessionStateDecoders.delete(sessionId);
@@ -325,9 +323,9 @@ export class UtilityEngineHost implements DesktopEngineHost {
     else pending.reject(responseError(message.error));
   }
 
-  private handleExit(child: EngineWorkerTransport, code: number, cause?: Error): void {
-    if (child !== this.child) return;
-    this.child = null;
+  private handleExit(transport: BackendTransport, code: number, cause?: Error): void {
+    if (transport !== this.transport) return;
+    this.transport = null;
     this.decoder.reset();
     this.sessionStateDecoders.clear();
     if (this.startupTimer) clearTimeout(this.startupTimer);
@@ -446,7 +444,7 @@ export class UtilityEngineHost implements DesktopEngineHost {
     await ready;
     if (generation !== this.generation) {
       throw this.lastExitError
-        ?? new Error('Mixdog engine worker changed before the request was sent.');
+        ?? new Error('Mixdog backend transport changed before the request was sent.');
     }
     return await this.sendRequest<T>(method, args);
   }
@@ -465,8 +463,8 @@ export class UtilityEngineHost implements DesktopEngineHost {
     args: unknown[],
     timeoutMs = this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
   ): Promise<T> {
-    const child = this.child;
-    if (!child) {
+    const transport = this.transport;
+    if (!transport) {
       return Promise.reject(
         this.lastExitError ?? new Error('Mixdog backend is unavailable.'),
       );
@@ -484,7 +482,7 @@ export class UtilityEngineHost implements DesktopEngineHost {
         timer,
       });
       try {
-        child.postMessage({ kind: 'request', id, method, args });
+        transport.postMessage({ kind: 'request', id, method, args });
       } catch (error) {
         clearTimeout(timer);
         this.pending.delete(id);
@@ -692,26 +690,14 @@ export class UtilityEngineHost implements DesktopEngineHost {
     this.restartTimer = null;
     if (this.stableTimer) clearTimeout(this.stableTimer);
     this.stableTimer = null;
-    const child = this.child;
-    if (child) {
-      try {
-        await this.sendRequest(
-          'dispose',
-          [],
-          this.options.disposeTimeoutMs ?? DEFAULT_DISPOSE_TIMEOUT_MS,
-        );
-      } catch {
-        // Worker termination below is the bounded fallback.
-      }
-    }
+    const transport = this.transport;
+    this.transport = null;
     this.disposed = true;
-    const disposedError = new Error('Mixdog engine host is disposed.');
+    const disposedError = new Error('Mixdog desktop backend client is disposed.');
     this.readyReject?.(disposedError);
     this.readyResolve = null;
     this.readyReject = null;
     this.rejectPending(disposedError);
-    child?.kill();
-    this.child = null;
     this.readyPromise = null;
     this.listeners.clear();
     this.sessionListeners.clear();
@@ -719,5 +705,8 @@ export class UtilityEngineHost implements DesktopEngineHost {
     this.backendEventListeners.clear();
     this.sessionStateListeners.clear();
     this.visibleSessionIds = [];
+    if (transport) {
+      try { await transport.close(); } catch { /* process exit is the fallback */ }
+    }
   }
 }

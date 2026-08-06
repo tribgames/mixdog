@@ -1,7 +1,6 @@
-// TUI parity over the engine daemon: the terminal store is created by the very
-// same createEngineSession() seam, so the only thing that can break the TUI is
-// state that does not survive the wire. Boot a LOCAL engine and a REMOTE one in
-// the same isolated root and hold their snapshots to the same contract.
+// TUI parity over the engine daemon: the product facade creates a remote view,
+// while the daemon-only module creates the source store. Boot both in the same
+// isolated root and hold their snapshots to the same contract.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -11,10 +10,8 @@ import { join } from 'node:path';
 const ROOT = mkdtempSync(join(tmpdir(), 'mixdog-engine-daemon-parity-'));
 process.env.MIXDOG_RUNTIME_ROOT = ROOT;
 process.env.MIXDOG_DATA_DIR = ROOT;
-// This test exercises the createEngineSession() SEAM, which returns a local
-// store when the process is marked as the daemon host. Running the suite from
-// inside a mixdog session inherited that mark and silently turned the "remote"
-// half of the parity check into a second local store.
+// A suite started from inside mixdog can inherit the daemon-host marker.
+// Product callers must still exercise the external daemon path here.
 delete process.env.MIXDOG_ENGINE_DAEMON_HOST;
 // Product callers are daemon-only. This parity test requests its local
 // comparison store through the explicit test/host constructor.
@@ -34,6 +31,7 @@ process.env.MIXDOG_PROVIDER_SETUP_WARMUP_DELAY_MS = '60000';
 process.env.MIXDOG_STATUSLINE_USAGE_WARMUP_DELAY_MS = '60000';
 
 const engineModule = await import('../src/tui/engine.mjs');
+const localEngineModule = await import('../src/tui/engine-local-session.mjs');
 const { shutdownEngineDaemon } = await import('../src/standalone/engine-daemon-client.mjs');
 const { killProcessesUnder } = await import('./lib/isolated-root-cleanup.mjs');
 
@@ -51,7 +49,7 @@ test('a daemon-hosted store carries the same snapshot contract as an in-process 
     try { rmSync(ROOT, { recursive: true, force: true }); } catch {}
   });
 
-  const local = await engineModule.createLocalEngineSession({ toolMode: 'full', cwd: process.cwd() });
+  const local = await localEngineModule.createLocalEngineSession({ toolMode: 'full', cwd: process.cwd() });
   const localState = local.getState();
   assert.ok(localState && typeof localState === 'object', 'the in-process store publishes a snapshot');
   await local.dispose('parity local snapshot captured');

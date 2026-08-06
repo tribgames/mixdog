@@ -54,6 +54,19 @@ function abortError(signal) {
     : new Error(String(signal?.reason || 'resource admission canceled'));
 }
 
+function sleep(ms, signal) {
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener?.('abort', finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    timer.unref?.();
+    signal?.addEventListener?.('abort', finish, { once: true });
+  });
+}
+
 class ResourcePressureError extends Error {
   constructor(message, details = {}) {
     super(`resource pressure: ${message}`);
@@ -93,6 +106,14 @@ export class ResourceAdmissionController {
     // Live leases for saturation diagnostics only (labels/ages in snapshot()).
     this.activeLeases = new Set();
     this.context = new AsyncLocalStorage();
+    // Host free memory is an INSTANTANEOUS sample: a GC pause or a just-exited
+    // child can dip it below the floor for a few hundred ms. Re-measure a
+    // bounded number of times before refusing, so a transient dip costs
+    // latency instead of a failed tool call.
+    this.memoryRetry = {
+      attempts: nonNegativeInt(env.MIXDOG_MEMORY_PRESSURE_RETRIES, 3),
+      delayMs: nonNegativeInt(env.MIXDOG_MEMORY_PRESSURE_RETRY_MS, 400),
+    };
   }
 
   _memoryError(kind) {
@@ -231,11 +252,29 @@ export class ResourceAdmissionController {
     return this.context.run(lease, task);
   }
 
+  async _acquireAfterMemoryDip(kind, options, pressure) {
+    const lane = kind === 'shell' ? 'shell' : 'agent';
+    const { attempts, delayMs } = this.memoryRetry;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      await sleep(delayMs, options.signal);
+      if (options.signal?.aborted) throw abortError(options.signal);
+      if (!this._memoryError(lane)) return this.acquire(kind, options);
+    }
+    throw this._memoryError(lane) || pressure;
+  }
+
   acquire(kind, { signal = null, label = null, dependency = 'scoped' } = {}) {
     const lane = kind === 'shell' ? 'shell' : 'agent';
     if (signal?.aborted) return Promise.reject(abortError(signal));
     const pressure = this._memoryError(lane);
-    if (pressure) return Promise.reject(pressure);
+    if (pressure) {
+      // Only host free memory self-heals on this timescale; our own RSS does
+      // not, so RSS pressure still rejects immediately.
+      if (pressure.metric !== 'free-memory' || this.memoryRetry.attempts < 1) {
+        return Promise.reject(pressure);
+      }
+      return this._acquireAfterMemoryDip(kind, { signal, label, dependency }, pressure);
+    }
     const ambientParent = this.context.getStore();
     const detachedDependency = dependency === 'detached' && ambientParent?.controller === this;
     const parent = detachedDependency ? null : this._suspendParent(ambientParent);

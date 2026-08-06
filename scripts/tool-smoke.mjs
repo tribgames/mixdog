@@ -1980,7 +1980,11 @@ if (/line\/context/i.test(JSON.stringify(readTool?.inputSchema || {}))) {
     || !/session\.providerCacheOpts = buildSessionProviderCacheOpts\(session\.provider, session\.id, session\.agent\) \|\| null/.test(updateSessionRouteBlock)) {
     throw new Error('updateSessionRoute must refresh provider-scoped prompt cache fields when an empty live session changes provider/model');
   }
-  const engineSrc = [readMjsSources('src/tui/engine.mjs'), readMjsSources('src/tui/engine')].join('\n');
+  const engineSrc = [
+    readMjsSources('src/tui/engine.mjs'),
+    readMjsSources('src/tui/engine-local-session.mjs'),
+    readMjsSources('src/tui/engine'),
+  ].join('\n');
   if (/setRoute\(\{ model: m \}, \{ applyToCurrentSession: true \}\)/.test(engineSrc)) {
     throw new Error('TUI setModel must not force applyToCurrentSession:true (model changes must apply to the next session only)');
   }

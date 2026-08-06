@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, powerMonitor, powerSaveBlocker, screen, session, shell } from 'electron';
 
 import type { DesktopEngineHost } from './engine-host-api';
-import { UtilityEngineHost } from './utility-engine-host';
+import { DesktopBackendClient } from './desktop-backend-client';
 import { DaemonEngineTransport } from './daemon-engine-transport';
 import { readDesktopModelBootstrapSnapshot } from './model-bootstrap';
 import { AgentAwakeService } from './agent-awake';
@@ -106,7 +106,7 @@ if (process.platform === 'win32') {
 }
 
 // Shell/agent launchers may themselves run below normal priority. The desktop
-// chrome must not inherit that class: keep main at normal while engine-worker
+// chrome must not inherit that class: keep main at normal while the backend
 // explicitly lowers only the compute tree that should yield to the UI.
 try {
   setPriority(0, osConstants.priority.PRIORITY_NORMAL);
@@ -174,8 +174,8 @@ if (process.env.MIXDOG_DESKTOP_PERF === '1') {
   });
 }
 
-const utilityHost = new UtilityEngineHost({
-  spawn: () => new DaemonEngineTransport(
+const backendClient = new DesktopBackendClient({
+  connect: () => new DaemonEngineTransport(
     pathToFileURL(app.isPackaged
       ? join(
         process.resourcesPath,
@@ -201,7 +201,7 @@ const utilityHost = new UtilityEngineHost({
     console.error(`[mixdog] ${event}`, data);
   },
 });
-const host: DesktopEngineHost = utilityHost;
+const host: DesktopEngineHost = backendClient;
 let daemonBackendBootReported = false;
 function startDaemonBackend(): void {
   if (!daemonBackendBootReported) {
@@ -210,7 +210,7 @@ function startDaemonBackend(): void {
       totalMs: Date.now() - desktopProcessStartedAt,
     });
   }
-  void utilityHost.start()
+  void backendClient.start()
     .then(() => {
       diagnostics?.write('daemon-backend-ready', {
         totalMs: Date.now() - desktopProcessStartedAt,
@@ -239,9 +239,9 @@ const backendTerminalManager = {
   async ensure(
     id: string | null,
     cwd: string | null,
-    profile?: import('./terminal-worker-protocol').TerminalSpawnProfile | string | null,
+    profile?: import('./terminal-contract').TerminalSpawnProfile | string | null,
   ): Promise<{ id: string; replay: string }> {
-    const value = await utilityHost.backendInvoke('termEnsure', [id, cwd, profile ?? null]);
+    const value = await backendClient.backendInvoke('termEnsure', [id, cwd, profile ?? null]);
     if (!value || typeof value !== 'object') {
       throw new Error('The backend terminal did not return a session.');
     }
@@ -249,23 +249,23 @@ const backendTerminalManager = {
     return { id: String(result.id || ''), replay: String(result.replay || '') };
   },
   write(id: string, data: string): void {
-    void utilityHost.backendInvoke('termWrite', [id, data]).catch(() => {});
+    void backendClient.backendInvoke('termWrite', [id, data]).catch(() => {});
   },
   resize(id: string, cols: number, rows: number): void {
-    void utilityHost.backendInvoke('termResize', [id, cols, rows]).catch(() => {});
+    void backendClient.backendInvoke('termResize', [id, cols, rows]).catch(() => {});
   },
   pauseOutput(id: string): void {
-    void utilityHost.backendInvoke('termPause', [id]).catch(() => {});
+    void backendClient.backendInvoke('termPause', [id]).catch(() => {});
   },
   resumeOutput(id: string): void {
-    void utilityHost.backendInvoke('termResume', [id]).catch(() => {});
+    void backendClient.backendInvoke('termResume', [id]).catch(() => {});
   },
   dispose(id: string): void {
-    void utilityHost.backendInvoke('termDispose', [id]).catch(() => {});
+    void backendClient.backendInvoke('termDispose', [id]).catch(() => {});
   },
   disposeAll(): void {},
   subscribe(listener: (event: { id: string; data: string }) => void): () => void {
-    return utilityHost.subscribeBackendEvents(({ name, value }) => {
+    return backendClient.subscribeBackendEvents(({ name, value }) => {
       if (name !== 'terminal-data' || !value || typeof value !== 'object') return;
       const event = value as Record<string, unknown>;
       listener({ id: String(event.id || ''), data: String(event.data || '') });
@@ -281,7 +281,7 @@ let unsubscribeBackendSettings: (() => void) | null = null;
 const applyDesktopSettings = (settings: DesktopSettings): void => {
   awakeService.setEnabled(settings.keepAwake !== false);
 };
-unsubscribeBackendSettings = utilityHost.subscribeBackendEvents(({ name, value }) => {
+unsubscribeBackendSettings = backendClient.subscribeBackendEvents(({ name, value }) => {
   if (name === 'desktop-settings-changed' && value && typeof value === 'object') {
     applyDesktopSettings(value as DesktopSettings);
   }

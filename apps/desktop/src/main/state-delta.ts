@@ -1,4 +1,4 @@
-// Identity-preserving snapshot delta shared by the utility-process and remote
+// Identity-preserving snapshot delta shared by daemon, Electron, and remote
 // transports. copySnapshot reuses unchanged field/item objects, so reference
 // comparisons are sufficient: only appended transcript entries, appended
 // streaming text, and changed state fields cross the structured-clone/JSON

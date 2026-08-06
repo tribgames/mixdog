@@ -670,6 +670,21 @@ export function useTranscriptWindow({
     const currentPosition = Math.max(0, Number(scrollPositionRef.current) || 0);
     const currentOffset = Math.max(0, Number(scrollOffset) || 0);
     const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
+    // ── Positional follow restore ────────────────────────────────────────
+    // The follow arm is a FLAG, but the tail position is the truth. Any commit
+    // that GROWS content while the viewport still sits exactly at the tail
+    // means the user is at the bottom, whatever cleared the flag (a wheel
+    // tremor that moved nothing, a click, a jump-to-bottom, an item-count
+    // reset). Restore it here instead of falling through to the anchor
+    // capture below, which froze the viewport and let new output pile up
+    // off-screen. Ref: render-node-to-output's
+    // `atBottom = sticky || (grew && scrollTop >= prevMaxScroll)`, which
+    // likewise flips a user-broken sticky flag back on when the position says
+    // bottom. Growth-gated (rowDelta > 0) for the same reason the ref gates on
+    // `grew`: a shrink can put the offset at 0 as an artifact.
+    if (!followingRef.current && rowDelta > 0 && currentTarget === 0) {
+      followingRef.current = true;
+    }
     // Follow ownership is explicit. target=0 can also mean the first manual
     // read-back gesture is waiting for a newly mounted row measurement; never
     // infer permission to chase the tail from the numeric offset alone.

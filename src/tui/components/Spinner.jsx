@@ -22,6 +22,7 @@ import { Box, Text } from 'ink';
 import { useSharedTick } from '../hooks/useSharedTick.mjs';
 import { theme } from '../theme.mjs';
 import { SPINNER_FRAMES, SPINNER_MODE_OVERRIDE_VERBS, spinnerVerbFor } from '../spinner-verbs.mjs';
+import { SHOW_TOKENS_AFTER_MS, buildSpinnerMeta, isReducedMotion } from '../spinner-meta.mjs';
 import { DOWN_ARROW, UP_ARROW } from '../figures.mjs';
 import { formatDuration } from '../time-format.mjs';
 
@@ -32,10 +33,11 @@ const FRAMES = [...SPINNER_FRAMES, ...[...SPINNER_FRAMES].reverse()];
 // Stall: response must grow within this window or the glyph reddens.
 const STALL_TIMEOUT_MS = 3000;
 const STALL_FADE_MS = 2000; // fade red over 2s
-// Hide elapsed/token meta on short turns unless verbose/teammates
-// are active. Mixdog has no spinner verbose/teammate row here, so mirror the
-// default 30s threshold.
-const SHOW_TOKENS_AFTER_MS = 30_000;
+// Reduced motion: the glyph freezes, the shimmer stops and the tick drops to
+// one second so only the timer keeps moving.
+const REDUCED_MOTION_TICK_MS = 1000;
+// A running turn always states how to stop it.
+const INTERRUPT_HINT = 'esc to interrupt';
 // Thinking shimmer starts after this delay.
 const THINKING_DELAY_MS = 3000;
 
@@ -110,18 +112,6 @@ function spinnerRgb() {
   };
 }
 
-const compactNumberFormatter = new Intl.NumberFormat('en-US', {
-  notation: 'compact',
-  maximumFractionDigits: 1,
-  minimumFractionDigits: 0,
-});
-
-function formatNumber(n) {
-  const value = Math.max(0, Number(n || 0));
-  if (value >= 1000) return compactNumberFormatter.format(value).toLowerCase();
-  return String(Math.round(value));
-}
-
 const STATUS_SEP = ' · ';
 const SEP_WIDTH = STATUS_SEP.length;
 
@@ -143,20 +133,43 @@ function tokenModeGlyph(mode) {
   }
 }
 
-export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens = 0, thinking = false, thinkingActiveSince = 0, mode = 'responding', columns = 80, marginTop = 1 }) {
+export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens = 0, thinking = false, thinkingActiveSince = 0, thinkingMs = 0, effort = '', hasActiveTools = false, paused = false, interruptible = false, mode = 'responding', columns = 80, marginTop = 1 }) {
+  const reducedMotion = isReducedMotion();
   // Re-render at the frame cadence off the shared tick (no dedicated timer).
   // Glyph/shimmer/token/elapsed values are all derived from Date.now() below.
-  useSharedTick(FRAME_MS);
+  useSharedTick(reducedMotion ? REDUCED_MOTION_TICK_MS : FRAME_MS);
   const { TEXT_RGB, SHIMMER_RGB, SPINNER_GLYPH_RGB, THINKING_INACTIVE, THINKING_SHIMMER, STALL_RGB } = spinnerRgb();
   const now = Date.now();
-  const elapsedMs = startedAt ? Math.max(0, now - startedAt) : 0;
-  const frame = Math.floor(elapsedMs / FRAME_MS);
+  // Animation clock: raw wall time since the turn began. It never pauses, so a
+  // frozen timer (below) still animates instead of looking hung.
+  const rawElapsedMs = startedAt ? Math.max(0, now - startedAt) : 0;
+  const frame = reducedMotion ? 0 : Math.floor(rawElapsedMs / FRAME_MS);
   const lastGrowRef = useRef(now);
   const lastTokensRef = useRef(0);
   const displayedOutputRef = useRef(0);
+  // Pause accounting: time spent waiting on the USER (a tool approval prompt)
+  // is not turn time. Without this the reported duration counts however long
+  // the prompt sat unanswered and the short-turn token gate opens on it.
+  const turnAnchorRef = useRef(startedAt);
+  const pausedTotalRef = useRef(0);
+  const pauseStartRef = useRef(0);
   // Stall smoothing refs (exponential fade)
   const stallSmoothRef = useRef(0);
   const lastStallTickRef = useRef(0);
+
+  if (turnAnchorRef.current !== startedAt) {
+    turnAnchorRef.current = startedAt;
+    pausedTotalRef.current = 0;
+    pauseStartRef.current = 0;
+  }
+  if (paused && !pauseStartRef.current) {
+    pauseStartRef.current = now;
+  } else if (!paused && pauseStartRef.current) {
+    pausedTotalRef.current += Math.max(0, now - pauseStartRef.current);
+    pauseStartRef.current = 0;
+  }
+  const pausedMs = pausedTotalRef.current + (pauseStartRef.current ? Math.max(0, now - pauseStartRef.current) : 0);
+  const elapsedMs = Math.max(0, rawElapsedMs - pausedMs);
 
   const targetOutputTokens = Math.max(0, Number(outputTokens || tokens || 0));
 
@@ -167,8 +180,14 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
     lastGrowRef.current = now;
   }
 
+  // Waiting is not stalling: while a tool runs (no tokens can arrive) or while
+  // the user owns an approval prompt, hold the stall clock at zero. Otherwise a
+  // 30s shell command or a slow approval reddens a perfectly healthy turn.
+  const workBlocked = paused || hasActiveTools || mode === 'tool-use' || mode === 'tool-input';
+  if (workBlocked) lastGrowRef.current = now;
+
   const stallMs = now - lastGrowRef.current;
-  const isStalled = targetOutputTokens > 0 && stallMs > STALL_TIMEOUT_MS;
+  const isStalled = !reducedMotion && targetOutputTokens > 0 && stallMs > STALL_TIMEOUT_MS;
   // Stall smoothing: exponential fade toward target
   const rawIntensity = isStalled
     ? Math.min(1, (stallMs - STALL_TIMEOUT_MS) / STALL_FADE_MS)
@@ -210,16 +229,20 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   // Glimmer speed per mode.
   const glimmerSpeed = GLIMMER_SPEED_MS[mode] ?? 200;
   const shimmerSpan = Math.max(1, messageLen + GLIMMER_TRAIL);
-  const shimmerHead = Math.floor(elapsedMs / glimmerSpeed) % shimmerSpan;
+  const shimmerHead = Math.floor(rawElapsedMs / glimmerSpeed) % shimmerSpan;
 
   // Keep the verb shimmer moving even during stalls/tool waits. Stall tinting is
   // limited to the glyph; tinting the whole verb made the sweep disappear after
   // a few seconds and read as a stuck dark label.
-  const verbContent = messageLen > 0 && TEXT_RGB && SHIMMER_RGB
+  const verbContent = messageLen > 0 && !reducedMotion && TEXT_RGB && SHIMMER_RGB
     ? renderShimmerText(messageText, shimmerHead, GLIMMER_TRAIL, TEXT_RGB, SHIMMER_RGB, theme.spinnerText, 'verb', shimmerSpan)
-    : null;
+    : (messageLen > 0 ? <Text color={theme.spinnerText}>{messageText}</Text> : null);
 
   const advanceCounter = (ref, target) => {
+    if (reducedMotion) {
+      ref.current = target;
+      return Math.round(target);
+    }
     if (ref.current > target) {
       ref.current = target;
     } else if (ref.current < target) {
@@ -239,10 +262,19 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   // thinking, tool-use, tool-input). Input token totals are not shown.
   const displayedOutputTokens = advanceCounter(displayedOutputRef, targetOutputTokens);
 
+  // Byline text comes from the shared builder so the desktop band reads the
+  // same way (token gate, thinking vs "thought for Ns").
+  const meta = buildSpinnerMeta({
+    elapsedMs,
+    outputTokens: displayedOutputTokens,
+    thinking,
+    thinkingSince: thinkingActiveSince,
+    thinkingMs,
+    effort,
+  });
   const tokenGlyph = tokenModeGlyph(mode);
-  const tokenCountText = formatNumber(displayedOutputTokens);
-  const tokenText = displayedOutputTokens > 0
-    ? (tokenGlyph ? `${tokenGlyph} ${tokenCountText} tokens` : `${tokenCountText} tokens`)
+  const tokenText = meta.tokensText
+    ? (tokenGlyph ? `${tokenGlyph} ${meta.tokensText}` : meta.tokensText)
     : '';
   const tokenW = tokenText.length;
 
@@ -254,20 +286,22 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   const timerText = formatDuration(elapsedMs);
   const timerLabel = timerText;
   const timerW = timerLabel.length;
-  const thinkingActive = Boolean(thinking || thinkingActiveSince);
-  const thinkingStatusText = thinkingActive
-    ? 'thinking'
-    : '';
+  const thinkingActive = meta.thinkingActive;
+  const thinkingStatusText = meta.thinkingText;
   const thinkingStatusW = thinkingStatusText.length;
   // Turn elapsed time is the headline metric here, not a thinking sub-stat, so
   // it shows from 1s onward (formatDuration returns '' below 1s). Tokens keep
   // Short-turn gate: tokens only appear once the turn runs long.
-  const wantsTokens = elapsedMs > SHOW_TOKENS_AFTER_MS;
+  const wantsTokens = meta.showTokens;
 
-  // Thinking display priority for narrow widths, but renders
-  // it after timer/tokens in the final byline.
-  const showThinkingStatus = Boolean(thinkingStatusText) && avail > thinkingStatusW;
-  const usedAfterThinking = showThinkingStatus ? thinkingStatusW + SEP_WIDTH : 0;
+  // Interrupt hint and thinking status win the width race (they render LAST in
+  // the byline but are gated FIRST), then timer, then tokens.
+  const interruptText = interruptible ? INTERRUPT_HINT : '';
+  const interruptW = interruptText.length;
+  const showInterrupt = Boolean(interruptText) && avail > interruptW;
+  const usedAfterInterrupt = showInterrupt ? interruptW + SEP_WIDTH : 0;
+  const showThinkingStatus = Boolean(thinkingStatusText) && avail > usedAfterInterrupt + thinkingStatusW;
+  const usedAfterThinking = usedAfterInterrupt + (showThinkingStatus ? thinkingStatusW + SEP_WIDTH : 0);
   const showTimer = Boolean(timerLabel) && avail > usedAfterThinking + timerW;
   const usedAfterTimer = usedAfterThinking + (showTimer ? timerW + SEP_WIDTH : 0);
   const showTokens = wantsTokens && tokenText && avail > usedAfterTimer + tokenW;
@@ -286,11 +320,16 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   }
   if (showThinkingStatus) {
     const thinkingSpan = Math.max(1, thinkingStatusText.length + THINKING_GLIMMER_TRAIL);
-    const thinkingHead = Math.floor(Math.max(0, elapsedMs - THINKING_DELAY_MS) / THINKING_GLIMMER_SPEED_MS) % thinkingSpan;
+    const thinkingHead = Math.floor(Math.max(0, rawElapsedMs - THINKING_DELAY_MS) / THINKING_GLIMMER_SPEED_MS) % thinkingSpan;
     segments.push(
-      thinkingActive
+      thinkingActive && !reducedMotion
         ? <Text key="thinking-status">{renderShimmerText(thinkingStatusText, thinkingHead, THINKING_GLIMMER_TRAIL, THINKING_INACTIVE, THINKING_SHIMMER, theme.thinkingBase, 'thinking-status', thinkingSpan)}</Text>
         : <Text key="thinking-status" color={theme.statusSubtle}>{thinkingStatusText}</Text>
+    );
+  }
+  if (showInterrupt) {
+    segments.push(
+      <Text key="interrupt" color={theme.statusSubtle}>{interruptText}</Text>
     );
   }
   return (

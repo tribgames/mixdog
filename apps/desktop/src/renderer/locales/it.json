@@ -807,5 +807,11 @@
   "Fermenting": "Sta fermentando",
   "Incubating": "Sta incubando",
   "Coalescing": "Si sta amalgamando",
-  "Cultivating": "Sta coltivando"
+  "Cultivating": "Sta coltivando",
+  "Contemplating": "Sta contemplando",
+  "Deliberating": "Sta ponderando",
+  "Cogitating": "Sta cogitando",
+  "Inferring": "Sta deducendo",
+  "Ideating": "Sta ideando",
+  "Envisioning": "Sta immaginando"
 }

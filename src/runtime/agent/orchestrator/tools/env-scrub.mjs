@@ -105,8 +105,7 @@ export function scrubProviderSecrets(env) {
 // a dev-tree test run inside such a shell would resolve defaults/agents.json
 // and friends from the INSTALLED app instead of the repo under test (plain
 // node can't even read asar paths → ENOENT). Internal worker spawns that need
-// the root re-set it explicitly and are unaffected: only shell spawn sites
-// call this.
+// the root re-set it explicitly and are unaffected.
 export function scrubRuntimeRootVars(env) {
     if (!env || typeof env !== 'object') return env;
     delete env.MIXDOG_ROOT;
@@ -118,16 +117,13 @@ export function scrubRuntimeRootVars(env) {
     // env, so shells must not see it. A command that needs NODE_ENV sets it
     // explicitly.
     delete env.NODE_ENV;
-    // Daemon IDENTITY leak: the backend daemon marks itself with these before
-    // it boots, and every shell it spawns inherited them. A `mixdog` (or any
-    // runtime import) started from such a shell then believed IT was the
-    // backend host: createEngineSession() built a LOCAL in-process engine
-    // instead of attaching to the daemon — a second writer on the same session
-    // store, which is exactly what the single-writer daemon exists to prevent.
-    // The daemon sets them explicitly for the processes that really are it.
+    // Daemon IDENTITY leak: user-facing children must not inherit host/worker
+    // ownership or the daemon's terminal-lead PID. Internal daemon/worker
+    // spawns set every identity value explicitly after this boundary.
     delete env.MIXDOG_ENGINE_DAEMON_HOST;
     delete env.MIXDOG_CHANNEL_DAEMON;
     delete env.MIXDOG_WORKER_MODE;
     delete env.MIXDOG_DAEMON_SPAWNED_FOR;
+    delete env.MIXDOG_SUPERVISOR_PID;
     return env;
 }

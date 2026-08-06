@@ -50,7 +50,7 @@ import {
   type ToolApprovalDecision,
 } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
-import type { TerminalSpawnProfile } from './terminal-worker-protocol';
+import type { TerminalSpawnProfile } from './terminal-contract';
 import type { DesktopEngineHost } from './engine-host-api';
 import { streamingTailAppendEpoch } from './engine-host-support';
 import { registerFilePreview } from './file-preview';

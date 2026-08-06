@@ -1,9 +1,10 @@
-// Dock terminal backend: PTYs live in
-// the MAIN process, the renderer runs a thin xterm view over IPC. Prebuilt
+// Dock terminal backend: PTYs live in the singleton daemon, while the renderer
+// runs a thin xterm view over IPC. Prebuilt
 // node-pty avoids an electron-rebuild step on Windows. Keep the native module
 // behind first terminal use so cold desktop startup never loads its bindings.
 import type { IPty } from '@homebridge/node-pty-prebuilt-multiarch';
-import type { TerminalSpawnProfile } from './terminal-worker-protocol';
+import { backendChildEnvironment } from './backend-child-environment';
+import type { TerminalSpawnProfile } from './terminal-contract';
 
 const REPLAY_BUFFER_LIMIT = 200_000;
 
@@ -111,9 +112,7 @@ export class TerminalManager {
     // otherwise the platform default stands as before.
     const shell = profile?.path
       || (process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || 'bash');
-    const env = profile?.env
-      ? { ...process.env, ...profile.env }
-      : process.env;
+    const env = backendChildEnvironment(profile?.env ?? {});
     const pty = spawn(shell, profile?.args ?? [], {
       name: 'xterm-256color',
       cols: 80,
@@ -157,7 +156,7 @@ export class TerminalManager {
   }
 
   /** Pause the producer itself so a sustained flood backs up into the shell
-   * instead of growing the main-process pending queue without bound. */
+   * instead of growing the backend transport queue without bound. */
   pauseOutput(id: string): void {
     const entry = this.terminals.get(id);
     if (!entry || entry.disposed || entry.outputPaused) return;

@@ -1656,7 +1656,13 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
   const autoFitColumn = (key: "date" | "type" | "size") => {
     const context = document.createElement("canvas").getContext("2d");
     if (!context) return;
-    context.font = "12px 'Geist Variable', Inter, sans-serif";
+    // Measure in the SAME face/size the cells render in — a hardcoded stack
+    // drifts the moment the type tokens move and every column auto-fits to a
+    // width the real text overflows.
+    const rootStyle = getComputedStyle(document.documentElement);
+    const cellSize = rootStyle.getPropertyValue("--mx-font-minor").trim() || "13px";
+    const cellFamily = rootStyle.getPropertyValue("--mx-font-sans").trim() || "sans-serif";
+    context.font = `${cellSize} ${cellFamily}`;
     let widest = 0;
     for (const entry of visible) {
       const text = key === "date" ? formatFolderDate(entry.mtimeMs)

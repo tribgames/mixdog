@@ -37,7 +37,7 @@ import {
   createEngineLifecycle,
   engineHasActiveWork,
   type ParkedEngine,
-  type PendingSubmitLease,
+  type AcceptedSubmitGuard,
 } from './engine-lifecycle';
 import { DesktopProjectRegistry } from './engine-projects';
 import { DesktopSessionMetadata } from './engine-session-metadata';
@@ -489,7 +489,7 @@ export class EngineHost {
   // can defer enqueue/busy publication to a later microtask. Protect the
   // accepted engine across that gap so an immediate tab switch cannot treat it
   // as idle and close the just-started turn through runtime.resume().
-  private readonly pendingSubmitLeases = new WeakMap<MixdogEngine, PendingSubmitLease>();
+  private readonly acceptedSubmitGuards = new WeakMap<MixdogEngine, AcceptedSubmitGuard>();
   private readonly newTaskSubmitRequests = new Map<string, Promise<DesktopNewTaskSubmitResult>>();
   private readonly postSubmitTasks = new Set<Promise<void>>();
   private readonly modelCatalogCache = new Map<string, DesktopModelOption>();
@@ -578,7 +578,7 @@ export class EngineHost {
       setEngineDesktopSession: (scope) => { this.engineDesktopSession = scope; },
       clearCurrentProject: () => { this.currentProject = null; },
       parkedEngines: this.parkedEngines,
-      pendingSubmitLeases: this.pendingSubmitLeases,
+      acceptedSubmitGuards: this.acceptedSubmitGuards,
       sessionLanes: {
         attach: (engine) => this.sessionLanes.attach(engine),
         detach: (engine) => this.sessionLanes.detach(engine),
@@ -987,7 +987,7 @@ export class EngineHost {
     for (const [sessionId, parked] of [...this.parkedEngines]) {
       if (this.visibleSessionIds.has(sessionId)) continue;
       if (parked.engine === this.engine) continue;
-      if (engineHasActiveWork(parked.engine, this.pendingSubmitLeases)) continue;
+      if (engineHasActiveWork(parked.engine, this.acceptedSubmitGuards)) continue;
       this.parkedEngines.delete(sessionId);
       this.sessionLanes.detach(parked.engine);
       const disposal = Promise.resolve(
@@ -2830,7 +2830,7 @@ export class EngineHost {
       // A materialized draft commits its staged route to the NEW session id.
       this.rememberEngineRoute(engine);
       const items = Array.isArray(submitState.items) ? submitState.items : [];
-      this.recordSubmitLease(engine, submitState, sessionId);
+      this.recordAcceptedSubmitGuard(engine, submitState, sessionId);
       const hasPriorUser = items.some((item) => (
         item && typeof item === 'object'
         && (item as Record<string, unknown>).kind === 'user'
@@ -2933,14 +2933,14 @@ export class EngineHost {
     return accepted;
   }
 
-  private recordSubmitLease(
+  private recordAcceptedSubmitGuard(
     engine: MixdogEngine,
     submitState: Record<string, unknown>,
     sessionId: string,
   ): void {
     const items = Array.isArray(submitState.items) ? submitState.items : [];
     const lastItem = items.at(-1);
-    this.pendingSubmitLeases.set(engine, {
+    this.acceptedSubmitGuards.set(engine, {
       sessionId: String(submitState.sessionId || sessionId),
       structureRevision: submitState.structureRevision ?? null,
       itemsLength: items.length,
@@ -2990,7 +2990,7 @@ export class EngineHost {
   /** Split panes: submit addressed to any pooled live session. The active
    *  session takes the full first-submit path; a parked engine accepts the
    *  prompt directly — it already owns a materialized session — and records
-   *  the same submit lease so the next park decision sees it as running.
+   *  the same accepted-submit guard so the next park decision sees it as running.
    *  A session no local view holds is NOT a failure: the engine pool lives in
    *  the machine-global daemon, so the prompt is handed to it and a view is
    *  attached afterwards so the pane streams the answer. */
@@ -3017,7 +3017,7 @@ export class EngineHost {
         : parked.submit(prompt, options);
       // A view that refuses the prompt (released mid-submit) must fall through
       // to the daemon rather than report a phantom acceptance.
-      if (accepted) this.recordSubmitLease(parked, submitState, sessionId);
+      if (accepted) this.recordAcceptedSubmitGuard(parked, submitState, sessionId);
       else unowned = true;
     });
     if (!unowned) return accepted;
@@ -3362,7 +3362,7 @@ export class EngineHost {
     const engine = this.engine;
     const currentScope = this.engineDesktopSession;
     if (!engine || !this.engineViewIsLive(engine) || !this.engineWorkspace || !currentScope
-      || engineHasActiveWork(engine, this.pendingSubmitLeases)) return false;
+      || engineHasActiveWork(engine, this.acceptedSubmitGuards)) return false;
     if (normalizedProjectKey(this.engineWorkspace) !== normalizedProjectKey(workspace)
       || currentScope.classification !== desktopSession.classification) return false;
     if (desktopSession.classification !== 'project') return true;
@@ -3545,7 +3545,7 @@ export class EngineHost {
     let sessionId = '';
     try {
       sessionId = String(engine.getState()?.sessionId || '');
-      if (!sessionId || engineHasActiveWork(engine, this.pendingSubmitLeases)) return;
+    if (!sessionId || engineHasActiveWork(engine, this.acceptedSubmitGuards)) return;
     } catch {
       return;
     }

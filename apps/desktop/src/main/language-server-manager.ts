@@ -4,6 +4,7 @@ import { access, readFile, stat } from 'node:fs/promises';
 import { delimiter, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { backendChildEnvironment } from './backend-child-environment';
 import {
   createMessageConnection,
   StreamMessageReader,
@@ -641,7 +642,7 @@ function spawnServer(command: string, args: string[], cwd: string): ChildProcess
       .join(' ');
     return spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${commandLine}"`], {
       cwd,
-      env: process.env,
+      env: backendChildEnvironment(),
       windowsHide: true,
       windowsVerbatimArguments: true,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -649,7 +650,7 @@ function spawnServer(command: string, args: string[], cwd: string): ChildProcess
   }
   return spawn(command, args, {
     cwd,
-    env: process.env,
+    env: backendChildEnvironment(),
     windowsHide: true,
     stdio: ['pipe', 'pipe', 'pipe'],
   });

@@ -202,15 +202,21 @@ export function useTranscriptScroll({
   }, []);
 
   const resetTranscriptScroll = useCallback(() => {
-    cancelTranscriptFollow();
     stopSmoothScroll();
     pendingReadbackRowsRef.current = 0;
     scrollPositionRef.current = 0;
     scrollTargetRef.current = 0;
     transcriptAnchorRef.current = null;
     transcriptAnchorDirtyRef.current = false;
+    // An explicit "go to the tail" (Ctrl+End, transcript reset/compaction,
+    // first item of a session) ARMS follow — it must not cancel it. Mirrors
+    // ScrollKeybindingHandler's scroll:bottom, which ends in scrollToBottom()
+    // and re-enables sticky. Cancelling here parked the viewport at the tail
+    // with follow off, so the next growth commit captured a reading anchor
+    // and every new row piled up below the fold.
+    followingRef.current = true;
     setScrollOffset(0);
-  }, [stopSmoothScroll, cancelTranscriptFollow]);
+  }, [stopSmoothScroll]);
 
   const armTranscriptFollow = useCallback(() => {
     // Do not mutate scrollOffset here. During prompt submit the transcript rows
@@ -507,8 +513,11 @@ export function useTranscriptScroll({
     // short and follow never re-armed (user: 스크롤이 너무 자주 풀린다). The
     // band now scales with the viewport, mirroring the desktop hook's
     // REATTACH_THRESHOLD_PX re-attach band.
+    // Widened again (0.15→0.20 of the viewport, cap 8→12): while the anchor
+    // lock keeps raising the bottom-relative target between wheel events, a
+    // narrow band is overtaken by growth and the user can never land in it.
     const snapViewRows = Math.max(1, Number(publishedGeometry.viewRows) || 1);
-    const bottomSnapRows = Math.max(3, Math.min(8, Math.ceil(snapViewRows * 0.15)));
+    const bottomSnapRows = Math.max(3, Math.min(12, Math.ceil(snapViewRows * 0.2)));
     if (deltaRows < 0 && target > 0 && target <= bottomSnapRows) target = 0;
     const appliedDelta = target - scrollTargetRef.current;
     const blockedReadbackIntent = deltaRows > 0
@@ -546,14 +555,21 @@ export function useTranscriptScroll({
     // streaming growth could lurch the view. Only at the true bottom drop the
     // anchor so the bottom-follow path owns the viewport again: a positive
     // wheel offset is an explicit reading position, even inside the old slack.
+    // A downward gesture that ENDS at the tail re-arms follow even when it
+    // moved nothing (appliedDelta === 0). "Wheel/PageDown while already at the
+    // bottom" is the most common way a user asks to resume following, and the
+    // old appliedDelta gate made it a no-op: follow stayed off, the next growth
+    // commit captured a reading anchor, and new output piled up below the fold
+    // with no way back except submitting a prompt.
+    if (deltaRows < 0 && target === 0) {
+      transcriptAnchorRef.current = null;
+      transcriptAnchorDirtyRef.current = false;
+      followingRef.current = true;
+    }
     if (appliedDelta !== 0) {
       if (target === 0) {
         transcriptAnchorRef.current = null;
         transcriptAnchorDirtyRef.current = false;
-        // A deliberate downward return to the exact bottom re-arms follow, so
-        // the next stream growth pins immediately instead of racing the anchor
-        // effect for a target that may already have drifted positive again.
-        if (deltaRows < 0) followingRef.current = true;
       } else {
         const geom = transcriptGeomRef.current || {};
         const prefixRows = geom.prefixRows;

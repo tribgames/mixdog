@@ -3037,7 +3037,7 @@ test("host restores a running session when navigation engine creation fails", as
 });
 
 test("host protects an accepted submit before busy publishes and reconnects its engine", async () => {
-  const root = await mkdtemp(join(tmpdir(), "mixdog-session-submit-lease-"));
+  const root = await mkdtemp(join(tmpdir(), "mixdog-session-submit-guard-"));
   const originalCwd = process.cwd();
   const workspace = join(root, "workspace", "unclassified");
   const rows = ["desktop_running", "desktop_other"].map((id, index) => ({

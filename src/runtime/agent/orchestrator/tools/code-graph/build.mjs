@@ -299,7 +299,9 @@ export function prewarmCodeGraphSymbols(cwd, symbols, { language = null } = {}) 
 
 export function prewarmCodeGraphIfProject(cwd) {
   if (!cwd) return false;
-  const root = _findDirProjectRoot(cwd);
+  // Implicit walk (nobody asked for this build): never adopt a home/temp
+  // sentinel and prewarm the entire user profile in the background.
+  const root = _findDirProjectRoot(cwd, { stopAtUserBoundary: true });
   if (!root) return false;
   prewarmCodeGraph(root);
   return true;

@@ -1,7 +1,8 @@
-// Pull Requests backend: GitHub CLI (`gh`) calls from the main process,
+// Pull Requests backend: GitHub CLI (`gh`) calls from the singleton daemon,
 // mirroring the VS Code "GitHub Pull Requests" extension's default queries.
 // gh owns auth (keyring) — no tokens ever touch this process.
 import { execFile } from 'node:child_process';
+import { backendChildEnvironment } from './backend-child-environment';
 
 export interface GhPrChecks {
   total: number;
@@ -93,13 +94,12 @@ function run(cwd: string, args: string[]): Promise<string> {
       windowsHide: true,
       timeout: 60_000,
       maxBuffer: 16_000_000,
-      env: {
-        ...process.env,
+      env: backendChildEnvironment({
         GH_PROMPT_DISABLED: '1',
         GH_NO_UPDATE_NOTIFIER: '1',
         GH_PAGER: 'cat',
         CLICOLOR: '0',
-      },
+      }),
     }, (error: (Error & { code?: unknown }) | null, stdout, stderr) => {
       if (!error) {
         resolvePromise(String(stdout));

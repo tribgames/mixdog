@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { afterEach, test } from "node:test";
 import React, { act } from "react";
 import { flushSync } from "react-dom";
-import { SPINNER_VERBS, spinnerVerbFor } from "../../../../src/tui/spinner-verbs.mjs";
+import { SPINNER_VERBS } from "../../../../src/tui/spinner-verbs.mjs";
 
 import {
   cleanupDom,
@@ -2080,7 +2080,7 @@ test("composer renders a pending user card before a slow submit resolves", async
   ).split(" · ")[0];
   assert.ok(SPINNER_VERBS.includes(optimisticVerb),
     `the busy phrase must come from the shared pool, not a mode label (got ${optimisticVerb})`);
-  assert.ok(optimisticActivity.querySelector(".live-activity-pulse"));
+  assert.ok(optimisticActivity.querySelector(".live-activity-glyph"));
   assert.match(String(receivedOptions?.id || ""), /^desktop-submit-/);
   assert.ok(Number(receivedOptions?.submittedAt) > 0);
 
@@ -3404,7 +3404,8 @@ test("assistant completion metadata and copy action share a response footer with
   assert.equal(article?.hasAttribute("tabindex"), false);
   assert.equal(footer?.getAttribute("aria-label"), "Response details");
   assert.equal(footer?.querySelector(".turn-status.complete")?.textContent?.trim(), "Solved for 4s");
-  assert.ok(footer?.querySelector(".turn-status.complete .turn-status-icon.lucide-check"));
+  assert.equal(footer?.querySelector(".turn-status.complete .turn-status-icon"), null,
+    "a settled turn is a quiet ◈ marker row (TUI parity), not a check badge");
   assert.equal(footer?.querySelector('[aria-label="Copy response"]') != null, true);
   assert.equal(document.querySelector(".sr-only[role=status]") === null, true, "selector .sr-only[role=status] should be absent");
 });
@@ -12677,16 +12678,21 @@ test("live engine activity and completion or compaction rows preserve runtime st
     items: [],
     queued: [],
   });
-  // No startedAt on this frame: the pool still resolves deterministically, and
-  // the stream mode must NOT decide the wording.
-  const pooledVerb = spinnerVerbFor(0, Date.now());
-  assert.equal(document.querySelector(".live-activity-status")?.textContent, pooledVerb);
+  // The stream mode must NOT decide the wording: whatever the pool resolves to,
+  // it is a pool member and never the mode label.
+  // The byline may carry meta segments after the verb (elapsed / tokens /
+  // thinking — src/tui/spinner-meta.mjs, shared with the TUI spinner), so the
+  // pool contract applies to the FIRST segment.
+  const bandText = String(document.querySelector(".live-activity-status")?.textContent || "");
+  const pooledVerb = bandText.split(" · ")[0];
+  assert.ok(SPINNER_VERBS.includes(pooledVerb),
+    `a thinking frame must still draw from the shared pool (got ${bandText})`);
   assert.equal(
     document.querySelector(".live-activity-status [data-component='text-shimmer']")
       ?.getAttribute("aria-label"),
-    pooledVerb,
+    bandText,
   );
-  assert.ok(document.querySelector(".live-activity-pulse"));
+  assert.ok(document.querySelector(".live-activity-glyph"));
   assert.equal(document.querySelector(".live-activity")?.getAttribute("data-mode"), "thinking");
   assert.equal(document.querySelector(".session-progress") === null, true,
     "busy sessions should not add an animated header border");

@@ -235,7 +235,11 @@ export function parseV4APatch(patchStr) {
   };
 
   for (const rawLine of lines) {
-    if (rawLine === '*** Begin Patch' || rawLine === '*** End Patch') continue;
+    // Envelope markers, including the decorated variants models emit
+    // (`*** End Patch ***`). salvageV4AOpening already matches the end marker
+    // by prefix; the exact-equality check here let the decorated form fall
+    // through as hunk context, which then failed as a bogus context miss.
+    if (/^\*\*\* (?:Begin|End) Patch\b/i.test(rawLine)) continue;
     if (rawLine.startsWith('*** Update File:')) {
       startFile('update', stripV4APathHeader(rawLine, '*** Update File:'));
       continue;

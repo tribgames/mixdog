@@ -7,7 +7,7 @@ import type { DesktopEngineHost } from './engine-host-api';
 import type { DesktopSettingsStore } from './settings-store';
 import type { DesktopSettings } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
-import type { TerminalSpawnProfile } from './terminal-worker-protocol';
+import type { TerminalSpawnProfile } from './terminal-contract';
 import {
   projectDisplayName,
   requiredDesktopCapabilityReadRequests,

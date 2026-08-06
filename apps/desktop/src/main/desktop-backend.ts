@@ -18,9 +18,9 @@ import {
 } from './engine-host-api';
 import {
   createLatestStateMailbox,
-  type EngineWorkerInbound,
-  type EngineWorkerOutbound,
-} from './engine-worker-protocol';
+  type DesktopBackendInbound,
+  type DesktopBackendOutbound,
+} from './desktop-backend-protocol';
 import {
   createSnapshotDeltaEncoder,
   releaseHiddenSessionStateEntries,
@@ -44,7 +44,7 @@ import {
 interface DesktopBackendFactoryInput {
   options: SerializableEngineHostOptions;
   runtime: DesktopBackendRuntime;
-  emit(message: EngineWorkerOutbound): void;
+  emit(message: DesktopBackendOutbound): void;
   onClientCountChanged?(): void;
 }
 
@@ -72,11 +72,9 @@ export interface DesktopBackendAdapter {
 
 /** EngineHost runtime hosted inside the machine backend daemon.
  *
- * The wire messages deliberately match the retired Electron utility worker so
- * UtilityEngineHost remains a pure, tested view/cache layer. The adapter itself
- * never owns process lifetime: `dispose` from a desktop client is intercepted by
- * the daemon as unsubscribe; this object's dispose runs only when the daemon
- * exits.
+ * DesktopBackendClient remains a pure, tested projection/cache layer. The
+ * adapter itself never follows a desktop view's lifetime; this object's
+ * dispose runs only when the daemon exits.
  */
 export async function createDesktopBackend(
   { options, runtime, emit, onClientCountChanged }: DesktopBackendFactoryInput,
@@ -277,7 +275,6 @@ export async function createDesktopBackend(
       if (!rpcMethods.has(method)) {
         throw new TypeError('Mixdog desktop backend method is unavailable.');
       }
-      if (method === 'dispose') return null;
       if (method === 'backendInvoke') {
         const operation = String(args[0] || '');
         const operationArgs = Array.isArray(args[1]) ? args[1] : [];
@@ -316,7 +313,7 @@ export async function createDesktopBackend(
     },
     async control(value): Promise<void> {
       if (!value || typeof value !== 'object') return;
-      const message = value as EngineWorkerInbound;
+      const message = value as DesktopBackendInbound;
       if (message.kind === 'state-ack' && Number.isSafeInteger(message.sequence)) {
         stateMailbox.acknowledge(message.sequence);
         return;

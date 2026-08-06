@@ -95,20 +95,19 @@
   --mx-terminal-bg: #131313;
 
   /* ── Type scale ── */
-  /* One chrome ramp, six hierarchy tiers (user: 계층별 통일):
-     micro badges/pills/counters · meta timestamps/captions · minor
-     secondary rows/tab labels · ui base chrome · emphasis section
-     headings · body transcript prose. code 12.5 is the dedicated
-     mono/tool-row size (TUI terminal parity). Half-pixel strays and the
-     old 9px nano step converged to the nearest tier. Content scales
-     (markdown headings, onboarding hero, editor titles) stay literal
-     on purpose. micro is RESERVED for counters/badges/pills — readable
-     sentences, captions with names, and button labels start at meta
-     (user: 읽는 텍스트 최소 11px). */
-  --mx-font-micro: 10px;
-  --mx-font-meta: 11px;
-  --mx-font-minor: 12px;
-  --mx-font-code: 12.5px;
+  /* One chrome ramp on FOUR real sizes — 11 badge · 12 meta · 13 row ·
+     14/15 heading (user: 계층별 통일). The old ramp packed seven tiers into
+     10-15px, so 62% of the shell rendered at <=12px and neighbouring tiers
+     differed by a single imperceptible pixel; the floor moved up one step
+     each so the rail ladder the user specified (panel 15 > category 14 >
+     item title 13 > meta 12) is what the tokens literally say.
+     micro is RESERVED for counters/badges/pills — readable sentences,
+     captions with names, and button labels start at meta. Content scales
+     (markdown headings, onboarding hero, editor titles) stay literal. */
+  --mx-font-micro: 11px;
+  --mx-font-meta: 12px;
+  --mx-font-minor: 13px;
+  --mx-font-code: 13px;
   --mx-font-ui: 13px;
   --mx-font-emphasis: 14px;
   --mx-font-body: 15px;
@@ -152,7 +151,11 @@
   /* ── 3. Ink: text, icons, borders ── */
   --mx-text: #e9e9e9;
   --mx-text-muted: #a8a8a8;
-  --mx-text-faint: #8a8a8a; /* 4.8:1 on sheet; #808080 sat at 4.2 and read washed at 10-11px (user: 희끄무레) */
+  /* 5.8:1 on sheet. #8a8a8a sat at 4.8 and structured-input keys, group
+     headings and counters read as grey mush next to their full-ink rows
+     (user: 중요한 라벨 이름이 잘 안 보인다); it still lands a clear step
+     under muted's 6.9 so the tier keeps its meaning. */
+  --mx-text-faint: #9b9b9b;
   /* Soft ink: one step under full text (was ad-hoc 80/82/85% color-mix
      strays). Mix keeps it theme-adaptive like the strays it replaces. */
   --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
@@ -246,11 +249,14 @@
   /* ── Base typography, metrics, motion ── */
   color: var(--mx-text);
   background: var(--mx-bg-deep);
-  /* Family tokens: chrome runs Geist-led; reading/typing surfaces run the
-     same faces Pretendard-led so Korean+Latin prose keeps one ink density
-     (rationale at .message-body). Mono is the TUI-parity stack. */
-  --mx-font-sans: "Geist Variable", "Inter Variable", Inter, "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+  /* ONE family for the whole shell, Pretendard-led. Chrome used to run
+     Geist-first, so every mixed label ("Git 브랜치", "세션 4개") rendered its
+     Latin in Geist and its Hangul in Pretendard — two ink densities inside
+     one 12px label (the exact defect .message-body fixed for prose, left
+     unfixed for chrome). Pretendard's Latin is Inter-metric-compatible, so
+     the rhythm the Geist stack set is preserved. Mono is the TUI stack. */
   --mx-font-prose: "Pretendard Variable", Pretendard, "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
+  --mx-font-sans: var(--mx-font-prose);
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
@@ -295,7 +301,7 @@
      stays in the warm canvas, never in grey text (user-flagged twice). */
   --mx-text: #1b1a17;
   --mx-text-muted: #635f57;
-  --mx-text-faint: #726c62; /* 4.5:1 on paper; #878178 sat at 3.3 and read washed at 10-11px (user: 희끄무레) */
+  --mx-text-faint: #6a6459; /* 5.4:1 on paper; #726c62 sat at 4.5 and read washed under its own rows */
   --mx-text-accent: var(--mx-blue-600);
   --mx-accent: var(--mx-text-accent);
   --mx-icon: var(--mx-text);
@@ -382,8 +388,13 @@
 *, *::before, *::after {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  text-rendering: geometricPrecision;
+  /* Hinting stays ON shell-wide: geometricPrecision drops Windows hinting
+     and lets 11-13px chrome stems land off-pixel, which renders them as
+     half-grey blur (user: 굵기가 잘 안 보인다). Linear metrics only pay off
+     on the 15px+ reading surfaces, so the flag is scoped to those below. */
+  text-rendering: auto;
 }
+.message-body, .markdown { text-rendering: geometricPrecision; }
 *:focus-visible { outline-color: var(--mx-focus); }
 /* One scrollbar grammar shell-wide (VS Code): square, flush, clearly visible
    (the earlier thin pill was user-flagged as barely visible on the workspace;
@@ -1295,7 +1306,7 @@ button:focus-visible { outline-offset: 1.5px; }
   height: 36px;
   padding: 0 4px 0 6px;
   color: var(--mx-text);
-  font: 600 15px/22px "Geist Variable", "Inter Variable", Inter, "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+  font: 600 15px/22px var(--mx-font-sans);
   letter-spacing: 0;
   user-select: none;
 }
@@ -2032,7 +2043,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .sidebar-recent-heading > span { min-width: 0; flex: 1; }
 .sidebar-recent-heading > small {
   color: var(--mx-text-faint);
-  font: 400 11px/16px "Geist Variable", "Inter Variable", Inter, sans-serif;
+  font: 400 11px/16px var(--mx-font-sans);
 }
 /* "Show more" is a tertiary pagination affordance, not a heading: it drops
    to muted/500 so it recedes under the rows it extends (importance = ink +
@@ -2244,7 +2255,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .sidebar-usage-heading > b {
   color: var(--mx-text);
-  font: 600 13px/18px "Geist Variable", "Inter Variable", Inter, sans-serif;
+  font: 600 13px/18px var(--mx-font-sans);
   letter-spacing: var(--mx-tracking-tight);
 }
 /* Pin toggle rides the title row's right edge (user: 타이틀 오른쪽 핀모드). */
@@ -2317,7 +2328,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex: 1;
   overflow: hidden;
   color: var(--mx-text);
-  font: 600 13px/17px "Geist Variable", "Inter Variable", Inter, sans-serif;
+  font: 600 13px/17px var(--mx-font-sans);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3175,11 +3186,14 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .tool-detail-line em[data-delta="-"] { color: var(--mx-danger); }
 .detail-block > span { color: var(--mx-text-faint); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-medium); line-height: 12px; letter-spacing: 0; text-transform: none; }
 .detail-block-heading { min-height: 24px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.detail-block-heading > span { color: var(--mx-text-faint); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-medium); line-height: 12px; }
-/* Structured Input grid: faint key column,
+/* Block headings and arg KEYS name what the row is — they carry the same
+   label duty as a section head, so they ride muted ink, one step under the
+   value they introduce instead of two (user: 중요한 라벨 이름이 잘 안 보인다). */
+.detail-block-heading > span { color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-medium); line-height: var(--mx-line-meta); }
+/* Structured Input grid: muted key column,
    mono value column — replaces the raw args JSON dump. */
 .tool-args { grid-template-columns: max-content minmax(0, 1fr); gap: 2px 14px; }
-.tool-args [data-slot="key"] { color: var(--mx-text-faint); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-medium); line-height: var(--mx-line-ui); white-space: nowrap; }
+.tool-args [data-slot="key"] { color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-medium); line-height: var(--mx-line-ui); white-space: nowrap; }
 .tool-args [data-slot="value"] {
   min-width: 0;
   font-family: var(--mx-font-mono);
@@ -3354,48 +3368,53 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   line-height: 0;
   transform: translateY(-1px);
 }
-/* No rotating glyph in the busy band (user): the shimmering phrase carries the
-   state. This quiet pulse only holds the icon column and keeps a motion cue
-   for reduced-motion/paused builds where the shimmer stops. */
-.live-activity-pulse {
-  width: 7px;
-  height: 7px;
+/* Shape sweep, verbatim from the TUI spinner (src/tui/spinner-verbs.mjs
+   SPINNER_FRAMES played forward then back): 10 frames × 130ms. Discrete
+   `content` steps keep it a pure CSS animation — no React tick. */
+.live-activity-glyph {
   display: block;
-  margin: 0;
-  border-radius: 50%;
-  background: var(--live-status-color);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--live-status-color) 55%, transparent);
-  transform-origin: center;
-  animation: live-activity-pulse 1800ms ease-in-out infinite;
+  color: var(--live-status-color);
+  font-size: 12px;
+  line-height: 1;
 }
-@keyframes live-activity-pulse {
-  0%, 100% { opacity: .45; transform: scale(.8); }
-  50% { opacity: 1; transform: scale(1); }
+.live-activity-glyph::before {
+  content: "\25c7";
+  animation: live-activity-glyph 1300ms steps(1, end) infinite;
+}
+@keyframes live-activity-glyph {
+  0%, 40%, 50%, 90% { content: "\25c7"; }
+  10%, 30%, 60%, 80% { content: "\25c6"; }
+  20%, 70% { content: "\25c8"; }
 }
 .live-activity [data-component="text-shimmer"] {
   --text-shimmer-duration: 2600ms;
-  /* Tighter band than the 320% default: the highlight reads as a wipe crossing
-     the phrase instead of a slow global brightening. At exactly 200% the sweep
-     also shifts by one whole gradient tile, so the loop has no seam. */
-  --text-shimmer-size: 200%;
   min-width: 0;
   max-width: 100%;
   font-weight: var(--mx-weight-semibold);
 }
+/* Character-width sweep (TUI parity): the TUI moves a 6-char highlight one
+   character per 120ms, so the glint reads the same on a short or a long
+   phrase. Sizing the gradient tile in `ch` — not in % of the text — keeps the
+   band and the speed constant instead of stretching with the label, and a
+   whole-tile shift makes the loop seamless. */
 .live-activity [data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-char"] {
-  background: linear-gradient(
+  background-image: linear-gradient(
     90deg,
     var(--mx-text-muted) 0%,
-    var(--mx-text-muted) 34%,
-    var(--mx-text) 45%,
-    color-mix(in srgb, var(--live-status-color) 70%, var(--mx-text)) 50%,
-    var(--mx-text) 55%,
-    var(--mx-text-muted) 66%,
+    var(--mx-text-muted) 38%,
+    var(--mx-text) 46%,
+    color-mix(in srgb, var(--live-status-color) 75%, var(--mx-text)) 50%,
+    var(--mx-text) 54%,
+    var(--mx-text-muted) 62%,
     var(--mx-text-muted) 100%
   );
+  background-size: 24ch 100%;
+  background-repeat: repeat;
   background-clip: text;
   -webkit-background-clip: text;
+  animation: live-activity-sweep 2880ms linear infinite;
 }
+@keyframes live-activity-sweep { to { background-position: 24ch 0; } }
 .live-activity [data-slot="text-shimmer-char"] { font-variant-numeric: tabular-nums; }
 .thinking-disclosure { max-width: 100%; color: var(--mx-text-muted); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); }
 .thinking-disclosure summary {
@@ -3439,7 +3458,18 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   animation: transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1);
 }
 .turn-status.complete, .turn-status.success {
-  color: var(--mx-accent);
+  color: var(--mx-text-faint);
+  font-weight: var(--mx-weight-regular);
+}
+/* Quiet TUI-style marker instead of a check badge (user): ◈ + dim phrase. */
+.turn-status.complete::before,
+.turn-status.success::before {
+  content: "\25c8";
+  flex: 0 0 auto;
+  align-self: center;
+  color: var(--mx-text-faint);
+  font-size: 12px;
+  line-height: 1;
 }
 .turn-status.failed {
   display: inline-flex;
@@ -3461,7 +3491,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .turn-status[data-animate="true"] .turn-status-icon {
   animation: transcript-milestone-icon-pop 420ms cubic-bezier(.2, 1.4, .4, 1);
 }
-.turn-status.complete svg, .turn-status.success svg { color: var(--mx-accent); }
 .turn-status.complete small, .turn-status.success small {
   color: color-mix(in srgb, var(--mx-accent) 65%, var(--mx-text));
   font-size: var(--mx-font-minor);
@@ -4676,7 +4705,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text-muted);
   background: var(--mx-bg-layer-3);
   /* Keybind chips: flat 14px chips on layer-03 — no ring, no drop. */
-  font: 500 11px/1 "Geist Variable", "Inter Variable", Inter, sans-serif;
+  font: 500 11px/1 var(--mx-font-sans);
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -4813,7 +4842,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: var(--mx-bg-base);
   box-shadow: var(--mx-overlay);
-  font: 400 13px/20px "Geist Variable", "Inter Variable", Inter, "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+  font: 400 13px/20px var(--mx-font-sans);
 }
 .mixdog-settings__panel {
   position: relative;
@@ -4889,7 +4918,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background-clip: padding-box;
 }
 .settings-section-heading { min-height: 15px; align-items: center; gap: 16px; }
-.settings-section-heading h2 { color: var(--mx-text); font-size: var(--mx-font-body); font-weight: var(--mx-weight-medium); line-height: 1; }
+/* Section/group heads carry the heading weight, not a half-step: 500 is the
+   shell's DEFAULT chrome weight (75% of every weight rule), so a 500 title
+   over 500 rows announced nothing. 600 keeps the emphasis tier meaningful. */
+.settings-section-heading h2 { color: var(--mx-text); font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); line-height: 1; }
 .settings-section-heading p { display: none; }
 .settings-refresh {
   height: 28px;
@@ -4907,7 +4939,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .settings-group { gap: 16px; }
 .settings-group + .settings-group { margin-top: 20px; }
 .settings-group > header { gap: 6px; padding: 0; }
-.settings-group > header h3 { color: var(--mx-text); font-size: var(--mx-font-body); font-weight: var(--mx-weight-medium); line-height: 1; }
+.settings-group > header h3 { color: var(--mx-text); font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); line-height: 1; }
 .settings-group > header p { color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-meta); }
 .settings-group-body, .mixdog-settings__list {
   padding: 0 20px;
@@ -5100,7 +5132,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent), var(--mx-bg-base);
   box-shadow: var(--mx-button);
-  font: 400 13px/1 "Geist Variable", "Inter Variable", Inter, "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+  font: 400 13px/1 var(--mx-font-sans);
 }
 .settings-domain-grid textarea, .settings-oauth-url textarea { min-height: 72px; padding-block: 8px; line-height: var(--mx-line-ui); }
 .settings-form-controls input:hover, .settings-domain-grid input:not([type="checkbox"]):hover,
@@ -6697,7 +6729,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: var(--mx-bg-base);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  font: 400 13px/1 "Geist Variable", "Inter Variable", Inter, "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+  font: 400 13px/1 var(--mx-font-sans);
 }
 .schedules-dialog input:focus { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
 .schedules-composer {
@@ -6715,7 +6747,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: transparent;
   /* Same reading scale as the chat composer's typing surface. */
-  font: 400 15px/22px "Pretendard Variable", Pretendard, "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
+  font: 400 15px/22px var(--mx-font-prose);
   resize: none;
 }
 .schedules-composer-row {
@@ -7515,7 +7547,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: var(--mx-bg-base);
   box-shadow: var(--mx-overlay);
-  font: 400 13px/20px "Geist Variable", "Inter Variable", Inter, "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+  font: 400 13px/20px var(--mx-font-sans);
 }
 .onboarding-dialog > header {
   flex: none;
@@ -9316,7 +9348,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   }
   .live-work-spinner { animation: none; }
   .live-activity-status,
-  .live-activity-pulse,
+  .live-activity-glyph::before,
   .turn-status,
   .turn-status-icon,
   .compaction-divider,
@@ -9327,7 +9359,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 :root[data-mixdog-motion="paused"] .session-row-spinner,
 :root[data-mixdog-motion="paused"] .workspace-tab-status,
 :root[data-mixdog-motion="paused"] .live-work-spinner,
-:root[data-mixdog-motion="paused"] .live-activity-pulse,
+:root[data-mixdog-motion="paused"] .live-activity-glyph::before,
 :root[data-mixdog-motion="paused"] [data-component="text-shimmer"] [data-slot="text-shimmer-char"],
 :root[data-mixdog-motion="paused"] .tool-card:not(.settled) .tool-icon {
   animation-play-state: paused !important;
@@ -13395,7 +13427,7 @@ html[data-mixdog-mobile] select { font-size: 16px; }
 }
 .folder-places-heading {
   padding: 8px 8px 3px;
-  color: var(--mx-text-faint);
+  color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-semibold);
 }
@@ -13682,7 +13714,7 @@ html[data-mixdog-mobile] select { font-size: 16px; }
 .folder-pane-menu > button > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
 .folder-menu-heading {
   padding: 5px 9px 3px;
-  color: var(--mx-text-faint);
+  color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-semibold);
   letter-spacing: var(--mx-tracking-wide);
@@ -14306,7 +14338,7 @@ html[data-mixdog-mobile] select { font-size: 16px; }
   color: var(--mx-text);
   background: var(--mx-bg-base);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  font: 400 13px/1 "Geist Variable", "Inter Variable", Inter, "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+  font: 400 13px/1 var(--mx-font-sans);
 }
 .schedules-dialog input:focus,
 .settings-oauth-dialog input:focus,
@@ -14564,9 +14596,9 @@ html[data-mixdog-mobile] select { font-size: 16px; }
    which made the brand color ordinary and left nothing to notice. */
 .live-activity { --live-status-color: var(--mx-text-muted); }
 .turn-status.complete,
-.turn-status.success { color: var(--mx-text-muted); }
-.turn-status.complete svg,
-.turn-status.success svg { color: var(--mx-text-muted); }
+.turn-status.success { color: var(--mx-text-faint); }
+.turn-status.complete::before,
+.turn-status.success::before { color: var(--mx-text-faint); }
 .turn-status.complete small,
 .turn-status.success small { color: var(--mx-text-faint); }
 /* A failed turn IS the outcome worth a color. */

@@ -289,6 +289,20 @@ export function coerceReadFamilyPathArg(path, workDir = null) {
             } catch { /* not a literal bracket path — allow JSON coercion */ }
         }
     }
+    // Absorb: a truncated JSON path array ('["C:\\a\\b.mjs' — a streamed
+    // argument cut mid-emit). Repaired only when exactly ONE path survives,
+    // so a real batch can never be silently narrowed to its first entry.
+    if (typeof path === 'string') {
+        const trimmed = path.trim();
+        if (trimmed.startsWith('["') && !trimmed.endsWith(']')) {
+            try {
+                const repaired = JSON.parse(`${trimmed}"]`);
+                if (Array.isArray(repaired) && repaired.length === 1 && typeof repaired[0] === 'string') {
+                    return repaired[0];
+                }
+            } catch { /* not a repairable truncation — fall through */ }
+        }
+    }
     const coerced = coerceShapeFlex(path);
     if (!Array.isArray(coerced)) return coerced;
     const list = coerced
