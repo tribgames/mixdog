@@ -16,7 +16,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 import { assertSafeReplacementPlan } from '../src/runtime/agent/orchestrator/tools/patch/matcher.mjs';
 import { nativePatchBinPath } from '../src/runtime/agent/orchestrator/tools/patch/native-server.mjs';
@@ -46,7 +46,13 @@ function makeWorkspace() {
 }
 
 async function applyPatch(base, patch, args = {}) {
-  return String(await executePatchTool('apply_patch', { base_path: base, patch, ...args }, base, {}));
+  // Out-of-base coverage names the workspace parent as the write root — the
+  // same explicit opt-in a real caller makes. Pass `root: null` to exercise
+  // the refusal path.
+  const root = 'root' in args ? args.root : resolve(base, '..');
+  const extra = root ? { root } : {};
+  const { root: _ignored, ...rest } = args;
+  return String(await executePatchTool('apply_patch', { base_path: base, patch, ...rest, ...extra }, base, {}));
 }
 
 function assertApplied(result) {
@@ -105,6 +111,48 @@ test('a pure addition on a file ending in a blank line lands before that blank l
 });
 
 test('a mid-file hunk marked *** End of File still applies, with a notice', async () => {
+  await withWorkspace(async ({ base }) => {
+    const target = join(base, 'f.txt');
+    writeFileSync(target, 'one\ntwo\nthree\nfour\nfive\n', 'utf8');
+    const result = assertApplied(await applyPatch(base, [
+      '*** Begin Patch',
+      '*** Update File: f.txt',
+      '@@',
+      ' one',
+      '-two',
+      '+TWO',
+      ' three',
+      '*** End of File',
+      '*** End Patch',
+      '',
+    ].join('\n')));
+    assert.equal(read(target), 'one\nTWO\nthree\nfour\nfive\n');
+    assert.match(result, /End of File[\s\S]*marker was ignored/);
+  });
+});
+
+test('a target outside the write root is refused until a root is named', async () => {
+  await withWorkspace(async ({ base, outside }) => {
+    const target = join(outside, 'f.txt');
+    writeFileSync(target, 'one\n', 'utf8');
+    const patch = [
+      '*** Begin Patch',
+      '*** Update File: ../outside/f.txt',
+      '@@',
+      '-one',
+      '+ONE',
+      '*** End Patch',
+      '',
+    ].join('\n');
+    const refused = assertRejected(await applyPatch(base, patch, { root: null }));
+    assert.match(refused, /outside the write root/i);
+    assert.equal(read(target), 'one\n', 'a refused patch must not write');
+    assertApplied(await applyPatch(base, patch, { root: resolve(base, '..') }));
+    assert.equal(read(target), 'ONE\n');
+  });
+});
+
+test('an end-of-file marker mid-file keeps its notice under an explicit root', async () => {
   await withWorkspace(async ({ base }) => {
     const target = join(base, 'f.txt');
     writeFileSync(target, 'one\ntwo\nthree\nfour\nfive\n', 'utf8');

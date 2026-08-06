@@ -83,6 +83,56 @@ test('worktree snapshots include shell/untracked edits and preserve the dirty tu
   }
 });
 
+test('concurrent sessions in one worktree expose only their session-owned mutations', async () => {
+  _resetTurnSnapshotForTest();
+  const dir = worktreeFixture();
+  try {
+    await beginTurnSnapshot(dir, 'parallel-a');
+    await beginTurnSnapshot(dir, 'parallel-b');
+    const file = join(dir, 'tracked.txt');
+    recordTurnDiffChanges('parallel-a', [{
+      path: file,
+      displayPath: 'tracked.txt',
+      before: Buffer.from('committed baseline\n'),
+      after: Buffer.from('changed by a\n'),
+    }]);
+    writeFileSync(file, 'changed by a\n');
+
+    const left = await getTurnReviewDiff(dir, 'parallel-a');
+    const right = await getTurnReviewDiff(dir, 'parallel-b');
+    assert.equal(left.snapshotKind, 'tool');
+    assert.match(left.patch, /changed by a/);
+    assert.equal(right.snapshotKind, 'tool');
+    assert.equal(right.patch, '',
+      'another active session must not inherit a shared worktree mutation');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('same-worktree turns are isolated before either asynchronous baseline finishes', async () => {
+  _resetTurnSnapshotForTest();
+  const dir = worktreeFixture();
+  try {
+    const [first, second] = await Promise.all([
+      beginTurnSnapshot(dir, 'parallel-start-a'),
+      beginTurnSnapshot(dir, 'parallel-start-b'),
+    ]);
+    assert.equal(first, undefined);
+    assert.equal(second, undefined);
+    const left = await getTurnReviewDiff(dir, 'parallel-start-a');
+    const right = await getTurnReviewDiff(dir, 'parallel-start-b');
+    assert.equal(left.snapshotKind, 'tool');
+    assert.equal(right.snapshotKind, 'tool');
+    await assert.rejects(
+      () => revertTurnReviewFile(dir, 'parallel-start-a', 'tracked.txt'),
+      /sessions share a worktree/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('untracked files that grow past the snapshot bound do not survive in the persistent shadow index', async () => {
   _resetTurnSnapshotForTest();
   const dir = worktreeFixture();

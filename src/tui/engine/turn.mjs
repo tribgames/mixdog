@@ -4,7 +4,7 @@
 import { aggregateToolCategoryEntry, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, summarizeToolResult } from '../../runtime/shared/tool-surface.mjs';
 import { applyUsageDelta } from './session-stats.mjs';
 import { pickVerb, pickDoneVerb, compactEventLabel, compactEventDetail } from './labels.mjs';
-import { toolResultText, toolErrorDisplay } from './tool-result-text.mjs';
+import { toolResultText, toolErrorDisplay, stripShellExitHeader } from './tool-result-text.mjs';
 import { toolCallId, toolResultCallId, toolCallName, toolCallArgs } from './tool-call-fields.mjs';
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { TUI_FRAME_MS, yieldToRenderer } from './render-timing.mjs';
@@ -748,7 +748,9 @@ export function createRunTurn(bag) {
         // the provider's isError/error-tool envelope drives failure counts/red.
         const { exitCode, isExitError, isCallError } = toolCallOutcome(message, rawText);
         const isError = isCallError;
-        const text = isError ? toolErrorDisplay(rawText, callRec.name || 'tool') : rawText;
+        const text = isError
+          ? toolErrorDisplay(rawText, callRec.name || 'tool')
+          : (isExitError ? stripShellExitHeader(rawText) : rawText);
         callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
         assignAggregateSummaryOrder(aggregate, callRec);
         callRec.isError = isError;
@@ -1239,8 +1241,11 @@ export function createRunTurn(bag) {
           if (!isCurrentTurn() || watchdog.tripped) return;
           if (String(chunk ?? '')) {
             if (!markTurnProgress('reasoning-delta')) return;
-            markPromptCommitted();
           }
+          // Reasoning is NOT a commit boundary (Claude Code parity): a turn
+          // interrupted while it is still thinking produced no model-visible
+          // message, so Esc must hand the prompt back to the input box. Text,
+          // tool calls and turn end still commit it below.
           startThinkingSegment();
           thinkingText += String(chunk ?? '');
           // Accumulate reasoning text; fire at most one render per STREAM_BATCH_INTERVAL_MS.

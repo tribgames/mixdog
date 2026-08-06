@@ -47,13 +47,10 @@ const APPLY_PATCH_JSON_DESCRIPTION = [
   '*** Begin Patch',
   '[file sections]',
   '*** End Patch',
-  'Every section starts with exactly one header:',
-  '- *** Add File: <path> then +content lines.',
-  '- *** Delete File: <path> with nothing after it.',
-  '- *** Update File: <path>, optionally followed by *** Move to: <new path>.',
-  'Update hunks open with @@ or @@ <enclosing symbol>; prefix every line with space (context), - (remove), or + (add); a hunk at end of file may close with *** End of File.',
-  'Copy 3 context lines above and below verbatim from the newest tool output (after your own patch, use post-patch content; never retype from memory). Do not duplicate overlapping context; if still not unique, stack @@ headers: @@ class Foo then @@ def bar.',
-  'Use project-relative paths. Every added file line needs +. Never submit a compacted-history marker; re-read and create a fresh patch.',
+  'Every section starts with exactly one header: *** Add File: <path> (+content lines), *** Delete File: <path> (nothing after), *** Update File: <path> (optional *** Move to: <new path>).',
+  'Hunks open with @@ or @@ <symbol>; prefix lines with space, -, or +; an end-of-file hunk may close with *** End of File.',
+  'Copy 3 context lines above/below verbatim from the newest tool output — after your own patch use its post-patch body, never memory. No duplicate overlapping context; if still ambiguous, stack @@ headers: @@ class Foo then @@ def bar.',
+  'Project-relative paths; every added line needs +. Never submit a compacted-history marker — re-read and send a fresh patch.',
 ].join('\n');
 
 export const PATCH_TOOL_DEFS = [
@@ -71,13 +68,17 @@ export const PATCH_TOOL_DEFS = [
     inputSchema: {
       type: 'object',
       properties: {
-        patch: { type: 'string', description: 'The V4A patch text to apply (rules in the tool description).' },
+        patch: { type: 'string', description: 'V4A patch text to apply; rules above.' },
         post_shell: {
           anyOf: [
             { type: 'string' },
             { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] },
           ],
-          description: 'Verification run when the patch applies; skipped on patch failure. String = command, or shell tool args (sync).',
+          description: 'Verification run after apply; skipped on patch failure. String = command, or shell tool args (sync).',
+        },
+        root: {
+          type: 'string',
+          description: 'Write root; required only for targets outside the session directory.',
         },
       },
       required: ['patch'],

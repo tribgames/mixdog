@@ -95,6 +95,17 @@ export function createEngineDaemonService({
   evictSweepMs = null,
 } = {}) {
   if (typeof createEngine !== 'function') throw new Error('createEngine is required');
+  // Revisions optimize deltas inside one daemon lifetime; sessionId + full
+  // snapshots remain the durable contract. Start each daemon far above the
+  // prior wall-clock epoch so an already-running legacy view (which compared
+  // revisions across reconnects) still accepts the replacement daemon's first
+  // full snapshot. New views explicitly reset their revision baseline on
+  // attachment replacement and do not depend on this compatibility seed.
+  const configuredRevisionEpoch = Number(process.env.MIXDOG_ENGINE_REVISION_EPOCH);
+  const revisionEpoch = Number.isSafeInteger(configuredRevisionEpoch)
+    && configuredRevisionEpoch >= 0
+    ? configuredRevisionEpoch
+    : Math.floor(Date.now() * 1_000);
 
   // One daemon-owned execution entry per live session. Entries are never
   // addressed by clients; sessionId is the only identity outside this module.
@@ -496,6 +507,7 @@ export function createEngineDaemonService({
       engine, cwd: params.cwd || process.cwd(), timer: null, disposed: false,
       unsubscribe: null, subscribers: new Set(), reservedOnly: false, lastPublishedAt: 0,
       indexedSessionId: '', busy: null, headless: !subscriberToken(ctx), retainedAt: null,
+      revision: revisionEpoch,
     };
     sessions.add(entry);
     try {
@@ -748,11 +760,13 @@ export function createEngineDaemonService({
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
     const entry = await entryForSession(id, openHints || {});
-    const target = entry.engine.submit;
-    if (typeof target !== 'function') throw new TypeError('engine method submit is unavailable');
-    // Engine submit is an intake operation: it records/queues synchronously and
-    // returns before provider execution. Awaiting Promise.resolve only
-    // normalizes embedders; it never waits for the turn.
+    const target = typeof entry.engine.submitAsync === 'function'
+      ? entry.engine.submitAsync
+      : entry.engine.submit;
+    if (typeof target !== 'function') throw new TypeError('engine submit intake is unavailable');
+    // Await intake only: submitAsync resolves once the prompt is represented by
+    // the queue/user row, while provider execution remains daemon-owned and
+    // detached. Legacy embedders with synchronous submit retain the fallback.
     const accepted = await Promise.resolve(target.call(entry.engine, prompt, options || {}));
     const firstSubmit = accepted === true && entry.reservedOnly;
     if (accepted === true) {

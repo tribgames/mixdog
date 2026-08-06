@@ -67,6 +67,13 @@ const ROOT_FEDERATED_MODES = new Set([
   'overview', 'symbol', 'find_symbol', 'symbol_search', 'search',
   'references', 'callers', 'callees', 'symbols', 'prewarm',
 ]);
+// Fan-out cap when federation targets are DISCOVERED (immediate child project
+// roots of a sentinel-free cwd) rather than registered. Bounds the cost of
+// answering a query at a multi-repo parent; registered roots are unaffected.
+const CODE_GRAPH_DISCOVERED_FEDERATION_CAP = (() => {
+  const raw = parseInt(process.env.MIXDOG_CODE_GRAPH_FEDERATION_CAP ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 8;
+})();
 
 export async function _runCodeGraphFederation(roots, runOne, projectArgs) {
   return Promise.all((roots || []).map(async (root) => {
@@ -163,9 +170,35 @@ function _resolveAggregateFileProjectRoot(args, baseCwd) {
     const root = isDirectory ? _findDirProjectRoot(abs) : _resolveFileProjectRoot(abs);
     if (!root) return null;
     roots.add(pathResolve(root));
-    if (roots.size > 1) return null;
   }
-  return roots.size === 1 ? [...roots][0] : null;
+  if (roots.size === 0) return null;
+  if (roots.size === 1) return [...roots][0];
+  // Monorepo anchors legitimately resolve to DIFFERENT sentinels: a workspace
+  // package (apps/desktop/package.json) is nearer than the repo root, so one
+  // call spanning `apps/desktop/...` and `src/...` yields two roots even though
+  // both live in exactly one project. When one candidate contains every other,
+  // that outermost root IS the single detectable project — adopt it instead of
+  // refusing. Genuinely unrelated trees share no such candidate and still fail.
+  return _outermostContainingRoot([...roots]);
+}
+
+// The candidate that contains (or equals) every other candidate, else null.
+// Only an EXISTING candidate can win: a bare common ancestor that has no
+// sentinel of its own is never adopted as a project root.
+function _outermostContainingRoot(roots) {
+  for (const candidate of roots) {
+    if (roots.every((root) => _isSameOrInside(root, candidate))) return candidate;
+  }
+  return null;
+}
+
+function _isSameOrInside(child, parent) {
+  try {
+    const rel = pathRelative(pathResolve(parent), pathResolve(child));
+    return rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel));
+  } catch {
+    return false;
+  }
 }
 
 // Aggregate recovery resolves relative anchors against the caller's original
@@ -659,6 +692,20 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
     ? []
     : collectTrustedCodeGraphRoots(baseCwd)
       .filter((root) => pathResolve(root) !== pathResolve(baseCwd));
+  // Trust registration is a ROUTING PREFERENCE, not an admission gate. A
+  // sentinel-free cwd whose children are obvious project roots (a refs/ folder
+  // of checkouts, a multi-repo parent) is answerable: federate over those
+  // children instead of refusing the call. Cost stays bounded by the existing
+  // per-project graph timeout and the federation fan-out cap — the same way the
+  // reference CLIs bound a wide search (time/output caps, never a scope
+  // refusal). Registered roots keep priority; discovered children only fill in
+  // when registration yields nothing.
+  const federationRootsAtBase = trustedRootsAtBase.length
+    ? trustedRootsAtBase
+    : (baseProjectRoot
+      ? []
+      : _childProjectRoots(baseCwd, { cap: CODE_GRAPH_DISCOVERED_FEDERATION_CAP })
+        .filter((root) => pathResolve(root) !== pathResolve(baseCwd)));
   // A sentinel-free cwd (multi-repo parent, vendored reference tree) is still
   // routable when trusted project roots live under it — federate over those
   // instead of refusing the call outright.
@@ -668,9 +715,12 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
     && !fileArg
     && !hasAggregateFileArgs
     && ROOT_FEDERATED_MODES.has(rawModeAtBase)
-    && trustedRootsAtBase.length > 0;
+    && federationRootsAtBase.length > 0;
   if (filesystemRootCwd || parentDotFederation || sentinelFreeFederation) {
-    const trustedRoots = trustedRootsAtBase;
+    // A filesystem root stays on the REGISTERED set only: fanning out over
+    // every project directory on a whole drive is a different cost class than
+    // fanning out over one folder's children.
+    const trustedRoots = filesystemRootCwd ? trustedRootsAtBase : federationRootsAtBase;
     const files = exactDotFederation ? [] : aggregateFilesAtBase;
     const rawMode = rawModeAtBase;
     const canFederate = files.length > 0 || ROOT_FEDERATED_MODES.has(rawMode);

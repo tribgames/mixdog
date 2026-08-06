@@ -11,6 +11,10 @@ const ROOT = mkdtempSync(join(tmpdir(), 'mixdog-engine-daemon-recovery-'));
 process.env.MIXDOG_RUNTIME_ROOT = ROOT;
 process.env.MIXDOG_DATA_DIR = ROOT;
 process.env.MIXDOG_ENGINE_DAEMON = '0';
+// Deliberately make the first daemon's revision numerically newer than its
+// replacement. A correct client treats revisions as attachment-local and
+// still accepts the replacement's full snapshot.
+process.env.MIXDOG_ENGINE_REVISION_EPOCH = '8000000000000000';
 // This test HARD-KILLS the daemon; a throwaway memory runtime under it would
 // be orphaned by that kill, so the isolated root runs without one.
 process.env.MIXDOG_DAEMON_SKIP_MEMORY = '1';
@@ -68,8 +72,11 @@ test('a killed daemon is replaced and the view re-seats itself', async (t) => {
   });
   const firstDaemon = readEngineDaemonDiscovery();
   assert.ok(firstDaemon?.pid, 'the view is attached to a live daemon');
+  const recoveredSessionId = String(engine.getState().sessionId || '');
+  assert.ok(recoveredSessionId);
 
   // Hard kill: no drain, no goodbye — exactly what a crash looks like.
+  process.env.MIXDOG_ENGINE_REVISION_EPOCH = '1000';
   process.kill(firstDaemon.pid, 'SIGKILL');
 
   await waitFor(() => {
@@ -82,6 +89,23 @@ test('a killed daemon is replaced and the view re-seats itself', async (t) => {
   const state = engine.getState();
   assert.ok(state && typeof state === 'object', 'the recovered view still publishes a snapshot');
   assert.ok(Array.isArray(state.items), 'the recovered snapshot keeps the transcript contract');
+  assert.equal(state.sessionId, recoveredSessionId);
 
+  // Reconnection is not complete until later notifications from another view
+  // reach the original TUI projection. This is the user-visible contract that
+  // a snapshot-only recovery assertion previously missed.
+  const peer = await createRemoteEngineSession({ cwd: process.cwd() });
+  assert.equal(await peer.resume(recoveredSessionId), true);
+  assert.equal(await peer.submitAsync('visible after daemon replacement', {
+    id: 'recovery-cross-view-submit',
+  }), true);
+  await waitFor(
+    () => engine.getState().items?.some((item) =>
+      item?.id === 'recovery-cross-view-submit'
+      || item?.text === 'visible after daemon replacement'),
+    'the original view receives a post-restart submission from another view',
+  );
+
+  await peer.dispose('recovery peer end');
   await engine.dispose('recovery test end');
 });

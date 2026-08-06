@@ -412,6 +412,18 @@ export function createSessionTurnApi(deps) {
       pushTranscriptRebind?.();
       return true;
     },
+    // Message-selector rewind: drop the chosen user prompt and everything
+    // after it from the model history. Unlike clear() the session object is
+    // kept (same id, same provider/model/cwd) — only the tail is undone.
+    async rewindMessages(options = {}) {
+      const session = getSession();
+      if (!session?.id) return null;
+      const result = await mgr.rewindSessionMessagesTo?.(session.id, options);
+      if (!result) return null;
+      setSession(mgr.getSession(session.id) || session);
+      invalidateContextStatusCache();
+      return result;
+    },
     // session_manage tool handoff: the engine polls this at turn end and, if
     // set, runs the same clear path the idle auto-clear uses. One-shot read.
     consumePendingSessionReset() {

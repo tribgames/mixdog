@@ -3,14 +3,21 @@
 // tool-failure journal (5-day window) that used to fail while the caller's
 // intent was unambiguous. Each assertion states what the tool must now do —
 // rescue it, or keep refusing when the intent is genuinely ambiguous.
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
 import { _isBenignSearchExitOne } from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
 import { hasPowerShellOnlySyntax } from '../src/runtime/agent/orchestrator/tools/builtin/shell-analysis.mjs';
+import { planInlineScriptHoist } from '../src/runtime/agent/orchestrator/tools/builtin/shell-analysis.mjs';
+import { resolveShellFor } from '../src/runtime/agent/orchestrator/tools/builtin/shell-runtime.mjs';
 import { executeCodeGraphTool } from '../src/runtime/agent/orchestrator/tools/code-graph.mjs';
+import { normalizeCoreInput, normalizeCoreOp } from '../src/runtime/memory/lib/core-memory-store.mjs';
+import { isLegitimateShellExit, classifyResultKind } from '../src/runtime/agent/orchestrator/session/result-classification.mjs';
+import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
+import { routeWebFetchCall } from '../src/runtime/agent/orchestrator/session/loop/pre-dispatch-deny.mjs';
+import { buildNotFoundHint } from '../src/runtime/agent/orchestrator/tools/builtin/search-path-diagnostics.mjs';
 
 const isWindows = process.platform === 'win32';
 const workspace = mkdtempSync(join(tmpdir(), 'mixdog-rescue-smoke-'));
@@ -116,6 +123,125 @@ check('code_graph never indexes the home directory itself', async () => {
   // home — never an index of the home tree itself.
   const indexedHome = text.toLowerCase().includes(`cwd=${home.toLowerCase()})`);
   assert.ok(/is not inside a project|Refusing to index/i.test(text) || !indexedHome, text);
+  return null;
+});
+
+// ── 5. Argument-synonym rescues observed on the other tools ─────────────────
+check('memory core accepts op synonyms (logged 4x as op:"update")', () => {
+  assert.equal(normalizeCoreOp('update'), 'edit');
+  assert.equal(normalizeCoreOp('REMOVE'), 'delete');
+  assert.equal(normalizeCoreOp('add'), 'add');
+  assert.equal(normalizeCoreOp('promote'), 'promote');
+  assert.equal(normalizeCoreOp('nonsense'), 'nonsense');
+});
+
+check('memory core accepts a summary written as text/content (logged 2x)', () => {
+  const viaText = normalizeCoreInput({ text: 'Mixdog is project-scoped, never workspace-scoped' }, { requireElement: true, requireSummary: true });
+  assert.deepEqual(viaText.errors, []);
+  assert.equal(viaText.summary, 'Mixdog is project-scoped, never workspace-scoped');
+  assert.equal(viaText.element.length, 40);
+  assert.deepEqual(normalizeCoreInput({ content: 'x' }, { requireSummary: true }).errors, []);
+  assert.equal(normalizeCoreInput({}, { requireSummary: true }).errors.length, 1);
+});
+
+check('web_fetch accepts a JSON-stringified url array (logged 1x)', () => {
+  const call = { name: 'web_fetch', arguments: { url: '["https://a.example", "https://b.example"]' } };
+  routeWebFetchCall(call);
+  assert.deepEqual(call.arguments.url, ['https://a.example', 'https://b.example']);
+  const single = { name: 'web_fetch', arguments: { url: 'https://a.example' } };
+  routeWebFetchCall(single);
+  assert.equal(single.arguments.url, 'https://a.example');
+});
+
+check('a drive path that lost its separators names the cause (logged 2x)', () => {
+  assert.match(buildNotFoundHint(workspace, 'C:tmpsmp', 'Read'), /separator|escaping/i);
+  assert.doesNotMatch(String(buildNotFoundHint(workspace, 'C:/tmp/smp', 'Read') || ''), /lost in escaping/i);
+});
+
+// ── 6. Legitimate non-zero exits are labelled, not classified as failures ───
+check('a report-style exit 1 (output, no stderr) is not a failure', () => {
+  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, stdout: '[probe] {"frames":121}\n', stderr: '' }), true);
+  // Every failure shape stays a failure.
+  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, stdout: 'ok\n', stderr: 'boom' }), false);
+  assert.equal(isLegitimateShellExit({ exitCode: 2, signal: null, stdout: 'ok\n', stderr: '' }), false);
+  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: 'SIGKILL', stdout: 'ok\n', stderr: '' }), false);
+  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, stdout: '(no output)', stderr: '' }), false);
+  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, stdout: 'TAP version 13\nnot ok 1 - broken\n', stderr: '' }), false);
+  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, stdout: 'AssertionError: nope\n', stderr: '' }), false);
+  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, stdout: 'npm ERR! code 1\n', stderr: '' }), false);
+});
+
+check('live shell: a report-style exit 1 carries its code without an error banner', async () => {
+  const script = "console.log(JSON.stringify({frames:3})); process.exit(1);";
+  const raw = await executeBuiltinTool('shell', {
+    command: `node -e "${script}"`,
+    ...(isWindows ? { shell: 'bash' } : {}),
+  }, workspace, {});
+  const { result, explicitSuccess } = normalizeToolEnvelope(raw);
+  const text = String(result);
+  assert.ok(!isError(text), `report-style exit must not be framed as an error: ${text}`);
+  assert.match(text, /\[exit code: 1\]/);
+  assert.match(text, /\[completed: the command finished/);
+  assert.match(text, /frames/);
+  assert.equal(explicitSuccess, true, 'a legitimate exit must classify as normal');
+  assert.equal(classifyResultKind(text, explicitSuccess), 'normal');
+});
+
+check('live shell: a failing test-style exit 1 stays an error', async () => {
+  const script = "console.log('TAP version 13'); console.log('not ok 1 - broken'); process.exit(1);";
+  const raw = await executeBuiltinTool('shell', {
+    command: `node -e "${script}"`,
+    ...(isWindows ? { shell: 'bash' } : {}),
+  }, workspace, {});
+  const { result } = normalizeToolEnvelope(raw);
+  assert.ok(isError(String(result)), `a reported test failure must stay an error: ${result}`);
+});
+
+// ── 7. Inline scripts run as files, so shell quoting cannot break them ──────
+check('inline-script hoisting only fires where file semantics are identical', () => {
+  const plain = planInlineScriptHoist('node -e "console.log(JSON.stringify({a:1}))"');
+  assert.ok(plain, 'a quote-literal body must hoist');
+  assert.equal(plain.extension, '.cjs');
+  assert.match(plain.replace('C:/tmp/x.cjs'), /^node "C:\/tmp\/x\.cjs"$/);
+  const esm = planInlineScriptHoist('node --input-type=module -e "await Promise.resolve()"');
+  assert.equal(esm.extension, '.mjs');
+  assert.doesNotMatch(esm.replace('C:/tmp/x.mjs'), /--input-type/);
+  // Refusals: shell expansion, script-relative resolution, argv[1], python -c.
+  assert.equal(planInlineScriptHoist('node -e "console.log($HOME)"'), null);
+  assert.equal(planInlineScriptHoist('node -e "console.log(\\"x\\")"'), null);
+  assert.equal(planInlineScriptHoist("node -e \"require('./local.js')\""), null);
+  assert.equal(planInlineScriptHoist('node -e "console.log(import.meta.url)"'), null);
+  assert.equal(planInlineScriptHoist('node -e "console.log(process.argv[1])"'), null);
+  assert.equal(planInlineScriptHoist('node build.mjs'), null);
+  assert.equal(planInlineScriptHoist('python -c "print(1)"').extension, '.py');
+});
+
+check('live shell: an inline script with nested quotes still runs', async () => {
+  const out = await executeBuiltinTool('shell', {
+    command: 'node -e "const o = {k: \'v\'}; console.log(JSON.stringify(o))"',
+    ...(isWindows ? { shell: 'bash' } : {}),
+  }, workspace, {});
+  const text = String(out);
+  assert.ok(!isError(text), text);
+  assert.match(text, /\{"k":"v"\}/);
+});
+
+// ── 8. Default shell picks PowerShell 7 before Windows PowerShell 5.1 ───────
+check('the default Windows shell prefers pwsh 7 over the bundled 5.1', () => {
+  if (!isWindows) return 'skipped (POSIX host)';
+  const spec = resolveShellFor('default');
+  assert.equal(spec.shellType, 'powershell');
+  const known = existsSync('C:\\Program Files\\PowerShell\\7\\pwsh.exe');
+  if (!known) return 'skipped (pwsh 7 not installed)';
+  assert.match(spec.shell, /pwsh\.exe$/i, `expected pwsh, got ${spec.shell}`);
+  return null;
+});
+
+check('a `&&` chain runs on the default shell (no 5.1 bashism block)', async () => {
+  if (!isWindows) return 'skipped (POSIX host)';
+  const out = String(await executeBuiltinTool('shell', { command: 'echo one && echo two' }, workspace, {}));
+  assert.ok(!isError(out), out);
+  assert.match(out, /one[\s\S]*two/);
   return null;
 });
 

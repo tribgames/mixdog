@@ -41,18 +41,25 @@ function assistantToolCallIds(message) {
     return ids;
 }
 
-function rewindProvisionalUserTurn(messages, currentUserContent) {
+function provisionalUserTurnIndex(messages, currentUserContent) {
     const currentText = promptContentText(currentUserContent);
     for (let i = messages.length - 1; i >= 0; i -= 1) {
         const message = messages[i];
         if (message?.role !== 'user') continue;
         if (message.content === currentUserContent
             || promptContentText(message.content) === currentText) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+function rewindProvisionalUserTurn(messages, currentUserContent) {
+    const index = provisionalUserTurnIndex(messages, currentUserContent);
+    if (index >= 0) {
             // Remove the provisional user turn plus pre-send hooks appended
             // after it, while retaining any compaction rewrite before it.
-            messages.splice(i);
-            break;
-        }
+        messages.splice(index);
     }
     return messages;
 }
@@ -69,13 +76,26 @@ function finalizeInterruptedTurn({
     abortReason,
 }) {
     const messages = filterModelVisibleSessionMessages(turnOutgoing).slice();
+    // Null/unknown reasons keep the legacy rewind (status quo for wrapped
+    // aborts without a closeReason enum); named non-user reasons preserve.
+    const userCancelled = abortReason == null
+        || USER_CANCEL_ABORT_REASONS.has(abortReason);
+    // Claude Code parity: a turn cancelled while the model was only THINKING
+    // produced no model-visible message, so the provisional user turn is
+    // rewound and the prompt goes back to the input box. Anything the model
+    // actually said or did — committed messages from this turn, buffered text,
+    // tool calls/results — keeps the turn (reasoning alone does not).
+    const producedOutput = String(partialAssistantContent || '').trim() !== ''
+        || observedToolCalls.size > 0
+        || observedToolResults.size > 0
+        || (() => {
+            const index = provisionalUserTurnIndex(messages, currentUserContent);
+            return index >= 0 && index < messages.length - 1;
+        })();
     const preserveResponse = responseStarted
-        && !isInternalRuntimeNotificationText(currentUserContent);
+        && !isInternalRuntimeNotificationText(currentUserContent)
+        && (producedOutput || !userCancelled);
     if (!preserveResponse) {
-        // Null/unknown reasons keep the legacy rewind (status quo for wrapped
-        // aborts without a closeReason enum); named non-user reasons preserve.
-        const userCancelled = abortReason == null
-            || USER_CANCEL_ABORT_REASONS.has(abortReason);
         if (!userCancelled) {
             return {
                 messages,

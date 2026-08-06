@@ -85,8 +85,6 @@ function useStickySessionRoute(sessionId: string, snapshot: Snapshot): Snapshot 
 export interface SnapshotSessionScope {
   /** Viewed session id; '' scopes the New task draft (blank frames only). */
   sessionId: string;
-  /** Called lazily with the FOREIGN live frame under adoption consideration. */
-  mayAdoptForeign(live?: Snapshot | null): boolean;
   onForeignFrameSuppressed?(liveSessionId: string): void;
 }
 
@@ -128,8 +126,7 @@ function useSelectedDesktopSnapshot(
       if (gateRef.current?.id !== scopeId) {
         gateRef.current = { id: scopeId, gate: createSessionScopedSnapshotGate<Snapshot>(scopeId) };
       }
-      // Function form: the gate consults it lazily, only for foreign frames.
-      const gated = gateRef.current.gate.select(live, sessionScope.mayAdoptForeign);
+      const gated = gateRef.current.gate.select(live);
       if (gated.suppressedSessionId) {
         sessionScope.onForeignFrameSuppressed?.(gated.suppressedSessionId);
       }
@@ -323,6 +320,7 @@ export const PaneConversation = memo(function PaneConversation({
     <Conversation
       snapshot={paneSnapshot}
       routeSnapshot={routeSnapshot}
+      sessionAddress={sessionId}
       draftMode={draftMode}
       transcriptPending={transcriptPending}
       warmPaintHandoff={warmDraftHandoff}

@@ -3,7 +3,7 @@ import { getHiddenAgent } from './internal-agents.mjs';
 const SECOND_MS = 1000;
 const MIN_PROVIDER_TIMEOUT_MS = 30_000;
 
-const STALL_TICK_MS = 15_000;
+export const STALL_TICK_MS = 15_000;
 const DEFAULT_STALL_WARN_S = 300;
 const DEFAULT_STALL_ABORT_S = 600;
 // First-byte (no-stream-delta) abort for the agent stall watchdog. A wedged

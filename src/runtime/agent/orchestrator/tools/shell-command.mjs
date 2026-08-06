@@ -145,6 +145,23 @@ function _abortableDelay(ms, signal) {
   });
 }
 
+// True when an abort was raised because the user sent a NEW message while the
+// command was running (session-api.mjs raises 'interrupt' when steering is
+// pending, 'user-cancel' for a plain ESC). The reason travels as the
+// SessionClosedError's `reason` field; a bare string / message fallback keeps
+// non-session callers working. Anything unrecognized is treated as a real
+// cancellation, so the kill path stays the default.
+export function _abortReasonIsInterrupt(abortSignal) {
+  const raw = abortSignal?.reason;
+  if (!raw) return false;
+  if (typeof raw === 'string') return raw === 'interrupt';
+  if (typeof raw === 'object') {
+    if (raw.reason === 'interrupt') return true;
+    if (typeof raw.message === 'string' && /\breason=interrupt\b/.test(raw.message)) return true;
+  }
+  return false;
+}
+
 export async function acquireShellLeaseBounded(admission, {
   abortSignal, label, dependency = 'scoped', ownerKey = null,
 } = {}) {
@@ -836,7 +853,12 @@ export function execShellCommand({
       // Re-check after the awaited capture reads: cancellation can race after
       // adoption commits. Never report that cancelled process as a successful
       // still-running background task.
-      if (abortSignal && abortSignal.aborted) {
+      // EXCEPTION: an interrupt-driven promotion starts FROM an aborted signal
+      // by design (the user typed a new message), so this guard must not undo
+      // the very transition it was asked to perform. A plain cancellation still
+      // reverts adoption and kills.
+      if (abortSignal && abortSignal.aborted
+        && !(reason === 'interrupt' && _abortReasonIsInterrupt(abortSignal))) {
         killed = true;
         killCause = 'cancellation';
         try { killShellJob(jobId); } catch {}
@@ -1043,6 +1065,26 @@ export function execShellCommand({
 
     if (abortSignal) {
       abortHandler = () => {
+        // Interrupt (the user typed a NEW message while this was running) is a
+        // "also look at this" signal, not "stop that" — CC backgrounds instead
+        // of killing there, and throwing away a long build the user never asked
+        // to stop is the worse outcome. Explicit cancellation (ESC) keeps the
+        // kill. The promotion reuses the timeout path's guards verbatim so a
+        // detached / already-settled / already-exited child can never be
+        // adopted as a job.
+        if (
+          _abortReasonIsInterrupt(abortSignal) &&
+          backgroundOnTimeout &&
+          !_isBackground &&
+          !settled &&
+          !autoBackgrounded &&
+          !killed &&
+          child?.exitCode == null &&
+          child?.signalCode == null
+        ) {
+          fireAutoBackground({ reason: 'interrupt' });
+          return;
+        }
         _treeKillForceSettle('cancellation');
       };
       try {

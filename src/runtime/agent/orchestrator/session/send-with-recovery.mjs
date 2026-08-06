@@ -5,7 +5,12 @@
 // pass), and unrecoverable errors throw. Behavior identical to the inline
 // try/catch it replaced.
 import { appendAgentTrace } from '../agent-trace.mjs';
-import { classifyError, isContextOverflowError } from '../providers/retry-classifier.mjs';
+import {
+    classifyError,
+    isContextOverflowError,
+    isNonTerminalStreamClose,
+    jitterDelayMs,
+} from '../providers/retry-classifier.mjs';
 import { setTimeout as sleepMs } from 'timers/promises';
 import { readStreamOutcome } from '../providers/lib/stream-outcome.mjs';
 import { resolveWorkerCompactPolicy } from './loop/compact-policy.mjs';
@@ -46,8 +51,34 @@ function normalizedIncompleteUsage(raw) {
 // the identical request is side-effect-free, so wait out the blip and retry
 // the send at the loop level. Two attempts, 5s/15s — combined with the
 // provider envelope this covers ~50s outages before failing honestly.
-const TRANSPORT_RETRY_BACKOFF_MS = Object.freeze([5_000, 15_000]);
+// Env-overridable (comma-separated ms) so tests can drive the ladder without
+// real waits and an operator can widen the window for a flaky uplink; the
+// LENGTH of the list is the retry budget, exactly like codex's
+// stream_max_retries + backoff table.
+const TRANSPORT_RETRY_BACKOFF_MS = Object.freeze((() => {
+    const raw = process.env.MIXDOG_TRANSPORT_RETRY_BACKOFF_MS;
+    if (typeof raw === 'string' && raw.trim()) {
+        const parsed = raw.split(',')
+            .map((value) => Number(value.trim()))
+            .filter((value) => Number.isFinite(value) && value >= 0);
+        if (parsed.length) return parsed;
+    }
+    // Three steps (~50s of outage) instead of two: the provider envelope
+    // already covers short blips, so this ladder exists for the long ones.
+    // codex allows 5 stream reconnects and cc 10 request retries.
+    return [5_000, 15_000, 30_000];
+})());
 export const TRANSPORT_RETRY_MAX = TRANSPORT_RETRY_BACKOFF_MS.length;
+
+// codex jitters every backoff by 0.9–1.1 so parallel workers that lose the
+// same uplink do not resume in lockstep; our provider layers already jitter
+// (10% WS / 20% shared), this brings the loop ladder in line.
+const TRANSPORT_RETRY_JITTER_RATIO = 0.1;
+
+function transportRetryWaitMs(attemptIndex) {
+    const base = TRANSPORT_RETRY_BACKOFF_MS[attemptIndex];
+    return jitterDelayMs(base, TRANSPORT_RETRY_JITTER_RATIO);
+}
 
 export async function sendWithRecovery(ctx) {
     const {
@@ -94,6 +125,22 @@ export async function sendWithRecovery(ctx) {
     // overflow-retry branch intentionally clears opts.onToolCall, and that
     // clear must survive the restore.
     const relayWitness = { textEmitted: false, toolCallsDispatched: 0 };
+    // Caller-visible reconnect progress for LOOP-level replays, mirroring the
+    // transports' own emitReconnectProgress (openai-oauth-ws). Without it the
+    // 5s/15s wait rendered as a frozen turn with no explanation, while codex
+    // surfaces "Reconnecting... n/max" through notify_stream_error and cc
+    // yields a SystemAPIErrorMessage for the same situation.
+    const emitLoopReconnectProgress = (attempt, waitMs, classifier) => {
+        try {
+            opts?.onStageChange?.('reconnecting', {
+                attempt,
+                max: TRANSPORT_RETRY_MAX,
+                classifier: classifier || null,
+                waitMs,
+                message: `Reconnecting... ${attempt}/${TRANSPORT_RETRY_MAX}`,
+            });
+        } catch { /* progress reporting must never break recovery */ }
+    };
     const prevOnTextDelta = typeof opts?.onTextDelta === 'function' ? opts.onTextDelta : null;
     const prevOnToolCall = typeof opts?.onToolCall === 'function' ? opts.onToolCall : null;
     const witnessedOnTextDelta = prevOnTextDelta
@@ -230,7 +277,7 @@ export async function sendWithRecovery(ctx) {
                     transportRetriesUsed < TRANSPORT_RETRY_MAX
                     && await retractExposedTextForReplay()
                 ) {
-                    const waitMs = TRANSPORT_RETRY_BACKOFF_MS[transportRetriesUsed];
+                    const waitMs = transportRetryWaitMs(transportRetriesUsed);
                     try {
                         process.stderr.write(
                             `[loop] exposed-text stall retracted (sess=${sessionId || 'unknown'} `
@@ -248,6 +295,11 @@ export async function sendWithRecovery(ctx) {
                             partialContentLen: sendErr.partialContent.length,
                         });
                     } catch { /* best-effort */ }
+                    emitLoopReconnectProgress(
+                        transportRetriesUsed + 1,
+                        waitMs,
+                        outcome.stallObserved ? 'stream_stalled' : 'stream_closed',
+                    );
                     await sleepMs(waitMs, undefined, signal ? { signal } : undefined);
                     return { action: 'retry_transport' };
                 }
@@ -342,12 +394,23 @@ export async function sendWithRecovery(ctx) {
                 && (
                     (outcome.replaySafe === true && classifyError(sendErr) === 'transient')
                     || (
-                        (classifyError(sendErr) === 'transient' || outcome.stallObserved === true)
+                        // classifyError reports 'permanent' the moment anything
+                        // was exposed, so an exposed disconnect could never
+                        // reach the retraction path: name the transport
+                        // symptoms directly (stall OR non-terminal close).
+                        (classifyError(sendErr) === 'transient'
+                            || outcome.stallObserved === true
+                            // Same inversion for the truncated-stream class
+                            // (anthropic message_start-without-message_stop,
+                            // gemini/compat EOF): classifyError calls it
+                            // 'transient' only while nothing was exposed.
+                            || outcome.truncatedStream === true
+                            || isNonTerminalStreamClose(sendErr))
                         && await retractExposedTextForReplay()
                     )
                 )
             ) {
-                const waitMs = TRANSPORT_RETRY_BACKOFF_MS[transportRetriesUsed];
+                const waitMs = transportRetryWaitMs(transportRetriesUsed);
                 try {
                     process.stderr.write(
                         `[loop] transient send failure with no observed output (sess=${sessionId || 'unknown'} `
@@ -366,6 +429,11 @@ export async function sendWithRecovery(ctx) {
                         status: sendErr?.status ?? null,
                     });
                 } catch { /* best-effort */ }
+                emitLoopReconnectProgress(
+                    transportRetriesUsed + 1,
+                    waitMs,
+                    sendErr?.retryClassifier || sendErr?.midstreamClassifier || sendErr?.code || null,
+                );
                 await sleepMs(waitMs, undefined, signal ? { signal } : undefined);
                 return { action: 'retry_transport' };
             } else

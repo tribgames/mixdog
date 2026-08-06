@@ -2124,12 +2124,18 @@ test("composer renders a pending user card before a slow submit resolves", async
     ...conversationProps,
     snapshot: {
       ...snapshot,
-      queued: [],
-      items: [{ id: "engine-normalized-id", kind: "user", text: "queued before setup" }],
+      queued: [{
+        id: receivedOptions.id,
+        displayText: "queued before setup",
+        submittedAt: receivedOptions.submittedAt,
+      }],
+      items: [{ id: receivedOptions.id, kind: "user", text: "queued before setup" }],
     },
   })));
   assert.equal(document.querySelectorAll(".message.user").length, 1,
     "the authoritative transcript must render the submitted prompt exactly once");
+  assert.equal(document.querySelector(".queue-list"), null,
+    "a delayed queue projection must not duplicate its durable user row");
 });
 
 test("workspace overlays clamp upward menus and tooltip widths to the sheet", async () => {
@@ -3113,9 +3119,10 @@ test("turn review bar renders the authoritative committed net diff instead of pr
   assert.match(document.querySelector(".turn-review-summary")?.textContent || "", /1 file changed/);
   await act(async () => document.querySelector(".turn-review-summary")?.click());
   await act(async () => document.querySelector(".turn-review-file")?.click());
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  });
+  await waitForDom(
+    () => (document.querySelector(".turn-review-diff")?.textContent || "").includes("final"),
+    "the committed inline diff should finish rendering",
+  );
   const text = document.querySelector(".turn-review-diff")?.textContent || "";
   assert.match(text, /final/);
   assert.doesNotMatch(text, /intermediate/);
@@ -6468,16 +6475,13 @@ test("restored split panes subscribe before immediate peek frames and all hydrat
   );
 });
 
-test("new task opens without engine setup and its first submit owns one cold setup", async () => {
+test("new task opens without backend setup and its first submit owns one atomic materialization", async () => {
   installDom();
-  let finishSetup;
-  let publishState;
-  let current = { items: [], queued: [] };
-  let startCalls = 0;
-  let submitCalls = 0;
-  const setup = new Promise((resolve) => {
-    finishSetup = () => resolve({ items: [], queued: [] });
-  });
+  await preloadMarkdownBody();
+  let finishSubmit;
+  let submitNewTaskCalls = 0;
+  let legacyStartCalls = 0;
+  let legacySubmitCalls = 0;
   const source = {
     id: "source-before-new",
     title: "Source before new",
@@ -6489,8 +6493,8 @@ test("new task opens without engine setup and its first submit owns one cold set
     projectPath: null,
   };
   window.mixdogDesktop = {
-    getSnapshot: async () => current,
-    subscribeState: (listener) => { publishState = listener; return () => {}; },
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
     listProjects: async () => [],
     listSessions: async () => [source],
     resumeSession: async () => ({
@@ -6499,20 +6503,31 @@ test("new task opens without engine setup and its first submit owns one cold set
       queued: [],
     }),
     startTask: async () => {
-      startCalls += 1;
-      return setup;
+      legacyStartCalls += 1;
+      throw new Error("legacy startTask must not run");
     },
     submit: async () => {
-      submitCalls += 1;
-      window.setTimeout(() => {
-        current = {
+      legacySubmitCalls += 1;
+      throw new Error("legacy submit must not run");
+    },
+    submitNewTask: async (_prompt, options = {}) => {
+      submitNewTaskCalls += 1;
+      return new Promise((resolve) => {
+        finishSubmit = () => resolve({
+          accepted: true,
           sessionId: "created-session",
-          items: [{ id: "created-user", kind: "user", text: "Submit while warming" }],
-          queued: [],
-        };
-        publishState?.(current);
-      }, 0);
-      return true;
+          snapshot: {
+            sessionId: "created-session",
+            items: [{
+              id: String(options.id || "created-user"),
+              kind: "user",
+              text: "Submit while warming",
+            }],
+            queued: [],
+            busy: true,
+          },
+        });
+      });
     },
   };
   await act(async () => {
@@ -6525,6 +6540,10 @@ test("new task opens without engine setup and its first submit owns one cold set
     await Promise.resolve();
     await Promise.resolve();
   });
+  await waitForDom(
+    () => /Source transcript/.test(document.querySelector(".transcript")?.textContent || ""),
+    "the source session should resume before opening a draft",
+  );
   assert.match(document.querySelector(".transcript")?.textContent || "", /Source transcript/);
   assert.deepEqual(
     Array.from(document.querySelectorAll(".workspace-tab-main span")).map((tab) => tab.textContent.trim()),
@@ -6536,7 +6555,7 @@ test("new task opens without engine setup and its first submit owns one cold set
     document.querySelector(".session-new-task").click();
     await Promise.resolve();
   });
-  assert.equal(startCalls, 0);
+  assert.equal(legacyStartCalls, 0);
   assert.doesNotMatch(document.querySelector(".transcript")?.textContent || "", /Source transcript/);
   assert.ok(document.querySelector('textarea[aria-label="Message Mixdog"]'),
     "the cold draft composer should render before engine setup resolves");
@@ -6551,7 +6570,7 @@ test("new task opens without engine setup and its first submit owns one cold set
     }));
     await Promise.resolve();
   });
-  assert.equal(startCalls, 0, "repeated Ctrl+N on New task must remain renderer-only");
+  assert.equal(legacyStartCalls, 0, "repeated Ctrl+N on New task must remain renderer-only");
   assert.equal(
     Array.from(document.querySelectorAll(".workspace-tab-main span"))
       .filter((tab) => tab.textContent.trim() === "New task").length,
@@ -6569,24 +6588,26 @@ test("new task opens without engine setup and its first submit owns one cold set
     document.querySelector(".send-button").click();
     await Promise.resolve();
   });
-  assert.equal(startCalls, 1, "the first submit must start exactly one cold engine");
-  assert.equal(submitCalls, 0, "submit should wait for the shared setup promise");
-  assert.equal(textarea.value, "", "Enter should commit the draft immediately while lazy setup continues");
+  assert.equal(submitNewTaskCalls, 1,
+    "the first submit must request exactly one atomic backend materialization");
+  assert.equal(legacyStartCalls, 0);
+  assert.equal(legacySubmitCalls, 0);
+  assert.equal(textarea.value, "", "Enter should commit the draft immediately while the ACK is pending");
   assert.equal(document.querySelector(".composer-starting"), null,
     "the first submit must not flash a redundant Starting session banner");
   assert.match(document.querySelector(".message.user.pending")?.textContent || "", /Submit while warming/,
     "the pending user card should provide the visible first-submit feedback");
 
   await act(async () => {
-    finishSetup();
-    await setup;
+    finishSubmit();
     await Promise.resolve();
     await Promise.resolve();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
     await Promise.resolve();
   });
-  assert.equal(startCalls, 1);
-  assert.equal(submitCalls, 1);
+  assert.equal(submitNewTaskCalls, 1);
+  assert.equal(legacyStartCalls, 0);
+  assert.equal(legacySubmitCalls, 0);
   assert.equal(document.querySelector(".composer-starting"), null);
   assert.deepEqual(
     Array.from(document.querySelectorAll(".workspace-tab-main span")).map((tab) => tab.textContent.trim()),
@@ -6783,10 +6804,17 @@ test("atomic New task ignores foreign session publications until its addressed a
       publishState(current);
       return new Promise((resolve) => {
         finishAtomic = () => {
-          // The addressed result is authoritative even if a stale focused
-          // projection accompanies it. The renderer must synthesize the first
-          // prompt under targetSessionId, never import this foreign snapshot.
-          resolve({ accepted: true, sessionId: targetSessionId, snapshot: current });
+          const snapshot = {
+            sessionId: targetSessionId,
+            items: [{
+              id: String(options.id || "addressed-first"),
+              kind: "user",
+              text: "Addressed first prompt",
+            }],
+            queued: [],
+            busy: true,
+          };
+          resolve({ accepted: true, sessionId: targetSessionId, snapshot });
         };
       });
     },
@@ -7976,81 +8004,6 @@ test("atomic new-task submit claims remote host-side and consumes the one-shot r
     "the next NEW TASK draft always starts remote-off");
 });
 
-test("a materialized draft session promotes before the submit acknowledgement settles", async () => {
-  installDom();
-  let publishState;
-  let finishSubmit;
-  let current = { sessionId: "", items: [], queued: [] };
-  const session = {
-    id: "materialized-session",
-    title: "Materialized task",
-    preview: "Materialized prompt",
-    updatedAt: 2,
-    currentSession: true,
-    cwd: "C:\\work",
-    classification: "task",
-    projectPath: null,
-  };
-  window.mixdogDesktop = {
-    getSnapshot: async () => current,
-    subscribeState: (listener) => { publishState = listener; return () => {}; },
-    listProjects: async () => [],
-    listSessions: async () => [session],
-    startTask: async () => {
-      current = { sessionId: session.id, items: [], queued: [] };
-      publishState(current);
-      return current;
-    },
-    submit: async (_content, options = {}) => {
-      current = {
-        sessionId: session.id,
-        desktopSessionTitle: session.title,
-        items: [
-          { id: String(options.id || "materialized-user"), kind: "user", text: "Materialized prompt" },
-          { id: "materialized-assistant", kind: "assistant", text: "Materialized response" },
-        ],
-        queued: [],
-      };
-      publishState(current);
-      return new Promise((resolve) => {
-        finishSubmit = () => resolve(true);
-      });
-    },
-  };
-
-  await act(async () => {
-    root.render(React.createElement(App));
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-  const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
-  const setValue = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-  await act(async () => {
-    setValue.call(textarea, "Materialized prompt");
-    textarea.dispatchEvent(new window.InputEvent("input", {
-      bubbles: true,
-      data: "Materialized prompt",
-    }));
-  });
-  await act(async () => {
-    document.querySelector(".send-button").click();
-    await Promise.resolve();
-    await Promise.resolve();
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
-  });
-
-  assert.equal(typeof finishSubmit, "function", "the legacy submit should still be awaiting its acknowledgement");
-  assert.equal(document.querySelector(".session-header h1")?.textContent.trim(), session.title);
-  assert.equal(document.querySelector(".workspace-tab.active")?.textContent.includes(session.title), true);
-  assert.equal(document.querySelector(".workspace-tab.active")?.textContent.includes("New task"), false);
-
-  await act(async () => {
-    finishSubmit();
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-});
-
 test("the first prompt keeps ONE mounted timeline through draft promotion", async () => {
   installDom();
   let publishState;
@@ -8072,15 +8025,8 @@ test("the first prompt keeps ONE mounted timeline through draft promotion", asyn
     subscribeState: (listener) => { publishState = listener; return () => {}; },
     listProjects: async () => [],
     listSessions: async () => (current.sessionId ? [session] : []),
-    startTask: async () => {
-      current = { sessionId: session.id, items: [], queued: [] };
-      publishState(current);
-      return current;
-    },
-    submit: async (_content, options) => {
+    submitNewTask: async (_content, options) => {
       submittedId = String(options?.id || "");
-      // The engine echoes the prompt only once the session exists: the frame
-      // between the optimistic row and that echo IS the promotion.
       return new Promise((resolve) => {
         finishSubmit = () => {
           current = {
@@ -8091,7 +8037,7 @@ test("the first prompt keeps ONE mounted timeline through draft promotion", asyn
             busy: true,
           };
           publishState(current);
-          resolve(true);
+          resolve({ accepted: true, sessionId: session.id, snapshot: current });
         };
       });
     },
@@ -15783,16 +15729,27 @@ test("a pending draft submit never promotes a newer draft onto its session", asy
     subscribeState: (listener) => { publishState = listener; return () => {}; },
     listProjects: async () => [],
     listSessions: async () => sessions.slice(),
-    startTask: async () => {
-      const session = submitCalls === 0 ? first : second;
-      current = { sessionId: session.id, items: [], queued: [] };
-      publishState?.(current);
-      return current;
-    },
-    submit: async () => {
+    submitNewTask: async (content, options = {}) => {
       submitCalls += 1;
-      if (submitCalls > 1) return true;
-      return new Promise((resolve) => { finishFirstSubmit = () => resolve(true); });
+      const session = submitCalls === 1 ? first : second;
+      const text = typeof content === "string"
+        ? content
+        : content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+      if (submitCalls > 1) {
+        current = {
+          sessionId: session.id,
+          items: [{ id: options.id || "draft-b-user", kind: "user", text }],
+          queued: [],
+        };
+        return { accepted: true, sessionId: session.id, snapshot: current };
+      }
+      return new Promise((resolve) => {
+        finishFirstSubmit = () => resolve({
+          accepted: true,
+          sessionId: session.id,
+          snapshot: current,
+        });
+      });
     },
   };
   await act(async () => {

@@ -8,9 +8,8 @@ export const ENGINE_DAEMON_PROTOCOL = 3;
 
 let cachedVersion = null;
 
-/** Version of the mixdog install this process runs from. A daemon and a view
- *  from DIFFERENT installs cannot share engines safely — the snapshot contract
- *  travels with the runtime, not with the protocol number alone. */
+/** Informational build version for diagnostics. Compatibility is decided by
+ *  the wire protocol, never by this package version. */
 export function engineRuntimeVersion() {
   if (cachedVersion) return cachedVersion;
   try {

@@ -2,14 +2,14 @@ import type {
   DesktopSessionStateUpdate,
   EngineSnapshot,
 } from '../shared/contract';
-import { EngineHost } from './engine-host';
 import type {
-  EngineDaemonClientModule,
-  MixdogEngine,
   MixdogProjectsModule,
   MixdogSessionStoreModule,
-  StatuslineSegmentsModule,
 } from './engine-host-support';
+import {
+  BackendHost,
+  type BackendSessionClient,
+} from './backend-host';
 import {
   ENGINE_HOST_RPC_METHODS,
   type DesktopEngineHost,
@@ -49,11 +49,12 @@ interface DesktopBackendFactoryInput {
 }
 
 interface DesktopBackendRuntime {
-  createRemoteEngineSession(options?: Record<string, unknown>): Promise<MixdogEngine>;
-  callDaemonSession: EngineDaemonClientModule['callDaemonSession'];
+  attachSessionClient(options: {
+    onFrame(frame: Record<string, unknown>): void;
+    onFatal?(reason: string): void;
+  }): Promise<BackendSessionClient>;
   loadProjects(): Promise<MixdogProjectsModule>;
   loadSessionStore(): Promise<MixdogSessionStoreModule>;
-  loadStatuslineSegments(): Promise<StatuslineSegmentsModule>;
   loadConfig(): Promise<import('./settings-store').MixdogConfigModule>;
   loadCommitCompletion(): Promise<import('./commit-message').CommitCompletionModule>;
   executeCodeGraphTool(
@@ -70,7 +71,7 @@ export interface DesktopBackendAdapter {
   dispose(reason?: string): Promise<void>;
 }
 
-/** EngineHost runtime hosted inside the machine backend daemon.
+/** Backend service adapter hosted inside the singleton machine daemon.
  *
  * DesktopBackendClient remains a pure, tested projection/cache layer. The
  * adapter itself never follows a desktop view's lifetime; this object's
@@ -79,19 +80,10 @@ export interface DesktopBackendAdapter {
 export async function createDesktopBackend(
   { options, runtime, emit, onClientCountChanged }: DesktopBackendFactoryInput,
 ): Promise<DesktopBackendAdapter> {
-  if (!runtime || typeof runtime.createRemoteEngineSession !== 'function'
-    || typeof runtime.callDaemonSession !== 'function') {
-    throw new TypeError('Mixdog desktop backend runtime bridge is unavailable.');
+  if (!runtime || typeof runtime.attachSessionClient !== 'function') {
+    throw new TypeError('Mixdog backend session bridge is unavailable.');
   }
-  const host = new EngineHost({
-    ...options,
-    createEngine: (engineOptions) => runtime.createRemoteEngineSession(engineOptions),
-    engineDaemonClient: { callDaemonSession: runtime.callDaemonSession },
-    loadProjects: runtime.loadProjects,
-    loadSessionStore: runtime.loadSessionStore,
-    loadStatuslineSegments: runtime.loadStatuslineSegments,
-    executeCodeGraphTool: runtime.executeCodeGraphTool,
-  });
+  const host = await BackendHost.create(options, runtime);
   const operations = createDesktopBackendOperations({
     userDataPath: options.userDataPath,
     packaged: options.packaged,

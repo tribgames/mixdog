@@ -71,6 +71,19 @@ export function isLoopbackHttpUrl(value) {
  */
 export function routeWebFetchCall(call) {
     if (call?.name !== 'web_fetch') return call;
+    // A JSON-stringified array ('["https://a","https://b"]') is a common
+    // provider serialisation artifact. Parse it back into real URLs so the
+    // fetch surface routes and validates them instead of rejecting the call.
+    const rawUrl = call?.arguments?.url;
+    if (typeof rawUrl === 'string' && /^\s*\[/.test(rawUrl)) {
+        try {
+            const parsed = JSON.parse(rawUrl);
+            if (Array.isArray(parsed) && parsed.length > 0
+                && parsed.every((item) => typeof item === 'string' && item.trim())) {
+                call.arguments.url = parsed.map((item) => item.trim());
+            }
+        } catch { /* leave the original value for the downstream validator */ }
+    }
     const urls = callUrls(call);
     if (!urls.length) return call;
     if (urls.every(isLoopbackHttpUrl)) call.name = 'local_fetch';

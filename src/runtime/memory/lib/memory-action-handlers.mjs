@@ -33,6 +33,7 @@ import {
   promoteCoreCandidate,
   dismissCoreCandidate,
   normalizeCoreInput,
+  normalizeCoreOp,
 } from './core-memory-store.mjs'
 import { resolveProjectId, resolveProjectScope } from './project-id-resolver.mjs'
 import { resolvePluginData } from '../../shared/plugin-paths.mjs'
@@ -602,7 +603,7 @@ export function createMemoryActionHandlers({
     }
 
     if (action === 'core') {
-      const op = String(args.op ?? '').trim().toLowerCase()
+      const op = normalizeCoreOp(args.op)
       if (!['add', 'edit', 'delete', 'list', 'candidates', 'promote', 'dismiss'].includes(op)) {
         return { text: 'core requires op: "add" | "edit" | "delete" | "list" | "candidates" | "promote" | "dismiss"', isError: true }
       }

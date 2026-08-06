@@ -124,3 +124,13 @@ export function toolErrorDisplay(value, surface = 'tool') {
   }
   return /^error\s*:/i.test(text) ? text : `Error: ${text}`;
 }
+
+// Display-only: a command-exit card already renders `Exit N` as its state, so
+// the machine header (`Error: [shell-run-failed] [exit code: N]`) is redundant
+// in the body — and the bare word "Error" reads as a tool failure even though
+// the tool ran fine and the command merely exited non-zero. The model-facing
+// result keeps the header untouched; only the rendered body drops it.
+export function stripShellExitHeader(text) {
+  const body = String(text ?? '');
+  return body.replace(/(^|\n)(?:Error:\s*)?\[shell-run-failed\][^\n]*\n{0,2}/i, '$1');
+}

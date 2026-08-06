@@ -7,9 +7,25 @@
 import { appendAgentTrace } from '../agent-trace-io.mjs';
 import { getHiddenAgent } from '../internal-agents.mjs';
 import {
+    PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
+    PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS,
+    STALL_TICK_MS,
     resolveAgentStallThresholds,
     resolveAgentToolThresholdSeconds,
 } from '../stall-policy.mjs';
+
+// Ordering guarantee, stated in stall-policy.mjs: the provider layer — which
+// can retry in place or fall back to non-streaming — must fire STRICTLY before
+// the agent watchdog's terminal abort. Role abort budgets (worker/reviewer
+// 300s, explore 240s) sat at or BELOW the provider semantic-idle window
+// (300s), inverting that order: the watchdog aborted the shared signal first,
+// so the provider's recovery never ran and the `agent_stall` failure — which
+// the classifier calls retryable — died on throwIfAborted instead. Hold the
+// role-derived idle budget at one watchdog tick above the provider window.
+const PROVIDER_RECOVERY_FLOOR_MS = Math.max(
+    PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
+    PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS,
+) + STALL_TICK_MS;
 
 const WATCHDOG_ABORT_RE = /^agent (?:first (?:transport|semantic response|response) stale|task stale|tool running stale)\s*\(/;
 
@@ -123,6 +139,16 @@ export function watchdogPartialHandoffFromError(error, session, messageStartInde
     return text.trim() ? text : null;
 }
 
+// Salvage path for NON-watchdog aborts that explicitly opt in (the abort error
+// / abort reason carries `salvagePartial: true` — e.g. the explore wall-clock
+// hard timeout). Same collection rule as the watchdog handoff: only assistant
+// text appended during this run. Plain user cancellation never opts in, so ESC
+// still discards the run.
+export function partialHandoffTextFromSession(session, messageStartIndex = 0) {
+    const text = collectSessionAssistantHandoffText(session, messageStartIndex);
+    return text.trim() ? text : null;
+}
+
 function resolveWatchdogAbortElapsedMs({ error, snapshot, policy, now, anchorTs, lastProgressAt }) {
     if (snapshot && policy) {
         if (snapshot.waitingForFirstActivity) {
@@ -223,7 +249,8 @@ export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
         idleStaleMs = Math.floor(overrides.idleTimeoutMs);
     } else if (getHiddenAgent(agent)) {
         const { abort } = resolveAgentStallThresholds(agent);
-        idleStaleMs = abort * 1000;
+        // Role budget, floored so the provider recovery window always wins.
+        idleStaleMs = Math.max(abort * 1000, PROVIDER_RECOVERY_FLOOR_MS);
     } else {
         // Part B: the primary mid-stream stall catch is now the provider-level
         // SEMANTIC idle abort (~120s, ping-immune). This public-agent idle is a
@@ -238,6 +265,9 @@ export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
         idleStaleMs = backstopMs > 0
             ? Math.min(DEFAULT_STALE_TIMEOUT_MS, backstopMs)
             : DEFAULT_STALE_TIMEOUT_MS;
+        // Same floor for the public backstop: a workflow role (worker 300s,
+        // explore 240s) must not undercut the provider window either.
+        idleStaleMs = Math.max(idleStaleMs, PROVIDER_RECOVERY_FLOOR_MS);
     }
 
     const idleSec = idleStaleMs / 1000;

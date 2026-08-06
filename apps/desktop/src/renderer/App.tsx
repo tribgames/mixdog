@@ -58,8 +58,6 @@ import {
   subscribeRemoteNewTaskMode,
 } from "./remote-preferences";
 import {
-  shouldAdoptForeignSessionFrame,
-  shouldPromoteDraftMaterialization,
   startupRestorePlan
 } from "./renderer-logic.mjs";
 import {
@@ -387,36 +385,6 @@ function ReadyGitDiffPane(props: React.ComponentProps<typeof GitDiffPane>) {
     }} />
   </PaneSurfaceGate>;
 }
-interface DraftSessionMaterialization {
-  sessionId: string;
-  hasTranscript: boolean;
-  title: string;
-  firstUserText: string;
-  userItemIds: readonly string[];
-}
-const selectDraftSessionMaterialization = (snapshot: Snapshot): DraftSessionMaterialization => {
-  const items = Array.isArray(snapshot.items) ? snapshot.items : [];
-  const userItems = items.filter((item) => item?.kind === "user");
-  const firstUser = userItems[0];
-  return {
-    sessionId: String(snapshot.sessionId || ""),
-    hasTranscript: items.length > 0,
-    title: String(snapshot.desktopSessionTitle || "").trim(),
-    firstUserText: String(firstUser?.text || ""),
-    userItemIds: userItems
-      .map((item) => String(item?.id || ""))
-      .filter(Boolean),
-  };
-};
-const draftSessionMaterializationsEqual = (
-  left: DraftSessionMaterialization,
-  right: DraftSessionMaterialization,
-) => left.sessionId === right.sessionId
-  && left.hasTranscript === right.hasTranscript
-  && left.title === right.title
-  && left.firstUserText === right.firstUserText
-  && left.userItemIds.length === right.userItemIds.length
-  && left.userItemIds.every((id, index) => id === right.userItemIds[index]);
 const draftModelSelectionFromSnapshot = (snapshot: Snapshot): DesktopModelSelection | null => {
   const provider = String(snapshot.provider || "");
   const model = String(snapshot.model || "");
@@ -484,17 +452,11 @@ export function App() {
     setError,
     applySnapshot,
     applySessionResult,
-    lastRendererApplyAt,
   } = useDesktopState();
   const snapshot = useDesktopSnapshotSelector(
     snapshotStore,
     selectDesktopSnapshot,
     desktopChromeSnapshotsEqual,
-  );
-  const draftSessionMaterialization = useDesktopSnapshotSelector(
-    snapshotStore,
-    selectDraftSessionMaterialization,
-    draftSessionMaterializationsEqual,
   );
   const sidebarSnapshot = useDesktopSnapshotSelector(
     snapshotStore,
@@ -1094,7 +1056,6 @@ export function App() {
   const [headerTitleEditingSessionId, setHeaderTitleEditingSessionId] = useState("");
   const [headerTitleDraft, setHeaderTitleDraft] = useState("");
   const [headerTitleInvalid, setHeaderTitleInvalid] = useState(false);
-  const [newTaskActive, setNewTaskActive] = useState(false);
   const [newTaskDeferred, setNewTaskDeferred] = useState(false);
   const [newTaskProjectPath, setNewTaskProjectPath] = useState("");
   const newTaskProjectPathRef = useRef("");
@@ -1477,14 +1438,6 @@ export function App() {
       model: seed.model || String(row?.model || ""),
     };
   };
-  // The prepared host route belongs to ONE draft. A process-wide boolean let
-  // a fresh split inherit an older draft's readiness and submit into the
-  // currently active session instead of materializing its own session.
-  const newTaskReady = useRef("");
-  const newTaskSetup = useRef<{
-    key: string;
-    promise: Promise<EngineSnapshot>;
-  } | null>(null);
   // Callback-safe view of the active selection for tab-promotion decisions.
   const selectionRef = useRef<NavigationSelection>(selection);
   const sessionRefresh = useRef({
@@ -1493,52 +1446,6 @@ export function App() {
     sawBusy: false,
     sawSettlement: false,
   });
-  // Draft (New task) materialization OWNERSHIP. A submit dispatched from a
-  // draft owns one record; a host publication may promote only while exactly
-  // one record is armed and it still matches the active draft and navigation
-  // epoch. Process-wide booleans let an older submit's completion clear a
-  // newer draft's arm, and let session A's publication promote draft B.
-  type DraftMaterializationOwner = {
-    draftKey: string;
-    epoch: number;
-    originSessionId: string;
-    submitInFlight: boolean;
-    publicationRecovery: boolean;
-    submitId: string;
-  };
-  const draftMaterializations = useRef(new Map<object, DraftMaterializationOwner>());
-  const armDraftMaterialization = (owner: DraftMaterializationOwner): object => {
-    const token = {};
-    draftMaterializations.current.set(token, owner);
-    while (draftMaterializations.current.size > 8) {
-      const oldest = draftMaterializations.current.keys().next().value;
-      if (oldest === undefined) break;
-      draftMaterializations.current.delete(oldest);
-    }
-    return token;
-  };
-  const updateDraftMaterialization = (
-    token: object | null,
-    patch: Partial<DraftMaterializationOwner>,
-  ): void => {
-    const owner = token ? draftMaterializations.current.get(token) : undefined;
-    if (token && owner) draftMaterializations.current.set(token, { ...owner, ...patch });
-  };
-  /** Clears ONLY the record it owns: an old completion must never disarm a
-   *  newer draft's in-flight materialization. */
-  const releaseDraftMaterialization = (token: object | null): void => {
-    if (token) draftMaterializations.current.delete(token);
-  };
-  const releaseDraftMaterializationsFor = (draftKey: string): void => {
-    for (const [token, owner] of [...draftMaterializations.current.entries()]) {
-      if (owner.draftKey === draftKey) draftMaterializations.current.delete(token);
-    }
-  };
-  const soleDraftMaterialization = (): { token: object; owner: DraftMaterializationOwner } | null => {
-    if (draftMaterializations.current.size !== 1) return null;
-    const [token, owner] = [...draftMaterializations.current.entries()][0]!;
-    return { token, owner };
-  };
   // Per-session throttle for foreign-frame suppression diagnostics.
   const foreignFrameLogAt = useRef(new Map<string, number>());
   const mobileTaskSwipe = useRef<{
@@ -2011,7 +1918,6 @@ export function App() {
         { kind: "session", id: plan.sessionId },
         current ? sessionSummaryTitle(current) : String(snapshot.desktopSessionTitle || "New task"),
       );
-      setNewTaskActive(false);
       settleStartup();
       return;
     }
@@ -2031,8 +1937,6 @@ export function App() {
     }
     resetNewTaskDraft(cachedDraftProject);
     activateSelection({ kind: "new" }, "New task");
-    newTaskReady.current = "";
-    setNewTaskActive(false);
     settleStartup();
   }, [
     activateSelection,
@@ -2101,60 +2005,6 @@ export function App() {
     pending.sawSettlement = true;
     refreshSettledSession();
   }, [isBusy, refreshSettledSession]);
-  useEffect(() => {
-    const active = selectionRef.current;
-    if (active.kind !== "new") return;
-    const sessionId = draftSessionMaterialization.sessionId;
-    // Only legacy two-step hosts need publication recovery. Atomic
-    // submitNewTask owns an addressed acknowledgement, so a focused snapshot
-    // from any existing session must never promote its draft before that ACK.
-    const pendingDraft = soleDraftMaterialization();
-    if (!pendingDraft
-      || pendingDraft.owner.draftKey !== navigationKey(active)
-      || pendingDraft.owner.epoch !== navigationEpoch.current) return;
-    if (!pendingDraft.owner.publicationRecovery
-      || !pendingDraft.owner.submitId
-      || !draftSessionMaterialization.userItemIds.includes(pendingDraft.owner.submitId)) return;
-    // The host publishes the authoritative session before the submit RPC can
-    // acknowledge it. Once that draft-owned snapshot has durable transcript
-    // content, promote immediately instead of leaving a live conversation
-    // under New task when the acknowledgement is delayed or superseded.
-    // Promotion additionally requires a submit dispatched from this draft
-    // (armed): an idle prepared draft must never be stolen by a background
-    // session publishing its own frames — the window suddenly "moved" onto
-    // that session (user report).
-    if (!shouldPromoteDraftMaterialization({
-      armed: true,
-      newTaskActive,
-      submitInFlight: pendingDraft.owner.submitInFlight,
-      sessionId,
-      hasTranscript: draftSessionMaterialization.hasTranscript,
-      // A previous session may still publish while its parked draft starts.
-      // Only a genuinely new session id may claim an in-flight draft before
-      // newTaskActive's state update has committed.
-      originSessionId: pendingDraft.owner.originSessionId,
-    })) return;
-    const session = sessions.find((row) => row.id === sessionId);
-    const title = session
-      ? sessionSummaryTitle(session)
-      : draftSessionMaterialization.title
-        || promptTitle(draftSessionMaterialization.firstUserText)
-        || "New task";
-    navigationEpoch.current += 1;
-    activateSelection(
-      { kind: "session", id: sessionId },
-      title,
-      navigationKey(active),
-    );
-    releaseDraftMaterialization(pendingDraft.token);
-    setNewTaskActive(false);
-    setNewTaskDeferred(false);
-  }, [
-    activateSelection,
-    draftSessionMaterialization,
-    newTaskActive,
-    sessions,
-  ]);
   const synchronizeActualHost = async () => {
     const actual = await window.mixdogDesktop?.getSnapshot().catch(() => null) ?? null;
     applySnapshot(actual);
@@ -2169,16 +2019,12 @@ export function App() {
         { kind: "session", id: actualSessionId },
         sessionSummaryTitle(actualSession),
       );
-      newTaskReady.current = "";
-      setNewTaskActive(false);
     } else if (actualProject) {
       const project = projects.find((item) => item.path === actualProject);
       activateSelection(
         { kind: "project", path: actualProject },
         project?.alias?.trim() || project?.name?.trim() || displayProject(actualProject).name || "Project",
       );
-      newTaskReady.current = "";
-      setNewTaskActive(false);
     } else if (actualSessionId) {
       activateSelection({ kind: "new" }, "New task");
       clearNewTaskPreferences();
@@ -2187,12 +2033,8 @@ export function App() {
       // ready made its first prompt call host.submit() and append to that
       // foreign session. Keep it cold so submitNewTask() must mint/address a
       // fresh session before accepting the message.
-      newTaskReady.current = "";
-      setNewTaskActive(false);
     } else {
       activateSelection({ kind: "new" }, "New task");
-      newTaskReady.current = "";
-      setNewTaskActive(false);
     }
   };
 
@@ -2221,10 +2063,6 @@ export function App() {
     refreshProjects,
     refreshSessionsBestEffort,
     beginNavigation: () => { navigationEpoch.current += 1; },
-    setNewTaskActive,
-    markNewTaskReady: (ready) => {
-      newTaskReady.current = ready ? navigationKey(selectionRef.current) : "";
-    },
     stageNewTaskProject,
     focusComposer: () => setComposerFocusRequest((value) => value + 1),
   });
@@ -2308,14 +2146,6 @@ export function App() {
     if (deletingCurrent) {
       navigationEpoch.current += 1;
       activateSelection({ kind: "new" }, "New task");
-      // Only the draft this navigation lands on is disarmed; another draft's
-      // in-flight submit keeps its own record.
-      releaseDraftMaterializationsFor(navigationKey({ kind: "new" }));
-      // deleteSession() returns host state, not a reservation owned by this
-      // renderer draft. Its first prompt must therefore use the atomic
-      // new-task path instead of whichever session the host exposes next.
-      newTaskReady.current = "";
-      setNewTaskActive(false);
       setRequestedSessionId("");
       activeResumeTarget.current = "";
       pendingResumeTarget.current = "";
@@ -2425,9 +2255,6 @@ export function App() {
     // of resetting it mid-flight. The first submit can still lazily start the
     // engine when the boot draft has never been prepared.
     if (revisit || alreadyActive) return;
-    releaseDraftMaterializationsFor(navigationKey(nextSelection));
-    newTaskReady.current = "";
-    setNewTaskActive(false);
     // A parked draft tab survives session switches (user decision): pressing
     // New task again opens a fresh tab that inherits its staged
     // project/model/workflow instead of resetting the draft.
@@ -2604,12 +2431,7 @@ export function App() {
               : "",
           );
           setRequestedSessionId("");
-          // Leaving the draft parks its tab in the strip (user decision:
-          // switching sessions must not close New task). Any prepared draft
-          // engine state now belongs to the resumed session, so the parked
-          // draft reverts to an unprepared one.
-          newTaskReady.current = "";
-          setNewTaskActive(false);
+          // Leaving the draft parks its renderer-only tab in the strip.
           if (resumedSessionId && resumedSessionId !== sessionId) refreshSessionsBestEffort();
         }
         if (import.meta.env?.DEV) {
@@ -2727,7 +2549,6 @@ export function App() {
       ? routeSelection.draftId || "default"
       : "";
     const draftPrefs = draftPrefsKey ? resolvedDraftPrefsFor(draftPrefsKey) : null;
-    const draftReady = Boolean(draftKey) && newTaskReady.current === draftKey;
     const submitEpoch = navigationEpoch.current;
     const draftRouteStillExists = () => Boolean(draftKey)
       && paneLeavesRef.current.some((leaf) => leaf.id === route.leafId
@@ -2738,20 +2559,6 @@ export function App() {
       && navigationKey(selectionRef.current) === draftKey
       && navigationEpoch.current === submitEpoch;
     const pending = sessionRefresh.current;
-    // This submit OWNS its draft's materialization for as long as it is in
-    // flight: draftKey + navigation epoch + the session the draft started
-    // from are captured at dispatch, never read back from shared state.
-    const draftToken = draftKey
-      ? armDraftMaterialization({
-        draftKey,
-        epoch: submitEpoch,
-        originSessionId: String(snapshotRef.current.sessionId || ""),
-        submitInFlight: true,
-        publicationRecovery: !(routeSelection.kind === "new"
-          && typeof host.submitNewTask === "function"),
-        submitId: String(options?.id || ""),
-      })
-      : null;
     pending.submitInFlight = true;
     pending.sawBusy ||= isBusy;
     let startedSessionId = "";
@@ -2765,10 +2572,8 @@ export function App() {
     const submittedProjectPath = routeSelection.kind === "new"
       ? effectiveDraftProjectPath(draftPrefs?.projectPath || "")
       : "";
-    let atomicNewTask = false;
     try {
-      if (routeSelection.kind === "new" && host.submitNewTask) {
-        atomicNewTask = true;
+      if (routeSelection.kind === "new") {
         const result = await host.submitNewTask(content, options, {
           ...(submittedProjectPath
             ? { projectPath: submittedProjectPath }
@@ -2786,123 +2591,26 @@ export function App() {
         if (result.accepted && !startedSessionId) {
           throw new Error("New task submission was accepted without a session id.");
         }
-        let acknowledgedSnapshot: EngineSnapshot = null;
-        // Seed the materialized session's lane with the acknowledgement frame
-        // BEFORE the pane switches its route onto the new sessionId. Without
-        // it the promoted pane has no lane for one publication interval and
-        // the "Loading conversation…" cover flashes over the first prompt
-        // (user: 첫 프롬 치면 로딩이 한 번 들어옴).
-        // The engine acknowledges BEFORE the user item lands in its
-        // transcript, so an empty-items ack seeded a blank thread for the
-        // first publication interval (measured ~2s: optimistic row cleared on
-        // the key switch, nothing behind it — user: 첫 프롬 직후 잠시 빈
-        // 화면). Synthesize the submitted user row into the seed; the first
-        // authoritative lane frame replaces it wholesale.
         if (result.accepted && startedSessionId) {
           const resultRecord = asRecord(result.snapshot);
           const resultSessionId = String(resultRecord?.sessionId || "");
-          // The addressed ACK owns promotion. If a stale desktop projection
-          // accompanies it, retain only the acknowledged id and synthesize the
-          // optimistic prompt — never seed another session's transcript.
-          const ackRecord = resultSessionId === startedSessionId
-            ? resultRecord || {}
-            : { sessionId: startedSessionId, items: [], queued: [] };
-          const ackItems = Array.isArray(ackRecord.items) ? ackRecord.items : [];
-          const seededText = String(options?.displayText
-            || (typeof content === "string" ? content : "")).trim();
-          const ackSpinner = asRecord(ackRecord.spinner);
-          const spinnerActive = Boolean(ackSpinner) && ackSpinner?.active !== false;
-          const needsItems = ackItems.length === 0 && Boolean(seededText);
-          // The spinner must survive the promotion frame too: a seed without
-          // an active spinner unmounted the thinking indicator for one
-          // publication interval and it visibly re-created itself (user:
-          // 띵킹 스피너가 사라졌다 다시 생성됨).
-          const seed = !needsItems && spinnerActive
-            ? result.snapshot
-            : {
-              ...ackRecord,
-              ...(needsItems
-                ? {
-                  items: [{
-                    id: String(options?.id || `desktop-seed-${Date.now()}`),
-                    kind: "user",
-                    text: seededText,
-                  }],
-                }
-                : {}),
-              busy: true,
-              ...(spinnerActive ? {} : {
-                spinner: {
-                  active: true,
-                  mode: "requesting",
-                  startedAt: Number(options?.submittedAt) || Date.now(),
-                },
-              }),
-            };
-          acknowledgedSnapshot = seed as EngineSnapshot;
-          applyFocusedSnapshotToSessionLane(seed as Snapshot, defaultSessionLaneStore, {
+          if (!resultRecord || resultSessionId !== startedSessionId) {
+            throw new Error("New task backend returned a mismatched session snapshot.");
+          }
+          // The backend projection is authoritative. The optimistic input row
+          // remains a renderer concern until the durable user item arrives.
+          applyFocusedSnapshotToSessionLane(resultRecord as Snapshot, defaultSessionLaneStore, {
             source: "renderer-result",
           });
         }
         if (result.accepted && draftStillSelected()) {
-          // Only adopt the acknowledgement snapshot when it already carries
-          // the materialized session. A rare id-wait timeout returns a blank
-          // frame; applying it wiped the optimistic prompt back to the New
-          // task watermark until the next live publication (user report).
-          if (acknowledgedSnapshot) applySnapshot(acknowledgedSnapshot);
           clearNewTaskPreferences(routeSelection);
-          newTaskReady.current = draftKey;
-          setNewTaskActive(true);
           setNewTaskDeferred(false);
         }
+      } else if (routeSelection.kind === "session") {
+        accepted = await host.submitToSession(routeSelection.id, content, options);
       } else {
-        if (routeSelection.kind === "new" && !draftReady) {
-          const activeKey = draftKey;
-          let pendingSetup = newTaskSetup.current?.key === activeKey
-            ? newTaskSetup.current
-            : null;
-          if (!pendingSetup) {
-            const projectPath = draftPrefs?.projectPath || "";
-            pendingSetup = {
-              key: activeKey,
-              promise: projectPath
-                ? host.startProjectTask(projectPath)
-                : host.startTask(),
-            };
-            newTaskSetup.current = pendingSetup;
-          }
-          let started: EngineSnapshot;
-          try {
-            started = await pendingSetup.promise;
-          } finally {
-            if (newTaskSetup.current === pendingSetup) newTaskSetup.current = null;
-          }
-          if (!draftStillSelected()) {
-            pending.submitInFlight = false;
-            return false;
-          }
-          startedSessionId = String(asRecord(started)?.sessionId || "");
-          const startedRecord = asRecord(started);
-          const staleSetup = Array.isArray(startedRecord?.items)
-            && (startedRecord?.items as unknown[]).length > 0
-            && Boolean(startedRecord?.sessionId);
-          applySnapshot(staleSetup ? null : started);
-          // Same lane seed for the legacy two-step path: the fresh session's
-          // (possibly empty) frame counts as surface-ready — there is nothing
-          // else to load behind a cover.
-          if (!staleSetup && String(startedRecord?.sessionId || "")) {
-            applyFocusedSnapshotToSessionLane(started as Snapshot, defaultSessionLaneStore, {
-              source: "renderer-result",
-            });
-          }
-          clearNewTaskPreferences(routeSelection);
-          newTaskReady.current = draftKey;
-          setNewTaskActive(true);
-          setNewTaskDeferred(false);
-        } else if (routeSelection.kind === "new") {
-          startedSessionId = String(snapshot.sessionId || "");
-        }
-        accepted = await host.submit(content, options);
+        throw new Error("Prompt submission requires a New task draft or session.");
       }
     } catch (reason) {
       sessionRefresh.current = {
@@ -2911,51 +2619,16 @@ export function App() {
         sawBusy: false,
         sawSettlement: false,
       };
-      releaseDraftMaterialization(draftToken);
       throw reason;
     }
     pending.submitInFlight = false;
-    updateDraftMaterialization(draftToken, { submitInFlight: false });
     if (accepted === true) {
       pending.accepted = true;
       // Consume the reservation once a session actually claimed it, even when
       // the user already navigated away: the seat is taken either way.
       if (newTaskRemoteRequested) setRemoteNewTaskMode("off");
       if (routeSelection.kind === "new" && draftRouteStillExists()) {
-        let activeSessionId = atomicNewTask
-          ? startedSessionId
-          : startedSessionId
-            || String(snapshotRef.current.sessionId || "")
-            || String(asRecord(await host.getSnapshot())?.sessionId || "");
-        if (!activeSessionId && !atomicNewTask) {
-          // A utility-process state mailbox can still hold the materialized
-          // session behind an older in-flight frame when the legacy submit RPC
-          // resolves. Wait for that authoritative publication instead of
-          // leaving New task in place until the user's second prompt.
-          activeSessionId = await new Promise<string>((resolve) => {
-            let settled = false;
-            let timer: number | undefined;
-            let unsubscribe = () => {};
-            const finish = (sessionId: string) => {
-              if (settled) return;
-              settled = true;
-              if (timer !== undefined) window.clearTimeout(timer);
-              unsubscribe();
-              resolve(sessionId);
-            };
-            const inspect = () => {
-              if (!draftStillSelected()) {
-                finish("");
-                return;
-              }
-              const sessionId = String(snapshotRef.current.sessionId || "");
-              if (sessionId) finish(sessionId);
-            };
-            unsubscribe = snapshotStore.subscribe(inspect);
-            timer = window.setTimeout(() => finish(""), 1_000);
-            inspect();
-          });
-        }
+        const activeSessionId = startedSessionId;
         if (activeSessionId) {
           const title = promptTitle(content, options?.displayText || "") || "New task";
           const submittedAt = Date.now();
@@ -2976,7 +2649,6 @@ export function App() {
           if (draftStillSelected()) {
             navigationEpoch.current += 1;
             activateSelection(sessionSelection, title, draftKey);
-            setNewTaskActive(false);
             setNewTaskDeferred(false);
           } else {
             // The ACK belongs to the pane/draft that dispatched it. A focus
@@ -2985,22 +2657,8 @@ export function App() {
             promoteSelectionInLeaf(route.leafId, sessionSelection, draftKey);
             registerWorkspaceSelection(sessionSelection, title, draftKey);
           }
-          if (newTaskReady.current === draftKey) newTaskReady.current = "";
-          releaseDraftMaterialization(draftToken);
-          // Legacy hosts without submitNewTask still claim through the live
-          // capability after the first session exists. The atomic path already
-          // claimed at creation, so a second claim here would only re-activate
-          // the channel worker mid-boot.
-          if (newTaskRemoteRequested && !atomicNewTask) {
-            await setRemoteEnabled(true);
-          }
         }
       }
-      // The draft this submit owned is gone (promoted, or the user navigated
-      // away): drop its record so it can neither promote later nor block the
-      // attribution of another draft's submit. A draft that is STILL selected
-      // without a materialized id keeps its record for publication recovery.
-      if (draftToken && !draftStillSelected()) releaseDraftMaterialization(draftToken);
       refreshSettledSession();
     } else {
       sessionRefresh.current = {
@@ -3009,12 +2667,10 @@ export function App() {
         sawBusy: false,
         sawSettlement: false,
       };
-      releaseDraftMaterialization(draftToken);
     }
     return accepted;
   }, [
     activateSelection,
-    applySnapshot,
     clearNewTaskPreferences,
     effectiveDraftProjectPath,
     isBusy,
@@ -3022,9 +2678,6 @@ export function App() {
     refreshSettledSession,
     registerWorkspaceSelection,
     resolvedDraftPrefsFor,
-    setRemoteEnabled,
-    snapshot.sessionId,
-    snapshotStore,
   ]);
   const submitFromRouteRef = useRef(submitFromRoute);
   submitFromRouteRef.current = submitFromRoute;
@@ -3115,7 +2768,7 @@ export function App() {
     }
     return fn;
   };
-  const visibleSnapshot = selection.kind === "new" && !newTaskActive
+  const visibleSnapshot = selection.kind === "new"
     ? EMPTY_SNAPSHOT
     : snapshot;
   const navigationSelection: NavigationSelection = selection;
@@ -3135,55 +2788,6 @@ export function App() {
   viewedSessionRef.current = viewedSessionId;
   const unreadViewedSessionId = requestedSessionId || viewedSessionId;
   unreadViewedSessionRef.current = unreadViewedSessionId;
-  // Foreign-frame gate for the conversation surface: background engines
-  // publishing another session's state must never repaint the viewed session
-  // (or a New task draft). Renderer-initiated host actions — a submit
-  // lifecycle from this window, or an apply of a capability result such as
-  // /clear — may legitimately move the view onto a fresh session id.
-  // The action window alone is NOT sufficient: it stays open for the whole
-  // busy turn of the viewed session, and a background session's frame landing
-  // in it used to force-switch the view onto that session (user report).
-  // Adoption additionally requires lineage evidence — fork-on-resume naming
-  // the viewed session, or a genuinely new session id (auto-clear//clear
-  // continuation) absent from the known session catalog.
-  const knownSessionIds = useMemo(
-    () => new Set(sessions.map((session) => session.id)),
-    [sessions],
-  );
-  const knownSessionIdsRef = useRef(knownSessionIds);
-  knownSessionIdsRef.current = knownSessionIds;
-  const mayAdoptForeignSessionFrame = useCallback((live?: Snapshot | null) => {
-    const pending = sessionRefresh.current;
-    const rendererActionInFlight = pending.submitInFlight || pending.accepted || pending.sawBusy
-      || Date.now() - lastRendererApplyAt.current < 1_500;
-    const liveSessionId = String(live?.sessionId || "");
-    const adopt = shouldAdoptForeignSessionFrame({
-      rendererActionInFlight,
-      viewedSessionId: viewedSessionRef.current,
-      liveSessionId,
-      liveSessionForkedFrom: String(
-        (live as Record<string, unknown> | undefined)?.sessionForkedFrom || "",
-      ),
-      isKnownSession: (id) => knownSessionIdsRef.current.has(id),
-    });
-    // Always-on origin diagnostics (throttled): adoption used to be silent,
-    // which hid the leaking publication path from the suppression log.
-    if (adopt && liveSessionId && liveSessionId !== viewedSessionRef.current) {
-      const now = Date.now();
-      const key = `adopt:${liveSessionId}`;
-      if (now - (foreignFrameLogAt.current.get(key) || 0) >= 10_000) {
-        foreignFrameLogAt.current.set(key, now);
-        queueMicrotask(() => {
-          try {
-            const line = `foreign-session-frame adopted live=${liveSessionId} viewed=${viewedSessionRef.current}`;
-            console.warn(`[mixdog] ${line}`);
-            window.mixdogDesktop?.perfLog?.(line);
-          } catch { /* diagnostics only */ }
-        });
-      }
-    }
-    return adopt;
-  }, [lastRendererApplyAt]);
   const onForeignFrameSuppressed = useCallback((liveSessionId: string) => {
     const now = Date.now();
     if (now - (foreignFrameLogAt.current.get(liveSessionId) || 0) < 10_000) return;
@@ -3199,9 +2803,8 @@ export function App() {
   }, []);
   const conversationSessionScope = useMemo<SnapshotSessionScope>(() => ({
     sessionId: viewedSessionId,
-    mayAdoptForeign: mayAdoptForeignSessionFrame,
     onForeignFrameSuppressed,
-  }), [mayAdoptForeignSessionFrame, onForeignFrameSuppressed, viewedSessionId]);
+  }), [onForeignFrameSuppressed, viewedSessionId]);
   useEffect(() => {
     consumeUnread(unreadViewedSessionId, sessions);
   }, [consumeUnread, sessions, unreadViewedSessionId, windowFocusTick]);
@@ -3330,7 +2933,7 @@ export function App() {
     ? availableFrozenSeedFor(requestedSessionId)
     : null;
   const conversationFrozenSnapshot = frozenSnapshot;
-  const hideLiveSnapshot = selection.kind === "new" && !newTaskActive;
+  const hideLiveSnapshot = selection.kind === "new";
   const [fileReveal, setFileReveal] = useState<{ key: string; line: number; nonce: number } | null>(null);
   const latestEditorLocation = useRef<EditorNavigationLocation | null>(null);
   const editorNavigationHistory = useRef<{

@@ -703,7 +703,7 @@ export function appendPostPatchExcerpts(outputText, patchStr, requestedFormat, b
   }
 }
 
-const APPLY_PATCH_SCHEMA_KEYS = new Set(['patch', 'format', 'base_path', 'dry_run', 'reject_partial', 'fuzzy', 'sequence', 'mode']);
+const APPLY_PATCH_SCHEMA_KEYS = new Set(['patch', 'format', 'base_path', 'root', 'dry_run', 'reject_partial', 'fuzzy', 'sequence', 'mode']);
 function salvageShatteredV4APatchArgs(args) {
   if (!args || typeof args !== 'object') return args;
   const rawPatch = typeof args.patch === 'string' ? args.patch : '';
@@ -754,6 +754,27 @@ async function apply_patch(args, cwd, options = {}) {
     await assertPathReachable(basePath);
   } catch (err) {
     return `Error: ${err?.message || String(err)}`;
+  }
+  // Write-root gate: a patch may only touch paths inside a DECLARED root —
+  // the session directory by default, or `root`/`base_path` when the caller
+  // names one. Anything outside is refused before a single byte is written, so
+  // a mis-scoped working directory can never silently rewrite another tree.
+  // Editing outside stays possible, but only as a deliberate act: name the
+  // root that contains those targets in the same call.
+  const writeRoot = resolveBasePath(cwd, args?.root ?? args?.base_path ?? null);
+  const outsideTargets = [];
+  for (const rel of patchTargetPaths(patchStr, basePath)) {
+    const abs = isAbsolute(rel) ? pathResolve(rel) : pathResolve(basePath, rel);
+    if (isResolvedPathOutsideBase(abs, writeRoot)) outsideTargets.push(normalizeOutputPath(abs));
+  }
+  if (outsideTargets.length > 0) {
+    const shown = [...new Set(outsideTargets)];
+    const head = shown.slice(0, 3).join(', ');
+    const more = shown.length > 3 ? ` (+${shown.length - 3} more)` : '';
+    throw new Error(
+      `apply_patch: ${shown.length} target(s) fall outside the write root ${normalizeOutputPath(writeRoot)}: ${head}${more}. `
+      + 'Check the paths first; if they are intended, re-issue the same patch with root set to the directory that contains them.',
+    );
   }
   const rejectPartial = args?.reject_partial !== false;
   const dryRun = args?.dry_run === true;
@@ -1048,6 +1069,13 @@ function patchTargetPaths(patchStr, basePath) {
   const re = /^\*\*\* (?:Update|Add|Delete) File:\s*(.+)$/gm;
   let m;
   while ((m = re.exec(String(patchStr || '')))) {
+    const rel = m[1].trim();
+    if (rel) out.push(rel);
+  }
+  // A rename WRITES its destination, so the destination is a target too — the
+  // write-root gate and the replay snapshot both need it.
+  const mre = /^\*\*\* Move to:\s*(.+)$/gm;
+  while ((m = mre.exec(String(patchStr || '')))) {
     const rel = m[1].trim();
     if (rel) out.push(rel);
   }

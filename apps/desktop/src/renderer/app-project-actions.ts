@@ -23,8 +23,6 @@ export interface ProjectActionDeps {
   refreshProjects: () => Promise<DesktopProjectSummary[]>;
   refreshSessionsBestEffort: (selectCurrent?: boolean) => void;
   beginNavigation: () => void;
-  setNewTaskActive: (active: boolean) => void;
-  markNewTaskReady: (ready: boolean) => void;
   stageNewTaskProject: (project: Project) => void;
   focusComposer: () => void;
 }
@@ -33,7 +31,7 @@ export function createProjectActions(deps: ProjectActionDeps) {
   const {
     projects, invoke, applySnapshot, activateSelection, synchronizeActualHost,
     closeSidebarForNavigation, refreshProjects, refreshSessionsBestEffort,
-    beginNavigation, setNewTaskActive, markNewTaskReady, stageNewTaskProject,
+    beginNavigation, stageNewTaskProject,
     focusComposer,
   } = deps;
 
@@ -54,7 +52,6 @@ export function createProjectActions(deps: ProjectActionDeps) {
     applySnapshot(next);
     const projectPath = canonicalProject(next, requested);
     activateSelection({ kind: "project", path: projectPath }, projectTitle(projectPath));
-    setNewTaskActive(false);
   };
 
   // A failed navigation leaves the engine wherever it actually is; resynchronize
@@ -73,8 +70,6 @@ export function createProjectActions(deps: ProjectActionDeps) {
     beginNavigation();
     stageNewTaskProject(project);
     activateSelection({ kind: "new" }, "New task");
-    markNewTaskReady(false);
-    setNewTaskActive(false);
     focusComposer();
   };
 

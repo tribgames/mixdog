@@ -6,7 +6,7 @@ import { loadSession, saveSessionAsync, setLiveSession, evictLiveSession, listSt
 import { estimateMessagesTokens, estimateTranscriptContextUsage } from '../context-utils.mjs';
 import { normalizeCompactType, DEFAULT_COMPACT_TYPE, SUMMARY_PREFIX } from '../compact.mjs';
 import { runSessionCompaction } from './compaction-runner.mjs';
-import { hasUserConversationMessage } from './prompt-utils.mjs';
+import { hasUserConversationMessage, promptContentText } from './prompt-utils.mjs';
 import { getProvider } from '../../providers/registry.mjs';
 import { isSessionCompactionBlocked, getSessionAbortSignal, _runtimeEntries } from './runtime-liveness.mjs';
 import { mintSessionId } from './session-id.mjs';
@@ -313,4 +313,34 @@ export async function updateSessionStatus(id, status) {
     session.updatedAt = Date.now();
     await saveSessionAsync(session, { expectedGeneration: session.generation });
     return true;
+}
+
+// --- Rewind to a previous user message (message selector) ---
+// Claude Code's "restore conversation": the selected prompt and everything
+// after it leave the model history so the user can edit and resubmit it.
+// Earlier turns — including any compaction rewrite that precedes them — stay
+// exactly as they are. Idle-only; the caller interrupts a live turn first.
+export async function rewindSessionMessagesTo(sessionId, options = {}) {
+    const session = loadSession(sessionId);
+    if (!session || session.closed === true) return null;
+    const target = String(options?.text ?? '').trim();
+    if (!target) return null;
+    const messages = Array.isArray(session.messages) ? session.messages : [];
+    let start = -1;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message?.role !== 'user') continue;
+        if (promptContentText(message.content).trim() !== target) continue;
+        start = index;
+        break;
+    }
+    if (start < 0) return null;
+    const removed = messages.length - start;
+    session.messages = messages.slice(0, start);
+    // The provider cache is keyed on the exact prefix we just truncated.
+    session.providerState = undefined;
+    session.updatedAt = Date.now();
+    session.lastUsedAt = Date.now();
+    await saveSessionAsync(session, { expectedGeneration: session.generation });
+    return { removed, remaining: session.messages.length };
 }

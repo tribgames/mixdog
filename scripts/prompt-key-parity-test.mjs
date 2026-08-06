@@ -61,6 +61,32 @@ test('queued restore rebases delayed daemon text onto the latest local draft', (
   assert.equal(mergeQueuedRestoreText('', 'latest draft'), 'latest draft');
 });
 
+test('empty-draft double Esc opens the message selector only when a conversation exists', () => {
+  assert.deepEqual(
+    classifyPromptEscape({ value: '', hasMessages: false, now: 1000 }),
+    { action: 'idle', nextClearPressAt: 0 },
+  );
+  const armed = classifyPromptEscape({ value: '', hasMessages: true, now: 1000 });
+  assert.deepEqual(armed, { action: 'arm-select', nextClearPressAt: 1000 });
+  assert.deepEqual(
+    classifyPromptEscape({ value: '', hasMessages: true, lastClearPressAt: armed.nextClearPressAt, now: 1800 }),
+    { action: 'message-selector', nextClearPressAt: 0 },
+  );
+  assert.deepEqual(
+    classifyPromptEscape({ value: '', hasMessages: true, lastClearPressAt: armed.nextClearPressAt, now: 1801 }),
+    { action: 'arm-select', nextClearPressAt: 1801 },
+  );
+  // Cancellation and queued follow-ups still outrank the selector.
+  assert.deepEqual(
+    classifyPromptEscape({ interruptActive: true, hasMessages: true, value: '' }),
+    { action: 'interrupt', nextClearPressAt: 0 },
+  );
+  assert.deepEqual(
+    classifyPromptEscape({ hasQueuedMessages: true, hasMessages: true, value: '' }),
+    { action: 'restore-queue', nextClearPressAt: 0 },
+  );
+});
+
 test('Shift, Alt/Meta, and Ctrl Enter decode as newlines while plain Enter remains submit', () => {
   for (const sequence of ['\x1b[13;2u', '\x1b[13;3u', '\x1b[13;5u', '\x1b[27;3;13~']) {
     assert.equal(isModifiedEnterSequence(sequence), true, sequence);

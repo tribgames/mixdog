@@ -100,6 +100,7 @@ import { usePromptDraftFlow } from './app/use-prompt-draft-flow.mjs';
 import { useTranscriptActivity } from './app/use-transcript-activity.mjs';
 import { createAppPickers } from './app/create-app-pickers.mjs';
 import { usePromptQueueHistory } from './app/use-prompt-queue-history.mjs';
+import { useMessageSelector } from './app/message-selector.mjs';
 import { useTerminalChrome } from './app/use-terminal-chrome.mjs';
 import { useTranscriptWindow } from './app/use-transcript-window.mjs';
 import {
@@ -832,6 +833,17 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     promptHistoryNavRef,
   });
 
+  // Double-Esc message selector (Claude Code parity): app/message-selector.mjs.
+  const { hasUserMessages, openMessageSelector } = useMessageSelector({
+    store,
+    state,
+    setPicker,
+    setPromptDraftOverride,
+    syncPromptLayoutRows,
+    showPromptHint,
+    clearPromptHint,
+  });
+
   // PROMPT HANDLER cluster extracted to app/use-prompt-handlers.mjs.
   const {
     handlePromptPaste,
@@ -858,6 +870,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     recentPromptHistory,
     resetPromptHistoryNav,
     restoreQueuedToPrompt,
+    openMessageSelector,
     usagePanel,
     closeUsagePanel,
     contextPanel,
@@ -1266,6 +1279,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     handlePromptHistoryNavigate,
     handlePromptInterrupt,
     handlePromptPaste,
+    hasUserMessages,
     hookPrompt,
     initialStatusLine,
     onPromptDraftChange,

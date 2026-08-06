@@ -12740,7 +12740,11 @@ html.mx-window-resizing .panel-backdrop {
   justify-content: center;
   pointer-events: none;
 }
-.turn-review-slot:empty { display: none; }
+.turn-review-slot:empty:not([data-reserved="true"]) { display: none; }
+.turn-review-slot[data-reserved="true"] {
+  min-height: 28px;
+  margin-bottom: 8px;
+}
 .turn-review-slot:has(.turn-review-bar) { margin-bottom: 8px; }
 .turn-review-slot > * { pointer-events: auto; }
 .turn-review-bar {

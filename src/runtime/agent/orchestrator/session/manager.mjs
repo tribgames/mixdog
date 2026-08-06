@@ -121,6 +121,7 @@ export {
     listSessions,
     findSessionByScopeKey,
     clearSessionMessages,
+    rewindSessionMessagesTo,
     compactSessionMessages,
     updateSessionStatus,
     updateSessionGeneratedTitle,

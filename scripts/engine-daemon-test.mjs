@@ -1009,6 +1009,8 @@ test('session protocol ACKs intake and unsubscribe never interrupts execution', 
     const desktop = await attachEngineDaemon({ discovery, cwd: process.cwd() });
     const created = await terminal.call('session.create', { cwd: process.cwd() });
     assert.match(created.sessionId, /^sess_daemon_/, 'create returns a daemon-reserved stable address');
+    assert.ok(created.revision > 1_000_000_000_000,
+      'default daemon revisions carry a restart-monotonic compatibility epoch');
     assert.equal(created.reservedOnly, true);
     assert.equal(eagerSessionCreates, 0, 'reservation does not eagerly materialize a provider session');
     const subscribed = await desktop.call('session.subscribe', { sessionId: created.sessionId });
@@ -1101,6 +1103,15 @@ test('the remote engine proxy keeps the store contract', async () => {
     assert.deepEqual(interrupted.pastedImages, { image_1: { filename: 'restored.png' } });
     assert.equal(engine.getState().busy, false);
     unsubscribe();
+
+    // Revisions are local to a session projection. This old session has
+    // advanced farther than the fresh reservation, but New task must still
+    // replace its transcript from the lower-numbered full baseline.
+    const previousSessionId = engine.getState().sessionId;
+    await engine.newSession();
+    assert.notEqual(engine.getState().sessionId, previousSessionId);
+    assert.deepEqual(engine.getState().items, [],
+      'a fresh New task never retains the previous session transcript');
 
     // A second view shares the process attachment but owns another session.
     const second = await createRemoteEngineSession({ cwd: process.cwd() });

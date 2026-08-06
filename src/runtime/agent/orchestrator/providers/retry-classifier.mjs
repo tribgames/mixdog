@@ -104,6 +104,15 @@ export function classifyError(err) {
   if (err.truncatedStream === true || err.code === 'TRUNCATED_STREAM') return 'transient'
 
   if (TRANSIENT_STATUSES.has(status) || (status >= 500 && status < 600)) return 'transient'
+  // A stream that closed WITHOUT its terminal frame is a transport symptom,
+  // not a model verdict: the socket carries no HTTP status and no Node errno,
+  // so without this it classified as 'unknown' and no loop-level replay was
+  // ever attempted (observed live: pooled WS retired by the server between
+  // turns → close 1000 before response.created → the whole turn failed).
+  // Reference behavior retries the same disconnect (codex `CodexErr::Stream`
+  // is_retryable, cc falls back/retries the stream); the exposure deny above
+  // still fails closed for anything already relayed or dispatched.
+  if (isNonTerminalStreamClose(err)) return 'transient'
 
   // Socket-level codes (Node errno) — DNS / reset / refused / timeout are all
   // transient: we can retry the same request and may succeed.
@@ -123,6 +132,50 @@ const TRANSIENT_ERROR_CODES = new Set([
   'EAI_NODATA', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE',
   'EPROVIDERTIMEOUT', 'EGEMINITIMEOUT', 'ESTREAMSTALL', 'EWSACQUIRETIMEOUT',
 ])
+
+// WebSocket close codes that can end a Responses stream BEFORE its terminal
+// frame. 1000/1001/1005 are "nominal" closes the server sends when it retires
+// a pooled socket; 1006/1011/1012 are abnormal/overload closes. None of them
+// is a completed turn, and all are safe to re-issue when nothing was exposed.
+// 4000 is our own local stall close and keeps the stall classification path.
+const NON_TERMINAL_STREAM_CLOSE_CODES = new Set([1000, 1001, 1005, 1006, 1011, 1012])
+
+/**
+ * True when the error describes a stream socket that closed without the
+ * provider's terminal frame (response.completed / message_stop). Replay
+ * PERMISSION is still owned by the stream-outcome contract; this predicate
+ * only answers "was this a transport-level disconnect".
+ */
+export function isNonTerminalStreamClose(err) {
+  if (!err || typeof err !== 'object') return false
+  const code = Number(err.wsCloseCode ?? err.streamCloseCode ?? 0) || 0
+  if (!NON_TERMINAL_STREAM_CLOSE_CODES.has(code)) return false
+  return readStreamOutcome(err).terminalObserved !== true
+}
+
+/**
+ * Should this failed stream be re-issued as a NON-STREAMING request?
+ *
+ * cc's last safety net: when a stream dies it repeats the same request with
+ * `stream:false` instead of failing the turn (claude.ts, gated off only when
+ * streaming tool execution could double-run a tool). MixDog dispatches tools
+ * eagerly, so this stays deliberately narrower than cc: only a stream that
+ * exposed NOTHING qualifies. An exposed stream is already covered by the
+ * loop-level retraction replay (send-with-recovery), which asks the owner to
+ * withdraw the rendered characters first.
+ */
+export function canFallbackNonStreaming(err, { signal } = {}) {
+  if (!err || signal?.aborted) return false
+  const outcome = readStreamOutcome(err)
+  // A completed turn needs no fallback; a user cancel must never be re-issued.
+  if (outcome.terminalObserved || outcome.userAbort) return false
+  // Exposure/dispatch fails closed — re-running would duplicate output or a
+  // side effect.
+  if (outcome.replaySafe !== true) return false
+  return classifyError(err) === 'transient'
+    || outcome.stallObserved === true
+    || outcome.truncatedStream === true
+}
 
 function boundedCauseChain(err) {
   const chain = []
@@ -435,11 +488,13 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
   }
   if (!state.sawResponseCreated) {
     const closeCode = Number(err?.wsCloseCode || state.wsCloseCode || 0)
-    // An abnormal close before response.created has not produced any response
-    // bytes to the caller. It is therefore safe to reconnect and replay under
-    // the normal ws_1006 bounded retry policy (text/tool emission was denied
-    // above before reaching this gate).
-    if (closeCode !== 1006 && closeCode !== 1011 && closeCode !== 1012) return null
+    // A close before response.created has not produced any response bytes to
+    // the caller, so it is safe to reconnect and replay under the bounded
+    // retry policy (text/tool emission was denied above before this gate).
+    // NOMINAL closes count too: a pooled socket the server retires between
+    // turns closes with 1000/1001/1005 and must reconnect fresh — treating
+    // that as terminal killed the turn instead of reissuing it.
+    if (!NON_TERMINAL_STREAM_CLOSE_CODES.has(closeCode)) return null
   }
   if (state.userAbort) return null
 
@@ -465,7 +520,11 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
   if (closeCode === 1012) return _allowMidstream('ws_1012', attemptIndex, policy)
   if (closeCode >= 4000 && closeCode < 5000 && closeCode !== 4000) return null
   if (closeCode === 4000) return _allowMidstream('ws_4000', attemptIndex, policy)
-  if (closeCode === 1000 && state.sawResponseCreated && !state.sawCompleted) return _allowMidstream('ws_1000', attemptIndex, policy)
+  // Nominal close without the terminal frame — before OR after
+  // response.created. Only a completed turn is terminal here.
+  if ((closeCode === 1000 || closeCode === 1001 || closeCode === 1005) && !state.sawCompleted) {
+    return _allowMidstream(`ws_${closeCode}`, attemptIndex, policy)
+  }
 
   const failed = err?.responseFailed || state.responseFailedPayload
   if (failed) {
@@ -536,7 +595,8 @@ function _classifyMidstreamSse(err, state, attemptIndex, policy) {
 const TRANSPORT_FALLBACK_CLASSIFIERS = new Set([
   'timeout', 'reset', 'dns', 'refused', 'network', 'acquire_timeout', 'http_5xx',
   'first_byte_timeout',
-  'ws_1006', 'ws_1011', 'ws_1012', 'ws_1000', 'ws_4000', 'agent_stall', 'stream_stalled',
+  'ws_1006', 'ws_1011', 'ws_1012', 'ws_1000', 'ws_1001', 'ws_1005', 'ws_4000',
+  'agent_stall', 'stream_stalled',
   'response_failed_disconnected', 'response_failed_network', 'response_failed_auth_expired',
   'ws_send_failed',
 ])

@@ -380,19 +380,16 @@ export function toolInputRows(name, args) {
 // The conversation surface paints the host's LIVE snapshot. Background engines
 // (parked sessions finishing work, automations) must never repaint a view the
 // user is not in: a live frame whose sessionId differs from the viewed scope is
-// foreign unless a renderer-initiated host action (submit, auto-clear, /clear)
-// may legitimately move this view onto a fresh session id. A scopeSessionId of
-// '' models the New task draft: only blank frames match until a submit adopts
-// the materialized session.
+// always foreign. Explicit backend acknowledgements change the pane's scope;
+// stream publications never change ownership. A scopeSessionId of '' models
+// the renderer-only New task draft, so only blank frames match.
 export function createSessionScopedSnapshotGate(scopeSessionId) {
   const scopeId = String(scopeSessionId || '');
-  let adoptedId = scopeId;
   let lastMatching = null;
   return {
-    adoptedSessionId: () => adoptedId,
-    select(live, mayAdoptForeign = false) {
+    select(live) {
       const liveId = String(live?.sessionId || '');
-      if (liveId === adoptedId || liveId === scopeId) {
+      if (liveId === scopeId) {
         lastMatching = live;
         return { snapshot: live, suppressedSessionId: '' };
       }
@@ -401,71 +398,9 @@ export function createSessionScopedSnapshotGate(scopeSessionId) {
         // frame instead of blanking the session view.
         return { snapshot: lastMatching || live || null, suppressedSessionId: '' };
       }
-      // Lazy adoption decision: a function form sees the foreign frame and is
-      // only consulted for genuinely foreign, non-blank frames (so callers can
-      // check lineage/catalog membership without paying per-frame cost).
-      const adopt = typeof mayAdoptForeign === 'function'
-        ? mayAdoptForeign(live) === true
-        : mayAdoptForeign === true;
-      if (adopt) {
-        adoptedId = liveId;
-        lastMatching = live;
-        return { snapshot: live, suppressedSessionId: '' };
-      }
       return { snapshot: lastMatching, suppressedSessionId: liveId };
     },
   };
-}
-
-// Draft (New task) promotion decision. `armed` is set only when a submit was
-// actually dispatched from the draft: an idle prepared draft must never be
-// stolen by a foreign publication (a background session finishing a turn used
-// to yank the window onto that session).
-export function shouldPromoteDraftMaterialization({
-  armed = false,
-  newTaskActive = false,
-  submitInFlight = false,
-  sessionId = '',
-  hasTranscript = false,
-  originSessionId = '',
-} = {}) {
-  if (armed !== true) return false;
-  if (!newTaskActive && !submitInFlight) return false;
-  if (!sessionId || hasTranscript !== true) return false;
-  if (!newTaskActive && sessionId === originSessionId) return false;
-  return true;
-}
-
-// Foreign-frame ADOPTION decision for a session-scoped view. The renderer
-// action window (submit in flight / busy turn / recent renderer apply) alone
-// is NOT sufficient: while the viewed session runs a turn that window stays
-// open the whole time, and a background session's publication landing in it
-// silently yanked the view onto that session (user report: working in A,
-// B's background progress force-switched the window to B). Adoption now also
-// requires lineage evidence that the frame CONTINUES the viewed session:
-//   - a fork-on-resume frame naming the viewed session, or
-//   - a genuinely NEW session id (auto-clear//clear continuation) that is not
-//     a known catalog row — an existing session's frame is always a
-//     background publication, never a continuation of the viewed session.
-// A blank viewedSessionId models the New task draft, which keeps its
-// submit-window adoption behavior (the '' gate scope already restricts
-// matching to blank frames until a submit materializes).
-export function shouldAdoptForeignSessionFrame({
-  rendererActionInFlight = false,
-  viewedSessionId = '',
-  liveSessionId = '',
-  liveSessionForkedFrom = '',
-  isKnownSession = () => false,
-} = {}) {
-  if (rendererActionInFlight !== true) return false;
-  const liveId = String(liveSessionId || '');
-  if (!liveId) return false;
-  const viewed = String(viewedSessionId || '');
-  if (!viewed) return true;
-  if (liveSessionForkedFrom && String(liveSessionForkedFrom) === viewed) return true;
-  let known = false;
-  try { known = isKnownSession(liveId) === true; } catch { known = false; }
-  return !known;
 }
 
 // Startup/reload navigation restore plan. The persisted LAST VIEWED selection

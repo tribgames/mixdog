@@ -116,3 +116,48 @@ export function isShellFailureResult(result) {
     if (/^error:\s*\[shell-(?:run|tool)-failed\]/i.test(body)) return true;
     return /^\[(?:exit code:|timeout:|signal:)/i.test(body);
 }
+
+// Evidence that a command's OUTPUT reports a real failure. Used to separate a
+// legitimate non-zero exit (a probe or report that prints its result and ends
+// with 1) from a genuine failure that happens to write only to stdout — test
+// runners, compilers and package managers all announce themselves in the text.
+// Deliberately literal: only well-known failure banners count, so an unknown
+// tool's report is never mislabelled a failure.
+const SHELL_OUTPUT_FAILURE_EVIDENCE = [
+    /^not ok \d/m,
+    /^# fail [1-9]/m,
+    /\bAssertionError\b/,
+    /\bTraceback \(most recent call last\)/,
+    /^npm ERR!/m,
+    /\berror TS\d+\b/,
+    // Indented banners count too: runners print "  FAIL <case>" under a header.
+    /^\s*FAIL(?:ED|URE)?\b/mi,
+    /\bFAILED[:!]/,
+    /^\s*✗/m,
+    /\b\d+ (?:tests? )?failed\b/i,
+    /^fatal:/m,
+    /^error:/mi,
+    /\bSyntaxError\b|\bReferenceError\b|\bTypeError\b/,
+    /\bCannot find module\b/,
+];
+export function shellOutputReportsFailure(text) {
+    const body = String(text ?? '');
+    if (!body.trim()) return false;
+    return SHELL_OUTPUT_FAILURE_EVIDENCE.some((pattern) => pattern.test(body));
+}
+
+/**
+ * Classify a non-zero shell exit as a real failure or a legitimate report.
+ * Legitimate: exit code 1 exactly, no signal, NOTHING on stderr, real output
+ * on stdout, and no failure banner in that output. Everything else — any other
+ * exit code, a signal, any stderr, an empty capture, or a failure banner —
+ * stays a failure.
+ */
+export function isLegitimateShellExit({ exitCode, signal, stdout, stderr } = {}) {
+    if (signal) return false;
+    if (exitCode !== 1) return false;
+    if (String(stderr ?? '').trim()) return false;
+    const out = String(stdout ?? '').trim();
+    if (!out || out === '(no output)') return false;
+    return !shellOutputReportsFailure(out);
+}

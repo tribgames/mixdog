@@ -627,6 +627,45 @@ export function hasPowerShellOnlySyntax(command) {
     return POWERSHELL_ONLY_SYNTAX.some((pattern) => pattern.test(text));
 }
 
+// ── Inline-script hoisting ──────────────────────────────────────────────────
+// `node -e "<body>"` / `python -c "<body>"` hand the script through the host
+// shell's quoting layer, where nested quotes and escapes are the measured top
+// cause of inline-script failures. When the body is quote-LITERAL (the shell
+// would pass it through byte for byte) the same run is expressible as a file
+// invocation, which has no quoting layer at all — so the failure cannot occur.
+//
+// The transform is refused whenever file semantics would differ from `-e`:
+//   - a body with $, backtick or a backslash escape (the shell WOULD rewrite it);
+//   - anything resolved relative to the script (relative require/import,
+//     import.meta, __dirname/__filename);
+//   - a body that reads process.argv[1] (undefined under -e, a path in a file).
+const INLINE_SCRIPT_RE = /\b(node(?:\.exe)?|python3?|py)((?:\s+--?[\w-]+(?:=[^\s"']+)?)*)\s+(-e|--eval|-c)\s+"((?:[^"\\]|\\.)*)"/;
+const INLINE_UNSAFE_BODY = /[$`\\]/;
+const INLINE_FILE_RELATIVE = /(?:require|import)\s*\(\s*['"]\.{1,2}\/|from\s+['"]\.{1,2}\/|import\.meta|__dirname|__filename|argv\s*\[\s*1\s*\]/;
+
+export function planInlineScriptHoist(command) {
+    const text = String(command || '');
+    if (!text.trim()) return null;
+    const match = text.match(INLINE_SCRIPT_RE);
+    if (!match) return null;
+    const [whole, exe, rawFlags, , body] = match;
+    if (INLINE_UNSAFE_BODY.test(body)) return null;
+    if (INLINE_FILE_RELATIVE.test(body)) return null;
+    const flags = String(rawFlags || '');
+    const isNode = /^node/i.test(exe);
+    const esm = /--input-type=module/.test(flags);
+    const extension = isNode ? (esm ? '.mjs' : '.cjs') : '.py';
+    // `--input-type` only describes an inline body; the extension carries the
+    // module kind for a file, so the flag is dropped with the body.
+    const keptFlags = flags.replace(/\s+--input-type=\w+/g, '');
+    return {
+        exe,
+        extension,
+        body,
+        replace: (filePath) => text.replace(whole, `${exe}${keptFlags} "${filePath}"`),
+    };
+}
+
 export async function preflightShellLargeFileProbe(command, cwd) {
     const text = String(command || '').trim();
     let localCwd = resolve(cwd || process.cwd());

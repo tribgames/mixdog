@@ -456,17 +456,13 @@ async function main() {
     },
   };
   uninstallLocalEngineBridge = installEngineDaemonLocalBridge(localEngineBridge);
-  const engineDaemonClientModule = () => import('./engine-daemon-client.mjs');
   const desktopRuntime = {
-    async createRemoteEngineSession(options) {
-      return (await engineDaemonClientModule()).createRemoteEngineSession(options);
-    },
-    async callDaemonSession(options) {
-      return (await engineDaemonClientModule()).callDaemonSession(options);
+    async attachSessionClient(options = {}) {
+      if (!localEngineBridge) throw new Error('engine daemon local bridge is unavailable');
+      return localEngineBridge.attach(options);
     },
     loadProjects: () => import('./projects.mjs'),
     loadSessionStore: () => import('../runtime/agent/orchestrator/session/store-summary-reader.mjs'),
-    loadStatuslineSegments: () => import('../ui/statusline-segments.mjs'),
     loadConfig: () => import('../runtime/shared/config.mjs'),
     loadCommitCompletion: () => import(
       '../runtime/agent/orchestrator/agent-runtime/commit-message-completion.mjs'

@@ -68,8 +68,7 @@ export function parseUnifiedDiff(patch: string): DiffData[];
 export type ToolInputRow = { key: string; value: string; block: boolean };
 export function toolInputRows(name: string, args: unknown): ToolInputRow[];
 export interface SessionScopedSnapshotGate<T> {
-  adoptedSessionId(): string;
-  select(live: T | null | undefined, mayAdoptForeign?: boolean | ((live: T | null | undefined) => boolean)): {
+  select(live: T | null | undefined): {
     snapshot: T | null;
     suppressedSessionId: string;
   };
@@ -77,13 +76,6 @@ export interface SessionScopedSnapshotGate<T> {
 export function createSessionScopedSnapshotGate<T>(
   scopeSessionId: string,
 ): SessionScopedSnapshotGate<T>;
-export function shouldAdoptForeignSessionFrame(input?: {
-  rendererActionInFlight?: boolean;
-  viewedSessionId?: string;
-  liveSessionId?: string;
-  liveSessionForkedFrom?: string;
-  isKnownSession?: (sessionId: string) => boolean;
-}): boolean;
 export function startupRestorePlan(input?: {
   storedSessionId?: string;
   storedSessionKnown?: boolean;
@@ -93,11 +85,3 @@ export function startupRestorePlan(input?: {
   sessionId: string;
   clearStored: boolean;
 };
-export function shouldPromoteDraftMaterialization(input?: {
-  armed?: boolean;
-  newTaskActive?: boolean;
-  submitInFlight?: boolean;
-  sessionId?: string;
-  hasTranscript?: boolean;
-  originSessionId?: string;
-}): boolean;

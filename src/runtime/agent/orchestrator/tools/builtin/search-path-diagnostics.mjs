@@ -171,6 +171,13 @@ export async function tryReadFamilyEnoentRedirect({
 
 export function buildNotFoundHint(workDir, missingPath, actionVerb, errCode = 'ENOENT', cache = null) {
     if (!NOT_FOUND_CODES.has(String(errCode || 'ENOENT'))) return '';
+    // `C:tmpsmp` shape: a Windows path whose separators were eaten by JSON
+    // escaping (`"C:\\tmp\\smp"` written as `"C:\tmp\smp"`). Name the cause —
+    // the sibling/basename hints below can never resolve such a path.
+    const rawMissing = String(missingPath || '');
+    if (/^[A-Za-z]:(?![\\/])[^\\/]/.test(rawMissing.replace(/\\/g, '\\'))) {
+        return ` The path has a drive letter but no separator after it — the backslashes were probably lost in escaping. Re-issue with forward slashes (e.g. "C:/tmp/smp").`;
+    }
     if (resolveUniqueEnoentRedirect(workDir, missingPath, errCode, cache)) return '';
     const elsewhere = cachedFileByBasename(workDir, missingPath, cache);
     if (elsewhere.length) {

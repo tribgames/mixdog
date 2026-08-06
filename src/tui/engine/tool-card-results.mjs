@@ -11,7 +11,7 @@
  * is the original engine.mjs logic verbatim.
  */
 import { summarizeToolResult, aggregateDoneCategories } from '../../runtime/shared/tool-surface.mjs';
-import { toolResultText, toolErrorDisplay, toolGroupedDisplayFallback } from './tool-result-text.mjs';
+import { toolResultText, toolErrorDisplay, toolGroupedDisplayFallback, stripShellExitHeader } from './tool-result-text.mjs';
 import { toolResultCallId } from './tool-call-fields.mjs';
 import { parseAgentJob } from './agent-envelope.mjs';
 import {
@@ -82,7 +82,9 @@ export function createToolCardResults({
     // outcomes remain successful calls with their raw/semantic result detail.
     const { exitCode, isExitError, isCallError } = toolCallOutcome(message, rawText);
     const isError = isCallError;
-    const text = isError ? toolErrorDisplay(rawText, card?.name || 'tool') : rawText;
+    const text = isError
+      ? toolErrorDisplay(rawText, card?.name || 'tool')
+      : (isExitError ? stripShellExitHeader(rawText) : rawText);
 
     if (aggregate && card.itemId === aggregate.itemId) {
       if (!callRec) return false;
