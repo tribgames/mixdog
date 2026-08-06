@@ -19,7 +19,7 @@ import type {
   ToolApprovalDecision,
 } from '../shared/contract';
 
-export interface DesktopEngineHost {
+export interface DesktopBackend {
   subscribe(listener: (snapshot: EngineSnapshot) => void): () => void;
   subscribeSessions(listener: (sessions: DesktopSessionSummary[]) => void): () => void;
   subscribeAgentPool(listener: (agents: DesktopAgentPoolRow[]) => void): () => void;
@@ -68,9 +68,8 @@ export interface DesktopEngineHost {
   ): Promise<DesktopNewTaskSubmitResult>;
   abort(options?: DesktopAbortOptions): unknown;
   resolveToolApproval(id: string, decision: ToolApprovalDecision): boolean | Promise<boolean>;
-  /** Split panes: live snapshot lanes + session-addressed engine operations
-   *  over the pooled engines (active or parked). Product hosts must provide
-   *  these routes so pane actions can never fall back to the focused session. */
+  /** Split panes use daemon-owned session addresses directly. Pane actions
+   *  never fall back to whichever session happens to be focused. */
   subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void;
   submitToSession(
     sessionId: string,
@@ -107,7 +106,7 @@ export interface DesktopEngineHost {
   dispose(): Promise<void>;
 }
 
-export const ENGINE_HOST_RPC_METHODS = [
+export const DESKTOP_BACKEND_METHODS = [
   'startProject',
   'startProjectTask',
   'startTask',
@@ -152,9 +151,9 @@ export const ENGINE_HOST_RPC_METHODS = [
   'perfLog',
 ] as const;
 
-export type EngineHostRpcMethod = typeof ENGINE_HOST_RPC_METHODS[number];
+export type DesktopBackendMethod = typeof DESKTOP_BACKEND_METHODS[number];
 
-export interface SerializableEngineHostOptions {
+export interface SerializableDesktopBackendOptions {
   userDataPath: string;
   packaged: boolean;
   resourcesPath: string;

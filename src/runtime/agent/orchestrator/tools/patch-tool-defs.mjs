@@ -1,9 +1,3 @@
-// post_shell takes the SAME arguments as the `shell` tool (cwd / timeout /
-// merge_stderr / shell), minus `mode`: the verification must settle inside
-// this call so patch + proof stay ONE tool result. Only `command` is spelled
-// out here — the shell tool carries the full argument prose in the same
-// prompt, and apply_patch is a hot, size-capped schema; the runtime
-// (tool-exec.mjs normalizePostShellArgs) forwards every shell argument.
 const APPLY_PATCH_LARK_GRAMMAR = `start: begin_patch hunk+ end_patch
 begin_patch: "*** Begin Patch" LF
 end_patch: "*** End Patch" LF?
@@ -34,7 +28,7 @@ eof_line: "*** End of File" LF
 // Batching stays a rules-level policy: every new edit goes in one patch, with
 // one file block per target.
 const APPLY_PATCH_FREEFORM_DESCRIPTION =
-  'Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.';
+  'Edit files with `apply_patch`. FREEFORM input; do not wrap the patch in JSON.';
 
 // JSON-schema fallback providers (Anthropic and other non-grammar surfaces)
 // get the full V4A instructions inline: without a grammar the model has
@@ -69,13 +63,6 @@ export const PATCH_TOOL_DEFS = [
       type: 'object',
       properties: {
         patch: { type: 'string', description: 'V4A patch text to apply; rules above.' },
-        post_shell: {
-          anyOf: [
-            { type: 'string' },
-            { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] },
-          ],
-          description: 'Verification run after apply; skipped on patch failure. String = command, or shell tool args (sync).',
-        },
         root: {
           type: 'string',
           description: 'Write root; required only for targets outside the session directory.',

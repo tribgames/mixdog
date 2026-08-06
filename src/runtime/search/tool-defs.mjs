@@ -8,7 +8,7 @@ export const TOOL_DEFS = [
   {
     name: 'search',
     title: 'Mixdog Web Search',
-    description: `Web/docs/current-info search. ${TOOL_SYNC_EXECUTION_CONTRACT} Cached; query supports array fan-out.`,
+    description: `Cached web/docs/current-info search. ${TOOL_SYNC_EXECUTION_CONTRACT}`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -27,7 +27,7 @@ export const TOOL_DEFS = [
   {
     name: 'web_fetch',
     title: 'Mixdog Web Fetch',
-    description: 'Use after search. Fetch page/docs body from URL.',
+    description: 'Fetch page/docs body from URL.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -5,7 +5,6 @@
 // only (behavior + argument shapes); usage policy lives in rules/shared/01-tool.md.
 import {
     TOOL_ASYNC_EXECUTION_CONTRACT,
-    TOOL_MANUAL_CONTROL_CONTRACT,
     executionModeSchemaDescription,
 } from '../../../../shared/background-tasks.mjs';
 
@@ -28,7 +27,7 @@ function _shellMaxTimeoutMs() {
 // process lifetime, so this is evaluated once at module load.
 const _shellSyntaxCheat =
     process.platform === 'win32'
-        ? ' PowerShell: grep→Select-String, tail→Get-Content -Tail, head→Get-Content -TotalCount, /c/→C:\\, if && is unsupported use ;, $PID is reserved.'
+        ? ' PowerShell: use ; between commands, /c/→C:\\, and note that $PID is reserved.'
         : '';
 
 export const BUILTIN_TOOLS = [
@@ -36,7 +35,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read file contents. Batch paths/regions as real arrays: path[] or {path,offset,limit}[] regions in one call. Not for directories.',
+        description: 'Read file contents or line ranges; not directories.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -99,12 +98,12 @@ export const BUILTIN_TOOLS = [
         name: 'task',
         title: 'Background Task Control',
         annotations: { title: 'Background Task Control', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        description: `Control a shell async task_id: actions list/status/read/wait/cancel. ${TOOL_MANUAL_CONTROL_CONTRACT} Not sess_* or agent ids.`,
+        description: 'Control a shell background task_id; not session or agent ids.',
         inputSchema: {
             type: 'object',
             properties: {
                 task_id: { type: 'string', description: 'shell async task_id.' },
-                action: { type: 'string', enum: ['list', 'status', 'read', 'wait', 'cancel'], description: 'Defaults to list, or wait when task_id is set; avoid polling loops.' },
+                action: { type: 'string', enum: ['list', 'status', 'read', 'wait', 'cancel'], description: 'Default list; with task_id, default wait.' },
                 timeout_ms: { type: 'number', description: 'Wait timeout ms.' },
             },
             required: [],
@@ -115,7 +114,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Content search by literal or regex over file/dir scopes; matches return copy-ready raw source spans.',
+        description: 'Literal/regex search over file/dir scopes; returns source blocks with context.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -156,7 +155,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Mixdog Glob',
         annotations: { title: 'Mixdog Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Match exact glob patterns from base directories; batch pattern[]/path[].',
+        description: 'Match glob patterns under base directories.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -185,7 +184,7 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Mixdog Find Files',
         annotations: { title: 'Mixdog Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Fuzzy lookup for partial paths/names (dot dirs included). Returns matching paths; not file contents.',
+        description: 'Fuzzy partial path/name lookup; returns paths only.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -207,7 +206,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'Mixdog List Directory',
         annotations: { title: 'Mixdog List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'List directory entries (path + type); batch independent dirs as path[].',
+        description: 'List directory entries (path + type).',
         inputSchema: {
             type: 'object',
             properties: {

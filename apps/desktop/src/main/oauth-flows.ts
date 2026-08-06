@@ -1,8 +1,8 @@
 // Provider OAuth login flows in flight (browser round-trip or manual code).
-// Extracted from engine-host: the registry owns flow ids, the expiry timer and
-// cancellation, and hands back the plain status record the renderer polls.
-import type { DesktopOAuthFlow } from './engine-host-support';
-import { recordValue } from './engine-host-support';
+// The registry owns flow ids, the expiry timer and cancellation, and hands
+// back the plain status record the renderer polls.
+import type { DesktopOAuthFlow } from './backend-support';
+import { recordValue } from './backend-support';
 
 const FLOW_TTL_MS = 10 * 60 * 1_000;
 

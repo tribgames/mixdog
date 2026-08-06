@@ -3,12 +3,8 @@ import {
   ArchiveRestore,
   ChevronDown,
   ChevronRight,
-  FileText,
   FolderPlus,
-  MessageCircle,
   Plus,
-  Sparkles,
-  Terminal,
   Trash2,
   X
 } from "lucide-react";
@@ -29,7 +25,6 @@ import { sessionSummaryTitle } from "../shared/session-title.mjs";
 import { DESKTOP_SIDEBAR_MIN_WIDTH } from "../shared/window-layout";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { t } from "./i18n";
-import { commitImmediateOverlay, useImmediateOverlayClickGuard } from "./immediate-overlay";
 
 import {
   beginBootSurface,
@@ -129,10 +124,6 @@ interface SessionSidebarProps {
   remoteSessionId?: string;
   selection: NavigationSelection;
   onNewTask(): void;
-  onOpenStudio(): void;
-  onOpenFile(): void;
-  onNewTerminal(): void;
-  onPrefetchStudio?(): void;
   onPrefetchSession?(sessionId: string): Promise<boolean>;
   onResumeSession(sessionId: string): void;
   onRenameSession(sessionId: string, title: string): Promise<void>;
@@ -153,10 +144,6 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   remoteSessionId = "",
   selection,
   onNewTask,
-  onOpenStudio,
-  onOpenFile,
-  onNewTerminal,
-  onPrefetchStudio,
   onPrefetchSession,
   onResumeSession,
   onRenameSession,
@@ -170,49 +157,11 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const [deletingSessionId, setDeletingSessionId] = useState("");
   const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
   const [panelActionSlot, setPanelActionSlot] = useState<HTMLDivElement | null>(null);
-  const [createMenu, setCreateMenu] = useState<{ left: number; top: number } | null>(null);
-  const createButton = useRef<HTMLButtonElement>(null);
-  const createMenuNode = useRef<HTMLDivElement>(null);
-  const createMenuAnchor = useRef<{ left: number; top: number } | null>(null);
-  const createMenuClickGuard = useImmediateOverlayClickGuard();
-  const rememberCreateMenuAnchor = (element: HTMLButtonElement) => {
-    const rect = element.getBoundingClientRect();
-    createMenuAnchor.current = { left: rect.left, top: rect.bottom + 4 };
-  };
-  const toggleCreateMenu = (element: HTMLButtonElement) => {
-    const next = createMenu ? null : (createMenuAnchor.current
-      ?? (rememberCreateMenuAnchor(element), createMenuAnchor.current));
-    commitImmediateOverlay(() => setCreateMenu(next));
-  };
   const resizeStart = useRef<{
     clientX: number;
     width: number;
     pendingWidth: number;
   } | null>(null);
-  useEffect(() => {
-    if (!createMenu) {
-      createMenuAnchor.current = null;
-      return undefined;
-    }
-    const closeOutside = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (target && (createButton.current?.contains(target)
-        || createMenuNode.current?.contains(target))) return;
-      setCreateMenu(null);
-    };
-    const closeMenu = () => setCreateMenu(null);
-    document.addEventListener("pointerdown", closeOutside);
-    window.addEventListener("resize", closeMenu);
-    window.addEventListener("scroll", closeMenu, true);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      window.removeEventListener("resize", closeMenu);
-      window.removeEventListener("scroll", closeMenu, true);
-    };
-  }, [createMenu]);
-  useEffect(() => {
-    if (panelActive) setCreateMenu(null);
-  }, [panelActive]);
   const updateSidebarWidth = useCallback((value: number) => {
     const next = clampSidebarWidth(value);
     setSidebarWidth(next);
@@ -485,78 +434,21 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           navigation control lives on the Activity Rail to the left. */}
       <header className="session-panel-header">
         <span className="session-panel-title">{panelActive ? t(panelTitle) : t("Sessions")}</span>
-        {/* Creation belongs to Sessions rather than the Activity Rail: these
-            buttons create ordinary workspace tabs and never own a selected
-            navigation state. Other panels portal their own primary action
-            into the same title-row slot. */}
+        {/* Creation belongs to Sessions rather than the Activity Rail: this
+            button creates an ordinary task tab and never owns a selected
+            navigation state. + IS New Task (user decision) — Studio/File/
+            Terminal stay on the tab strip's create menu. Other panels portal
+            their own primary action into the same title-row slot. */}
         <div className="session-panel-header-actions" ref={setPanelActionSlot}>
-          {!panelActive && <>
-            <button ref={createButton} type="button"
-              className="session-panel-action session-new-create"
-              aria-label={t("New tab")} aria-haspopup="menu" aria-expanded={Boolean(createMenu)}
-              data-tooltip={t("New tab")}
-              onPointerEnter={(event) => rememberCreateMenuAnchor(event.currentTarget)}
-              onFocus={(event) => rememberCreateMenuAnchor(event.currentTarget)}
-              onPointerDown={(event) => {
-                if (event.button !== 0) return;
-                createMenuClickGuard.markPointerActivation();
-                toggleCreateMenu(event.currentTarget);
-              }}
-              onClick={(event) => {
-                if (createMenuClickGuard.consumePointerClick()) return;
-                if (event.detail !== 0) return;
-                toggleCreateMenu(event.currentTarget);
-              }}
-              onPointerCancel={createMenuClickGuard.clearPointerActivation}>
+          {!panelActive && (
+            <button type="button"
+              className="session-panel-action session-new-task"
+              aria-label={t("New task")}
+              data-tooltip={t("New task")}
+              onClick={onNewTask}>
               <Plus size={16} aria-hidden="true" />
             </button>
-            {createPortal(
-              <div ref={createMenuNode} className="workspace-tab-new-menu" role="menu"
-                aria-label={t("Create tab")} hidden={!createMenu}
-                style={createMenu ? { left: createMenu.left, top: createMenu.top } : undefined}>
-                {[
-                  {
-                    label: "New Task",
-                    ariaLabel: "New task",
-                    className: "session-new-task",
-                    icon: <MessageCircle size={16} />,
-                    run: onNewTask,
-                  },
-                  {
-                    label: "New Studio",
-                    ariaLabel: "New studio",
-                    className: "session-new-studio",
-                    icon: <Sparkles size={16} />,
-                    run: onOpenStudio,
-                    prefetch: onPrefetchStudio,
-                  },
-                  {
-                    label: "New File",
-                    ariaLabel: "New file",
-                    className: "session-new-file",
-                    icon: <FileText size={16} />,
-                    run: onOpenFile,
-                  },
-                  {
-                    label: "New Terminal",
-                    ariaLabel: "New terminal",
-                    className: "session-new-terminal",
-                    icon: <Terminal size={16} />,
-                    run: onNewTerminal,
-                  },
-                ].map((item) => <button type="button" role="menuitem" key={item.label}
-                  className={item.className} aria-label={t(item.ariaLabel)}
-                  onPointerEnter={item.prefetch} onFocus={item.prefetch}
-                  onClick={() => {
-                    setCreateMenu(null);
-                    item.run();
-                  }}>
-                  {item.icon}<span>{t(item.label)}</span>
-                </button>)}
-              </div>,
-              document.body,
-            )}
-          </>}
+          )}
         </div>
       </header>
       <div className="session-sidebar-scroll session-sidebar-surface"

@@ -25,6 +25,7 @@ const {
   await import('../src/standalone/engine-daemon-client.mjs');
 const { probeDaemonHealth: probeChannelDaemonHealth } =
   await import('../src/standalone/channel-daemon-client.mjs');
+const { createProjectPicker } = await import('../src/tui/app/project-picker.mjs');
 const { ENGINE_DAEMON_PROTOCOL, engineRuntimeVersion } =
   await import('../src/standalone/engine-daemon-protocol.mjs');
 
@@ -132,6 +133,29 @@ test('only the wire protocol decides whether a live daemon is usable', () => {
   assert.equal(negotiateEngineDaemon({ ...base, protocol: ENGINE_DAEMON_PROTOCOL - 1, busy: 1 }), 'restart');
   assert.equal(negotiateEngineDaemon({ ...base, protocol: ENGINE_DAEMON_PROTOCOL + 1, busy: 1 }), 'defer',
     'a NEWER protocol is never touched, busy or not');
+});
+
+test('an unknown session subscription is rejected before a session runtime is created', async () => {
+  let creations = 0;
+  const service = createEngineDaemonService({
+    createEngine: async () => {
+      creations += 1;
+      throw new Error('an unknown session must not reach the runtime factory');
+    },
+    sessionExists: async () => false,
+  });
+  try {
+    await assert.rejects(
+      service.handleCall('session.subscribe', {
+        sessionId: 'missing_session',
+      }, { clientToken: 'stale_pane' }),
+      /session missing_session is not available/,
+    );
+    assert.equal(creations, 0);
+    assert.equal(service.size, 0);
+  } finally {
+    await service.stop('test end');
+  }
 });
 
 test('a live daemon SSE stream reconnects in place with the same client registration', async () => {
@@ -330,12 +354,132 @@ test('the daemon injects its process-local runtime into the desktop adapter', as
   }
 });
 
+test('project registry and filesystem operations have one explicit daemon API', async () => {
+  const rows = [];
+  const touched = [];
+  const projectStore = {
+    listProjects: () => rows,
+    resolveProjectPath: (value) => `resolved:${value}`,
+    pathExists: (value) => value.includes('existing'),
+    isDirectory: (value) => value.includes('directory'),
+    addProject: (value) => {
+      const project = { name: 'Added', path: value };
+      rows.push(project);
+      return project;
+    },
+    touchProjectSelected: (value) => {
+      touched.push(value);
+      return rows.find((row) => row.path === value) || null;
+    },
+    renameProject: (value, name) => {
+      const project = rows.find((row) => row.path === value);
+      if (!project) return null;
+      project.name = name;
+      return project;
+    },
+    removeProject: (value) => {
+      const index = rows.findIndex((row) => row.path === value);
+      if (index < 0) return false;
+      rows.splice(index, 1);
+      return true;
+    },
+    ensureDir: (value) => `created:${value}`,
+  };
+  const service = createEngineDaemonService({
+    createEngine: async () => createStubEngine(),
+    desktopRuntime: { loadProjects: async () => projectStore },
+  });
+  try {
+    assert.deepEqual(await service.handleCall('project.list'), { projects: [] });
+    assert.deepEqual(await service.handleCall('project.inspect', {
+      path: 'existing-directory',
+    }), {
+      path: 'resolved:existing-directory',
+      exists: true,
+      directory: true,
+    });
+    const added = await service.handleCall('project.add', { path: 'C:\\project' });
+    assert.equal(added.project.path, 'C:\\project');
+    await service.handleCall('project.touch', { path: 'C:\\project' });
+    assert.deepEqual(touched, ['C:\\project']);
+    const renamed = await service.handleCall('project.rename', {
+      path: 'C:\\project',
+      name: 'Renamed',
+    });
+    assert.equal(renamed.project.name, 'Renamed');
+    assert.deepEqual(await service.handleCall('project.ensureDirectory', {
+      path: 'C:\\new',
+    }), { path: 'created:C:\\new' });
+    assert.deepEqual(await service.handleCall('project.remove', {
+      path: 'C:\\project',
+    }), { removed: true });
+  } finally {
+    await service.stop('test end');
+  }
+});
+
+test('the TUI project picker awaits backend switches and contains backend failures', async () => {
+  const calls = [];
+  const notices = [];
+  let picker = null;
+  const factory = createProjectPicker({
+    state: { cwd: 'C:\\current' },
+    store: {
+      listProjects: async () => [{ name: 'One', path: 'C:\\one' }],
+      setCwd: async (path) => {
+        calls.push(`cwd:${path}`);
+        return path;
+      },
+      addProject: async (path) => {
+        calls.push(`add:${path}`);
+        return { name: 'One', path };
+      },
+      pushNotice: (message, tone) => notices.push([message, tone]),
+    },
+    setPicker: (next) => {
+      picker = typeof next === 'function' ? next(picker) : next;
+    },
+    setProviderPrompt: () => {},
+    setChannelPrompt: () => {},
+    setHookPrompt: () => {},
+    setSettingsPrompt: () => {},
+    setContextPanel: () => {},
+    closeUsagePanel: () => {},
+    projectNameFromPath: (value) => value,
+    pickFolder: async () => ({ available: true, path: null }),
+  });
+  await factory.openProjectPicker();
+  assert.equal(picker.items[0].value, 'C:\\one');
+  assert.equal(await factory.enterProject('C:\\one'), true);
+  assert.deepEqual(calls, ['cwd:C:\\one', 'add:C:\\one']);
+
+  const failed = createProjectPicker({
+    state: { cwd: 'C:\\current' },
+    store: {
+      setCwd: async () => { throw new Error('backend rejected cwd'); },
+      pushNotice: (message, tone) => notices.push([message, tone]),
+    },
+    setPicker: () => {},
+    setProviderPrompt: () => {},
+    setChannelPrompt: () => {},
+    setHookPrompt: () => {},
+    setSettingsPrompt: () => {},
+    setContextPanel: () => {},
+    closeUsagePanel: () => {},
+    projectNameFromPath: (value) => value,
+    pickFolder: async () => ({ available: true, path: null }),
+  });
+  assert.equal(await failed.enterProject('C:\\broken'), false);
+  assert.ok(notices.some(([message, tone]) =>
+    tone === 'error' && /backend rejected cwd/.test(message)));
+});
+
 test('session calls log only a bounded result summary, never the transcript body', async () => {
   const logs = [];
   const service = createEngineDaemonService({
     createEngine: async () => ({
       ...createStubEngine('bounded_log_session'),
-      hugeResult: () => ({
+      getSettingsSnapshot: () => ({
         items: Array.from({ length: 200 }, (_, index) => ({
           id: index,
           text: `private-transcript-${index}-${'x'.repeat(500)}`,
@@ -345,13 +489,13 @@ test('session calls log only a bounded result summary, never the transcript body
     log: (line) => logs.push(line),
   });
   try {
-    const result = await service.handleCall('session.invoke', {
+    const result = await service.handleCall('session.read', {
       sessionId: 'bounded_log_session',
-      method: 'hugeResult',
+      action: 'getSettingsSnapshot',
       args: [],
     }, { clientToken: 'bounded_log_client' });
     assert.equal(result.value.items.length, 200);
-    const line = logs.find((entry) => entry.includes('session call hugeResult'));
+    const line = logs.find((entry) => entry.includes('session action getSettingsSnapshot'));
     assert.match(line, /result=object items=200/);
     assert.doesNotMatch(line, /private-transcript/);
     assert.ok(line.length < 200);
@@ -360,37 +504,39 @@ test('session calls log only a bounded result summary, never the transcript body
   }
 });
 
-test('session catalog rides responses only when its revision changes', async () => {
+test('session catalog has one explicit route and never rides session responses', async () => {
   let scans = 0;
   const service = createEngineDaemonService({
     createEngine: async () => ({
       ...createStubEngine(),
-      listSessions() {
-        scans += 1;
-        return [{ id: 'catalog-row', updatedAt: scans }];
-      },
       renameSessionTitle() { return true; },
     }),
+    listSessions() {
+      scans += 1;
+      return [{ id: 'catalog-row', updatedAt: scans }];
+    },
   });
   try {
-    const created = await service.handleCall('session.create', {});
-    assert.ok(Array.isArray(created.sync?.sessions));
+    const firstCatalog = await service.handleCall('session.list', {});
+    assert.ok(Array.isArray(firstCatalog.sessions));
     assert.equal(scans, 1);
+    const created = await service.handleCall('session.create', {});
+    assert.equal(Object.hasOwn(created, 'sync'), false);
     const read = await service.handleCall('session.read', {
       sessionId: created.sessionId,
       baseRevision: created.revision,
-      baseSyncRevision: created.syncRevision,
     });
     assert.equal(Object.hasOwn(read, 'sync'), false);
-    assert.equal(scans, 1, 'unchanged catalog does not scan or cross the wire');
-    const shaped = await service.handleCall('session.invoke', {
+    assert.equal(scans, 1, 'session reads do not scan or carry the catalog');
+    const configured = await service.handleCall('session.configure', {
       sessionId: created.sessionId,
-      method: 'renameSessionTitle',
+      action: 'renameSessionTitle',
       args: ['renamed'],
       baseRevision: read.revision,
-      baseSyncRevision: read.syncRevision,
     });
-    assert.ok(Array.isArray(shaped.sync?.sessions));
+    assert.equal(Object.hasOwn(configured, 'sync'), false);
+    const secondCatalog = await service.handleCall('session.list', {});
+    assert.ok(Array.isArray(secondCatalog.sessions));
     assert.equal(scans, 2);
   } finally {
     await service.stop('test end');
@@ -488,10 +634,15 @@ function createStubEngine(sessionId = '') {
       publish();
       return true;
     },
-    startWork() {
+    setProgressHint() {
       state = { ...state, busy: true, items: [...state.items, { id: state.items.length + 1, text: 'working' }] };
       publish();
       return true;
+    },
+    setCwd(cwd) {
+      state = { ...state, cwd: String(cwd) };
+      publish();
+      return state.cwd;
     },
     abort(options = {}) {
       state = { ...state, busy: false };
@@ -504,9 +655,9 @@ function createStubEngine(sessionId = '') {
           : { image_1: { filename: 'restored.png' } },
       };
     },
-    boom() { throw new Error('stub failure'); },
+    getProfile() { throw new Error('stub failure'); },
     // A function value must never cross the wire — the sanitizer drops it.
-    describe() { return { ok: true, callback() {}, when: new Date(0) }; },
+    getTheme() { return { ok: true, callback() {}, when: new Date(0) }; },
     async dispose() { state = { ...state, disposed: true }; publish(); },
   };
 }
@@ -514,7 +665,7 @@ function createStubEngine(sessionId = '') {
 async function withDaemon(run, {
   engineFactory = async () => createStubEngine(), idleEvictMs = null, evictSweepMs = null,
   onClientRegistered = null, softRssMb = null,
-  rssBytes = undefined,
+  rssBytes = undefined, desktopRuntime = null,
 } = {}) {
   let clientsEmptyReason = null;
   // Client identity is what the pool refcounts views by; the tests need it to
@@ -527,6 +678,7 @@ async function withDaemon(run, {
     idleEvictMs,
     evictSweepMs,
     softRssMb,
+    desktopRuntime,
     ...(rssBytes ? { rssBytes } : {}),
   });
   const transport = createEngineDaemonTransport({
@@ -594,9 +746,9 @@ test('health and registration bypass a burst of synchronous session call starts'
     const client = await attachEngineDaemon({ discovery, cwd: process.cwd() });
     const { sessionId } = await client.call('session.create', { cwd: process.cwd() });
     const work = Promise.all(Array.from({ length: 64 }, (_, index) =>
-      client.call('session.invoke', {
+      client.call('session.read', {
         sessionId,
-        method: 'briefCpuWork',
+        action: 'getTheme',
         args: [index],
       }, { callId: `control-plane-work:${index}` })));
     await new Promise((resolve) => setImmediate(resolve));
@@ -615,7 +767,7 @@ test('health and registration bypass a burst of synchronous session call starts'
   }, {
     engineFactory: async () => ({
       ...createStubEngine(),
-      briefCpuWork(index) {
+      getTheme(index) {
         const deadline = performance.now() + 5;
         while (performance.now() < deadline) { /* deliberate synchronous slice */ }
         return index;
@@ -634,9 +786,9 @@ test('abort starts immediately while ordinary session calls remain in flight', a
     const client = await attachEngineDaemon({ discovery, cwd: process.cwd() });
     const { sessionId } = await client.call('session.create', { cwd: process.cwd() });
     const work = Array.from({ length: 64 }, (_, index) =>
-      client.call('session.invoke', {
+      client.call('session.read', {
         sessionId,
-        method: 'blockedWork',
+        action: 'getSettingsSnapshot',
         args: [index],
       }, { callId: `reserved-capacity-work:${index}` }));
     try {
@@ -666,7 +818,7 @@ test('abort starts immediately while ordinary session calls remain in flight', a
   }, {
     engineFactory: async () => ({
       ...createStubEngine(),
-      blockedWork() {
+      getSettingsSnapshot() {
         startedWork += 1;
         return workGate;
       },
@@ -702,9 +854,9 @@ test('independent clients and sessions start without waiting for another backlog
     });
     const { sessionId } = await noisy.call('session.create', { cwd: process.cwd() });
     const noisyWork = Array.from({ length: 60 }, (_, index) =>
-      noisy.call('session.invoke', {
+      noisy.call('session.read', {
         sessionId,
-        method: 'fairBlockedWork',
+        action: 'getProfile',
         args: [`noisy-${index}`],
       }, { callId: `fair-noisy-${index}` }));
     let victimWork = null;
@@ -713,9 +865,9 @@ test('independent clients and sessions start without waiting for another backlog
         () => started.length === noisyWork.length,
         'noisy session starts its full parallel wave',
       );
-      victimWork = victim.call('session.invoke', {
+      victimWork = victim.call('session.read', {
         sessionId,
-        method: 'fairBlockedWork',
+        action: 'getProfile',
         args: ['victim'],
       }, { callId: 'fair-victim' });
       await waitFor(() => started.includes('victim'), 'victim starts without a permit release');
@@ -731,7 +883,7 @@ test('independent clients and sessions start without waiting for another backlog
   }, {
     engineFactory: async () => ({
       ...createStubEngine(),
-      fairBlockedWork(label) {
+      getProfile(label) {
         started.push(label);
         return gateFor(label);
       },
@@ -803,9 +955,9 @@ test('call idempotency is isolated per client process', async () => {
       discovery, cwd: process.cwd(), leadPid: process.ppid,
     });
     const { sessionId } = await first.call('session.create', { cwd: process.cwd() });
-    const args = { sessionId, method: 'submit', args: ['same payload'] };
-    await first.call('session.invoke', args, { callId: 'same-process-local-id' });
-    await second.call('session.invoke', args, { callId: 'same-process-local-id' });
+    const args = { sessionId, prompt: 'same payload' };
+    await first.call('session.submit', args, { callId: 'same-process-local-id' });
+    await second.call('session.submit', args, { callId: 'same-process-local-id' });
     const read = await first.call('session.read', { sessionId });
     assert.equal(read.full.items.length, 2);
     await second.close('call cache isolation');
@@ -1049,19 +1201,19 @@ test('session protocol ACKs intake and unsubscribe never interrupts execution', 
   }, { engineFactory });
 });
 
-test('engine faults answer as call errors and non-serializable values are dropped', async () => {
+test('session faults answer as call errors and non-serializable values are dropped', async () => {
   await withDaemon(async ({ discovery }) => {
     const client = await attachEngineDaemon({ discovery, cwd: process.cwd() });
     const { sessionId } = await client.call('session.create', { cwd: process.cwd() });
     await assert.rejects(
-      () => client.call('session.invoke', { sessionId, method: 'boom', args: [] }),
+      () => client.call('session.read', { sessionId, action: 'getProfile', args: [] }),
       /stub failure/,
     );
     await assert.rejects(
-      () => client.call('session.invoke', { sessionId, method: 'missingMethod', args: [] }),
+      () => client.call('session.read', { sessionId, action: 'getOutputStyle', args: [] }),
       /unavailable/,
     );
-    const described = await client.call('session.invoke', { sessionId, method: 'describe', args: [] });
+    const described = await client.call('session.read', { sessionId, action: 'getTheme', args: [] });
     assert.deepEqual(described.value, { ok: true, when: '1970-01-01T00:00:00.000Z' });
     await client.close('test');
   });
@@ -1072,15 +1224,15 @@ test('a retried call with the same id runs exactly one engine mutation', async (
     const client = await attachEngineDaemon({ discovery, cwd: process.cwd() });
     const { sessionId } = await client.call('session.create', { cwd: process.cwd() });
     const callId = 'stable-call-id';
-    await client.call('session.invoke', { sessionId, method: 'submit', args: ['once'] }, { callId });
-    await client.call('session.invoke', { sessionId, method: 'submit', args: ['once'] }, { callId });
+    await client.call('session.submit', { sessionId, prompt: 'once' }, { callId });
+    await client.call('session.submit', { sessionId, prompt: 'once' }, { callId });
     const read = await client.call('session.read', { sessionId });
     assert.equal(read.full.items.length, 1);
     await client.close('test');
   });
 });
 
-test('the remote engine proxy keeps the store contract', async () => {
+test('the remote session projection keeps the store contract', async () => {
   await withDaemon(async () => {
     const engine = await createRemoteEngineSession({ cwd: process.cwd() });
     assert.equal(engine.isRemoteEngine, true);
@@ -1091,12 +1243,12 @@ test('the remote engine proxy keeps the store contract', async () => {
     assert.equal(await engine.submit('through the proxy'), true);
     await waitFor(() => engine.getState().items?.length === 1, 'proxy mirrors its own submission');
     assert.ok(notified > 0, 'subscribers observe the mirrored snapshot');
-    await engine.startWork();
+    await engine.setProgressHint('working');
     const preserved = await engine.abortAsync({ restorePrompt: false });
     assert.equal(preserved.aborted, true);
     assert.equal(preserved.restoreText, '', 'a replacement draft suppresses prompt rewind across the daemon');
     assert.equal(preserved.pastedImages, null);
-    await engine.startWork();
+    await engine.setProgressHint('working');
     const interrupted = await engine.abortAsync();
     assert.equal(interrupted.aborted, true);
     assert.equal(interrupted.restoreText, 'restored prompt');
@@ -1118,6 +1270,38 @@ test('the remote engine proxy keeps the store contract', async () => {
     assert.notEqual(second.getState().sessionId, engine.getState().sessionId);
     await second.dispose('test');
     await engine.dispose('test');
+  });
+});
+
+test('the remote TUI project surface uses only daemon project and cwd routes', async () => {
+  const rows = [{ name: 'Shared', path: 'C:\\shared' }];
+  const touched = [];
+  const projectStore = {
+    listProjects: () => rows,
+    addProject: (path) => {
+      const project = { name: 'Added', path };
+      rows.push(project);
+      return project;
+    },
+    touchProjectSelected: (path) => {
+      touched.push(path);
+      return rows.find((row) => row.path === path) || null;
+    },
+  };
+  await withDaemon(async () => {
+    const engine = await createRemoteEngineSession({ cwd: 'C:\\initial' });
+    assert.deepEqual(await engine.listProjects(), rows);
+    assert.deepEqual(await engine.addProject('C:\\added'), {
+      name: 'Added',
+      path: 'C:\\added',
+    });
+    assert.equal(await engine.setCwd('C:\\shared'), 'C:\\shared');
+    assert.equal(engine.getState().cwd, 'C:\\shared');
+    assert.equal(typeof engine.getState().cwd, 'string');
+    assert.deepEqual(touched, ['C:\\shared']);
+    await engine.dispose('test');
+  }, {
+    desktopRuntime: { loadProjects: async () => projectStore },
   });
 });
 
@@ -1161,8 +1345,8 @@ test('resuming a session another view already holds converges on one owner', asy
 test('a method return leaves the view consistent immediately', async () => {
   await withDaemon(async () => {
     const view = await createRemoteEngineSession({ cwd: process.cwd() });
-    // No await on a frame: an in-process store is consistent the instant the
-    // method returns, and EngineHost verifies exactly that after resume().
+    // No await on a frame: the session projection is consistent the instant
+    // the method returns.
     await view.resume('immediate-session');
     assert.equal(view.getState().sessionId, 'immediate-session');
     // submit is part of the SYNCHRONOUS store surface: it accepts inline and
@@ -1178,7 +1362,7 @@ test('a working engine outlives its last view and the next one rejoins it', asyn
   await withDaemon(async ({ service }) => {
     const before = await createRemoteEngineSession({ cwd: process.cwd() });
     await before.resume('long-running');
-    await before.startWork();
+    await before.setProgressHint('working');
     assert.equal(before.getState().busy, true, 'the engine is mid-turn');
 
     // The app quits / the terminal is restarted while the turn runs.

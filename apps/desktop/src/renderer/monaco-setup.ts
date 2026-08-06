@@ -130,39 +130,39 @@ monaco.languages.setMonarchTokensProvider('log', LOG_MONARCH_LANGUAGE);
 monaco.languages.setLanguageConfiguration('log', LOG_LANGUAGE_CONFIGURATION);
 
 // Monaco's stock vs/vs-dark canvases are cool white/near-black. Match the
-// renderer's warm workspace sheet while inheriting the familiar syntax rules.
+// renderer's workspace sheet while inheriting the familiar syntax rules.
 monaco.editor.defineTheme('mixdog-dark', {
   base: 'vs-dark',
   inherit: true,
   rules: [],
   colors: {
-    'editor.background': '#1f1f1f',
+    'editor.background': '#1c1c1f',
     'editor.foreground': '#e9e9e9',
-    'editorGutter.background': '#1f1f1f',
+    'editorGutter.background': '#1c1c1f',
     'editorLineNumber.foreground': '#858585',
     'editorLineNumber.activeForeground': '#d0d0d0',
-    'editor.lineHighlightBackground': '#262626',
-    'editor.selectionBackground': '#424242',
-    'editor.inactiveSelectionBackground': '#2e2e2e',
+    'editor.lineHighlightBackground': '#222225',
+    'editor.selectionBackground': '#3d3d41',
+    'editor.inactiveSelectionBackground': '#2a2a2d',
     'editorCursor.foreground': '#e9e9e9',
-    'editorWhitespace.foreground': '#424242',
-    'editorIndentGuide.background1': '#2e2e2e',
-    'editorIndentGuide.activeBackground1': '#616161',
-    'minimap.background': '#1f1f1f',
-    'editorOverviewRuler.background': '#1f1f1f',
+    'editorWhitespace.foreground': '#3d3d41',
+    'editorIndentGuide.background1': '#2a2a2d',
+    'editorIndentGuide.activeBackground1': '#5c5c61',
+    'minimap.background': '#1c1c1f',
+    'editorOverviewRuler.background': '#1c1c1f',
     'editorOverviewRuler.border': '#00000000',
     'scrollbar.shadow': '#00000000',
     'scrollbarSlider.background': '#85858533',
     'scrollbarSlider.hoverBackground': '#a8a8a855',
     'scrollbarSlider.activeBackground': '#d0d0d066',
-    'editorWidget.background': '#262626',
-    'editorWidget.border': '#424242',
-    'editorSuggestWidget.background': '#262626',
-    'editorSuggestWidget.border': '#424242',
-    'editorSuggestWidget.selectedBackground': '#373737',
-    'editorHoverWidget.background': '#262626',
-    'editorHoverWidget.border': '#424242',
-    'menu.background': '#1f1f1f',
+    'editorWidget.background': '#222225',
+    'editorWidget.border': '#3d3d41',
+    'editorSuggestWidget.background': '#222225',
+    'editorSuggestWidget.border': '#3d3d41',
+    'editorSuggestWidget.selectedBackground': '#323236',
+    'editorHoverWidget.background': '#222225',
+    'editorHoverWidget.border': '#3d3d41',
+    'menu.background': '#1c1c1f',
     'menu.foreground': '#cccccc',
     'menu.selectionBackground': '#0078d4',
     'menu.selectionForeground': '#ffffff',
@@ -175,45 +175,45 @@ monaco.editor.defineTheme('mixdog-light', {
   inherit: true,
   rules: [],
   colors: {
-    'editor.background': '#faf8f5',
-    'editor.foreground': '#1b1a17',
-    'editorGutter.background': '#faf8f5',
-    'editorLineNumber.foreground': '#878178',
-    'editorLineNumber.activeForeground': '#45413a',
-    'editor.lineHighlightBackground': '#f7f5f2',
-    'editor.selectionBackground': '#e2ddd7',
-    'editor.inactiveSelectionBackground': '#eae7e3',
-    'editorCursor.foreground': '#1b1a17',
-    'editorWhitespace.foreground': '#e2ddd7',
-    'editorIndentGuide.background1': '#eae7e3',
-    'editorIndentGuide.activeBackground1': '#b8b1a8',
-    'minimap.background': '#faf8f5',
-    'editorOverviewRuler.background': '#faf8f5',
+    'editor.background': '#fafafa',
+    'editor.foreground': '#17181a',
+    'editorGutter.background': '#fafafa',
+    'editorLineNumber.foreground': '#8a8f95',
+    'editorLineNumber.activeForeground': '#3f4348',
+    'editor.lineHighlightBackground': '#f7f7f7',
+    'editor.selectionBackground': '#e2e2e2',
+    'editor.inactiveSelectionBackground': '#e8e8e8',
+    'editorCursor.foreground': '#17181a',
+    'editorWhitespace.foreground': '#e2e2e2',
+    'editorIndentGuide.background1': '#e8e8e8',
+    'editorIndentGuide.activeBackground1': '#b0b0b0',
+    'minimap.background': '#fafafa',
+    'editorOverviewRuler.background': '#fafafa',
     'editorOverviewRuler.border': '#00000000',
     'scrollbar.shadow': '#00000000',
-    'scrollbarSlider.background': '#635f5733',
-    'scrollbarSlider.hoverBackground': '#635f5755',
-    'scrollbarSlider.activeBackground': '#45413a66',
-    'editorWidget.background': '#fffefc',
-    'editorWidget.border': '#3e322335',
-    'editorSuggestWidget.background': '#fffefc',
-    'editorSuggestWidget.border': '#3e322335',
-    'editorSuggestWidget.selectedBackground': '#f0edea',
-    'editorHoverWidget.background': '#fffefc',
-    'editorHoverWidget.border': '#3e322335',
-    'menu.background': '#faf8f5',
-    'menu.foreground': '#1b1a17',
+    'scrollbarSlider.background': '#5c606633',
+    'scrollbarSlider.hoverBackground': '#5c606655',
+    'scrollbarSlider.activeBackground': '#3f434866',
+    'editorWidget.background': '#ffffff',
+    'editorWidget.border': '#17181a24',
+    'editorSuggestWidget.background': '#ffffff',
+    'editorSuggestWidget.border': '#17181a24',
+    'editorSuggestWidget.selectedBackground': '#f0f0f0',
+    'editorHoverWidget.background': '#ffffff',
+    'editorHoverWidget.border': '#17181a24',
+    'menu.background': '#fafafa',
+    'menu.foreground': '#17181a',
     'menu.selectionBackground': '#005fb8',
     'menu.selectionForeground': '#ffffff',
-    'menu.separatorBackground': '#1b1a1733',
+    'menu.separatorBackground': '#17181a33',
   },
 });
 
 // ── Dynamic theme sync ──────────────────────────────────────────────────
-// The static definitions above are the boot fallback (default warm dark /
+// The static definitions above are the boot fallback (default dark /
 // light). Registry themes (nord, dracula, …) restyle the shell through
 // injected --mx-* tokens; the editor must follow the same tokens or it
-// stays warm-dark inside a differently colored shell.
+// stays on the default dark inside a differently colored shell.
 let themeColorProbe: HTMLElement | null = null;
 
 function colorProbe(): HTMLElement {
@@ -264,15 +264,15 @@ function withAlpha(color: string, alpha: string): string {
 }
 
 function currentMonacoColors(light: boolean): Record<string, string> {
-  const sheet = resolveThemeColor('--mx-workspace-sheet', light ? '#faf8f5' : '#1f1f1f');
-  const text = resolveThemeColor('--mx-text', light ? '#1b1a17' : '#e9e9e9');
-  const faint = resolveThemeColor('--mx-text-faint', light ? '#878178' : '#808080');
-  const icon = resolveThemeColor('--mx-icon', light ? '#45413a' : '#d0d0d0');
-  const base = resolveThemeColor('--mx-bg-base', light ? '#fffefc' : '#262626');
-  const layer1 = resolveThemeColor('--mx-bg-layer-1', light ? '#f7f5f2' : '#2e2e2e');
-  const layer2 = resolveThemeColor('--mx-bg-layer-2', light ? '#f0edea' : '#373737');
-  const layer3 = resolveThemeColor('--mx-bg-layer-3', light ? '#eae7e3' : '#424242');
-  const contrast = resolveThemeColor('--mx-bg-contrast', light ? '#b8b1a8' : '#616161');
+  const sheet = resolveThemeColor('--mx-workspace-sheet', light ? '#fafafa' : '#1c1c1f');
+  const text = resolveThemeColor('--mx-text', light ? '#17181a' : '#e9e9e9');
+  const faint = resolveThemeColor('--mx-text-faint', light ? '#717171' : '#808080');
+  const icon = resolveThemeColor('--mx-icon', light ? '#3f4348' : '#d0d0d0');
+  const base = resolveThemeColor('--mx-bg-base', light ? '#ffffff' : '#222225');
+  const layer1 = resolveThemeColor('--mx-bg-layer-1', light ? '#f7f7f7' : '#2a2a2d');
+  const layer2 = resolveThemeColor('--mx-bg-layer-2', light ? '#f0f0f0' : '#323236');
+  const layer3 = resolveThemeColor('--mx-bg-layer-3', light ? '#e8e8e8' : '#3d3d41');
+  const contrast = resolveThemeColor('--mx-bg-contrast', light ? '#b0b0b0' : '#5c5c61');
   const focus = resolveThemeColor('--mx-focus', light ? '#005fb8' : '#0078d4');
   const scrollbarThumb = resolveThemeColor('--mx-scrollbar-thumb', withAlpha(faint, '33'));
   const scrollbarThumbHover = resolveThemeColor('--mx-scrollbar-thumb-hover', withAlpha(faint, '55'));

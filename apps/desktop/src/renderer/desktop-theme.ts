@@ -91,28 +91,18 @@ function builtinTheme(resolved: string): boolean {
 
 function desktopThemeBackground(resolved: string): string {
   if (resolved === 'light') return '#f0f0f0';
-  if (builtinTheme(resolved)) return '#0f0f0f';
+  if (builtinTheme(resolved)) return '#151518';
   return registry[resolved].palette.background;
 }
 
-// 'system' | 'dark' | 'gray' | 'white' are the desktop surface modes; any TUI
-// registry theme id (nord, dracula, …) is also accepted as a desktop-local
-// preference. Dark and Gray share the same palette and differ only in the
-// surface ramp (user: 다크가 그레이 같다 — 둘로 나누자).
-export type DesktopThemePreference = 'system' | 'dark' | 'gray' | 'white' | (string & {});
-
-/** The surface ramp desktop.css paints for a preference. */
-function surfaceForPreference(preference: DesktopThemePreference, resolved: string): string {
-  if (preference === 'dark' || preference === 'gray' || preference === 'white') return preference;
-  if (preference === 'system') return resolved === 'light' ? 'white' : 'dark';
-  return '';
-}
-
-function applySurface(surface: string): void {
-  const root = document.documentElement;
-  if (surface) root.dataset.mixdogSurface = surface;
-  else delete root.dataset.mixdogSurface;
-}
+// 'system' | 'dark' | 'white' are the desktop surface modes; any TUI registry
+// theme id (nord, dracula, …) is also accepted as a desktop-local preference.
+// The former Gray ramp IS the Dark theme now and the near-black variant is
+// retired (user: 그레이를 다크로 바꾸고 기존 다크는 폐기), so the ramps live in
+// desktop.css's own :root / [data-mixdog-theme="light"] blocks — no separate
+// surface attribute rides on top anymore. That also fixes the web build, which
+// never shipped the surface layer and therefore rendered the warm paper set.
+export type DesktopThemePreference = 'system' | 'dark' | 'white' | (string & {});
 
 const DESKTOP_THEME_PREFERENCE_KEY = 'mixdog.desktop-theme-preference';
 
@@ -126,7 +116,9 @@ function desktopThemeStorage(): Storage | null {
 
 export function getDesktopThemePreference(): DesktopThemePreference | null {
   const value = desktopThemeStorage()?.getItem(DESKTOP_THEME_PREFERENCE_KEY) || '';
-  if (value === 'system' || value === 'dark' || value === 'gray' || value === 'white') return value;
+  // Retired mode: a stored 'gray' resolves to the Dark it became.
+  if (value === 'gray') return 'dark';
+  if (value === 'system' || value === 'dark' || value === 'white') return value;
   return registry[value] ? value : null;
 }
 
@@ -136,9 +128,8 @@ export function desktopThemePreferenceForTheme(value: unknown): DesktopThemePref
   return resolved === 'light' ? 'white' : 'dark';
 }
 
-/** Settings picker options — DESKTOP keeps exactly the classic modes
- * (user: 데스크탑은 분리고 화이트·다크·그레이 3개면 된다): System +
- * White/Dark/Gray. The TUI registry themes (nord, dracula, …) stay
+/** Settings picker options — DESKTOP keeps exactly the classic modes:
+ * System + White/Dark. The TUI registry themes (nord, dracula, …) stay
  * TUI-only; a previously stored registry id still resolves for rendering,
  * it just is not offered here anymore. */
 export function desktopThemeOptions(): Array<{ value: DesktopThemePreference; label: string }> {
@@ -146,7 +137,6 @@ export function desktopThemeOptions(): Array<{ value: DesktopThemePreference; la
     { value: 'system', label: 'System' },
     { value: 'white', label: 'White' },
     { value: 'dark', label: 'Dark' },
-    { value: 'gray', label: 'Gray' },
   ];
 }
 
@@ -164,14 +154,10 @@ export function applyDesktopThemePreference(preference: DesktopThemePreference):
     ? 'light'
     : preference === 'system' && typeof window.matchMedia === 'function'
       ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? DEFAULT_THEME_ID : 'light')
-      : preference !== 'system' && preference !== 'dark' && preference !== 'gray' && registry[preference]
+      : preference !== 'system' && preference !== 'dark' && registry[preference]
         ? preference
         : DEFAULT_THEME_ID;
-  const applied = applyDesktopTheme(resolved);
-  // The surface ramp rides ON TOP of the palette, so it is applied after the
-  // theme has cleared its own inline variables.
-  applySurface(surfaceForPreference(preference, applied));
-  return applied;
+  return applyDesktopTheme(resolved);
 }
 
 // Whether the LAST applied preference was 'system': the main process then
@@ -196,9 +182,6 @@ export function applyDesktopTheme(value: unknown): string {
   const root = document.documentElement;
   suppressThemeSwapTransitions(root);
   root.dataset.mixdogTheme = resolved;
-  // A raw theme application (no preference) owns the palette alone; the
-  // surface ramp is re-applied by applyDesktopThemePreference.
-  delete root.dataset.mixdogSurface;
   root.style.colorScheme = resolved === 'light' ? 'light' : 'dark';
   document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
     ?.setAttribute('content', desktopThemeBackground(resolved));

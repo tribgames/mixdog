@@ -131,6 +131,43 @@ export function paneLeaves(node: PaneNode): PaneLeaf[] {
   return [...paneLeaves(node.first), ...paneLeaves(node.second)];
 }
 
+/** Authorize persisted session tabs against the durable startup catalog before
+ * any pane mounts. Empty orphan-only groups collapse exactly like closed
+ * editor groups; non-session tabs retain their original layout. */
+export function filterPaneLayoutSessions(
+  root: PaneNode,
+  knownSessionIds: ReadonlySet<string>,
+): PaneNode | null {
+  const filter = (node: PaneNode): PaneNode | null => {
+    if (node.type === "split") {
+      const first = filter(node.first);
+      const second = filter(node.second);
+      if (!first) return second;
+      if (!second) return first;
+      if (first === node.first && second === node.second) return node;
+      return { ...node, first, second };
+    }
+    const tabs = node.tabs.filter((tab) =>
+      tab.kind !== "session" || knownSessionIds.has(tab.id));
+    if (tabs.length === node.tabs.length) return node;
+    if (tabs.length === 0) return null;
+    const keys = new Set(tabs.map((tab) => navigationKey(tab)));
+    const activeKey = keys.has(node.activeKey)
+      ? node.activeKey
+      : navigationKey(tabs[0]);
+    const previewKey = node.previewKey && keys.has(node.previewKey)
+      ? node.previewKey
+      : undefined;
+    return {
+      ...node,
+      tabs,
+      activeKey,
+      ...(previewKey ? { previewKey } : { previewKey: undefined }),
+    };
+  };
+  return filter(root);
+}
+
 export function findPaneLeaf(node: PaneNode, leafId: string): PaneLeaf | null {
   if (node.type === "leaf") return node.id === leafId ? node : null;
   return findPaneLeaf(node.first, leafId) ?? findPaneLeaf(node.second, leafId);

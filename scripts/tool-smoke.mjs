@@ -1775,24 +1775,18 @@ setInternalToolsProvider({
 }
 const patchTool = PATCH_TOOL_DEFS[0];
 const patchDescription = patchTool?.inputSchema?.properties?.patch?.description || '';
-// V4A public contract plus the one Mixdog extension: the JSON schema
-// is the fallback for providers that cannot carry a custom freeform tool and
-// exposes the patch string and the optional post_shell verification command —
-// no other Mixdog-only options or prior-read/rollback guidance.
+// The JSON schema is the fallback for providers that cannot carry a custom
+// freeform tool. It exposes only the patch and out-of-session root contracts.
 if (!/V4A/i.test(patchDescription)) {
   throw new Error('apply_patch JSON fallback must describe the patch string as V4A');
 }
-if (Object.keys(patchTool?.inputSchema?.properties || {}).join(',') !== 'patch,post_shell,root'
+if (Object.keys(patchTool?.inputSchema?.properties || {}).join(',') !== 'patch,root'
     || JSON.stringify(patchTool?.inputSchema?.required || []) !== '["patch"]') {
-  throw new Error(`apply_patch JSON fallback must expose patch + optional post_shell/root: ${JSON.stringify(patchTool?.inputSchema)}`);
+  throw new Error(`apply_patch JSON fallback must expose patch + optional root: ${JSON.stringify(patchTool?.inputSchema)}`);
 }
 const patchRootDescription = patchTool?.inputSchema?.properties?.root?.description || '';
 if (!/outside the session directory/i.test(patchRootDescription)) {
   throw new Error(`apply_patch root must state the out-of-session write contract: ${patchRootDescription}`);
-}
-const postShellDescription = patchTool?.inputSchema?.properties?.post_shell?.description || '';
-if (!/skipped on patch failure/i.test(postShellDescription)) {
-  throw new Error(`post_shell must state its skip-on-failure contract: ${postShellDescription}`);
 }
 if (!/Every section starts with exactly one header:[\s\S]*Add File[\s\S]*Delete File[\s\S]*Update File/i.test(patchTool?.description || '')
     || !/V4A patch text to apply/i.test(patchDescription)) {
@@ -1805,7 +1799,7 @@ if (/exact current context|roll ?back/i.test(JSON.stringify(patchTool))) {
   throw new Error(`apply_patch contract must not carry context/rollback model guidance: ${JSON.stringify(patchTool)}`);
 }
 const COMPACT_APPLY_PATCH_FREEFORM_DESCRIPTION =
-  'Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.';
+  'Edit files with `apply_patch`. FREEFORM input; do not wrap the patch in JSON.';
 if (patchTool?.freeformDescription !== COMPACT_APPLY_PATCH_FREEFORM_DESCRIPTION
     || patchTool?.freeform?.type !== 'grammar'
     || patchTool?.freeform?.syntax !== 'lark') {
@@ -2101,8 +2095,8 @@ if (!/Default web/i.test(searchProps.type?.description || '') || !/locale hint/i
 }
 const webFetchTool = SEARCH_TOOL_DEFS.find((tool) => tool.name === 'web_fetch');
 const webFetchProps = webFetchTool?.inputSchema?.properties || {};
-if (!/Use after search/i.test(webFetchTool?.description || '') || !webFetchProps.url?.anyOf || !/array of URLs/i.test(webFetchProps.url?.description || '')) {
-  throw new Error('web_fetch schema must preserve after-search guidance and string/array url shape');
+if (!/^Fetch page\/docs body from URL\.$/i.test(webFetchTool?.description || '') || !webFetchProps.url?.anyOf || !/array of URLs/i.test(webFetchProps.url?.description || '')) {
+  throw new Error('web_fetch schema must preserve body-fetch capability and string/array url shape');
 }
 if (!/offset/i.test(webFetchProps.startIndex?.description || '') || !/Maximum characters/i.test(webFetchProps.maxLength?.description || '')) {
   throw new Error('web_fetch schema must describe paging window fields');

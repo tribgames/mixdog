@@ -1,8 +1,7 @@
 // Identity-preserving snapshot delta shared by daemon, Electron, and remote
-// transports. copySnapshot reuses unchanged field/item objects, so reference
-// comparisons are sufficient: only appended transcript entries, appended
-// streaming text, and changed state fields cross the structured-clone/JSON
-// boundary.
+// transports. Decoders retain unchanged field/item objects, so only appended
+// transcript entries, appended streaming text, and changed state fields cross
+// the structured-clone/JSON boundary.
 export interface SnapshotDeltaEncoder {
   encode(snapshot: unknown): unknown;
   reset(): void;

@@ -802,6 +802,14 @@ export function Conversation({
     <T,>(action: () => T | Promise<T>) => composerActions.current.invokeResult(action),
     [],
   );
+  const composerQueuedRestored = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    const restored = new Set(ids);
+    setOptimisticPrompts((current) => {
+      const next = current.filter((item) => !restored.has(String(item.id)));
+      return next.length === current.length ? current : next;
+    });
+  }, []);
   const composerApplySnapshot = useCallback(
     (next: EngineSnapshot | null) => composerActions.current.applySnapshot(next),
     [],
@@ -1015,6 +1023,7 @@ export function Conversation({
           onDraftModelSelection={onDraftModelSelection}
           queued={composerQueued}
           hiddenQueueIds={pendingPromptIds}
+          onQueuedRestored={composerQueuedRestored}
           userMessages={composerUserMessages}
           submit={composerSubmit}
           abort={composerAbort}

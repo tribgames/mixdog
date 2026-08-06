@@ -880,7 +880,7 @@ export function createEngineApiB(bag) {
     renameSessionTitle: (id, title) => {
       return runtime.renameSessionTitle?.(id, title) ?? false;
     },
-    // Desktop sidebar watcher hook: EngineHost fs.watches this directory so
+    // Desktop sidebar watcher hook: the backend watches this directory so
     // heartbeat sidecar create/delete pushes instant working/dot updates.
     // Without it the watcher silently no-ops and the sidebar falls back to
     // the 60s safety poll (user: spinner kept spinning after the turn ended).

@@ -15,6 +15,7 @@ import {
   createEmptyPaneLeaf,
   createPaneLeaf,
   distributePaneRatiosAlong,
+  filterPaneLayoutSessions,
   findPaneLeaf,
   mergePaneLeaf,
   movePaneLeaf,
@@ -93,12 +94,29 @@ export function readStoredPaneLayout(storage: StorageLike | null): PaneWorkspace
 }
 
 export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = null) {
-  const restoredFromStorage = useRef(false);
-  const [state, setState] = useState<PaneWorkspaceState>(() => {
+  const startupRestore = useRef<{
+    stored: PaneWorkspaceState | null;
+    requiresSessionValidation: boolean;
+  } | null>(null);
+  if (!startupRestore.current) {
     const stored = readStoredPaneLayout(safeLocalStorage());
-    if (stored) {
-      restoredFromStorage.current = true;
-      return stored;
+    startupRestore.current = {
+      stored,
+      requiresSessionValidation: Boolean(stored
+        && paneLeaves(stored.layout).some((leaf) =>
+          leaf.tabs.some((tab) => tab.kind === "session"))),
+    };
+  }
+  const restorePlan = startupRestore.current;
+  const [restorePending, setRestorePending] = useState(
+    restorePlan.requiresSessionValidation,
+  );
+  const [restoredFromStorage, setRestoredFromStorage] = useState(
+    Boolean(restorePlan.stored && !restorePlan.requiresSessionValidation),
+  );
+  const [state, setState] = useState<PaneWorkspaceState>(() => {
+    if (restorePlan.stored && !restorePlan.requiresSessionValidation) {
+      return restorePlan.stored;
     }
     // A fresh install starts EMPTY (VS Code/Orca): panes are created by the
     // first task, not preallocated.
@@ -107,6 +125,50 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
   });
 
   useEffect(() => {
+    if (!restorePending || !restorePlan.stored) return undefined;
+    let cancelled = false;
+    const restore = async () => {
+      // Even when the catalog is unavailable, keep file/utility/draft tabs and
+      // reject only unverified session addresses.
+      let filtered = filterPaneLayoutSessions(
+        restorePlan.stored!.layout,
+        new Set<string>(),
+      );
+      try {
+        const listSessions = window.mixdogDesktop?.listSessions;
+        if (typeof listSessions === "function") {
+          const rows = await listSessions();
+          const knownSessionIds = new Set(
+            (Array.isArray(rows) ? rows : []).map((row) => String(row.id || "")),
+          );
+          filtered = filterPaneLayoutSessions(
+            restorePlan.stored!.layout,
+            knownSessionIds,
+          );
+        }
+      } catch {
+        // No authoritative catalog means no persisted session tab is safe to
+        // address. Non-session tabs remain available.
+      }
+      if (cancelled) return;
+      const layout = filtered ?? createEmptyPaneLeaf();
+      const leaves = paneLeaves(layout);
+      setState({
+        layout,
+        focusedLeafId: leaves.some((leaf) =>
+          leaf.id === restorePlan.stored!.focusedLeafId)
+          ? restorePlan.stored!.focusedLeafId
+          : leaves[0].id,
+      });
+      setRestoredFromStorage(filtered !== null);
+      setRestorePending(false);
+    };
+    void restore();
+    return () => { cancelled = true; };
+  }, [restorePending, restorePlan]);
+
+  useEffect(() => {
+    if (restorePending) return undefined;
     // Focus, drag and tab operations must paint before the synchronous storage
     // write. The short debounce also collapses resize/reorder bursts.
     const timer = window.setTimeout(() => {
@@ -117,7 +179,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
       }
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [state]);
+  }, [restorePending, state]);
 
   const focusLeaf = useCallback((leafId: string) => {
     setState((prev) => (
@@ -594,7 +656,8 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
 
   return useMemo(() => ({
     layout: state.layout,
-    restoredFromStorage: restoredFromStorage.current,
+    restoredFromStorage,
+    restorePending,
     leaves,
     focusedLeaf,
     focusedLeafId: focusedLeaf?.id ?? "",
@@ -621,6 +684,8 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     setRatio,
   }), [
     state.layout,
+    restoredFromStorage,
+    restorePending,
     leaves,
     focusedLeaf,
     focusLeaf,

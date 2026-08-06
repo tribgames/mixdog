@@ -1,10 +1,8 @@
 // Eager tool-dispatch controller, extracted from agent-loop.mjs. Owns the
 // per-turn pending promise map, the intra-turn in-flight signature set, and
-// the mutation epoch. Read-only calls may start while the provider is still
-// streaming. Side-effect calls stream-start too until the first apply_patch
-// appears in the stream (they are definitively in segment 0); after that they
-// wait for their segment bounded by apply_patch barriers. Patches execute
-// serially as barriers, so a failed patch can skip every later side effect.
+// the mutation epoch. Every valid call may start while the provider is still
+// streaming, including apply_patch and shell in the same batch. Tool-local
+// conflict guards own safety; results are collected later in call order.
 import { normalizeToolEnvelope } from './tool-envelope.mjs';
 import { isInvalidToolArgsMarker } from '../providers/openai-compat-stream.mjs';
 import { _intraTurnSig, _isReadTool, _isScopedCacheableTool, _stripMcpPrefix } from './loop/tool-classify.mjs';

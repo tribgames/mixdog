@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   engineDaemonClientModuleUrl,
-} from './engine-host-support';
+} from './backend-support';
 import type {
   DesktopBackendInbound,
   DesktopBackendOutbound,

@@ -13,14 +13,14 @@ export function createResumePicker({
   formatSessionUpdatedAt,
   formatSessionMessageCount,
 }) {
-  const openResumePicker = () => {
+  const openResumePicker = async () => {
     let sessions;
     try {
       // Terminal ↔ desktop interop: the summary cache is per-process, so a
       // session created/updated by the desktop app (or another CLI) after this
       // process's first listing would be invisible without an authoritative
       // storage rescan on picker open.
-      sessions = store.listSessions({ refreshFromStorage: true });
+      sessions = await store.listSessions({ refreshFromStorage: true });
     } catch (e) {
       store.pushNotice(`could not list saved chats: ${e?.message || e}`, 'error');
       return;

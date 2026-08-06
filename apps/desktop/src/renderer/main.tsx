@@ -54,10 +54,8 @@ window.addEventListener("beforeunload", () => {
   document.removeEventListener("visibilitychange", syncMotionVisibility);
 }, { once: true });
 
-// Begin restored-session hydration before React builds the first pane DOM.
-// The renderer lane is listening before main can publish a one-shot cold frame,
-// and Markdown parsing starts behind the hidden BrowserWindow instead of
-// visibly reshaping code blocks after the panel appears.
+// Listen before React mounts. Persisted pane session ids are not registered
+// here: usePaneWorkspace first authorizes them against the durable catalog.
 defaultSessionLaneStore.start();
 try {
   const restored = readStoredPaneLayout(window.localStorage);
@@ -69,10 +67,6 @@ try {
     : [];
   if (visibleSessionIds.length > 0) {
     void preloadMarkdownBody().catch(() => undefined);
-    const register = window.mixdogDesktop?.setVisibleSessions;
-    if (typeof register === "function") {
-      void Promise.resolve(register(visibleSessionIds)).catch(() => undefined);
-    }
   }
 } catch {
   // Corrupt/unavailable layout storage falls back to App's normal empty boot.

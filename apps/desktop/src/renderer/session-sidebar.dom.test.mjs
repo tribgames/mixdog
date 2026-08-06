@@ -40,9 +40,6 @@ const withArchivedTail = () => [
 
 const callbacks = {
   onNewTask() {},
-  onOpenStudio() {},
-  onOpenFile() {},
-  onNewTerminal() {},
   onResumeSession() {},
   async onRenameSession() {},
   async onArchiveSession() {},
@@ -131,39 +128,25 @@ function placeSentinel(distance) {
 const fireScroll = async (scroller) => act(async () =>
   scroller.dispatchEvent(new window.Event("scroll", { bubbles: false })));
 
-test("Sessions header exposes the pane create options from one boxed add menu", async () => {
+test("Sessions header + creates a task directly instead of opening a menu", async () => {
   installDom();
   const calls = [];
   await act(async () => root.render(renderSidebar({
     onNewTask: () => calls.push("task"),
-    onOpenStudio: () => calls.push("studio"),
-    onOpenFile: () => calls.push("file"),
-    onNewTerminal: () => calls.push("terminal"),
   })));
 
   const actions = document.querySelector(".session-panel-header-actions");
-  const trigger = actions?.querySelector(".session-new-create");
-  const menu = document.querySelector('.workspace-tab-new-menu[aria-label="Create tab"]');
+  const trigger = actions?.querySelector(".session-new-task");
   assert.ok(trigger);
   assert.equal(actions?.querySelectorAll(":scope > button").length, 1,
-    "Studio must be folded into the single create control");
-  assert.equal(menu?.hidden, true);
-  assert.deepEqual([...menu.querySelectorAll('[role="menuitem"]')]
-    .map((item) => item.textContent), ["New Task", "New Studio", "New File", "New Terminal"]);
+    "the Sessions header owns exactly one create control");
+  assert.equal(trigger.getAttribute("aria-haspopup"), null,
+    "+ must run New Task, never a create menu");
+  assert.equal(document.querySelector('.workspace-tab-new-menu[aria-label="Create tab"]'), null,
+    "the sidebar create menu is gone: Studio/File/Terminal live on the tab strip");
 
-  for (const [className, expected] of [
-    [".session-new-task", "task"],
-    [".session-new-studio", "studio"],
-    [".session-new-file", "file"],
-    [".session-new-terminal", "terminal"],
-  ]) {
-    await act(async () => trigger.click());
-    assert.equal(trigger.getAttribute("aria-expanded"), "true");
-    assert.equal(menu.hidden, false);
-    await act(async () => menu.querySelector(className).click());
-    assert.equal(menu.hidden, true);
-    assert.equal(calls.at(-1), expected);
-  }
+  await act(async () => trigger.click());
+  assert.deepEqual(calls, ["task"]);
 });
 
 /** Minimal IntersectionObserver double: JSDOM ships none, so the component's

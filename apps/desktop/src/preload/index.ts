@@ -321,9 +321,16 @@ const api: DesktopApi = {
     ipcRenderer.on(DESKTOP_IPC.state, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.state, receive);
   },
-  perfLog: (line) => {
-    try { ipcRenderer.send(DESKTOP_IPC.perfLog, String(line)); } catch { /* diagnostics only */ }
-  },
+  // Keep perf instrumentation entirely off the production renderer hot path.
+  // Renderer call sites use optional chaining, so omitting the bridge prevents
+  // them from scheduling measurements that the backend would only discard.
+  ...(process.env.MIXDOG_DESKTOP_PERF === '1'
+    ? {
+      perfLog: (line: string) => {
+        try { ipcRenderer.send(DESKTOP_IPC.perfLog, String(line)); } catch { /* diagnostics only */ }
+      },
+    }
+    : {}),
   rendererDiagnostic: (diagnostic) => {
     try { ipcRenderer.send(DESKTOP_IPC.rendererDiagnostic, diagnostic); } catch { /* diagnostics only */ }
   },

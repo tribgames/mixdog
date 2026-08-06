@@ -2,7 +2,7 @@
 // the Electron `mixdog-media://` protocol and the LAN bridge's /media route.
 // Both need a FILE (path + mime), never a base64 payload — that is the whole
 // point of moving gallery bytes off the RPC lane.
-import type { DesktopEngineHost } from './engine-host-api';
+import type { DesktopBackend } from './backend-api';
 
 export interface MediaFileTarget {
   path: string;
@@ -20,7 +20,7 @@ export function forgetMediaFileTarget(assetId: string, variant: string): void {
 /** Resolve one asset/rendition to a file, or null when this host cannot
  *  produce it (unknown asset, or no sharp/ffmpeg for the rendition). */
 export async function resolveMediaFileTarget(
-  host: Pick<DesktopEngineHost, 'invokeCapability'>,
+  host: Pick<DesktopBackend, 'invokeCapability'>,
   assetId: string,
   variant: string,
   options: { generate?: boolean } = {},

@@ -833,7 +833,7 @@ test('openai-compat/xai Responses: freeform apply_patch downgrades to function s
     assert.equal(patch.format, undefined);
     assert.equal(patch.parameters?.properties?.patch?.type, 'string');
     assert.deepEqual(patch.parameters?.required, ['patch']);
-    assert.deepEqual(Object.keys(patch.parameters?.properties || {}), ['patch', 'post_shell', 'root']);
+    assert.deepEqual(Object.keys(patch.parameters?.properties || {}), ['patch', 'root']);
     assert.match(patch.description, /Edit files with this V4A envelope.*Every section starts with exactly one header/is);
     assert.doesNotMatch(JSON.stringify(patch), /exact current context|roll ?back/i);
 });

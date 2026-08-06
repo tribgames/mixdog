@@ -22,6 +22,31 @@ const SCROLL_KEYS = ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"
 // virtualize (user: 병렬 작업 중 타이핑하면 스크롤이 계속 풀린다).
 const RELEASE_MOVE_PX = 1;
 
+/**
+ * Content-commit bottom rule, shared by all three reference implementations:
+ * Claude Code (`render-node-to-output.ts`: `sticky || (grew && scrollTop >=
+ * prevMaxScroll)`), opencode (`session.tsx`: `distance < 10 + max(0, delta)`)
+ * and Codex (`pager_overlay.rs`: snapshot `is_scrolled_to_bottom()` BEFORE the
+ * mutation, re-pin after). All three answer ONE question — was the viewport at
+ * the bottom BEFORE this growth? — instead of measuring the distance after it
+ * landed. Measuring after is what buried a turn that opens with a tool card and
+ * no preamble: one commit grows the transcript by a whole card, so the 10px
+ * band can never be met even though the reader never left the tail.
+ */
+export function atBottomBeforeGrowth({
+  distance,
+  growth,
+  threshold = BOTTOM_THRESHOLD_PX,
+}: {
+  distance: number;
+  growth: number;
+  threshold?: number;
+}): boolean {
+  if (!Number.isFinite(distance) || !Number.isFinite(growth)) return false;
+  if (growth < 0) return false;
+  return distance < threshold + growth;
+}
+
 function reportRelease(reason: string, element: HTMLElement, previousTop: number): void {
   try {
     window.mixdogDesktop?.perfLog?.(
@@ -150,6 +175,9 @@ export function useTranscriptFollow({
   const programmaticTimer = useRef(0);
   // Last observed offset, so a release demands an actual UPWARD move.
   const lastTop = useRef(0);
+  // Last observed content height, so a growth commit can be judged against the
+  // bottom it had BEFORE that growth (see atBottomBeforeGrowth).
+  const lastScrollHeight = useRef(0);
 
   const publish = useCallback((next: boolean) => {
     followingRef.current = next;
@@ -295,6 +323,7 @@ export function useTranscriptFollow({
     scheduleScrollState(element);
     const previousTop = lastTop.current;
     lastTop.current = element.scrollTop;
+    lastScrollHeight.current = element.scrollHeight;
     // Re-attaching at the tail is NOT gesture-gated. Smooth-scroll and inertial
     // tails deliver their last frames well after the 250ms window closes, and a
     // streaming turn keeps pushing the bottom down, so requiring an open
@@ -430,6 +459,9 @@ export function useTranscriptFollow({
     // intentionally omits it in tests that do not exercise layout delivery.
     if (typeof ResizeObserver !== "function") return undefined;
     let viewportHeight = Math.round(element.getBoundingClientRect().height);
+    // Seed the growth baseline with the height already on screen so the first
+    // observation cannot report the whole transcript as this commit's growth.
+    lastScrollHeight.current = element.scrollHeight;
     const observer = new ResizeObserver(() => {
       const root = viewport.current;
       if (!root) return;
@@ -446,7 +478,22 @@ export function useTranscriptFollow({
       const height = Math.round(root.getBoundingClientRect().height);
       const viewportHeightChanged = height !== viewportHeight;
       viewportHeight = height;
-      if (!followingRef.current) return;
+      const growth = root.scrollHeight - lastScrollHeight.current;
+      lastScrollHeight.current = root.scrollHeight;
+      const distance = distanceFromBottom(root);
+      if (!followingRef.current) {
+        // Reference parity (CC sticky restore, Codex `follow_bottom`): a commit
+        // that GREW while the viewport still sat at the previous bottom means
+        // the reader never left the tail, so the flag is restored and the new
+        // bottom is taken. A turn that opens with a tool card and no preamble
+        // lands its whole card in one commit, which is precisely the case the
+        // after-the-fact 10px band could never recognise.
+        if (!viewportHeightChanged && atBottomBeforeGrowth({ distance, growth })) {
+          publish(true);
+          scrollToBottom(false);
+        }
+        return;
+      }
       // A width-only viewport resize (pane sash / window edge drag) belongs to
       // the virtual timeline: its end anchor absorbs every rewrap delta
       // pre-paint. Writing scrollTop here too made two scroll authorities race
@@ -459,7 +506,7 @@ export function useTranscriptFollow({
       // with follow still armed (user: 어시스턴트 턴에 자동 스크롤이 안 된다).
       // A timeline that KEPT its promise leaves the distance at zero, so this
       // re-pin writes nothing unless the tail was actually lost.
-      if (!viewportHeightChanged && distanceFromBottom(root) < BOTTOM_THRESHOLD_PX) return;
+      if (!viewportHeightChanged && distance < BOTTOM_THRESHOLD_PX) return;
       scrollToBottom(false);
     });
     // Virtual-core still owns append and measured-row anchoring; the guard

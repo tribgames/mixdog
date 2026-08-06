@@ -503,7 +503,7 @@ try {
   assert.deepEqual(metadata.captureEnvironment, {
     rendererAssets: "built",
     packaged: false,
-    host: "CaptureEngineHost",
+    host: "CaptureBackend",
     sessionMode: "empty-session",
   });
   assert.deepEqual(metadata.sourceDimensions, { width: 1113, height: 687 });
@@ -513,10 +513,10 @@ try {
   );
   assert.deepEqual(metadata.outputDimensions, { width: 1113, height: 687 });
   assert.equal(metadata.resizeApplied, false);
-  assert.equal(metadata.sharedOptions.titleBarOverlay.color, "#181818");
+  assert.equal(metadata.sharedOptions.titleBarOverlay.color, "#151518");
   assert.equal(metadata.sharedOptions.titleBarOverlay.symbolColor, "white");
   assert.equal(metadata.sharedOptions.titleBarOverlay.height, 40);
-  assert.equal(metadata.sharedOptions.backgroundColor, "#181818");
+  assert.equal(metadata.sharedOptions.backgroundColor, "#151518");
   assert.deepEqual(metadata.rendererValidation, {
     bridgePresent: true,
     inlineErrorCount: 0,
@@ -704,9 +704,9 @@ try {
   assert.equal(metadata.imageMeasuredSidebar.rightGap.left, metadata.domSidebarGeometry.right);
   assert.equal(metadata.imageMeasuredSidebar.rightGap.right, metadata.domSidebarGeometry.mainLeft - 1);
   assert.equal(metadata.imageMeasuredSidebar.rightGap.width, metadata.domSidebarGeometry.gap);
-  assert.equal(metadata.imageMeasuredSidebar.sampledColors.interior, "#181818");
-  assert.equal(metadata.imageMeasuredSidebar.sampledColors.leftBorder, "#181818");
-  assert.equal(metadata.imageMeasuredSidebar.sampledColors.rightGap, "#1f1f1f");
+  assert.equal(metadata.imageMeasuredSidebar.sampledColors.interior, "#151518");
+  assert.equal(metadata.imageMeasuredSidebar.sampledColors.leftBorder, "#151518");
+  assert.equal(metadata.imageMeasuredSidebar.sampledColors.rightGap, "#1c1c1f");
   const assertShellTopEdge = (sample, { band, sheet }) => {
     assert.equal(sample.yStart, 70);
     assert.equal(sample.yEnd, 82);
@@ -725,11 +725,11 @@ try {
     assert.ok(colors.slice(firstSheet).every((color) => color === sheet),
       `${sample.theme} rows below the hairline must be the workspace sheet.`);
   };
-  assertShellTopEdge(metadata.shellTopEdges.dark, { band: "#181818", sheet: "#1f1f1f" });
-  assertShellTopEdge(metadata.shellTopEdges.light, { band: "#f1efec", sheet: "#faf8f5" });
-  assert.equal(metadata.pixelSamples.titlebar.color, "#181818");
-  assert.equal(metadata.pixelSamples.base.color, "#1f1f1f");
-  assert.equal(metadata.pixelSamples.sidebar.color, "#181818");
+  assertShellTopEdge(metadata.shellTopEdges.dark, { band: "#151518", sheet: "#1c1c1f" });
+  assertShellTopEdge(metadata.shellTopEdges.light, { band: "#f0f0f0", sheet: "#fafafa" });
+  assert.equal(metadata.pixelSamples.titlebar.color, "#151518");
+  assert.equal(metadata.pixelSamples.base.color, "#1c1c1f");
+  assert.equal(metadata.pixelSamples.sidebar.color, "#151518");
   // Dictation E2E (fake Chromium mic + stubbed engine transcription): the
   // whole renderer chain must land the transcript in the draft and settle.
   assert.equal(metadata.dictationSmoke.transcriptApplied, true,

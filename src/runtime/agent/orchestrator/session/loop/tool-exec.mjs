@@ -9,7 +9,6 @@ import { executeBashSessionTool } from '../../tools/bash-session.mjs';
 import { executePatchTool } from '../../tools/patch.mjs';
 import { executeInternalTool, isInternalTool } from '../../internal-tools.mjs';
 import { normalizeToolEnvelope, makeToolEnvelope } from '../tool-envelope.mjs';
-import { classifyResultKind, isInformationalShellExitOne, isShellFailureResult } from '../result-classification.mjs';
 import { getSessionAbortSignal, enqueuePendingMessage, markCompletionEntry, markSessionToolOutputTail } from '../manager.mjs';
 import { createScopedCacheOutcome } from '../cache/scoped-cache-outcome.mjs';
 import { modelVisibleToolCompletionMessage } from '../../../../shared/tool-execution-contract.mjs';
@@ -31,44 +30,6 @@ async function executeCodeGraphToolLazy(name, args, cwd, signal = null, options 
     const mod = await codeGraphRuntimePromise;
     if (typeof mod.executeCodeGraphTool !== 'function') throw new Error('code_graph runtime is not available');
     return mod.executeCodeGraphTool(name, args, cwd, signal, options);
-}
-
-// post_shell argument normalisation. The model-facing schema mirrors the shell
-// tool exactly (patch-tool-defs.mjs derives it from the shell schema), so a
-// bare string is only the `command` shorthand and every other shell argument
-// (cwd / timeout / merge_stderr / shell) is forwarded untouched. `mode` is
-// deliberately dropped: the verification must settle inside this call so the
-// patch and its proof stay ONE tool result.
-export function normalizePostShellArgs(raw) {
-    if (typeof raw === 'string') {
-        const command = raw.trim();
-        return command ? { command } : null;
-    }
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-    const command = typeof raw.command === 'string' ? raw.command.trim() : '';
-    if (!command) return null;
-    const forwarded = { command };
-    for (const [key, value] of Object.entries(raw)) {
-        if (key === 'command' || key === 'mode' || value === undefined) continue;
-        forwarded[key] = value;
-    }
-    return forwarded;
-}
-
-// Human-readable reason for the FAILED banner, read from the shell result's
-// own status markers (bash-tool.mjs _shellFailureStatus) so the card states WHY
-// the verification failed instead of showing a bare "FAILED".
-export function postShellFailureReason(text) {
-    const t = String(text || '').trimStart();
-    if (/PowerShell preflight blocked/i.test(t)) return 'blocked before execution: PowerShell syntax preflight';
-    const timedOut = t.match(/\[timeout:\s*([^\]\s]+)/i);
-    if (timedOut) return `timed out after ${timedOut[1]}`;
-    const signal = t.match(/\[signal:\s*([^\]\s]+)/i);
-    if (signal) return `killed by ${signal[1]}`;
-    const exit = t.match(/\[exit code:\s*(-?\d+)\]/i);
-    if (exit) return `exit code ${exit[1]}`;
-    if (/\[shell-tool-failed\]/i.test(t)) return 'shell tool failed before the command ran';
-    return 'verification failed';
 }
 
 export function _scopedCacheOutcomeForCall(sessionRef, toolCallId, toolName, callerSessionId, executeOpts = {}) {
@@ -266,43 +227,10 @@ export async function executeTool(name, args, cwd, callerSessionId, sessionRef, 
     }
     if (name === 'apply_patch') {
         const patchArgs = typeof args === 'string' ? { patch: args } : { ...(args || {}) };
-        // post_shell: optional verification executed through the normal
-        // one-shot shell path ONLY after the patch applies cleanly; a failed
-        // patch skips it. It carries the SAME arguments as the `shell` tool
-        // (sync only). Patch text and shell output return as ONE tool result,
-        // so patch+verify costs a single call. Runtime-only knob: stripped
-        // before executePatchTool sees the args.
-        const postShell = normalizePostShellArgs(patchArgs.post_shell);
-        delete patchArgs.post_shell;
-        const patchResult = await executePatchTool(name, patchArgs, cwd, {
+        return executePatchTool(name, patchArgs, cwd, {
             sessionId: callerSessionId,
             toolCallId: executeOpts.toolCallId || null,
         });
-        if (!postShell) return patchResult;
-        const patchNorm = normalizeToolEnvelope(patchResult);
-        const patchText = typeof patchNorm.result === 'string' ? patchNorm.result : String(patchNorm.result ?? '');
-        // Outcome judgement goes through the single tool-result classifier
-        // (result-classification.mjs), never an inline `Error:` prefix test:
-        // the ad-hoc regex missed a warning-prefixed failure and fired on
-        // successful output whose first line merely started with "Error:".
-        if (classifyResultKind(patchText, patchNorm.explicitSuccess === true) === 'error') {
-            return `${patchText}\n--- post_shell skipped: patch failed ---`;
-        }
-        const shellRes = await executeBuiltinTool('shell', postShell, cwd, completionToolOpts);
-        const shellNorm = normalizeToolEnvelope(shellRes);
-        const shellText = typeof shellNorm.result === 'string' ? shellNorm.result : String(shellNorm.result ?? '');
-        // Shell outcome is read from the shell tool's own status markers, not
-        // from a leading `Error:` — successful output whose first line starts
-        // with "Error:" is not a failed verification, and a ⚠️-warning-prefixed
-        // failure still is one. Informational exit 1 (a search-style probe that
-        // produced output and wrote nothing to stderr) is a zero-match too.
-        const shellFailed = shellNorm.explicitSuccess !== true
-            && isShellFailureResult(shellText)
-            && !isInformationalShellExitOne(shellText);
-        const header = shellFailed
-            ? `--- post_shell FAILED (${postShellFailureReason(shellText)}; patch is applied; fix and re-verify) ---`
-            : '--- post_shell ---';
-        return `${patchText}\n\n${header}\n${shellText}`;
     }
     if (isBuiltinTool(name)) {
         // clientHostPid threaded for the same per-terminal job-scope reason as

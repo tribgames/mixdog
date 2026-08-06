@@ -815,9 +815,9 @@ test('pane, takeover, editor, and terminal surfaces share the workbench hierarch
   assert.match(terminal, /scrollToLine\(Math\.min\(current\.scrollY/);
   assert.match(monacoSetup, /defineTheme\('mixdog-dark'/);
   assert.match(monacoSetup, /defineTheme\('mixdog-light'/);
-  assert.match(monacoSetup, /'editor\.background': '#1f1f1f'/);
-  assert.match(monacoSetup, /'editor\.background': '#faf8f5'/);
-  assert.match(monacoSetup, /'menu\.background': '#1f1f1f'/);
+  assert.match(monacoSetup, /'editor\.background': '#1c1c1f'/);
+  assert.match(monacoSetup, /'editor\.background': '#fafafa'/);
+  assert.match(monacoSetup, /'menu\.background': '#1c1c1f'/);
   assert.match(monacoSetup, /'menu\.selectionBackground': '#0078d4'/);
   assert.match(monacoSetup, /resolveThemeColor\('--mx-focus'/);
   assert.match(editor, /MenuId\.EditorContextPeek/);
@@ -2085,7 +2085,7 @@ test('every renderer stylesheet resolves through the shared desktop theme contra
     /--mx-text:\s*#e9e9e9;[^}]*--mx-text-muted:\s*#a8a8a8;[^}]*--mx-icon:\s*var\(--mx-text\);[^}]*--mx-icon-muted:\s*var\(--mx-text-muted\);/s,
     'dark neutral icons must share the same ink ramp as companion text');
   assert.match(theme,
-    /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--mx-text:\s*#1b1a17;[^}]*--mx-text-muted:\s*#635f57;[^}]*--mx-text-accent:\s*var\(--mx-blue-600\);[^}]*--mx-icon:\s*var\(--mx-text\);[^}]*--mx-icon-muted:\s*var\(--mx-text-muted\);[^}]*--mx-danger-bg:\s*#fceceb;[^}]*--mx-success-border:\s*#b8e9c1;/s,
+    /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--mx-text:\s*#17181a;[^}]*--mx-text-muted:\s*#5c6066;[^}]*--mx-text-accent:\s*#4355b9;[^}]*--mx-icon:\s*var\(--mx-text\);[^}]*--mx-icon-muted:\s*var\(--mx-text-muted\);[^}]*--mx-danger-bg:\s*#fceceb;[^}]*--mx-success-border:\s*#b8e9c1;/s,
     'light mode must align neutral icons with text and override every status semantic');
   assert.match(theme,
     /\.session-context-popover\s*\{[^}]*box-shadow:\s*var\(--mx-floating\);/s,
@@ -2130,8 +2130,8 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
   assert.match(styles, /--titlebar-height:\s*35px/);
   assert.match(styles, /\.topbar\s*\{[^}]*height:\s*var\(--titlebar-height\);[^}]*align-items:\s*center;[^}]*padding:\s*0 0 0 5px;/s);
   assert.match(styles, /\.titlebar-caption-space\s*\{[^}]*env\(titlebar-area-width,\s*100vw\)/s);
-  assert.match(styles, /--mx-bg-deep:\s*#141414;[\s\S]*?--mx-window-band:\s*#181818;[\s\S]*?--mx-workspace-sheet:\s*#1f1f1f;[\s\S]*?--mx-text:\s*#e9e9e9;/s);
-  assert.match(styles, /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--mx-bg-deep:\s*#f8f6f3;[^}]*--mx-window-band:\s*#f1efec;[^}]*--mx-workspace-sheet:\s*#faf8f5;[^}]*--mx-text:\s*#1b1a17;/s);
+  assert.match(styles, /--mx-bg-deep:\s*#101013;[\s\S]*?--mx-window-band:\s*#151518;[\s\S]*?--mx-workspace-sheet:\s*#1c1c1f;[\s\S]*?--mx-text:\s*#e9e9e9;/s);
+  assert.match(styles, /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--mx-bg-deep:\s*#f5f5f5;[^}]*--mx-window-band:\s*#f0f0f0;[^}]*--mx-workspace-sheet:\s*#fafafa;[^}]*--mx-text:\s*#17181a;/s);
   assert.match(styles, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--mx-bg-base\);[^}]*box-shadow:\s*var\(--mx-raised\);/s);
   assert.match(styles,
     /\.workspace-tab\s*\{[^}]*height:\s*35px;[^}]*min-width:\s*var\(--workspace-tab-current-width,\s*50px\);[^}]*max-width:\s*var\(--workspace-tab-current-width,\s*160px\);[^}]*flex:\s*1 0 0;/s);
@@ -2299,10 +2299,12 @@ test('rail destinations live in the session panel with popup editors', async () 
     're-selecting a rail destination must collapse the sidebar and reset it to Sessions');
   assert.match(app, /onCloseActiveSurface=\{closeActiveRailPanel\}/);
   assert.match(app,
-    /const sidebarOpenStudio = useStableEvent\(\(\) => \{[\s\S]*?closeSidebarForNavigation\(\);[\s\S]*?openStudioTab\(\)/,
-    'Studio sidebar navigation must reveal or create its ordinary workspace tab');
-  assert.match(app, /onOpenStudio=\{sidebarOpenStudio\}/,
-    'the sidebar receives the stable Studio handler, not a fresh closure');
+    /const sidebarNewTask = useStableEvent\(\(\) => \{[\s\S]*?closeSidebarForNavigation\(\);[\s\S]*?startTask\(\)/,
+    'the Sessions "+" creates a task from one stable handler');
+  assert.doesNotMatch(app, /onOpenStudio=|onPrefetchStudio=/,
+    'Studio/File/Terminal creation lives on the pane tab strip, not the Sessions header');
+  assert.match(app, /onNewStudio=\{\(\) => openStudioTab\(leaf\.id\)\}/,
+    'the pane tab strip owns Studio creation for its own leaf');
   assert.match(app, /renderUtilityTabs=\{paneUtilityTabs\}/);
   assert.match(paneWorkspace, /active\?\.kind === "studio" \|\| active\?\.kind === "terminal"/);
   assert.match(paneWorkspace, /active\?\.kind === "file" && renderFileEditors/);
@@ -2921,12 +2923,8 @@ test('accepted sessions enter the catalog immediately and reconcile with durable
   assert.equal(reconciled[0].title, 'Model-written title');
 
   const transientPush = mergeSessionCatalogPushRows(reconciled, [durable]);
-  assert.deepEqual(transientPush.map((row) => row.id), ['new-session', 'previous']);
-  assert.equal(
-    mergeSessionCatalogRows(transientPush, [durable]).length,
-    1,
-    'explicit refreshes remain authoritative for removals',
-  );
+  assert.deepEqual(transientPush.map((row) => row.id), ['new-session'],
+    'exact backend pushes remove rows absent from the durable store');
 });
 
 test('session catalog cache keeps display fields but drops stale live-process state', () => {
@@ -2959,15 +2957,20 @@ test('session catalog cache keeps display fields but drops stale live-process st
   assert.deepEqual(normalizeCachedSessionCatalog({ version: 2, rows: cached.rows }).rows, []);
 });
 
-test('session sidebar paints cached rows while the authoritative catalog is loading', async () => {
-  const [app, sidebar] = await Promise.all([
+test('session sidebar and pane restore wait for the authoritative catalog', async () => {
+  const [app, catalog, sidebar, main] = await Promise.all([
     readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./app-session-catalog.ts', import.meta.url), 'utf8'),
     readFile(new URL('./session-sidebar.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./main.tsx', import.meta.url), 'utf8'),
   ]);
   assert.match(app, /sessionsReady=\{sessionCatalogReady\}/);
   assert.match(app, /await refreshSessions\(\)[\s\S]*?setSessionCatalogReady\(true\)/);
   assert.match(app, /void invoke\(refreshProjects\)/);
   assert.doesNotMatch(app, /Promise\.all\(\[refreshSessions\(\), refreshProjects\(\)\]\)/);
+  assert.match(catalog, /useState<DesktopSessionSummary\[]>\(\[]\)/);
+  assert.doesNotMatch(catalog, /readCachedSessionCatalog/);
+  assert.doesNotMatch(main, /setVisibleSessions/);
   assert.match(sidebar,
     /!sessionsReady && rows\.length === 0[\s\S]*?Loading sessions…[\s\S]*?\{visibleRecentRows\.map/);
 });
@@ -3419,10 +3422,10 @@ test('streaming Markdown worker queue drops obsolete waiting snapshots', async (
 });
 
 test('pane actions stay session-addressed without focused-session fallbacks', async () => {
-  const [app, conversation, hostApi, contract] = await Promise.all([
+  const [app, conversation, backendApi, contract] = await Promise.all([
     readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./Conversation.tsx', import.meta.url), 'utf8'),
-    readFile(new URL('../main/engine-host-api.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../main/backend-api.ts', import.meta.url), 'utf8'),
     readFile(new URL('../shared/contract.ts', import.meta.url), 'utf8'),
   ]);
   assert.match(app, /host\.submitToSession\(sessionId, content, options\)/);
@@ -3437,7 +3440,7 @@ test('pane actions stay session-addressed without focused-session fallbacks', as
     'tool approval is valid only for the session carried by the pane');
   assert.doesNotMatch(conversation,
     /typeof host\.(?:abortSession|resolveToolApprovalForSession)/);
-  for (const source of [hostApi, contract]) {
+  for (const source of [backendApi, contract]) {
     assert.doesNotMatch(source,
       /(?:subscribeSessionStates?|submitToSession|abortSession|resolveToolApprovalForSession)\?\(/);
   }

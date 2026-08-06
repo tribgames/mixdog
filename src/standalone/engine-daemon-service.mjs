@@ -12,6 +12,10 @@
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import {
+  SESSION_CONFIGURE_ACTION_SET,
+  SESSION_READ_ACTION_SET,
+} from './session-protocol.mjs';
 
 const MAX_CLONE_DEPTH = 24;
 const requireDesktopBackend = createRequire(import.meta.url);
@@ -86,6 +90,8 @@ export function sanitizeForWire(value, depth = 0, seen = new WeakSet()) {
 
 export function createEngineDaemonService({
   createEngine,
+  sessionExists = null,
+  listSessions = null,
   desktopRuntime = null,
   publishIntervalMs = 16,
   onFrame = () => {},
@@ -120,6 +126,7 @@ export function createEngineDaemonService({
   const desktopBackendsById = new Map();
   const desktopBackendsByModule = new Map();
   const desktopBackendPromises = new Map();
+  let projectStorePromise = null;
   let closed = false;
   // A turn belongs to the DAEMON, not to whoever is watching it: closing the
   // desktop window or restarting the TUI must never interrupt work. An engine
@@ -394,45 +401,6 @@ export function createEngineDaemonService({
     return { revision: step.revision, full: step.snapshot };
   }
 
-  /** Values the store returns SYNCHRONOUSLY in-process. A view cannot await
-   *  them (EngineHost does `engine.listSessions().flatMap(...)` inline), so
-   *  they ride every open/call response and the view answers from its mirror. */
-  let sharedSyncCache = null;
-  let sharedSyncEpoch = -1;
-
-  function syncSurfaceOf(entry, { refresh = false, refreshFromStorage = false } = {}) {
-    // listSessions() reads the session STORE — a scan measured in hundreds of
-    // milliseconds on a large store. Recomputing it on every call made each
-    // round trip pay for it; only session-shaping calls need a fresh surface.
-    if (!refresh && !refreshFromStorage && sharedSyncCache && sharedSyncEpoch === syncEpoch) {
-      return sharedSyncCache;
-    }
-    const surface = {};
-    try {
-      const sessions = entry.engine.listSessions?.(
-        refreshFromStorage ? { refreshFromStorage: true } : undefined,
-      );
-      if (Array.isArray(sessions)) surface.sessions = sanitizeForWire(sessions);
-    } catch { /* a store read must never fail a call */ }
-    try {
-      const dir = entry.engine.sessionStoreDir?.();
-      if (typeof dir === 'string') surface.sessionStoreDir = dir;
-    } catch { /* optional */ }
-    sharedSyncCache = surface;
-    sharedSyncEpoch = syncEpoch;
-    return surface;
-  }
-
-  // The session LIST is process-global: every entry reads the same store. A
-  // shape change made through ONE entry must therefore expire the cached
-  // surface of every OTHER entry, or a pane keeps serving a list that predates
-  // the session another view just created, renamed, or deleted.
-  let syncEpoch = 0;
-  function invalidateSyncSurfaces() {
-    syncEpoch += 1;
-    sharedSyncCache = null;
-  }
-
   /** Entry that currently holds a session live. */
   function sessionOwner(sessionId) {
     const id = String(sessionId || '');
@@ -444,18 +412,6 @@ export function createEngineDaemonService({
     }
     return entry;
   }
-
-  // Calls that change WHICH sessions exist or which one is loaded. Only these
-  // invalidate the cached sync surface (a store scan).
-  const SESSION_SHAPING_METHODS = new Set([
-    'resume', 'resumeSession', 'newSession', 'switchContext', 'deleteSession',
-    'renameSessionTitle', 'setSessionArchived', 'prefetchSession',
-  ]);
-
-  // Engine LIFETIME belongs to the daemon: a view drives a session, it never
-  // ends one. `subscribe` would also hand a wire client a callback it cannot
-  // receive, and reservation is the daemon's own creation step.
-  const FORBIDDEN_SESSION_METHODS = new Set(['dispose', 'subscribe', 'reserveSession']);
 
   function publish(entry) {
     if (closed || entry.disposed) return;
@@ -577,48 +533,45 @@ export function createEngineDaemonService({
     const inFlight = sessionLoads.get(sessionId);
     if (inFlight) return inFlight;
     let loading;
-    loading = loadSessionEngine(sessionId, hints).finally(() => {
+    loading = (async () => {
+      if (typeof sessionExists === 'function'
+        && await sessionExists(sessionId) !== true) {
+        // A session may have been created while the durable check was in
+        // flight. Reuse that owner, but never materialize an unknown address
+        // merely because a stale pane subscribed to it.
+        const lateOwner = sessionOwner(sessionId);
+        if (lateOwner) return lateOwner;
+        throw new Error(`session ${sessionId} is not available`);
+      }
+      return loadSessionEngine(sessionId, hints);
+    })().finally(() => {
       if (sessionLoads.get(sessionId) === loading) sessionLoads.delete(sessionId);
     });
     sessionLoads.set(sessionId, loading);
     return loading;
   }
 
-  /** Apply one compatibility store method to whatever engine owns a SESSION. */
-  function syncPayload(entry, baseSyncRevision, options = {}) {
-    const known = Number.isInteger(baseSyncRevision) ? baseSyncRevision : null;
-    if (!options.refresh && known === syncEpoch) return { syncRevision: syncEpoch };
-    return {
-      syncRevision: syncEpoch,
-      sync: syncSurfaceOf(entry, options),
-    };
-  }
-
-  async function sessionCall({
-    sessionId, method, args = [], open: openHints = {}, baseRevision = null,
-    baseSyncRevision = null,
-  } = {}, ctx = null) {
+  async function runSessionAction({
+    sessionId, action, args = [], open: openHints = {}, baseRevision = null,
+  } = {}, allowedActions) {
     if (closed) throw new Error('engine daemon service is closed');
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
-    const name = String(method || '');
-    // `name in Object.prototype` blocks toString/valueOf/hasOwnProperty: they
-    // are functions on every object but were never part of the engine contract.
-    if (!name || name === 'constructor' || name.startsWith('__')
-      || FORBIDDEN_SESSION_METHODS.has(name) || name in Object.prototype) {
-      throw new TypeError(`engine method ${name} is unavailable`);
-    }
+    const name = requireSessionAction(action, allowedActions);
     const entry = await entryForSession(id, openHints || {});
     const target = entry.engine[name];
-    if (typeof target !== 'function') throw new TypeError(`engine method ${name} is unavailable`);
+    if (typeof target !== 'function') throw new TypeError(`session action ${name} is unavailable`);
     const value = await target.apply(entry.engine, Array.isArray(args) ? args : []);
-    const firstSubmit = name === 'submit' && value === true && entry.reservedOnly;
-    if (firstSubmit) entry.reservedOnly = false;
-    const shaping = SESSION_SHAPING_METHODS.has(name) || firstSubmit;
-    if (shaping) invalidateSyncSurfaces();
-    // Keep one compact record that the call reached the backend without
-    // serializing transcripts/catalogs into the daemon log. A cold pane peek
-    // previously wrote hundreds of KB synchronously on the request path.
+    if (name === 'setCwd' && value) {
+      try {
+        const projects = await loadProjectStore();
+        projects.touchProjectSelected?.(value);
+      } catch (error) {
+        log(`project recency update failed (non-fatal): ${error?.message || error}`);
+      }
+    }
+    // Keep one compact record that the action reached the backend without
+    // serializing transcripts/catalogs into the daemon log.
     const valueSummary = value === null || value === undefined
       ? String(value)
       : typeof value === 'object'
@@ -626,7 +579,7 @@ export function createEngineDaemonService({
           ? `array(${value.length})`
           : `object${Array.isArray(value.items) ? ` items=${value.items.length}` : ''}`
         : String(value).replace(/\s+/g, ' ').slice(0, 160);
-    log(`session call ${name} session=${id} result=${valueSummary}`);
+    log(`session action ${name} session=${id} result=${valueSummary}`);
     const step = advance(entry);
     if (step.changed) {
       publishStep(entry, step);
@@ -638,8 +591,95 @@ export function createEngineDaemonService({
       value: sanitizeForWire(value) ?? null,
       sessionId: String(entry.engine.getState?.()?.sessionId || id),
       ...bodyForClient(step, Number.isInteger(baseRevision) ? baseRevision : null),
-      ...syncPayload(entry, baseSyncRevision, { refresh: shaping }),
     };
+  }
+
+  async function listSessionCatalog(options = {}) {
+    if (closed) throw new Error('engine daemon service is closed');
+    if (typeof listSessions !== 'function') {
+      throw new Error('session catalog is unavailable');
+    }
+    const sessions = await listSessions(options || {});
+    return { sessions: sanitizeForWire(Array.isArray(sessions) ? sessions : []) };
+  }
+
+  async function loadProjectStore() {
+    if (typeof desktopRuntime?.loadProjects !== 'function') {
+      throw new Error('project backend is unavailable');
+    }
+    projectStorePromise ??= Promise.resolve(desktopRuntime.loadProjects()).catch((error) => {
+      projectStorePromise = null;
+      throw error;
+    });
+    return projectStorePromise;
+  }
+
+  function requiredProjectPath(path) {
+    const value = String(path || '').trim();
+    if (!value) throw new TypeError('project path is required');
+    return value;
+  }
+
+  async function listProjectCatalog() {
+    const projects = await loadProjectStore();
+    return {
+      projects: sanitizeForWire(projects.listProjects?.() || []),
+    };
+  }
+
+  async function inspectProjectPath({ path } = {}) {
+    const projects = await loadProjectStore();
+    const resolved = projects.resolveProjectPath?.(requiredProjectPath(path)) || '';
+    if (!resolved) throw new TypeError('project path is required');
+    return {
+      path: resolved,
+      exists: projects.pathExists?.(resolved) === true,
+      directory: projects.isDirectory?.(resolved) === true,
+    };
+  }
+
+  async function addProjectEntry({ path } = {}) {
+    const projects = await loadProjectStore();
+    const project = projects.addProject?.(requiredProjectPath(path)) || null;
+    if (!project) throw new Error('project could not be registered');
+    return { project: sanitizeForWire(project) };
+  }
+
+  async function touchProjectEntry({ path } = {}) {
+    const projects = await loadProjectStore();
+    return {
+      project: sanitizeForWire(projects.touchProjectSelected?.(requiredProjectPath(path)) || null),
+    };
+  }
+
+  async function renameProjectEntry({ path, name = '' } = {}) {
+    const projects = await loadProjectStore();
+    const project = projects.renameProject?.(requiredProjectPath(path), String(name || '')) || null;
+    if (!project) throw new Error('project is not registered');
+    return { project: sanitizeForWire(project) };
+  }
+
+  async function removeProjectEntry({ path } = {}) {
+    const projects = await loadProjectStore();
+    return { removed: projects.removeProject?.(requiredProjectPath(path)) === true };
+  }
+
+  async function ensureProjectDirectory({ path } = {}) {
+    const projects = await loadProjectStore();
+    const resolved = projects.ensureDir?.(requiredProjectPath(path)) || '';
+    if (!resolved) throw new Error('project directory could not be created');
+    return { path: resolved };
+  }
+
+  function requireSessionAction(action, allowed) {
+    const name = String(action || '');
+    if (!allowed.has(name)) throw new TypeError(`session action ${name || '(empty)'} is unavailable`);
+    return name;
+  }
+
+  async function configureSession(params = {}, ctx = null) {
+    void ctx;
+    return runSessionAction(params, SESSION_CONFIGURE_ACTION_SET);
   }
 
   // ── Durable session protocol ───────────────────────────────────────────────
@@ -652,16 +692,13 @@ export function createEngineDaemonService({
     entry,
     step,
     baseRevision = null,
-    baseSyncRevision = null,
     extra = {},
-    syncOptions = {},
   ) {
     return {
       sessionId: currentSessionId(entry),
       reservedOnly: entry.reservedOnly === true,
       ...extra,
       ...bodyForClient(step, Number.isInteger(baseRevision) ? baseRevision : null),
-      ...syncPayload(entry, baseSyncRevision, syncOptions),
     };
   }
 
@@ -674,7 +711,7 @@ export function createEngineDaemonService({
       if (owner) {
         addSubscriber(owner, ctx);
         const step = advance(owner);
-        return sessionResult(owner, step, null, params.baseSyncRevision);
+        return sessionResult(owner, step);
       }
     }
     const entry = await createEntry(params, ctx);
@@ -695,25 +732,29 @@ export function createEngineDaemonService({
       if (!sessionId) throw new Error('session creation returned no sessionId');
       const step = advance(entry);
       if (step.changed) publishStep(entry, step);
-      invalidateSyncSurfaces();
       log(`session created session=${sessionId}`);
       retainUnwatched(entry, 'headless session create');
-      return sessionResult(entry, step, null, params.baseSyncRevision);
+      return sessionResult(entry, step);
     } catch (error) {
       await destroy(entry, 'session creation failed', { keepBackgroundWork: true });
       throw error;
     }
   }
 
-  async function readSession({
-    sessionId, open: openHints = {}, baseRevision = null, baseSyncRevision = null,
-  } = {}) {
+  async function readSession(params = {}, ctx = null) {
+    const {
+      sessionId, open: openHints = {}, baseRevision = null, baseSyncRevision = null,
+    } = params;
+    if (params.action != null) {
+      void ctx;
+      return runSessionAction(params, SESSION_READ_ACTION_SET);
+    }
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
     const entry = await entryForSession(id, openHints || {});
     const step = advance(entry);
     retainUnwatched(entry, 'headless session read');
-    return sessionResult(entry, step, baseRevision, baseSyncRevision);
+    return sessionResult(entry, step, baseRevision);
   }
 
   async function subscribeSession(
@@ -727,7 +768,7 @@ export function createEngineDaemonService({
     const entry = await entryForSession(id, openHints || {});
     addSubscriber(entry, ctx);
     const step = advance(entry);
-    return sessionResult(entry, step, baseRevision, baseSyncRevision, { subscribed: true });
+    return sessionResult(entry, step, baseRevision, { subscribed: true });
   }
 
   async function unsubscribeSession({ sessionId } = {}, ctx = null) {
@@ -755,7 +796,6 @@ export function createEngineDaemonService({
 
   async function submitSession({
     sessionId, prompt, options = {}, open: openHints = {}, baseRevision = null,
-    baseSyncRevision = null,
   } = {}) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
@@ -771,9 +811,6 @@ export function createEngineDaemonService({
     const firstSubmit = accepted === true && entry.reservedOnly;
     if (accepted === true) {
       entry.reservedOnly = false;
-      // Only the first submit materializes a reserved session in the catalog.
-      // Later turns update their own projection without rescanning the store.
-      if (firstSubmit) invalidateSyncSurfaces();
     }
     const step = advance(entry);
     if (step.changed) publishStep(entry, step);
@@ -783,15 +820,13 @@ export function createEngineDaemonService({
       entry,
       step,
       baseRevision,
-      baseSyncRevision,
       { accepted: accepted === true },
-      { refresh: firstSubmit },
     );
   }
 
   async function abortSession({
     sessionId, open: openHints = {}, options = {},
-    baseRevision = null, baseSyncRevision = null,
+    baseRevision = null,
   } = {}) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
@@ -805,12 +840,11 @@ export function createEngineDaemonService({
     const step = advance(entry);
     if (step.changed) publishStep(entry, step);
     retainUnwatched(entry, 'headless session abort');
-    return sessionResult(entry, step, baseRevision, baseSyncRevision, abortResult);
+    return sessionResult(entry, step, baseRevision, abortResult);
   }
 
   async function approveSession({
     sessionId, approvalId, decision, open: openHints = {}, baseRevision = null,
-    baseSyncRevision = null,
   } = {}) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
@@ -823,7 +857,7 @@ export function createEngineDaemonService({
     const step = advance(entry);
     if (step.changed) publishStep(entry, step);
     retainUnwatched(entry, 'headless session approval');
-    return sessionResult(entry, step, baseRevision, baseSyncRevision, { approved: approved === true });
+    return sessionResult(entry, step, baseRevision, { approved: approved === true });
   }
 
   async function destroy(
@@ -843,7 +877,6 @@ export function createEngineDaemonService({
     }
     if (entry.busy === true) busyEntries = Math.max(0, busyEntries - 1);
     entry.busy = false;
-    invalidateSyncSurfaces();
     try { await entry.engine.dispose?.(reason, { keepBackgroundWork }); }
     catch (err) { log(`session dispose failed session=${sessionId}: ${err?.message || err}`); }
     if (announce && sessionId) {
@@ -997,6 +1030,14 @@ export function createEngineDaemonService({
     'desktop.invoke': desktopInvoke,
     'desktop.control': desktopControl,
     'desktop.unsubscribe': desktopUnsubscribe,
+    'project.list': listProjectCatalog,
+    'project.inspect': inspectProjectPath,
+    'project.add': addProjectEntry,
+    'project.touch': touchProjectEntry,
+    'project.rename': renameProjectEntry,
+    'project.remove': removeProjectEntry,
+    'project.ensureDirectory': ensureProjectDirectory,
+    'session.list': listSessionCatalog,
     'session.create': createSession,
     'session.read': readSession,
     'session.subscribe': subscribeSession,
@@ -1004,7 +1045,7 @@ export function createEngineDaemonService({
     'session.submit': submitSession,
     'session.abort': abortSession,
     'session.approve': approveSession,
-    'session.invoke': sessionCall,
+    'session.configure': configureSession,
   };
 
   async function handleCall(name, args = {}, ctx = null) {
@@ -1031,9 +1072,9 @@ export function createEngineDaemonService({
   }
 
   return {
-    handleCall, createSession, readSession, subscribeSession, unsubscribeSession,
+    handleCall, listSessionCatalog, createSession, readSession, subscribeSession, unsubscribeSession,
     submitSession, abortSession, approveSession,
-    sessionCall, stop, releaseClient,
+    configureSession, stop, releaseClient,
     get size() { return sessions.size; },
     /** Live work the daemon must not abandon (self-shutdown guard). */
     get busyCount() { return busyEntries; },

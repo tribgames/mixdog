@@ -1,10 +1,10 @@
 // Desktop-only project preferences (aliases, legacy hidden tombstones)
-// on disk. Extracted from engine-host: this module owns the file shape and its
-// bounds, the host keeps the in-memory copy and decides when to persist.
+// on disk. This module owns the file shape and bounds; the backend keeps the
+// in-memory copy and decides when to persist.
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { DesktopProjectPreferences } from './engine-host-support';
+import type { DesktopProjectPreferences } from './backend-support';
 
 const FILE_NAME = 'desktop-projects.json';
 const MAX_PATH_ENTRIES = 50;

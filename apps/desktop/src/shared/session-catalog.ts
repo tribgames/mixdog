@@ -45,17 +45,14 @@ export function mergeSessionCatalogRows(
   });
 }
 
-/** Store watcher pushes are eventually consistent. Preserve rows omitted by
- * one transient index publication; explicit refreshes remain authoritative. */
+/** Backend watcher pushes are exact durable-store scans. Treat them as
+ * authoritative so a deleted session cannot survive forever in renderer
+ * memory merely because no fallback poll runs for push-capable hosts. */
 export function mergeSessionCatalogPushRows(
   current: readonly DesktopSessionSummary[],
   incoming: readonly DesktopSessionSummary[],
 ): DesktopSessionSummary[] {
-  const incomingIds = new Set(incoming.map((row) => row.id));
-  return mergeSessionCatalogRows(current, [
-    ...incoming,
-    ...current.filter((row) => !incomingIds.has(row.id)),
-  ]);
+  return mergeSessionCatalogRows(current, incoming);
 }
 
 /** Paint a just-accepted session before the debounced store watcher publishes

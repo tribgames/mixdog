@@ -224,17 +224,17 @@ test('a session no view holds still receives the prompt through the daemon', asy
     publishIntervalMs: 5,
   });
   try {
-    const first = await service.handleCall('session.invoke', {
-      sessionId: 'stored-session', method: 'submit', args: ['wake up'],
+    const first = await service.handleCall('session.submit', {
+      sessionId: 'stored-session', prompt: 'wake up',
     });
-    assert.equal(first.value, true, 'the prompt is accepted without a view owning the session');
+    assert.equal(first.accepted, true, 'the prompt is accepted without a view owning the session');
     assert.equal(first.sessionId, 'stored-session');
     assert.equal(opened.length, 1, 'the daemon loaded the session exactly once');
     assert.deepEqual(opened[0].submits, ['wake up']);
 
     // Single writer: a second session-addressed call converges on that engine.
-    const second = await service.handleCall('session.invoke', {
-      sessionId: 'stored-session', method: 'submit', args: ['and again'],
+    const second = await service.handleCall('session.submit', {
+      sessionId: 'stored-session', prompt: 'and again',
     });
     assert.equal(second.sessionId, first.sessionId);
     assert.equal(opened.length, 1);
@@ -265,12 +265,48 @@ test('two panes submitting at once load the session once', async () => {
   });
   try {
     const [left, right] = await Promise.all([
-      service.handleCall('session.invoke', { sessionId: 'shared-session', method: 'submit', args: ['left'] }),
-      service.handleCall('session.invoke', { sessionId: 'shared-session', method: 'submit', args: ['right'] }),
+      service.handleCall('session.submit', { sessionId: 'shared-session', prompt: 'left' }),
+      service.handleCall('session.submit', { sessionId: 'shared-session', prompt: 'right' }),
     ]);
     assert.equal(left.sessionId, right.sessionId, 'both panes address one session');
     assert.equal(opened.length, 1, 'the concurrent load is deduped');
     assert.deepEqual([...opened[0].submits].sort(), ['left', 'right']);
+  } finally {
+    await service.stop('test end');
+  }
+});
+
+test('the daemon submits through submitAsync when an engine exposes both', async () => {
+  const calls = [];
+  const service = createEngineDaemonService({
+    createEngine: async () => {
+      let state = { sessionId: '', items: [], busy: false };
+      return {
+        getState: () => state,
+        subscribe: () => () => {},
+        async resume(sessionId) {
+          state = { ...state, sessionId: String(sessionId) };
+          return true;
+        },
+        submit: () => { calls.push('submit'); return true; },
+        async submitAsync(_text, options) {
+          calls.push(`submitAsync:${options?.id || ''}`);
+          return true;
+        },
+        async dispose() {},
+      };
+    },
+    publishIntervalMs: 5,
+  });
+  try {
+    const result = await service.handleCall('session.submit', {
+      sessionId: 'both-intakes', prompt: 'hello', options: { id: 'submission-42' },
+    });
+    assert.equal(result.accepted, true);
+    // submitAsync is THE daemon intake, so a live-share viewer must forward to
+    // the owner from this entry point too: an unwrapped one books the prompt on
+    // the viewer engine and that surface then shows the message twice.
+    assert.deepEqual(calls, ['submitAsync:submission-42']);
   } finally {
     await service.stop('test end');
   }

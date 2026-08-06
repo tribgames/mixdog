@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createLiveShare, liveSharePipePath } from '../src/tui/engine/live-share.mjs';
+import { createLiveShare, forwardViewerSubmit, liveSharePipePath } from '../src/tui/engine/live-share.mjs';
 import { createStoredSessionLiveViewer } from '../src/runtime/agent/orchestrator/session/store-summary-reader.mjs';
 
 const PIPE_ID = `livetest_${process.pid}_${Date.now()}`;
@@ -565,4 +565,82 @@ test('an owner session reset never blanks the co-open viewer over the old pipe',
     owner.dispose();
     viewerShare.dispose();
   }
+});
+
+// ── Viewer submit intake ────────────────────────────────────────────────────
+// Both engine entry points (TUI submit, daemon submitAsync) share this
+// forwarder: a viewer must NEVER book the prompt locally, or the surface shows
+// its own user row next to the owner's mirrored twin.
+function fakeShare(sendResult) {
+  const calls = [];
+  let ensured = 0;
+  return {
+    calls,
+    get ensured() { return ensured; },
+    ensure: () => { ensured += 1; },
+    sendSubmit: (text, meta) => {
+      calls.push({ text, meta });
+      return sendResult;
+    },
+  };
+}
+
+test('a viewer submit rides the pipe under the caller submission id', () => {
+  const share = fakeShare(true);
+  const spooled = [];
+  assert.equal(forwardViewerSubmit({
+    text: '  typed on the desktop  ',
+    options: { id: 'desktop-submit-7', submittedAt: 1234 },
+    share,
+    spool: (id) => { spooled.push(id); return true; },
+  }), true);
+  assert.equal(share.ensured, 1, 'the pipe is reconciled before the write');
+  assert.equal(share.calls[0].text, 'typed on the desktop');
+  assert.equal(share.calls[0].meta.id, 'desktop-submit-7');
+  assert.equal(share.calls[0].meta.submittedAt, 1234);
+  assert.deepEqual(spooled, [], 'a delivered submit never touches the spool');
+
+  // No caller id (legacy/TUI submit): one is minted and it is the id the owner
+  // will stamp on the settled user row.
+  assert.equal(forwardViewerSubmit({ text: 'no id', share, spool: () => true }), true);
+  assert.match(String(share.calls[1].meta.id), /^view-submit-/);
+
+  // Empty text is not a submission.
+  assert.equal(forwardViewerSubmit({ text: '   ', share, spool: () => true }), false);
+  assert.equal(share.calls.length, 2);
+});
+
+test('a viewer submit falls back to the spool under the SAME id', () => {
+  const share = fakeShare(false);
+  const spooled = [];
+  assert.equal(forwardViewerSubmit({
+    text: 'pipe is down',
+    options: { id: 'desktop-submit-8' },
+    share,
+    spool: (id) => { spooled.push(id); return true; },
+  }), true);
+  assert.deepEqual(spooled, ['desktop-submit-8'],
+    'the durable copy keeps the identity the optimistic row waits on');
+
+  // A spool that also refuses reports the prompt as undelivered.
+  assert.equal(forwardViewerSubmit({
+    text: 'nowhere to go',
+    options: { id: 'desktop-submit-9' },
+    share,
+    spool: () => false,
+  }), false);
+});
+
+test('an unacknowledged viewer submit re-delivers with its own id', () => {
+  const share = fakeShare(true);
+  const spooled = [];
+  assert.equal(forwardViewerSubmit({
+    text: 'written but never acked',
+    options: { id: 'desktop-submit-10' },
+    share,
+    spool: (id) => { spooled.push(id); return true; },
+  }), true);
+  // live-share settles the ack timeout by calling onUndelivered.
+  share.calls[0].meta.onUndelivered();
+  assert.deepEqual(spooled, ['desktop-submit-10']);
 });

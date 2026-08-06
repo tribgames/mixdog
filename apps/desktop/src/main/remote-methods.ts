@@ -1,9 +1,9 @@
 // Transport-neutral method table for the remote (LAN/WebSocket) bridge: the
-// same EngineHost surface registerDesktopIpc exposes, minus desktop-only OS
+// same desktop backend surface registerDesktopIpc exposes, minus desktop-only OS
 // integrations (dialogs, shell reveal/open, zoom, updater, quit). Validation
 // reuses the ipc.ts validators so the remote surface can never accept a shape
 // the in-process IPC surface would reject.
-import type { DesktopEngineHost } from './engine-host-api';
+import type { DesktopBackend } from './backend-api';
 import type { DesktopSettingsStore } from './settings-store';
 import type { DesktopSettings } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
@@ -68,7 +68,7 @@ function assertRemoteCapability(capability: string): void {
 }
 
 export interface RemoteMethodDependencies {
-  host: DesktopEngineHost;
+  host: DesktopBackend;
   settingsStore?: Pick<DesktopSettingsStore, 'read' | 'update'>;
   /** Fires after a successful desktop-settings write (keep-awake wiring). */
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;

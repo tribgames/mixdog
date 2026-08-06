@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, powerMonitor, powerSaveBlocker, screen, session, shell } from 'electron';
 
-import type { DesktopEngineHost } from './engine-host-api';
+import type { DesktopBackend } from './backend-api';
 import { DesktopBackendClient } from './desktop-backend-client';
 import { DaemonEngineTransport } from './daemon-engine-transport';
 import { readDesktopModelBootstrapSnapshot } from './model-bootstrap';
@@ -222,7 +222,7 @@ const backendClient = new DesktopBackendClient({
     console.error(`[mixdog] ${event}`, data);
   },
 });
-const host: DesktopEngineHost = backendClient;
+const host: DesktopBackend = backendClient;
 let daemonBackendBootReported = false;
 function startDaemonBackend(): void {
   if (!daemonBackendBootReported) {

@@ -5,17 +5,17 @@ import type {
 import type {
   MixdogProjectsModule,
   MixdogSessionStoreModule,
-} from './engine-host-support';
+} from './backend-support';
 import {
   BackendHost,
   type BackendSessionClient,
 } from './backend-host';
 import {
-  ENGINE_HOST_RPC_METHODS,
-  type DesktopEngineHost,
-  type EngineHostRpcMethod,
-  type SerializableEngineHostOptions,
-} from './engine-host-api';
+  DESKTOP_BACKEND_METHODS,
+  type DesktopBackend,
+  type DesktopBackendMethod,
+  type SerializableDesktopBackendOptions,
+} from './backend-api';
 import {
   createLatestStateMailbox,
   type DesktopBackendInbound,
@@ -42,7 +42,7 @@ import {
 } from './remote-relay';
 
 interface DesktopBackendFactoryInput {
-  options: SerializableEngineHostOptions;
+  options: SerializableDesktopBackendOptions;
   runtime: DesktopBackendRuntime;
   emit(message: DesktopBackendOutbound): void;
   onClientCountChanged?(): void;
@@ -102,7 +102,7 @@ export async function createDesktopBackend(
       const value = Reflect.get(target, property, target);
       return typeof value === 'function' ? value.bind(target) : value;
     },
-  }) as unknown as DesktopEngineHost;
+  }) as unknown as DesktopBackend;
   let remoteBridge: RemoteBridgeHandle | null = null;
   let remoteRelay: RemoteRelayHandle | null = null;
   let remoteServicesPromise: Promise<void> | null = null;
@@ -198,7 +198,7 @@ export async function createDesktopBackend(
     await startRemoteServices();
     return remoteDescriptor();
   };
-  const rpcMethods = new Set<string>(ENGINE_HOST_RPC_METHODS);
+  const rpcMethods = new Set<string>(DESKTOP_BACKEND_METHODS);
   const visibleSessionIds = new Set<string>();
   const stateEncoder = createSnapshotDeltaEncoder();
   const sessionStateEncoders = new Map<string, SnapshotDeltaEncoder>();
@@ -298,9 +298,9 @@ export async function createDesktopBackend(
         );
       }
       const target = (host as unknown as Record<
-        EngineHostRpcMethod,
+        DesktopBackendMethod,
         (...values: unknown[]) => unknown
-      >)[method as EngineHostRpcMethod];
+      >)[method as DesktopBackendMethod];
       return await target.apply(host, args);
     },
     async control(value): Promise<void> {

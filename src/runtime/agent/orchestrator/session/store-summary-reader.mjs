@@ -511,6 +511,18 @@ export function listStoredSessionSummaries(options = {}) {
     return options.rebuildIfMissing === false ? [] : (scan() ?? indexRows ?? []);
 }
 
+/** Exact, fail-closed existence check for a durable session address.
+ * Summary indexes and desktop metadata are presentation caches; neither may
+ * make a missing sessions/<id>.json record addressable again. */
+export function storedSessionExists(id) {
+    const sessionId = String(id || '').trim();
+    if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return false;
+    const read = readTextFile(join(dataDir(), 'sessions', `${sessionId}.json`));
+    if (read.state !== PROBE_PRESENT) return false;
+    const record = readTopLevelLifecycleRecord(read.text);
+    return !isLifecycleUnreadable(record) && record.id === sessionId;
+}
+
 /** Read exactly one persisted session for a visible desktop pane. This never
  * enumerates siblings. Normal reads stay independent of runtime ownership;
  * interrupted turns conditionally use the same durable reconnect recovery as

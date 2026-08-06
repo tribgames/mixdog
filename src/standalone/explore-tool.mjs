@@ -18,7 +18,7 @@ export const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Explore',
   annotations: { title: 'Explore', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  description: 'Repo- or machine-wide locator (dot dirs included). query[] fans out up to 8 independent facets in parallel.',
+  description: 'Repo- or machine-wide coordinate locator.',
   inputSchema: {
     type: 'object',
     properties: {

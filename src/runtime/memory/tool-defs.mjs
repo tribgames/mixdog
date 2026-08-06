@@ -10,11 +10,7 @@ export const TOOL_DEFS = [
     name: 'memory',
     title: 'Memory Cycle',
     annotations: { title: 'Memory Cycle', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-    description: [
-      'Core-memory mutation/status; recall retrieves.',
-      'Mutations use action=core with op; status uses action=status.',
-      'Store only durable compact ENGLISH facts/rules/preferences.',
-    ].join(' '),
+    description: 'Core-memory mutation/status.',
     inputSchema: {
       type: 'object',
       properties: {

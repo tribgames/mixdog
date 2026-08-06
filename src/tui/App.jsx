@@ -42,16 +42,6 @@ import {
   splitPastedImagePathCandidates,
 } from './paste-attachments.mjs';
 import { formatDuration } from './time-format.mjs';
-import {
-  listProjects,
-  addProject,
-  touchProjectSelected,
-  renameProject,
-  isDirectory,
-  pathExists,
-  ensureDir,
-  resolveProjectPath,
-} from '../standalone/projects.mjs';
 import { pickFolder } from '../standalone/folder-dialog.mjs';
 import {
   formatHookDenialDetail,
@@ -418,10 +408,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     setSettingsPrompt,
     setContextPanel,
     closeUsagePanel,
-    listProjects,
-    addProject,
-    touchProjectSelected,
-    resolveProjectPath,
     projectNameFromPath,
     pickFolder,
   });
@@ -434,9 +420,13 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     initialPickerBuiltRef.current = true;
     const onboardingOwnsScreen = !resolveOnboardingCompleted(store, onboardingCompleted) || forceOnboarding;
     if (!onboardingOwnsScreen && state.items.length === 0) {
-      setPicker(projectPicker.buildProjectPickerState({ initialEntry: true }));
+      setPicker(projectPicker.buildProjectPickerState({ initialEntry: true, loading: true }));
     }
   }
+  useEffect(() => {
+    if (livePickerRef.current?._projectInitialPending !== true) return;
+    void projectPickerRef.current?.openProjectPicker({ initialEntry: true });
+  }, [store]);
   const {
     beginNewProject,
     registerProject,

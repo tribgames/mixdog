@@ -4378,15 +4378,19 @@ test("rail destinations swap the session panel while the workspace stays mounted
   const studioTabCount = () => Array.from(document.querySelectorAll(".workspace-tab-main"))
     .filter((tab) => tab.textContent.includes("Studio")).length;
   const studioTabsBefore = studioTabCount();
+  // Studio creation lives on the pane tab strip's + menu: the Sessions "+"
+  // is New Task itself (user decision).
   await act(async () => {
-    document.querySelector('[aria-label="New studio"]').click();
+    document.querySelector(".workspace-tab-new").click();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    Array.from(document.querySelectorAll(".workspace-tab-new-menu [role='menuitem']"))
+      .find((item) => item.textContent === "New Studio").click();
     await Promise.resolve();
     await Promise.resolve();
   });
   await settleStableSurfaceSwitch();
-  assert.equal(document.querySelector('[aria-label="New studio"]')?.classList.contains("selected"), false,
-    "Studio is a creation action and must never read as a selected destination");
-  assert.equal(document.querySelector('[aria-label="New studio"]')?.hasAttribute("aria-current"), false);
   assert.equal(document.querySelector('[aria-label="Open workflows"]')?.classList.contains("selected"), false,
     "Studio must not claim a rail destination");
   assert.equal(document.querySelector(".session-panel-header")?.textContent, "Sessions",
@@ -4398,21 +4402,24 @@ test("rail destinations swap the session panel while the workspace stays mounted
     document.querySelector(`[data-session-id="${target.id}"]`).click();
     await Promise.resolve();
   });
-  assert.equal(document.querySelector('[aria-label="New studio"]')?.classList.contains("selected"), false,
+  assert.equal(studioTabCount(), studioTabsBefore + 1,
     "re-selecting the current sidebar session must leave the Studio tab");
 
   await act(async () => {
-    document.querySelector('[aria-label="New studio"]').click();
+    document.querySelector(".workspace-tab-new").click();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    Array.from(document.querySelectorAll(".workspace-tab-new-menu [role='menuitem']"))
+      .find((item) => item.textContent === "New Studio").click();
     await Promise.resolve();
   });
   assert.equal(studioTabCount(), studioTabsBefore + 2,
-    "every Studio header click must create another independent Studio tab");
+    "every Studio create click must open another independent Studio tab");
   await act(async () => {
     document.querySelector(".session-new-task").click();
     await Promise.resolve();
   });
-  assert.equal(document.querySelector('[aria-label="New studio"]')?.classList.contains("selected"), false,
-    "New task must leave Studio even when the workspace selection is already current");
   assert.equal(
     Array.from(document.querySelectorAll(".workspace-tab-main"))
       .some((tab) => tab.textContent.includes("Studio")),
@@ -6475,6 +6482,82 @@ test("restored split panes subscribe before immediate peek frames and all hydrat
   );
 });
 
+test("an orphan persisted session never creates a pane or reaches session RPCs", async () => {
+  installDom();
+  await preloadMarkdownBody();
+  const validId = "restore-valid-session";
+  const orphanId = "restore-missing-session";
+  window.localStorage.setItem("mixdog.desktop.pane-layout.v1", JSON.stringify({
+    layout: {
+      type: "split",
+      direction: "row",
+      ratio: 0.5,
+      first: {
+        type: "leaf",
+        id: "restore_valid_leaf",
+        tabs: [{ kind: "session", id: validId }],
+        activeKey: `session:${validId}`,
+      },
+      second: {
+        type: "leaf",
+        id: "restore_orphan_leaf",
+        tabs: [{ kind: "session", id: orphanId }],
+        activeKey: `session:${orphanId}`,
+      },
+    },
+    focusedLeafId: "restore_orphan_leaf",
+  }));
+  window.localStorage.setItem("mixdog.desktop-last-session.v1", orphanId);
+  const snapshot = {
+    sessionId: validId,
+    items: [{ id: "valid-row", kind: "user", text: "Durable session" }],
+    queued: [],
+  };
+  const peeks = [];
+  const visibleSets = [];
+  let publishLane;
+  window.mixdogDesktop = {
+    getSnapshot: async () => snapshot,
+    subscribeState: () => () => {},
+    subscribeSessionState: (listener) => {
+      publishLane = listener;
+      return () => {};
+    },
+    listProjects: async () => [],
+    listSessions: async () => [{
+      id: validId,
+      title: "Durable session",
+      preview: "Durable session",
+      updatedAt: 1,
+      currentSession: true,
+      cwd: "C:\\work",
+      classification: "task",
+      projectPath: null,
+    }],
+    peekSession: async (id) => {
+      peeks.push(id);
+      publishLane?.({ sessionId: id, snapshot });
+      return true;
+    },
+    setVisibleSessions: async (ids) => {
+      visibleSets.push([...ids]);
+      for (const id of ids) publishLane?.({ sessionId: id, snapshot });
+      return true;
+    },
+    resumeSession: async () => snapshot,
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await new Promise((resolve) => window.setTimeout(resolve, 40));
+  });
+  assert.equal(document.querySelector('[data-pane-id="restore_orphan_leaf"]'), null);
+  assert.ok(document.querySelector('[data-pane-id="restore_valid_leaf"]'));
+  assert.equal(peeks.includes(orphanId), false);
+  assert.equal(visibleSets.some((ids) => ids.includes(orphanId)), false);
+  assert.equal(window.localStorage.getItem("mixdog.desktop-last-session.v1"), validId,
+    "the orphan route is replaced by the surviving durable pane");
+});
+
 test("new task opens without backend setup and its first submit owns one atomic materialization", async () => {
   installDom();
   await preloadMarkdownBody();
@@ -7312,7 +7395,6 @@ test("panel New task can be created and closed repeatedly onto the current sessi
   await act(async () => root.render(React.createElement(App)));
   await settle();
   for (let cycle = 0; cycle < 2; cycle += 1) {
-    await act(async () => document.querySelector(".session-new-create").click());
     await act(async () => document.querySelector(".session-new-task").click());
     await settle();
     assert.equal(newTaskTabs().length, 1, `cycle ${cycle + 1} must create one draft tab`);
@@ -10072,8 +10154,8 @@ test("sidebar keeps Project below New task and orders Recent by conversation act
   assert.deepEqual(Array.from(
     document.querySelectorAll(".session-panel-header-actions > button"),
     (node) => node.getAttribute("aria-label")),
-  ["New tab"],
-  "Sessions exposes one pane-style create menu instead of separate creation actions");
+  ["New task"],
+  "Sessions exposes one create control and it creates a task outright");
   assert.equal(document.querySelector('[aria-label="Open projects"]')?.getAttribute("data-tooltip"), "Projects");
   const contextBar = document.querySelector(".composer-context-bar");
   const projectContext = contextBar?.querySelector(".composer-project-context");
@@ -15017,11 +15099,17 @@ test("desktop composer restores queued work, recalls engine history, and execute
       capabilities.push([capability, args]);
       if (capability === 'getTheme') return { value: 'basic', snapshot };
       if (capability === 'restoreQueued') {
-        await restoreGate;
+        if (args[1] === 'queued-1') await restoreGate;
         const restoredSnapshot = { ...snapshot, queued: [] };
         publish?.(restoredSnapshot);
         return {
-          value: { text: 'Restored request', pastedImages: null, pastedTexts: null },
+          value: {
+            count: 1,
+            ids: [args[1] || 'queued-esc'],
+            text: args[1] === 'queued-1' ? 'Restored request' : 'Esc queued request',
+            pastedImages: null,
+            pastedTexts: null,
+          },
           snapshot: restoredSnapshot,
         };
       }
@@ -15074,6 +15162,30 @@ test("desktop composer restores queued work, recalls engine history, and execute
     capability === 'restoreQueued' && args[0] === '' && args[1] === 'queued-1'));
 
   await act(async () => {
+    publish?.({
+      ...snapshot,
+      queued: [{ id: 'queued-esc', displayText: 'Esc queued request' }],
+    });
+    await Promise.resolve();
+  });
+  await act(async () => {
+    textarea.dispatchEvent(new window.KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    }));
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  assert.equal(textarea.value,
+    'Esc queued request\nRestored request\ntyped during restore',
+    'idle Esc reclaims queued work into the draft');
+  assert.equal(document.querySelector('.queue-list'), null,
+    'idle Esc removes the reclaimed row from the reserved list');
+  assert.ok(capabilities.some(([capability, args]) =>
+    capability === 'restoreQueued' && args[0] === '' && args[1] === undefined));
+
+  await act(async () => {
     textarea.dispatchEvent(new window.KeyboardEvent('keydown', {
       key: 'Escape',
       bubbles: true,
@@ -15081,7 +15193,7 @@ test("desktop composer restores queued work, recalls engine history, and execute
     }));
     await Promise.resolve();
   });
-  assert.equal(textarea.value, 'Restored request\ntyped during restore');
+  assert.equal(textarea.value, 'Esc queued request\nRestored request\ntyped during restore');
   assert.match(document.querySelector('.composer-notice')?.textContent || '', /Esc again to clear/);
   await act(async () => {
     textarea.dispatchEvent(new window.KeyboardEvent('keydown', {
@@ -15822,6 +15934,7 @@ test("a queued follow-up stays out of the transcript and keeps ArrowUp reclaim a
   installDom();
   const capabilities = [];
   const submissions = [];
+  let restoreAttempts = 0;
   let publish;
   const row = seedActiveSession('queue-flash-session', 'Queue flash session');
   const snapshot = {
@@ -15846,9 +15959,23 @@ test("a queued follow-up stays out of the transcript and keeps ArrowUp reclaim a
     invokeCapability: async ({ capability, args = [] }) => {
       capabilities.push([capability, args]);
       if (capability === 'getTheme') return { value: 'basic', snapshot };
-      // The engine has nothing editable left to pop: the queued entries were
-      // already committed as steering. An empty answer must not disarm Up.
-      if (capability === 'restoreQueued') return { value: { count: 0, text: '' }, snapshot };
+      if (capability === 'restoreQueued') {
+        restoreAttempts += 1;
+        // The first two attempts model the publication gap: an empty answer
+        // must not disarm Up. The third confirms that a successful reclaim
+        // removes both the engine row and its local optimistic twin.
+        if (restoreAttempts <= 2) return { value: { count: 0, text: '' }, snapshot };
+        const restoredSnapshot = { ...snapshot, queued: [] };
+        publish?.(restoredSnapshot);
+        return {
+          value: {
+            count: 2,
+            ids: ['queued-earlier', submissions[0]?.[1]?.id].filter(Boolean),
+            text: 'earlier queued\nㅎㅇ',
+          },
+          snapshot: restoredSnapshot,
+        };
+      }
       return { value: true, snapshot };
     },
   };
@@ -15898,4 +16025,15 @@ test("a queued follow-up stays out of the transcript and keeps ArrowUp reclaim a
   });
   assert.equal(restoreCalls(), 2,
     'a restore that popped nothing must leave ArrowUp armed instead of latching it off');
+  await act(async () => {
+    textarea.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  assert.equal(textarea.value, 'earlier queued\nㅎㅇ',
+    'ArrowUp restores the queued prompts into the composer');
+  assert.equal(document.querySelector('.queue-list'), null,
+    'a successful ArrowUp reclaim cannot resurrect the local optimistic queue row');
+  assert.ok(!(document.querySelector('.transcript')?.textContent || '').includes('ㅎㅇ'),
+    'the reclaimed optimistic prompt stays out of the transcript');
 });

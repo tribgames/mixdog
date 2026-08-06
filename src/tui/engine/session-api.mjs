@@ -8,7 +8,6 @@ import { createEngineApiB } from './session-api-ext.mjs';
 import { buildDoctorReport } from '../app/doctor.mjs';
 import { recomputePromptHistory } from './prompt-history.mjs';
 import { appendPromptHistory, buildMergedPromptHistory, loadPromptHistory, promptHistoryKey } from '../prompt-history-store.mjs';
-import { touchProjectSelected } from '../../standalone/projects.mjs';
 
 // Upper bound on how long a manual Esc abort may leave the store busy while the
 // in-flight runtime.ask() unwinds. runtime.abort() normally rejects the pending
@@ -357,12 +356,6 @@ export function createEngineApiA(bag) {
     },
     setCwd: (path, options = {}) => {
       const next = runtime.setCwd(path);
-      // "Last opened" recency belongs to the ACTUAL cwd switch, not to one
-      // caller: the project picker, its Current Path row and the /cwd prompt
-      // all land here, so the project list stays ordered by what was really
-      // opened last. Unregistered folders are ignored — this never registers
-      // a project on its own (addProject remains the only registration path).
-      try { touchProjectSelected(next); } catch { /* best-effort recency */ }
       // Republish up-arrow history for the NEW project: current session prompts
       // merged with the cwd-scoped persisted store for the new cwd.
       const sessionList = recomputePromptHistory(getState().items);

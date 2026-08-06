@@ -152,6 +152,7 @@ test('restoreQueued can edit one visible steering entry without draining its sib
   const restored = flow.restoreQueued('current draft', second.id);
 
   assert.equal(restored.count, 1);
+  assert.deepEqual(restored.ids, [second.id]);
   assert.equal(restored.text, 'second follow-up\ncurrent draft');
   assert.deepEqual(bag.pending.map((entry) => entry.id), [first.id]);
   assert.deepEqual(bag.getState().queued.map((entry) => entry.id), [first.id]);
