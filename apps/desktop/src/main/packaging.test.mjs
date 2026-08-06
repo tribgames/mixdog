@@ -58,6 +58,19 @@ test('packaged preload path matches electron-vite output', async () => {
   await access(new URL('../../out/preload/index.js', import.meta.url));
 });
 
+test('renderer bridge cannot dispose the singleton backend client', async () => {
+  const [contract, preload, ipc, remote] = await Promise.all([
+    readFile(new URL('../shared/contract.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../preload/index.ts', import.meta.url), 'utf8'),
+    readFile(new URL('./ipc.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../renderer/remote-shim.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.doesNotMatch(contract, /dispose:\s*'mixdog:dispose'/);
+  assert.doesNotMatch(preload, /DESKTOP_IPC\.dispose/);
+  assert.doesNotMatch(ipc, /DESKTOP_IPC\.dispose/);
+  assert.doesNotMatch(remote, /\bdispose:\s*\(\)\s*=>\s*Promise\.resolve/);
+});
+
 test('packaged Markdown worker resolves DOM-dependent parsers through worker-safe entries', async () => {
   const vite = await readFile(new URL('../../electron.vite.config.ts', import.meta.url), 'utf8');
   const client = await readFile(new URL('../renderer/markdown-worker-client.ts', import.meta.url), 'utf8');

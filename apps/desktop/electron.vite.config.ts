@@ -1,5 +1,5 @@
-// Configuration structure adapted from AiderDesk's electron.vite.config.ts.
-// See src/shared/AIDERDESK_NOTICE.md for Apache-2.0 attribution.
+// electron-vite configuration for the desktop app.
+// Third-party derivation notices: NOTICE.md at the repository root.
 import { resolve } from 'node:path';
 
 import react from '@vitejs/plugin-react';

@@ -1,7 +1,5 @@
-// VS Code Explorer grammar, ported from C:\Project\refs\vscode —
-// fileActions.ts validateFileName/getWellFormedFileName, base/common/
-// extpath.ts isValidBasename, explorerViewer.ts FileSorter (default order),
-// and the paste-collision naming from fileImportExport. Pure logic module:
+// Explorer name/sort grammar: name validation, well-formed name cleanup,
+// the default sort order, and paste-collision naming. Pure logic module:
 // unit-tested directly by renderer.test.mjs.
 
 export interface ExplorerNameProblem {
@@ -18,7 +16,7 @@ const runtimeIsWindows: boolean = typeof navigator === 'object'
   ? /win/i.test(String((navigator as { platform?: string }).platform))
   : (globalThis as { process?: { platform?: string } }).process?.platform === 'win32';
 
-/** fileActions.ts getWellFormedFileName: trim tabs, drop trailing slashes. */
+/** Well-formed name: trim tabs, drop trailing slashes. */
 export function wellFormedExplorerName(name: string): string {
   if (!name) return '';
   return String(name)
@@ -26,7 +24,7 @@ export function wellFormedExplorerName(name: string): string {
     .replace(/[\\/]+$/, '');
 }
 
-/** extpath.ts isValidBasename. */
+/** Basename validity: invalid chars, reserved device names, length. */
 export function isValidExplorerBasename(name: string, windows: boolean = runtimeIsWindows): boolean {
   if (!name || /^\s+$/.test(name)) return false;
   const invalid = windows ? WINDOWS_INVALID_FILE_CHARS : UNIX_INVALID_FILE_CHARS;
@@ -39,7 +37,7 @@ export function isValidExplorerBasename(name: string, windows: boolean = runtime
   return true;
 }
 
-/** fileActions.ts validateFileName: null = valid; warning never blocks. */
+/** Name validation: null = valid; a warning never blocks. */
 export function validateExplorerName(input: {
   name: string;
   originalName?: string;
@@ -66,7 +64,7 @@ export function validateExplorerName(input: {
     return { content: 'The name must not contain path separators.', severity: 'error' };
   }
   // Duplicate guard only for a plain single-segment name; nested creation
-  // reuses existing folders on purpose (VS Code getChild misses on slashes).
+  // reuses existing folders on purpose (a slashed name matches no child).
   if (segments.length === 1 && name.toLowerCase() !== originalName.toLowerCase()) {
     const taken = new Set(siblings.map((sibling) => sibling.toLowerCase()));
     if (taken.has(name.toLowerCase())) {
@@ -94,7 +92,7 @@ function trimLongName(name: string): string {
 
 const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
-/** comparers.ts compareFileNames: numeric-aware, case-insensitive first. */
+/** Name compare: numeric-aware, case-insensitive first. */
 export function compareExplorerNames(a: string, b: string): number {
   const result = nameCollator.compare(a, b);
   if (result !== 0) return result;
@@ -106,7 +104,7 @@ export interface ExplorerSortableEntry {
   dir: boolean;
 }
 
-/** explorerViewer.ts FileSorter 'default': directories first, then names. */
+/** Default sort: directories first, then names. */
 export function sortExplorerEntries<T extends ExplorerSortableEntry>(entries: readonly T[]): T[] {
   return [...entries].sort((a, b) => a.dir === b.dir
     ? compareExplorerNames(a.name, b.name)
@@ -134,7 +132,7 @@ export function explorerTypeAheadIndex(
   return -1;
 }
 
-/** fileImportExport paste grammar: "name copy", then "name copy 2", ... */
+/** Paste naming: "name copy", then "name copy 2", ... */
 export function explorerPasteName(
   name: string,
   dir: boolean,

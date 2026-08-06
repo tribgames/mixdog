@@ -1,11 +1,12 @@
-// Codex-style turn stop hook (refs/codex core/src/session/turn.rs:372-404).
+// Turn stop hook.
 //
-// Codex semantics: a sampling request that needs no follow-up ends the turn.
-// Before breaking, the turn runs its stop hooks; a hook may block ONCE by
-// returning continuation fragments, which are recorded as a prompt message
-// before sampling resumes (`stop_hook_active = true`, never cleared inside the
-// turn). Nothing else can force another turn: no mandatory terminal tool, no
-// completion strikes, no lexical inspection of the assistant text.
+// Termination semantics: a sampling request that needs no follow-up ends the
+// turn. Before breaking, the turn runs its stop hooks; a hook may block ONCE
+// by returning continuation fragments, which are recorded as a prompt message
+// before sampling resumes (the hook stays armed for the rest of the turn and
+// is never cleared inside it). Nothing else can force another turn: no
+// mandatory terminal tool, no completion strikes, no lexical inspection of
+// the assistant text.
 //
 // The single hook implemented here preserves the original failed-apply_patch
 // protection: while a real tool failure is unresolved, the first terminal
@@ -41,7 +42,7 @@ export function toolFailureContinuationPrompt(failedTool) {
  *    success clears it.
  *  - takeContinuationPrompt(): returns the continuation prompt the FIRST time
  *    a terminal assistant message arrives while a failure is unresolved, then
- *    stays silent for the rest of the turn (Codex `stop_hook_active`).
+ *    stays silent for the rest of the turn.
  */
 export function createToolFailureStopHook() {
     let unresolvedFailure = false;

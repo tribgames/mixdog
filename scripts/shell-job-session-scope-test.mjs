@@ -74,6 +74,27 @@ test('an unknown owner pid reports nothing', () => {
   assert.equal(shellJobsStatus({ clientHostPid: 0, sessionId: 'session-a' }).count, 0);
 });
 
+// The rendered statusline must inherit that scope: the daemon backend hosts
+// every terminal's session in ONE process, so an owner-wide shell segment
+// showed a shell started in one terminal on every other terminal (user
+// report). A session-less caller (plain shim) still sees the aggregate.
+test('the statusline shell segment counts only the rendering session', async () => {
+  await settledAggregate();
+  const { renderStatusline, createSessionStats } = await import('../src/ui/statusline.mjs');
+  const stripAnsi = (text) => String(text).replace(/\u001b\[[0-9;]*m/g, '');
+  const base = {
+    provider: 'anthropic', model: 'claude-sonnet-4', cwd: dataDir,
+    clientHostPid: ownerPid, stats: createSessionStats(),
+  };
+  const scoped = stripAnsi(await renderStatusline({ ...base, sessionId: 'session-b' }));
+  assert.match(scoped, /Running 1 Shell\b/, "a session renders its OWN shell count");
+  const idle = stripAnsi(await renderStatusline({ ...base, sessionId: 'session-c' }));
+  assert.doesNotMatch(idle, /Running \d+ Shell/,
+    "a session that started nothing must not render another terminal's shell");
+  const aggregate = stripAnsi(await renderStatusline({ ...base }));
+  assert.match(aggregate, /Running 4 Shells\b/, 'a session-less caller keeps the owner aggregate');
+});
+
 // A shell job belongs to the session that dispatched it. The registries are
 // process-global, so a NON-exit dispose (daemon engine swap / adopted
 // placeholder / idle eviction) must reap only its own session's jobs — an

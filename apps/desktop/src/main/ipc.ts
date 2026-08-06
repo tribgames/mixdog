@@ -1669,9 +1669,6 @@ export function registerDesktopIpc(
   });
   handle(DESKTOP_IPC.readCapabilities, (_event, input) =>
     host.readCapabilities(requiredDesktopCapabilityReadRequests(input)));
-  handle(DESKTOP_IPC.dispose, async () => {
-    return host.dispose();
-  });
   handle(DESKTOP_IPC.quit, () => {
     quitPromise ??= (async () => {
       try {

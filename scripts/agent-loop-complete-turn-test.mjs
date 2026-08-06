@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Codex turn-loop termination parity (refs/codex core/src/session/turn.rs:297-410,
-// :2279-2305). A no-tool assistant message is TERMINAL: there is no mandatory
-// terminal tool, no completion strikes, no progress-text heuristic. Sampling
+// Turn-loop termination contract. A no-tool assistant message is TERMINAL:
+// there is no mandatory terminal tool, no completion strikes, and no
+// progress-text heuristic. Sampling
 // only continues on a structured provider follow-up signal (end_turn=false /
 // pause_turn), tool calls/results, the bounded empty/output-limit ladders, or a
 // stop hook that blocks once with a continuation prompt.
@@ -123,7 +123,7 @@ test('the stop hook arms on a failed batch, clears on an executed success, and f
     hook.endBatch([{ id: 'c2', name: 'list' }, { id: 'c3', name: 'list' }]);
     assert.equal(hook.unresolvedFailure, true);
 
-    // Blocks exactly once, then stays inactive (Codex `stop_hook_active`).
+    // Blocks exactly once, then stays inactive.
     const prompt = hook.takeContinuationPrompt();
     assert.equal(prompt, toolFailureContinuationPrompt('apply_patch'));
     assert.match(prompt, /apply_patch/);
@@ -243,7 +243,7 @@ test('a later successful tool call resolves the failure so no stop hook fires at
 });
 
 test('pending input is folded in before the stop hook, so steering is never displaced', async () => {
-    // Codex turn.rs:304-318 — has_pending_input feeds needs_follow_up, which is
+    // Pending input feeds needs_follow_up, which is
     // evaluated BEFORE run_turn_stop_hooks.
     let queued = [{ content: 'also update the README', submittedAt: Date.now() }];
     let drains = 0;

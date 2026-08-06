@@ -497,7 +497,6 @@ const api: DesktopApi = {
   // by Chromium, range-able for video), never an IPC base64 payload.
   mediaUrl: (assetId, variant) =>
     `mixdog-media://asset/${encodeURIComponent(assetId)}?variant=${encodeURIComponent(variant || 'original')}`,
-  dispose: () => ipcRenderer.invoke(DESKTOP_IPC.dispose),
   quit: () => ipcRenderer.invoke(DESKTOP_IPC.quit),
 };
 

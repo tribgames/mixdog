@@ -974,6 +974,48 @@ test("commit hooks run against the scratch index and can veto the commit", async
   }
 });
 
+test("commit hooks cannot inherit daemon identity or provider secrets", async (t) => {
+  const cwd = await createRepository();
+  const inherited = {
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    MIXDOG_ENGINE_DAEMON_HOST: process.env.MIXDOG_ENGINE_DAEMON_HOST,
+    MIXDOG_TEST_HOOK_VISIBLE: process.env.MIXDOG_TEST_HOOK_VISIBLE,
+  };
+  try {
+    await commit(cwd, "seed.txt", "seed\n", "Seed");
+    if (!await hostRunsCommitHooks(cwd)) {
+      t.skip("git hook run requires Git 2.36 or newer");
+      return;
+    }
+    process.env.ANTHROPIC_API_KEY = "provider-secret";
+    process.env.MIXDOG_ENGINE_DAEMON_HOST = "1";
+    process.env.MIXDOG_TEST_HOOK_VISIBLE = "visible";
+    await writeFile(join(cwd, "hooked.txt"), "hooked\n", "utf8");
+    const hook = await writeHook(cwd, "pre-commit", [
+      "#!/bin/sh",
+      "{",
+      "  printf '%s\\n' \"${ANTHROPIC_API_KEY-unset}\"",
+      "  printf '%s\\n' \"${MIXDOG_ENGINE_DAEMON_HOST-unset}\"",
+      "  printf '%s\\n' \"${MIXDOG_TEST_HOOK_VISIBLE-unset}\"",
+      "} > hook-environment.txt",
+      "",
+    ].join("\n"));
+    if (process.platform !== "win32") await chmod(hook, 0o755);
+
+    await gitCommitPaths(cwd, "Protected hook", ["hooked.txt"]);
+    assert.deepEqual(
+      (await readFile(join(cwd, "hook-environment.txt"), "utf8")).trim().split(/\r?\n/),
+      ["unset", "unset", "visible"],
+    );
+  } finally {
+    for (const [key, value] of Object.entries(inherited)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await rm(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+  }
+});
+
 // Capability, never a guess: only "this git has no `git hook run`" may turn
 // hooks off, and even then only where the repository defines none. ONE answer
 // says that — git's own "not a git command". `usage: git hook ...` and

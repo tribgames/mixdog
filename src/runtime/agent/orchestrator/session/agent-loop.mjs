@@ -237,7 +237,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     if (compactSettledToolCallBodies(messages) && !opts.cacheBreakIntent) {
         opts.cacheBreakIntent = 'deferred_body_compaction';
     }
-    // ---- Codex turn stop hook (refs/codex core/src/session/turn.rs:372-404) --
+    // ---- Turn stop hook ----------------------------------------------------
     // A no-tool assistant message is TERMINAL. Only a structured provider
     // follow-up signal (end_turn=false / pause_turn), pending input, tool
     // calls/results, or a stop hook that blocks with a continuation prompt keep

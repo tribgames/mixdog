@@ -350,7 +350,16 @@ function renderNativeStatusline({
     ...activeHiddenAgentWorkers({ sessionId, clientHostPid }),
   ], agentJobs);
   const { runningWorkers } = classifyAgentWorkers(agentPayload.workers);
-  const shellStatus = shellJobsStatus({ clientHostPid });
+  // Shell segment scope: one host process can own MANY sessions' jobs (the
+  // desktop pools every pane's engine; the daemon backend hosts every
+  // terminal's session), so the owner-wide aggregate would show one
+  // terminal's running shell on every other terminal. Render this session's
+  // own jobs whenever we know which session we are; only a session-less
+  // caller (plain statusline shim) keeps the process aggregate.
+  const shellScope = String(sessionId ?? '').trim();
+  const shellStatus = shellScope
+    ? shellJobsStatus({ clientHostPid, sessionId: shellScope })
+    : shellJobsStatus({ clientHostPid });
 
   const spinnerNow = Date.now();
   const sp = l2SpinnerFrame(spinnerNow);
