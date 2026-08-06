@@ -69,6 +69,16 @@ function loadOpenAI() {
     return _OpenAI;
 }
 
+// Grok OAuth creates its credential-bound inner provider only when send() has
+// the final token and request headers. Let the process-wide provider warmup pay
+// the OpenAI SDK + undici pool load before that first request reaches the hot
+// path, without constructing a fake credential-bound client.
+export function preloadOpenAICompatRuntime() {
+    const OpenAI = loadOpenAI();
+    getLlmDispatcher();
+    return OpenAI;
+}
+
 function attachCompletedWarmup(err, warmup) {
     if (!err || !warmup?.usage) return err;
     try {
@@ -238,7 +248,8 @@ export class OpenAICompatProvider {
         // extraHeaders behave exactly as before.
         this.defaultHeaders = { ...(preset?.extraHeaders || {}), ...(config.extraHeaders || {}) };
         this.defaultModel = preset?.defaultModel || 'default';
-        this.client = new (loadOpenAI())({
+        const OpenAI = preloadOpenAICompatRuntime();
+        this.client = new OpenAI({
             baseURL,
             apiKey,
             defaultHeaders: this.defaultHeaders,
@@ -253,6 +264,12 @@ export class OpenAICompatProvider {
             // a harmless no-op then.
             fetchOptions: { dispatcher: getLlmDispatcher() },
         });
+        // Provider registry initialization normally runs during daemon warmup.
+        // Start the origin handshake there; the per-send call below remains as
+        // the TTL-gated rewarm after long idle gaps.
+        if (this.config?.preconnect !== false) {
+            try { this._preconnectFn(this.baseURL); } catch { /* best-effort */ }
+        }
     }
     get _preconnectFn() {
         return typeof this.config?.preconnectFn === 'function'
@@ -589,8 +606,11 @@ export class OpenAICompatProvider {
             // existing request bodies.
             store: false,
             include: ['reasoning.encrypted_content'],
-            prompt_cache_key: cacheRouting.key,
         };
+        // A null routing key means "omit the field" (cache scope 'none'):
+        // xAI's own client sends no prompt_cache_key and relies on the
+        // service's automatic prefix caching.
+        if (cacheRouting.key) params.prompt_cache_key = cacheRouting.key;
         if (previousResponseId) params.previous_response_id = previousResponseId;
         const nativeTools = nativeResponsesTools(opts);
         if (tools?.length || nativeTools.length) params.tools = [...nativeTools, ...toResponsesTools(tools || [], { provider: 'xai' })];
@@ -797,8 +817,8 @@ export class OpenAICompatProvider {
             input,
             store: false,
             include: ['reasoning.encrypted_content'],
-            prompt_cache_key: cacheRouting.key,
         };
+        if (cacheRouting.key) params.prompt_cache_key = cacheRouting.key;
         const instructions = xaiSystemInstructions(messages);
         if (previousResponseId) params.previous_response_id = previousResponseId;
         // xAI rejects instructions together with previous_response_id; the

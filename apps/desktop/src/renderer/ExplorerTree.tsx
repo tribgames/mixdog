@@ -57,8 +57,11 @@ const DRAG_EXPAND_DELAY_MS = 500;
 /** Seti file glyph (VS Code file icon theme; folders stay icon-less). */
 export function SetiFileIcon({ name, className = "" }: { name: string; className?: string }) {
   const icon = setiIconFor(name);
+  // The colour goes out as a custom property, never as an inline `color`: the
+  // table is Seti's dark set, and desktop.css retunes it on light surfaces.
+  // An inline color would win that cascade and keep 1.7:1 glyphs on paper.
   return <span className={className ? `seti-icon ${className}` : "seti-icon"}
-    style={icon.color ? { color: icon.color } : undefined}
+    style={icon.color ? { "--seti-color": icon.color } as React.CSSProperties : undefined}
     aria-hidden="true">{icon.glyph}</span>;
 }
 

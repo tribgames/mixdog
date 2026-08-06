@@ -30,6 +30,8 @@ interface EngineDaemonClient {
     cwd?: string;
     onFrame?: (frame: Record<string, unknown>) => void;
     onFatal?: (reason: string) => void;
+    onStreamDisconnect?: (details: Record<string, unknown>) => void;
+    onStreamReconnect?: (details: Record<string, unknown>) => void;
     log?: (line: string) => void;
   }): Promise<AttachedDaemon>;
 }
@@ -37,6 +39,16 @@ interface EngineDaemonClient {
 type EngineDaemonClientLoader = (
   options: Extract<DesktopBackendInbound, { kind: 'init' }>['options'],
 ) => Promise<EngineDaemonClient>;
+
+function isTransientConnectionReset(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const record = error as Record<string, unknown>;
+  const code = String(record.code || '').toUpperCase();
+  const message = error instanceof Error ? error.message : String(error);
+  return code === 'ECONNRESET'
+    || code === 'EPIPE'
+    || /socket hang up|read ECONNRESET|write EPIPE/i.test(message);
+}
 
 /** Desktop backend client transport backed by the singleton daemon. */
 export class DaemonEngineTransport implements BackendTransport {
@@ -46,6 +58,7 @@ export class DaemonEngineTransport implements BackendTransport {
   private client: AttachedDaemon | null = null;
   private initializing: Promise<void> | null = null;
   private closePromise: Promise<void> | null = null;
+  private streamResync: Promise<void> | null = null;
   private closed = false;
 
   constructor(
@@ -80,6 +93,13 @@ export class DaemonEngineTransport implements BackendTransport {
       void this.request(message);
       return;
     }
+    if (message.kind === 'notify') {
+      void this.notify(message).catch(() => {
+        // A lost keystroke is not worth tearing the transport down; the next
+        // one (or the terminal's own redraw) carries on.
+      });
+      return;
+    }
     void this.control(message).catch((error) => this.fail(error));
   }
 
@@ -111,6 +131,13 @@ export class DaemonEngineTransport implements BackendTransport {
           if (outbound && typeof outbound === 'object') this.emit('message', outbound);
         },
         onFatal: (reason) => this.fail(new Error(`Mixdog backend daemon disconnected: ${reason}`)),
+        onStreamDisconnect: (details) => {
+          this.emit('diagnostic', 'backend-stream-reconnecting', details);
+        },
+        onStreamReconnect: (details) => {
+          this.emit('diagnostic', 'backend-stream-reconnected', details);
+          void this.resyncAfterStreamReconnect(details);
+        },
       });
       if (this.closed) {
         await client.close('desktop transport closed during init');
@@ -136,17 +163,68 @@ export class DaemonEngineTransport implements BackendTransport {
     }
   }
 
+  private resyncAfterStreamReconnect(details: Record<string, unknown>): Promise<void> {
+    if (this.streamResync) return this.streamResync;
+    const client = this.client;
+    if (!client || this.closed) return Promise.resolve();
+    this.streamResync = (async () => {
+      let lastError: unknown = null;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        if (this.closed || client !== this.client) return;
+        try {
+          await client.call('desktop.control', {
+            desktopId: this.desktopId,
+            message: { kind: 'state-resync' },
+          });
+          this.emit('diagnostic', 'backend-stream-resync-complete', {
+            ...details,
+            attempt,
+          });
+          return;
+        } catch (error) {
+          lastError = error;
+          if (attempt < 3) {
+            await new Promise((resolve) => setTimeout(resolve, attempt * 100));
+          }
+        }
+      }
+      const record = lastError && typeof lastError === 'object'
+        ? lastError as Record<string, unknown>
+        : null;
+      this.emit('diagnostic', 'backend-stream-resync-failed', {
+        ...details,
+        errorName: lastError instanceof Error ? lastError.name : typeof lastError,
+        ...(typeof record?.code === 'string' ? { code: record.code } : {}),
+      });
+    })().finally(() => {
+      this.streamResync = null;
+    });
+    return this.streamResync;
+  }
+
   private async request(
     message: Extract<DesktopBackendInbound, { kind: 'request' }>,
   ): Promise<void> {
     try {
       if (this.initializing) await this.initializing;
       if (!this.client) throw new Error('Mixdog backend daemon is not initialized.');
-      const value = await this.client.call('desktop.invoke', {
+      const args = {
         desktopId: this.desktopId,
         method: message.method,
         args: message.args,
-      });
+      };
+      const callId = `desktop-invoke:${this.requestedDesktopId}:${message.id}`;
+      let value: unknown;
+      try {
+        value = await this.client.call('desktop.invoke', args, { callId });
+      } catch (error) {
+        // A pooled loopback socket can be reset while the daemon itself stays
+        // healthy (notably during adapter handoff). Retry the exact logical
+        // request once under the same call id: the daemon's idempotency cache
+        // returns the original result if it already committed.
+        if (!isTransientConnectionReset(error)) throw error;
+        value = await this.client.call('desktop.invoke', args, { callId });
+      }
       this.emit('message', {
         kind: 'response',
         id: message.id,
@@ -176,6 +254,19 @@ export class DaemonEngineTransport implements BackendTransport {
     await this.client.call('desktop.control', {
       desktopId: this.desktopId,
       message,
+    });
+  }
+
+  /** Same daemon route as `request`, without the response frame. */
+  private async notify(
+    message: Extract<DesktopBackendInbound, { kind: 'notify' }>,
+  ): Promise<void> {
+    if (this.initializing) await this.initializing;
+    if (!this.client) return;
+    await this.client.call('desktop.invoke', {
+      desktopId: this.desktopId,
+      method: message.method,
+      args: message.args,
     });
   }
 

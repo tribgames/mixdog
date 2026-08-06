@@ -7,7 +7,11 @@ import {
   desktopSettingsFromConfig,
   settingsConfigModuleUrl,
 } from './settings-store.ts';
-import { registerDesktopIpc, requiredDesktopSettingKey } from './ipc.ts';
+import {
+  registerDesktopIpc,
+  requiredDesktopCapabilityRequest,
+  requiredDesktopSettingKey,
+} from './ipc.ts';
 import { DESKTOP_IPC } from '../shared/contract.ts';
 
 test('settings config URL follows development and packaged runtime layouts', () => {
@@ -21,15 +25,17 @@ test('settings config URL follows development and packaged runtime layouts', () 
   );
 });
 
-test('desktop settings use the same safe defaults and aliases as core config', () => {
+test('desktop settings read the canonical agent section and desktop defaults', () => {
   assert.deepEqual(desktopSettingsFromConfig({}), {
     autoClear: true,
     autoCompact: true,
     keepAwake: true,
   });
   assert.deepEqual(desktopSettingsFromConfig({
-    autoClear: { enabled: false },
-    compaction: { enabled: false },
+    agent: {
+      autoClear: { enabled: false },
+      compaction: { auto: false },
+    },
     desktop: { keepAwake: false },
   }), {
     autoClear: false,
@@ -41,8 +47,11 @@ test('desktop settings use the same safe defaults and aliases as core config', (
 test('writes are atomic core updates that retain unrelated config and nested fields', async () => {
   let value = {
     providers: { openai: { enabled: true } },
-    autoClear: { idleMs: 60000 },
-    compaction: { type: 'semantic', enabled: false },
+    agent: {
+      profile: { title: 'Owner' },
+      autoClear: { idleMs: 60000 },
+      compaction: { type: 'semantic', enabled: false },
+    },
     unrelated: { retained: true },
   };
   const store = new DesktopSettingsStore({
@@ -61,8 +70,13 @@ test('writes are atomic core updates that retain unrelated config and nested fie
 
   assert.deepEqual(result, { autoClear: false, autoCompact: true, keepAwake: false });
   assert.deepEqual(value.providers, { openai: { enabled: true } });
-  assert.deepEqual(value.autoClear, { idleMs: 60000, enabled: false });
-  assert.deepEqual(value.compaction, { type: 'semantic', auto: true });
+  assert.deepEqual(value.agent, {
+    profile: { title: 'Owner' },
+    autoClear: { idleMs: 60000, enabled: false },
+    compaction: { type: 'semantic', auto: true },
+  });
+  assert.equal(value.autoClear, undefined);
+  assert.equal(value.compaction, undefined);
   assert.deepEqual(value.desktop, { keepAwake: false });
   assert.deepEqual(value.unrelated, { retained: true });
 });
@@ -74,6 +88,30 @@ test('IPC accepts only the runtime-backed setting keys', () => {
   assert.throws(() => requiredDesktopSettingKey('homeAccess'), /invalid/);
   assert.throws(() => requiredDesktopSettingKey('updates'), /invalid/);
   assert.throws(() => requiredDesktopSettingKey({}), /invalid/);
+});
+
+test('desktop capability validation exposes Recap and rejects the retired Memory toggle API', () => {
+  assert.deepEqual(requiredDesktopCapabilityRequest({
+    capability: 'setRecapEnabled',
+    args: [false],
+  }), {
+    capability: 'setRecapEnabled',
+    args: [false],
+  });
+  assert.deepEqual(requiredDesktopCapabilityRequest({
+    capability: 'getRecapSettings',
+  }), {
+    capability: 'getRecapSettings',
+    args: [],
+  });
+  assert.throws(() => requiredDesktopCapabilityRequest({
+    capability: 'setRecapEnabled',
+    args: ['off'],
+  }), /requires a boolean/);
+  assert.throws(() => requiredDesktopCapabilityRequest({
+    capability: 'setMemoryEnabled',
+    args: [false],
+  }), /unavailable/);
 });
 
 test('updateSetting IPC enforces sender, key, boolean, success, and store rejection', async () => {
@@ -97,6 +135,7 @@ test('updateSetting IPC enforces sender, key, boolean, success, and store reject
   };
   const remove = registerDesktopIpc(window, {
     subscribe: () => () => {},
+    subscribeSessionStates: () => () => {},
   }, {
     app: { quit() {} },
     ipcMain: {

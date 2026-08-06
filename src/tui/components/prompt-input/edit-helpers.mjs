@@ -41,26 +41,24 @@ export function draftStateEqual(a, b) {
 // Recognize a MODIFIED Enter delivered via the kitty keyboard protocol
 // (\x1b[13;<mod>u) or modifyOtherKeys (\x1b[27;<mod>;13~). The xterm modifier
 // param is (1 + bitmask) where the bitmask bits are shift=1, alt=2, ctrl=4. We
-// treat Ctrl+Enter AND Shift+Enter (the two common "insert newline" chords) as a
-// newline, so we match when the shift OR ctrl bit is set. Ctrl+J is handled
-// separately as the protocol-independent fallback.
-const MODIFIED_ENTER_SHIFT_OR_CTRL = 1 | 4;
+// treat Shift+Enter, Alt/Meta+Enter, and Ctrl+Enter as newline chords. Claude
+// Code maps Shift/Meta+Enter to newline; Ctrl+Enter remains a compatible Mixdog
+// extension. Ctrl+J is handled separately as the protocol-independent fallback.
+const MODIFIED_ENTER_NEWLINE = 1 | 2 | 4;
 
 export function isModifiedEnterSequence(input) {
   const text = String(input ?? '');
   const body = text.startsWith('\x1b[') ? text.slice(2) : text.startsWith('[') ? text.slice(1) : '';
   if (!body) return false;
   const kitty = /^13;(\d+)(?::\d+)?(?:;[\d:]+)?u$/.exec(body);
-  if (kitty) return ((Number(kitty[1]) - 1) & MODIFIED_ENTER_SHIFT_OR_CTRL) !== 0;
+  if (kitty) return ((Number(kitty[1]) - 1) & MODIFIED_ENTER_NEWLINE) !== 0;
   const modifyOtherKeys = /^27;(\d+);13~$/.exec(body);
-  return Boolean(modifyOtherKeys && (((Number(modifyOtherKeys[1]) - 1) & MODIFIED_ENTER_SHIFT_OR_CTRL) !== 0));
+  return Boolean(modifyOtherKeys && (((Number(modifyOtherKeys[1]) - 1) & MODIFIED_ENTER_NEWLINE) !== 0));
 }
 
-// Recognize ANY modified Enter (any modifier bitmask, e.g. Alt+Enter \x1b[13;3u
-// / \x1b[27;3;13~). Used to CONSUME modified-Enter sequences we don't map to a
-// newline (Alt-only, etc.) so they aren't typed into the prompt as raw CSI text
-// under modifyOtherKeys. Plain Enter (mod param = 1, bitmask 0) is intentionally
-// NOT matched, so it still submits.
+// Recognize ANY modified Enter. Used to consume uncommon modifier combinations
+// outside the Shift/Alt/Ctrl newline set so raw CSI bytes never reach the draft.
+// Plain Enter (mod param = 1, bitmask 0) intentionally remains a submit.
 export function isAnyModifiedEnterSequence(input) {
   const text = String(input ?? '');
   const body = text.startsWith('\x1b[') ? text.slice(2) : text.startsWith('[') ? text.slice(1) : '';

@@ -1,4 +1,5 @@
 import type {
+  DesktopAbortOptions,
   DesktopAgentPoolRow,
   DesktopCapability,
   DesktopCapabilityReadRequest,
@@ -65,19 +66,19 @@ export interface DesktopEngineHost {
     options?: DesktopSubmitOptions,
     draft?: DesktopNewTaskDraft,
   ): Promise<DesktopNewTaskSubmitResult>;
-  abort(): unknown;
+  abort(options?: DesktopAbortOptions): unknown;
   resolveToolApproval(id: string, decision: ToolApprovalDecision): boolean | Promise<boolean>;
   /** Split panes: live snapshot lanes + session-addressed engine operations
-   *  over the pooled engines (active or parked). Optional so partial test
-   *  hosts and older embedders remain valid DesktopEngineHost values. */
-  subscribeSessionStates?(listener: (update: DesktopSessionStateUpdate) => void): () => void;
-  submitToSession?(
+   *  over the pooled engines (active or parked). Product hosts must provide
+   *  these routes so pane actions can never fall back to the focused session. */
+  subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void;
+  submitToSession(
     sessionId: string,
     prompt: DesktopPromptContent,
     options?: DesktopSubmitOptions,
   ): Promise<boolean>;
-  abortSession?(sessionId: string): unknown;
-  resolveToolApprovalForSession?(
+  abortSession(sessionId: string, options?: DesktopAbortOptions): unknown;
+  resolveToolApprovalForSession(
     sessionId: string,
     id: string,
     decision: ToolApprovalDecision,

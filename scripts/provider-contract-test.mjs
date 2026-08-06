@@ -693,11 +693,13 @@ test('OpenCode Go Anthropic delegation traces additive inner usage before inclus
     assert.equal(innerUsage.prompt_tokens, 100);
 });
 
-test('constructing Grok OAuth is network inert', () => {
+test('constructing Grok OAuth prewarms only through the injected seam', () => {
+    let preconnectCalls = 0;
     const provider = new GrokOAuthProvider({
-        preconnectFn: () => { throw new Error('constructor attempted outbound preconnect'); },
+        preconnectFn: () => { preconnectCalls += 1; },
     });
     assert.ok(provider);
+    assert.equal(preconnectCalls, 1);
 });
 
 test('Grok OAuth end-to-end HTTP Responses path is hermetic through inner compat', async (t) => {

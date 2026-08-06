@@ -143,14 +143,13 @@ export function createOnboardingSteps({
     if (defaultRoute) {
       void store.completeOnboarding?.({
         defaultRoute,
-        defaultProvider: defaultRoute.provider,
         ...(hasOverrides ? { agentRoutes: { ...overrides } } : {}),
         ...(searchRoute ? { searchRoute } : {}),
       }).then(done).catch(failed);
       return;
     }
     // Branch 2 — Main unset but some Search/agent picks exist: partial persist.
-    // Only the explicit overrides are sent (no defaultRoute/defaultProvider); the
+    // Only the explicit overrides are sent (no defaultRoute); the
     // backend skips agents lacking a route and marks onboarding complete.
     if (hasOverrides || searchRoute) {
       void store.completeOnboarding?.({

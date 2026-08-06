@@ -3170,7 +3170,7 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
     <span className="editor-breadcrumb-path">
       {breadcrumbSegments.map((segment, index) =>
         <React.Fragment key={`${index}:${segment}`}>
-          {index > 0 && <ChevronRight size={13} aria-hidden="true" />}
+          {index > 0 && <ChevronRight size={14} aria-hidden="true" />}
           <button ref={(node) => { breadcrumbButtonRefs.current[index] = node; }}
             type="button"
             className={`editor-breadcrumb-item${index === breadcrumbSegments.length - 1
@@ -3184,15 +3184,15 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
             onFocus={() => setBreadcrumbFocusIndex(index)}
             onClick={(event) => openPathBreadcrumb(event, index)}>
             {index === breadcrumbSegments.length - 1
-              ? <FileIcon size={13} aria-hidden="true" />
-              : <Folder size={13} aria-hidden="true" />}
+              ? <FileIcon size={14} aria-hidden="true" />
+              : <Folder size={14} aria-hidden="true" />}
             <span>{segment}</span>
           </button>
         </React.Fragment>)}
       {breadcrumbSymbols.map((item, symbolIndex) => {
         const focusIndex = breadcrumbSegments.length + symbolIndex;
         return <React.Fragment key={item.key}>
-          <ChevronRight size={13} aria-hidden="true" />
+          <ChevronRight size={14} aria-hidden="true" />
           <button ref={(node) => { breadcrumbButtonRefs.current[focusIndex] = node; }}
             type="button"
             className="editor-breadcrumb-item editor-breadcrumb-symbol"
@@ -3203,7 +3203,7 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
             tabIndex={breadcrumbFocusIndex === focusIndex ? 0 : -1}
             onFocus={() => setBreadcrumbFocusIndex(focusIndex)}
             onClick={(event) => openSymbolBreadcrumb(event, focusIndex, item)}>
-            <Braces size={13} aria-hidden="true" />
+            <Braces size={14} aria-hidden="true" />
             <span>{item.name}</span>
           </button>
         </React.Fragment>;
@@ -3491,7 +3491,7 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
                       item,
                       callHierarchy.direction,
                       [...callHierarchy.stack, callHierarchy.root],
-                    )}><ChevronRight size={13} /></button>
+                    )}><ChevronRight size={14} /></button>
                 </div>)}
             </div>
           </div>
@@ -3549,7 +3549,7 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
         {previewError && <div className="editor-pane-preview-error" role="alert">
           <p>{previewError}</p>
           <button type="button" onClick={() => void api?.openFilePath?.(projectPath, relPath, accessToken)}>
-            <ExternalLink size={13} aria-hidden="true" /> Open in default app</button>
+            <ExternalLink size={14} aria-hidden="true" /> Open in default app</button>
         </div>}
       </div>
     </div></>;
@@ -3558,7 +3558,7 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
     return <>{breadcrumbPickerPortal}<div className="editor-pane">{editorBreadcrumbs}<div className="editor-pane-notice">
       <p>{load.binary ? "Binary file — in-app editing is unavailable." : "File exceeds the 1 MB in-app editing cap."}</p>
       <button type="button" onClick={() => void api?.openFilePath?.(projectPath, relPath, accessToken)}>
-        <ExternalLink size={13} aria-hidden="true" /> Open in default app</button>
+        <ExternalLink size={14} aria-hidden="true" /> Open in default app</button>
     </div></div></>;
   }
   return <>{breadcrumbPickerPortal}{callHierarchyPortal}<div className="editor-pane">

@@ -17,7 +17,6 @@ import {
 } from './search-input-helpers.mjs';
 
 export const GREP_CONTEXT_CHAR_BUDGET_DEFAULT = 10_000;
-const GREP_CONTEXT_READ_CONCURRENCY = 4;
 const GREP_FOCUSED_CONTEXT_RADIUS = 12;
 const GREP_FOCUSED_RAW_BLOCKS = 3;
 // Anchors must stay usable as evidence without a follow-up read: keep the
@@ -229,21 +228,13 @@ async function readAnchorSources(anchors, radius, signal) {
         groups.get(anchor.absolutePath).anchors.push(anchor);
     }
     const entries = [...groups.values()];
-    let next = 0;
-    const worker = async () => {
-        while (next < entries.length) {
-            const entry = entries[next++];
-            try {
-                entry.lines = await readFileWindows(entry, radius, signal);
-            } catch (err) {
-                entry.error = err;
-            }
+    await Promise.all(entries.map(async (entry) => {
+        try {
+            entry.lines = await readFileWindows(entry, radius, signal);
+        } catch (err) {
+            entry.error = err;
         }
-    };
-    await Promise.all(Array.from(
-        { length: Math.min(GREP_CONTEXT_READ_CONCURRENCY, entries.length) },
-        () => worker(),
-    ));
+    }));
     return groups;
 }
 

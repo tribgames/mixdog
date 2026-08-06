@@ -28,6 +28,55 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 const _execFileAsync = promisify(execFile);
 
+// Async atomic writes from many daemon sessions share one disk. Keep enough
+// parallelism for SSD throughput, then use additive-increase/multiplicative-
+// decrease when latency shows the filesystem is saturated. This gate never
+// touches synchronous compatibility paths and never revokes in-flight writes.
+const _ioCeiling = Math.max(1, Math.floor(Number(process.env.MIXDOG_FILE_IO_MAX_CONCURRENCY) || 16));
+let _ioLimit = Math.min(4, _ioCeiling);
+let _ioActive = 0;
+let _ioFastStreak = 0;
+const _ioQueue = [];
+
+function _drainAdaptiveFileIo() {
+  while (_ioActive < _ioLimit && _ioQueue.length > 0) {
+    const item = _ioQueue.shift();
+    _ioActive += 1;
+    const startedAt = Date.now();
+    Promise.resolve()
+      .then(item.run)
+      .then(item.resolve, item.reject)
+      .finally(() => {
+        const elapsed = Date.now() - startedAt;
+        _ioActive = Math.max(0, _ioActive - 1);
+        if (elapsed >= 250) {
+          _ioLimit = Math.max(1, Math.ceil(_ioLimit / 2));
+          _ioFastStreak = 0;
+        } else if (elapsed <= 40 && _ioLimit < _ioCeiling) {
+          _ioFastStreak += 1;
+          if (_ioFastStreak >= _ioLimit * 4) {
+            _ioLimit += 1;
+            _ioFastStreak = 0;
+          }
+        } else {
+          _ioFastStreak = 0;
+        }
+        _drainAdaptiveFileIo();
+      });
+  }
+}
+
+function _runAdaptiveFileIo(run) {
+  return new Promise((resolve, reject) => {
+    _ioQueue.push({ run, resolve, reject });
+    _drainAdaptiveFileIo();
+  });
+}
+
+export function adaptiveFileIoSnapshot() {
+  return { active: _ioActive, queued: _ioQueue.length, limit: _ioLimit, ceiling: _ioCeiling };
+}
+
 const RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST']);
 const LOCK_WAIT_CODES = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
 const DEFAULT_BACKOFFS_MS = Object.freeze([25, 50, 100, 200, 400, 800, 1200, 1600]);
@@ -77,6 +126,28 @@ function _describeLockHolder(lockPath) {
   } catch {
     return 'holder unknown (lock file unreadable/absent)';
   }
+}
+
+// Lock-wait watchdog. A cross-process file lock is invisible in a profile: the
+// only symptom is "everything stopped". One bounded line per path names the
+// path and the wait, so the next stall is diagnosed from the log instead of a
+// live repro.
+const LOCK_WAIT_WARN_MS = 500;
+const LOCK_WAIT_WARN_INTERVAL_MS = 10_000;
+const _lockWaitWarnedAt = new Map();
+function _reportLockWait(lockPath, waitedMs, mode) {
+  if (waitedMs < LOCK_WAIT_WARN_MS) return;
+  const now = Date.now();
+  if (now - (_lockWaitWarnedAt.get(lockPath) || 0) < LOCK_WAIT_WARN_INTERVAL_MS) return;
+  _lockWaitWarnedAt.set(lockPath, now);
+  if (_lockWaitWarnedAt.size > 64) {
+    for (const [path, at] of _lockWaitWarnedAt) {
+      if (now - at >= LOCK_WAIT_WARN_INTERVAL_MS * 6) _lockWaitWarnedAt.delete(path);
+    }
+  }
+  try {
+    process.stderr.write(`[atomic-file] ${mode} lock wait ${waitedMs}ms: ${lockPath}\n`);
+  } catch { /* diagnostics only */ }
 }
 
 export function renameWithRetrySync(src, dst, opts = {}) {
@@ -129,6 +200,7 @@ export function withFileLockSync(lockPath, fn, opts = {}) {
   }
   const deadline = Date.now() + timeoutMs;
   mkdirSync(dirname(lockPath), { recursive: true });
+  const waitStartedAt = Date.now();
   let attempt = 0;
   let lastErr = null;
   while (true) {
@@ -168,6 +240,7 @@ export function withFileLockSync(lockPath, fn, opts = {}) {
     // `<pid> <ts> <token>` is a superset of the old `<pid> <ts>`; a
     // tokenless (old-format) lock is still read as pid-authoritative.
     try { writeFileSync(fd, `${process.pid} ${Date.now()} ${_OWNER_TOKEN}\n`, 'utf8'); } catch {}
+    _reportLockWait(lockPath, Date.now() - waitStartedAt, 'sync');
     // For secret-bearing critical sections, the lock file sits beside
     // the secret in the same (shared-home) directory; clamp it owner-only
     // too. Fail-closed: an unenforceable ACL aborts before fn() runs.
@@ -362,6 +435,7 @@ async function _withOsFileLock(lockPath, fn, opts = {}) {
   const staleMs = Number.isFinite(opts.staleMs) ? opts.staleMs : 30000;
   const deadline = Date.now() + timeoutMs;
   mkdirSync(dirname(lockPath), { recursive: true });
+  const waitStartedAt = Date.now();
   let attempt = 0;
   let lastErr = null;
   while (true) {
@@ -393,6 +467,7 @@ async function _withOsFileLock(lockPath, fn, opts = {}) {
       continue;
     }
     try { writeFileSync(fd, `${process.pid} ${Date.now()} ${_OWNER_TOKEN}\n`, 'utf8'); } catch {}
+    _reportLockWait(lockPath, Date.now() - waitStartedAt, 'async');
     _osHeldPaths.add(lockPath);
     try {
       // Async ACL enforcement (promisified execFile) so a secret-bearing
@@ -738,10 +813,11 @@ export async function writeFileAtomicAsync(filePath, data, opts = {}) {
       throw err;
     }
   };
-  if (opts.lock === true) {
-    return withFileLock(`${filePath}.lock`, run, opts);
-  }
-  return run();
+  return _runAdaptiveFileIo(() => (
+    opts.lock === true
+      ? withFileLock(`${filePath}.lock`, run, opts)
+      : run()
+  ));
 }
 
 export function writeJsonAtomicAsync(filePath, value, opts = {}) {

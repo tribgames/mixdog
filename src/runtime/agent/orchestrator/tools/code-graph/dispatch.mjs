@@ -51,7 +51,6 @@ import {
 
 const CODE_GRAPH_BATCHABLE_MODES = new Set(['symbol', 'find_symbol', 'symbol_search', 'callers', 'callees', 'references']);
 const CODE_GRAPH_FILE_BATCHABLE_MODES = new Set(['imports', 'dependents', 'related', 'impact', 'symbols', 'overview']);
-const CODE_GRAPH_SYMBOL_BATCH_CAP = 20;
 
 function _collectGraphSymbolList(args) {
   const split = (s) => String(s || '').split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
@@ -60,13 +59,9 @@ function _collectGraphSymbolList(args) {
     ...(typeof args?.symbols === 'string' ? split(args.symbols) : []),
     ...(typeof args?.symbol === 'string' ? split(args.symbol) : []),
   ])];
-  if (list.length <= CODE_GRAPH_SYMBOL_BATCH_CAP) return list;
-  const capped = list.slice(0, CODE_GRAPH_SYMBOL_BATCH_CAP);
-  capped._omitted = list.slice(CODE_GRAPH_SYMBOL_BATCH_CAP);
-  return capped;
+  return list;
 }
 
-const CODE_GRAPH_FILE_BATCH_CAP = 20;
 const _AGGREGATE_FILE_WILDCARD_RE = /[*?[\]{}]/;
 const ROOT_FEDERATED_MODES = new Set([
   'overview', 'symbol', 'find_symbol', 'symbol_search', 'search',
@@ -112,24 +107,38 @@ function _normalizeGraphFileArgs(args) {
   return out;
 }
 
-function _collectGraphFileList(args, { cap = true } = {}) {
+function _collectGraphFileList(args) {
   const split = (s) => String(s || '').split(/,+/).map((t) => t.trim()).filter(Boolean);
   const list = [...new Set([
     ...(Array.isArray(args?.files) ? args.files.map((f) => String(f || '').trim()).filter(Boolean) : []),
     ...(typeof args?.files === 'string' ? split(args.files) : []),
     ...(typeof args?.file === 'string' && args.file.trim() ? [args.file.trim()] : []),
   ])];
-  if (cap && list.length > CODE_GRAPH_FILE_BATCH_CAP) {
-    const capped = list.slice(0, CODE_GRAPH_FILE_BATCH_CAP);
-    capped._capped = true;
-    return capped;
-  }
   return list;
 }
 
 function _hasAggregateFileArgs(args) {
   return (Array.isArray(args?.files) && args.files.some((f) => String(f || '').trim()))
     || (typeof args?.files === 'string' && args.files.trim());
+}
+
+// Aggregate anchors that ALL resolve to the cwd itself ('.', './', the cwd
+// path) add no scope — they mean "search here". Detected so the call can take
+// the plain-cwd route, which adopts a sentinel-free single tree (a vendored
+// reference checkout) as its own root while still refusing an unbounded or
+// multi-project parent. Without this, `files:"."` turned every reference tree
+// into a hard "not inside a project" refusal.
+function _aggregateAnchorsAreCwd(args, baseCwd) {
+  if (!_hasAggregateFileArgs(args)) return false;
+  const files = _collectGraphFileList(args);
+  if (files.length === 0) return false;
+  return files.every((file) => {
+    const trimmed = String(file || '').trim();
+    if (!trimmed || _AGGREGATE_FILE_WILDCARD_RE.test(trimmed)) return false;
+    try {
+      return pathResolve(isAbsolute(trimmed) ? trimmed : pathResolve(baseCwd, trimmed)) === pathResolve(baseCwd);
+    } catch { return false; }
+  });
 }
 
 // An invalid caller cwd may be recovered for an explicit files aggregate only
@@ -142,8 +151,6 @@ function _resolveAggregateFileProjectRoot(args, baseCwd) {
   // already been normalized to an actual array above.
   if (typeof args?.files === 'string' && args.files.includes(',')) return null;
   const files = _collectGraphFileList(args, { cap: false });
-  // Recovery cannot silently discard anchors that normal batch dispatch caps.
-  if (files.length > CODE_GRAPH_FILE_BATCH_CAP) return null;
   const roots = new Set();
   for (const file of files) {
     // Never infer a root from a glob-shaped anchor, including a literal file
@@ -624,6 +631,11 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
     args = { ...args };
     delete args.file;
   }
+  if (symbolMode && _aggregateAnchorsAreCwd(args, baseCwd)) {
+    args = { ...args };
+    delete args.files;
+    delete args.file;
+  }
   const fileArg = (args && typeof args.file === 'string' && args.file.trim()) ? args.file.trim() : '';
   const hasAggregateFileArgs = _hasAggregateFileArgs(args);
   let effectiveCwd = baseCwd;
@@ -665,9 +677,6 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
     if (files.length) {
       if (files.some((file) => _AGGREGATE_FILE_WILDCARD_RE.test(file))) {
         return `Error: ${name}: wildcard-shaped file anchors are not allowed at a filesystem root`;
-      }
-      if (files.length > CODE_GRAPH_FILE_BATCH_CAP) {
-        return `Error: ${name}: file list exceeds cap of ${CODE_GRAPH_FILE_BATCH_CAP}`;
       }
       const routed = files.map((file) => {
         const abs = isAbsolute(file) ? pathResolve(file) : pathResolve(baseCwd, file);
@@ -831,12 +840,6 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
                 catch (e) { body = `Error: ${e?.message || String(e)}`; }
                 return `# ${batchMode} ${sym}\n${body}`;
               }));
-              if (symbolList._omitted?.length) {
-                sections.push(
-                  `Note: symbol list capped at ${CODE_GRAPH_SYMBOL_BATCH_CAP}; `
-                  + `retry symbols=${JSON.stringify(symbolList._omitted)}.`,
-                );
-              }
               return sections.join('\n\n');
             })();
           }
@@ -847,7 +850,6 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
         if (CODE_GRAPH_FILE_BATCHABLE_MODES.has(batchMode)) {
           const fileList = _collectGraphFileList(args);
           if (fileList.length > 1) {
-            const capped = fileList._capped;
             return (async () => {
               const sections = await Promise.all(fileList.map(async (f) => {
                 let body;
@@ -855,7 +857,6 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
                 catch (e) { body = `Error: ${e?.message || String(e)}`; }
                 return `# ${batchMode} ${f}\n${body}`;
               }));
-              if (capped) sections.push(`Note: file list capped at ${CODE_GRAPH_FILE_BATCH_CAP} entries.`);
               return sections.join('\n\n');
             })();
           }

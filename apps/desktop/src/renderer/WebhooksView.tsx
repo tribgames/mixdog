@@ -239,7 +239,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
     <section className="schedules-dialog" role="dialog" aria-modal="true" aria-labelledby="webhooks-dialog-title">
       <header>
         <h2 id="webhooks-dialog-title">{editing ? t('Edit webhook') : t('Create webhook')}</h2>
-        <button type="button" aria-label={t("Close webhook editor")} onClick={onCancel}><X size={15} aria-hidden="true" /></button>
+        <button type="button" aria-label={t("Close webhook editor")} onClick={onCancel}><X size={16} aria-hidden="true" /></button>
       </header>
       <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();

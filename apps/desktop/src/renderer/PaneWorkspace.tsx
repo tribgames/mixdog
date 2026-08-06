@@ -237,6 +237,40 @@ export function PaneWorkspace({
       void setVisibleSessions([]).catch(() => undefined);
     }
   }, []);
+  // Selection is ONE document-wide range, so a drag that starts in one pane
+  // and travels over another painted every row in between (user: 왜 드래그가
+  // 패널별로 분리 안 되어 있어). Mark the pane the gesture began in; CSS
+  // suspends selection in every OTHER pane until the pointer is released, so
+  // each pane reads as its own document the way editor groups do.
+  useEffect(() => {
+    const root = document.documentElement;
+    const release = (): void => {
+      document.querySelector<HTMLElement>(".pane-leaf[data-selecting]")
+        ?.removeAttribute("data-selecting");
+      delete root.dataset.paneSelecting;
+    };
+    const onPointerDown = (event: PointerEvent): void => {
+      // Only a primary-button drag selects text; keep right-click menus and
+      // middle-click paste out of it.
+      if (event.button !== 0) return;
+      release();
+      const target = event.target instanceof Element ? event.target : null;
+      const leaf = target?.closest<HTMLElement>(".pane-leaf");
+      // A single-pane workspace has no .pane-leaf wrapper and needs no fence.
+      if (!leaf) return;
+      leaf.dataset.selecting = "true";
+      root.dataset.paneSelecting = "true";
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("pointerup", release, true);
+    document.addEventListener("pointercancel", release, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("pointerup", release, true);
+      document.removeEventListener("pointercancel", release, true);
+      release();
+    };
+  }, []);
   // Drag-to-split (VS Code/orca): the titlebar strip publishes pointer frames
   // once a tab drag leaves the strip band; hit-test the pane under the
   // pointer, preview the edge zone, and split on drop. Refs keep the single

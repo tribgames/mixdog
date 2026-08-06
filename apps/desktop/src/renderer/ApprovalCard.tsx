@@ -80,7 +80,7 @@ export function ApprovalCard({ approval, resolve }: {
     <article ref={dialog} className="approval-card approval-card--inline" role="group"
       aria-labelledby="approval-title" aria-describedby="approval-description"
       >
-      <div className="approval-heading"><span><ShieldAlert size={19} /></span>
+      <div className="approval-heading"><span><ShieldAlert size={18} /></span>
         <div><b id="approval-title">{t("Tool approval required")}</b>
           <small>{t("{{name}} wants to run", { name: String(approval.name || t("Tool")) })}</small></div>
       </div>
@@ -93,9 +93,9 @@ export function ApprovalCard({ approval, resolve }: {
         {approvalError}
       </p>}
       <div className="approval-actions">
-        <button disabled={resolving} onClick={() => void decide(false)}><X size={15} /> {t("Deny")}</button>
+        <button disabled={resolving} onClick={() => void decide(false)}><X size={16} /> {t("Deny")}</button>
         <button disabled={resolving} className="allow" onClick={() => void decide(true)}>
-          <Check size={15} /> {t("Allow once")}</button>
+          <Check size={16} /> {t("Allow once")}</button>
       </div>
     </article>
   );

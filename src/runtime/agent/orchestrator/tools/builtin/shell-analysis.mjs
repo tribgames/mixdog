@@ -560,6 +560,10 @@ export function preflightPowerShellHygiene(command, { shellType, shellName } = {
     const name = String(shellName || '').toLowerCase();
     const isLegacyPS = /powershell/.test(name) && !/pwsh/.test(name);
     const violations = [];
+    // Violation kinds drive the bash auto-rescue: a command blocked ONLY for
+    // bash syntax can be run in bash unchanged, while a PowerShell-specific
+    // violation ($PID reassignment) must stay a hard block.
+    const kinds = [];
     // `$PID=` reassignment and `&&` connectors are judged on a quote-masked
     // copy so quoted literals (`echo "a && b"`, `Write-Output '$PID=1'`) and
     // regex/search args are never mistaken for real syntax.
@@ -572,14 +576,17 @@ export function preflightPowerShellHygiene(command, { shellType, shellName } = {
             const first = String(tokens[0] || '').toLowerCase().replace(/^.*[\\/]/, '');
             if (POWERSHELL_BASHISM_HINTS[first]) {
                 violations.push(`\`${first}\` is a Unix command: ${POWERSHELL_BASHISM_HINTS[first]}`);
+                kinds.push('bashism');
             }
         }
     }
     if (/\$PID\s*=(?!=)/i.test(masked)) {
         violations.push('`$PID` is a reserved PowerShell automatic variable — do not reassign it (use a different name).');
+        kinds.push('powershell-only');
     }
     if (isLegacyPS && /(?:^|[^&])&&(?:[^&]|$)/.test(masked)) {
         violations.push('`&&` is not supported in Windows PowerShell 5.1 — use `;` to sequence or issue separate calls.');
+        kinds.push('bashism');
     }
 
     if (violations.length > 0) {
@@ -587,10 +594,37 @@ export function preflightPowerShellHygiene(command, { shellType, shellName } = {
         return {
             command: rewritten,
             note,
+            // The MSYS path rewrite is a PowerShell-targeted normalisation, so
+            // a bash rescue must re-run the ORIGINAL text.
+            original,
+            bashOnly: kinds.length > 0 && kinds.every((kind) => kind === 'bashism'),
             block: `PowerShell preflight blocked this command (bash syntax on a PowerShell host). Fix and retry:\n- ${hints.join('\n- ')}`,
         };
     }
     return { command: rewritten, note, block: null };
+}
+
+// PowerShell-only constructs. Used to decide whether a command the PowerShell
+// preflight blocked for bash syntax can simply be RUN in bash: only a command
+// with zero PowerShell-specific syntax qualifies, so a mixed script (bash
+// pipes plus `$env:`/cmdlets/`2>$null`) stays a hard block instead of being
+// silently rerouted into a shell that would mangle it. Deliberately
+// over-inclusive — a false positive only declines the rescue.
+const POWERSHELL_ONLY_SYNTAX = [
+    /\$(?:null|true|false|env:|_\b|args\b|host\b|profile\b|pwd\b|psversiontable\b|psscriptroot\b|lastexitcode\b|erroractionpreference\b)/i,
+    /\$[A-Za-z_]\w*\s*=/,
+    /\b(?:get|set|new|remove|select|where|foreach|invoke|out|write|start|stop|test|measure|sort|join|split|convert|import|export|add|copy|move|rename|resolve|compare|clear|push|pop)-[A-Za-z]+\b/i,
+    /\[[A-Za-z_][\w.]*\]::/,
+    /(?:^|\s)-(?:eq|ne|gt|lt|ge|le|match|notmatch|like|notlike|contains|replace|not|and|or|is|as|ErrorAction|Recurse|Force|Encoding|TotalCount|Tail|Pattern|Path|LiteralPath)\b/,
+    /2>\s*\$/,
+    /\|\s*[%?]\s*\{/,
+    /@['"][\s\S]*?['"]@/,
+    /`\s*$/m,
+];
+export function hasPowerShellOnlySyntax(command) {
+    const text = String(command || '');
+    if (!text.trim()) return false;
+    return POWERSHELL_ONLY_SYNTAX.some((pattern) => pattern.test(text));
 }
 
 export async function preflightShellLargeFileProbe(command, cwd) {

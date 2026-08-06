@@ -52,11 +52,10 @@ function maybeSweepStaleOffloadDirs() {
     void sweepStaleOffloadDirs();
 }
 
-// Per-tool persistence limits mirror reference per-tool maxResultSizeChars
-// rather than a single global value: Grep persists at 20k (CC GrepTool), Glob
-// and list/find_* at the 50k system default (CC DEFAULT_MAX_RESULT_SIZE_CHARS;
-// tighter than CC Glob's 100k by design), and shell/bash_session/task at 30k
-// (CC BASH_MAX_OUTPUT_LENGTH default). Read/head/tail/diff stay inline
+// Per-tool persistence limits are per-tool maxResultSizeChars values rather
+// than a single global value: grep persists at 20k, glob and list/find_* at
+// the 50k system default (deliberately tighter than the common 100k), and
+// shell/bash_session/task at 30k. Read/head/tail/diff stay inline
 // (Infinity) — they are self-bound by FileRead semantics and the upstream
 // READ_MAX_SIZE_BYTES cap, so persisting to a sidecar to be re-read would be
 // circular. These values keep context-rich IO tools from turning into "read

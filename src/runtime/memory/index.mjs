@@ -27,10 +27,6 @@ const PLUGIN_VERSION = readPluginVersion(PLUGIN_ROOT)
 const BOOT_PROMOTION_CODE_FINGERPRINT = readPromotionCodeFingerprint(PLUGIN_ROOT)
 
 try { os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL) } catch {}
-try {
-  const { env } = await import('@huggingface/transformers')
-  env.backends.onnx.wasm.numThreads = 1
-} catch {}
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -67,9 +63,7 @@ import {
 import { configureEmbedding, embedText, embedTexts, getEmbeddingDims, getEmbeddingDtype, getEmbeddingModelId, getKnownDimsForCurrentModel, isEmbeddingModelReady, primeEmbeddingDims, shutdownEmbeddingProvider, warmupEmbeddingProvider } from './lib/embedding-provider.mjs'
 import { startLlmWorker, stopLlmWorker } from './lib/llm-worker-host.mjs'
 import { runCycle1, runCycle2, runCycle3, runUnifiedGate, parseInterval, syncRootEmbedding, flushRawEmbeddings, applySimpleStatus, applyUpdate, applyMerge, CYCLE2_ACTIVE_TARGET_CAP } from './lib/memory-cycle.mjs'
-import { loadConfig as loadAgentConfig } from '../agent/orchestrator/config.mjs'
-import { initProviders } from '../agent/orchestrator/providers/registry.mjs'
-import { makeAgentDispatch } from '../agent/orchestrator/agent-runtime/agent-dispatch.mjs'
+import { callAgentDispatch } from './lib/agent-ipc.mjs'
 import { getInFlightCycle1 } from './lib/memory-cycle1.mjs'
 import { claimAndMarkScheduledCycle, markCycleRequest, resolveCoalesceMaxRetries, scheduleCoalescedCycleRetry } from './lib/memory-cycle-requests.mjs'
 import { searchRelevantHybrid } from './lib/memory-recall-store.mjs'
@@ -358,36 +352,9 @@ async function _initStore() {
   } else {
     __mixdogMemoryLog('[memory-service] secondary mode; skipping llm worker\n')
   }
-  // Initialize the in-process provider registry so cycle1 can run the agent dispatch
-  // LLM locally (makeAgentDispatch → session manager → provider.send). In
-  // standalone the memory worker runs as a detached HTTP daemon whose parent
-  // has disconnected IPC, so the legacy callAgentDispatch() IPC path is dead on
-  // arrival. Mirror the channels worker boot (channels/index.mjs:
-  // loadAgentConfig() + initProviders) so the registry is populated before any
-  // cycle1 dispatch. The gate MUST match _startCycle1Run's makeAgentDispatch
-  // injection condition: cycle1 may dispatch in-process whenever cycles are
-  // enabled OR the llm worker is enabled (both exclude secondary mode), so
-  // registering only under the llm-worker gate would leave a hole where
-  // MIXDOG_MEMORY_DISABLE_LLM_WORKER=1 + cycles enabled hits an empty registry
-  // and fails with "Provider not found". Non-fatal: a failure here is logged
-  // and cycle1's own callLlm surfaces the unresolved-provider error per call.
-  // Registry must be available whenever cycles COULD run in this process, not
-  // just when they are currently enabled: recap can be toggled on at runtime
-  // (memoryCyclesEnabled() now includes the recap flag), so gate registry init
-  // on the cycle-capable conditions (not secondary, env not hard-disabled) OR
-  // the llm worker gate — never on the runtime recap flag itself, or enabling
-  // recap later would hit an empty registry and fail with "Provider not found".
-  const cyclesCapable = !memorySecondaryMode() && !envFlagEnabled('MIXDOG_MEMORY_DISABLE_CYCLES')
-  if (cyclesCapable || memoryLlmWorkerEnabled()) {
-    try {
-      const agentCfg = loadAgentConfig()
-      const providersStartedAt = performance.now()
-      await initProviders(agentCfg.providers || {})
-      memoryProfile('providers:init:done', { ms: (performance.now() - providersStartedAt).toFixed(1) })
-    } catch (e) {
-      process.stderr.write(`[memory-service] initProviders failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`)
-    }
-  }
+  // Provider/session/agent modules live once in the backend daemon. Memory
+  // cycles cross the authenticated loopback broker instead of initializing a
+  // second registry in this process.
   _bootTimestamp = Date.now()
   const offsetsStartedAt = performance.now()
   await loadTranscriptOffsets()
@@ -437,7 +404,7 @@ async function setCycleLastRun(kind, ts) {
 // getters (getDb/getConfig/setConfig) plus runners and LLM adapters.
 const CYCLE_STATE_FILE = path.join(DATA_DIR, 'memory-cycle-state.json')
 
-const _cycleLlmAdapters = createCycleLlmAdapters({ makeAgentDispatch })
+const _cycleLlmAdapters = createCycleLlmAdapters({ callAgentDispatch })
 const { getCycle1CallLlm, getCycle2CallLlm, getCycle3CallLlm } = _cycleLlmAdapters
 
 const _cycleScheduler = createCycleScheduler({

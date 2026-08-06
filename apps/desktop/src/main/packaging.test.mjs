@@ -90,17 +90,20 @@ test('a closed stdio pipe cannot crash the main process', async () => {
 });
 
 test('production engine host uses only the packaged daemon backend adapter', async () => {
+  const packageJson = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'));
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
   const backend = await readFile(new URL('./desktop-backend.ts', import.meta.url), 'utf8');
   const ipc = await readFile(new URL('./ipc.ts', import.meta.url), 'utf8');
   const vite = await readFile(new URL('../../electron.vite.config.ts', import.meta.url), 'utf8');
   const builder = await readFile(new URL('../../electron-builder.yml', import.meta.url), 'utf8');
   const daemonBuild = await readFile(new URL('../../scripts/build-daemon-backend.mjs', import.meta.url), 'utf8');
+  assert.equal(packageJson.scripts.start, 'npm run build && electron-vite preview --skipBuild');
   assert.doesNotMatch(vite, /'desktop-backend':/);
   assert.match(daemonBuild, /src['"],\s*['"]main['"],\s*['"]desktop-backend\.ts/);
   assert.match(main, /new DaemonEngineTransport\(/);
   assert.match(main, /desktop-backend-daemon\.cjs/);
   assert.match(main, /app\.asar\.unpacked/);
+  assert.match(main, /moduleUrl\.searchParams\.set\('build', artifact\)/);
   assert.doesNotMatch(vite, /engine-worker/);
   assert.doesNotMatch(vite, /terminal-worker/);
   assert.doesNotMatch(main, /MIXDOG_ENGINE_PROCESS|Mixdog Engine/);
@@ -360,10 +363,10 @@ test('runtime preparation reuses prepared output and persistent validated depend
   assert.match(preparation, /node,dll,dylib,so,so\.\*/);
 });
 
-test('packaged runtime verification bypasses only embedding load admission pressure', async () => {
+test('packaged runtime verification has no memory-pressure bypass', async () => {
   const verifier = await readFile(new URL('../../scripts/verify-packaged-runtime.mjs', import.meta.url), 'utf8');
   assert.match(verifier, /ELECTRON_RUN_AS_NODE:\s*'1'/);
-  assert.match(verifier, /MIXDOG_EMBED_PRESSURE_MIN_FREE_MB:\s*'0'/);
+  assert.doesNotMatch(verifier, /MIXDOG_EMBED_PRESSURE_MIN_FREE_MB/);
   assert.match(verifier, /env:\s*\{\s*\.\.\.process\.env,/);
 });
 

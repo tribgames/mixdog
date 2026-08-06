@@ -272,7 +272,6 @@ export async function _startBackgroundShellJobImpl({
         childPid: child.pid,
         childGroupPid: child.pid,
         label: 'shell-job',
-        protectHostMemory: true,
         receiptPath: shellJobGuardianReceiptPath(jobId),
     });
     _installShellJobsExitHook();
@@ -523,7 +522,6 @@ async function startBackgroundPowerShellJob({
         childPid,
         childGroupPid: childPid,
         label: 'shell-job-powershell',
-        protectHostMemory: true,
         receiptPath: shellJobGuardianReceiptPath(jobId),
     });
     _installShellJobsExitHook();

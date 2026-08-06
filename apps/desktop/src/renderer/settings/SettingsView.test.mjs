@@ -80,7 +80,7 @@ function capabilityApi(overrides = {}) {
     getProfile: { title: 'Owner', language: 'system', languages: [{ id: 'system', label: 'System' }] },
     getAutoClear: { enabled: true, idleMs: 3_600_000, provider: 'default', providerDefaults: [] },
     getCompactionSettings: { auto: false },
-    getMemorySettings: { enabled: true },
+    getRecapSettings: { enabled: true },
     getChannelSettings: { enabled: true },
     isRemoteEnabled: false,
     getChannelWorkerStatus: { running: false },
@@ -905,6 +905,11 @@ test('inline toggles and channel cycle use the TUI capability semantics', async 
     await Promise.resolve();
   });
   assert.deepEqual(calls[0], ['setCompactionSettings', [{ auto: true }]]);
+  await act(async () => {
+    document.querySelector('input[aria-label="Background recap"]').click();
+    await Promise.resolve();
+  });
+  assert.deepEqual(calls[1], ['setRecapEnabled', [false]]);
 
   await act(async () => {
     Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
@@ -916,7 +921,7 @@ test('inline toggles and channel cycle use the TUI capability semantics', async 
   const telegram = Array.from(document.querySelectorAll('[role="option"]'))
     .find((entry) => entry.textContent.trim() === 'Telegram');
   await act(async () => { telegram.click(); await Promise.resolve(); });
-  assert.deepEqual(calls[1], ['setBackend', ['telegram']]);
+  assert.deepEqual(calls[2], ['setBackend', ['telegram']]);
 });
 
 test('channel backend change surfaces restart guidance while the remote worker runs', async () => {
@@ -1016,7 +1021,7 @@ test('channel-setting deep link opens the Channels tab with token and target for
     && args[0]?.backend === 'discord' && args[0]?.channelId === '222'));
 });
 
-test('General exposes the classic modes plus every registry theme with persistent desktop preference', async () => {
+test('General exposes the four desktop-local modes with persistent preference', async () => {
   mount();
   const { api, calls } = capabilityApi({
     getTheme: 'basic',
@@ -1034,9 +1039,7 @@ test('General exposes the classic modes plus every registry theme with persisten
     await Promise.resolve();
   });
   assert.deepEqual(Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'),
-    (node) => node.textContent.trim()), ['System', 'White', 'Dark', 'Gray', 'Indigo', 'Warm', 'Teal',
-    'One Dark', 'Tokyo Night', 'Kanagawa', 'Catppuccin', 'Dracula', 'Rosé Pine', 'Nord',
-    'Gruvbox', 'Everforest']);
+    (node) => node.textContent.trim()), ['System', 'White', 'Dark', 'Gray']);
   const white = Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'))
     .find((entry) => entry.textContent.includes('White'));
   await act(async () => {

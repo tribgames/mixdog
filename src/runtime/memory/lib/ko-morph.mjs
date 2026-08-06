@@ -15,7 +15,6 @@
 //   analyze(text)  — sync; returns TokenInfo[] or null when not ready.
 //   stems(text)    — sync; content-morpheme stems (NNG/NNP/VV/VA/XR/SL) or null.
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import zlib from 'node:zlib'
 
@@ -54,11 +53,7 @@ let _idleTimer = null
 const _envIdleMs = Number(process.env.MIXDOG_KO_MORPH_IDLE_TIMEOUT_MS)
 const IDLE_TIMEOUT_MS = Number.isFinite(_envIdleMs) && _envIdleMs >= 0
   ? _envIdleMs
-  : 2 * 60_000
-const _envPressureMb = Number(process.env.MIXDOG_KO_MORPH_PRESSURE_MIN_FREE_MB)
-const PRESSURE_MIN_FREE_BYTES = (
-  Number.isFinite(_envPressureMb) && _envPressureMb >= 0 ? _envPressureMb : 1536
-) * 1024 * 1024
+  : 60_000
 
 export function isReady() { return _state === 'ready' && _kiwi != null }
 export function state() { return _state }
@@ -78,14 +73,8 @@ function releaseLoaded(reason = '') {
 
 function touchIdleTimer() {
   if (_idleTimer) clearTimeout(_idleTimer)
-  let delay = IDLE_TIMEOUT_MS
-  try {
-    if (PRESSURE_MIN_FREE_BYTES > 0 && os.freemem() < PRESSURE_MIN_FREE_BYTES) delay = 1
-  } catch {}
-  if (delay <= 0) return
-  _idleTimer = setTimeout(() => releaseLoaded(
-    delay <= 1 ? 'host memory pressure' : 'idle timeout',
-  ), delay)
+  if (IDLE_TIMEOUT_MS <= 0) return
+  _idleTimer = setTimeout(() => releaseLoaded('idle timeout'), IDLE_TIMEOUT_MS)
   _idleTimer.unref?.()
 }
 
@@ -166,12 +155,6 @@ export async function init(dataDir, log = () => {}) {
     return true
   }
   if (_initPromise) return _initPromise
-  try {
-    if (PRESSURE_MIN_FREE_BYTES > 0 && os.freemem() < PRESSURE_MIN_FREE_BYTES) {
-      _log('[memory-service] kiwi morph load deferred under host memory pressure\n')
-      return false
-    }
-  } catch {}
   _state = 'loading'
   const t0 = Date.now()
   _log(`[memory-service] kiwi morph init start (model ${KIWI_MODEL_VERSION})\n`)

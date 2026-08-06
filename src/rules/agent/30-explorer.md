@@ -32,11 +32,14 @@ or concept synonym; never a prose phrase. Spaces and non-ASCII are allowed
 only in verbatim quoted error/log literals. Translate other non-English
 queries to English identifiers.
 
-Scope is session cwd; `path` may be omitted. For unverified `src` paths, use
+Scope is every `<roots><root>…</root></roots>` entry when supplied, otherwise
+session cwd. Search every supplied root in the turn-1 batch: grep/glob batch
+`path[]`, while find uses one sibling call per root. Never silently fall back to
+cwd or omit a supplied root. A find result is relative to its exact root; prefix
+that root when returning a path outside cwd. For unverified `src` paths, use
 `find` first; never guess or invent directories or pair `path:"."` with guessed
-`src/**`. Scoped grep/glob may use only an exact find-returned path, no earlier
-than turn 2. After zero hits, change tokens or scope, never wording or guessed
-paths.
+`src/**`. Scoped grep/glob may use only a supplied root or an exact find-returned
+path. After zero hits, change tokens or scope, never wording or guessed paths.
 
 An anchor is a `path:line` containing a query token or synonym, including a
 code_graph hit. Generic terms without query specificity are zero. Never

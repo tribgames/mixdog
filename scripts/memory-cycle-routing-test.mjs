@@ -111,6 +111,31 @@ test('cycle3 preserves an explicit test override', async () => {
   assert.equal(received.preset, 'test-route')
 })
 
+test('cycle LLM routes forward caller cancellation to the singleton broker', async () => {
+  const signal = new AbortController().signal
+  const received = []
+  await sonnetCascade(
+    [{ id: 1, status: 'pending', verb: 'active', category: 'fact', element: 'x', summary: 'y' }],
+    '',
+    {
+      signal,
+      callLlm: (opts) => {
+        received.push(opts)
+        return '1|keep'
+      },
+    },
+  )
+  await invokeCycle3Maintenance('test prompt', {
+    signal,
+    callLlm: (opts) => {
+      received.push(opts)
+      return '1|keep'
+    },
+  })
+  assert.equal(received.length, 2)
+  assert.ok(received.every((opts) => opts.signal === signal))
+})
+
 test('core mutations enqueue a matching asynchronous cycle3 review', async () => {
   const db = {}
   const config = { cycle3: { applyMode: 'conservative' } }

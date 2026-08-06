@@ -209,7 +209,7 @@ export class TaskOutput {
     this.stdoutFileSize = 0;
     this.stderrFileSize = 0;
     this.writeError = null;
-    // CC parity: direct-capture mode hands the spill files to the child as
+    // Direct-capture mode hands the spill files to the child as
     // stdio fds (no JS pipes). Sizes are then tracked via stat, not writes.
     this.direct = false;
     // fsync throttle: task wait/read + tail-read polling can call getStdout/
@@ -292,7 +292,7 @@ export class TaskOutput {
     this._ensureFileBacking();
   }
 
-  // CC parity (ShellCommand file mode): open the spill files BEFORE spawn and
+  // File mode: open the spill files BEFORE spawn and
   // hand their fds to the child as stdio[1]/stdio[2]. The child (and any
   // grandchildren) write straight to disk with no parent-side pipes, so a
   // surviving grandchild can never wedge the caller by holding a pipe handle.

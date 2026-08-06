@@ -59,6 +59,22 @@ export function xaiResponsesCacheRouting(opts, params, rawTools, model) {
     const scope = String(opts?.xaiResponsesCacheScope || process.env.MIXDOG_XAI_RESPONSES_CACHE_SCOPE || 'prefix')
         .trim()
         .toLowerCase();
+    // 'none' omits prompt_cache_key entirely, matching xAI's own reference
+    // sampler (grok-build sends prompt_cache_key: None) and zed's xAI provider
+    // (supports_prompt_cache_key() == false): the service falls back to
+    // automatic prompt-prefix caching with no client-supplied lane. Callers
+    // must treat a null key as "do not send the field".
+    if (scope === 'none' || scope === 'off' || scope === 'omit') {
+        const sessionId = String(opts?.sessionId || opts?.session?.id || '').trim();
+        const prefixHash = traceHash(xaiPrefixSeed({ opts, params, rawTools, model }));
+        return {
+            key: null,
+            mode: 'none',
+            seedHash: null,
+            prefixHash,
+            ownerSessionHash: sessionId ? traceHash(sessionId) : null,
+        };
+    }
     if (scope !== 'prefix') {
         return xaiCacheRouting(opts, params, rawTools, model);
     }
@@ -183,7 +199,9 @@ export function useXaiResponsesWebSocketWarmup(opts, config, { previousResponseI
         if (['0', 'false', 'off', 'none', 'disabled'].includes(mode)) return false;
         if (['1', 'true', 'on', 'always', 'force'].includes(mode)) return true;
     }
-    return String(instructions || '').length >= 2048 || (Array.isArray(rawTools) && rawTools.length >= 10);
+    // A generate:false response can still carry provider usage/quota. Keep it
+    // strictly opt-in; transport-only HTTP/WS preconnect remains cost-free.
+    return false;
 }
 
 // Codex-aligned default: no compat cache lane/serialization. Keep the override

@@ -1,14 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { totalmem } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 
 import {
-  childGuardianMemoryFloorMb,
   childGuardianSpawnEnv,
   startChildGuardian,
 } from '../src/runtime/shared/child-guardian.mjs';
@@ -84,13 +82,6 @@ test('persistent token helper relies on stdio ownership without an Electron guar
   assert.match(tokenNative, /stdio:\s*\['pipe', 'pipe', 'ignore'\]/);
 });
 
-test('child guardian memory floor matches resource admission configuration', () => {
-  assert.equal(childGuardianMemoryFloorMb({}), 1024);
-  assert.equal(childGuardianMemoryFloorMb({ MIXDOG_MIN_FREE_MEMORY_MB: '2048' }), 2048);
-  assert.equal(childGuardianMemoryFloorMb({ MIXDOG_MIN_FREE_MEMORY_MB: '0' }), 0);
-  assert.equal(childGuardianMemoryFloorMb({ MIXDOG_MIN_FREE_MEMORY_MB: 'invalid' }), 1024);
-});
-
 test('command-scoped child guardians can stop without killing a reusable child', { timeout: 10_000 }, async () => {
   const child = spawnIdleNode();
   let guardian = null;
@@ -112,19 +103,44 @@ test('command-scoped child guardians can stop without killing a reusable child',
   }
 });
 
-test('memory-protected child guardians kill their owned tree under host pressure', { timeout: 10_000 }, async () => {
-  const child = spawnIdleNode();
-  let guardian = null;
+test('child guardians share one broker without coupling child lifetimes', { timeout: 10_000 }, async () => {
+  const firstChild = spawnIdleNode();
+  const secondChild = spawnIdleNode();
+  let first = null;
+  let second = null;
   try {
-    guardian = startChildGuardian({
-      childPid: child.pid,
-      childGroupPid: child.pid,
-      label: 'guardian-memory-test',
-      pollMs: 100,
-      minFreeMemoryMb: Math.ceil(totalmem() / (1024 * 1024)) + 1024,
-    });
+    first = startChildGuardian({ childPid: firstChild.pid, pollMs: 100 });
+    second = startChildGuardian({ childPid: secondChild.pid, pollMs: 100 });
+    assert.ok(first?.pid);
+    assert.equal(second?.pid, first.pid);
+    assert.equal(first.stop(), true);
+    await delay(250);
+    assert.equal(pidAlive(first.pid), true, 'the broker remains for the second child');
+    assert.equal(pidAlive(firstChild.pid), true);
+    assert.equal(pidAlive(secondChild.pid), true);
+    assert.equal(second.stop(), true);
+    assert.equal(await waitUntil(() => !pidAlive(first.pid)), true);
+  } finally {
+    first?.stop?.();
+    second?.stop?.();
+    killIdleNode(firstChild);
+    killIdleNode(secondChild);
+  }
+});
+
+test('a naturally exited child is removed from the parent guardian registry', { timeout: 10_000 }, async () => {
+  const child = spawn(process.execPath, ['--eval', 'setTimeout(() => {}, 150)'], {
+    stdio: 'ignore',
+    windowsHide: true,
+    detached: process.platform !== 'win32',
+  });
+  const guardian = startChildGuardian({ childPid: child.pid, pollMs: 100 });
+  try {
     assert.ok(guardian?.pid);
     assert.equal(await waitUntil(() => !pidAlive(child.pid)), true);
+    assert.equal(await waitUntil(() => !pidAlive(guardian.pid)), true);
+    assert.equal(guardian.stop(), false,
+      'natural child exit must clear the parent-side broker target');
   } finally {
     guardian?.stop?.();
     killIdleNode(child);

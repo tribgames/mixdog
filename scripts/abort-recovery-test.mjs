@@ -89,6 +89,28 @@ test('Esc uses Claude-compatible user-cancel and queued interrupt reasons', () =
   assert.deepEqual(queued.getAbortReasons(), ['interrupt']);
 });
 
+test('Esc with a replacement draft cancels without rewinding the submitted prompt', () => {
+  const { api, bag } = makeEngine({ abortSettles: true });
+  bag.flags.activePromptRestore = {
+    text: 'submitted prompt',
+    restorable: true,
+    submittedIds: ['user_1'],
+    requeueEntries: [],
+    discardExecutionPendingResumeKeys: [],
+  };
+  bag.set({
+    busy: true,
+    items: [{ id: 'user_1', kind: 'user', text: 'submitted prompt' }],
+    promptHistoryList: ['submitted prompt'],
+  });
+
+  const result = api.abort({ restorePrompt: false });
+  assert.equal(result.aborted, true);
+  assert.equal(result.restoreText, '');
+  assert.equal(bag.getState().items.length, 1, 'the submitted transcript row is not rewound');
+  assert.deepEqual(bag.getState().promptHistoryList, ['submitted prompt']);
+});
+
 test('starved abort → bounded recovery hard-releases busy and re-kicks drain', async () => {
   const { api, bag, getNotices, getDrainCount } = makeEngine({ abortSettles: false, recoveryMs: 25 });
   bag.set({ busy: true, spinner: { active: true } });

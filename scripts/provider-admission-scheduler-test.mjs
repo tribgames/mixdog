@@ -27,7 +27,7 @@ const deferred = () => {
     return { promise, resolve };
 };
 
-test('unbounded lane admits a full wave immediately in FIFO order', async () => {
+test('default lanes start a full multi-session wave without a synthetic concurrency bottleneck', async () => {
     assert.equal(PROVIDER_ACCOUNT_CONCURRENCY, Infinity);
     assert.equal(PROVIDER_ACCOUNT_MAX_QUEUE, 1024);
     const scheduler = new ProviderAdmissionScheduler();
@@ -54,8 +54,8 @@ test('unbounded lane admits a full wave immediately in FIFO order', async () => 
     assert.equal(peak, 150);
 });
 
-test('provider/account lanes are independent and never adapt downward', async () => {
-    const scheduler = new ProviderAdmissionScheduler();
+test('explicit provider/account limits remain isolated operator policy', async () => {
+    const scheduler = new ProviderAdmissionScheduler({ concurrency: 3 });
     const gate = deferred();
     let activeA = 0;
     let activeB = 0;
@@ -65,10 +65,39 @@ test('provider/account lanes are independent and never adapt downward', async ()
         jobs.push(scheduler.run('gemini:b', async () => { activeB += 1; await gate.promise; }));
     }
     await new Promise((r) => setImmediate(r));
-    assert.equal(activeA, 70);
-    assert.equal(activeB, 70);
+    assert.equal(activeA, 3);
+    assert.equal(activeB, 3);
     gate.resolve();
     await Promise.all(jobs);
+});
+
+test('queued provider work rotates session owners and honors blocking priority', async () => {
+    const scheduler = new ProviderAdmissionScheduler({ concurrency: 1 });
+    const gate = deferred();
+    const running = scheduler.run('openai:a', () => gate.promise, { ownerKey: 'session-a' });
+    const order = [];
+    const background = scheduler.run(
+        'openai:a',
+        async () => { order.push('background'); },
+        { ownerKey: 'session-a', priority: 'best-effort' },
+    );
+    const visible = scheduler.run(
+        'openai:a',
+        async () => { order.push('visible'); },
+        { ownerKey: 'session-b', priority: 'user-visible' },
+    );
+    const blocking = scheduler.run(
+        'openai:a',
+        async () => { order.push('blocking'); },
+        { ownerKey: 'session-c', priority: 'user-blocking' },
+    );
+    gate.resolve();
+    await Promise.all([running, background, visible, blocking]);
+    assert.deepEqual(order, ['blocking', 'visible', 'background']);
+    assert.deepEqual(scheduler.snapshot(), {
+        concurrency: 1,
+        lanes: [],
+    });
 });
 
 test('explicit concurrency cap and bounded queue reject overflow explicitly', async () => {

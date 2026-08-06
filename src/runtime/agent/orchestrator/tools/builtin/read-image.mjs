@@ -6,7 +6,7 @@ import {
   resizeImageBuffer,
 } from './read-image-resize.mjs';
 
-// Image extensions native Read renders as image blocks (FileReadTool.ts).
+// Image extensions that Read renders as image blocks.
 const IMAGE_MIME = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',

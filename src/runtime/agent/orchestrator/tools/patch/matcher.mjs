@@ -334,7 +334,10 @@ function rustTrim(s) {
   return s.replace(RUST_TRIM_RE, '');
 }
 export function normalizeTypographic(s) {
-  return rustTrim(String(s ?? ''))
+  // NFC first: a decomposed sequence (Hangul jamo, or "e" + combining acute
+  // from a file authored on another platform) is visually identical to its
+  // composed form but byte-different, which failed an otherwise exact context.
+  return rustTrim(String(s ?? '').normalize('NFC'))
     .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-')
     .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
     .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
@@ -403,6 +406,41 @@ export function longestCommonSubstringLen(a, b, cap = 4000) {
     curr.fill(0);
   }
   return best;
+}
+
+// Total character drift tolerated per context line by the edit-distance tier.
+// Deliberately tiny: 3 context lines buy exactly 1 character of slack, so the
+// tier rescues a typo, never a genuinely different block.
+export const EDIT_DISTANCE_ALLOWANCE_PER_LINE = 0.34;
+
+// Levenshtein distance with an early exit: returns the exact distance while it
+// stays within `max`, otherwise `max + 1` as soon as that is certain. The
+// length pre-check and the per-row minimum keep a whole-file scan cheap.
+export function boundedEditDistance(a, b, max) {
+  const s = String(a ?? '');
+  const t = String(b ?? '');
+  if (s === t) return 0;
+  if (!(max > 0)) return 1;
+  if (Math.abs(s.length - t.length) > max) return max + 1;
+  const n = s.length;
+  const m = t.length;
+  let prev = new Int32Array(m + 1);
+  let curr = new Int32Array(m + 1);
+  for (let j = 0; j <= m; j++) prev[j] = j;
+  for (let i = 1; i <= n; i++) {
+    curr[0] = i;
+    let rowMin = curr[0];
+    const ci = s.charCodeAt(i - 1);
+    for (let j = 1; j <= m; j++) {
+      const cost = ci === t.charCodeAt(j - 1) ? 0 : 1;
+      const value = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+      curr[j] = value;
+      if (value < rowMin) rowMin = value;
+    }
+    if (rowMin > max) return max + 1;
+    const tmp = prev; prev = curr; curr = tmp;
+  }
+  return prev[m] > max ? max + 1 : prev[m];
 }
 
 export function findLineSequence(lines, needle, fromLine, preferredLine = 0, options = {}) {

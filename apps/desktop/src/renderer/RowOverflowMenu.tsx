@@ -180,7 +180,7 @@ export function RowOverflowMenu({
             if (item.closeOnSelect !== false) setOpen(false);
           }}>
           <span className="row-overflow-check">
-            {item.checked && <Check size={13} aria-hidden="true" />}
+            {item.checked && <Check size={14} aria-hidden="true" />}
           </span>
           <span className="row-overflow-label">{t(item.label)}</span>
           {submenu && <ChevronRight className="row-overflow-submenu" size={14} aria-hidden="true" />}

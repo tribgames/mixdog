@@ -238,7 +238,7 @@ export function getCachedReadOnlyStat(fullPath, loader = statSync, now = Date.no
     return stat;
 }
 
-export async function statPathsForMtime(paths, workDir, concurrency = 64, opts = {}) {
+export async function statPathsForMtime(paths, workDir, concurrency = Infinity, opts = {}) {
     const items = Array.isArray(paths) ? paths : [];
     const out = new Array(items.length);
     const now = Date.now();
@@ -302,7 +302,7 @@ export async function statPathsForMtime(paths, workDir, concurrency = 64, opts =
 // lstat variant — does NOT follow symlinks. Use for directory-listing
 // surfaces where a symlink to a 200 GB file should report as a symlink,
 // not as the target's size/mtime.
-export async function lstatPathsForMtime(paths, workDir, concurrency = 64, opts = {}) {
+export async function lstatPathsForMtime(paths, workDir, concurrency = Infinity, opts = {}) {
     const items = Array.isArray(paths) ? paths : [];
     const out = new Array(items.length);
     const inflight = new Map();

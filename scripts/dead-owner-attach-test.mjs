@@ -40,6 +40,15 @@ const sidecar = (id, ext, ts, pid) => writeFileSync(
 );
 // attach decision == the negation of the viewer self-heal probe
 const attaches = (id) => isSessionOwnerGone(id) === false;
+async function drainEventually(id, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    const rows = await drainForeignUserInjections(id);
+    if (rows.length > 0) return rows;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  } while (Date.now() < deadline);
+  return [];
+}
 
 test('fresh persisted heartbeat from a DEAD client host does not attach', () => {
   const id = `sess_${deadPid}_1_2_deadhost`;
@@ -99,8 +108,11 @@ test('foreign-drain mtime gate is per session, not per process', async () => {
     },
     sessionTouchedAt: { [a]: now, [b]: now },
   }));
-  assert.deepEqual(await drainForeignUserInjections(a), [{ text: 'for A', id: 'fa' }]);
-  assert.deepEqual(await drainForeignUserInjections(b), [{ text: 'for B', id: 'fb' }], 'sibling session must not lose its wake-up');
+  // The module's boot-time orphan sweep may own the spool for this first poll.
+  // Delivery polling is deliberately try-once/non-blocking; the unchanged
+  // mtime remains eligible and a normal follow-up poll must deliver both rows.
+  assert.deepEqual(await drainEventually(a), [{ text: 'for A', id: 'fa' }]);
+  assert.deepEqual(await drainEventually(b), [{ text: 'for B', id: 'fb' }], 'sibling session must not lose its wake-up');
   const store = JSON.parse(readFileSync(spoolPath, 'utf8'));
   assert.equal(store.sessions[a], undefined);
   assert.equal(store.sessions[b], undefined);

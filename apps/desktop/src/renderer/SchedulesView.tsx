@@ -270,7 +270,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
     <section className="schedules-dialog" role="dialog" aria-modal="true" aria-labelledby="schedules-dialog-title">
       <header>
         <h2 id="schedules-dialog-title">{editing ? t('Edit scheduled task') : t('Create scheduled task')}</h2>
-        <button type="button" aria-label={t("Close schedule editor")} onClick={onCancel}><X size={15} aria-hidden="true" /></button>
+        <button type="button" aria-label={t("Close schedule editor")} onClick={onCancel}><X size={16} aria-hidden="true" /></button>
       </header>
       <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();

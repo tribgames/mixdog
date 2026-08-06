@@ -39,7 +39,10 @@ export function readDaemonDiscovery(discoveryPath) {
   return { port, pid, token: String(raw.token) };
 }
 
-function request({ port, method = 'GET', path = '/', token, body = null, timeoutMs = 10_000 }) {
+function request({
+  port, method = 'GET', path = '/', token, body = null, timeoutMs = 10_000,
+  agent = undefined,
+}) {
   return new Promise((resolve, reject) => {
     const payload = body == null ? null : JSON.stringify(body);
     let req = null;
@@ -69,6 +72,7 @@ function request({ port, method = 'GET', path = '/', token, body = null, timeout
       port,
       path,
       method,
+      agent,
       headers: {
         ...(token ? { 'X-Mixdog-Daemon-Token': token } : {}),
         ...(payload
@@ -130,6 +134,12 @@ export async function attachToDaemon({
   const expectedPid = parsePid(discovery?.pid);
   if (!discovery?.port || !discovery?.token || !expectedPid) throw new Error('daemon discovery {port, pid, token} required');
   const { port, token: serverToken } = discovery;
+  const callAgent = new http.Agent({
+    keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 16, maxFreeSockets: 4,
+  });
+  const controlAgent = new http.Agent({
+    keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 4, maxFreeSockets: 2,
+  });
   const staleDiscoveryError = (reason) => {
     const err = new Error(reason);
     err.daemonDiscoveryStale = true;
@@ -153,6 +163,7 @@ export async function attachToDaemon({
       // terminal still served by an older machine-global daemon.
       body: { leadPid, cwd, reattach: true },
       timeoutMs: 3000,
+      agent: controlAgent,
     });
   } catch (err) {
     if (err?.statusCode === 401 || err?.statusCode === 403) {
@@ -193,6 +204,7 @@ export async function attachToDaemon({
           ...(registrationId ? { registrationId, replaceToken, leadPid, cwd } : {}),
         },
         timeoutMs: 1500,
+        agent: controlAgent,
       });
     } catch { /* best-effort; daemon sweep reaps us */ }
   }
@@ -321,6 +333,7 @@ export async function attachToDaemon({
           leadPid, cwd, reattach: true, replaceToken,
           registrationId,
         }, timeoutMs: 3000,
+        agent: controlAgent,
       }).then(async (r) => {
         const freshToken = r?.token;
         if (!freshToken) return false;
@@ -356,6 +369,7 @@ export async function attachToDaemon({
         // a retried transport failure to a single side-effect.
         body: { token: clientToken, name, args: args || {}, ...(callId ? { callId } : {}) },
         timeoutMs,
+        agent: callAgent,
       });
     } catch (err) {
       // Transport failure (daemon dead/restarted/unreachable) — tag so the
@@ -383,6 +397,8 @@ export async function attachToDaemon({
     closePromise = (async () => {
       if (pendingRegistration) await pendingRegistration;
       await deregister(clientToken, { registrationId, replaceToken });
+      callAgent.destroy();
+      controlAgent.destroy();
       log(`detached (${reason})`);
     })();
     return closePromise;

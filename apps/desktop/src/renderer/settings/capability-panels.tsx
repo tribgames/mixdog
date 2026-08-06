@@ -581,7 +581,7 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
           ? t('Complete the browser login, then paste the authorization code.')
           : t('Finish signing in in your browser. This window updates automatically.')}</p></div>
         <button type="button" aria-label={t('Close OAuth login')} data-settings-nested-close autoFocus onClick={close}>
-          <X aria-hidden="true" size={15} />
+          <X aria-hidden="true" size={16} />
         </button></header>
       <div className="settings-oauth-body">
         <div className="settings-oauth-status" role="status"><span>{t('Status')}</span>
@@ -668,7 +668,7 @@ function PluginsPanel({ data, pending, run, confirm }: PanelContext) {
         <ActionButton danger disabled={busy} onClick={() => {
           confirm({ title: 'Remove plugin?', description: t('{{name}} will be removed from Mixdog.', { name: label(plugin) }),
             confirmLabel: 'Remove', danger: true, onConfirm: () => void run('removePlugin', [plugin]) });
-        }}><Trash2 size={13} /></ActionButton></>} />) : <ListEmpty text={sectionLoaded(data, 'plugins') ? 'No plugins installed.' : 'Loading plugins…'} />}
+        }}><Trash2 size={14} /></ActionButton></>} />) : <ListEmpty text={sectionLoaded(data, 'plugins') ? 'No plugins installed.' : 'Loading plugins…'} />}
     </Group>
     <Group title="Install plugin" description="Local path, Git URL, or supported registry source.">
       <FormRow title="Plugin source"
@@ -698,7 +698,7 @@ function HooksPanel({ data, pending, run }: PanelContext) {
 // Context management (user decision): ONE page owns how a session's context
 // evolves — auto-compact, idle auto-clear, and the memory that carries over.
 function ContextPanel({ data, pending, run, confirm }: PanelContext) {
-  const memory = record(data.memory);
+  const recap = record(data.recap);
   const autoClear = record(data.autoClear);
   const compaction = record(data.compaction);
   const providerDefaults = rows(autoClear.providerDefaults);
@@ -718,8 +718,9 @@ function ContextPanel({ data, pending, run, confirm }: PanelContext) {
           { provider: entry.provider, resetProvider: true },
         ], `autoclear-reset-${entry.provider}`)}>Reset</ActionButton>} />)}
     </Group>
-    <Group title="Memory"><ToggleRow title="Memory enabled" description="Enable memory recap and curated core memories."
-      checked={memory.enabled !== false} disabled={busy} onChange={(enabled) => void run('setMemoryEnabled', [enabled])} /></Group>
+    <Group title="Memory"><ToggleRow title="Background recap"
+      description="Recap sessions in the background. Core memories and on-demand recall remain available."
+      checked={recap.enabled !== false} disabled={busy} onChange={(enabled) => void run('setRecapEnabled', [enabled])} /></Group>
     <section className="settings-group core-memory-section">
       <header><h3>{t('Core memories')}</h3><p>{t('User-curated memories shared across Mixdog sessions.')}</p></header>
       <CoreMemoryManager initialValue={data.coreMemory} pending={pending} run={run} confirm={confirm} />

@@ -623,9 +623,6 @@ export function createEngineApiB(bag) {
     setAgentRoute: async (agentId, opts) => {
       return await runtime.setAgentRoute?.(agentId, opts);
     },
-    setDefaultProvider: async (provider) => {
-      return await runtime.setDefaultProvider?.(provider);
-    },
     listProviders: () => {
       return runtime.listProviders();
     },

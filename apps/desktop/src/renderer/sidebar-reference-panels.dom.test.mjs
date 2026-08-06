@@ -215,10 +215,7 @@ const rowNames = () => Array.from(document.querySelectorAll('.schedules-row b'))
   .map((node) => node.textContent);
 
 test('scroll surfaces spend one shared gutter inside their existing inline inset', async () => {
-  const [css, paneCss] = await Promise.all([
-    readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
-    readFile(new URL('./pane-layout.css', import.meta.url), 'utf8'),
-  ]);
+  const css = await readFile(new URL('./desktop.css', import.meta.url), 'utf8');
   assert.match(css, /:root\s*\{[^}]*--mx-scrollbar-size:\s*8px;/s);
   assert.match(css,
     /\*\s*\{[^}]*scrollbar-width:\s*auto;[^}]*scrollbar-color:\s*auto;/s,
@@ -233,17 +230,24 @@ test('scroll surfaces spend one shared gutter inside their existing inline inset
   assert.match(css,
     /\.transcript\s*\{[^}]*scrollbar-gutter:\s*stable;/s);
   assert.match(css,
-    /\.thread\s*\{[^}]*width:\s*min\(100%,\s*calc\(800px - var\(--mx-scrollbar-size\)\)\);[^}]*padding:\s*20px calc\(36px - var\(--mx-scrollbar-size\)\) 20px 36px;/s);
+    /\.thread\s*\{[^}]*width:\s*100%;[^}]*padding:\s*20px 0 0;/s,
+    'the timeline stays full-width so virtual rows own their measured geometry');
   assert.match(css,
-    /@container chat-pane \(max-width:\s*620px\)\s*\{[\s\S]*?\.composer-region\s*\{[^}]*padding-inline:\s*20px;/s);
+    /\.transcript-virtual-row-content\[data-tag="UserMessage"\],[\s\S]*?\.transcript-virtual-row-content\[data-tag="Error"\]\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*var\(--pane-scroll-column\);[^}]*margin-inline:\s*auto;[^}]*padding-left:\s*var\(--pane-inset\);[^}]*padding-right:\s*calc\(var\(--pane-inset\) - var\(--mx-scrollbar-size\)\);/s,
+    'projected rows spend the single scrollbar reserve inside their centered reading frame');
   assert.match(css,
-    /@container chat-pane \(max-width:\s*420px\)\s*\{[\s\S]*?\.composer-region\s*\{[^}]*padding-inline:\s*12px;/s);
-  assert.match(paneCss,
-    /@container chat-pane \(max-width:\s*620px\)\s*\{[\s\S]*?\.thread\s*\{[^}]*padding:\s*18px calc\(24px - var\(--mx-scrollbar-size\)\) 18px 24px;[\s\S]*?\.composer-region\s*\{[^}]*padding:\s*0 20px 8px;/s);
-  assert.match(paneCss,
-    /@container chat-pane \(max-width:\s*420px\)\s*\{[\s\S]*?\.thread\s*\{[^}]*padding:\s*14px calc\(16px - var\(--mx-scrollbar-size\)\) 14px 16px;[\s\S]*?\.composer-region\s*\{[^}]*padding:\s*0 12px 6px;/s);
+    /\.workspace > \.session-header,\s*\.conversation,\s*\.studio-shell\s*\{[^}]*--pane-inset:\s*20px;[^}]*--pane-column:\s*100%;[^}]*--pane-scroll-column:\s*100%;/s,
+    'chat and Studio surfaces share the default pane inset ladder');
   assert.match(css,
-    /\.studio-results\s*\{[^}]*padding:\s*16px calc\(32px - var\(--mx-scrollbar-size\)\) 8px 32px;[^}]*scrollbar-gutter:\s*stable;/s);
+    /@container chat-pane \(max-width:\s*419px\)\s*\{[^}]*\.workspace > \.session-header,\s*\.conversation\s*\{[^}]*--pane-inset:\s*12px;/s);
+  assert.match(css,
+    /@container chat-pane \(min-width:\s*768px\)\s*\{[^}]*\.workspace > \.session-header,\s*\.conversation\s*\{[^}]*--pane-inset:\s*24px;[^}]*--pane-column:\s*800px;[^}]*--pane-scroll-column:\s*calc\(var\(--pane-column\) - var\(--mx-scrollbar-size\)\);/s);
+  assert.match(css,
+    /\.composer-region\s*\{[^}]*max-width:\s*var\(--pane-column\);[^}]*padding:\s*0 var\(--pane-inset\) 16px;/s,
+    'the composer consumes the same responsive inset and centered column as projected rows');
+  assert.match(css,
+    /\.studio-results\s*\{[^}]*padding:\s*16px calc\(var\(--pane-inset\) - var\(--mx-scrollbar-size\)\) 8px var\(--pane-inset\);[^}]*scrollbar-gutter:\s*stable;/s,
+    'Studio spends the shared gutter from the same responsive pane inset');
   assert.match(css,
     /\.mixdog-settings__body\s*\{[^}]*padding:\s*24px calc\(32px - var\(--mx-scrollbar-size\)\) 32px 32px;[^}]*scrollbar-gutter:\s*stable;/s);
   assert.match(css,

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 
 import type {
+  DesktopAbortOptions,
   DesktopAgentPoolRow,
   DesktopCapability,
   DesktopCapabilityReadRequest,
@@ -2796,6 +2797,7 @@ export class EngineHost {
     prompt: DesktopPromptContent,
     options: DesktopSubmitOptions,
     forceNewSession = false,
+    reuseReservedSession = false,
   ): Promise<{ accepted: boolean; sessionId: string }> {
     const engine = this.requireEngine();
     // A blank desktop task owns only its workspace and route preferences.
@@ -2805,7 +2807,9 @@ export class EngineHost {
     const materializedSession = forceNewSession
       || !String(engine.getState()?.sessionId || '');
     if (materializedSession) {
-      if (await engine.newSession() !== true) {
+      if (await engine.newSession(
+        reuseReservedSession ? { reuseReservation: true } : undefined,
+      ) !== true) {
         throw new Error('Unable to create a task session for the first message.');
       }
       await this.applyPendingFastPreference(engine);
@@ -3001,32 +3005,68 @@ export class EngineHost {
   ): Promise<boolean> {
     if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new TypeError('session id is invalid.');
     if (!hasPromptContent(prompt)) return false;
+    const submitOptions: DesktopSubmitOptions = String(options.id || '').trim()
+      ? options
+      : {
+        ...options,
+        id: `desktop-pane-${sessionId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      };
     let accepted = false;
     let unowned = false;
-    await this.exclusive(async () => {
-      if (this.engineViewIsLive(this.engine)
-        && String(this.engine?.getState()?.sessionId || '') === sessionId) {
-        ({ accepted } = await this.submitActiveEngine(prompt, options));
-        return;
+    const activeEngine = this.engine;
+    if (this.engineViewIsLive(activeEngine)
+      && String(activeEngine?.getState()?.sessionId || '') === sessionId) {
+      if (activeEngine?.isRemoteEngine === true) {
+        // Daemon views are already session-addressed and submitAsync captures
+        // the target id before its first await. Do not queue a warm chat behind
+        // unrelated project/catalog navigation on the desktop transition lock.
+        const submitState = activeEngine.getState();
+        try {
+          accepted = typeof activeEngine.submitAsync === 'function'
+            ? await activeEngine.submitAsync(prompt, submitOptions)
+            : activeEngine.submit(prompt, submitOptions);
+        } catch (error) {
+          if (this.engineViewIsLive(activeEngine)) throw error;
+          unowned = true;
+        }
+        if (accepted) this.recordAcceptedSubmitGuard(
+          activeEngine,
+          submitState,
+          sessionId,
+        );
+        else unowned = true;
+      } else {
+        await this.exclusive(async () => {
+          if (!this.engineViewIsLive(this.engine)
+            || String(this.engine?.getState()?.sessionId || '') !== sessionId) {
+            unowned = true;
+            return;
+          }
+          ({ accepted } = await this.submitActiveEngine(prompt, submitOptions));
+        });
       }
-      const parked = this.pooledSessionEngine(sessionId);
-      if (!parked) { unowned = true; return; }
+      if (!unowned) return accepted;
+    }
+    const parked = this.pooledSessionEngine(sessionId);
+    if (parked) {
       const submitState = parked.getState();
       accepted = typeof parked.submitAsync === 'function'
-        ? await parked.submitAsync(prompt, options)
-        : parked.submit(prompt, options);
+        ? await parked.submitAsync(prompt, submitOptions)
+        : parked.submit(prompt, submitOptions);
       // A view that refuses the prompt (released mid-submit) must fall through
       // to the daemon rather than report a phantom acceptance.
       if (accepted) this.recordAcceptedSubmitGuard(parked, submitState, sessionId);
       else unowned = true;
-    });
+    } else {
+      unowned = true;
+    }
     if (!unowned) return accepted;
-    accepted = await this.callDaemonSession(sessionId, 'submit', [prompt, {
-      ...options,
-      // A stable submission id is what makes a transport retry idempotent.
-      id: String(options.id || '').trim()
-        || `desktop-pane-${sessionId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    }]) === true;
+    // A stable submission id makes a stale-view fallback idempotent too.
+    accepted = await this.callDaemonSession(
+      sessionId,
+      'submit',
+      [prompt, submitOptions],
+    ) === true;
     if (accepted) {
       void this.attachSessionView(sessionId).catch((error: unknown) => {
         console.error('Failed to attach a view to a daemon-hosted session:', error);
@@ -3035,10 +3075,10 @@ export class EngineHost {
     return accepted;
   }
 
-  async abortSession(sessionId: string): Promise<unknown> {
+  async abortSession(sessionId: string, options: DesktopAbortOptions = {}): Promise<unknown> {
     const engine = this.pooledEngineById(sessionId);
-    if (engine) return engine.abort();
-    return this.callDaemonSession(sessionId, 'abort', []);
+    if (engine) return engine.abort(options);
+    return this.callDaemonSession(sessionId, 'abort', [options]);
   }
 
   async resolveToolApprovalForSession(
@@ -3257,6 +3297,7 @@ export class EngineHost {
     let sessionId = '';
     let snapshot: EngineSnapshot = null;
     let reusedEngineContext = false;
+    let selectedProjectPathForRecent = '';
     const criticalStartedAt = DESKTOP_PERF_ENABLED ? performance.now() : 0;
     await this.exclusive(async () => {
       const checkpoint = this.newTaskNavigationCheckpoint();
@@ -3279,7 +3320,7 @@ export class EngineHost {
             );
           }
           this.currentProject = canonicalPath;
-          this.recentProjects = await this.projects.touchSelected(registeredPath);
+          selectedProjectPathForRecent = registeredPath;
         } else {
           const workspace = await this.taskWorkspace();
           const desktopSession: DesktopSessionScope = {
@@ -3305,7 +3346,12 @@ export class EngineHost {
           await (setWorkflow as (id: string) => unknown).call(engine, draft.workflowId);
         }
         if (draft.route) await this.applyModelSelection(engine, draft.route, cachedModel);
-        ({ accepted, sessionId } = await this.submitActiveEngine(prompt, options, true));
+        ({ accepted, sessionId } = await this.submitActiveEngine(
+          prompt,
+          options,
+          true,
+          true,
+        ));
         if (!accepted) {
           rollbackHandled = true;
           try {
@@ -3330,6 +3376,13 @@ export class EngineHost {
               .then(() => (claimRemote as () => unknown).call(engine))
               .catch(() => { /* best-effort: the header toggle can re-claim */ });
           }
+        }
+        if (accepted && selectedProjectPathForRecent) {
+          const registeredPath = selectedProjectPathForRecent;
+          this.deferPostSubmit('recent project', async () => {
+            this.recentProjects = await this.projects.touchSelected(registeredPath);
+            if (!this.disposed) this.publish();
+          });
         }
         snapshot = this.getSnapshot();
       } catch (error) {
@@ -3532,8 +3585,8 @@ export class EngineHost {
     return results;
   }
 
-  abort(): unknown {
-    return this.requireEngine().abort();
+  abort(options: DesktopAbortOptions = {}): unknown {
+    return this.requireEngine().abort(options);
   }
 
   resolveToolApproval(id: string, decision: ToolApprovalDecision): boolean {

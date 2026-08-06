@@ -104,6 +104,165 @@ test('a pure addition on a file ending in a blank line lands before that blank l
   });
 });
 
+test('a mid-file hunk marked *** End of File still applies, with a notice', async () => {
+  await withWorkspace(async ({ base }) => {
+    const target = join(base, 'f.txt');
+    writeFileSync(target, 'one\ntwo\nthree\nfour\nfive\n', 'utf8');
+    const result = assertApplied(await applyPatch(base, [
+      '*** Begin Patch',
+      '*** Update File: f.txt',
+      '@@',
+      ' one',
+      '-two',
+      '+TWO',
+      ' three',
+      '*** End of File',
+      '*** End Patch',
+      '',
+    ].join('\n')));
+    assert.equal(read(target), 'one\nTWO\nthree\nfour\nfive\n');
+    assert.match(result, /End of File[\s\S]*marker was ignored/);
+  });
+});
+
+test('a context block that is a couple of characters off resolves to the file bytes', async () => {
+  await withWorkspace(async ({ base }) => {
+    const target = join(base, 'f.txt');
+    writeFileSync(target, 'alpha\nconst total = count + 1;\nbeta\ngamma\n', 'utf8');
+    // The deletion line is retyped with one character missing ("cout"), which
+    // the context-tolerance tier refuses because the drift is on a '-' line.
+    assertApplied(await applyPatch(base, [
+      '*** Begin Patch',
+      '*** Update File: f.txt',
+      '@@',
+      ' alpha',
+      '-const total = cout + 1;',
+      '+const total = count + 2;',
+      ' beta',
+      '*** End Patch',
+      '',
+    ].join('\n')));
+    assert.equal(read(target), 'alpha\nconst total = count + 2;\nbeta\ngamma\n');
+  });
+});
+
+test('wholly wrong surrounding context still applies around a unique exact deletion', async () => {
+  await withWorkspace(async ({ base }) => {
+    const target = join(base, 'f.txt');
+    writeFileSync(target, 'l1\nl2\nl3\nconst flag = true;\nl5\nl6\nl7\n', 'utf8');
+    // Every ' ' line was retyped from memory and is wrong; the deletion line is
+    // current and occurs exactly once, so the position is unambiguous.
+    assertApplied(await applyPatch(base, [
+      '*** Begin Patch',
+      '*** Update File: f.txt',
+      '@@',
+      ' remembered header',
+      ' another stale line',
+      '-const flag = true;',
+      '+const flag = false;',
+      ' stale trailer',
+      '*** End Patch',
+      '',
+    ].join('\n')));
+    assert.equal(read(target), 'l1\nl2\nl3\nconst flag = false;\nl5\nl6\nl7\n');
+  });
+});
+
+test('a deletion core that occurs twice is refused even with trimmed context', async () => {
+  await withWorkspace(async ({ base }) => {
+    const target = join(base, 'f.txt');
+    const original = 'a\nconst flag = true;\nb\nc\nconst flag = true;\nd\n';
+    writeFileSync(target, original, 'utf8');
+    assertRejected(await applyPatch(base, [
+      '*** Begin Patch',
+      '*** Update File: f.txt',
+      '@@',
+      ' stale one',
+      '-const flag = true;',
+      '+const flag = false;',
+      ' stale two',
+      '*** End Patch',
+      '',
+    ].join('\n')));
+    assert.equal(read(target), original);
+  });
+});
+
+test('stacked @@ headers narrow one hunk to the right occurrence', async () => {
+  await withWorkspace(async ({ base }) => {
+    const target = join(base, 'f.py');
+    const source = [
+      'class A:',
+      '    def run():',
+      '        value = 1',
+      '        return value',
+      '',
+      'class B:',
+      '    def run():',
+      '        value = 1',
+      '        return value',
+      '',
+    ].join('\n');
+    writeFileSync(target, source, 'utf8');
+    assertApplied(await applyPatch(base, [
+      '*** Begin Patch',
+      '*** Update File: f.py',
+      '@@ class B:',
+      '@@     def run():',
+      '         value = 1',
+      '-        return value',
+      '+        return value * 2',
+      '*** End Patch',
+      '',
+    ].join('\n')));
+    // The edit must land in class B: a dropped anchor chain used to resolve
+    // the hunk against class A instead.
+    assert.equal(read(target), source.replace(
+      'class B:\n    def run():\n        value = 1\n        return value',
+      'class B:\n    def run():\n        value = 1\n        return value * 2',
+    ));
+  });
+});
+
+test('a near-miss context matching two places is rejected without writing', async () => {
+  await withWorkspace(async ({ base }) => {
+    const target = join(base, 'f.txt');
+    const original = 'alpha\nvalue = 1;\nbeta\nalpha\nvalue = 1;\nbeta\n';
+    writeFileSync(target, original, 'utf8');
+    assertRejected(await applyPatch(base, [
+      '*** Begin Patch',
+      '*** Update File: f.txt',
+      '@@',
+      ' alpha',
+      '-value = 7;',
+      '+value = 2;',
+      ' beta',
+      '*** End Patch',
+      '',
+    ].join('\n')));
+    assert.equal(read(target), original);
+  });
+});
+
+test('decomposed Unicode context still matches its composed on-disk form', async () => {
+  await withWorkspace(async ({ base }) => {
+    const target = join(base, 'f.txt');
+    writeFileSync(target, 'head\nconst label = "caf\u00e9";\ntail\n', 'utf8');
+    assertApplied(await applyPatch(base, [
+      '*** Begin Patch',
+      '*** Update File: f.txt',
+      '@@',
+      ' head',
+      '-const label = "cafe\u0301";',
+      '+const label = "tea";',
+      ' tail',
+      '*** End Patch',
+      '',
+    ].join('\n')));
+    assert.equal(read(target), 'head\nconst label = "tea";\ntail\n');
+  });
+});
+
 test('two end-of-file additions keep their source order (in base)', async () => {
   await withWorkspace(async ({ base }) => {
     const target = join(base, 'f.txt');

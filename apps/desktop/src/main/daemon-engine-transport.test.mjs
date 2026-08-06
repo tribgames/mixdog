@@ -52,3 +52,111 @@ test('failed desktop initialization closes its daemon attachment and preserves t
   assert.equal(closeCalls, 1);
   assert.deepEqual(calls, ['desktop.init', 'desktop.unsubscribe']);
 });
+
+test('a transient pooled-socket reset retries one desktop request with the same call id', async () => {
+  const invocations = [];
+  const transport = new DaemonEngineTransport(
+    'file:///C:/tmp/desktop-backend-daemon.cjs',
+    process.cwd(),
+    async () => ({
+      ensureEngineDaemon: async () => ({ pid: process.pid, port: 1, token: 'test' }),
+      attachEngineDaemon: async () => ({
+        async call(name, args, callOptions) {
+          if (name === 'desktop.init') return { desktopId: 'desktop_test' };
+          if (name === 'desktop.control') return { ok: true };
+          if (name === 'desktop.invoke') {
+            invocations.push({ args, callId: callOptions?.callId });
+            if (invocations.length === 1) {
+              throw Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
+            }
+            return 'recovered';
+          }
+          return { ok: true };
+        },
+        async close() {},
+      }),
+    }),
+  );
+  const messages = [];
+  transport.on('message', (message) => messages.push(message));
+  transport.postMessage({ kind: 'init', options });
+  await waitFor(() => messages.some((message) => message.kind === 'ready'));
+  transport.postMessage({
+    kind: 'request',
+    id: 42,
+    method: 'getProviderSetup',
+    args: [],
+  });
+  const response = await waitFor(() => messages.find((message) =>
+    message.kind === 'response' && message.id === 42));
+  assert.equal(response.ok, true);
+  assert.equal(response.value, 'recovered');
+  assert.equal(invocations.length, 2);
+  assert.equal(invocations[0].callId, invocations[1].callId);
+  assert.match(invocations[0].callId, /^desktop-invoke:/);
+  await transport.close();
+});
+
+test('an SSE reconnect resyncs in place without rejecting an in-flight desktop request', async () => {
+  const calls = [];
+  let streamDisconnect = null;
+  let streamReconnect = null;
+  let resolveInvoke;
+  const transport = new DaemonEngineTransport(
+    'file:///C:/tmp/desktop-backend-daemon.cjs',
+    process.cwd(),
+    async () => ({
+      ensureEngineDaemon: async () => ({ pid: process.pid, port: 1, token: 'test' }),
+      attachEngineDaemon: async (attachOptions) => {
+        streamDisconnect = attachOptions.onStreamDisconnect;
+        streamReconnect = attachOptions.onStreamReconnect;
+        return {
+          async call(name, args) {
+            calls.push({ name, args });
+            if (name === 'desktop.init') return { desktopId: 'desktop_reconnect' };
+            if (name === 'desktop.invoke') {
+              return await new Promise((resolve) => { resolveInvoke = resolve; });
+            }
+            return { ok: true };
+          },
+          async close() {},
+        };
+      },
+    }),
+  );
+  const messages = [];
+  const diagnostics = [];
+  let exit = null;
+  transport.on('message', (message) => messages.push(message));
+  transport.on('diagnostic', (event, details) => diagnostics.push({ event, details }));
+  transport.on('exit', (code, cause) => { exit = { code, cause }; });
+  transport.postMessage({ kind: 'init', options });
+  await waitFor(() => messages.some((message) => message.kind === 'ready'));
+
+  transport.postMessage({
+    kind: 'request',
+    id: 77,
+    method: 'submit',
+    args: ['preserve me'],
+  });
+  await waitFor(() => typeof resolveInvoke === 'function');
+  streamDisconnect({ reason: 'sse ended' });
+  streamReconnect({ reason: 'sse ended', attempt: 1, downtimeMs: 25 });
+  await waitFor(() => calls.filter((entry) => entry.name === 'desktop.control').length === 2);
+  resolveInvoke(true);
+  const response = await waitFor(() => messages.find((message) =>
+    message.kind === 'response' && message.id === 77));
+
+  assert.equal(response.ok, true);
+  assert.equal(response.value, true);
+  assert.equal(exit, null, 'event-stream recovery does not restart the backend transport');
+  assert.deepEqual(
+    diagnostics.map((entry) => entry.event),
+    [
+      'backend-stream-reconnecting',
+      'backend-stream-reconnected',
+      'backend-stream-resync-complete',
+    ],
+  );
+  await transport.close();
+});

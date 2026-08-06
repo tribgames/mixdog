@@ -108,6 +108,12 @@
   --mx-font-meta: 12px;
   --mx-font-minor: 13px;
   --mx-font-code: 13px;
+  /* Mono INSIDE prose. The 15px reading scale needs its own code step: the
+     13px chrome mono read a tier small next to it, and the inline chips had
+     drifted to a relative .92em (13.8px, a fractional size that hints
+     differently from every other glyph). One integer 14px now serves both
+     the inline `code` spans and the fenced blocks in a message. */
+  --mx-font-code-prose: 14px;
   --mx-font-ui: 13px;
   --mx-font-emphasis: 14px;
   --mx-font-body: 15px;
@@ -132,9 +138,14 @@
      Body/Label = 400, Strong = 600 — no middle step). The old ramp kept a
      500 tier that 121 rules used as their DEFAULT, so a 600 heading only
      ever cleared its rows by half a step and nothing read as emphasized
-     (user: 굵기가 잘 안 보인다). medium stays defined for one-off controls
-     that genuinely need the in-between, but it is no longer the shell's
-     resting weight. 450 remains the Pretendard reading weight for
+     (user: 굵기가 잘 안 보인다). 500 is no longer the shell's DEFAULT — a
+     control that needs emphasis takes 600 and everything else rests at 400 —
+     but the tier survives where 13px chrome must hold its own: the transcript
+     status line and the workspace tab labels. Pretendard Hangul at 600 reads
+     heavier than the mono rows beside it, and 400 disappears under them, so
+     13px/500 is the weight that sits right in both places. It is a LABEL
+     tier — do not let it creep back into body text or row copy.
+     450 remains the Pretendard reading weight for
      transcript prose; 700 stays literal for CONTENT bold (markdown strong,
      hljs, watermark) like the content font sizes above. */
   --mx-weight-regular: 400;
@@ -401,9 +412,13 @@
 }
 .message-body, .markdown { text-rendering: geometricPrecision; }
 *:focus-visible { outline-color: var(--mx-focus); }
-/* One scrollbar grammar shell-wide (VS Code): square, flush, clearly visible
-   (the earlier thin pill was user-flagged as barely visible on the workspace;
-   the workspace style is now THE style). */
+/* ONE scrollbar grammar shell-wide: the session rail's inset pill (user: pane
+   스크롤도 세션 리스트처럼). The 8px track stays, but the thumb is inset 2px
+   and fully rounded, so it reads as a floating pill instead of a flush block.
+   Three grammars used to run at once — this pill on the rail, a square block
+   everywhere else, and the OS `scrollbar-width: thin` bar on nine surfaces
+   that overrode the webkit sizing entirely. Only `scrollbar-width: none`
+   (deliberate hiding) survives as a per-surface override. */
 :root { --mx-scrollbar-size: 8px; }
 * {
   /* Chromium ignores ::-webkit-scrollbar dimensions when this standard
@@ -415,12 +430,14 @@
 *::-webkit-scrollbar { width: var(--mx-scrollbar-size); height: var(--mx-scrollbar-size); }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb {
-  border: 0;
-  border-radius: 0;
+  border: 2px solid transparent;
+  border-radius: 999px;
   background: var(--mx-scrollbar-thumb, var(--mx-border-strong));
+  background-clip: padding-box;
 }
 *::-webkit-scrollbar-thumb:hover {
   background: var(--mx-scrollbar-thumb-hover, var(--mx-text-faint));
+  background-clip: padding-box;
 }
 *::-webkit-scrollbar-corner { background: transparent; }
 
@@ -612,7 +629,7 @@ button:focus-visible { outline-offset: 1.5px; }
 }
 /* Header cluster glyphs share ONE optical box: identical 18px frame so the
    review / remote / panel icons cannot drift in perceived weight. */
-.session-dock-toggle svg.lucide { width: 18px; height: 18px; }
+.session-dock-toggle svg.lucide { width: var(--mx-icon-lg); height: var(--mx-icon-lg); }
 /* Optical compensation: the wifi arcs render softer than the neighbors'
    straight lines at 1.25px — a heavier stroke restores equal crispness. */
 .remote-toggle svg.lucide { stroke-width: 1.5px; }
@@ -657,8 +674,10 @@ button:focus-visible { outline-offset: 1.5px; }
   border-radius: 6px;
   color: var(--mx-text);
   background: transparent;
-  font-size: var(--mx-font-minor);
-  font-weight: var(--mx-weight-regular);
+  /* Same status-label tier as the tabs, the live band and the turn rows:
+     13px/500 through --mx-font-ui, so the four read as one family. */
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-medium);
   cursor: pointer;
 }
 .workspace-tab-compact-current:hover { background: var(--mx-hover); }
@@ -680,7 +699,10 @@ button:focus-visible { outline-offset: 1.5px; }
   padding: 0;
   border: 0;
   border-radius: 5px;
-  box-shadow: inset 0 0 0 1.5px currentColor;
+  /* 2px contour (user: 컴팩트 옆에 선이 2px까지 써도 될 듯): at 1.5px the
+     box rendered a half-device-pixel edge that anti-aliased soft next to the
+     3px active-tab band it sits beside. */
+  box-shadow: inset 0 0 0 2px currentColor;
   color: var(--mx-text-muted);
   background: transparent;
   font-size: var(--mx-font-micro);
@@ -876,11 +898,16 @@ button:focus-visible { outline-offset: 1.5px; }
   content: "";
   position: absolute;
   top: 0;
-  /* VS Code activeBorderTop: a 1px hairline across the WHOLE tab — the 2px
-     inset pill read too heavy (user: 탭 선택 띠가 너무 두껍다). */
+  /* VS Code activeBorderTop: a band across the WHOLE tab, anchored at the top
+     edge and growing DOWNWARD. The old complaint (탭 선택 띠가 너무 두껍다)
+     was about a 2px inset PILL — a rounded floating bar — not this flush
+     full-width line, which is exactly what VS Code marks the active tab with
+     and what the user asked to lean on (파란 띠가 위에 그대로, 두께만 아래로).
+     Moving it to the bottom edge and painting it without focus was tried and
+     reverted (user: 완전 이상한데 — 기존으로 롤백); only the height changed. */
   left: 0;
   right: 0;
-  height: 1px;
+  height: 3px;
   border-radius: 0;
   background: transparent;
   pointer-events: none;
@@ -911,8 +938,12 @@ button:focus-visible { outline-offset: 1.5px; }
 }
 /* Chrome type ramp: ONE 13px size for UI chrome — hierarchy comes from
    weight (600 titles > 500 labels > 400 body) and ink, never from size
-   bumps (user: 탭/타이틀 크기가 제각각이라 위계가 안 잡힌다). */
-.workspace-tab-main span { font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); }
+   bumps (user: 탭/타이틀 크기가 제각각이라 위계가 안 잡힌다). The label tier
+   is 500, which this rule had been claiming in prose while rendering 400 —
+   next to the 500 status line the tabs read a step thin (user: 라벨 너무
+   얇은 것 같은데). Active and inactive share the weight; ink tells them
+   apart. */
+.workspace-tab-main span { font-size: var(--mx-font-ui); font-weight: var(--mx-weight-medium); line-height: var(--mx-line-ui); }
 .workspace-tab-new {
   /* The HIT BOX fills the strip row and a full 34px column (user: +의
      상하좌우 패딩이 이상해서 누르기 힘들다 — a 28px box in the 35px row
@@ -1088,6 +1119,15 @@ button:focus-visible { outline-offset: 1.5px; }
   user-select: none;
   -webkit-user-select: none;
 }
+/* Pane selection fence (PaneWorkspace marks the pane a drag began in): the
+   browser keeps ONE Selection for the whole document, so dragging out of a
+   pane used to paint every row it passed over on the way. While the pointer
+   is down, the other panes stop accepting selection — the same boundary VS
+   Code's editor groups keep. Cross-pane selection is the deliberate cost. */
+:root[data-pane-selecting] .pane-leaf:not([data-selecting]) {
+  user-select: none;
+  -webkit-user-select: none;
+}
 /* Desktop side-panel toggles commit their FINAL layout synchronously in one
    frame — VS Code workbench grammar (user decision). No snapshots, no
    interpolation: crossfading old/new text left afterimages and font shimmer
@@ -1223,7 +1263,7 @@ button:focus-visible { outline-offset: 1.5px; }
 /* The sparkle/star marks carry far less ink than the knot/letterforms —
    one step up keeps their optical size on the same line. */
 .rail-usage-pin-brand svg[data-provider-icon="synthetic"],
-.rail-usage-pin-brand svg[data-provider-icon="google"] { width: 18px; height: 18px; }
+.rail-usage-pin-brand svg[data-provider-icon="google"] { width: var(--mx-icon-lg); height: var(--mx-icon-lg); }
 /* Miniature of the flyout meter (user: 프로그래스라도 중간에): a 3px track
    between icon and number, filled in accent ink until the tone escalates. */
 .rail-usage-pin-brand > i {
@@ -1311,7 +1351,9 @@ button:focus-visible { outline-offset: 1.5px; }
   height: 36px;
   padding: 0 4px 0 6px;
   color: var(--mx-text);
-  font: 600 15px/22px var(--mx-font-sans);
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-emphasis);
   letter-spacing: 0;
   user-select: none;
 }
@@ -1469,7 +1511,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .session-sidebar-panels .schedules-search input:focus {
   box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
 }
-.session-sidebar-panels .schedules-search svg { left: 8px; width: 14px; height: 14px; }
+.session-sidebar-panels .schedules-search svg { left: 8px; width: var(--mx-icon-sm); height: var(--mx-icon-sm); }
 /* The page's rail gap (8px) alone spaces search → filters → list on one
    even rhythm; the old +2/+4 margins predate the 6px page gap and drifted
    the stack to 10/12px (user: 스케줄/웹훅 전체적으로 정리). */
@@ -2019,14 +2061,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .session-sidebar > .session-sidebar-scroll:not(.session-sidebar-panels) {
   overflow-anchor: none;
 }
-.session-sidebar-scroll::-webkit-scrollbar { width: var(--mx-scrollbar-size); }
-.session-sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
-.session-sidebar-scroll::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background: var(--mx-scrollbar-thumb);
-  background-clip: padding-box;
-}
 .sidebar-recent { display: grid; gap: 2px; }
 /* Sibling sections stay distinct without opening an oversized empty band. */
 .session-sidebar-scroll > .sidebar-recent + .sidebar-recent { margin-top: 2px; }
@@ -2038,10 +2072,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
      inside their pills, so header and titles share one left line. */
   padding: 0 6px;
   /* Full ink like the model trigger — muted read as a weaker tier than the
-     500-weight controls around it (user: Recent looks washed). */
+     controls around it (user: Recent looks washed). */
   color: var(--mx-text);
-  /* …same 13px chrome size as the rows, one step bolder. */
-  font-size: var(--mx-font-ui);
+  /* CATEGORY tier of the rail ladder (panel 15 > category 14 > item 13 >
+     meta 12). It used to sit at 13 — the SAME size as the rows it labels —
+     so the step existed in weight alone. */
+  font-size: var(--mx-font-emphasis);
   font-weight: var(--mx-weight-semibold);
   letter-spacing: 0;
   line-height: var(--mx-line-ui);
@@ -2049,20 +2085,23 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .sidebar-recent-heading > span { min-width: 0; flex: 1; }
 .sidebar-recent-heading > small {
   color: var(--mx-text-faint);
-  font: 400 11px/16px var(--mx-font-sans);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
 }
 /* "Show more" is a tertiary pagination affordance, not a heading: it drops
-   to muted/500 so it recedes under the rows it extends (importance = ink +
-   weight, user rule). */
+   OUT of the category tier entirely — item size, regular weight, muted ink —
+   so it recedes under the rows it extends (importance = ink + weight). */
 .sidebar-recent-heading.session-list-more {
   color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
 }
 .sidebar-recent-heading.session-list-more:hover { color: var(--mx-text); }
 /* AFTER the base heading rules on purpose: the collapsible variant must win
-   order-dependent overrides. CATEGORY tier (chrome ramp): 13px/600 at 68%
-   ink — 14px full ink shouted over the 13px rows (user: 카테고리가 너무
-   눈에 띄고 큼). */
+   order-dependent overrides. Same CATEGORY tier as the base heading above
+   (14/600, full ink) — the two used to disagree by a pixel and an ink step
+   for no reason other than which variant rendered. */
 .sidebar-recent-heading.sidebar-heading-toggle {
   height: 32px;
   justify-content: flex-start;
@@ -2073,8 +2112,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border: 0;
   background: transparent;
   font-family: inherit;
-  /* One size up from the 13px ramp step (user request); full ink — the
-     shared section-title convention (bigger + bolder + full ink). */
   font-size: var(--mx-font-emphasis);
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-ui);
@@ -2127,16 +2164,21 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border-radius: 6px;
   text-align: left;
 }
-.sidebar-section-toggle { color: var(--mx-text-muted); }
+/* Section heads are CATEGORY tier too: they used to render 13/400 muted —
+   smaller AND quieter than the rows underneath, the one inversion the rail
+   ladder forbids. */
+.sidebar-section-toggle { color: var(--mx-text); }
 .sidebar-section-toggle > span {
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-regular);
+  font-size: var(--mx-font-emphasis);
+  font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-ui);
   letter-spacing: 0;
 }
 .project-group-toggle {
   padding-left: 8px;
-  color: var(--mx-text-faint);
+  /* Nested one level under a section head: it steps down by INK only, and
+     faint dropped it below its own rows. */
+  color: var(--mx-text-muted);
 }
 .project-group-toggle.selected {
   color: var(--mx-text);
@@ -2261,7 +2303,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .sidebar-usage-heading > b {
   color: var(--mx-text);
-  font: 600 13px/18px var(--mx-font-sans);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-minor);
   letter-spacing: var(--mx-tracking-tight);
 }
 /* Pin toggle rides the title row's right edge (user: 타이틀 오른쪽 핀모드). */
@@ -2327,14 +2371,16 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: transparent;
 }
 .sidebar-usage-provider-icon { width: 20px; height: 20px; flex: 0 0 20px; }
-.sidebar-usage-provider-icon svg { width: 17px; height: 17px; }
+.sidebar-usage-provider-icon svg { width: var(--mx-icon-md); height: var(--mx-icon-md); }
 .sidebar-usage-line { min-width: 0; display: flex; align-items: center; gap: 5px; }
 .sidebar-usage-line > b {
   min-width: 0;
   flex: 1;
   overflow: hidden;
   color: var(--mx-text);
-  font: 600 13px/17px var(--mx-font-sans);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-minor);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2586,13 +2632,70 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   container-name: chat-pane;
   container-type: inline-size;
 }
+/* ONE pane inset ladder. Every surface inside a pane — header, transcript,
+   composer, watermark, Studio topbar/results/dock — spends the SAME inset and
+   the SAME centered column, so no two edges drift apart at any pane width
+   (user: pane 안 컨텐츠 패딩을 해상도별로 다 맞춰라). Scrollers get their own
+   column token: the reserved scrollbar track is paid out of the RIGHT inset
+   instead of stealing a second column from the reading frame. */
+.workspace > .session-header,
+.conversation,
+.studio-shell {
+  --pane-inset: 20px;
+  --pane-column: 100%;
+  --pane-scroll-column: 100%;
+  --pane-card: 100%;
+  /* Floating chrome (context overlay, activity chip, jump pill) hugs the pane
+     edge on ONE offset instead of three hand-tuned ones. */
+  --pane-chrome-inset: 12px;
+  /* The composer BOX lands on the pane inset, but its textarea holds the
+     typed line another 16px in — so the transcript, which stopped at the box
+     edge, ran 16px wider than the words directly under it (user: 스크립트
+     좌우 여백을 텍스트박스랑 맞춰줘, 살짝 넓다). Both now spend this token,
+     so the reading line and the typing line share one edge at EVERY pane
+     width, including the 12/20/24px inset steps. */
+  --composer-text-inset: 16px;
+}
+@container chat-pane (max-width: 419px) {
+  .workspace > .session-header,
+  .conversation { --pane-inset: 12px; }
+}
+@container chat-pane (min-width: 768px) {
+  .workspace > .session-header,
+  .conversation {
+    --pane-inset: 24px;
+    --pane-column: 800px;
+    /* var() substitution happens AFTER the cascade, so the 1536 step only has
+       to raise --pane-column and these two follow it. */
+    --pane-scroll-column: calc(var(--pane-column) - var(--mx-scrollbar-size));
+    --pane-card: calc(var(--pane-column) - 2 * var(--pane-inset));
+  }
+}
+@container chat-pane (min-width: 1536px) {
+  .workspace > .session-header,
+  .conversation { --pane-column: 1000px; }
+}
+@container studio-pane (max-width: 419px) {
+  .studio-shell { --pane-inset: 12px; }
+}
+@container studio-pane (min-width: 768px) {
+  .studio-shell {
+    --pane-inset: 24px;
+    --pane-column: 800px;
+    --pane-scroll-column: calc(var(--pane-column) - var(--mx-scrollbar-size));
+    --pane-card: calc(var(--pane-column) - 2 * var(--pane-inset));
+  }
+}
+@container studio-pane (min-width: 1536px) {
+  .studio-shell { --pane-column: 1000px; }
+}
 .session-header { flex-basis: 48px; min-height: 48px; border-bottom: 0; background: var(--mx-workspace-sheet); }
 .session-header-content {
   width: 100%;
-  max-width: 100%;
+  max-width: var(--pane-column);
   height: 48px;
   margin: 0 auto;
-  padding: 12px 16px;
+  padding: 12px var(--pane-inset);
   gap: 8px;
 }
 /* Conversation title is important info: one step up from tab chrome. */
@@ -2659,9 +2762,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   line-height: var(--mx-line-ui);
 }
 .transcript {
-  /* One reserve only. The thread spends that reserve from its RIGHT padding,
-     so the scrollbar sits inside the reading inset instead of owning a second
-     left/right column in every narrow pane. */
+  /* One reserve only. The projected rows spend that reserve from their RIGHT
+     inset AND from their column (--pane-scroll-column), so the reading frame
+     lands on exactly the same two edges as the composer below it. */
   scrollbar-gutter: stable;
   /* Virtual-core owns end anchoring and measurement compensation. */
   overflow-anchor: none;
@@ -2706,9 +2809,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .transcript-virtual-row-content[data-tag="Thinking"],
 .transcript-virtual-row-content[data-tag="Error"] {
   width: 100%;
-  max-width: 100%;
+  max-width: var(--pane-scroll-column);
   margin-inline: auto;
-  padding-inline: 16px;
+  /* The pane ladder owns the inset; the scrollbar reserve is subtracted from
+     the right one so the text column matches the composer at EVERY width. */
+  padding-left: calc(var(--pane-inset) + var(--composer-text-inset));
+  padding-right: calc(var(--pane-inset) + var(--composer-text-inset) - var(--mx-scrollbar-size));
 }
 .transcript-virtual-row-content[data-tag="UserMessage"],
 .transcript-virtual-row-content[data-tag="AssistantPart"],
@@ -2731,7 +2837,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   width: min(100%, 440px);
   display: grid;
   justify-items: center;
-  padding: 0 32px 64px;
+  padding: 0 var(--pane-inset) 64px;
 }
 /* VS Code-style empty editor: a quiet brand watermark anchors the otherwise
    blank canvas without becoming an app-card or another clickable surface.
@@ -2850,7 +2956,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    16px row gap and read as a two-line hole between turns (user) — collapse
    it so turn-to-turn spacing is the single 16px gap. */
 .message-body p:last-child { margin-bottom: 0; }
-.message.user .message-body { line-height: var(--mx-line-body); }
 .message { position: relative; }
 /* Hover meta overlays float over the 16px gap; lift the hovered message (and
    its virtual row) above the next sibling so the actions stay clickable. */
@@ -2948,7 +3053,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   min-height: 24px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  /* Same 7px the status rows and the live band use, so the copy control sits
+     on the row's own rhythm instead of a footer-only one. */
+  gap: 7px;
   margin-top: 6px;
   color: var(--mx-text-faint);
 }
@@ -2957,9 +3064,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    content and stays in flow — the 20px gap starts under it. Mid-turn parts
    render no footer at all, so nothing floats over the next row. */
 .message-time { font-size: var(--mx-font-meta); line-height: var(--mx-line-minor); white-space: nowrap; }
-/* Completion replaces a 20px live-activity row plus its 20px thread gap.
-   The 24px footer controls therefore need a 16px lead-in: both states occupy
-   exactly 40px below the response body, so settlement cannot nudge the row. */
+/* Completion replaces the live band: 16px thread row gap + the band's own
+   24px = 40px, and the footer restates that as 24px controls with a 16px
+   lead-in. Both states occupy exactly 40px below the response body, so
+   settlement cannot nudge the row. Verified against .live-activity below —
+   its three disagreeing heights are what made settlement jump. */
 .message.assistant .response-footer:has(.turn-status) { min-height: 24px; margin-top: 16px; }
 .message.assistant .response-footer .message-actions {
   position: static;
@@ -3043,16 +3152,19 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
      code blocks, shell output, diffs, and tables all read as quiet cards. */
   border-radius: 8px;
   color: var(--mx-text);
-  /* Code blocks sit on the sheet tone with a hairline border and
-     run at 13px mono — not a darker inset well. */
+  /* Code blocks sit on the sheet tone with a hairline border — not a darker
+     inset well. The base size here is the CHROME mono; .detail-block keeps it
+     (tool output lives in 13px chrome), .markdown steps up to the prose mono
+     right below. */
   background: var(--mx-bg-base);
   box-shadow: 0 0 0 .5px var(--mx-border-muted);
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
 }
-/* Neutral link ink (user: no blue emphasis text) — the underline carries the
-   affordance. */
-.markdown a { color: var(--mx-text); }
+/* A fenced block inside a message is PROSE-scale code: at 13px it read a step
+   under the inline `code` spans in the sentence right above it (which track
+   the 15px prose). Both now land on the one 14px prose mono. */
+.markdown pre { font-size: var(--mx-font-code-prose); }
 
 /* Tool / diff / approval surfaces use the same v2 layers. */
 .tool-card {
@@ -3326,7 +3438,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .live-activity {
   --live-status-color: var(--mx-accent);
   height: auto;
-  min-height: 20px;
+  /* ONE band height (24px) shared by the slot below and the status row inside
+     it. The three used to disagree (20 / 24 / 24+4 padding), so the band
+     rendered 28px against the footer's 40px contract (16px row gap + 24px)
+     and settlement nudged the thread by 4px (user: 튄다). At a flat 24px the
+     two states are byte-identical. */
+  min-height: 24px;
   /* Auto-scroll gap (user): the thread already contributes its 16px row gap
      above this band — an extra margin pushed the spinner too far from the
      last tool card. */
@@ -3336,7 +3453,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   overflow: visible;
   gap: 8px;
   font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-semibold);
+  /* Matches the settled status row exactly — 13px/600 phrase, 12px meta — so
+     the line does not change weight the moment the turn finishes (user:
+     띵킹 스피너도 같이). The earlier drop to 400 was made while this band was
+     still muted grey, where 600 read as shouting; now that the phrase sits on
+     full ink with the accent sweep, the strong weight is what the settled
+     twin uses and the two states finally agree. */
+  font-weight: var(--mx-weight-medium);
 }
 /* Busy-band slot: no box at all while idle (display: contents keeps the
    thread's flex/gap grammar identical to the band being a direct child), but
@@ -3355,7 +3478,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 2px 0;
   color: var(--mx-text);
 }
 /* Gated like every other milestone (.turn-status, .compaction-divider): the
@@ -3379,49 +3501,118 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    `content` steps keep it a pure CSS animation — no React tick. */
 .live-activity-glyph {
   display: block;
-  color: var(--live-status-color);
-  font-size: 12px;
-  line-height: 1;
+  width: 12px;
+  height: 12px;
+  /* The MARK stays neutral ink. Painting the rhombus with the brand accent
+     put a lone indigo shape in a column of grey text and green tool icons and
+     it read as unrelated chrome (user: 도형색은 너무 뜬금없고). Its motion is
+     the signal; the accent is spent on the shimmer head instead, where it
+     travels through the words rather than sitting beside them. */
+  color: var(--mx-text);
+  overflow: visible;
 }
-.live-activity-glyph::before {
-  content: "\25c7";
-  animation: live-activity-glyph 1300ms steps(1, end) infinite;
+/* The TUI's hollow -> filled -> ring sweep, drawn as ONE morphing rhombus
+   instead of three swapped characters. As text the frames fell back to Segoe
+   UI Symbol, where 12px hinting crushed the strokes and the characters'
+   different ink weights read as a blink; as vector the same three states are
+   the two ends and the middle of a continuous scale, crisp at any DPI.
+   Rotation runs to 90deg only — a rhombus is symmetric there, so the loop has
+   no seam — and follows grok's rule that motion is continuous while the shape
+   itself carries the state (turn_status.rs). */
+.live-activity-glyph-spin {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  /* 2900 against the core's 1300 is deliberately NOT a whole multiple: at the
+     old 2600/1300 the two locked into the same phase every single turn and the
+     mark read as a mechanism ticking. Drifting phases make the same two
+     animations look hand-animated. */
+  animation: live-activity-glyph-spin 2900ms linear infinite;
 }
-@keyframes live-activity-glyph {
-  0%, 40%, 50%, 90% { content: "\25c7"; }
-  10%, 30%, 60%, 80% { content: "\25c6"; }
-  20%, 70% { content: "\25c8"; }
+.live-activity-glyph-ring {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.25;
+  stroke-linejoin: miter;
+}
+/* Full scale covers the ring exactly (the filled frame), mid-scale reads as
+   the ring-in-ring frame, and the low end leaves the hollow outline. One
+   1300ms round trip keeps the TUI's 10-frame cadence. */
+.live-activity-glyph-core {
+  fill: currentColor;
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: live-activity-glyph-core 1300ms cubic-bezier(.4, 0, .6, 1) infinite;
+}
+@keyframes live-activity-glyph-spin { to { transform: rotate(90deg); } }
+@keyframes live-activity-glyph-core {
+  /* The TUI plays ◇ ◆ ◈ — three states, not two. Naming the middle rung on
+     both sides restores that beat: the ring-in-ring frame is a real step
+     instead of a value the interpolator merely passes through. */
+  0%, 100% { transform: scale(.12); opacity: var(--mx-op-ghost); }
+  32% { transform: scale(.58); opacity: var(--mx-op-secondary); }
+  50% { transform: scale(1); opacity: 1; }
+  68% { transform: scale(.58); opacity: var(--mx-op-secondary); }
 }
 .live-activity [data-component="text-shimmer"] {
-  --text-shimmer-duration: 2600ms;
+  /* TUI contract (src/tui/index.mjs, GLIMMER_SPEED_MS/GLIMMER_TRAIL): the head
+     advances ONE cell per 120ms and the cycle spans `cells + 6`, so any phrase
+     gets exactly one pass and then a short rest. TextShimmer reports the cell
+     count (CJK counted as 2, like a terminal column), so `ch` lines up with
+     the rendered width in either script. */
+  --live-shimmer-span: calc((var(--text-shimmer-cells, 12) + 6) * 1ch);
+  /* Cell-proportional, but clamped: the verb pool runs 4-7 Hangul syllables
+     (8-14 terminal cells), and without the floor/ceiling a short verb sprinted
+     while a long one crawled — the sweep speed itself read as a glitch every
+     time the phrase changed. */
+  --text-shimmer-duration: clamp(1700ms, calc((var(--text-shimmer-cells, 12) + 6) * 120ms), 2600ms);
   min-width: 0;
   max-width: 100%;
-  font-weight: var(--mx-weight-semibold);
+  font-weight: var(--mx-weight-medium);
 }
-/* Character-width sweep (TUI parity): the TUI moves a 6-char highlight one
-   character per 120ms, so the glint reads the same on a short or a long
-   phrase. Sizing the gradient tile in `ch` — not in % of the text — keeps the
-   band and the speed constant instead of stretching with the label, and a
-   whole-tile shift makes the loop seamless. */
+/* One-sided comet, verbatim from renderShimmerText: the cell AT the head is
+   brightest and the 6 cells BEHIND it decay back to base, with nothing ahead
+   of it. The old gradient was a symmetric glow on a fixed 24ch tile — it read
+   as a lamp sliding under the text, never rested on a short verb, and showed
+   two glints at once on a long one. */
 .live-activity [data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-char"] {
   background-image: linear-gradient(
     90deg,
-    var(--mx-text-muted) 0%,
-    var(--mx-text-muted) 38%,
-    var(--mx-text) 46%,
-    color-mix(in srgb, var(--live-status-color) 75%, var(--mx-text)) 50%,
-    var(--mx-text) 54%,
-    var(--mx-text-muted) 62%,
-    var(--mx-text-muted) 100%
+    var(--mx-text) 0,
+    var(--mx-text) 3ch,
+    var(--live-status-color) 6ch,
+    var(--mx-text) calc(6ch + 1px),
+    var(--mx-text) 100%
   );
-  background-size: 24ch 100%;
+  background-size: var(--live-shimmer-span) 100%;
   background-repeat: repeat;
   background-clip: text;
   -webkit-background-clip: text;
-  animation: live-activity-sweep 2880ms linear infinite;
+  animation: live-activity-sweep var(--text-shimmer-duration) linear infinite;
 }
-@keyframes live-activity-sweep { to { background-position: 24ch 0; } }
+@keyframes live-activity-sweep { to { background-position: var(--live-shimmer-span) 0; } }
 .live-activity [data-slot="text-shimmer-char"] { font-variant-numeric: tabular-nums; }
+/* The byline is STATIC and one tier down: it reports numbers, the verb
+   reports the work. Keeping it out of the shimmer is what lets the sweep run
+   to completion (see TranscriptView), and the smaller muted type stops the
+   band from reading as one long emphasised sentence. */
+.live-activity-meta {
+  min-width: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  /* Explicit 400: the band around it now runs at 600, and the readout was
+     inheriting that — which made the running clock bolder than the settled
+     one. The gauge is read, not emphasised, and it has to match the settled
+     row's timestamp exactly. */
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.live-activity-meta::before {
+  content: "\00B7";
+  margin-right: 7px;
+  color: var(--mx-text-faint);
+}
 .thinking-disclosure { max-width: 100%; color: var(--mx-text-muted); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); }
 .thinking-disclosure summary {
   width: max-content;
@@ -3452,10 +3643,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .turn-status.failed, .turn-status.interrupted {
   width: max-content;
   max-width: 100%;
-  min-height: 26px;
+  /* ONE 24px row for every state of the turn — settled status, live band and
+     the 24px copy control all share it, so nothing shifts between states and
+     the icons line up (user: 같은 선상에서 정리 / 복사버튼 정렬). */
+  min-height: 24px;
   justify-content: flex-start;
   gap: 7px;
-  padding: 3px 0;
+  padding: 0;
   line-height: var(--mx-line-ui);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-semibold);
@@ -3464,18 +3658,55 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   animation: transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1);
 }
 .turn-status.complete, .turn-status.success {
-  color: var(--mx-text-faint);
-  font-weight: var(--mx-weight-regular);
+  color: var(--mx-text-soft);
+  /* The settled row and the running band are the SAME line at two moments, so
+     the SIZE never changes between them: 13px phrase, 12px meta. Bumping this
+     row to 14px made the two states look like different components stacked in
+     the same slot (user: 너무 웨이트가 두껍고).
+     Weight is where they differ, and it compensates: the running band is full
+     ink with a travelling shimmer, so 400 already reads; the settled row has
+     neither motion nor full ink, so it takes the strong weight to stay legible
+     (user: 좀 더 두껍게, 잘 보이게). Same ladder rung, opposite axis. */
+  font-weight: var(--mx-weight-medium);
 }
-/* Quiet TUI-style marker instead of a check badge (user): ◈ + dim phrase. */
+/* Quiet TUI-style marker instead of a check badge (user): ◈ + phrase, both in
+   NEUTRAL ink. A finished turn is history — colouring its text and mark was
+   too much (user: 폰트색까지 바꾸는 건 과하다 / 완료 후 도형도 굳이). The
+   emphasis budget belongs to the RUNNING band instead; this row only has to
+   stop reading as switched off, which one step up from faint already does. */
 .turn-status.complete::before,
 .turn-status.success::before {
   content: "\25c8";
   flex: 0 0 auto;
   align-self: center;
-  color: var(--mx-text-faint);
-  font-size: 12px;
+  color: var(--mx-text-soft);
+  /* Same 12px box as the running band's rhombus, so the marker does not jump
+     size the moment the turn settles. */
+  font-size: var(--mx-font-meta);
   line-height: 1;
+}
+/* Settling GLINT: the row arrives at full ink and eases down to its resting
+   soft tier, with the ◈ easing out of a slight overshoot at the same time —
+   the moment of completion flashes, then the row goes quiet on its own. No
+   hue is involved, so the emphasis budget still belongs to the running band.
+   `both` parks the animation on its end frame, which IS the resting color. */
+.turn-status.complete[data-animate="true"],
+.turn-status.success[data-animate="true"] {
+  animation:
+    transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1),
+    turn-status-settle 1100ms cubic-bezier(.2, .8, .2, 1) 120ms both;
+}
+.turn-status.complete[data-animate="true"]::before,
+.turn-status.success[data-animate="true"]::before {
+  animation: turn-status-mark-settle 1100ms cubic-bezier(.2, .8, .2, 1) 120ms both;
+}
+@keyframes turn-status-settle {
+  from { color: var(--mx-text); }
+  to { color: var(--mx-text-soft); }
+}
+@keyframes turn-status-mark-settle {
+  from { color: var(--mx-text); transform: scale(1.25); }
+  to { color: var(--mx-text-soft); transform: scale(1); }
 }
 .turn-status.failed {
   display: inline-flex;
@@ -3498,9 +3729,21 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   animation: transcript-milestone-icon-pop 420ms cubic-bezier(.2, 1.4, .4, 1);
 }
 .turn-status.complete small, .turn-status.success small {
-  color: color-mix(in srgb, var(--mx-accent) 65%, var(--mx-text));
-  font-size: var(--mx-font-minor);
+  /* The clock is the settled twin of the live band's `4m 36s · 12.7k tokens`
+     readout, so it takes that exact spec — 12px muted behind a quiet middot —
+     instead of floating at the phrase's own size with no separator
+     (user: 시간이 정리가 안 되었잖아). */
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
   font-weight: var(--mx-weight-regular);
+  font-variant-numeric: tabular-nums;
+}
+.turn-status.complete small::before,
+.turn-status.success small::before {
+  content: "\00B7";
+  margin-right: 7px;
+  color: var(--mx-text-faint);
 }
 /* Recovery stays attached to the failure status on one compact row. */
 .turn-retry {
@@ -3533,11 +3776,16 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 0;
+  /* Breathing room on BOTH sides (user: 상하에 여백 좀 더): this row cuts the
+     thread in two, and at 5px it read as just another line in the stream
+     instead of a boundary between two halves of the conversation. */
+  padding: 12px 0;
   color: var(--mx-accent);
   background: transparent;
   font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-semibold);
+  /* Same status-label tier as the turn rows, the live band and the tab
+     labels — compaction IS one of those state lines. */
+  font-weight: var(--mx-weight-medium);
   line-height: var(--mx-line-ui);
 }
 .compaction-divider[data-animate="true"] {
@@ -3549,13 +3797,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .compaction-divider::after {
   content: "";
   min-width: 24px;
-  height: 1px;
+  /* 2px on a solid hairline ink (user: 띠도 2px에 좀 명확히): the old 1px of
+     48%-accent-tinted border was both thinner and paler than the seams around
+     it, so the rule that is supposed to SPLIT the thread was the faintest
+     line on screen. Neutral, because compaction is a timeline event that
+     needs no action — the colour budget stays with running work, failures
+     and approvals. */
+  height: 2px;
   flex: 1;
   margin-left: 4px;
-  background: color-mix(in srgb, var(--mx-accent) 48%, var(--mx-border-muted));
+  background: var(--mx-border-strong);
 }
 .compaction-icon {
-  flex: 0 0 15px;
+  /* 16px, on the shared icon ladder like every other row glyph. */
+  flex: 0 0 var(--mx-icon-md);
   align-self: center;
   display: block;
   color: var(--mx-accent);
@@ -3573,8 +3828,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   max-width: min(52%, 440px);
   overflow: hidden;
   text-overflow: ellipsis;
-  color: color-mix(in srgb, var(--mx-accent) 38%, var(--mx-text));
-  font-size: var(--mx-font-minor);
+  /* The readout matches every other gauge in the thread: 12px muted. It was
+     still tinted with the accent this row no longer uses. */
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
 }
 @keyframes transcript-milestone-enter {
@@ -3626,31 +3883,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    window edge. */
 .composer-region {
   width: 100%;
-  max-width: 100%;
+  max-width: var(--pane-column);
   margin: 0 auto;
-  padding: 0 12px 16px;
-}
-/* OpenCode's responsive classes mapped to Mixdog's named chat-pane container:
-   projected rows use px-4 -> md:px-5 and centered frames use
-   md:max-w-200 -> 2xl:max-w-[1000px]. The dock keeps its own px-3. */
-@container chat-pane (min-width: 768px) {
-  .session-header-content,
-  .transcript-virtual-row-content[data-tag="UserMessage"],
-  .transcript-virtual-row-content[data-tag="AssistantPart"],
-  .transcript-virtual-row-content[data-tag="Thinking"],
-  .transcript-virtual-row-content[data-tag="Error"] {
-    max-width: 800px;
-    padding-inline: 20px;
-  }
-  .composer-region { max-width: 800px; }
-}
-@container chat-pane (min-width: 1536px) {
-  .session-header-content,
-  .transcript-virtual-row-content[data-tag="UserMessage"],
-  .transcript-virtual-row-content[data-tag="AssistantPart"],
-  .transcript-virtual-row-content[data-tag="Thinking"],
-  .transcript-virtual-row-content[data-tag="Error"],
-  .composer-region { max-width: 1000px; }
+  /* Same reading frame as the rows above it — both read the pane ladder. */
+  padding: 0 var(--pane-inset) 16px;
 }
 .composer-context-bar {
   min-height: 28px;
@@ -3751,15 +3987,18 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   field-sizing: content;
   max-height: 180px;
   overflow-y: auto;
-  padding: 16px 16px 8px;
+  padding: 16px var(--composer-text-inset) 8px;
   color: var(--mx-text);
   /* Same single-face rule as .message-body: typed Korean+Latin must not mix
      Geist/Pretendard ink densities inside one sentence. */
   font-family: var(--mx-font-prose);
-  /* Typing surface matches the 15px reading scale (was one step small). */
+  /* The typing surface must match what the message becomes: .message-body
+     renders the SAME text at 15px/450/24px, so a 400/22px composer made the
+     line subtly thicken and open up on submit (user: 크기가 다르게 느껴진다).
+     Size alone was matched before; weight and leading now follow. */
   font-size: var(--mx-font-body);
-  font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-emphasis);
+  font-weight: var(--mx-weight-body);
+  line-height: var(--mx-line-body);
   letter-spacing: 0;
 }
 .composer textarea::placeholder { color: var(--mx-text-faint); }
@@ -3885,9 +4124,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   white-space: nowrap;
 }
 .mx-select-root.route-select .mx-select-trigger > svg {
-  width: 13px;
-  height: 13px;
-  flex: 0 0 13px;
+  width: var(--mx-icon-sm);
+  height: var(--mx-icon-sm);
+  flex: 0 0 var(--mx-icon-sm);
   color: currentColor;
   stroke: currentColor;
 }
@@ -4337,7 +4576,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    baseline without adding layout height or pushing any transcript row. */
 .chat-live-work {
   position: absolute;
-  right: 12px;
+  right: var(--pane-chrome-inset);
   bottom: calc(100% + 20px);
   z-index: 5;
   display: flex;
@@ -4576,7 +4815,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 60%), var(--mx-bg-layer-1);
   box-shadow: var(--mx-floating), inset 0 0 0 .5px var(--mx-border-muted);
   animation: mx-menu-in 120ms ease-out;
-  scrollbar-width: thin;
 }
 .mx-menu[data-trigger-style="settings"] {
   min-width: 160px;
@@ -4711,7 +4949,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text-muted);
   background: var(--mx-bg-layer-3);
   /* Keybind chips: flat 14px chips on layer-03 — no ring, no drop. */
-  font: 500 11px/1 var(--mx-font-sans);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-regular);
+  line-height: 1;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -4848,7 +5088,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: var(--mx-bg-base);
   box-shadow: var(--mx-overlay);
-  font: 400 13px/20px var(--mx-font-sans);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
 }
 .mixdog-settings__panel {
   position: relative;
@@ -4897,7 +5139,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border-radius: 4px;
   color: var(--mx-icon-muted);
 }
-.mixdog-settings__close svg { width: 16px; height: 16px; flex: 0 0 16px; }
+.mixdog-settings__close svg { width: var(--mx-icon-md); height: var(--mx-icon-md); flex: 0 0 var(--mx-icon-md); }
 .mixdog-settings__close:hover { color: var(--mx-icon); background: var(--mx-hover); }
 .mixdog-settings__back {
   position: static;
@@ -4924,9 +5166,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background-clip: padding-box;
 }
 .settings-section-heading { min-height: 15px; align-items: center; gap: 16px; }
-/* Section/group heads carry the heading weight, not a half-step: 500 is the
-   shell's DEFAULT chrome weight (75% of every weight rule), so a 500 title
-   over 500 rows announced nothing. 600 keeps the emphasis tier meaningful. */
+/* Section/group heads carry the heading weight, not a half-step: the shell
+   rests at 400, so a title only reads as a title at the 600 strong tier.
+   (The old 500 middle step is gone from the ramp entirely.) */
 .settings-section-heading h2 { color: var(--mx-text); font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); line-height: 1; }
 .settings-section-heading p { display: none; }
 .settings-refresh {
@@ -5138,7 +5380,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent), var(--mx-bg-base);
   box-shadow: var(--mx-button);
-  font: 400 13px/1 var(--mx-font-sans);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: 1;
 }
 .settings-domain-grid textarea, .settings-oauth-url textarea { min-height: 72px; padding-block: 8px; line-height: var(--mx-line-ui); }
 .settings-form-controls input:hover, .settings-domain-grid input:not([type="checkbox"]):hover,
@@ -5574,12 +5818,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .studio-topbar {
   box-sizing: border-box;
   container-type: inline-size;
-  width: min(100%, 800px);
+  width: min(100%, var(--pane-column));
   margin: 0 auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  padding: 16px 32px 0;
+  padding: 16px var(--pane-inset) 0;
 }
 /* The workspace tab already labels Studio on desktop. Phones restore this
    row only for the drawer reopen control because their tab strip is hidden. */
@@ -5629,6 +5873,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: flex;
   /* Split panes resize independently of the desktop window. Studio gutters
      must therefore follow this surface, not a viewport media query. */
+  container-name: studio-pane;
   container-type: inline-size;
 }
 /* Surface re-entry restarts CSS animations for the shared chat dock. */
@@ -5646,14 +5891,14 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   min-height: 0;
   flex: 1;
   overflow-y: auto;
-  padding: 16px calc(32px - var(--mx-scrollbar-size)) 8px 32px;
+  padding: 16px calc(var(--pane-inset) - var(--mx-scrollbar-size)) 8px var(--pane-inset);
   /* Same owned-gutter grammar as chat: one track, paid from right padding. */
   scrollbar-gutter: stable;
 }
-/* Task parity: its composer lives inside an 800px outer column with 32px
-   insets, leaving a 736px card. Studio thumbnails use that SAME inner line. */
+/* Task parity: the gallery card is the pane column minus its two insets —
+   exactly the line the dock's composer card holds below it. */
 .studio-grid {
-  width: min(100%, 736px);
+  width: min(100%, var(--pane-card));
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -6008,29 +6253,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .studio-dock {
   box-sizing: border-box;
   flex: 0 0 auto;
-  width: min(100%, 800px);
+  width: min(100%, var(--pane-column));
   margin: 0 auto;
-  padding: 0 32px 8px;
+  padding: 0 var(--pane-inset) 8px;
   /* Anchor for the floating density overlay above the composer. */
   position: relative;
   display: grid;
   gap: 6px;
-}
-@container (max-width: 620px) {
-  .studio-topbar { padding-inline: 20px; }
-  .studio-results {
-    padding-left: 20px;
-    padding-right: calc(20px - var(--mx-scrollbar-size));
-  }
-  .studio-dock { padding-inline: 20px; }
-}
-@container (max-width: 420px) {
-  .studio-topbar { padding-inline: 12px; }
-  .studio-results {
-    padding-left: 12px;
-    padding-right: calc(12px - var(--mx-scrollbar-size));
-  }
-  .studio-dock { padding-inline: 12px; }
 }
 .studio-status { min-height: 16px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
 .studio-status-error { color: var(--mx-danger); }
@@ -6186,7 +6415,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 60%), var(--mx-bg-layer-1);
   box-shadow: var(--mx-floating), inset 0 0 0 .5px var(--mx-border-muted);
   animation: mx-menu-in 120ms ease-out;
-  scrollbar-width: thin;
 }
 .studio-model-panel section + section {
   margin-top: 6px;
@@ -6735,7 +6963,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: var(--mx-bg-base);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  font: 400 13px/1 var(--mx-font-sans);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: 1;
 }
 .schedules-dialog input:focus { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
 .schedules-composer {
@@ -6753,7 +6983,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: transparent;
   /* Same reading scale as the chat composer's typing surface. */
-  font: 400 15px/22px var(--mx-font-prose);
+  font-family: var(--mx-font-prose);
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-emphasis);
   resize: none;
 }
 .schedules-composer-row {
@@ -6786,7 +7019,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   text-align: left;
   cursor: pointer;
 }
-.automation-group-header .session-row-status svg { color: var(--mx-text-muted); }
+.automation-group-header .session-row-status svg { color: var(--mx-icon-muted); }
 .automation-group-past { padding-left: 14px; }
 /* Past runs are CHILD items: one size and one ink step under their group,
    so the group names carry the list (importance = ink, user rule). */
@@ -6999,7 +7232,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    state disappeared (user: 선택·미선택이 잘 안 보인다). A 20px gutter with a
    16px/2.5px check, plus ink + weight on the row, reads at a glance. */
 .row-overflow-check { width: 20px; height: 20px; flex: 0 0 20px; display: grid; place-items: center; }
-.row-overflow-check svg { width: 16px; height: 16px; stroke-width: 2.5px; }
+.row-overflow-check svg { width: var(--mx-icon-md); height: var(--mx-icon-md); stroke-width: 2.5px; }
 .row-overflow-menu button[role="menuitemcheckbox"][aria-checked="false"] { color: var(--mx-text-muted); }
 .row-overflow-menu button[role="menuitemcheckbox"][aria-checked="true"] { color: var(--mx-text); font-weight: var(--mx-weight-semibold); }
 .row-overflow-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -7094,7 +7327,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: var(--mx-bg-base);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  font: 400 12px/1.55 ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: 1.55;
   resize: vertical;
 }
 .workflows-md-field textarea:focus { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
@@ -7360,7 +7596,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text-muted);
   background: var(--mx-bg-deep);
   box-shadow: inset 0 0 0 .5px var(--mx-border);
-  font: 400 11px/16px ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
   resize: none;
 }
 .settings-oauth-code {
@@ -7553,7 +7792,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: var(--mx-bg-base);
   box-shadow: var(--mx-overlay);
-  font: 400 13px/20px var(--mx-font-sans);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
 }
 .onboarding-dialog > header {
   flex: none;
@@ -7621,7 +7862,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: flex;
   flex-direction: column;
   overflow: hidden auto;
-  scrollbar-width: thin;
   scrollbar-gutter: stable;
 }
 /* The shared gate is a flex sheet (workspace background, own clipping); the
@@ -8406,7 +8646,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   html[data-mixdog-mobile] .session-header-menu { display: grid; place-items: center; margin: 0 2px 0 -6px; }
   html[data-mixdog-mobile] .session-header-content {
     height: 64px;
-    padding-inline: 12px;
     display: grid;
     grid-template-columns: auto fit-content(30%) minmax(0, 1fr) auto;
     align-items: center;
@@ -8433,7 +8672,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     line-height: var(--mx-line-emphasis);
   }
   html[data-mixdog-mobile] .session-header-menu .sidebar-toggle-icon,
-  html[data-mixdog-mobile] .session-dock-toggle svg.lucide { width: 20px; height: 20px; }
+  html[data-mixdog-mobile] .session-dock-toggle svg.lucide { width: var(--mx-icon-xl); height: var(--mx-icon-xl); }
   html[data-mixdog-mobile] .live-work-spinner { width: 18px; height: 18px; }
   html[data-mixdog-mobile] .session-header-status { grid-row: 1; grid-column: 4; }
   /* Phone: the main panel stacks header, workspace, and bottom panel. */
@@ -8601,11 +8840,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .mx-toast-region {
     width: calc(100vw - 32px);
   }
-  /* The floating background-activity chip follows the phone composer gutter;
-     keeping the desktop 32px inset made the right edge visibly heavier. */
-  /* Studio ↔ chat gutter parity on phone widths: the studio column kept the
-     desktop 32px inset and read narrower than the chat/composer (user). */
-  .studio-results, .studio-dock, .studio-topbar { padding-inline: 16px; }
   .studio-topbar { gap: 8px; }
   .studio-topbar-tools { grid-column: auto; }
   /* 16px input text stops the mobile-browser zoom-on-focus jump; a taller
@@ -8727,7 +8961,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* Transcript audit additions. Kept append-only so the consolidated v2 rules above remain stable. */
 .markdown-code {
   max-width: 100%;
-  margin: 10px 0;
+  /* CARD rhythm (20px), same as tables, quotes and display math: at 10px the
+     code card sat at half a table's gap and the two never lined up in one
+     answer. Flow blocks (p/lists) keep 12, the section rule keeps 32. */
+  margin: 20px 0;
   overflow: hidden;
   border-radius: 8px;
   background: var(--mx-bg-base);
@@ -8801,7 +9038,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   left: 50%;
   /* Anchored to .transcript-shell (the scroller's bottom edge): a fixed
      116/140px guess overlapped the composer whenever it grew (user). */
-  bottom: 12px;
+  bottom: var(--pane-chrome-inset);
   min-height: 28px;
   display: inline-flex;
   align-items: center;
@@ -8865,7 +9102,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .workspace > .session-header {
     position: absolute;
     top: 6px;
-    right: 10px;
+    right: var(--pane-chrome-inset);
     z-index: 8;
     display: block;
     width: auto;
@@ -9047,44 +9284,84 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   white-space: pre-wrap;
 }
 
+/* Heading ladder: SIZE, LEADING and SPACE step down together (reference
+   consensus — assistant-ui 20/18/16/16/14/14 with mt-5..mt-3, cherry-studio
+   2em/1.5em/1.2em, jan 3xl/2xl/xl/lg). The old sheet stepped size only down
+   to h3, then let h4-h6 collapse onto the 15px body under ONE shared
+   24px/12px margin, so three levels read as a single rung. h5/h6 keep the
+   body size and separate on weight alone — the last step before plain prose.
+   Korean-friendly leading stays >=1.3 at every level. */
 .markdown h1, .markdown h2, .markdown h3,
 .markdown h4, .markdown h5, .markdown h6 {
-  margin: 24px 0 12px;
   color: var(--mx-text);
   font-weight: 700;
 }
-/* Heading scale:
-   real size steps so AI-response structure reads at a
-   glance. Korean-friendly line heights (>=1.4). */
-.markdown h1 { font-size: 21px; line-height: 29px; }
-.markdown h2 { font-size: 18px; line-height: 26px; }
-.markdown h3 { font-size: 16.5px; line-height: 24px; }
-.markdown h4, .markdown h5, .markdown h6 { font-size: var(--mx-font-body); line-height: var(--mx-line-body); }
-/* Grok-web emphasis: bold reads as a real 700 jump, not a half-step. */
-.markdown strong, .markdown b { color: var(--mx-text); font-weight: 700; }
-.markdown ul, .markdown ol { margin: 8px 0 12px; padding-left: 32px; }
+.markdown h1 { margin: 32px 0 12px; font-size: 21px; line-height: 28px; }
+/* h2/h3 leading happens to equal --mx-line-body/--mx-line-emphasis. It stays
+   LITERAL on purpose: the heading ramp is a content scale (like its 21/18/16
+   sizes), and tokenising only the two rungs that collide would split one
+   ladder across two systems. */
+.markdown h2 { margin: 28px 0 12px; font-size: 18px; line-height: 24px; }
+.markdown h3 { margin: 24px 0 12px; font-size: 16px; line-height: 22px; }
+.markdown h4 { margin: 20px 0 8px; font-size: var(--mx-font-body); line-height: var(--mx-line-ui); }
+.markdown h5 {
+  margin: 16px 0 8px;
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+}
+/* h6 is the LAST rung before plain prose. At h5's 15px/600 the two rendered
+   byte-identical, so the level simply did not exist: one size down plus the
+   muted tier (GitHub's own h6 treatment) makes the step real. */
+.markdown h6 {
+  margin: 16px 0 8px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-emphasis);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+}
+/* Emphasis sits ONE step under the headings (600 vs 700): at a shared 700 a
+   bolded sentence read as a subheading mid-paragraph. Against the 450 prose
+   weight 600 is still a +150 jump, the same separation opencode
+   (medium vs heading) and assistant-ui (semibold) keep. */
+.markdown strong, .markdown b { color: var(--mx-text); font-weight: var(--mx-weight-semibold); }
+/* …but never INSIDE a heading: 600 under a 700 heading rendered the bolded
+   words THINNER than the heading around them — emphasis inverted. */
+.markdown :is(h1, h2, h3, h4, h5, h6) :is(strong, b) { font-weight: inherit; }
+.markdown ul, .markdown ol { margin: 12px 0; padding-left: 32px; }
+/* A NESTED list lives inside its parent item, so the flow-block margin belongs
+   to the outermost list alone — otherwise every level opened a 12px hole
+   between the parent line and its own children. */
+.markdown li > ul, .markdown li > ol { margin: 4px 0 0; }
 .markdown li { margin-bottom: 6px; }
 .markdown li::marker { color: var(--mx-text-faint); }
+/* Closing blocks never push their own container open: `p:last-child` covered
+   only paragraphs, so a quote or item ending in a list, table or code card
+   still paid the block margin twice. */
+.markdown blockquote > :last-child,
+.markdown li > :last-child { margin-bottom: 0; }
 .markdown blockquote {
   margin: 20px 0;
-  padding-left: 10px;
+  padding-left: 12px;
   /* Reference consensus (jan): quotes carry a soft accent border instead of
      a neutral hairline, keeping quoted text distinct from plain prose. */
   border-left: 2px solid var(--mx-border-strong);
   color: var(--mx-text-muted);
 }
+/* Every table is wrapped in .markdown-table by markdownComponents, and that
+   wrapper owns the box (width, margin, scroll) — only the collapse model is
+   the table's own. The width/margin/display/overflow that used to live here
+   were dead, overridden by `.markdown-table table` further down. */
 .markdown table {
-  width: 100%;
-  margin: 20px 0;
   border-collapse: collapse;
-  display: block;
-  overflow-x: auto;
 }
 .markdown th, .markdown td {
   padding: 8px 12px;
+  min-width: 96px;
   border-bottom: .5px solid var(--mx-border);
   text-align: left;
   vertical-align: top;
+  overflow-wrap: anywhere;
 }
 .markdown th { color: var(--mx-text); font-weight: var(--mx-weight-semibold); background: var(--mx-bg-layer-1); }
 .markdown tbody tr:last-child td { border-bottom: 0; }
@@ -9113,15 +9390,17 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   /* Inline emphasis chips deepen with the bubble (same pressed tint). */
   background: var(--mx-pressed);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  /* Track the surrounding prose (15px body → ~13.8px) instead of a fixed
-     13px that read undersized for paths/tokens — the info chips users scan. */
-  font-size: .92em;
+  /* The prose mono tier (14px), not the 13px chrome mono that read undersized
+     for the paths/tokens users scan. This was a relative .92em resolving to a
+     fractional 13.8px; the integer token hints consistently and matches the
+     fenced blocks in the same message. */
+  font-size: var(--mx-font-code-prose);
   overflow-wrap: anywhere;
 }
-/* Markdown prose breathes at 160% (reference markdown.css) vs the 150%
-   plain-message rhythm. */
-.markdown { line-height: var(--mx-line-body); }
+/* Inside a heading the chip tracks the HEADING, not the prose. The absolute
+   prose mono is right for 15px body text but rendered as a footnote inside a
+   21px h1, so the relative sizing stays scoped to headings only. */
+.markdown :is(h1, h2, h3, h4, h5, h6) :not(pre) > code { font-size: .9em; }
 
 /* Byte-free image attachment chips on user messages (reference
    user-message-attachments): thumbnail when the submitting window still holds
@@ -9146,7 +9425,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .message-image-fallback svg { color: var(--mx-icon); }
 .message-image-fallback small { color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
+/* Neutral link ink (user: no blue emphasis text) — the underline carries the
+   affordance. Ink and underline live in ONE rule; they used to sit ~6k lines
+   apart, so a later edit could retune half a link. */
 .markdown a {
+  color: var(--mx-text);
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
   text-underline-offset: 2px;
@@ -9164,7 +9447,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   margin: 20px 0;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
-  scrollbar-width: thin;
   /* Grok-web table container: rounded card with a hairline ring and a tinted
      header band instead of a naked full-bleed grid. */
   border-radius: 8px;
@@ -9178,15 +9460,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: table;
   overflow: visible;
 }
-.markdown th, .markdown td {
-  min-width: 96px;
-  padding: 9px 14px;
-  overflow-wrap: anywhere;
-}
 .markdown-code > pre,
 .detail-block pre,
 .diff-fallback {
-  scrollbar-width: thin;
   overscroll-behavior-inline: contain;
 }
 .tool-header { overflow: hidden; }
@@ -9242,14 +9518,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: block;
   max-height: min(32vh, 240px);
   overflow: auto;
-  scrollbar-width: thin;
 }
 .approval-actions {
   padding-top: 8px;
 }
 
 @media (max-width: 640px) {
-  .thread-welcome { padding-inline: 0; }
   .approval-card dl { grid-template-columns: 1fr; }
   .approval-card dd + dt { margin-top: 6px; }
 }
@@ -9298,6 +9572,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .context-usage circle { fill: none; stroke-width: 2; }
 .context-usage-track { stroke: var(--mx-border-strong); }
 .context-usage-value { stroke: var(--mx-text-accent); stroke-linecap: round; }
+/* DELIBERATE sub-micro exception: the readout sits INSIDE a 20px ring, where
+   the 11px micro floor would overflow the stroke. It is a gauge label, not a
+   sentence — the ring itself carries the reading. */
 .context-usage small { font-size: 8px; font-weight: var(--mx-weight-regular); font-variant-numeric: tabular-nums; }
 [data-component="tool-status-title"],
 [data-component="tool-count-summary"],
@@ -9319,15 +9596,21 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .tool-state.failed { color: var(--mx-danger); }
 .tool-card.failed.failure-arrived .tool-icon svg { animation: tool-failed-blink 700ms ease-in-out 2; }
 @keyframes tool-failed-blink { 50% { opacity: var(--mx-op-ghost); } }
-/* TUI toolStatusColor parity: running stays muted, success green,
-   partial group failure amber, full failure red (above), exit-only amber.
-   Order matters: state rules below override the settled-success green. */
-.tool-card.settled .tool-icon { color: var(--mx-success); }
+/* TUI toolStatusColor parity, and the user's stated palette: positive green,
+   negative red, neutral amber, running muted. Draining the green was the
+   wrong call — the row's outcome IS the signal people scan for. Order
+   matters: the state rules below override this. */
+/* Saturation follows FREQUENCY: success is the common case (a turn prints six
+   or eight settled rows in a row, which at full chroma reads as a green
+   field), so it keeps the hue but sits back at 70%. Failure and exit are rare
+   and stay at full chroma below, so a problem row now pops out of the stack
+   instead of competing with it. */
+.tool-card.settled .tool-icon { color: color-mix(in srgb, var(--mx-success) 70%, transparent); }
 .tool-card:not(.settled) .tool-icon {
   color: var(--mx-text-muted);
 }
-/* Re-assert failure red AFTER the settled-success green (equal specificity —
-   source order decides), then the amber states override red for their cases. */
+/* Re-assert failure red AFTER the settled green (equal specificity — source
+   order decides), then the amber states override red for their cases. */
 .tool-card.failed .tool-icon { color: var(--mx-danger); }
 .tool-card.exited .tool-icon { color: var(--mx-warning); }
 .tool-card.failed.partial-failed .tool-icon { color: var(--mx-warning); }
@@ -9338,11 +9621,17 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   min-width: 0;
   padding: 0 32px 8px 34px;
   overflow: hidden;
+  /* STATUS LABEL tier — the same 13px/500 spec as the running band, the
+     settled turn row and the compact tab label. These four are one family of
+     "what is the state of this thing" lines, so only the COLOR separates
+     them: accent while running, soft ink once settled, danger on failure,
+     full ink for the open tab. */
   color: var(--mx-danger);
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--mx-font-minor);
-  line-height: var(--mx-line-minor);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-ui);
 }
 @media (prefers-reduced-motion: reduce) {
   [data-component="text-shimmer"] [data-slot="text-shimmer-char"] {
@@ -9354,8 +9643,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   }
   .live-work-spinner { animation: none; }
   .live-activity-status,
-  .live-activity-glyph::before,
+  .live-activity-glyph-spin,
+  .live-activity-glyph-core,
   .turn-status,
+  .turn-status::before,
   .turn-status-icon,
   .compaction-divider,
   .compaction-icon { animation: none; }
@@ -9365,7 +9656,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 :root[data-mixdog-motion="paused"] .session-row-spinner,
 :root[data-mixdog-motion="paused"] .workspace-tab-status,
 :root[data-mixdog-motion="paused"] .live-work-spinner,
-:root[data-mixdog-motion="paused"] .live-activity-glyph::before,
+:root[data-mixdog-motion="paused"] .live-activity-glyph-spin,
+:root[data-mixdog-motion="paused"] .live-activity-glyph-core,
 :root[data-mixdog-motion="paused"] [data-component="text-shimmer"] [data-slot="text-shimmer-char"],
 :root[data-mixdog-motion="paused"] .tool-card:not(.settled) .tool-icon {
   animation-play-state: paused !important;
@@ -9451,8 +9743,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    to the send arrow (user: off-theme) — a smaller stroke-less rounded
    square keeps the stop state in the app's quiet-glyph language. */
 .send-button.stop svg.lucide {
-  width: 12.5px;
-  height: 12.5px;
+  width: var(--mx-icon-xs);
+  height: var(--mx-icon-xs);
   stroke: none;
 }
 .send-button:disabled {
@@ -9466,7 +9758,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
   scrollbar-color: var(--mx-scrollbar-thumb) transparent;
 }
 .composer-attachments > div { position: relative; flex: 0 0 auto; box-sizing: border-box; }
@@ -10367,7 +10658,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .workbench-search-results > button:hover,
 .workbench-search-results > button:focus-visible { background: var(--mx-hover); outline: 0; }
-.workbench-search-results > button > svg { flex: 0 0 auto; color: var(--mx-text-muted); }
+.workbench-search-results > button > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
 .workbench-search-results > button > span { min-width: 0; display: grid; }
 .workbench-search-results b,
 .workbench-search-results small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -10390,13 +10681,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .dock-language-row:hover { background: var(--mx-hover); }
-.dock-language-row > svg { flex: 0 0 auto; margin-top: 2px; color: var(--mx-text-muted); }
+.dock-language-row > svg { flex: 0 0 auto; margin-top: 2px; color: var(--mx-icon-muted); }
 .dock-language-row[data-severity="1"] > svg { color: var(--mx-danger); }
 .dock-language-row[data-severity="2"] > svg { color: var(--mx-warning); }
 .dock-language-row > span { min-width: 0; flex: 1; display: grid; gap: 2px; }
 .dock-language-row b { overflow: hidden; font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
 .dock-language-row small { overflow: hidden; color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-meta); text-overflow: ellipsis; white-space: nowrap; }
-.dock-language-row > em { flex: 0 0 auto; color: var(--mx-text-faint); font: 9.5px/1.4 var(--mx-font-mono); font-style: normal; }
+.dock-language-row > em { flex: 0 0 auto; color: var(--mx-text-faint); font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); font-weight: var(--mx-weight-regular); line-height: 1.4; font-style: normal; }
 /* Source Control: compact Orca/VS Code-style staged workflow over the
    existing desktop Git IPCs. */
 .dock-source-control { position: relative; display: flex; flex: 1 1 auto; flex-direction: column; height: auto; min-height: 0; color: var(--mx-text); }
@@ -10452,7 +10743,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .dock-scm-branch-button:hover:not(:disabled),
 .dock-scm-remote-button:hover:not(:disabled) { background: var(--mx-hover); }
 .dock-scm-branch-button:disabled, .dock-scm-remote-button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
-.dock-scm-branch-button > svg, .dock-scm-remote-button > svg { flex: 0 0 auto; color: var(--mx-text-muted); }
+.dock-scm-branch-button > svg, .dock-scm-remote-button > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
 /* Only the LABEL may shrink; the ahead/behind badge is a sibling span and
    must keep its intrinsic width. */
 .dock-scm-branch-button > span, .dock-scm-remote-label { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -10490,7 +10781,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .dock-scm-branch-new:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 .dock-scm-merge-row { width: 100%; min-height: 30px; flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-top: 1px solid var(--mx-border-muted); color: var(--mx-text); background: transparent; font-size: var(--mx-font-minor); text-align: left; cursor: pointer; }
 .dock-scm-merge-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dock-scm-merge-row > svg { flex: 0 0 auto; color: var(--mx-text-muted); }
+.dock-scm-merge-row > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
 .dock-scm-merge-row:hover:not(:disabled) { background: var(--mx-hover); }
 .dock-scm-merge-row[aria-pressed="true"] { color: var(--mx-text); background: var(--mx-pressed); }
 .dock-scm-merge-row:disabled { opacity: var(--mx-op-disabled); cursor: default; }
@@ -10579,8 +10870,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   text-align: left;
 }
 .dock-scm-branch-create { color: var(--mx-text); }
-.dock-scm-branch-create > svg { color: var(--mx-text-muted); }
-.dock-scm-branch-main > svg { flex: 0 0 auto; color: var(--mx-text-muted); }
+.dock-scm-branch-create > svg { color: var(--mx-icon-muted); }
+.dock-scm-branch-main > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
 .dock-scm-branch-main > span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-scm-branch-main > small { overflow: hidden; color: var(--mx-text-muted); font-size: var(--mx-font-meta); text-overflow: ellipsis; white-space: nowrap; }
 .dock-scm-branch-main:disabled { opacity: 1; }
@@ -10975,7 +11266,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .dock-scm-commit-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 10px; padding-left: 26px; color: var(--mx-text-muted); font-size: var(--mx-font-micro); }
 .dock-scm-commit-meta > span, .dock-scm-commit-meta > time { min-width: 0; display: flex; align-items: center; gap: 4px; }
 .dock-scm-commit-author > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dock-scm-commit-ref code { font: 10.5px/1 var(--mx-font-mono); }
+.dock-scm-commit-ref code { font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); line-height: 1; }
 .dock-scm-commit-copy { width: 18px; height: 18px; flex: 0 0 18px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 4px; color: var(--mx-text-muted); background: transparent; cursor: pointer; }
 .dock-scm-commit-copy:hover { color: var(--mx-text); background: var(--mx-hover); }
 .dock-scm-commit-lines i { color: var(--mx-success); font-style: normal; }
@@ -11020,7 +11311,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: grid;
   place-content: center;
   justify-items: center;
-  padding: 0 32px;
+  padding: 0 var(--pane-inset);
   pointer-events: none;
 }
 /* Warm New Task → session handoff: the requested transcript is already the
@@ -11047,7 +11338,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text-soft);
   -webkit-app-region: drag;
 }
-.titlebar-brand svg { width: 21px; height: 21px; }
+.titlebar-brand svg { width: var(--mx-icon-xl); height: var(--mx-icon-xl); }
 .dock-scm-commit-file-row > small em { color: var(--mx-danger); font-style: normal; }
 /* Pull Requests tab: current VS Code GitHub Pull Requests view/title actions
    live in the dock header; this compact toolbar is only the headerless
@@ -11060,26 +11351,26 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .dock-pr-view-controls.workbench-explorer-search { flex: 0 0 auto; display: block; padding: 6px 12px; border-bottom: 1px solid var(--mx-border-muted); }
 .dock-pr-list-header { min-width: 0; height: 29px; flex: 0 0 29px; display: flex; align-items: center; padding: 0 12px; border-bottom: 1px solid var(--mx-border-muted); }
 .dock-pr-scope-select { min-width: 0; flex: 1; }
-.dock-pr-scope-select .mx-select-trigger { width: 100%; min-width: 0; height: 24px; justify-content: flex-start; gap: 5px; padding: 0 5px; border: 0; border-radius: 4px; color: var(--mx-text); background: transparent; box-shadow: none; font: 600 12px/18px inherit; }
+.dock-pr-scope-select .mx-select-trigger { width: 100%; min-width: 0; height: 24px; justify-content: flex-start; gap: 5px; padding: 0 5px; border: 0; border-radius: 4px; color: var(--mx-text); background: transparent; box-shadow: none; font-size: var(--mx-font-meta); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); }
 .dock-pr-scope-select .mx-select-trigger:hover:not(:disabled),
 .dock-pr-scope-select .mx-select-trigger[aria-expanded="true"] { background: var(--mx-hover); box-shadow: none; }
 .dock-pr-scope-select .mx-select-value { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-.dock-pr-scope-select .mx-select-trigger > svg { flex: 0 0 auto; color: var(--mx-text-muted); }
+.dock-pr-scope-select .mx-select-trigger > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
 .dock-pr-list { min-height: 0; flex: 1; padding: 4px 12px 12px; }
 .dock-pr-create { min-width: 0; display: grid; gap: 10px; padding: 6px 2px 10px; }
 .dock-pr-create > header { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 2px 2px 4px; color: var(--mx-text-muted); }
 .dock-pr-create > header > svg { flex: 0 0 auto; color: var(--mx-success); }
 .dock-pr-create > header > span { min-width: 0; display: grid; }
 .dock-pr-create > header b { color: var(--mx-text); font-size: var(--mx-font-code); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); }
-.dock-pr-create > header small { overflow: hidden; color: var(--mx-text-faint); font: 10.5px/15px var(--mx-font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.dock-pr-create > header small { overflow: hidden; color: var(--mx-text-faint); font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); line-height: var(--mx-line-micro); text-overflow: ellipsis; white-space: nowrap; }
 .dock-pr-create > label:not(.dock-pr-create-draft) { min-width: 0; display: grid; gap: 4px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
-.dock-pr-create input[type="text"], .dock-pr-create textarea { width: 100%; min-width: 0; border: 1px solid var(--mx-border); border-radius: 4px; outline: 0; color: var(--mx-text); background: var(--mx-workspace-sheet); font: 12px/18px inherit; }
+.dock-pr-create input[type="text"], .dock-pr-create textarea { width: 100%; min-width: 0; border: 1px solid var(--mx-border); border-radius: 4px; outline: 0; color: var(--mx-text); background: var(--mx-workspace-sheet); font-size: var(--mx-font-meta); line-height: var(--mx-line-minor); }
 .dock-pr-create input[type="text"] { height: 30px; padding: 0 8px; font-weight: var(--mx-weight-regular); }
 .dock-pr-create textarea { min-height: 108px; padding: 6px 8px; resize: vertical; }
 .dock-pr-create input[type="text"]:focus, .dock-pr-create textarea:focus { border-color: var(--mx-focus); }
 .dock-pr-create-base { min-width: 0; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 6px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
 .dock-pr-base-select { min-width: 0; }
-.dock-pr-base-select .mx-select-trigger { width: 100%; min-width: 0; height: 28px; justify-content: flex-start; padding: 0 7px; border: 1px solid var(--mx-border); border-radius: 4px; background: var(--mx-workspace-sheet); box-shadow: none; font: 12px/18px var(--mx-font-mono); }
+.dock-pr-base-select .mx-select-trigger { width: 100%; min-width: 0; height: 28px; justify-content: flex-start; padding: 0 7px; border: 1px solid var(--mx-border); border-radius: 4px; background: var(--mx-workspace-sheet); box-shadow: none; font-family: var(--mx-font-mono); font-size: var(--mx-font-meta); line-height: var(--mx-line-minor); }
 .dock-pr-base-select .mx-select-value { min-width: 0; flex: 1; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .dock-pr-create-draft { height: 28px; display: flex; align-items: center; gap: 7px; padding: 0 7px; border: 1px solid var(--mx-border-muted); border-radius: 4px; color: var(--mx-text); font-size: var(--mx-font-minor); cursor: pointer; }
 .dock-pr-create-draft:hover { background: var(--mx-hover); }
@@ -11087,7 +11378,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .dock-pr-create-note { color: var(--mx-text-faint); }
 .dock-pr-create-error { color: var(--mx-danger); }
 .dock-pr-create > footer { display: flex; justify-content: flex-end; gap: 6px; padding-top: 2px; }
-.dock-pr-create > footer button { min-height: 27px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; border: 1px solid var(--mx-border-muted); border-radius: 4px; color: var(--mx-text); background: transparent; font: 500 11.5px/18px inherit; cursor: pointer; }
+.dock-pr-create > footer button { min-height: 27px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; border: 1px solid var(--mx-border-muted); border-radius: 4px; color: var(--mx-text); background: transparent; font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-minor); cursor: pointer; }
 .dock-pr-create > footer button:hover:not(:disabled) { background: var(--mx-hover); }
 .dock-pr-create > footer button[type="submit"] { border-color: color-mix(in srgb, var(--mx-accent) 65%, var(--mx-border)); background: color-mix(in srgb, var(--mx-accent) 18%, transparent); }
 .dock-pr-create > footer button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
@@ -11096,9 +11387,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .dock-pr-row:hover, .dock-pr-row:focus-within { background: var(--mx-hover); }
 .dock-pr-row-main { min-width: 0; min-height: 47px; flex: 1; display: flex; align-items: center; gap: 8px; padding: 5px 4px; overflow: hidden; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .dock-pr-row-icon { width: 18px; height: 18px; flex: 0 0 18px; display: grid; place-items: center; }
-.dock-pr-row-icon > svg { width: 15px; height: 15px; }
-.dock-pr-avatar { position: relative; width: 17px; height: 17px; flex: 0 0 17px; display: grid; place-items: center; overflow: hidden; border-radius: 50%; color: var(--mx-text-muted); background: var(--mx-pressed); }
-.dock-pr-avatar > img { position: absolute; inset: 0; width: 17px; height: 17px; object-fit: cover; }
+.dock-pr-row-icon > svg { width: var(--mx-icon-md); height: var(--mx-icon-md); }
+.dock-pr-avatar { position: relative; width: var(--mx-icon-md); height: var(--mx-icon-md); flex: 0 0 var(--mx-icon-md); display: grid; place-items: center; overflow: hidden; border-radius: 50%; color: var(--mx-text-muted); background: var(--mx-pressed); }
+.dock-pr-avatar > img { position: absolute; inset: 0; width: var(--mx-icon-md); height: var(--mx-icon-md); object-fit: cover; }
 .dock-pr-row-label { min-width: 0; flex: 1; display: grid; gap: 0; overflow: hidden; }
 .dock-pr-row-label > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--mx-font-code); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); letter-spacing: 0; }
 .dock-pr-row-label > small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mx-text-faint); font-size: var(--mx-font-micro); line-height: var(--mx-line-meta); }
@@ -11122,7 +11413,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .dock-pr-empty > svg { margin-bottom: 3px; color: var(--mx-text-faint); }
 .dock-pr-empty > b { color: var(--mx-text); font-size: var(--mx-font-code); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); }
 .dock-pr-empty > span { color: var(--mx-text-faint); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
-.dock-pr-empty > button { min-height: 25px; margin-top: 4px; padding: 0 9px; border: 1px solid var(--mx-border-muted); border-radius: 4px; color: var(--mx-text); background: transparent; font: 500 11px/18px inherit; cursor: pointer; }
+.dock-pr-empty > button { min-height: 25px; margin-top: 4px; padding: 0 9px; border: 1px solid var(--mx-border-muted); border-radius: 4px; color: var(--mx-text); background: transparent; font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-minor); cursor: pointer; }
 .dock-pr-empty > button:hover { background: var(--mx-hover); }
 .dock-pr-empty-row { min-height: 22px; display: flex; align-items: center; padding: 1px 8px 1px 34px; color: var(--mx-text-faint); font-size: var(--mx-font-minor); line-height: var(--mx-line-ui); }
 .dock-pr-checks [data-checks="passing"] { color: var(--mx-success); }
@@ -11159,7 +11450,7 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
 .dock-pr-updated { color: var(--mx-text-faint); white-space: nowrap; }
 .dock-pr-header-actions { margin-top: 1px; }
 .dock-pr-detail-tabs { height: 38px; flex: 0 0 38px; display: flex; align-items: stretch; gap: 4px; padding: 0 18px; overflow-x: auto; border-bottom: 1px solid var(--mx-border-muted); }
-.dock-pr-detail-tabs > button { position: relative; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 9px; border: 0; color: var(--mx-text-muted); background: transparent; font: 500 12px/20px inherit; white-space: nowrap; cursor: pointer; }
+.dock-pr-detail-tabs > button { position: relative; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 9px; border: 0; color: var(--mx-text-muted); background: transparent; font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); white-space: nowrap; cursor: pointer; }
 .dock-pr-detail-tabs > button:hover { color: var(--mx-text); background: var(--mx-hover); }
 .dock-pr-detail-tabs > button[aria-selected="true"] { color: var(--mx-text); }
 .dock-pr-detail-tabs > button[aria-selected="true"]::after { position: absolute; right: 6px; bottom: 0; left: 6px; height: 2px; border-radius: 2px 2px 0 0; background: var(--mx-accent); content: ""; }
@@ -11251,7 +11542,7 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
 }
 .dock-scm-commit-diff { min-width: 0; overflow: auto; border-top: 1px solid var(--mx-border-muted); background: var(--mx-bg-base); }
 .dock-scm-commit-diff > p { margin: 0; padding: 10px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
-.dock-scm-commit-diff .diff-fallback { margin: 0; padding: 9px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.45 var(--mx-font-mono); }
+.dock-scm-commit-diff .diff-fallback { margin: 0; padding: 9px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); line-height: 1.45; }
 .dock-source-control .spin { animation: spin 1s linear infinite; }
 .dock-scm-operation { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--mx-warning); background: var(--mx-warning-bg); }
 .dock-scm-operation > div { min-width: 0; flex: 1; display: grid; }
@@ -11375,8 +11666,8 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
 /* Same 18px optical frame as the header cluster (context/remote/panel):
    the previous 16px glyph read visibly lighter than the TASK-side icons in
    the row above (user: 파일쪽 아이콘이 훨씬 잘 안 보인다). */
-.editor-breadcrumb-actions svg.lucide { width: 18px; height: 18px; stroke-width: 1.25px; }
-.editor-breadcrumb-actions .editor-revert-action svg.lucide { width: 18px; height: 18px; }
+.editor-breadcrumb-actions svg.lucide { width: var(--mx-icon-lg); height: var(--mx-icon-lg); stroke-width: 1.25px; }
+.editor-breadcrumb-actions .editor-revert-action svg.lucide { width: var(--mx-icon-lg); height: var(--mx-icon-lg); }
 /* Disabled (e.g. Save with no unsaved changes) stays clearly quieter but no
    longer near-invisible on the dark breadcrumb strip. */
 .editor-breadcrumb-actions button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
@@ -11497,7 +11788,7 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
   text-align: left;
   cursor: default;
 }
-.editor-breadcrumb-picker-tree > button > svg { flex: 0 0 auto; color: var(--mx-text-muted); }
+.editor-breadcrumb-picker-tree > button > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
 .editor-breadcrumb-picker-tree > button > span,
 .editor-breadcrumb-picker-tree > button > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .editor-breadcrumb-picker-tree > button > span { min-width: 0; }
@@ -12238,19 +12529,20 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
 .dock-terminal .xterm { width: 100%; height: 100%; }
 .dock-terminal .xterm-viewport {
   overflow-y: scroll;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--mx-text) 28%, transparent) transparent;
 }
-.dock-terminal .xterm-viewport::-webkit-scrollbar { width: 10px; }
+/* xterm injects its own viewport styling, so the shell grammar is restated
+   here rather than inherited — same 8px track and inset pill as every other
+   scroller. */
+.dock-terminal .xterm-viewport::-webkit-scrollbar { width: var(--mx-scrollbar-size); }
 .dock-terminal .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
 .dock-terminal .xterm-viewport::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--mx-text) 28%, transparent);
+  border-radius: 999px;
+  background: var(--mx-scrollbar-thumb);
   background-clip: padding-box;
 }
 .dock-terminal .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--mx-text) 46%, transparent);
+  background: var(--mx-scrollbar-thumb-hover);
   background-clip: padding-box;
 }
 .dock-terminal .xterm-viewport::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
@@ -12395,7 +12687,7 @@ html.mx-window-resizing .panel-backdrop {
 .workbench-search-input:focus-within { border-color: var(--mx-focus); }
 /* The leading glyph is one fixed 14px box in every panel — it never shrinks
    with the field. */
-.workbench-search-input > svg { width: 14px; height: 14px; flex: 0 0 14px; }
+.workbench-search-input > svg { width: var(--mx-icon-sm); height: var(--mx-icon-sm); flex: 0 0 var(--mx-icon-sm); }
 .workbench-search-input input { width: 100%; min-width: 0; flex: 1; border: 0; outline: 0; color: var(--mx-text); background: transparent; font: inherit; font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); letter-spacing: 0; }
 /* type="search" fields would paint Chromium's own cancel glyph beside the
    component's clear button — two clear affordances in one box. The X below
@@ -12433,7 +12725,7 @@ html.mx-window-resizing .panel-backdrop {
 .workbench-search-file > button { width: 100%; min-height: 24px; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 5px; align-items: start; border: 0; padding: 3px 8px; text-align: left; color: var(--mx-text); background: transparent; }
 .workbench-search-file > button:hover { background: var(--mx-hover); }
 .workbench-search-file > button > span { color: var(--mx-text-muted); text-align: right; font-size: var(--mx-font-micro); line-height: var(--mx-line-minor); }
-.workbench-search-file > button > code { overflow: hidden; text-overflow: ellipsis; white-space: pre; font: 11px/17px var(--mx-font-mono); }
+.workbench-search-file > button > code { overflow: hidden; text-overflow: ellipsis; white-space: pre; font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); line-height: var(--mx-line-minor); }
 .app-shell > .desktop-body .editor-statusbar { display: none; }
 /* Turn-review bar: attached above the input in the bottom stack (user
    decision). A late worker result grows the composer region upward and the
@@ -12891,12 +13183,6 @@ html[data-mixdog-mobile] select { font-size: 16px; }
    gutters and the Task header's secondary project label. Phone layout owns
    its own header composition below 760px. */
 @media (min-width: 761px) and (max-width: 1024px) {
-  .studio-results,
-  .studio-dock,
-  .studio-topbar {
-    padding-inline: 16px;
-  }
-
   .session-header-content { gap: 6px; }
   .session-header-content h1 {
     max-width: min(36ch, 100%);
@@ -12907,25 +13193,6 @@ html[data-mixdog-mobile] select { font-size: 16px; }
   }
   .session-header-status { flex-shrink: 0; }
   .session-project-badge { display: none; }
-  .thread-welcome { padding-inline: 0; }
-}
-
-/* Match Task's surface-width gutter scale inside split panes. A narrow Studio
-   on a wide monitor must compact even though the viewport itself stays large. */
-@container (max-width: 720px) {
-  .studio-results,
-  .studio-dock,
-  .studio-topbar {
-    padding-inline: 18px;
-  }
-}
-
-@container (max-width: 520px) {
-  .studio-results,
-  .studio-dock,
-  .studio-topbar {
-    padding-inline: 8px;
-  }
 }
 
 /* Settings -> Connection: platform tabs (Browser / Android / iOS). */
@@ -13094,7 +13361,9 @@ html[data-mixdog-mobile] select { font-size: 16px; }
    covered — hr, images, task lists — plus KaTeX display math geometry. */
 .markdown hr {
   height: 1px;
-  margin: 24px 0;
+  /* A rule is the loudest block separator in prose: it clears the h1 margin
+     (32px) the way opencode's 40px clears its own heading rhythm. */
+  margin: 32px 0;
   border: 0;
   background: var(--mx-border);
 }
@@ -13111,6 +13380,25 @@ html[data-mixdog-mobile] select { font-size: 16px; }
 /* A response that opens with a heading must not push its own turn down by the
    heading's block margin (reference markdown.css `> *:first-child`). */
 .markdown > :first-child { margin-top: 0; }
+/* …and the closing block must not push the NEXT turn away either: only <p>
+   was reset before, so any answer ending in a list, table or code card left a
+   12-20px tail on top of the thread's own row gap. */
+.markdown > :last-child { margin-bottom: 0; }
+/* GFM strikethrough: struck text is superseded content, so it recedes to the
+   muted tier instead of staying full-ink behind a line. */
+.markdown del { color: var(--mx-text-muted); }
+/* GFM footnotes are a trailing apparatus, not more body: a rule closes the
+   answer, the list steps one size down, and the ↩ back-links drop the prose
+   underline. The generated "Footnotes" heading is .sr-only (styles.css). */
+.markdown section[data-footnotes] {
+  margin-top: 32px;
+  padding-top: 12px;
+  border-top: 1px solid var(--mx-border);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-emphasis);
+}
+.markdown section[data-footnotes] li { margin-bottom: 4px; }
+.markdown a[data-footnote-backref] { text-decoration: none; }
 .markdown ul.contains-task-list { padding-left: 18px; list-style: none; }
 .markdown li.task-list-item > input[type="checkbox"] {
   margin: 0 6px 0 0;
@@ -13118,11 +13406,12 @@ html[data-mixdog-mobile] select { font-size: 16px; }
   accent-color: var(--mx-accent-bg);
 }
 .markdown .katex-display {
-  margin: 16px 0;
+  /* Display math is a CARD block like tables and code (20px), not a flow
+     block: at 16px it sat between the two rhythms and matched neither. */
+  margin: 20px 0;
   padding: 2px 0;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
   overscroll-behavior-inline: contain;
 }
 
@@ -13263,13 +13552,24 @@ html[data-mixdog-mobile] select { font-size: 16px; }
   font-style: normal;
   font-weight: var(--mx-weight-regular);
   /* VS Code renders seti at 150% of the row font. */
-  font-size: 16px;
+  font-size: var(--mx-icon-md);
   line-height: 1;
-  width: 14px;
+  width: var(--mx-icon-sm);
   flex: none;
   text-align: center;
-  color: var(--mx-icon-muted);
+  /* The generated table is Seti's DARK colour set (see seti-icons.ts header).
+     ExplorerTree hands it over as --seti-color instead of an inline color, so
+     the light surfaces below can retune it. */
+  color: var(--seti-color, var(--mx-icon-muted));
   -webkit-font-smoothing: antialiased;
+}
+/* Seti ships no light variant, and its dark accents land between 1.7:1
+   (#cbcb41 json/js) and 2.1:1 (#8dc149 sh/cs) on paper — invisible. Darkening
+   the SAME hue keeps the language identity while clearing the 3:1 floor for
+   non-text glyphs, instead of flattening the icons to one grey. */
+:root[data-mixdog-theme="light"] .seti-icon,
+:root[data-mixdog-surface="white"] .seti-icon {
+  color: color-mix(in srgb, var(--seti-color, var(--mx-icon-muted)) 65%, #000);
 }
 
 /* ── Folder explorer pane (Windows-Explorer-style) ─────────────────────
@@ -13739,7 +14039,7 @@ html[data-mixdog-mobile] select { font-size: 16px; }
   font-weight: var(--mx-weight-regular);
   white-space: nowrap;
 }
-.folder-tool-labeled > svg:last-child { color: var(--mx-text-faint); }
+.folder-tool-labeled > svg:last-child { color: var(--mx-icon-muted); }
 /* Breadcrumb chevron opens the sibling/child dropdown (Files Omnibar). */
 .folder-crumb-chevron {
   display: grid;
@@ -13777,7 +14077,7 @@ html[data-mixdog-mobile] select { font-size: 16px; }
   user-select: none;
 }
 .folder-group-header:hover { color: var(--mx-text); }
-.folder-group-header > svg { flex: 0 0 auto; color: var(--mx-text-faint); }
+.folder-group-header > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
 .folder-group-header > i {
   flex: 0 0 auto;
   margin-left: 2px;
@@ -14342,7 +14642,9 @@ html[data-mixdog-mobile] select { font-size: 16px; }
   color: var(--mx-text);
   background: var(--mx-bg-base);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  font: 400 13px/1 var(--mx-font-sans);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: 1;
 }
 .schedules-dialog input:focus,
 .settings-oauth-dialog input:focus,
@@ -14519,8 +14821,13 @@ html[data-mixdog-mobile] select { font-size: 16px; }
 }
 /* Alpha ink dropped labels a full contrast step below their neighbours
    (measured 0.55α tab labels vs 15:1 body text — user: 일부 폰트가 너무
-   흐리다). Labels move to the SOLID muted ink; alpha stays for decoration. */
-.workspace-tab { color: var(--mx-text-muted); }
+   흐리다). Labels move to SOLID ink; alpha stays for decoration.
+   An inactive tab is not a disabled tab: it is a document you can read the
+   name of, and its glyph inherits the same currentColor, so muted dimmed the
+   title AND the icon together (user: 선택하지 않은 pane 라벨이 너무 연하다).
+   The active tab is already told apart by its plate and underline, so the
+   resting label can sit one step under full ink instead of two. */
+.workspace-tab { color: var(--mx-text-soft); }
 .workspace-tab.active { color: var(--mx-text); }
 .session-sidebar-panels .schedules-row-copy small,
 .utility-dock .agent-activity-copy small { color: var(--mx-text-muted); }
@@ -14600,13 +14907,25 @@ html[data-mixdog-mobile] select { font-size: 16px; }
    green/red = terminal OUTCOME, and work in progress stays neutral ink with
    motion. Routine turn milestones were painted with the interaction accent,
    which made the brand color ordinary and left nothing to notice. */
-.live-activity { --live-status-color: var(--mx-text-muted); }
+/* The running band is the ONE place the interaction accent belongs (user:
+   스피너는 강조색): it is the live, in-progress state of the surface you are
+   looking at. Muted made the rhombus and its phrase the same washed grey, so
+   the band read as disabled and the shimmer had nothing to peak against —
+   the accent restores both. The band keeps the accent to itself; settled
+   milestones stay neutral so it does not become ordinary.
+   .live-activity's own default already IS var(--mx-accent), so no override
+   is declared here anymore. */
+/* A settled turn stays NEUTRAL — hue is reserved for the running band and for
+   tool outcomes that actually differ (red / amber) — but it is not switched
+   off either. These three used to sit on --mx-text-faint, our weakest ink;
+   the phrase and ◈ now rest one step under full ink and the clock takes the
+   muted tier under them. The arrival glint above supplies the shine. */
 .turn-status.complete,
-.turn-status.success { color: var(--mx-text-faint); }
+.turn-status.success { color: var(--mx-text-soft); }
 .turn-status.complete::before,
-.turn-status.success::before { color: var(--mx-text-faint); }
+.turn-status.success::before { color: var(--mx-text-soft); }
 .turn-status.complete small,
-.turn-status.success small { color: var(--mx-text-faint); }
+.turn-status.success small { color: var(--mx-text-muted); }
 /* A failed turn IS the outcome worth a color. */
 .turn-status.failed { color: var(--mx-danger); }
 /* An interruption is INFORMATION, not an error and not a task: it dropped to

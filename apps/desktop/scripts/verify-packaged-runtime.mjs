@@ -20,9 +20,6 @@ const child = spawn(electron, [
   env: {
     ...process.env,
     ELECTRON_RUN_AS_NODE: '1',
-    // This process exists to prove the packaged embedding runtime can load.
-    // Product workers retain the normal host-memory admission guard.
-    MIXDOG_EMBED_PRESSURE_MIN_FREE_MB: '0',
   },
   stdio: 'inherit',
   windowsHide: true,

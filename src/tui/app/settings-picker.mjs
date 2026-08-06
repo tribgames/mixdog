@@ -53,7 +53,7 @@ export function createSettingsPicker({
     const snapshot = (await store.getSettingsSnapshot?.({ heavy: !heavyCache })) || {};
     const autoClear = snapshot.autoClear || {};
     const compaction = snapshot.compaction || {};
-    const memory = snapshot.memory || { enabled: true };
+    const recap = snapshot.recap || { enabled: true };
     const channels = snapshot.channels || { enabled: true };
     const systemShell = snapshot.systemShell || { source: 'auto', command: '', effective: '' };
     const outputStyle = snapshot.outputStyle || {};
@@ -84,9 +84,7 @@ export function createSettingsPicker({
     const outputStyleLabel = outputStyle?.current?.label || outputStyle?.current?.id || outputStyle?.configured || 'Default';
     const workflowLabel = workflowDisplayName(workflow);
     const boolLabel = (enabled) => enabled ? 'On' : 'Off';
-    const compactTypeDescription = memory.enabled === false
-      ? 'Injects raw transcript lines (memory off: no LLM chunking).'
-      : 'Uses Memory recall to rebuild context faster on large histories.';
+    const compactTypeDescription = 'Uses Memory recall to rebuild context faster on large histories.';
     const applyAutoClear = (patch = {}) => {
       void Promise.resolve(store.setAutoClear?.(patch))
         .then((next) => {
@@ -304,10 +302,10 @@ export function createSettingsPicker({
       {
         value: 'memory',
         label: 'Memory',
-        meta: boolLabel(memory.enabled !== false),
-        description: memory.enabled === false
-          ? 'Memory off. Core memories stay editable.'
-          : 'Session memory and core memories.',
+        meta: `Recap ${boolLabel(recap.enabled !== false)}`,
+        description: recap.enabled === false
+          ? 'Background recap off. Core memories and on-demand recall stay available.'
+          : 'Background recap and core memories.',
         _action: 'memory',
       },
       {

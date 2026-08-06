@@ -7,11 +7,13 @@ import { routeFastKey, fastPreferenceFor } from './model-capabilities.mjs';
 export const DEFAULT_PROVIDER = 'anthropic-oauth';
 export const DEFAULT_MODEL = '';
 
-// Resolve the provider to use when a route carries no explicit provider.
-// Priority: config.defaultProvider (when it names a known provider) > DEFAULT_PROVIDER.
+// Resolve a provider-less MAIN selector against the selected Main preset.
+// DEFAULT_PROVIDER is only the unconfigured bootstrap fallback (model remains
+// empty); agent/search override resolution never calls this to synthesize one.
 export function makeResolveDefaultProvider(isKnownProvider) {
   return function resolveDefaultProvider(config) {
-    const configured = clean(config?.defaultProvider);
+    const selectedMain = findPreset(config, config?.default);
+    const configured = clean(selectedMain?.provider);
     if (configured && isKnownProvider(configured)) return configured;
     return DEFAULT_PROVIDER;
   };
@@ -46,16 +48,18 @@ export function makeResolveRoute(resolveDefaultProvider) {
     if (explicitModel && !explicitProvider) {
       const preset = findPreset(config, explicitModel);
       if (preset) {
-        const p = clean(preset.provider) || DEFAULT_PROVIDER;
+        const p = clean(preset.provider);
         const m = clean(preset.model) || DEFAULT_MODEL;
-        const saved = modelSettingsFor(config, p, m);
-        return {
-          provider: p,
-          model: m,
-          preset,
-          effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort ?? preset.effort),
-          fast: hasExplicitFast ? explicitFast : (hasOwn(saved, 'fast') ? saved.fast === true : (preset.fast === true || fastPreferenceFor(config, p, m))),
-        };
+        if (p && m) {
+          const saved = modelSettingsFor(config, p, m);
+          return {
+            provider: p,
+            model: m,
+            preset,
+            effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort ?? preset.effort),
+            fast: hasExplicitFast ? explicitFast : (hasOwn(saved, 'fast') ? saved.fast === true : (preset.fast === true || fastPreferenceFor(config, p, m))),
+          };
+        }
       }
     }
 
@@ -63,16 +67,18 @@ export function makeResolveRoute(resolveDefaultProvider) {
       const defaultKey = config?.default;
       const preset = findPreset(config, defaultKey);
       if (preset) {
-        const p = clean(preset.provider) || DEFAULT_PROVIDER;
+        const p = clean(preset.provider);
         const m = clean(preset.model) || DEFAULT_MODEL;
-        const saved = modelSettingsFor(config, p, m);
-        return {
-          provider: p,
-          model: m,
-          preset,
-          effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort ?? preset.effort),
-          fast: hasExplicitFast ? explicitFast : (hasOwn(saved, 'fast') ? saved.fast === true : (preset.fast === true || fastPreferenceFor(config, p, m))),
-        };
+        if (p && m) {
+          const saved = modelSettingsFor(config, p, m);
+          return {
+            provider: p,
+            model: m,
+            preset,
+            effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort ?? preset.effort),
+            fast: hasExplicitFast ? explicitFast : (hasOwn(saved, 'fast') ? saved.fast === true : (preset.fast === true || fastPreferenceFor(config, p, m))),
+          };
+        }
       }
     }
 
@@ -197,14 +203,14 @@ export function resolveAgentTerminalReapMs(config, provider) {
 // fall back to the provider's default; else the global 1h default.
 export function resolveAutoClearIdleMs(config, provider) {
   const raw = config?.autoClear && typeof config.autoClear === 'object' ? config.autoClear : {};
-  const idleMs = Number(raw.idleMs ?? raw.thresholdMs ?? raw.idleMillis);
+  const idleMs = Number(raw.idleMs);
   if (Number.isFinite(idleMs) && idleMs > 0) return Math.max(60_000, Math.round(idleMs));
-  return autoClearIdleMsForProvider(provider, raw.providerIdleMs ?? raw.providerDefaults ?? raw.providers);
+  return autoClearIdleMsForProvider(provider, raw.providerIdleMs);
 }
 
 export function normalizeSystemShellConfig(value = {}) {
   const raw = value && typeof value === 'object' ? value : {};
-  const command = clean(raw.command ?? raw.path ?? raw.executable ?? raw.shell);
+  const command = clean(raw.command);
   const envCommand = clean(process.env.MIXDOG_SHELL);
   return {
     command,
@@ -227,7 +233,7 @@ export function normalizeSystemShellCommand(value) {
 
 export function normalizeAutoClearConfig(value = {}) {
   const raw = value && typeof value === 'object' ? value : {};
-  const idleMs = Number(raw.idleMs ?? raw.thresholdMs ?? raw.idleMillis);
+  const idleMs = Number(raw.idleMs);
   const hasExplicitIdle = Number.isFinite(idleMs) && idleMs > 0;
   const rawMinPct = Number(raw.minContextPercent);
   const minContextPercent = Number.isFinite(rawMinPct)
@@ -241,7 +247,7 @@ export function normalizeAutoClearConfig(value = {}) {
     enabled: raw.enabled !== false,
     idleMs: hasExplicitIdle ? Math.max(60_000, Math.round(idleMs)) : null,
     custom: hasExplicitIdle,
-    providerIdleMs: normalizeAutoClearProviderIdleMs(raw.providerIdleMs ?? raw.providerDefaults ?? raw.providers),
+    providerIdleMs: normalizeAutoClearProviderIdleMs(raw.providerIdleMs),
     minContextPercent,
   };
 }
@@ -254,16 +260,15 @@ export function normalizeCompactTypeSetting(value, fallback = 'recall-fasttrack'
   return fallback;
 }
 
-export function normalizeCompactionConfig(value = {}, { memoryEnabled = true } = {}) {
+export function normalizeCompactionConfig(value = {}) {
   const raw = value && typeof value === 'object' ? value : {};
-  let compactType = normalizeCompactTypeSetting(raw.compactType ?? raw.compact_type ?? raw.type, 'recall-fasttrack');
-  // Memory is now always-on, so recall-fasttrack no longer downgrades to
-  // semantic. `memoryEnabled` is retained as a param for API compatibility but
-  // is intentionally ignored (fasttrack drains run on-demand regardless of the
-  // recap/background-cycle toggle).
-  void memoryEnabled;
+  const compactType = normalizeCompactTypeSetting(raw.type, 'recall-fasttrack');
+  const next = { ...raw };
+  delete next.compactType;
+  delete next.compact_type;
+  delete next.enabled;
   return {
-    ...raw,
+    ...next,
     auto: raw.auto !== false && raw.enabled !== false,
     type: compactType,
     compactType,
@@ -284,9 +289,6 @@ export function moduleEnabled(configLike, name, fallback = true) {
 export function recapEnabled(configLike, fallback = true) {
   const entry = configLike?.recap;
   if (entry && typeof entry === 'object' && entry.enabled === false) return false;
-  // Legacy fallback: pre-migration configs may still carry modules.memory=false.
-  if (configLike?.modules?.memory === false) return false;
-  if (moduleEnabled(configLike, 'memory', true) === false) return false;
   return fallback !== false;
 }
 

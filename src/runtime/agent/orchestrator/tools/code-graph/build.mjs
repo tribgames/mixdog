@@ -146,9 +146,9 @@ export async function _runDiskCodeGraphFastPath({
   signal = null,
   loadDiskEntry,
   consumeDirty = () => {},
-  // Long-lived build slot: 'build' lane so a cold graph build never blocks
-  // short rg spawns behind the win32 cap=1 default lane.
-  acquireSlot = (signal) => acquireChildSpawnSlot(signal, 'build'),
+  // Long-lived code-graph lane so a cold graph build never blocks short rg
+  // processes in the independent search lane.
+  acquireSlot = (signal) => acquireChildSpawnSlot(signal, 'code-graph'),
   validateDiskHit = _validateDiskCodeGraphHit,
   spawnWorker,
   maxFiles = CODE_GRAPH_MAX_FILES,
@@ -344,7 +344,7 @@ export async function buildCodeGraphAsync(cwd, signal = null, {
   }
   // Non-competing prewarm: the signature-validation manifest also needs a
   // child-spawn slot, so warmers skip before either it or a Worker can queue.
-  if (bestEffort && !childSpawnHasSpareCapacity()) return null;
+  if (bestEffort && !childSpawnHasSpareCapacity('code-graph')) return null;
   const _genAtStart = _getCodeGraphGen(graphCwd);
   const promise = (async () => {
     // Loading the compact disk manifest/one candidate entry is synchronous but
@@ -422,7 +422,7 @@ export function _spawnCodeGraphWorker(
       if (val instanceof Error) reject(val);
       else resolve(val);
     };
-    (preAcquiredRelease ? Promise.resolve(preAcquiredRelease) : acquireChildSpawnSlot(signal || null, 'build')).then((release) => {
+    (preAcquiredRelease ? Promise.resolve(preAcquiredRelease) : acquireChildSpawnSlot(signal || null, 'code-graph')).then((release) => {
       _releaseSlot = release;
       if (settled) { release(); _releaseSlot = null; return; }
       if (signal?.aborted) { settle(new Error('aborted')); return; }

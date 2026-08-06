@@ -12,17 +12,18 @@ export function usePromptHint() {
   const promptHintTimerRef = useRef(null);
   const promptHintActiveRef = useRef(false);
 
-  const showPromptHint = useCallback((text, tone = 'info') => {
+  const showPromptHint = useCallback((text, tone = 'info', dismissMs = PROMPT_HINT_DISMISS_MS) => {
     if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
     promptHintActiveRef.current = true;
     setPromptHint(String(text || ''));
     setPromptHintTone(tone);
+    const timeoutMs = Number(dismissMs) > 0 ? Number(dismissMs) : PROMPT_HINT_DISMISS_MS;
     promptHintTimerRef.current = setTimeout(() => {
       promptHintTimerRef.current = null;
       promptHintActiveRef.current = false;
       setPromptHint('');
       setPromptHintTone('info');
-    }, PROMPT_HINT_DISMISS_MS);
+    }, timeoutMs);
   }, []);
 
   // Same band and timer; only the resting tone differs for copy feedback.

@@ -26,18 +26,51 @@
 import { spawn } from 'node:child_process';
 import { basename } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
+import { availableParallelism, freemem } from 'node:os';
 import { killProcessTree, windowsPidHasDescendants } from '../builtin/shell-job-process.mjs';
 
+const MB = 1024 * 1024;
+
+export function _resolvePwshPoolTarget({
+    env = process.env,
+    platform = process.platform,
+    parallelism = null,
+    freeMemoryBytes = null,
+} = {}) {
+    const configured = env?.MIXDOG_PWSH_STANDBY_POOL;
+    if (configured != null && configured !== '') {
+        const n = Math.floor(Number(configured));
+        if (Number.isFinite(n) && n >= 0) return Math.min(8, n);
+    }
+    if (platform !== 'win32') return 0;
+    // Tools now execute in the machine-global backend daemon. Keep client/test
+    // processes at zero by default, but let that ONE host maintain a short-lived
+    // warm burst sized to the machine instead of making every shell call pay the
+    // ~300ms pwsh startup cost.
+    if (env?.MIXDOG_ENGINE_DAEMON_HOST !== '1' && env?.MIXDOG_CHANNEL_DAEMON !== '1') return 0;
+    let cores = Number(parallelism);
+    if (!Number.isFinite(cores) || cores < 1) {
+        try { cores = availableParallelism(); } catch { cores = 1; }
+    }
+    let free = freeMemoryBytes == null ? Number.NaN : Number(freeMemoryBytes);
+    if (!Number.isFinite(free) || free < 0) {
+        try { free = freemem(); } catch { free = 0; }
+    }
+    const cpuTarget = Math.max(1, Math.min(4, Math.floor(cores) - 1 || 1));
+    if (free < 768 * MB) return 0;
+    if (free < 1536 * MB) return Math.min(1, cpuTarget);
+    if (free < 3072 * MB) return Math.min(2, cpuTarget);
+    return cpuTarget;
+}
+
 function _poolTarget() {
-    const n = Math.floor(Number(process.env.MIXDOG_PWSH_STANDBY_POOL));
-    if (Number.isFinite(n) && n >= 0) return Math.min(8, n);
-    return 2;
+    return _resolvePwshPoolTarget();
 }
 const POOL_TARGET = _poolTarget();
-// Only standbys older than this are handed out: a younger one is still paying
-// pwsh startup, so adopting it would just relocate the cold cost. Callers get
-// null (classic spawn) while the pool warms.
-const STANDBY_READY_AGE_MS = 400;
+const _envIdleMs = Math.floor(Number(process.env.MIXDOG_PWSH_STANDBY_IDLE_MS));
+const STANDBY_IDLE_MS = Number.isFinite(_envIdleMs) && _envIdleMs >= 0
+    ? _envIdleMs
+    : 60_000;
 const EXPECTED_ARGS = Object.freeze(['-NoLogo', '-NoProfile', '-NonInteractive', '-Command']);
 
 // Marker-loop bootstrap: the standby serves MANY commands over its lifetime.
@@ -132,6 +165,7 @@ function _standbyBootScript(nonce) {
 }
 
 const _idle = [];
+const _taken = new Set();
 let _envSig = null;
 let _exitHookInstalled = false;
 
@@ -144,12 +178,29 @@ function _envSignature(env) {
 }
 
 function _killEntry(entry) {
+    if (entry.idleTimer) {
+        clearTimeout(entry.idleTimer);
+        entry.idleTimer = null;
+    }
     try { entry.child.kill(); } catch { /* already down */ }
 }
 
 function _discardIdle(entry) {
     const i = _idle.indexOf(entry);
     if (i !== -1) _idle.splice(i, 1);
+}
+
+function _armIdleExpiry(entry) {
+    if (entry.idleTimer) clearTimeout(entry.idleTimer);
+    entry.idleTimer = null;
+    if (STANDBY_IDLE_MS <= 0) return;
+    entry.idleTimer = setTimeout(() => {
+        entry.idleTimer = null;
+        if (entry.taken) return;
+        _discardIdle(entry);
+        _killEntry(entry);
+    }, STANDBY_IDLE_MS);
+    entry.idleTimer.unref?.();
 }
 
 function _installExitHook() {
@@ -173,7 +224,7 @@ function _spawnStandby(shell, env, sig) {
             detached: false,
         });
     } catch { return; }
-    const entry = { child, sig, nonce, spawnedAt: Date.now(), taken: false, consumed: false };
+    const entry = { child, sig, nonce, taken: false, consumed: false, idleTimer: null };
     child.on('error', () => { if (!entry.taken) { _discardIdle(entry); _killEntry(entry); } });
     child.on('exit', () => { if (!entry.taken) _discardIdle(entry); });
     // A dead standby's pending stdin write must never crash the daemon.
@@ -187,10 +238,25 @@ function _spawnStandby(shell, env, sig) {
         child.stderr?.unref?.();
     } catch { /* best-effort */ }
     _idle.push(entry);
+    _armIdleExpiry(entry);
+}
+
+function _poolSizeForSignature(sig) {
+    let count = _idle.reduce((total, entry) => total + (entry.sig === sig ? 1 : 0), 0);
+    for (const entry of _taken) {
+        if (entry.sig === sig) count += 1;
+    }
+    return count;
 }
 
 function _topUp(shell, env, sig) {
-    while (_idle.length < POOL_TARGET) _spawnStandby(shell, env, sig);
+    while (_poolSizeForSignature(sig) < POOL_TARGET) _spawnStandby(shell, env, sig);
+}
+
+function _releaseTaken(entry) {
+    if (!_taken.delete(entry)) return false;
+    entry.taken = false;
+    return true;
 }
 
 /**
@@ -215,11 +281,9 @@ export function takePwshStandby({ shell, shellArgs, env }) {
         _envSig = sig;
     }
     _topUp(shell, env, sig);
-    const now = Date.now();
     let entry = null;
     for (let i = 0; i < _idle.length; i += 1) {
         const cand = _idle[i];
-        if (now - cand.spawnedAt < STANDBY_READY_AGE_MS) continue;
         if (cand.child.exitCode !== null || cand.child.signalCode !== null) continue;
         if (!cand.child.stdin || cand.child.stdin.destroyed) continue;
         _idle.splice(i, 1);
@@ -229,6 +293,11 @@ export function takePwshStandby({ shell, shellArgs, env }) {
     if (!entry) return null;
     entry.taken = true;
     entry.consumed = false;
+    _taken.add(entry);
+    if (entry.idleTimer) {
+        clearTimeout(entry.idleTimer);
+        entry.idleTimer = null;
+    }
     try {
         entry.child.ref();
         entry.child.stdin?.ref?.();
@@ -271,6 +340,7 @@ export function takePwshStandby({ shell, shellArgs, env }) {
         // job's close-wired exit file then records the REAL command exit.
         endStdin() {
             entry.consumed = true;
+            _releaseTaken(entry);
             try { entry.child.stdin.end(); } catch { /* already gone */ }
         },
         // Post-command recycle: return the standby to the pool ONLY when the
@@ -281,6 +351,7 @@ export function takePwshStandby({ shell, shellArgs, env }) {
         async recycle() {
             if (entry.consumed) return false;
             entry.consumed = true;
+            _releaseTaken(entry);
             const c = entry.child;
             const alive = () => c.exitCode === null && c.signalCode === null;
             let dirty = true;
@@ -309,9 +380,7 @@ export function takePwshStandby({ shell, shellArgs, env }) {
                     process.stderr.write(`[pwsh-standby] recycle drained ${_staleBytes}B stale output (pid=${c.pid}) — late flush escaped the previous command's capture\n`);
                 } catch { /* diagnostics only */ }
             }
-            entry.taken = false;
             entry.consumed = false;
-            entry.spawnedAt = Date.now() - STANDBY_READY_AGE_MS;
             try {
                 c.unref();
                 c.stdin?.unref?.();
@@ -319,6 +388,7 @@ export function takePwshStandby({ shell, shellArgs, env }) {
                 c.stderr?.unref?.();
             } catch { /* best-effort */ }
             _idle.push(entry);
+            _armIdleExpiry(entry);
             return true;
         },
     };

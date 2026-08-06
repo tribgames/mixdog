@@ -428,11 +428,8 @@ export async function createMixdogSessionRuntime({
   rt.searchModPromise = null;
   rt.codeGraphModPromise = null;
 
-  // Memory module is always-on. `memoryEnabled()` is kept as a thin alias that
-  // now always returns true (callers/compaction helpers still reference it);
-  // the user-facing toggle is `recap` (background cycles only), read via
-  // recapEnabled(config).
-  const memoryEnabled = () => true;
+  // Memory is always-on. The user-facing toggle is `recap` (background cycles
+  // only), read via recapEnabled(config).
   const recapEnabledFn = () => recapEnabled(rt.config, true);
   const channelsEnabled = () => moduleEnabled(rt.config, 'channels', true);
 
@@ -469,10 +466,6 @@ export async function createMixdogSessionRuntime({
 
     const nextConfig = { ...(rt.config || {}) };
     nextConfig.presets = upsertWorkflowPreset(nextConfig.presets, 'lead', leadRoute);
-    nextConfig.workflowRoutes = {
-      ...(nextConfig.workflowRoutes || {}),
-      lead: leadRoute,
-    };
     nextConfig.default = workflowPresetId('lead');
 
     saveConfigAndAdopt(nextConfig);
@@ -1198,7 +1191,6 @@ export async function createMixdogSessionRuntime({
     reg,
     cfgMod,
     activeWorkflowContext,
-    memoryEnabled,
     hooks,
     hookCommonPayload,
     mcpClient,
@@ -1368,7 +1360,6 @@ export async function createMixdogSessionRuntime({
     parseDurationMs,
     formatDurationMs,
     localPackageVersion,
-    memoryEnabled,
     recapEnabledFn,
     channelsEnabled,
     autoUpdateEnabled,
@@ -1651,6 +1642,15 @@ export async function createMixdogSessionRuntime({
         throw new Error(`session ${rt.session.id} is already materialized`);
       }
       rt.reservedSessionId = id;
+      // Reservation is the earliest safe point to prepare keychain, memory,
+      // provider metadata, hooks, and the provider transport. This starts no
+      // model response and therefore incurs no inference/token usage. The first
+      // submit joins this single-flight promise instead of paying cold setup.
+      void createCurrentSession('reservation').catch((error) => {
+        bootProfile('session:reservation-prewarm-failed', {
+          error: error?.message || String(error),
+        });
+      });
       return id;
     },
     get provider() {

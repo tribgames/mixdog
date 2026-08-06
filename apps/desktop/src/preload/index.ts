@@ -433,12 +433,13 @@ const api: DesktopApi = {
   submit: (prompt, options) => ipcRenderer.invoke(DESKTOP_IPC.submit, prompt, options),
   submitNewTask: (prompt, options, draft) =>
     ipcRenderer.invoke(DESKTOP_IPC.submitNewTask, prompt, options, draft),
-  abort: () => ipcRenderer.invoke(DESKTOP_IPC.abort),
+  abort: (options) => ipcRenderer.invoke(DESKTOP_IPC.abort, options),
   resolveToolApproval: (id, decision) =>
     ipcRenderer.invoke(DESKTOP_IPC.resolveToolApproval, id, decision),
   submitToSession: (sessionId, prompt, options) =>
     ipcRenderer.invoke(DESKTOP_IPC.submitToSession, sessionId, prompt, options),
-  abortSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.abortSession, sessionId),
+  abortSession: (sessionId, options) =>
+    ipcRenderer.invoke(DESKTOP_IPC.abortSession, sessionId, options),
   resolveToolApprovalForSession: (sessionId, id, decision) =>
     ipcRenderer.invoke(DESKTOP_IPC.resolveToolApprovalForSession, sessionId, id, decision),
   subscribeSessionState: (listener) => {

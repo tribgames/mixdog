@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import {
     acquire as acquireChildSpawnSlot,
-    hasSpareCapacity as hasRgSpareCapacity,
+    snapshot as childSpawnSnapshot,
 } from '../../../../shared/child-spawn-gate.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -38,7 +38,7 @@ const execFileAsync = promisify(execFile);
 // This does not queue or limit calls; it only prevents per-process
 // oversubscription. Env override remains available for operator tuning.
 let _rgDefaultThreadCap = null;
-export function _rgThreadCap(_spareCapacity = false) {
+export function _rgThreadCap(activeSearches = 1) {
     const override = Number(process.env.MIXDOG_RG_THREADS);
     if (Number.isFinite(override) && override >= 1) return Math.floor(override);
     if (_rgDefaultThreadCap === null) {
@@ -47,7 +47,12 @@ export function _rgThreadCap(_spareCapacity = false) {
         _rgDefaultThreadCap = cpus || 4;
     }
     const cpus = _rgDefaultThreadCap;
-    return Math.max(2, Math.min(4, Math.ceil(cpus / 4)));
+    const perProcessMax = Math.max(2, Math.min(4, Math.ceil(cpus / 4)));
+    const active = typeof activeSearches === 'boolean'
+        ? 1
+        : Math.max(1, Math.floor(Number(activeSearches) || 1));
+    const aggregateBudget = Math.max(perProcessMax, cpus - 1);
+    return Math.max(1, Math.min(perProcessMax, Math.floor(aggregateBudget / active)));
 }
 
 // Walk rg options once for all thread-argument helpers. Values of these
@@ -94,9 +99,18 @@ function _hasRgThreadArg(argsList) {
 // (`-j`/`--threads`/`-jN`/`--threads=N`, e.g. the EAGAIN `-j 1` retry). Does
 // not mutate; may return the ORIGINAL array unchanged when already
 // thread-pinned (callers must not assume a fresh copy).
-export function _withRgThreads(argsList, spareCapacity = false) {
+export function _withRgThreads(argsList, activeSearches = 1) {
     if (_hasRgThreadArg(argsList)) return argsList;
-    return ['--threads', String(_rgThreadCap(spareCapacity)), ...argsList];
+    return ['--threads', String(_rgThreadCap(activeSearches)), ...argsList];
+}
+
+function activeSearchSpawnCount() {
+    try {
+        const lane = childSpawnSnapshot().lanes.find((entry) => entry.name === 'search');
+        return Math.max(1, Number(lane?.inflight) || 1);
+    } catch {
+        return 1;
+    }
 }
 
 // Build the EAGAIN single-thread retry args. If the caller already pinned a
@@ -409,10 +423,10 @@ function spawnRg(argsList, execOptions) {
     // spawn below, so queue-wait time is excluded from the 20s deadline. No
     // node guardian is started: rg owns its full SIGTERM→grace→force-kill +
     // force-settle teardown, so the 1:1 guardian process was pure overhead.
-    return acquireChildSpawnSlot(gateSignal).then((releaseSlot) => new Promise((resolve, reject) => {
+    return acquireChildSpawnSlot(gateSignal, 'search').then((releaseSlot) => new Promise((resolve, reject) => {
         // Probe after acquisition: this spawn counts toward inflight. The
         // answer is best-effort and only selects the per-process rg cap.
-        const proc = spawn(rgExecutable(), _withRgThreads(argsList, hasRgSpareCapacity()), {
+        const proc = spawn(rgExecutable(), _withRgThreads(argsList, activeSearchSpawnCount()), {
             cwd: execOptions?.cwd,
             env: execOptions?.env || process.env,
             windowsHide: true,
@@ -591,9 +605,9 @@ function spawnRgWindowedLines(argsList, execOptions, opts = {}) {
     // Same gate + thread-cap + no-guardian treatment as spawnRg; queue-wait is
     // excluded from the rg timeout (armed after spawn). releaseSlot is fired
     // once via .finally on every settle path.
-    return acquireChildSpawnSlot(gateSignal).then((releaseSlot) => new Promise((resolve, reject) => {
+    return acquireChildSpawnSlot(gateSignal, 'search').then((releaseSlot) => new Promise((resolve, reject) => {
         // As above, probe only after this spawn has acquired its gate slot.
-        const proc = spawn(rgExecutable(), _withRgThreads(argsList, hasRgSpareCapacity()), {
+        const proc = spawn(rgExecutable(), _withRgThreads(argsList, activeSearchSpawnCount()), {
             cwd: execOptions?.cwd,
             env: execOptions?.env || process.env,
             windowsHide: true,

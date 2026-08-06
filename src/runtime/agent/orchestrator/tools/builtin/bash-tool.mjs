@@ -27,6 +27,7 @@ import {
     detectLongForegroundReason,
     extractShellApplyPatchInvocation,
     foregroundLongCommandHint,
+    hasPowerShellOnlySyntax,
     isAutobackgroundingAllowed,
     preflightPowerShellHygiene,
     shellSplitSegments,
@@ -89,10 +90,12 @@ export function _trackedDriftNoteAfter(_scope, _pre) {
 
 // Search-style commands and `git diff --exit-code` use exit 1 as a SIGNAL
 // (no match / has diff), not a failure. Benign ONLY when exitCode===1, no
-// signal, stderr blank, AND the command is a SINGLE pipeline (no ;/&&/||, so
-// exit 1's origin is unambiguous — a mixed chain stays Error). Quote/comment
-// aware via the shared shell tokenizers, so quoted/commented `;` `|` `grep`
-// can never masquerade as a connector/command and hide a real failure.
+// signal, stderr blank, AND the exit status provably comes from a search-style
+// stage: the LAST segment of a `;`/`&&` chain (its status IS the chain's) whose
+// last pipeline stage is a search head. `||` chains stay ambiguous (either
+// branch can supply the status) and stay Error. Quote/comment aware via the
+// shared shell tokenizers, so quoted/commented `;` `|` `grep` can never
+// masquerade as a connector/command and hide a real failure.
 const _SEARCH_HEADS = new Set(['select-string', 'sls', 'grep', 'egrep', 'fgrep', 'findstr']);
 const _GIT_GLOBAL_VALUE_OPTS = new Set(['-c', '-C', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--config-env']);
 // Command/process/subshell substitution or a backslash/backtick-escaped pipe
@@ -120,9 +123,11 @@ export function _isBenignSearchExitOne(command, exitCode, signal, stderr) {
     const text = _stripShellComment(String(command || ''));
     if (_AMBIGUOUS_SYNTAX.test(text)) return false; // subshell/subst/escaped pipe → ambiguous
     const segments = shellSplitSegments(text);
-    if (segments.length !== 1) return false; // ;/&&/|| chain → ambiguous, stay Error
-    const stages = shellSplitPipelineSegments(segments[0]);
-    const last = stages[stages.length - 1] || segments[0];
+    if (segments.length === 0) return false;
+    if (segments.length > 1 && /\|\|/.test(text)) return false; // || → which branch exited 1?
+    const lastSegment = segments[segments.length - 1];
+    const stages = shellSplitPipelineSegments(lastSegment);
+    const last = stages[stages.length - 1] || lastSegment;
     const raw = shellTokenize(last);
     if (!raw) return false; // unbalanced quotes
     const tokens = stripShellProbeWrappers(raw);
@@ -324,7 +329,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     // null spec means it is genuinely not installed — surface a clear error with
     // NO silent fallback to the other shell.
     const shellKind = args.shell === 'bash' || args.shell === 'powershell' ? args.shell : 'default';
-    const resolvedSpec = resolveShellFor(shellKind);
+    let resolvedSpec = resolveShellFor(shellKind);
     if (!resolvedSpec) {
         if (shellKind === 'bash') {
             return formatShellToolFailure("Git Bash not found — install Git for Windows or omit shell:'bash'.");
@@ -351,8 +356,27 @@ export async function executeBashTool(args, workDir, options = {}) {
         shellType: resolvedSpec.shellType,
         shellName: resolvedSpec.shell,
     });
-    if (psHygiene.block) return formatShellToolFailure(psHygiene.block);
-    command = psHygiene.command;
+    let shellRescueNote = '';
+    if (psHygiene.block) {
+        // Auto-rescue: the block fired ONLY because the command is written in
+        // bash (unix filter heads, `&&`) and it carries no PowerShell-only
+        // construct — running it in Git Bash is exactly what the caller meant,
+        // byte-for-byte. A mixed command ($env:, cmdlets, `2>$null`) or a
+        // PowerShell-specific violation stays a hard block, and an explicit
+        // shell:'powershell' is never overridden.
+        const bashSpec = psHygiene.bashOnly
+            && shellKind === 'default'
+            && !hasPowerShellOnlySyntax(psHygiene.original ?? command)
+            ? resolveShellFor('bash')
+            : null;
+        if (!bashSpec) return formatShellToolFailure(psHygiene.block);
+        // The MSYS rewrite targets PowerShell; bash gets the original text.
+        command = psHygiene.original ?? command;
+        resolvedSpec = bashSpec;
+        shellRescueNote = "note: bash-only syntax on a PowerShell host — ran it in Git Bash (pass shell:'bash' to make that explicit).";
+    } else {
+        command = psHygiene.command;
+    }
 
     const _execPolicyBlock = checkExecPolicyMessage(command);
     if (_execPolicyBlock) {
@@ -507,6 +531,7 @@ export async function executeBashTool(args, workDir, options = {}) {
                     abortSignal: combinedAsyncAbort.signal,
                     label: String(command).replace(/\s+/g, ' ').slice(0, 120),
                     dependency: 'detached',
+                    ownerKey: options?.callerSessionId || options?.sessionId || null,
                 });
                 if (combinedAsyncAbort.signal?.aborted) {
                     throw combinedAsyncAbort.signal.reason || new Error('shell background task cancelled before spawn');
@@ -761,6 +786,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         }
         const warningBlock = [
             wmicRewrite?.note || '',
+            shellRescueNote,
         ].filter(Boolean).join('\n');
         const payload = `${body}${stderrBlock}${spillBlock}${_rescueNote}${_driftNote}`;
         if (statusMarker) return _prependDestructiveWarning(command, _composeShellFailure(statusMarker, errorPrefix, warningBlock, payload));

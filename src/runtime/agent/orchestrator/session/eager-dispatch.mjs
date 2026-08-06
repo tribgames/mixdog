@@ -7,7 +7,7 @@
 // serially as barriers, so a failed patch can skip every later side effect.
 import { normalizeToolEnvelope } from './tool-envelope.mjs';
 import { isInvalidToolArgsMarker } from '../providers/openai-compat-stream.mjs';
-import { _intraTurnSig, _isMutationTool, _isOrderedGateSkippable, _isReadTool, _isScopedCacheableTool, _stripMcpPrefix } from './loop/tool-classify.mjs';
+import { _intraTurnSig, _isReadTool, _isScopedCacheableTool, _stripMcpPrefix } from './loop/tool-classify.mjs';
 import { tryReadCached, tryScopedToolCached } from './read-dedup.mjs';
 import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
@@ -40,11 +40,6 @@ export function createEagerDispatcher({
         // resets at the turn boundary without leaking across getIterations().
         const _eagerInFlightSigs = new Map();
         const epoch = { mutation: 0 };
-        // True once an apply_patch tool_use has been seen in THIS turn's
-        // stream. Before that, every side-effect call streamed so far sits
-        // before the first patch in call order (segment 0), so it may start
-        // immediately — a patch that arrives later cannot gate an EARLIER call.
-        let _streamSeenMutation = false;
         const startEagerTool = (call) => {
             if (!call?.id || pending.has(call.id) || !isParallelDispatchable(call.name)) return null;
             // Never eager-execute a call whose arguments failed to parse
@@ -162,21 +157,10 @@ export function createEagerDispatcher({
             return entry;
         };
         const startEagerRun = (calls, startIndex, dupSet) => {
-            const _nextOrderedMutationIndex = calls.findIndex(
-                (call, index) => index >= startIndex && _isMutationTool(call?.name),
-            );
             for (let j = startIndex; j < calls.length; j += 1) {
                 const call = calls[j];
-                // Side effects may eager-start in the current segment but not
-                // across the next apply_patch barrier. Known read-only work
-                // may cross it and is protected by mutation-epoch re-execution.
                 if (!call?.id || !isParallelDispatchable(call.name)) continue;
                 if (dupSet && dupSet.has(call.id)) continue;
-                if (
-                    _nextOrderedMutationIndex >= 0
-                    && j >= _nextOrderedMutationIndex
-                    && _isOrderedGateSkippable(call.name)
-                ) continue;
                 // A null return here is NOT a state barrier. It means a
                 // non-barrier stub — intra-turn in-flight dup, repeat-failure /
                 // cross-turn dedup, pre-dispatch-deny, invalid-args, or a cache
@@ -187,17 +171,6 @@ export function createEagerDispatcher({
             }
         };
         const onToolCall = (call) => {
-            if (_isMutationTool(call?.name)) {
-                _streamSeenMutation = true;
-                return;
-            }
-            // Declared read-only calls always overlap streaming (epoch guard
-            // re-executes them if a later patch lands). Side-effect calls may
-            // stream-start only while NO apply_patch has streamed yet: their
-            // call-order position is already fixed before the first barrier,
-            // matching exactly what startEagerRun would do post-batch. Once a
-            // patch has streamed, later side effects wait for their segment.
-            if (!isEagerDispatchable(call?.name, tools) && _streamSeenMutation) return;
             startEagerTool(call);
         };
     return { pending, epoch, startEagerTool, startEagerRun, onToolCall };

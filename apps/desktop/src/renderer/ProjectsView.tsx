@@ -151,7 +151,7 @@ export function ProjectsPane({
           <header>
             <h2 id="projects-add-title">{t('Add project')}</h2>
             <button type="button" aria-label={t('Close add project')} onClick={closeAdd}>
-              <X size={15} aria-hidden="true" /></button>
+              <X size={16} aria-hidden="true" /></button>
           </header>
           <form onSubmit={(event) => {
             event.preventDefault();
@@ -205,7 +205,7 @@ export function ProjectsPane({
           <header>
             <h2 id="projects-instructions-title">{insTarget.title}</h2>
             <button type="button" aria-label={t('Close instructions editor')} onClick={closeInstructions}>
-              <X size={15} aria-hidden="true" /></button>
+              <X size={16} aria-hidden="true" /></button>
           </header>
           <form onSubmit={(event) => {
             event.preventDefault();

@@ -22,7 +22,7 @@ import { Box, Text } from 'ink';
 import { useSharedTick } from '../hooks/useSharedTick.mjs';
 import { theme } from '../theme.mjs';
 import { SPINNER_FRAMES, SPINNER_MODE_OVERRIDE_VERBS, spinnerVerbFor } from '../spinner-verbs.mjs';
-import { SHOW_TOKENS_AFTER_MS, buildSpinnerMeta, isReducedMotion } from '../spinner-meta.mjs';
+import { buildSpinnerMeta, isReducedMotion } from '../spinner-meta.mjs';
 import { DOWN_ARROW, UP_ARROW } from '../figures.mjs';
 import { formatDuration } from '../time-format.mjs';
 

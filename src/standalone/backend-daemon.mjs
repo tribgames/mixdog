@@ -41,6 +41,17 @@ import { PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug
 import { setChannelNotifySink } from '../runtime/channels/lib/parent-bridge.mjs';
 import { setOwnerContext } from '../runtime/channels/lib/runtime-paths.mjs';
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
+import { resourceAdmission } from '../runtime/shared/resource-admission.mjs';
+import { snapshot as childSpawnSnapshot } from '../runtime/shared/child-spawn-gate.mjs';
+import { providerAdmissionScheduler } from '../runtime/agent/orchestrator/providers/admission-scheduler.mjs';
+import { loadConfig as loadAgentConfig } from '../runtime/agent/orchestrator/config.mjs';
+import { initProviders } from '../runtime/agent/orchestrator/providers/registry.mjs';
+import { makeAgentDispatch } from '../runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs';
+import {
+  closeProviderStreamJsonPool,
+  providerStreamJsonSnapshot,
+} from '../runtime/agent/orchestrator/providers/stream-json-pool.mjs';
+import { createAgentDispatchBroker } from './agent-dispatch-broker.mjs';
 import { createChannelDaemonTransport } from './channel-daemon-transport.mjs';
 import { installEngineDaemonLocalBridge } from './engine-daemon-local-bridge.mjs';
 import { createEngineDaemonTransport } from './engine-daemon-transport.mjs';
@@ -87,6 +98,7 @@ let logQueueBytes = 0;
 let logDropped = 0;
 let logFlushTimer = null;
 let logWriter = Promise.resolve();
+let logFileBytes = null;
 
 function boundedLogText(value) {
   const text = String(value ?? '');
@@ -95,15 +107,18 @@ function boundedLogText(value) {
 }
 
 async function rotateDaemonLogIfNeeded(incomingBytes) {
-  let info;
-  try { info = await stat(LOG_PATH); } catch { return; }
-  if (info.size + incomingBytes <= PLUGIN_LOG_MAX_BYTES) return;
-  const keep = Math.min(info.size, PLUGIN_LOG_KEEP_BYTES);
+  if (logFileBytes === null) {
+    try { logFileBytes = (await stat(LOG_PATH)).size; }
+    catch { logFileBytes = 0; }
+  }
+  if (logFileBytes + incomingBytes <= PLUGIN_LOG_MAX_BYTES) return;
+  const keep = Math.min(logFileBytes, PLUGIN_LOG_KEEP_BYTES);
   const tail = Buffer.allocUnsafe(keep);
   const handle = await open(LOG_PATH, 'r');
   try {
-    const { bytesRead } = await handle.read(tail, 0, keep, Math.max(0, info.size - keep));
+    const { bytesRead } = await handle.read(tail, 0, keep, Math.max(0, logFileBytes - keep));
     await writeFile(LOG_PATH, tail.subarray(0, bytesRead));
+    logFileBytes = bytesRead;
   } finally {
     await handle.close().catch(() => {});
   }
@@ -132,6 +147,7 @@ function queueLogFlush(delayMs = 10) {
       await mkdir(path.dirname(LOG_PATH), { recursive: true });
       await rotateDaemonLogIfNeeded(Buffer.byteLength(batch));
       await appendFile(LOG_PATH, batch, 'utf8');
+      logFileBytes = (logFileBytes || 0) + Buffer.byteLength(batch);
     }).catch(() => {});
     if (logQueue.length > 0 || logDropped > 0) queueLogFlush();
   }, delayMs);
@@ -162,6 +178,7 @@ async function flushDaemonLogs() {
       await mkdir(path.dirname(LOG_PATH), { recursive: true });
       await rotateDaemonLogIfNeeded(Buffer.byteLength(batch));
       await appendFile(LOG_PATH, batch, 'utf8');
+      logFileBytes = (logFileBytes || 0) + Buffer.byteLength(batch);
     }).catch(() => {});
   }
   await logWriter;
@@ -218,6 +235,7 @@ let engineService = null;
 let localEngineBridge = null;
 let uninstallLocalEngineBridge = null;
 let memoryRuntime = null;
+let agentDispatchBroker = null;
 let shuttingDown = false;
 let shutdownRecheckTimer = null;
 const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
@@ -250,6 +268,8 @@ async function shutdown(reason, code = 0) {
   try { await channels?.stop?.(); } catch (e) { log(`channels.stop failed: ${e?.message || e}`); }
   // Detach the memory client (never hard-kills the shared memory daemon).
   try { await memoryRuntime?.stop?.(); } catch (e) { log(`memory.stop failed: ${e?.message || e}`); }
+  try { agentDispatchBroker?.close?.(reason); } catch (e) { log(`agent broker stop failed: ${e?.message || e}`); }
+  try { await closeProviderStreamJsonPool(reason); } catch (e) { log(`stream parser stop failed: ${e?.message || e}`); }
   try { await transport?.stop?.(); } catch (e) { log(`transport.stop failed: ${e?.message || e}`); }
   if (eventLoopLagTimer) { clearInterval(eventLoopLagTimer); eventLoopLagTimer = null; }
   eventLoopDelay.disable();
@@ -275,12 +295,16 @@ function maybeSelfShutdown(reason) {
   // A turn in flight outlives every view — closing the app or the terminal is
   // not a reason to abandon work the daemon is still running.
   const busyEngines = engineService?.busyCount ?? 0;
-  if (busyEngines > 0) {
-    log(`shutdown deferred (${reason}): ${busyEngines} engine(s) still working`);
+  const busyMemoryAgents = agentDispatchBroker?.snapshot?.().inFlight ?? 0;
+  if (busyEngines > 0 || busyMemoryAgents > 0) {
+    log(
+      `shutdown deferred (${reason}): engines=${busyEngines}`
+      + ` memoryAgents=${busyMemoryAgents}`,
+    );
     if (!shutdownRecheckTimer) {
       shutdownRecheckTimer = setTimeout(() => {
         shutdownRecheckTimer = null;
-        maybeSelfShutdown('busy engines settled');
+        maybeSelfShutdown('busy backend work settled');
       }, 1_000);
       shutdownRecheckTimer.unref?.();
     }
@@ -305,6 +329,13 @@ async function main() {
     process.exit(0);
   }
   process.on('exit', () => { try { releaseSingletonOwner(OWNER_PATH, process.pid); } catch {} });
+  agentDispatchBroker = createAgentDispatchBroker({
+    loadConfig: loadAgentConfig,
+    initProviders,
+    makeAgentDispatch,
+    log,
+    onActivityChanged: () => { maybeSelfShutdown('memory agent activity changed'); },
+  });
   process.on('mixdog:turn-timing', (row = {}) => {
     const ms = (value) => Number.isFinite(value) ? Math.round(value) : -1;
     log(
@@ -357,6 +388,7 @@ async function main() {
   };
   transport = createChannelDaemonTransport({
     handleCall,
+    agentBroker: agentDispatchBroker,
     // If a manual owner disappears without sending OFF, deactivate the backend.
     // No survivor is selected or rebound.
     dispatchControl: (name, args, ctx) => handleCall(name, args, ctx),
@@ -370,6 +402,13 @@ async function main() {
   });
   setChannelNotifySink((method, params) => transport.notify(method, params));
   const { port, token } = await transport.start();
+  // Match the old memory-child behavior: provider preparation starts eagerly
+  // after the backend front door is ready, but now it initializes the ONE
+  // process-wide registry shared by channels, sessions, and all memory cycles.
+  // Calls arriving during warmup await registry singleflight; they never build
+  // another provider graph.
+  void agentDispatchBroker.warmup()
+    .catch((error) => log(`agent broker warmup failed (non-fatal): ${error?.message || error}`));
 
   // ── Engine front door ───────────────────────────────────────────────────────
   // Session engines live in THIS process too, so the terminal TUI and the
@@ -454,8 +493,9 @@ async function main() {
     void loadEngineModule()
       .then((engineModule) => {
         engineModule.preloadSessionRuntimeModule?.();
+        engineModule.preloadAgentLoopRuntime?.();
         engineModule.preloadKeychainSecrets?.();
-        log('engine runtime/keychain prewarm started');
+        log('engine runtime/agent-loop/keychain prewarm started');
       })
       .catch((error) => {
         engineRuntimePrewarmStarted = false;
@@ -487,6 +527,25 @@ async function main() {
     getStatus: () => ({
       engines: engineService.size,
       busy: engineService.busyCount,
+      sessionPool: engineService.status,
+      workload: {
+        resources: resourceAdmission.snapshot(),
+        childSpawns: childSpawnSnapshot(),
+        providers: providerAdmissionScheduler.snapshot(),
+        streamParsing: providerStreamJsonSnapshot(),
+      },
+      memory: {
+        ...(() => {
+          const usage = process.memoryUsage();
+          return {
+            rssBytes: usage.rss,
+            heapTotalBytes: usage.heapTotal,
+            heapUsedBytes: usage.heapUsed,
+            externalBytes: usage.external,
+            arrayBufferBytes: usage.arrayBuffers,
+          };
+        })(),
+      },
       ...eventLoopStatus(),
     }),
     onClientsEmpty: () => { maybeSelfShutdown('no live engine views'); },

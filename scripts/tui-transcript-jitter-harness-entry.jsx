@@ -13,6 +13,9 @@ import {
 const COLUMNS = 42;
 const VIEW_ROWS = 8;
 const INITIAL_SCROLL = 8;
+// Every scenario renders its own ink instance, each registering a beforeExit
+// listener; the default cap of 10 only produces a spurious warning here.
+process.setMaxListeners(32);
 const STREAM_ID = 'jitter-fence-tail';
 const HISTORY = Array.from({ length: 8 }, (_, index) => ({
   id: `history-${index}`,
@@ -55,6 +58,7 @@ function Harness({
   onFrame = noop,
   onScrollStateDispatch = noop,
   recordFrame = true,
+  history = HISTORY,
 }) {
   const [scrollOffset, setScrollOffset] = React.useState(initialScroll);
   const [measuredRowsVersion, setMeasuredRowsVersion] = React.useState(0);
@@ -82,14 +86,14 @@ function Harness({
     text,
     streaming: true,
   }), [text]);
-  const transcriptItems = React.useMemo(() => [...HISTORY, streamingTail], [streamingTail]);
+  const transcriptItems = React.useMemo(() => [...history, streamingTail], [history, streamingTail]);
 
   const {
     transcriptWindow,
     renderedTranscriptItems,
     transcriptMeasureRef,
   } = useTranscriptWindow({
-    items: HISTORY,
+    items: history,
     structureRevision: 1,
     sessionKey,
     streamingTail,
@@ -359,8 +363,8 @@ console.log(`# suppressMeasuredRowHeights values during repro: ${[...suppressVal
 if (dips.length > 0) {
   throw new Error(`expected no visible-top dip/snap while fenced script streams; observed ${dips.length}`);
 }
-if (suppressValues.size !== 1 || !suppressValues.has(true)) {
-  throw new Error('repro unexpectedly toggled suppressMeasuredRowHeights');
+if (suppressValues.size !== 1 || !suppressValues.has(false)) {
+  throw new Error('reading mode changed the settled-prefix geometry authority');
 }
 
 const PINNED_STREAM_ID = 'pinned-fence-tail';
@@ -427,6 +431,104 @@ for (const fault of pinnedGeometryFaults.slice(0, 4)) {
 }
 if (pinnedGeometryFaults.length > 0) {
   throw new Error(`expected one geometry authority while a bottom-pinned fenced script streams; observed ${pinnedGeometryFaults.length} faults`);
+}
+
+// Structural append repro: generated tool/status rows join the settled prefix
+// while the live assistant remains followed. Their first real Yoga height must
+// be consumed before paint; carrying only the estimate until follow is released
+// makes the whole transcript jump on the next scroll gesture.
+const appendedTool = {
+  id: 'pinned-appended-tool',
+  kind: 'tool',
+  name: 'agent',
+  args: JSON.stringify({
+    task_id: 'worker-follow',
+    status: 'completed',
+    path: 'src/tui/app/use-transcript-window.mjs',
+  }),
+  result: 'worker completed with a generated row',
+  count: 1,
+  completedCount: 1,
+};
+const appendFrames = [];
+const appendBaseProps = {
+  text: 'followed live tail',
+  initialScroll: 0,
+  streamId: 'pinned-append-tail',
+  sessionKey: 'pinned-append-session',
+  following: true,
+  recordFrame: false,
+  onFrame: (frame) => appendFrames.push(frame),
+};
+const appendInstance = render(
+  <Harness {...appendBaseProps} step={0} history={HISTORY} />,
+  { stdout: fakeTty(COLUMNS, VIEW_ROWS), stderr: fakeTty(COLUMNS, VIEW_ROWS), stdin: fakeTty(COLUMNS, VIEW_ROWS), interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 },
+);
+await settle(appendInstance);
+const framesBeforeAppend = appendFrames.length;
+appendInstance.rerender(
+  <Harness {...appendBaseProps} step={1} history={[...HISTORY, appendedTool]} />,
+);
+await settle(appendInstance);
+appendInstance.unmount();
+await appendInstance.waitUntilExit();
+appendInstance.cleanup();
+const generatedRowFrames = appendFrames.slice(framesBeforeAppend);
+const generatedRowSettled = generatedRowFrames.at(-1);
+if (!generatedRowFrames.length
+  || generatedRowFrames.some((frame) => frame.renderScrollOffset !== 0)
+  || generatedRowFrames.some((frame) => frame.suppressMeasured)
+  || !generatedRowSettled
+  || generatedRowSettled.visibleTopPhysical !== generatedRowSettled.visibleTopIndexed
+  || generatedRowSettled.mountedDelta !== 0) {
+  throw new Error(`bottom-follow generated row did not settle in one pinned geometry: ${JSON.stringify(generatedRowFrames)}`);
+}
+
+// Popup/picker geometry must not count as transcript interaction. While a
+// floating panel opens, remains in use, and closes, a followed live tail keeps
+// advancing at offset zero and consumes the final viewport size immediately.
+const popupFollowFrames = [];
+const popupFollowProps = {
+  initialScroll: 0,
+  streamId: 'popup-follow-tail',
+  sessionKey: 'popup-follow-session',
+  following: true,
+  recordFrame: false,
+  onFrame: (frame) => popupFollowFrames.push(frame),
+};
+const popupFollowInstance = render(
+  <Harness {...popupFollowProps} text="popup follow seed" step={0} />,
+  { stdout: fakeTty(COLUMNS, VIEW_ROWS), stderr: fakeTty(COLUMNS, VIEW_ROWS), stdin: fakeTty(COLUMNS, VIEW_ROWS), interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 },
+);
+await settle(popupFollowInstance);
+const popupFramesStart = popupFollowFrames.length;
+popupFollowInstance.rerender(
+  <Harness {...popupFollowProps} text={'popup follow seed\npanel opened output'} step={1}
+    viewRows={VIEW_ROWS - 2} floatingPanelRows={2} />,
+);
+await settle(popupFollowInstance);
+popupFollowInstance.rerender(
+  <Harness {...popupFollowProps} text={'popup follow seed\npanel opened output\npanel browsing output'} step={2}
+    viewRows={VIEW_ROWS - 2} floatingPanelRows={2} />,
+);
+await settle(popupFollowInstance);
+popupFollowInstance.rerender(
+  <Harness {...popupFollowProps} text={'popup follow seed\npanel opened output\npanel browsing output\npanel closed output'} step={3} />,
+);
+await settle(popupFollowInstance);
+popupFollowInstance.unmount();
+await popupFollowInstance.waitUntilExit();
+popupFollowInstance.cleanup();
+const popupActiveFrames = popupFollowFrames.slice(popupFramesStart);
+const popupFinalFrame = popupActiveFrames.at(-1);
+if (!popupActiveFrames.length
+  || popupActiveFrames.some((frame) => !frame.following
+    || frame.renderScrollOffset !== 0
+    || frame.suppressMeasured)
+  || !popupFinalFrame
+  || popupFinalFrame.visibleTopPhysical !== popupFinalFrame.visibleTopIndexed
+  || popupFinalFrame.mountedDelta !== 0) {
+  throw new Error(`popup interaction interrupted bottom follow: ${JSON.stringify(popupActiveFrames)}`);
 }
 
 const layoutTransitionFrames = [];
@@ -586,6 +688,100 @@ if (!switchedFrames.length || staleSessionGeometry) {
     switchedFrames,
     staleSessionGeometry,
   })}`);
+}
+
+// Compaction repro: the reader is anchored in history when a mid-turn compaction
+// trims everything above the live turn. The anchored row disappears with it, so
+// the transcript must drop the lock, return to the tail and RE-ARM follow —
+// keeping the anchor pinned the target above zero and auto-scroll stayed
+// released for the rest of the session (user: 컴팩션된 이후로 자동 스크롤이 풀린다).
+const COMPACTION_STREAM_ID = 'compaction-trim-tail';
+const compactionFrames = [];
+const compactionProps = {
+  initialScroll: INITIAL_SCROLL,
+  streamId: COMPACTION_STREAM_ID,
+  sessionKey: 'compaction-session',
+  recordFrame: false,
+  onFrame: (frame) => compactionFrames.push(frame),
+};
+const compactionInstance = render(
+  <Harness {...compactionProps} text={SCRIPT} step={0} history={HISTORY} />,
+  { stdout: fakeTty(COLUMNS, VIEW_ROWS), stderr: fakeTty(COLUMNS, VIEW_ROWS), stdin: fakeTty(COLUMNS, VIEW_ROWS), interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 },
+);
+await settle(compactionInstance);
+// One growth commit first: the anchor is captured by the row-delta effect, not
+// at mount (the first commit has no previous geometry to compare against).
+compactionInstance.rerender(
+  <Harness {...compactionProps} text={`${SCRIPT}\nreading while the turn streams`} step={1} history={HISTORY} />,
+);
+await settle(compactionInstance);
+const anchoredBeforeCompaction = compactionFrames.at(-1);
+const framesBeforeCompaction = compactionFrames.length;
+compactionInstance.rerender(
+  <Harness
+    {...compactionProps}
+    text={`${SCRIPT}\nreading while the turn streams`}
+    step={2}
+    history={[{ id: 'compaction-status', kind: 'notice', tone: 'plain', text: 'Compact complete' }]}
+  />,
+);
+await settle(compactionInstance);
+compactionInstance.unmount();
+await compactionInstance.waitUntilExit();
+compactionInstance.cleanup();
+const compactedFrames = compactionFrames.slice(framesBeforeCompaction);
+const compactedSettled = compactedFrames.at(-1);
+if (!anchoredBeforeCompaction || anchoredBeforeCompaction.anchor === '-') {
+  throw new Error(`compaction repro never anchored before the trim: ${JSON.stringify(anchoredBeforeCompaction)}`);
+}
+if (!compactedFrames.length
+  || !compactedSettled
+  || compactedSettled.following !== true
+  || compactedSettled.scrollTarget !== 0
+  || compactedSettled.anchor !== '-') {
+  throw new Error(`compaction left the transcript locked to a deleted anchor: ${JSON.stringify({
+    anchoredBeforeCompaction,
+    compactedFrames,
+  })}`);
+}
+
+// Opencode parity (createAutoScroll: a viewport that cannot scroll clears
+// userScrolled): once a trim leaves the transcript SHORTER than the viewport
+// there is no reading position left to protect, so follow re-arms.
+const NO_OVERFLOW_STREAM_ID = 'no-overflow-tail';
+const noOverflowFrames = [];
+const noOverflowProps = {
+  initialScroll: 4,
+  streamId: NO_OVERFLOW_STREAM_ID,
+  sessionKey: 'no-overflow-session',
+  recordFrame: false,
+  onFrame: (frame) => noOverflowFrames.push(frame),
+};
+const noOverflowInstance = render(
+  <Harness {...noOverflowProps} text={SCRIPT} step={0} history={HISTORY} />,
+  { stdout: fakeTty(COLUMNS, VIEW_ROWS), stderr: fakeTty(COLUMNS, VIEW_ROWS), stdin: fakeTty(COLUMNS, VIEW_ROWS), interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 },
+);
+await settle(noOverflowInstance);
+noOverflowInstance.rerender(
+  <Harness {...noOverflowProps} text={`${SCRIPT}\nstill reading history`} step={1} history={HISTORY} />,
+);
+await settle(noOverflowInstance);
+const framesBeforeShrink = noOverflowFrames.length;
+noOverflowInstance.rerender(
+  <Harness {...noOverflowProps} streamId="no-overflow-short-tail" text="short tail" step={2} history={[]} />,
+);
+await settle(noOverflowInstance);
+await settle(noOverflowInstance);
+noOverflowInstance.unmount();
+await noOverflowInstance.waitUntilExit();
+noOverflowInstance.cleanup();
+const shrunkFrames = noOverflowFrames.slice(framesBeforeShrink);
+const shrunkSettled = shrunkFrames.at(-1);
+if (!shrunkFrames.length
+  || !shrunkSettled
+  || shrunkSettled.following !== true
+  || shrunkSettled.scrollTarget !== 0) {
+  throw new Error(`a transcript that no longer overflows kept auto-scroll released: ${JSON.stringify(shrunkFrames)}`);
 }
 console.log('tui-transcript-jitter-harness: ok');
 

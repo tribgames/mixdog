@@ -1339,7 +1339,7 @@ export function SourceControlDock({
       <div className="dock-scm-file-actions">
         <button type="button" aria-label={`Open file ${file.path}`}
           onClick={() => onOpenFile?.(projectPath, file.path)}>
-          <FileText size={13} aria-hidden="true" />
+          <FileText size={14} aria-hidden="true" />
         </button>
         {/* Conflicted rows keep their resolve affordance; that is the only
             place the index is still touched by hand. */}
@@ -1348,11 +1348,11 @@ export function SourceControlDock({
               disabled={Boolean(busy)}
               onClick={() => void run(`resolve:${file.path}`,
                 () => api?.gitStage?.(projectPath, pathsFor(file)))}>
-              <Check size={13} aria-hidden="true" />
+              <Check size={14} aria-hidden="true" />
             </button>
           : <button type="button" aria-label={`Discard changes ${file.path}`}
               disabled={Boolean(busy)} onClick={discardActionFiles}>
-              <Undo2 size={13} aria-hidden="true" />
+              <Undo2 size={14} aria-hidden="true" />
             </button>}
       </div>
     </div>;
@@ -1424,7 +1424,7 @@ export function SourceControlDock({
     label: `Fetch ${remoteName}`,
     reason: "",
     blocked: false,
-    icon: <RefreshCw size={13} aria-hidden="true" />,
+    icon: <RefreshCw size={14} aria-hidden="true" />,
     perform: () => void run("fetch", () => api?.gitFetch?.(projectPath)),
   };
   const publishEntry = (key: string, label: string) => ({
@@ -1435,7 +1435,7 @@ export function SourceControlDock({
     label,
     reason: "",
     blocked: false,
-    icon: <CloudUpload size={13} aria-hidden="true" />,
+    icon: <CloudUpload size={14} aria-hidden="true" />,
     perform: () => void run("push", () => api?.gitPush?.(projectPath)),
   });
   /** A rung that is on the ladder but cannot act (reference: the disabled
@@ -1459,7 +1459,7 @@ export function SourceControlDock({
     label: `Push ${remoteName}`,
     reason: "",
     blocked: false,
-    icon: <ArrowUp size={13} aria-hidden="true" />,
+    icon: <ArrowUp size={14} aria-hidden="true" />,
     perform: () => void run("push", () => api?.gitPush?.(projectPath)),
   };
   const remoteEntry = !status ? null
@@ -1487,7 +1487,7 @@ export function SourceControlDock({
                 label: `Pull ${remoteName}`,
                 reason: "",
                 blocked: false,
-                icon: <ArrowDown size={13} aria-hidden="true" />,
+                icon: <ArrowDown size={14} aria-hidden="true" />,
                 perform: () => void run("pull", () => api?.gitPull?.(projectPath)),
               }
               : pushEntry;
@@ -1534,8 +1534,8 @@ export function SourceControlDock({
       disabled={Boolean(headerFetchReason)}
       onClick={fetchEntry.perform}>
       {busy === "fetch"
-        ? <ProgressSpinner size={13} aria-hidden="true" />
-        : <RefreshCw size={13} aria-hidden="true" />}
+        ? <ProgressSpinner size={14} aria-hidden="true" />
+        : <RefreshCw size={14} aria-hidden="true" />}
     </button>, headerSlot)
     : null;
   /** Stash grammar (filter-changes-list.tsx:549-556 `Stash all changes`): the
@@ -1610,7 +1610,7 @@ export function SourceControlDock({
               : openBranchPicker());
           }}
           onPointerCancel={branchPickerClickGuard.clearPointerActivation}>
-          <GitBranch size={13} aria-hidden="true" />
+          <GitBranch size={14} aria-hidden="true" />
           <span>{status.detached ? "Detached HEAD" : status.branch || "No branch"}</span>
           <ChevronDown size={12} aria-hidden="true" />
         </button>
@@ -1702,8 +1702,8 @@ export function SourceControlDock({
                     ? mergeIntoCurrent(branch)
                     : checkoutBranch(branch)}>
                   {branch.current
-                    ? <Check size={13} aria-hidden="true" />
-                    : <GitBranch size={13} aria-hidden="true" />}
+                    ? <Check size={14} aria-hidden="true" />
+                    : <GitBranch size={14} aria-hidden="true" />}
                   <span>{branch.name}</span>
                   {/* Per-branch last-commit age, the reference's branch row
                       metadata; falls back to the upstream when the main
@@ -1729,7 +1729,7 @@ export function SourceControlDock({
               ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
               : `Choose a branch to merge into ${status.branch}`}
             onClick={() => setMergeMode((current) => !current)}>
-            <GitMerge size={13} aria-hidden="true" />
+            <GitMerge size={14} aria-hidden="true" />
             <span>Choose a branch to merge into <strong>{status.branch}</strong></span>
           </button>}
         </div>, document.body)}
@@ -1748,7 +1748,7 @@ export function SourceControlDock({
           disabled={Boolean(busy) || Boolean(status.operation) || remoteEntry.blocked}
           onClick={remoteEntry.perform}>
           {busy === remoteEntry.runKey
-            ? <ProgressSpinner size={13} aria-hidden="true" />
+            ? <ProgressSpinner size={14} aria-hidden="true" />
             : remoteEntry.icon}
           {/* Degradation order: the icon and the ahead/behind badge always
               survive, the remote NAME drops first, then the verb — the label
@@ -1768,9 +1768,9 @@ export function SourceControlDock({
             <span className="dock-scm-ahead-behind"
               data-directions={bothDirections ? "both" : "one"}>
               {aheadCount > 0 && <span>{aheadCount}
-                {bothDirections && <ArrowUp size={10} aria-hidden="true" />}</span>}
+                {bothDirections && <ArrowUp size={12} aria-hidden="true" />}</span>}
               {behindCount > 0 && <span>{behindCount}
-                {bothDirections && <ArrowDown size={10} aria-hidden="true" />}</span>}
+                {bothDirections && <ArrowDown size={12} aria-hidden="true" />}</span>}
             </span>}
         </button>
       </div>}
@@ -1787,13 +1787,13 @@ export function SourceControlDock({
             aria-label="Filter changed files" placeholder="Filter"
             onInput={(event) => setFileFilter(event.currentTarget.value)} />
           {fileFilter && <button type="button" aria-label="Clear the file filter"
-            onClick={() => setFileFilter("")}><X size={13} aria-hidden="true" /></button>}
+            onClick={() => setFileFilter("")}><X size={14} aria-hidden="true" /></button>}
         </> : <>
           <input type="search" value={historyQuery} placeholder="Search commits"
             aria-label="Search commits"
             onInput={(event) => setHistoryQuery(event.currentTarget.value)} />
           {historyQuery && <button type="button" aria-label="Clear the commit search"
-            onClick={() => setHistoryQuery("")}><X size={13} aria-hidden="true" /></button>}
+            onClick={() => setHistoryQuery("")}><X size={14} aria-hidden="true" /></button>}
         </>}
       </label>
       {(() => {
@@ -1905,19 +1905,19 @@ export function SourceControlDock({
               data-tooltip="Stage All"
               disabled={Boolean(busy) || files.length === 0}
               onClick={() => setAllIncluded(true, files)}>
-              <Check size={13} aria-hidden="true" />
+              <Check size={14} aria-hidden="true" />
             </button>
             <button type="button" aria-label="Unstage All" title="Unstage All"
               data-tooltip="Unstage All"
               disabled={Boolean(busy) || files.length === 0}
               onClick={() => setAllIncluded(false, files)}>
-              <Minus size={13} aria-hidden="true" />
+              <Minus size={14} aria-hidden="true" />
             </button>
             <button type="button" className="danger" aria-label="Discard All"
               title="Discard All" data-tooltip="Discard All"
               disabled={Boolean(busy) || files.length === 0}
               onClick={discardAllChanges}>
-              <Undo2 size={13} aria-hidden="true" />
+              <Undo2 size={14} aria-hidden="true" />
             </button>
             {/* Stash all changes / Pop stash: the reference hangs them off the
                 changed-files list (filter-changes-list.tsx:549-556), which is
@@ -1927,14 +1927,14 @@ export function SourceControlDock({
               data-tooltip={stashReason || "Stash Changes"}
               disabled={Boolean(stashReason)}
               onClick={stashChanges}>
-              <Archive size={13} aria-hidden="true" />
+              <Archive size={14} aria-hidden="true" />
             </button>
             <button type="button" aria-label="Pop Stash"
               title={popStashReason || "Pop Stash"}
               data-tooltip={popStashReason || "Pop Stash"}
               disabled={Boolean(popStashReason)}
               onClick={popStash}>
-              <ArchiveRestore size={13} aria-hidden="true" />
+              <ArchiveRestore size={14} aria-hidden="true" />
             </button>
             {/* ONE flat changed-files list leaves ordering as the only view
                 choice (the deleted menu's View & Sort group). */}
@@ -1987,7 +1987,7 @@ export function SourceControlDock({
                 ));
               }}
               onPointerCancel={viewSortClickGuard.clearPointerActivation}>
-              <ArrowUpDown size={13} aria-hidden="true" />
+              <ArrowUpDown size={14} aria-hidden="true" />
             </button>
           </span>
         </div>
@@ -2090,7 +2090,7 @@ export function SourceControlDock({
           <div className="dock-scm-commit-split">
             <button type="submit" className="dock-scm-commit-button"
               disabled={primaryDisabled} title={primaryTitle}>
-              {committing && <ProgressSpinner size={13} aria-hidden="true" />}
+              {committing && <ProgressSpinner size={14} aria-hidden="true" />}
               {/* Wrapped like .model-trigger > span so a narrow dock
                   ellipsizes the label instead of clipping the button. */}
               <span>
@@ -2143,8 +2143,8 @@ export function SourceControlDock({
               title={copyState ? copyState.ok ? "Copied" : "Copy failed" : "Copy the full SHA"}
               onClick={() => void copyCommitSha(commitDetail.hash)}>
               {copyState?.ok
-                ? <Check size={11} aria-hidden="true" />
-                : <Copy size={11} aria-hidden="true" />}
+                ? <Check size={12} aria-hidden="true" />
+                : <Copy size={12} aria-hidden="true" />}
             </button>
             {/* The copy outcome is announced, never left to the icon alone. */}
             <span className="dock-scm-copy-status" role="status" aria-live="polite">

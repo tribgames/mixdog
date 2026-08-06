@@ -32,7 +32,7 @@ const isShiftFollowToken = (tok) => {
   return ALL_PRIMARY_VERBS.has(v) || v === 'why' || v === 'core'
 }
 
-async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispatch) {
+async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispatch, signal = null) {
   return await llmCall({
     agent: 'cycle2-agent',
     taskType: 'maintenance',
@@ -40,6 +40,7 @@ async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispa
     preset,
     timeout,
     cwd: null,
+    signal,
   }, prompt)
 }
 
@@ -357,7 +358,7 @@ export async function runUnifiedGate(db, rows, activeContext, config = {}, optio
   const callOnce = async (extraTag) => {
     throwIfAborted(signal)
     const p = extraTag ? `${prompt}\n\n[retry:${extraTag}]` : prompt
-    const raw = await invokeLlm(p, mode, preset, timeout, options.callLlm)
+    const raw = await invokeLlm(p, mode, preset, timeout, options.callLlm, signal)
     throwIfAborted(signal)
     return raw
   }
@@ -518,6 +519,7 @@ export async function sonnetCascade(candidates, rulesDigest, options = {}) {
       preset,
       timeout: 600000,
       cwd: null,
+      signal,
     }, prompt)
   } catch (err) {
     if (signal?.aborted) throw signal.reason ?? err

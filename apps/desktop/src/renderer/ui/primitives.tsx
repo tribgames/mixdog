@@ -53,7 +53,7 @@ export function IconButton({
   return <button {...props} type={props.type || "button"}
     className={classes("mx-icon-button", className)} aria-label={label}
     data-tooltip={label}>
-    <MxIcon name={icon} size={15} />
+    <MxIcon name={icon} size={16} />
   </button>;
 }
 

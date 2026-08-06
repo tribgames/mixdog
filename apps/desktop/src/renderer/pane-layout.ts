@@ -192,7 +192,10 @@ export function openTabInPaneLeaf(
         return {
           ...leaf,
           tabs,
-          activeKey: key,
+          // Background materialization replaces the draft tab in place but
+          // must not steal the group back from a tab the user selected while
+          // the submit acknowledgement was in flight.
+          activeKey: leaf.activeKey === replaceKey ? key : leaf.activeKey,
           previewKey: leaf.previewKey === replaceKey
             ? (preview ? key : undefined)
             : leaf.previewKey,

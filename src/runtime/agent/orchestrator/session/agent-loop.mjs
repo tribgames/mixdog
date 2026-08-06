@@ -410,6 +410,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // tool batch, before the continuation provider send. Normal batches drain
     // up to 'next'; a Sleep-like tool grants a 'later' flush.
     let _toolBatchJustCompleted = false;
+    let _lastToolBatchEndedAt = 0;
     let _lastToolBatchHadSleep = false;
     const isSleepLikeToolCall = (call) => {
         const name = String(call?.name || call?.toolName || call?.function?.name || '').toLowerCase();
@@ -457,7 +458,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 // non-empty final so callers never see an empty response.
                 if (response && !String(response.content || '').trim()) {
                     response.content = sessionAgent === 'explorer'
-                        ? 'EXPLORATION_FAILED'
+                        ? 'EXPLORATION_FAILED [iteration-cap] — explorer hit its tool-turn cap with zero anchors; retry once with changed tokens or a narrower root'
                         : '[iteration cap reached before final text]';
                     if (Array.isArray(response.toolCalls)) response.toolCalls = [];
                 }
@@ -632,6 +633,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 return result;
             };
         const sendStartedAt = Date.now();
+        const preSendMs = sendStartedAt - _iterT0;
+        const toolResumeMs = _lastToolBatchEndedAt
+            ? sendStartedAt - _lastToolBatchEndedAt
+            : null;
         try { opts.onProviderSendStarted?.(); } catch {}
         const _sendResult = await runWithProviderRequestToolsScope(
             requestToolScope,
@@ -679,6 +684,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 sessionId,
                 iteration: iterations,
                 sendMs: Date.now() - sendStartedAt,
+                preSendMs,
+                toolResumeMs,
                 messageCount: Array.isArray(messages) ? messages.length : 0,
                 bodyBytesEst: _traceVerbose
                     ? estimateProviderPayloadBytes(messages, model, sendTools)
@@ -1050,15 +1057,24 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         }));
         // Settle the stop hook on the batch that actually executed.
         _toolFailureStopHook.endBatch(_callsToExecute);
+        const _toolsEndedAt = Date.now();
+        try {
+            opts.onToolPhaseCompleted?.({
+                iteration: nextIteration,
+                calls: _callsToExecute.length,
+                elapsedMs: _toolsEndedAt - _toolsT0,
+            });
+        } catch {}
         // Loop-phase timing (diagnostics): where non-model time goes per
         // iteration — presend (repair/compact/snapshot), send (provider
         // round-trip incl. streaming), tools (batch execution). Gated by the
         // same env as [turn-timing] so bench runs opt in via -AgentEnv.
         if (process.env.MIXDOG_TURN_TIMING === '1') {
             try {
-                process.stderr.write(`[loop-timing] iter=${nextIteration} presend=${sendStartedAt - _iterT0}ms send=${_sendEndedAt - sendStartedAt}ms tools=${Date.now() - _toolsT0}ms calls=${_callsToExecute.length}\n`);
+                process.stderr.write(`[loop-timing] iter=${nextIteration} presend=${preSendMs}ms send=${_sendEndedAt - sendStartedAt}ms tools=${_toolsEndedAt - _toolsT0}ms calls=${_callsToExecute.length}\n`);
             } catch { /* diagnostics only */ }
         }
+        _lastToolBatchEndedAt = _toolsEndedAt;
         _toolBatchJustCompleted = true;
         _continuationsSinceToolBatch = 0;
         _lastToolBatchHadSleep = _callsToExecute.some(isSleepLikeToolCall);

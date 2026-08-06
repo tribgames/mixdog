@@ -9,7 +9,7 @@
  * byte-identical to the original inline hooks. Import-level helpers (paste
  * attachments) are imported directly here.
  */
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   readClipboardImageAttachment,
   readClipboardText,
@@ -20,6 +20,8 @@ import {
   shouldFoldPastedText,
 } from '../paste-attachments.mjs';
 import { promptHistoryKey } from '../prompt-history-store.mjs';
+import { promptInterruptRestoreText } from '../components/prompt-input/interrupt-policy.mjs';
+import { PROMPT_ESCAPE_CLEAR_WINDOW_MS } from '../components/prompt-input/escape-policy.mjs';
 
 export function usePromptHandlers({
   store,
@@ -55,6 +57,8 @@ export function usePromptHandlers({
   clearPastedTextsSnapshot,
   registerPastedText,
 }) {
+  const interruptGenerationRef = useRef(0);
+  const pendingInterruptRestoreRef = useRef(null);
   const handlePromptPaste = useCallback((text, meta = {}) => {
     const source = String(meta?.source || 'paste');
     const value = String(text ?? '');
@@ -197,16 +201,24 @@ export function usePromptHandlers({
 
   // ESC / Up handling (prompt input):
   // - prompt-local overlays such as the slash palette close first.
-  // - queued editable messages pop back into the prompt before clear/interrupt.
-  // - non-empty prompt text is cleared by PromptInput and must never interrupt
-  //   the active turn on the same Esc press.
-  // - empty prompt + active turn interrupts the active turn.
+  // - active work is cancelled before queue/draft handling.
+  // - idle non-empty text uses Claude Code's "Esc again to clear" guard.
+  // - idle empty input restores queued editable messages.
   const handlePromptEscape = useCallback((text = '', meta = {}) => {
     if (usagePanel) { closeUsagePanel(); return true; }
     if (contextPanel) { setContextPanel(null); return true; }
 
+    if (meta.phase === 'clear-arm') {
+      showPromptHint('Esc again to clear', 'plain', PROMPT_ESCAPE_CLEAR_WINDOW_MS);
+      return true;
+    }
     if (meta.phase === 'clear') {
+      try {
+        const remembered = store.rememberPromptHistory?.(text);
+        if (remembered?.catch) void remembered.catch(() => {});
+      } catch { /* best-effort history parity */ }
       clearPastedImagesSnapshot();
+      clearPastedTextsSnapshot();
       clearPromptHint();
       return false;
     }
@@ -216,22 +228,63 @@ export function usePromptHandlers({
     // Idle + empty + nothing to restore: nothing (double-press from empty
     // opens message selector, but we don't have that feature yet).
     return false;
-  }, [contextPanel, usagePanel, closeUsagePanel, restoreQueuedToPrompt, clearPromptHint, clearPastedImagesSnapshot, store]);
+  }, [contextPanel, usagePanel, closeUsagePanel, restoreQueuedToPrompt, showPromptHint, clearPromptHint, clearPastedImagesSnapshot, clearPastedTextsSnapshot, store]);
+
+  const commitAsyncInterruptRestore = useCallback((pending) => {
+    if (!pending || pending.generation !== interruptGenerationRef.current) return true;
+    if (store.getState?.().busy) return false;
+    const restoreText = promptInterruptRestoreText(pending.result, promptValueRef.current);
+    if (!restoreText) return true;
+    if (pending.result?.pastedImages) installPastedImages(pending.result.pastedImages, { merge: true });
+    if (pending.result?.pastedTexts) installPastedTexts(pending.result.pastedTexts, { merge: true });
+    clearPromptHint();
+    syncPromptLayoutRows(restoreText);
+    setPromptDraftOverride({ id: Date.now(), value: restoreText });
+    return true;
+  }, [store, promptValueRef, installPastedImages, installPastedTexts, clearPromptHint, syncPromptLayoutRows, setPromptDraftOverride]);
+
+  useEffect(() => {
+    const pending = pendingInterruptRestoreRef.current;
+    if (!pending) return;
+    if (commitAsyncInterruptRestore(pending)) pendingInterruptRestoreRef.current = null;
+  }, [state.busy, commitAsyncInterruptRestore]);
 
   const handlePromptInterrupt = useCallback((currentText = '') => {
-    const result = store.abort?.();
-    if (result?.aborted === false) return undefined;
-    if (result?.pastedImages) installPastedImages(result.pastedImages, { merge: true });
-    if (result?.discardPastedImages) clearPastedImagesSnapshot(result.discardPastedImages);
-    if (result?.pastedTexts) installPastedTexts(result.pastedTexts, { merge: true });
-    if (result?.discardPastedTexts) clearPastedTextsSnapshot(result.discardPastedTexts);
-    const restoreText = String(result?.restoreText || '').trim();
-    if (!restoreText) return undefined;
-    const existingText = String(currentText || '').trim();
-    const nextText = [restoreText, existingText].filter(Boolean).join('\n');
-    clearPromptHint();
-    return nextText;
-  }, [store, clearPromptHint, installPastedImages, clearPastedImagesSnapshot]);
+    const generation = ++interruptGenerationRef.current;
+    pendingInterruptRestoreRef.current = null;
+    const applyResult = (result, draftText, asyncResult = false) => {
+      if (generation !== interruptGenerationRef.current || result?.aborted === false) return undefined;
+      if (result?.discardPastedImages) clearPastedImagesSnapshot(result.discardPastedImages);
+      if (result?.discardPastedTexts) clearPastedTextsSnapshot(result.discardPastedTexts);
+      if (asyncResult) {
+        const pending = { generation, result };
+        if (!commitAsyncInterruptRestore(pending)) pendingInterruptRestoreRef.current = pending;
+        return undefined;
+      }
+      const restoreText = promptInterruptRestoreText(result, draftText);
+      if (!restoreText) return undefined;
+      if (result?.pastedImages) installPastedImages(result.pastedImages, { merge: true });
+      if (result?.pastedTexts) installPastedTexts(result.pastedTexts, { merge: true });
+      clearPromptHint();
+      return restoreText;
+    };
+
+    let result;
+    try {
+      const options = { restorePrompt: String(currentText ?? '') === '' };
+      result = typeof store.abortAsync === 'function' ? store.abortAsync(options) : store.abort?.(options);
+    } catch (error) {
+      store.pushNotice?.(`interrupt failed: ${error?.message || error}`, 'error');
+      return undefined;
+    }
+    if (result && typeof result.then === 'function') {
+      void Promise.resolve(result)
+        .then((resolved) => applyResult(resolved, promptValueRef.current, true))
+        .catch((error) => store.pushNotice?.(`interrupt failed: ${error?.message || error}`, 'error'));
+      return undefined;
+    }
+    return applyResult(result, currentText, false);
+  }, [store, commitAsyncInterruptRestore, clearPromptHint, installPastedImages, installPastedTexts, clearPastedImagesSnapshot, clearPastedTextsSnapshot]);
 
   return {
     handlePromptPaste,

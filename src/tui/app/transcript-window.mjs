@@ -69,6 +69,22 @@ export const SELECTION_PAINT_INTERVAL_MS = positiveIntEnv('MIXDOG_TUI_SELECTION_
 export const SCROLL_COALESCE_MS = positiveIntEnv('MIXDOG_TUI_SCROLL_COALESCE_MS', 16);
 export const PROMPT_HISTORY_LIMIT = 50;
 
+// Accumulate same-direction wheel/edge-drag deltas, but never retain movement
+// from the opposite direction. Without this reset a quick wheel reversal could
+// apply an older queued delta one frame later and visibly roll the transcript
+// back against the user's latest gesture. Returns true when the direction
+// changed so the caller can cancel its old coalescing timer and flush now.
+export function accumulateDirectionalScrollDelta(state, deltaRows) {
+  const delta = Number(deltaRows) || 0;
+  if (!delta) return false;
+  const direction = Math.sign(delta);
+  const reversed = Boolean(state.direction && state.direction !== direction);
+  if (reversed) state.pendingRows = 0;
+  state.direction = direction;
+  state.pendingRows += delta;
+  return reversed;
+}
+
 // Parse a boolean env var that DEFAULTS ON. Any of 0/false/off/no (case-
 // insensitive, trimmed) disables it; everything else (including unset) leaves it
 // on. Used as the kill switch for the app-level measured-height feature below.
@@ -645,6 +661,28 @@ export function transcriptRowAt(values, index) {
   return typeof values.atIndex === 'function'
     ? values.atIndex(index)
     : (Number(values[index]) || 0);
+}
+
+/** True when a transcript items swap destroyed the reader's position and the
+ *  viewport must return to the live tail with follow re-armed.
+ *
+ *  A bulk swap (session load/clear, mid-turn COMPACTION) drops the history the
+ *  reader was anchored to. Compaction pushes its status row in the SAME commit
+ *  that trims the head, so the item count can stay level or even grow: a
+ *  count-drop test alone left auto-scroll released with an anchor lock on a
+ *  deleted row, and every new row piled up below the fold for the rest of the
+ *  session (user: 컴팩션된 이후로 자동 스크롤이 풀린다). Live appends never
+ *  touch index 0, so a changed HEAD id is the bulk-swap signal. */
+export function transcriptSwapReturnsToTail({
+  count = 0,
+  previousCount = 0,
+  firstId = null,
+  previousFirstId = null,
+} = {}) {
+  if (previousCount === 0) return true;
+  if (count < previousCount) return true;
+  if (count === 0) return false;
+  return firstId != null && previousFirstId != null && firstId !== previousFirstId;
 }
 
 function appendTranscriptRow(prefix, tailValue) {

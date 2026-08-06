@@ -138,18 +138,12 @@ export async function buildDoctorReport(runtime = {}, getState = () => ({})) {
     row(failed.length || conn < conf ? 'warn' : 'ok', detail);
   });
 
-  // 5. memory: enabled/disabled (+ backend health only if the accessor
-  //    already exposes it; no new probing).
+  // 5. memory recap: background-cycle state. Memory ingest, on-demand recall,
+  //    and curated core memory are always available.
   await check('memory', async (row) => {
-    const mem = runtime.getMemorySettings?.() || {};
-    const enabled = mem.enabled !== false;
-    let detail = enabled ? 'enabled' : 'disabled';
-    if (mem.backend) detail += ` · backend ${mem.backend}`;
-    const health = mem.backendHealth || mem.health;
-    if (health != null) {
-      detail += ` · ${typeof health === 'string' ? health : (health.ok ? 'healthy' : 'unhealthy')}`;
-    }
-    row(enabled ? 'ok' : 'warn', detail);
+    const recap = runtime.getRecapSettings?.() || {};
+    const enabled = recap.enabled !== false;
+    row('ok', `recap ${enabled ? 'enabled' : 'disabled'} · core memory available`);
   });
 
   // 6. channels: enabled + worker status + configured tokens (names only).

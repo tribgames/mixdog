@@ -1,18 +1,12 @@
 'use strict';
 
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { detachedSpawnOpts } from './spawn-flags.mjs';
 
 function positiveInt(value) {
   const n = Number(value);
   return Number.isInteger(n) && n > 0 ? n : null;
-}
-
-const DEFAULT_MIN_FREE_MEMORY_MB = 1024;
-
-export function childGuardianMemoryFloorMb(env = process.env) {
-  const n = Math.floor(Number(env.MIXDOG_MIN_FREE_MEMORY_MB));
-  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_MIN_FREE_MEMORY_MB;
 }
 
 export function childGuardianSpawnEnv(env = process.env) {
@@ -29,40 +23,25 @@ export function childGuardianSpawnEnv(env = process.env) {
   };
 }
 
-function guardianScript({
-  parentPid,
-  childPid,
-  childGroupPid,
-  platform,
-  pollMs,
-  orphanGraceMs,
-  forceGraceMs,
-  minFreeMemoryMb,
-  receiptPath,
-}) {
+function guardianBrokerScript() {
   return `
 const { spawnSync } = require('node:child_process');
-const { freemem } = require('node:os');
-const parentPid = ${JSON.stringify(parentPid)};
-const childPid = ${JSON.stringify(childPid)};
-const childGroupPid = ${JSON.stringify(childGroupPid || childPid)};
-const platform = ${JSON.stringify(platform)};
-const pollMs = ${JSON.stringify(pollMs)};
-const orphanGraceMs = ${JSON.stringify(orphanGraceMs)};
-const forceGraceMs = ${JSON.stringify(forceGraceMs)};
-const minFreeMemoryBytes = ${JSON.stringify(minFreeMemoryMb * 1024 * 1024)};
-const receiptPath = ${JSON.stringify(receiptPath || null)};
+const platform = ${JSON.stringify(process.platform)};
+const targets = new Map();
+let input = '';
+let everHadTarget = false;
+let emptySince = 0;
 // Kill receipt: guardian kills are otherwise indistinguishable from a crashed
 // wrapper ("process exited without reporting an exit code"). Written BEFORE
 // the kill so the owner's next status refresh can attribute the death.
-function writeReceipt(reason, extra) {
-  if (!receiptPath) return;
+function writeReceipt(target, reason, extra) {
+  if (!target.receiptPath) return;
   try {
-    require('node:fs').writeFileSync(receiptPath, JSON.stringify({
+    require('node:fs').writeFileSync(target.receiptPath, JSON.stringify({
       reason,
       at: new Date().toISOString(),
       guardianPid: process.pid,
-      childPid,
+      childPid: target.childPid,
       ...extra,
     }));
   } catch {}
@@ -72,55 +51,184 @@ function alive(pid) {
   try { process.kill(pid, 0); return true; }
   catch (error) { return error && error.code === 'EPERM'; }
 }
-function killTarget(force) {
+function killTarget(target, force) {
   if (platform === 'win32') {
     const systemRoot = process.env.SystemRoot || process.env.WINDIR || 'C:\\\\Windows';
     const taskkill = systemRoot + '\\\\System32\\\\taskkill.exe';
     if (force) {
-      try { spawnSync(taskkill, ['/PID', String(childPid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }); } catch {}
+      try { spawnSync(taskkill, ['/PID', String(target.childPid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }); } catch {}
     } else {
-      try { process.kill(childPid, 'SIGTERM'); } catch {}
-      try { spawnSync(taskkill, ['/PID', String(childPid), '/T'], { stdio: 'ignore', windowsHide: true }); } catch {}
+      try { process.kill(target.childPid, 'SIGTERM'); } catch {}
+      try { spawnSync(taskkill, ['/PID', String(target.childPid), '/T'], { stdio: 'ignore', windowsHide: true }); } catch {}
     }
     return;
   }
   const signal = force ? 'SIGKILL' : 'SIGTERM';
-  try { process.kill(-childGroupPid, signal); return; } catch {}
-  try { process.kill(childPid, signal); } catch {}
+  try { process.kill(-target.childGroupPid, signal); return; } catch {}
+  try { process.kill(target.childPid, signal); } catch {}
 }
-let killing = false;
-let orphanedAt = 0;
-const timer = setInterval(() => {
-  if (!alive(childPid)) process.exit(0);
-  // Admission protects only NEW work. A running shell can still consume the
-  // host after it starts, so reclaim its entire tree before it starves the
-  // owning Mixdog process. Force is intentional: at the memory floor there is
-  // no safe grace window for a runaway allocator.
-  if (!killing && minFreeMemoryBytes > 0) {
-    let freeBytes = Number.POSITIVE_INFINITY;
-    try { freeBytes = Number(freemem()); } catch {}
-    if (Number.isFinite(freeBytes) && freeBytes < minFreeMemoryBytes) {
-      killing = true;
-      writeReceipt('host-memory-floor', { freeBytes, minFreeMemoryBytes });
-      killTarget(true);
-      process.exit(0);
-    }
-  }
-  // Orphaned when the parent PID dies. Matches mainstream CLIs: no console
-  // probe — a hidden shell spawn (windowsHide) plus tree-kill on cleanup, so
-  // orphan detection is pure parent-liveness.
-  if (alive(parentPid)) {
-    orphanedAt = 0;
+function accept(message) {
+  if (!message || typeof message !== 'object') return;
+  const id = String(message.id || '');
+  if (!id) return;
+  if (message.type === 'remove') {
+    targets.delete(id);
     return;
   }
-  if (!orphanedAt) orphanedAt = Date.now();
-  if (killing || Date.now() - orphanedAt < orphanGraceMs) return;
-  killing = true;
-  writeReceipt('parent-exit', {});
-  killTarget(false);
-  setTimeout(() => { if (alive(childPid)) killTarget(true); process.exit(0); }, forceGraceMs).unref?.();
-}, pollMs);
+  if (message.type !== 'add') return;
+  const childPid = Number(message.childPid);
+  const parentPid = Number(message.parentPid);
+  if (!Number.isInteger(childPid) || childPid <= 0
+    || !Number.isInteger(parentPid) || parentPid <= 0) return;
+  targets.set(id, {
+    id,
+    parentPid,
+    childPid,
+    childGroupPid: Number(message.childGroupPid) || childPid,
+    pollMs: Math.max(100, Number(message.pollMs) || 750),
+    orphanGraceMs: Math.max(100, Number(message.orphanGraceMs) || 3000),
+    forceGraceMs: Math.max(100, Number(message.forceGraceMs) || 3000),
+    receiptPath: typeof message.receiptPath === 'string' ? message.receiptPath : null,
+    orphanedAt: 0,
+    lastPolledAt: 0,
+    killing: false,
+  });
+  everHadTarget = true;
+  emptySince = 0;
+}
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  input += chunk;
+  let newline;
+  while ((newline = input.indexOf('\\n')) >= 0) {
+    const line = input.slice(0, newline);
+    input = input.slice(newline + 1);
+    try { accept(JSON.parse(line)); } catch {}
+  }
+});
+const timer = setInterval(() => {
+  const now = Date.now();
+  for (const [id, target] of targets) {
+    if (now - target.lastPolledAt < target.pollMs) continue;
+    target.lastPolledAt = now;
+    if (!alive(target.childPid)) {
+      targets.delete(id);
+      continue;
+    }
+    if (alive(target.parentPid)) {
+      target.orphanedAt = 0;
+      continue;
+    }
+    if (!target.orphanedAt) target.orphanedAt = now;
+    if (target.killing || now - target.orphanedAt < target.orphanGraceMs) continue;
+    target.killing = true;
+    writeReceipt(target, 'parent-exit', {});
+    killTarget(target, false);
+    setTimeout(() => {
+      if (alive(target.childPid)) killTarget(target, true);
+      targets.delete(id);
+    }, target.forceGraceMs).unref?.();
+  }
+  // Pay for one Node supervisor only while it owns at least one live child.
+  // A short empty grace absorbs command-to-command reuse without keeping the
+  // broker resident for the whole daemon lifetime.
+  if (targets.size > 0) emptySince = 0;
+  else if (everHadTarget) {
+    if (!emptySince) emptySince = now;
+    else if (now - emptySince >= 1000) process.exit(0);
+  }
+}, 100);
 `;
+}
+
+let sharedBroker = null;
+let brokerRestartTimer = null;
+let brokerTargetSweepTimer = null;
+const brokerTargets = new Map();
+
+function sendBrokerMessage(message) {
+  try {
+    if (!sharedBroker?.stdin?.writable) return false;
+    sharedBroker.stdin.write(`${JSON.stringify(message)}\n`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function targetPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+}
+
+function stopBrokerTargetSweepIfIdle() {
+  if (brokerTargets.size > 0 || !brokerTargetSweepTimer) return;
+  clearInterval(brokerTargetSweepTimer);
+  brokerTargetSweepTimer = null;
+}
+
+function removeBrokerTarget(id, { notify = true } = {}) {
+  const target = brokerTargets.get(id);
+  if (!target) return false;
+  brokerTargets.delete(id);
+  try { target.onRemoved?.(); } catch {}
+  if (notify) sendBrokerMessage({ type: 'remove', id });
+  stopBrokerTargetSweepIfIdle();
+  return true;
+}
+
+function ensureBrokerTargetSweep() {
+  if (brokerTargetSweepTimer) return;
+  brokerTargetSweepTimer = setInterval(() => {
+    for (const [id, target] of brokerTargets) {
+      if (!targetPidAlive(target.childPid)) removeBrokerTarget(id);
+    }
+    stopBrokerTargetSweepIfIdle();
+  }, 250);
+  brokerTargetSweepTimer.unref?.();
+}
+
+function ensureSharedBroker() {
+  if (sharedBroker && sharedBroker.exitCode == null && sharedBroker.signalCode == null) {
+    return sharedBroker;
+  }
+  try {
+    const broker = spawn(process.execPath, [
+      '--no-warnings',
+      '--eval',
+      guardianBrokerScript(),
+    ], {
+      stdio: ['pipe', 'ignore', 'ignore'],
+      env: childGuardianSpawnEnv(),
+      ...detachedSpawnOpts,
+    });
+    sharedBroker = broker;
+    broker.unref?.();
+    broker.stdin?.unref?.();
+    broker.stdin?.on?.('error', () => {});
+    broker.once('exit', () => {
+      if (sharedBroker !== broker) return;
+      sharedBroker = null;
+      if (brokerTargets.size > 0 && !brokerRestartTimer) {
+        brokerRestartTimer = setTimeout(() => {
+          brokerRestartTimer = null;
+          const replacement = ensureSharedBroker();
+          if (!replacement) return;
+          for (const target of brokerTargets.values()) sendBrokerMessage(target);
+        }, 100);
+        brokerRestartTimer.unref?.();
+      }
+    });
+    for (const target of brokerTargets.values()) sendBrokerMessage(target);
+    return broker;
+  } catch {
+    sharedBroker = null;
+    return null;
+  }
 }
 
 export function startChildGuardian({
@@ -132,53 +240,41 @@ export function startChildGuardian({
   graceMs = 3000,
   orphanGraceMs = graceMs,
   forceGraceMs = graceMs,
-  protectHostMemory = false,
-  minFreeMemoryMb = protectHostMemory ? childGuardianMemoryFloorMb() : 0,
   receiptPath = null,
 } = {}) {
   const parent = positiveInt(parentPid);
   const child = positiveInt(childPid);
   if (!parent || !child || parent === child) return null;
-  const memoryFloorMb = Math.max(0, Math.floor(Number(minFreeMemoryMb) || 0));
-
-  try {
-    const guardian = spawn(process.execPath, [
-      '--no-warnings',
-      '--eval',
-      guardianScript({
-        parentPid: parent,
-        childPid: child,
-        childGroupPid: positiveInt(childGroupPid) || child,
-        platform: process.platform,
-        pollMs: Math.max(100, Math.floor(Number(pollMs) || 750)),
-        orphanGraceMs: Math.max(100, Math.floor(Number(orphanGraceMs) || Number(graceMs) || 3000)),
-        forceGraceMs: Math.max(100, Math.floor(Number(forceGraceMs) || Number(graceMs) || 3000)),
-        minFreeMemoryMb: memoryFloorMb,
-        receiptPath: typeof receiptPath === 'string' && receiptPath ? receiptPath : null,
-      }),
-    ], {
-      stdio: 'ignore',
-      env: childGuardianSpawnEnv(),
-      ...detachedSpawnOpts,
-    });
-    guardian.unref?.();
-    let stopped = false;
-    return {
-      pid: guardian.pid || null,
-      label,
-      childPid: child,
-      stop() {
-        if (stopped) return false;
-        stopped = true;
-        try {
-          guardian.kill();
-          return true;
-        } catch {
-          return false;
-        }
-      },
-    };
-  } catch {
+  const id = randomUUID();
+  let stopped = false;
+  const target = {
+    type: 'add',
+    id,
+    parentPid: parent,
+    childPid: child,
+    childGroupPid: positiveInt(childGroupPid) || child,
+    pollMs: Math.max(100, Math.floor(Number(pollMs) || 750)),
+    orphanGraceMs: Math.max(100, Math.floor(Number(orphanGraceMs) || Number(graceMs) || 3000)),
+    forceGraceMs: Math.max(100, Math.floor(Number(forceGraceMs) || Number(graceMs) || 3000)),
+    receiptPath: typeof receiptPath === 'string' && receiptPath ? receiptPath : null,
+    onRemoved: () => { stopped = true; },
+  };
+  brokerTargets.set(id, target);
+  ensureBrokerTargetSweep();
+  const broker = ensureSharedBroker();
+  if (!broker) {
+    removeBrokerTarget(id, { notify: false });
     return null;
   }
+  sendBrokerMessage(target);
+  return {
+    pid: broker.pid || null,
+    label,
+    childPid: child,
+    stop() {
+      if (stopped) return false;
+      stopped = true;
+      return removeBrokerTarget(id);
+    },
+  };
 }

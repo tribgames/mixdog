@@ -107,6 +107,7 @@ async function findFreePort(preferred) {
 // ---------------------------------------------------------------------------
 
 const MIXDOG_CONF_V2_MARKER = '# mixdog overrides v2 — bgwriter / checkpoint distribution'
+const MIXDOG_CONF_V3_MARKER = '# mixdog overrides v3 — bounded local-app resources'
 
 // Lines emitted into postgresql.conf for v2. effective_io_concurrency requires
 // posix_fadvise; PostgreSQL rejects non-zero values on Windows and macOS.
@@ -124,6 +125,21 @@ function buildV2Block() {
   return lines.join('\n') + '\n'
 }
 
+function buildV3Block() {
+  return [
+    '',
+    MIXDOG_CONF_V3_MARKER,
+    // The only long-lived pools are memory(max 5) + trace(max 5). Keep ample
+    // recovery/bootstrap headroom without reserving backend slots for 100
+    // connections this single-user local store can never use.
+    'max_connections = 32',
+    // Mixdog queries are short indexed lookups / bounded batches. LLVM compile
+    // setup adds latency and transient memory; parallel query workers remain
+    // untouched for genuinely large scans.
+    'jit = off',
+  ].join('\n') + '\n'
+}
+
 // Migration: an earlier v2 emitted effective_io_concurrency on every POSIX
 // platform. Strip it anywhere except Linux so old macOS clusters can start.
 function stripPlatformInvalidLines(conf) {
@@ -136,18 +152,25 @@ function ensureConfV2(pgdataDir) {
   if (!existsSync(confPath)) return false
   const original = readFileSync(confPath, 'utf8')
   let conf = stripPlatformInvalidLines(original)
-  const stripped = conf !== original
-  const hasMarker = conf.includes(MIXDOG_CONF_V2_MARKER)
-  if (hasMarker && !stripped) return false
-  if (!hasMarker) conf = conf + buildV2Block()
+  let changed = conf !== original
+  if (!conf.includes(MIXDOG_CONF_V2_MARKER)) {
+    conf += buildV2Block()
+    changed = true
+  }
+  if (!conf.includes(MIXDOG_CONF_V3_MARKER)) {
+    conf += buildV3Block()
+    changed = true
+  }
+  if (!changed) return false
   writeFileSync(confPath, conf)
   return true
 }
 
-// Public reconcile: idempotent conf v2 append + pg_ctl reload on a running
-// instance. Single source of truth for v2 application — supervisor and other
+// Public reconcile: idempotent current override append + pg_ctl reload on a
+// running instance. Single source of truth — supervisor and other
 // callers route through this rather than re-implementing the conf/reload pair.
-// All v2 settings are reload-applicable (no restart required).
+// Reload-compatible settings apply immediately; postmaster settings such as
+// max_connections apply on the next normal PG start (never restart live work).
 export function reconcileConfV2(runtimeDir, pgdataDir) {
   const applied = ensureConfV2(pgdataDir)
   if (!applied) return { applied: false, reloaded: false }
@@ -156,7 +179,7 @@ export function reconcileConfV2(runtimeDir, pgdataDir) {
   })
   const reloaded = reload.status === 0
   if (reloaded) {
-    __mixdogMemoryLog('[pg-process] postgresql.conf v2 overrides applied via pg_ctl reload\n')
+    __mixdogMemoryLog('[pg-process] postgresql.conf overrides reconciled via pg_ctl reload\n')
   } else {
     __mixdogMemoryLog(`[pg-process] pg_ctl reload after v2 append failed (non-fatal): ${reload.stderr?.toString() || ''}\n`)
   }
@@ -252,7 +275,7 @@ export async function startPg({
       'wal_compression = on',              // smaller WAL segments; fewer bytes for Defender to scan per segment
       'wal_init_zero = off',               // skips zero-fill on new WAL segment; cuts Defender contact at segment creation
       'wal_recycle = off',                 // disables WAL rename/recycle loop; eliminates rename-storm EPERM pattern in pgdata
-    ].join('\n') + '\n' + buildV2Block()
+    ].join('\n') + '\n' + buildV2Block() + buildV3Block()
 
     try {
       const existing = readFileSync(confPath, 'utf8')

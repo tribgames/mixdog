@@ -1,25 +1,15 @@
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
 import { readSection, updateSection, updateSectionAsync, getAgentApiKey, AGENT_PROVIDER_ENV } from '../../shared/config.mjs';
+import {
+    agentRouteStorageNeedsMigration,
+    canonicalizeAgentRouteStorage,
+} from '../../shared/agent-route-config.mjs';
 import { OPENAI_COMPAT_PRESETS } from './providers/openai-compat-presets.mjs';
 import {
     hasAnthropicOAuthCredentials,
     hasOpenAIOAuthCredentials,
     hasGrokOAuthCredentials,
 } from './providers/oauth-credential-probes.mjs';
-
-// Keep config loading free of standalone provider-admin and its provider
-// runtimes. These identifiers mirror that module's static catalog, assembled
-// solely from the lightweight config/provider constants already imported here.
-const CONFIG_PROVIDER_IDS = new Set([
-    ...Object.keys(AGENT_PROVIDER_ENV),
-    ...Object.keys(OPENAI_COMPAT_PRESETS),
-    'openai-oauth',
-    'anthropic-oauth',
-    'grok-oauth',
-]);
-function isConfiguredProviderId(provider) {
-    return CONFIG_PROVIDER_IDS.has(String(provider || '').trim());
-}
 
 // Thin wrapper around resolvePluginData so callers in this orchestrator tree
 // can import a single helper without reaching into shared/.
@@ -33,19 +23,13 @@ export function getPluginData() {
 // llm/index.mjs and setup-server.mjs so UI/runtime cannot drift from config.
 //
 // Explore and Maintainer start without a route so they dynamically inherit the
-// Main route. Explicit `maintenance.explore` / `maintenance.memory` choices
-// remain supported. The memory cycles (chunker / re-scorer / core reviewer)
-// share the optional `memory` preset knob — the cycle agents stay separate
-// (cycle1/2/3-agent, distinct slots and invokedBy) but resolve their model from
-// `maint.memory` via the `maintKey` override on their hidden-role entries.
+// Main route. Their explicit routes live canonically in `agents.explore` and
+// `agents.maintainer`; load-time migration still accepts the older workflow /
+// maintenance aliases.
 // scheduler/webhook still let a per-entry config.json model win first (the
 // caller passes it explicitly via opts.preset); the haiku default below only
 // applies when an entry omits its own model.
-// Slots surfaced as tunable rows in the Maintenance Setup panel. This is the
-// UI / allow-list view (GET cleanup + POST validation) and is intentionally a
-// SUBSET of DEFAULT_MAINTENANCE: scheduler/webhook carry a per-entry model and
-// are not shown as shared rows, but still inherit the haiku default above when
-// an entry omits its own model.
+// Legacy route slots accepted only at config ingress for migration.
 const MAINTENANCE_SLOTS = Object.freeze(['explore', 'memory']);
 
 // --- User profile (statusline /profile) -------------------------------------
@@ -213,6 +197,13 @@ function normalizeSearchRoute(route) {
         return null;
     const provider = normalizeAgentProviderId(route.provider);
     const model = String(route.model || '').trim();
+    if (!provider && model) {
+        return {
+            provider: 'default',
+            model: 'default',
+            ...(String(route.toolType || '').trim() ? { toolType: String(route.toolType).trim() } : {}),
+        };
+    }
     if (!provider || !model)
         return null;
     const out = { provider, model };
@@ -230,17 +221,11 @@ function normalizeSearchRoute(route) {
 // Normalize stored maintenance slots to the direct {provider, model} route
 // shape (provider/model/effort/fast only). Non-route values are dropped so the
 // DEFAULT_MAINTENANCE route fills the slot.
-function normalizeMaintenanceRoutes(rawMaint, defaultProvider) {
+function normalizeMaintenanceRoutes(rawMaint) {
     const out = {};
-    const configuredProvider = String(defaultProvider || '').trim();
-    const fallbackProvider = isConfiguredProviderId(configuredProvider)
-        ? configuredProvider
-        : 'anthropic-oauth';
     for (const [slot, value] of Object.entries(rawMaint || {})) {
         if (value && typeof value === 'object' && !Array.isArray(value)) {
-            const provider = normalizeAgentProviderId(
-                value.provider || ((slot === 'explore' || slot === 'memory') ? fallbackProvider : ''),
-            );
+            const provider = normalizeAgentProviderId(value.provider);
             const model = String(value.model || '').trim();
             if (provider && model) {
                 const route = { provider, model };
@@ -281,6 +266,174 @@ function normalizeRecapConfig(rawRecap) {
     return recap;
 }
 
+function configObject(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : {};
+}
+
+function nonEmptyConfigObject(value) {
+    return Object.keys(value).length > 0 ? value : undefined;
+}
+
+function normalizeStoredCompactionType(value) {
+    const raw = String(value ?? '').trim().toLowerCase().replace(/_/g, '-');
+    if (['1', 'type1', 'type-1', 'semantic', 'summary', 'default'].includes(raw)) return 'semantic';
+    if (['2', 'type2', 'type-2', 'recall', 'recall-fast', 'recall-fasttrack',
+        'recall-fast-track', 'fasttrack', 'fast-track'].includes(raw)) return 'recall-fasttrack';
+    return 'recall-fasttrack';
+}
+
+function canonicalizeAutoClearStorage(value) {
+    const raw = configObject(value);
+    const next = { ...raw };
+    const idleMs = Number(raw.idleMs ?? raw.thresholdMs ?? raw.idleMillis);
+    const providerSource = configObject(raw.providerIdleMs ?? raw.providerDefaults ?? raw.providers);
+    const providerIdleMs = {};
+    for (const [key, candidate] of Object.entries(providerSource)) {
+        const provider = String(key || '').trim().toLowerCase();
+        const duration = Number(candidate);
+        if (!provider || !Number.isFinite(duration) || duration <= 0) continue;
+        providerIdleMs[provider] = Math.max(60_000, Math.round(duration));
+    }
+    delete next.thresholdMs;
+    delete next.idleMillis;
+    delete next.providerDefaults;
+    delete next.providers;
+    delete next.custom;
+    if (Number.isFinite(idleMs) && idleMs > 0) next.idleMs = Math.max(60_000, Math.round(idleMs));
+    else delete next.idleMs;
+    if (Object.keys(providerIdleMs).length) next.providerIdleMs = providerIdleMs;
+    else delete next.providerIdleMs;
+    if (Object.prototype.hasOwnProperty.call(raw, 'enabled')) next.enabled = raw.enabled !== false;
+    if (Object.prototype.hasOwnProperty.call(raw, 'minContextPercent')) {
+        const percent = Number(raw.minContextPercent);
+        if (Number.isFinite(percent)) next.minContextPercent = Math.min(100, Math.max(0, Math.round(percent)));
+        else delete next.minContextPercent;
+    }
+    return nonEmptyConfigObject(next);
+}
+
+function canonicalizeCompactionStorage(value) {
+    const raw = configObject(value);
+    const next = { ...raw };
+    const hasType = ['type', 'compactType', 'compact_type']
+        .some((key) => Object.prototype.hasOwnProperty.call(raw, key));
+    if (hasType) next.type = normalizeStoredCompactionType(raw.type ?? raw.compactType ?? raw.compact_type);
+    if (Object.prototype.hasOwnProperty.call(raw, 'auto')
+        || Object.prototype.hasOwnProperty.call(raw, 'enabled')) {
+        next.auto = raw.auto !== false && raw.enabled !== false;
+    }
+    delete next.compactType;
+    delete next.compact_type;
+    delete next.enabled;
+    return nonEmptyConfigObject(next);
+}
+
+function canonicalizeShellStorage(value) {
+    const raw = configObject(value);
+    const next = { ...raw };
+    const command = String(raw.command ?? raw.path ?? raw.executable ?? raw.shell ?? '').trim();
+    delete next.path;
+    delete next.executable;
+    delete next.shell;
+    if (command) next.command = command;
+    else delete next.command;
+    return nonEmptyConfigObject(next);
+}
+
+function canonicalizeModulesStorage(value) {
+    const modules = configObject(value);
+    delete modules.memory;
+    return nonEmptyConfigObject(modules);
+}
+
+function migrateLegacyModelSettings(raw = {}) {
+    const modelSettings = raw.modelSettings && typeof raw.modelSettings === 'object'
+        ? { ...raw.modelSettings }
+        : {};
+    const legacyFastModels = raw.fastModels && typeof raw.fastModels === 'object'
+        ? raw.fastModels
+        : {};
+    for (const [key, enabled] of Object.entries(legacyFastModels)) {
+        if (enabled !== true) continue;
+        const current = modelSettings[key];
+        if (!current || typeof current !== 'object' || Array.isArray(current)) {
+            modelSettings[key] = { fast: true };
+        } else if (!Object.prototype.hasOwnProperty.call(current, 'fast')) {
+            modelSettings[key] = { ...current, fast: true };
+        }
+    }
+    return modelSettings;
+}
+
+function canonicalizeLegacyAgentStorage(value = {}) {
+    const next = canonicalizeAgentRouteStorage(value);
+    next.presets = Array.isArray(next.presets)
+        ? next.presets.map((preset) => normalizePreset(preset)).filter(Boolean)
+        : [];
+    next.modelSettings = migrateLegacyModelSettings(value);
+    const autoClear = canonicalizeAutoClearStorage(next.autoClear);
+    if (autoClear) next.autoClear = autoClear;
+    else delete next.autoClear;
+    const compaction = canonicalizeCompactionStorage(next.compaction);
+    if (compaction) next.compaction = compaction;
+    else delete next.compaction;
+    const shell = canonicalizeShellStorage(next.shell);
+    if (shell) next.shell = shell;
+    else delete next.shell;
+    if (Object.prototype.hasOwnProperty.call(next, 'profile')) {
+        next.profile = normalizeProfileConfig(next.profile);
+    }
+    if (Object.prototype.hasOwnProperty.call(next, 'skills')) {
+        const skills = normalizeSkillsConfig(next.skills);
+        if (skills.disabled.length) next.skills = skills;
+        else delete next.skills;
+    }
+    if (!next.searchRoute && value?.search && typeof value.search === 'object') {
+        next.searchRoute = value.search;
+    }
+    next.searchRoute = normalizeSearchRoute(next.searchRoute);
+    const modules = next.modules && typeof next.modules === 'object' && !Array.isArray(next.modules)
+        ? { ...next.modules }
+        : {};
+    if (Object.prototype.hasOwnProperty.call(modules, 'memory')) {
+        const legacyMemory = modules.memory;
+        if (!(next.recap && typeof next.recap === 'object' && Object.prototype.hasOwnProperty.call(next.recap, 'enabled'))) {
+            const enabled = legacyMemory && typeof legacyMemory === 'object'
+                ? legacyMemory.enabled !== false
+                : legacyMemory !== false;
+            next.recap = { ...(next.recap || {}), enabled };
+        }
+        delete modules.memory;
+    }
+    if (Object.keys(modules).length) next.modules = modules;
+    else delete next.modules;
+    delete next.fastModels;
+    delete next.agentMaintenance;
+    delete next.runtime;
+    delete next.search;
+    delete next.capabilities;
+    delete next.defaultProvider;
+    delete next.guide;
+    return next;
+}
+
+function agentConfigStorageNeedsMigration(value = {}) {
+    const modules = value?.modules;
+    const presets = Array.isArray(value?.presets) ? value.presets : [];
+    const canonical = canonicalizeLegacyAgentStorage(value);
+    const normalizedFields = ['autoClear', 'compaction', 'shell', 'profile', 'skills', 'modules', 'guide'];
+    return agentRouteStorageNeedsMigration(value)
+        || Object.prototype.hasOwnProperty.call(value || {}, 'fastModels')
+        || Object.prototype.hasOwnProperty.call(value || {}, 'agentMaintenance')
+        || Object.prototype.hasOwnProperty.call(value || {}, 'runtime')
+        || Object.prototype.hasOwnProperty.call(value || {}, 'search')
+        || Object.prototype.hasOwnProperty.call(value || {}, 'capabilities')
+        || Object.prototype.hasOwnProperty.call(value || {}, 'defaultProvider')
+        || presets.some((preset) => !normalizePreset(preset))
+        || (modules && typeof modules === 'object' && Object.prototype.hasOwnProperty.call(modules, 'memory'))
+        || normalizedFields.some((key) => JSON.stringify(value?.[key]) !== JSON.stringify(canonical?.[key]));
+}
+
 export function loadConfig(options = {}) {
     const includeSecrets = options.secrets !== false;
     const sectionRaw = readSection('agent');
@@ -290,6 +443,8 @@ export function loadConfig(options = {}) {
             if (raw.agent && raw.agent.providers) {
                 raw = raw.agent;
             }
+            const storageNeedsMigration = agentConfigStorageNeedsMigration(raw);
+            raw = canonicalizeLegacyAgentStorage(raw);
             const defaults = buildDefaultConfig({ detectCredentials: includeSecrets });
             // Deep-merge provider subkeys: unknown per-provider values are
             // preserved through save/load so future fields round-trip
@@ -371,27 +526,13 @@ export function loadConfig(options = {}) {
             // without overriding an explicit modelSettings.fast value. Keep
             // the compatibility read here, but never expose/persist the
             // legacy container again.
-            const modelSettings = raw.modelSettings && typeof raw.modelSettings === 'object'
-                ? { ...raw.modelSettings }
-                : {};
-            const legacyFastModels = raw.fastModels && typeof raw.fastModels === 'object'
-                ? raw.fastModels
-                : {};
-            for (const [key, enabled] of Object.entries(legacyFastModels)) {
-                if (enabled !== true) continue;
-                const current = modelSettings[key];
-                if (!current || typeof current !== 'object' || Array.isArray(current)) {
-                    modelSettings[key] = { fast: true };
-                } else if (!Object.prototype.hasOwnProperty.call(current, 'fast')) {
-                    modelSettings[key] = { ...current, fast: true };
-                }
-            }
+            const modelSettings = migrateLegacyModelSettings(raw);
             const workflowRoutes = raw.workflowRoutes && typeof raw.workflowRoutes === 'object' ? { ...raw.workflowRoutes } : {};
             delete workflowRoutes.search;
             // Normalize maintenance slots to routes, then overlay onto the
             // route-shaped defaults.
-            const normalizedMaint = normalizeMaintenanceRoutes(rawMaint, raw.defaultProvider);
-            return {
+            const normalizedMaint = normalizeMaintenanceRoutes(rawMaint);
+            const loaded = canonicalizeAgentRouteStorage({
                 providers: mergedProviders,
                 mcpServers,
                 mcpProjectOverrides: raw.mcpProjectOverrides && typeof raw.mcpProjectOverrides === 'object' && !Array.isArray(raw.mcpProjectOverrides)
@@ -418,7 +559,40 @@ export function loadConfig(options = {}) {
                 update: raw.update && typeof raw.update === 'object' ? { ...raw.update } : {},
                 recap: recapConfig,
                 modules: raw.modules && typeof raw.modules === 'object' ? { ...raw.modules } : {},
-            };
+            });
+            if (storageNeedsMigration) {
+                try {
+                    // `readSection('agent')` sees cross-section migrations from
+                    // canonicalizeUnifiedConfig (root autoClear/compaction/
+                    // shell and memory.user.title), while the in-lock raw
+                    // section does not. Seed only those missing/partial values
+                    // from the canonical read snapshot; the current in-lock
+                    // section still wins for concurrent edits.
+                    persistAgentConfig((current) => {
+                        const merged = { ...current };
+                        for (const key of ['autoClear', 'compaction', 'shell', 'recap']) {
+                            if (!Object.prototype.hasOwnProperty.call(current, key)
+                                && Object.prototype.hasOwnProperty.call(raw, key)) {
+                                merged[key] = raw[key];
+                            }
+                        }
+                        if (Object.prototype.hasOwnProperty.call(raw, 'profile')) {
+                            const currentProfile = normalizeProfileConfig(current.profile);
+                            const migratedProfile = normalizeProfileConfig(raw.profile);
+                            merged.profile = {
+                                ...currentProfile,
+                                ...(!currentProfile.title && migratedProfile.title
+                                    ? { title: migratedProfile.title }
+                                    : {}),
+                            };
+                        }
+                        return canonicalizeLegacyAgentStorage(merged);
+                    });
+                } catch (err) {
+                    process.stderr.write(`[config] persist canonical agent config failed: ${err?.message}\n`);
+                }
+            }
+            return loaded;
         }
         catch { /* fall through */ }
     }
@@ -430,7 +604,6 @@ export function loadConfig(options = {}) {
         presets: DEFAULT_PRESETS.map(p => ({ ...p })),
         default: null,
         maintenance: { ...DEFAULT_MAINTENANCE },
-        workflowRoutes: {},
         searchRoute: null,
         modelSettings: {},
         onboarding: {},
@@ -491,6 +664,7 @@ export async function patchSkillsDisabledAsync(disabledNames) {
 }
 
 function buildAgentSaveBuilder(config, appliedDirty) {
+    const canonicalRoutes = canonicalizeLegacyAgentStorage(config);
     // Strip ephemeral defaults from providers but preserve any unknown
     // per-provider subkey so future schema additions round-trip through the
     // setup UI without changes here. apiKey is intentionally omitted —
@@ -514,13 +688,15 @@ function buildAgentSaveBuilder(config, appliedDirty) {
                 persistedProviders[name] = slim;
         }
     }
-    const workflowRoutes = config.workflowRoutes && typeof config.workflowRoutes === 'object'
-        ? { ...config.workflowRoutes }
-        : {};
-    delete workflowRoutes.search;
-    const presets = Array.isArray(config.presets)
-        ? config.presets.filter(p => p?.id !== 'workflow-search')
+    const presets = Array.isArray(canonicalRoutes.presets)
+        ? canonicalRoutes.presets.filter(p => p?.id !== 'workflow-search')
         : [];
+    const profile = normalizeProfileConfig(config.profile);
+    const skills = normalizeSkillsConfig(config.skills);
+    const autoClear = canonicalizeAutoClearStorage(config.autoClear);
+    const compaction = canonicalizeCompactionStorage(config.compaction);
+    const shell = canonicalizeShellStorage(config.shell);
+    const modules = canonicalizeModulesStorage(config.modules);
     // Build the replacement from `existingRaw` — the section read INSIDE the
     // file lock — not a snapshot taken before it, so unmanaged keys written by
     // a concurrent instance survive the save (lost-update guard).
@@ -559,27 +735,25 @@ function buildAgentSaveBuilder(config, appliedDirty) {
         }
         const next = {
             ...existingRaw,
-            guide: config.guide || existingRaw.guide || undefined,
             providers: persistedProviders,
             mcpServers,
             mcpProjectOverrides,
             presets,
             default: config.default || null,
-            maintenance: config.maintenance || {},
-            workflowRoutes,
+            maintenance: canonicalRoutes.maintenance,
             searchRoute: normalizeSearchRoute(config.searchRoute),
             modelSettings: config.modelSettings || {},
             onboarding: config.onboarding || {},
-            agents: config.agents || {},
+            agents: canonicalRoutes.agents,
             workflow: config.workflow || { active: 'default' },
-            profile: normalizeProfileConfig(config.profile),
-            skills: normalizeSkillsConfig(config.skills),
-            autoClear: config.autoClear || {},
-            compaction: config.compaction || {},
-            shell: config.shell || {},
+            profile,
+            skills: skills.disabled.length ? skills : undefined,
+            autoClear,
+            compaction,
+            shell,
             update: config.update || {},
             recap: config.recap || {},
-            modules: config.modules || existingRaw.modules || {},
+            modules,
         };
         // These keys were previously round-tripped despite having no runtime
         // consumer. Explicitly remove them from the in-lock baseline so a
@@ -587,6 +761,11 @@ function buildAgentSaveBuilder(config, appliedDirty) {
         delete next.fastModels;
         delete next.agentMaintenance;
         delete next.runtime;
+        delete next.workflowRoutes;
+        delete next.search;
+        delete next.capabilities;
+        delete next.defaultProvider;
+        delete next.guide;
         return next;
     };
 }

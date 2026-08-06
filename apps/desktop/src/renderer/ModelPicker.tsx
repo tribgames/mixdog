@@ -366,7 +366,7 @@ export function ModelPicker({
       }}
       onPointerCancel={clickGuard.clearPointerActivation}>
       <span>{triggerLabel}</span>
-      <ChevronDown size={13} />
+      <ChevronDown size={14} />
     </button>
     {open && createPortal(
       <div ref={pickerLayer} className="model-picker-layer" onMouseDown={(event) => {

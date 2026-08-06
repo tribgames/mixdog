@@ -27,7 +27,6 @@ import { existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { takePwshStandby } from '../src/runtime/agent/orchestrator/tools/lib/pwsh-standby-pool.mjs';
 import { compactToolCallsForHistory } from '../src/runtime/agent/orchestrator/session/loop/stored-tool-args.mjs';
 import {
     buildPowerShellFilterTeePlan,
@@ -36,11 +35,18 @@ import {
     detectLongForegroundReason,
     extractShellApplyPatchInvocation,
 } from '../src/runtime/agent/orchestrator/tools/builtin/shell-analysis.mjs';
-import { acquireShellLeaseBounded } from '../src/runtime/agent/orchestrator/tools/shell-command.mjs';
 import { parseV4APatch } from '../src/runtime/agent/orchestrator/tools/patch/parsing.mjs';
 import { splitTextLinesForPatch } from '../src/runtime/agent/orchestrator/tools/patch/matcher.mjs';
 import { applyV4AHunksToLines } from '../src/runtime/agent/orchestrator/tools/patch/v4a-convert.mjs';
 import { appendPostPatchExcerpts } from '../src/runtime/agent/orchestrator/tools/patch/orchestrator.mjs';
+
+// Product default is zero warm pwsh processes. This file explicitly opts in so
+// the reusable standby protocol still has full behavioral coverage.
+process.env.MIXDOG_PWSH_STANDBY_POOL = '1';
+const { takePwshStandby } =
+    await import('../src/runtime/agent/orchestrator/tools/lib/pwsh-standby-pool.mjs');
+const { acquireShellLeaseBounded } =
+    await import('../src/runtime/agent/orchestrator/tools/shell-command.mjs');
 
 function v4aHunksFor(patchLines) {
     const [section] = parseV4APatch(['*** Begin Patch', ...patchLines, '*** End Patch'].join('\n'));

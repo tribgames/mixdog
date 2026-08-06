@@ -173,10 +173,10 @@ export function GitDiffPane({
                         aria-label={`${label} hunk ${index + 1}`}
                         onClick={() => void applyHunk(hunk, index)}>
                         {busyHunk === index
-                          ? <ProgressSpinner size={13} aria-hidden="true" />
+                          ? <ProgressSpinner size={14} aria-hidden="true" />
                           : staged
-                            ? <Minus size={13} aria-hidden="true" />
-                            : <Plus size={13} aria-hidden="true" />}
+                            ? <Minus size={14} aria-hidden="true" />
+                            : <Plus size={14} aria-hidden="true" />}
                         {label} Hunk
                       </button>
                     </header>

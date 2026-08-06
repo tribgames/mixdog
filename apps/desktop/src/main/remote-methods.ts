@@ -10,6 +10,7 @@ import { requiredSessionId } from './desktop-state';
 import type { TerminalSpawnProfile } from './terminal-contract';
 import {
   projectDisplayName,
+  requiredAbortOptions,
   requiredDesktopCapabilityReadRequests,
   requiredDesktopCapabilityRequest,
   requiredDesktopSettingKey,
@@ -188,16 +189,32 @@ export function createRemoteMethods(
       requiredSubmitOptions(options),
       requiredNewTaskDraft(draft),
     ),
-    abort: () => host.abort(),
+    submitToSession: ([sessionId, prompt, options]) => host.submitToSession(
+      requiredSessionId(sessionId),
+      requiredPromptContent(prompt),
+      requiredSubmitOptions(options),
+    ),
+    abort: ([options]) => host.abort(requiredAbortOptions(options)),
+    abortSession: ([sessionId, options]) =>
+      host.abortSession(requiredSessionId(sessionId), requiredAbortOptions(options)),
     resolveToolApproval: ([id, decision]) => host.resolveToolApproval(
       requiredString(id, 'approval id', 1_024),
       requiredToolApprovalDecision(decision),
     ),
+    resolveToolApprovalForSession: ([sessionId, id, decision]) =>
+      host.resolveToolApprovalForSession(
+        requiredSessionId(sessionId),
+        requiredString(id, 'approval id', 1_024),
+        requiredToolApprovalDecision(decision),
+      ),
     listProviderModels: ([options]) => host.listProviderModels(requiredModelCatalogOptions(options)),
-    setModelRoute: ([selection]) => host.setModelRoute(requiredModelSelection(selection)),
-    setFast: ([enabled]) => {
+    setModelRoute: ([selection, sessionId]) => host.setModelRoute(
+      requiredModelSelection(selection),
+      sessionId == null ? undefined : requiredSessionId(sessionId),
+    ),
+    setFast: ([enabled, sessionId]) => {
       if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
-      return host.setFast(enabled);
+      return host.setFast(enabled, sessionId == null ? undefined : requiredSessionId(sessionId));
     },
     invokeCapability: ([input]) => {
       const request = requiredDesktopCapabilityRequest(input);

@@ -589,8 +589,8 @@ ${Scheduler.INSTANCE_UUID}`;
       logSchedule(`${schedule.name}: skipped — previous run still in progress\n`);
       return false;
     }
-    // CC parity (reference messageQueueManager.ts): interactive schedules
-    // enqueue into the live Lead session's command queue as system-generated
+    // Interactive schedules enqueue into the live Lead session's command
+    // queue as system-generated
     // task notifications (priority 'later'), exactly like inbound channel
     // messages — enqueue counts as the fire. The visible-session run below
     // remains the non-interactive path AND the fallback when no live Lead

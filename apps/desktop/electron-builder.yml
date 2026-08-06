@@ -38,6 +38,17 @@ extraResources:
   # restore Electron's exact ASAR-unpacked layout at the destination.
   - from: .runtime/native-modules
     to: runtime.asar.unpacked/node_modules
+  # License obligations travel with the installed app: MIT requires its
+  # permission notice alongside the derived files, Apache-2.0 the license
+  # text plus the upstream NOTICE.
+  - from: ../../LICENSE
+    to: LICENSE.txt
+  - from: ../../NOTICE.md
+    to: NOTICE.md
+  - from: ../../LICENSES
+    to: LICENSES
+  - from: THIRD-PARTY-NOTICES.txt
+    to: THIRD-PARTY-NOTICES.txt
 win:
   icon: build/mixdog.ico
   verifyUpdateCodeSignature: false

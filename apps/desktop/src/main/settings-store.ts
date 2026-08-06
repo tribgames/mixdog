@@ -50,8 +50,9 @@ export function settingsConfigModuleUrl(
 
 export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
   const config = record(value);
-  const autoClear = record(config.autoClear);
-  const compaction = record(config.compaction);
+  const agent = record(config.agent);
+  const autoClear = record(agent.autoClear);
+  const compaction = record(agent.compaction);
   const desktop = record(config.desktop);
   return {
     autoClear: autoClear.enabled !== false,
@@ -101,20 +102,22 @@ export class DesktopSettingsStore {
     const config = await this.loadConfig();
     const saved = await config.updateConfigAsync((current) => {
       const next = { ...record(current) };
+      const agent = { ...record(next.agent) };
       if (key === 'autoClear') {
-        next.autoClear = { ...record(next.autoClear), enabled };
+        agent.autoClear = { ...record(agent.autoClear), enabled };
       } else if (key === 'autoCompact') {
         const compaction: Record<string, unknown> = {
-          ...record(next.compaction),
+          ...record(agent.compaction),
           auto: enabled,
         };
         // `enabled` was an old alias. Remove it so it cannot override the
         // canonical `auto` field when a legacy config is switched back on.
         delete compaction.enabled;
-        next.compaction = compaction;
+        agent.compaction = compaction;
       } else if (key === 'keepAwake') {
         next.desktop = { ...record(next.desktop), keepAwake: enabled };
       }
+      next.agent = agent;
       return next;
     });
     return desktopSettingsFromConfig(saved);

@@ -13,11 +13,18 @@ import { pathToFileURL } from 'node:url';
 const RUNTIME_ROOT = mkdtempSync(join(tmpdir(), 'mixdog-engine-daemon-'));
 process.env.MIXDOG_RUNTIME_ROOT = RUNTIME_ROOT;
 process.env.MIXDOG_DATA_DIR = RUNTIME_ROOT;
+process.env.MIXDOG_ENGINE_DAEMON_SSE_PENDING_MB = '0.25';
+process.env.MIXDOG_CHANNEL_DAEMON_ACTIVE_CALLS = '8';
 
 const { createEngineDaemonTransport } = await import('../src/standalone/engine-daemon-transport.mjs');
 const { createEngineDaemonService } = await import('../src/standalone/engine-daemon-service.mjs');
-const { attachEngineDaemon, createRemoteEngineSession, negotiateEngineDaemon } =
+const { createChannelDaemonTransport } = await import('../src/standalone/channel-daemon-transport.mjs');
+const {
+  attachEngineDaemon, createRemoteEngineSession, negotiateEngineDaemon, probeEngineDaemonHealth,
+} =
   await import('../src/standalone/engine-daemon-client.mjs');
+const { probeDaemonHealth: probeChannelDaemonHealth } =
+  await import('../src/standalone/channel-daemon-client.mjs');
 const { ENGINE_DAEMON_PROTOCOL, engineRuntimeVersion } =
   await import('../src/standalone/engine-daemon-protocol.mjs');
 
@@ -49,6 +56,66 @@ function daemonPost(discovery, path, body) {
   });
 }
 
+function waitForSseFrame(discovery, clientToken, predicate, timeoutMs = 2_000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      try { req.destroy(); } catch {}
+      reject(new Error('timed out waiting for SSE frame'));
+    }, timeoutMs);
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: discovery.port,
+      path: `/events?token=${encodeURIComponent(clientToken)}&server_token=${encodeURIComponent(discovery.token)}`,
+      method: 'GET',
+      headers: { 'X-Mixdog-Daemon-Token': discovery.token },
+    }, (res) => {
+      res.setEncoding('utf8');
+      let buffer = '';
+      res.on('data', (chunk) => {
+        buffer += chunk;
+        let index;
+        while ((index = buffer.indexOf('\n\n')) >= 0) {
+          const raw = buffer.slice(0, index);
+          buffer = buffer.slice(index + 2);
+          for (const line of raw.split('\n')) {
+            if (!line.startsWith('data:')) continue;
+            let frame;
+            try { frame = JSON.parse(line.slice(5).trim()); } catch { continue; }
+            if (!predicate(frame)) continue;
+            clearTimeout(timer);
+            req.destroy();
+            resolve(frame);
+            return;
+          }
+        }
+      });
+    });
+    req.on('error', (error) => {
+      clearTimeout(timer);
+      if (error?.code === 'ECONNRESET') return;
+      reject(error);
+    });
+    req.end();
+  });
+}
+
+function waitForValue(predicate, timeoutMs = 2_000) {
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const tick = () => {
+      let value;
+      try { value = predicate(); } catch (error) { reject(error); return; }
+      if (value) { resolve(value); return; }
+      if (Date.now() - started > timeoutMs) {
+        reject(new Error('timed out waiting for value'));
+        return;
+      }
+      setTimeout(tick, 5);
+    };
+    tick();
+  });
+}
+
 test('only the wire protocol decides whether a live daemon is usable', () => {
   const version = engineRuntimeVersion();
   const olderVersion = [...String(version).split('.').slice(0, -1), '0'].join('.');
@@ -67,7 +134,86 @@ test('only the wire protocol decides whether a live daemon is usable', () => {
     'a NEWER protocol is never touched, busy or not');
 });
 
-test('desktop clients reuse the daemon-owned adapter across different install module URLs', async () => {
+test('a live daemon SSE stream reconnects in place with the same client registration', async () => {
+  const serverToken = 'server-token';
+  const clientToken = 'client-token';
+  const streamResponses = [];
+  const reconnects = [];
+  const fatals = [];
+  let registrations = 0;
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    const send = (value) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(value));
+    };
+    if (req.method === 'GET' && url.pathname === '/health') {
+      send({ status: 'ok', pid: process.pid });
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/events') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        Connection: 'keep-alive',
+      });
+      res.write(': attached\n\n');
+      streamResponses.push(res);
+      return;
+    }
+    req.resume();
+    req.on('end', () => {
+      if (req.method === 'POST' && url.pathname === '/client/register') {
+        registrations += 1;
+        send({ token: clientToken, pid: process.pid });
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/client/deregister') {
+        send({ ok: true });
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/call') {
+        send({ result: 'still-connected' });
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  let client = null;
+  try {
+    client = await attachEngineDaemon({
+      discovery: { port: address.port, token: serverToken, pid: process.pid },
+      onFatal: (reason) => fatals.push(reason),
+      onStreamReconnect: (details) => reconnects.push(details),
+      streamReconnectBaseMs: 5,
+      streamReconnectMaxMs: 10,
+      streamReconnectHealthGraceMs: 20,
+    });
+    await waitForValue(() => streamResponses.length === 1);
+    streamResponses[0].end();
+    assert.equal(await client.call('probe'), 'still-connected',
+      'ordinary calls remain usable while only the event stream reconnects');
+    await waitForValue(() => streamResponses.length === 2);
+    await waitForValue(() => reconnects.length === 1);
+    assert.equal(registrations, 1, 'SSE recovery reuses the original client token');
+    assert.equal(fatals.length, 0);
+    assert.equal(reconnects[0].reason, 'sse ended');
+  } finally {
+    await client?.close('test end');
+    for (const response of streamResponses) {
+      try { response.end(); } catch {}
+    }
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('desktop clients keep compatible install adapters isolated by module URL', async () => {
   const firstModule = join(RUNTIME_ROOT, 'desktop-backend-first.mjs');
   const secondModule = join(RUNTIME_ROOT, 'desktop-backend-second.mjs');
   const adapterSource = (label) => `
@@ -91,15 +237,62 @@ test('desktop clients reuse the daemon-owned adapter across different install mo
       desktopId: 'desktop_second',
       moduleUrl: pathToFileURL(secondModule).href,
     }, { clientToken: 'client_second' });
+    const firstAgain = await service.handleCall('desktop.init', {
+      desktopId: 'desktop_first_again',
+      moduleUrl: pathToFileURL(firstModule).href,
+    }, { clientToken: 'client_first_again' });
     assert.equal(first.desktopId, 'desktop_first');
-    assert.equal(second.desktopId, 'desktop_first',
-      'the live daemon keeps its canonical adapter instead of rejecting another install');
-    const invoked = await service.handleCall('desktop.invoke', {
+    assert.equal(second.desktopId, 'desktop_second');
+    assert.equal(firstAgain.desktopId, 'desktop_first',
+      'clients from the same install reuse their adapter');
+    const firstInvoked = await service.handleCall('desktop.invoke', {
+      desktopId: first.desktopId,
+      method: 'probe',
+      args: [],
+    }, { clientToken: 'client_first' });
+    const secondInvoked = await service.handleCall('desktop.invoke', {
       desktopId: second.desktopId,
       method: 'probe',
       args: [],
     }, { clientToken: 'client_second' });
-    assert.deepEqual(invoked, { label: 'first', method: 'probe' });
+    assert.deepEqual(firstInvoked, { label: 'first', method: 'probe' });
+    assert.deepEqual(secondInvoked, { label: 'second', method: 'probe' });
+  } finally {
+    await service.stop('test end');
+  }
+});
+
+test('an in-place CJS desktop update loads the newly keyed artifact without replacing the old adapter', async () => {
+  const modulePath = join(RUNTIME_ROOT, 'desktop-backend-in-place.cjs');
+  const writeAdapter = (label) => writeFileSync(modulePath, `
+    module.exports.createDesktopBackend = async function createDesktopBackend() {
+      return {
+        invoke() { return ${JSON.stringify(label)}; },
+        async control() {},
+        async dispose() {},
+      };
+    };
+  `);
+  writeAdapter('old');
+  const service = createEngineDaemonService({ createEngine: async () => createStubEngine() });
+  try {
+    const oldBackend = await service.handleCall('desktop.init', {
+      desktopId: 'desktop_in_place_old',
+      moduleUrl: `${pathToFileURL(modulePath).href}?build=old`,
+    }, { clientToken: 'client_in_place_old' });
+    writeAdapter('new');
+    const newBackend = await service.handleCall('desktop.init', {
+      desktopId: 'desktop_in_place_new',
+      moduleUrl: `${pathToFileURL(modulePath).href}?build=new`,
+    }, { clientToken: 'client_in_place_new' });
+    assert.equal(await service.handleCall('desktop.invoke', {
+      desktopId: oldBackend.desktopId,
+      method: 'probe',
+    }), 'old');
+    assert.equal(await service.handleCall('desktop.invoke', {
+      desktopId: newBackend.desktopId,
+      method: 'probe',
+    }), 'new');
   } finally {
     await service.stop('test end');
   }
@@ -165,6 +358,71 @@ test('session calls log only a bounded result summary, never the transcript body
   } finally {
     await service.stop('test end');
   }
+});
+
+test('session catalog rides responses only when its revision changes', async () => {
+  let scans = 0;
+  const service = createEngineDaemonService({
+    createEngine: async () => ({
+      ...createStubEngine(),
+      listSessions() {
+        scans += 1;
+        return [{ id: 'catalog-row', updatedAt: scans }];
+      },
+      renameSessionTitle() { return true; },
+    }),
+  });
+  try {
+    const created = await service.handleCall('session.create', {});
+    assert.ok(Array.isArray(created.sync?.sessions));
+    assert.equal(scans, 1);
+    const read = await service.handleCall('session.read', {
+      sessionId: created.sessionId,
+      baseRevision: created.revision,
+      baseSyncRevision: created.syncRevision,
+    });
+    assert.equal(Object.hasOwn(read, 'sync'), false);
+    assert.equal(scans, 1, 'unchanged catalog does not scan or cross the wire');
+    const shaped = await service.handleCall('session.invoke', {
+      sessionId: created.sessionId,
+      method: 'renameSessionTitle',
+      args: ['renamed'],
+      baseRevision: read.revision,
+      baseSyncRevision: read.syncRevision,
+    });
+    assert.ok(Array.isArray(shaped.sync?.sessions));
+    assert.equal(scans, 2);
+  } finally {
+    await service.stop('test end');
+  }
+});
+
+test('a disconnected client receives bounded session resync markers instead of a huge backlog', async () => {
+  await withDaemon(async ({ discovery, transport }) => {
+    const registered = await daemonPost(discovery, '/client/register', {
+      leadPid: process.pid,
+      cwd: process.cwd(),
+      lifecycle: false,
+    });
+    const target = new Set([registered.token]);
+    const large = 'x'.repeat(160 * 1024);
+    for (let index = 0; index < 3; index += 1) {
+      transport.broadcast({
+        type: 'session-state',
+        key: `session-state:budget-${index}`,
+        sessionId: `budget-${index}`,
+        revision: index + 1,
+        full: { sessionId: `budget-${index}`, items: [{ text: large }] },
+      }, target);
+    }
+    const marker = await waitForSseFrame(
+      discovery,
+      registered.token,
+      (frame) => frame?.resyncRequired === true,
+    );
+    assert.equal(marker.type, 'session-state');
+    await daemonPost(discovery, '/client/deregister', { token: registered.token });
+  });
 });
 
 test('daemon lifetime sees phone clients owned by the desktop adapter', async () => {
@@ -235,6 +493,17 @@ function createStubEngine(sessionId = '') {
       publish();
       return true;
     },
+    abort(options = {}) {
+      state = { ...state, busy: false };
+      publish();
+      return {
+        aborted: true,
+        restoreText: options?.restorePrompt === false ? '' : 'restored prompt',
+        pastedImages: options?.restorePrompt === false
+          ? null
+          : { image_1: { filename: 'restored.png' } },
+      };
+    },
     boom() { throw new Error('stub failure'); },
     // A function value must never cross the wire — the sanitizer drops it.
     describe() { return { ok: true, callback() {}, when: new Date(0) }; },
@@ -244,7 +513,8 @@ function createStubEngine(sessionId = '') {
 
 async function withDaemon(run, {
   engineFactory = async () => createStubEngine(), idleEvictMs = null, evictSweepMs = null,
-  onClientRegistered = null,
+  onClientRegistered = null, softRssMb = null,
+  rssBytes = undefined,
 } = {}) {
   let clientsEmptyReason = null;
   // Client identity is what the pool refcounts views by; the tests need it to
@@ -256,6 +526,8 @@ async function withDaemon(run, {
     onFrame: (frame, targetTokens) => transport.broadcast(frame, targetTokens),
     idleEvictMs,
     evictSweepMs,
+    softRssMb,
+    ...(rssBytes ? { rssBytes } : {}),
   });
   const transport = createEngineDaemonTransport({
     handleCall: (name, args, ctx) => {
@@ -352,18 +624,207 @@ test('health and registration bypass a burst of synchronous session call starts'
   });
 });
 
-function waitFor(predicate, message, timeoutMs = 4000) {
-  return new Promise((resolve, reject) => {
-    const started = Date.now();
-    const tick = () => {
-      let value;
-      try { value = predicate(); } catch (err) { reject(err); return; }
-      if (value) { resolve(value); return; }
-      if (Date.now() - started > timeoutMs) { reject(new Error(`timeout: ${message}`)); return; }
-      setTimeout(tick, 10).unref?.();
-    };
-    tick();
+test('abort starts immediately while ordinary session calls remain in flight', async () => {
+  let releaseWork;
+  let startedWork = 0;
+  let abortCalls = 0;
+  let abortOptions = null;
+  const workGate = new Promise((resolve) => { releaseWork = resolve; });
+  await withDaemon(async ({ discovery }) => {
+    const client = await attachEngineDaemon({ discovery, cwd: process.cwd() });
+    const { sessionId } = await client.call('session.create', { cwd: process.cwd() });
+    const work = Array.from({ length: 64 }, (_, index) =>
+      client.call('session.invoke', {
+        sessionId,
+        method: 'blockedWork',
+        args: [index],
+      }, { callId: `reserved-capacity-work:${index}` }));
+    try {
+      await waitFor(
+        () => startedWork === work.length,
+        'ordinary calls start without a hidden concurrency gate',
+      );
+      const started = performance.now();
+      const result = await client.call('session.abort', {
+        sessionId,
+        options: { restorePrompt: false },
+      }, {
+        callId: 'reserved-capacity-abort',
+      });
+      const elapsed = performance.now() - started;
+      assert.equal(result.aborted, true);
+      assert.equal(result.restoreText, 'queued prompt');
+      assert.deepEqual(result.pastedTexts, { text_1: { text: 'restored text' } });
+      assert.deepEqual(abortOptions, { restorePrompt: false });
+      assert.equal(abortCalls, 1);
+      assert.ok(elapsed < 100, `abort waited ${elapsed.toFixed(1)}ms behind ordinary calls`);
+    } finally {
+      releaseWork();
+      await Promise.all(work);
+      await client.close('reserved capacity test');
+    }
+  }, {
+    engineFactory: async () => ({
+      ...createStubEngine(),
+      blockedWork() {
+        startedWork += 1;
+        return workGate;
+      },
+      abort(options) {
+        abortCalls += 1;
+        abortOptions = options;
+        return {
+          aborted: true,
+          restoreText: 'queued prompt',
+          pastedTexts: { text_1: { text: 'restored text' } },
+        };
+      },
+    }),
   });
+});
+
+test('independent clients and sessions start without waiting for another backlog', async () => {
+  const started = [];
+  const gates = new Map();
+  let releaseAll = false;
+  const gateFor = (label) => {
+    if (releaseAll) return Promise.resolve(label);
+    const gate = Promise.withResolvers();
+    gates.set(label, gate);
+    return gate.promise;
+  };
+  await withDaemon(async ({ discovery }) => {
+    const noisy = await attachEngineDaemon({
+      discovery, cwd: process.cwd(), leadPid: process.pid,
+    });
+    const victim = await attachEngineDaemon({
+      discovery, cwd: process.cwd(), leadPid: process.ppid,
+    });
+    const { sessionId } = await noisy.call('session.create', { cwd: process.cwd() });
+    const noisyWork = Array.from({ length: 60 }, (_, index) =>
+      noisy.call('session.invoke', {
+        sessionId,
+        method: 'fairBlockedWork',
+        args: [`noisy-${index}`],
+      }, { callId: `fair-noisy-${index}` }));
+    let victimWork = null;
+    try {
+      await waitFor(
+        () => started.length === noisyWork.length,
+        'noisy session starts its full parallel wave',
+      );
+      victimWork = victim.call('session.invoke', {
+        sessionId,
+        method: 'fairBlockedWork',
+        args: ['victim'],
+      }, { callId: 'fair-victim' });
+      await waitFor(() => started.includes('victim'), 'victim starts without a permit release');
+      const victimIndex = started.indexOf('victim');
+      assert.equal(victimIndex, noisyWork.length);
+    } finally {
+      releaseAll = true;
+      for (const gate of gates.values()) gate.resolve();
+      await Promise.allSettled([...noisyWork, ...(victimWork ? [victimWork] : [])]);
+      await victim.close('fairness test');
+      await noisy.close('fairness test');
+    }
+  }, {
+    engineFactory: async () => ({
+      ...createStubEngine(),
+      fairBlockedWork(label) {
+        started.push(label);
+        return gateFor(label);
+      },
+    }),
+  });
+});
+
+test('channel calls start a second client without a synthetic global permit', async () => {
+  const started = [];
+  const gates = new Map();
+  let releaseAll = false;
+  const gateFor = (label) => {
+    if (releaseAll) return Promise.resolve(label);
+    const gate = Promise.withResolvers();
+    gates.set(label, gate);
+    return gate.promise;
+  };
+  const transport = createChannelDaemonTransport({
+    handleCall(_name, args) {
+      const label = String(args?.label || '');
+      started.push(label);
+      return gateFor(label);
+    },
+  });
+  const { port, token } = await transport.start();
+  const discovery = { pid: process.pid, port, token };
+  let noisyWork = [];
+  let victimWork = null;
+  try {
+    const noisy = await daemonPost(discovery, '/client/register', {
+      leadPid: process.pid, cwd: process.cwd(), reattach: true,
+    });
+    const victim = await daemonPost(discovery, '/client/register', {
+      leadPid: process.ppid, cwd: process.cwd(), reattach: true,
+    });
+    noisyWork = Array.from({ length: 6 }, (_, index) =>
+      daemonPost(discovery, '/call', {
+        token: noisy.token,
+        name: 'work',
+        args: { label: `channel-noisy-${index}` },
+        callId: `channel-noisy-${index}`,
+      }));
+    await waitFor(
+      () => started.length === noisyWork.length,
+      'channel borrower starts its full parallel wave',
+    );
+    victimWork = daemonPost(discovery, '/call', {
+      token: victim.token,
+      name: 'work',
+      args: { label: 'channel-victim' },
+      callId: 'channel-victim',
+    });
+    await waitFor(() => started.includes('channel-victim'), 'channel victim starts without a permit release');
+    assert.equal(started.indexOf('channel-victim'), noisyWork.length);
+  } finally {
+    releaseAll = true;
+    for (const gate of gates.values()) gate.resolve();
+    await Promise.allSettled([...noisyWork, ...(victimWork ? [victimWork] : [])]);
+    await transport.stop();
+  }
+});
+
+test('call idempotency is isolated per client process', async () => {
+  await withDaemon(async ({ discovery }) => {
+    const first = await attachEngineDaemon({
+      discovery, cwd: process.cwd(), leadPid: process.pid,
+    });
+    const second = await attachEngineDaemon({
+      discovery, cwd: process.cwd(), leadPid: process.ppid,
+    });
+    const { sessionId } = await first.call('session.create', { cwd: process.cwd() });
+    const args = { sessionId, method: 'submit', args: ['same payload'] };
+    await first.call('session.invoke', args, { callId: 'same-process-local-id' });
+    await second.call('session.invoke', args, { callId: 'same-process-local-id' });
+    const read = await first.call('session.read', { sessionId });
+    assert.equal(read.full.items.length, 2);
+    await second.close('call cache isolation');
+    await first.close('call cache isolation');
+  });
+});
+
+async function waitFor(predicate, message, timeoutMs = 4000) {
+  const started = Date.now();
+  while (true) {
+    let value;
+    try { value = await predicate(); } catch (err) { throw err; }
+    if (value) return value;
+    if (Date.now() - started > timeoutMs) {
+      const detail = typeof message === 'function' ? message() : message;
+      throw new Error(`timeout: ${detail}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10).unref?.());
+  }
 }
 
 /** Replay a view's frame stream into the transcript it represents. Frames are
@@ -548,6 +1009,7 @@ test('session protocol ACKs intake and unsubscribe never interrupts execution', 
     const desktop = await attachEngineDaemon({ discovery, cwd: process.cwd() });
     const created = await terminal.call('session.create', { cwd: process.cwd() });
     assert.match(created.sessionId, /^sess_daemon_/, 'create returns a daemon-reserved stable address');
+    assert.equal(created.reservedOnly, true);
     assert.equal(eagerSessionCreates, 0, 'reservation does not eagerly materialize a provider session');
     const subscribed = await desktop.call('session.subscribe', { sessionId: created.sessionId });
     assert.equal(subscribed.subscribed, true);
@@ -558,6 +1020,7 @@ test('session protocol ACKs intake and unsubscribe never interrupts execution', 
       options: { id: 'durable-submit' },
     }, { callId: 'session-submit:durable-session:durable-submit' });
     assert.equal(submitted.accepted, true, 'submit ACKs queue intake');
+    assert.equal(submitted.reservedOnly, false);
     await waitFor(
       () => sessionSnapshotFromFrames(terminalFrames, created.sessionId)?.busy === true,
       'the session stream reports the accepted turn',
@@ -626,6 +1089,17 @@ test('the remote engine proxy keeps the store contract', async () => {
     assert.equal(await engine.submit('through the proxy'), true);
     await waitFor(() => engine.getState().items?.length === 1, 'proxy mirrors its own submission');
     assert.ok(notified > 0, 'subscribers observe the mirrored snapshot');
+    await engine.startWork();
+    const preserved = await engine.abortAsync({ restorePrompt: false });
+    assert.equal(preserved.aborted, true);
+    assert.equal(preserved.restoreText, '', 'a replacement draft suppresses prompt rewind across the daemon');
+    assert.equal(preserved.pastedImages, null);
+    await engine.startWork();
+    const interrupted = await engine.abortAsync();
+    assert.equal(interrupted.aborted, true);
+    assert.equal(interrupted.restoreText, 'restored prompt');
+    assert.deepEqual(interrupted.pastedImages, { image_1: { filename: 'restored.png' } });
+    assert.equal(engine.getState().busy, false);
     unsubscribe();
 
     // A second view shares the process attachment but owns another session.
@@ -710,6 +1184,45 @@ test('a working engine outlives its last view and the next one rejoins it', asyn
 
     await after.dispose('test');
   }, { engineFactory: async () => createStubEngine('') });
+});
+
+test('session retention exposes no RSS growth ceiling', async () => {
+  await withDaemon(async ({ service }) => {
+    assert.equal(Object.hasOwn(service.status, 'softRssBytes'), false);
+  }, { engineFactory: async () => createStubEngine('') });
+});
+
+test('warm session runtimes survive legacy RSS pressure options', async () => {
+  let rss = 1;
+  await withDaemon(async ({ discovery, service }) => {
+    const client = await attachEngineDaemon({ discovery, cwd: process.cwd() });
+    for (const sessionId of ['warm-a', 'warm-b', 'warm-c', 'warm-d']) {
+      await client.call('session.create', { sessionId, cwd: process.cwd() });
+      await client.call('session.submit', {
+        sessionId,
+        prompt: `materialize ${sessionId}`,
+        options: { id: `submit-${sessionId}` },
+      });
+      await client.call('session.unsubscribe', { sessionId });
+    }
+    assert.equal(service.size, 4, 'session count alone never evicts warm runtimes');
+    assert.deepEqual(service.status, {
+      live: 4,
+      busy: 0,
+      watched: 0,
+      retained: 4,
+      projected: 0,
+    });
+    rss = 128 * 1024 * 1024;
+    await client.call('session.read', { sessionId: 'warm-d' });
+    assert.equal(service.size, 4, 'RSS growth never trims daemon-owned sessions');
+    assert.equal(service.status.retained, 4);
+    await client.close('test');
+  }, {
+    engineFactory: async () => createStubEngine(''),
+    softRssMb: 64,
+    rssBytes: () => rss,
+  });
 });
 
 test('one client leaving never ends the engine another client is watching', async () => {

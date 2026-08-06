@@ -283,6 +283,15 @@ export function parseV4APatch(patchStr) {
     if (rawLine.startsWith('@@')) {
       const anchor = normaliseV4AAnchor(rawLine.slice(2));
       if (currentHunk && currentHunk.lines.length > 0) finishHunk();
+      // Consecutive `@@` lines narrow ONE hunk's position (`@@ class Foo`
+      // then `@@   def bar`): append to the open hunk's anchor chain instead
+      // of replacing the hunk, which dropped every anchor but the last and
+      // let the edit resolve against the wrong occurrence.
+      if (currentHunk && currentHunk.lines.length === 0) {
+        if (anchor) currentHunk.anchors.push(anchor);
+        pendingAnchors = [];
+        continue;
+      }
       pendingAnchors.push(anchor);
       currentHunk = { anchors: pendingAnchors.slice(), lines: [] };
       pendingAnchors = [];
@@ -374,6 +383,13 @@ function parseUnifiedAsV4APatch(patchStr, { label, resolveAnchor }) {
     if (rawLine.startsWith('@@')) {
       const anchor = resolveAnchor(rawLine);
       if (currentHunk && currentHunk.lines.length > 0) finishHunk();
+      // Anchor chain (see the V4A parser above): consecutive `@@` lines refine
+      // one hunk's position and must all be kept.
+      if (currentHunk && currentHunk.lines.length === 0) {
+        if (anchor) currentHunk.anchors.push(anchor);
+        pendingAnchors = [];
+        continue;
+      }
       pendingAnchors.push(anchor);
       currentHunk = { anchors: pendingAnchors.slice(), lines: [] };
       pendingAnchors = [];

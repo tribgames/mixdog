@@ -8,6 +8,7 @@ import { Worker } from 'worker_threads'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 import { writeProfilePoint } from './model-profile.mjs'
+import { createCompactVectorCache } from './compact-vector-cache.mjs'
 import {
   getConfiguredEmbeddingModelId,
   getDefaultEmbeddingDtype,
@@ -33,27 +34,21 @@ let _warmupPromise = null
 let _embedCallCount = 0
 let _msgId = 0
 const _pending = new Map()
+const retiringWorkers = new WeakSet()
 const EMBED_STEADY_SAMPLE_EVERY = 20
-const queryEmbeddingCache = new Map()
-const QUERY_EMBEDDING_CACHE_LIMIT = 1000
+const queryEmbeddingCache = createCompactVectorCache({
+  maxEntries: 1000,
+  maxBytes: 8 * 1024 * 1024,
+})
 
 const WORKER_PATH = join(fileURLToPath(import.meta.url), '..', 'embedding-worker.mjs')
 
 function cacheEmbedding(key, vector) {
-  if (queryEmbeddingCache.has(key)) queryEmbeddingCache.delete(key)
   queryEmbeddingCache.set(key, vector)
-  if (queryEmbeddingCache.size > QUERY_EMBEDDING_CACHE_LIMIT) {
-    const oldestKey = queryEmbeddingCache.keys().next().value
-    if (oldestKey) queryEmbeddingCache.delete(oldestKey)
-  }
 }
 
 function getCachedEmbedding(key) {
-  if (!queryEmbeddingCache.has(key)) return null
-  const value = queryEmbeddingCache.get(key)
-  queryEmbeddingCache.delete(key)
-  queryEmbeddingCache.set(key, value)
-  return value
+  return queryEmbeddingCache.get(key)
 }
 
 function ensureWorker() {
@@ -68,8 +63,16 @@ function ensureWorker() {
   }
   _lastRestartMs = now
   const execArgv = process.execArgv.filter((arg) => !String(arg).startsWith('--input-type'))
-  worker = new Worker(WORKER_PATH, { env: { ...process.env }, execArgv })
-  worker.on('message', (msg) => {
+  const created = new Worker(WORKER_PATH, { env: { ...process.env }, execArgv })
+  worker = created
+  const rejectWorkerPending = (error) => {
+    for (const [id, pending] of _pending) {
+      if (pending.worker !== created) continue
+      _pending.delete(id)
+      pending.reject(error)
+    }
+  }
+  created.on('message', (msg) => {
     if (msg.type === 'log') {
       // Worker-thread stdio forwarded via IPC (see embedding-worker.mjs
       // header): route through the parent's guardable stderr so TUI runs
@@ -85,8 +88,25 @@ function ensureWorker() {
       _modelReady = false
       _device = 'cpu'
       const reason = String(msg.reason || 'idle timeout')
-      __mixdogMemoryLog(`[embed] ${reason} — model disposed\n`)
+      __mixdogMemoryLog(`[embed] ${reason} — model disposed; retiring worker thread\n`)
       writeProfilePoint({ phase: 'post-idle', model: MODEL_ID, device: msg.device, dtype: msg.dtype, note: reason })
+      // A request can be posted after the worker's idle timer starts disposal
+      // but before this notification reaches the parent. Do not terminate that
+      // worker out from under the accepted request; its next idle cycle will
+      // retire it after the request finishes.
+      const hasAcceptedRequest = [..._pending.values()]
+        .some((pending) => pending.worker === created)
+      if (hasAcceptedRequest) {
+        __mixdogMemoryLog(`[embed] ${reason} — worker retirement deferred for accepted request\n`)
+        return
+      }
+      // ORT's native allocator does not reliably return model pages when only
+      // InferenceSession.dispose() runs on Windows. Ending the worker thread is
+      // the actual native-memory boundary; the next recall lazily creates a
+      // fresh worker while cached dimensions remain available.
+      if (worker === created) worker = null
+      retiringWorkers.add(created)
+      void created.terminate().catch(() => {})
       return
     }
     const pending = _pending.get(msg.id)
@@ -98,28 +118,28 @@ function ensureWorker() {
       pending.resolve(msg)
     }
   })
-  worker.on('error', (err) => {
+  created.on('error', (err) => {
     __mixdogMemoryLog(`[embed] worker error: ${err?.message || err}\n`)
-    for (const [, p] of _pending) p.reject(err)
-    _pending.clear()
-    worker = null
+    rejectWorkerPending(err)
+    if (worker === created) worker = null
     _modelReady = false
     _restartCount++
   })
-  worker.on('exit', (code) => {
+  created.on('exit', (code) => {
+    const retired = retiringWorkers.has(created)
+    retiringWorkers.delete(created)
     const exitError = new Error(`Worker exited with code ${code}`)
-    if (code !== 0) {
+    if (!retired && code !== 0) {
       __mixdogMemoryLog(`[embed] worker exited with code ${code}\n`)
       _restartCount++
-    } else {
+    } else if (!retired) {
       _restartCount = 0
     }
-    for (const [, p] of _pending) p.reject(exitError)
-    _pending.clear()
-    worker = null
+    rejectWorkerPending(exitError)
+    if (worker === created) worker = null
     _modelReady = false
   })
-  return worker
+  return created
 }
 
 const EMBED_WORKER_TIMEOUT_MS = 60_000
@@ -140,6 +160,7 @@ function sendToWorker(action, extra = {}, timeoutMs = EMBED_WORKER_TIMEOUT_MS) {
       reject(new Error(`embed worker ${action} timed out after ${timeoutMs}ms`))
     }, timeoutMs)
     _pending.set(id, {
+      worker: w,
       resolve: (v) => { clearTimeout(timer); resolve(v) },
       reject: (e) => { clearTimeout(timer); reject(e) },
     })

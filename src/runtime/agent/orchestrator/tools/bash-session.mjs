@@ -65,7 +65,7 @@ const MAX_TIMEOUT_MS = Math.max(_envMaxTimeout > 0 ? _envMaxTimeout : 600_000, D
 // JS setTimeout / PS WaitForExit(ms) are 32-bit: a delay above 2^31-1 wraps and
 // fires immediately. Hard ceiling (~24.8 days) for an uncapped explicit timeout.
 const TIMER_MAX_MS = 2_147_483_647;
-const IDLE_TIMEOUT_MS = 5 * 60_000;
+const IDLE_TIMEOUT_MS = 2 * 60_000;
 const MAX_SESSIONS = 10;
 const STDERR_DRAIN_MS = 25;
 const STDERR_DRAIN_MAX_MS = 250;
@@ -364,7 +364,6 @@ function _spawnSession(id, initialCwd = process.cwd(), resourceLease = null) {
         childPid: proc.pid,
         childGroupPid: proc.pid,
         label: 'bash-session',
-        protectHostMemory: true,
     });
     proc.stdout.setEncoding('utf-8');
     proc.stderr.setEncoding('utf-8');
@@ -446,6 +445,7 @@ async function _getOrCreate(sessionId, initialCwd = process.cwd(), opts = {}) {
             signal: opts.signal || null,
             label: `persistent:${id}`,
             dependency: 'detached',
+            ownerKey: opts.sessionId || id,
         });
         try {
             entry = _sessions.get(id);

@@ -1,4 +1,4 @@
-import { ChevronRight, Code2, FileDiff, Layers3, X } from "lucide-react";
+import { ChevronRight, Code2, FileDiff, FoldVertical, Layers3, X } from "lucide-react";
 import React, { Component, Suspense, lazy, memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { resolveContextDisplayUsage } from "./context-usage";
 import { type Snapshot, type TranscriptItem } from "./desktop-types";
@@ -374,8 +374,11 @@ export function LiveActivity({
     thinkingMs: Number(activityRecord.thinkingAccumulatedMs || 0),
     effort: String(snapshot.effort || ""),
   });
-  const activityText = [
-    verb,
+  // ONLY the verb shimmers. The byline's elapsed/token fields change every
+  // second and TextShimmer keys its span on the text, so a combined string
+  // remounted the span on every tick — the sweep restarted forever and the
+  // glint never travelled past the first word (user: 폰트에 도는 애니).
+  const activityMeta = [
     elapsed,
     meta.showTokens ? meta.tokensText : "",
     meta.thinkingText,
@@ -386,12 +389,18 @@ export function LiveActivity({
     <div className="live-activity-status" role="status" aria-live="polite"
       data-animate={animateEnter ? "true" : undefined}>
       <span className="live-activity-icon" aria-hidden="true">
-        {/* TUI parity (user: TUI가 깔끔하다): the same ◇◆◈ shape sweep the
-            terminal spinner runs, driven by CSS `content` steps so the band
-            never re-renders for animation. */}
-        <span className="live-activity-glyph" />
+        {/* TUI parity (user: TUI가 깔끔하다) drawn as VECTOR: the terminal's
+            ◇ ◆ ◈ sweep is one rhombus whose core scales, so the band never
+            re-renders for animation and never depends on a symbol font. */}
+        <svg className="live-activity-glyph" viewBox="0 0 12 12" aria-hidden="true">
+          <g className="live-activity-glyph-spin">
+            <path className="live-activity-glyph-ring" d="M6 .9 11.1 6 6 11.1.9 6Z" />
+            <path className="live-activity-glyph-core" d="M6 .9 11.1 6 6 11.1.9 6Z" />
+          </g>
+        </svg>
       </span>
-      <TextShimmer text={activityText} />
+      <TextShimmer text={verb} />
+      {activityMeta ? <span className="live-activity-meta">{activityMeta}</span> : null}
     </div>
     {reasoning && <details className="thinking-disclosure">
       <summary>{t("View reasoning")}</summary>
@@ -400,9 +409,25 @@ export function LiveActivity({
   </div>;
 }
 
+// Terminal cell width: the TUI sizes its glint in columns, where CJK occupies
+// two. Reporting the same count lets the CSS express the sweep in `ch` and
+// land on the rendered width in Korean and Latin alike.
+const WIDE_CELL = /[\u1100-\u115F\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uA000-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/;
+function shimmerCells(text: string): number {
+  let cells = 0;
+  for (const character of text) cells += WIDE_CELL.test(character) ? 2 : 1;
+  return cells || 1;
+}
+
 export function TextShimmer({ text, active = true }: { text: string; active?: boolean }) {
-  return <span data-component="text-shimmer" data-active={active ? "true" : "false"} aria-label={text}>
-    <span data-slot="text-shimmer-char" data-run={active ? "true" : "false"}
+  return <span data-component="text-shimmer" data-active={active ? "true" : "false"} aria-label={text}
+    style={{ "--text-shimmer-cells": shimmerCells(text) } as React.CSSProperties}>
+    {/* A REPLACED phrase restarts the sweep from its first cell. Both the tile
+        size and the duration are derived from the phrase itself (cell count,
+        element width), so reusing the previous element kept its animation
+        PROGRESS and teleported the glint into the middle of the new phrase —
+        the visible flick on every tool-title or status-verb swap. */}
+    <span key={text} data-slot="text-shimmer-char" data-run={active ? "true" : "false"}
       aria-hidden="true">{text}</span>
   </span>;
 }
@@ -434,14 +459,19 @@ export function CompletionStatus({
     const visible = tone === "failed" && !/^(done|complete|completed)$/i.test(label) ? label || fallback : fallback;
     return <div className={`turn-status ${tone}`} role="status"
       data-animate={animate ? "true" : undefined}>
-      <X className="turn-status-icon" size={15} aria-hidden="true" />
+      <X className="turn-status-icon" size={16} aria-hidden="true" />
       <span>{visible}</span>
     </div>;
   }
   if (tone === "compaction") {
     return <div className="compaction-divider" role="status"
       data-animate={animate ? "true" : undefined}>
-      <Layers3 className="compaction-icon" size={15} aria-hidden="true" />
+      {/* NOT Layers3 — that is the default TOOL glyph (see toolIcon below), so
+          the compaction row was drawing the exact same mark as the `Read 7
+          files` rows around it and read as one of them (user: 컴팩트 같은
+          거에는 아이콘을 빼든 다른 걸 쓰든). A fold says what happened: two
+          halves of the thread pressed into one. */}
+      <FoldVertical className="compaction-icon" size={16} aria-hidden="true" />
       <span>{label || t("Conversation compacted")}</span>
       {item.detail && <small>{item.detail}</small>}
     </div>;
@@ -485,7 +515,7 @@ export function CopyControl({ value, label, className, tooltipSide = "top" }: {
   return <button type="button" className={className} onClick={() => void copy()}
     aria-label={copied ? t("Copied") : t(label)} data-copied={copied || undefined}
     data-tooltip={copied ? t("Copied") : t("Copy")} data-tooltip-side={tooltipSide}>
-    {copied ? <MxIcon name="check" size={13} /> : <MxIcon name="copy" size={13} />}
+    {copied ? <MxIcon name="check" size={14} /> : <MxIcon name="copy" size={14} />}
   </button>;
 }
 
@@ -1127,7 +1157,7 @@ export function CodeDiff({ patch }: { patch: string }) {
             const deletions = file.hunks.join("\n").split("\n")
               .filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
             return <div className="diff-file" key={`${file.newFile.fileName}-${index}`}>
-              <header><FileDiff size={15} /><b>{file.newFile.fileName}</b>
+              <header><FileDiff size={16} /><b>{file.newFile.fileName}</b>
                 <span className="diff-stats"><i>+{additions}</i><em>-{deletions}</em></span>
                 <CopyControl value={file.patch} label={`Copy diff for ${file.newFile.fileName}`}
                   className="tool-detail-copy diff-copy" />

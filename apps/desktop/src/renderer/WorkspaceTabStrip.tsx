@@ -885,11 +885,11 @@ export function WorkspaceTabStrip({
             aria-label={t("Create tab")}
             style={{ left: newMenu.left, top: newMenu.top }}>
             {[
-              { label: "New Task", icon: <MessageCircle size={15} />, run: onNewTask },
-              { label: "New Studio", icon: <Sparkles size={15} />, run: onNewStudio },
-              { label: "New File", icon: <FileText size={15} />, run: onOpenFile },
-              { label: "New Terminal", icon: <Terminal size={15} />, run: onNewTerminal },
-              { label: "Open Folder", icon: <Folder size={15} />, run: onOpenFolder },
+              { label: "New Task", icon: <MessageCircle size={16} />, run: onNewTask },
+              { label: "New Studio", icon: <Sparkles size={16} />, run: onNewStudio },
+              { label: "New File", icon: <FileText size={16} />, run: onOpenFile },
+              { label: "New Terminal", icon: <Terminal size={16} />, run: onNewTerminal },
+              { label: "Open Folder", icon: <Folder size={16} />, run: onOpenFolder },
             ].map((item) => <button type="button" role="menuitem" key={item.label}
               disabled={!item.run}
               onClick={() => {
@@ -923,7 +923,7 @@ export function WorkspaceTabStrip({
                   onClick={() => closeTab(tab)}>
                   {tab.dirty
                     ? <span className="workspace-tab-dirty-glyph" aria-hidden="true">●</span>
-                    : <X size={13} aria-hidden="true" />}
+                    : <X size={14} aria-hidden="true" />}
                 </button>
               </div>;
             })}

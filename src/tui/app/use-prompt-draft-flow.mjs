@@ -146,13 +146,11 @@ export function usePromptDraftFlow({
   }, [slashCommands, slashIndex]);
 
   const cancelSlashPalette = useCallback((value = '') => {
-    // Esc clears the slash draft, so the dismissal marker must not survive.
-    // If it stays as "/" then typing "/" again is treated as the same
-    // dismissed query and the palette never re-opens.
-    setSlashDismissedFor('');
-    setPromptDraft('');
-    setPromptDraftOverride({ id: Date.now(), value: '' });
-  }, []);
+    // Claude Code's autocomplete:dismiss closes suggestions without changing
+    // the draft. Remember this exact value so the palette does not immediately
+    // reopen; the next edit clears the marker in onPromptDraftChange.
+    setSlashDismissedFor(String(value ?? ''));
+  }, [setSlashDismissedFor]);
 
   return {
     onPromptDraftChange,

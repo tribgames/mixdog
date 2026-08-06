@@ -7,8 +7,8 @@ export function channelNotificationModelContent(params = {}) {
 }
 
 export function shouldMirrorChannelNotificationToPending(meta = {}) {
-  // CC parity (reference messageQueueManager.ts): every inbound channel/
-  // schedule notification flows through the single queue — when no live
+  // Every inbound channel/schedule notification flows through the single
+  // queue — when no live
   // listener handled it (engine not subscribed yet, pane disposed, headless),
   // it is mirrored into the session pending queue for the next turn instead
   // of being dropped. Silent-to-agent stays excluded; the upstream content

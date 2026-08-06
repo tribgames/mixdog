@@ -53,6 +53,7 @@ import {
   cancelPromptImmediateFlush,
   schedulePromptImmediateFlush,
 } from './prompt-input/immediate-render.mjs';
+import { classifyPromptEscape } from './prompt-input/escape-policy.mjs';
 
 // Windows Terminal IME composition can clip a glyph that starts exactly at the
 // left edge of the editable text node. The rounded prompt box already adds a
@@ -86,6 +87,7 @@ export function PromptInput({
   interruptActive = false,
   onInterrupt,
   commandPaletteActive = false,
+  commandPaletteOpen = commandPaletteActive,
   mask = false,
   hint = '',
   hintTone = 'info',
@@ -98,6 +100,7 @@ export function PromptInput({
   onCommandPaletteCancel,
   onCommandPaletteComplete,
   onRestoreQueued,
+  hasQueuedMessages = false,
   onHistoryNavigate,
   onPasteText,
   selectionRef,
@@ -112,7 +115,6 @@ export function PromptInput({
   });
   const [, bumpCursorAnchorEpoch] = useState(0);
   const draftRef = useRef(draft);
-  const interruptActiveRef = useRef(interruptActive);
   const lastReportedValueRef = useRef(draft.value);
   // Bumped on every submit/draftOverride replace/unmount so an async paste
   // (clipboard read or onPasteText promise) that resolves after the draft
@@ -122,6 +124,7 @@ export function PromptInput({
   // One physical Enter must not enqueue twice when the terminal delivers the
   // chord as multiple input events before the draft clears (Windows CR/LF).
   const submitGateRef = useRef(false);
+  const escapeClearAtRef = useRef(0);
   if (valueRef) valueRef.current = draftRef.current.value;
   const { isRawModeSupported } = useStdin();
   // The text box's ink DOM node. We mark it as the cursor anchor (forked ink
@@ -141,7 +144,6 @@ export function PromptInput({
   const undoRef = useRef({ past: [], future: [], lastPushAt: 0, lastValue: null });
   const { value, cursor } = draft;
   draftRef.current = draft;
-  interruptActiveRef.current = interruptActive;
   if (selectionRef) {
     const range = selectionRange(draft);
     selectionRef.current = range
@@ -174,14 +176,12 @@ export function PromptInput({
     }
   };
 
-  // During an active turn, ink is already painting streaming updates at its
-  // 60fps budget. A second unthrottled input render competes with those frames
-  // and makes key echo slower, so busy input stays on ink's normal render path.
-  // Idle input keeps the leading+trailing immediate flush for crisp caret echo.
+  // Keep prompt echo on the same leading+trailing immediate cadence while a
+  // turn is active. Claude Code keeps mid-turn typing responsive; suppressing
+  // this path made the draft visibly trail the keyboard under streaming load.
   const scheduleImmediateFlush = () => {
     schedulePromptImmediateFlush({
       throttle: flushThrottleRef.current,
-      isSuppressed: () => interruptActiveRef.current,
       flush: flushImmediate,
     });
   };
@@ -191,6 +191,7 @@ export function PromptInput({
   }, []);
 
   const commitDraft = (next, options = {}) => {
+    escapeClearAtRef.current = 0;
     const sameDraft = draftStateEqual(draftRef.current, next);
     if (!options.keepPreferredColumn) preferredColumnRef.current = null;
     if (sameDraft) {
@@ -449,8 +450,12 @@ export function PromptInput({
     return true;
   };
 
-  const restoreQueuedToDraft = () => {
-    return onRestoreQueued?.(draftRef.current.value) === true;
+  const restoreQueuedToDraft = ({ showHint = false } = {}) => {
+    return onRestoreQueued?.({
+      restoreDraft: true,
+      showHint,
+      currentText: draftRef.current.value,
+    }) === true;
   };
 
   const applyHistoryNavigation = (direction, meta = {}) => {
@@ -552,6 +557,7 @@ export function PromptInput({
 
     const rawInput = String(input ?? '');
     const inputKey = rawInput.toLowerCase();
+    if (!key.escape) escapeClearAtRef.current = 0;
     const rawShiftArrowForGrid =
       rawInput === '\x1b[1;2A' || rawInput === '\x1b[a' || rawInput === '[1;2A'
       || rawInput === '\x1b[1;2B' || rawInput === '\x1b[b' || rawInput === '[1;2B'
@@ -628,8 +634,8 @@ export function PromptInput({
     const lineBreakIndex = rawInput.search(/[\r\n]/);
     const rawEnter = rawInput === '\r' || rawInput === '\n' || rawInput === '\r\n';
     const trailingEnterPrefix = singleTrailingLineBreakPrefix(rawInput);
-    const rawCtrlEnter = isModifiedEnterSequence(rawInput);
-    const modifiedLineBreak = key.shift || key.meta || key.ctrl || rawCtrlEnter;
+    const rawModifiedEnter = isModifiedEnterSequence(rawInput);
+    const modifiedLineBreak = key.shift || key.meta || key.ctrl || rawModifiedEnter;
 
     // Ctrl+J is the protocol-INDEPENDENT newline that works on every terminal.
     //  • Legacy / modifyOtherKeys terminals: Ctrl+J is a lone '\n' (0x0A). A real
@@ -646,12 +652,9 @@ export function PromptInput({
       return;
     }
 
-    // A modified Enter that is NOT a newline chord (e.g. Alt+Enter \x1b[13;3u or
-    // \x1b[27;3;13~). isModifiedEnterSequence already handled shift/ctrl above
-    // (→ newline); here we CONSUME any other modified Enter so its raw CSI bytes
-    // never type into the prompt under modifyOtherKeys. Plain Enter (mod=1) is
-    // not matched and still submits below.
-    if (!rawCtrlEnter && isAnyModifiedEnterSequence(rawInput)) {
+    // Consume uncommon modified-Enter combinations outside the normal
+    // Shift/Alt/Ctrl newline set so raw CSI bytes never enter the prompt.
+    if (!rawModifiedEnter && isAnyModifiedEnterSequence(rawInput)) {
       return;
     }
 
@@ -676,7 +679,7 @@ export function PromptInput({
       return;
     }
 
-    if (rawCtrlEnter) {
+    if (rawModifiedEnter) {
       updateDraft((d) => replaceSelection(d, '\n'));
       return;
     }
@@ -745,12 +748,10 @@ export function PromptInput({
           if (!moveDraftVertically(-1, { extend: true })) {
             updateDraft((d) => moveCursor(d, 0, { extend: true }));
           }
-        } else {
-          const hasDraftText = String(draftRef.current.value || '').trim().length > 0;
-          if (!hasDraftText) {
-            if (!restoreQueuedToDraft()) applyHistoryNavigation('up', { emptyDraft: true });
-          } else if (!moveDraftVertically(-1, { extend: false })) {
-            applyHistoryNavigation('up', { emptyDraft: false });
+        } else if (!moveDraftVertically(-1, { extend: false })) {
+          const emptyDraft = String(draftRef.current.value || '').length === 0;
+          if (!hasQueuedMessages || !restoreQueuedToDraft()) {
+            applyHistoryNavigation('up', { emptyDraft });
           }
         }
       }
@@ -768,7 +769,7 @@ export function PromptInput({
             updateDraft((d) => moveCursor(d, d.value.length, { extend: true }));
           }
         } else if (!moveDraftVertically(1, { extend: false })) {
-          applyHistoryNavigation('down', { emptyDraft: String(draftRef.current.value || '').trim().length === 0 });
+          applyHistoryNavigation('down', { emptyDraft: String(draftRef.current.value || '').length === 0 });
         }
       }
       return;
@@ -806,9 +807,8 @@ export function PromptInput({
     }
 
     if (key.escape) {
-      if (commandPaletteActive) {
+      if (commandPaletteOpen) {
         onCommandPaletteCancel?.(draftRef.current.value);
-        commitDraft({ value: '', cursor: 0, selectionAnchor: null });
         return;
       }
       if (selectionRange(draftRef.current)) {
@@ -819,23 +819,43 @@ export function PromptInput({
       if (onEscape?.(currentValue, { phase: 'before' }) === true) {
         return;
       }
-      if (currentValue) {
-        onEscape?.(currentValue, { phase: 'clear' });
-        commitDraft({ value: '', cursor: 0, selectionAnchor: null });
-        return;
+      let escape = classifyPromptEscape({
+        interruptActive,
+        hasQueuedMessages,
+        value: currentValue,
+        lastClearPressAt: escapeClearAtRef.current,
+      });
+      if (escape.action === 'restore-queue') {
+        if (restoreQueuedToDraft()) {
+          escapeClearAtRef.current = 0;
+          return;
+        }
+        // A stale projected queue can empty between render and key handling.
+        // Fall through to the normal draft/idle action in that case.
+        escape = classifyPromptEscape({
+          interruptActive,
+          value: currentValue,
+          lastClearPressAt: escapeClearAtRef.current,
+        });
       }
-      // Active turn takes precedence over queue restore: Esc during a
-      // running turn interrupts the
-      // turn and leaves queued steering prompts intact to run afterward. Queued
-      // messages only pop back into the draft when the turn is idle.
-      if (interruptActive) {
-        const restoredText = onInterrupt?.('');
-        if (typeof restoredText === 'string') {
+      escapeClearAtRef.current = escape.nextClearPressAt;
+      // Active work always wins, even if the user has already typed a steering
+      // draft. The draft is preserved; the old submitted prompt is restored only
+      // when this box is still empty after cancellation.
+      if (escape.action === 'interrupt') {
+        const restoredText = onInterrupt?.(currentValue);
+        if (!currentValue && typeof restoredText === 'string') {
           commitDraft({ value: restoredText, cursor: restoredText.length, selectionAnchor: null });
         }
         return;
       }
-      if (restoreQueuedToDraft()) {
+      if (escape.action === 'arm-clear') {
+        onEscape?.(currentValue, { phase: 'clear-arm' });
+        return;
+      }
+      if (escape.action === 'clear') {
+        onEscape?.(currentValue, { phase: 'clear' });
+        commitDraft({ value: '', cursor: 0, selectionAnchor: null });
         return;
       }
       onEscape?.('', { phase: 'empty' });

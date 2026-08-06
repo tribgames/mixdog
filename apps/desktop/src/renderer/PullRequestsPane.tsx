@@ -461,7 +461,7 @@ export function PullRequestsPane({
             onInput={(event) => setFilter(event.currentTarget.value)} />
           {filter && <button type="button" aria-label="Clear pull request filter"
             onClick={() => setFilter("")}>
-            <X size={13} aria-hidden="true" />
+            <X size={14} aria-hidden="true" />
           </button>}
         </label>
       </div>
@@ -509,7 +509,7 @@ export function PullRequestsPane({
         <footer>
           <button type="button" onClick={cancelCreatePullRequest} disabled={busy === "create"}>Cancel</button>
           <button type="submit" disabled={createDisabled}>
-            {busy === "create" && <ProgressSpinner size={13} aria-hidden="true" />}
+            {busy === "create" && <ProgressSpinner size={14} aria-hidden="true" />}
             {busy === "create" ? "Creating…" : !prUrl ? "Push & Create PR"
               : createDraft ? "Create draft PR" : "Create PR"}
           </button>
@@ -532,7 +532,7 @@ export function PullRequestsPane({
       </p>}
       {pullRequestViews && !listError && visiblePullRequests.length === 0 &&
         <div className="dock-pr-empty" role="status">
-          <GitPullRequestArrow size={23} aria-hidden="true" />
+          <GitPullRequestArrow size={24} aria-hidden="true" />
           <b>{emptyTitle}</b>
           <span>{emptyMessage}</span>
           {!filter && listView === "open" && !onDefaultBranch && currentBranch && api?.ghPrCreate &&
@@ -570,14 +570,14 @@ export function PullRequestsPane({
               <span className="dock-pr-row-actions">
                 <button type="button" aria-label={`Open changes for pull request ${pr.number}`}
                   data-tooltip="Open Changes" onClick={() => openPullRequest(pr, "changes")}>
-                  <FileDiff size={13} aria-hidden="true" />
+                  <FileDiff size={14} aria-hidden="true" />
                 </button>
                 {!checkedOut && <button type="button" aria-label={`Checkout pull request ${pr.number}`}
                   data-tooltip="Checkout Pull Request" disabled={Boolean(busy) || !api?.ghPrCheckout}
                   onClick={() => void run(checkoutKey, () => api?.ghPrCheckout?.(projectPath, pr.number))}>
                   {busy === checkoutKey
-                    ? <ProgressSpinner size={13} aria-hidden="true" />
-                    : <ArrowRight size={13} aria-hidden="true" />}
+                    ? <ProgressSpinner size={14} aria-hidden="true" />
+                    : <ArrowRight size={14} aria-hidden="true" />}
                 </button>}
                 <RowOverflowMenu label={`Actions for pull request ${pr.number}`} items={[
                   {
@@ -734,8 +734,8 @@ export function PullRequestEditor({
         <div className="dock-pr-actions dock-pr-header-actions">
           <button type="button" disabled={Boolean(busy) || checkedOut}
             onClick={() => void run("checkout", () => api?.ghPrCheckout?.(projectPath, detail.number))}>
-            {busy === "checkout" ? <ProgressSpinner size={13} aria-hidden="true" />
-              : <Check size={13} aria-hidden="true" />}
+            {busy === "checkout" ? <ProgressSpinner size={14} aria-hidden="true" />
+              : <Check size={14} aria-hidden="true" />}
             {checkedOut ? "Checked Out" : "Checkout"}
           </button>
           {detail.state === "OPEN" && !detail.isDraft && <span className="dock-pr-merge">
@@ -746,8 +746,8 @@ export function PullRequestEditor({
                 if (!window.confirm(`${action} pull request #${detail.number}?`)) return;
                 void run("merge", () => api?.ghPrMerge?.(projectPath, detail.number, mergeMethod));
               }}>
-              {busy === "merge" ? <ProgressSpinner size={13} aria-hidden="true" />
-                : <GitMerge size={13} aria-hidden="true" />}
+              {busy === "merge" ? <ProgressSpinner size={14} aria-hidden="true" />
+                : <GitMerge size={14} aria-hidden="true" />}
               {mergeMethod === "merge" ? "Merge" : mergeMethod === "squash" ? "Squash" : "Rebase"}
             </button>
             <select aria-label="Merge method" value={mergeMethod} disabled={Boolean(busy)}

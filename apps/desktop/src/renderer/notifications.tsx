@@ -80,7 +80,7 @@ export function DesktopUpdateDialog({ version, onCancel, onConfirm }: {
       <header>
         <h3 id="desktop-update-title">{t("Install Mixdog {{version}}?", { version })}</h3>
         <button type="button" aria-label={t("Close update confirmation")} onClick={onCancel}>
-          <X aria-hidden="true" size={15} />
+          <X aria-hidden="true" size={16} />
         </button>
       </header>
       <p id="desktop-update-description">

@@ -493,6 +493,13 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   // Engine pushes stay droppable: the subscriber must not forward its own
   // extra arguments as the `critical` flag.
   const unsubscribeState = options.host.subscribe((snapshot) => broadcastState(snapshot));
+  const unsubscribeSessionStates = options.host.subscribeSessionStates((update) => {
+    if (activeClients.size === 0) return;
+    sendEnvelope({
+      type: 'broadcast',
+      data: JSON.stringify({ event: 'sessionState', payload: update }),
+    });
+  });
   const unsubscribeTerminals = options.subscribeTerminalData?.((event) => {
     if (activeClients.size === 0) return;
     sendEnvelope({ type: 'broadcast', data: JSON.stringify({ event: 'termData', payload: event }) });
@@ -583,6 +590,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       closed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       unsubscribeState();
+    unsubscribeSessionStates();
       unsubscribeTerminals();
       for (const pending of revocationSockets) {
         try { pending.terminate(); } catch { /* already gone */ }

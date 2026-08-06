@@ -39,20 +39,20 @@ export function createCoreMemoryPicker({
     });
     void store.memoryControl?.({ action: 'core', op: 'list', project_id: '*' }, { silent: true })
       .then(async (result) => {
-        // Memory on/off lives here too so /memory is a one-stop surface:
+        // The recap toggle lives here too so /memory is a one-stop surface:
         // toggle row + add row + curated entries.
-        const memory = (await store.getMemorySettings?.()) || { enabled: true };
-        const memoryOn = memory.enabled !== false;
+        const recap = (await store.getRecapSettings?.()) || { enabled: true };
+        const recapOn = recap.enabled !== false;
         const coreRows = parseMemoryCoreRows(result);
         const rows = [
           {
-            value: 'memory-toggle',
-            label: 'Memory',
-            meta: memoryOn ? 'On' : 'Off',
-            description: memoryOn
-              ? 'Background memory cycles on'
-              : 'Background memory cycles off',
-            _action: 'toggle-memory',
+            value: 'recap-toggle',
+            label: 'Recap',
+            meta: recapOn ? 'On' : 'Off',
+            description: recapOn
+              ? 'Background session recaps on'
+              : 'Background recaps off; core memory remains available',
+            _action: 'toggle-recap',
           },
           { value: 'core-add', label: 'Add Memory', description: 'store a new curated memory sentence', _action: 'add-core' },
           {
@@ -76,17 +76,17 @@ export function createCoreMemoryPicker({
           labelWidth: 12,
           footer: (item) => (item && item._action === 'core-entry' ? (item._summary || item._element || '') : ''),
           onSelect: (_value, item) => {
-            if (item?._action === 'toggle-memory') toggleMemoryEnabled();
+            if (item?._action === 'toggle-recap') toggleRecapEnabled();
             else if (item?._action === 'add-core') beginAddCoreMemory();
             else if (item?._action === 'core-list') openCoreMemoryListPicker(item._rows);
             else if (item?._line) store.pushNotice(item._line, 'info');
           },
           // Toggle rows also respond to ←/→ (matches settings/channels UX).
           onLeft: (item) => {
-            if (item?._action === 'toggle-memory') toggleMemoryEnabled();
+            if (item?._action === 'toggle-recap') toggleRecapEnabled();
           },
           onRight: (item) => {
-            if (item?._action === 'toggle-memory') toggleMemoryEnabled();
+            if (item?._action === 'toggle-recap') toggleRecapEnabled();
           },
           onCancel: closeMemoryCorePicker,
         });
@@ -137,14 +137,14 @@ export function createCoreMemoryPicker({
       });
   };
 
-  const toggleMemoryEnabled = async () => {
-    const memory = (await store.getMemorySettings?.()) || { enabled: true };
-    void Promise.resolve(store.setMemoryEnabled?.(!(memory.enabled !== false)))
+  const toggleRecapEnabled = async () => {
+    const recap = (await store.getRecapSettings?.()) || { enabled: true };
+    void Promise.resolve(store.setRecapEnabled?.(!(recap.enabled !== false)))
       .then((next) => {
-        if (!next) store.pushNotice('memory setting is busy', 'warn');
-        else store.pushNotice(`Memory ${next.enabled ? 'on' : 'off'}`, 'info');
+        if (!next) store.pushNotice('recap setting is busy', 'warn');
+        else store.pushNotice(`Recap ${next.enabled ? 'on' : 'off'}`, 'info');
       })
-      .catch((e) => store.pushNotice(`memory toggle failed: ${e?.message || e}`, 'error'))
+      .catch((e) => store.pushNotice(`recap toggle failed: ${e?.message || e}`, 'error'))
       .finally(() => openMemoryCorePicker());
   };
 

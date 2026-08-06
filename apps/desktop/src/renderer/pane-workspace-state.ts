@@ -197,6 +197,29 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     });
   }, []);
 
+  /** Addressed draft promotion: replace the exact tab in its owning group
+   * without changing which group currently owns keyboard focus. */
+  const promoteInLeaf = useCallback((
+    leafId: string,
+    selection: WorkspaceSelection,
+    replaceKey: string,
+  ) => {
+    setState((prev) => {
+      const leaf = findPaneLeaf(prev.layout, leafId);
+      if (!leaf?.tabs.some((tab) => navigationKey(tab) === replaceKey)) return prev;
+      const layout = openTabInPaneLeaf(
+        prev.layout,
+        leafId,
+        selection,
+        replaceKey,
+      );
+      return layout === prev.layout ? prev : {
+        layout,
+        focusedLeafId: prev.focusedLeafId,
+      };
+    });
+  }, []);
+
   const pinTab = useCallback((leafId: string, key: string) => {
     setState((prev) => {
       const layout = pinTabInPaneLeaf(prev.layout, leafId, key);
@@ -578,6 +601,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     focusLeaf,
     openInFocused,
     openInLeaf,
+    promoteInLeaf,
     pinTab,
     pinTabByKey,
     activateTab,
@@ -602,6 +626,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     focusLeaf,
     openInFocused,
     openInLeaf,
+    promoteInLeaf,
     pinTab,
     pinTabByKey,
     activateTab,

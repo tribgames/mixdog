@@ -64,11 +64,13 @@ export function createModelRouteApi(deps) {
       return await collectSearchProviderModels({ force: options.force === true || options.refresh === true });
     },
     async setSearchRoute(next) {
-      const searchRoute = getSearchRouteState();
-      let selectedRoute = normalizeSearchRouteConfig(next);
-      if (!selectedRoute && next?.model && searchRoute?.provider) {
-        selectedRoute = normalizeSearchRouteConfig({ ...next, provider: searchRoute.provider });
-      }
+      let selectedRoute = clean(next?.provider)
+        ? normalizeSearchRouteConfig(next)
+        : normalizeSearchRouteConfig({
+          provider: SEARCH_DEFAULT_PROVIDER,
+          model: SEARCH_DEFAULT_MODEL,
+          ...(next?.toolType ? { toolType: next.toolType } : {}),
+        });
       if (!selectedRoute) throw new Error('search route requires provider and model');
       if (isDefaultSearchRouteConfig(selectedRoute)) {
         await awaitKeychainPrewarm();

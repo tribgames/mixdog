@@ -171,6 +171,7 @@ export function createHttpRouter({
       try {
         const db = getDb()
         const stats = await entryStats()
+        const memory = process.memoryUsage()
         sendJson(res, {
           status: 'ok',
           worker_pid: process.pid,
@@ -192,6 +193,13 @@ export function createHttpRouter({
           cycle_running: cycleScheduler.getCycleRunning(),
           cycle_health: cycleScheduler.getCycleHealth(),
           cycle_backlog: cycleScheduler.getCycleBacklogSnapshot(),
+          memory: {
+            rssBytes: memory.rss,
+            heapTotalBytes: memory.heapTotal,
+            heapUsedBytes: memory.heapUsed,
+            externalBytes: memory.external,
+            arrayBufferBytes: memory.arrayBuffers,
+          },
         })
       } catch (e) { sendError(res, e.message) }
       return

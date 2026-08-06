@@ -356,6 +356,7 @@ test('backend client rejects a lost mutation and keeps bounded reconnect recover
     requestTimeoutMs: 100,
     restartBaseDelayMs: 0,
     restartMaxDelayMs: 0,
+    failureNoticeDelayMs: 0,
   });
   const unsubscribe = host.subscribe((snapshot) => snapshots.push(snapshot));
   try {
@@ -366,6 +367,7 @@ test('backend client rejects a lost mutation and keeps bounded reconnect recover
     );
     const pending = host.submit('do not replay', { id: 'one-shot' });
     transports[0].emit('exit', 9);
+    assert.match(snapshots.at(-1).toasts.at(-1).text, /backend connection stopped/i);
     await assert.rejects(() => pending, /exited with code 9/);
     await host.start();
     assert.equal(connected, 2);
@@ -375,14 +377,81 @@ test('backend client rejects a lost mutation and keeps bounded reconnect recover
       )),
       false,
     );
-    assert.equal(snapshots.at(-1).busy, false);
-    assert.match(snapshots.at(-1).toasts.at(-1).text, /backend connection stopped/i);
+    assert.notEqual(snapshots.at(-1).busy, true);
+    assert.equal(
+      Boolean(snapshots.at(-1).toasts?.some(
+        (toast) => toast?.id === 'backend-connection-stopped',
+      )),
+      false,
+      'successful recovery removes the process-local warning',
+    );
 
     transports[1].emit('exit', 10);
     await host.start();
     assert.equal(connected, 3, 'a later disconnect remains recoverable');
   } finally {
     unsubscribe();
+    await host.dispose();
+  }
+});
+
+test('a brief daemon reconnect stays silent by default', async () => {
+  const transports = [readyTransport(), readyTransport()];
+  let connected = 0;
+  const snapshots = [];
+  const host = new DesktopBackendClient({
+    connect: () => transports[connected++],
+    engineOptions,
+    restartBaseDelayMs: 0,
+    restartMaxDelayMs: 0,
+  });
+  const unsubscribe = host.subscribe((snapshot) => snapshots.push(snapshot));
+  try {
+    await host.start();
+    transports[0].emit('exit', 1);
+    assert.equal(
+      Boolean(snapshots.at(-1).toasts?.some(
+        (toast) => toast?.id === 'backend-connection-stopped',
+      )),
+      false,
+      'a recoverable transport handoff does not flash an error',
+    );
+    await host.start();
+    assert.equal(connected, 2);
+    assert.equal(
+      Boolean(snapshots.at(-1).toasts?.some(
+        (toast) => toast?.id === 'backend-connection-stopped',
+      )),
+      false,
+    );
+  } finally {
+    unsubscribe();
+    await host.dispose();
+  }
+});
+
+test('backend client forwards in-place stream recovery diagnostics without changing state', async () => {
+  const transport = readyTransport();
+  const diagnostics = [];
+  const host = new DesktopBackendClient({
+    connect: () => transport,
+    engineOptions,
+    onDiagnostic: (event, details) => diagnostics.push({ event, details }),
+  });
+  try {
+    await host.start();
+    const before = host.getSnapshot();
+    transport.emit('diagnostic', 'backend-stream-reconnected', {
+      reason: 'sse ended',
+      attempt: 1,
+      downtimeMs: 20,
+    });
+    assert.equal(host.getSnapshot(), before);
+    assert.deepEqual(diagnostics, [{
+      event: 'backend-stream-reconnected',
+      details: { reason: 'sse ended', attempt: 1, downtimeMs: 20 },
+    }]);
+  } finally {
     await host.dispose();
   }
 });

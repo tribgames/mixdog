@@ -295,7 +295,7 @@ const FilesPane = memo(function FilesPane({
           placeholder={contentsMode ? t("Search text") : t("Search files")}
           aria-label={contentsMode ? t("Search text in project files") : t("Search project files by name")} />
         {query && <button type="button" aria-label={t("Clear search")}
-          onClick={() => setQuery("")}><X size={13} aria-hidden="true" /></button>}
+          onClick={() => setQuery("")}><X size={14} aria-hidden="true" /></button>}
       </label>
       <div className="workbench-search-mode" role="tablist" aria-label={t("Explorer search mode")}>
         <button type="button" role="tab" aria-selected={!contentsMode}

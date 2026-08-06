@@ -13,6 +13,7 @@ import { theme } from '../theme.mjs';
 import {
   SELECTION_PAINT_INTERVAL_MS,
   SCROLL_COALESCE_MS,
+  accumulateDirectionalScrollDelta,
   selectionRectsEqual,
   shiftSelectionRectY,
   comparePoints,
@@ -45,7 +46,7 @@ export function useTranscriptScroll({
   const selectionPaintRef = useRef({ t: 0, rect: null, pending: null, timer: null });
   // Coalescer for edge-drag auto-scroll + wheel scroll deltas (see
   // SCROLL_COALESCE_MS). Both call sites accumulate into pendingRows.
-  const scrollCoalesceRef = useRef({ pendingRows: 0, timer: null });
+  const scrollCoalesceRef = useRef({ pendingRows: 0, direction: 0, timer: null });
   const selectionTextCaptureRef = useRef(0);
   // Stitch buffer: accumulates harvested transcript selection rows across scroll
   // positions so Ctrl+C copies the FULL drag even after it auto-scrolled past the
@@ -446,6 +447,7 @@ export function useTranscriptScroll({
     if (coalesceState.timer) clearTimeout(coalesceState.timer);
     coalesceState.timer = null;
     coalesceState.pendingRows = 0;
+    coalesceState.direction = 0;
   }, []);
 
   const scrollTranscriptRows = useCallback((deltaRows, options = {}) => {
@@ -653,13 +655,18 @@ export function useTranscriptScroll({
   // calling scrollTranscriptRows directly.
   const queueScrollCoalesced = useCallback((deltaRows) => {
     const state = scrollCoalesceRef.current;
-    state.pendingRows += deltaRows;
+    const reversed = accumulateDirectionalScrollDelta(state, deltaRows);
+    if (reversed && state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
     if (state.timer) return;
     const rows = state.pendingRows;
     state.pendingRows = 0;
     scrollTranscriptRows(rows);
     state.timer = setTimeout(() => {
       state.timer = null;
+      state.direction = 0;
       if (state.pendingRows !== 0) {
         const remaining = state.pendingRows;
         state.pendingRows = 0;

@@ -8,6 +8,7 @@ import type {
   DesktopCapabilityResult,
   DesktopStateFieldsPatch,
   DesktopStateStreamingTailPatch,
+  DesktopSessionStateUpdate,
   DesktopTranscriptItem,
   DesktopUpdaterState,
   EngineSnapshot,
@@ -54,6 +55,7 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
   interface PendingCall { resolve: (value: unknown) => void; reject: (error: Error) => void }
   const pending = new Map<number, PendingCall>();
   const stateListeners = new Set<(snapshot: EngineSnapshot) => void>();
+  const sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
   const termListeners = new Set<(event: { id: string; data: string }) => void>();
   let socket: WebSocket | null = null;
   let openPromise: Promise<WebSocket> | null = null;
@@ -505,6 +507,12 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
     if (message.event === 'state') {
       const snapshot = applyStatePayload(message.payload ?? null);
       if (snapshot !== null) dispatchState(snapshot);
+    } else if (message.event === 'sessionState') {
+      const update = message.payload as DesktopSessionStateUpdate;
+      if (!update || typeof update !== 'object' || !String(update.sessionId || '')) return;
+      for (const listener of [...sessionStateListeners]) {
+        try { listener(update); } catch { /* renderer listener fault */ }
+      }
     } else if (message.event === 'termData') {
       const payload = (message.payload ?? {}) as { id?: unknown; data?: unknown };
       const event = { id: String(payload.id || ''), data: String(payload.data ?? '') };
@@ -746,8 +754,17 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
     showDesktopUpdate: () => Promise.resolve(DISABLED_UPDATER),
     submit: (prompt, options) => call('submit', [prompt, options]),
     submitNewTask: (prompt, options, draft) => call('submitNewTask', [prompt, options, draft]),
-    abort: () => call('abort'),
+    submitToSession: (sessionId, prompt, options) =>
+      call('submitToSession', [sessionId, prompt, options]),
+    abort: (options = {}) => call('abort', [options]),
+    abortSession: (sessionId, options = {}) => call('abortSession', [sessionId, options]),
     resolveToolApproval: (id, decision) => call('resolveToolApproval', [id, decision]),
+    resolveToolApprovalForSession: (sessionId, id, decision) =>
+      call('resolveToolApprovalForSession', [sessionId, id, decision]),
+    subscribeSessionState: (listener) => {
+      sessionStateListeners.add(listener);
+      return () => { sessionStateListeners.delete(listener); };
+    },
     listProviderModels: (options) => call('listProviderModels', [options]),
     setModelRoute: (selection, sessionId) => call('setModelRoute', [selection, sessionId]),
     setFast: (enabled, sessionId) => call('setFast', [enabled, sessionId]),

@@ -28,6 +28,8 @@ import {
   findLineSequence,
   findLineSequenceEscapeEquiv,
   longestCommonSubstringLen,
+  boundedEditDistance,
+  EDIT_DISTANCE_ALLOWANCE_PER_LINE,
   splitTextLinesForPatch,
   firstMeaningfulPatchLine,
   nearestPatchLineHint,
@@ -159,6 +161,18 @@ function noteV4AHunkAmbiguity(displayPath, sourceLines, loc) {
   _v4aAmbiguityNotices.add(
     `${displayPath}: hunk context matches more than one place; applied at line ${loc.oldStartIdx + 1} `
     + '(first match after the previous hunk). Add an @@ anchor to target a different one.',
+  );
+}
+
+// `*** End of File` was relaxed to locate this hunk: report where it actually
+// landed so a mid-file hunk that carried the marker by mistake is visible in
+// the same turn instead of silently looking like an end-of-file edit.
+function noteV4AEofSignalIgnored(displayPath, loc) {
+  if (_v4aAmbiguityNotices.size >= V4A_AMBIGUITY_NOTICE_CAP) return;
+  if (!loc?.eofSignalIgnored) return;
+  _v4aAmbiguityNotices.add(
+    `${displayPath}: hunk carried *** End of File but its context is at line ${loc.oldStartIdx + 1}, `
+    + 'not the end of file; the marker was ignored. Drop it unless the hunk really ends the file.',
   );
 }
 
@@ -299,14 +313,50 @@ function findContextTolerantWindow(sourceLines, oldLines, oldTags) {
   return windows.length === 1 ? { start: windows[0] } : null;
 }
 
-// Last-resort recovery for a model that accidentally copied 1-2 unrelated
-// unchanged context lines just outside the real edit. Trim only contiguous
-// outer ' ' lines — never '-' or '+' lines — and accept the shortened old
-// block only when it matches byte-exactly at exactly one place in the ENTIRE
-// file. Requiring a deletion keeps this fallback off insertion-only hunks;
-// exact whole-block matching proves every deletion line is current. Any
-// competing trim plan or duplicate occurrence is ambiguous and stays a hard
-// context miss.
+// Bounded edit-distance tier (fuzzy, after the context-tolerance tier).
+// Recovers the block a model retyped from memory with a couple of characters
+// off — a dropped bracket, a mistyped short token — where the tolerance tier
+// refuses because the drift sits on a deletion line. Guards keep it safe:
+//   - TOTAL distance across the block stays within ~0.34 characters per line
+//     (3 lines buy exactly 1 character), measured on trimmed text;
+//   - at least 2 non-blank lines must match byte-exactly as anchors;
+//   - the qualifying window must be UNIQUE across the ENTIRE file;
+//   - the caller REMAPS every old line to the file's on-disk text, so the
+//     emitted hunk stays byte-exact for the applier.
+function findEditDistanceWindow(sourceLines, oldLines) {
+  const n = (oldLines || []).length;
+  const maxDistance = Math.floor(n * EDIT_DISTANCE_ALLOWANCE_PER_LINE);
+  if (n < 3 || maxDistance <= 0) return null;
+  const windows = [];
+  for (let i = 0; i + n <= sourceLines.length && windows.length < 2; i++) {
+    let total = 0;
+    let exact = 0;
+    let ok = true;
+    for (let k = 0; k < n; k++) {
+      const pat = String(oldLines[k] ?? '');
+      const src = String(sourceLines[i + k] ?? '');
+      if (src === pat) {
+        if (pat.trim()) exact++;
+        continue;
+      }
+      total += boundedEditDistance(src.trim(), pat.trim(), maxDistance - total);
+      if (total > maxDistance) { ok = false; break; }
+    }
+    if (ok && total > 0 && exact >= 2) windows.push(i);
+  }
+  return windows.length === 1 ? { start: windows[0] } : null;
+}
+
+// Recovery for outer context the model got wrong — a stray copied line, or a
+// whole surrounding block retyped from memory — around an edit whose deletion
+// lines are current. Trim only contiguous outer ' ' lines — never '-' or '+'
+// lines — smallest trim first, and accept the shortened old block only when it
+// matches byte-exactly at exactly one place in the ENTIRE file. That
+// uniqueness IS the position proof, so the trim budget runs to all available
+// outer context: a byte-exact, file-unique deletion core cannot land anywhere
+// else, whatever the caller wrote around it. Requiring a deletion keeps this
+// off insertion-only hunks (they carry no payload to anchor on), and any
+// competing trim plan or duplicate occurrence stays a hard context miss.
 function findOuterContextTrimmedWindow(sourceLines, hunk, stats) {
   const body = (hunk?.lines || []).filter(
     (line) => typeof line === 'string'
@@ -325,7 +375,8 @@ function findOuterContextTrimmedWindow(sourceLines, hunk, stats) {
   ) trailingAvailable++;
   if (leadingAvailable === 0 && trailingAvailable === 0) return null;
 
-  for (let totalTrimmed = 1; totalTrimmed <= 2; totalTrimmed++) {
+  const maxTrimmed = leadingAvailable + trailingAvailable;
+  for (let totalTrimmed = 1; totalTrimmed <= maxTrimmed; totalTrimmed++) {
     const plans = [];
     let ambiguous = false;
     for (let leading = 0; leading <= Math.min(totalTrimmed, leadingAvailable); leading++) {
@@ -424,7 +475,23 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
   // of the patch's real character. On match, remap old/context lines to the
   // file's on-disk form so untouched context stays byte-identical and the
   // escape representation survives the edit.
-  if (oldStartIdx < 0 && fuzzy && !eof && oldLinesPattern.length > 0) {
+  // `*** End of File` is a HINT, not a hard constraint. When the EOF-anchored
+  // seek misses, retry the pattern as an ordinary in-file search: a mid-file
+  // hunk that carried the marker by mistake used to fail with a "context not
+  // found" that pointed at its own byte-perfect context, costing a whole retry
+  // turn. Once that happens the EOF signal is exhausted, so every recovery
+  // tier below treats the hunk as unmarked.
+  let eofSignalIgnored = false;
+  if (oldStartIdx < 0 && eof && oldLinesPattern.length > 0) {
+    const relaxedFrom = Math.max(0, anchorLine - 1);
+    const relaxed = findLineSequence(sourceLines, oldLinesPattern, relaxedFrom, relaxedFrom, { fuzzy, eof: false });
+    if (relaxed >= 0) {
+      oldStartIdx = relaxed;
+      eofSignalIgnored = true;
+    }
+  }
+  if (oldStartIdx < 0 && fuzzy && oldLinesPattern.length > 0) {
+    if (eof) eofSignalIgnored = true;
     const from = Math.max(0, anchorLine - 1);
     const alt = findLineSequenceEscapeEquiv(sourceLines, oldLinesPattern, from, from);
     if (alt >= 0) {
@@ -447,7 +514,7 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
   // lines are remapped to the file's actual lines on BOTH the old and new
   // side (same shape as the escape-equiv remap above); remapping bails on any
   // string ambiguity so an unrelated occurrence can never be rewritten.
-  if (oldStartIdx < 0 && fuzzy && !eof && oldLinesPattern.length >= 3) {
+  if (oldStartIdx < 0 && fuzzy && oldLinesPattern.length >= 3) {
     const tolTags = trimmedTrailing ? stats.oldTags.slice(0, -1) : stats.oldTags;
     const tol = findContextTolerantWindow(sourceLines, oldLinesPattern, tolTags);
     if (tol) {
@@ -474,7 +541,7 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
   // This fallback is deliberately narrower than the context-tolerance tier:
   // fuzzy mode only, non-EOF, no newline-sentinel interaction, deletion hunks
   // only, byte-exact remaining block, and one unique whole-file location.
-  if (oldStartIdx < 0 && fuzzy && !eof && trimmedTrailing === 0) {
+  if (oldStartIdx < 0 && fuzzy && trimmedTrailing === 0) {
     const trimmed = findOuterContextTrimmedWindow(sourceLines, hunk, stats);
     if (trimmed) {
       oldStartIdx = trimmed.start;
@@ -482,6 +549,31 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
       newLinesPattern = trimmed.newLines;
       trimmedLeadingContext = trimmed.leading;
       trimmedTrailingContext = trimmed.trailing;
+    }
+  }
+  // Edit-distance tier: same remap contract as the context-tolerance tier —
+  // the window's on-disk lines replace the patch's near-miss lines on BOTH
+  // sides, and any string ambiguity abandons the rescue.
+  if (oldStartIdx < 0 && fuzzy && oldLinesPattern.length >= 3) {
+    const near = findEditDistanceWindow(sourceLines, oldLinesPattern);
+    if (near) {
+      const remapped = new Map();
+      let ambiguous = false;
+      for (let k = 0; k < oldLinesPattern.length; k++) {
+        const pat = oldLinesPattern[k];
+        const src = sourceLines[near.start + k];
+        if (src === pat) continue;
+        if (
+          oldLinesPattern.filter((l) => l === pat).length > 1
+          || (remapped.has(pat) && remapped.get(pat) !== src)
+        ) { ambiguous = true; break; }
+        remapped.set(pat, src);
+      }
+      if (!ambiguous) {
+        newLinesPattern = newLinesPattern.map((l) => remapped.get(l) ?? l);
+        oldLinesPattern = oldLinesPattern.map((_, k) => sourceLines[near.start + k]);
+        oldStartIdx = near.start;
+      }
     }
   }
   if (oldStartIdx < 0) {
@@ -506,6 +598,9 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
     // hunk carried an @@ anchor (an anchored hunk is never ambiguous).
     pattern: oldLinesPattern,
     anchored: (hunk.anchors || []).filter(Boolean).length > 0,
+    // True when the hunk's `*** End of File` marker had to be relaxed to
+    // locate it (drives the non-fatal notice on the success output).
+    eofSignalIgnored,
   };
 }
 
@@ -1011,6 +1106,7 @@ export async function convertV4ASectionsToUnifiedPatch(sections, basePath, optio
         ],
       });
       noteV4AHunkAmbiguity(displayPath, sourceLines, loc);
+      noteV4AEofSignalIgnored(displayPath, loc);
       nextSearchLine = loc.nextSearchLine;
     }
     sectionHunkEntries.sort((a, b) => (a.start - b.start) || (a.order - b.order));

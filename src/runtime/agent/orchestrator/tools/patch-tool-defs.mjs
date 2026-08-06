@@ -1,3 +1,9 @@
+// post_shell takes the SAME arguments as the `shell` tool (cwd / timeout /
+// merge_stderr / shell), minus `mode`: the verification must settle inside
+// this call so patch + proof stay ONE tool result. Only `command` is spelled
+// out here — the shell tool carries the full argument prose in the same
+// prompt, and apply_patch is a hot, size-capped schema; the runtime
+// (tool-exec.mjs normalizePostShellArgs) forwards every shell argument.
 const APPLY_PATCH_LARK_GRAMMAR = `start: begin_patch hunk+ end_patch
 begin_patch: "*** Begin Patch" LF
 end_patch: "*** End Patch" LF?
@@ -45,8 +51,8 @@ const APPLY_PATCH_JSON_DESCRIPTION = [
   '- *** Add File: <path> then +content lines.',
   '- *** Delete File: <path> with nothing after it.',
   '- *** Update File: <path>, optionally followed by *** Move to: <new path>.',
-  'Update hunks open with @@ or @@ <enclosing class/function>; prefix every line with space (context), - (remove), or + (add); a hunk at end of file may close with *** End of File.',
-  'Copy 3 context lines above and below verbatim from the newest tool output of the file (after your own patch, use post-patch content; never retype from memory). Do not duplicate overlapping context; if context is not unique, add enclosing @@ headers.',
+  'Update hunks open with @@ or @@ <enclosing symbol>; prefix every line with space (context), - (remove), or + (add); a hunk at end of file may close with *** End of File.',
+  'Copy 3 context lines above and below verbatim from the newest tool output (after your own patch, use post-patch content; never retype from memory). Do not duplicate overlapping context; if still not unique, stack @@ headers: @@ class Foo then @@ def bar.',
   'Use project-relative paths. Every added file line needs +. Never submit a compacted-history marker; re-read and create a fresh patch.',
 ].join('\n');
 
@@ -65,8 +71,14 @@ export const PATCH_TOOL_DEFS = [
     inputSchema: {
       type: 'object',
       properties: {
-        patch: { type: 'string', description: 'The V4A patch text to apply (format and context rules in the tool description).' },
-        post_shell: { type: 'string', description: 'Verification command run when the patch applies; skipped on patch failure.' },
+        patch: { type: 'string', description: 'The V4A patch text to apply (rules in the tool description).' },
+        post_shell: {
+          anyOf: [
+            { type: 'string' },
+            { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] },
+          ],
+          description: 'Verification run when the patch applies; skipped on patch failure. String = command, or shell tool args (sync).',
+        },
       },
       required: ['patch'],
       additionalProperties: false,

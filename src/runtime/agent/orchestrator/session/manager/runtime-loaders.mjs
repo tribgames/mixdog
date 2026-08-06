@@ -17,6 +17,10 @@ export async function _getAgentLoop() {
     if (typeof mod.agentLoop !== 'function') throw new Error('agent loop runtime is not available');
     return mod.agentLoop;
 }
+export async function prewarmAgentLoop() {
+    await _getAgentLoop();
+    return true;
+}
 export function _closeBashSessionLazy(sessionId, reason) {
     if (!sessionId) return;
     _bashSessionRuntimePromise ??= import('../../tools/bash-session.mjs');

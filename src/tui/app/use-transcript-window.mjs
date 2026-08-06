@@ -207,8 +207,6 @@ export function useTranscriptWindow({
   const streamingTailItem = streamingTail?.kind === 'assistant' && streamingTail.streaming
     ? streamingTail
     : null;
-  const scrolledUpRowsForPin = Math.max(0, Number(scrollTargetRef.current) || 0);
-  const transcriptPinnedForStreaming = followingRef.current || scrolledUpRowsForPin === 0;
   const tailRows = streamingTailItem
     ? estimateTranscriptItemRowsCached(streamingTailItem, frameColumns, toolOutputExpanded)
     : 0;
@@ -226,17 +224,12 @@ export function useTranscriptWindow({
     revision,
     streamingTailItem,
   );
-  const transcriptStreamingActive = !!streamingTailItem;
-  const scrolledUpForStreamingMeasure = scrolledUpRowsForPin > 0;
-  const prevEstimateGeometry = transcriptGeomRef.current?.suppressMeasuredRowHeights === true;
-  const hasStreamingReadingAnchor = !!transcriptAnchorRef.current
-    || transcriptAnchorDirtyRef.current;
-  const bottomPinnedForMeasure = transcriptPinnedForStreaming;
-  const suppressMeasuredRowHeights = bottomPinnedForMeasure
-    || (transcriptStreamingActive && (
-      (scrolledUpForStreamingMeasure && hasStreamingReadingAnchor)
-      || (scrolledUpForStreamingMeasure && prevEstimateGeometry && !transcriptPinnedForStreaming)
-    ));
+  // The live assistant already has one deterministic geometry authority in
+  // estimateTranscriptItemRowsCached. Settled rows always keep their measured
+  // geometry, whether following, reading, or resizing around a popup/picker.
+  // Switching the entire prefix back to estimates on the first upward wheel
+  // changed the row table during that gesture and caused rollback/jitter.
+  const suppressMeasuredRowHeights = false;
   // Incremental builder: on a streaming flush where only the trailing assistant
   // item's text grew, it recomputes just the tail row and appends to a cached
   // settled-prefix row-index (O(1) prefix) instead of re-walking all N items.
@@ -680,9 +673,14 @@ export function useTranscriptWindow({
     // off-screen. Ref: render-node-to-output's
     // `atBottom = sticky || (grew && scrollTop >= prevMaxScroll)`, which
     // likewise flips a user-broken sticky flag back on when the position says
-    // bottom. Growth-gated (rowDelta > 0) for the same reason the ref gates on
-    // `grew`: a shrink can put the offset at 0 as an artifact.
-    if (!followingRef.current && rowDelta > 0 && currentTarget === 0) {
+    // bottom. Gated on `rowDelta >= 0` in exact parity with the reference's
+    // `grew = scrollHeight >= prevScrollHeight`: only a SHRINK is excluded
+    // (it can put the offset at 0 as an artifact). Demanding real growth was
+    // stricter than the reference and left the equal-height commits (a text
+    // replaced in place, a spinner/mode swap) falling through to the anchor
+    // capture below — which then locked the viewport at the tail with follow
+    // off, and every later row piled up below the fold.
+    if (!followingRef.current && rowDelta >= 0 && currentTarget === 0) {
       followingRef.current = true;
     }
     // Follow ownership is explicit. target=0 can also mean the first manual
@@ -774,7 +772,31 @@ export function useTranscriptWindow({
       maxRows,
     });
     if (desired == null) {
-      // Anchor item gone (rare: removal/compaction). Re-capture next frame.
+      // Anchor item gone (removal/compaction). On GROWTH this is a transient
+      // identity gap — re-capture next frame. On a SHRINK the anchored rows
+      // were deleted: the reading position no longer exists, and leaving the
+      // lock in place pinned the target above zero forever, so the positional
+      // follow restore above (which needs target === 0) could never fire and
+      // auto-scroll stayed released for the rest of the session
+      // (user: 컴팩션된 이후로 자동 스크롤이 풀린다).
+      // A compaction commit can also NET-GROW the frame it lands in (it pushes
+      // its status row and keeps the streaming tail growing while it trims the
+      // head), so the row delta alone missed exactly the case it was written
+      // for. A bottom-relative target that no longer fits the transcript
+      // (currentTarget > maxRows) is the same deletion signal without the sign
+      // assumption: a transient identity gap during growth still fits, and the
+      // clamp effect below would otherwise silently park the target with follow
+      // left off.
+      if (rowDelta < 0 || currentTarget > maxRows) {
+        stopSmoothScroll();
+        transcriptAnchorRef.current = null;
+        transcriptAnchorDirtyRef.current = false;
+        scrollTargetRef.current = 0;
+        scrollPositionRef.current = 0;
+        followingRef.current = true;
+        if (currentOffset !== 0) setScrollOffset(0);
+        return;
+      }
       transcriptAnchorDirtyRef.current = true;
       return;
     }
@@ -837,6 +859,17 @@ export function useTranscriptWindow({
   }, [themeEpoch, withSelectionClip, paintSelectionRect]);
   useEffect(() => {
     const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
+    // Opencode parity (createAutoScroll: `if (!canScroll(el)) userScrolled =
+    // false`, applied both on scroll and on the content resize; our desktop
+    // hook mirrors it in handleScroll/handleAutoScroll): a transcript that no
+    // longer OVERFLOWS holds no reading position, so a compaction or clear
+    // that shrinks it inside the viewport re-arms follow instead of leaving
+    // auto-scroll released with nothing left to scroll.
+    if (maxRows === 0 && !followingRef.current) {
+      transcriptAnchorRef.current = null;
+      transcriptAnchorDirtyRef.current = false;
+      followingRef.current = true;
+    }
     if (scrollTargetRef.current <= maxRows && scrollPositionRef.current <= maxRows && scrollOffset <= maxRows) return;
     stopSmoothScroll();
     const next = Math.max(0, Math.min(maxRows, scrollTargetRef.current));

@@ -634,6 +634,7 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
         timeout,
         // Pin cwd to null so every memory cycle call hits the same agent cache shard.
         cwd: null,
+        signal,
       }, userMessage)
       throwIfAborted(signal)
       __mixdogMemoryLog(`[cycle1-time] window=${windowIdx} llmMs=${Date.now() - _tLlm}\n`)

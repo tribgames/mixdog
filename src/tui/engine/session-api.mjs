@@ -7,7 +7,7 @@ import { isQueuedEntryEditable, promptDisplayText } from './queue-helpers.mjs';
 import { createEngineApiB } from './session-api-ext.mjs';
 import { buildDoctorReport } from '../app/doctor.mjs';
 import { recomputePromptHistory } from './prompt-history.mjs';
-import { buildMergedPromptHistory, loadPromptHistory } from '../prompt-history-store.mjs';
+import { appendPromptHistory, buildMergedPromptHistory, loadPromptHistory, promptHistoryKey } from '../prompt-history-store.mjs';
 import { touchProjectSelected } from '../../standalone/projects.mjs';
 
 // Upper bound on how long a manual Esc abort may leave the store busy while the
@@ -33,7 +33,7 @@ export function createEngineApi(bag) {
     const snapshot = {
       autoClear: await read(api.getAutoClear),
       compaction: await read(api.getCompactionSettings),
-      memory: await read(api.getMemorySettings),
+      recap: await read(api.getRecapSettings),
       channels: await read(api.getChannelSettings, { includeStatus: false }),
       systemShell: await read(api.getSystemShell),
       outputStyle: (await read(api.getOutputStyle)) || (await read(api.listOutputStyles)),
@@ -209,14 +209,14 @@ export function createEngineApiA(bag) {
         set({ commandBusy: false });
       }
     },
-    getMemorySettings: () => {
-      return runtime.getMemorySettings?.() || { enabled: true };
+    getRecapSettings: () => {
+      return runtime.getRecapSettings?.() || { enabled: true };
     },
-    setMemoryEnabled: async (enabled) => {
+    setRecapEnabled: async (enabled) => {
       if (getState().commandBusy) return null;
       set({ commandBusy: true });
       try {
-        const next = await runtime.setMemoryEnabled?.(enabled);
+        const next = await runtime.setRecapEnabled?.(enabled);
         set({ ...routeState(), stats: { ...getState().stats } });
         // Deferred for the same reason as setCompactionSettings above: keep
         // the recompute off the key-handler tick so the toggle repaints
@@ -310,6 +310,15 @@ export function createEngineApiA(bag) {
         pushNotice(options?.message || `Project set: ${projectNameFromPath(next)}`, 'info');
       }
       return next;
+    },
+    rememberPromptHistory: (value) => {
+      const text = String(value || '').trim();
+      if (!text) return false;
+      const persisted = appendPromptHistory(getState().cwd, text);
+      if (!persisted) return false;
+      const sessionList = recomputePromptHistory(getState().items);
+      set({ promptHistoryList: buildMergedPromptHistory(sessionList, persisted) });
+      return true;
     },
     getSystemShell: () => {
       return runtime.getSystemShell?.() || runtime.systemShell || { source: 'auto', command: '', effective: '' };
@@ -608,7 +617,7 @@ export function createEngineApiA(bag) {
         set({ commandBusy: false, commandStatus: null });
       }
     },
-    abort: () => {
+    abort: (options = {}) => {
       if (!getState().busy) return false;
       denyAllToolApprovals('interrupted by user');
       const restoreState = flags.activePromptRestore;
@@ -616,7 +625,9 @@ export function createEngineApiA(bag) {
       // interrupting should just cancel the running turn and let the steering
       // prompt run next, NOT resurrect the in-flight prompt back into the draft.
       const hasPendingSteering = pending.some((entry) => isQueuedEntryEditable(entry));
-      const canRestore = restoreState?.restorable && !hasPendingSteering;
+      const canRestore = options?.restorePrompt !== false
+        && restoreState?.restorable
+        && !hasPendingSteering;
       const restoreText = canRestore ? restoreState.text : '';
       const restorePastedImages = canRestore && restoreState?.pastedImages ? restoreState.pastedImages : null;
       const restorePastedTexts = canRestore && restoreState?.pastedTexts ? restoreState.pastedTexts : null;
@@ -644,6 +655,11 @@ export function createEngineApiA(bag) {
           restoreState.reclaimed = true;
           const idSet = new Set((restoreState.submittedIds || []).filter((id) => id != null));
           const patch = { spinner: null, thinking: null, lastTurn: null };
+          if (restoreText) {
+            const restoreKey = promptHistoryKey(restoreText);
+            patch.promptHistoryList = (getState().promptHistoryList || [])
+              .filter((entry) => promptHistoryKey(entry) !== restoreKey);
+          }
           if (idSet.size > 0) {
             const items = getState().items.filter((item) => !idSet.has(item?.id));
             if (items.length !== getState().items.length) {

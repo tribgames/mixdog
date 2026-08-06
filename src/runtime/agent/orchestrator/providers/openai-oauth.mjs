@@ -467,6 +467,20 @@ export class OpenAIOAuthProvider {
                 }
                 throw new Error(`OpenAI OAuth token refresh failed (${msg}). Re-authenticate via provider login.`);
             }
+        }, {
+            // OAuth refresh includes network exchange plus owner-only atomic
+            // persistence. Match the Anthropic/xAI lease: the generic 2s file
+            // lock timeout is too short under Windows ACL and process contention.
+            timeoutMs: 120_000,
+            staleMs: 120_000,
+            secret: true,
+        }, {
+            // OAuth refresh includes network exchange plus owner-only atomic
+            // persistence. Match the Anthropic/xAI lease: the generic 2s file
+            // lock timeout is too short under Windows ACL and process contention.
+            timeoutMs: 120_000,
+            staleMs: 120_000,
+            secret: true,
         }).finally(() => { _oauthRefreshInFlight = null; });
 
         this.tokens = await _oauthRefreshInFlight;
@@ -651,7 +665,7 @@ export class OpenAIOAuthProvider {
             // properties (instructions/tools/etc.) but never send the live
             // transcript/user input. The completed generate:false response is
             // retained by the WS transport and anchors the first real request.
-            warmupBody: _envFlag('MIXDOG_OPENAI_OAUTH_WS_WARMUP', true)
+            warmupBody: _envFlag('MIXDOG_OPENAI_OAUTH_WS_WARMUP', false)
                 ? { ...body, input: [], generate: false }
                 : null,
             _carriedWarmup: carriedWarmup,

@@ -26,7 +26,7 @@ const DEFAULT_CONFIG = {
   discord: { token: "" },
   telegram: { token: "" },
   access: DEFAULT_ACCESS,
-  channel: { channelId: "" }
+  channel: {}
 };
 // Shared defaults layer. Merge semantics: user values win; defaults
 // only fill missing fields. Helper is exported so the setup UI and
@@ -117,7 +117,7 @@ async function loadConfig({ freshSecrets = false } = {}) {
       updateSection("channels", () => DEFAULT_CONFIG);
       process.stderr.write(
         `mixdog: default channels config created in ${MIXDOG_CONFIG_PATH}
-  edit discord.token and channel.channelId to connect.
+  edit the active backend channel id to connect.
 `
       );
       return applyDefaults(DEFAULT_CONFIG);

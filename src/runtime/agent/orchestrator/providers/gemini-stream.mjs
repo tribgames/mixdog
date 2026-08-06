@@ -23,6 +23,7 @@ import {
     collectGeminiGroundingSources,
     parseGeminiTextPartMetadata,
 } from './gemini-schema.mjs';
+import { parseProviderJsonBatch } from './stream-json-pool.mjs';
 
 export const GEMINI_FIRST_BYTE_TIMEOUT_MS = resolveTimeoutMs(
     'MIXDOG_GEMINI_FIRST_BYTE_TIMEOUT_MS',
@@ -129,6 +130,19 @@ function geminiChunkHasFunctionCall(chunk) {
     const parts = chunk?.candidates?.[0]?.content?.parts;
     if (!Array.isArray(parts)) return false;
     return parts.some((p) => p && p.functionCall);
+}
+
+export function geminiChunkProgressKind(chunk) {
+    const parts = chunk?.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts)) return 'transport';
+    if (parts.some((part) => part?.functionCall)) return 'tool';
+    if (parts.some((part) => part?.thought === true && typeof part.text === 'string' && part.text)) {
+        return 'reasoning';
+    }
+    if (parts.some((part) => part?.thought !== true && typeof part?.text === 'string' && part.text)) {
+        return 'text';
+    }
+    return 'transport';
 }
 
 /**
@@ -256,7 +270,7 @@ export function createGeminiTextLeakGuard({ knownToolNames, onTextDelta, onToolC
         };
         leakedCalls.push(call);
         try { onToolCall?.(call); } catch {}
-        try { onStreamDelta?.(); } catch {}
+        try { onStreamDelta?.('tool'); } catch {}
     };
 
     const pumpLeakBuffer = (final) => {
@@ -407,6 +421,7 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
             if (done) break;
             resetIdleTimer();
             buffer += decoder.decode(value, { stream: true });
+            const payloads = [];
             let lineEnd;
             while ((lineEnd = buffer.indexOf('\n')) >= 0) {
                 let line = buffer.slice(0, lineEnd);
@@ -415,18 +430,24 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
                 if (!line.startsWith('data: ')) continue;
                 const data = line.slice(6).trim();
                 if (!data || data === '[DONE]') continue;
-                let parsed;
-                try {
-                    parsed = JSON.parse(data);
-                } catch (cause) {
-                    throw geminiStreamCorruptionError(`${label} corrupt SSE JSON`, cause);
-                }
+                payloads.push(data);
+            }
+            let parsedChunks;
+            try {
+                // Preserve the established delivery boundary: once read()
+                // returned the bytes, parse and relay them before the next
+                // iteration observes cancellation.
+                parsedChunks = await parseProviderJsonBatch(payloads);
+            } catch (cause) {
+                throw geminiStreamCorruptionError(`${label} corrupt SSE JSON`, cause);
+            }
+            for (const parsed of parsedChunks) {
                 if (!sawStreamChunk) {
                     sawStreamChunk = true;
                     clearFirstByteTimer();
                 }
                 allChunks.push(parsed);
-                try { onStreamDelta?.(); } catch {}
+                try { onStreamDelta?.(geminiChunkProgressKind(parsed)); } catch {}
                 if (!sawFunctionCall && geminiChunkHasFunctionCall(parsed)) sawFunctionCall = true;
                 if (onTextDelta || textLeakGuard) {
                     const t = geminiChunkText(parsed);
@@ -440,13 +461,13 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
                 const data = line.slice(6).trim();
                 if (data && data !== '[DONE]') {
                     try {
-                        const parsed = JSON.parse(data);
+                        const [parsed] = await parseProviderJsonBatch([data]);
                         if (!sawStreamChunk) {
                             sawStreamChunk = true;
                             clearFirstByteTimer();
                         }
                         allChunks.push(parsed);
-                        try { onStreamDelta?.(); } catch {}
+                        try { onStreamDelta?.(geminiChunkProgressKind(parsed)); } catch {}
                         if (!sawFunctionCall && geminiChunkHasFunctionCall(parsed)) sawFunctionCall = true;
                         if (onTextDelta || textLeakGuard) {
                             const t = geminiChunkText(parsed);
@@ -677,7 +698,7 @@ export async function consumeGeminiSdkStream(streamResult, {
             }
             resetIdleTimer();
             if (step.value) collectedChunks.push(step.value);
-            try { onStreamDelta?.(); } catch {}
+            try { onStreamDelta?.(geminiChunkProgressKind(step.value)); } catch {}
             if (!sawFunctionCall && geminiChunkHasFunctionCall(step.value)) sawFunctionCall = true;
             if (onTextDelta || textLeakGuard) {
                 const t = geminiChunkText(step.value);

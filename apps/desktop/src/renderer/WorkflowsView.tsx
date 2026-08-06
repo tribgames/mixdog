@@ -55,7 +55,7 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): st
   const selected = models.find((entry) => entry.provider === provider && entry.model === model);
   const modelLabel = model
     ? modelDisplayName(model, provider, selected?.display || '')
-    : 'Default';
+    : 'Default · follows Main';
   const effortValue = String(route.effort || preferredEffort(selected) || '');
   const effortOption = selected?.effortOptions.find((entry) => entry.value === effortValue);
   const rawEffortLabel = effortOption?.label || effortValue;
@@ -154,7 +154,7 @@ function WorkflowEditorDialog({ pack, agents, busy, error = '', onCancel, onSave
     <section className="schedules-dialog workflows-dialog" role="dialog" aria-modal="true" aria-labelledby="workflows-dialog-title">
       <header>
         <h2 id="workflows-dialog-title">{editing ? t('Edit workflow') : t('Create workflow')}</h2>
-        <button type="button" aria-label={t("Close workflow editor")} onClick={onCancel}><X size={15} aria-hidden="true" /></button>
+        <button type="button" aria-label={t("Close workflow editor")} onClick={onCancel}><X size={16} aria-hidden="true" /></button>
       </header>
       <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -200,7 +200,7 @@ function WorkflowEditorDialog({ pack, agents, busy, error = '', onCancel, onSave
                 <button type="button" className="workflows-agent-remove" disabled={busy}
                   aria-label={t("Remove {{name}}", { name: agent.label })}
                   onClick={() => setSelected((current) => current.filter((entry) => entry !== id))}>
-                  <X size={13} aria-hidden="true" />
+                  <X size={14} aria-hidden="true" />
                 </button>
               </div>;
             })}
@@ -267,7 +267,7 @@ function AgentEditorDialog({ agent, models, busy, error = '', onCancel, onSave }
     <section className="schedules-dialog workflows-dialog" role="dialog" aria-modal="true" aria-labelledby="agent-dialog-title">
       <header>
         <h2 id="agent-dialog-title">{editing ? t('Edit agent') : t('Create agent')}</h2>
-        <button type="button" aria-label={t("Close agent editor")} onClick={onCancel}><X size={15} aria-hidden="true" /></button>
+        <button type="button" aria-label={t("Close agent editor")} onClick={onCancel}><X size={16} aria-hidden="true" /></button>
       </header>
       <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -340,7 +340,7 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
       <header>
         <h2 id="route-dialog-title">{t('Edit {{name}}', { name: target.label })}</h2>
         <button type="button" aria-label={t("Close route editor")} onClick={onCancel}>
-          <X size={15} aria-hidden="true" />
+          <X size={16} aria-hidden="true" />
         </button>
       </header>
       <form onSubmit={(event) => {
@@ -401,7 +401,7 @@ function AgentDeleteDialog({ target, busy, error = '', onCancel, onDelete }: {
       <header>
         <h2 id="agent-delete-dialog-title">{inUse ? t('Agent is in use') : t('Delete agent')}</h2>
         <button type="button" aria-label={t("Close agent delete dialog")} onClick={onCancel}>
-          <X size={15} aria-hidden="true" />
+          <X size={16} aria-hidden="true" />
         </button>
       </header>
       <div className="workflows-delete-dialog-body">

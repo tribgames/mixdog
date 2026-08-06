@@ -64,8 +64,13 @@ const rows = [
     try {
       const status = runtime.toolsStatus();
       const active = new Set(status.activeTools || []);
-      for (const name of ['read','code_graph','grep','find','glob','list','apply_patch','explore','agent','shell','task','cwd','recall','search','web_fetch','Skill','load_tool']) {
+      const catalog = new Map((status.tools || []).map((tool) => [tool.name, tool]));
+      for (const name of ['read','code_graph','grep','find','glob','list','apply_patch','explore','agent','shell','task','recall','search','Skill','load_tool']) {
         if (!active.has(name)) throw new Error('missing ' + name + ' in ' + [...active].join(','));
+      }
+      for (const name of ['cwd','web_fetch']) {
+        if (!catalog.has(name)) throw new Error('missing deferred ' + name + ' in tool catalog');
+        if (catalog.get(name)?.active === true) throw new Error('deferred tool unexpectedly active: ' + name);
       }
       for (const name of ['bash']) {
         if (active.has(name)) throw new Error('unexpected ' + name + ' in ' + [...active].join(','));

@@ -153,7 +153,7 @@ function StudioThumbnail({
   }
   if (!src || failed) {
     return <span className="studio-tile-glyph">
-      {kind === 'video' ? <Play size={22} aria-hidden="true" /> : <ImageIcon size={22} aria-hidden="true" />}
+      {kind === 'video' ? <Play size={24} aria-hidden="true" /> : <ImageIcon size={24} aria-hidden="true" />}
     </span>;
   }
   return <>
@@ -1249,7 +1249,7 @@ export function StudioPane({
                       aria-label={determinate
                         ? t('Generating, {{progress}}%, {{elapsed}} elapsed', { progress, elapsed })
                         : t('Generating, {{elapsed}} elapsed', { elapsed })}>
-                      <ProgressSpinner size={13} className="studio-spinner" aria-hidden="true" />
+                      <ProgressSpinner size={14} className="studio-spinner" aria-hidden="true" />
                     </span>
                     <button type="button" className="studio-pending-cancel" aria-label={t('Cancel generation')}
                       onClick={() => void cancel(pending.id)}>
@@ -1328,7 +1328,7 @@ export function StudioPane({
             {!phoneViewer && <div className="studio-tile-actions">
               <button type="button" className="studio-tile-remove" aria-label={t('Delete asset')}
                 title={assetLabel(asset)}
-                onClick={() => void remove(asset)}><Trash2 size={15} aria-hidden="true" /></button>
+                onClick={() => void remove(asset)}><Trash2 size={16} aria-hidden="true" /></button>
             </div>}
           </figure>;
           })}
@@ -1366,7 +1366,7 @@ export function StudioPane({
               <img src={ref.url} alt="" />
               <button type="button" aria-label={t('Remove reference')}
                 onClick={() => setRefs((current) => current.filter((_, at) => at !== index))}>
-                <X size={11} aria-hidden="true" />
+                <X size={12} aria-hidden="true" />
               </button>
             </span>)}
           </div>}
@@ -1454,7 +1454,7 @@ export function StudioPane({
                 and the in-flight ones report on their own tiles. */}
             <button type="button" className="studio-generate" aria-label={t('Generate')}
               data-tooltip={t('Generate')} disabled={!lane || !prompt.trim()} onClick={() => void generate()}>
-              <Sparkles size={15} aria-hidden="true" />
+              <Sparkles size={16} aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -1481,13 +1481,13 @@ export function StudioPane({
           {/* Phone viewer: the media is full-bleed, so its close control floats
               over the stage instead of sitting in the side rail's header. */}
           <button type="button" className="studio-detail-stage-close" aria-label={t('Close preview')}
-            onClick={() => setSelected(null)}><X size={17} aria-hidden="true" /></button>
+            onClick={() => setSelected(null)}><X size={16} aria-hidden="true" /></button>
         </div>
         <aside className="studio-detail-side">
           <header>
             <b>{selected.kind === 'video' ? t('Video') : t('Image')}</b>
             <button type="button" className="studio-detail-close" aria-label={t('Close preview')}
-              onClick={() => setSelected(null)}><X size={15} aria-hidden="true" /></button>
+              onClick={() => setSelected(null)}><X size={16} aria-hidden="true" /></button>
           </header>
           {detailSections(selected)}
         </aside>

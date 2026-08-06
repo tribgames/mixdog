@@ -9,9 +9,6 @@
  * for 30s. One builder, one answer.
  */
 
-/** Short turns stay quiet: elapsed/token meta only after this long. */
-export const SHOW_TOKENS_AFTER_MS = 30_000;
-
 const compactNumberFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 1,
@@ -62,7 +59,10 @@ export function buildSpinnerMeta({
   const thinkingText = spinnerThinkingLabel({ thinking, thinkingSince, thinkingMs, effort });
   return {
     tokensText: tokens > 0 ? `${formatSpinnerTokens(tokens)} tokens` : '',
-    showTokens: tokens > 0 && (Boolean(verbose) || Number(elapsedMs) > SHOW_TOKENS_AFTER_MS),
+    // The count appears with the FIRST token (user: 30초가 아니라 바로).
+    // Elapsed was never gated, so the byline used to grow a second field
+    // mid-turn for no reason the reader could see; now both arrive together.
+    showTokens: tokens > 0,
     thinkingText,
     thinkingActive: Boolean(thinking || Number(thinkingSince) > 0),
   };

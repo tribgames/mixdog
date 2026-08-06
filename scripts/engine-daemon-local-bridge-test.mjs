@@ -13,7 +13,7 @@ const { installEngineDaemonLocalBridge } =
   await import('../src/standalone/engine-daemon-local-bridge.mjs');
 const { createEngineDaemonService } =
   await import('../src/standalone/engine-daemon-service.mjs');
-const { createRemoteEngineSession } =
+const { callDaemonSession, createRemoteEngineSession } =
   await import('../src/standalone/engine-daemon-client.mjs');
 
 test('an in-daemon desktop projection calls the session service without loopback HTTP', async () => {
@@ -83,6 +83,15 @@ test('an in-daemon desktop projection calls the session service without loopback
       'the direct call reaches the daemon-owned engine');
     assert.equal(view.getState().items.length, 1,
       'the daemon-local projection receives the updated snapshot');
+    const read = await callDaemonSession({
+      sessionId: view.getState().sessionId,
+      method: 'read',
+      cwd: ROOT,
+      attempts: 1,
+    });
+    assert.equal(read.sessionId, view.getState().sessionId);
+    assert.equal(read.full.items.at(-1)?.text, 'direct bridge',
+      'prefetch/read uses session.read instead of invoking a nonexistent engine read() method');
     assert.equal(existsSync(join(ROOT, 'engine-daemon.json')), false,
       'the daemon-local view never discovers or opens an HTTP transport');
     await view.dispose('test');
