@@ -1,12 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import {
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const {
   beginTurnSnapshot,
   beginAgentTurnReview,
   completeAgentTurnReview,
+  completeTurnSnapshot,
   getTurnReviewDiff,
   recordTurnDiffChanges,
+  revertTurnReviewFile,
   _resetTurnSnapshotForTest,
 } = await import('../src/runtime/shared/turn-snapshot.mjs');
 
@@ -26,6 +38,99 @@ const PATCH_B = [
   '@@ -0,0 +1 @@',
   '+created',
 ].join('\n');
+
+function git(cwd, args) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8' });
+}
+
+function worktreeFixture() {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-turn-worktree-'));
+  git(dir, ['init', '-q']);
+  writeFileSync(join(dir, 'tracked.txt'), 'committed baseline\n');
+  git(dir, ['add', 'tracked.txt']);
+  return dir;
+}
+
+test('worktree snapshots include shell/untracked edits and preserve the dirty turn baseline', async () => {
+  _resetTurnSnapshotForTest();
+  const dir = worktreeFixture();
+  try {
+    writeFileSync(join(dir, 'tracked.txt'), 'dirty before turn\n');
+    await beginTurnSnapshot(dir, 'lead-worktree');
+    writeFileSync(join(dir, 'tracked.txt'), 'changed by shell\n');
+    writeFileSync(join(dir, 'shell-created.txt'), 'created by shell\n');
+    writeFileSync(join(dir, 'large-build-artifact.bin'), Buffer.alloc(2 * 1024 * 1024 + 1, 1));
+
+    const review = await getTurnReviewDiff(dir, 'lead-worktree');
+    assert.equal(review.snapshotKind, 'worktree');
+    assert.deepEqual(review.files.map((file) => file.path), ['shell-created.txt', 'tracked.txt']);
+    assert.match(review.patch, /-dirty before turn/);
+    assert.match(review.patch, /\+changed by shell/);
+    assert.doesNotMatch(review.patch, /committed baseline/);
+
+    writeFileSync(join(dir, 'tracked.txt'), 'temporary state\n');
+    assert.match((await getTurnReviewDiff(dir, 'lead-worktree')).patch, /temporary state/);
+    writeFileSync(join(dir, 'tracked.txt'), 'changed by shell\n');
+    const restoredReview = await getTurnReviewDiff(dir, 'lead-worktree');
+    assert.doesNotMatch(restoredReview.patch, /temporary state/,
+      'a change observed mid-turn must disappear after the worktree returns to the latest turn state');
+
+    const reverted = await revertTurnReviewFile(dir, 'lead-worktree', 'tracked.txt');
+    assert.equal(readFileSync(join(dir, 'tracked.txt'), 'utf8'), 'dirty before turn\n');
+    assert.deepEqual(reverted.files.map((file) => file.path), ['shell-created.txt']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('untracked files that grow past the snapshot bound do not survive in the persistent shadow index', async () => {
+  _resetTurnSnapshotForTest();
+  const dir = worktreeFixture();
+  const artifact = join(dir, 'growing-artifact.bin');
+  try {
+    writeFileSync(artifact, 'small artifact\n');
+    await beginTurnSnapshot(dir, 'lead-large-seed');
+    await completeTurnSnapshot('lead-large-seed');
+
+    writeFileSync(artifact, Buffer.alloc(2 * 1024 * 1024 + 1, 1));
+    await beginTurnSnapshot(dir, 'lead-large-baseline');
+    assert.deepEqual((await getTurnReviewDiff(dir, 'lead-large-baseline')).files, []);
+
+    rmSync(artifact, { force: true });
+    const review = await getTurnReviewDiff(dir, 'lead-large-baseline');
+    assert.deepEqual(review.files, [],
+      'deleting an artifact excluded at turn start must not reveal its stale smaller shadow blob');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('worktree snapshots collapse no-ops and expose rename/binary metadata without fake zero stats', async () => {
+  _resetTurnSnapshotForTest();
+  const dir = worktreeFixture();
+  try {
+    writeFileSync(join(dir, 'rename-me.txt'), 'same content\n');
+    git(dir, ['add', 'rename-me.txt']);
+    await beginTurnSnapshot(dir, 'lead-metadata');
+    let review = await getTurnReviewDiff(dir, 'lead-metadata');
+    assert.deepEqual(review.files, []);
+
+    renameSync(join(dir, 'rename-me.txt'), join(dir, 'renamed.txt'));
+    writeFileSync(join(dir, 'binary.bin'), Buffer.from([0xff, 0x00, 0xfe, 0x01]));
+    review = await getTurnReviewDiff(dir, 'lead-metadata');
+    const renamed = review.files.find((file) => file.path === 'renamed.txt');
+    const binary = review.files.find((file) => file.path === 'binary.bin');
+    assert.equal(renamed?.status, 'R');
+    assert.equal(renamed?.additions, 0);
+    assert.equal(renamed?.deletions, 0);
+    assert.equal(binary?.binary, true);
+    assert.equal(binary?.additions, null);
+    assert.equal(binary?.deletions, null);
+    await completeTurnSnapshot('lead-metadata');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('turn review keeps successful worker patches separate from the Lead', async () => {
   _resetTurnSnapshotForTest();

@@ -46,6 +46,15 @@ Thumbs.db
 *.tmp
 tmp/
 .tmp-internal-comms-live.*
+# Every local probe/profile scratch dir follows the same .tmp- prefix, so one
+# rule keeps Electron profiles, flash probes and one-off dumps out of the tree.
+.tmp-*/
+.tmp-*.txt
+# One-off capture dumps from UI/perf probes (regenerated on demand).
+artifacts/
+build-out*.txt
+baseline-dom.txt
+apps/desktop/scripts/tmp-*.mjs
 benchmarks/terminal-bench-2.1/jobs-*
 benchmarks/terminal-bench-2.1/harness/__pycache__/
 benchmarks/terminal-bench-2.1/tb-src-snap-*

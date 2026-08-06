@@ -439,14 +439,21 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     beginRenameProject,
     openProjectPicker,
   } = projectPicker;
-  const [disabledSkills, setDisabledSkillsInner] = useState(() => {
-    try {
-      const { disabled = [] } = store.getDisabledSkills?.() || {};
-      return new Set(disabled);
-    } catch {
-      return new Set();
-    }
-  });
+  // getDisabledSkills is a remote call on a daemon-backed store, so it cannot
+  // seed useState synchronously (the initializer used to capture a promise and
+  // every skill looked enabled). Start empty and adopt the real set on mount.
+  const [disabledSkills, setDisabledSkillsInner] = useState(() => new Set());
+  useEffect(() => {
+    let alive = true;
+    void Promise.resolve(store.getDisabledSkills?.())
+      .then((result) => {
+        if (!alive) return;
+        const disabled = Array.isArray(result?.disabled) ? result.disabled : [];
+        if (disabled.length) setDisabledSkillsInner(new Set(disabled));
+      })
+      .catch(() => { /* skills stay enabled when the probe fails */ });
+    return () => { alive = false; };
+  }, [store]);
   const setDisabledSkills = useCallback((next) => {
     setDisabledSkillsInner((current) => {
       const base = current instanceof Set ? current : new Set(current);
@@ -1189,28 +1196,27 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
       return true;
     }
     cycleGuard.lastAt = now;
-    let workflows = [];
-    try {
-      workflows = store.listWorkflows?.() || [];
-    } catch (e) {
-      store.pushNotice(`could not list workflows: ${e?.message || e}`, 'error');
-      return true;
-    }
-    if (!workflows.length) {
-      store.pushNotice('no workflows available', 'warn');
-      return true;
-    }
-    const workflow = state.workflow || {};
-    if (workflows.length < 2) {
-      store.pushNotice(`Workflow: ${workflowDisplayName(workflows[0] || workflow)}`, 'info');
-      return true;
-    }
-    const activeIndex = workflows.findIndex((item) => item.active);
-    const currentIndex = activeIndex >= 0 ? activeIndex : Math.max(0, workflows.findIndex((item) => item.id === workflow.id));
-    const next = workflows[(currentIndex + 1 + workflows.length) % workflows.length];
     cycleGuard.pending = true;
-    void Promise.resolve()
-      .then(() => store.setWorkflow?.(next.id))
+    // listWorkflows is a remote call on a daemon-backed store, so the whole
+    // cycle runs off its resolution; the handler still answers `true` at once
+    // so the key stays consumed.
+    void Promise.resolve(store.listWorkflows?.())
+      .then((list) => {
+        const workflows = Array.isArray(list) ? list : [];
+        if (!workflows.length) {
+          store.pushNotice('no workflows available', 'warn');
+          return null;
+        }
+        const workflow = state.workflow || {};
+        if (workflows.length < 2) {
+          store.pushNotice(`Workflow: ${workflowDisplayName(workflows[0] || workflow)}`, 'info');
+          return null;
+        }
+        const activeIndex = workflows.findIndex((item) => item.active);
+        const currentIndex = activeIndex >= 0 ? activeIndex : Math.max(0, workflows.findIndex((item) => item.id === workflow.id));
+        const next = workflows[(currentIndex + 1 + workflows.length) % workflows.length];
+        return store.setWorkflow?.(next.id);
+      })
       .then((result) => {
         if (!result) {
           return;

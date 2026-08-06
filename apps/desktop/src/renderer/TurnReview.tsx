@@ -7,19 +7,30 @@ import { REVIEW_DIFF_STYLE_KEY, type TranscriptItem } from "./desktop-types";
 import { parseUnifiedDiff } from "./renderer-logic.mjs";
 
 
-// "Review Changes": Codex-compatible collection with Mixdog attribution.
-// Lead apply_patch diffs come from the current transcript turn. Successful
-// worker apply_patch diffs stay attached to each worker and are queried through
-// getTurnReviewDiff, then displayed under the owning Lead turn.
+// "Review Changes": the headline is one authoritative turn-start → current
+// worktree diff. Exact worker apply_patch diffs remain attribution metadata and
+// are only added to totals in the non-Git fallback.
 type TurnReviewPatchPart = ReturnType<typeof parseUnifiedDiff>[number];
+type TurnReviewFile = {
+  path: string;
+  oldPath?: string | null;
+  status?: string;
+  additions?: number | null;
+  deletions?: number | null;
+  binary?: boolean;
+};
 type TurnReviewSummary = {
   files: Map<string, {
     additions: number;
     deletions: number;
+    lineStats: boolean;
+    status: string;
+    binary: boolean;
     parts: ReturnType<typeof parseUnifiedDiff>;
   }>;
   additions: number;
   deletions: number;
+  hasLineStats: boolean;
 };
 type AgentTurnReview = {
   sessionId: string;
@@ -31,6 +42,9 @@ const turnReviewPatchCache = new Map<string, Array<{
   name: string;
   additions: number;
   deletions: number;
+  lineStats: boolean;
+  status: string;
+  binary: boolean;
   part: TurnReviewPatchPart;
 }>>();
 const TURN_REVIEW_PATCH_CACHE_MAX_CHARS = 4 * 1024 * 1024;
@@ -44,6 +58,8 @@ const AGENT_REVIEW_SCOPE_MAX_CHARS = 4 * 1024 * 1024;
 const AGENT_REVIEW_CACHE_MAX_CHARS = 8 * 1024 * 1024;
 const agentReviewCache = new Map<string, AgentTurnReview[]>();
 const leadReviewCache = new Map<string, string | null>();
+const leadReviewFilesCache = new Map<string, TurnReviewFile[]>();
+const leadReviewSnapshotKindCache = new Map<string, string>();
 function reviewChars(reviews: AgentTurnReview[], leadPatch: string | null): number {
   return (leadPatch?.length || 0) + reviews.reduce((total, review) => total + review.patch.length, 0);
 }
@@ -54,12 +70,22 @@ function retainedReviewChars(): number {
   }
   return total;
 }
-function rememberAgentReviews(scopeKey: string, reviews: AgentTurnReview[], leadPatch: string | null): void {
+function rememberAgentReviews(
+  scopeKey: string,
+  reviews: AgentTurnReview[],
+  leadPatch: string | null,
+  files: TurnReviewFile[],
+  snapshotKind: string,
+): void {
   agentReviewCache.delete(scopeKey);
   leadReviewCache.delete(scopeKey);
+  leadReviewFilesCache.delete(scopeKey);
+  leadReviewSnapshotKindCache.delete(scopeKey);
   if (reviewChars(reviews, leadPatch) > AGENT_REVIEW_SCOPE_MAX_CHARS) return;
   agentReviewCache.set(scopeKey, reviews);
   leadReviewCache.set(scopeKey, leadPatch);
+  leadReviewFilesCache.set(scopeKey, files);
+  leadReviewSnapshotKindCache.set(scopeKey, snapshotKind);
   while (
     agentReviewCache.size > AGENT_REVIEW_CACHE_LIMIT
     || retainedReviewChars() > AGENT_REVIEW_CACHE_MAX_CHARS
@@ -68,7 +94,18 @@ function rememberAgentReviews(scopeKey: string, reviews: AgentTurnReview[], lead
     if (oldest === undefined) break;
     agentReviewCache.delete(oldest);
     leadReviewCache.delete(oldest);
+    leadReviewFilesCache.delete(oldest);
+    leadReviewSnapshotKindCache.delete(oldest);
   }
+}
+
+function patchMetadataStatus(patch: string): string {
+  if (/^Binary files /m.test(patch)) return "binary";
+  if (/^rename from /m.test(patch) || /^rename to /m.test(patch)) return "R";
+  if (/^new file mode /m.test(patch)) return "A";
+  if (/^deleted file mode /m.test(patch)) return "D";
+  if (/^(old mode|new mode) /m.test(patch)) return "T";
+  return "";
 }
 
 function analyzeTurnReviewPatch(patch: string) {
@@ -87,7 +124,19 @@ function analyzeTurnReviewPatch(patch: string) {
       if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
       else if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
     }
-    return [{ name, additions, deletions, part }];
+    const status = patchMetadataStatus(String(part.patch || ""));
+    // A bare `diff --git` header is not a file change. It used to survive as
+    // an empty parsed part and rendered the misleading “+0 -0” row.
+    if (additions === 0 && deletions === 0 && !status) return [];
+    return [{
+      name,
+      additions,
+      deletions,
+      lineStats: additions + deletions > 0,
+      status,
+      binary: status === "binary",
+      part,
+    }];
   });
   if (patch.length <= TURN_REVIEW_PATCH_CACHE_ENTRY_MAX_CHARS) {
     turnReviewPatchCache.set(patch, analyzed);
@@ -111,9 +160,19 @@ function summarizeTurnReviewPatch(patch: string): TurnReviewSummary {
   if (patch) {
     try {
       for (const analyzed of analyzeTurnReviewPatch(patch)) {
-        const entry = files.get(analyzed.name) || { additions: 0, deletions: 0, parts: [] };
+        const entry = files.get(analyzed.name) || {
+          additions: 0,
+          deletions: 0,
+          lineStats: false,
+          status: "",
+          binary: false,
+          parts: [],
+        };
         entry.additions += analyzed.additions;
         entry.deletions += analyzed.deletions;
+        entry.lineStats ||= analyzed.lineStats;
+        entry.status ||= analyzed.status;
+        entry.binary ||= analyzed.binary;
         entry.parts.push(analyzed.part);
         files.set(analyzed.name, entry);
       }
@@ -121,11 +180,44 @@ function summarizeTurnReviewPatch(patch: string): TurnReviewSummary {
   }
   let additions = 0;
   let deletions = 0;
+  let hasLineStats = false;
   for (const entry of files.values()) {
     additions += entry.additions;
     deletions += entry.deletions;
+    hasLineStats ||= entry.lineStats;
   }
-  return { files, additions, deletions };
+  return { files, additions, deletions, hasLineStats };
+}
+
+function summarizeAuthoritativeTurnReview(filesInput: TurnReviewFile[], patch: string): TurnReviewSummary {
+  const parsed = summarizeTurnReviewPatch(patch);
+  const files: TurnReviewSummary["files"] = new Map();
+  for (const row of filesInput) {
+    const name = String(row?.path || "");
+    if (!name) continue;
+    const parsedEntry = parsed.files.get(name) || (
+      row.oldPath ? parsed.files.get(String(row.oldPath)) : undefined
+    );
+    const additions = typeof row.additions === "number" ? row.additions : 0;
+    const deletions = typeof row.deletions === "number" ? row.deletions : 0;
+    files.set(name, {
+      additions,
+      deletions,
+      lineStats: additions + deletions > 0,
+      status: String(row.status || parsedEntry?.status || "M"),
+      binary: row.binary === true || parsedEntry?.binary === true,
+      parts: parsedEntry?.parts || [],
+    });
+  }
+  let additions = 0;
+  let deletions = 0;
+  let hasLineStats = false;
+  for (const entry of files.values()) {
+    additions += entry.additions;
+    deletions += entry.deletions;
+    hasLineStats ||= entry.lineStats;
+  }
+  return { files, additions, deletions, hasLineStats };
 }
 
 function mergeTurnReviewSummaries(summaries: TurnReviewSummary[]): TurnReviewSummary {
@@ -136,14 +228,39 @@ function mergeTurnReviewSummaries(summaries: TurnReviewSummary[]): TurnReviewSum
     additions += summary.additions;
     deletions += summary.deletions;
     for (const [name, entry] of summary.files) {
-      const merged = files.get(name) || { additions: 0, deletions: 0, parts: [] };
+      const merged = files.get(name) || {
+        additions: 0,
+        deletions: 0,
+        lineStats: false,
+        status: "",
+        binary: false,
+        parts: [],
+      };
       merged.additions += entry.additions;
       merged.deletions += entry.deletions;
+      merged.lineStats ||= entry.lineStats;
+      merged.status ||= entry.status;
+      merged.binary ||= entry.binary;
       merged.parts.push(...entry.parts);
       files.set(name, merged);
     }
   }
-  return { files, additions, deletions };
+  return {
+    files,
+    additions,
+    deletions,
+    hasLineStats: summaries.some((summary) => summary.hasLineStats),
+  };
+}
+
+function statusLabel(entry: TurnReviewSummary["files"] extends Map<string, infer T> ? T : never): string {
+  if (entry.binary) return t("Binary");
+  if (entry.status === "R") return t("Renamed");
+  if (entry.status === "C") return t("Copied");
+  if (entry.status === "A") return t("Added");
+  if (entry.status === "D") return t("Deleted");
+  if (entry.status === "T") return t("Metadata");
+  return entry.lineStats ? "" : t("Changed");
 }
 
 // Single-quoted so the capability-inventory source scan counts this surface.
@@ -189,10 +306,14 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     scopeKey: string;
     reviews: AgentTurnReview[];
     leadPatch: string | null;
+    files: TurnReviewFile[];
+    snapshotKind: string;
   }>(() => ({
     scopeKey: turnScopeKey,
     reviews: agentReviewCache.get(turnScopeKey) || [],
     leadPatch: leadReviewCache.get(turnScopeKey) ?? null,
+    files: leadReviewFilesCache.get(turnScopeKey) || [],
+    snapshotKind: leadReviewSnapshotKindCache.get(turnScopeKey) || "",
   }));
   // Keying the read as well as the write prevents a one-frame stale bar before
   // effects run when the user switches sessions or opens New task.
@@ -202,6 +323,13 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   const authoritativeLeadPatch = agentReviewState.scopeKey === turnScopeKey
     ? agentReviewState.leadPatch
     : (leadReviewCache.get(turnScopeKey) ?? null);
+  const authoritativeLeadFiles = agentReviewState.scopeKey === turnScopeKey
+    ? agentReviewState.files
+    : (leadReviewFilesCache.get(turnScopeKey) || []);
+  const authoritativeSnapshotKind = agentReviewState.scopeKey === turnScopeKey
+    ? agentReviewState.snapshotKind
+    : (leadReviewSnapshotKindCache.get(turnScopeKey) || "");
+  const authoritativeWorktreeSnapshot = authoritativeSnapshotKind === "worktree";
   const capabilityFailures = useRef(0);
   const capabilityRequestInFlight = useRef(false);
   const lastAgentReviewSignature = useRef<string | null>(null);
@@ -247,7 +375,16 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
       const value = (result?.value ?? null) as {
         supported?: boolean;
         authoritative?: boolean;
+        snapshotKind?: unknown;
         patch?: unknown;
+        files?: Array<{
+          path?: unknown;
+          oldPath?: unknown;
+          status?: unknown;
+          additions?: unknown;
+          deletions?: unknown;
+          binary?: unknown;
+        }>;
         agents?: Array<{
           sessionId?: unknown;
           agent?: unknown;
@@ -263,6 +400,19 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
       const leadPatch = value.authoritative === true
         ? (typeof value.patch === "string" ? value.patch : "")
         : null;
+      const snapshotKind = value.authoritative === true ? String(value.snapshotKind || "") : "";
+      const files = (value.authoritative === true && Array.isArray(value.files) ? value.files : []).flatMap((row) => {
+        const path = String(row?.path || "");
+        if (!path) return [];
+        return [{
+          path,
+          oldPath: row?.oldPath ? String(row.oldPath) : null,
+          status: row?.status ? String(row.status) : "M",
+          additions: typeof row?.additions === "number" ? row.additions : null,
+          deletions: typeof row?.deletions === "number" ? row.deletions : null,
+          binary: row?.binary === true,
+        }];
+      });
       const reviews = (Array.isArray(value.agents) ? value.agents : []).flatMap((review) => {
         const childSessionId = String(review?.sessionId || "");
         const patch = typeof review?.patch === "string" ? review.patch : "";
@@ -274,8 +424,8 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
           patch,
         }];
       });
-      const signature = JSON.stringify([leadPatch, reviews]);
-      rememberAgentReviews(requestedScope, reviews, leadPatch);
+      const signature = JSON.stringify([leadPatch, files, snapshotKind, reviews]);
+      rememberAgentReviews(requestedScope, reviews, leadPatch, files, snapshotKind);
       if (lastAgentReviewSignature.current === signature) return;
       lastAgentReviewSignature.current = signature;
       if (activeScope.current === requestedScope) {
@@ -283,6 +433,8 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
           scopeKey: requestedScope,
           reviews,
           leadPatch,
+          files,
+          snapshotKind,
         });
       }
     } catch {
@@ -348,10 +500,19 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     // and therefore beats the polled capability snapshot during rapid,
     // same-card edits. An explicit empty uiDiff is authoritative too: it means
     // the latest apply_patch restored the turn baseline.
-    return summarizeTurnReviewPatch(
-      latestUiDiff ?? authoritativeLeadPatch ?? patches.join("\n"),
-    );
-  }, [authoritativeLeadPatch, items]);
+    if (authoritativeWorktreeSnapshot) {
+      return summarizeAuthoritativeTurnReview(
+        authoritativeLeadFiles,
+        authoritativeLeadPatch || "",
+      );
+    }
+    return summarizeTurnReviewPatch(latestUiDiff ?? authoritativeLeadPatch ?? patches.join("\n"));
+  }, [
+    authoritativeLeadFiles,
+    authoritativeLeadPatch,
+    authoritativeWorktreeSnapshot,
+    items,
+  ]);
   const agentSources = useMemo(() => agentReviews.flatMap((review, index) => {
     const reviewSummary = summarizeTurnReviewPatch(review.patch);
     if (reviewSummary.files.size === 0) return [];
@@ -369,15 +530,21 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     [agentSources],
   );
   const summary = useMemo(
-    () => mergeTurnReviewSummaries([transcriptSummary, agentSummary]),
-    [transcriptSummary, agentSummary],
+    () => authoritativeWorktreeSnapshot
+      ? transcriptSummary
+      : mergeTurnReviewSummaries([transcriptSummary, agentSummary]),
+    [transcriptSummary, agentSummary, authoritativeWorktreeSnapshot],
   );
   const sources = useMemo(() => [
     ...(transcriptSummary.files.size > 0
-      ? [{ key: "lead", label: "Lead", summary: transcriptSummary }]
+      ? [{
+        key: authoritativeWorktreeSnapshot ? "turn" : "lead",
+        label: authoritativeWorktreeSnapshot ? "Turn" : "Lead",
+        summary: transcriptSummary,
+      }]
       : []),
     ...agentSources,
-  ], [transcriptSummary, agentSources]);
+  ], [transcriptSummary, agentSources, authoritativeWorktreeSnapshot]);
   if (summary.files.size === 0) return null;
   return (
     <section ref={barElement} className="turn-review-bar" aria-label={t("Files changed this turn")}
@@ -395,9 +562,16 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
           <strong>{summary.files.size === 1 ? t("1 file changed") : t("{{count}} files changed", { count: summary.files.size })}</strong>
           {/* The counters belong to the TITLE, not to the (now removed)
               expander side of the row. */}
-          <span className="diff-stats"><i>+{summary.additions}</i><em>-{summary.deletions}</em></span>
+          {summary.hasLineStats && (
+            <span className="diff-stats"><i>+{summary.additions}</i><em>-{summary.deletions}</em></span>
+          )}
           {agentSources.length > 0 && <span className="turn-review-attribution">
-            {t("Lead {{lead}} · Agents {{agents}}", { lead: transcriptSummary.files.size, agents: agentSummary.files.size })}
+            {authoritativeWorktreeSnapshot
+              ? t("Agents {{agents}} attributed", { agents: agentSummary.files.size })
+              : t("Lead {{lead}} · Agents {{agents}}", {
+                lead: transcriptSummary.files.size,
+                agents: agentSummary.files.size,
+              })}
           </span>}
         </button>
         {expanded && <div className="review-style-toggle turn-review-style" role="radiogroup"
@@ -416,9 +590,11 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
             <li key={`${source.key}:source`} className="turn-review-source">
               <strong>{t(source.label)}</strong>
               <span>{source.summary.files.size === 1 ? t("1 file") : t("{{count}} files", { count: source.summary.files.size })}</span>
-              <span className="diff-stats">
-                <i>+{source.summary.additions}</i><em>-{source.summary.deletions}</em>
-              </span>
+              {source.summary.hasLineStats && (
+                <span className="diff-stats">
+                  <i>+{source.summary.additions}</i><em>-{source.summary.deletions}</em>
+                </span>
+              )}
             </li>
           );
           const rows = [...source.summary.files.entries()].map(([name, entry]) => {
@@ -438,22 +614,32 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
             <button type="button" className="turn-review-file" aria-expanded={openFile === rowKey}
               onClick={() => setOpenFile((current) => current === rowKey ? "" : rowKey)}>
               <code>{rel}</code>
-              <span className="diff-stats"><i>+{entry.additions}</i><em>-{entry.deletions}</em></span>
+              {statusLabel(entry) && <span className="turn-review-status">{statusLabel(entry)}</span>}
+              {entry.lineStats && (
+                <span className="diff-stats"><i>+{entry.additions}</i><em>-{entry.deletions}</em></span>
+              )}
             </button>
-            {Boolean(cwd) && !isReverted && (confirming ? (
+            {Boolean(cwd) && authoritativeWorktreeSnapshot && source.key === "turn" && !isReverted && (confirming ? (
               <span className="turn-review-confirm" role="group"
-                aria-label={t("Confirm reverting {{file}} (discards ALL working-tree changes in the file)", { file: rel })}>
+                aria-label={t("Confirm reverting {{file}} to the start of this turn", { file: rel })}>
                 <button type="button" className="turn-review-revert"
                   aria-label={t("Cancel revert")} data-tooltip={t("Cancel")}
                   onClick={() => setConfirmFile("")}>
                   <X size={12} />
                 </button>
                 <button type="button" className="turn-review-revert danger"
-                  aria-label={t("Confirm revert of {{file}}", { file: rel })} data-tooltip={t("Revert to HEAD")}
+                  aria-label={t("Confirm revert of {{file}}", { file: rel })} data-tooltip={t("Revert to turn start")}
                   onClick={() => {
                     setConfirmFile("");
-                    void window.mixdogDesktop.gitRevert?.(cwd as string, rel, false)
-                      .then(() => setReverted((current) => [...current, name]))
+                    void window.mixdogDesktop.invokeCapability?.({
+                      capability: "revertTurnReviewFile",
+                      args: [rel],
+                      sessionId,
+                    })
+                      .then(async () => {
+                        setReverted((current) => [...current, name]);
+                        await refreshAgentReviews();
+                      })
                       .catch(() => {});
                   }}>
                   <Check size={12} />
@@ -461,15 +647,17 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
               </span>
             ) : (
               <button type="button" className="turn-review-revert"
-                aria-label={t("Revert {{file}}", { file: rel })} data-tooltip={t("Revert file (working tree → HEAD)")}
+                aria-label={t("Revert {{file}}", { file: rel })} data-tooltip={t("Revert file to turn start")}
                 onClick={() => setConfirmFile(name)}>
                 <RotateCcw size={12} />
               </button>
             ))}
             {openFile === rowKey && <div className="turn-review-diff">
-              {entry.parts.map((file, index) => (
-                <GitDiffBody key={`${rowKey}:${index}`} file={file} mode={diffStyle} />
-              ))}
+              {entry.parts.length > 0
+                ? entry.parts.map((file, index) => (
+                  <GitDiffBody key={`${rowKey}:${index}`} file={file} mode={diffStyle} />
+                ))
+                : <span className="turn-review-status">{t("Diff detail unavailable")}</span>}
             </div>}
           </li>
           );

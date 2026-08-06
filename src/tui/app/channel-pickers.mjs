@@ -217,10 +217,10 @@ export function createChannelPickers({
 
     // Schedules/webhooks management is desktop-only (user decision): the TUI
     // no longer carries their pickers or the webhook-endpoint info page.
-    const worker = store.getChannelWorkerStatus?.();
+    const worker = await store.getChannelWorkerStatus?.();
     const activeBackend = setup.backend === 'telegram' ? 'telegram' : 'discord';
     const backendLabel = activeBackend === 'telegram' ? 'Telegram' : 'Discord';
-    const remoteEnabled = store.isRemoteEnabled?.() === true;
+    const remoteEnabled = (await store.isRemoteEnabled?.()) === true;
     const boolLabel = (enabled) => enabled ? 'On' : 'Off';
     // Onboarding Step 5 reuses this root picker with a ConfirmBar. Reopens after
     // a toggle must carry the onboarding context (confirmBar + flag) forward so
@@ -232,9 +232,10 @@ export function createChannelPickers({
       void openChannelSetupPicker('all', { ...preserved, ...extra });
     };
     const applyRemoteRuntime = (highlightValue = 'remote-runtime') => {
-      const enabled = store.toggleRemote?.() === true;
-      store.pushNotice(enabled ? 'Remote mode ON' : 'Remote mode OFF', 'info');
-      reopenRoot({ highlightValue });
+      void Promise.resolve(store.toggleRemote?.())
+        .then((enabled) => store.pushNotice(enabled === true ? 'Remote mode ON' : 'Remote mode OFF', 'info'))
+        .catch((e) => store.pushNotice(`Remote toggle failed: ${e?.message || e}`, 'error'))
+        .finally(() => reopenRoot({ highlightValue }));
     };
     const cycleChannelBackend = (direction = 1, highlightValue = 'channel-backend') => {
       const backends = ['discord', 'telegram'];
@@ -247,7 +248,7 @@ export function createChannelPickers({
       try {
         store.setBackend(chosen);
         const label = chosen === 'telegram' ? 'Telegram' : 'Discord';
-        const restartHint = (store.isRemoteEnabled?.() === true || worker?.running)
+        const restartHint = (remoteEnabled || worker?.running)
           ? `Channel set to ${label}. Restart remote to apply.`
           : `Channel set to ${label}.`;
         store.pushNotice(restartHint, 'info');

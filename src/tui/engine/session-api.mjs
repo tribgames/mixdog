@@ -20,7 +20,38 @@ const MANUAL_ABORT_RECOVERY_MS = (() => {
 })();
 
 export function createEngineApi(bag) {
-  return { ...createEngineApiA(bag), ...createEngineApiB(bag) };
+  const api = { ...createEngineApiA(bag), ...createEngineApiB(bag) };
+  // One-shot settings/status bundle. On a daemon-backed store every getter is
+  // its own serialized round-trip and the settings panel needs a dozen of them,
+  // so the panel asks for this instead of fanning out. It calls the SAME
+  // methods (no second source of truth) and degrades a failing getter to null.
+  api.getSettingsSnapshot = async ({ heavy = true } = {}) => {
+    const read = async (fn, ...args) => {
+      if (typeof fn !== 'function') return null;
+      try { return await fn.call(api, ...args); } catch { return null; }
+    };
+    const snapshot = {
+      autoClear: await read(api.getAutoClear),
+      compaction: await read(api.getCompactionSettings),
+      memory: await read(api.getMemorySettings),
+      channels: await read(api.getChannelSettings, { includeStatus: false }),
+      systemShell: await read(api.getSystemShell),
+      outputStyle: (await read(api.getOutputStyle)) || (await read(api.listOutputStyles)),
+      channelWorker: await read(api.getChannelWorkerStatus),
+      remoteEnabled: (await read(api.isRemoteEnabled)) === true,
+      profile: await read(api.getProfile),
+      updateSettings: await read(api.getUpdateSettings),
+    };
+    if (heavy) {
+      snapshot.channelBackend = (await read(api.getChannelSetup))?.backend || 'discord';
+      snapshot.mcp = await read(api.mcpStatus);
+      snapshot.hooks = await read(api.hooksStatus);
+      snapshot.plugins = await read(api.pluginsStatus);
+      snapshot.skills = await read(api.skillsStatus);
+    }
+    return snapshot;
+  };
+  return api;
 }
 
 export function createEngineApiA(bag) {

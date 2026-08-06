@@ -43,7 +43,8 @@ export function createSessionTurnApi(deps) {
     scheduleProviderWarmup, scheduleProviderModelWarmup, invalidateContextStatusCache,
     agentTool, recreateCurrentSessionIfReady, invalidatePreSessionToolSurface,
     activeToolSurface, applyResolvedCwd, resolveCwdPath, agentStatusState, notificationListeners,
-    awaitInitialMcpConnect, mcpTurnGraceMs = 150, awaitRoutePreparation, sessionTitles,
+    awaitInitialMcpConnect, mcpTurnGraceMs = 150, awaitRoutePreparation,
+    getReservedSessionId, sessionTitles,
   } = deps;
   const enqueueRemoteAttachedPrompt = (prompt) => {
     const attachedSession = getSession();
@@ -93,11 +94,22 @@ export function createSessionTurnApi(deps) {
       const timingStartedAtEpoch = Date.now();
       const submittedAt = Number(options.submittedAt);
       const hasSubmittedAt = Number.isFinite(submittedAt) && submittedAt > 0;
+      let turnSnapshotSessionId = null;
+      let turnSnapshotPromise = null;
+      const startTurnSnapshot = (sessionId) => {
+        const id = typeof sessionId === 'string' ? sessionId.trim() : '';
+        if (!id || (turnSnapshotPromise && turnSnapshotSessionId === id)) return;
+        turnSnapshotSessionId = id;
+        // Capture immediately, but do not put Git on the first-token critical
+        // path. Every actual tool execution joins this same promise below, so
+        // shell/apply_patch cannot mutate the worktree before the baseline.
+        turnSnapshotPromise = Promise.resolve(beginTurnSnapshot(getCurrentCwd(), id)).catch(() => undefined);
+      };
       const routeStartedAt = performance.now();
+      startTurnSnapshot(getSession()?.id || getReservedSessionId?.());
       await awaitRoutePreparation?.();
       const routeWaitMs = performance.now() - routeStartedAt;
       setActiveTurnCount(getActiveTurnCount() + 1);
-      let turnSnapshotSessionId = null;
       let mcpWaitMs = 0;
       let providerStartedAt = 0;
       let turnTimingStatus = 'error';
@@ -179,12 +191,12 @@ export function createSessionTurnApi(deps) {
           }
         }
         const session0 = getSession();
-        turnSnapshotSessionId = session0?.id || null;
+        startTurnSnapshot(session0?.id);
         try { sessionTitles?.scheduleFirst(session0, prompt); } catch { /* title fallback stays the preview */ }
         // Turn-review boundary: start a fresh session+turn generation. Lead
-        // patches remain transcript-derived; worker apply_patch diffs bind to
-        // this generation and cannot leak into the next turn/session.
-        try { await beginTurnSnapshot(getCurrentCwd(), session0?.id); } catch { /* never blocks a turn */ }
+        // worktree capture overlaps route/MCP/provider preparation. Worker
+        // apply_patch diffs bind to this generation and cannot leak into the
+        // next turn/session.
         if (session0.deferredInitialRefreshPending) {
           // FIRST TURN of a FRESH session (session-local gate, NOT the
           // process-wide firstTurnCompleted): an MCP server may have finished its
@@ -270,6 +282,7 @@ export function createSessionTurnApi(deps) {
           getCurrentCwd(),
           options.prefetch || null,
           {
+            beforeToolExecution: () => turnSnapshotPromise || Promise.resolve(),
             transcriptMeta: options.transcriptMeta,
             onTextDelta: options.onTextDelta,
             onTextReset: options.onTextReset,
@@ -352,7 +365,8 @@ export function createSessionTurnApi(deps) {
       } finally {
         emitTurnTiming(turnTimingStatus);
         armHeavyRuntimeWarmup('turn-settled');
-        try { completeTurnSnapshot(turnSnapshotSessionId); } catch { /* review cleanup never breaks a turn */ }
+        try { await turnSnapshotPromise; } catch { /* Git snapshot is optional */ }
+        try { await completeTurnSnapshot(turnSnapshotSessionId); } catch { /* review cleanup never breaks a turn */ }
         setActiveTurnCount(Math.max(0, getActiveTurnCount() - 1));
         if (!isFirstTurnCompleted()) {
           setFirstTurnCompleted(true);

@@ -3354,18 +3354,30 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   line-height: 0;
   transform: translateY(-1px);
 }
-.live-activity-spinner {
-  width: 15px;
-  height: 15px;
+/* No rotating glyph in the busy band (user): the shimmering phrase carries the
+   state. This quiet pulse only holds the icon column and keeps a motion cue
+   for reduced-motion/paused builds where the shimmer stops. */
+.live-activity-pulse {
+  width: 7px;
+  height: 7px;
   display: block;
   margin: 0;
-  color: var(--live-status-color);
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--live-status-color) 55%, transparent));
+  border-radius: 50%;
+  background: var(--live-status-color);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--live-status-color) 55%, transparent);
   transform-origin: center;
-  animation: spin 1400ms linear infinite;
+  animation: live-activity-pulse 1800ms ease-in-out infinite;
+}
+@keyframes live-activity-pulse {
+  0%, 100% { opacity: .45; transform: scale(.8); }
+  50% { opacity: 1; transform: scale(1); }
 }
 .live-activity [data-component="text-shimmer"] {
   --text-shimmer-duration: 2600ms;
+  /* Tighter band than the 320% default: the highlight reads as a wipe crossing
+     the phrase instead of a slow global brightening. At exactly 200% the sweep
+     also shifts by one whole gradient tile, so the loop has no seam. */
+  --text-shimmer-size: 200%;
   min-width: 0;
   max-width: 100%;
   font-weight: var(--mx-weight-semibold);
@@ -3373,11 +3385,14 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .live-activity [data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-char"] {
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--live-status-color) 65%, var(--mx-text-muted)) 12%,
-    var(--mx-text) 48%,
-    var(--live-status-color) 82%
+    var(--mx-text-muted) 0%,
+    var(--mx-text-muted) 34%,
+    var(--mx-text) 45%,
+    color-mix(in srgb, var(--live-status-color) 70%, var(--mx-text)) 50%,
+    var(--mx-text) 55%,
+    var(--mx-text-muted) 66%,
+    var(--mx-text-muted) 100%
   );
-  background-size: 260% 100%;
   background-clip: text;
   -webkit-background-clip: text;
 }
@@ -9207,6 +9222,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   /* User tuned: 2000ms still read rushed; half speed again. Applies to the
      status verb and running tool-title glow alike. */
   --text-shimmer-duration: 4000ms;
+  /* One source for the band width: the sweep distance below is derived from
+     it, so a narrower band cannot drift out of phase with the loop. */
+  --text-shimmer-size: 320%;
   display: inline-flex;
   align-items: baseline;
   font: inherit;
@@ -9221,12 +9239,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 [data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-char"] {
   color: transparent;
   background: linear-gradient(90deg, var(--mx-text-faint) 15%, var(--mx-text) 48%, var(--mx-text-faint) 82%);
-  background-size: 320% 100%;
+  background-size: var(--text-shimmer-size) 100%;
   background-clip: text;
   -webkit-background-clip: text;
   animation: transcript-text-shimmer var(--text-shimmer-duration) linear infinite;
 }
-@keyframes transcript-text-shimmer { to { background-position: -320% 0; } }
+@keyframes transcript-text-shimmer { to { background-position: calc(-1 * var(--text-shimmer-size)) 0; } }
 .context-usage {
   position: relative;
   width: 28px;
@@ -9298,7 +9316,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   }
   .live-work-spinner { animation: none; }
   .live-activity-status,
-  .live-activity-spinner,
+  .live-activity-pulse,
   .turn-status,
   .turn-status-icon,
   .compaction-divider,
@@ -9309,7 +9327,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 :root[data-mixdog-motion="paused"] .session-row-spinner,
 :root[data-mixdog-motion="paused"] .workspace-tab-status,
 :root[data-mixdog-motion="paused"] .live-work-spinner,
-:root[data-mixdog-motion="paused"] .live-activity-spinner,
+:root[data-mixdog-motion="paused"] .live-activity-pulse,
 :root[data-mixdog-motion="paused"] [data-component="text-shimmer"] [data-slot="text-shimmer-char"],
 :root[data-mixdog-motion="paused"] .tool-card:not(.settled) .tool-icon {
   animation-play-state: paused !important;

@@ -60,18 +60,28 @@ export function createUsageContextPanels({
     }, 0);
   };
 
-  const openContextPicker = () => {
-    const tools = store.toolsStatus?.() || {
+  // Async because a daemon-backed store answers every status getter over the
+  // wire: read synchronously they resolved to promises and the panel rendered
+  // all-zero rows.
+  const openContextPicker = async () => {
+    const [toolsStatus, mcpStatus, skillsStatus, pluginsStatus, contextStatusValue] = await Promise.all([
+      Promise.resolve(store.toolsStatus?.()).catch(() => null),
+      Promise.resolve(store.mcpStatus?.()).catch(() => null),
+      Promise.resolve(store.skillsStatus?.()).catch(() => null),
+      Promise.resolve(store.pluginsStatus?.()).catch(() => null),
+      Promise.resolve(store.contextStatus?.()).catch(() => null),
+    ]);
+    const tools = toolsStatus || {
       activeCount: 0,
       count: 0,
       mcpToolCount: 0,
       activeMcpToolCount: 0,
       activeTools: [],
     };
-    const mcp = store.mcpStatus?.() || { connectedCount: 0, configuredCount: 0, failedCount: 0 };
-    const skills = store.skillsStatus?.() || { count: 0 };
-    const plugins = store.pluginsStatus?.() || { count: 0 };
-    const context = store.contextStatus?.() || {};
+    const mcp = mcpStatus || { connectedCount: 0, configuredCount: 0, failedCount: 0 };
+    const skills = skillsStatus || { count: 0 };
+    const plugins = pluginsStatus || { count: 0 };
+    const context = contextStatusValue || {};
     const usage = context.usage || {};
     const messages = context.messages || {};
     const request = context.request || {};

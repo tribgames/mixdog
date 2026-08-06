@@ -118,5 +118,16 @@ export function scrubRuntimeRootVars(env) {
     // env, so shells must not see it. A command that needs NODE_ENV sets it
     // explicitly.
     delete env.NODE_ENV;
+    // Daemon IDENTITY leak: the backend daemon marks itself with these before
+    // it boots, and every shell it spawns inherited them. A `mixdog` (or any
+    // runtime import) started from such a shell then believed IT was the
+    // backend host: createEngineSession() built a LOCAL in-process engine
+    // instead of attaching to the daemon — a second writer on the same session
+    // store, which is exactly what the single-writer daemon exists to prevent.
+    // The daemon sets them explicitly for the processes that really are it.
+    delete env.MIXDOG_ENGINE_DAEMON_HOST;
+    delete env.MIXDOG_CHANNEL_DAEMON;
+    delete env.MIXDOG_WORKER_MODE;
+    delete env.MIXDOG_DAEMON_SPAWNED_FOR;
     return env;
 }

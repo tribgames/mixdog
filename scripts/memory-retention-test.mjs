@@ -26,7 +26,7 @@ test('completed Lead and Agent reviews release tracked file buffers', async () =
     after: Buffer.from('new\n'),
   }]);
   assert.ok(turnSnapshots._turnSnapshotStatsForTest('lead-memory').trackedBytes > 0);
-  assert.equal(turnSnapshots.completeTurnSnapshot('lead-memory'), true);
+  assert.equal(await turnSnapshots.completeTurnSnapshot('lead-memory'), true);
   assert.equal(turnSnapshots._turnSnapshotStatsForTest('lead-memory').trackedBytes, 0);
   assert.match((await turnSnapshots.getTurnReviewDiff('C:/project', 'lead-memory')).patch, /\+new/);
 

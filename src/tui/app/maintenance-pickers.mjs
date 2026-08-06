@@ -21,15 +21,16 @@ export function createMaintenancePickers({
 }) {
   const openUpdatePicker = (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
-    const readSettings = () => {
-      try { return store.getUpdateSettings?.() || {}; } catch { return {}; }
+    // Async: both reads are remote calls on a daemon-backed store, so the sync
+    // versions rendered every row from an unresolved promise.
+    const readSettings = async () => {
+      try { return (await store.getUpdateSettings?.()) || {}; } catch { return {}; }
     };
-    const readStatus = () => {
-      try { return store.getUpdateStatus?.() || { phase: 'idle' }; } catch { return { phase: 'idle' }; }
+    const readStatus = async () => {
+      try { return (await store.getUpdateStatus?.()) || { phase: 'idle' }; } catch { return { phase: 'idle' }; }
     };
-    const render = ({ checking = false } = {}) => {
-      const upd = readSettings();
-      const status = readStatus();
+    const render = async ({ checking = false } = {}) => {
+      const [upd, status] = await Promise.all([readSettings(), readStatus()]);
       const current = upd.currentVersion || 'unknown';
       // After a successful in-place install the running process is still the
       // old version; surface the pending version so "Current" doesn't look
@@ -157,21 +158,20 @@ export function createMaintenancePickers({
       if (value > 0 && value % 1000 === 0) return `${value / 1000}s`;
       return `${value}ms`;
     };
-    const readCurrent = () => {
-      try { return store.getAutoClear?.() || null; } catch { return null; }
+    const readCurrent = async () => {
+      try { return (await store.getAutoClear?.()) || null; } catch { return null; }
     };
     const applyAutoClear = (patch = {}) => {
-      try {
-        const next = store.setAutoClear?.(patch);
-        if (!next) {
-          store.pushNotice('autoclear unavailable', 'warn');
-          return;
-        }
-        store.pushNotice(next.enabled ? `autoclear on · idle ${formatDuration(next.idleMs)}` : 'autoclear off', 'info');
-      } catch (e) {
-        store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error');
-      }
-      render();
+      void Promise.resolve(store.setAutoClear?.(patch))
+        .then((next) => {
+          if (!next) {
+            store.pushNotice('autoclear unavailable', 'warn');
+            return;
+          }
+          store.pushNotice(next.enabled ? `autoclear on · idle ${formatDuration(next.idleMs)}` : 'autoclear off', 'info');
+        })
+        .catch((e) => store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error'))
+        .finally(() => { void render(); });
     };
     const openProviderDurationEditor = (entry) => {
       if (!entry?.provider) return;
@@ -186,8 +186,8 @@ export function createMaintenancePickers({
         returnTo,
       });
     };
-    const renderAdvanced = () => {
-      const current = readCurrent();
+    const renderAdvanced = async () => {
+      const current = await readCurrent();
       const provider = current?.provider || 'default';
       const providerDefaults = Array.isArray(current?.providerDefaults) ? current.providerDefaults : [];
       const items = providerDefaults.map((entry) => ({
@@ -212,12 +212,12 @@ export function createMaintenancePickers({
           if (item?._action === 'provider-default') openProviderDurationEditor(item._entry);
         },
         onCancel: () => {
-          render();
+          void render();
         },
       });
     };
-    const render = () => {
-      const current = readCurrent();
+    const render = async () => {
+      const current = await readCurrent();
       const enabled = current?.enabled !== false;
       const idleMs = Number(current?.idleMs || HOUR_MS);
       const cacheTtlLabel = !enabled || idleMs >= HOUR_MS ? '1h' : '5m';
@@ -274,11 +274,11 @@ export function createMaintenancePickers({
     else render();
   };
 
-  const openProfilePicker = (options = {}) => {
+  const openProfilePicker = async (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     let profile = null;
     try {
-      profile = store.getProfile?.() || null;
+      profile = (await store.getProfile?.()) || null;
     } catch {
       profile = null;
     }

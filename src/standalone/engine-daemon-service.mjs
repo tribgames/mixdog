@@ -303,7 +303,9 @@ export function createEngineDaemonService({
     // listSessions() reads the session STORE — a scan measured in hundreds of
     // milliseconds on a large store. Recomputing it on every call made each
     // round trip pay for it; only session-shaping calls need a fresh surface.
-    if (!refresh && !refreshFromStorage && entry.syncCache) return entry.syncCache;
+    if (!refresh && !refreshFromStorage && entry.syncCache && entry.syncEpoch === syncEpoch) {
+      return entry.syncCache;
+    }
     const surface = {};
     try {
       const sessions = entry.engine.listSessions?.(
@@ -316,8 +318,16 @@ export function createEngineDaemonService({
       if (typeof dir === 'string') surface.sessionStoreDir = dir;
     } catch { /* optional */ }
     entry.syncCache = surface;
+    entry.syncEpoch = syncEpoch;
     return surface;
   }
+
+  // The session LIST is process-global: every entry reads the same store. A
+  // shape change made through ONE entry must therefore expire the cached
+  // surface of every OTHER entry, or a pane keeps serving a list that predates
+  // the session another view just created, renamed, or deleted.
+  let syncEpoch = 0;
+  function invalidateSyncSurfaces() { syncEpoch += 1; }
 
   /** Entry that currently holds a session live. */
   function sessionOwner(sessionId) {
@@ -336,6 +346,11 @@ export function createEngineDaemonService({
     'resume', 'resumeSession', 'newSession', 'switchContext', 'deleteSession',
     'renameSessionTitle', 'setSessionArchived', 'prefetchSession', 'submit',
   ]);
+
+  // Engine LIFETIME belongs to the daemon: a view drives a session, it never
+  // ends one. `subscribe` would also hand a wire client a callback it cannot
+  // receive, and reservation is the daemon's own creation step.
+  const FORBIDDEN_SESSION_METHODS = new Set(['dispose', 'subscribe', 'reserveSession']);
 
   function publish(entry) {
     if (closed || entry.disposed) return;
@@ -448,13 +463,18 @@ export function createEngineDaemonService({
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
     const name = String(method || '');
-    if (!name || name === 'constructor' || name.startsWith('__')) {
+    // `name in Object.prototype` blocks toString/valueOf/hasOwnProperty: they
+    // are functions on every object but were never part of the engine contract.
+    if (!name || name === 'constructor' || name.startsWith('__')
+      || FORBIDDEN_SESSION_METHODS.has(name) || name in Object.prototype) {
       throw new TypeError(`engine method ${name} is unavailable`);
     }
     const entry = await entryForSession(id, openHints || {});
     const target = entry.engine[name];
     if (typeof target !== 'function') throw new TypeError(`engine method ${name} is unavailable`);
     const value = await target.apply(entry.engine, Array.isArray(args) ? args : []);
+    const shaping = SESSION_SHAPING_METHODS.has(name);
+    if (shaping) invalidateSyncSurfaces();
     // Keep one compact record that the call reached the backend without
     // serializing transcripts/catalogs into the daemon log. A cold pane peek
     // previously wrote hundreds of KB synchronously on the request path.
@@ -480,7 +500,7 @@ export function createEngineDaemonService({
       value: sanitizeForWire(value) ?? null,
       sessionId: String(entry.engine.getState?.()?.sessionId || id),
       ...bodyForClient(step, Number.isInteger(baseRevision) ? baseRevision : null),
-      sync: syncSurfaceOf(entry, { refresh: SESSION_SHAPING_METHODS.has(name) }),
+      sync: syncSurfaceOf(entry, { refresh: shaping }),
     };
   }
 
@@ -529,6 +549,7 @@ export function createEngineDaemonService({
       if (!sessionId) throw new Error('session creation returned no sessionId');
       const step = advance(entry);
       if (step.changed) publishStep(entry, step);
+      invalidateSyncSurfaces();
       log(`session created session=${sessionId}`);
       return sessionResult(entry, step);
     } catch (error) {
@@ -591,7 +612,11 @@ export function createEngineDaemonService({
     // returns before provider execution. Awaiting Promise.resolve only
     // normalizes embedders; it never waits for the turn.
     const accepted = await Promise.resolve(target.call(entry.engine, prompt, options || {}));
-    if (accepted === true) entry.reservedOnly = false;
+    if (accepted === true) {
+      entry.reservedOnly = false;
+      // First submit materializes a reserved session in the store.
+      invalidateSyncSurfaces();
+    }
     const step = advance(entry);
     if (step.changed) publishStep(entry, step);
     log(`session submit session=${id} accepted=${accepted === true}`);
@@ -637,6 +662,7 @@ export function createEngineDaemonService({
     if (entry.timer) { clearTimeout(entry.timer); entry.timer = null; }
     try { entry.unsubscribe?.(); } catch {}
     sessions.delete(entry);
+    invalidateSyncSurfaces();
     try { await entry.engine.dispose?.(reason, { keepBackgroundWork }); }
     catch (err) { log(`session dispose failed session=${sessionId}: ${err?.message || err}`); }
     if (announce && sessionId) {

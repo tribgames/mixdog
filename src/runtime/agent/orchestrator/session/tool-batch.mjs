@@ -323,6 +323,7 @@ export async function processToolBatch(ctx) {
                         toolEndedAt = Date.now();
                         _resultKind = 'error';
                     } else {
+                        await opts.beforeToolExecution?.();
                         result = await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: iterations, deferShellCwdCommit: true });
                         toolEndedAt = Date.now();
                         // Boundary: tool-return string convention → structural kind.

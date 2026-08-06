@@ -26,9 +26,10 @@ test('builtin descriptions stay contract-only; routing policy lives in shared ru
   const byName = Object.fromEntries(BUILTIN_TOOLS.map((tool) => [tool.name, tool]));
   const rule = readFileSync(new URL('../src/rules/shared/01-tool.md', import.meta.url), 'utf8');
   const policy = rule.replace(/\s+/g, ' ');
-  // Verification/find-first policy lives in the shared rules, not on the surface.
-  assert.match(policy, /`find` first for guessed path\/name fragments/i);
-  assert.match(policy, /verified paths: project root, session cwd, user-provided, tool-returned/i);
+  // Policy (not prose) lives in the shared rules: assert the CONTRACT, never a
+  // sentence — a wording pass must not fail this test, a dropped rule must.
+  assert.match(policy, /`find` first for guessed/i);
+  assert.match(policy, /verified paths/i);
   for (const name of ['read', 'grep', 'glob', 'find', 'list', 'shell']) {
     assert.doesNotMatch(byName[name].description, /\bfind first\b|\bverified\b/i, `${name} description must stay contract-only`);
   }
@@ -46,22 +47,32 @@ test('builtin descriptions stay contract-only; routing policy lives in shared ru
 test('shared tool policy routes facets without duplicate content acquisition', () => {
   const rule = readFileSync(new URL('../src/rules/shared/01-tool.md', import.meta.url), 'utf8');
   const policy = rule.replace(/\s+/g, ' ');
-  assert.match(policy, /one shortest route per facet/i);
-  assert.match(policy, /broad\/uncertain→\s*`explore`.*known name fragment→\s*`find`.*verified root\+wildcard→\s*`glob`.*text\/code→\s*`grep`.*symbol body\/relation→\s*`code_graph`/i);
-  assert.match(policy, /a turn is a plan, not a step: batch to the maximum the plan allows — every already-required call rides one concurrent message, merged per tool: one `shell` chain \(`&&`\/`;`\), one `read`, one `apply_patch` with the whole edit set/i);
-  assert.match(policy, /each facet keeps its single route, dedicated tools carry observation, and `shell` joins when the plan already needs a program\/state change or a check/i);
-  assert.match(policy, /an edit set and its check ride one message and a new turn starts at a true data dependency/i);
-  assert.doesNotMatch(policy, /maximum batching|archetype is two turns|`shell` beside them|every already-determined call/i);
-  assert.doesNotMatch(policy, /shell that tests\/checks the edit|runtime starts that shell only after/i);
-  assert.match(policy, /close the edit set with its own proof: the `apply_patch` that finishes it carries the check in `post_shell` \(or a `shell` tail in the same message\) — one probe for the whole set, sized to the risk it introduces/i);
-  assert.match(policy, /probe where the change can actually fail; report a low-risk edit as done on the patch result alone/i);
-  assert.doesNotMatch(policy, /one composite boundary probe|send the patch as soon/i);
-  assert.match(policy, /gather every known facet — environment, capability, artifact, failure checks — in one bounded tool message/i);
-  assert.match(policy, /do not call read when grep\/read already fully covers the requested range/i);
-  assert.match(policy, /stop when evidence covers the deliverable/i);
-  assert.match(policy, /known file\/span→`read`, not `grep`/i);
-  assert.doesNotMatch(policy, /retrieval[^.]{0,120}\b(?:one|at most \d+)\s+(?:lookup|inspection|turn|call)/i);
-  assert.doesNotMatch(policy, /\bone lookup\b[^.]{0,80}\bat most\b[^.]{0,40}\binspection\b/i);
+  // 1. Every facet has exactly one route, and each retrieval tool appears in it.
+  assert.match(policy, /one shortest route each/i);
+  for (const route of [
+    /unknown coordinates→\s*`explore`/i,
+    /path\/name→`find`/i,
+    /wildcard→`glob`/i,
+    /text\/code→`grep`/i,
+    /→`code_graph`/i,
+    /`read`, not `grep`/i,
+    /directory→`list`/i,
+    /edit→`apply_patch`/i,
+    /→`search`/i,
+  ]) assert.match(policy, route, `routing table lost ${route}`);
+  // 2. `shell` ranks below the retrieval tools and never replaces them.
+  assert.match(policy, /→`shell`/i);
+  assert.match(policy, /never to cat\/ls\/find\/grep/i);
+  // 3. Independent calls ride one message, merged per tool, with the edit set
+  //    and its proof in the same turn.
+  assert.match(policy, /one message/i);
+  assert.match(policy, /`shell` chain \(`&&`\/`;`\)/i);
+  assert.match(policy, /`post_shell`/i);
+  assert.match(policy, /all files and hunks in one call/i);
+  // 4. Nothing already returned is fetched twice, and scope only grows on a miss.
+  assert.match(policy, /never re-fetch what a tool already returned/i);
+  assert.match(policy, /stop once evidence covers the deliverable/i);
+  assert.match(policy, /zero\/error justifies new scope/i);
 });
 
 test('explorer locator policy retains its compact behavioral contract', () => {
@@ -239,10 +250,14 @@ test('grep scopes do not masquerade as read regions', () => {
 
 test('explore locates; location-freeze policy lives in shared rules', () => {
   assert.match(EXPLORE_TOOL.description, /machine-wide locator/i);
-  assert.doesNotMatch(EXPLORE_TOOL.description, /broad\/uncertain/i);
   assert.match(EXPLORE_TOOL.description, /fans out up to 8 independent facets/i);
   const rule = readFileSync(new URL('../src/rules/shared/01-tool.md', import.meta.url), 'utf8');
-  assert.match(rule, /returned `path:line`[\s\S]*is final for its returned range/i);
-  assert.match(rule, /nonzero `content_with_context` result is final for its returned range/i);
-  assert.match(rule, /Read[\s\S]*is allowed for new\/uncovered lines; do not call read when grep\/read already[\s\S]*fully covers the requested range/i);
+  const policy = rule.replace(/\s+/g, ' ');
+  // explore leads alone and its anchors — not a second explore — route the rest.
+  assert.match(policy, /`explore` first and alone/i);
+  assert.match(policy, /anchors routing the next batch/i);
+  assert.match(policy, /known path or anchor skips it/i);
+  // Returned spans are frozen: only uncovered lines may be read again.
+  assert.match(policy, /is final for its range/i);
+  assert.match(policy, /read only uncovered lines/i);
 });

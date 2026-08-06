@@ -2407,9 +2407,14 @@ test('session title actions, message hover rows, and tool disclosures keep the d
     /\.tool-icon\s*\{[^}]*height:\s*20px;[^}]*align-self:\s*center;[^}]*place-items:\s*center;[^}]*line-height:\s*0;[^}]*transform:\s*translateY\(-1px\);/s);
   assert.match(styles,
     /\.live-activity-icon\s*\{[^}]*height:\s*20px;[^}]*align-self:\s*center;[^}]*place-items:\s*center;[^}]*line-height:\s*0;[^}]*transform:\s*translateY\(-1px\);/s);
-  assert.match(styles, /\.live-activity-spinner\s*\{[^}]*animation:\s*spin 1400ms linear infinite;/s);
+  assert.match(styles,
+    /\.live-activity-pulse\s*\{[^}]*animation:\s*live-activity-pulse 1800ms ease-in-out infinite;/s);
+  assert.doesNotMatch(styles, /\.live-activity-spinner\s*\{/,
+    "the busy band carries the shimmer, not a rotating spinner");
   assert.match(styles,
     /\.live-activity \[data-component="text-shimmer"\]\s*\{[^}]*--text-shimmer-duration:\s*2600ms;/s);
+  assert.match(styles,
+    /\.live-activity \[data-component="text-shimmer"\]\s*\{[^}]*--text-shimmer-size:\s*200%;/s);
   assert.match(styles,
     /\.live-activity \[data-component="text-shimmer"\]\s*\{[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s);
   assert.match(styles,

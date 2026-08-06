@@ -46,38 +46,37 @@ export function createSettingsPicker({
     const light = opts.light === true;
     const overrides = opts.overrides || null;
     const heavyCache = light ? settingsHeavyCacheRef.current : null;
-    const autoClear = store.getAutoClear?.() || {};
-    const compaction = store.getCompactionSettings?.() || {};
-    const memory = store.getMemorySettings?.() || { enabled: true };
-    const channels = store.getChannelSettings?.({ includeStatus: false }) || { enabled: true };
-    const systemShell = store.getSystemShell?.() || { source: 'auto', command: '', effective: '' };
-    const outputStyle = store.getOutputStyle?.() || store.listOutputStyles?.() || {};
+    // ONE round-trip for the whole panel: on a daemon-backed store each getter
+    // below is a serialized remote call, and reading them synchronously handed
+    // back promises (every row rendered its default). getSettingsSnapshot runs
+    // the same getters engine-side and answers once.
+    const snapshot = (await store.getSettingsSnapshot?.({ heavy: !heavyCache })) || {};
+    const autoClear = snapshot.autoClear || {};
+    const compaction = snapshot.compaction || {};
+    const memory = snapshot.memory || { enabled: true };
+    const channels = snapshot.channels || { enabled: true };
+    const systemShell = snapshot.systemShell || { source: 'auto', command: '', effective: '' };
+    const outputStyle = snapshot.outputStyle || {};
     const workflow = state.workflow || {};
-    const mcp = heavyCache ? heavyCache.mcp : (store.mcpStatus?.() || { connectedCount: 0, configuredCount: 0, failedCount: 0 });
-    const hooks = heavyCache ? heavyCache.hooks : (store.hooksStatus?.() || { ruleCount: 0 });
-    const plugins = heavyCache ? heavyCache.plugins : (store.pluginsStatus?.() || { count: 0 });
-    const skills = heavyCache ? heavyCache.skills : (store.skillsStatus?.() || { count: 0 });
-    const channelWorker = store.getChannelWorkerStatus?.();
-    let channelBackend = 'discord';
-    if (heavyCache) {
-      channelBackend = heavyCache.channelBackend || 'discord';
-    } else {
-      try {
-        channelBackend = (await store.getChannelSetup?.())?.backend || 'discord';
-      } catch {
-        channelBackend = 'discord';
-      }
-    }
-    if (overrides && Object.prototype.hasOwnProperty.call(overrides, 'channelBackend')) {
-      channelBackend = overrides.channelBackend;
-    }
+    const mcp = heavyCache ? heavyCache.mcp : (snapshot.mcp || { connectedCount: 0, configuredCount: 0, failedCount: 0 });
+    const hooks = heavyCache ? heavyCache.hooks : (snapshot.hooks || { ruleCount: 0 });
+    const plugins = heavyCache ? heavyCache.plugins : (snapshot.plugins || { count: 0 });
+    const skills = heavyCache ? heavyCache.skills : (snapshot.skills || { count: 0 });
+    const channelWorker = snapshot.channelWorker || null;
+    const channelBackend = heavyCache
+      ? (heavyCache.channelBackend || 'discord')
+      : (snapshot.channelBackend || 'discord');
+    const effectiveChannelBackend = overrides
+      && Object.prototype.hasOwnProperty.call(overrides, 'channelBackend')
+      ? overrides.channelBackend
+      : channelBackend;
     // Refresh the cache every build (light or full) so the next light
     // refresh reuses whatever was most recently known, and so an
     // optimistic override (e.g. channel backend cycle) sticks without
     // re-running the heavy getter it came from.
-    settingsHeavyCacheRef.current = { mcp, hooks, plugins, skills, channelBackend };
-    const channelBackendLabel = channelBackend === 'telegram' ? 'Telegram' : 'Discord';
-    const remoteEnabled = store.isRemoteEnabled?.() === true;
+    settingsHeavyCacheRef.current = { mcp, hooks, plugins, skills, channelBackend: effectiveChannelBackend };
+    const channelBackendLabel = effectiveChannelBackend === 'telegram' ? 'Telegram' : 'Discord';
+    const remoteEnabled = snapshot.remoteEnabled === true;
     const remoteRuntimeDescription = channelWorker?.running
       ? `runtime running · pid ${channelWorker.pid}`
       : 'Stopped. Manual ON claims remote from any other session.';
@@ -89,14 +88,13 @@ export function createSettingsPicker({
       ? 'Injects raw transcript lines (memory off: no LLM chunking).'
       : 'Uses Memory recall to rebuild context faster on large histories.';
     const applyAutoClear = (patch = {}) => {
-      try {
-        const next = store.setAutoClear?.(patch);
-        if (!next) store.pushNotice('autoclear unavailable', 'warn');
-        else store.pushNotice(next.enabled ? `Auto-clear on · idle ${formatDuration(next.idleMs)}` : 'Auto-clear off', 'info');
-      } catch (e) {
-        store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error');
-      }
-      openSettingsPicker({ light: true });
+      void Promise.resolve(store.setAutoClear?.(patch))
+        .then((next) => {
+          if (!next) store.pushNotice('autoclear unavailable', 'warn');
+          else store.pushNotice(next.enabled ? `Auto-clear on · idle ${formatDuration(next.idleMs)}` : 'Auto-clear off', 'info');
+        })
+        .catch((e) => store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error'))
+        .finally(() => { void openSettingsPicker({ light: true }); });
     };
     // On/Off toggle only — idle-window override lives in the Advanced picker
     // (openAutoClearPicker), opened via Enter on this row.
@@ -126,9 +124,9 @@ export function createSettingsPicker({
         .catch((e) => store.pushNotice(`channel setting failed: ${e?.message || e}`, 'error'))
         .finally(() => openSettingsPicker({ light: true }));
     };
-    const cycleOutputStyle = (direction = 1) => {
+    const cycleOutputStyle = async (direction = 1) => {
       let status = null;
-      try { status = store.listOutputStyles?.() || null; } catch (e) {
+      try { status = (await store.listOutputStyles?.()) || null; } catch (e) {
         store.pushNotice(`could not list output styles: ${e?.message || e}`, 'error');
         return;
       }
@@ -151,9 +149,9 @@ export function createSettingsPicker({
         .catch((e) => store.pushNotice(`Couldn’t switch output style: ${e?.message || e}`, 'error'))
         .finally(() => openSettingsPicker({ light: true }));
     };
-    const cycleWorkflow = (direction = 1) => {
+    const cycleWorkflow = async (direction = 1) => {
       let workflows = [];
-      try { workflows = store.listWorkflows?.() || []; } catch (e) {
+      try { workflows = (await store.listWorkflows?.()) || []; } catch (e) {
         store.pushNotice(`could not list workflows: ${e?.message || e}`, 'error');
         return;
       }
@@ -197,22 +195,23 @@ export function createSettingsPicker({
       openSettingsPicker({ light: true });
     };
     const applyRemoteRuntime = () => {
-      const enabled = store.toggleRemote?.() === true;
-      store.pushNotice(enabled ? 'Remote mode ON' : 'Remote mode OFF', 'info');
-      openSettingsPicker({ light: true });
+      void Promise.resolve(store.toggleRemote?.())
+        .then((enabled) => store.pushNotice(enabled === true ? 'Remote mode ON' : 'Remote mode OFF', 'info'))
+        .catch((e) => store.pushNotice(`Remote toggle failed: ${e?.message || e}`, 'error'))
+        .finally(() => { void openSettingsPicker({ light: true }); });
     };
     const cycleChannelBackend = (direction = 1) => {
       const backends = ['discord', 'telegram'];
-      const currentIndex = Math.max(0, backends.indexOf(channelBackend));
+      const currentIndex = Math.max(0, backends.indexOf(effectiveChannelBackend));
       const chosen = backends[(currentIndex + direction + backends.length) % backends.length];
-      if (chosen === channelBackend) {
-        openSettingsPicker({ light: true, overrides: { channelBackend } });
+      if (chosen === effectiveChannelBackend) {
+        openSettingsPicker({ light: true, overrides: { channelBackend: effectiveChannelBackend } });
         return;
       }
       try {
         store.setBackend(chosen);
         const label = chosen === 'telegram' ? 'Telegram' : 'Discord';
-        const restartHint = (store.isRemoteEnabled?.() === true || channelWorker?.running)
+        const restartHint = (remoteEnabled || channelWorker?.running)
           ? `Channel set to ${label}. Restart remote to apply.`
           : `Channel set to ${label}.`;
         store.pushNotice(restartHint, 'info');
@@ -257,11 +256,11 @@ export function createSettingsPicker({
         value: 'profile',
         label: 'Profile',
         meta: (() => {
-          try {
-            const p = store.getProfile?.();
-            const lang = p?.languageEntry?.label || 'System';
-            return p?.title ? `${p.title} · ${lang}` : lang;
-          } catch { return 'System'; }
+          // From the one-shot snapshot: a direct getProfile() here would be an
+          // extra (promise-shaped) round-trip per row build.
+          const p = snapshot.profile;
+          const lang = p?.languageEntry?.label || 'System';
+          return p?.title ? `${p.title} · ${lang}` : lang;
         })(),
         description: 'Your title and response language.',
         _action: 'profile',
@@ -385,13 +384,11 @@ export function createSettingsPicker({
         value: 'update',
         label: 'Update',
         meta: (() => {
-          try {
-            const upd = store.getUpdateSettings?.() || {};
-            const current = upd.currentVersion || 'unknown';
-            if (upd.updateAvailable && upd.latestVersion) return `${current} → ${upd.latestVersion}`;
-            if (!upd.currentVersion) return 'unknown';
-            return `${current} (latest)`;
-          } catch { return 'unknown'; }
+          const upd = snapshot.updateSettings || {};
+          const current = upd.currentVersion || 'unknown';
+          if (upd.updateAvailable && upd.latestVersion) return `${current} → ${upd.latestVersion}`;
+          if (!upd.currentVersion) return 'unknown';
+          return `${current} (latest)`;
         })(),
         description: 'Check version and update mixdog.',
         _action: 'update',

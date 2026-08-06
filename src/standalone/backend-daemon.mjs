@@ -35,6 +35,7 @@ import { mkdirSync, appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { claimSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
+import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
 import { setChannelNotifySink } from '../runtime/channels/lib/parent-bridge.mjs';
 import { setOwnerContext } from '../runtime/channels/lib/runtime-paths.mjs';
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
@@ -74,6 +75,20 @@ const MEMORY_ENTRY = fileURLToPath(new URL('../runtime/memory/index.mjs', import
 // keyed to the SAME ready event the spawner detaches on — no loss, no dup.
 const LOG_PATH = path.join(DATA_DIR, 'channels-worker-standalone.log');
 let fileLogging = false;
+// This process outlives every spawner, so it has to bound its OWN log: the
+// spawner's boot-time rotate never runs again while the daemon lives, and the
+// redirect below sends every hosted module's stderr here too.
+let logAppendsSinceRotate = 0;
+function appendDaemonLog(text) {
+  try {
+    mkdirSync(path.dirname(LOG_PATH), { recursive: true });
+    if ((logAppendsSinceRotate += 1) >= 200) {
+      logAppendsSinceRotate = 0;
+      rotateBoundedLog(LOG_PATH, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES);
+    }
+    appendFileSync(LOG_PATH, `[${new Date().toISOString()}] ${text}\n`);
+  } catch { /* logging must never fail the daemon */ }
+}
 function log(line) {
   const text = `[backend-daemon] ${line}`;
   // Exactly ONE sink per line: before ready the spawner mirrors our stderr into
@@ -83,10 +98,7 @@ function log(line) {
     try { process.stderr.write(`${text}\n`); } catch {}
     return;
   }
-  try {
-    mkdirSync(path.dirname(LOG_PATH), { recursive: true });
-    appendFileSync(LOG_PATH, `[${new Date().toISOString()}] ${text}\n`);
-  } catch {}
+  appendDaemonLog(text);
 }
 
 // Redirect raw process.stderr/stdout writes and console.* from ANY module in
@@ -95,13 +107,8 @@ function log(line) {
 function installDaemonLogRedirect() {
   if (process.env.MIXDOG_DAEMON_ALLOW_STDERR === '1') return;
   const file = (chunk) => {
-    try {
-      const text = String(chunk ?? '').trimEnd();
-      if (text) {
-        mkdirSync(path.dirname(LOG_PATH), { recursive: true });
-        appendFileSync(LOG_PATH, `[${new Date().toISOString()}] ${text}\n`);
-      }
-    } catch { /* logging must never fail the daemon */ }
+    const text = String(chunk ?? '').trimEnd();
+    if (text) appendDaemonLog(text);
   };
   const patch = (stream) => {
     stream.write = ((chunk, encoding, callback) => {
@@ -186,7 +193,10 @@ function maybeSelfShutdown(reason) {
 
 async function main() {
   const startedAt = performance.now();
-  try { mkdirSync(RUNTIME_ROOT, { recursive: true }); } catch {}
+  // 0o700 matters where the runtime root is a SHARED temp dir: the discovery
+  // files under it carry the loopback tokens for both front doors. (No-op for
+  // an existing directory, and advisory on win32 — its temp root is per-user.)
+  try { mkdirSync(RUNTIME_ROOT, { recursive: true, mode: 0o700 }); } catch {}
 
   // Pid-verified singleton claim (claimSingletonOwner reclaims a dead-pid owner
   // file and refuses only a LIVE peer). Loser exits so the spawner attaches to

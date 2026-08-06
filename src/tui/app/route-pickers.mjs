@@ -33,9 +33,12 @@ export function createRoutePickers({
   workflowSwitchNotice,
   openModelPicker,
 }) {
-  const openSearchPicker = (options = {}) => {
+  // Every opener below is async: on a daemon-backed store the list/get calls
+  // are remote, and reading them synchronously yielded promises (empty pickers).
+  const openSearchPicker = async (options = {}) => {
     const routeOverride = options.routeOverride || null;
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    const currentSearchRoute = routeOverride || (await store.getSearchRoute?.()) || null;
     void openModelPicker({
       title: 'Search Model',
       loadingDescription: 'Loading search-capable models...',
@@ -44,7 +47,7 @@ export function createRoutePickers({
       emptyNotice: 'no native search models available; connect OpenAI, Grok, Gemini, or Anthropic',
       cacheRef: 'search',
       loadModels: store.listSearchModels,
-      currentRoute: routeOverride || store.getSearchRoute?.() || null,
+      currentRoute: currentSearchRoute,
       returnTo,
       returnLabel: options.returnLabel || 'Settings',
       returnOnNestedCancel: options.returnOnNestedCancel === true,
@@ -65,10 +68,12 @@ export function createRoutePickers({
     });
   };
 
-  const openAgentsPicker = (options = {}) => {
+  const openAgentsPicker = async (options = {}) => {
     let agents = [];
     try {
-      agents = store.listAgents?.() || [];
+      // Await: on a daemon-backed store this is a remote call, and the old sync
+      // read handed back a promise (the picker then showed an empty roster).
+      agents = (await store.listAgents?.()) || [];
     } catch (e) {
       store.pushNotice(`could not list agents: ${e?.message || e}`, 'error');
       return;
@@ -128,11 +133,11 @@ export function createRoutePickers({
     });
   };
 
-  const openWorkflowPicker = (options = {}) => {
+  const openWorkflowPicker = async (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     let workflows = [];
     try {
-      workflows = store.listWorkflows?.() || [];
+      workflows = (await store.listWorkflows?.()) || [];
     } catch (e) {
       store.pushNotice(`could not list workflows: ${e?.message || e}`, 'error');
       return;
@@ -183,7 +188,7 @@ export function createRoutePickers({
     });
   };
 
-  const openOutputStylePicker = (options = {}) => {
+  const openOutputStylePicker = async (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     // Onboarding mode: Enter (row select) and ConfirmBar Next must both persist
     // the chosen style, then advance. `onboarding.onAdvance/onBack` drive the
@@ -191,7 +196,7 @@ export function createRoutePickers({
     const onboarding = options.onboarding || null;
     let status = null;
     try {
-      status = store.listOutputStyles?.() || null;
+      status = (await store.listOutputStyles?.()) || null;
     } catch (e) {
       store.pushNotice(`could not list output styles: ${e?.message || e}`, 'error');
       return;
