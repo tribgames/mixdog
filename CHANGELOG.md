@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.95 - 2026-08-06
+
 - Engine daemon by DEFAULT: a machine-global process owns every live session
   engine and the terminal TUI plus every desktop window attach as views over a
   127.0.0.1 HTTP+SSE transport, so there is no owner/viewer role to negotiate

@@ -1,6 +1,6 @@
 {
   "name": "@mixdog/mobile",
-  "version": "0.9.94",
+  "version": "0.9.95",
   "private": true,
   "description": "Mixdog mobile shell: Capacitor wrapper around the desktop renderer, driven over the remote bridge.",
   "scripts": {
