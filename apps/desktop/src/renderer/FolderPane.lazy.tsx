@@ -1,11 +1,10 @@
-// Windows-Explorer-style folder pane, with its behavioral grammar ported from
-// C:\Project\refs\files-community (Files, MIT):
-// - AbstractDateTimeFormatter.ToTimeSpanLabel: Today/Yesterday/Earlier this
-//   week/Last week/… date-group labels with their fixed sort indexes.
-// - GroupingHelper: group-key selection per option (name initial, size
-//   buckets, type, date) and "file sections below folders" ordering.
-// - LayoutSizeKindHelper: discrete details-row heights and grid tile sizes.
-// - ContentPageContextFlyoutFactory: context-menu composition order.
+// Windows-Explorer-style folder pane. Behavioral grammar:
+// - Today/Yesterday/Earlier this week/Last week/… date-group labels with
+//   their fixed sort indexes.
+// - Group-key selection per option (name initial, size buckets, type, date)
+//   and "file sections below folders" ordering.
+// - Discrete details-row heights and grid tile sizes.
+// - Fixed context-menu composition order.
 // Navigation (back/forward/up/breadcrumb+path box), toolbar (New/clipboard/
 // sort/group/view), places+drives rail, virtualized grouped grid/details
 // views, drag-and-drop move (Ctrl copies), and real shell icons/thumbnails
@@ -56,8 +55,8 @@ interface FolderPaneProps {
   onTitleChange?(title: string): void;
 }
 
-// Discrete size ladder (LayoutSizeKindHelper port): details-row heights and
-// grid tile/icon steps stay fixed sizes, never free-form zoom.
+// Discrete size ladder: details-row heights and grid tile/icon steps stay
+// fixed sizes, never free-form zoom.
 const DETAILS_SIZES = { compact: 24, small: 28, medium: 36 } as const;
 const GRID_SIZES = {
   small: { tile: 84, height: 100, icon: 40 },
@@ -175,7 +174,7 @@ function errorText(cause: unknown): string {
   return message.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, "");
 }
 
-// ── Date-span labels (AbstractDateTimeFormatter.ToTimeSpanLabel port) ────
+// ── Date-span labels ─────────────────────────────────────────────────────
 // Same buckets and fixed indexes; week boundaries use locale-free
 // start-of-week (Sunday) instead of culture week-of-year.
 function timeSpanLabel(mtimeMs: number): { text: string; index: number } {
@@ -217,7 +216,7 @@ function timeSpanLabel(mtimeMs: number): { text: string; index: number } {
   return { text: String(time.getFullYear()), index: time.getFullYear() };
 }
 
-// ── Size buckets (GroupingHelper.sizeGroups port) ────────────────────────
+// ── Size buckets ─────────────────────────────────────────────────────────
 const SIZE_GROUPS: Array<{ size: number; text: string }> = [
   { size: 5_000_000_000, text: "Huge (5 GB +)" },
   { size: 1_000_000_000, text: "Very large (1 - 5 GB)" },
@@ -239,7 +238,7 @@ type FolderSortKey = "name" | "date" | "type" | "size";
 type FolderGroupKey = "none" | FolderSortKey;
 type FolderViewMode = "grid" | "details";
 
-/** GroupingHelper.GetItemGroupKeySelector port for the supported options. */
+/** Group-key selector for the supported grouping options. */
 function groupLabelFor(entry: DesktopFolderEntry, option: FolderGroupKey): {
   text: string;
   index: number;
@@ -251,7 +250,7 @@ function groupLabelFor(entry: DesktopFolderEntry, option: FolderGroupKey): {
     }
     case "date": return timeSpanLabel(entry.mtimeMs);
     case "size": return sizeGroupLabel(entry);
-    // Files: folder sections always sort above file sections.
+    // Folder sections always sort above file sections.
     case "type": return { text: entryTypeLabel(entry), index: entry.dir ? 1 : 0 };
     default: return { text: "", index: 0 };
   }

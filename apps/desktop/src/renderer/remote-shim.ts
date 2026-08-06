@@ -770,8 +770,6 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
         + (token ? `&token=${encodeURIComponent(token)}` : '');
       return `${base}/media/${encodeURIComponent(assetId)}?${query}`;
     },
-    // Never let a phone kill the desktop engine in v1.
-    dispose: () => Promise.resolve(),
     quit: () => Promise.resolve(),
   };
 

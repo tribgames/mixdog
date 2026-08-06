@@ -8,7 +8,7 @@ import {
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { backendChildEnvironment } from './backend-child-environment';
+import { backendChildEnvironment, backendHookEnvironment } from './backend-child-environment';
 import {
   requiredCommitHash,
   requiredGitIgnoreScope,
@@ -76,8 +76,8 @@ export interface GitBranchEntry {
  * and nowhere else: a command either writes the scratch index it was handed,
  * or the repository's own — an inherited value can never choose for us.
  */
-function gitEnvironment(indexFile?: string): NodeJS.ProcessEnv {
-  const env = backendChildEnvironment({
+function gitEnvironment(indexFile?: string, protectHook = false): NodeJS.ProcessEnv {
+  const env = (protectHook ? backendHookEnvironment : backendChildEnvironment)({
     GIT_TERMINAL_PROMPT: '0',
     GIT_EDITOR: 'true',
     GIT_SEQUENCE_EDITOR: 'true',
@@ -87,13 +87,18 @@ function gitEnvironment(indexFile?: string): NodeJS.ProcessEnv {
   return env;
 }
 
-function run(cwd: string, args: string[], indexFile?: string): Promise<string> {
+function run(
+  cwd: string,
+  args: string[],
+  indexFile?: string,
+  protectHook = false,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile('git', args, {
       cwd,
       windowsHide: true,
       maxBuffer: 16_000_000,
-      env: gitEnvironment(indexFile),
+      env: gitEnvironment(indexFile, protectHook),
     }, (error, stdout, stderr) => {
       if (error) reject(new Error(String(stderr || error.message).trim()));
       else resolve(String(stdout));
@@ -968,7 +973,7 @@ export const hookRunnerSupport: HookRunnerCache = { value: null };
 
 function hookRunnerAvailable(cwd: string): Promise<boolean> {
   return cacheHookRunnerSupport(
-    () => run(cwd, ['hook', 'run', '--ignore-missing', 'mixdog-hook-probe']),
+    () => run(cwd, ['hook', 'run', '--ignore-missing', 'mixdog-hook-probe'], undefined, true),
     hookRunnerSupport,
   );
 }
@@ -990,7 +995,7 @@ async function runCommitHook(
   try {
     await run(cwd, [
       'hook', 'run', '--ignore-missing', name, ...(args.length ? ['--', ...args] : []),
-    ], indexFile);
+    ], indexFile, true);
   } catch (reason) {
     // git ignores post-commit's exit status; every other hook is a veto.
     if (advisory) return;

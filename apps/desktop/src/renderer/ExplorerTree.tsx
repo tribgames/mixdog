@@ -1,18 +1,15 @@
-// ── VS Code Explorer port ────────────────────────────────────────────────
-// Behavioral grammar extracted from C:\Project\refs\vscode:
-// - explorerViewer.ts renderInputBox: inline create/rename input replacing
-//   the row label — Enter commits when valid, Escape cancels, blur commits
-//   a valid value, live validation bubble (error blocks, warning informs),
-//   rename pre-selects the basename without its extension.
-// - fileActions.ts validateFileName + extpath.ts isValidBasename: the name
-//   rules (empty/leading slash/duplicate/invalid chars/reserved device
+// ── Explorer tree ────────────────────────────────────────────────────────
+// Behavioral grammar:
+// - Inline create/rename input replacing the row label — Enter commits when
+//   valid, Escape cancels, blur commits a valid value, live validation
+//   bubble (error blocks, warning informs), rename pre-selects the basename
+//   without its extension.
+// - Name rules (empty/leading slash/duplicate/invalid chars/reserved device
 //   names/trailing dot-space/255) with nested "a/b/c" creation segments.
-// - explorerViewer.ts FileSorter: directories first, numeric-aware compare;
-//   FileDragAndDrop: drop moves (Ctrl copies) with the confirm dialog and a
-//   hover-expand on collapsed folders.
-// - explorerView.ts selectActiveFile: the active editor auto-reveals — its
-//   ancestors expand, the row scrolls into view and becomes the selection
-//   without stealing keyboard focus.
+// - Sort: directories first, numeric-aware compare; drop moves (Ctrl copies)
+//   with the confirm dialog and a hover-expand on collapsed folders.
+// - The active editor auto-reveals: its ancestors expand, the row scrolls
+//   into view and becomes the selection without stealing keyboard focus.
 import {
   ChevronDown,
   FilePlus,

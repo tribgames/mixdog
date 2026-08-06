@@ -200,7 +200,7 @@
   /* Sidebar row grammar: 14px medium, full ink. */
   color: var(--mx-text);
   font-size: var(--mx-font-emphasis);
-  font-weight: var(--mx-weight-medium);
+  font-weight: var(--mx-weight-regular);
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -229,7 +229,7 @@
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-.mixdog-settings__rail footer strong { color: var(--mx-text-muted); font-weight: var(--mx-weight-medium); }
+.mixdog-settings__rail footer strong { color: var(--mx-text-muted); font-weight: var(--mx-weight-semibold); }
 .mixdog-settings-v2 .mixdog-settings__header {
   height: 64px;
   min-height: 64px;
@@ -353,7 +353,7 @@
   background: transparent;
   box-shadow: none;
   font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-medium);
+  font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
   text-align: right;
 }
@@ -376,7 +376,7 @@
 .settings-row-control > .effort-control .mx-select-trigger,
 .settings-row-control > .fast-control .mx-select-trigger {
   color: var(--mx-text);
-  font-weight: var(--mx-weight-medium);
+  font-weight: var(--mx-weight-regular);
 }
 
 /* ModelPicker and OpenSelect use different primitives. Settings routes own one
@@ -395,7 +395,7 @@
   background: transparent;
   box-shadow: none;
   font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-medium);
+  font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
   text-align: right;
 }

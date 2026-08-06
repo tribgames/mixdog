@@ -19,7 +19,7 @@ eof_line: "*** End of File" LF
 %import common.LF
 `;
 
-// Public contract mirrors Codex: apply_patch is the PRIMARY edit tool and takes
+// Public contract: apply_patch is the PRIMARY edit tool and takes
 // a raw freeform V4A patch (no JSON envelope) on providers that support custom
 // grammar tools. No prior `read` is required or implied — send the patch as
 // soon as the target and content are known. The JSON schema below is only the
@@ -31,12 +31,11 @@ const APPLY_PATCH_FREEFORM_DESCRIPTION =
   'Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.';
 
 // JSON-schema fallback providers (Anthropic and other non-grammar surfaces)
-// get the full Codex V4A instructions inline: without a grammar the model has
+// get the full V4A instructions inline: without a grammar the model has
 // no format signal beyond this description, and the dominant one-shot failure
 // modes (missing section headers, retyped context, marker resubmission) are
-// exactly what these rules preempt. Mirrors
-// refs/codex/codex-rs/prompts/templates/apply_patch_tool_instructions.md,
-// adapted to the JSON `patch` argument.
+// exactly what these rules preempt. The grammar is restated below for the
+// JSON `patch` argument.
 const APPLY_PATCH_JSON_DESCRIPTION = [
   'Edit files with this V4A envelope:',
   '*** Begin Patch',

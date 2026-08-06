@@ -252,7 +252,7 @@ function isRetryable(err) {
   return classifyError(err) === 'transient'
 }
 
-/** Claude Code compatible Anthropic request budget: 10 retries (11 attempts).
+/** Anthropic request budget: 10 retries (11 attempts).
  * CLAUDE_CODE_MAX_RETRIES is intentionally read per request for reload/tests.
  * The upper bound prevents an accidental unbounded retry loop. */
 export function anthropicMaxAttempts() {
@@ -262,16 +262,16 @@ export function anthropicMaxAttempts() {
   return retries + 1
 }
 
-// Claude Code request defaults (withRetry.ts): 500ms exponential backoff,
+// Anthropic retry defaults: 500ms exponential backoff,
 // capped at 32s, with positive-only jitter up to 25% of the base delay.
-// The leading duplicate accounts for withRetry's sleep-before-attempt index:
+// The leading duplicate accounts for the sleep-before-attempt index:
 // retry attempt 2 reads index 1.
 export const ANTHROPIC_RETRY_BACKOFF_MS = Object.freeze([
   500, 500, 1000, 2000, 4000, 8000, 16000, 32000, 32000, 32000, 32000,
 ])
 export const ANTHROPIC_RETRY_JITTER_RATIO = 0.25
 
-// Claude Code's Anthropic SDK client defaults API_TIMEOUT_MS to ten minutes.
+// The Anthropic SDK client defaults API_TIMEOUT_MS to ten minutes.
 // Read per request, like CLAUDE_CODE_MAX_RETRIES, so env reload/tests work.
 export function anthropicRequestTimeoutMs() {
   const parsed = Number.parseInt(process.env.API_TIMEOUT_MS || '', 10)
@@ -318,10 +318,10 @@ export function jitterDelayMs(ms, ratio = PROVIDER_RETRY_JITTER_RATIO, mode = 's
 // Mid-stream 'stream_stalled' recoveries retry in place, which is right for a
 // one-off blip but lets a chronically dying stream burn a whole task budget
 // slowly (observed live: one send stretched 149s→298s→556s across stall
-// retries before the agent deadline killed the task). Reference stacks bound
-// this instead of retrying forever: Claude Code caps each request at ~300s
-// wall clock (API_TIMEOUT_MS) and Codex kills a stream after one 300s silent
-// gap (stream_idle_timeout). This guard is the equivalent for our in-place
+// retries before the agent deadline killed the task). A stalling stream is
+// bounded instead of retried forever: a request is capped at ~300s wall
+// clock (API_TIMEOUT_MS) and a stream dies after one 300s silent gap
+// (stream idle timeout). This guard is the equivalent for our in-place
 // recovery: the clock starts at the FIRST stall of a send, and stall-classified
 // retries are allowed only inside that window; past it the stall error
 // surfaces so loop-level transport retry issues a FRESH request. Healthy
@@ -357,7 +357,7 @@ export function createStallRetryBudget(budgetMs = STREAM_STALL_RETRY_BUDGET_MS, 
 // branched on a hardcoded provider name.
 
 // F) Retry-budget profiles as DATA. The numbers live ONLY here now.
-//    ws.*Retries (5)              — one Codex Responses stream retry budget.
+//    ws.*Retries (5)              — one Responses stream retry budget.
 //    sse.defaultRetries (3)       — anthropic single-shot SSE mid-stream budget.
 export const MIDSTREAM_RETRY_POLICY = {
   ws: { transientCloseRetries: 5, defaultRetries: 5, backoff: [250, 1000, 2000, 4000, 5000] },
@@ -490,7 +490,7 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
 }
 
 // Explicit `response.failed` error codes/types that describe a transport-level
-// interruption (Codex retries these); every other code is terminal.
+// interruption (these are retryable); every other code is terminal.
 const RESPONSE_FAILED_CODE_CLASSIFIERS = new Map([
   ['stream_disconnected', 'response_failed_disconnected'],
   ['network_error', 'response_failed_network'],
@@ -550,7 +550,7 @@ export function shouldFallbackTransport(err, { signal, enabled = true } = {}) {
   if (signal?.aborted) return false
   // Transport fallback re-issues the request on another transport: it is a
   // replay, so the exposure deny applies. Eligibility itself stays typed
-  // (status / errno / classifier), matching Codex's WS→HTTPS switch.
+  // (status / errno / classifier) for the WS→HTTPS switch.
   if (readStreamOutcome(err).replaySafe !== true) return false
   const status = Number(err?.httpStatus || err?.status || 0)
   // 401 is auth recovery, never transport fallback. 426 is the explicit
@@ -660,7 +660,7 @@ function _sleepChunkWithAbort(ms, signal, sleepFn, abortMessage) {
 // E) Handshake classifier (moved here from openai-oauth-ws). Default-deny:
 //    anything not recognized as transient returns null. HTTP 401 is reserved
 //    for auth recovery and 426 for immediate HTTPS fallback. The OpenAI OAuth
-//    caller opts out of 429 retries (Codex retry_429:false); all other callers
+//    caller opts out of 429 retries (retry429:false); all other callers
 //    retain the historical retryable UnexpectedStatus policy.
 export function classifyHandshakeError(err, { retry429 = true } = {}) {
   if (!err) return null
@@ -764,8 +764,8 @@ export async function withRetry(fn, opts = {}) {
       // an eligible failure is actually retried remains the typed question
       // resolved by classifyError()/status below.
       if (readStreamOutcome(caught).replaySafe !== true) throw caught
-      // Claude Code treats x-should-retry:false as an explicit server veto
-      // (except an internal-only 5xx override that Mixdog does not have).
+      // x-should-retry:false is an explicit server veto on retrying and is
+      // honored as-is.
       // Keep this ahead of status defaults, including the request-local 429 path.
       const shouldRetryHeader = _headerValue(
         caught?.headers || caught?.response?.headers || caught?.data?.responseHeaders,
@@ -786,7 +786,7 @@ export async function withRetry(fn, opts = {}) {
         }
         continue
       }
-      // Claude Code's optional model fallback fires on the third 529. This
+      // The optional model fallback fires on the third 529. This
       // remains opt-in: providers pass fallbackModel only when the caller set
       // one. The hard progress veto above must run first so fallback can never
       // replay partial thinking/tool output.

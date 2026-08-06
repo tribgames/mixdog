@@ -82,7 +82,6 @@ export const DESKTOP_IPC = {
   setTitleBarDim: 'mixdog:set-titlebar-dim',
   invokeCapability: 'mixdog:invoke-capability',
   readCapabilities: 'mixdog:read-capabilities',
-  dispose: 'mixdog:dispose',
   quit: 'mixdog:quit',
   state: 'mixdog:state',
   sessionState: 'mixdog:session-state',
@@ -1582,6 +1581,5 @@ export interface DesktopApi {
    *  media transport. Gallery bytes ride THIS url (cacheable, range-able),
    *  never the RPC lane. */
   mediaUrl?(assetId: string, variant?: string): string;
-  dispose(): Promise<void>;
   quit(): Promise<void>;
 }
