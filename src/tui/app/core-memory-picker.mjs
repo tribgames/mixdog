@@ -38,10 +38,10 @@ export function createCoreMemoryPicker({
       onCancel: closeMemoryCorePicker,
     });
     void store.memoryControl?.({ action: 'core', op: 'list', project_id: '*' }, { silent: true })
-      .then((result) => {
+      .then(async (result) => {
         // Memory on/off lives here too so /memory is a one-stop surface:
         // toggle row + add row + curated entries.
-        const memory = store.getMemorySettings?.() || { enabled: true };
+        const memory = (await store.getMemorySettings?.()) || { enabled: true };
         const memoryOn = memory.enabled !== false;
         const coreRows = parseMemoryCoreRows(result);
         const rows = [
@@ -137,8 +137,8 @@ export function createCoreMemoryPicker({
       });
   };
 
-  const toggleMemoryEnabled = () => {
-    const memory = store.getMemorySettings?.() || { enabled: true };
+  const toggleMemoryEnabled = async () => {
+    const memory = (await store.getMemorySettings?.()) || { enabled: true };
     void Promise.resolve(store.setMemoryEnabled?.(!(memory.enabled !== false)))
       .then((next) => {
         if (!next) store.pushNotice('memory setting is busy', 'warn');

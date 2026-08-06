@@ -190,9 +190,11 @@ export function providerSetupHasUsableProvider(setup = {}) {
   ));
 }
 
-export function activeWorkflowSummaryForStore(store, workflow = {}) {
+// Async: listWorkflows is a remote call on a daemon-backed store, so the old
+// sync read resolved to a promise and every caller silently got null.
+export async function activeWorkflowSummaryForStore(store, workflow = {}) {
   try {
-    const workflows = store.listWorkflows?.() || [];
+    const workflows = (await store.listWorkflows?.()) || [];
     return workflows.find((item) => item.active)
       || workflows.find((item) => item.id === workflow?.id)
       || null;

@@ -31,6 +31,13 @@ function daemonEntry() {
   return fileURLToPath(new URL('./backend-daemon.mjs', import.meta.url));
 }
 
+// Every store method that is not implemented locally becomes one loopback HTTP
+// request, and panels fire several in a row, so an un-pooled socket made each
+// getter pay a fresh TCP connect + teardown. One keep-alive agent for all
+// daemon requests keeps the connection warm; it is destroyed when the last view
+// detaches so idle sockets can never hold the process open.
+const daemonAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 8 });
+
 function request({ port, token, method = 'GET', path: urlPath, body = null, timeoutMs = 120_000 }) {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : null;
@@ -39,6 +46,7 @@ function request({ port, token, method = 'GET', path: urlPath, body = null, time
       port,
       path: urlPath,
       method,
+      agent: daemonAgent,
       headers: {
         'X-Mixdog-Daemon-Token': token,
         ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
@@ -159,6 +167,10 @@ function spawnDaemonCandidate({ cwd, log }) {
 
 /** Spawn-or-attach discovery for the machine-global engine daemon. */
 export async function ensureEngineDaemon({ cwd = process.cwd(), log = () => {}, attempts = 5 } = {}) {
+  // A daemon we asked to drain but that kept serving live clients is a
+  // DIFFERENT failure from "no daemon came up": the user has to close the
+  // running views, so say that instead of a generic unavailability.
+  let upgradeBlocked = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const discovery = readEngineDaemonDiscovery();
     if (discovery) {
@@ -175,11 +187,19 @@ export async function ensureEngineDaemon({ cwd = process.cwd(), log = () => {}, 
         }
         log(`stopping older engine daemon ${health.version || '?'} (protocol ${health.protocol ?? 0})`);
         await shutdownEngineDaemon(discovery);
-        await waitForDaemonExit(discovery);
+        upgradeBlocked = await waitForDaemonExit(discovery) ? null : health;
       }
     }
     await spawnDaemonCandidate({ cwd, log });
     await delay(100);
+  }
+  if (upgradeBlocked) {
+    const err = new Error(
+      `an older Mixdog backend (protocol ${upgradeBlocked.protocol ?? 0}) is still serving live clients`
+      + ' — close the running Mixdog windows and terminals, then start again',
+    );
+    err.daemonUpgradeBlocked = true;
+    throw err;
   }
   throw new Error('engine daemon is unavailable');
 }
@@ -447,6 +467,12 @@ export async function createRemoteEngineSession(options = {}) {
       return true;
     }
     if (body.patch) {
+      // The daemon answers a state-changing call AND broadcasts the same step,
+      // so every such call delivers one revision twice. Recognising the
+      // duplicate as a no-op keeps it from looking like a revision gap, which
+      // used to cost one extra full session.read per call.
+      if (Number(body.revision) === revision
+        && Number(body.baseRevision) === revision - 1) return true;
       if (Number(body.baseRevision) !== revision) return false;
       state = applyStatePatch(state, body.patch);
       revision = Number(body.revision) || revision;
@@ -741,6 +767,9 @@ export async function createRemoteEngineSession(options = {}) {
       attachment.refs = Math.max(0, attachment.refs - 1);
       if (attachment.refs === 0 && liveViews.size === 0) {
         try { await attachment.client.close(reason); } catch {}
+        // Last view gone: drop pooled keep-alive sockets so an idle connection
+        // cannot keep the process (or a test runner) alive.
+        try { daemonAgent.destroy(); } catch {}
         if (shared === attachment) shared = null;
       }
     },
@@ -799,6 +828,13 @@ export async function callDaemonSession({
       decision: args?.[1],
       open: openHints || {},
     };
+  } else if (name === 'read') {
+    // Prefetch/peek: WARM (or load) the session's engine. This is a daemon
+    // route, not an engine method — sending it as session.invoke asked the
+    // engine for a `read()` that the store contract has never had, so every
+    // prefetch failed with "engine method read is unavailable".
+    route = 'session.read';
+    payload = { sessionId: id, open: openHints || {}, baseRevision: null };
   }
   // One id for the whole retry sequence. In particular, a submit whose HTTP
   // response was lost must hit the transport cache instead of being accepted

@@ -1,16 +1,22 @@
 import { createTwoFilesPatch } from 'diff';
+import {
+  _resetTurnWorktreeSnapshotsForTest,
+  createTurnWorktreeSnapshot,
+  refreshTurnWorktreeSnapshot,
+  revertTurnWorktreeFile,
+} from './turn-worktree-snapshot.mjs';
 
 // Turn-scoped review registry.
 //
-// Codex keeps the first committed content and the latest committed content for
-// every path, then re-renders ONE net unified diff after each apply_patch. This
-// module owns the same contract for Desktop/TUI: proposed, rejected, dry-run,
-// and rolled-back hunks never enter the review; repeated edits collapse to the
-// first-before/latest-after state; a full revert removes the file again.
+// A Git worktree gets an OpenCode-style shadow-index snapshot at turn start,
+// then compares that immutable tree with the latest worktree state. This makes
+// the headline authoritative for apply_patch, shell, and external edits while
+// preserving changes that already existed before the turn. Non-Git worktrees
+// retain the Codex-compatible exact apply_patch tracker below.
 //
-// Worker trackers remain separate and are frozen into the owning Lead turn on
-// completion, preserving attribution without assigning worker edits to Lead.
-// Shell/background/external-editor writes are intentionally excluded.
+// Worker apply_patch trackers remain separate and are frozen into the owning
+// Lead turn as attribution metadata. Their stats are never added a second time
+// to a worktree snapshot's authoritative totals.
 
 const DISABLED = /^(0|false|off)$/i.test(String(process.env.MIXDOG_TURN_SNAPSHOT || ''));
 const TURN_CACHE_MAX = 32;
@@ -84,6 +90,7 @@ function createDiffTracker(meta = {}) {
     currentByPath: new Map(),
     originByCurrentPath: new Map(),
     unifiedDiff: '',
+    worktreeSnapshot: null,
   };
 }
 
@@ -329,8 +336,17 @@ export async function beginTurnSnapshot(_worktree, sessionId) {
     generation,
     agents: new Map(),
   });
-  resetDiffTracker(ownerSessionId);
+  const tracker = resetDiffTracker(ownerSessionId);
   trimTurnCache();
+  if (!tracker) return;
+  try {
+    const snapshot = await createTurnWorktreeSnapshot(_worktree);
+    if (_diffTrackersBySession.get(ownerSessionId) === tracker) {
+      tracker.worktreeSnapshot = snapshot;
+    }
+  } catch {
+    // Git is optional. Exact apply_patch tracking remains the fallback.
+  }
 }
 
 /** Bind one worker execution to the Lead turn that launched it. */
@@ -401,10 +417,13 @@ export function completeAgentTurnReview(handle, patches = []) {
   }
 }
 
-/** Freeze a completed Lead turn while retaining only its bounded unified diff. */
-export function completeTurnSnapshot(sessionId) {
+/** Freeze a completed Lead turn while retaining only its bounded review data. */
+export async function completeTurnSnapshot(sessionId) {
   const tracker = _diffTrackersBySession.get(clean(sessionId));
   if (!tracker) return false;
+  if (tracker.worktreeSnapshot) {
+    try { await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot); } catch {}
+  }
   tracker.sealed = true;
   releaseDiffTrackerContent(tracker);
   return true;
@@ -416,20 +435,36 @@ export async function getTurnReviewDiff(_worktree, sessionId) {
   const ownerSessionId = clean(sessionId);
   const turn = _turnsBySession.get(ownerSessionId);
   const tracker = _diffTrackersBySession.get(ownerSessionId);
+  if (tracker?.worktreeSnapshot && !tracker.sealed) {
+    try { await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot); } catch {}
+  }
+  const snapshot = tracker?.worktreeSnapshot || null;
   return {
     supported: true,
-    files: [],
-    patch: tracker?.unifiedDiff || '',
+    files: snapshot?.files || [],
+    patch: snapshot?.patch ?? tracker?.unifiedDiff ?? '',
+    snapshotKind: snapshot ? 'worktree' : 'tool',
+    patchTruncated: snapshot?.patchTruncated === true,
     authoritative: Boolean(turn && tracker),
     agents: publicAgentReviews(ownerSessionId),
     ...(turn ? { generation: turn.generation } : { reason: 'no-turn' }),
   };
 }
 
+/** Restore one reviewed file to this turn's worktree baseline, never to HEAD. */
+export async function revertTurnReviewFile(_worktree, sessionId, file) {
+  const ownerSessionId = clean(sessionId);
+  const tracker = _diffTrackersBySession.get(ownerSessionId);
+  if (!tracker?.worktreeSnapshot) throw new Error('turn worktree snapshot is unavailable');
+  await revertTurnWorktreeFile(tracker.worktreeSnapshot, file);
+  return await getTurnReviewDiff(_worktree, ownerSessionId);
+}
+
 export function _resetTurnSnapshotForTest() {
   _turnsBySession.clear();
   _diffTrackersBySession.clear();
   _agentTurnSeq = 0;
+  _resetTurnWorktreeSnapshotsForTest();
 }
 
 export function _turnSnapshotStatsForTest(sessionId) {
@@ -441,5 +476,7 @@ export function _turnSnapshotStatsForTest(sessionId) {
     trackedBytes: trackedContentBytes(tracker),
     trackedPaths: tracker.baselineByPath.size + tracker.currentByPath.size,
     patchBytes: Buffer.byteLength(tracker.unifiedDiff || '', 'utf8'),
+    snapshotKind: tracker.worktreeSnapshot ? 'worktree' : 'tool',
+    snapshotFiles: tracker.worktreeSnapshot?.files?.length || 0,
   };
 }

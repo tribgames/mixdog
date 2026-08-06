@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { afterEach, test } from "node:test";
 import React, { act } from "react";
 import { flushSync } from "react-dom";
+import { SPINNER_VERBS, spinnerVerbFor } from "../../../../src/tui/spinner-verbs.mjs";
 
 import {
   cleanupDom,
@@ -2074,11 +2075,12 @@ test("composer renders a pending user card before a slow submit resolves", async
   assert.ok(optimisticActivity,
     "an idle submit should start desktop activity before the host RPC resolves");
   assert.equal(optimisticActivity.getAttribute("data-mode"), "requesting");
-  assert.equal(
-    optimisticActivity.querySelector("[data-component='text-shimmer']")?.getAttribute("aria-label"),
-    "Requesting",
-  );
-  assert.ok(optimisticActivity.querySelector(".live-activity-spinner"));
+  const optimisticVerb = String(
+    optimisticActivity.querySelector("[data-component='text-shimmer']")?.getAttribute("aria-label") || "",
+  ).split(" · ")[0];
+  assert.ok(SPINNER_VERBS.includes(optimisticVerb),
+    `the busy phrase must come from the shared pool, not a mode label (got ${optimisticVerb})`);
+  assert.ok(optimisticActivity.querySelector(".live-activity-pulse"));
   assert.match(String(receivedOptions?.id || ""), /^desktop-submit-/);
   assert.ok(Number(receivedOptions?.submittedAt) > 0);
 
@@ -3111,6 +3113,9 @@ test("turn review bar renders the authoritative committed net diff instead of pr
   assert.match(document.querySelector(".turn-review-summary")?.textContent || "", /1 file changed/);
   await act(async () => document.querySelector(".turn-review-summary")?.click());
   await act(async () => document.querySelector(".turn-review-file")?.click());
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  });
   const text = document.querySelector(".turn-review-diff")?.textContent || "";
   assert.match(text, /final/);
   assert.doesNotMatch(text, /intermediate/);
@@ -3148,6 +3153,87 @@ test("turn review transcript fallback excludes a failed proposed patch without a
   })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
   assert.equal(document.querySelector(".turn-review-bar"), null);
+});
+
+test("turn review ignores a header-only no-op instead of rendering a +0 -0 file", async () => {
+  installDom();
+  window.mixdogDesktop = {
+    invokeCapability: async () => ({
+      value: {
+        supported: true,
+        authoritative: true,
+        snapshotKind: "worktree",
+        files: [],
+        patch: "diff --git a/scripts/no-op.mjs b/scripts/no-op.mjs\n",
+        agents: [],
+      },
+    }),
+  };
+  await act(async () => root.render(React.createElement(TurnReviewBar, {
+    items: [{ id: 1, kind: "user", text: "check" }, { id: 2, kind: "assistant", text: "done" }],
+    cwd: "C:/proj",
+    sessionId: "no-op-session",
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  assert.equal(document.querySelector(".turn-review-bar"), null);
+});
+
+test("worktree review keeps binary/rename status out of numeric totals and does not double-count agents", async () => {
+  installDom();
+  const textPatch = [
+    "diff --git a/src/app.mjs b/src/app.mjs",
+    "--- a/src/app.mjs",
+    "+++ b/src/app.mjs",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "",
+  ].join("\n");
+  window.mixdogDesktop = {
+    invokeCapability: async () => ({
+      value: {
+        supported: true,
+        authoritative: true,
+        snapshotKind: "worktree",
+        files: [
+          { path: "src/app.mjs", status: "M", additions: 1, deletions: 1, binary: false },
+          { path: "assets/image.bin", status: "A", additions: null, deletions: null, binary: true },
+          { path: "src/new-name.mjs", oldPath: "src/old-name.mjs", status: "R", additions: 0, deletions: 0 },
+        ],
+        patch: [
+          textPatch,
+          "diff --git a/assets/image.bin b/assets/image.bin",
+          "new file mode 100644",
+          "Binary files /dev/null and b/assets/image.bin differ",
+          "diff --git a/src/old-name.mjs b/src/new-name.mjs",
+          "similarity index 100%",
+          "rename from src/old-name.mjs",
+          "rename to src/new-name.mjs",
+          "",
+        ].join("\n"),
+        agents: [{
+          sessionId: "worker-same-file",
+          agent: "worker",
+          tag: "worker-1",
+          patch: textPatch,
+        }],
+      },
+    }),
+  };
+  await act(async () => root.render(React.createElement(TurnReviewBar, {
+    items: [{ id: 1, kind: "user", text: "change" }, { id: 2, kind: "assistant", text: "done" }],
+    cwd: "C:/proj",
+    sessionId: "metadata-session",
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  const summary = document.querySelector(".turn-review-summary")?.textContent || "";
+  assert.match(summary, /3 files changed/);
+  assert.match(summary, /\+1-1/);
+  assert.doesNotMatch(summary, /\+2-2/);
+  assert.doesNotMatch(summary, /\+0-0/);
+  await act(async () => document.querySelector(".turn-review-summary")?.click());
+  assert.match(document.querySelector(".turn-review-files")?.textContent || "", /Binary/);
+  assert.match(document.querySelector(".turn-review-files")?.textContent || "", /Renamed/);
 });
 
 test("turn review bar clears synchronously when switching to an empty session", async () => {
@@ -12591,13 +12677,16 @@ test("live engine activity and completion or compaction rows preserve runtime st
     items: [],
     queued: [],
   });
-  assert.equal(document.querySelector(".live-activity-status")?.textContent, "Thinking");
+  // No startedAt on this frame: the pool still resolves deterministically, and
+  // the stream mode must NOT decide the wording.
+  const pooledVerb = spinnerVerbFor(0, Date.now());
+  assert.equal(document.querySelector(".live-activity-status")?.textContent, pooledVerb);
   assert.equal(
     document.querySelector(".live-activity-status [data-component='text-shimmer']")
       ?.getAttribute("aria-label"),
-    "Thinking",
+    pooledVerb,
   );
-  assert.ok(document.querySelector(".live-activity-spinner.lucide-loader-circle"));
+  assert.ok(document.querySelector(".live-activity-pulse"));
   assert.equal(document.querySelector(".live-activity")?.getAttribute("data-mode"), "thinking");
   assert.equal(document.querySelector(".session-progress") === null, true,
     "busy sessions should not add an animated header border");

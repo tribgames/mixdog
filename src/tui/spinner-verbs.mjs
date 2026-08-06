@@ -2,6 +2,11 @@
  * src/tui/spinner-verbs.mjs — playful "thinking" verbs for the spinner.
  *
  * Playful spinner verbs. Shown as `<Verb>… (Ns · ↑ N tokens)` while a turn runs.
+ *
+ * ONE common pool, never a per-mode pool: the stream flips
+ * thinking → tool-use → responding many times inside a single turn, so a
+ * mode-keyed phrase rewrites itself every few seconds and reads as flicker.
+ * The phrase is drawn from this list and held for a fixed window instead.
  */
 export const SPINNER_VERBS = [
   'Accomplishing', 'Actioning', 'Actualizing', 'Architecting', 'Baking', 'Beaming',
@@ -39,6 +44,36 @@ export const SPINNER_VERBS = [
   'Whirlpooling', 'Whirring', 'Whisking', 'Wibbling', 'Working', 'Wrangling',
   'Zesting', 'Zigzagging',
 ];
+
+/** How long one phrase holds before the pool advances. */
+export const SPINNER_VERB_ROTATE_MS = 30_000;
+
+/**
+ * Modes that describe a STATE rather than ongoing work: they replace the pool
+ * phrase for as long as the mode lasts, then the rotation resumes. Everything
+ * else (requesting/thinking/tool-use/tool-input/responding) shares the pool.
+ * `reconnecting` is absent on purpose — the engine authors that text itself
+ * (retry countdown), so the surfaces pass `spinner.verb` through unchanged.
+ */
+export const SPINNER_MODE_OVERRIDE_VERBS = {
+  compacting: 'Compacting conversation',
+  'auto-clear': 'Auto-clearing conversation',
+  resuming: 'Resuming conversation',
+};
+
+/**
+ * The phrase for a turn at a point in time. Derived from the turn's
+ * `startedAt` so the TUI and the desktop show the SAME word at the same
+ * second, and so mode flips cannot change it — only the 30s window can.
+ */
+export function spinnerVerbFor(startedAt = 0, now = 0, pool = SPINNER_VERBS) {
+  const list = Array.isArray(pool) && pool.length ? pool : SPINNER_VERBS;
+  const anchor = Math.max(0, Number(startedAt) || 0);
+  const elapsed = anchor > 0 ? Math.max(0, (Number(now) || 0) - anchor) : 0;
+  const slot = Math.floor(elapsed / SPINNER_VERB_ROTATE_MS);
+  const seed = Math.floor(anchor / 1000) + slot;
+  return list[((seed * 7) + 3) % list.length];
+}
 
 /** Spinner glyph frames. */
 export const SPINNER_FRAMES = ['◇', '◆', '◈', '◆', '◇'];

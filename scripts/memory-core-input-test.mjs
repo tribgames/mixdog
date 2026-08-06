@@ -15,10 +15,13 @@ test('memory mutation schema omits category while recall keeps its internal filt
   assert.equal(Object.hasOwn(memoryTool.inputSchema.properties, 'category'), false)
   assert.doesNotMatch(memoryTool.description, /category/i)
   assert.match(memoryTool.description, /action=core with op/)
-  assert.equal(memoryTool.inputSchema.anyOf[1].required.includes('op'), true)
+  // `op` is required for action=core through its own description + the handler
+  // (the schema's anyOf branches only restated `required: ['action']`).
+  assert.match(memoryTool.inputSchema.properties.op.description, /required for action=core/i)
+  assert.deepEqual(memoryTool.inputSchema.required, ['action'])
   assert.equal(Object.hasOwn(memoryTool.inputSchema.properties.element, 'maxLength'), false)
   assert.equal(Object.hasOwn(memoryTool.inputSchema.properties.summary, 'maxLength'), false)
-  assert.match(memoryTool.inputSchema.properties.project_id.description, /Optional/)
+  assert.match(memoryTool.inputSchema.properties.project_id.description, /core pool/i)
   assert.equal(Object.hasOwn(recallTool.inputSchema.properties, 'category'), true)
 })
 

@@ -11,9 +11,20 @@ import { join } from 'node:path';
 const ROOT = mkdtempSync(join(tmpdir(), 'mixdog-engine-daemon-parity-'));
 process.env.MIXDOG_RUNTIME_ROOT = ROOT;
 process.env.MIXDOG_DATA_DIR = ROOT;
+// This test exercises the createEngineSession() SEAM, which returns a local
+// store when the process is marked as the daemon host. Running the suite from
+// inside a mixdog session inherited that mark and silently turned the "remote"
+// half of the parity check into a second local store.
+delete process.env.MIXDOG_ENGINE_DAEMON_HOST;
 // Product callers are daemon-only. This parity test requests its local
 // comparison store through the explicit test/host constructor.
 process.env.MIXDOG_DAEMON_SKIP_MEMORY = '1';
+// MIXDOG_DAEMON_SKIP_MEMORY only covers the DAEMON's memory runtime. The local
+// comparison store is built in THIS process, and its session boot pulls core
+// memory — which initdb'd a throwaway Postgres cluster into the isolated root
+// and left the suite spinning for minutes. Core memory is not part of the
+// snapshot contract under test, so opt out of that boot entirely.
+process.env.MIXDOG_BOOT_CORE_MEMORY = '0';
 // This is a store-wire parity test, not a provider/network warmup test.
 // Keep short-lived local and daemon runtimes from opening catalog/usage TLS
 // sockets that outlive the assertion and make Node's test runner wait.

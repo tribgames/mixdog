@@ -25,7 +25,10 @@ test('grep head_limit/offset/-C as numeric strings coerce', () => {
     assert.equal(validateBuiltinArgs('grep', a), null);
     assert.equal(a.head_limit, 3);
     assert.equal(a.offset, 10);
-    assert.equal(a['-C'], 2);
+    // `-C` is not a schema property anymore: the guard migrates the legacy flag
+    // into `context` instead of round-tripping it.
+    assert.equal(a['-C'], undefined);
+    assert.equal(a.context, 2);
 });
 
 test('grep empty context strings are treated as omitted', () => {

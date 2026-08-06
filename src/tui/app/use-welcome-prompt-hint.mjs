@@ -54,12 +54,12 @@ export function useWelcomePromptHint({ store, state, toastErrorSignature }) {
           }
         }
       }
-      const activeWorkflow = activeWorkflowSummaryForStore(store, state.workflow || {});
+      const activeWorkflow = await activeWorkflowSummaryForStore(store, state.workflow || {});
       if (!next && String(activeWorkflow?.id || state.workflow?.id || '').toLowerCase() === 'solo') {
         next = CONDITIONAL_WELCOME_PROMPT_HINTS.soloWorkflow;
       }
       if (!next) {
-        const searchRoute = store.getSearchRoute?.() || null;
+        const searchRoute = (await store.getSearchRoute?.()) || null;
         const searchProvider = String(searchRoute?.provider || '').trim();
         const searchModel = String(searchRoute?.model || '').trim();
         const defaultSearchRoute = searchProvider.toLowerCase() === 'default' && searchModel.toLowerCase() === 'default';

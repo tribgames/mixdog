@@ -52,24 +52,39 @@ export function usePromptQueueHistory({
     const restoreDraft = options.restoreDraft !== false;
     const showHint = options.showHint !== false;
     const currentText = options.currentText ?? promptValueRef.current ?? promptDraft;
+    const apply = (restored) => {
+      if (!restored || restored.count === 0) {
+        if (showHint) showPromptHint('No queued messages to restore.', 'info');
+        return false;
+      }
+      if (restoreDraft) {
+        if (restored.pastedImages) installPastedImages(restored.pastedImages, { merge: true });
+        if (restored.pastedTexts) installPastedTexts(restored.pastedTexts, { merge: true });
+        syncPromptLayoutRows(restored.text);
+        setPromptDraftOverride({ id: Date.now(), value: restored.text });
+      }
+      if (showHint) {
+        showPromptHint(`restored ${restored.count} queued message${restored.count === 1 ? '' : 's'}`, 'info');
+      } else {
+        clearPromptHint();
+      }
+      return true;
+    };
     const restored = store.restoreQueued?.(currentText);
-    if (!restored || restored.count === 0) {
-      if (showHint) showPromptHint('No queued messages to restore.', 'info');
-      return false;
+    // A daemon-backed store answers this as an ASYNC remote call, so the
+    // payload (and with it the queued text) only exists a tick later. Reading
+    // `.count`/`.text` off the promise dropped the popped entries on the floor —
+    // the queued message vanished instead of returning to the draft. Decide the
+    // synchronous verdict from the published queue and fill the draft on settle.
+    if (restored && typeof restored.then === 'function') {
+      const queuedCount = Array.isArray(state?.queued) ? state.queued.length : 0;
+      void Promise.resolve(restored).then(apply).catch(() => {
+        if (showHint) showPromptHint('Could not restore queued messages.', 'error');
+      });
+      return queuedCount > 0;
     }
-    if (restoreDraft) {
-      if (restored.pastedImages) installPastedImages(restored.pastedImages, { merge: true });
-      if (restored.pastedTexts) installPastedTexts(restored.pastedTexts, { merge: true });
-      syncPromptLayoutRows(restored.text);
-      setPromptDraftOverride({ id: Date.now(), value: restored.text });
-    }
-    if (showHint) {
-      showPromptHint(`restored ${restored.count} queued message${restored.count === 1 ? '' : 's'}`, 'info');
-    } else {
-      clearPromptHint();
-    }
-    return true;
-  }, [store, promptDraft, showPromptHint, clearPromptHint, installPastedImages, syncPromptLayoutRows]);
+    return apply(restored);
+  }, [store, state?.queued, promptDraft, showPromptHint, clearPromptHint, installPastedImages, installPastedTexts, setPromptDraftOverride, syncPromptLayoutRows]);
 
   const recentPromptHistory = useMemo(() => {
     // The engine maintains this list incrementally (rebuilt only when a user

@@ -26,6 +26,8 @@ import { classifyToolCategory, formatToolSurface } from "../../../../src/runtime
 import { deriveToolCardModel, splitLineDeltaTokens } from "../../../../src/runtime/shared/tool-card-model.mjs";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { isInternalTranscriptDisplayText } from "../../../../src/runtime/shared/tool-execution-contract.mjs";
+// @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
+import { SPINNER_MODE_OVERRIDE_VERBS, SPINNER_VERBS, spinnerVerbFor } from "../../../../src/tui/spinner-verbs.mjs";
 import { stripInjectedDisplayText, stripSessionEnvelope } from "../shared/session-title.mjs";
 
 interface ToolCardModel {
@@ -257,17 +259,25 @@ export function ContextUsageIndicator({ snapshot, onOpen }: {
   </div>;
 }
 
-// Verb pools mirrored from src/tui/components/Spinner.jsx MODE_VERBS — keep
-// both lists in sync so TUI and GUI rotate through the same phrases.
-const LIVE_ACTIVITY_VERBS: Record<string, readonly string[]> = {
-  requesting: ["Requesting"],
-  compacting: ["Compacting conversation"],
-  "auto-clear": ["Auto-clearing conversation"],
-  thinking: ["Thinking", "Considering", "Organizing"],
-  "tool-use": ["Working", "Running tools", "Reviewing output"],
-  "tool-input": ["Working", "Running tools", "Reviewing output"],
-  responding: ["Writing", "Wrapping up"],
-};
+// Localized builds keep a translated pool; the English UI draws from the full
+// shared list in src/tui/spinner-verbs.mjs. t() returns the key verbatim when
+// a locale has no entry, which is exactly how English is detected here.
+//
+// Every entry is a member of the shared pool (Claude Code parity), narrowed to
+// verbs that stay DELIBERATELY vague: they fit reading, searching, patching or
+// waiting alike, so a phrase drawn at the top of a turn never contradicts what
+// the engine is actually doing. Concrete wording ("Computing", "Running
+// tools") was dropped for exactly that reason.
+const LOCALIZED_ACTIVITY_VERBS: string[] = [
+  "Thinking", "Pondering", "Musing", "Ruminating",
+  "Mulling", "Noodling", "Percolating", "Brewing",
+  "Simmering", "Marinating", "Fermenting", "Incubating",
+  "Coalescing", "Crafting", "Tinkering", "Cultivating",
+];
+
+function activityVerbPool(): string[] {
+  return t("Thinking") === "Thinking" ? (SPINNER_VERBS as string[]) : LOCALIZED_ACTIVITY_VERBS;
+}
 
 export function LiveActivity({
   snapshot,
@@ -282,11 +292,12 @@ export function LiveActivity({
   const optimisticActivity = !activity && optimisticStartedAt > 0;
   const [now, setNow] = useState(Date.now());
   const startedAt = Number(activity?.startedAt || (optimisticActivity ? optimisticStartedAt : 0));
-  // Stream events flip the activity mode (thinking→responding→tool-use)
-  // several times a second; a status line that rewrites itself that fast
-  // reads as flicker. Hold each verb for a minimum dwell before accepting
-  // the next one — appearance/disappearance stays immediate.
-  const heldVerb = useRef<{ text: string; at: number }>({ text: "", at: 0 });
+  // The optimistic band starts on the RENDERER clock, then the engine frame
+  // lands carrying the turn's own start — a few hundred ms apart, which was
+  // enough to redraw the phrase once at the top of every turn (user: 처음에
+  // 엉뚱한 게 한 번 뜬다). The FIRST anchor of a turn wins; only a genuinely
+  // new turn (a multi-second jump) re-anchors the pool.
+  const anchorRef = useRef(0);
   // Re-entering a session REMOUNTS this band. Replaying the enter animation
   // then slid the whole status row 4px on every visit (user: 들어갈 때마다
   // 애니메이션이 다시 나와서 튄다). Only work that actually began after this
@@ -299,34 +310,30 @@ export function LiveActivity({
     return () => window.clearInterval(timer);
   }, [activity, startedAt]);
   if (!activity && !optimisticActivity && !snapshot.thinking) {
-    heldVerb.current = { text: "", at: 0 };
+    anchorRef.current = 0;
     return null;
   }
   const mode = String(activity?.mode
     || (snapshot.thinking ? "thinking" : optimisticActivity ? "requesting" : "responding"));
   if (mode === "resuming") {
-    heldVerb.current = { text: "", at: 0 };
+    anchorRef.current = 0;
     return null;
   }
   const nowMs = Date.now();
-  // Mirror the TUI Spinner's MODE_VERBS pools: the verb rotates through its
-  // mode pool on a fixed 30s cadence (user decision), anchored to the turn
-  // start so TUI and GUI advance on the same clock. Other modes carry
-  // engine-authored status detail unchanged.
-  const pool = LIVE_ACTIVITY_VERBS[mode];
-  const slot = pool && pool.length > 1
-    ? Math.floor(Math.max(0, nowMs - (startedAt || nowMs)) / 30_000) % pool.length
-    : 0;
-  const rawVerb = pool ? t(pool[slot]) : String(activity?.verb || t("Working"));
-  // Engine-authored statuses (retry countdowns, compaction detail) must break
-  // through immediately; only the canonical stream verbs dwell.
-  const canonicalMode = Boolean(pool);
-  if (!heldVerb.current.text
-    || !canonicalMode
-    || (rawVerb !== heldVerb.current.text && nowMs - heldVerb.current.at >= 3_000)) {
-    heldVerb.current = { text: rawVerb, at: nowMs };
+  if (!anchorRef.current || (startedAt > 0 && Math.abs(startedAt - anchorRef.current) > 5_000)) {
+    anchorRef.current = startedAt || nowMs;
   }
-  const verb = heldVerb.current.text;
+  // ONE common pool (TUI parity, src/tui/spinner-verbs.mjs): the phrase holds
+  // for a 30s window anchored to the turn start, so the stream's
+  // thinking→tool-use→responding flips never rewrite the label. Only true
+  // state modes override it — compaction/auto-clear by name, reconnect with
+  // the engine's own retry countdown.
+  const overrideVerb = String(SPINNER_MODE_OVERRIDE_VERBS[mode] || "");
+  const rawVerb = overrideVerb
+    || (mode === "reconnecting"
+      ? String(activity?.verb || "Working")
+      : String(spinnerVerbFor(anchorRef.current, nowMs, activityVerbPool())));
+  const verb = t(rawVerb);
   const elapsed = startedAt ? formatElapsed(now - startedAt) : "";
   const outputTokens = Math.max(0, Number(activity?.outputTokens || activity?.tokens || 0));
   const activityText = [
@@ -340,7 +347,10 @@ export function LiveActivity({
     <div className="live-activity-status" role="status" aria-live="polite"
       data-animate={animateEnter ? "true" : undefined}>
       <span className="live-activity-icon" aria-hidden="true">
-        <ProgressSpinner className="live-activity-spinner" size={15} />
+        {/* The shimmering phrase IS the progress indicator here (user): a
+            rotating glyph beside it competed with the sweep. A quiet pulse
+            keeps a motion cue when the shimmer is disabled. */}
+        <span className="live-activity-pulse" />
       </span>
       <TextShimmer text={activityText} />
     </div>
@@ -379,7 +389,9 @@ export function CompletionStatus({
   const label = String(item.label || item.status || "");
   if (tone === "failed" || tone === "interrupted") {
     const elapsed = formatElapsed(item.elapsedMs);
-    const fallback = tone === "failed" ? "Failed" : elapsed ? `Cancelled after ${elapsed}` : "Cancelled";
+    const fallback = tone === "failed"
+      ? t("Failed")
+      : elapsed ? t("Cancelled after {{elapsed}}", { elapsed }) : t("Cancelled");
     const visible = tone === "failed" && !/^(done|complete|completed)$/i.test(label) ? label || fallback : fallback;
     return <div className={`turn-status ${tone}`} role="status"
       data-animate={animate ? "true" : undefined}>
@@ -396,9 +408,12 @@ export function CompletionStatus({
     </div>;
   }
   const elapsed = formatElapsed(item.elapsedMs);
+  // The engine authors the completion verb in English (TUI parity); the whole
+  // phrase is one key so each locale controls its own word order.
+  const doneVerb = String(item.verb || item.label || "Thought").trim() || "Thought";
   const completionLabel = item.kind === "turndone"
-    ? [String(item.verb || item.label || "Thought"), elapsed ? `for ${elapsed}` : ""].filter(Boolean).join(" ")
-    : label || "Complete";
+    ? (elapsed ? t("{{verb}} for {{elapsed}}", { verb: t(doneVerb), elapsed }) : t(doneVerb))
+    : label || t("Complete");
   return <div className="turn-status complete" role="status"
     data-animate={animate ? "true" : undefined}>
     <Check className="turn-status-icon" size={15} aria-hidden="true" />

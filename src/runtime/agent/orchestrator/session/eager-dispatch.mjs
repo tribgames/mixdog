@@ -100,6 +100,7 @@ export function createEagerDispatcher({
             if (_dedupEligible) _eagerInFlightSigs.set(_sig, call.id);
             entry.promise = (async () => {
                 try {
+                    await opts.beforeToolExecution?.();
                     return { ok: true, value: await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: getNextIteration(), deferShellCwdCommit: true }) };
                 } catch (error) {
                     return { ok: false, error };

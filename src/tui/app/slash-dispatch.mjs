@@ -101,8 +101,13 @@ export function createSlashDispatch({
         // /remote = force-claim, not toggle: always turns remote ON for THIS
         // session and steals the seat from any other session (which flips
         // itself OFF via the superseded notification). Turn off via /channels.
-        const enabled = store.claimRemote?.() === true;
-        store.pushNotice(enabled ? 'Remote mode ON — this session owns remote now.' : 'Remote mode unavailable.', 'info');
+        // Promise-shaped on a daemon-backed store: comparing the call result to
+        // `true` synchronously always reported "unavailable".
+        void Promise.resolve(store.claimRemote?.())
+          .then((enabled) => {
+            store.pushNotice(enabled === true ? 'Remote mode ON — this session owns remote now.' : 'Remote mode unavailable.', 'info');
+          })
+          .catch((e) => store.pushNotice(`Remote claim failed: ${e?.message || e}`, 'error'));
         return true;
       }
       case 'search':
@@ -143,13 +148,12 @@ export function createSlashDispatch({
           return true;
         }
         if (lower === 'status' || lower === 'current' || lower === 'show') {
-          try {
-            const status = store.getOutputStyle?.();
-            const label = status?.current?.label || status?.current?.id || status?.configured || 'Default';
-            store.pushNotice(`Output style: ${label}`, 'info');
-          } catch (e) {
-            store.pushNotice(`Couldn’t read output style: ${e?.message || e}`, 'error');
-          }
+          void Promise.resolve(store.getOutputStyle?.())
+            .then((status) => {
+              const label = status?.current?.label || status?.current?.id || status?.configured || 'Default';
+              store.pushNotice(`Output style: ${label}`, 'info');
+            })
+            .catch((e) => store.pushNotice(`Couldn’t read output style: ${e?.message || e}`, 'error'));
           return true;
         }
         void store.setOutputStyle?.(value)
@@ -287,25 +291,25 @@ export function createSlashDispatch({
           openAutoClearPicker();
           return true;
         }
-        try {
-          let next;
-          if (value === 'status') {
-            next = store.getAutoClear?.();
-          } else if (value === 'on' || value === 'enable' || value === 'enabled') {
-            next = store.setAutoClear?.({ enabled: true });
-          } else if (value === 'off' || value === 'disable' || value === 'disabled') {
-            next = store.setAutoClear?.({ enabled: false });
-          } else {
-            next = store.setAutoClear?.({ duration: value });
-          }
-          if (!next) {
-            store.pushNotice('autoclear unavailable', 'warn');
-            return true;
-          }
-          store.pushNotice(`autoclear ${next.enabled ? 'on' : 'off'} · idle ${formatDuration(next.idleMs)}`, 'info');
-        } catch (e) {
-          store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error');
-        }
+        // Promise-shaped on a daemon-backed store, so the verdict is reported
+        // when the call settles instead of read off the (always truthy) call.
+        void Promise.resolve(
+          value === 'status'
+            ? store.getAutoClear?.()
+            : value === 'on' || value === 'enable' || value === 'enabled'
+              ? store.setAutoClear?.({ enabled: true })
+              : value === 'off' || value === 'disable' || value === 'disabled'
+                ? store.setAutoClear?.({ enabled: false })
+                : store.setAutoClear?.({ duration: value }),
+        )
+          .then((next) => {
+            if (!next) {
+              store.pushNotice('autoclear unavailable', 'warn');
+              return;
+            }
+            store.pushNotice(`autoclear ${next.enabled ? 'on' : 'off'} · idle ${formatDuration(next.idleMs)}`, 'info');
+          })
+          .catch((e) => store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error'));
         return true;
       }
       case 'compact':

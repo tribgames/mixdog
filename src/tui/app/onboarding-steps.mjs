@@ -72,10 +72,14 @@ export function createOnboardingSteps({
         .catch(() => { /* Step 2 falls back to its own load on entry. */ });
     }
     if (!Array.isArray(onboardingRef.current.agents) || onboardingRef.current.agents.length === 0) {
-      try {
-        const roster = (store.listAgents?.() || []).map((a) => ({ id: a.id, label: a.label || a.id, description: a.description || '' }));
-        if (roster.length) onboardingRef.current.agents = roster;
-      } catch { /* Step 2 retries on entry. */ }
+      // Remote call on a daemon-backed store: resolve it instead of mapping the
+      // promise (which silently left the roster empty).
+      void Promise.resolve(store.listAgents?.())
+        .then((list) => {
+          const roster = (Array.isArray(list) ? list : []).map((a) => ({ id: a.id, label: a.label || a.id, description: a.description || '' }));
+          if (roster.length) onboardingRef.current.agents = roster;
+        })
+        .catch(() => { /* Step 2 retries on entry. */ });
     }
   };
 
@@ -314,7 +318,7 @@ export function createOnboardingSteps({
     // set an explicit override in agentRoutes.
     if (!Array.isArray(onboardingRef.current.agents) || onboardingRef.current.agents.length === 0) {
       try {
-        onboardingRef.current.agents = (store.listAgents?.() || []).map((a) => ({ id: a.id, label: a.label || a.id, description: a.description || '' }));
+        onboardingRef.current.agents = ((await store.listAgents?.()) || []).map((a) => ({ id: a.id, label: a.label || a.id, description: a.description || '' }));
       } catch (e) {
         onboardingRef.current.agents = [];
         store.pushNotice(`could not list agents: ${e?.message || e}`, 'warn');

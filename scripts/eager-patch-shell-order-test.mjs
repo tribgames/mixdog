@@ -16,14 +16,14 @@ const TEST_TOOLS = [
     { name: 'apply_patch', annotations: { readOnlyHint: false } },
 ];
 
-function makeDispatcher(started, executeToolFn = async () => 'ok') {
+function makeDispatcher(started, executeToolFn = async () => 'ok', opts = {}) {
     return createEagerDispatcher({
         tools: TEST_TOOLS,
         cwd: process.cwd(),
         sessionId: null,
         sessionRef: null,
         signal: undefined,
-        opts: {},
+        opts,
         crossTurnCalls: new Map(),
         getIterations: () => 1,
         getNextIteration: () => 1,
@@ -35,7 +35,11 @@ function makeDispatcher(started, executeToolFn = async () => 'ok') {
     });
 }
 
-async function runBatch(calls, executeToolFn, { sessionId = null, cwd = process.cwd() } = {}) {
+async function runBatch(calls, executeToolFn, {
+    sessionId = null,
+    cwd = process.cwd(),
+    opts = {},
+} = {}) {
     const results = [];
     const dispatcher = createEagerDispatcher({
         tools: TEST_TOOLS,
@@ -43,7 +47,7 @@ async function runBatch(calls, executeToolFn, { sessionId = null, cwd = process.
         sessionId,
         sessionRef: {},
         signal: undefined,
-        opts: {},
+        opts,
         crossTurnCalls: new Map(),
         getIterations: () => 1,
         getNextIteration: () => 1,
@@ -58,7 +62,7 @@ async function runBatch(calls, executeToolFn, { sessionId = null, cwd = process.
         sessionId,
         sessionRef: {},
         signal: undefined,
-        opts: {},
+        opts,
         iterations: 1,
         assistantTurnMsg: { role: 'assistant', content: '', toolCalls: calls },
         pending: dispatcher.pending,
@@ -103,6 +107,41 @@ test('streaming: declared read-only calls still eager-start', () => {
     const d = makeDispatcher(started);
     d.onToolCall({ id: 'c1', name: 'read', arguments: { path: 'a.txt' } });
     assert.equal(d.pending.has('c1'), true, 'read-only work should overlap provider streaming');
+});
+
+test('turn snapshot readiness gates eager and serial tool execution without blocking dispatch', async () => {
+    let releaseEager;
+    const eagerReady = new Promise((resolve) => { releaseEager = resolve; });
+    const eagerStarted = [];
+    const eager = makeDispatcher(
+        eagerStarted,
+        async () => 'ok',
+        { beforeToolExecution: () => eagerReady },
+    );
+    eager.onToolCall({ id: 's1', name: 'shell', arguments: { command: 'probe' } });
+    assert.equal(eager.pending.has('s1'), true, 'provider streaming still dispatches the eager entry');
+    await Promise.resolve();
+    assert.deepEqual(eagerStarted, [], 'the eager side effect must wait for the baseline');
+    releaseEager();
+    await eager.pending.get('s1').promise;
+    assert.deepEqual(eagerStarted, ['shell']);
+
+    let releaseSerial;
+    const serialReady = new Promise((resolve) => { releaseSerial = resolve; });
+    const serialStarted = [];
+    const serialRun = runBatch(
+        [{ id: 'p1', name: 'apply_patch', arguments: { patch: 'x' } }],
+        async (name) => {
+            serialStarted.push(name);
+            return 'ok';
+        },
+        { opts: { beforeToolExecution: () => serialReady } },
+    );
+    await Promise.resolve();
+    assert.deepEqual(serialStarted, [], 'the serial mutation must wait for the baseline');
+    releaseSerial();
+    await serialRun;
+    assert.deepEqual(serialStarted, ['apply_patch']);
 });
 
 test('batch run: shell after apply_patch is left to the serial body', () => {

@@ -21,7 +21,7 @@ import React, { useRef } from 'react';
 import { Box, Text } from 'ink';
 import { useSharedTick } from '../hooks/useSharedTick.mjs';
 import { theme } from '../theme.mjs';
-import { SPINNER_FRAMES } from '../spinner-verbs.mjs';
+import { SPINNER_FRAMES, SPINNER_MODE_OVERRIDE_VERBS, spinnerVerbFor } from '../spinner-verbs.mjs';
 import { DOWN_ARROW, UP_ARROW } from '../figures.mjs';
 import { formatDuration } from '../time-format.mjs';
 
@@ -41,29 +41,13 @@ const THINKING_DELAY_MS = 3000;
 
 // One-way shimmer. The tail runs past the final character before restarting.
 const GLIMMER_SPEED_MS = { requesting: 70, reconnecting: 70, compacting: 120, 'auto-clear': 120, resuming: 120, 'tool-use': 120, responding: 120, thinking: 120, 'tool-input': 120 };
-const GLIMMER_TRAIL = 4;
+// A wider trail turns the highlight into a wipe travelling across the phrase
+// instead of a single bright character hopping along it.
+const GLIMMER_TRAIL = 6;
 const THINKING_GLIMMER_SPEED_MS = 120;
 const THINKING_GLIMMER_TRAIL = 4;
-// Fixed 30s cadence (user decision): the verb rotates deterministically every
-// 30 seconds instead of the earlier randomized 10–20s / 65% coin flip that
-// often never visibly fired.
-const VERB_ROTATE_MIN_MS = 30000;
-const VERB_ROTATE_SPREAD_MS = 0;
-const VERB_CHANGE_PROBABILITY = 1;
-
-const MODE_VERBS = {
-  requesting: ['Requesting'],
-  compacting: ['Compacting conversation'],
-  'auto-clear': ['Auto-clearing conversation'],
-  resuming: ['Resuming conversation'],
-  // Conservative phrasing (user decision): each pool only rotates through
-  // synonyms of what the mode ACTUALLY means — never a concrete action the
-  // engine may not be doing (no "Checking files" during a web search).
-  thinking: ['Thinking', 'Considering', 'Organizing'],
-  'tool-use': ['Working', 'Running tools', 'Reviewing output'],
-  'tool-input': ['Working', 'Running tools', 'Reviewing output'],
-  responding: ['Writing', 'Wrapping up'],
-};
+// The phrase itself comes from the shared pool in spinner-verbs.mjs — see
+// spinnerVerbFor(). Mode only drives shimmer speed, token glyph and stall tint.
 
 function interpolateColor(a, b, t) {
   return {
@@ -141,23 +125,6 @@ function formatNumber(n) {
 const STATUS_SEP = ' · ';
 const SEP_WIDTH = STATUS_SEP.length;
 
-function stableModeVerb(mode, fallback) {
-  const phrases = MODE_VERBS[mode] || [fallback || 'Working'];
-  return phrases[0] || fallback || 'Working';
-}
-
-function nextVerbCheckAt(now) {
-  return now + VERB_ROTATE_MIN_MS + Math.floor(Math.random() * VERB_ROTATE_SPREAD_MS);
-}
-
-function chooseNextVerb(mode, fallback, current) {
-  const phrases = MODE_VERBS[mode] || [fallback || 'Working'];
-  if (phrases.length <= 1 || Math.random() > VERB_CHANGE_PROBABILITY) return current || phrases[0];
-  const candidates = phrases.filter((phrase) => phrase && phrase !== current);
-  if (!candidates.length) return current || phrases[0];
-  return candidates[Math.floor(Math.random() * candidates.length)];
-}
-
 // Token-direction glyph by mode:
 // up while uploading the request, down while receiving a response, and no
 // glyph at all for non-streaming modes (compacting/resuming/auto-clear) where
@@ -187,9 +154,6 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   const lastGrowRef = useRef(now);
   const lastTokensRef = useRef(0);
   const displayedOutputRef = useRef(0);
-  const displayVerbRef = useRef('');
-  const displayVerbModeRef = useRef('');
-  const nextVerbCheckRef = useRef(0);
   // Stall smoothing refs (exponential fade)
   const stallSmoothRef = useRef(0);
   const lastStallTickRef = useRef(0);
@@ -235,20 +199,11 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
       ))
     : theme.spinnerGlyph;
 
-  // --- Verb shimmer (traveling highlight) ---
-  if (!displayVerbRef.current || displayVerbModeRef.current !== mode) {
-    displayVerbRef.current = stableModeVerb(mode, verb);
-    // Mode flips (thinking→tool-use→responding…) must NOT re-arm the timer:
-    // frequent flips otherwise reset the countdown forever and the rotation
-    // never fires. The cadence holds from the first mount of the turn.
-    if (!nextVerbCheckRef.current) nextVerbCheckRef.current = nextVerbCheckAt(now);
-  }
-  displayVerbModeRef.current = mode;
-  if (now >= nextVerbCheckRef.current) {
-    displayVerbRef.current = chooseNextVerb(mode, verb, displayVerbRef.current);
-    nextVerbCheckRef.current = nextVerbCheckAt(now);
-  }
-  const displayVerb = displayVerbRef.current;
+  // --- Verb (one common pool, one phrase per 30s window) ---
+  // Anchored to `startedAt`, so a mode flip cannot rewrite the label and the
+  // desktop shows the same word at the same second.
+  const displayVerb = SPINNER_MODE_OVERRIDE_VERBS[mode]
+    || (mode === 'reconnecting' ? (String(verb || '').trim() || 'Reconnecting') : spinnerVerbFor(startedAt, now));
   const messageText = mode === 'reconnecting' ? displayVerb : `${displayVerb}…`;
   const messageLen = messageText.length;
 

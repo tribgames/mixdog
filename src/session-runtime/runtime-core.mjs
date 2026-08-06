@@ -226,7 +226,10 @@ import { attachSessionHooks } from './session-hooks.mjs';
 import { createQuickModelRows } from './quick-model-rows.mjs';
 import { createWarmupSchedulers } from './warmup-schedulers.mjs';
 import { createPrewarmSchedulers } from './prewarm.mjs';
-import { getTurnReviewDiff as getTurnSnapshotReviewDiff } from '../runtime/shared/turn-snapshot.mjs';
+import {
+  getTurnReviewDiff as getTurnSnapshotReviewDiff,
+  revertTurnReviewFile as revertTurnSnapshotReviewFile,
+} from '../runtime/shared/turn-snapshot.mjs';
 import { createMcpGlue } from './mcp-glue.mjs';
 import { createCwdPlugins } from './cwd-plugins.mjs';
 import { createSettingsApi } from './settings-api.mjs';
@@ -1620,6 +1623,7 @@ export async function createMixdogSessionRuntime({
     awaitInitialMcpConnect,
     mcpTurnGraceMs,
     awaitRoutePreparation: () => routePreparation.wait(),
+    getReservedSessionId: () => rt.reservedSessionId,
     sessionTitles,
   });
 
@@ -1628,9 +1632,13 @@ export async function createMixdogSessionRuntime({
     ...channelConfigApi,
     ...providerAuthApi,
     ...mediaApi,
-    // Turn-scoped attributed review: child apply_patch diffs for this Lead turn.
-    // Lead patches are read from its transcript by the renderer.
+    // Turn-scoped worktree review plus exact child apply_patch attribution.
     getTurnReviewDiff: () => getTurnSnapshotReviewDiff(rt.currentCwd, rt.session?.id),
+    revertTurnReviewFile: (file) => revertTurnSnapshotReviewFile(
+      rt.currentCwd,
+      rt.session?.id,
+      file,
+    ),
     get id() {
       return rt.session?.id || rt.reservedSessionId || null;
     },

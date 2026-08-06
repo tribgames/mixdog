@@ -12,11 +12,64 @@
 // the same transport is exercised by the real daemon entry AND by the smoke
 // harness with a stub engine factory (no provider, no model download).
 import http from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
-import { readBody, sendJson, sendError } from '../runtime/memory/lib/http-wire.mjs';
+import { sendJson, sendError } from '../runtime/memory/lib/http-wire.mjs';
 import { ENGINE_DAEMON_PROTOCOL, engineRuntimeVersion } from './engine-daemon-protocol.mjs';
+
+// A loopback front door still buffers whatever a client sends before it can be
+// parsed, so the body has an explicit ceiling instead of the client's memory.
+const MAX_BODY_BYTES = Math.max(1, Number(process.env.MIXDOG_ENGINE_DAEMON_MAX_BODY_MB) || 64)
+  * 1024 * 1024;
+
+function readLimitedBody(req) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = (message, statusCode) => {
+      if (settled) return;
+      settled = true;
+      const error = new Error(message);
+      error.statusCode = statusCode;
+      try { req.destroy(); } catch {}
+      reject(error);
+    };
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+      fail('request body too large', 413);
+      return;
+    }
+    const chunks = [];
+    let size = 0;
+    req.on('data', (chunk) => {
+      if (settled) return;
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) { fail('request body too large', 413); return; }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      const raw = Buffer.concat(chunks).toString('utf8').trim();
+      if (!raw) { resolve({}); return; }
+      try { resolve(JSON.parse(raw)); }
+      catch (error) {
+        const err = new Error(`invalid JSON body: ${error.message}`);
+        err.statusCode = 400;
+        reject(err);
+      }
+    });
+    req.on('error', (error) => { if (!settled) { settled = true; reject(error); } });
+  });
+}
+
+/** Identity of a call's PAYLOAD. A retry repeats it exactly; a caller-supplied
+ *  submission id that happens to be reused carries a different one. */
+function callSignature(name, args) {
+  try {
+    return createHash('sha1').update(`${name}\u0000${JSON.stringify(args ?? {})}`).digest('hex');
+  } catch { return null; }
+}
 
 function parsePid(value) {
   const n = Number(value);
@@ -56,6 +109,17 @@ export function createEngineDaemonTransport({
   // second engine mutation (submit/abort are not idempotent).
   const callCache = new Map();
   const CALL_CACHE_TTL_MS = 60_000;
+  // Bound the dedup table: a call that never settles would otherwise pin its
+  // entry for the daemon's whole life.
+  const CALL_CACHE_MAX = 512;
+
+  function pruneCallCache() {
+    while (callCache.size > CALL_CACHE_MAX) {
+      const oldest = callCache.keys().next();
+      if (oldest.done) return;
+      callCache.delete(oldest.value);
+    }
+  }
 
   function nowMs() { return Date.now(); }
 
@@ -129,6 +193,8 @@ export function createEngineDaemonTransport({
       cwd: cwd || null,
       lifecycle: ownsLifecycle,
       sse: null,
+      // True while the socket asked us to stop writing (see writeFrame).
+      paused: false,
       // Frames are latest-wins per key while a client has no stream: a
       // reconnecting viewer wants the CURRENT snapshot, never a backlog.
       pending: new Map(),
@@ -146,13 +212,33 @@ export function createEngineDaemonTransport({
     return token;
   }
 
-  function writeFrame(client, frame, json) {
-    if (!client.sse) {
-      client.pending.set(frame.key || `${frame.type}:${frame.sessionId || frame.desktopId || ''}`, json);
-      return;
+  /** Drain the latest-wins backlog into a stream that reported room again. */
+  function flushPending(client) {
+    while (client.sse && !client.paused && client.pending.size > 0) {
+      const [key, json] = client.pending.entries().next().value;
+      client.pending.delete(key);
+      try {
+        if (client.sse.write(`data: ${json}\n\n`) === false) client.paused = true;
+      } catch {
+        client.sse = null;
+        client.pending.set(key, json);
+        return;
+      }
     }
-    try { client.sse.write(`data: ${json}\n\n`); }
-    catch { client.sse = null; }
+  }
+
+  function writeFrame(client, frame, json) {
+    const key = frame.key || `${frame.type}:${frame.sessionId || frame.desktopId || ''}`;
+    // A stalled reader must never make the daemon buffer a whole stream in
+    // Node's socket queue: while the socket is full the backlog collapses to
+    // one frame per key, exactly like a client with no stream at all.
+    if (!client.sse || client.paused) { client.pending.set(key, json); return; }
+    try {
+      if (client.sse.write(`data: ${json}\n\n`) === false) client.paused = true;
+    } catch {
+      client.sse = null;
+      client.pending.set(key, json);
+    }
   }
 
   /** Session and desktop state reaches only subscribed client tokens. Calls
@@ -181,18 +267,21 @@ export function createEngineDaemonTransport({
     });
     res.write(': attached\n\n');
     c.sse = res;
+    c.paused = false;
     c.lastSeen = nowMs();
-    for (const json of c.pending.values()) {
-      try { res.write(`data: ${json}\n\n`); } catch {}
-    }
-    c.pending.clear();
+    res.on('drain', () => {
+      if (c.sse !== res) return;
+      c.paused = false;
+      flushPending(c);
+    });
+    flushPending(c);
     const ka = setInterval(() => {
       try { res.write(': ka\n\n'); } catch {}
     }, 15_000);
     ka.unref?.();
     const cleanup = () => {
       clearInterval(ka);
-      if (c.sse === res) c.sse = null;
+      if (c.sse === res) { c.sse = null; c.paused = false; }
       // Stream loss alone never drops the client: a desktop reload or a TUI
       // resize can bounce the stream while the engine keeps running.
       maybeArmGrace('sse closed');
@@ -225,7 +314,7 @@ export function createEngineDaemonTransport({
       if (token !== serverToken) { sendError(res, 'forbidden', 403); return; }
 
       if (req.method === 'POST' && pathName === '/client/register') {
-        const body = await readBody(req);
+        const body = await readLimitedBody(req);
         const clientToken = registerClient({
           leadPid: body.leadPid,
           cwd: body.cwd,
@@ -235,7 +324,7 @@ export function createEngineDaemonTransport({
         return;
       }
       if (req.method === 'POST' && pathName === '/client/deregister') {
-        const body = await readBody(req);
+        const body = await readLimitedBody(req);
         if (body.token) dropClient(String(body.token), 'deregister');
         sendJson(res, { ok: true });
         return;
@@ -246,16 +335,21 @@ export function createEngineDaemonTransport({
         return; // stream stays open
       }
       if (req.method === 'POST' && pathName === '/call') {
-        const body = await readBody(req);
+        const body = await readLimitedBody(req);
         const clientToken = body.token ? String(body.token) : null;
         const c = clientToken ? clients.get(clientToken) : null;
         if (!c) { sendError(res, 'unknown client token', 404); return; }
         c.lastSeen = nowMs();
         const name = String(body.name || '');
         const callId = body.callId ? String(body.callId) : null;
+        // A retry is the SAME payload under the same id. A different payload
+        // that reuses an id (submission ids are caller-supplied) is a NEW call
+        // and must never be answered out of another call's result.
+        const signature = callId ? callSignature(name, body.args) : null;
+        const cached = callId ? callCache.get(callId) : null;
         let dispatch;
-        if (callId && callCache.has(callId)) {
-          dispatch = callCache.get(callId).promise;
+        if (cached && (!cached.signature || !signature || cached.signature === signature)) {
+          dispatch = cached.promise;
         } else {
           dispatch = Promise.resolve().then(() => handleCall(name, body.args || {}, {
             clientToken,
@@ -263,7 +357,8 @@ export function createEngineDaemonTransport({
             cwd: c.cwd ?? null,
           }));
           if (callId) {
-            callCache.set(callId, { promise: dispatch, at: nowMs() });
+            callCache.set(callId, { promise: dispatch, at: nowMs(), signature });
+            pruneCallCache();
             // TTL starts at SETTLE: a long-running submit must not expire its
             // dedup entry mid-flight and let a retry run the turn twice.
             dispatch.then(() => {}, () => {}).then(() => {

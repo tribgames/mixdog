@@ -18,7 +18,14 @@ import { scheduleRenderFrameAck, TUI_RENDER_FPS } from './engine/render-timing.m
 import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
 import { finishProcessLifecycle } from '../runtime/shared/process-lifecycle.mjs';
 import { rgbSgr } from '../ui/ansi.mjs';
-import { emitTerminalBackground, loadThemeSettingFromConfig, theme } from './theme.mjs';
+import {
+  emitTerminalBackground,
+  getThemeSetting,
+  listThemes,
+  loadThemeSettingFromConfig,
+  setThemeSetting,
+  theme,
+} from './theme.mjs';
 import { POP_KITTY, DISABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
 import { displayWidth } from './display-width.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
@@ -512,6 +519,23 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     try {
       touchProjectSelected(store.getState?.()?.cwd || process.cwd());
     } catch { /* best-effort recency */ }
+    // The palette lives in THIS process: on a daemon-backed store the engine's
+    // theme methods would run inside the daemon, so the picker saw a promise
+    // instead of the list and a switch repainted nothing here. Bind the three
+    // theme methods locally (same pattern as the ink selection helpers below)
+    // and mirror the switch to the engine with persist:false, purely so its
+    // themeEpoch bump re-renders this tree.
+    if (store.isRemoteEngine === true) {
+      const remoteSetTheme = store.setTheme;
+      store.listThemes = () => listThemes();
+      store.getTheme = () => getThemeSetting();
+      store.setTheme = (id, options = {}) => {
+        const applied = setThemeSetting(id, options);
+        void Promise.resolve(remoteSetTheme?.(id, { ...options, persist: false }))
+          .catch(() => { /* the local palette is already applied */ });
+        return applied;
+      };
+    }
     bootProfile('store:ready', { ms: (performance.now() - startedAt).toFixed(1) });
   } catch (error) {
     splash.stop();

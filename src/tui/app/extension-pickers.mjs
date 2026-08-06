@@ -29,10 +29,12 @@ export function createExtensionPickers({
   // opened outside this factory replacing the MCP one.
   let mcpEpoch = 0;
   let mcpActive = false;
-  const mcpStatus = () => {
+  // Async: these status reads are remote calls on a daemon-backed store, so the
+  // sync versions handed every picker an unresolved promise (empty lists).
+  const mcpStatus = async () => {
     let status;
     try {
-      status = store.mcpStatus?.() || { servers: [] };
+      status = (await store.mcpStatus?.()) || { servers: [] };
     } catch (e) {
       store.pushNotice(`mcp status failed: ${e?.message || e}`, 'error');
       return null;
@@ -40,8 +42,8 @@ export function createExtensionPickers({
     return { ...status, servers: status.servers || [] };
   };
 
-  const openMcpServersPicker = (options = {}) => {
-    const status = mcpStatus();
+  const openMcpServersPicker = async (options = {}) => {
+    const status = await mcpStatus();
     if (!status) return;
     const servers = status.servers || [];
     const optimistic = options?.optimistic || null;
@@ -122,10 +124,10 @@ export function createExtensionPickers({
     openMcpServersPicker();
   };
 
-  const skillsStatus = () => {
+  const skillsStatus = async () => {
     let status;
     try {
-      status = store.skillsStatus?.() || { skills: [] };
+      status = (await store.skillsStatus?.()) || { skills: [] };
     } catch (e) {
       store.pushNotice(`skills status failed: ${e?.message || e}`, 'error');
       return null;
@@ -133,8 +135,8 @@ export function createExtensionPickers({
     return { ...status, skills: status.skills || [] };
   };
 
-  const openProjectSkillsPicker = () => {
-    const status = skillsStatus();
+  const openProjectSkillsPicker = async () => {
+    const status = await skillsStatus();
     if (!status) return;
     const skills = status.skills || [];
     const items = [];
@@ -175,14 +177,14 @@ export function createExtensionPickers({
     });
   };
 
-  const openSkillsPicker = (options = {}) => {
+  const openSkillsPicker = async (options = {}) => {
     // Reuse the skills list already fetched by the opening call when a toggle
     // reopens the picker: avoids a store.skillsStatus() round-trip per keypress.
     let skills;
     if (Array.isArray(options.skills)) {
       skills = options.skills;
     } else {
-      const status = skillsStatus();
+      const status = await skillsStatus();
       if (!status) return;
       skills = status.skills || [];
     }
@@ -298,10 +300,10 @@ export function createExtensionPickers({
     });
   };
 
-  const pluginStatus = () => {
+  const pluginStatus = async () => {
     let status;
     try {
-      status = store.pluginsStatus?.() || { plugins: [] };
+      status = (await store.pluginsStatus?.()) || { plugins: [] };
     } catch (e) {
       store.pushNotice(`plugins status failed: ${e?.message || e}`, 'error');
       return null;
@@ -406,8 +408,8 @@ export function createExtensionPickers({
     });
   };
 
-  const openInstalledPluginsPicker = () => {
-    const status = pluginStatus();
+  const openInstalledPluginsPicker = async () => {
+    const status = await pluginStatus();
     if (!status) return;
     const plugins = status.plugins || [];
     const items = [];
@@ -448,8 +450,8 @@ export function createExtensionPickers({
     });
   };
 
-  const openPluginsPicker = () => {
-    const status = pluginStatus();
+  const openPluginsPicker = async () => {
+    const status = await pluginStatus();
     if (!status) return;
     setProviderPrompt(null);
     setChannelPrompt(null);
@@ -486,10 +488,10 @@ export function createExtensionPickers({
     });
   };
 
-  const openHooksPicker = () => {
+  const openHooksPicker = async () => {
     let status;
     try {
-      status = store.hooksStatus?.() || { events: [], recent: [] };
+      status = (await store.hooksStatus?.()) || { events: [], recent: [] };
     } catch (e) {
       store.pushNotice(`hooks status failed: ${e?.message || e}`, 'error');
       return;

@@ -501,6 +501,7 @@ export const DESKTOP_CAPABILITIES = [
   'hooksStatus',
   'contextStatus',
   'getTurnReviewDiff',
+  'revertTurnReviewFile',
   'addHookRule',
   'setHookRuleEnabled',
   'deleteHookRule',

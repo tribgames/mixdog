@@ -672,6 +672,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     },
                     onToolResult: _trackToolResult,
                     onToolApproval: typeof askOpts?.onToolApproval === 'function' ? askOpts.onToolApproval : undefined,
+                    beforeToolExecution: typeof askOpts?.beforeToolExecution === 'function'
+                        ? askOpts.beforeToolExecution
+                        : undefined,
                     onCompactEvent: (event) => {
                         _scheduleTurnCheckpoint(true);
                         try { askOpts?.onCompactEvent?.(event); } catch {}
