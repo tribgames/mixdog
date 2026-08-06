@@ -334,7 +334,7 @@ function renderAtRadius(selected, sources, radius, _budget, notice) {
     )).join('\n');
     const sourceComplete = blocks.every((block) => block.sourceComplete);
     // Header is a format cue only — internal radius/char-budget numbers are
-    // harness noise (neither Claude Code nor Codex surface theirs).
+    // harness noise and stay out of the model-visible text.
     const text = `[Raw source spans; apply_patch context may be copied verbatim]\n${body}${notice}`;
     return { text, sourceComplete, blockCount: blocks.length };
 }

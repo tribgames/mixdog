@@ -15,8 +15,8 @@ export const API_IMAGE_MAX_BASE64_SIZE = 5 * 1024 * 1024; // 5 MB
 export const IMAGE_TARGET_RAW_SIZE = (API_IMAGE_MAX_BASE64_SIZE * 3) / 4; // 3.75 MB
 const IMAGE_MAX_WIDTH = 2000;
 const IMAGE_MAX_HEIGHT = 2000;
-// Token budget for a single image. est tokens = base64.length * 0.125 (CC's
-// per-image heuristic). Default aligns to the 5MB base64 API ceiling so the
+// Token budget for a single image. est tokens = base64.length * 0.125 (the
+// common per-image heuristic). Default aligns to the 5MB base64 API ceiling so the
 // dimension/raw-size resize governs the common case and the token gate only
 // fires on pathologically dense images.
 const DEFAULT_IMAGE_MAX_TOKENS = Math.ceil(API_IMAGE_MAX_BASE64_SIZE * 0.125);

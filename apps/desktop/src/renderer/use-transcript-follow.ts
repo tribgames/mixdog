@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
 /**
- * React port of OpenCode's createAutoScroll + session scroll-gesture grammar.
+ * Transcript auto-scroll + session scroll-gesture grammar.
  *
  * The hook owns userScrolled, the 250ms gesture window, auto-write suppression,
- * the 10px return band, and the content ResizeObserver. TranscriptList mirrors
- * OpenCode MessageTimeline and owns virtual row geometry, append following, and
- * measured-size anchoring. No pane-width or viewport observer adapter sits
- * between those two owners.
+ * the 10px return band, and the content ResizeObserver. TranscriptList owns
+ * virtual row geometry, append following, and measured-size anchoring. No
+ * pane-width or viewport observer adapter sits between those two owners.
  */
 const GESTURE_WINDOW_MS = 250;
 const BOTTOM_THRESHOLD_PX = 10;
@@ -329,7 +328,7 @@ export function useTranscriptFollow({
     const nested = event.target instanceof Element
       ? event.target.closest("[data-scrollable]")
       : null;
-    // OpenCode createAutoScroll.handleWheel: an upward wheel is explicit intent
+    // Wheel rule: an upward wheel is explicit intent
     // and releases immediately, however small it is. Re-attaching is the side
     // that carries the slack (reattachBand).
     if (delta < 0 && (!nested || nested === root)) stop();
@@ -405,7 +404,7 @@ export function useTranscriptFollow({
     const target = content.current;
     const element = viewport.current;
     if (!target || !element) return undefined;
-    // OpenCode createAutoScroll dynamic mode: while following, the virtual
+    // Dynamic anchoring: while following, the virtual
     // timeline owns anchoring (overflow-anchor:none). Once the reader has left
     // the tail, browser auto-anchoring helps keep the reading position still
     // across rewrap/content mutations.
@@ -435,8 +434,8 @@ export function useTranscriptFollow({
       scrollToBottom(false);
     });
     observer.observe(target);
-    // OpenCode's prompt dock never shrinks its ScrollView, so createAutoScroll
-    // only watches content. Mixdog's composer/bottom-panel stack DOES shrink
+    // A floating prompt dock never shrinks its scroll view, so watching the
+    // content alone would do. Mixdog's composer/bottom-panel stack DOES shrink
     // this viewport (a dock drag changes clientHeight with no content resize),
     // so the same callback watches the viewport too — the bottom re-pins in
     // the same pre-paint ResizeObserver transaction.

@@ -443,8 +443,8 @@ function _locatorBudgetFooter(toolName, args, keptLines, capBytes) {
     const target = targets[targetIndex] || targets[0] || '';
     const remaining = targets.length - targetIndex - 1;
     const capKb = Math.round((Number(capBytes) > 0 ? Number(capBytes) : LOCATOR_OUTPUT_MAX_BYTES) / 1024);
-    // Factual continuation only — no retry imperatives (Claude Code/Codex
-    // markers state what was cut, never instruct another call).
+    // Factual continuation only — no retry imperatives: the marker states
+    // what was cut, never instructs another call.
     const nextTarget = remaining > 0 ? `; ${remaining} target(s) not shown, next=${JSON.stringify(targets[targetIndex + 1])}` : '';
     if (toolName === 'find') {
         return `... [find output capped at ${capKb} KB; remaining matches for query=${JSON.stringify(target)} omitted${nextTarget}]`;

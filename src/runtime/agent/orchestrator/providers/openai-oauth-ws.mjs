@@ -88,7 +88,7 @@ globalThis.__mixdogOpenaiWsRuntimeLoaded = true;
 // by connect/handshake and pre-output stream failures.
 const MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT = MIDSTREAM_RETRY_POLICY.ws.transientCloseRetries;
 const MIDSTREAM_DEFAULT_RETRY_LIMIT = MIDSTREAM_RETRY_POLICY.ws.defaultRetries;
-// Codex core/src/util.rs uses a 200ms base, factor 2, and symmetric ±10%
+// The reference client uses a 200ms base, factor 2, and symmetric ±10%
 // jitter for each of its five stream retries.
 const MIDSTREAM_BACKOFF_MS = Object.freeze([200, 400, 800, 1600, 3200]);
 const CODEX_RETRY_JITTER_RATIO = 0.1;
@@ -773,7 +773,7 @@ export async function sendViaWebSocket({
         let result;
         const streamTimeouts = null;
         try {
-            // codex prewarm gate (client.rs:1686-1688): only when the session
+            // Prewarm gate: only when the session
             // has no prior request state. A reused pooled socket with a live
             // chain must go straight to the real request.
             if (warmupBody && typeof warmupBody === 'object' && !completedWarmup

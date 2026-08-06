@@ -1602,7 +1602,7 @@ setInternalToolsProvider({
     // their own verification (build/test); the plain readonly preset (public
     // explore role) still omits them.
     // No terminal-action tool is registered: a no-tool assistant message ends
-    // the turn (Codex semantics), so the schema carries capabilities only.
+    // the turn, so the schema carries capabilities only.
     const expectedReadTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'shell', 'task', 'explore', 'search', 'web_fetch', 'Skill'];
     const expectedPublicReadTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'explore', 'search', 'web_fetch', 'Skill'];
     const expectedWriteTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'shell', 'task', 'explore', 'search', 'web_fetch', 'Skill'];

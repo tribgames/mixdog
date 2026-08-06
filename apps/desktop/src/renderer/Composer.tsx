@@ -1248,8 +1248,8 @@ export const Composer = memo(function Composer({
           modelDisabled={commandBusy || transitioning}
           // Effort/Fast stay live during a turn: the running turn already
           // captured its own effort/fast at turn start, so a change here lands
-          // on the NEXT turn instead of being locked out (claude-code/codex
-          // parity). Only session-command churn still disables the controls.
+          // on the NEXT turn instead of being locked out. Only session-command
+          // churn still disables the controls.
           tuningDisabled={commandBusy || transitioning}
           invokeResult={invokeResult} applySnapshot={applySnapshot}
           onOpenSettings={onOpenSettings} onDraftSelection={onDraftModelSelection} />

@@ -369,8 +369,8 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   let labelOut;
   let summaryOut;
   // Shell headers stay label-only ("Ran 1 command") on every surface —
-  // opencode parity and the desktop card contract: the raw command line never
-  // rides inline in the header; it stays in the expanded detail body.
+  // the desktop card contract: the raw command line never rides inline in
+  // the header; it stays in the expanded detail body.
   const headerSummaryText = isShellSurface ? '' : summaryText;
   if (stringWidth(labelText) >= avail) {
     labelOut = truncateToWidth(labelText, avail);

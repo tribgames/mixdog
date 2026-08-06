@@ -129,6 +129,11 @@ function decodeNativeFailures(hexPayload) {
   return out;
 }
 
+// Error code for a request refused/failed because the server child is gone.
+// Nothing was written when it is thrown from the pre-flight, so one respawned
+// retry is safe.
+export const NATIVE_PATCH_TRANSPORT_DEAD = 'ENATIVEPATCHDEAD';
+
 class NativePatchServer {
   constructor(binPath) {
     this.binPath = binPath;
@@ -141,6 +146,7 @@ class NativePatchServer {
     this.lines = [];
     this.waiters = [];
     this.exited = false;
+    this.transportError = null;
     this.child.stderr.setEncoding('utf8');
     this.child.stderr.on('data', (chunk) => { this.stderr += chunk; });
     this.rl = createInterface({ input: this.child.stdout });
@@ -149,12 +155,41 @@ class NativePatchServer {
       if (waiter) waiter.resolve(line);
       else this.lines.push(line);
     });
+    // A child that died mid-request turns every pending `stdin.write()` into an
+    // UNHANDLED 'error' event (EPIPE) that takes the whole host process down —
+    // a release validate job was lost exactly that way. Absorb it here: mark
+    // the transport dead and reject the waiters so callers see an ordinary
+    // rejection (and respawn) instead of a crash.
+    this.child.stdin.on('error', (err) => { this.failTransport(err); });
     this.child.on('exit', (code, signal) => {
       this.exited = true;
       const err = new Error(`native patch server exited code=${code} signal=${signal} stderr=${this.stderr}`);
       for (const waiter of this.waiters.splice(0)) waiter.reject(err);
       try { this.rl.close(); } catch {}
     });
+  }
+
+  // Idempotent death record: the stdin error and the child exit usually both
+  // fire for the same death, and only the first one owns the reason.
+  failTransport(cause) {
+    this.exited = true;
+    if (!this.transportError) {
+      const err = cause instanceof Error ? cause : new Error(String(cause || 'native patch transport closed'));
+      err.code = NATIVE_PATCH_TRANSPORT_DEAD;
+      this.transportError = err;
+    }
+    for (const waiter of this.waiters.splice(0)) waiter.reject(this.transportError);
+    try { this.rl.close(); } catch {}
+  }
+
+  // Pre-flight for every request: refuse BEFORE a single byte is written, so
+  // the caller may respawn and retry without any risk of double-applying.
+  assertAlive(action) {
+    if (!this.exited && !this.transportError) return;
+    const reason = this.transportError?.message || this.stderr || 'exited';
+    const err = new Error(`native patch server is not running (${action}): ${reason}`);
+    err.code = NATIVE_PATCH_TRANSPORT_DEAD;
+    throw err;
   }
 
   abort(signal) {
@@ -188,6 +223,7 @@ class NativePatchServer {
 
   async ping() {
     this.ref();
+    this.assertAlive('ping');
     const linePromise = this.nextLine();
     this.child.stdin.write('PING\n');
     const line = await linePromise;
@@ -198,6 +234,7 @@ class NativePatchServer {
 
   async apply(basePath, patchText, { fuzz = 2, rejectPartial = true, dryRun = false, signal = null } = {}) {
     this.ref();
+    this.assertAlive('apply');
     if (signal?.aborted) {
       const err = new Error(signal.reason?.message || signal.reason || 'native patch aborted');
       err.name = 'AbortError';
@@ -294,6 +331,7 @@ class NativePatchServer {
   // matched tier.
   async edit(fullPath, oldBuf, newBuf, { replaceAll = false, dryRun = false, signal = null } = {}) {
     this.ref();
+    this.assertAlive('edit');
     if (signal?.aborted) {
       const err = new Error(signal.reason?.message || signal.reason || 'native edit aborted');
       err.name = 'AbortError';
@@ -384,8 +422,25 @@ function getNativeEditServer() {
 // NativePatchServer transport but runs on a DEDICATED instance so edit and
 // patch requests never interleave their stdin framing on one stdout stream.
 export async function runServerEdit({ fullPath, oldBuf, newBuf, replaceAll = false, dryRun = false, signal = null }) {
-  const server = getNativeEditServer();
-  return server.edit(fullPath, oldBuf, newBuf, { replaceAll, dryRun, signal });
+  try {
+    return await getNativeEditServer().edit(fullPath, oldBuf, newBuf, { replaceAll, dryRun, signal });
+  } catch (err) {
+    if (err?.code !== NATIVE_PATCH_TRANSPORT_DEAD) throw err;
+    // The dead instance was refused before any byte went out; the getter
+    // respawns because the previous one is marked exited.
+    return getNativeEditServer().edit(fullPath, oldBuf, newBuf, { replaceAll, dryRun, signal });
+  }
+}
+
+// Same one-shot respawn for APPLY: an idle-watchdog exit or an external kill
+// between requests must cost a respawn, not the request.
+export async function runServerApply(basePath, patchText, options = {}) {
+  try {
+    return await getNativePatchServer().apply(basePath, patchText, options);
+  } catch (err) {
+    if (err?.code !== NATIVE_PATCH_TRANSPORT_DEAD) throw err;
+    return getNativePatchServer().apply(basePath, patchText, options);
+  }
 }
 
 export function scheduleNativePatchPrewarm() {

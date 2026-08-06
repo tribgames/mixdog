@@ -1383,6 +1383,35 @@ function buildExecutiveSummary(report) {
   return lines;
 }
 
+// Per-turn preflight stages (kind: 'turn_timing'), i.e. everything the harness
+// owns between submit and the provider request: queue wait, route preparation,
+// MCP turn grace, and the rest of preflight. Separates OUR latency from the
+// provider's headers/stream time already covered by the stage breakdown.
+function buildPreflightDiagnostics(rows) {
+  const list = (rows || []).filter((r) => r.kind === 'turn_timing');
+  const pctl = (arr, q) => (arr.length ? arr[Math.min(arr.length - 1, Math.floor(arr.length * q))] : null);
+  const stat = (key) => {
+    const values = list.map((r) => num(r, key)).filter((n) => n != null && n >= 0).sort((a, b) => a - b);
+    return {
+      n: values.length,
+      p50: pctl(values, 0.5),
+      p90: pctl(values, 0.9),
+      max: values.length ? values[values.length - 1] : null,
+    };
+  };
+  return {
+    turns: list.length,
+    runtime_ttft_ms: stat('ttft_ms'),
+    end_to_end_ttft_ms: stat('end_to_end_ttft_ms'),
+    queue_ms: stat('queue_ms'),
+    route_ms: stat('route_ms'),
+    preflight_ms: stat('preflight_ms'),
+    mcp_ms: stat('mcp_ms'),
+    provider_ms: stat('provider_ms'),
+    statuses: countBy(list, (r) => String(field(r, 'status') || 'unknown')),
+  };
+}
+
 function buildReport(rows, selectedIds, failureRows = []) {
   const selected = rows.filter((r) => selectedIds.includes(sessionId(r)));
   const selectedFailures = failureRows.filter((r) => selectedIds.includes(sessionId(r)));
@@ -1390,6 +1419,7 @@ function buildReport(rows, selectedIds, failureRows = []) {
   const selectedCache = buildCacheDiagnostics(selected);
   const tools = buildToolDiagnostics(selected, selectedFailures);
   const stages = buildTurnDiagnostics(selected, routeGroups);
+  const preflight = buildPreflightDiagnostics(selected);
   const tokens = buildTokenDiagnostics(stages.turns);
   const compact = buildCompactDiagnostics(rows, selectedIds);
   // Compact workers are normally sibling sessions rather than direct children,
@@ -1432,6 +1462,7 @@ function buildReport(rows, selectedIds, failureRows = []) {
     cache,
     tools,
     stages,
+    preflight,
     tokens,
     compact,
     issues,
@@ -1573,6 +1604,20 @@ function renderText(report) {
     if (report.compact?.sessions?.length || report.compact?.recent_meta?.length) {
       pushCompactDiagnostics();
     }
+    lines.push('');
+  }
+
+  if (!focused && !opts.toolsOnly && !opts.issuesOnly && report.preflight?.turns) {
+    const p = report.preflight;
+    const row = (label, s) => `${label}: p50=${fmtMs(s.p50)} p90=${fmtMs(s.p90)} max=${fmtMs(s.max)} (n=${s.n})`;
+    lines.push('Turn preflight (harness-owned, submit → provider request)');
+    lines.push(row('runtime ttft', p.runtime_ttft_ms));
+    lines.push(row('end-to-end ttft', p.end_to_end_ttft_ms));
+    lines.push(`${row('queue', p.queue_ms)}`);
+    lines.push(`${row('route', p.route_ms)}`);
+    lines.push(`${row('preflight', p.preflight_ms)}`);
+    lines.push(`${row('mcp grace', p.mcp_ms)}`);
+    lines.push(`status: ${p.statuses.map(([k, v]) => `${k}×${v}`).join(', ') || '-'}`);
     lines.push('');
   }
 

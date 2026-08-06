@@ -216,7 +216,7 @@ function providerPressureTokens(sessionRef, usage) {
 /**
  * Align an authoritative provider usage snapshot to the message prefix it
  * covers. Later pressure checks add estimates only for messages after this
- * baseline, matching Claude Code's actual-usage-plus-growth accounting.
+ * baseline: actual-usage-plus-growth accounting.
  */
 export function recordProviderContextBaseline(sessionRef, messages, usage, {
     boundary = 'complete',

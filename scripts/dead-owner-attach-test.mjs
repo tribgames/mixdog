@@ -86,7 +86,7 @@ test('stale signals never attach', () => {
   assert.equal(attaches(id), false);
 });
 
-test('foreign-drain mtime gate is per session, not per process', () => {
+test('foreign-drain mtime gate is per session, not per process', async () => {
   const spoolPath = join(dataDir, 'session-pending-messages.json');
   const now = Date.now();
   const a = 'sess_1_2_3_spoola';
@@ -99,8 +99,8 @@ test('foreign-drain mtime gate is per session, not per process', () => {
     },
     sessionTouchedAt: { [a]: now, [b]: now },
   }));
-  assert.deepEqual(drainForeignUserInjections(a), [{ text: 'for A', id: 'fa' }]);
-  assert.deepEqual(drainForeignUserInjections(b), [{ text: 'for B', id: 'fb' }], 'sibling session must not lose its wake-up');
+  assert.deepEqual(await drainForeignUserInjections(a), [{ text: 'for A', id: 'fa' }]);
+  assert.deepEqual(await drainForeignUserInjections(b), [{ text: 'for B', id: 'fb' }], 'sibling session must not lose its wake-up');
   const store = JSON.parse(readFileSync(spoolPath, 'utf8'));
   assert.equal(store.sessions[a], undefined);
   assert.equal(store.sessions[b], undefined);

@@ -51,8 +51,8 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   requestedSource.current = text;
   deferAsyncPromotionRef.current = deferAsyncPromotion;
   const exact = rendered?.text === parseText ? rendered : null;
-  // OpenCode renders `html.latest ?? html()`: while a newer parse is in
-  // flight, the last COMPLETED parse stays on screen. Our parse runs in a
+  // While a newer parse is in flight, the last COMPLETED parse stays on
+  // screen. Our parse runs in a
   // worker, so the equivalent guarantee is "the parsed source is a prefix of
   // what is on screen now" — append-only streaming keeps that true and a
   // truncation/replacement drops it back to source.
@@ -88,7 +88,7 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
       // and only styled itself once output stopped (user: 문장이 완성되기
       // 전까지 마크다운 포맷이 적용 안 된다). A result whose source is still a
       // prefix of the current text is promoted instead, exactly like
-      // OpenCode's `html.latest`.
+      // the last completed parse.
       // A streamed fenced script keeps its current source-shaped DOM for this
       // mount. The worker still warms the AST cache, but independently arriving
       // chunk results may not rewrite one visible response row after output has
@@ -102,8 +102,8 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   }, [deferAsyncPromotion, parse, parseText, persistentCodeSource]);
   useEffect(() => () => queue.current?.dispose(), []);
 
-  // OpenCode parses the live tail on every paced tick (PacedMarkdown), so
-  // styled markdown appears WHILE the model is typing. Our worker is the pace:
+  // The live tail is parsed on a paced tick, so styled markdown appears WHILE
+  // the model is typing. Our worker is the pace:
   // the newest completed parse stays mounted (a few tokens behind) instead of
   // dropping the block back to source-shaped text, at settlement too. Before
   // the first result, with a geometry-locked fenced script, or for a tail too
@@ -129,8 +129,7 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
 }) {
   // Stable chunks promote exactly (immutable text -> exact AST, whose source
   // never changes). The live tail renders the latest COMPLETED parse and
-  // trails the raw text by worker latency, mirroring OpenCode's paced
-  // streaming markdown.
+  // trails the raw text by worker latency (paced streaming markdown).
   // `parseText` is the healed form of `text` for the live tail: the parser
   // sees closed markers while the source fallback still shows exactly what
   // the model has emitted.

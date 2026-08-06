@@ -24,7 +24,7 @@ import {
   countHunkChanges,
 } from './paths.mjs';
 import {
-  getNativePatchServer,
+  runServerApply,
   scheduleNativePatchIdleClose,
   nativePatchTraceEnabled,
   patchTraceEnabled,
@@ -99,7 +99,7 @@ export async function dispatchNativePatch({ entries, basePath, nativePatchStr, f
   const nativeStart = performance.now();
   let stats;
   try {
-    stats = await getNativePatchServer().apply(basePath, nativePatchStr, { fuzz, rejectPartial, dryRun, signal });
+    stats = await runServerApply(basePath, nativePatchStr, { fuzz, rejectPartial, dryRun, signal });
   } catch (err) {
     scheduleNativePatchIdleClose();
     const msg = err?.message || String(err);

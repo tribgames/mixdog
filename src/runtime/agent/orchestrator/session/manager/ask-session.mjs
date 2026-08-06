@@ -679,7 +679,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         _scheduleTurnCheckpoint(true);
                         try { askOpts?.onCompactEvent?.(event); } catch {}
                     },
-                    // Claude Code parity: mid-chain queued prompt/notification
+                    // Mid-chain queued prompt/notification
                     // drain is owned by agentLoop at provider-continuation
                     // boundaries (after a tool batch, before the next send).
                     // The post-loop _pendingTail drain below still handles
@@ -695,9 +695,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         // Manager/pending-messages entries carry no
                         // mode/priority/slash metadata, so they stay OUT of the
                         // mid-chain (post-tool-batch) drain — that would bypass
-                        // Claude Code's queued_command filters. At the TERMINAL
-                        // boundary they are exactly Codex `has_pending_input`
-                        // (turn.rs:304-318): an `agent type=send` queued while
+                        // the queued-command filters. At the TERMINAL boundary
+                        // they are exactly pending input: an `agent type=send`
+                        // queued while
                         // the terminal sample was in flight must be folded into
                         // THIS turn before any stop hook runs, instead of losing
                         // its slot to a synthetic continuation prompt. The mutex

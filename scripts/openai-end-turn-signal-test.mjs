@@ -1,9 +1,9 @@
 // Regression: wire-level `end_turn` passthrough on OpenAI Responses terminal
 // frames, for both openai-oauth transports.
 //
-// codex-rs keeps `end_turn` structurally from the wire
-// (codex-api/src/sse/responses.rs ResponseCompleted.end_turn: Option<bool>,
-// consumed in core/src/session/turn.rs:2299). Our adapters previously dropped
+// The Responses wire carries `end_turn` structurally on the completed frame
+// (an optional boolean, "false ⇒ needs follow-up"). Our adapters previously
+// dropped
 // it, so a server that explicitly said "this turn is not finished" looked
 // identical to a normal completion. These tests pin:
 //   - response.completed / response.done(status completed|absent) carrying

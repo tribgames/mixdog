@@ -307,7 +307,7 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
       // Name + description only: the AGENT.md body is the worker's own system
       // prompt and rides in the worker session at spawn time — repeating it in
       // the Lead prompt only bloats context. Lead picks agents by description
-      // (Claude Code whenToUse pattern); the workflow body carries the rules.
+      // (a when-to-use signal); the workflow body carries the rules.
       lines.push(agentBlocks
         .map((agent) => `- ${agent.name} (${agent.id})${agent.description ? `: ${agent.description}` : ''}`)
         .join('\n'));

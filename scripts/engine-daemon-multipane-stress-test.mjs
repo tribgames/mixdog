@@ -13,6 +13,7 @@ const ACK_P95_LIMIT_MS = 1_500;
 const FIRST_TOKEN_P95_LIMIT_MS = 1_500;
 const COMPLETION_LIMIT_MS = 5_000;
 const EVENT_LOOP_P95_LIMIT_MS = 100;
+const CONTROL_P95_LIMIT_MS = 100;
 const RSS_GROWTH_LIMIT_MB = 128;
 
 const ROOT = mkdtempSync(join(tmpdir(), 'mixdog-engine-multipane-stress-'));
@@ -24,7 +25,7 @@ const { createEngineDaemonTransport } =
   await import('../src/standalone/engine-daemon-transport.mjs');
 const { createEngineDaemonService } =
   await import('../src/standalone/engine-daemon-service.mjs');
-const { attachEngineDaemon } =
+const { attachEngineDaemon, probeEngineDaemonHealth } =
   await import('../src/standalone/engine-daemon-client.mjs');
 
 function percentile(values, fraction) {
@@ -142,6 +143,8 @@ test('64 panes submit and stream concurrently without starvation or cross-sessio
     Array.from({ length: PANE_COUNT }, (_, index) => `stress_pane_${index + 1}`),
   );
   let waveStartedAt = 0;
+  const controlLatencies = [];
+  let probeRunning = true;
   let peakRss = process.memoryUsage().rss;
   const baselineRss = peakRss;
   const eventLoop = monitorEventLoopDelay({ resolution: 10 });
@@ -183,6 +186,19 @@ test('64 panes submit and stream concurrently without starvation or cross-sessio
       }
     },
   });
+  const controlProbe = (async () => {
+    while (probeRunning) {
+      const started = performance.now();
+      const health = await probeEngineDaemonHealth({
+        port,
+        token,
+        timeoutMs: 500,
+      });
+      assert.ok(health, 'control-plane health probe timed out under session load');
+      controlLatencies.push(performance.now() - started);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+  })();
 
   try {
     const sessionIds = [...expected];
@@ -209,6 +225,8 @@ test('64 panes submit and stream concurrently without starvation or cross-sessio
       () => completedAt.size === PANE_COUNT ? performance.now() : 0,
       `${PANE_COUNT} pane streams complete`,
     );
+    probeRunning = false;
+    await controlProbe;
 
     for (const sessionId of sessionIds) {
       const snapshot = states.get(sessionId);
@@ -229,12 +247,14 @@ test('64 panes submit and stream concurrently without starvation or cross-sessio
     );
     const completionMs = allCompletedAt - waveStartedAt;
     const eventLoopP95Ms = eventLoop.percentile(95) / 1e6;
+    const controlP95Ms = percentile(controlLatencies, 0.95);
     const rssGrowthMb = Math.max(0, peakRss - baselineRss) / (1024 * 1024);
 
     t.diagnostic(
       `panes=${PANE_COUNT} ackP95=${ackP95Ms.toFixed(1)}ms `
       + `firstTokenP95=${firstTokenP95Ms.toFixed(1)}ms complete=${completionMs.toFixed(1)}ms `
-      + `eventLoopP95=${eventLoopP95Ms.toFixed(1)}ms rssGrowth=${rssGrowthMb.toFixed(1)}MB`,
+      + `eventLoopP95=${eventLoopP95Ms.toFixed(1)}ms controlP95=${controlP95Ms.toFixed(1)}ms `
+      + `rssGrowth=${rssGrowthMb.toFixed(1)}MB`,
     );
     assert.ok(ackP95Ms < ACK_P95_LIMIT_MS,
       `submit ACK p95 ${ackP95Ms.toFixed(1)}ms exceeded ${ACK_P95_LIMIT_MS}ms`);
@@ -244,9 +264,13 @@ test('64 panes submit and stream concurrently without starvation or cross-sessio
       `all streams took ${completionMs.toFixed(1)}ms`);
     assert.ok(eventLoopP95Ms < EVENT_LOOP_P95_LIMIT_MS,
       `event-loop p95 ${eventLoopP95Ms.toFixed(1)}ms exceeded ${EVENT_LOOP_P95_LIMIT_MS}ms`);
+    assert.ok(controlP95Ms < CONTROL_P95_LIMIT_MS,
+      `control-plane p95 ${controlP95Ms.toFixed(1)}ms exceeded ${CONTROL_P95_LIMIT_MS}ms`);
     assert.ok(rssGrowthMb < RSS_GROWTH_LIMIT_MB,
       `RSS grew ${rssGrowthMb.toFixed(1)}MB, limit ${RSS_GROWTH_LIMIT_MB}MB`);
   } finally {
+    probeRunning = false;
+    await controlProbe.catch(() => {});
     clearInterval(rssTimer);
     eventLoop.disable();
     await client.close('stress test end');

@@ -743,8 +743,8 @@ export const UtilityDock = memo(function UtilityDock({
   }, [committedTabs, mountedTabs]);
   const paneMounted = (pane: UtilityDockTab) => contentReady && mountedTabs.has(pane);
   const paneActive = (pane: UtilityDockTab) => open && presentedTab === pane;
-  // Files tab: session-changed files marked with a dot (opencode-style A/M
-  // markers reduced to one changed indicator).
+  // Files tab: session-changed files marked with a dot (A/M markers reduced
+  // to one changed indicator).
   const changedFileNames = useMemo(() => contentReady ? new Set(
     sessionFileChanges((snapshot.items as TranscriptItem[]) || EMPTY_TRANSCRIPT_ITEMS)
       .map((file) => file.name.replace(/^[ab]\//, "").replace(/\\/g, "/")),

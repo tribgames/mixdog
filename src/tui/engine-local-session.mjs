@@ -860,20 +860,31 @@ export async function createLocalEngineSession({
   //    surface to real ownership.
   let heldPresenceId = '';
   let viewerStoreMtime = 0;
+  // The spool drain waits for its cross-process lock OFF the event loop now,
+  // so a watch event and the 3s tick can overlap: one drain at a time.
+  let remoteInjectionDrain = null;
   const drainRemoteInjections = () => {
-    const injected = runtime.takeRemoteInjections?.() || [];
-    if (injected.length === 0) return;
-    for (const item of injected) {
-      // New shape: { text, id }. Legacy drains still yield bare strings.
-      if (item && typeof item === 'object' && (item.text != null || item.content != null)) {
-        const text = item.text ?? item.content;
-        const id = typeof item.id === 'string' && item.id.trim() ? item.id.trim() : undefined;
-        bag.enqueue(text, id ? { id } : {});
-      } else {
-        bag.enqueue(item);
+    if (remoteInjectionDrain) return remoteInjectionDrain;
+    const run = (async () => {
+      const injected = (await runtime.takeRemoteInjections?.()) || [];
+      if (injected.length === 0) return;
+      for (const item of injected) {
+        // New shape: { text, id }. Legacy drains still yield bare strings.
+        if (item && typeof item === 'object' && (item.text != null || item.content != null)) {
+          const text = item.text ?? item.content;
+          const id = typeof item.id === 'string' && item.id.trim() ? item.id.trim() : undefined;
+          bag.enqueue(text, id ? { id } : {});
+        } else {
+          bag.enqueue(item);
+        }
       }
-    }
-    void bag.drain();
+      void bag.drain();
+    })().catch(() => { /* the watch/tick pair retries */ });
+    const tracked = run.finally(() => {
+      if (remoteInjectionDrain === tracked) remoteInjectionDrain = null;
+    });
+    remoteInjectionDrain = tracked;
+    return tracked;
   };
   const liveShare = createLiveShare({
     ownerSessionId: () => (flags.disposed || flags.pendingSessionReset || state.sessionRemoteAttached
@@ -1033,7 +1044,7 @@ export async function createLocalEngineSession({
           spoolDebounce = null;
           if (flags.disposed || flags.pendingSessionReset) return;
           if (state.busy || state.commandBusy || state.sessionRemoteAttached) return;
-          try { drainRemoteInjections(); } catch { /* tick fallback */ }
+          try { void drainRemoteInjections(); } catch { /* tick fallback */ }
         }, 120);
         spoolDebounce.unref?.();
       });
@@ -1088,7 +1099,7 @@ export async function createLocalEngineSession({
         return;
       }
       viewerStoreMtime = 0;
-      drainRemoteInjections();
+      void drainRemoteInjections();
     } catch { /* best-effort */ }
   }, 3000);
   remoteAttachTimer.unref?.();

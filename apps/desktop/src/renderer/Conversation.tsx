@@ -220,15 +220,15 @@ export function Conversation({
   warmPaintHandoff?: boolean;
   /** The rich Markdown chunk this session's rows need has not resolved yet.
    *  The timeline stays UNMOUNTED until it has (the surface cover holds the
-   *  frame): OpenCode mounts its timeline once, with the real rows, so the
-   *  entry offset is resolved exactly once. */
+   *  frame): the timeline mounts once, with the real rows, so the entry
+   *  offset is resolved exactly once. */
   transcriptPending?: boolean;
 }) {
   const conversation = useRef<HTMLElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const scrollToEndRef = useRef<(behavior?: ScrollBehavior) => void>(() => {});
-  // React port of OpenCode's createAutoScroll + message-gesture split.
+  // Auto-scroll + message-gesture split.
   const {
     following,
     showJump,
@@ -380,8 +380,8 @@ export function Conversation({
   const settledUsers = useMemo(() => settledUserRowCount(settledItems), [settledItems]);
   const settledUsersRef = useRef(settledUsers);
   settledUsersRef.current = settledUsers;
-  // Cross-surface queue parity (Claude Code: ONE queue owns every prompt
-  // waiting behind an active turn, whatever typed it). The moment the engine
+  // Cross-surface queue parity: ONE queue owns every prompt waiting behind an
+  // active turn, whatever typed it. The moment the engine
   // publishes this submission in `queued`, the composer's reserved-message
   // list owns its display — so an app-typed prompt stacks in engine order
   // beside terminal-typed ones and drains on the next turn loop, instead of
@@ -542,7 +542,7 @@ export function Conversation({
     resumeFollow();
     scrollToEndRef.current();
   }, [resumeFollow]);
-  // OpenCode resumes at the latest row on a session route change. Measurement
+  // A session route change resumes at the latest row. Measurement
   // snapshots survive re-entry, but a stale per-session scroll offset does not.
   const armedFollowSessionKey = useRef("");
   useLayoutEffect(() => {
@@ -555,7 +555,7 @@ export function Conversation({
   }, [armFollow, transcriptSessionKey]);
   const shouldAnchorTranscriptBottom = following
     || armedFollowSessionKey.current !== transcriptSessionKey;
-  // Submit mirrors OpenCode resumeScroll: re-arm auto-scroll, then ask the
+  // Submit resumes scrolling: re-arm auto-scroll, then ask the
   // virtual timeline—not the DOM observer—to resolve the final row.
   const resumeFollowOnSubmitRef = useRef(resumeFollow);
   resumeFollowOnSubmitRef.current = resumeFollow;

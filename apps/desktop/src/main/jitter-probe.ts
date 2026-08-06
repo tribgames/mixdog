@@ -637,7 +637,7 @@ export async function runJitterProbe({
       const narrowWidth = 489;
       // A real drag delivers a new width almost every frame: step in small
       // increments so the rewrap path is exercised the way a pointer does it.
-      // 1920 -> 489 crosses OpenCode's 2xl/md frame boundaries and the narrow
+      // 1920 -> 489 crosses the 2xl/md frame boundaries and the narrow
       // working-pane range from the user report. The physical sash pass below
       // continues down to the 324px pane floor.
       for (let width = bounds.width; width >= narrowWidth; width -= 12) {
@@ -673,7 +673,7 @@ export async function runJitterProbe({
     })()`);
     // Create a real row split through the product shortcut, then drive its
     // physical resize handle with Electron input events. This crosses the
-    // OpenCode md frame/inset boundary in both directions without changing the
+    // md frame/inset boundary in both directions without changing the
     // window, so window media queries cannot hide pane-owned width defects.
     // The split needs enough physical range for one pane to cross both 768px
     // and the 800px centered-frame cap while preserving the sibling's 320px
@@ -871,7 +871,7 @@ export async function runJitterProbe({
       const writeStacks = Array.isArray(report.writeStacks)
         ? report.writeStacks.map(String)
         : [];
-      // OpenCode's content observer may resolve the discrete 768px row-inset
+      // The content observer may resolve the discrete 768px row-inset
       // reflow with ONE pin per crossing, and the down-then-up window sweep
       // crosses that breakpoint twice. The pin lands in the same pre-paint
       // ResizeObserver transaction, so no frame ever shows the gap. A physical

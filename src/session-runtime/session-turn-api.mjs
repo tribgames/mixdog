@@ -10,6 +10,7 @@ import {
   refreshInitialDeferredMcpSurface,
 } from './tool-catalog.mjs';
 import { getMcpTools } from '../runtime/agent/orchestrator/mcp/client.mjs';
+import { traceTurnTiming } from '../runtime/agent/orchestrator/agent-trace.mjs';
 import { beginTurnSnapshot, completeTurnSnapshot } from '../runtime/shared/turn-snapshot.mjs';
 
 export function splitToolStatusCounts(rows) {
@@ -135,19 +136,25 @@ export function createSessionTurnApi(deps) {
         if (turnTimingEmitted) return;
         turnTimingEmitted = true;
         const now = performance.now();
+        const row = {
+          status,
+          sessionId: String(getSession()?.id || turnSnapshotSessionId || ''),
+          requestId: String(options.id || ''),
+          ttftMs: now - timingStartedAt,
+          endToEndTtftMs: hasSubmittedAt ? Math.max(0, Date.now() - submittedAt) : null,
+          queueMs: hasSubmittedAt ? Math.max(0, timingStartedAtEpoch - submittedAt) : null,
+          routeMs: routeWaitMs,
+          preflightMs: (providerStartedAt || now) - timingStartedAt,
+          mcpMs: mcpWaitMs,
+          providerMs: providerStartedAt ? now - providerStartedAt : null,
+        };
         try {
-          process.emit('mixdog:turn-timing', {
-            status,
-            sessionId: String(getSession()?.id || turnSnapshotSessionId || ''),
-            requestId: String(options.id || ''),
-            ttftMs: now - timingStartedAt,
-            endToEndTtftMs: hasSubmittedAt ? Math.max(0, Date.now() - submittedAt) : null,
-            queueMs: hasSubmittedAt ? Math.max(0, timingStartedAtEpoch - submittedAt) : null,
-            routeMs: routeWaitMs,
-            preflightMs: (providerStartedAt || now) - timingStartedAt,
-            mcpMs: mcpWaitMs,
-            providerMs: providerStartedAt ? now - providerStartedAt : null,
-          });
+          process.emit('mixdog:turn-timing', row);
+        } catch { /* timing telemetry must never affect a turn */ }
+        // Durable sink: the process event only reaches an in-process listener
+        // (the daemon log). The trace row is what session-bench aggregates.
+        try {
+          traceTurnTiming(row);
         } catch { /* timing telemetry must never affect a turn */ }
       };
       const awaitMcpGrace = async () => {
@@ -438,11 +445,11 @@ export function createSessionTurnApi(deps) {
     // Owner-side injection intake: foreign user messages persisted into the
     // shared spool by an attached surface. Engine pollers call this while
     // idle and run each returned text through the normal submit queue.
-    takeRemoteInjections() {
+    async takeRemoteInjections() {
       const session = getSession();
       if (!session?.id || session.remoteAttached) return [];
       if (getActiveTurnCount() > 0) return [];
-      try { return mgr.drainForeignUserInjections?.(session.id) || []; } catch { return []; }
+      try { return (await mgr.drainForeignUserInjections?.(session.id)) || []; } catch { return []; }
     },
     // Absolute path of the shared pending spool file. Live-share owners
     // fs.watch it for instant cross-surface input pickup; empty string when

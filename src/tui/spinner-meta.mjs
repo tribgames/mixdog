@@ -34,7 +34,7 @@ function effortSuffix(effort) {
 
 /**
  * Live thinking reads as `thinking`; a finished thinking span reads as
- * `thought for Ns` until the next one starts (Claude Code parity). Sub-second
+ * `thought for Ns` until the next one starts. Sub-second
  * spans are noise and stay hidden.
  */
 export function spinnerThinkingLabel({ thinking = false, thinkingSince = 0, thinkingMs = 0, effort = '' } = {}) {
@@ -69,8 +69,7 @@ export function buildSpinnerMeta({
 }
 
 /**
- * Reduced motion: one switch for the whole process. Mirrors Claude Code's
- * `reducedMotion` and opencode's `animations_enabled` — animation is a nicety,
+ * Reduced motion: one switch for the whole process — animation is a nicety,
  * and low-power/SSH/recording sessions must be able to drop it without losing
  * the timer or the token readout.
  */

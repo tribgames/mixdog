@@ -340,7 +340,7 @@ try {
       const diag = summary.coldEntryDiag || {};
       assert.equal(diag.coldVisible, true, "cold history session must be on screen.");
       assert.ok(Number(diag.toolCards) > 0, "cold history session must render tool cards.");
-      // OpenCode likewise keeps source-shaped fallback blocks visible while
+      // Source-shaped fallback blocks stay visible while
       // async Markdown work is pending. They may appear during cold loading,
       // but must be fully promoted after the entry settles.
       assert.equal(Number(diag.settledMarkdownPlainFallbacks), 0,

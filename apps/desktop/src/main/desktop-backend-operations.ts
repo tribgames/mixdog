@@ -175,8 +175,35 @@ export function createDesktopBackendOperations({
   const unsubscribeStatus = languageServers.subscribeStatus((value) => {
     emit({ name: 'lsp-status', value });
   });
+  // PTY output is bursty: node-pty emits one chunk per read, and each chunk
+  // used to become its own daemon frame, SSE write, and renderer IPC message.
+  // Joining the chunks that land inside one coalescing window collapses that
+  // traffic without holding the first byte longer than a frame.
+  const TERMINAL_COALESCE_MS = 8;
+  const terminalChunks = new Map<string, string[]>();
+  const terminalTimers = new Map<string, NodeJS.Timeout>();
+  const dropTerminalBuffer = (id: string): void => {
+    const timer = terminalTimers.get(id);
+    if (timer) clearTimeout(timer);
+    terminalTimers.delete(id);
+    terminalChunks.delete(id);
+  };
+  const flushTerminal = (id: string): void => {
+    const chunks = terminalChunks.get(id);
+    dropTerminalBuffer(id);
+    if (!chunks || chunks.length === 0) return;
+    emit({ name: 'terminal-data', value: { id, data: chunks.join('') } });
+  };
   const unsubscribeTerminals = terminals.subscribe((value) => {
-    emit({ name: 'terminal-data', value });
+    const id = String(value?.id || '');
+    const data = String(value?.data || '');
+    if (!id || !data) return;
+    const chunks = terminalChunks.get(id);
+    if (chunks) { chunks.push(data); return; }
+    terminalChunks.set(id, [data]);
+    const timer = setTimeout(() => flushTerminal(id), TERMINAL_COALESCE_MS);
+    timer.unref();
+    terminalTimers.set(id, timer);
   });
 
   async function invoke(name: string, args: unknown[] = []): Promise<unknown> {
@@ -276,7 +303,9 @@ export function createDesktopBackendOperations({
       return null;
     }
     if (name === 'termDispose') {
-      terminals.dispose(String(args[0] || ''));
+      const terminalId = String(args[0] || '');
+      dropTerminalBuffer(terminalId);
+      terminals.dispose(terminalId);
       return null;
     }
     if (name === 'folderWatch') {
@@ -322,6 +351,9 @@ export function createDesktopBackendOperations({
     unsubscribeDiagnostics();
     unsubscribeStatus();
     unsubscribeTerminals();
+    for (const timer of terminalTimers.values()) clearTimeout(timer);
+    terminalTimers.clear();
+    terminalChunks.clear();
     for (const state of folderWatchers.values()) {
       if (state.timer) clearTimeout(state.timer);
       try { state.watcher.close(); } catch {}

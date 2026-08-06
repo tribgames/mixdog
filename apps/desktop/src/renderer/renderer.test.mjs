@@ -1565,14 +1565,14 @@ test('streaming markdown repartitions without hiding visible source text', async
     'streamed text must never collapse to a fixed-height loading indicator');
 });
 
-// OpenCode heals its live tail (remend) before parsing so styling appears while
+// The live tail is healed before parsing so styling appears while
 // the model types. Without healing the raw "**"/"`" markers stayed on screen
 // until the closing token arrived (user: 마크다운 포맷이 안 먹어서 이상하게 나온다).
 test('the live markdown tail heals unterminated inline markers before parsing', async () => {
   assert.equal(healStreamingMarkdownTail('계획 **통합 백그라운드'), '계획 **통합 백그라운드**');
   assert.equal(healStreamingMarkdownTail('run `npm ru'), 'run `npm ru`');
   assert.equal(healStreamingMarkdownTail('~~취소'), '~~취소~~');
-  // OpenCode parity (markdown-stream.test.ts): single-marker emphasis and an
+  // Single-marker emphasis and an
   // unfinished link are healed too, so "*강조" and "[docs](https://exa" never
   // sit on screen as raw source while the model types.
   assert.equal(healStreamingMarkdownTail('그리고 *강조'), '그리고 *강조*');
@@ -1895,7 +1895,7 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
   assert.match(renderer,
     /rememberTranscriptRowNamespace\(transcriptSessionKey, transcriptIdentity\.current\);/,
     're-entering a promoted session must still match its cached geometry');
-  // 2. Outer follow is the React port of OpenCode createAutoScroll.
+  // 2. Outer follow is the auto-scroll hook.
   assert.match(follow, /new ResizeObserver/);
   assert.match(follow, /element\.scrollTop = element\.scrollHeight/);
   assert.match(follow, /BOTTOM_THRESHOLD_PX = 10/);

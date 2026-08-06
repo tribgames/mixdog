@@ -328,6 +328,20 @@ export function _withLoadedProviderCtorForTest(name, Ctor, fn) {
         else signatures.delete(name);
     }
 }
+// Companion seam for registry walks that iterate live INSTANCES (what
+// initProviders leaves behind) rather than constructors — the startup catalog
+// refresh is one. Restores the prior entry even when the callback throws.
+export function _withRegisteredProviderForTest(name, instance, fn) {
+    const hadProvider = providers.has(name);
+    const priorProvider = providers.get(name);
+    providers.set(name, instance);
+    try {
+        return fn();
+    } finally {
+        if (hadProvider) providers.set(name, priorProvider);
+        else providers.delete(name);
+    }
+}
 // Background catalog warm-up. Each provider's listModels() either hits its
 // own cached model list (no-op) or fires a single HTTP refresh. Called from
 // agent.init() after providers are registered so the first agent dispatch call

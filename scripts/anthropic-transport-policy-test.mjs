@@ -54,7 +54,7 @@ test('Anthropic transport classifier covers every 5xx, 529, and nested connectio
     assert.equal(classifyError({ code: 'TRUNCATED_STREAM', emittedToolCall: true }), 'permanent');
     assert.equal(classifyError({ code: 'TRUNCATED_STREAM', emittedThinking: true }), 'permanent');
     // A tool input that only STARTED was never dispatched: the truncated
-    // stream stays idempotent to re-request (Codex parity).
+    // stream stays idempotent to re-request.
     assert.equal(classifyError({ code: 'TRUNCATED_STREAM', partialToolCall: true }), 'transient');
     assert.equal(classifyError({ status: 403 }), 'auth');
     assert.equal(classifyError({ code: 'TRUNCATED_STREAM', status: 401 }), 'auth');

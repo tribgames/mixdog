@@ -8,7 +8,7 @@ import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
 const INTERRUPT_MESSAGE = '[Request interrupted by user]';
 const INTERRUPT_MESSAGE_FOR_TOOL_USE = '[Request interrupted by user for tool use]';
 const PROCESS_RESTART_INTERRUPT_MESSAGE = '[Request interrupted by process restart]';
-// OpenCode-style short tool_result body for any unfinished call closed by
+// Short tool_result body for any unfinished call closed by
 // cancel/crash. UI maps this (and legacy long reject bodies) to Cancelled.
 const INTERRUPTED_TOOL_RESULT = 'Cancelled';
 
@@ -144,7 +144,7 @@ function finalizeInterruptedTurn({
     }
 
     const pairedMessages = sanitizeToolPairs(messages);
-    // Claude Code omits the synthetic marker when a queued user submission
+    // The synthetic marker is omitted when a queued user submission
     // interrupted the active request; that queued message is the boundary.
     if (abortReason !== 'interrupt' && abortReason !== 'provider-error') {
         pairedMessages.push({

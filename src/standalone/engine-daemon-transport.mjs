@@ -83,6 +83,37 @@ function isPidAlive(pid) {
   catch (error) { return error?.code === 'EPERM'; }
 }
 
+// A stalled reader collapses the backlog to one frame per key. That is right
+// for SNAPSHOTS (the newest state is the whole truth) and wrong for a BYTE
+// STREAM: dropping PTY output leaves a terminal permanently corrupted. Same-key
+// terminal frames therefore concatenate, bounded so a wedged reader can never
+// grow the daemon's heap without limit.
+const TERMINAL_BACKLOG_MAX_CHARS = 256 * 1024;
+
+function terminalDataFrame(frame) {
+  return frame?.type === 'desktop-event'
+    && frame.message?.kind === 'backend-event'
+    && frame.message?.name === 'terminal-data'
+    && typeof frame.message?.value?.data === 'string'
+    ? frame
+    : null;
+}
+
+function mergePendingFrame(existing, frame, json) {
+  const previous = existing ? terminalDataFrame(existing.frame) : null;
+  const next = terminalDataFrame(frame);
+  if (!previous || !next) return { frame, json };
+  const joined = `${previous.message.value.data}${next.message.value.data}`;
+  const data = joined.length > TERMINAL_BACKLOG_MAX_CHARS
+    ? joined.slice(joined.length - TERMINAL_BACKLOG_MAX_CHARS)
+    : joined;
+  const merged = {
+    ...next,
+    message: { ...next.message, value: { ...next.message.value, data } },
+  };
+  return { frame: merged, json: JSON.stringify(merged) };
+}
+
 export function createEngineDaemonTransport({
   handleCall,
   discoveryPath,
@@ -111,7 +142,23 @@ export function createEngineDaemonTransport({
   const CALL_CACHE_TTL_MS = 60_000;
   // Bound the dedup table: a call that never settles would otherwise pin its
   // entry for the daemon's whole life.
-  const CALL_CACHE_MAX = 512;
+  const CALL_CACHE_MAX = Math.max(512, Number(process.env.MIXDOG_ENGINE_DAEMON_CALL_CACHE) || 4096);
+  // A burst of panes used to enqueue every handleCall() as a microtask. Node
+  // drains the whole microtask queue before returning to HTTP, so enough cheap
+  // calls could starve /health and /client/register even though no explicit
+  // mutex existed. Admit one call per event-loop turn while allowing admitted
+  // async calls to overlap; control-plane routes never enter this queue.
+  const CALL_ACTIVE_MAX = Math.max(8, Number(process.env.MIXDOG_ENGINE_DAEMON_ACTIVE_CALLS) || 64);
+  const CALL_QUEUE_MAX = Math.max(CALL_ACTIVE_MAX, Number(process.env.MIXDOG_ENGINE_DAEMON_CALL_QUEUE) || 1024);
+  const callQueue = [];
+  let activeCalls = 0;
+  let callDispatchScheduled = false;
+  // A timed-out registration may already have committed server-side. Replaying
+  // the same registrationId returns that token instead of leaking a second
+  // client record and another lifecycle reference.
+  const registrationReplays = new Map();
+  const REGISTRATION_REPLAY_TTL_MS = 30_000;
+  const REGISTRATION_REPLAY_MAX = 256;
 
   function pruneCallCache() {
     while (callCache.size > CALL_CACHE_MAX) {
@@ -119,6 +166,52 @@ export function createEngineDaemonTransport({
       if (oldest.done) return;
       callCache.delete(oldest.value);
     }
+  }
+
+  function scheduleCallDispatch() {
+    if (closed || callDispatchScheduled || activeCalls >= CALL_ACTIVE_MAX || callQueue.length === 0) return;
+    callDispatchScheduled = true;
+    setImmediate(() => {
+      callDispatchScheduled = false;
+      if (closed) {
+        const error = new Error('engine daemon transport is closed');
+        error.statusCode = 503;
+        for (const queued of callQueue.splice(0)) queued.reject(error);
+        return;
+      }
+      if (activeCalls >= CALL_ACTIVE_MAX) return;
+      const queued = callQueue.shift();
+      if (!queued) return;
+      activeCalls += 1;
+      Promise.resolve()
+        .then(queued.run)
+        .then(queued.resolve, queued.reject)
+        .finally(() => {
+          activeCalls = Math.max(0, activeCalls - 1);
+          scheduleCallDispatch();
+        });
+      // Start at most ONE handler in this check phase. A fresh immediate gives
+      // socket I/O (especially health/register) a poll phase between starts.
+      scheduleCallDispatch();
+    });
+  }
+
+  function dispatchCall(run) {
+    if (closed) {
+      const error = new Error('engine daemon transport is closed');
+      error.statusCode = 503;
+      return Promise.reject(error);
+    }
+    if (callQueue.length >= CALL_QUEUE_MAX) {
+      const error = new Error('engine daemon call queue is full');
+      error.statusCode = 503;
+      return Promise.reject(error);
+    }
+    const promise = new Promise((resolve, reject) => {
+      callQueue.push({ run, resolve, reject });
+    });
+    scheduleCallDispatch();
+    return promise;
   }
 
   function nowMs() { return Date.now(); }
@@ -156,6 +249,12 @@ export function createEngineDaemonTransport({
     if (!c) return;
     try { c.sse?.end?.(); } catch {}
     clients.delete(token);
+    for (const [registrationId, replay] of registrationReplays) {
+      if (replay.token === token) {
+        clearTimeout(replay.timer);
+        registrationReplays.delete(registrationId);
+      }
+    }
   }
 
   function dropClient(token, reason) {
@@ -183,10 +282,28 @@ export function createEngineDaemonTransport({
     sweepTimer.unref?.();
   }
 
-  function registerClient({ leadPid, cwd, lifecycle = true } = {}) {
+  function registerClient({ leadPid, cwd, lifecycle = true, registrationId = null } = {}) {
     const pid = parsePid(leadPid) || 0;
-    const token = randomUUID();
     const ownsLifecycle = lifecycle !== false;
+    const replayId = registrationId ? String(registrationId).slice(0, 200) : null;
+    const replay = replayId ? registrationReplays.get(replayId) : null;
+    if (replay) {
+      const sameIdentity = replay.leadPid === pid
+        && replay.cwd === (cwd || null)
+        && replay.lifecycle === ownsLifecycle;
+      if (sameIdentity && clients.has(replay.token)) {
+        log(`client registration replay token=${replay.token} lead=${pid}`);
+        return replay.token;
+      }
+      if (clients.has(replay.token)) {
+        const error = new Error('registration replay identity mismatch');
+        error.statusCode = 409;
+        throw error;
+      }
+      clearTimeout(replay.timer);
+      registrationReplays.delete(replayId);
+    }
+    const token = randomUUID();
     clients.set(token, {
       token,
       leadPid: pid,
@@ -209,19 +326,37 @@ export function createEngineDaemonTransport({
     if (typeof onClientRegistered === 'function') {
       try { onClientRegistered({ token, leadPid: pid, cwd: cwd || null, lifecycle: ownsLifecycle }); } catch {}
     }
+    if (replayId) {
+      while (registrationReplays.size >= REGISTRATION_REPLAY_MAX) {
+        const oldest = registrationReplays.keys().next();
+        if (oldest.done) break;
+        const prior = registrationReplays.get(oldest.value);
+        clearTimeout(prior?.timer);
+        registrationReplays.delete(oldest.value);
+      }
+      const timer = setTimeout(() => registrationReplays.delete(replayId), REGISTRATION_REPLAY_TTL_MS);
+      timer.unref?.();
+      registrationReplays.set(replayId, {
+        token,
+        leadPid: pid,
+        cwd: cwd || null,
+        lifecycle: ownsLifecycle,
+        timer,
+      });
+    }
     return token;
   }
 
   /** Drain the latest-wins backlog into a stream that reported room again. */
   function flushPending(client) {
     while (client.sse && !client.paused && client.pending.size > 0) {
-      const [key, json] = client.pending.entries().next().value;
+      const [key, entry] = client.pending.entries().next().value;
       client.pending.delete(key);
       try {
-        if (client.sse.write(`data: ${json}\n\n`) === false) client.paused = true;
+        if (client.sse.write(`data: ${entry.json}\n\n`) === false) client.paused = true;
       } catch {
         client.sse = null;
-        client.pending.set(key, json);
+        client.pending.set(key, entry);
         return;
       }
     }
@@ -232,12 +367,15 @@ export function createEngineDaemonTransport({
     // A stalled reader must never make the daemon buffer a whole stream in
     // Node's socket queue: while the socket is full the backlog collapses to
     // one frame per key, exactly like a client with no stream at all.
-    if (!client.sse || client.paused) { client.pending.set(key, json); return; }
+    if (!client.sse || client.paused) {
+      client.pending.set(key, mergePendingFrame(client.pending.get(key), frame, json));
+      return;
+    }
     try {
       if (client.sse.write(`data: ${json}\n\n`) === false) client.paused = true;
     } catch {
       client.sse = null;
-      client.pending.set(key, json);
+      client.pending.set(key, mergePendingFrame(client.pending.get(key), frame, json));
     }
   }
 
@@ -259,6 +397,9 @@ export function createEngineDaemonTransport({
   function attachSse(token, res) {
     const c = clients.get(token);
     if (!c) return false;
+    // Interactive lane: PTY output and keystroke echoes are small writes, and
+    // Nagle on a loopback socket adds a full delayed-ACK round trip to each.
+    try { res.socket?.setNoDelay(true); } catch { /* transport default stands */ }
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
@@ -269,6 +410,14 @@ export function createEngineDaemonTransport({
     c.sse = res;
     c.paused = false;
     c.lastSeen = nowMs();
+    // The stream proves the client received its token; response-loss replay is
+    // no longer needed for this registration.
+    for (const [registrationId, replay] of registrationReplays) {
+      if (replay.token === token) {
+        clearTimeout(replay.timer);
+        registrationReplays.delete(registrationId);
+      }
+    }
     res.on('drain', () => {
       if (c.sse !== res) return;
       c.paused = false;
@@ -307,6 +456,8 @@ export function createEngineDaemonTransport({
           protocol: ENGINE_DAEMON_PROTOCOL,
           version: engineRuntimeVersion(),
           ...getStatus(),
+          activeCalls,
+          queuedCalls: callQueue.length,
         });
         return;
       }
@@ -319,6 +470,7 @@ export function createEngineDaemonTransport({
           leadPid: body.leadPid,
           cwd: body.cwd,
           lifecycle: body.lifecycle !== false,
+          registrationId: body.registrationId,
         });
         sendJson(res, { token: clientToken, pid: process.pid });
         return;
@@ -351,18 +503,21 @@ export function createEngineDaemonTransport({
         if (cached && (!cached.signature || !signature || cached.signature === signature)) {
           dispatch = cached.promise;
         } else {
-          dispatch = Promise.resolve().then(() => handleCall(name, body.args || {}, {
+          dispatch = dispatchCall(() => handleCall(name, body.args || {}, {
             clientToken,
             leadPid: c.leadPid ?? null,
             cwd: c.cwd ?? null,
           }));
           if (callId) {
-            callCache.set(callId, { promise: dispatch, at: nowMs(), signature });
+            const record = { promise: dispatch, at: nowMs(), signature };
+            callCache.set(callId, record);
             pruneCallCache();
             // TTL starts at SETTLE: a long-running submit must not expire its
             // dedup entry mid-flight and let a retry run the turn twice.
             dispatch.then(() => {}, () => {}).then(() => {
-              const t = setTimeout(() => callCache.delete(callId), CALL_CACHE_TTL_MS);
+              const t = setTimeout(() => {
+                if (callCache.get(callId) === record) callCache.delete(callId);
+              }, CALL_CACHE_TTL_MS);
               t.unref?.();
             });
           }
@@ -423,6 +578,11 @@ export function createEngineDaemonTransport({
     closed = true;
     cancelGrace();
     if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; }
+    const stopped = new Error('engine daemon transport is closed');
+    stopped.statusCode = 503;
+    for (const queued of callQueue.splice(0)) queued.reject(stopped);
+    for (const replay of registrationReplays.values()) clearTimeout(replay.timer);
+    registrationReplays.clear();
     for (const token of [...clients.keys()]) removeClientRecord(token);
     if (discoveryPath) { try { rmSync(discoveryPath, { force: true }); } catch {} }
     await new Promise((resolve) => {

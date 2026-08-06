@@ -790,8 +790,8 @@ export function detectBlockedSleepPattern(command, minSecs = 2) {
     return rest ? `sleep ${secs} followed by: ${rest.slice(0, 80)}` : `standalone sleep ${secs}`;
 }
 
-// Codex-parity shell interception (core maybe_parse_apply_patch_verified):
-// codex-trained models type `apply_patch <<'EOF' … EOF` INTO THE SHELL. No
+// Shell interception: patch-trained models type `apply_patch <<'EOF' … EOF`
+// INTO THE SHELL. No
 // such binary exists here, so the invocation is extracted and routed to the
 // internal apply_patch engine instead of dying as "command not found".
 // Returns null when the command is not an apply_patch invocation, { patch }
@@ -802,7 +802,7 @@ export function extractShellApplyPatchInvocation(command) {
     // Unwrap one `bash|sh|zsh -lc '<script>'` / `-c "<script>"` layer.
     const wrap = /^(?:bash|sh|zsh)\s+-l?c\s+(['"])([\s\S]*)\1\s*$/.exec(cmd);
     if (wrap) cmd = wrap[2].trim();
-    // A bare patch pasted into the shell (codex ImplicitInvocation case) is
+    // A bare patch pasted into the shell (implicit invocation) is
     // unambiguous — route it to the engine directly.
     if (cmd.startsWith('*** Begin Patch')) return { patch: cmd };
     if (!/^apply_patch(?:\s|$)/.test(cmd)) return null;

@@ -144,9 +144,8 @@ export const PROVIDER_SSE_IDLE_TIMEOUT_MS = resolveTimeoutMs(
 // to 300s silently collapsed it to 135s, which deterministically beheaded
 // live long-thinking turns (regex-chess / circuit-fibsqrt: ttft ~1.5s, then
 // killed at exactly 135s of silent thinking, 4 attempts ≈ 552s per turn).
-// Reference parity: Codex aborts only after a 300s single-gap silence
-// (DEFAULT_STREAM_IDLE_TIMEOUT_MS); Claude Code ships its watchdog OFF by
-// default and falls back to non-streaming when it does abort. The default is
+// Reference behavior: abort only after a 300s single-gap silence, and fall
+// back to non-streaming instead of killing the turn. The default is
 // therefore a FIXED 300s, decoupled from the warn math. The only remaining
 // coupling is the ordering guarantee: cap at (abort − tick) so the provider
 // layer — which can retry or fall back non-streaming — always fires strictly

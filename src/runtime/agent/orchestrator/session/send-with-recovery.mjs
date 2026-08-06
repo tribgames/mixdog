@@ -36,7 +36,7 @@ function normalizedIncompleteUsage(raw) {
     };
 }
 
-// Loop-level transport replay (codex retry_transport parity). The provider
+// Loop-level transport replay. The provider
 // layer already retries transient failures with a ~15s total envelope
 // (PROVIDER_RETRY_BACKOFF_MS); a real network blip (router/VPN flap — the
 // 2026-08-02 17:37 incident also dropped the Discord gateway) outlasts it and
@@ -192,8 +192,8 @@ export async function sendWithRecovery(ctx) {
             // have been mid-sentence, and there is no completion signal that
             // says the work is done. Promoting it to a normal terminal response
             // silently reported truncated/aborted turns as finished. Keep it an
-            // explicit failure (like codex's no-completed stream handling and
-            // opencode's persisted partial-failure): the already-streamed text
+            // explicit failure (no completion signal means no completed turn,
+            // and the partial is persisted): the already-streamed text
             // is preserved by the interruption/error persistence path
             // (turn-interruption.mjs records the deltas and commits them as the
             // partial assistant message alongside the error), so nothing visible

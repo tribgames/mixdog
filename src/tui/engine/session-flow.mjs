@@ -181,7 +181,7 @@ export function createSessionFlow(bag) {
       scheduleBlockedDrainRetry();
       return;
     }
-    // Claude Code parity: a queued prompt/notification can arrive while a
+    // A queued prompt/notification can arrive while a
     // provider turn is already in flight (scheduled message, webhook, agent
     // completion, or user input), but the unified queue only runs BETWEEN
     // turns. Do NOT start a second Lead runTurn from the post-turn drain in
@@ -207,8 +207,8 @@ export function createSessionFlow(bag) {
         const batch = dequeueQueueBatch('later', {
           limit: firstBatch ? 1 : Infinity,
           // Slash commands must run through the TUI command dispatcher, not be
-          // delivered to the model as plain text. Claude Code's queueProcessor
-          // similarly handles slash entries outside the queued_command drain.
+          // delivered to the model as plain text, so slash entries are handled
+          // outside the queued-command drain.
           predicate: (entry) => !isSlashQueuedEntry(entry),
         });
         firstBatch = false;
@@ -329,7 +329,7 @@ export function createSessionFlow(bag) {
       ? maybeOptions
       : (_sessionIdOrOptions && typeof _sessionIdOrOptions === 'object' ? _sessionIdOrOptions : {});
     const maxPriority = options.maxPriority || 'next';
-    // Claude Code parity: mid-chain drain converts queued prompt/task
+    // Mid-chain drain converts queued prompt/task
     // notification entries into model-visible "queued_command" style steering
     // only at provider continuation boundaries. Slash commands stay queued for
     // the post-turn command processor. `later` notifications (scheduled tasks)

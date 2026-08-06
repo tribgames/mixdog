@@ -19,7 +19,7 @@ const AUTO_DETECT_PORTS = {
     'mixdog-memory': { discovery: 'memory', dir: 'mixdog', file: 'active-instance.json', portField: 'memory_port', endpoint: '/mcp' },
 };
 const DEFAULT_MCP_CALL_TIMEOUT_MS = 120000;
-// Per-server STARTUP handshake budget (connect + listTools). Codex parity: 10s.
+// Per-server STARTUP handshake budget (connect + listTools): 10s.
 const DEFAULT_MCP_STARTUP_TIMEOUT_MS = 10000;
 // --- State ---
 const servers = new Map();
@@ -264,8 +264,8 @@ function isMcpToolCallTimeoutError(err) {
 }
 
 // MCP per-server STARTUP timeout: bounds the connect + listTools handshake so a
-// slow or hung server can't stall boot or the first turn. Default 10s (codex
-// parity). Per-server override: startupTimeoutMs / startupTimeoutSec. Global
+// slow or hung server can't stall boot or the first turn. Default 10s.
+// Per-server override: startupTimeoutMs / startupTimeoutSec. Global
 // env: MIXDOG_MCP_STARTUP_TIMEOUT_MS. A value of 0/off/none/false disables it.
 export function resolveMcpStartupTimeoutMs(cfg = {}, env = process.env) {
     const rawMs = cfg?.startupTimeoutMs ?? cfg?.startup_timeout_ms;

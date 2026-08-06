@@ -110,16 +110,16 @@ function _selectIdleEntry(entries, compatibility) {
 }
 
 // --- Cache-route probe state (2026-07-04 hunt) -----------------------------
-// CF cookie stickiness (codex chatgpt_cloudflare_cookies.rs:22-55 persists
+// CF cookie stickiness (the reference client persists
 // __cf_bm/_cfuvid across HTTP clients; our WS handshakes never echo them, so
 // Cloudflare may re-shard every fresh socket). Jar is per-process, keyed by
 // auth account. Env knobs (A/B):
 //   MIXDOG_OAI_CF_COOKIES=1        capture Set-Cookie from the 101 upgrade and
 //                                  send Cookie on subsequent handshakes
 //   MIXDOG_OAI_SESSION_AFFINITY=1  send x-session-affinity: <cacheKey>
-//                                  (opencode request.ts:187, ws-pool.ts:66)
-//   MIXDOG_OAI_WS_URL_SESSION=0    drop the ?session_id= URL query (codex/pi/
-//                                  opencode all use the bare WS URL)
+//                                  (a known cache-affinity hint)
+//   MIXDOG_OAI_WS_URL_SESSION=0    drop the ?session_id= URL query (reference
+//                                  clients all use the bare WS URL)
 function _getPoolArr(poolKey) {
     if (!poolKey) return null;
     let arr = _wsPool.get(poolKey);
@@ -340,15 +340,15 @@ function _buildHandshakeHeaders({ auth, sessionToken, turnState, cacheKey: _cach
             'x-codex-beta-features': _codexBetaFeatures(),
         };
     const isOpenAiOauth = auth.type !== 'xai' && auth.type !== 'openai-direct';
-    // codex-rs sends only the dashed session-id/thread-id pair
-    // (client.rs:1033-1057), but OUR backend measurements disagree with pure
-    // codex parity here: 2026-04-19 probes showed the OAuth backend dedupes
+    // The reference client sends only the dashed session-id/thread-id pair,
+    // but OUR backend measurements disagree with pure
+    // wire parity here: 2026-04-19 probes showed the OAuth backend dedupes
     // its in-memory prefix state by the underscore session_id handshake
     // header, and the only 0.0%-miss full-frame rounds (R7/R8, R15 regressed
     // to 13% after this header was dropped) all had it present. Send both.
     // The underscore session_id is the backend prefix-dedupe key (2026-04-19
-    // probes; R15 regressed to 13% miss when it was dropped). Codex parity
-    // (client.rs:1033-1057) sends ONLY the dashed pair, but dropping this
+    // probes; R15 regressed to 13% miss when it was dropped). Strict wire
+    // parity sends ONLY the dashed pair, but dropping this
     // header is a KNOWN cache-unsafe change — so the general parity flag no
     // longer silently drops it. Keep it unless an operator EXPLICITLY opts
     // into the codex-exact dashed-only wire via
@@ -432,7 +432,7 @@ function _openSocket({ auth, sessionToken, turnState, externalSignal, cacheKey, 
     if (process.env.MIXDOG_DEBUG_AGENT) {
         process.stderr.write(`[agent-trace] ws-open-start url=${baseUrl} tokenHash=${createHash('sha256').update(String(sessionToken)).digest('hex').slice(0, 8)} ts=${_wsOpenStart}\n`);
     }
-    // Bare WS URL by default (codex/pi/opencode parity). Interleaved A/B
+    // Bare WS URL by default (reference-client parity). Interleaved A/B
     // (2026-07-04, ivA/ivB, 24 sessions each, alternating rounds to cancel
     // server-time noise): dropping the ?session_id= query improved it1
     // warmup-prefix hits 15/24 -> 22/24 and it2 full hits 11 -> 15 (miss

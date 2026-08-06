@@ -278,7 +278,7 @@ export function parseGrepCoverage(resultText, toolName, toolArgs, resultKind) {
     return out.length ? out : null;
 }
 
-// Codex-style patch failures all arrive as "apply_patch … failed" prose, but
+// Patch failures all arrive as "apply_patch … failed" prose, but
 // a malformed envelope, a rejected hunk, a preflight veto and a size/lock
 // guard need different operator responses. Returning null means "nothing
 // patch-specific here" and lets the generic rules (path/enoent, schema/args,

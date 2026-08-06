@@ -1,10 +1,12 @@
 #!/usr/bin/env node
+import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { executePatchTool, takeApplyPatchUiDiff } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
 import { beginTurnSnapshot, getTurnReviewDiff } from '../src/runtime/shared/turn-snapshot.mjs';
+import { getNativePatchServer } from '../src/runtime/agent/orchestrator/tools/patch/native-server.mjs';
 
 // Keep the smoke's intentional failure cases out of the real diagnostic sinks
 // (tool-failure log + patch-replay captures). Both env vars are read lazily.
@@ -145,6 +147,46 @@ try {
     'apply_patch did not reuse the read-confirmed canonical path');
   assert(!existsSync(join(tmp, 'wrong', 'nested', 'redirected.txt')),
     'apply_patch created or modified the original missing guessed path');
+
+  // A native server that died between requests (idle watchdog, panic, external
+  // kill) must never take THIS process down: an unhandled EPIPE on the child's
+  // stdin crashed the release validate job. The dead instance has to reject,
+  // and the next request has to respawn and succeed.
+  const revivedPath = join(tmp, 'revived.txt');
+  writeFileSync(revivedPath, 'before respawn\n', 'utf8');
+  const doomed = getNativePatchServer();
+  if (!doomed.exited) {
+    // Subscribe BEFORE the kill, and cap the wait: a child that already died
+    // never re-emits 'exit', and this smoke must not hang on it.
+    // ref() the handles and keep the timer referenced, or the loop drains and
+    // the await never settles (the server runs unref'd between requests).
+    doomed.ref();
+    const exited = once(doomed.child, 'exit');
+    doomed.child.kill('SIGKILL');
+    let capTimer = null;
+    await Promise.race([exited, new Promise((resolve) => { capTimer = setTimeout(resolve, 2000); })]);
+    if (capTimer) clearTimeout(capTimer);
+  }
+  let deadError = null;
+  try {
+    await doomed.apply(tmp, '*** Begin Patch\n*** End Patch\n', {});
+  } catch (err) {
+    deadError = err;
+  }
+  assert(deadError, 'a dead native patch server must reject instead of crashing the host');
+  const revived = await executePatchTool('apply_patch', {
+    base_path: tmp,
+    patch: `*** Begin Patch
+*** Update File: revived.txt
+@@
+-before respawn
++after respawn
+*** End Patch
+`,
+  }, tmp);
+  assertOk('apply_patch after the native server died', revived);
+  assert(readFileSync(revivedPath, 'utf8') === 'after respawn\n',
+    'apply_patch did not respawn the native server after its death');
 
   process.stdout.write('apply_patch edit smoke passed\n');
 } finally {

@@ -1,8 +1,8 @@
-// Late-delivery gate (CC parity): genuine user/steering entries older than the
+// Late-delivery gate: genuine user/steering entries older than the
 // replay window (30m) still DELIVER on hydrate/foreign-drain — annotated with
 // an explicit "[late delivery: ...]" header — instead of being silently
 // dropped. TUI steering restore keeps the drop: a dead surface's local queue
-// mirrors CC's process-lifetime queue semantics.
+// follows process-lifetime queue semantics.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
@@ -59,7 +59,7 @@ test('hydrate late-delivers stale user entries and keeps fresh ones', async () =
   assert.equal(store.sessions[sid], undefined, 'delivered entries acked out of the spool');
 });
 
-test('foreign drain injects fresh submits and late-delivers stale ones', () => {
+test('foreign drain injects fresh submits and late-delivers stale ones', async () => {
   const sid = 'sess_stale_foreign';
   const now = Date.now();
   writeSpool((store) => {
@@ -70,7 +70,7 @@ test('foreign drain injects fresh submits and late-delivers stale ones', () => {
     store.sessionTouchedAt[sid] = now - 5000;
   });
 
-  const taken = drainForeignUserInjections(sid);
+  const taken = await drainForeignUserInjections(sid);
   assert.equal(taken.length, 2);
   assert.match(taken[0].text, /^\[late delivery: queued ~3h ago/);
   assert.ok(taken[0].text.endsWith('stale cross-surface submit'), 'original text preserved under the header');
@@ -97,7 +97,7 @@ test('legacy string entries age from sessionTouchedAt and still late-deliver', a
   assert.equal(delivered.length, 1);
   assert.match(texts(delivered)[0], /^\[late delivery: queued ~72h ago/);
   assert.ok(texts(delivered)[0].endsWith('days-old legacy message'), 'original text preserved under the header');
-  assert.deepEqual(drainForeignUserInjections(sid), [], 'hydrated entry never double-injects via the foreign drain');
+  assert.deepEqual(await drainForeignUserInjections(sid), [], 'hydrated entry never double-injects via the foreign drain');
 });
 
 test('TUI steering restore drops stale rows and keeps fresh ones', async () => {

@@ -10,8 +10,8 @@ import type { VirtualItem } from "@tanstack/react-virtual";
  */
 export const TRANSCRIPT_ROW_ESTIMATE = 60;
 export const TRANSCRIPT_VIRTUAL_OVERSCAN = 20;
-// OpenCode reserves 64px because its prompt dock FLOATS over the scroll view
-// (the padding is dock clearance behind a translucent overlay). Mixdog's
+// A floating prompt dock needs ~64px of clearance behind its translucent
+// overlay. Mixdog's
 // composer sits in flow BELOW the viewport, so the same 64px rendered as pure
 // empty space above the composer (user: 하단 여백이 많다). 24px keeps the
 // last message's breathing room without a dead band.

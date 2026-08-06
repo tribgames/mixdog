@@ -101,10 +101,9 @@ import {
 } from './lib/grep-context-expander.mjs';
 
 
-// Default grep result cap when head_limit is unspecified. 250 matches the
-// Claude Code default (GrepTool DEFAULT_HEAD_LIMIT); the tool-result offload
-// layer still bounds oversized results. MIXDOG_GREP_DEFAULT_HEAD_LIMIT
-// overrides for A/B runs.
+// Default grep result cap when head_limit is unspecified. 250 is the common
+// harness default; the tool-result offload layer still bounds oversized
+// results. MIXDOG_GREP_DEFAULT_HEAD_LIMIT overrides for A/B runs.
 function _grepDefaultHeadLimit() {
     const parsed = parseInt(process.env.MIXDOG_GREP_DEFAULT_HEAD_LIMIT ?? '', 10);
     return parsed > 0 ? parsed : 250;

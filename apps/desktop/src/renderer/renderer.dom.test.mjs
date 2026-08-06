@@ -476,7 +476,7 @@ test("streamed fenced scripts retain one code wrapper through promotion and sett
 // longer than one publication. Requiring an exact text match before promoting
 // a parse discarded every result of such a stream, so the tail kept its raw
 // "**" markers until output stopped (user: 문장이 완성되기 전까지 마크다운
-// 포맷이 적용 안 된다). OpenCode keeps `html.latest` mounted instead.
+// 포맷이 적용 안 된다). The last completed parse stays mounted instead.
 test("the live markdown tail keeps its styling while the parser trails the stream", async () => {
   installDom();
   await preloadStreamingMarkdownBody();
@@ -3562,7 +3562,7 @@ test("toggling a tool card keeps a pinned view followed and holds the anchor onc
       header.click();
       await Promise.resolve();
       // Chromium applies disclosure geometry before ResizeObserver delivery.
-      // OpenCode's content observer restores the followed bottom before paint;
+      // The content observer restores the followed bottom before paint;
       // the subsequent scroll event must therefore see the auto-written value.
       transcript.scrollTop = 790;
       deliverContentResize();
@@ -5825,7 +5825,7 @@ test("four-pane rapid focus keeps every lane transcript, conversation node, and 
         configurable: true,
       },
     });
-    // OpenCode cold-mounts at the bottom in two animation frames. Let that
+    // A cold mount lands at the bottom in two animation frames. Let that
     // initial anchor and virtual-core reconciliation finish before simulating
     // a reader gesture against the injected scroll geometry.
     await act(async () => {

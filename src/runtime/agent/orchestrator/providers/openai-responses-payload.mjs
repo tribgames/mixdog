@@ -203,7 +203,7 @@ export function toOpenAIResponsesTool(t) {
 
 export const _convertMessagesToResponsesInputForTest = convertMessagesToResponsesInput;
 
-// codex build_reasoning() (core/src/client.rs:785-805) only attaches the
+// The reference client only attaches the
 // reasoning object when model_info.supports_reasoning_summaries; models
 // without summary support get NO reasoning field at all. Mirror that via the
 // cached codex catalog; unknown models default to true (gpt-5 family all
@@ -218,7 +218,7 @@ function _codexModelSupportsReasoningSummaries(id) {
     return true;
 }
 
-// codex reasoning_effort_for_request (core/src/client.rs): `ultra` collapses to
+// Effort normalization: `ultra` collapses to
 // `max` on the wire — the openai-oauth backend does not accept `ultra`. Every
 // other effort passes through unchanged; empty/unknown falls back to medium.
 export function _normalizeReasoningEffort(effort) {
@@ -251,12 +251,12 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         const value = String(item || '').trim();
         if (value && !include.includes(value)) include.push(value);
     }
-    // Field order MIRRORS codex-rs ResponsesApiRequest (common.rs struct order):
+    // Field order MIRRORS the reference request struct:
     // model, instructions, input, tools, tool_choice, parallel_tool_calls,
     // reasoning, store, stream, include, service_tier, prompt_cache_key, text.
     // JSON serialization order is load-bearing for the server prompt cache
-    // (exact-prefix match): matching codex's byte layout keeps our requests on
-    // the same cache-routing shape codex warms. tools/service_tier/
+    // (exact-prefix match): matching that byte layout keeps our requests on
+    // the same cache-routing shape the backend warms. tools/service_tier/
     // prompt_cache_key are appended below in the same relative order.
     const body = {
         model,
@@ -264,17 +264,15 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         input,
         tool_choice: opts.toolChoice || 'auto',
         parallel_tool_calls: true,
-        // codex build_reasoning() sends { effort, summary } — summary defaults to
-        // ReasoningSummary::Auto (protocol config_types.rs), serialized lowercase
-        // as "auto". Matching this keeps our reasoning object byte-identical to
-        // codex so the server prompt-cache prefix hash lines up. codex also
-        // normalizes `ultra` -> `max` on the wire (reasoning_effort_for_request
-        // in core/src/client.rs); the openai-oauth backend does not accept
-        // `ultra` as a wire value, so mirror that mapping here.
-        // WIRE-VERIFIED (codex desktop logs_2.sqlite, 40 response.create
-        // captures, 2026-07-03): codex sends reasoning as {"effort":"..."}
-        // with NO summary field on gpt-5.5, regardless of what the repo's
-        // build_reasoning() suggests. Match the observed bytes.
+        // The reference client sends { effort, summary } — summary defaults
+        // to "auto" (lowercase on the wire). Matching this keeps our
+        // reasoning object byte-identical so the server prompt-cache prefix
+        // hash lines up. `ultra` is normalized to `max` on the wire too; the
+        // openai-oauth backend does not accept `ultra` as a wire value, so
+        // mirror that mapping here.
+        // WIRE-VERIFIED (40 response.create captures, 2026-07-03): the wire
+        // carries reasoning as {"effort":"..."} with NO summary field on
+        // gpt-5.5. Match the observed bytes.
         reasoning: { effort: _normalizeReasoningEffort(opts.effort) },
         store: process.env.MIXDOG_OAI_STORE === 'true' ? true : false,
         stream: true,

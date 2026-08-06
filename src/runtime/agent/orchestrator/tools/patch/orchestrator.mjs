@@ -603,7 +603,7 @@ function planApplyPatchMutationRoute(args, patchStr, requestedFormat) {
 }
 
 // Model-surface success outputs deliberately DROP the `mutation_route:`
-// diagnostic header (codex parity: `Success. Updated the following files:`).
+// diagnostic header (the surface stays `Success. Updated the following files:`).
 // Errors were never wrapped, the UI diff side-channel is independent, and no
 // script/UI parses the header — measured saving ~30 tokens x ~125 successful
 // patch calls/day. Route diagnostics stay available via plan/extras callers.

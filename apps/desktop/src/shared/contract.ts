@@ -1306,7 +1306,7 @@ export interface DesktopApi {
    *  remote shim omits both and the UI hides the editor. */
   readInstructions?(projectPath: string | null): Promise<string>;
   writeInstructions?(projectPath: string | null, content: string): Promise<void>;
-  /** Dock Files tab: lazy per-directory listing (opencode-style tree). */
+  /** Dock Files tab: lazy per-directory listing. */
   listProjectDir?(projectPath: string, relDir: string): Promise<DesktopDirEntry[]>;
   /** Editor tab: project file IO (traversal-guarded in main). */
   readProjectFile?(projectPath: string, relPath: string, accessToken?: string): Promise<{

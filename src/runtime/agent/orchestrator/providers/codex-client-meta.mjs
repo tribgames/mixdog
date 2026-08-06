@@ -2,13 +2,11 @@
  * codex-client-meta.mjs — codex client identity headers for the OpenAI OAuth
  * transports.
  *
- * codex-rs sends two client-identity headers on EVERY request including the
- * WS handshake:
+ * The reference client sends two client-identity headers on EVERY request,
+ * including the WS handshake:
  *  - `User-Agent: codex_cli_rs/<version> (<os> <ver>; <arch>) <terminal>`
- *    (login/src/auth/default_client.rs get_codex_user_agent + default_headers)
  *  - `version: <CARGO_PKG_VERSION>` via the built-in provider http_headers
- *    (model-provider-info/src/lib.rs:339-343), merged into the WS handshake by
- *    merge_request_headers (codex-api/src/endpoint/responses_websocket.rs).
+ *    merged into the WS handshake.
  * The backend uses these for client gating (model catalog visibility measured
  * 2026-07-03) and plausibly for x-codex-turn-state issuance / sticky
  * cache-node routing, so mixdog mirrors both.
@@ -17,7 +15,7 @@ import os from 'node:os';
 
 // Offline fallback only; live value refreshes from npm (24h TTL, in-process).
 // The backend gates model exposure AND per-request model access on the client
-// version (gpt-5.6-* require >= 0.144.0 per codex models-manager/models.json,
+// version (gpt-5.6-* require >= 0.144.0 per the published model catalog,
 // verified 2026-07-09), so keep this at the current release when bumping.
 const CODEX_CLIENT_VERSION_FLOOR = '0.144.1';
 const VERSION_TTL_MS = 24 * 60 * 60_000;

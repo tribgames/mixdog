@@ -561,7 +561,7 @@ test('interrupted turns keep Claude Code-compatible model history boundaries', {
     });
 });
 
-// Codex `has_pending_input` (core/src/session/turn.rs:304-318) evaluated through
+// Pending-input handling evaluated through
 // the REAL manager queue: an `agent type=send` that lands while the terminal
 // sample is in flight must be folded into this turn BEFORE the unresolved-
 // tool-failure stop hook, and must not be replayed by the post-loop drain.
@@ -1237,7 +1237,7 @@ test('a tombstoned session neither receives nor loses foreign spool input', { co
     const open = newSession();
     writeSpoolRow(open.id, { id: 'foreign_row_open', message: 'foreign submit for an open owner', enqueuedAt: Date.now() });
     assert.deepEqual(
-        pending.drainForeignUserInjections(open.id),
+        await pending.drainForeignUserInjections(open.id),
         [{ text: 'foreign submit for an open owner', id: 'foreign_row_open' }],
     );
     assert.deepEqual(spoolRows(open.id), [], 'the open owner consumed the row');
@@ -1250,14 +1250,14 @@ test('a tombstoned session neither receives nor loses foreign spool input', { co
     await pending._settlePendingMessageWrites({ timeoutMs: 5000 });
     writeSpoolRow(closed.id, { id: 'foreign_row_closed', message: 'foreign submit after the tombstone', enqueuedAt: Date.now() });
 
-    assert.deepEqual(pending.drainForeignUserInjections(closed.id), [], 'tombstoned session receives nothing');
+    assert.deepEqual(await pending.drainForeignUserInjections(closed.id), [], 'tombstoned session receives nothing');
     assert.deepEqual(
         spoolRows(closed.id).map((row) => row.message),
         ['foreign submit after the tombstone'],
         'and removes nothing from the spool',
     );
     // The refusal is not a one-shot mtime artifact: it holds on re-poll.
-    assert.deepEqual(pending.drainForeignUserInjections(closed.id), []);
+    assert.deepEqual(await pending.drainForeignUserInjections(closed.id), []);
     assert.equal(spoolRows(closed.id).length, 1);
 });
 
@@ -1346,7 +1346,7 @@ test('a generation move refusing a foreign drain leaves the spool pollable witho
         },
     });
     let refused;
-    try { refused = pending.drainForeignUserInjections(session.id); }
+    try { refused = await pending.drainForeignUserInjections(session.id); }
     finally { pending._setPendingTestHooks(null); }
 
     assert.equal(hookFired, 1, 'the in-lock revalidation point was exercised');
@@ -1356,7 +1356,7 @@ test('a generation move refusing a foreign drain leaves the spool pollable witho
     // The refusal must not have armed the mtime memo: the reopened owner polls
     // the SAME unchanged spool file and still sees the row.
     assert.deepEqual(
-        pending.drainForeignUserInjections(session.id),
+        await pending.drainForeignUserInjections(session.id),
         [{ text: 'foreign submit racing a reopen', id: 'foreign_row_generation_move' }],
         'pollable immediately after reopen, with no intervening spool write',
     );

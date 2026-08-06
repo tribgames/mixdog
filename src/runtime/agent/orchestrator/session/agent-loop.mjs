@@ -279,8 +279,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             }
             // Tag steering-origin user messages so provider lowering keeps them
             // distinct from preceding tool results. Keep each queued command as
-            // its own user turn, matching Claude Code queued_command attachment
-            // semantics instead of collapsing priority/mode buckets together.
+            // its own user turn instead of collapsing priority/mode buckets
+            // together.
             messages.push({
                 role: 'user',
                 content: merged.content,
@@ -406,7 +406,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // Loop-level transport replays consumed this ask (see send-with-recovery
     // TRANSPORT_RETRY_MAX): bounded per turn, reset only with a fresh ask.
     let _transportRetriesUsed = 0;
-    // Claude Code parity: queued prompt/task notifications are attached after a
+    // Queued prompt/task notifications are attached after a
     // tool batch, before the continuation provider send. Normal batches drain
     // up to 'next'; a Sleep-like tool grants a 'later' flush.
     let _toolBatchJustCompleted = false;
@@ -489,8 +489,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             } catch { /* best-effort */ }
         }
         // Drain queued steering/prompts BEFORE the pre-send compact check, but
-        // only immediately after a tool batch has completed. This mirrors
-        // Claude Code's query.ts queued_command attachment drain: queued entries
+        // only immediately after a tool batch has completed: queued entries
         // are attached after tool results are appended and before the recursive
         // continuation, not on arbitrary non-tool continuations (empty nudges,
         // iteration-cap final text turns, etc.).
@@ -896,7 +895,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 messages.push({ role: 'user', content: nudgeMsg });
                 continue;
             }
-            // Codex `has_pending_input` (turn.rs:304-318): queued user input is
+            // Pending-input rule: queued user input is
             // folded into needs_follow_up and evaluated BEFORE the stop hooks,
             // so real steering always wins over a synthetic continuation prompt.
             // Commit the terminal text first (beforeAppend), then resume.
@@ -907,7 +906,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 _emptyNudgeStreak = 0;
                 continue;
             }
-            // Codex parity (turn.rs:372-404): this no-tool message ends the turn
+            // This no-tool message ends the turn
             // unless a stop hook blocks it. The unresolved-tool-failure hook may
             // block exactly once — commit the assistant text, record the
             // structural continuation prompt, resume sampling. Skipped on the

@@ -282,7 +282,7 @@ function summarizePromptCacheTools(tools) {
 
 /**
  * Build a stable, prefix-scoped prompt_cache_key for OpenAI-style key-prefix
- * providers. OpenAI OAuth follows Codex's thread-scoped key by default:
+ * providers. OpenAI OAuth uses a thread-scoped key by default:
  * prompt_cache_key is the session/thread identity, clamped to the backend's
  * 64-character limit. Other OpenAI-style providers keep the older
  * namespace+prefix-hash key shape, but no longer get a shard suffix unless an
@@ -400,7 +400,7 @@ function assignPromptCacheLaneSlot(provider, opts, shards, seed, { auto = false 
 
 /**
  * Resolve an optional cache-lane slot for OpenAI-style prompt cache sharding.
- * Codex does not shard prompt_cache_key by default, so every provider now gets
+ * prompt_cache_key is not sharded by default, so every provider now gets
  * one un-suffixed key unless an env/config override opts into shards.
  */
 export function resolveProviderPromptCacheLane(provider, opts = {}, config = {}) {
