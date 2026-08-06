@@ -109,7 +109,7 @@ import { createSessionFlow } from './engine/session-flow.mjs';
 import { createRunTurn } from './engine/turn.mjs';
 import { createEngineApi } from './engine/session-api.mjs';
 import { createFrameBatchedStorePublisher } from './engine/frame-batched-store.mjs';
-import { createLiveShare, liveSharePipePath } from './engine/live-share.mjs';
+import { createLiveShare, forwardViewerSubmit, liveSharePipePath } from './engine/live-share.mjs';
 import { displayModelName } from '../ui/model-display.mjs';
 
 const SESSION_RUNTIME_MODULE = '../mixdog-session-runtime.mjs';
@@ -959,38 +959,43 @@ export async function createLocalEngineSession({
   // owner frames own stats/agent/tool state (see runtimePulseTimer above).
   bag.liveShareMirroring = () => state.sessionRemoteAttached && liveShare.viewerConnected();
   // Live viewer submits ride the owner's pipe (instant user bubble + shared
-  // streaming); the durable spool path below remains the fallback.
+  // streaming); the durable spool remains the fallback. Returns null when this
+  // surface is NOT an attached viewer, so the local engine keeps the prompt.
+  const viewerSubmitIntake = (prompt, options = {}) => {
+    if (!state.sessionRemoteAttached) return null;
+    const text = String(promptDisplayText(prompt, options) || '').trim();
+    if (!text) return { accepted: false };
+    return {
+      accepted: forwardViewerSubmit({
+        text,
+        options,
+        share: liveShare,
+        // Writing to the owner's spool instead of starting a fake local turn
+        // that would render an error/synthetic assistant message here.
+        spool: (submissionId) => runtime.enqueueRemoteAttachedPrompt?.({
+          content: prompt,
+          text,
+          id: submissionId,
+        }) === true,
+      }),
+    };
+  };
   if (typeof api.submit === 'function') {
     const baseSubmit = api.submit;
     api.submit = (prompt, options = {}) => {
-      if (state.sessionRemoteAttached) {
-        const text = String(promptDisplayText(prompt, options) || '').trim();
-        if (!text) return false;
-        // Reconcile first so a session that became attachable this event-loop
-        // turn uses the instant pipe path. If the pipe is still opening, write
-        // directly to the durable owner spool instead of starting a fake local
-        // turn that renders an error/synthetic assistant message.
-        try { liveShare.ensure(); } catch { /* durable fallback below */ }
-        const submissionId = options.id != null && String(options.id).trim()
-          ? String(options.id).trim()
-          : `view-submit-${process.pid}-${Date.now()}`;
-        const spoolFallback = () => runtime.enqueueRemoteAttachedPrompt?.({
-          content: prompt,
-          text: text,
-          id: submissionId,
-        }) === true;
-        // A pipe WRITE is not a delivery: the owner may refuse the prompt or
-        // the socket may die between write and read. sendSubmit stays
-        // synchronous (the store contract), but an unacknowledged submit is
-        // re-delivered through the durable spool — late, never lost.
-        if (text && liveShare.sendSubmit(text, {
-          id: submissionId,
-          submittedAt: options.submittedAt,
-          onUndelivered: spoolFallback,
-        })) return true;
-        return spoolFallback();
-      }
-      return baseSubmit(prompt, options);
+      const forwarded = viewerSubmitIntake(prompt, options);
+      return forwarded ? forwarded.accepted : baseSubmit(prompt, options);
+    };
+  }
+  // The daemon's intake boundary is submitAsync (engine-daemon-service prefers
+  // it over submit). Leaving it unwrapped let a daemon-hosted VIEWER — the
+  // desktop pane on a session the terminal owns — queue the prompt locally, so
+  // its own user row stood beside the owner's mirrored twin.
+  if (typeof api.submitAsync === 'function') {
+    const baseSubmitAsync = api.submitAsync;
+    api.submitAsync = async (prompt, options = {}) => {
+      const forwarded = viewerSubmitIntake(prompt, options);
+      return forwarded ? forwarded.accepted : baseSubmitAsync(prompt, options);
     };
   }
   // Viewer stop button: the local engine has no in-flight turn to cancel —
@@ -1021,7 +1026,7 @@ export async function createLocalEngineSession({
       reconcileLiveShareNow();
       if (method === 'resume' && result === true && state.sessionRemoteAttached) {
         const id = String(state.sessionId || '');
-        // EngineHost holds renderer publications across resume. Keep that hold
+        // The session projection holds renderer publications across resume. Keep that hold
         // until the owner's first FULL frame replaces the persisted transcript,
         // then synchronously publish the complete draft before getState().
         // A healthy local owner serves its full frame on connect within tens

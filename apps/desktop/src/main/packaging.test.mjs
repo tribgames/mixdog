@@ -89,7 +89,7 @@ test('a closed stdio pipe cannot crash the main process', async () => {
   assert.match(main, /\[process\.stdout, process\.stderr\][\s\S]{0,120}?on\?\.\('error'/);
 });
 
-test('production engine host uses only the packaged daemon backend adapter', async () => {
+test('production desktop uses only the packaged daemon backend adapter', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'));
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
   const backend = await readFile(new URL('./desktop-backend.ts', import.meta.url), 'utf8');
@@ -219,11 +219,11 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.doesNotMatch(capture, /thumbnail\.resize/);
   assert.match(capture, /measureSidebarGeometry/);
   assert.match(capture, /method:\s*'horizontal-pixel-scan'/);
-  assert.match(capture, /class CaptureEngineHost extends EngineHost/);
+  assert.match(capture, /class CaptureBackend implements DesktopBackend/);
   assert.match(capture, /SETTINGS_CATEGORIES/);
   assert.doesNotMatch(capture, /railButtonCount\s*!==\s*14|railButtonCount,\s*14/);
-  assert.match(capture, /override async listSessions\(\): Promise<DesktopSessionSummary\[]>/);
-  assert.match(capture, /new CaptureEngineHost/);
+  assert.match(capture, /async listSessions\(\): Promise<DesktopSessionSummary\[]>/);
+  assert.match(capture, /new CaptureBackend/);
   assert.match(capture, /registerDesktopIpc\(window,\s*host,\s*\{[\s\S]*?app,[\s\S]*?ipcMain,[\s\S]*?dialog,[\s\S]*?shell,[\s\S]*?updater:/);
   assert.match(capture, /console-message/);
   assert.match(capture, /Capture renderer preload bridge is missing/);
@@ -259,14 +259,14 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.doesNotMatch(capture, /productionEquivalent/);
   assert.match(capture, /rendererAssets:\s*'built'/);
   assert.match(capture, /packaged:\s*app\.isPackaged/);
-  assert.match(capture, /host:\s*'CaptureEngineHost'/);
+  assert.match(capture, /host:\s*'CaptureBackend'/);
   assert.match(capture, /sessionMode:\s*'empty-session'/);
   assert.match(capture, /removeIpc\(\)/);
   // Dispose is bounded: engine teardown may hang 30s+, so the capture exit
   // path races it against a short grace instead of awaiting it bare.
   assert.match(capture, /await Promise\.race\(\[\s*host\.dispose\(\),/);
   assert.match(options, /Object\.freeze/);
-  assert.match(options, /DESKTOP_BACKGROUND_COLOR\s*=\s*'#0f0f0f'/);
+  assert.match(options, /DESKTOP_BACKGROUND_COLOR\s*=\s*'#151518'/);
   assert.match(options, /DESKTOP_LIGHT_BACKGROUND_COLOR\s*=\s*'#f0f0f0'/);
   assert.match(options, /DESKTOP_TITLEBAR_HEIGHT\s*=\s*35/);
   assert.match(options, /color:\s*'#00000000'/);
@@ -332,6 +332,25 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(adapter, /metadata\.imageMeasuredSidebar\.rightGap\.width,\s*metadata\.domSidebarGeometry\.gap/);
   assert.equal(packageJson.scripts['capture:ui'], 'npm run build && node src/renderer/capture-ui.mjs');
   assert.match(builder, /!out\/main\/capture-window\.js/);
+});
+
+test('desktop source has no legacy host implementation or local fallback entry', async () => {
+  const sourceFiles = [
+    './backend-api.ts',
+    './backend-host.ts',
+    './backend-support.ts',
+    './desktop-backend.ts',
+    './desktop-backend-client.ts',
+    './daemon-engine-transport.ts',
+    './index.ts',
+  ];
+  const source = (await Promise.all(
+    sourceFiles.map((path) => readFile(new URL(path, import.meta.url), 'utf8')),
+  )).join('\n');
+  const legacyHostPattern = new RegExp(`\\b${['Engine', 'Host'].join('')}\\b|engine-host|engine-lifecycle|session-live-lanes`);
+  assert.doesNotMatch(source, legacyHostPattern);
+  assert.doesNotMatch(source, /engineInMain|MIXDOG_ENGINE_PROCESS|engine-worker/);
+  assert.doesNotMatch(source, /session\.invoke|callDaemonSession|engine-daemon-local-bridge/);
 });
 
 test('runtime preparation reuses prepared output and persistent validated dependency caches', async () => {

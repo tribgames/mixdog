@@ -53,9 +53,9 @@ import {
 } from '../runtime/agent/orchestrator/providers/stream-json-pool.mjs';
 import { createAgentDispatchBroker } from './agent-dispatch-broker.mjs';
 import { createChannelDaemonTransport } from './channel-daemon-transport.mjs';
-import { installEngineDaemonLocalBridge } from './engine-daemon-local-bridge.mjs';
 import { createEngineDaemonTransport } from './engine-daemon-transport.mjs';
 import { createEngineDaemonService } from './engine-daemon-service.mjs';
+import { createSessionProtocolClient } from './session-protocol.mjs';
 import { createStandaloneMemoryRuntime } from './memory-runtime-proxy.mjs';
 
 function runtimeRoot() {
@@ -232,8 +232,7 @@ let channels = null;
 let transport = null;
 let engineTransport = null;
 let engineService = null;
-let localEngineBridge = null;
-let uninstallLocalEngineBridge = null;
+let localSessionBridge = null;
 let memoryRuntime = null;
 let agentDispatchBroker = null;
 let shuttingDown = false;
@@ -261,9 +260,7 @@ async function shutdown(reason, code = 0) {
   log(`shutting down (${reason})`);
   try { setChannelNotifySink(null); } catch {}
   try { await engineService?.stop?.(reason); } catch (e) { log(`engine.stop failed: ${e?.message || e}`); }
-  try { await localEngineBridge?.close?.(reason); } catch (e) { log(`local engine bridge.close failed: ${e?.message || e}`); }
-  try { uninstallLocalEngineBridge?.(); } catch {}
-  uninstallLocalEngineBridge = null;
+  try { await localSessionBridge?.close?.(reason); } catch (e) { log(`local session bridge.close failed: ${e?.message || e}`); }
   try { await engineTransport?.stop?.(); } catch (e) { log(`engine transport.stop failed: ${e?.message || e}`); }
   try { await channels?.stop?.(); } catch (e) { log(`channels.stop failed: ${e?.message || e}`); }
   // Detach the memory client (never hard-kills the shared memory daemon).
@@ -416,16 +413,16 @@ async function main() {
   // engine module is the whole runtime graph, so it is imported when the first
   // engine client registers — early enough to overlap user think time, while a
   // channels-only spawn still never pays for it.
-  const localEngineClients = new Map();
-  let nextLocalEngineClient = 0;
-  localEngineBridge = {
+  const localSessionClients = new Map();
+  let nextLocalSessionClient = 0;
+  localSessionBridge = {
     attach({ onFrame = () => {}, onFatal = () => {} } = {}) {
-      const clientToken = `daemon_local_${process.pid}_${++nextLocalEngineClient}`;
+      const clientToken = `daemon_local_${process.pid}_${++nextLocalSessionClient}`;
       let closed = false;
-      localEngineClients.set(clientToken, { onFrame, onFatal });
-      return {
+      localSessionClients.set(clientToken, { onFrame, onFatal });
+      return createSessionProtocolClient({
         call(name, args = {}, options = {}) {
-          if (closed) throw new Error('engine daemon local bridge is closed');
+          if (closed) throw new Error('daemon-local session client is closed');
           return engineService.handleCall(name, args, {
             clientToken,
             ...(options?.callId ? { callId: String(options.callId) } : {}),
@@ -434,32 +431,31 @@ async function main() {
         async close(reason = 'local engine view closed') {
           if (closed) return;
           closed = true;
-          localEngineClients.delete(clientToken);
+          localSessionClients.delete(clientToken);
           try { engineService.releaseClient(clientToken); } catch {}
           log(`${reason} (${clientToken})`);
         },
-      };
+      });
     },
     publish(frame, targetTokens = null) {
       const targets = targetTokens ? new Set(targetTokens) : null;
-      for (const [clientToken, client] of localEngineClients) {
+      for (const [clientToken, client] of localSessionClients) {
         if (targets && !targets.has(clientToken)) continue;
         try { client.onFrame(frame); } catch {}
       }
     },
     async close(reason = 'daemon shutdown') {
-      for (const [clientToken, client] of localEngineClients) {
+      for (const [clientToken, client] of localSessionClients) {
         try { client.onFatal(reason); } catch {}
         try { engineService.releaseClient(clientToken); } catch {}
       }
-      localEngineClients.clear();
+      localSessionClients.clear();
     },
   };
-  uninstallLocalEngineBridge = installEngineDaemonLocalBridge(localEngineBridge);
   const desktopRuntime = {
     async attachSessionClient(options = {}) {
-      if (!localEngineBridge) throw new Error('engine daemon local bridge is unavailable');
-      return localEngineBridge.attach(options);
+      if (!localSessionBridge) throw new Error('daemon-local session client is unavailable');
+      return localSessionBridge.attach(options);
     },
     loadProjects: () => import('./projects.mjs'),
     loadSessionStore: () => import('../runtime/agent/orchestrator/session/store-summary-reader.mjs'),
@@ -503,9 +499,19 @@ async function main() {
       const engineModule = await loadEngineModule();
       return engineModule.createLocalEngineSession(options);
     },
+    sessionExists: async (sessionId) => {
+      const store = await desktopRuntime.loadSessionStore();
+      return store.storedSessionExists?.(sessionId) === true;
+    },
+    listSessions: async (options = {}) => {
+      const store = await desktopRuntime.loadSessionStore();
+      return store.listStoredSessionSummaries({
+        refreshFromStorage: options.refreshFromStorage === true,
+      });
+    },
     desktopRuntime,
     onFrame: (frame, targetTokens) => {
-      localEngineBridge?.publish(frame, targetTokens);
+      localSessionBridge?.publish(frame, targetTokens);
       engineTransport?.broadcast(frame, targetTokens);
     },
     onExternalClientsChanged: () => { maybeSelfShutdown('remote clients changed'); },

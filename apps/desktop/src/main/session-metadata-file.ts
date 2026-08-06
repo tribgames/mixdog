@@ -1,6 +1,6 @@
 // Desktop session metadata (generated titles, user names, archive stamps) on
-// disk. Extracted from engine-host so the host keeps the live maps and this
-// module owns the file shape: validation, the pre-v2 reset, and the atomic
+// disk. The backend keeps the live maps while this module owns the file shape:
+// validation, the pre-v2 reset, and the atomic
 // owner-only write.
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';

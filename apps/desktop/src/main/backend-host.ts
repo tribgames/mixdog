@@ -24,21 +24,22 @@ import type {
   EngineSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
+import { DESKTOP_READ_CAPABILITIES } from '../shared/contract';
 import {
   normalizeSessionTitle,
   promptTitle,
 } from '../shared/session-title.mjs';
 import { desktopSessionSummaries } from './desktop-state';
-import type { DesktopEngineHost, SerializableEngineHostOptions } from './engine-host-api';
+import type { DesktopBackend, SerializableDesktopBackendOptions } from './backend-api';
 import {
   DESKTOP_TRANSCRIPT_ITEM_LIMIT,
   copyCapabilityValue,
   normalizedProviderModels,
   type MixdogProjectsModule,
   type MixdogSessionStoreModule,
-} from './engine-host-support';
-import { DesktopProjectRegistry } from './engine-projects';
-import { DesktopSessionMetadata } from './engine-session-metadata';
+} from './backend-support';
+import { DesktopProjectRegistry } from './desktop-project-registry';
+import { DesktopSessionMetadata } from './desktop-session-metadata';
 import { searchProjectDirectory } from './project-file-search';
 import {
   codeGraphQueryIn,
@@ -54,11 +55,15 @@ import {
 } from './project-files';
 
 export interface BackendSessionClient {
-  call(
-    name: string,
-    args?: Record<string, unknown>,
-    options?: { callId?: string },
-  ): Promise<Record<string, unknown>>;
+  list(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
+  create(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
+  read(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
+  subscribe(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
+  unsubscribe(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
+  submit(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
+  abort(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
+  approve(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
+  configure(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
   close(reason?: string): Promise<void>;
 }
 
@@ -80,6 +85,8 @@ type SessionProjection = {
   revision: number;
   snapshot: EngineSnapshot;
 };
+
+const READ_CAPABILITIES = new Set<string>(DESKTOP_READ_CAPABILITIES);
 
 function statePatch(
   snapshot: EngineSnapshot,
@@ -125,7 +132,7 @@ function sessionIdOf(value: unknown): string {
  * session-addressed commands, projects their event stream, and exposes the
  * daemon's non-session project/catalog services to transports.
  */
-export class BackendHost implements DesktopEngineHost {
+export class BackendHost implements DesktopBackend {
   private readonly listeners = new Set<(snapshot: EngineSnapshot) => void>();
   private readonly sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
   private readonly agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
@@ -140,12 +147,13 @@ export class BackendHost implements DesktopEngineHost {
   private activeSnapshot: EngineSnapshot = null;
   private controlSessionId = '';
   private rawSessionRows: Array<Record<string, unknown>> = [];
+  private sessionCatalogPromise: Promise<DesktopSessionSummary[]> | null = null;
   private storeWatcher: FSWatcher | null = null;
   private storeRefreshTimer: NodeJS.Timeout | null = null;
   private disposed = false;
 
   private constructor(
-    private readonly options: SerializableEngineHostOptions,
+    private readonly options: SerializableDesktopBackendOptions,
     private readonly runtime: BackendHostRuntime,
     sessionClient: BackendSessionClient,
   ) {
@@ -159,7 +167,7 @@ export class BackendHost implements DesktopEngineHost {
   }
 
   static async create(
-    options: SerializableEngineHostOptions,
+    options: SerializableDesktopBackendOptions,
     runtime: BackendHostRuntime,
   ): Promise<BackendHost> {
     let host: BackendHost | null = null;
@@ -278,13 +286,9 @@ export class BackendHost implements DesktopEngineHost {
     }
   }
 
-  private call(
-    name: string,
-    args: Record<string, unknown>,
-    callId: string = randomUUID(),
-  ): Promise<Record<string, unknown>> {
-    if (this.disposed) return Promise.reject(new Error('Mixdog backend host is disposed.'));
-    return this.sessionClient.call(name, args, { callId });
+  private callOptions(callId: string = randomUUID()): { callId: string } {
+    if (this.disposed) throw new Error('Mixdog backend host is disposed.');
+    return { callId };
   }
 
   private async taskWorkspace(): Promise<string> {
@@ -316,11 +320,11 @@ export class BackendHost implements DesktopEngineHost {
   private async readSession(sessionId: string): Promise<EngineSnapshot> {
     const id = sessionIdOf(sessionId);
     const prior = this.sessionProjections.get(id);
-    const result = await this.call('session.read', {
+    const result = await this.sessionClient.read({
       sessionId: id,
       open: this.openHints(id),
       baseRevision: prior?.revision ?? null,
-    });
+    }, this.callOptions());
     return this.applySessionResult(id, result);
   }
 
@@ -331,13 +335,16 @@ export class BackendHost implements DesktopEngineHost {
   ): Promise<{ value: unknown; snapshot: EngineSnapshot; result: Record<string, unknown> }> {
     const id = sessionIdOf(sessionId);
     const prior = this.sessionProjections.get(id);
-    const result = await this.call('session.invoke', {
+    const params = {
       sessionId: id,
-      method,
+      action: method,
       args,
       open: this.openHints(id),
       baseRevision: prior?.revision ?? null,
-    });
+    };
+    const result = READ_CAPABILITIES.has(method)
+      ? await this.sessionClient.read(params, this.callOptions())
+      : await this.sessionClient.configure(params, this.callOptions());
     return {
       value: result.value,
       snapshot: this.applySessionResult(id, result),
@@ -347,10 +354,10 @@ export class BackendHost implements DesktopEngineHost {
 
   private async ensureControlSession(): Promise<string> {
     if (this.controlSessionId) return this.controlSessionId;
-    const result = await this.call('session.create', {
+    const result = await this.sessionClient.create({
       cwd: await this.taskWorkspace(),
       desktopSession: null,
-    }, `backend-control-create:${process.pid}:${randomUUID()}`);
+    }, this.callOptions(`backend-control-create:${process.pid}:${randomUUID()}`));
     const sessionId = sessionIdOf(result.sessionId);
     this.controlSessionId = sessionId;
     this.applySessionResult(sessionId, result, false);
@@ -361,13 +368,16 @@ export class BackendHost implements DesktopEngineHost {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const sessionId = await this.ensureControlSession();
       try {
-        const result = await this.call('session.invoke', {
+        const params = {
           sessionId,
-          method,
+          action: method,
           args,
           open: { cwd: await this.taskWorkspace(), desktopSession: null },
           baseRevision: this.sessionProjections.get(sessionId)?.revision ?? null,
-        });
+        };
+        const result = READ_CAPABILITIES.has(method)
+          ? await this.sessionClient.read(params, this.callOptions())
+          : await this.sessionClient.configure(params, this.callOptions());
         this.applySessionResult(sessionId, result, false);
         return result.value;
       } catch (error) {
@@ -516,19 +526,33 @@ export class BackendHost implements DesktopEngineHost {
   }
 
   async listSessions(): Promise<DesktopSessionSummary[]> {
-    await this.sessionMetadata.load();
-    const store = await this.runtime.loadSessionStore();
-    this.rawSessionRows = store.listStoredSessionSummaries({
-      rebuildIfMissing: false,
-    });
-    const summaries = desktopSessionSummaries(
-      this.rawSessionRows,
-      this.activeSessionId,
-      this.sessionMetadata.titles,
-      this.sessionMetadata.names,
-    );
-    this.ensureStoreWatcher();
-    return this.sessionMetadata.withArchiveFlags(summaries);
+    if (this.sessionCatalogPromise) return this.sessionCatalogPromise;
+    const pending = (async () => {
+      await this.sessionMetadata.load();
+      // Pane restoration is an addressing boundary, so the summary sidecar is
+      // not sufficient authority here. Scan the actual session records and
+      // fail closed on absent/unreadable identities.
+      const catalog = await this.sessionClient.list({
+        refreshFromStorage: true,
+      }, this.callOptions());
+      this.rawSessionRows = Array.isArray(catalog.sessions)
+        ? catalog.sessions as Array<Record<string, unknown>>
+        : [];
+      const summaries = desktopSessionSummaries(
+        this.rawSessionRows,
+        this.activeSessionId,
+        this.sessionMetadata.titles,
+        this.sessionMetadata.names,
+      );
+      this.ensureStoreWatcher();
+      return this.sessionMetadata.withArchiveFlags(summaries);
+    })();
+    this.sessionCatalogPromise = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.sessionCatalogPromise === pending) this.sessionCatalogPromise = null;
+    }
   }
 
   async listAgentPool(): Promise<DesktopAgentPoolRow[]> {
@@ -563,7 +587,7 @@ export class BackendHost implements DesktopEngineHost {
     if (await this.invokeControl('deleteSession', [id]) !== true) {
       throw new Error('Session could not be deleted.');
     }
-    try { await this.call('session.unsubscribe', { sessionId: id }); } catch {}
+    try { await this.sessionClient.unsubscribe({ sessionId: id }, this.callOptions()); } catch {}
     this.visibleSessionIds.delete(id);
     this.sessionProjections.delete(id);
     await this.sessionMetadata.forget(id);
@@ -586,33 +610,38 @@ export class BackendHost implements DesktopEngineHost {
   }
 
   async setVisibleSessions(sessionIds: string[]): Promise<boolean> {
-    const next = new Set(sessionIds.map(sessionIdOf));
+    const available = new Set((await this.listSessions()).map((row) => row.id));
+    const next = new Set(sessionIds
+      .map(sessionIdOf)
+      // A just-accepted New task already has a daemon projection before its
+      // first durable save. Every other id must come from the exact catalog.
+      .filter((id) => available.has(id) || this.sessionProjections.has(id)));
     const added = [...next].filter((id) => !this.visibleSessionIds.has(id));
     const removed = [...this.visibleSessionIds].filter((id) => !next.has(id));
     this.visibleSessionIds.clear();
     for (const id of next) this.visibleSessionIds.add(id);
     await Promise.all(added.map(async (sessionId) => {
       const prior = this.sessionProjections.get(sessionId);
-      const result = await this.call('session.subscribe', {
+      const result = await this.sessionClient.subscribe({
         sessionId,
         open: this.openHints(sessionId),
         baseRevision: prior?.revision ?? null,
-      });
+      }, this.callOptions());
       this.applySessionResult(sessionId, result);
     }));
     await Promise.allSettled(removed.map((sessionId) =>
-      this.call('session.unsubscribe', { sessionId })));
+      this.sessionClient.unsubscribe({ sessionId }, this.callOptions())));
     return true;
   }
 
   async resumeSession(sessionId: string): Promise<EngineSnapshot> {
     const id = sessionIdOf(sessionId);
     const prior = this.sessionProjections.get(id);
-    const result = await this.call('session.subscribe', {
+    const result = await this.sessionClient.subscribe({
       sessionId: id,
       open: this.openHints(id),
       baseRevision: prior?.revision ?? null,
-    });
+    }, this.callOptions());
     this.activeSessionId = id;
     const snapshot = this.applySessionResult(id, result);
     this.publishActive(snapshot);
@@ -653,8 +682,10 @@ export class BackendHost implements DesktopEngineHost {
     const desktopSession = registeredProject
       ? { classification: 'project' as const, projectPath: cwd }
       : { classification: 'task' as const, projectPath: null };
-    const created = await this.call('session.create', { cwd, desktopSession },
-      `session-create:${process.pid}:${randomUUID()}`);
+    const created = await this.sessionClient.create(
+      { cwd, desktopSession },
+      this.callOptions(`session-create:${process.pid}:${randomUUID()}`),
+    );
     const sessionId = sessionIdOf(created.sessionId);
     this.applySessionResult(sessionId, created);
     try {
@@ -675,13 +706,13 @@ export class BackendHost implements DesktopEngineHost {
       const submissionId = String(options.id || '').trim()
         || `desktop-submit-${sessionId}-${Date.now()}`;
       const prior = this.sessionProjections.get(sessionId);
-      const result = await this.call('session.submit', {
+      const result = await this.sessionClient.submit({
         sessionId,
         prompt,
         options: { ...options, id: submissionId },
         open: { cwd, desktopSession },
         baseRevision: prior?.revision ?? null,
-      }, `session-submit:${sessionId}:${submissionId}`);
+      }, this.callOptions(`session-submit:${sessionId}:${submissionId}`));
       if (String(result.sessionId || '') !== sessionId) {
         throw new Error('New task backend returned a mismatched session id.');
       }
@@ -691,7 +722,10 @@ export class BackendHost implements DesktopEngineHost {
         throw new Error('New task backend returned a mismatched session snapshot.');
       }
       if (!accepted) {
-        await this.call('session.unsubscribe', { sessionId }).catch(() => ({}));
+        await this.sessionClient.unsubscribe(
+          { sessionId },
+          this.callOptions(),
+        ).catch(() => ({}));
         return { accepted: false, sessionId: '', snapshot: null };
       }
       this.activeSessionId = sessionId;
@@ -708,7 +742,9 @@ export class BackendHost implements DesktopEngineHost {
       void this.publishCatalogs();
       return { accepted: true, sessionId, snapshot };
     } catch (error) {
-      try { await this.call('session.unsubscribe', { sessionId }); } catch {}
+      try {
+        await this.sessionClient.unsubscribe({ sessionId }, this.callOptions());
+      } catch {}
       throw error;
     }
   }
@@ -722,13 +758,13 @@ export class BackendHost implements DesktopEngineHost {
     const submissionId = String(options.id || '').trim()
       || `desktop-submit-${id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const prior = this.sessionProjections.get(id);
-    const result = await this.call('session.submit', {
+    const result = await this.sessionClient.submit({
       sessionId: id,
       prompt,
       options: { ...options, id: submissionId },
       open: this.openHints(id),
       baseRevision: prior?.revision ?? null,
-    }, `session-submit:${id}:${submissionId}`);
+    }, this.callOptions(`session-submit:${id}:${submissionId}`));
     this.applySessionResult(id, result);
     return result.accepted === true;
   }
@@ -740,12 +776,12 @@ export class BackendHost implements DesktopEngineHost {
 
   async abortSession(sessionId: string, options: DesktopAbortOptions = {}): Promise<unknown> {
     const id = sessionIdOf(sessionId);
-    const result = await this.call('session.abort', {
+    const result = await this.sessionClient.abort({
       sessionId: id,
       options,
       open: this.openHints(id),
       baseRevision: this.sessionProjections.get(id)?.revision ?? null,
-    });
+    }, this.callOptions());
     this.applySessionResult(id, result);
     return { aborted: result.aborted === true };
   }
@@ -764,13 +800,13 @@ export class BackendHost implements DesktopEngineHost {
     decision: ToolApprovalDecision,
   ): Promise<boolean> {
     const target = sessionIdOf(sessionId);
-    const result = await this.call('session.approve', {
+    const result = await this.sessionClient.approve({
       sessionId: target,
       approvalId: id,
       decision,
       open: this.openHints(target),
       baseRevision: this.sessionProjections.get(target)?.revision ?? null,
-    });
+    }, this.callOptions());
     this.applySessionResult(target, result);
     return result.approved === true;
   }

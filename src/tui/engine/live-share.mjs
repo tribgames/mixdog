@@ -709,3 +709,37 @@ export function createLiveShare({
     },
   };
 }
+
+/**
+ * ONE viewer-submit intake for EVERY engine entry point. The TUI store calls
+ * submit(); the daemon awaits submitAsync() (engine-daemon-service prefers it).
+ * Wrapping only one of them let the other path enqueue the prompt on the VIEWER
+ * engine, so that surface rendered its own local user row beside the owner's
+ * mirrored one — the same message twice on screen
+ * (user: 데스크탑에서만 입력이 두 개로 들어간다).
+ *
+ * `spool(submissionId)` is the durable fallback. The submission id is minted
+ * here when the caller has none, so the pipe frame and the spool entry carry
+ * the SAME identity and the owner reuses it for the settled user row — which is
+ * what releases the submitting surface's optimistic bubble.
+ */
+export function forwardViewerSubmit({ text, options = {}, share, spool, pid = process.pid }) {
+  const value = String(text || '').trim();
+  if (!value) return false;
+  // Reconcile first so a session that became attachable this event-loop turn
+  // takes the instant pipe path instead of the durable detour.
+  try { share.ensure?.(); } catch { /* durable fallback below */ }
+  const submissionId = options.id != null && String(options.id).trim()
+    ? String(options.id).trim()
+    : `view-submit-${pid}-${Date.now()}`;
+  const deliverDurably = () => spool?.(submissionId) === true;
+  // A pipe WRITE is not a delivery: the owner may refuse the prompt and the
+  // socket may die between write and read, so an unacknowledged submit is
+  // re-delivered through the spool — late, never lost.
+  if (share.sendSubmit(value, {
+    id: submissionId,
+    submittedAt: options.submittedAt,
+    onUndelivered: deliverDurably,
+  })) return true;
+  return deliverDurably();
+}

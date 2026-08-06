@@ -1,7 +1,6 @@
 // Desktop-only session metadata: generated titles, user names and archive
-// tombstones persisted next to the engine's own session store. Reads share one
-// in-flight request so post-submit title work can run outside EngineHost's
-// transition lock without racing foreground listings. Writes are
+// tombstones persisted next to the daemon-owned session store. Reads share one
+// in-flight request so post-submit title work cannot race foreground listings. Writes are
 // snapshot-then-serialized so a later mutation never rides an older in-flight
 // write.
 import {

@@ -108,20 +108,20 @@ export async function showRemoteAccessWindow(
 </div>`;
   const html = `<!doctype html><meta charset="utf-8"><title>Remote access</title>
 <style>
-  body { margin: 0; padding: 28px; background: #181818; color: #e9e9e9;
+  body { margin: 0; padding: 28px; background: #151518; color: #e9e9e9;
     font: 400 14px/21px system-ui, sans-serif; user-select: text; }
   h1 { margin: 0 0 4px; font-size: 17px; }
   p { margin: 0 0 18px; color: #a8a8a8; font-size: 12.5px; line-height: 18px; }
   .tabs { display: flex; justify-content: center; gap: 6px; margin: 0 0 18px; }
   .tabs button { padding: 7px 16px; border: 0; border-radius: 999px; background: transparent;
     color: #a8a8a8; font: 500 13px/18px system-ui, sans-serif; cursor: pointer; }
-  .tabs button.active { background: #373737; color: #e9e9e9; }
+  .tabs button.active { background: #323236; color: #e9e9e9; }
   .tabs button:hover { color: #e9e9e9; }
   .grid { display: flex; gap: 20px; }
   .grid.single { justify-content: center; }
   .grid.single .card { max-width: 244px; }
   .card { flex: 1; display: grid; gap: 10px; justify-items: center;
-    padding: 16px 12px; border-radius: 12px; background: #262626; }
+    padding: 16px 12px; border-radius: 12px; background: #222225; }
   .card b { font-size: 13px; }
   .card svg { width: 200px; height: 200px; border-radius: 8px; }
   .card small { color: #a8a8a8; font-size: 11px; text-align: center; }
@@ -150,7 +150,7 @@ ${body}
     fullscreenable: false,
     autoHideMenuBar: true,
     title: 'Remote access',
-    backgroundColor: '#181818',
+    backgroundColor: '#151518',
     parent: parent ?? undefined,
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
   });

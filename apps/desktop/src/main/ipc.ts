@@ -52,8 +52,7 @@ import {
 } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
 import type { TerminalSpawnProfile } from './terminal-contract';
-import type { DesktopEngineHost } from './engine-host-api';
-import { streamingTailAppendEpoch } from './engine-host-support';
+import type { DesktopBackend } from './backend-api';
 import { registerFilePreview } from './file-preview';
 import {
   browsableFolderPath,
@@ -695,7 +694,7 @@ function requiredWorkspaceFolders(value: unknown): DesktopWorkspaceFolder[] {
 
 export function registerDesktopIpc(
   window: BrowserWindow,
-  host: DesktopEngineHost,
+  host: DesktopBackend,
   {
     app,
     ipcMain,
@@ -1685,14 +1684,11 @@ export function registerDesktopIpc(
 
   // Background turn-finished OS toasts removed (user decision): state fanout
   // only. Restore behind a setting if notifications return.
-  // Streaming state pushes ride an identity-prefix delta: copySnapshot reuses
-  // the SAME clone object for an unchanged transcript item, so the shared
-  // prefix is found by reference and only appended/changed items cross the
-  // IPC serializer. The preload bridge reassembles full snapshots; a resync
-  // request (window reload, missed event) restarts from a full send.
+  // Streaming state pushes ride an identity-prefix delta. The daemon delta
+  // decoder retains unchanged item identity, so only appended/changed items
+  // cross the IPC serializer. A resync restarts from a full snapshot.
   let sentItems: readonly unknown[] | null = null;
   let sentStreamingTail: Record<string, unknown> | null = null;
-  let sentStreamingTailEpoch: number | null = null;
   let sentStateFields: Record<string, unknown> | null = null;
   let sentRevision = 0;
   const snapshotFieldsFrom = (record: Record<string, unknown>): Record<string, unknown> => {
@@ -1713,8 +1709,8 @@ export function registerDesktopIpc(
     const changed: Record<string, unknown> = {};
     const removed: string[] = [];
     for (const [key, value] of Object.entries(nextFields)) {
-      // copySnapshot and the utility delta decoder retain identity for every
-      // unchanged field, so a deep walk here only repeats work at 20 Hz.
+      // The daemon delta decoder retains identity for unchanged fields, so a
+      // deep walk here would only repeat work on every publication.
       if (!Object.hasOwn(previousFields, key) || !Object.is(previousFields[key], value)) {
         changed[key] = value;
       }
@@ -1734,12 +1730,10 @@ export function registerDesktopIpc(
   const patchStreamingTail = (
     wire: Record<string, unknown>,
     nextTail: Record<string, unknown> | null,
-    nextTailEpoch: number | null,
   ): void => {
     const previousTail = sentStreamingTail;
     if (previousTail === nextTail) {
       sentStreamingTail = nextTail;
-      sentStreamingTailEpoch = nextTailEpoch;
       return;
     }
     const previousText = typeof previousTail?.text === 'string' ? previousTail.text : '';
@@ -1749,9 +1743,8 @@ export function registerDesktopIpc(
       && nextTail
       && previousTail.id != null
       && previousTail.id === nextTail.id
-      && nextTailEpoch !== null
-      && nextTailEpoch === sentStreamingTailEpoch
       && nextText.length >= previousText.length
+      && nextText.startsWith(previousText)
     ) {
       const tail = { ...nextTail };
       delete tail.text;
@@ -1765,18 +1758,15 @@ export function registerDesktopIpc(
       wire.streamingTail = nextTail;
     }
     sentStreamingTail = nextTail;
-    sentStreamingTailEpoch = nextTailEpoch;
   };
   const sendEngineState = (snapshot: EngineSnapshot): void => {
     if (window.isDestroyed() || window.webContents.isDestroyed()) return;
     const record = snapshot as Record<string, unknown> | null;
     const items = record && Array.isArray(record.items) ? record.items as unknown[] : null;
     const streamingTail = streamingTailFrom(record);
-    const streamingTailEpoch = streamingTailAppendEpoch(snapshot);
     if (!items) {
       sentItems = null;
       sentStreamingTail = streamingTail;
-      sentStreamingTailEpoch = streamingTailEpoch;
       sentStateFields = record ? snapshotFieldsFrom(record) : null;
       window.webContents.send(DESKTOP_IPC.state, snapshot);
       return;
@@ -1797,14 +1787,13 @@ export function registerDesktopIpc(
         append: items.slice(prefix),
       };
       patchStateFields(wire, record!, base, sentRevision);
-      patchStreamingTail(wire, streamingTail, streamingTailEpoch);
+      patchStreamingTail(wire, streamingTail);
       sentItems = items;
       window.webContents.send(DESKTOP_IPC.state, wire);
       return;
     }
     sentItems = items;
     sentStreamingTail = streamingTail;
-    sentStreamingTailEpoch = streamingTailEpoch;
     sentStateFields = snapshotFieldsFrom(record!);
     window.webContents.send(DESKTOP_IPC.state, { ...record, __itemsRevision: sentRevision });
   };

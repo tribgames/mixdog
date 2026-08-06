@@ -1021,7 +1021,7 @@ test('channel-setting deep link opens the Channels tab with token and target for
     && args[0]?.backend === 'discord' && args[0]?.channelId === '222'));
 });
 
-test('General exposes the four desktop-local modes with persistent preference', async () => {
+test('General exposes the three desktop-local modes with persistent preference', async () => {
   mount();
   const { api, calls } = capabilityApi({
     getTheme: 'basic',
@@ -1039,7 +1039,7 @@ test('General exposes the four desktop-local modes with persistent preference', 
     await Promise.resolve();
   });
   assert.deepEqual(Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'),
-    (node) => node.textContent.trim()), ['System', 'White', 'Dark', 'Gray']);
+    (node) => node.textContent.trim()), ['System', 'White', 'Dark']);
   const white = Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'))
     .find((entry) => entry.textContent.includes('White'));
   await act(async () => {

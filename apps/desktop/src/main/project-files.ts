@@ -1,12 +1,10 @@
-// Project file operations, extracted from EngineHost: traversal-guarded
-// directory listing/entry resolution, editor read/stat/atomic-write, Files
-// tree create/rename, and the editor code-graph symbol lookup. Every function
-// takes the RESOLVED project root (EngineHost.projectDirectory) so the class
-// keeps ownership of project registration + the exclusive lock.
+// Traversal-guarded project directory listing, editor read/stat/atomic-write,
+// tree mutations, and code-graph symbol lookup. Every function receives a
+// resolved project root from the backend project registry.
 import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 
-import { codeGraphModuleUrl } from './engine-host-support';
+import { codeGraphModuleUrl } from './backend-support';
 
 export type ProjectTextEncoding = 'utf8' | 'utf8bom' | 'utf16le' | 'utf16be';
 

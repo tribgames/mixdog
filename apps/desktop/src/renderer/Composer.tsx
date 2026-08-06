@@ -63,6 +63,7 @@ export const Composer = memo(function Composer({
   onDraftModelSelection,
   queued,
   hiddenQueueIds,
+  onQueuedRestored,
   userMessages,
   submit,
   abort,
@@ -95,6 +96,7 @@ export const Composer = memo(function Composer({
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
   queued?: unknown[];
   hiddenQueueIds?: Array<string | number>;
+  onQueuedRestored?: (ids: string[]) => void;
   /** Rewindable user prompts (oldest → newest) for the Esc-Esc selector. */
   userMessages?: Array<{ id: string; text: string }>;
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
@@ -172,6 +174,7 @@ export const Composer = memo(function Composer({
   const attachmentSequence = useRef(1);
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
   const dragDepth = useRef(0);
+  const composerPaintSamplePending = useRef(false);
   const transitioningRef = useRef(transitioning);
   transitioningRef.current = transitioning;
   const wasTransitioning = useRef(transitioning);
@@ -674,6 +677,14 @@ export const Composer = memo(function Composer({
 
   const restoreQueue = async (queuedId = '') => {
     if (restoring) return undefined;
+    // Capture the projection before the daemon round trip. A newly queued
+    // prompt that arrives while restore settles must not be retired with the
+    // older entries the user actually reclaimed.
+    const requestedIds = (Array.isArray(queued) ? queued : [])
+      .map((entry) => asRecord(entry)?.id)
+      .filter((id) => id !== undefined && id !== null)
+      .map(String)
+      .filter((id) => !queuedId || id === queuedId);
     setRestoring(true);
     try {
       const args = queuedId ? ['', queuedId] : [''];
@@ -694,6 +705,13 @@ export const Composer = memo(function Composer({
           return value;
         }
         restoredQueueProjectionRef.current = queuedProjectionKey;
+        const restoredIds = Array.isArray(value.ids)
+          ? value.ids.map(String).filter(Boolean)
+          : requestedIds;
+        // The engine queue is authoritative, but Conversation also holds a
+        // local optimistic twin until durable settlement. Retire that twin
+        // after a successful pop so it cannot resurrect the reserved row.
+        onQueuedRestored?.(restoredIds);
         setDraft((current) => {
           const next = mergeQueuedRestoreText(queuedText, current);
           window.setTimeout(() => {
@@ -1347,20 +1365,22 @@ export const Composer = memo(function Composer({
       <textarea ref={textarea} value={draft} onInput={(event) => {
         // Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency,
         // logged only when a frame is actually slow.
-        if (window.mixdogDesktop?.perfLog) {
+        if (window.mixdogDesktop?.perfLog && !composerPaintSamplePending.current) {
+          composerPaintSamplePending.current = true;
           const inputAt = performance.now();
           window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+            composerPaintSamplePending.current = false;
             const ms = performance.now() - inputAt;
             if (ms >= 25) window.mixdogDesktop?.perfLog?.(`composer-keystroke paint=${ms.toFixed(0)}ms`);
           }));
         }
         setDraft(event.currentTarget.value);
         escapeClearAtRef.current = 0;
-        setAttachmentError('');
-        setComposerNotice('');
+        if (attachmentError) setAttachmentError('');
+        if (composerNotice) setComposerNotice('');
         setCaretOffset(event.currentTarget.selectionStart);
-        setSlashDismissedDraft('');
-        setMentionDismissed('');
+        if (slashDismissedDraft) setSlashDismissedDraft('');
+        if (mentionDismissed) setMentionDismissed('');
         historyNavigation.current = { index: -1, seed: '' };
       }} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)}
         onPointerDown={() => { escapeClearAtRef.current = 0; }}

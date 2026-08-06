@@ -928,8 +928,9 @@ export function App() {
     if (!requested || !projectCatalogReady) return requested;
     return registeredProjectPath(requested) || preferredDraftProjectPath;
   }, [preferredDraftProjectPath, projectCatalogReady, registeredProjectPath]);
-  // Persisted pane layout is the startup authority. Its focused active tab is
-  // available synchronously, before catalog/model/engine RPCs begin.
+  // Persisted non-session panes restore synchronously. Persisted session tabs
+  // stay withheld until usePaneWorkspace validates them against the durable
+  // catalog, so an orphan id never mounts a conversation surface.
   const paneWorkspace = usePaneWorkspace();
   const startupFocusedPaneSelection = paneWorkspace.focusedLeaf
     ? paneActiveSelection(paneWorkspace.focusedLeaf)
@@ -1861,7 +1862,7 @@ export function App() {
       markBootStage("startup-settled");
       window.dispatchEvent(new Event("mixdog:startup-settled"));
     };
-    if (restoredStartupNavigation.current) return;
+    if (restoredStartupNavigation.current || paneWorkspace.restorePending) return;
     // All active persisted pane tabs already mounted and hydrate independently.
     // Synchronize only the focused interaction route; never reopen every
     // session or wait for the sidebar catalog to validate pane identities.
@@ -1948,6 +1949,7 @@ export function App() {
     sessions,
     snapshot,
     paneWorkspace.restoredFromStorage,
+    paneWorkspace.restorePending,
     startupFocusedPaneSelection,
     startupNavigationSelection,
   ]);
@@ -4137,21 +4139,6 @@ export function App() {
     closeSidebarForNavigation();
     startTask();
   });
-  const sidebarOpenStudio = useStableEvent(() => {
-    closeSidebarForNavigation();
-    openStudioTab();
-  });
-  const sidebarOpenFile = useStableEvent(() => {
-    closeSidebarForNavigation();
-    void chooseFileTab();
-  });
-  const sidebarNewTerminal = useStableEvent(() => {
-    closeSidebarForNavigation();
-    openTerminalTab();
-  });
-  const sidebarPrefetchStudio = useStableEvent(() => {
-    void loadStudioViewModule().catch(() => {});
-  });
   const sidebarResumeSession = useStableEvent((sessionId: string) => {
     closeSidebarForNavigation();
     resumeSession(sessionId, false, true);
@@ -4752,6 +4739,7 @@ export function App() {
     && projectCatalogReady
     && onboardingReady
     && updaterStateReady
+    && !paneWorkspace.restorePending
     && startupSettled;
   // PANE tabs are part of the visible workspace: a session tab that is
   // already open must not cold-load on its first click (user: PANE에 이미
@@ -4921,10 +4909,6 @@ export function App() {
             : ""}
           selection={sidebarSelection}
           onNewTask={sidebarNewTask}
-          onOpenStudio={sidebarOpenStudio}
-          onOpenFile={sidebarOpenFile}
-          onNewTerminal={sidebarNewTerminal}
-          onPrefetchStudio={sidebarPrefetchStudio}
           onPrefetchSession={window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined}
           onResumeSession={sidebarResumeSession}
           onRenameSession={renameSession}

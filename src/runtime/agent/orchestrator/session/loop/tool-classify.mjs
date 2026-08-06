@@ -15,30 +15,6 @@ export function _isMutationTool(name) {
     const n = _stripMcpPrefix(name);
     return n === 'apply_patch';
 }
-// Side-effect-free read-only tools that may eager-start across an upcoming
-// apply_patch barrier and may keep running after an earlier patch fails.
-// Everything NOT in this set waits for its side-effect segment and is skipped
-// after a failed patch. Kept separate from _isMutationTool, which stays
-// apply_patch-only for epoch counting.
-const ORDERED_GATE_SAFE_READONLY_TOOLS = new Set([
-    'read',
-    'find',
-    'glob',
-    'list',
-    'grep',
-    'code_graph',
-    'explore',
-    'search',
-    'web_fetch',
-]);
-// True when a LATER call in a batch must be skipped because an earlier ordered
-// mutation (apply_patch) already failed. Conservative: only the known
-// side-effect-free read-only tools above keep running; shell, write tools, and
-// unknown MCP tools are skipped so they cannot act on unchanged/partially
-// changed state.
-export function _isOrderedGateSkippable(name) {
-    return !ORDERED_GATE_SAFE_READONLY_TOOLS.has(_stripMcpPrefix(name));
-}
 const SCOPED_CACHEABLE_TOOLS = new Set([
     'code_graph',
     'grep',

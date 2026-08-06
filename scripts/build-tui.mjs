@@ -41,6 +41,18 @@ const sharedRuntimeExternalPlugin = {
   },
 };
 
+const engineDaemonClientExternalPlugin = {
+  name: 'mixdog-engine-daemon-client-external',
+  setup(build) {
+    build.onResolve({ filter: /^\.\.\/standalone\/engine-daemon-client\.mjs$/ }, () => ({
+      // Keep this module outside the TUI bundle so its import.meta.url stays
+      // anchored in src/standalone, where backend-daemon.mjs actually lives.
+      path: '../../standalone/engine-daemon-client.mjs',
+      external: true,
+    }));
+  },
+};
+
 await build({
   entryPoints: [join(SRC, 'index.jsx')],
   outfile: join(SRC, 'dist', 'index.mjs'),
@@ -75,7 +87,11 @@ await build({
     '../../runtime/channels/lib/voice-runtime-fetcher.mjs',
     '../../runtime/channels/lib/whisper-server.mjs',
   ],
-  plugins: [mixdogInkAliasPlugin, sharedRuntimeExternalPlugin],
+  plugins: [
+    mixdogInkAliasPlugin,
+    sharedRuntimeExternalPlugin,
+    engineDaemonClientExternalPlugin,
+  ],
   logLevel: 'info',
 });
 

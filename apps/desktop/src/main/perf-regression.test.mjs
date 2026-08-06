@@ -1,10 +1,7 @@
 import { strict as assert } from "node:assert";
-import { mkdtemp, mkdir, readFile, realpath, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-import { DESKTOP_TRANSCRIPT_ITEM_LIMIT, EngineHost } from "./engine-host.ts";
 import {
   createSnapshotDeltaDecoder,
   createSnapshotDeltaEncoder,
@@ -34,67 +31,7 @@ import {
 } from "../renderer/streaming-markdown.ts";
 import { transcriptItemsEqual } from "../renderer/TranscriptView.tsx";
 
-const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-
-test("engine event publications are coalesced and skip snapshots without subscribers", async () => {
-  let stateReads = 0;
-  const engine = {
-    getState: () => {
-      stateReads += 1;
-      return { sessionId: "perf_session", items: [{ id: "answer", text: "stable" }], queued: [] };
-    },
-    dispose: async () => {},
-  };
-  const host = new EngineHost({ createEngine: async () => engine });
-  const internal = host;
-  internal.engine = engine;
-
-  let publications = 0;
-  const unsubscribe = host.subscribe(() => { publications += 1; });
-  internal.publishEngineEvent();
-  internal.publishEngineEvent();
-  internal.publishEngineEvent();
-  await wait(75);
-  assert.equal(publications, 1);
-  assert.equal(stateReads, 1);
-
-  unsubscribe();
-  internal.publishNow();
-  assert.equal(stateReads, 1);
-  await host.dispose();
-});
-
-test("large transcript snapshots reuse sanitized row projections", async () => {
-  const items = Array.from({ length: 5_000 }, (_, index) => ({
-    id: `row-${index}`,
-    kind: index % 2 === 0 ? "user" : "assistant",
-    text: `Stable transcript row ${index}`,
-  }));
-  const stats = { turns: 1, outputTokens: 10 };
-  const engine = {
-    getState: () => ({ sessionId: "large_session", items, queued: [], stats }),
-    dispose: async () => {},
-  };
-  const host = new EngineHost({ createEngine: async () => engine });
-  const internal = host;
-  internal.engine = engine;
-  const first = host.getSnapshot();
-  const second = host.getSnapshot();
-  assert.equal(first.items.length, 5_000);
-  assert.equal(second.items[4_999].text, "Stable transcript row 4999");
-  assert.equal(first.items[2_500], second.items[2_500]);
-  assert.equal(first.stats, second.stats,
-    "unchanged non-transcript fields should reuse their detached clone");
-  stats.outputTokens = 20;
-  const changed = host.getSnapshot();
-  assert.notEqual(changed.stats, second.stats);
-  assert.equal(changed.stats.outputTokens, 20);
-  assert.equal(second.stats.outputTokens, 10,
-    "in-place engine mutation must not alter an already published snapshot");
-  await host.dispose();
-});
-
-test("session catalog publications skip lifecycle-only saves and preserve changed-row identity", async () => {
+test("session catalog rows preserve identity across lifecycle-only saves", () => {
   const first = [
     {
       id: "stable",
@@ -135,50 +72,6 @@ test("session catalog publications skip lifecycle-only saves and preserve change
   assert.equal(changed[0], first[0], "unchanged rows should retain object identity");
   assert.notEqual(changed[1], first[1]);
 
-  const root = await mkdtemp(join(tmpdir(), "mixdog-perf-session-push-"));
-  let rows = [{
-    id: "catalog_session",
-    preview: "Catalog session",
-    updatedAt: 10,
-    lastUsedAt: 5,
-    messageCount: 1,
-    cwd: join(root, "workspace"),
-  }];
-  const engine = {
-    getState: () => ({ sessionId: "catalog_session", items: [], queued: [] }),
-    listSessions: () => rows.map((row) => ({ ...row })),
-    dispose: async () => {},
-  };
-  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
-  const internal = host;
-  internal.engine = engine;
-  // This test owns publication deduplication, not the process-global sidecar
-  // reader used by production pushSessionRows(). Keep its synthetic rows as
-  // the authoritative publication source.
-  internal.pushSessionRows = async () => rows.map((row) => ({
-    ...row,
-    title: row.preview,
-    classification: "task",
-    projectPath: null,
-    currentSession: row.id === engine.getState().sessionId,
-  }));
-  const publications = [];
-  const unsubscribe = host.subscribeSessions((next) => publications.push(next));
-  try {
-    await internal.emitSessionsChanged();
-    rows = [{ ...rows[0], updatedAt: 20 }];
-    await internal.emitSessionsChanged();
-    assert.equal(publications.length, 1,
-      "lifecycle-only persistence must not cross IPC");
-    rows = [{ ...rows[0], updatedAt: 30, messageCount: 2 }];
-    await internal.emitSessionsChanged();
-    assert.equal(publications.length, 2,
-      "user-visible catalog changes must still publish");
-  } finally {
-    unsubscribe();
-    await host.dispose();
-    await rm(root, { recursive: true, force: true });
-  }
 });
 
 test("only the visible file editor remains mounted", async () => {
@@ -204,124 +97,6 @@ test("the external LSP owns TypeScript intelligence without a duplicate Monaco w
   assert.match(vite, /monaco-typescript-external\.ts/);
   assert.doesNotMatch(setup, /ts\.worker|typescriptDefaults|javascriptDefaults/);
   assert.doesNotMatch(editor, /getTypeScriptWorker|getJavaScriptWorker|monacoTypeScript/);
-});
-
-test("resumeSession uses the cached catalog before requesting a storage refresh", async () => {
-  const root = await mkdtemp(join(tmpdir(), "mixdog-perf-resume-"));
-  const workspace = join(root, "workspace", "unclassified");
-  await mkdir(workspace, { recursive: true });
-  const canonicalWorkspace = await realpath(workspace);
-  const calls = [];
-  let resumeOptions = null;
-  let state = { sessionId: "", items: [], queued: [] };
-  const row = {
-    id: "cached_session",
-    preview: "Cached session",
-    cwd: canonicalWorkspace,
-    desktopSession: { classification: "task", projectPath: null },
-  };
-  const engine = {
-    getState: () => state,
-    listSessions: (options) => {
-      calls.push(options);
-      return [row];
-    },
-    resume: async (sessionId, options) => {
-      resumeOptions = options;
-      state = { sessionId, items: [], queued: [] };
-      return true;
-    },
-    subscribe: () => () => {},
-    dispose: async () => {},
-  };
-  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
-  const internal = host;
-  internal.engine = engine;
-  internal.engineWorkspace = canonicalWorkspace;
-  internal.engineDesktopSession = { classification: "task", projectPath: null };
-
-  try {
-    await host.resumeSession(row.id);
-    assert.deepEqual(calls, [undefined]);
-    assert.deepEqual(resumeOptions, { transcriptItemLimit: DESKTOP_TRANSCRIPT_ITEM_LIMIT });
-  } finally {
-    await host.dispose();
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("session prefetch reaches the warm engine without changing its active state", async () => {
-  const calls = [];
-  const state = { sessionId: "active", items: [], queued: [] };
-  const engine = {
-    getState: () => state,
-    prefetchSession: async (id) => {
-      calls.push(id);
-      return true;
-    },
-    dispose: async () => {},
-  };
-  const host = new EngineHost({ createEngine: async () => engine });
-  const internal = host;
-  internal.engine = engine;
-
-  assert.equal(await host.prefetchSession("next_session"), true);
-  assert.deepEqual(calls, ["next_session"]);
-  assert.equal(engine.getState().sessionId, "active");
-  await host.dispose();
-});
-
-test("slow session prefetch never occupies the foreground transition lock", async () => {
-  const originalCwd = process.cwd();
-  const root = await mkdtemp(join(tmpdir(), "mixdog-perf-prefetch-lock-"));
-  const workspace = join(root, "workspace", "unclassified");
-  await mkdir(workspace, { recursive: true });
-  const canonicalWorkspace = await realpath(workspace);
-  let releasePrefetch;
-  const prefetchGate = new Promise((resolve) => { releasePrefetch = resolve; });
-  let state = { sessionId: "active", items: [], queued: [] };
-  const row = {
-    id: "next_session",
-    preview: "Next session",
-    cwd: canonicalWorkspace,
-    desktopSession: { classification: "task", projectPath: null },
-  };
-  const engine = {
-    getState: () => state,
-    listSessions: () => [row],
-    prefetchSession: async () => {
-      await prefetchGate;
-      return true;
-    },
-    resume: async (sessionId) => {
-      state = { sessionId, items: [], queued: [] };
-      return true;
-    },
-    subscribe: () => () => {},
-    dispose: async () => {},
-  };
-  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
-  const internal = host;
-  internal.engine = engine;
-  internal.engineWorkspace = canonicalWorkspace;
-  internal.engineDesktopSession = { classification: "task", projectPath: null };
-  const warming = host.prefetchSession(row.id);
-  const resume = host.resumeSession(row.id);
-  try {
-    const resumed = await Promise.race([resume, wait(75).then(() => null)]);
-    assert.equal(resumed?.sessionId, row.id,
-      "foreground resume must complete while speculative prefetch is still pending");
-  } finally {
-    releasePrefetch();
-    await warming;
-    await resume;
-    try {
-      await host.dispose();
-    } finally {
-      process.chdir(originalCwd);
-      await rm(root, { recursive: true, force: true });
-    }
-  }
 });
 
 test("TranscriptRow keeps semantically unchanged rows memoized", () => {
@@ -426,6 +201,21 @@ test("streaming-only state patches preserve settled item array identity", async 
   assert.match(preload, /priorText\.slice\(0, tailPatch\.prefix\) \+ tailPatch\.append/);
 });
 
+test("composer perf diagnostics stay off the production typing path", async () => {
+  const [preload, composer] = await Promise.all([
+    readFile(new URL("../preload/index.ts", import.meta.url), "utf8"),
+    readFile(new URL("../renderer/Composer.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(preload,
+    /\.\.\.\(process\.env\.MIXDOG_DESKTOP_PERF === '1'[\s\S]*?perfLog: \(line: string\)/,
+    "the preload must omit perfLog unless diagnostics were explicitly enabled");
+  assert.match(composer,
+    /window\.mixdogDesktop\?\.perfLog && !composerPaintSamplePending\.current/,
+    "rapid typing must not queue an unbounded pair of paint callbacks per key");
+  assert.match(composer, /if \(attachmentError\) setAttachmentError\(''\)/);
+  assert.match(composer, /if \(composerNotice\) setComposerNotice\(''\)/);
+});
+
 test("more than eight pane lanes retain incremental 5,000-row delta baselines", async () => {
   const laneCount = 16;
   const iterations = 20;
@@ -475,22 +265,22 @@ test("more than eight pane lanes retain incremental 5,000-row delta baselines", 
   assert.ok(deltaBytes < initialBytes / 10,
     `pane event-storm deltas are too large (${deltaBytes} vs initial ${initialBytes})`);
 
-  const [host, ipc, backend, backendClient, preload, rendererEntry] = await Promise.all([
-    readFile(new URL("./engine-host.ts", import.meta.url), "utf8"),
+  const [backendHost, ipc, backend, backendClient, preload, rendererEntry] = await Promise.all([
+    readFile(new URL("./backend-host.ts", import.meta.url), "utf8"),
     readFile(new URL("./ipc.ts", import.meta.url), "utf8"),
     readFile(new URL("./desktop-backend.ts", import.meta.url), "utf8"),
     readFile(new URL("./desktop-backend-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../preload/index.ts", import.meta.url), "utf8"),
     readFile(new URL("../renderer/main.tsx", import.meta.url), "utf8"),
   ]);
-  assert.doesNotMatch(host, /MAX_VISIBLE_SESSION_LIVE_VIEWS|slice\(0,\s*8\)/);
+  assert.doesNotMatch(backendHost, /MAX_VISIBLE_SESSION_LIVE_VIEWS|slice\(0,\s*8\)/);
   assert.doesNotMatch(ipc, /sessionStateEncoders\.size\s*>\s*8|slice\(0,\s*8\)/);
   assert.doesNotMatch(backend, /SESSION_STATE_DELTA_CACHE_LIMIT|sessionStateEncoders\.size\s*>\s*8/);
   assert.doesNotMatch(backendClient, /sessionStateDecoders\.size\s*>\s*8|slice\(0,\s*8\)/);
   assert.doesNotMatch(preload, /decoders\.size\s*>\s*8/);
   assert.doesNotMatch(rendererEntry, /slice\(0,\s*8\)/);
-  assert.match(host, /return this\.sessionLanes\.subscribe\(listener\)/,
-    "the host lane must preserve direct peek and pooled-engine publication contracts");
+  assert.match(backendHost, /this\.sessionClient\.subscribe\(\{/,
+    "visible panes must subscribe through the explicit daemon session protocol");
   const visible = new Set(["pane_visible"]);
   assert.equal(shouldPublishSessionState("pane_visible", {}, visible), true);
   assert.equal(shouldPublishSessionState("pane_hidden", {}, visible), false);
@@ -647,14 +437,14 @@ test("desktop Markdown bypasses GFM only for safe literal single lines", () => {
 });
 
 test("desktop hot paths avoid synchronous process and filesystem work", async () => {
-  const [conversation, turnReview, snapshotStore, shellRuntime, atomicFile, engineHost, main] =
+  const [conversation, turnReview, snapshotStore, shellRuntime, atomicFile, backendHost, main] =
     await Promise.all([
       readFile(new URL("../renderer/Conversation.tsx", import.meta.url), "utf8"),
       readFile(new URL("../renderer/TurnReview.tsx", import.meta.url), "utf8"),
       readFile(new URL("../renderer/desktop-snapshot-store.ts", import.meta.url), "utf8"),
       readFile(new URL("../../../../src/runtime/agent/orchestrator/tools/builtin/shell-runtime.mjs", import.meta.url), "utf8"),
       readFile(new URL("../../../../src/runtime/shared/atomic-file.mjs", import.meta.url), "utf8"),
-      readFile(new URL("./engine-host.ts", import.meta.url), "utf8"),
+      readFile(new URL("./backend-host.ts", import.meta.url), "utf8"),
       readFile(new URL("./index.ts", import.meta.url), "utf8"),
     ]);
   assert.match(conversation, /<TurnReviewBar items=\{settledItems\}/);
@@ -665,7 +455,7 @@ test("desktop hot paths avoid synchronous process and filesystem work", async ()
   assert.doesNotMatch(asyncUpdate, /\breadFileSync\s*\(|\bwriteJsonAtomicSync\s*\(/);
   assert.match(asyncUpdate, /await readFileAsync\(/);
   assert.match(asyncUpdate, /await writeJsonAtomicAsync\(/);
-  assert.doesNotMatch(engineHost, /appendFileSync/);
+  assert.doesNotMatch(backendHost, /appendFileSync/);
   assert.doesNotMatch(main, /appendFileSync/);
   assert.match(main, /const installed = \[wrap\('spawnSync'\), wrap\('execSync'\), wrap\('execFileSync'\)\]\.some\(Boolean\)/);
   assert.match(main, /\}\)\(\)\.catch\(\(error\) => \{/,
@@ -825,12 +615,12 @@ test("heavy renderer surfaces remain dynamic imports", async () => {
 });
 
 test("cold desktop entry keeps optional native and network modules outside its graph", async () => {
-  const [entry, terminal, updater, host, hostSupport, desktopBackend] = await Promise.all([
+  const [entry, terminal, updater, backendHost, backendDaemon, desktopBackend] = await Promise.all([
     readFile(new URL("./index.ts", import.meta.url), "utf8"),
     readFile(new URL("./terminal-manager.ts", import.meta.url), "utf8"),
     readFile(new URL("./updater.ts", import.meta.url), "utf8"),
-    readFile(new URL("./engine-host.ts", import.meta.url), "utf8"),
-    readFile(new URL("./engine-host-support.ts", import.meta.url), "utf8"),
+    readFile(new URL("./backend-host.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../../../src/standalone/backend-daemon.mjs", import.meta.url), "utf8"),
     readFile(new URL("./desktop-backend.ts", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(entry,
@@ -842,7 +632,7 @@ test("cold desktop entry keeps optional native and network modules outside its g
   assert.match(terminal, /import\(['"]@homebridge\/node-pty-prebuilt-multiarch['"]\)/);
   assert.doesNotMatch(updater, /^import electronUpdater from ['"]electron-updater['"];?$/m);
   assert.match(updater, /import\(['"]electron-updater['"]\)/);
-  assert.match(hostSupport, /session\/store-summary-reader\.mjs/);
-  assert.doesNotMatch(host, /scheduleDefaultEnginePrewarm|enginePrewarmPromise/,
+  assert.match(backendDaemon, /session\/store-summary-reader\.mjs/);
+  assert.doesNotMatch(backendHost, /scheduleDefaultEnginePrewarm|enginePrewarmPromise/,
     "cold sidebar listing must not enqueue background runtime work");
 });

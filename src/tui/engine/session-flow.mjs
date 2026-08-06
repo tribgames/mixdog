@@ -560,7 +560,13 @@ export function createSessionFlow(bag) {
     removeQueuedEntries(queued);
     const queuedText = queued.map((item) => item.text).filter((text) => String(text || '').trim()).join('\n');
     const combinedText = [queuedText, String(currentText || '')].filter((text) => text.trim()).join('\n');
-    return { count: queued.length, text: combinedText, pastedImages: mergePastedImages(queued), pastedTexts: mergePastedTexts(queued) };
+    return {
+      count: queued.length,
+      ids: queued.map((item) => String(item.id || '')).filter(Boolean),
+      text: combinedText,
+      pastedImages: mergePastedImages(queued),
+      pastedTexts: mergePastedTexts(queued),
+    };
   }
 
   const resetStats = () => {

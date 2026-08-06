@@ -1,7 +1,5 @@
 // Desktop project registry: the shared core projects.json store plus the
 // desktop-only preferences sidecar (aliases, pins, legacy hidden tombstones).
-// Extracted from EngineHost, which still owns the transition lock — every
-// method here is called INSIDE that lock and never takes one itself.
 import { isAbsolute, resolve } from 'node:path';
 
 import type { DesktopProjectSummary } from '../shared/contract';
@@ -10,13 +8,13 @@ import type {
   DesktopProjectPreferences,
   MixdogProject,
   MixdogProjectsModule,
-} from './engine-host-support';
+} from './backend-support';
 import {
   matchingProjectPath,
   normalizedProjectKey,
   projectAlias,
   withoutMatchingProject,
-} from './engine-host-support';
+} from './backend-support';
 
 /** Recent-project list length shown in the snapshot. */
 const RECENT_PROJECT_LIMIT = 12;

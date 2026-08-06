@@ -8,11 +8,9 @@ import { classifyToolFailure } from '../src/runtime/agent/orchestrator/agent-tra
 import { ExecResult, execShellCommand } from '../src/runtime/agent/orchestrator/tools/shell-command.mjs';
 import { _composeShellFailure, _shellFailureStatus } from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
 import { isShellFailureResult } from '../src/runtime/agent/orchestrator/session/result-classification.mjs';
-import { normalizePostShellArgs, postShellFailureReason } from '../src/runtime/agent/orchestrator/session/loop/tool-exec.mjs';
 
 test('shell outcome is read from status markers, never a leading Error: line', () => {
-  // Real failures — including the ⚠️-warning-prefixed shape the old
-  // `/^Error[\s:[]/` post_shell probe silently passed as a success.
+  // Real failures, including a warning-prefixed shell failure.
   assert.equal(isShellFailureResult('Error: [shell-run-failed] [exit code: 2]\n\nboom'), true);
   assert.equal(isShellFailureResult('Error: [shell-tool-failed] PowerShell preflight blocked this command'), true);
   assert.equal(isShellFailureResult('⚠️ destructive command warning\nError: [shell-run-failed] [signal: SIGKILL]'), true);
@@ -20,22 +18,6 @@ test('shell outcome is read from status markers, never a leading Error: line', (
   // Command stdout that merely starts with "Error:" is NOT a shell failure.
   assert.equal(isShellFailureResult('Error: not really — this is stdout\n'), false);
   assert.equal(isShellFailureResult('ok\n'), false);
-});
-
-test('post_shell takes the shell tool argument surface and names its failure', () => {
-  assert.deepEqual(normalizePostShellArgs('  npm test '), { command: 'npm test' });
-  // Same arguments as `shell`; async mode is dropped so the verification
-  // settles inside the patch call.
-  assert.deepEqual(
-    normalizePostShellArgs({ command: 'ls', shell: 'bash', timeout: 5000, cwd: 'x', merge_stderr: true, mode: 'async' }),
-    { command: 'ls', shell: 'bash', timeout: 5000, cwd: 'x', merge_stderr: true },
-  );
-  assert.equal(normalizePostShellArgs({ command: '   ' }), null);
-  assert.equal(normalizePostShellArgs(null), null);
-  assert.match(postShellFailureReason('Error: [shell-tool-failed] PowerShell preflight blocked this command'), /preflight/);
-  assert.match(postShellFailureReason('Error: [shell-run-failed] [exit code: 2]\n\nboom'), /exit code 2/);
-  assert.match(postShellFailureReason('Error: [shell-run-failed] [timeout: 120000ms signal: SIGKILL]'), /timed out after 120000ms/);
-  assert.match(postShellFailureReason('Error: [shell-run-failed] [signal: SIGKILL]'), /killed by SIGKILL/);
 });
 
 test('shell trace classification uses only the leading status marker', () => {

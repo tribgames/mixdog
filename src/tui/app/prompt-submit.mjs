@@ -16,13 +16,6 @@ import {
   imageReferenceIds,
   pastedTextReferenceIds,
 } from '../paste-attachments.mjs';
-import {
-  ensureDir,
-  isDirectory,
-  pathExists,
-  renameProject,
-  resolveProjectPath,
-} from '../../standalone/projects.mjs';
 
 export function createPromptSubmit({
   store,
@@ -56,6 +49,13 @@ export function createPromptSubmit({
   pastedImagesRef,
   pastedTextsRef,
 }) {
+  const backendCall = (name, ...args) => {
+    const target = store?.[name];
+    if (typeof target !== 'function') {
+      return Promise.reject(new TypeError(`project backend method ${name} is unavailable`));
+    }
+    return Promise.resolve(target.apply(store, args));
+  };
   const submitPrompt = (prompt, options) => {
     if (typeof store.submitAsync !== 'function') return store.submit(prompt, options);
     void Promise.resolve(store.submitAsync(prompt, options)).then((accepted) => {
@@ -240,9 +240,14 @@ export function createPromptSubmit({
             store.pushNotice('working directory path is required', 'warn');
             return false;
           }
-          store.setCwd?.(commandText, { message: `Project set: ${projectNameFromPath(commandText)}` });
-          setSettingsPrompt(null);
-          void openSettingsPicker();
+          void backendCall('setCwd', commandText, {
+            message: `Project set: ${projectNameFromPath(commandText)}`,
+          }).then(() => {
+            setSettingsPrompt(null);
+            void openSettingsPicker();
+          }).catch((error) => {
+            store.pushNotice(`project switch failed: ${error?.message || error}`, 'error');
+          });
           return true;
         }
         if (settingsPrompt.kind === 'project-new') {
@@ -250,23 +255,25 @@ export function createPromptSubmit({
             store.pushNotice('project path is required', 'warn');
             return false;
           }
-          const path = resolveProjectPath(commandText);
-          if (isDirectory(path)) {
-            setSettingsPrompt(null);
-            registerProject(path);
-            return true;
-          }
-          // A path that exists but is a regular file is not a valid project dir.
-          if (pathExists(path)) {
-            store.pushNotice(`${path} is not a directory`, 'warn');
-            return false;
-          }
-          // Missing folder: confirm creation before registering.
-          setSettingsPrompt({
-            kind: 'project-create-confirm',
-            label: 'New project · Create folder?',
-            hint: `${path} does not exist. Type "y" to create it, or anything else to cancel.`,
-            pendingPath: path,
+          void backendCall('inspectProjectPath', commandText).then((result) => {
+            const path = String(result?.path || commandText);
+            if (result?.directory === true) {
+              setSettingsPrompt(null);
+              void registerProject(path);
+              return;
+            }
+            if (result?.exists === true) {
+              store.pushNotice(`${path} is not a directory`, 'warn');
+              return;
+            }
+            setSettingsPrompt({
+              kind: 'project-create-confirm',
+              label: 'New project · Create folder?',
+              hint: `${path} does not exist. Type "y" to create it, or anything else to cancel.`,
+              pendingPath: path,
+            });
+          }).catch((error) => {
+            store.pushNotice(`project path check failed: ${error?.message || error}`, 'error');
           });
           return true;
         }
@@ -274,14 +281,13 @@ export function createPromptSubmit({
           const pendingPath = String(settingsPrompt.pendingPath || '');
           const answer = String(commandText || '').trim().toLowerCase();
           if (answer === 'y' || answer === 'yes') {
-            const created = ensureDir(pendingPath);
-            if (!created) {
-              store.pushNotice(`could not create folder: ${pendingPath}`, 'error');
+            void backendCall('ensureProjectDirectory', pendingPath).then((created) => {
               setSettingsPrompt(null);
-              return true;
-            }
-            setSettingsPrompt(null);
-            registerProject(pendingPath);
+              void registerProject(created || pendingPath);
+            }).catch((error) => {
+              store.pushNotice(`could not create folder: ${error?.message || error}`, 'error');
+              setSettingsPrompt(null);
+            });
             return true;
           }
           setSettingsPrompt(null);
@@ -290,16 +296,15 @@ export function createPromptSubmit({
         }
         if (settingsPrompt.kind === 'project-rename') {
           const targetPath = String(settingsPrompt.projectPath || '');
-          try {
-            const updated = renameProject(targetPath, commandText);
+          void backendCall('renameProject', targetPath, commandText).then((updated) => {
             if (updated) {
               store.pushNotice(`project renamed to "${updated.name}"`, 'info');
             }
-          } catch (e) {
-            store.pushNotice(`rename failed: ${e?.message || e}`, 'error');
-          }
-          setSettingsPrompt(null);
-          openProjectPicker();
+            setSettingsPrompt(null);
+            void openProjectPicker();
+          }).catch((error) => {
+            store.pushNotice(`rename failed: ${error?.message || error}`, 'error');
+          });
           return true;
         }
         if (settingsPrompt.kind === 'system-shell') {

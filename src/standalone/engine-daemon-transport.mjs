@@ -215,14 +215,15 @@ export function createEngineDaemonTransport({
     'session.read',
     'session.subscribe',
     'session.submit',
+    'session.configure',
+    'project.list',
+    'project.inspect',
+    'project.add',
+    'project.touch',
+    'project.rename',
+    'project.remove',
+    'project.ensureDirectory',
     'desktop.init',
-  ]);
-  const INTERACTIVE_SESSION_METHODS = new Set([
-    'abort',
-    'resolveToolApproval',
-    'setFast',
-    'setModelRoute',
-    'setRoute',
   ]);
   const INTERACTIVE_DESKTOP_METHODS = new Set([
     'termEnsure',
@@ -250,6 +251,8 @@ export function createEngineDaemonTransport({
     activeMax: configuredLaneLimit('MIXDOG_ENGINE_DAEMON_INTERACTIVE_RESERVE'),
     queueMax: Math.max(64, Math.min(512, CALL_QUEUE_MAX)),
     minOwnerQueue: 8,
+    dispatchBurst: 1,
+    yieldUnbounded: true,
   });
   // A timed-out registration may already have committed server-side. Replaying
   // the same registrationId returns that token instead of leaking a second
@@ -300,9 +303,6 @@ export function createEngineDaemonTransport({
   function callLane(name, args = {}) {
     if (CRITICAL_CALLS.has(name)) return 'critical';
     if (INTERACTIVE_CALLS.has(name)) return 'interactive';
-    if (name === 'session.invoke' && INTERACTIVE_SESSION_METHODS.has(String(args?.method || ''))) {
-      return 'interactive';
-    }
     if (name === 'desktop.invoke') {
       const adapterMethod = String(args?.method || '');
       const backendMethod = adapterMethod === 'backendInvoke'

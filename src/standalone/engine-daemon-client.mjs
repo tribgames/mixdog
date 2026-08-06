@@ -13,7 +13,13 @@ import { fileURLToPath } from 'node:url';
 import {
   ENGINE_DAEMON_PROTOCOL,
 } from './engine-daemon-protocol.mjs';
-import { engineDaemonLocalBridge } from './engine-daemon-local-bridge.mjs';
+import {
+  createSessionProtocolClient,
+  SESSION_CONFIGURE_ACTIONS,
+  SESSION_CONFIGURE_ACTION_SET,
+  SESSION_READ_ACTIONS,
+  SESSION_READ_ACTION_SET,
+} from './session-protocol.mjs';
 
 function runtimeRoot() {
   return process.env.MIXDOG_RUNTIME_ROOT
@@ -518,12 +524,7 @@ async function ensureSharedAttachment({ cwd, log }) {
   if (shared?.client) return shared;
   if (shared?.pending) return shared.pending;
   const pending = (async () => {
-    const localBridge = process.env.MIXDOG_ENGINE_DAEMON_HOST === '1'
-      ? engineDaemonLocalBridge()
-      : null;
-    const discovery = localBridge
-      ? { pid: process.pid, local: true }
-      : await ensureEngineDaemon({ cwd, log });
+    const discovery = await ensureEngineDaemon({ cwd, log });
     const views = new Map();
     const state = { client: null, views, discovery, refs: liveViews.size, log, cwd };
     const attachmentOptions = {
@@ -546,9 +547,8 @@ async function ensureSharedAttachment({ cwd, log }) {
         scheduleReattach({ cwd: state.cwd, log });
       },
     };
-    state.client = localBridge
-      ? await localBridge.attach(attachmentOptions)
-      : await attachEngineDaemon({ discovery, ...attachmentOptions });
+    const rawTransport = await attachEngineDaemon({ discovery, ...attachmentOptions });
+    state.client = createSessionProtocolClient(rawTransport);
     shared = state;
     for (const view of liveViews) {
       addSessionView(views, view.sessionId(), view);
@@ -567,11 +567,6 @@ async function ensureSharedAttachment({ cwd, log }) {
   }
 }
 
-const LOCAL_ENGINE_KEYS = new Set([
-  'getState', 'subscribe', 'dispose', 'isRemoteEngine', 'disposedView',
-  'then', 'catch', 'finally', 'toJSON', 'inspect', Symbol.toStringTag,
-]);
-
 /** Remote counterpart of createEngineSession(): this is a session projection,
  *  while execution and durable intake stay in the backend daemon. */
 export async function createRemoteEngineSession(options = {}) {
@@ -586,7 +581,7 @@ export async function createRemoteEngineSession(options = {}) {
     desktopSession: options.desktopSession ?? null,
   };
   let attachment = await ensureSharedAttachment({ cwd, log });
-  const created = await attachment.client.call('session.create', openParams, {
+  const created = await attachment.client.create(openParams, {
     callId: `session-create:${process.pid}:${randomUUID()}`,
   });
   let sessionId = String(created?.sessionId || '');
@@ -600,9 +595,6 @@ export async function createRemoteEngineSession(options = {}) {
   // from the newly attached listener.
   let revisionAttachment = attachment;
   let revisionSessionId = sessionId;
-  let sync = created?.sync ?? {};
-  let syncRevision = Number(created?.syncRevision) || 0;
-  let syncAttachment = attachment;
   let reservedOnly = created?.reservedOnly === true;
   let disposed = false;
   const listeners = new Set();
@@ -660,26 +652,6 @@ export async function createRemoteEngineSession(options = {}) {
     return false;
   }
 
-  function applySyncBody(
-    body,
-    sourceAttachment = resultAttachments.get(body) || attachment,
-  ) {
-    if (!body || sourceAttachment !== attachment) return;
-    const nextSyncRevision = Number.isInteger(body.syncRevision) ? body.syncRevision : null;
-    if (syncAttachment !== sourceAttachment) {
-      if (body.sync) sync = body.sync;
-      syncRevision = nextSyncRevision ?? 0;
-      syncAttachment = sourceAttachment;
-      return;
-    }
-    if (body.sync && (nextSyncRevision === null || nextSyncRevision >= syncRevision)) {
-      sync = body.sync;
-    }
-    if (nextSyncRevision !== null && nextSyncRevision >= syncRevision) {
-      syncRevision = nextSyncRevision;
-    }
-  }
-
   function baseRevisionFor(
     sourceAttachment = attachment,
     targetSessionId = sessionId,
@@ -689,24 +661,18 @@ export async function createRemoteEngineSession(options = {}) {
       : null;
   }
 
-  function baseSyncRevisionFor(sourceAttachment = attachment) {
-    return syncAttachment === sourceAttachment ? syncRevision : null;
-  }
-
   let resyncing = false;
   function resync(reason) {
     if (disposed || resyncing) return;
     resyncing = true;
     const requestAttachment = attachment;
-    void requestAttachment.client.call('session.read', {
+    void requestAttachment.client.read({
       sessionId,
       open: openParams,
       baseRevision: baseRevisionFor(requestAttachment),
-      baseSyncRevision: baseSyncRevisionFor(requestAttachment),
     }).then((result) => {
       if (disposed || requestAttachment !== attachment) return;
       if (result && typeof result === 'object') resultAttachments.set(result, requestAttachment);
-      applySyncBody(result, requestAttachment);
       if (!applyBody(result, requestAttachment) && result?.revision !== undefined) {
         log(`session ${sessionId} resync returned an unusable body`);
       }
@@ -734,29 +700,37 @@ export async function createRemoteEngineSession(options = {}) {
       addSessionView(recoveryAttachment.views, sessionId, view);
       revisionAttachment = null;
       revisionSessionId = '';
-      syncAttachment = null;
       let result;
       try {
-        result = await recoveryAttachment.client.call('session.subscribe', {
-          sessionId, open: openParams, baseRevision: null, baseSyncRevision: null,
+        result = await recoveryAttachment.client.subscribe({
+          sessionId, open: openParams, baseRevision: null,
         });
-      } catch {
-        result = await recoveryAttachment.client.call('session.create', {
-          ...openParams, sessionId,
-        }, { callId: `session-recreate:${sessionId}` });
+      } catch (error) {
+        // A reserved New task has no durable transcript until its first
+        // accepted submit. If the daemon dies before then, recreate the same
+        // durable address instead of silently switching the pane to another
+        // session. A submitted session always retries subscribe first so an
+        // accepted-but-unacknowledged prompt can never be shadowed.
+        if (!reservedOnly || !/session .* is not available/i.test(String(error?.message || error))) {
+          throw error;
+        }
+        result = await recoveryAttachment.client.create({
+          ...openParams,
+          sessionId,
+        }, {
+          callId: `session-recover-reservation:${sessionId}`,
+        });
       }
       if (disposed || recoveryAttachment !== attachment) return;
       if (result && typeof result === 'object') resultAttachments.set(result, recoveryAttachment);
-      applySyncBody(result, recoveryAttachment);
       if (!applyBody(result, recoveryAttachment)) {
-        const baseline = await recoveryAttachment.client.call('session.read', {
-          sessionId, open: openParams, baseRevision: null, baseSyncRevision: null,
+        const baseline = await recoveryAttachment.client.read({
+          sessionId, open: openParams, baseRevision: null,
         });
         if (disposed || recoveryAttachment !== attachment) return;
         if (baseline && typeof baseline === 'object') {
           resultAttachments.set(baseline, recoveryAttachment);
         }
-        applySyncBody(baseline, recoveryAttachment);
         if (!applyBody(baseline, recoveryAttachment)) {
           throw new Error(`session ${sessionId} recovery returned no full snapshot`);
         }
@@ -778,9 +752,7 @@ export async function createRemoteEngineSession(options = {}) {
     },
     applyGone(reason) {
       if (disposed) return;
-      void recover(attachment).catch((err) => {
-        log(`session ${sessionId} reload after ${reason} failed: ${err?.message || err}`);
-      });
+      log(`session ${sessionId} is no longer available (${reason})`);
     },
     applyDetached(reason) {
       log(`session ${sessionId} projection detached (${reason})`);
@@ -794,7 +766,24 @@ export async function createRemoteEngineSession(options = {}) {
   async function sendCall(route, payload, callId) {
     const send = async () => {
       const sourceAttachment = attachment;
-      const result = await sourceAttachment.client.call(route, payload, { callId });
+      let result;
+      if (route === 'session.create') result = await sourceAttachment.client.create(payload, { callId });
+      else if (route === 'session.read') result = await sourceAttachment.client.read(payload, { callId });
+      else if (route === 'session.subscribe') result = await sourceAttachment.client.subscribe(payload, { callId });
+      else if (route === 'session.submit') result = await sourceAttachment.client.submit(payload, { callId });
+      else if (route === 'session.abort') result = await sourceAttachment.client.abort(payload, { callId });
+      else if (route === 'session.approve') result = await sourceAttachment.client.approve(payload, { callId });
+      else if (route === 'session.configure') result = await sourceAttachment.client.configure(payload, { callId });
+      else if (route === 'project.list') result = await sourceAttachment.client.projectList(payload, { callId });
+      else if (route === 'project.inspect') result = await sourceAttachment.client.projectInspect(payload, { callId });
+      else if (route === 'project.add') result = await sourceAttachment.client.projectAdd(payload, { callId });
+      else if (route === 'project.touch') result = await sourceAttachment.client.projectTouch(payload, { callId });
+      else if (route === 'project.rename') result = await sourceAttachment.client.projectRename(payload, { callId });
+      else if (route === 'project.remove') result = await sourceAttachment.client.projectRemove(payload, { callId });
+      else if (route === 'project.ensureDirectory') {
+        result = await sourceAttachment.client.projectEnsureDirectory(payload, { callId });
+      }
+      else throw new TypeError(`session route ${route} is unavailable`);
       if (result && typeof result === 'object') {
         resultAttachments.set(result, sourceAttachment);
       }
@@ -827,44 +816,41 @@ export async function createRemoteEngineSession(options = {}) {
       removeSessionView(attachment.views, previousSessionId, view);
       sessionId = nextSessionId;
     }
-    applySyncBody(result, sourceAttachment);
     if (!applyBody(result, sourceAttachment) && result?.revision !== undefined) {
       resync(`${reason} body gap`);
     }
     return result;
   }
 
-  let callChain = Promise.resolve();
-  function serialize(task) {
-    const run = callChain.then(task);
-    callChain = run.then(() => {}, () => {});
+  let transitionChain = Promise.resolve();
+  function serializeTransition(task) {
+    const run = transitionChain.then(task);
+    transitionChain = run.then(() => {}, () => {});
     return run;
   }
 
   function remoteCall(method, args, callOptions = {}) {
     if (disposed) return Promise.reject(new Error('This session view is disposed.'));
+    const route = SESSION_READ_ACTION_SET.has(method)
+      ? 'session.read'
+      : SESSION_CONFIGURE_ACTION_SET.has(method)
+        ? 'session.configure'
+        : null;
+    if (!route) return Promise.reject(new TypeError(`session action ${method} is unavailable`));
     const targetSessionId = sessionId;
     const baseRevision = baseRevisionFor(attachment, targetSessionId);
-    const baseSyncRevision = baseSyncRevisionFor(attachment);
     const stableCallId = typeof callOptions.callId === 'string' && callOptions.callId.trim()
       ? callOptions.callId.trim()
       : randomUUID();
-    return sendCall('session.invoke', {
+    return sendCall(route, {
       sessionId: targetSessionId,
-      method,
+      action: method,
       args,
       open: openParams,
       baseRevision,
-      baseSyncRevision,
     }, stableCallId).then(async (result) => {
       if (!disposed && sessionId === targetSessionId) await applyResult(result, method);
       return result?.value ?? null;
-    });
-  }
-
-  function dispatch(method, args) {
-    void remoteCall(method, args).catch((err) => {
-      log(`session ${method} failed: ${err?.message || err}`);
     });
   }
 
@@ -875,11 +861,10 @@ export async function createRemoteEngineSession(options = {}) {
     addSessionView(attachment.views, nextSessionId, view);
     removeSessionView(attachment.views, previousSessionId, view);
     sessionId = nextSessionId;
-    applySyncBody(result);
     if (!applyBody(result) && result?.revision !== undefined) resync('session rebind body gap');
     if (previousSessionId && previousSessionId !== nextSessionId && lastLocalView) {
       try {
-        await attachment.client.call('session.unsubscribe', { sessionId: previousSessionId });
+        await attachment.client.unsubscribe({ sessionId: previousSessionId });
       } catch (err) {
         log(`session ${previousSessionId} unsubscribe failed: ${err?.message || err}`);
       }
@@ -888,7 +873,7 @@ export async function createRemoteEngineSession(options = {}) {
   }
 
   async function createReservedSession() {
-    return serialize(async () => {
+    return serializeTransition(async () => {
       if (disposed) throw new Error('This session view is disposed.');
       const previousSessionId = sessionId;
       const result = await sendCall('session.create', openParams,
@@ -900,14 +885,13 @@ export async function createRemoteEngineSession(options = {}) {
   async function resumeSession(targetSessionId, resumeOptions) {
     const target = String(targetSessionId || '');
     if (!target) return false;
-    return serialize(async () => {
+    return serializeTransition(async () => {
       if (disposed) throw new Error('This session view is disposed.');
       if (target === sessionId) {
         const result = await sendCall('session.read', {
           sessionId,
           open: openParams,
           baseRevision: baseRevisionFor(),
-          baseSyncRevision: baseSyncRevisionFor(),
         }, randomUUID());
         await applyResult(result, 'resume');
         return true;
@@ -917,7 +901,6 @@ export async function createRemoteEngineSession(options = {}) {
         sessionId: target,
         open: { ...openParams, resumeOptions: resumeOptions || undefined },
         baseRevision: null,
-        baseSyncRevision: baseSyncRevisionFor(),
       }, randomUUID());
       await rebindTo(result, previousSessionId);
       return true;
@@ -931,14 +914,12 @@ export async function createRemoteEngineSession(options = {}) {
       || `session-submit-${process.pid}-${Date.now()}-${(submitSeq += 1)}`;
     const targetSessionId = sessionId;
     const baseRevision = baseRevisionFor(attachment, targetSessionId);
-    const baseSyncRevision = baseSyncRevisionFor(attachment);
     const result = await sendCall('session.submit', {
       sessionId: targetSessionId,
       prompt,
       options: { ...(options || {}), id: submissionId },
       open: openParams,
       baseRevision,
-      baseSyncRevision,
     }, `session-submit:${targetSessionId}:${submissionId}`);
     if (!disposed && sessionId === targetSessionId) await applyResult(result, 'submit');
     return result?.accepted === true;
@@ -949,7 +930,6 @@ export async function createRemoteEngineSession(options = {}) {
     const result = await sendCall('session.abort', {
       sessionId, open: openParams, options,
       baseRevision: baseRevisionFor(),
-      baseSyncRevision: baseSyncRevisionFor(),
     }, randomUUID());
     return await applyResult(result, 'abort');
   }
@@ -962,12 +942,41 @@ export async function createRemoteEngineSession(options = {}) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    listSessions(options) {
-      if (options?.refreshFromStorage) dispatch('listSessions', [options]);
-      return Array.isArray(sync.sessions) ? sync.sessions : [];
+    async listSessions(options = {}) {
+      const result = await attachment.client.list(options, { callId: randomUUID() });
+      return Array.isArray(result?.sessions) ? result.sessions : [];
     },
-    sessionStoreDir() {
-      return typeof sync.sessionStoreDir === 'string' ? sync.sessionStoreDir : null;
+    async listProjects() {
+      const result = await sendCall('project.list', {}, randomUUID());
+      return Array.isArray(result?.projects) ? result.projects : [];
+    },
+    async inspectProjectPath(projectPath) {
+      return await sendCall('project.inspect', { path: projectPath }, randomUUID());
+    },
+    async addProject(projectPath) {
+      const result = await sendCall('project.add', { path: projectPath }, randomUUID());
+      return result?.project ?? null;
+    },
+    async touchProjectSelected(projectPath) {
+      const result = await sendCall('project.touch', { path: projectPath }, randomUUID());
+      return result?.project ?? null;
+    },
+    async renameProject(projectPath, name) {
+      const result = await sendCall('project.rename', {
+        path: projectPath,
+        name,
+      }, randomUUID());
+      return result?.project ?? null;
+    },
+    async removeProject(projectPath) {
+      const result = await sendCall('project.remove', { path: projectPath }, randomUUID());
+      return result?.removed === true;
+    },
+    async ensureProjectDirectory(projectPath) {
+      const result = await sendCall('project.ensureDirectory', {
+        path: projectPath,
+      }, randomUUID());
+      return String(result?.path || '');
     },
     async newSession(options = {}) {
       // A newly-created daemon view already owns a durable reserved address.
@@ -983,13 +992,10 @@ export async function createRemoteEngineSession(options = {}) {
     async prefetchSession(targetSessionId) {
       const target = String(targetSessionId || '');
       if (!target) return false;
-      await callDaemonSession({
+      await attachment.client.read({
         sessionId: target,
-        method: 'read',
         open: openParams,
-        cwd,
-        log,
-        attempts: 1,
+        baseRevision: null,
       });
       return true;
     },
@@ -1033,7 +1039,7 @@ export async function createRemoteEngineSession(options = {}) {
       const lastLocalView = sessionViewCount(attachment.views, releasedSessionId) <= 1;
       if (lastLocalView) {
         try {
-          await attachment.client.call('session.unsubscribe', { sessionId: releasedSessionId });
+          await attachment.client.unsubscribe({ sessionId: releasedSessionId });
         } catch (err) {
           log(`session ${releasedSessionId} unsubscribe failed: ${err?.message || err}`);
         }
@@ -1053,91 +1059,11 @@ export async function createRemoteEngineSession(options = {}) {
     },
   };
 
-  return new Proxy(base, {
-    get(target, property, receiver) {
-      if (property in target || LOCAL_ENGINE_KEYS.has(property)) {
-        return Reflect.get(target, property, receiver);
-      }
-      if (typeof property === 'symbol') return undefined;
-      return (...args) => remoteCall(property, args);
-    },
-    has(target, property) {
-      return typeof property === 'string' ? true : Reflect.has(target, property);
-    },
-  });
-}
-
-/** Session-addressed backend request from a view that holds NO engine for that
- *  session. The daemon owns the engine pool, so a renderer (desktop pane, TUI
- *  tab) hands it the request and the daemon resolves — or loads — the session's
- *  engine. This is what makes "no live engine here" impossible to hit.
- *  Only a dead transport is retried; an engine-side verdict comes straight back. */
-export async function callDaemonSession({
-  sessionId,
-  method,
-  args = [],
-  open: openHints = {},
-  cwd = process.cwd(),
-  log = () => {},
-  attempts = 3,
-} = {}) {
-  const id = String(sessionId || '');
-  if (!id) throw new TypeError('sessionId is required');
-  const name = String(method || '');
-  if (!name) throw new TypeError('method is required');
-  let route = 'session.invoke';
-  let payload = { sessionId: id, method: name, args, open: openHints || {} };
-  if (name === 'submit') {
-    route = 'session.submit';
-    payload = {
-      sessionId: id,
-      prompt: args?.[0],
-      options: args?.[1] || {},
-      open: openHints || {},
-    };
-  } else if (name === 'abort') {
-    route = 'session.abort';
-    payload = { sessionId: id, options: args?.[0] || {}, open: openHints || {} };
-  } else if (name === 'resolveToolApproval') {
-    route = 'session.approve';
-    payload = {
-      sessionId: id,
-      approvalId: args?.[0],
-      decision: args?.[1],
-      open: openHints || {},
-    };
-  } else if (name === 'read') {
-    // Prefetch/peek: WARM (or load) the session's engine. This is a daemon
-    // route, not an engine method — sending it as session.invoke asked the
-    // engine for a `read()` that the store contract has never had, so every
-    // prefetch failed with "engine method read is unavailable".
-    route = 'session.read';
-    payload = { sessionId: id, open: openHints || {}, baseRevision: null };
+  for (const action of SESSION_READ_ACTIONS) {
+    if (!Object.hasOwn(base, action)) base[action] = (...args) => remoteCall(action, args);
   }
-  // One id for the whole retry sequence. In particular, a submit whose HTTP
-  // response was lost must hit the transport cache instead of being accepted
-  // twice by the daemon.
-  const submissionId = name === 'submit' ? String(args?.[1]?.id || '').trim() : '';
-  const callId = submissionId
-    ? `session-submit:${id}:${submissionId}`
-    : randomUUID();
-  let lastError = null;
-  for (let attempt = 0; attempt < Math.max(1, attempts); attempt += 1) {
-    const attachment = await ensureSharedAttachment({ cwd, log });
-    try {
-      const result = await attachment.client.call(route, payload, { callId });
-      if (name === 'submit') return { ...result, value: result?.accepted === true };
-      if (name === 'abort') return { ...result, value: result?.aborted === true };
-      if (name === 'resolveToolApproval') return { ...result, value: result?.approved === true };
-      return result;
-    } catch (err) {
-      if (!err?.daemonTransportError) throw err;
-      lastError = err;
-      // The attachment died under us; drop it so the next attempt re-discovers
-      // (or respawns) the daemon instead of calling into a closed socket.
-      if (shared === attachment) shared = null;
-      await delay(200 * (attempt + 1));
-    }
+  for (const action of SESSION_CONFIGURE_ACTIONS) {
+    if (!Object.hasOwn(base, action)) base[action] = (...args) => remoteCall(action, args);
   }
-  throw lastError || new Error('engine daemon session call failed');
+  return base;
 }

@@ -13,7 +13,14 @@ import {
 } from '../src/standalone/explore-tool.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs';
-import { TOOL_SEARCH_TOOL } from '../src/session-runtime/tool-defs.mjs';
+import { PATCH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
+import {
+  CWD_TOOL,
+  SESSION_MANAGE_TOOL,
+  TOOL_SEARCH_TOOL,
+} from '../src/session-runtime/tool-defs.mjs';
+import { TOOL_DEFS as WEB_TOOL_DEFS } from '../src/runtime/search/tool-defs.mjs';
+import { TOOL_DEFS as MEMORY_TOOL_DEFS } from '../src/runtime/memory/tool-defs.mjs';
 import { createEagerDispatcher } from '../src/runtime/agent/orchestrator/session/eager-dispatch.mjs';
 import { crossTurnSignature } from '../src/runtime/agent/orchestrator/session/loop/completion-guards.mjs';
 import {
@@ -81,57 +88,76 @@ test('explore hard timeout is an observable tool error, not a normal miss', () =
   );
 });
 
-test('builtin descriptions stay contract-only; routing policy lives in shared rules', () => {
+test('tool descriptions stay mechanical while routing stays in shared policy', () => {
   const byName = Object.fromEntries(BUILTIN_TOOLS.map((tool) => [tool.name, tool]));
-  const rule = readFileSync(new URL('../src/rules/shared/01-tool.md', import.meta.url), 'utf8');
-  const policy = rule.replace(/\s+/g, ' ');
-  // Policy (not prose) lives in the shared rules: assert the CONTRACT, never a
-  // sentence — a wording pass must not fail this test, a dropped rule must.
-  assert.match(policy, /`find` first for guessed/i);
-  assert.match(policy, /verified paths/i);
-  for (const name of ['read', 'grep', 'glob', 'find', 'list', 'shell']) {
-    assert.doesNotMatch(byName[name].description, /\bfind first\b|\bverified\b/i, `${name} description must stay contract-only`);
-  }
-  // The contract itself stays on the tool surface.
-  assert.match(byName.read.description, /Batch paths\/regions as real arrays.*path\[\]/i);
-  assert.match(byName.grep.description, /literal or regex/i);
-  assert.match(byName.find.description, /fuzzy lookup/i);
-  assert.match(byName.find.description, /not file contents/i);
+  assert.match(byName.read.description, /file contents or line ranges/i);
+  assert.match(byName.grep.description, /literal\/regex search.*source blocks with context/i);
+  assert.match(byName.find.description, /partial path\/name lookup.*paths only/i);
+  assert.match(byName.list.description, /directory entries.*path \+ type/i);
+  assert.match(byName.glob.description, /glob patterns under base directories/i);
+  assert.match(byName.shell.description, /^Run a shell command\./i);
   assert.doesNotMatch(byName.shell.description, /apply_patch|fixed verification|post-patch shell/i);
   assert.doesNotMatch(byName.shell.description, /sleep\/watch\/dev loops|PowerShell:/i);
+  assert.match(EXPLORE_TOOL.description, /coordinate locator/i);
+  assert.match(CODE_GRAPH_TOOL_DEFS[0]?.description || '', /structure, symbol relations, and flow/i);
   assert.match(CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties?.symbols?.description || '', /batch multiple in one symbols\[\]/i);
-  assert.match(CODE_GRAPH_TOOL_DEFS[0]?.description || '', /over source files/i);
+  assert.match(PATCH_TOOL_DEFS[0]?.freeformDescription || '', /Edit files with `apply_patch`.*FREEFORM input/i);
+  const webByName = Object.fromEntries(WEB_TOOL_DEFS.map((tool) => [tool.name, tool]));
+  const memoryByName = Object.fromEntries(MEMORY_TOOL_DEFS.map((tool) => [tool.name, tool]));
+  assert.match(webByName.web_fetch.description, /Fetch page\/docs body from URL/i);
+  assert.match(CWD_TOOL.description, /Show or set the session work project/i);
+  assert.match(SESSION_MANAGE_TOOL.description, /Schedule conversation reset at current-turn end/i);
+  assert.match(memoryByName.memory.description, /^Core-memory mutation\/status\.$/i);
+  for (const text of [
+    byName.read.description,
+    byName.grep.description,
+    byName.glob.description,
+    byName.find.description,
+    byName.list.description,
+    byName.shell.description,
+    EXPLORE_TOOL.description,
+    CODE_GRAPH_TOOL_DEFS[0]?.description || '',
+    PATCH_TOOL_DEFS[0]?.freeformDescription || '',
+    webByName.web_fetch.description,
+    CWD_TOOL.description,
+    SESSION_MANAGE_TOOL.description,
+    memoryByName.memory.description,
+  ]) assert.doesNotMatch(text, /\bUse (?:for|only|when)\b|Final edit/i);
 });
 
 test('shared tool policy routes facets without duplicate content acquisition', () => {
   const rule = readFileSync(new URL('../src/rules/shared/01-tool.md', import.meta.url), 'utf8');
   const policy = rule.replace(/\s+/g, ' ');
-  // 1. Every facet has exactly one route, and each retrieval tool appears in it.
-  assert.match(policy, /one shortest route each/i);
+  // 1. Unknown facets fan out once; anchored facets partition capabilities.
+  assert.match(policy, /Unknown coordinates[\s\S]*one `explore` call[\s\S]*every unknown facet[\s\S]*sent alone/i);
   for (const route of [
-    /unknown coordinates→\s*`explore`/i,
-    /path\/name→`find`/i,
-    /wildcard→`glob`/i,
-    /text\/code→`grep`/i,
-    /→`code_graph`/i,
-    /`read`, not `grep`/i,
-    /directory→`list`/i,
-    /edit→`apply_patch`/i,
-    /→`search`/i,
+    /partial path\/name→`find`/i,
+    /exact directory entries→`list`/i,
+    /wildcard→\s*`glob`/i,
+    /text\/regex-anchored source blocks→`grep`/i,
+    /anchorless known file\/range→\s*`read`/i,
+    /symbol\/relation→`code_graph`/i,
+    /web\/current→`search`/i,
+    /returned URL body→\s*`web_fetch`/i,
+    /prior work→`recall`/i,
+    /durable compact English memory→`memory`/i,
+    /explicit project change→`cwd`/i,
+    /explicit user-requested conversation reset→\s*`session_manage`/i,
   ]) assert.match(policy, route, `routing table lost ${route}`);
   // 2. `shell` ranks below the retrieval tools and never replaces them.
   assert.match(policy, /→`shell`/i);
-  assert.match(policy, /never to cat\/ls\/find\/grep/i);
-  // 3. Independent calls ride one message, merged per tool, with the edit set
-  //    and its proof in the same turn.
+  assert.match(policy, /Never use shell equivalents for file discovery or content retrieval/i);
+  // 3. Retrieve once, then emit final edit + verification in one mixed batch.
   assert.match(policy, /one message/i);
-  assert.match(policy, /`shell` chain \(`&&`\/`;`\)/i);
-  assert.match(policy, /`post_shell`/i);
-  assert.match(policy, /all files and hunks in one call/i);
-  // 4. Nothing already returned is fetched twice, and scope only grows on a miss.
-  assert.match(policy, /never re-fetch what a tool already returned/i);
-  assert.match(policy, /stop once evidence covers the deliverable/i);
-  assert.match(policy, /zero\/error justifies new scope/i);
+  assert.match(policy, /one `shell` chain for verification/i);
+  assert.match(policy, /Once every final edit is fully determined[\s\S]*one assistant tool batch[\s\S]*one `apply_patch`[\s\S]*one `shell` chain/i);
+  assert.match(policy, /runtime supports this mixed batch/i);
+  assert.doesNotMatch(policy, /wait for the patch result|next assistant tool turn|post_shell/i);
+  assert.match(policy, /fetch all information needed in that batch/i);
+  assert.match(policy, /zero\/error or a newly revealed dependency/i);
+  assert.match(policy, /never re-fetch an unchanged span/i);
+  const patchTool = PATCH_TOOL_DEFS[0] || {};
+  assert.doesNotMatch(`${patchTool.description || ''}\n${patchTool.freeformDescription || ''}`, /do not call.*parallel|must not.*parallel/i);
 });
 
 test('explorer locator policy retains its compact behavioral contract', () => {
@@ -276,12 +302,23 @@ test('code graph descriptions partition file and symbol targets', () => {
   const mode = modeProperty.description || '';
   assert.deepEqual(modeProperty.enum, ['overview', 'imports', 'dependents', 'related', 'impact', 'symbols', 'find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees']);
   assert.match(mode, /file modes=\{overview,imports,dependents,related,impact\}.*symbols with files\[\]=file outline.*rest are symbol modes/i);
-  assert.match(description, /exact identifiers via find_symbol\/references\/callers\/callees.*keywords via symbol_search\/search/i);
+  assert.match(description, /exact identifiers via find_symbol\/references\/callers\/callees.*keywords via symbol_search\/search \(symbol-index terms\)/i);
   assert.match(description, /unsupported target arrays are omitted, never mixed/i);
   assert.match(CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties?.files?.description || '', /supported targets only/i);
-  assert.match(CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties?.symbols?.description || '', /exact identifiers.*keywords/i);
+  assert.match(CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties?.symbols?.description || '', /exact identifiers.*keywords.*symbol-index terms/i);
   const grep = Object.fromEntries(BUILTIN_TOOLS.map((tool) => [tool.name, tool])).grep;
   assert.doesNotMatch(grep.inputSchema.properties.pattern.description, /code_graph/i);
+});
+
+test('retrieval tool descriptions keep route capabilities disjoint', () => {
+  const byName = Object.fromEntries(BUILTIN_TOOLS.map((tool) => [tool.name, tool]));
+  assert.match(EXPLORE_TOOL.description, /coordinate locator/i);
+  assert.match(byName.find.description, /partial path\/name lookup.*paths only/i);
+  assert.match(byName.list.description, /directory entries/i);
+  assert.match(byName.grep.description, /literal\/regex search.*source blocks with context/i);
+  assert.match(byName.read.description, /file contents or line ranges/i);
+  assert.doesNotMatch(byName.shell.inputSchema.properties.command.description, /Select-String|Get-Content|\btail\b|\bhead\b/i);
+  assert.match(CODE_GRAPH_TOOL_DEFS[0].description, /symbol-index terms/i);
 });
 
 test('retrieval schemas require their primary arguments and preserve region paths', () => {
@@ -308,15 +345,13 @@ test('grep scopes do not masquerade as read regions', () => {
 });
 
 test('explore locates; location-freeze policy lives in shared rules', () => {
-  assert.match(EXPLORE_TOOL.description, /machine-wide locator/i);
-  assert.match(EXPLORE_TOOL.description, /fans out up to 8 independent facets/i);
+  assert.match(EXPLORE_TOOL.description, /repo- or machine-wide coordinate locator/i);
+  assert.doesNotMatch(EXPLORE_TOOL.description, /up to \d+|fan-out cap/i);
   const rule = readFileSync(new URL('../src/rules/shared/01-tool.md', import.meta.url), 'utf8');
   const policy = rule.replace(/\s+/g, ' ');
   // explore leads alone and its anchors — not a second explore — route the rest.
-  assert.match(policy, /`explore` first and alone/i);
-  assert.match(policy, /anchors routing the next batch/i);
-  assert.match(policy, /known path or anchor skips it/i);
-  // Returned spans are frozen: only uncovered lines may be read again.
-  assert.match(policy, /is final for its range/i);
-  assert.match(policy, /read only uncovered lines/i);
+  assert.match(policy, /Unknown coordinates.*one `explore` call/i);
+  assert.match(policy, /every unknown facet.*sent alone/i);
+  assert.match(policy, /batch every anchored retrieval needed/i);
+  assert.match(policy, /never re-fetch an unchanged span/i);
 });

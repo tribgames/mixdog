@@ -183,12 +183,6 @@ export function createRunTurn(bag) {
     const toolCards = [];
     const toolGroups = new Map();
     const resultsDone = new Set();
-    // apply_patch+post_shell twin display: parent callId → synthetic shell
-    // callId. The protocol stays ONE call/ONE result, but the transcript shows
-    // TWO cards (edit + verify shell) so a long post_shell no longer looks
-    // like a stuck 'Editing 1 file'. deliverToolResultMessage splits the
-    // combined result text back between the two cards.
-    const postShellTwins = new Map();
     // ── Live shell-output tail → running tool card ─────────────────────────
     // 1 s poll of orchestrator liveness while this turn runs. When exactly one
     // standalone (non-aggregate) card is unresolved and the runtime reports a
@@ -807,49 +801,7 @@ export function createRunTurn(bag) {
         const earlyCallId = toolResultCallId(message);
         if (earlyCallId) {
           markToolCardCompletedState(earlyCallId, message);
-          const earlyTwin = postShellTwins.get(earlyCallId);
-          if (earlyTwin) markToolCardCompletedState(earlyTwin, message);
         }
-        return;
-      }
-      const parentCallId = toolResultCallId(message);
-      const twinCallId = parentCallId ? postShellTwins.get(parentCallId) : null;
-      if (twinCallId && !resultsDone.has(twinCallId)) {
-        const combined = String(toolResultText(message?.content) ?? '');
-        // tool-exec composes `${patch}\n\n${header}\n${shell}` (or appends the
-        // skipped marker to a failed patch). Split on those exact seams.
-        const headerMatch = combined.match(/\n+--- post_shell( FAILED[^\n]*)? ---\n?/);
-        const skippedMatch = headerMatch ? null : combined.match(/\n+--- post_shell skipped: patch failed ---\s*$/);
-        let patchPart = combined;
-        let shellPart = null;
-        if (headerMatch) {
-          patchPart = combined.slice(0, headerMatch.index);
-          shellPart = combined.slice(headerMatch.index + headerMatch[0].length);
-          // Keep the FAILED banner on the shell card so its error state and
-          // fix-and-re-verify guidance survive the split.
-          if (headerMatch[1]) shellPart = `Error: post_shell${headerMatch[1]}\n${shellPart}`;
-        } else if (skippedMatch) {
-          patchPart = combined.slice(0, skippedMatch.index);
-          shellPart = 'Error: post_shell skipped: patch failed';
-        }
-        if (shellPart !== null) {
-          flushToolResults([
-            {
-              role: 'tool',
-              tool_call_id: parentCallId,
-              content: patchPart,
-              ...(Object.hasOwn(message || {}, 'uiDiff') ? { uiDiff: message.uiDiff } : {}),
-            },
-            { role: 'tool', tool_call_id: twinCallId, content: shellPart },
-          ], toolCards, cardByCallId, toolGroups, resultsDone);
-          return;
-        }
-        // Unsplittable (offloaded/preview-shaped result): parent keeps the
-        // combined text; settle the twin instead of leaving it Running.
-        flushToolResults([
-          message,
-          { role: 'tool', tool_call_id: twinCallId, content: '(post_shell output included in the patch result above)' },
-        ], toolCards, cardByCallId, toolGroups, resultsDone);
         return;
       }
       flushToolResults([message], toolCards, cardByCallId, toolGroups, resultsDone);
@@ -920,33 +872,7 @@ export function createRunTurn(bag) {
           }
           const batchCalls = (calls || []).filter(Boolean);
           if (batchCalls.length === 0) return;
-          // Expand each apply_patch carrying post_shell into itself PLUS a
-          // synthetic trailing shell call, so the (possibly long) verify phase
-          // renders as its own Running command card in call order.
-          const displayCalls = [];
-          for (const c of batchCalls) {
-            displayCalls.push(c);
-            if (toolCallName(c) !== 'apply_patch') continue;
-            let patchCallArgs = toolCallArgs(c);
-            if (typeof patchCallArgs === 'string') {
-              try { patchCallArgs = JSON.parse(patchCallArgs); } catch { patchCallArgs = null; }
-            }
-            // post_shell mirrors the shell tool's argument surface: a bare
-            // command string OR the full shell args object. The twin card is
-            // built from the same args the verification actually runs with.
-            const rawPostShell = patchCallArgs?.post_shell;
-            const postShellArgs = typeof rawPostShell === 'string'
-              ? { command: rawPostShell.trim() }
-              : (rawPostShell && typeof rawPostShell === 'object' && !Array.isArray(rawPostShell)
-                ? { ...rawPostShell, command: typeof rawPostShell.command === 'string' ? rawPostShell.command.trim() : '' }
-                : null);
-            const postShellCmd = postShellArgs?.command || '';
-            const parentCallId = toolCallId(c);
-            if (!postShellCmd || !parentCallId) continue;
-            const twinCallId = `${parentCallId}::post_shell`;
-            postShellTwins.set(parentCallId, twinCallId);
-            displayCalls.push({ id: twinCallId, name: 'shell', args: postShellArgs });
-          }
+          const displayCalls = batchCalls;
           const agentBatch = ++providerToolBatch;
           const committedAssistantSegment = commitAssistantSegment({ sealToolBlock: true });
           if (committedAssistantSegment) {

@@ -13,7 +13,7 @@ export const TOOL_SEARCH_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Load deferred tools by exact name via names[]; reports loaded/already-active/missing plus MCP servers still connecting or failed. Deferred tools also auto-load when called directly.',
+  description: 'Deferred-tool activation status; direct calls auto-load.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -34,7 +34,7 @@ export const CWD_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Show or set the session work project for tool execution. Use only for explicit project path changes.',
+  description: 'Show or set the session work project for tool execution.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -84,7 +84,7 @@ export const SESSION_MANAGE_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Reset this conversation on explicit user request. action=clear wipes all context (like /clear); action=compact_clear summarizes first and carries context forward (auto-clear style). Applies when the current turn ends.',
+  description: 'Schedule conversation reset at current-turn end.',
   inputSchema: {
     type: 'object',
     properties: {

@@ -80,7 +80,14 @@ export function createSessionTurnApi(deps) {
       // a normal user turn and this surface refreshes from disk.
       const attachedSession = getSession();
       if (attachedSession?.remoteAttached) {
-        const delivered = enqueueRemoteAttachedPrompt(prompt);
+        // Carry the submission id into the spool: the owner reuses it for the
+        // queue entry and the settled user row, so the submitting surface's
+        // optimistic bubble is released instead of standing beside the
+        // mirrored twin (user: 같은 세션에서 메세지가 두 개로 보인다).
+        const submissionId = String(options.id || '').trim();
+        const delivered = enqueueRemoteAttachedPrompt(
+          submissionId ? { content: prompt, id: submissionId } : prompt,
+        );
         return {
           // This branch is only a race-safe fallback for callers that reached
           // ask() before the live pipe was ready. Never manufacture an

@@ -244,10 +244,10 @@ export async function disposeTerminalPane(id: string): Promise<void> {
 // this canvas and made paths/prompts hard to read. Background stays in sync
 // with --mx-terminal-bg (desktop.css).
 const TERMINAL_THEME = {
-  background: '#131313',
+  background: '#121215',
   foreground: '#e9e9e9',
   cursor: '#e9e9e9',
-  cursorAccent: '#131313',
+  cursorAccent: '#121215',
   selectionBackground: 'rgba(255, 255, 255, .28)',
   black: '#000000',
   red: '#cd3131',

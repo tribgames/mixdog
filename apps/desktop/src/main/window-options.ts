@@ -4,9 +4,9 @@ import * as electron from 'electron';
 import type { BrowserWindow, BrowserWindowConstructorOptions, NativeTheme } from 'electron';
 import { DESKTOP_WINDOW_MIN_WIDTH } from '../shared/window-layout';
 
-/* Dark window band — must track --mx-window-band on the Dark surface. */
-export const DESKTOP_BACKGROUND_COLOR = '#0f0f0f';
-/* Light window band (neutral set) — must track --mx-window-band on White. */
+/* Dark window band — must track --mx-window-band in desktop.css :root. */
+export const DESKTOP_BACKGROUND_COLOR = '#151518';
+/* Light window band (neutral set) — must track --mx-window-band on light. */
 export const DESKTOP_LIGHT_BACKGROUND_COLOR = '#f0f0f0';
 export const DESKTOP_TITLEBAR_HEIGHT = 35;
 

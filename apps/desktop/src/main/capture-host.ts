@@ -1,5 +1,24 @@
-import type { EngineSnapshot, DesktopCapability, DesktopCapabilityReadRequest, DesktopCapabilityReadResult, DesktopCapabilityResult, DesktopModelOption, DesktopSessionSummary } from '../shared/contract';
-import { EngineHost } from './engine-host';
+import type {
+  DesktopAbortOptions,
+  DesktopAgentPoolRow,
+  DesktopCapability,
+  DesktopCapabilityReadRequest,
+  DesktopCapabilityReadResult,
+  DesktopCapabilityResult,
+  DesktopModelCatalogOptions,
+  DesktopModelOption,
+  DesktopModelSelection,
+  DesktopNewTaskDraft,
+  DesktopNewTaskSubmitResult,
+  DesktopProjectSummary,
+  DesktopPromptContent,
+  DesktopSessionStateUpdate,
+  DesktopSessionSummary,
+  DesktopSubmitOptions,
+  EngineSnapshot,
+  ToolApprovalDecision,
+} from '../shared/contract';
+import type { DesktopBackend } from './backend-api';
 
 // MIXDOG_JITTER_PROBE: '1' = streaming/follow pass, 'entry' = cold-entry and
 // tool-toggle pass, 'keys' = keyboard paging pass, 'switch' = rapid session
@@ -11,9 +30,8 @@ function jitterProbeEnabled(): boolean {
     || mode === 'width';
 }
 
-// EngineHost.listSessions() lazily starts the runtime engine. The isolated
-// capture profile cannot contain sessions, so avoid provider/runtime startup
-// while retaining the exact production host and secure IPC handler shape.
+// The capture profile is a presentation-only fake. It intentionally implements
+// the same client contract without importing a session runtime or backend host.
 export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
   getProfile: {
     title: 'Capture',
@@ -124,11 +142,134 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
   },
 };
 
-export class CaptureEngineHost extends EngineHost {
+export class CaptureBackend implements DesktopBackend {
   private captureTheme = 'basic';
   private jitterStoredSnapshot: EngineSnapshot = null;
   private jitterLiveSnapshot: EngineSnapshot = null;
   private jitterColdSnapshot: EngineSnapshot = null;
+  private snapshot: EngineSnapshot = {
+    sessionId: '',
+    items: [],
+    queued: [],
+    toasts: [],
+    busy: false,
+    commandBusy: false,
+    spinner: null,
+    cwd: process.cwd(),
+  };
+  private readonly listeners = new Set<(snapshot: EngineSnapshot) => void>();
+  private readonly sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
+  private readonly agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
+  private readonly sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
+
+  constructor(_options: unknown = {}) {}
+
+  private publish(snapshot: EngineSnapshot): void {
+    this.snapshot = snapshot;
+    for (const listener of this.listeners) listener(snapshot);
+    const sessionId = String(snapshot?.sessionId || '');
+    if (sessionId) {
+      for (const listener of this.sessionStateListeners) {
+        listener({ sessionId, snapshot, frameSource: 'live' });
+      }
+    }
+  }
+
+  subscribe(listener: (snapshot: EngineSnapshot) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  subscribeSessions(listener: (sessions: DesktopSessionSummary[]) => void): () => void {
+    this.sessionListeners.add(listener);
+    return () => this.sessionListeners.delete(listener);
+  }
+
+  subscribeAgentPool(listener: (agents: DesktopAgentPoolRow[]) => void): () => void {
+    this.agentPoolListeners.add(listener);
+    return () => this.agentPoolListeners.delete(listener);
+  }
+
+  subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void {
+    this.sessionStateListeners.add(listener);
+    return () => this.sessionStateListeners.delete(listener);
+  }
+
+  async startProject(projectPath: string): Promise<EngineSnapshot> {
+    this.publish({ ...this.snapshot, cwd: projectPath });
+    return this.snapshot;
+  }
+
+  async startProjectTask(projectPath: string): Promise<EngineSnapshot> {
+    return this.startProject(projectPath);
+  }
+
+  async listProjects(): Promise<DesktopProjectSummary[]> { return []; }
+  async addProject(): Promise<void> {}
+  async projectDirectory(projectPath: string): Promise<string> { return projectPath; }
+  async renameProject(): Promise<void> {}
+  async removeProject(): Promise<void> {}
+  async listProjectDir(): Promise<unknown> { return []; }
+  async readProjectTextFile(): Promise<unknown> { return null; }
+  async writeProjectTextFile(): Promise<unknown> { return null; }
+  async statProjectFile(): Promise<unknown> { return null; }
+  async createProjectEntry(): Promise<unknown> { return null; }
+  async renameProjectEntry(): Promise<unknown> { return null; }
+  async moveProjectEntry(): Promise<unknown> { return null; }
+  async copyProjectEntry(): Promise<unknown> { return null; }
+  async projectEntryPath(_projectPath: string, relPath: string): Promise<string> { return relPath; }
+  async codeGraphQuery(): Promise<unknown> { return null; }
+  async listAgentPool(): Promise<DesktopAgentPoolRow[]> { return []; }
+  async renameSession(): Promise<void> {}
+  async setSessionArchived(): Promise<void> {}
+  async deleteSession(): Promise<EngineSnapshot> { return null; }
+  async prefetchSession(): Promise<boolean> { return true; }
+  async peekSession(): Promise<boolean> { return true; }
+  async setVisibleSessions(): Promise<boolean> { return true; }
+  async searchProjectFiles(): Promise<string[]> { return []; }
+  async submit(): Promise<boolean> { return true; }
+  async submitToSession(): Promise<boolean> { return true; }
+  async abort(_options: DesktopAbortOptions = {}): Promise<{ aborted: boolean }> {
+    return { aborted: true };
+  }
+  async abortSession(
+    _sessionId: string,
+    _options: DesktopAbortOptions = {},
+  ): Promise<{ aborted: boolean }> {
+    return { aborted: true };
+  }
+  resolveToolApproval(_id: string, _decision: ToolApprovalDecision): boolean { return true; }
+  resolveToolApprovalForSession(
+    _sessionId: string,
+    _id: string,
+    _decision: ToolApprovalDecision,
+  ): boolean {
+    return true;
+  }
+
+  async submitNewTask(
+    _prompt: DesktopPromptContent,
+    _options: DesktopSubmitOptions = {},
+    _draft: DesktopNewTaskDraft = {},
+  ): Promise<DesktopNewTaskSubmitResult> {
+    const sessionId = `capture_${Date.now()}`;
+    const snapshot = { ...this.snapshot, sessionId };
+    this.publish(snapshot);
+    return { accepted: true, sessionId, snapshot };
+  }
+
+  async setModelRoute(
+    selection: DesktopModelSelection,
+    _sessionId?: string,
+  ): Promise<EngineSnapshot> {
+    this.publish({ ...this.snapshot, ...selection });
+    return this.snapshot;
+  }
+
+  async setFast(enabled: boolean, _sessionId?: string): Promise<EngineSnapshot> {
+    this.publish({ ...this.snapshot, fast: enabled });
+    return this.snapshot;
+  }
 
   async backendInvoke(): Promise<unknown> {
     throw new Error('The capture harness has no backend daemon.');
@@ -146,7 +287,7 @@ export class CaptureEngineHost extends EngineHost {
     this.jitterColdSnapshot = snapshot;
   }
 
-  override async listSessions(): Promise<DesktopSessionSummary[]> {
+  async listSessions(): Promise<DesktopSessionSummary[]> {
     if (jitterProbeEnabled()) {
       if (process.env.MIXDOG_JITTER_PROBE === 'switch') {
         return ['a', 'b', 'c'].map((suffix, index) => ({
@@ -197,7 +338,7 @@ export class CaptureEngineHost extends EngineHost {
     return [];
   }
 
-  override async resumeSession(sessionId: string): Promise<EngineSnapshot> {
+  async resumeSession(sessionId: string): Promise<EngineSnapshot> {
     if (process.env.MIXDOG_JITTER_PROBE === 'switch' && /^probe_switch_[abc]$/.test(sessionId)) {
       await new Promise((resolvePromise) => setTimeout(resolvePromise, 180));
       const suffix = sessionId.slice(-1).toUpperCase();
@@ -223,7 +364,7 @@ export class CaptureEngineHost extends EngineHost {
             text: `Switch ${suffix} transcript`,
           }];
       const snapshot = {
-        ...((super.getSnapshot() || {}) as Record<string, unknown>),
+        ...((this.snapshot || {}) as Record<string, unknown>),
         toasts: [],
         sessionId,
         busy: false,
@@ -243,14 +384,14 @@ export class CaptureEngineHost extends EngineHost {
       return this.jitterColdSnapshot;
     }
     if (!jitterProbeEnabled() || sessionId !== 'probe_session_b') {
-      return super.resumeSession(sessionId);
+      return this.snapshot;
     }
     const stored = this.jitterStoredSnapshot as Record<string, unknown> | null;
     const live = this.jitterLiveSnapshot as Record<string, unknown> | null;
     if (!stored || !live || stored.sessionId !== sessionId || live.sessionId !== sessionId) {
       throw new Error('Jitter probe remote resume snapshots are not prepared.');
     }
-    // Model EngineHost's real held-publication boundary: the persisted restore
+    // Model the backend's real held-publication boundary: the persisted restore
     // exists first, but resume resolves only after live-share supplies FULL.
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 180));
     this.publish(this.jitterLiveSnapshot);
@@ -259,7 +400,7 @@ export class CaptureEngineHost extends EngineHost {
 
   // Keep model-route rows fully populated without starting the isolated
   // runtime engine, so phone alignment covers model, effort, and fast controls.
-  override async listProviderModels(): Promise<DesktopModelOption[]> {
+  async listProviderModels(_options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
     return [{
       provider: 'openai',
       model: 'gpt-capture',
@@ -273,18 +414,18 @@ export class CaptureEngineHost extends EngineHost {
   // New-task activation without booting the disabled engine: App renders
   // EMPTY_SNAPSHOT on the new-task tab until startTask succeeds, so the tool
   // showcase pass clicks New task and this override must resolve instantly.
-  override async startTask() {
+  async startTask(): Promise<EngineSnapshot> {
     return this.getSnapshot();
   }
 
-  override getSnapshot() {
+  getSnapshot(): EngineSnapshot {
     return {
-      ...(super.getSnapshot() || {}),
+      ...(this.snapshot || {}),
       toasts: [{ id: 'capture-toast', tone: 'error', text: 'Capture stacking check' }],
     };
   }
 
-  override async readCapabilities(
+  async readCapabilities(
     requests: ReadonlyArray<DesktopCapabilityReadRequest>,
   ): Promise<DesktopCapabilityReadResult[]> {
     return requests.map((request) => {
@@ -305,7 +446,7 @@ export class CaptureEngineHost extends EngineHost {
     });
   }
 
-  override async invokeCapability<T = unknown>(
+  async invokeCapability<T = unknown>(
     capability: DesktopCapability,
     args: unknown[] = [],
   ): Promise<DesktopCapabilityResult<T>> {
@@ -357,5 +498,14 @@ export class CaptureEngineHost extends EngineHost {
     // instead — every capability consumer catches and falls back.
     void args;
     throw new Error(`${capability} is unavailable in UI capture.`);
+  }
+
+  subscribeBackendEvents(): () => void { return () => {}; }
+  perfLog(): void {}
+  async dispose(): Promise<void> {
+    this.listeners.clear();
+    this.sessionListeners.clear();
+    this.agentPoolListeners.clear();
+    this.sessionStateListeners.clear();
   }
 }

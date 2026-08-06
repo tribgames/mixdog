@@ -13,6 +13,7 @@ import {
   createPaneLeaf,
   distributePaneRatios,
   distributePaneRatiosAlong,
+  filterPaneLayoutSessions,
   findPaneLeaf,
   mergePaneLeaf,
   movePaneLeaf,
@@ -564,6 +565,23 @@ test("readStoredPaneLayout restores a coherent workspace or nothing", () => {
   assert.equal(readStoredPaneLayout(storage(JSON.stringify({ layout: { type: "split" } }))), null);
   assert.equal(readStoredPaneLayout(storage("not json")), null);
   assert.equal(readStoredPaneLayout(null), null);
+});
+
+test("persisted pane sessions are filtered against the authoritative catalog before restore", () => {
+  const first = {
+    type: "leaf",
+    id: "leaf_valid",
+    tabs: [session("valid"), session("gone")],
+    activeKey: "session:gone",
+  };
+  const second = createPaneLeaf(session("also-gone"), "leaf_orphan");
+  const layout = splitPaneLeaf(first, "leaf_valid", "row", second);
+  const filtered = filterPaneLayoutSessions(layout, new Set(["valid"]));
+  assert.ok(filtered);
+  assert.deepEqual(paneLeaves(filtered).map((leaf) => leaf.id), ["leaf_valid"]);
+  assert.deepEqual(paneLeaves(filtered)[0].tabs, [session("valid")]);
+  assert.equal(paneLeaves(filtered)[0].activeKey, "session:valid");
+  assert.equal(filterPaneLayoutSessions(second, new Set()), null);
 });
 
 test("clampBottomPanelHeight bounds the drag range", () => {

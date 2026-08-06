@@ -344,17 +344,12 @@ export async function runJitterProbe({
       if (link instanceof HTMLElement) break;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
-    // New Task moved behind the Sessions create menu: open the panel and the
-    // menu before reaching for the entry.
+    // New Task is the Sessions header "+" itself: open the panel and reach
+    // for the entry again.
     if (!(link instanceof HTMLElement)) {
       const sidebar = document.querySelector('.toolbar-sidebar');
-      if (!document.querySelector('.session-new-create') && sidebar instanceof HTMLElement) {
+      if (sidebar instanceof HTMLElement) {
         sidebar.click();
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      }
-      const create = document.querySelector('.session-new-create');
-      if (create instanceof HTMLElement) {
-        create.click();
         await new Promise((resolve) => setTimeout(resolve, 200));
         link = find();
       }
@@ -419,7 +414,7 @@ export async function runJitterProbe({
         tabs: document.querySelectorAll('.workspace-tab').length,
         composer: document.querySelectorAll('.composer').length,
         sidebar: document.querySelectorAll('.session-sidebar').length,
-        create: document.querySelectorAll('.session-new-create').length,
+        create: document.querySelectorAll('.session-new-task').length,
         rail: document.querySelectorAll('.toolbar-sidebar').length,
         newTask: document.querySelectorAll('button[aria-label="New task"]').length,
         panes: document.querySelectorAll('[data-pane-id]').length,
@@ -2290,7 +2285,7 @@ diff --git a/src/probe.ts b/src/probe.ts
 
   // Phase 1: remoteAttached ENTER session B. The stored restore ends at the
   // user's last message; the owner FULL frame already contains the progressed
-  // turn and streaming tail. CaptureEngineHost holds the former and resolves
+  // turn and streaming tail. CaptureBackend holds the former and resolves
   // resume with the latter, matching the real live-share entry barrier.
   let tailText = assistantMarkdown(97);
   const tail = () => ({ id: 'probe-tail', kind: 'assistant', text: tailText, streaming: true });

@@ -19,10 +19,10 @@ import type {
   ToolApprovalDecision,
 } from '../shared/contract';
 import type {
-  DesktopEngineHost,
-  EngineHostRpcMethod,
-  SerializableEngineHostOptions,
-} from './engine-host-api';
+  DesktopBackend,
+  DesktopBackendMethod,
+  SerializableDesktopBackendOptions,
+} from './backend-api';
 import type {
   DesktopBackendInbound,
   DesktopBackendOutbound,
@@ -37,7 +37,7 @@ export interface BackendTransport {
 
 export interface DesktopBackendClientOptions {
   connect(): BackendTransport;
-  engineOptions(): SerializableEngineHostOptions;
+  engineOptions(): SerializableDesktopBackendOptions;
   initialSnapshot?: EngineSnapshot;
   requestTimeoutMs?: number;
   startupTimeoutMs?: number;
@@ -49,7 +49,7 @@ export interface DesktopBackendClientOptions {
 }
 
 interface PendingRequest {
-  method: EngineHostRpcMethod;
+  method: DesktopBackendMethod;
   resolve(value: unknown): void;
   reject(error: Error): void;
   timer: ReturnType<typeof setTimeout>;
@@ -90,7 +90,7 @@ function responseError(error: { name: string; message: string; code?: string }):
   return result;
 }
 
-export class DesktopBackendClient implements DesktopEngineHost {
+export class DesktopBackendClient implements DesktopBackend {
   private readonly listeners = new Set<(snapshot: EngineSnapshot) => void>();
   private readonly sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
   private readonly agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
@@ -421,7 +421,7 @@ export class DesktopBackendClient implements DesktopEngineHost {
       this.bootstrapSnapshot = null;
       return snapshot;
     }
-    // EngineHost's first route-less frame is transport readiness, not an
+    // The backend's first route-less frame is transport readiness, not an
     // authoritative model reset. Retain the lightweight persisted route until
     // the live engine publishes its own provider/model pair.
     return { ...bootstrap, ...state } as EngineSnapshot;
@@ -488,7 +488,7 @@ export class DesktopBackendClient implements DesktopEngineHost {
     } as EngineSnapshot;
   }
 
-  private async invoke<T>(method: EngineHostRpcMethod, args: unknown[] = []): Promise<T> {
+  private async invoke<T>(method: DesktopBackendMethod, args: unknown[] = []): Promise<T> {
     const ready = this.start();
     const generation = this.generation;
     await ready;
@@ -499,7 +499,7 @@ export class DesktopBackendClient implements DesktopEngineHost {
     return await this.sendRequest<T>(method, args);
   }
 
-  private async invokeRead<T>(method: EngineHostRpcMethod, args: unknown[] = []): Promise<T> {
+  private async invokeRead<T>(method: DesktopBackendMethod, args: unknown[] = []): Promise<T> {
     try {
       return await this.invoke<T>(method, args);
     } catch (error) {
@@ -509,7 +509,7 @@ export class DesktopBackendClient implements DesktopEngineHost {
   }
 
   private sendRequest<T>(
-    method: EngineHostRpcMethod,
+    method: DesktopBackendMethod,
     args: unknown[],
     timeoutMs = this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
   ): Promise<T> {

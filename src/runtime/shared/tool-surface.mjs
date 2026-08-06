@@ -469,11 +469,6 @@ export function toolWorkUnit(name, args = {}, category = '') {
       }
       return unitDescriptor('Patch', {
         count: patchFileCount(a) || 1,
-        // post_shell is NOT named here: the turn engine already splits such a
-        // call into this edit card plus a trailing Shell card that carries the
-        // real command, its output and its failure banner (turn.mjs
-        // postShellTwins). Repeating "& verifying" in the header declared the
-        // verify phase twice and truncated the label on narrow panes.
         active: creating ? 'Creating' : deleting ? 'Deleting' : 'Editing',
         done: creating ? 'Created' : deleting ? 'Deleted' : 'Edited',
         noun: 'file',

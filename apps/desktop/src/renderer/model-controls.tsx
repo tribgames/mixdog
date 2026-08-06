@@ -304,7 +304,7 @@ export const ModelSelector = memo(function ModelSelector({
         } catch (reason) {
           failures.push(reason instanceof Error ? reason.message : String(reason || "Quick model catalog failed."));
         }
-        // EngineHost seeds its authoritative full request before servicing the
+        // The backend seeds its authoritative full request before servicing the
         // advisory quick read. Await quick here so the picker remains instant;
         // the host-side seed protects the catalog from the warmup race.
         try {

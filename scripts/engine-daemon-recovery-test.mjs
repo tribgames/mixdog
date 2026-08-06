@@ -59,14 +59,18 @@ test('version skew decides between attaching, draining, and staying in-process',
 });
 
 test('a killed daemon is replaced and the view re-seats itself', async (t) => {
+  let engine = null;
+  let peer = null;
   t.after(async () => {
+    try { await peer?.dispose('recovery cleanup'); } catch {}
+    try { await engine?.dispose('recovery cleanup'); } catch {}
     await shutdownEngineDaemon();
     killProcessesUnder(ROOT);
     try { rmSync(ROOT, { recursive: true, force: true }); } catch {}
   });
 
   const recoveryLog = [];
-  const engine = await createRemoteEngineSession({
+  engine = await createRemoteEngineSession({
     cwd: process.cwd(),
     log: (line) => recoveryLog.push(String(line)),
   });
@@ -94,7 +98,7 @@ test('a killed daemon is replaced and the view re-seats itself', async (t) => {
   // Reconnection is not complete until later notifications from another view
   // reach the original TUI projection. This is the user-visible contract that
   // a snapshot-only recovery assertion previously missed.
-  const peer = await createRemoteEngineSession({ cwd: process.cwd() });
+  peer = await createRemoteEngineSession({ cwd: process.cwd() });
   assert.equal(await peer.resume(recoveredSessionId), true);
   assert.equal(await peer.submitAsync('visible after daemon replacement', {
     id: 'recovery-cross-view-submit',
@@ -107,5 +111,7 @@ test('a killed daemon is replaced and the view re-seats itself', async (t) => {
   );
 
   await peer.dispose('recovery peer end');
+  peer = null;
   await engine.dispose('recovery test end');
+  engine = null;
 });

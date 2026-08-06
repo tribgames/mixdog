@@ -365,7 +365,7 @@ test('backend client rejects a lost mutation and keeps bounded reconnect recover
       transports[0].posted.some((message) => message.kind === 'state-ack' && message.sequence === 1),
       true,
     );
-    const pending = host.submit('do not replay', { id: 'one-shot' });
+    const pending = host.submitToSession('explicit-session', 'do not replay', { id: 'one-shot' });
     transports[0].emit('exit', 9);
     assert.match(snapshots.at(-1).toasts.at(-1).text, /backend connection stopped/i);
     await assert.rejects(() => pending, /exited with code 9/);
@@ -373,7 +373,7 @@ test('backend client rejects a lost mutation and keeps bounded reconnect recover
     assert.equal(connected, 2);
     assert.equal(
       transports[1].posted.some((message) => (
-        message.kind === 'request' && message.method === 'submit'
+        message.kind === 'request' && message.method === 'submitToSession'
       )),
       false,
     );

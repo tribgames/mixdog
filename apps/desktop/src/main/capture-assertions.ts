@@ -756,8 +756,8 @@ export function measureSidebarGeometry(image: NativeImage): ImageMeasuredSidebar
   // Flat shell: the sidebar begins at x=0 and the workspace sheet starts
   // immediately after its right hairline. Measure that band→sheet transition
   // so the border remains part of the sidebar's DOM width.
-  const sidebarColor = '#181818';
-  const workspaceColor = '#1f1f1f';
+  const sidebarColor = '#151518';
+  const workspaceColor = '#1c1c1f';
   const left = 0;
   let mainLeft = -1;
   for (let x = 1; x <= 400; x += 1) {

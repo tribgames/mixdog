@@ -257,8 +257,8 @@ export async function processToolBatch(ctx) {
                     _executeOk = true;
                 } else {
                 // Fallback for providers that don't stream tool calls early:
-                // start the whole remaining batch in parallel (full-parallel
-                // policy; only apply_patch stays in this serial body).
+                // start the whole remaining batch in parallel, including
+                // apply_patch and shell.
                 if (isParallelDispatchable(call.name)) {
                     startEagerRun(calls, callIndex, _duplicateCallIds);
                 }

@@ -1,9 +1,7 @@
-// Background shell-job strip for the status bar. The engine has no push event
-// for job counts, so the host polls the statusline module with an adaptive
-// delay (fast while jobs run, slow while idle). Extracted from engine-host,
-// which now only starts/stops it and reads the current status.
-import type { StatuslineSegmentsModule } from './engine-host-support';
-import { shellJobsPollDelay } from './engine-host-support';
+// Background shell-job strip for the status bar. The runtime has no push event
+// for job counts, so the backend polls with an adaptive delay.
+import type { StatuslineSegmentsModule } from './backend-support';
+import { shellJobsPollDelay } from './backend-support';
 
 export interface ShellJobsStatus {
   count: number;

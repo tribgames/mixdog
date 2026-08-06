@@ -17,7 +17,6 @@ import {
   mergeSessionCatalogRows,
 } from "../shared/session-catalog";
 import {
-  readCachedSessionCatalog,
   scheduleCachedSessionCatalogWrite,
 } from "./session-catalog-cache";
 
@@ -40,9 +39,9 @@ export interface SessionCatalog {
 export function useSessionCatalog(
   reconcileUnreadSessions: (rows: DesktopSessionSummary[]) => void,
 ): SessionCatalog {
-  const [sessions, setSessionsState] = useState<DesktopSessionSummary[]>(
-    () => readCachedSessionCatalog(),
-  );
+  // A cached summary is not proof that sessions/<id>.json still exists.
+  // Start empty and let the backend's exact catalog create every visible row.
+  const [sessions, setSessionsState] = useState<DesktopSessionSummary[]>([]);
   const sessionsRef = useRef<DesktopSessionSummary[]>(sessions);
   const pendingRenames = useRef(new Map<string, { title: string }>());
   const pendingDeletes = useRef(new Set<string>());

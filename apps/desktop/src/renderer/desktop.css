@@ -55,7 +55,10 @@
   --mx-red-500: #f17471;
   --mx-red-1200: #461516;
   --mx-yellow-500: #f2cf76;
-  --mx-yellow-1200: #4b4025;
+  /* Warning plate: the old #4b4025 was the single brownest patch in the
+     shell and set the warm cast the neutral ramp got blamed for (user:
+     그레이가 갈색빛이 있다). Same amber hue, less chroma. */
+  --mx-yellow-1200: #443f2e;
   --mx-amber-500: #f59e0b;
   --mx-amber-600: #d97706;
   --mx-green-500: #6bd586;
@@ -65,8 +68,8 @@
   --mx-avatar-shadow: #00000066;
   /* Project-avatar palette (dark set: muted fill, vivid border). */
   --mx-avatar-fg: #ffffff;
-  --mx-avatar-bg-orange: #723d22; --mx-avatar-border-orange: #ff8648;
-  --mx-avatar-bg-yellow: #68552b; --mx-avatar-border-yellow: #e7af36;
+  --mx-avatar-bg-orange: #6b4331; --mx-avatar-border-orange: #ff8648;
+  --mx-avatar-bg-yellow: #625338; --mx-avatar-border-yellow: #e7af36;
   --mx-avatar-bg-cyan: #005a6e; --mx-avatar-border-cyan: #0096b8;
   --mx-avatar-bg-green: #196130; --mx-avatar-border-green: #49c970;
   --mx-avatar-bg-red: #7a1f23; --mx-avatar-border-red: #d92e3c;
@@ -76,23 +79,27 @@
   --mx-avatar-bg-gray: #5c5c5c; --mx-avatar-border-gray: #aeaeae;
 
   /* ── 2. Surfaces (back → front) ──
-     Neutral grey axis (VS Code Dark Modern): band #181818 rails/titlebar vs
-     sheet #1f1f1f workspace — a clear step so the side panels and the
-     central panel read as distinct regions (user: VS Code-style
-     separation). The composer/menu surface (base) sits one step LIGHTER
+     ONE dark ramp (user: 그레이를 다크로 바꾸고 기존 다크는 폐기): the old
+     near-black Dark crushed the band/sheet separation and the old Gray sat a
+     step too light, so this ramp lands between them. Every step carries a
+     +3 blue offset — a perfectly equal-channel grey reads warm next to the
+     shell's amber/orange content (user: 갈색빛이 있다), and the offset
+     cancels it while still measuring as neutral grey.
+     Band = rails/titlebar vs sheet = workspace (VS Code Dark Modern
+     separation); the composer/menu surface (base) sits one step LIGHTER
      than the sheet so inputs and cards visibly float. */
-  --mx-bg-deep: #141414;
-  --mx-window-band: #181818;
-  --mx-workspace-sheet: #1f1f1f;
-  --mx-bg-base: #262626;
-  --mx-bg-layer-1: #2e2e2e;
-  --mx-bg-layer-2: #373737;
-  --mx-bg-layer-3: #424242;
-  --mx-bg-contrast: #616161;
+  --mx-bg-deep: #101013;
+  --mx-window-band: #151518;
+  --mx-workspace-sheet: #1c1c1f;
+  --mx-bg-base: #222225;
+  --mx-bg-layer-1: #2a2a2d;
+  --mx-bg-layer-2: #323236;
+  --mx-bg-layer-3: #3d3d41;
+  --mx-bg-contrast: #5c5c61;
   /* Surface-base: translucent plate used by chat bubbles. */
   --mx-surface-plate: rgba(255, 255, 255, .035);
   /* Terminal canvas stays dark in every theme (xterm palette parity). */
-  --mx-terminal-bg: #131313;
+  --mx-terminal-bg: #121215;
 
   /* ── Type scale ── */
   /* One chrome ramp on FOUR real sizes — 11 badge · 12 meta · 13 row ·
@@ -175,7 +182,12 @@
   /* Soft ink: one step under full text (was ad-hoc 80/82/85% color-mix
      strays). Mix keeps it theme-adaptive like the strays it replaces. */
   --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
-  --mx-text-accent: var(--mx-blue-400);
+  /* Brand accent = Material 3 indigo TONES, not the 2014 saturated ramp
+     (user: 연한 인디고 맛이 안 난다): primary-80 (#bac3ff) carries the pale
+     Google indigo on dark plates, primary-40 (#4355b9) the same hue on
+     paper. It lives on the THEME, not on a surface attribute, so the web
+     shell paints the same accent as the desktop window. */
+  --mx-text-accent: #bac3ff;
   --mx-accent: var(--mx-text-accent);
   /* Neutral glyphs share the same ink ramp as their companion labels so
      chrome icons never drift darker or pick up a separate color cast. */
@@ -190,7 +202,7 @@
   /* ── 4. Interaction ── */
   /* Border-focus: blue-500 on dark; light overrides to blue-600 for
      contrast on paper. */
-  --mx-focus: var(--mx-blue-500);
+  --mx-focus: #bac3ff;
   --mx-hover: rgba(255, 255, 255, .06);
   --mx-pressed: rgba(255, 255, 255, .10);
   --mx-selected: var(--mx-pressed);
@@ -215,7 +227,7 @@
   --mx-on-media: #fff;
   /* Accent surface (bg-accent: blue-600 in both themes) and the
      contrast-button hover overlay (dark: alpha-dark-24, light: alpha-light-12). */
-  --mx-accent-bg: var(--mx-blue-600);
+  --mx-accent-bg: #3d4ca0;
   --mx-contrast-hover: var(--mx-alpha-dark-24);
   /* Flat action washes: ONE overlay over the family's own plate, composed
      once here so no state rule re-spells the gradient stack. */
@@ -294,53 +306,56 @@
 }
 
 :root[data-mixdog-theme="light"] {
-  /* Grok-web warm neutrals (user preference): the cool grey default set is
-     re-tinted toward paper — same lightness steps, warm hue. Dark theme is
-     untouched. */
+  /* NEUTRAL paper (user: 웹으로 볼 때 갈색빛이 많이 돈다): the warm
+     re-tint used to be corrected by a desktop-only surface override, so the
+     browser/APK shell — which never carried that attribute — rendered the
+     raw brown set. The neutral values live on the theme itself now, so
+     light and dark share one temperature everywhere. */
 
   /* ── 2. Surfaces (back → front) ── */
-  --mx-bg-deep: #f8f6f3;
-  /* Band/sheet keep the strong separation fixed earlier, on the warm axis. */
-  --mx-window-band: #f1efec;
+  --mx-bg-deep: #f5f5f5;
+  /* Band/sheet keep the strong separation fixed earlier, on the neutral axis. */
+  --mx-window-band: #f0f0f0;
   /* Grok-web chat canvas: a step deeper than white so white cards (code,
      tables, composer field) float on it. */
-  --mx-workspace-sheet: #faf8f5;
-  --mx-bg-base: #fffefc;
-  --mx-bg-layer-1: #f7f5f2;
-  --mx-bg-layer-2: #f0edea;
-  --mx-bg-layer-3: #eae7e3;
+  --mx-workspace-sheet: #fafafa;
+  --mx-bg-base: #ffffff;
+  --mx-bg-layer-1: #f7f7f7;
+  --mx-bg-layer-2: #f0f0f0;
+  --mx-bg-layer-3: #e8e8e8;
   --mx-bg-contrast: #242424;
-  --mx-surface-plate: rgba(70, 55, 35, .045);
+  --mx-surface-plate: rgba(23, 24, 26, .045);
 
   /* ── 3. Ink ── */
-  /* Deep ink: main prose reads a step deeper than Grok's; softness
-     stays in the warm canvas, never in grey text (user-flagged twice). */
-  --mx-text: #1b1a17;
-  --mx-text-muted: #635f57;
-  --mx-text-faint: #6a6459; /* 5.4:1 on paper; #726c62 sat at 4.5 and read washed under its own rows */
-  --mx-text-accent: var(--mx-blue-600);
+  /* Deep ink: main prose reads a step deeper than Grok's; softness stays in
+     the canvas, never in grey text (user-flagged twice). */
+  --mx-text: #17181a;
+  --mx-text-muted: #5c6066;
+  --mx-text-faint: #717171; /* 4.7:1 on the neutral paper; #8a8f95 sat at 3.1 and read washed under its own rows */
+  --mx-text-accent: #4355b9;
   --mx-accent: var(--mx-text-accent);
   --mx-icon: var(--mx-text);
   --mx-icon-muted: var(--mx-text-muted);
-  --mx-border-muted: rgba(62, 50, 35, .08);
-  --mx-border: rgba(62, 50, 35, .105);
-  --mx-border-strong: rgba(62, 50, 35, .21);
+  /* Neutral hairlines: the warm alpha set pulled every seam brown. */
+  --mx-border-muted: rgba(23, 24, 26, .10);
+  --mx-border: rgba(23, 24, 26, .14);
+  --mx-border-strong: rgba(23, 24, 26, .26);
 
   /* ── 4. Interaction ── */
   /* blue-500 sat ~2:1 against the paper surfaces (user-flagged as washed
      out); blue-600 keeps the same hue with a legible ring. */
-  --mx-focus: var(--mx-blue-600);
-  --mx-hover: rgba(66, 52, 32, .05);
-  --mx-pressed: rgba(66, 52, 32, .09);
+  --mx-focus: #4355b9;
+  --mx-hover: rgba(0, 0, 0, .05);
+  --mx-pressed: rgba(0, 0, 0, .09);
   /* Opaque sidebar-row tones (hover/selected under opaque action gradients). */
-  --mx-hover-opaque: #e9e5e0;
-  --mx-pressed-opaque: #e2ddd7;
+  --mx-hover-opaque: #e9e9e9;
+  --mx-pressed-opaque: #e2e2e2;
   /* Light tab pill: OPAQUE grey ≈6% below the #f2f2f2 band so the active tab
      stays visible — an alpha pill stacked with the close-button gradient into
      blotchy double-darkening. */
-  --mx-tab-pill: #e6e2dd;
-  --mx-scrim: rgba(0, 0, 0, .4);
-  --mx-accent-bg: var(--mx-blue-600);
+  --mx-tab-pill: #e6e6e6;
+  --mx-scrim: rgba(20, 20, 22, .38);
+  --mx-accent-bg: #4355b9;
   --mx-contrast-hover: rgba(255, 255, 255, .122);
   --mx-approval-ring: color-mix(in srgb, var(--mx-amber-600) 45%, transparent);
   /* Project-avatar palette (light set: vivid fill, darker border). */
@@ -374,7 +389,7 @@
     inset 0 2px 2px rgba(0, 0, 0, .102), inset 0 1px 1px rgba(0, 0, 0, .102),
     inset 0 0 0 .5px rgba(0, 0, 0, .20);
   --mx-switch-thumb-shadow: 0 .5px .5px rgba(0, 0, 0, .40);
-  --mx-switch-thumb-border: rgba(62, 50, 35, .25);
+  --mx-switch-thumb-border: rgba(23, 24, 26, .25);
   --mx-raised:
     0 2px 4px rgba(0, 0, 0, .039), 0 1px 2px -1px rgba(0, 0, 0, .078),
     0 0 0 .5px rgba(0, 0, 0, .122);
@@ -3920,6 +3935,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--mx-bg-layer-1);
   box-shadow: 0 0 0 .5px var(--mx-border);
 }
+.composer-project-context {
+  box-shadow: none;
+}
 .context-pill-select {
   flex: 1 1 auto;
   min-width: 0;
@@ -3937,6 +3955,14 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   box-shadow: none;
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
+}
+.project-context-select .mx-select-trigger {
+  outline: 0;
+  box-shadow: none;
+  line-height: var(--mx-line-ui);
+}
+.project-context-select .mx-select-value {
+  line-height: var(--mx-line-ui);
 }
 .context-pill-select .mx-select-trigger:hover:not(:disabled),
 .context-pill-select .mx-select-trigger[aria-expanded="true"],
@@ -10966,7 +10992,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border-top: 1px solid var(--mx-border-muted);
   border-radius: 0;
   /* :11 `background-color: var(--box-alt-background-color)` — ONE tone darker
-     than the panel sheet (--mx-workspace-sheet #1f1f1f / #faf8f5) in both
+     than the panel sheet (--mx-workspace-sheet #1c1c1f / #fafafa) in both
      themes, so the form reads as its own region under the list. */
   background: var(--mx-window-band);
   box-shadow: none;
@@ -13571,8 +13597,7 @@ html[data-mixdog-mobile] select { font-size: 16px; }
    (#cbcb41 json/js) and 2.1:1 (#8dc149 sh/cs) on paper — invisible. Darkening
    the SAME hue keeps the language identity while clearing the 3:1 floor for
    non-text glyphs, instead of flattening the icons to one grey. */
-:root[data-mixdog-theme="light"] .seti-icon,
-:root[data-mixdog-surface="white"] .seti-icon {
+:root[data-mixdog-theme="light"] .seti-icon {
   color: color-mix(in srgb, var(--seti-color, var(--mx-icon-muted)) 65%, #000);
 }
 
@@ -14783,46 +14808,9 @@ html[data-mixdog-mobile] select { font-size: 16px; }
 .onboarding-provider-row,
 .onboarding-model-grid > label { padding: 10px 16px; }
 
-/* ── Surface axis: Dark · Gray · White ─────────────────────────────────────
-   The default dark set is a NEUTRAL GREY ramp, which is why it never read as
-   "dark" (user: 다크가 그레이 같다). The desktop now owns three surface
-   choices on ONE temperature axis — a true near-black Dark, today's Gray, and
-   a neutral White — while accents stay on the shared blue ramp. */
-/* Same specificity shape as :root[data-mixdog-theme="…"] so the surface ramp
-   settles the palette blocks instead of losing the cascade to them. */
-:root[data-mixdog-surface="dark"] {
-  --mx-bg-deep: #0b0b0b;
-  --mx-window-band: #0f0f0f;
-  --mx-workspace-sheet: #141414;
-  --mx-bg-base: #1a1a1a;
-  --mx-bg-layer-1: #212121;
-  --mx-bg-layer-2: #292929;
-  --mx-bg-layer-3: #333333;
-  --mx-scrim: rgba(0, 0, 0, .55);
-}
-/* White drops the warm cast so light and dark share one neutral temperature
-   (the old paper set was warm while dark was neutral — the mismatch read as
-   two different products). */
-:root[data-mixdog-surface="white"] {
-  --mx-bg-deep: #f5f5f5;
-  --mx-window-band: #f0f0f0;
-  --mx-workspace-sheet: #fafafa;
-  --mx-bg-base: #ffffff;
-  --mx-bg-layer-1: #f7f7f7;
-  --mx-bg-layer-2: #f0f0f0;
-  --mx-bg-layer-3: #e8e8e8;
-  --mx-text: #17181a;
-  --mx-text-muted: #5c6066;
-  --mx-text-faint: #717171; /* 4.7:1 on the neutral paper; #8a8f95 sat at 3.1 (same 희끄무레 fix as the warm light set) */
-  --mx-hover: rgba(0, 0, 0, .05);
-  --mx-pressed: rgba(0, 0, 0, .09);
-  --mx-scrim: rgba(20, 20, 22, .38);
-  /* Neutral hairlines: the warm alpha set was invisible on paper and pulled
-     the seams brown (user: 태두리가 좀 연한가?). */
-  --mx-border-muted: rgba(23, 24, 26, .10);
-  --mx-border: rgba(23, 24, 26, .14);
-  --mx-border-strong: rgba(23, 24, 26, .26);
-}
+/* The surface axis (Dark · Gray · White) is GONE: Gray became THE dark ramp
+   in :root and White folded into the light theme, so the palette no longer
+   depends on a desktop-only attribute that the web shell never set. */
 /* Alpha ink dropped labels a full contrast step below their neighbours
    (measured 0.55α tab labels vs 15:1 body text — user: 일부 폰트가 너무
    흐리다). Labels move to SOLID ink; alpha stays for decoration.
@@ -14936,22 +14924,6 @@ html[data-mixdog-mobile] select { font-size: 16px; }
    neutral ink so the warm tones stay reserved (user: 빨간색을 둘 다 쓰냐 —
    실패와 사용량 경고에만 남긴다). */
 .turn-status.interrupted { color: var(--mx-text-muted); }
-/* Brand accent = Material 3 indigo TONES, not the 2014 saturated ramp (user:
-   연한 인디고 맛이 안 난다): primary-80 (#bac3ff) carries the pale Google
-   indigo on dark plates, primary-40 (#4355b9) the same hue on paper. */
-:root[data-mixdog-surface="dark"],
-:root[data-mixdog-surface="gray"] {
-  --mx-text-accent: #bac3ff;
-  --mx-accent: var(--mx-text-accent);
-  --mx-accent-bg: #3d4ca0;
-  --mx-focus: #bac3ff;
-}
-:root[data-mixdog-surface="white"] {
-  --mx-text-accent: #4355b9;
-  --mx-accent: var(--mx-text-accent);
-  --mx-accent-bg: #4355b9;
-  --mx-focus: #4355b9;
-}
 /* Context compaction is a timeline event, not an action. */
 .compaction-divider { color: var(--mx-text-muted); }
 .compaction-divider svg {

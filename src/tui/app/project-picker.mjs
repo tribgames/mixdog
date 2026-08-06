@@ -3,11 +3,9 @@
  *
  * Extracted from App.jsx behavior-preservingly. This cluster is ref/state
  * coupled (it drives setPicker + a fan of prompt setters), so it's delivered as
- * a dependency-injection factory rather than pure functions: App calls
- * createProjectPicker({...}) once and destructures the returned builders. Every
- * function body is the original App logic, verbatim, with closure identifiers
- * (state, store, setPicker, the prompt setters, and the projects.mjs helpers)
- * threaded in through the factory argument.
+ * a dependency-injection factory rather than pure functions. Project registry
+ * and path operations are daemon calls on `store`; the TUI retains only the
+ * OS-native folder chooser.
  */
 export function createProjectPicker({
   state,
@@ -19,44 +17,53 @@ export function createProjectPicker({
   setSettingsPrompt,
   setContextPanel,
   closeUsagePanel,
-  listProjects,
-  addProject,
-  touchProjectSelected,
-  resolveProjectPath,
   projectNameFromPath,
   pickFolder,
 }) {
-  const buildProjectPickerState = ({ initialEntry = false } = {}) => {
-    let projects = [];
-    try {
-      projects = listProjects() || [];
-    } catch {
-      projects = [];
+  const backendCall = (name, ...args) => {
+    const target = store?.[name];
+    if (typeof target !== 'function') {
+      return Promise.reject(new TypeError(`project backend method ${name} is unavailable`));
     }
+    return Promise.resolve(target.apply(store, args));
+  };
+
+  const buildProjectPickerState = ({
+    initialEntry = false,
+    projects = [],
+    loading = false,
+    requestId = null,
+  } = {}) => {
     const currentPath = String(state.cwd || process.cwd() || '');
     const items = [];
-    // Registered projects (store order via listProjects).
-    for (const project of projects) {
-      if (!project?.path) continue;
+    if (!loading) {
+      for (const project of projects) {
+        if (!project?.path) continue;
+        items.push({
+          value: project.path,
+          label: project.name || project.path,
+          meta: project.path,
+          _project: project,
+        });
+      }
+      // Last row: implicit current-directory shortcut (not persisted).
       items.push({
-        value: project.path,
-        label: project.name || project.path,
-        meta: project.path,
-        _project: project,
+        value: '__use_current__',
+        label: 'Current Path',
+        meta: currentPath,
+        _action: 'current',
       });
     }
-    // Last row: implicit current-directory shortcut (not persisted).
-    items.push({
-      value: '__use_current__',
-      label: 'Current Path',
-      meta: currentPath,
-      _action: 'current',
-    });
     return {
       kind: 'project',
+      _kind: 'project',
+      _projectRequestId: requestId,
+      _projectInitialPending: loading && initialEntry,
       title: 'Project',
-      description: 'Choose a project.',
-      help: initialEntry
+      description: loading ? 'Loading projects from the backend…' : 'Choose a project.',
+      help: loading
+        ? 'Waiting for the project backend…'
+        : initialEntry
         ? '↑/↓ Select · Enter Open · c Create · r Rename'
         : '↑/↓ Select · Enter Open · c Create · r Rename · Esc Back',
       indexMode: 'always',
@@ -69,20 +76,11 @@ export function createProjectPicker({
           return;
         }
         if (item?._action === 'current') {
-          setPicker(null);
-          try {
-            store.setCwd?.(currentPath, {
-              notice: !initialEntry,
-              message: `Project set: ${projectNameFromPath(currentPath)}`,
-            });
-          } catch (e) {
-            store.pushNotice(`project switch failed: ${e?.message || e}`, 'error');
-          }
+          void enterProject(currentPath, { notice: !initialEntry, register: false });
           return;
         }
-        setPicker(null);
         const project = item?._project;
-        if (project?.path) enterProject(project.path, { notice: !initialEntry });
+        if (project?.path) void enterProject(project.path, { notice: !initialEntry });
       },
       onKey: (input, _key, item) => {
         if (input === 'c' || input === 'C') {
@@ -157,7 +155,7 @@ export function createProjectPicker({
           openProjectPicker();
           return;
         }
-        registerProject(result.path);
+        void registerProject(result.path);
       })
       .catch(() => {
         beginNewProjectManual();
@@ -165,39 +163,43 @@ export function createProjectPicker({
   };
 
   // Register a project in the picker list without switching this session's cwd.
-  const registerProject = (rawPath) => {
-    const path = resolveProjectPath(rawPath);
+  const registerProject = async (rawPath) => {
+    const path = String(rawPath || '').trim();
     if (!path) {
       store.pushNotice('project path is required', 'warn');
-      return;
+      return false;
     }
     try {
-      const project = addProject(path);
+      const project = await backendCall('addProject', path);
       if (project?.name) store.pushNotice(`project added: ${project.name}`, 'info');
-      openProjectPicker();
+      await openProjectPicker();
+      return true;
     } catch (e) {
       store.pushNotice(`project add failed: ${e?.message || e}`, 'error');
+      return false;
     }
   };
 
   // Switch the active working directory to a registered/created project path.
-  const enterProject = (rawPath, options = {}) => {
-    const path = resolveProjectPath(rawPath);
+  const enterProject = async (rawPath, options = {}) => {
+    const path = String(rawPath || '').trim();
     if (!path) {
       store.pushNotice('project path is required', 'warn');
-      return;
+      return false;
     }
+    setPicker(null);
     try {
       // Switch cwd first; only persist the project once the runtime accepts it,
       // so an invalid/missing path can never be written to projects.json.
-      store.setCwd?.(path, {
+      const resolved = await backendCall('setCwd', path, {
         notice: options?.notice !== false,
         message: `Project set: ${projectNameFromPath(path)}`,
       });
-      addProject(path);
-      touchProjectSelected(path);
+      if (options?.register !== false) await backendCall('addProject', resolved || path);
+      return true;
     } catch (e) {
       store.pushNotice(`project switch failed: ${e?.message || e}`, 'error');
+      return false;
     }
   };
 
@@ -225,14 +227,36 @@ export function createProjectPicker({
   // a Name column + Path column. The list always opens (even when empty) and
   // lists registered projects first, then a trailing "Current Path" shortcut.
   // Creating a new project is available via the picker-level c shortcut.
-  const openProjectPicker = () => {
+  const openProjectPicker = async ({ initialEntry = false } = {}) => {
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
     setContextPanel(null);
     closeUsagePanel();
-    setPicker(buildProjectPickerState());
+    const requestId = Symbol('project-picker-request');
+    setPicker(buildProjectPickerState({
+      initialEntry,
+      loading: true,
+      requestId,
+    }));
+    try {
+      const projects = await backendCall('listProjects');
+      setPicker((current) => current?._projectRequestId === requestId
+        ? buildProjectPickerState({
+          initialEntry,
+          projects: Array.isArray(projects) ? projects : [],
+          requestId,
+        })
+        : current);
+      return projects;
+    } catch (error) {
+      setPicker((current) => current?._projectRequestId === requestId
+        ? buildProjectPickerState({ initialEntry, projects: [], requestId })
+        : current);
+      store.pushNotice(`project list failed: ${error?.message || error}`, 'error');
+      return [];
+    }
   };
 
   return {
