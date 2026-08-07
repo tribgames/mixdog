@@ -2,7 +2,7 @@
 // mode gating, binary resolution, prewarm/idle lifecycle, and the char-indexed
 // EDIT client. Split out of patch.mjs; behavior is identical.
 //
-// Backend: NATIVE-ONLY. Every supported apply/edit case is dispatched to the
+// Executor: NATIVE-ONLY. Every supported apply/edit case is dispatched to the
 // mixdog-patch Rust engine via the persistent stdio server. There is NO JS
 // apply fallback: unsupported / unsafe input returns a clean Error string.
 

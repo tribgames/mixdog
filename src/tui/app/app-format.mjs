@@ -8,7 +8,7 @@ import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
 import { formatToolSurface } from '../../runtime/shared/tool-surface.mjs';
 
-// SEARCH_DEFAULT marker — mirrors backend SEARCH_DEFAULT_PROVIDER/MODEL
+// SEARCH_DEFAULT marker — mirrors search defaults SEARCH_DEFAULT_PROVIDER/MODEL
 // (mixdog-session-runtime.mjs 1167-1168). A search route of {provider:'default',
 // model:'default'} means "follow the Main Model" at runtime (nativeSearchRoutes).
 export const SEARCH_DEFAULT_ROUTE = Object.freeze({ provider: 'default', model: 'default' });

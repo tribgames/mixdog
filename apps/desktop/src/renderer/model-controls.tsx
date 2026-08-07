@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DesktopApi, DesktopModelOption, DesktopModelSelection, EngineSnapshot } from "../shared/contract";
+import type { DesktopApi, DesktopModelOption, DesktopModelSelection, SessionSnapshot } from "../shared/contract";
 import { schedulePostInteractionIdle } from "./app-idle-warmup";
 import {
   beginBootSurface,
@@ -104,7 +104,7 @@ export const WorkflowSelect = memo(function WorkflowSelect({
   workflow?: RecordValue | null;
   disabled: boolean;
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
-  applySnapshot: (snapshot: EngineSnapshot | null) => void;
+  applySnapshot: (snapshot: SessionSnapshot | null) => void;
   onDraftChange?: (workflow: { id: string; name: string }) => void;
 }) {
   const [options, setOptions] = useState<WorkflowOption[]>(
@@ -206,7 +206,7 @@ export const ModelSelector = memo(function ModelSelector({
    *  pane can change ITS model without the window's focus deciding. */
   sessionId?: string;
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
-  applySnapshot: (snapshot: EngineSnapshot | null) => void;
+  applySnapshot: (snapshot: SessionSnapshot | null) => void;
   onOpenSettings: (section?: SettingsSection | null) => void;
   onDraftSelection?: (selection: DesktopModelSelection) => void;
 }) {
@@ -304,7 +304,7 @@ export const ModelSelector = memo(function ModelSelector({
         } catch (reason) {
           failures.push(reason instanceof Error ? reason.message : String(reason || "Quick model catalog failed."));
         }
-        // The backend seeds its authoritative full request before servicing the
+        // The session service seeds its authoritative full request before servicing the
         // advisory quick read. Await quick here so the picker remains instant;
         // the host-side seed protects the catalog from the warmup race.
         try {

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import { classifyPromptEscape } from '../src/tui/components/prompt-input/escape-policy.mjs';
 import { promptInterruptRestoreText } from '../src/tui/components/prompt-input/interrupt-policy.mjs';
@@ -101,4 +102,17 @@ test('Up/Down move inside multiline input and reach history only at document bou
   assert.equal(verticalOffset(value, 0, 80, -1, null).cursor, 0);
   assert.notEqual(verticalOffset(value, 0, 80, 1, null).cursor, 0);
   assert.equal(verticalOffset(value, value.length, 80, 1, null).cursor, value.length);
+});
+
+test('Ink dispatches a bare ESC immediately while retaining the partial-sequence timer', async () => {
+  const source = await readFile(
+    new URL('../node_modules/ink/build/components/App.js', import.meta.url),
+    'utf8',
+  );
+  assert.match(source,
+    /bareEscapeChunk[\s\S]{0,500}?flushPendingEscape\(\)/,
+    'a one-byte ESC read must flush in the same readable turn');
+  assert.match(source,
+    /hasPendingEscape\(\)[\s\S]{0,120}?schedulePendingInputFlush\(\)/,
+    'partial CSI/Alt sequences must retain the bounded completion timer');
 });

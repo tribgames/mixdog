@@ -71,7 +71,6 @@ import { projectTranscriptRows } from './transcript-rows.ts';
 import {
   mergeSessionCatalogPushRows,
   mergeSessionCatalogRows,
-  optimisticSubmittedSessionCatalog,
 } from '../shared/session-catalog.ts';
 import { normalizeCachedSessionCatalog } from './session-catalog-cache.ts';
 import { classifyMobileTaskSwipe } from './mobile-task-gestures.ts';
@@ -566,8 +565,8 @@ test('pane, takeover, editor, and terminal surfaces share the workbench hierarch
   assert.doesNotMatch(desktopCss,
     /\.workspace-tab\.dragging\s*\{[^}]*(?:opacity|color|background|filter|transform)\s*:/s,
     "dragging must not change the selected tab's visual state");
-  const activeTab = desktopCss.slice(desktopCss.indexOf('.workspace-tab.active::after')).slice(0, 320);
-  assert.match(activeTab, /height:\s*1px/);
+  const activeTab = desktopCss.slice(desktopCss.indexOf('.workspace-tab.active::after')).slice(0, 800);
+  assert.match(activeTab, /height:\s*2px/);
   assert.match(activeTab, /left:\s*0/);
   assert.match(activeTab, /right:\s*0/);
   assert.match(desktopCss,
@@ -661,7 +660,7 @@ test('pane, takeover, editor, and terminal surfaces share the workbench hierarch
   assert.doesNotMatch(breadcrumbActions, /Open in default app|<ExternalLink size=/,
     "the breadcrumb row must not duplicate the system-open action");
   assert.match(desktopCss,
-    /\.editor-breadcrumb-actions svg\.lucide \{ width: 18px; height: 18px; stroke-width: 1\.25px; \}[\s\S]*?\.editor-breadcrumb-actions \.editor-revert-action svg\.lucide \{ width: 18px; height: 18px; \}/,
+    /\.editor-breadcrumb-actions svg\.lucide \{ width: var\(--mx-icon-lg\); height: var\(--mx-icon-lg\); stroke-width: 1\.25px; \}[\s\S]*?\.editor-breadcrumb-actions \.editor-revert-action svg\.lucide \{ width: var\(--mx-icon-lg\); height: var\(--mx-icon-lg\); \}/,
     "file actions share the 18px header-cluster glyph frame and thin stroke");
   assert.doesNotMatch(editor, /\b(?:renderReview|showReview|setShowReview)\b|<Diff size=/,
     "file editor actions must not expose the redundant full-review transition");
@@ -677,7 +676,7 @@ test('pane, takeover, editor, and terminal surfaces share the workbench hierarch
     /className="studio-results"[\s\S]*?className="studio-dock"/,
     "Studio results, including pending thumbnails, must stay above the composer");
   assert.match(studio,
-    /className="studio-tile-remove" aria-label=\{t\(['"]Delete asset['"]\)\}[\s\S]*?<Trash2 size=\{15\}/);
+    /className="studio-tile-remove" aria-label=\{t\(['"]Delete asset['"]\)\}[\s\S]*?<Trash2 size=\{16\}/);
   assert.match(studio,
     /value=\{TILE_SIZES\.length - 1[\s\S]*?TILE_SIZES\[TILE_SIZES\.length - 1 - scaleIndex\]/,
     "thumbnail scale must run from smaller tiles on the left to larger tiles on the right");
@@ -700,7 +699,7 @@ test('pane, takeover, editor, and terminal surfaces share the workbench hierarch
   assert.match(desktopCss,
     /\.editor-breadcrumb-actions button\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;[^}]*border-radius:\s*6px;[^}]*color:\s*var\(--mx-text\);/s);
   assert.match(desktopCss,
-    /\.editor-breadcrumb-actions svg\.lucide\s*\{[^}]*width:\s*18px;[^}]*height:\s*18px;[^}]*stroke-width:\s*1\.25px;/s);
+    /\.editor-breadcrumb-actions svg\.lucide\s*\{[^}]*width:\s*var\(--mx-icon-lg\);[^}]*height:\s*var\(--mx-icon-lg\);[^}]*stroke-width:\s*1\.25px;/s);
   assert.match(desktopCss,
     /\.editor-breadcrumb-item\s*\{[^}]*height:\s*24px;/s);
   assert.match(desktopCss, /\.editor-breadcrumb-item:hover/);
@@ -806,7 +805,12 @@ test('pane, takeover, editor, and terminal surfaces share the workbench hierarch
     "Source Control commits only the explicit staged index");
   assert.match(paneCss, /\.pane-resize-handle\s*\{[^}]*flex:\s*0 0 1px;/s);
   assert.match(paneCss,
-    /\.pane-split-row > \.pane-resize-handle::before\s*\{[^}]*left:\s*-3px;[^}]*right:\s*-3px;/s);
+    /\.pane-split-row > \.pane-resize-handle::before\s*\{[^}]*left:\s*0;[^}]*right:\s*-6px;/s);
+  assert.match(paneCss,
+    /\.pane-split-column > \.pane-resize-handle::before\s*\{[^}]*top:\s*0;[^}]*bottom:\s*-6px;/s);
+  assert.doesNotMatch(paneCss,
+    /\.pane-split-row > \.pane-resize-handle::before\s*\{[^}]*left:\s*-\d/,
+    "the resize target must not cover the first pane's trailing scrollbar");
   assert.match(paneCss, /\.pane-resize-handle::after\s*\{[^}]*background:\s*var\(--mx-border-muted/s);
   assert.doesNotMatch(paneCss, /@container chat-pane|\.thread\s*\{[\s\S]*?var\(--mx-scrollbar-size\)/,
     'pane chrome must not reintroduce a second transcript/composer gutter scale');
@@ -1205,15 +1209,6 @@ test('session lanes order by authoritative content generation, never by arrival'
   assert.deepEqual(store.get(sessionId).items.map((item) => item.id), ['row-41', 'row-42'],
     'a newer generation branch/rewrite must reach the pane');
 
-  // Legacy/remote hosts publish unversioned frames: the compatibility path
-  // keeps reconciling by transcript completeness alone.
-  const legacy = createSessionLaneStore({ maxEntries: 4, maxBytes: 1024 * 1024 });
-  legacy.apply({ sessionId, snapshot: { sessionId, items: [row(1), row(2), row(3)], queued: [] } });
-  legacy.apply({ sessionId, snapshot: { sessionId, items: [row(2), row(3)], queued: [] } });
-  assert.deepEqual(legacy.get(sessionId).items.map((item) => item.id),
-    ['row-1', 'row-2', 'row-3'],
-    'an unversioned windowed frame still restores the head it omitted');
-
   assert.equal(staleSessionLaneReplay(7, { source: 'session-lane', frameSource: 'replay', contentRevision: 6 }),
     'stale-replay');
   assert.equal(staleSessionLaneReplay(7, { source: 'session-lane', frameSource: 'replay', contentRevision: 7 }),
@@ -1222,8 +1217,6 @@ test('session lanes order by authoritative content generation, never by arrival'
     null);
   assert.equal(staleSessionLaneReplay(7, { source: 'session-lane', frameSource: 'live', contentRevision: 7 }),
     null, 'an owner publication is never gated by the replay rule');
-  assert.equal(staleSessionLaneReplay(7, { source: 'session-lane' }), null,
-    'unversioned frames keep the compatibility path');
   assert.equal(
     staleSessionLaneReplay(7, { source: 'renderer-result', frameSource: 'replay', contentRevision: 1 }),
     null,
@@ -1533,10 +1526,37 @@ test('the transcript timeline paints one contained layer with OpenCode cold over
     /@container chat-pane \(min-width:\s*1536px\)[\s\S]*?--pane-column:\s*1000px;/,
     'the 2xl step must only widen the one shared pane column');
   assert.match(css,
-    /\.transcript-virtual-row-content\[data-tag="Error"\]\s*\{[^}]*max-width:\s*var\(--pane-scroll-column\);[^}]*padding-left:\s*var\(--pane-inset\);\s*padding-right:\s*calc\(var\(--pane-inset\) - var\(--mx-scrollbar-size\)\);/s,
+    /\.transcript-virtual-row-content\[data-tag="Error"\]\s*\{[^}]*max-width:\s*var\(--pane-scroll-column\);[^}]*padding-left:\s*calc\(var\(--pane-inset\) \+ var\(--composer-text-inset\)\);\s*padding-right:\s*calc\(var\(--pane-inset\) \+ var\(--composer-text-inset\) - var\(--mx-scrollbar-size\)\);/s,
     'transcript rows must pay the scrollbar reserve out of their RIGHT inset so their edges match the composer');
   assert.match(css, /\.transcript-turn-gap\s*\{[^}]*height:\s*20px;/s,
     'turn boundaries must be explicit virtual rows');
+});
+
+test('task transcript uses one compact reading scale with restrained markdown hierarchy', async () => {
+  const css = await readFile(new URL('./desktop.css', import.meta.url), 'utf8');
+  assert.match(css,
+    /\.message-body\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*line-height:\s*var\(--mx-line-emphasis\);/s);
+  assert.match(css,
+    /\.tool-title b,\s*\.tool-title small\s*\{[^}]*font-size:\s*var\(--mx-font-code-prose\);[^}]*line-height:\s*var\(--mx-line-emphasis\);/s);
+  assert.match(css,
+    /\.tool-title b\s*\{[^}]*font-weight:\s*var\(--mx-weight-medium\);/s);
+  assert.match(css,
+    /\.live-activity\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*line-height:\s*var\(--mx-line-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-body\);/s);
+  assert.match(css,
+    /\.turn-status\.complete,\s*\.turn-status\.success,[\s\S]*?font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-body\);/);
+  assert.match(css,
+    /\.compaction-divider\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-body\);[^}]*line-height:\s*var\(--mx-line-emphasis\);/s);
+  assert.match(css,
+    /\.thinking-disclosure\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-body\);/s);
+  assert.match(css, /\.markdown h1\s*\{[^}]*font-size:\s*17px;/s);
+  assert.match(css, /\.markdown h2\s*\{[^}]*font-size:\s*16px;/s);
+  assert.match(css,
+    /\.markdown h3\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);/s);
+  assert.match(css,
+    /\.markdown strong,\s*\.markdown b\s*\{[^}]*font-weight:\s*var\(--mx-weight-medium\);/s);
+  assert.match(css,
+    /\.composer textarea\s*\{[^}]*font-size:\s*var\(--mx-font-body\);[^}]*line-height:\s*var\(--mx-line-body\);/s,
+    'the compact reading scale must stay scoped to transcript content');
 });
 
 test('streaming markdown repartitions without hiding visible source text', async () => {
@@ -1847,7 +1867,7 @@ test('renderer uses the preload bridge name', async () => {
 test('desktop startup and automation never implicitly activate the remote bridge', async () => {
   const [runtime, daemon] = await Promise.all([
     readFile(new URL('../../../../src/session-runtime/runtime-core.mjs', import.meta.url), 'utf8'),
-    readFile(new URL('../../../../src/standalone/backend-daemon.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../../../../src/standalone/daemon.mjs', import.meta.url), 'utf8'),
   ]);
   assert.doesNotMatch(runtime, /remoteAutoStartRequested|claimIfVacant/);
   assert.match(runtime,
@@ -1938,7 +1958,7 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
   assert.match(follow, /observer\.observe\(target\);/,
     'the streaming tail grows with no rows commit, so a lost tail needs the content observer');
   assert.match(follow,
-    /if \(!viewportHeightChanged && distanceFromBottom\(root\) < BOTTOM_THRESHOLD_PX\) return;/,
+    /if \(!viewportHeightChanged && distance < BOTTOM_THRESHOLD_PX\) return;/,
     'virtual-core still owns every growth it follows itself: the observer writes only once the tail was lost');
   assert.doesNotMatch(follow, /inlineReflowFrame|viewportObserver|previousInlineSize/,
     'OpenCode parity must not add a second pane-width observer grammar');
@@ -2061,12 +2081,13 @@ test('settings dialog reserves the native window-controls safe area', async () =
 });
 
 test('every renderer stylesheet resolves through the shared desktop theme contract', async () => {
-  const [theme, layout, settings] = await Promise.all([
+  const [theme, layout, settings, tokens] = await Promise.all([
     readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
     readFile(new URL('./styles.css', import.meta.url), 'utf8'),
     readFile(new URL('./settings/settings.css', import.meta.url), 'utf8'),
+    readFile(new URL('./ui/tokens.css', import.meta.url), 'utf8'),
   ]);
-  const allCss = `${theme}\n${layout}\n${settings}`;
+  const allCss = `${theme}\n${layout}\n${settings}\n${tokens}`;
   const definitions = new Set([...allCss.matchAll(/(--mx-[\w-]+)\s*:/g)].map((match) => match[1]));
   const runtimeTokens = new Set(['--mx-scrollbar-thumb', '--mx-scrollbar-thumb-hover']);
   const unresolved = [...new Set([...allCss.matchAll(/var\((--mx-[\w-]+)/g)].map((match) => match[1]))]
@@ -2134,7 +2155,7 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
   assert.match(styles, /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--mx-bg-deep:\s*#f5f5f5;[^}]*--mx-window-band:\s*#f0f0f0;[^}]*--mx-workspace-sheet:\s*#fafafa;[^}]*--mx-text:\s*#17181a;/s);
   assert.match(styles, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--mx-bg-base\);[^}]*box-shadow:\s*var\(--mx-raised\);/s);
   assert.match(styles,
-    /\.workspace-tab\s*\{[^}]*height:\s*35px;[^}]*min-width:\s*var\(--workspace-tab-current-width,\s*50px\);[^}]*max-width:\s*var\(--workspace-tab-current-width,\s*160px\);[^}]*flex:\s*1 0 0;/s);
+    /\.workspace-tab\s*\{[^}]*height:\s*35px;[^}]*min-width:\s*var\(--workspace-tab-current-width,\s*30px\);[^}]*max-width:\s*var\(--workspace-tab-current-width,\s*160px\);[^}]*flex:\s*1 1 var\(--workspace-tab-current-width,\s*160px\);/s);
   // Flat Orca layout (user): flush panels, hairline separators, square edges.
   assert.match(styles, /\.desktop-body\s*\{[^}]*padding:\s*0;[^}]*border-top:\s*1px solid var\(--mx-border-muted\);[^}]*background:\s*var\(--mx-window-band\);/s);
   assert.match(styles, /\.sidebar\.session-sidebar\s*\{[^}]*width:\s*var\(--session-sidebar-width,\s*260px\);[^}]*min-width:\s*var\(--session-sidebar-min-width,\s*232px\);[^}]*flex:\s*0 0 var\(--session-sidebar-width,\s*260px\);[^}]*border-radius:\s*0;/s);
@@ -2168,7 +2189,7 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
     "rail buttons must center their glyphs inside the 48px square");
   assert.match(styles, /\.topbar \.titlebar-update::before\s*\{[^}]*width:\s*20px;[^}]*height:\s*20px;[^}]*border-radius:\s*999px;/s,
     "the compact update badge follows the updater into the window bar");
-  assert.match(styles, /\.session-panel-header\s*\{[^}]*height:\s*36px;[^}]*color:\s*var\(--mx-text\);[^}]*font:\s*600 15px\/22px/s,
+  assert.match(styles, /\.session-panel-header\s*\{[^}]*height:\s*36px;[^}]*color:\s*var\(--mx-text\);[^}]*font-size:\s*var\(--mx-font-body\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);[^}]*line-height:\s*var\(--mx-line-emphasis\);/s,
     "the session panel title tops the chrome ramp inside the tab strip band");
   assert.doesNotMatch(styles, /\.session-panel-header\s*\{[^}]*text-transform:\s*uppercase;/s,
     "panel titles dropped the uppercase caps tracking (user: 타이틀 폰트)");
@@ -2183,17 +2204,17 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
   assert.match(styles,
     /\.utility-dock-header-actions > button,[\s\S]*?\.utility-dock-header-actions \.row-overflow-trigger\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;[^}]*flex:\s*0 0 28px;/s,
     "dock title actions share the pane-sized click target");
-  assert.match(styles, /\.sidebar-recent-heading\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s,
-    "section headings sit on the single 13px chrome scale");
+  assert.match(styles, /\.sidebar-recent-heading\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s,
+    "section headings sit on the 14px category tier");
   assert.match(styles,
-    /\.sidebar-recent-heading\.sidebar-heading-toggle\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);[^}]*color:\s*var\(--mx-text-muted\);/s,
-    "collapsible rail section names should sit on the 14/semibold muted category tier");
+    /\.sidebar-recent-heading\.sidebar-heading-toggle\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);[^}]*color:\s*var\(--mx-text\);/s,
+    "collapsible rail section names should sit on the 14/semibold category tier");
   assert.match(styles,
     /\.session-sidebar-scroll > \.sidebar-recent \+ \.sidebar-recent\s*\{\s*margin-top:\s*2px;/s,
     "adjacent session categories should keep a compact separation");
   assert.match(styles,
-    /\.session-sidebar-panels \.workflows-models h2\s*\{[^}]*margin:\s*6px 0 0;[^}]*color:\s*var\(--mx-text-muted\);/s,
-    "workflow category names should share the Sessions muted category tier");
+    /\.session-sidebar-panels \.workflows-models h2\s*\{[^}]*margin:\s*6px 0 0;[^}]*color:\s*var\(--mx-text\);/s,
+    "workflow category names should share the Sessions category tier");
   assert.match(styles,
     /\.session-sidebar-panels \.workflows-packs > \.workflows-section-head\s*\{\s*padding-top:\s*0;/s,
     "the first workflow category should bind directly below the panel header");
@@ -2363,9 +2384,9 @@ test('workspace tabs compress contiguously without scrolling selected neighbors 
   ]);
 
   assert.match(layout, /\.workspace-tabs\s*\{[^}]*overflow-x:\s*auto;/s);
-  assert.match(theme, /\.workspace-tabs\s*\{[^}]*gap:\s*0;[^}]*overflow-x:\s*auto;[^}]*overflow-y:\s*hidden;/s);
+  assert.match(theme, /\.workspace-tabs\s*\{[^}]*gap:\s*0;[^}]*overflow:\s*hidden;/s);
   assert.match(theme,
-    /\.workspace-tab\s*\{[^}]*min-width:\s*var\(--workspace-tab-current-width,\s*50px\);[^}]*max-width:\s*var\(--workspace-tab-current-width,\s*160px\);[^}]*flex:\s*1 0 0;/s);
+    /\.workspace-tab\s*\{[^}]*min-width:\s*var\(--workspace-tab-current-width,\s*30px\);[^}]*max-width:\s*var\(--workspace-tab-current-width,\s*160px\);[^}]*flex:\s*1 1 var\(--workspace-tab-current-width,\s*160px\);/s);
   assert.doesNotMatch(navigation, /TAB_MIN_WIDTH|ACTIVE_TAB_MIN_WIDTH|TAB_GAP/,
     "browser flex layout must own tab compression instead of a JS width calculator");
   assert.doesNotMatch(navigation, /scrollIntoView/,
@@ -2435,6 +2456,9 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.match(styles,
     /\.turn-review-slot\[data-reserved="true"\]\s*\{[^}]*min-height:\s*28px;[^}]*margin-bottom:\s*8px;/s,
     'a live turn reserves the collapsed review row before a late diff arrives');
+  assert.match(styles,
+    /\.turn-review-placeholder\s*\{[^}]*min-height:\s*28px;[^}]*visibility:\s*hidden;/s,
+    'a same-session prompt handoff preserves review geometry without exposing stale diff content');
   assert.match(styles, /\.turn-review-summary\s*\{[^}]*min-height:\s*28px;/s,
     'the collapsed review must retain a readable control row');
   assert.doesNotMatch(styles, /--mx-turn-review-slot/,
@@ -2456,21 +2480,24 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.match(styles,
     /\.live-activity-icon\s*\{[^}]*height:\s*20px;[^}]*align-self:\s*center;[^}]*place-items:\s*center;[^}]*line-height:\s*0;[^}]*transform:\s*translateY\(-1px\);/s);
   assert.match(styles,
-    /\.live-activity-glyph::before\s*\{[^}]*animation:\s*live-activity-glyph 1300ms steps\(1, end\) infinite;/s,
+    /\.live-activity-glyph-spin\s*\{[^}]*animation:\s*live-activity-glyph-spin 2900ms linear infinite;/s,
     "the busy band runs the TUI's ◇◆◈ shape sweep, not a rotating spinner");
+  assert.match(styles,
+    /\.live-activity-glyph-core\s*\{[^}]*animation:\s*live-activity-glyph-core 1300ms cubic-bezier\(\.4, 0, \.6, 1\) infinite;/s,
+    "the vector core must preserve the three-state TUI cadence");
   assert.doesNotMatch(styles, /\.live-activity-spinner\s*\{/,
     "the busy band carries the shimmer, not a rotating spinner");
   assert.match(styles,
-    /\.live-activity \[data-component="text-shimmer"\]\s*\{[^}]*--text-shimmer-duration:\s*2600ms;/s);
+    /\.live-activity \[data-component="text-shimmer"\]\s*\{[^}]*--text-shimmer-duration:\s*clamp\(1700ms,[^;]*2600ms\);/s);
   assert.match(styles,
-    /\[data-slot="text-shimmer-char"\]\s*\{[^}]*background-size:\s*24ch 100%;[^}]*animation:\s*live-activity-sweep 2880ms linear infinite;/s,
+    /\.live-activity \[data-component="text-shimmer"\]\[data-active="true"\] \[data-slot="text-shimmer-char"\]\s*\{[^}]*background-size:\s*var\(--live-shimmer-span\) 100%;[^}]*animation:\s*live-activity-sweep var\(--text-shimmer-duration\) linear infinite;/s,
     "the status glint travels in character widths so short and long phrases sweep alike");
   assert.match(styles,
-    /\.live-activity \[data-component="text-shimmer"\]\s*\{[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s);
+    /\.live-activity \[data-component="text-shimmer"\]\s*\{[^}]*font-weight:\s*var\(--mx-weight-medium\);/s);
   assert.match(styles,
-    /\.turn-status\.complete,[\s\S]*?\.turn-status\.interrupted\s*\{[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s);
+    /\.turn-status\.complete,[\s\S]*?\.turn-status\.interrupted\s*\{[^}]*font-weight:\s*var\(--mx-weight-body\);/s);
   assert.match(styles,
-    /\.turn-status\.complete,\s*\.turn-status\.success\s*\{[^}]*color:\s*var\(--mx-text-faint\);/s,
+    /\.turn-status\.complete,\s*\.turn-status\.success\s*\{[^}]*color:\s*var\(--mx-text-soft\);/s,
     "a settled turn stays a quiet marker row, never a colored badge");
   assert.match(styles,
     /\.turn-status\.complete::before,\s*\n?\.turn-status\.success::before\s*\{[^}]*content:\s*"\\25c8";/s,
@@ -2482,7 +2509,9 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.doesNotMatch(retryRule, /grid-row:\s*2/,
     "Retry must stay to the right of Failed on the same row");
   assert.match(styles,
-    /\.compaction-divider\s*\{[^}]*color:\s*var\(--mx-accent\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s);
+    /\.compaction-divider\s*\{[^}]*font-weight:\s*var\(--mx-weight-body\);/s);
+  assert.match(styles,
+    /\.compaction-divider\s*\{\s*color:\s*var\(--mx-text-muted\);\s*\}/s);
   assert.match(styles,
     /\[data-component="text-shimmer"\]\[data-active="true"\] \[data-slot="text-shimmer-char"\]\s*\{[^}]*animation:\s*transcript-text-shimmer var\(--text-shimmer-duration\) linear infinite;/s,
     'active status and running tool titles must retain their shimmer feedback');
@@ -2523,7 +2552,7 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.match(styles, /\.live-work-status\s*\{[^}]*margin-left:\s*0;/s);
   assert.match(styles, /\.composer-mic\s*\{[^}]*margin-left:\s*6px;[^}]*margin-right:\s*8px;/s);
   assert.match(styles,
-    /\.chat-live-work\s*\{[^}]*position:\s*absolute;[^}]*right:\s*12px;[^}]*bottom:\s*calc\(100% \+ 20px\);/s);
+    /\.chat-live-work\s*\{[^}]*position:\s*absolute;[^}]*right:\s*var\(--pane-chrome-inset\);[^}]*bottom:\s*calc\(100% \+ 20px\);/s);
   assert.doesNotMatch(styles, /\.composer-region:has\(\.turn-review-bar\) \.chat-live-work/);
   assert.match(styles, /\.chat-live-work \.live-work-status\s*\{[^}]*height:\s*20px;/s);
   assert.match(styles, /\.live-activity-status\s*\{[^}]*min-height:\s*24px;/s);
@@ -2565,12 +2594,12 @@ test('phone header uses the roomier mobile scale', async () => {
     readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
     readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
   ]);
-  assert.match(styles, /\.app-shell\s*\{\s*--titlebar-height:\s*64px;/);
-  assert.match(styles, /\.session-header\s*\{[^}]*flex-basis:\s*64px;[^}]*min-height:\s*64px;/s);
-  assert.match(styles, /\.session-header-content\s*\{[^}]*height:\s*64px;[^}]*grid-template-columns:/s);
-  assert.match(styles, /\.session-header-content h1\s*\{[^}]*font-size:\s*16px;[^}]*line-height:\s*24px;/s);
-  assert.match(styles, /\.session-project-badge\s*\{[^}]*height:\s*22px;[^}]*font-size:\s*var\(--mx-font-minor\);[^}]*line-height:\s*22px;/s);
-  assert.match(styles, /\.session-header-menu \.sidebar-toggle-icon,[^}]*\.session-dock-toggle svg\.lucide\s*\{[^}]*width:\s*20px;[^}]*height:\s*20px;/s);
+  assert.match(styles, /html\[data-mixdog-mobile\] \.app-shell\s*\{\s*--titlebar-height:\s*64px;/);
+  assert.match(styles, /html\[data-mixdog-mobile\] \.session-header\s*\{[^}]*flex-basis:\s*64px;[^}]*min-height:\s*64px;/s);
+  assert.match(styles, /html\[data-mixdog-mobile\] \.session-header-content\s*\{[^}]*height:\s*64px;[^}]*grid-template-columns:/s);
+  assert.match(styles, /html\[data-mixdog-mobile\] \.session-header-content h1\s*\{[^}]*font-size:\s*16px;[^}]*line-height:\s*var\(--mx-line-body\);/s);
+  assert.match(styles, /html\[data-mixdog-mobile\] \.session-project-badge\s*\{[^}]*height:\s*22px;[^}]*font-size:\s*var\(--mx-font-minor\);[^}]*line-height:\s*var\(--mx-line-emphasis\);/s);
+  assert.match(styles, /html\[data-mixdog-mobile\] \.session-header-menu \.sidebar-toggle-icon,[^}]*html\[data-mixdog-mobile\] \.session-dock-toggle svg\.lucide\s*\{[^}]*width:\s*var\(--mx-icon-xl\);[^}]*height:\s*var\(--mx-icon-xl\);/s);
   assert.match(styles, /@media \(pointer:\s*coarse\)\s*\{[^}]*\.toolbar-sidebar\s*\{[^}]*width:\s*40px;[^}]*height:\s*40px;/s);
   assert.match(styles,
     /@media \(hover:\s*none\) and \(pointer:\s*coarse\)\s*\{[\s\S]*?\.session-header-menu:hover,[\s\S]*?\.session-dock-toggle:hover\s*\{[^}]*background:\s*transparent;/s);
@@ -2579,7 +2608,7 @@ test('phone header uses the roomier mobile scale', async () => {
 
 test('conversation uses native scrolling and silent session transitions', async () => {
   const renderer = await readAppModules();
-  assert.doesNotMatch(renderer, /TranscriptRail|Previous user message|Next user message|message-navigation|navigateMessage/);
+  assert.doesNotMatch(renderer, /TranscriptRail|Previous user message|Next user message|message-navigation/);
   assert.doesNotMatch(renderer, /Opening session|Resuming conversation/);
   assert.match(renderer, /if \(mode === "resuming"\) \{/);
   assert.doesNotMatch(renderer, /session-switch-overlay|data-settling|data-staging|threadStaging/);
@@ -2882,7 +2911,7 @@ test('session title helpers prefer a stable title and extract user-facing prompt
   );
 });
 
-test('accepted sessions enter the catalog immediately and reconcile with durable rows', () => {
+test('session catalog adopts durable rows and keeps exact push deletion semantics', () => {
   const previous = {
     id: 'previous',
     preview: 'Previous',
@@ -2895,36 +2924,26 @@ test('accepted sessions enter the catalog immediately and reconcile with durable
     projectPath: 'C:/previous',
     currentSession: true,
   };
-  const optimistic = optimisticSubmittedSessionCatalog([previous], {
+  const durable = {
     id: 'new-session',
-    preview: 'First prompt',
-    title: 'First prompt',
+    preview: 'Durable first prompt',
+    title: 'Model-written title',
     updatedAt: 2,
     activityAt: 2,
     messageCount: 1,
-    cwd: '',
+    cwd: 'C:/tasks',
     classification: 'task',
     projectPath: null,
     currentSession: true,
-    working: true,
-  });
-  assert.deepEqual(optimistic.map((row) => row.id), ['new-session', 'previous']);
-  assert.equal(optimistic[1].currentSession, false);
-
-  const durable = {
-    ...optimistic[0],
-    preview: 'Durable first prompt',
-    title: 'Model-written title',
-    cwd: 'C:/tasks',
     working: false,
   };
-  const reconciled = mergeSessionCatalogRows(optimistic, [durable, optimistic[1]]);
+  const reconciled = mergeSessionCatalogRows([previous], [durable, previous]);
   assert.equal(reconciled[0], durable);
   assert.equal(reconciled[0].title, 'Model-written title');
 
   const transientPush = mergeSessionCatalogPushRows(reconciled, [durable]);
   assert.deepEqual(transientPush.map((row) => row.id), ['new-session'],
-    'exact backend pushes remove rows absent from the durable store');
+    'exact session pushes remove rows absent from the durable store');
 });
 
 test('session catalog cache keeps display fields but drops stale live-process state', () => {
@@ -2957,19 +2976,36 @@ test('session catalog cache keeps display fields but drops stale live-process st
   assert.deepEqual(normalizeCachedSessionCatalog({ version: 2, rows: cached.rows }).rows, []);
 });
 
-test('session sidebar and pane restore wait for the authoritative catalog', async () => {
-  const [app, catalog, sidebar, main] = await Promise.all([
+test('session sidebar restores its cache while persisted pane sessions wait for validation', async () => {
+  const [app, catalog, sidebar, main, paneState, sessionHost] = await Promise.all([
     readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./app-session-catalog.ts', import.meta.url), 'utf8'),
     readFile(new URL('./session-sidebar.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./main.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./pane-workspace-state.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../main/session-host.ts', import.meta.url), 'utf8'),
   ]);
   assert.match(app, /sessionsReady=\{sessionCatalogReady\}/);
   assert.match(app, /await refreshSessions\(\)[\s\S]*?setSessionCatalogReady\(true\)/);
   assert.match(app, /void invoke\(refreshProjects\)/);
   assert.doesNotMatch(app, /Promise\.all\(\[refreshSessions\(\), refreshProjects\(\)\]\)/);
-  assert.match(catalog, /useState<DesktopSessionSummary\[]>\(\[]\)/);
-  assert.doesNotMatch(catalog, /readCachedSessionCatalog/);
+  assert.match(catalog,
+    /useState<DesktopSessionSummary\[]>\(\s*readCachedSessionCatalog,\s*\)/);
+  assert.match(paneState,
+    /if \(restorePlan\.stored && !restorePlan\.requiresSessionValidation\) \{\s*return restorePlan\.stored;\s*\}/);
+  const bootReady = app.slice(
+    app.indexOf('const desktopBootReady ='),
+    app.indexOf('// PANE tabs are part of the visible workspace'),
+  );
+  assert.doesNotMatch(bootReady, /sessionCatalogReady|restorePending/);
+  assert.match(sessionHost, /refreshFromStorage: false/);
+  assert.match(sessionHost, /guarded by sessionClient\.read\/subscribe/);
+  const visibleRegistration = sessionHost.slice(
+    sessionHost.indexOf('async setVisibleSessions'),
+    sessionHost.indexOf('async resumeSession'),
+  );
+  assert.doesNotMatch(visibleRegistration, /listSessions\(/);
+  assert.match(visibleRegistration, /sessionClient\.subscribe/);
   assert.doesNotMatch(main, /setVisibleSessions/);
   assert.match(sidebar,
     /!sessionsReady && rows\.length === 0[\s\S]*?Loading sessions…[\s\S]*?\{visibleRecentRows\.map/);
@@ -3246,19 +3282,29 @@ diff --git a/real.ts b/real.ts
   assert.match(files[0].hunks[0], /before[\s\S]*after/);
 });
 
-test('apply-patch add and delete envelopes normalize into visible file diffs', () => {
+test('apply-patch add, delete, and update envelopes keep distinct file statuses', () => {
   const normalized = normalizeApplyPatch(`*** Begin Patch
 *** Add File: added.txt
 +first
 +second
 *** Delete File: removed.txt
+*** Update File: changed.txt
+@@
+-before
++after
 *** End Patch`);
   const files = parseUnifiedDiff(normalized);
-  assert.equal(files.length, 2);
+  assert.equal(files.length, 3);
+  assert.match(normalized, /^new file mode 100644$/m);
+  assert.match(normalized, /^deleted file mode 100644$/m);
   assert.equal(files[0].newFile.fileName, 'added.txt');
+  assert.equal(files[0].status, 'A');
   assert.match(files[0].hunks[0], /\+first\n\+second/);
   assert.equal(files[1].oldFile.fileName, 'removed.txt');
+  assert.equal(files[1].status, 'D');
   assert.equal(files[1].renderable, false);
+  assert.equal(files[2].newFile.fileName, 'changed.txt');
+  assert.equal(files[2].status, 'M');
 });
 
 test('rangeless apply-patch hunks gain synthetic ranges for rendering only', () => {
@@ -3422,10 +3468,10 @@ test('streaming Markdown worker queue drops obsolete waiting snapshots', async (
 });
 
 test('pane actions stay session-addressed without focused-session fallbacks', async () => {
-  const [app, conversation, backendApi, contract] = await Promise.all([
+  const [app, conversation, sessionApi, contract] = await Promise.all([
     readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./Conversation.tsx', import.meta.url), 'utf8'),
-    readFile(new URL('../main/backend-api.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../main/desktop-service-contract.ts', import.meta.url), 'utf8'),
     readFile(new URL('../shared/contract.ts', import.meta.url), 'utf8'),
   ]);
   assert.match(app, /host\.submitToSession\(sessionId, content, options\)/);
@@ -3433,14 +3479,14 @@ test('pane actions stay session-addressed without focused-session fallbacks', as
   assert.match(conversation,
     /sessionId \? host\.abortSession\(sessionId, options\) : \{ aborted: false \}/);
   assert.doesNotMatch(conversation, /host\.abort\(/,
-    'a renderer-only draft must not target whichever backend session is active');
+    'a renderer-only draft must not target whichever session session is active');
   assert.match(conversation,
     /\? host\.resolveToolApprovalForSession\(sessionId, approvalId, \{ approved \}\)/);
   assert.doesNotMatch(conversation, /host\.resolveToolApproval\(/,
     'tool approval is valid only for the session carried by the pane');
   assert.doesNotMatch(conversation,
     /typeof host\.(?:abortSession|resolveToolApprovalForSession)/);
-  for (const source of [backendApi, contract]) {
+  for (const source of [sessionApi, contract]) {
     assert.doesNotMatch(source,
       /(?:subscribeSessionStates?|submitToSession|abortSession|resolveToolApprovalForSession)\?\(/);
   }
@@ -3511,7 +3557,7 @@ test('flat action surfaces stay token-flat under one canonical focus ring', asyn
     'the ActionButton press must reuse the shared wash');
   assert.match(styles, /\.settings-action\.danger:active:not\(:disabled\) \{[^}]*box-shadow: none;/,
     'the pressed danger plate carries the read without a ring');
-  assert.match(styles, /\.settings-action:disabled \{ opacity: \.45; cursor: default; \}/,
+  assert.match(styles, /\.settings-action:disabled \{ opacity: var\(--mx-op-disabled\); cursor: default; \}/,
     'the ActionButton must own a disabled treatment');
   const ungatedHover = [...styles.matchAll(/(?:^|,)\s*([^,{}\n]*(?:\.settings-action(?![\w-])|\.approval-actions button|\.command-surface-form button|\.onboarding-dialog > (?:footer|header > )button|\.onboarding-choice-grid > button)[^,{}\n]*:hover(?!:not\(:disabled\))[^,{}\n]*)/g)]
     .map((match) => match[1].trim());

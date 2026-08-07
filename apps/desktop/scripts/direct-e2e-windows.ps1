@@ -58,7 +58,7 @@ function Get-ProcessRole {
   if ($CommandLine -match '--type=gpu-process') { return 'gpu' }
   if ($CommandLine -match '--type=utility') { return 'utility' }
   if ($CommandLine -match 'electron-vite') { return 'dev-launcher' }
-  if ($CommandLine -match 'channel-daemon') { return 'channel-worker' }
+  if ($CommandLine -match 'daemon\.mjs') { return 'daemon' }
   if ($CommandLine -match 'whisper-server') { return 'voice-runtime' }
   if ($Name -eq 'electron' -and $CommandLine -match 'remote-debugging') { return 'desktop-main' }
   return 'other'

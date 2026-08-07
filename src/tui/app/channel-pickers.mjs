@@ -27,7 +27,7 @@ export function createChannelPickers({
   // a long first-time install finishing later must not hijack whatever
   // screen/picker the user has since navigated to.
   let pickerGen = 0;
-  const openChannelTypeActionsPicker = async (backend, options = {}) => {
+  const openChannelTypeActionsPicker = async (provider, options = {}) => {
     pickerGen += 1;
     const parentReturn = typeof options.returnTo === 'function'
       ? options.returnTo
@@ -43,15 +43,15 @@ export function createChannelPickers({
       store.pushNotice(`channels failed: ${e?.message || e}`, 'error');
       return;
     }
-    const isTelegram = backend === 'telegram';
-    const activeBackend = setup.backend || 'discord';
+    const isTelegram = provider === 'telegram';
+    const activeProvider = setup.provider || 'discord';
     const tokenDescription = isTelegram
       ? `${setup.telegram?.status ?? 'Off'}${setup.telegram?.problem ? ' · Invalid' : ''}`
       : `${setup.discord.status}${setup.discord.problem ? ' · Invalid' : ''}`;
     const mainEntry = setup.channel || {};
     const mainTarget = isTelegram
-      ? (mainEntry?.telegramChatId || (activeBackend === 'telegram' ? mainEntry?.channelId : ''))
-      : (mainEntry?.discordChannelId || (activeBackend === 'discord' ? mainEntry?.channelId : ''));
+      ? (mainEntry?.telegramChatId || (activeProvider === 'telegram' ? mainEntry?.channelId : ''))
+      : (mainEntry?.discordChannelId || (activeProvider === 'discord' ? mainEntry?.channelId : ''));
     const mainDescription = isTelegram
       ? (mainTarget ? `Chat ID ${mainTarget}` : 'Not set · Enter Telegram chat ID')
       : (mainTarget ? `Channel ID ${mainTarget}` : 'Not set · Enter Discord channel ID');
@@ -61,13 +61,13 @@ export function createChannelPickers({
       setContextPanel(null);
       setChannelPrompt({
         ...prompt,
-        afterSave: () => openChannelTypeActionsPicker(backend, options),
+        afterSave: () => openChannelTypeActionsPicker(provider, options),
       });
     };
 
     setPicker({
       title: isTelegram ? 'Telegram' : 'Discord',
-      description: activeBackend === backend
+      description: activeProvider === provider
         ? 'Active channel type · token and main target'
         : 'Token and main target settings',
       help: '↑/↓ Select · Enter Edit · Esc Back',
@@ -108,7 +108,7 @@ export function createChannelPickers({
           if (item._action === 'main-target') {
             openChannelPrompt({
               kind: 'channel-add',
-              backend,
+              provider,
               label: isTelegram ? 'Main chat' : 'Main channel',
               hint: isTelegram
                 ? 'Paste the Telegram chat ID.'
@@ -140,19 +140,19 @@ export function createChannelPickers({
       store.pushNotice(`channels failed: ${e?.message || e}`, 'error');
       return;
     }
-    const activeBackend = setup.backend || 'discord';
+    const activeProvider = setup.provider || 'discord';
     const mainEntry = setup.channel || {};
-    const typeDescription = (backend) => {
-      const selected = activeBackend === backend;
-      const hasToken = backend === 'telegram'
+    const typeDescription = (provider) => {
+      const selected = activeProvider === provider;
+      const hasToken = provider === 'telegram'
         ? setup.telegram?.authenticated === true
         : setup.discord?.authenticated === true;
-      const hasTarget = backend === 'telegram'
-        ? Boolean(mainEntry?.telegramChatId || (activeBackend === 'telegram' && mainEntry?.channelId))
-        : Boolean(mainEntry?.discordChannelId || (activeBackend === 'discord' && mainEntry?.channelId));
+      const hasTarget = provider === 'telegram'
+        ? Boolean(mainEntry?.telegramChatId || (activeProvider === 'telegram' && mainEntry?.channelId))
+        : Boolean(mainEntry?.discordChannelId || (activeProvider === 'discord' && mainEntry?.channelId));
       const needs = [
         ...(hasToken ? [] : ['token']),
-        ...(hasTarget ? [] : [backend === 'telegram' ? 'chat ID' : 'channel ID']),
+        ...(hasTarget ? [] : [provider === 'telegram' ? 'chat ID' : 'channel ID']),
       ];
       return [
         ...(selected ? ['Selected'] : []),
@@ -161,7 +161,7 @@ export function createChannelPickers({
     };
     setPicker({
       title: 'Channel Type Settings',
-      description: 'Choose a type. Selected is the active backend; Ready means token and main target are set.',
+      description: 'Choose a type. Selected is the active provider; Ready means token and main target are set.',
       help: '↑/↓ Select · Enter Open · Esc Back',
       indexMode: 'always',
       labelWidth: 18,
@@ -170,20 +170,20 @@ export function createChannelPickers({
           value: 'discord',
           label: 'Discord',
           description: typeDescription('discord'),
-          _backend: 'discord',
+          _provider: 'discord',
         },
         {
           value: 'telegram',
           label: 'Telegram',
           description: typeDescription('telegram'),
-          _backend: 'telegram',
+          _provider: 'telegram',
         },
       ],
       onSelect: (value, item) => {
-        const backend = item?._backend || (value === 'telegram' ? 'telegram' : value === 'discord' ? 'discord' : null);
-        if (!backend) return;
+        const provider = item?._provider || (value === 'telegram' ? 'telegram' : value === 'discord' ? 'discord' : null);
+        if (!provider) return;
         setPicker(null);
-        openChannelTypeActionsPicker(backend, {
+        openChannelTypeActionsPicker(provider, {
           returnTo: () => openChannelSettingTypePicker(options),
         });
       },
@@ -218,8 +218,8 @@ export function createChannelPickers({
     // Schedules/webhooks management is desktop-only (user decision): the TUI
     // no longer carries their pickers or the webhook-endpoint info page.
     const worker = await store.getChannelWorkerStatus?.();
-    const activeBackend = setup.backend === 'telegram' ? 'telegram' : 'discord';
-    const backendLabel = activeBackend === 'telegram' ? 'Telegram' : 'Discord';
+    const activeProvider = setup.provider === 'telegram' ? 'telegram' : 'discord';
+    const providerLabel = activeProvider === 'telegram' ? 'Telegram' : 'Discord';
     const remoteEnabled = (await store.isRemoteEnabled?.()) === true;
     const boolLabel = (enabled) => enabled ? 'On' : 'Off';
     // Onboarding Step 5 reuses this root picker with a ConfirmBar. Reopens after
@@ -237,25 +237,25 @@ export function createChannelPickers({
         .catch((e) => store.pushNotice(`Remote toggle failed: ${e?.message || e}`, 'error'))
         .finally(() => reopenRoot({ highlightValue }));
     };
-    const cycleChannelBackend = (direction = 1, highlightValue = 'channel-backend') => {
-      const backends = ['discord', 'telegram'];
-      const currentIndex = Math.max(0, backends.indexOf(activeBackend));
-      const chosen = backends[(currentIndex + direction + backends.length) % backends.length];
-      if (chosen === activeBackend) {
-        reopenRoot({ highlightValue, backendOverride: activeBackend });
+    const cycleChannelProvider = (direction = 1, highlightValue = 'channel-provider') => {
+      const providers = ['discord', 'telegram'];
+      const currentIndex = Math.max(0, providers.indexOf(activeProvider));
+      const chosen = providers[(currentIndex + direction + providers.length) % providers.length];
+      if (chosen === activeProvider) {
+        reopenRoot({ highlightValue, providerOverride: activeProvider });
         return;
       }
       try {
-        store.setBackend(chosen);
+        store.setChannelProvider(chosen);
         const label = chosen === 'telegram' ? 'Telegram' : 'Discord';
         const restartHint = (remoteEnabled || worker?.running)
           ? `Channel set to ${label}. Restart remote to apply.`
           : `Channel set to ${label}.`;
         store.pushNotice(restartHint, 'info');
       } catch (e) {
-        store.pushNotice(`channel backend failed: ${e?.message || e}`, 'error');
+        store.pushNotice(`channel provider failed: ${e?.message || e}`, 'error');
       }
-      reopenRoot({ highlightValue, backendOverride: chosen });
+      reopenRoot({ highlightValue, providerOverride: chosen });
     };
     // Voice toggle: enabling installs the managed whisper/ffmpeg runtime (first
     // time only) then flips voice.enabled so the channels pipeline transcribes
@@ -285,11 +285,11 @@ export function createChannelPickers({
         _action: 'remote-runtime',
       },
       {
-        value: 'channel-backend',
+        value: 'channel-provider',
         label: 'Channel',
-        meta: backendLabel,
+        meta: providerLabel,
         description: 'Select Discord or Telegram',
-        _action: 'channel-backend',
+        _action: 'channel-provider',
       },
       {
         value: 'channel-setting',
@@ -329,18 +329,18 @@ export function createChannelPickers({
       indexMode: 'always',
       labelWidth: 18,
       metaWidth: 12,
-      pickerKey: `channels:${activeBackend}:${remoteEnabled ? 'on' : 'off'}:${options.highlightValue || 'root'}`,
+      pickerKey: `channels:${activeProvider}:${remoteEnabled ? 'on' : 'off'}:${options.highlightValue || 'root'}`,
       initialIndex: Math.max(0, items.findIndex((entry) => entry.value === options.highlightValue)),
       items,
       confirmBar: options.confirmBar || null,
       onLeft: options.confirmBar ? undefined : (item) => {
         if (item?._action === 'remote-runtime') applyRemoteRuntime(item.value);
-        else if (item?._action === 'channel-backend') cycleChannelBackend(-1, item.value);
+        else if (item?._action === 'channel-provider') cycleChannelProvider(-1, item.value);
         else if (item?._action === 'voice') applyVoice(item.value);
       },
       onRight: options.confirmBar ? undefined : (item) => {
         if (item?._action === 'remote-runtime') applyRemoteRuntime(item.value);
-        else if (item?._action === 'channel-backend') cycleChannelBackend(1, item.value);
+        else if (item?._action === 'channel-provider') cycleChannelProvider(1, item.value);
         else if (item?._action === 'voice') applyVoice(item.value);
       },
       onSelect: (_value, item) => {
@@ -349,8 +349,8 @@ export function createChannelPickers({
             applyRemoteRuntime(item.value);
             return;
           }
-          if (item._action === 'channel-backend') {
-            cycleChannelBackend(1, item.value);
+          if (item._action === 'channel-provider') {
+            cycleChannelProvider(1, item.value);
             return;
           }
           if (item._action === 'voice') {

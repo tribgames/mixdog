@@ -46,7 +46,7 @@ export const TOOL_DEFS = [
   },
   // memory and recall_memory tools are now provided by memory-service.mjs via MCP
   // react/edit_message/download_attachment tools removed (no remaining
-  // callers); backend editMessage/downloadAttachment/react methods stay for
+  // callers); provider editMessage/downloadAttachment/react methods stay for
   // internal use.
   // schedule_status/trigger_schedule/schedule_control tools removed (no
   // remaining callers). activate_channel_bridge/reload_config are NOT model-

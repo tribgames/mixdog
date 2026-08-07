@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
 import { filterConfiguredModels, ModelPicker } from './ModelPicker';
+import { dismissDesktopToast, showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
 import { RowOverflowMenu } from './RowOverflowMenu';
@@ -434,7 +435,6 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
   const [editor, setEditor] = useState<{ name: string; draft: ScheduleDraft } | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState('');
   const [runningName, setRunningName] = useState('');
-  const [notice, setNotice] = useState('');
   // The editor portals to document.body, so the sidebar's inert/aria-hidden
   // does not reach it: a collapsed sidebar — or another destination taking the
   // panel area — must close it explicitly. Search/filter state is untouched.
@@ -443,7 +443,16 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
     setConfirmingDelete('');
   });
   const busy = Boolean(pending) || loading;
-  const run = async (capability: DesktopCapability, args: unknown[] = []): Promise<unknown> => {
+  useEffect(() => {
+    if (!active || !referenceError) return undefined;
+    const toastId = showDesktopToast(referenceError, 'error');
+    return () => dismissDesktopToast(toastId);
+  }, [active, referenceError]);
+  const run = async (
+    capability: DesktopCapability,
+    args: unknown[] = [],
+    errorMode: 'inline' | 'toast' = 'inline',
+  ): Promise<unknown> => {
     if (!api?.invokeCapability || pending) return undefined;
     setPending(capability);
     setError('');
@@ -455,7 +464,9 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
       notifySessionsRefresh();
       return result?.value ?? true;
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      const message = reason instanceof Error ? reason.message : String(reason);
+      if (errorMode === 'toast') showDesktopToast(message, 'error');
+      else setError(message);
       return undefined;
     } finally {
       setPending('');
@@ -466,15 +477,14 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
   const runNow = async (name: string) => {
     if (!api?.invokeCapability || runningName) return;
     setRunningName(name);
-    setNotice('');
     setError('');
     try {
       await api.invokeCapability({ capability: 'runScheduleNow', args: [name] });
-      setNotice(`"${name}" ran — see Automations in the sidebar.`);
+      showDesktopToast(`"${name}" ran — see Automations in the sidebar.`, 'success');
       void completeMutation('runScheduleNow');
       notifySessionsRefresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
     } finally {
       setRunningName('');
     }
@@ -551,7 +561,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
                 id: 'toggle-enabled',
                 label: enabled ? 'Pause' : 'Resume',
                 disabled: busy,
-                onSelect: () => void run('setScheduleEnabled', [name, !enabled]),
+                onSelect: () => void run('setScheduleEnabled', [name, !enabled], 'toast'),
               },
               {
                 id: 'edit',
@@ -575,7 +585,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
                     return;
                   }
                   setConfirmingDelete('');
-                  void run('deleteSchedule', [name]);
+                  void run('deleteSchedule', [name], 'toast');
                 },
               },
             ]} />
@@ -585,13 +595,6 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
           <AlarmClock size={40} strokeWidth={1.5} aria-hidden="true" />
           <p>{schedules.length ? t('No schedules match the current filter.') : t('No scheduled tasks yet.')}</p>
         </div>}
-      <div className="schedules-feedback-slot">
-        {(error || referenceError) && !editor
-          ? <p className="mixdog-settings__error" role="alert">{error || referenceError}</p>
-          : notice && !editor
-            ? <p className="schedules-notice" role="status">{notice}</p>
-            : null}
-      </div>
     </div>
   </div>;
 }

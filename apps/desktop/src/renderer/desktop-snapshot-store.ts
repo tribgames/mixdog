@@ -205,11 +205,7 @@ export function desktopConversationShellSnapshotsEqual(left: Snapshot, right: Sn
     && left.transcriptTurnKeys === right.transcriptTurnKeys
     && left.busy === right.busy
     && left.commandBusy === right.commandBusy
-    && left.thinking === right.thinking
-    && left.spinner === right.spinner
-    && left.commandStatus === right.commandStatus
     && left.toolApproval === right.toolApproval
-    && left.progressHint === right.progressHint
     && left.queued === right.queued
     && left.sessionId === right.sessionId
     && left.currentProject === right.currentProject
@@ -222,6 +218,20 @@ export function desktopConversationShellSnapshotsEqual(left: Snapshot, right: Sn
     && left.fast === right.fast
     && left.fastCapable === right.fastCapable
     && left.workflow === right.workflow;
+}
+
+function runtimeProgressText(snapshot: Snapshot): string {
+  const progress = snapshot.progressHint;
+  return progress && typeof progress === "object"
+    ? String((progress as { text?: unknown }).text || "")
+    : "";
+}
+
+export function desktopRuntimeProgressSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
+  if (left === right) return true;
+  if (!preservesInitialBoundary(left, right)) return false;
+  return left.sessionId === right.sessionId
+    && runtimeProgressText(left) === runtimeProgressText(right);
 }
 
 export function desktopStreamingTailSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {

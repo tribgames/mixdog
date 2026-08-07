@@ -13,7 +13,7 @@ function setup({
   const scheduledInstalls = [];
   let ready = initialReady;
   let offeredVersion = latestVersion;
-  const backend = {
+  const service = {
     async checkForUpdates() {
       calls.push('check');
       return { isUpdateAvailable: true, updateInfo: { version: offeredVersion } };
@@ -30,7 +30,7 @@ function setup({
     controller: createUpdaterController({
       enabled,
       currentVersion,
-      backend,
+      service,
       persistence: {
         get: () => ready,
         set: (value) => { ready = value; },
@@ -124,7 +124,7 @@ test('updater returns to ready when application shutdown cannot complete', async
   const controller = createUpdaterController({
     enabled: true,
     currentVersion: '1.0.0',
-    backend: {
+    service: {
       checkForUpdates: async () => ({ isUpdateAvailable: true, updateInfo: { version: '2.0.0' } }),
       downloadUpdate: async () => {},
       quitAndInstall: () => { calls.push('install'); },
@@ -147,7 +147,7 @@ test('disabled and unreachable update feeds are safe no-ops', async () => {
   const unavailable = createUpdaterController({
     enabled: true,
     currentVersion: '1.0.0',
-    backend: {
+    service: {
       checkForUpdates: async () => {
         throw new Error('publish feed unavailable');
       },

@@ -11,7 +11,7 @@ import { join } from 'node:path';
 
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-steer-prune-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
-const { drainTuiSteeringPersist } = await import('../src/tui/engine/tui-steering-persist.mjs');
+const { drainTuiSteeringPersist } = await import('../src/tui/session/tui-steering-persist.mjs');
 
 const FILE = join(dataDir, 'session-pending-messages.json');
 const now = Date.now();

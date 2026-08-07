@@ -17,6 +17,7 @@ import {
   desktopConversationSnapshotsEqual,
   desktopDockSnapshotsEqual,
   desktopHeaderSnapshotsEqual,
+  desktopRuntimeProgressSnapshotsEqual,
   desktopStreamingTailSnapshotsEqual,
   type DesktopSnapshotStore,
 } from "./desktop-snapshot-store";
@@ -156,6 +157,42 @@ type PaneStreamingTailProps = {
   sessionScope?: SnapshotSessionScope;
 };
 
+const PaneRuntimeProgress = memo(function PaneRuntimeProgress({
+  focused,
+  sessionId,
+  fallback,
+  snapshotStore,
+  frozenSnapshot,
+  hidden,
+  sessionScope,
+}: PaneStreamingTailProps) {
+  const selectedSnapshot = useSelectedDesktopSnapshot(
+    snapshotStore,
+    sessionId ? null : frozenSnapshot,
+    desktopRuntimeProgressSnapshotsEqual,
+    sessionId ? undefined : sessionScope,
+    !hidden && !sessionId,
+  );
+  const lane = useSessionLane(
+    sessionId,
+    defaultSessionLaneStore,
+    desktopRuntimeProgressSnapshotsEqual,
+    !hidden,
+  );
+  const laneSnapshot = lane ?? fallback ?? EMPTY_SNAPSHOT;
+  const selectedSessionId = String(selectedSnapshot.sessionId || "");
+  const selectedOwnsPane = sessionId
+    ? selectedSessionId === sessionId
+    : selectedSessionId === "";
+  const snapshot = sessionId
+    ? laneSnapshot
+    : focused && selectedOwnsPane ? selectedSnapshot : laneSnapshot;
+  const text = String(asRecord(snapshot.progressHint)?.text || "");
+  return !hidden && text
+    ? <div className="runtime-progress" role="status">{text}</div>
+    : null;
+});
+
 const PaneStreamingTail = memo(function PaneStreamingTail({
   focused,
   sessionId,
@@ -221,7 +258,7 @@ export const LiveConversation = memo(function LiveConversation({
   // Readiness gates the TIMELINE, never the snapshot: emptying items produced a
   // 0 -> N row swap that resolved the entry anchor twice (the entry bounce).
   return <Conversation snapshot={visibleSnapshot} routeSnapshot={selectedSnapshot}
-    transcriptPending={transcriptPending} {...props} />;
+    transcriptPending={transcriptPending} {...props} reviewActive={!hidden} />;
 });
 
 // Every split-pane chat keeps ONE Conversation instance mounted for its whole
@@ -230,7 +267,7 @@ export const LiveConversation = memo(function LiveConversation({
 // remount consumes the first control click and resets open picker state.
 type PaneConversationProps =
   Omit<React.ComponentProps<typeof Conversation>,
-    "snapshot" | "routeSnapshot" | "streamingTailSlot" | "transcriptPending"> & {
+    "snapshot" | "routeSnapshot" | "streamingTailSlot" | "runtimeProgressSlot" | "transcriptPending"> & {
     focused: boolean;
     sessionId: string;
     fallback?: Snapshot | null;
@@ -323,6 +360,7 @@ export const PaneConversation = memo(function PaneConversation({
       sessionAddress={sessionId}
       draftMode={draftMode}
       transcriptPending={transcriptPending}
+      reviewActive={focused && !hidden}
       warmPaintHandoff={warmDraftHandoff}
       liveWork={<PaneLiveWork
         focused={focused}
@@ -333,6 +371,14 @@ export const PaneConversation = memo(function PaneConversation({
         hidden={hidden}
         sessionScope={sessionScope} />}
       streamingTailSlot={<PaneStreamingTail
+        focused={focused}
+        sessionId={sessionId}
+        fallback={fallback}
+        snapshotStore={snapshotStore}
+        frozenSnapshot={frozenSnapshot}
+        hidden={hidden}
+        sessionScope={sessionScope} />}
+      runtimeProgressSlot={<PaneRuntimeProgress
         focused={focused}
         sessionId={sessionId}
         fallback={fallback}
@@ -693,8 +739,8 @@ function probeChannelReady(): Promise<void> {
       });
       const setup = asRecord(result?.value) || {};
       const channel = asRecord(setup.channel) || {};
-      const backend = String(setup.backend || "discord");
-      publishChannelReady(backend === "telegram"
+      const provider = String(setup.provider || "discord");
+      publishChannelReady(provider === "telegram"
         ? asRecord(setup.telegram)?.authenticated === true
           && Boolean(channel.telegramChatId || channel.channelId)
         : asRecord(setup.discord)?.authenticated === true

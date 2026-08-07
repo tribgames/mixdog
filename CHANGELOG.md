@@ -5,6 +5,21 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Session protocol 1 now carries an explicit compatibility index, allowing
+  newer clients to reject older daemons while older clients can attach through
+  the supported compatibility surface without parallel engine/backend stacks.
+- Desktop, terminal, channel, OAuth, and memory flows now share the unified
+  machine-wide session daemon; obsolete engine/backend transports, fallbacks,
+  and compatibility shims have been removed from the development line.
+- Session ownership and tool workload gates now coordinate parallel shell,
+  patch, read, code-graph, memory, and channel work with fair admission,
+  lower duplicate I/O, and stronger cancellation/recovery coverage.
+- Desktop multi-pane focus, tab dragging, review state, notifications, provider
+  naming, updater diagnostics, and developer update packaging have been
+  tightened, with expanded renderer and session-transport regression tests.
+- Terminal-Bench reproduction commands and cost validation now point to the
+  exact archived run and fail clearly when a requested trial set is absent.
+
 ## v0.9.96 - 2026-08-07
 
 - Release discipline now requires every app package to be pre-bumped when the
@@ -16,19 +31,16 @@ the Unreleased section is empty, and stamps it with the released version.
 - Release validation now gates platform packaging and removes a duplicate
   code-graph run, avoiding five expensive package jobs when a focused gate fails.
 - Desktop protocol conflicts now explain the update/close-and-reopen recovery
-  path instead of surfacing a raw backend transport exception.
-- The unified protocol-4 backend removes the duplicate desktop engine host,
+  path instead of surfacing a raw session transport exception.
+- The unified protocol-1 daemon removes the duplicate desktop session host,
   restores daemon reconnect/resync behavior, and preserves completed tool work
   across timeout and cancellation boundaries.
 
 ## v0.9.95 - 2026-08-06
 
-- Engine daemon by DEFAULT: a machine-global process owns every live session
-  engine and the terminal TUI plus every desktop window attach as views over a
-  127.0.0.1 HTTP+SSE transport, so there is no owner/viewer role to negotiate
-  between surfaces. `MIXDOG_ENGINE_DAEMON=0` opts out to an in-process engine
-  and `strict` refuses the local fallback; the daemon host itself always builds
-  real engines, so the factory can never recurse into its own proxy.
+- A machine-global process owns every live session, and the terminal TUI plus
+  every desktop window attach as views over a 127.0.0.1 HTTP+SSE transport, so
+  there is no owner/viewer role to negotiate between surfaces.
 - Submitted prompts can no longer be lost between surfaces. A daemon view's
   submit keeps its synchronous answer but is retried until the engine takes it
   (and re-delivered after a daemon restart), a live-share submit is

@@ -96,7 +96,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const elapsedMs = startedAtMs ? Math.max(0, (pending ? nowMs : (completedAtMs || nowMs)) - startedAtMs) : 0;
   const elapsed = elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
   const failedCount = clampFailureCount(errorCount, groupCount, isError);
-  // Real tool-call failures only (backend isError / error toolKind). Drives the
+  // Real tool-call failures only (provider isError / error toolKind). Drives the
   // ● dot color; command/result failures (shell exit, failed status) are counted
   // in `failedCount`/L2 detail but never in `callFailedCount`, so they never
   // paint the dot red. Fall back to 0 (never `isError`) when the engine did not

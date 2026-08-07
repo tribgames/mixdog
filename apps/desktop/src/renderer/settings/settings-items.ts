@@ -27,7 +27,7 @@ export const SETTINGS_ITEMS = [
   { value: 'hooks', label: 'Hooks', description: '0 before-tool rules', kind: 'open' },
   { value: 'skills', label: 'Skills', description: '0 available', kind: 'open' },
   { value: 'channels', label: 'Channels enabled', description: 'Discord and Telegram messaging.', kind: 'toggle' },
-  { value: 'channel-backend', label: 'Channel', description: 'Left/Right or Enter changes channel type (Discord or Telegram).', kind: 'cycle' },
+  { value: 'channel-provider', label: 'Channel', description: 'Left/Right or Enter changes channel type (Discord or Telegram).', kind: 'cycle' },
   { value: 'channel-setting', label: 'Setting', description: 'Configure credentials and main channel/chat for the active type.', kind: 'open' },
   { value: 'remote-runtime', label: 'Remote Runtime', description: 'Stopped. Manual ON claims remote from any other session.', kind: 'toggle' },
   // 'system-shell' stays TUI-only: the desktop hides the override (user
@@ -108,7 +108,7 @@ export const SETTINGS_CATEGORIES = [
     value: 'channels',
     label: 'Channels',
     group: 'Integrations',
-    items: ['channels', 'channel-backend', 'channel-setting'],
+    items: ['channels', 'channel-provider', 'channel-setting'],
   },
   {
     value: 'hooks',

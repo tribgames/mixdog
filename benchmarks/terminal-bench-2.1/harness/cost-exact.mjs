@@ -69,6 +69,10 @@ for (const entry of readdirSync(runDir, { withFileTypes: true })) {
     }
     rows.push(`${name.padEnd(32)} r=${reward} ${String(Math.round(agent)).padStart(5)}s turns=${String(turns).padStart(2)} ctx=${String(Math.round(ctx / 1e3)).padStart(3)}K in=${String(Math.round(inTok)).padStart(5)} cw=${String(Math.round(cw / 1e3)).padStart(4)}K $${cost.toFixed(2).padEnd(5)}${ccCol}${flag}`);
 }
+if (sum.n === 0) {
+    console.error(`no benchmark trials found under: ${runDir}`);
+    process.exit(1);
+}
 rows.sort();
 console.log(rows.join('\n'));
 if (sum.n > 0) {

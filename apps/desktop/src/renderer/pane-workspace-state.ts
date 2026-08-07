@@ -115,6 +115,9 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     Boolean(restorePlan.stored && !restorePlan.requiresSessionValidation),
   );
   const [state, setState] = useState<PaneWorkspaceState>(() => {
+    // Persisted session addresses are not safe to render until the daemon
+    // catalog validates them. Starting from an empty leaf prevents orphaned
+    // tabs from reaching session RPCs during the reconciliation window.
     if (restorePlan.stored && !restorePlan.requiresSessionValidation) {
       return restorePlan.stored;
     }
@@ -128,8 +131,9 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     if (!restorePending || !restorePlan.stored) return undefined;
     let cancelled = false;
     const restore = async () => {
-      // Even when the catalog is unavailable, keep file/utility/draft tabs and
-      // reject only unverified session addresses.
+      // Reconcile after first paint. Even when the catalog is unavailable,
+      // keep file/utility/draft tabs and reject only unverified session
+      // addresses; persistence stays paused until this pass settles.
       let filtered = filterPaneLayoutSessions(
         restorePlan.stored!.layout,
         new Set<string>(),

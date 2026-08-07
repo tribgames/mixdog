@@ -39,7 +39,7 @@ afterEach(async () => {
 function schedulesApi({ remote = false, schedules } = {}) {
   const calls = [];
   const setup = {
-    backend: 'discord',
+    provider: 'discord',
     channel: { discordChannelId: '111' },
     schedules: schedules || [{
       name: 'daily', description: 'Daily report', time: '0 9 * * *', whenCron: '0 9 * * *',
@@ -242,4 +242,25 @@ test('pause toggles through the capability and delete requires a two-step confir
     await Promise.resolve();
   });
   assert.ok(calls.some(([name, args]) => name === 'deleteSchedule' && args[0] === 'daily'));
+});
+
+test('run-now completion uses the shared toast channel instead of the panel bottom', async () => {
+  mount();
+  const { api, calls } = schedulesApi();
+  let toast;
+  window.addEventListener('mixdog:desktop-toast', (event) => { toast = event.detail; }, { once: true });
+  await renderPane(api);
+  const actions = await openActions('daily');
+  await act(async () => {
+    Array.from(actions.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Run now').click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(calls.some(([name, args]) => name === 'runScheduleNow' && args[0] === 'daily'));
+  assert.deepEqual({ text: toast?.text, tone: toast?.tone }, {
+    text: '"daily" ran — see Automations in the sidebar.',
+    tone: 'success',
+  });
+  assert.equal(document.querySelector('.schedules-feedback-slot'), null);
 });

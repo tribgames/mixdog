@@ -77,7 +77,7 @@ const RUNNERS = {
       `  await rt.setWorkflow(normalizeWorkflowId(${JSON.stringify(opts.workflow || null)}));`,
       `}`,
       `let text = '';`,
-      `// Mirror the TUI auto-resume EXACTLY (engine/agent-job-feed.mjs):`,
+      `// Mirror the TUI auto-resume EXACTLY (src/tui/session/agent-job-feed.mjs):`,
       `// runtime notifications enqueue the model-visible completion into the`,
       `// session's pending queue; the TUI then kicks an EMPTY pending-resume`,
       `// ask (no injected user text) via queueMicrotask — the pre-send drain`,

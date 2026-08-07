@@ -131,12 +131,11 @@ test('idle retirement does not terminate a worker with an accepted embed', async
 })
 
 test('memory heavy resources are lazy, idle-reclaimable, and stopped with the daemon', async () => {
-  const [index, queryHandlers, worker, provider, proxy, kiwi] = await Promise.all([
+  const [index, queryHandlers, worker, provider, kiwi] = await Promise.all([
     readFile(new URL('../src/runtime/memory/index.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../src/runtime/memory/lib/query-handlers.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../src/runtime/memory/lib/embedding-worker.mjs', import.meta.url), 'utf8'),
     readFile(providerUrl, 'utf8'),
-    readFile(new URL('../src/standalone/memory-runtime-proxy.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../src/runtime/memory/lib/ko-morph.mjs', import.meta.url), 'utf8'),
   ])
   const initStore = index.slice(index.indexOf('async function _initStore()'),
@@ -145,7 +144,6 @@ test('memory heavy resources are lazy, idle-reclaimable, and stopped with the da
     'known-dimension boot must not load Kiwi or ONNX')
   assert.match(queryHandlers, /embedding model warming in background; returning lexical results/)
   assert.doesNotMatch(queryHandlers, /MIXDOG_RECALL_WARMUP_WAIT_MS|COLD_RECALL_WARMUP_WAIT_MS/)
-  assert.match(proxy, /MIXDOG_EMBED_WARMUP: process\.env\.MIXDOG_EMBED_WARMUP \?\? '0'/)
   assert.match(worker, /: 60_000/)
   assert.match(worker, /disposeLoadedExtractor\('idle timeout'\)/)
   assert.doesNotMatch(worker, /host memory pressure|MIXDOG_EMBED_PRESSURE_MIN_FREE_MB/)

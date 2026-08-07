@@ -15,10 +15,10 @@ import type {
   DesktopSessionStateUpdate,
   DesktopSessionSummary,
   DesktopSubmitOptions,
-  EngineSnapshot,
+  SessionSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
-import type { DesktopBackend } from './backend-api';
+import type { DesktopService } from './desktop-service-contract';
 
 // MIXDOG_JITTER_PROBE: '1' = streaming/follow pass, 'entry' = cold-entry and
 // tool-toggle pass, 'keys' = keyboard paging pass, 'switch' = rapid session
@@ -31,7 +31,7 @@ function jitterProbeEnabled(): boolean {
 }
 
 // The capture profile is a presentation-only fake. It intentionally implements
-// the same client contract without importing a session runtime or backend host.
+// the same client contract without importing a session runtime or service host.
 export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
   getProfile: {
     title: 'Capture',
@@ -45,7 +45,7 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
   isRemoteEnabled: false,
   getChannelWorkerStatus: { running: false },
   getChannelSetup: {
-    backend: 'discord',
+    provider: 'discord',
     discord: { authenticated: false, status: 'Not connected' },
     telegram: { authenticated: false, status: 'Not connected' },
     webhook: { status: 'Not configured' },
@@ -142,12 +142,12 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
   },
 };
 
-export class CaptureBackend implements DesktopBackend {
+export class CaptureService implements DesktopService {
   private captureTheme = 'basic';
-  private jitterStoredSnapshot: EngineSnapshot = null;
-  private jitterLiveSnapshot: EngineSnapshot = null;
-  private jitterColdSnapshot: EngineSnapshot = null;
-  private snapshot: EngineSnapshot = {
+  private jitterStoredSnapshot: SessionSnapshot = null;
+  private jitterLiveSnapshot: SessionSnapshot = null;
+  private jitterColdSnapshot: SessionSnapshot = null;
+  private snapshot: SessionSnapshot = {
     sessionId: '',
     items: [],
     queued: [],
@@ -157,14 +157,14 @@ export class CaptureBackend implements DesktopBackend {
     spinner: null,
     cwd: process.cwd(),
   };
-  private readonly listeners = new Set<(snapshot: EngineSnapshot) => void>();
+  private readonly listeners = new Set<(snapshot: SessionSnapshot) => void>();
   private readonly sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
   private readonly agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
   private readonly sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
 
   constructor(_options: unknown = {}) {}
 
-  private publish(snapshot: EngineSnapshot): void {
+  private publish(snapshot: SessionSnapshot): void {
     this.snapshot = snapshot;
     for (const listener of this.listeners) listener(snapshot);
     const sessionId = String(snapshot?.sessionId || '');
@@ -175,7 +175,7 @@ export class CaptureBackend implements DesktopBackend {
     }
   }
 
-  subscribe(listener: (snapshot: EngineSnapshot) => void): () => void {
+  subscribe(listener: (snapshot: SessionSnapshot) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
@@ -195,12 +195,12 @@ export class CaptureBackend implements DesktopBackend {
     return () => this.sessionStateListeners.delete(listener);
   }
 
-  async startProject(projectPath: string): Promise<EngineSnapshot> {
+  async startProject(projectPath: string): Promise<SessionSnapshot> {
     this.publish({ ...this.snapshot, cwd: projectPath });
     return this.snapshot;
   }
 
-  async startProjectTask(projectPath: string): Promise<EngineSnapshot> {
+  async startProjectTask(projectPath: string): Promise<SessionSnapshot> {
     return this.startProject(projectPath);
   }
 
@@ -222,7 +222,7 @@ export class CaptureBackend implements DesktopBackend {
   async listAgentPool(): Promise<DesktopAgentPoolRow[]> { return []; }
   async renameSession(): Promise<void> {}
   async setSessionArchived(): Promise<void> {}
-  async deleteSession(): Promise<EngineSnapshot> { return null; }
+  async deleteSession(): Promise<SessionSnapshot> { return null; }
   async prefetchSession(): Promise<boolean> { return true; }
   async peekSession(): Promise<boolean> { return true; }
   async setVisibleSessions(): Promise<boolean> { return true; }
@@ -261,21 +261,21 @@ export class CaptureBackend implements DesktopBackend {
   async setModelRoute(
     selection: DesktopModelSelection,
     _sessionId?: string,
-  ): Promise<EngineSnapshot> {
+  ): Promise<SessionSnapshot> {
     this.publish({ ...this.snapshot, ...selection });
     return this.snapshot;
   }
 
-  async setFast(enabled: boolean, _sessionId?: string): Promise<EngineSnapshot> {
+  async setFast(enabled: boolean, _sessionId?: string): Promise<SessionSnapshot> {
     this.publish({ ...this.snapshot, fast: enabled });
     return this.snapshot;
   }
 
-  async backendInvoke(): Promise<unknown> {
-    throw new Error('The capture harness has no backend daemon.');
+  async invokeDesktopOperation(): Promise<unknown> {
+    throw new Error('The capture harness has no daemon.');
   }
 
-  prepareJitterRemoteResume(stored: EngineSnapshot, live: EngineSnapshot): void {
+  prepareJitterRemoteResume(stored: SessionSnapshot, live: SessionSnapshot): void {
     this.jitterStoredSnapshot = stored;
     this.jitterLiveSnapshot = live;
   }
@@ -283,7 +283,7 @@ export class CaptureBackend implements DesktopBackend {
   // Cold-entry pass: a settled session with history, resumed through the real
   // sidebar → resumeSession path (a pushed snapshot for a foreign session id
   // never reaches a route).
-  prepareJitterColdResume(snapshot: EngineSnapshot): void {
+  prepareJitterColdResume(snapshot: SessionSnapshot): void {
     this.jitterColdSnapshot = snapshot;
   }
 
@@ -338,7 +338,7 @@ export class CaptureBackend implements DesktopBackend {
     return [];
   }
 
-  async resumeSession(sessionId: string): Promise<EngineSnapshot> {
+  async resumeSession(sessionId: string): Promise<SessionSnapshot> {
     if (process.env.MIXDOG_JITTER_PROBE === 'switch' && /^probe_switch_[abc]$/.test(sessionId)) {
       await new Promise((resolvePromise) => setTimeout(resolvePromise, 180));
       const suffix = sessionId.slice(-1).toUpperCase();
@@ -373,7 +373,7 @@ export class CaptureBackend implements DesktopBackend {
         items,
         queued: [],
         streamingTail: null,
-      } as EngineSnapshot;
+      } as SessionSnapshot;
       this.publish(snapshot);
       return snapshot;
     }
@@ -391,7 +391,7 @@ export class CaptureBackend implements DesktopBackend {
     if (!stored || !live || stored.sessionId !== sessionId || live.sessionId !== sessionId) {
       throw new Error('Jitter probe remote resume snapshots are not prepared.');
     }
-    // Model the backend's real held-publication boundary: the persisted restore
+    // Model the service's real held-publication boundary: the persisted restore
     // exists first, but resume resolves only after live-share supplies FULL.
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 180));
     this.publish(this.jitterLiveSnapshot);
@@ -414,11 +414,11 @@ export class CaptureBackend implements DesktopBackend {
   // New-task activation without booting the disabled engine: App renders
   // EMPTY_SNAPSHOT on the new-task tab until startTask succeeds, so the tool
   // showcase pass clicks New task and this override must resolve instantly.
-  async startTask(): Promise<EngineSnapshot> {
+  async startTask(): Promise<SessionSnapshot> {
     return this.getSnapshot();
   }
 
-  getSnapshot(): EngineSnapshot {
+  getSnapshot(): SessionSnapshot {
     return {
       ...(this.snapshot || {}),
       toasts: [{ id: 'capture-toast', tone: 'error', text: 'Capture stacking check' }],
@@ -500,7 +500,7 @@ export class CaptureBackend implements DesktopBackend {
     throw new Error(`${capability} is unavailable in UI capture.`);
   }
 
-  subscribeBackendEvents(): () => void { return () => {}; }
+  subscribeDesktopEvents(): () => void { return () => {}; }
   perfLog(): void {}
   async dispose(): Promise<void> {
     this.listeners.clear();

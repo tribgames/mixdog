@@ -67,6 +67,17 @@ import {
 import { _getAgentLoop } from './runtime-loaders.mjs';
 import { getAgentRuntimeSync } from './agent-runtime-singleton.mjs';
 import { recordProviderContextBaseline } from '../loop/compact-policy.mjs';
+import { runAbortable, settleWithin, throwIfAborted } from '../../../../shared/abort-race.mjs';
+
+export const DEFAULT_ASK_CLEANUP_SETTLE_MS = 2_000;
+
+export async function settleAskCleanup(promise, { timeoutMs } = {}) {
+    const configured = Number(process.env.MIXDOG_ASK_CLEANUP_SETTLE_MS);
+    const budget = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0
+        ? Number(timeoutMs)
+        : (Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_ASK_CLEANUP_SETTLE_MS);
+    return await settleWithin(promise, budget);
+}
 
 export function persistedAssistantTranscriptMetadata(value, fallbackAt = Date.now()) {
     if (!value || typeof value !== 'object') return null;
@@ -196,7 +207,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
     if (process.env.MIXDOG_DEBUG_AGENT) {
         process.stderr.write(`[agent-trace] t0-ask-start sessionHash=${createHash('sha256').update(String(sessionId)).digest('hex').slice(0, 8)} role=? iteration=0 promptSrc=${_promptSrc} prefetchFiles=${_prefetchFiles} callers=${_prefetchCallers} references=${_prefetchRefs}\n`);
     }
-    const unlock = await acquireSessionLock(sessionId);
+    const unlock = await acquireSessionLock(sessionId, askOpts?.signal);
     // Start crash-spool hydration without delaying the user turn. A completed
     // background hydration joins the id-deduped memory drain below.
     const takeoverHydration = hydratePendingMessages(sessionId);
@@ -309,9 +320,10 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         // computation would run detached. Capture the linked signal, install the
         // fresh controller, then re-cascade it — aborting the new controller
         // immediately when the parent already fired, or re-arming the listener.
-        const _linkedParentSignal = runtime.parentAbortLink?.signal;
+        const _linkedParentSignal = askOpts?.signal || runtime.parentAbortLink?.signal;
         // Fresh controller per ask — the previous ask's controller may have aborted.
         runtime.controller = createAbortController();
+        const turnSignal = runtime.controller.signal;
         runtime.generation = askGeneration;
         runtime.closed = false;
         runtime.session = preSession;
@@ -469,7 +481,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // even to the real task. Single-turn structure with a labelled
             // `# Task` block forces the model to treat the brief as the work
             // unit, not as another piece of context to ack.
-            const explicitPrefetchResult = await _tryBridgeExplicitPrefetch(session, explicitPrefetch);
+            const explicitPrefetchResult = await _tryBridgeExplicitPrefetch(session, explicitPrefetch, turnSignal);
             let _contextBlock = '';
             if (context) {
                 _contextBlock += `# Additional context\n${_capCtx(context)}\n\n`;
@@ -574,7 +586,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     },
                 });
             } catch { /* trace must never break the ask path */ }
-            const agentLoop = await _getAgentLoop();
+            const agentLoop = await runAbortable(turnSignal, () => _getAgentLoop());
             const _trackTextDelta = (chunk) => {
                 _turnInterruption.recordTextDelta(chunk);
                 _scheduleTurnCheckpoint();
@@ -766,6 +778,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     session.toolApprovalHook = priorToolApprovalHook;
                 }
             }
+            throwIfAborted(turnSignal);
             // Post-loop validation: if closeSession() landed while we were awaiting,
             // drop the save so the tombstone on disk isn't overwritten.
             const currentRuntime = _getRuntimeEntry(sessionId);
@@ -900,7 +913,10 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 // Unified total-prompt field. Anthropic = input+cache_read+cache_write
                 // (additive); OpenAI OAuth/API/Gemini = input_tokens already includes the
                 // cached portion (inclusive), so the fallback must not double-count.
-                const { isInclusiveProvider, computeCostUsd } = await import('../../../../shared/llm/cost.mjs');
+                const { isInclusiveProvider, computeCostUsd } = await runAbortable(
+                    turnSignal,
+                    () => import('../../../../shared/llm/cost.mjs'),
+                );
                 const inclusive = isInclusiveProvider(session.provider);
                 const promptTokens = typeof result.usage.promptTokens === 'number'
                     ? result.usage.promptTokens
@@ -1042,15 +1058,14 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         }
                         try {
                             const durableSave = saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
-                            if (finalized.responsePreserved) {
-                                await finalizePendingMessageDelivery(
+                            const cleanup = finalized.responsePreserved
+                                ? finalizePendingMessageDelivery(
                                     activeSession, _turnPendingEntries, durableSave,
                                     () => saveSessionAsync(activeSession, { expectedGeneration: askGeneration }),
-                                );
-                            } else {
-                                await durableSave;
-                            }
-                            clearTurnCheckpoint(sessionId, _turnCheckpointToken);
+                                )
+                                : durableSave;
+                            const cleanupResult = await settleAskCleanup(cleanup);
+                            if (cleanupResult.settled) clearTurnCheckpoint(sessionId, _turnCheckpointToken);
                         } catch { /* cancellation cleanup is best-effort */ }
                         if (currentRuntime) currentRuntime.session = activeSession;
                     } else releasePendingMessages(sessionId, _turnPendingEntries);
@@ -1088,35 +1103,34 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 else releasePendingMessages(sessionId, _turnPendingEntries);
                 try {
                     const durableSave = saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
-                    if (finalized.responsePreserved) {
-                        await finalizePendingMessageDelivery(
+                    const cleanup = finalized.responsePreserved
+                        ? finalizePendingMessageDelivery(
                             activeSession, _turnPendingEntries, durableSave,
                             () => saveSessionAsync(activeSession, { expectedGeneration: askGeneration }),
-                        );
-                    } else {
-                        await durableSave;
-                    }
-                    _errorStateDurable = true;
+                        )
+                        : durableSave;
+                    _errorStateDurable = (await settleAskCleanup(cleanup)).settled;
                 } catch { /* provider-failure history persistence is best-effort */ }
                 const currentRuntime = _getRuntimeEntry(sessionId);
                 if (currentRuntime) currentRuntime.session = activeSession;
             } else {
-                const promptPersisted = await persistCompactedOutgoingAfterAskFailure({
+                const compactPersist = await settleAskCleanup(persistCompactedOutgoingAfterAskFailure({
                     sessionId,
                     activeSession,
                     askGeneration,
                     turnOutgoing: _turnOutgoing,
                     error: err,
-                });
+                }));
+                const promptPersisted = compactPersist.settled && compactPersist.value === true;
                 if (promptPersisted) {
                     recordPendingMessageDelivery(activeSession, _turnPendingEntries);
                     try {
                         const durableSave = saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
-                        await finalizePendingMessageDelivery(
+                        const cleanup = finalizePendingMessageDelivery(
                             activeSession, _turnPendingEntries, durableSave,
                             () => saveSessionAsync(activeSession, { expectedGeneration: askGeneration }),
                         );
-                        _errorStateDurable = true;
+                        _errorStateDurable = (await settleAskCleanup(cleanup)).settled;
                     } catch {}
                 } else {
                     releasePendingMessages(sessionId, _turnPendingEntries);
@@ -1124,8 +1138,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             }
             if (!_errorStateDurable && activeSession) {
                 try {
-                    await saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
-                    _errorStateDurable = true;
+                    _errorStateDurable = (await settleAskCleanup(
+                        saveSessionAsync(activeSession, { expectedGeneration: askGeneration }),
+                    )).settled;
                 } catch { /* retain checkpoint when canonical persistence fails */ }
             }
             if (_errorStateDurable) clearTurnCheckpoint(sessionId, _turnCheckpointToken);

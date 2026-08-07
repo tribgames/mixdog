@@ -1,6 +1,5 @@
-// Full-parallel dispatch insurance: every call starts immediately. apply_patch
-// conflict ordering is owned by its per-path locks, never by a global batch
-// barrier, so unrelated side effects continue even when one patch fails.
+// Dispatch insurance: independent calls start immediately, while a shell
+// emitted after apply_patch waits for every earlier patch to settle.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -82,13 +81,25 @@ async function runBatch(calls, executeToolFn, {
     return results;
 }
 
-test('streaming: patch and following side effects start independently', () => {
+test('streaming: shell after patch dispatches immediately but executes after patch', async () => {
     const started = [];
-    const d = makeDispatcher(started);
+    const patchGate = Promise.withResolvers();
+    const events = [];
+    const d = makeDispatcher(started, async (name) => {
+        events.push(`start:${name}`);
+        if (name === 'apply_patch') await patchGate.promise;
+        events.push(`end:${name}`);
+        return 'ok';
+    });
     d.onToolCall({ id: 'c1', name: 'apply_patch', arguments: { patch: 'x' } });
     d.onToolCall({ id: 'c2', name: 'shell', arguments: { command: 'echo hi' } });
     assert.equal(d.pending.has('c1'), true, 'apply_patch should eager-start');
-    assert.equal(d.pending.has('c2'), true, 'following shell should eager-start');
+    assert.equal(d.pending.has('c2'), true, 'following shell should dispatch');
+    await Promise.resolve();
+    assert.deepEqual(events, ['start:apply_patch']);
+    patchGate.resolve();
+    await Promise.all([d.pending.get('c1').promise, d.pending.get('c2').promise]);
+    assert.deepEqual(events, ['start:apply_patch', 'end:apply_patch', 'start:shell', 'end:shell']);
 });
 
 test('streaming: side effects before any streamed patch eager-start', () => {
@@ -144,7 +155,7 @@ test('turn snapshot readiness gates eager and serial tool execution without bloc
     assert.deepEqual(serialStarted, ['apply_patch']);
 });
 
-test('batch run: patch, shell, and read all eager-start', () => {
+test('batch run: patch, shell, and read all dispatch eagerly', () => {
     const started = [];
     const d = makeDispatcher(started);
     const calls = [
@@ -154,11 +165,11 @@ test('batch run: patch, shell, and read all eager-start', () => {
     ];
     d.startEagerRun(calls, 0, null);
     assert.equal(d.pending.has('p1'), true, 'apply_patch should eager-start');
-    assert.equal(d.pending.has('s1'), true, 'shell should eager-start');
+    assert.equal(d.pending.has('s1'), true, 'shell should dispatch behind the patch barrier');
     assert.equal(d.pending.has('r1'), true, 'reads stay parallel (epoch-guarded)');
 });
 
-test('batch run: calls on both sides of a patch start together', () => {
+test('batch run: calls on both sides of a patch dispatch together', () => {
     const started = [];
     const d = makeDispatcher(started);
     const calls = [
@@ -170,7 +181,7 @@ test('batch run: calls on both sides of a patch start together', () => {
     d.startEagerRun(calls, 0, null);
     assert.equal(d.pending.has('s1'), true, 'prepatch shell segment should overlap');
     assert.equal(d.pending.has('p1'), true, 'apply_patch should eager-start');
-    assert.equal(d.pending.has('s2'), true, 'postpatch shell should eager-start');
+    assert.equal(d.pending.has('s2'), true, 'postpatch shell should dispatch behind the patch barrier');
     assert.equal(d.pending.has('r1'), true, 'reads stay parallel (epoch-guarded)');
 });
 
@@ -186,7 +197,7 @@ test('batch run: shell with no earlier patch eager-starts', () => {
     assert.equal(d.pending.has('s2'), true);
 });
 
-test('patch-first mixed batch runs every call in parallel', async () => {
+test('patch-first mixed batch runs shells in parallel after patch settles', async () => {
     const events = [];
     let active = 0;
     let maxActive = 0;
@@ -205,8 +216,10 @@ test('patch-first mixed batch runs every call in parallel', async () => {
         return 'ok';
     });
 
-    assert.deepEqual(new Set(events.slice(0, 3)), new Set(['start:patch', 'start:shell-1', 'start:shell-2']));
-    assert.equal(maxActive, 3);
+    assert.equal(events[0], 'start:patch');
+    assert.equal(events[1], 'end:patch');
+    assert.deepEqual(new Set(events.slice(2, 4)), new Set(['start:shell-1', 'start:shell-2']));
+    assert.equal(maxActive, 2);
     assert.deepEqual(results.map((result) => result.toolKind), ['normal', 'normal', 'normal']);
 });
 
@@ -243,19 +256,19 @@ test('shells and patch share one immediate parallel wave', async () => {
     assert.equal(maxActive, 3);
 });
 
-test('failed patch does not cancel independent later shells', async () => {
-    const executed = [];
+test('failed patch settles before later shells execute', async () => {
+    const events = [];
     const calls = [
         { id: 'p1', name: 'apply_patch', arguments: { patch: 'patch' } },
         { id: 's1', name: 'shell', arguments: { command: 'one' } },
         { id: 's2', name: 'shell', arguments: { command: 'two' } },
     ];
     const results = await runBatch(calls, async (name) => {
-        executed.push(name);
+        events.push(name);
         return name === 'apply_patch' ? 'Error: patch failed' : 'ok';
     });
 
-    assert.deepEqual(new Set(executed), new Set(['apply_patch', 'shell', 'shell']));
+    assert.deepEqual(events, ['apply_patch', 'shell', 'shell']);
     assert.deepEqual(results.map((result) => result.toolKind), ['error', 'normal', 'normal']);
 });
 
@@ -303,7 +316,7 @@ test('parallel shells commit cwd probes deterministically in model call order', 
     }
 });
 
-test('side effects around a patch all complete without a batch barrier', async () => {
+test('shell before patch stays independent while shell after patch waits', async () => {
     const events = [];
     const calls = [
         { id: 's1', name: 'shell', arguments: { command: 'prepare', label: 'shell-before' } },
@@ -314,21 +327,23 @@ test('side effects around a patch all complete without a batch barrier', async (
         events.push(args.label);
         return 'ok';
     });
-    assert.deepEqual(events, ['shell-before', 'patch', 'shell-after']);
+    assert.deepEqual(new Set(events), new Set(['shell-before', 'patch', 'shell-after']));
+    assert.ok(events.indexOf('shell-after') > events.indexOf('patch'));
     assert.deepEqual(results.map((result) => result.toolKind), ['normal', 'normal', 'normal']);
 });
 
-test('a failed patch after an earlier shell leaves later side effects running', async () => {
+test('a failed patch after an earlier shell settles before the later shell', async () => {
     const executed = [];
     const calls = [
         { id: 's1', name: 'shell', arguments: { command: 'prepatch' } },
         { id: 'p1', name: 'apply_patch', arguments: { patch: 'patch' } },
         { id: 's2', name: 'shell', arguments: { command: 'postpatch' } },
     ];
-    const results = await runBatch(calls, async (name) => {
-        executed.push(name);
+    const results = await runBatch(calls, async (name, args) => {
+        executed.push(name === 'shell' ? args.command : name);
         return name === 'apply_patch' ? 'Error: patch failed' : 'ok';
     });
-    assert.deepEqual(executed, ['shell', 'apply_patch', 'shell']);
+    assert.deepEqual(new Set(executed), new Set(['prepatch', 'apply_patch', 'postpatch']));
+    assert.ok(executed.indexOf('postpatch') > executed.indexOf('apply_patch'));
     assert.deepEqual(results.map((result) => result.toolKind), ['normal', 'error', 'normal']);
 });

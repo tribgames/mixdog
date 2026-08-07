@@ -121,10 +121,9 @@ function hasOwn(value, key) {
   return Object.prototype.hasOwnProperty.call(value || {}, key)
 }
 
-// Canonical on-disk channel shape. Backend-specific ids are durable; the old
-// generic channelId mirror is accepted only long enough to seed an unambiguous
-// active-backend id. Schedule arrays moved to the scheduler DB and prompt
-// injection moved to runtime hooks, so neither belongs in config anymore.
+// Canonical on-disk channel shape. Provider-specific ids are durable. Schedule
+// arrays moved to the scheduler DB and prompt injection moved to runtime hooks,
+// so neither belongs in config anymore.
 export function canonicalizeStoredChannelsConfig(value = {}) {
   const next = isPlainObject(value) ? { ...value } : {}
   delete next.promptInjection
@@ -133,23 +132,11 @@ export function canonicalizeStoredChannelsConfig(value = {}) {
   delete next.interactive
 
   const channel = isPlainObject(next.channel) ? { ...next.channel } : {}
-  const legacyId = String(channel.channelId || '').trim()
-  const discordId = String(channel.discordChannelId || '').trim()
-  const telegramId = String(channel.telegramChatId || '').trim()
-  const backend = next.backend === 'telegram' ? 'telegram' : 'discord'
-  if (legacyId) {
-    if (!discordId && !telegramId) {
-      if (backend === 'telegram') channel.telegramChatId = legacyId
-      else channel.discordChannelId = legacyId
-      delete channel.channelId
-    } else if ((backend === 'telegram' && telegramId) || (backend === 'discord' && discordId) || (discordId && telegramId)) {
-      // The mirror is redundant only when its active-backend destination is
-      // already known. Keep ambiguous legacy input rather than guessing.
-      delete channel.channelId
-    }
-  } else {
-    delete channel.channelId
-  }
+  next.provider = next.provider === 'telegram' || next.backend === 'telegram'
+    ? 'telegram'
+    : 'discord'
+  delete next.backend
+  delete channel.channelId
   next.channel = channel
   return next
 }
@@ -605,9 +592,9 @@ export function saveSecret(account, value) {
   try {
     _setSecret(account, value)
   } catch (err) {
-    // On WSL/headless Linux (and any host missing a usable keychain backend,
+    // On WSL/headless Linux (and any host missing a usable keychain provider,
     // e.g. keytar/libsecret not installed or no running Secret Service) the OS
-    // write throws a cryptic backend error. Surface an actionable message that
+    // write throws a cryptic provider error. Surface an actionable message that
     // points at the env-var read path the getters already honor, instead of
     // silently writing the plaintext secret to mixdog-config.json.
     const envKey = _envKey(account)
@@ -616,7 +603,7 @@ export function saveSecret(account, value) {
     const envHint = stdEnv ? `${stdEnv} (or ${envKey})` : envKey
     const e = new Error(
       `[config] could not save secret to the OS keychain: ${err && err.message ? err.message : err}\n` +
-      `  No usable keychain backend on this host (common on WSL / headless Linux without libsecret).\n` +
+      `  No usable keychain provider on this host (common on WSL / headless Linux without libsecret).\n` +
       `  Set the ${envHint} environment variable instead — the runtime reads it directly.`
     )
     e.cause = err

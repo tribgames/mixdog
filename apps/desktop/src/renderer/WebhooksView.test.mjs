@@ -39,7 +39,7 @@ afterEach(async () => {
 function webhooksApi({ remote = false, publicUrl = 'https://relay.example/hook/device-1' } = {}) {
   const calls = [];
   const setup = {
-    backend: 'discord',
+    provider: 'discord',
     channel: { discordChannelId: '111' },
     webhook: { enabled: true, publicUrl },
     schedules: [],

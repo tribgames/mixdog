@@ -20,7 +20,7 @@ import type {
   DesktopPromptContent,
   DesktopSubmitOptions,
   DesktopWorkflowState,
-  EngineSnapshot
+  SessionSnapshot
 } from "../shared/contract";
 import { t } from "./i18n";
 import { MxIcon } from "./MxIcon";
@@ -136,7 +136,7 @@ export function pendingPromptTranscriptItems(
   }
   // Host acknowledgement is NOT settlement. Releasing on the RPC result took
   // the bubble back out of the thread for the whole ack -> publication window
-  // (measured 77ms to 4s on the daemon-hosted engine): the bottom-pinned
+  // (measured 77ms to 4s on the daemon-hosted session runtime): the bottom-pinned
   // timeline lost the prompt's height, snapped back, then snapped forward
   // again when the durable row arrived — the double kick the reader sees as
   // one big jerk (user: 프롬프트 입력 들어갈 때 스크롤이 크게 투둑 튄다).
@@ -222,18 +222,20 @@ export function Conversation({
   onOpenCommandSurface,
   liveWork,
   streamingTailSlot,
+  runtimeProgressSlot,
   readOnly = false,
+  reviewActive = true,
   warmPaintHandoff = false,
   transcriptPending = false,
 }: {
   snapshot: Snapshot;
   routeSnapshot: Snapshot;
-  /** Pane ownership resolves to this canonical backend session address. */
+  /** Pane ownership resolves to this canonical session address. */
   sessionAddress?: string;
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
   errors: string[];
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
-  applySnapshot: (snapshot: EngineSnapshot | null) => void;
+  applySnapshot: (snapshot: SessionSnapshot | null) => void;
   transitioning: boolean;
   composerFocusRequest: number;
   onNewTask: () => void;
@@ -258,9 +260,14 @@ export function Conversation({
   liveWork?: ReactNode;
   /** Selector-driven live row; keeps token publications out of this shell. */
   streamingTailSlot?: ReactNode;
+  /** Selector-driven runtime status; progress publications do not rerender the
+   *  transcript/composer shell. */
+  runtimeProgressSlot?: ReactNode;
   /** Transcript-only child-agent view: no submit, retry, approval, review, or
-   *  other engine-mutating controls are mounted. */
+   *  other session runtime-mutating controls are mounted. */
   readOnly?: boolean;
+  /** Only the focused, visible session performs background review refreshes. */
+  reviewActive?: boolean;
   /** A warm New Task → session commit paints the requested transcript under
    *  the prior watermark for one frame so Chromium uploads its raster before
    *  it becomes visible. Route identity and interaction are already current. */
@@ -329,7 +336,7 @@ export function Conversation({
     const timer = window.setTimeout(() => setContextBarPhase("closed"), 180);
     return () => window.clearTimeout(timer);
   }, [showProjectSelector]);
-  // Pane-local engine addressing: abort and tool approvals always target the
+  // Pane-local session runtime addressing: abort and tool approvals always target the
   // session THIS surface renders, never the globally active route.
   const routeSessionIdRef = useRef("");
   routeSessionIdRef.current = String(routeSnapshot.sessionId || "");
@@ -440,45 +447,45 @@ export function Conversation({
   const settledUsersRef = useRef(settledUsers);
   settledUsersRef.current = settledUsers;
   // Cross-surface queue parity: ONE queue owns every prompt waiting behind an
-  // active turn, whatever typed it. The moment the engine
+  // active turn, whatever typed it. The moment the session runtime
   // publishes this submission in `queued`, the composer's reserved-message
-  // list owns its display — so an app-typed prompt stacks in engine order
+  // list owns its display — so an app-typed prompt stacks in session runtime order
   // beside terminal-typed ones and drains on the next turn loop, instead of
   // hiding inside the transcript as a private "Queued" card. The optimistic
   // item stays in state: a prompt that leaves the queue before its durable
   // row lands falls back to the transcript card instead of blinking out.
   // Only a prompt submitted BEHIND an active turn hands over. EVERY submit
-  // rides the engine queue for one drain hop (idle ones included, via
+  // rides the session runtime queue for one drain hop (idle ones included, via
   // autoClearBeforeSubmit), so keying on the queue publication alone put a
   // brand-new task's very first prompt into the reserved list with an empty
   // transcript (user report).
-  const unsettledEngineQueue = useMemo(
+  const unsettledSessionQueue = useMemo(
     () => unsettledQueueEntries(snapshot.queued, settledItems),
     [settledItems, snapshot.queued],
   );
-  const engineQueuedIdKey = useMemo(
-    () => unsettledEngineQueue
+  const sessionQueuedIdKey = useMemo(
+    () => unsettledSessionQueue
       .map((entry) => String(asRecord(entry)?.id ?? ""))
       .join("\u0000"),
-    [unsettledEngineQueue],
+    [unsettledSessionQueue],
   );
-  const engineQueuedIds = useMemo(
-    () => new Set(engineQueuedIdKey.split("\u0000").filter(Boolean)),
-    [engineQueuedIdKey],
+  const sessionQueuedIds = useMemo(
+    () => new Set(sessionQueuedIdKey.split("\u0000").filter(Boolean)),
+    [sessionQueuedIdKey],
   );
   const pendingPromptItems = useMemo(
     () => pendingPromptTranscriptItems(optimisticPrompts, settledItems)
       .filter((item) => item.queuedBehindTurn !== true
-        || !engineQueuedIds.has(String(item.id))),
-    [engineQueuedIds, optimisticPrompts, settledItems],
+        || !sessionQueuedIds.has(String(item.id))),
+    [sessionQueuedIds, optimisticPrompts, settledItems],
   );
   // A prompt submitted BEHIND an active turn belongs to the reserved list from
-  // its FIRST frame. Keying its transcript row on the engine's queue
+  // its FIRST frame. Keying its transcript row on the session runtime's queue
   // publication painted it as a real chat row for one RPC round trip
   // (user: 예약 메시지가 잠깐 채팅창에 찍힌다). The row is withheld here and the
-  // same prompt is handed to the composer's queue below until the engine
+  // same prompt is handed to the composer's queue below until the session runtime
   // publishes its own entry — the ids match, because submit mints the id the
-  // engine reuses for the queue entry.
+  // session runtime reuses for the queue entry.
   const transcriptPendingPromptItems = useMemo(
     () => pendingPromptItems.filter((item) => item.queuedBehindTurn !== true),
     [pendingPromptItems],
@@ -491,13 +498,13 @@ export function Conversation({
     () => transcriptPendingPromptItems.map((item) => item.id),
     [transcriptPendingPromptItems],
   );
-  // The composer's reserved list = the engine queue plus the submits it has not
-  // published yet. Local entries carry the submission id, so the engine entry
+  // The composer's reserved list = the session runtime queue plus the submits it has not
+  // published yet. Local entries carry the submission id, so the session runtime entry
   // replaces its local twin by id the moment it lands.
   const composerQueued = useMemo(() => {
-    const engineQueue = unsettledEngineQueue;
-    if (localQueuedPrompts.length === 0) return engineQueue;
-    const published = new Set(engineQueue
+    const sessionQueue = unsettledSessionQueue;
+    if (localQueuedPrompts.length === 0) return sessionQueue;
+    const published = new Set(sessionQueue
       .map((entry) => String(asRecord(entry)?.id ?? ""))
       .filter(Boolean));
     const local = localQueuedPrompts
@@ -507,8 +514,8 @@ export function Conversation({
         displayText: item.text,
         ...(item.images?.length ? { images: item.images } : {}),
       }));
-    return local.length === 0 ? engineQueue : [...engineQueue, ...local];
-  }, [localQueuedPrompts, unsettledEngineQueue]);
+    return local.length === 0 ? sessionQueue : [...sessionQueue, ...local];
+  }, [localQueuedPrompts, unsettledSessionQueue]);
   const optimisticActivityStartedAt = pendingPromptItems.reduce((earliest, item) => {
     if (item.queuedBehindTurn === true) return earliest;
     const startedAt = Number(item.submittedAt || 0);
@@ -811,7 +818,7 @@ export function Conversation({
     });
   }, []);
   const composerApplySnapshot = useCallback(
-    (next: EngineSnapshot | null) => composerActions.current.applySnapshot(next),
+    (next: SessionSnapshot | null) => composerActions.current.applySnapshot(next),
     [],
   );
   const composerOnNewTask = useCallback(() => composerActions.current.onNewTask(), []);
@@ -954,9 +961,11 @@ export function Conversation({
       </button>}
       </div>
       {!readOnly && <div className="composer-region">
-        {Boolean(asRecord(snapshot.progressHint)?.text) && <div className="runtime-progress" role="status">
-          {String(asRecord(snapshot.progressHint)?.text)}
-        </div>}
+        {runtimeProgressSlot ?? (Boolean(asRecord(snapshot.progressHint)?.text)
+          ? <div className="runtime-progress" role="status">
+            {String(asRecord(snapshot.progressHint)?.text)}
+          </div>
+          : null)}
         {snapshot.toolApproval && (
           <div className="composer-approval-row">
             <ApprovalCard key={approvalInstanceKey(snapshot.toolApproval.id)}
@@ -997,6 +1006,8 @@ export function Conversation({
         <div className="turn-review-slot"
           data-reserved={reviewSlotReserved ? "true" : "false"}>
           <TurnReviewBar items={settledItems}
+            active={reviewActive}
+            busy={Boolean(snapshot.busy || routeSnapshot.commandBusy)}
             sessionId={draftMode ? "" : String(sessionAddress || routeSnapshot.sessionId || "")}
             cwd={String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || "")} />
         </div>

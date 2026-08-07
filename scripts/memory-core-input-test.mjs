@@ -14,7 +14,6 @@ test('memory mutation schema omits category while recall keeps its internal filt
   const recallTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'recall')
   assert.equal(Object.hasOwn(memoryTool.inputSchema.properties, 'category'), false)
   assert.doesNotMatch(memoryTool.description, /category/i)
-  assert.match(memoryTool.description, /action=core with op/)
   // `op` is required for action=core through its own description + the handler
   // (the schema's anyOf branches only restated `required: ['action']`).
   assert.match(memoryTool.inputSchema.properties.op.description, /required for action=core/i)

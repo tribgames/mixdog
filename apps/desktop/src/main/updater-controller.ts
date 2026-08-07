@@ -4,7 +4,7 @@ export type UpdaterState = DesktopUpdaterState;
 
 export type UpdaterReadyRecord = { version: string };
 
-export type UpdaterBackend = {
+export type UpdaterService = {
   checkForUpdates(): Promise<{ isUpdateAvailable?: boolean; updateInfo?: { version?: string } } | null | undefined>;
   downloadUpdate(): Promise<unknown>;
   quitAndInstall(): void;
@@ -19,7 +19,7 @@ type UpdaterPersistence = {
 export function createUpdaterController(input: {
   enabled: boolean;
   currentVersion: string;
-  backend: UpdaterBackend;
+  service: UpdaterService;
   persistence: UpdaterPersistence;
   stop: () => Promise<void>;
   scheduleInstall?: (install: () => void) => void;
@@ -49,7 +49,7 @@ export function createUpdaterController(input: {
       // rapid releases. Keep it installable during the recheck, then replace
       // it only when the feed points at a different version.
       if (!readyAtStart) transition({ status: 'checking' });
-      const result = await input.backend.checkForUpdates();
+      const result = await input.service.checkForUpdates();
       const version = result?.updateInfo?.version;
       if (!result?.isUpdateAvailable || !version || version === input.currentVersion) {
         await input.persistence.clear();
@@ -58,7 +58,7 @@ export function createUpdaterController(input: {
       if (readyAtStart?.version === version) return readyAtStart;
 
       transition({ status: 'downloading', version });
-      await input.backend.downloadUpdate();
+      await input.service.downloadUpdate();
       await input.persistence.set({ version });
       return transition({ status: 'ready', version });
     })()
@@ -102,7 +102,7 @@ export function createUpdaterController(input: {
         // from surfacing as "Object has been destroyed" in the UI.
         scheduleInstall(() => {
           try {
-            input.backend.quitAndInstall();
+            input.service.quitAndInstall();
           } catch (error) {
             transition({ status: 'ready', version });
             input.log?.('updater install launch failed', {

@@ -12,7 +12,7 @@ export function runWorkerIpc({
   clearServerPid,
   instanceId,
   statusState,
-  getBackend,
+  getProvider,
   getConfig,
   pendingPermRequests,
   refreshToolExecConsumerMarker,
@@ -72,14 +72,14 @@ export function runWorkerIpc({
     // Silent-to-agent lifecycle forward — parent (server.mjs) asks the
     // channels worker to post status pings to the active bridge Discord
     // channel without the Lead-notify hop. Best-effort: unknown channel or
-    // getBackend() failure is swallowed; lifecycle pings are non-critical.
+    // getProvider() failure is swallowed; lifecycle pings are non-critical.
     if (msg && msg.type === 'forward_to_discord') {
       try {
         const target = msg.channelId
           || (statusState?.read?.().channelId)
           || null;
-        if (target && getBackend()?.sendMessage && typeof msg.content === 'string' && msg.content) {
-          await getBackend().sendMessage(target, msg.content).catch(() => {});
+        if (target && getProvider()?.sendMessage && typeof msg.content === 'string' && msg.content) {
+          await getProvider().sendMessage(target, msg.content).catch(() => {});
         }
       } catch { /* best-effort */ }
       return;
@@ -87,7 +87,7 @@ export function runWorkerIpc({
     // Host permission request → Discord Allow/Deny prompt.
     // Parent (server.mjs) receives notifications/claude/channel/permission_request
     // from the MCP host and forwards the params here. We post a buttoned message;
-    // button clicks are handled in getBackend().onInteraction and sent back to CC as
+    // button clicks are handled in getProvider().onInteraction and sent back to CC as
     // notifications/claude/channel/permission via sendNotifyToParent.
     if (msg && msg.type === 'permission_request_inbound') {
       try {
@@ -110,7 +110,7 @@ export function runWorkerIpc({
         const target = (statusState?.read?.().channelId)
           || getConfig()?.channelId
           || null;
-        if (!target || !getBackend()?.sendMessage) {
+        if (!target || !getProvider()?.sendMessage) {
           process.stderr.write(`mixdog channels: permission_request dropped, no target channel (request_id=${request_id})\n`);
           return;
         }
@@ -128,7 +128,7 @@ export function runWorkerIpc({
         }];
         let sentIds = null;
         try {
-          const sendResult = await getBackend().sendMessage(target, content, { components });
+          const sendResult = await getProvider().sendMessage(target, content, { components });
           sentIds = sendResult?.sentIds;
         } catch (err) {
           process.stderr.write(`mixdog channels: permission_request Discord send failed: ${err && err.message || err}\n`);

@@ -302,7 +302,7 @@ async function prepareRuntime(manifest, fingerprint) {
     for (const required of [
       '/package.json',
       '/node_modules/mixdog/package.json',
-      '/node_modules/mixdog/src/tui/engine.mjs',
+      '/node_modules/mixdog/src/tui/session.mjs',
       '/node_modules/@huggingface/transformers/package.json',
       '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',
       '/node_modules/@huggingface/transformers/dist/transformers.node.mjs',

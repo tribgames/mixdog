@@ -2,7 +2,7 @@
 // starting a task inside one, and the registry edits the Projects page makes.
 // Plain factory (no hooks): the actions are rebuilt each render exactly as the
 // inline closures were, so they always see current props/state.
-import type { DesktopProjectSummary, EngineSnapshot } from "../shared/contract";
+import type { DesktopProjectSummary, SessionSnapshot } from "../shared/contract";
 import type { NavigationSelection } from "./navigation";
 import type { Project, Snapshot } from "./desktop-types";
 import { displayProject } from "./text-format";
@@ -15,7 +15,7 @@ export interface ProjectActionDeps {
   projects: DesktopProjectSummary[];
   /** Runs an action with the shared error/toast plumbing. */
   invoke: (action: () => unknown) => Promise<void>;
-  applySnapshot: (snapshot: EngineSnapshot) => void;
+  applySnapshot: (snapshot: SessionSnapshot) => void;
   activateSelection: (selection: NavigationSelection, title: string, replaceKey?: string) => void;
   /** Re-reads the engine's real state after a failed navigation. */
   synchronizeActualHost: () => Promise<void>;
@@ -37,7 +37,7 @@ export function createProjectActions(deps: ProjectActionDeps) {
 
   // The engine may canonicalize the requested folder (symlinks, casing); the
   // selection must follow the path it actually entered.
-  const canonicalProject = (value: EngineSnapshot, fallback: string) => {
+  const canonicalProject = (value: SessionSnapshot, fallback: string) => {
     const state = value && typeof value === "object" ? value as Snapshot : null;
     return String(state?.currentProject || state?.project || fallback);
   };
@@ -48,7 +48,7 @@ export function createProjectActions(deps: ProjectActionDeps) {
       || displayProject(projectPath).name || "Project";
   };
 
-  const enterProject = (next: EngineSnapshot, requested: Project) => {
+  const enterProject = (next: SessionSnapshot, requested: Project) => {
     applySnapshot(next);
     const projectPath = canonicalProject(next, requested);
     activateSelection({ kind: "project", path: projectPath }, projectTitle(projectPath));

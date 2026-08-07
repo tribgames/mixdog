@@ -345,6 +345,8 @@ function normalizedRow(row, heartbeatAt = 0) {
         preview: cleanText(row.preview),
         generation: typeof row.generation === 'number' ? row.generation : 0,
         implicitBashSessionId: row.implicitBashSessionId || null,
+        storageMtimeMs: positiveNumber(row.storageMtimeMs, 0),
+        storageSize: positiveNumber(row.storageSize, 0),
         detachedReason: row.detachedReason || null,
     };
 }
@@ -412,10 +414,15 @@ function sessionHeartbeatMtimes() {
  * Returns `null` when the directory itself is NOT enumerable (unreadable
  * stat / readdir): that is not "no sessions", and the caller must keep the
  * authority it already has (the index rows) instead of publishing an empty
- * catalog. `indexRowsById` carries those rows so a single UNREADABLE session
- * file also retains its last known row instead of vanishing.
+ * catalog. `indexRowsById` carries those rows so unchanged files can reuse the
+ * durable summary and a single UNREADABLE file retains its last known row
+ * instead of vanishing.
  */
-function scanSessionFiles(heartbeatMtimes = sessionHeartbeatMtimes(), indexRowsById = new Map()) {
+function scanSessionFiles(
+    heartbeatMtimes = sessionHeartbeatMtimes(),
+    indexRowsById = new Map(),
+    { indexMtimeMs = 0, forceRead = false } = {},
+) {
     const directory = join(dataDir(), 'sessions');
     const dirProbe = probePath(directory);
     if (dirProbe.state === PROBE_ABSENT) return [];
@@ -426,13 +433,37 @@ function scanSessionFiles(heartbeatMtimes = sessionHeartbeatMtimes(), indexRowsB
     for (const filename of entries) {
         if (!filename.endsWith('.json')) continue;
         const storageId = filename.slice(0, -5);
-        const read = readTextFile(join(directory, filename));
+        const path = join(directory, filename);
+        const retained = indexRowsById.get(storageId);
+        const probe = probePath(path);
+        // Provably gone: the row legitimately disappears with the file.
+        if (probe.state === PROBE_ABSENT) continue;
+        if (probe.state !== PROBE_PRESENT) {
+            if (retained) rows.push(retained);
+            continue;
+        }
+        if (!forceRead && retained) {
+            const exactFingerprint = retained.storageMtimeMs > 0
+                && retained.storageSize > 0
+                && retained.storageMtimeMs === probe.mtimeMs
+                && retained.storageSize === probe.size;
+            // Older v2 rows predate per-file fingerprints. Their global index
+            // timestamp remains a one-release compatibility fallback; every
+            // later save/rebuild stamps the exact (mtimeMs,size) pair.
+            const legacyUnchanged = retained.storageMtimeMs === 0
+                && indexMtimeMs > 0
+                && (probe.mtimeMs || 0) <= indexMtimeMs;
+            if (exactFingerprint || legacyUnchanged) {
+                rows.push(retained);
+                continue;
+            }
+        }
+        const read = readTextFile(path);
         // Provably gone: the row legitimately disappears with the file.
         if (read.state === PROBE_ABSENT) continue;
         if (read.state !== PROBE_PRESENT) {
             // Exists and could not be read (EACCES/EIO): retain the last known
             // row rather than let a transient IO error delete it from view.
-            const retained = indexRowsById.get(storageId);
             if (retained) rows.push(retained);
             continue;
         }
@@ -440,34 +471,14 @@ function scanSessionFiles(heartbeatMtimes = sessionHeartbeatMtimes(), indexRowsB
         // record or a foreign identity is not this file's session.
         const record = readTopLevelLifecycleRecord(read.text);
         if (isLifecycleUnreadable(record) || record.id !== storageId) continue;
-        const row = rowFromSession(record.doc, heartbeatMtimes.get(record.id) || 0);
+        const summary = rowFromSession(record.doc, heartbeatMtimes.get(record.id) || 0);
+        const row = summary
+            ? { ...summary, storageMtimeMs: probe.mtimeMs, storageSize: probe.size }
+            : null;
         if (row) rows.push(row);
     }
     return leadRowsWithAgentHeartbeat(rows).sort((left, right) =>
         (right.lastUsedAt || right.updatedAt || 0) - (left.lastUsedAt || left.updatedAt || 0));
-}
-
-function sessionFilesAreNewerThan(indexPath) {
-    const directory = join(dataDir(), 'sessions');
-    if (probePath(directory).state !== PROBE_PRESENT) return false;
-    const indexProbe = probePath(indexPath);
-    // Only a PROVABLY absent index makes the files newer by definition. An
-    // index that exists but cannot be stat'ed (EACCES/EIO) is still the
-    // authority we failed to consult — claiming "files are newer" there would
-    // replace the whole catalog on the strength of an IO error.
-    if (indexProbe.state === PROBE_ABSENT) return true;
-    if (indexProbe.state !== PROBE_PRESENT) return false;
-    const indexMtime = indexProbe.mtimeMs || 0;
-    let entries;
-    try { entries = readdirSync(directory); } catch { return false; }
-    for (const filename of entries) {
-        if (!filename.endsWith('.json')) continue;
-        // Absent (raced unlink) and unreadable both prove nothing about
-        // freshness: only an observed newer mtime does.
-        const probe = probePath(join(directory, filename));
-        if (probe.state === PROBE_PRESENT && (probe.mtimeMs || 0) > indexMtime) return true;
-    }
-    return false;
 }
 
 export function listStoredSessionSummaries(options = {}) {
@@ -478,6 +489,7 @@ export function listStoredSessionSummaries(options = {}) {
     // an individual session file cannot be read.
     const indexRowsById = new Map();
     let indexRows = null;
+    let indexMtimeMs = 0;
     const indexRead = readTextFile(indexPath);
     if (indexRead.state === PROBE_PRESENT) {
         try {
@@ -490,25 +502,30 @@ export function listStoredSessionSummaries(options = {}) {
                 indexRows = leadRowsWithAgentHeartbeat(normalizedRows)
                     .sort((left, right) =>
                         (right.lastUsedAt || right.updatedAt || 0) - (left.lastUsedAt || left.updatedAt || 0));
+                const indexProbe = probePath(indexPath);
+                if (indexProbe.state === PROBE_PRESENT) indexMtimeMs = indexProbe.mtimeMs || 0;
             }
         } catch { /* malformed sidecar: the files below are the authority */ }
     }
     // An index that EXISTS but is unreadable (EACCES/EIO) is neither missing
     // nor empty: the scan below still runs, and when IT cannot enumerate
     // either, the catalog reports nothing rather than inventing an empty truth.
-    const scan = () => scanSessionFiles(heartbeatMtimes, indexRowsById);
-    if (options.refreshFromStorage === true) return scan() ?? indexRows ?? [];
+    const scan = (forceRead = false) => scanSessionFiles(
+        heartbeatMtimes,
+        indexRowsById,
+        { indexMtimeMs, forceRead },
+    );
+    if (options.refreshFromStorage === true) return scan(true) ?? indexRows ?? [];
     if (indexRows) {
-        // A crashed/non-blocking sidecar writer can leave a valid but old,
-        // non-empty index indefinitely. Detect only newer session JSONs
-        // (heartbeat churn does not count), then recover read-only from the
-        // authoritative files without trying to rewrite the stuck index.
-        if (options.rebuildIfMissing !== false && sessionFilesAreNewerThan(indexPath)) {
-            return scan() ?? indexRows;
-        }
-        if (indexRows.length > 0 || options.rebuildIfMissing === false) return indexRows;
+        if (options.rebuildIfMissing === false) return indexRows;
+        // Enumerate identities to detect deletions, stat known files, and parse
+        // only rows newer than the index. Cold-start cost therefore scales with
+        // changed transcripts rather than total transcript bytes.
+        return scan(false) ?? indexRows;
     }
-    return options.rebuildIfMissing === false ? [] : (scan() ?? indexRows ?? []);
+    // Missing/malformed index is the sole cold path that must rebuild every
+    // summary from canonical session bytes.
+    return options.rebuildIfMissing === false ? [] : (scan(true) ?? indexRows ?? []);
 }
 
 /** Exact, fail-closed existence check for a durable session address.
@@ -567,7 +584,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
         restoreTranscriptItems,
         sessionContextSnapshotProjection,
     } = await import(
-        '../../../../tui/engine/session-api-ext.mjs'
+        '../../../../tui/session/session-api-ext.mjs'
     );
     let preparedContextProjection = null;
     try {
@@ -724,7 +741,7 @@ export async function createStoredSessionLiveViewer(id, options = {}) {
         clearStreamingTail: () => commit({ streamingTail: null }),
     };
     const { createLiveShare, liveSharePipePath } = await import(
-        '../../../../tui/engine/live-share.mjs'
+        '../../../../tui/session/live-share.mjs'
     );
     const share = createLiveShare({
         ownerSessionId: () => '',

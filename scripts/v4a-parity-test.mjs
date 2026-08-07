@@ -16,7 +16,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, parse, resolve } from 'node:path';
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 import { assertSafeReplacementPlan } from '../src/runtime/agent/orchestrator/tools/patch/matcher.mjs';
 import { nativePatchBinPath } from '../src/runtime/agent/orchestrator/tools/patch/native-server.mjs';
@@ -149,6 +149,45 @@ test('a target outside the write root is refused until a root is named', async (
     assert.equal(read(target), 'one\n', 'a refused patch must not write');
     assertApplied(await applyPatch(base, patch, { root: resolve(base, '..') }));
     assert.equal(read(target), 'ONE\n');
+  });
+});
+
+test('a freeform Root directive deliberately permits an outside target', async () => {
+  await withWorkspace(async ({ root, base, outside }) => {
+    const target = join(outside, 'f.txt');
+    writeFileSync(target, 'one\n', 'utf8');
+    const patch = [
+      '*** Begin Patch',
+      `*** Root: ${root}`,
+      '*** Update File: ../outside/f.txt',
+      '@@',
+      '-one',
+      '+ONE',
+      '*** End Patch',
+      '',
+    ].join('\n');
+    assertApplied(await applyPatch(base, patch, { root: null }));
+    assert.equal(read(target), 'ONE\n');
+  });
+});
+
+test('an explicit filesystem root is refused before any write', async () => {
+  await withWorkspace(async ({ base }) => {
+    const target = join(base, 'f.txt');
+    writeFileSync(target, 'one\n', 'utf8');
+    const patch = [
+      '*** Begin Patch',
+      `*** Root: ${parse(base).root}`,
+      '*** Update File: f.txt',
+      '@@',
+      '-one',
+      '+ONE',
+      '*** End Patch',
+      '',
+    ].join('\n');
+    const refused = assertRejected(await applyPatch(base, patch, { root: null }));
+    assert.match(refused, /refusing filesystem root/i);
+    assert.equal(read(target), 'one\n', 'a filesystem-root refusal must not write');
   });
 });
 

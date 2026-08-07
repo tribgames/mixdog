@@ -1,7 +1,7 @@
 import type {
   DesktopSessionClassification,
   DesktopSessionSummary,
-  EngineSnapshot,
+  SessionSnapshot,
 } from '../shared/contract';
 import {
   compactedSessionTitle,
@@ -20,10 +20,10 @@ function isDesktopTaskWorkspace(value: string): boolean {
 }
 
 export function desktopSnapshot(
-  snapshot: EngineSnapshot,
+  snapshot: SessionSnapshot,
   currentProject: string | null,
   recentProjects: readonly string[],
-): EngineSnapshot {
+): SessionSnapshot {
   const state = snapshot && typeof snapshot === 'object' ? snapshot : {};
   return {
     ...state,

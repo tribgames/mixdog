@@ -1,11 +1,11 @@
 import * as fs from "fs";
 import * as path from "path";
 // Discord permission-prompt + interaction/modal routing extracted from
-// channels/index.mjs (behavior-preserving). Installs backend.onInteraction /
+// channels/index.mjs (behavior-preserving). Installs provider.onInteraction /
 // onModalRequest handlers and the terminal tool-exec signal watcher; returns the
 // pending-permission map + marker refresher for the worker IPC handler.
 export function createInteractionHandlers({
-  getBackend,
+  getProvider,
   getConfig,
   getBridgeRuntimeConnected,
   instanceId,
@@ -30,18 +30,18 @@ export function createInteractionHandlers({
   RUNTIME_ROOT,
 }) {
 function editDiscordMessage(channelId, messageId, label) {
-  // Behavior-preserving: route through the getBackend() abstraction (which uses
+  // Behavior-preserving: route through the getProvider() abstraction (which uses
   // discord.js under the hood) instead of issuing a raw REST PATCH. Errors
   // are swallowed to stderr to match the prior fire-and-forget shape — the
   // call site never awaited the HTTPS request either.
   if (!getDiscordToken()) return;
   const text = `\u{1F510} **Permission Request** \u2014 ${label}`;
-  void getBackend().editMessage(channelId, messageId, text, { components: [] }).catch((err) => {
+  void getProvider().editMessage(channelId, messageId, text, { components: [] }).catch((err) => {
     process.stderr.write(`mixdog: editDiscordMessage failed: ${err}
 `);
   });
 }
-getBackend().onModalRequest = async (rawInteraction) => {
+getProvider().onModalRequest = async (rawInteraction) => {
   if (!getBridgeRuntimeConnected() || !getBridgeOwnershipSnapshot().owned) {
     refreshBridgeOwnershipSafe();
     return;
@@ -155,7 +155,7 @@ try {
   try { process.stderr.write(`mixdog channels: tool-exec signal watcher setup failed: ${err && err.message || err}\n`); } catch {}
 }
 
-getBackend().onInteraction = (interaction) => {
+getProvider().onInteraction = (interaction) => {
   // Channel-route permission reply. Custom_id format: perm-ch-{request_id}-{allow|session|deny}.
   // request_id is the 5-letter short ID CC generates via shortRequestId().
   // Emit notifications/claude/channel/permission back to the MCP host; the race

@@ -423,7 +423,9 @@ function spawnRg(argsList, execOptions) {
     // spawn below, so queue-wait time is excluded from the 20s deadline. No
     // node guardian is started: rg owns its full SIGTERM→grace→force-kill +
     // force-settle teardown, so the 1:1 guardian process was pure overhead.
-    return acquireChildSpawnSlot(gateSignal, 'search').then((releaseSlot) => new Promise((resolve, reject) => {
+    return acquireChildSpawnSlot(gateSignal, 'search', {
+        ownerKey: execOptions?.ownerKey || execOptions?.callerSessionId || execOptions?.sessionId,
+    }).then((releaseSlot) => new Promise((resolve, reject) => {
         // Probe after acquisition: this spawn counts toward inflight. The
         // answer is best-effort and only selects the per-process rg cap.
         const proc = spawn(rgExecutable(), _withRgThreads(argsList, activeSearchSpawnCount()), {
@@ -605,7 +607,9 @@ function spawnRgWindowedLines(argsList, execOptions, opts = {}) {
     // Same gate + thread-cap + no-guardian treatment as spawnRg; queue-wait is
     // excluded from the rg timeout (armed after spawn). releaseSlot is fired
     // once via .finally on every settle path.
-    return acquireChildSpawnSlot(gateSignal, 'search').then((releaseSlot) => new Promise((resolve, reject) => {
+    return acquireChildSpawnSlot(gateSignal, 'search', {
+        ownerKey: execOptions?.ownerKey || execOptions?.callerSessionId || execOptions?.sessionId,
+    }).then((releaseSlot) => new Promise((resolve, reject) => {
         // As above, probe only after this spawn has acquired its gate slot.
         const proc = spawn(rgExecutable(), _withRgThreads(argsList, activeSearchSpawnCount()), {
             cwd: execOptions?.cwd,

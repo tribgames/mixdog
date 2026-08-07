@@ -120,8 +120,7 @@ export function scrubRuntimeRootVars(env) {
     // Daemon IDENTITY leak: user-facing children must not inherit host/worker
     // ownership or the daemon's terminal-lead PID. Internal daemon/worker
     // spawns set every identity value explicitly after this boundary.
-    delete env.MIXDOG_ENGINE_DAEMON_HOST;
-    delete env.MIXDOG_CHANNEL_DAEMON;
+    delete env.MIXDOG_DAEMON_HOST;
     delete env.MIXDOG_WORKER_MODE;
     delete env.MIXDOG_DAEMON_SPAWNED_FOR;
     delete env.MIXDOG_SUPERVISOR_PID;

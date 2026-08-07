@@ -1,7 +1,7 @@
 import { ArrowUp, Command, Mic, X } from "lucide-react";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import type { DesktopAbortOptions, DesktopCapability, DesktopModelSelection, DesktopPromptAttachment, DesktopPromptContent, DesktopSubmitOptions, EngineSnapshot } from "../shared/contract";
+import type { DesktopAbortOptions, DesktopCapability, DesktopModelSelection, DesktopPromptAttachment, DesktopPromptContent, DesktopSubmitOptions, SessionSnapshot } from "../shared/contract";
 import { type RecordValue } from "./desktop-types";
 import { t } from "./i18n";
 import { ModelSelector } from "./model-controls";
@@ -102,7 +102,7 @@ export const Composer = memo(function Composer({
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
   abort: (options?: DesktopAbortOptions) => Promise<unknown>;
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
-  applySnapshot: (snapshot: EngineSnapshot | null) => void;
+  applySnapshot: (snapshot: SessionSnapshot | null) => void;
   onNewTask: () => void;
   onResumeSession: (id: string) => void;
   onOpenSessions: () => void;
@@ -1252,11 +1252,11 @@ export const Composer = memo(function Composer({
   };
   const stop = async (preserveDraft = false) => {
     const result = asRecord(await abort({ restorePrompt: !preserveDraft }));
-    if (result?.restoreText && !draftRef.current.trim() && attachmentsRef.current.length === 0) {
+    if (result?.restoreText && !preserveDraft) {
       const restoredText = String(result.restoreText);
       const restored = restoredAttachments(result, restoredText);
       const acceptedText = mergeRestoredAttachments(restored.attachments, restored.text);
-      setDraft(acceptedText);
+      setDraft((current) => [acceptedText, current].filter(Boolean).join('\n'));
       window.setTimeout(() => textarea.current?.focus(), 0);
     }
   };

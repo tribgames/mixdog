@@ -1,5 +1,6 @@
-const APPLY_PATCH_LARK_GRAMMAR = `start: begin_patch hunk+ end_patch
+const APPLY_PATCH_LARK_GRAMMAR = `start: begin_patch root_line? hunk+ end_patch
 begin_patch: "*** Begin Patch" LF
+root_line: "*** Root: " filename LF
 end_patch: "*** End Patch" LF?
 
 hunk: add_hunk | delete_hunk | update_hunk

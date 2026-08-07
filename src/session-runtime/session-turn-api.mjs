@@ -11,8 +11,9 @@ import {
 } from './tool-catalog.mjs';
 import { getMcpTools } from '../runtime/agent/orchestrator/mcp/client.mjs';
 import { traceTurnTiming } from '../runtime/agent/orchestrator/agent-trace.mjs';
-import { beginTurnSnapshot, completeTurnSnapshot } from '../runtime/shared/turn-snapshot.mjs';
+import { beginTurnSnapshot, cancelTurnSnapshot, completeTurnSnapshot } from '../runtime/shared/turn-snapshot.mjs';
 import { isVisibleStreamProgress } from '../runtime/shared/stream-progress.mjs';
+import { runAbortable, settleWithin, throwIfAborted } from '../runtime/shared/abort-race.mjs';
 
 export function splitToolStatusCounts(rows) {
   const list = Array.isArray(rows) ? rows : [];
@@ -46,7 +47,11 @@ export function createSessionTurnApi(deps) {
     agentTool, recreateCurrentSessionIfReady, invalidatePreSessionToolSurface,
     activeToolSurface, applyResolvedCwd, resolveCwdPath, agentStatusState, notificationListeners,
     awaitInitialMcpConnect, mcpTurnGraceMs = 0, awaitRoutePreparation,
-    getReservedSessionId, sessionTitles,
+    getReservedSessionId, sessionTitles, registerActiveTurnController,
+    beginTurnSnapshotForTurn = beginTurnSnapshot,
+    cancelTurnSnapshotForTurn = cancelTurnSnapshot,
+    completeTurnSnapshotForTurn = completeTurnSnapshot,
+    turnCleanupSettleMs = 2_000,
   } = deps;
   const enqueueRemoteAttachedPrompt = (prompt) => {
     const attachedSession = getSession();
@@ -101,6 +106,12 @@ export function createSessionTurnApi(deps) {
       // actual turn waits, guaranteeing that it cannot run on a stale route.
       const timingStartedAt = performance.now();
       const timingStartedAtEpoch = Date.now();
+      const turnAbortController = new AbortController();
+      const unregisterTurnAbort = typeof registerActiveTurnController === 'function'
+        ? registerActiveTurnController(turnAbortController)
+        : () => {};
+      const turnSignal = turnAbortController.signal;
+      const awaitTurn = (task) => runAbortable(turnSignal, task, 'Turn aborted');
       const submittedAt = Number(options.submittedAt);
       const hasSubmittedAt = Number.isFinite(submittedAt) && submittedAt > 0;
       let turnSnapshotSessionId = null;
@@ -112,12 +123,13 @@ export function createSessionTurnApi(deps) {
         // Capture immediately, but do not put Git on the first-token critical
         // path. Every actual tool execution joins this same promise below, so
         // shell/apply_patch cannot mutate the worktree before the baseline.
-        turnSnapshotPromise = Promise.resolve(beginTurnSnapshot(getCurrentCwd(), id)).catch(() => undefined);
+        turnSnapshotPromise = Promise.resolve()
+          .then(() => beginTurnSnapshotForTurn(getCurrentCwd(), id))
+          .catch(() => undefined);
       };
       const routeStartedAt = performance.now();
       startTurnSnapshot(getSession()?.id || getReservedSessionId?.());
-      await awaitRoutePreparation?.();
-      const routeWaitMs = performance.now() - routeStartedAt;
+      let routeWaitMs = 0;
       setActiveTurnCount(getActiveTurnCount() + 1);
       let mcpWaitMs = 0;
       let providerStartedAt = 0;
@@ -176,8 +188,13 @@ export function createSessionTurnApi(deps) {
       };
       const startedAt = Date.now();
       try {
-        await refreshSessionForCwdIfNeeded('cwd-change');
-        if (!getSession()?.id) await createCurrentSession('turn');
+        await awaitTurn(() => awaitRoutePreparation?.());
+        routeWaitMs = performance.now() - routeStartedAt;
+        await awaitTurn(() => refreshSessionForCwdIfNeeded('cwd-change'));
+        if (!getSession()?.id) {
+          await awaitTurn(() => createCurrentSession('turn', { signal: turnSignal }));
+        }
+        throwIfAborted(turnSignal);
         // Remote outbound: ensure a transcript writer bound to the current
         // session.id + cwd. Gated on remoteEnabled so non-remote sessions write nothing.
         if (getRemoteEnabled()) {
@@ -227,7 +244,7 @@ export function createSessionTurnApi(deps) {
           session0.deferredInitialRefreshPending = false;
           // Give an in-flight INITIAL MCP connect only a short TTFT grace.
           // Slower servers remain available through the late-tool path.
-          try { await awaitMcpGrace(); }
+          try { await awaitTurn(() => awaitMcpGrace()); }
           catch { /* gate must never break the turn */ }
           try { refreshInitialDeferredMcpSurface(session0, getMcpTools()); }
           catch { /* first-turn MCP fold must never break the turn */ }
@@ -243,7 +260,7 @@ export function createSessionTurnApi(deps) {
           // short TTFT grace BEFORE folding the catalog so a slow reconnect
           // cannot hold the provider request. No reconnect in flight →
           // immediate no-op.
-          try { await awaitMcpGrace(); }
+          try { await awaitTurn(() => awaitMcpGrace()); }
           catch { /* gate must never break the turn */ }
           try {
             reconcileDeferredMcpToolCatalog(session0, getMcpTools(), {
@@ -261,8 +278,13 @@ export function createSessionTurnApi(deps) {
         // UserPromptSubmit: a hook FAILURE must not block the turn, but blocked===true MUST throw.
         let promptDispatch = null;
         try {
-          promptDispatch = await hooks.dispatch('UserPromptSubmit', hookCommonPayload({ session_id: session0.id, prompt }));
-        } catch { /* hook failure never blocks the turn */ }
+          promptDispatch = await awaitTurn(
+            () => hooks.dispatch('UserPromptSubmit', hookCommonPayload({ session_id: session0.id, prompt })),
+          );
+        } catch {
+          throwIfAborted(turnSignal);
+          // Ordinary hook failure never blocks the turn.
+        }
         if (promptDispatch?.blocked === true) {
           throw new Error(`prompt blocked by hook: ${promptDispatch.reason || ''}`);
         }
@@ -356,8 +378,10 @@ export function createSessionTurnApi(deps) {
             drainSteering: options.drainSteering,
             onSteerMessage: options.onSteerMessage,
             notifyFn: notifyFnForSession(session0.id),
+            signal: turnSignal,
           },
         );
+        throwIfAborted(turnSignal);
         if (!turnTimingEmitted) turnTimingStatus = 'complete-no-delta';
         setSession(mgr.getSession(session0.id) || getSession());
         try { sessionTitles?.observeThird(getSession()); } catch { /* title refresh is best-effort */ }
@@ -374,8 +398,11 @@ export function createSessionTurnApi(deps) {
         }
         hooks.emit('turn:end', { sessionId: session0.id, elapsedMs: Date.now() - startedAt });
         try {
-          await hooks.dispatch('Stop', hookCommonPayload({ session_id: session0.id }));
-        } catch { /* best-effort: Stop hook must never break the turn */ }
+          await awaitTurn(() => hooks.dispatch('Stop', hookCommonPayload({ session_id: session0.id })));
+        } catch {
+          throwIfAborted(turnSignal);
+          // Ordinary Stop hook failure is best-effort.
+        }
         return { result, session: getSession() };
       } catch (error) {
         hooks.emit('turn:error', { sessionId: getSession()?.id || null, elapsedMs: Date.now() - startedAt, error: error?.message || String(error) });
@@ -392,8 +419,21 @@ export function createSessionTurnApi(deps) {
       } finally {
         emitTurnTiming(turnTimingStatus);
         armHeavyRuntimeWarmup('turn-settled');
-        try { await turnSnapshotPromise; } catch { /* Git snapshot is optional */ }
-        try { await completeTurnSnapshot(turnSnapshotSessionId); } catch { /* review cleanup never breaks a turn */ }
+        if (turnSignal.aborted) {
+          try { cancelTurnSnapshotForTurn(turnSnapshotSessionId); } catch {}
+          void Promise.resolve(turnSnapshotPromise).catch(() => {});
+        } else {
+          const snapshotCleanup = Promise.resolve(turnSnapshotPromise)
+            .then(() => completeTurnSnapshotForTurn(turnSnapshotSessionId));
+          snapshotCleanup.catch(() => {});
+          try {
+            await awaitTurn(() => settleWithin(snapshotCleanup, turnCleanupSettleMs));
+          } catch { /* optional review cleanup never overrides turn settlement */ }
+          if (turnSignal.aborted) {
+            try { cancelTurnSnapshotForTurn(turnSnapshotSessionId); } catch {}
+          }
+        }
+        try { unregisterTurnAbort?.(); } catch {}
         setActiveTurnCount(Math.max(0, getActiveTurnCount() - 1));
         if (!isFirstTurnCompleted()) {
           setFirstTurnCompleted(true);

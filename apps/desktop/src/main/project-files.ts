@@ -1,10 +1,10 @@
 // Traversal-guarded project directory listing, editor read/stat/atomic-write,
 // tree mutations, and code-graph symbol lookup. Every function receives a
-// resolved project root from the backend project registry.
+// resolved project root from the service project registry.
 import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 
-import { codeGraphModuleUrl } from './backend-support';
+import { codeGraphModuleUrl } from './desktop-support';
 
 export type ProjectTextEncoding = 'utf8' | 'utf8bom' | 'utf16le' | 'utf16be';
 

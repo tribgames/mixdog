@@ -5,6 +5,7 @@ import type { DesktopApi, DesktopCapability } from '../shared/contract';
 import type { CommandSurface as CommandSurfaceName } from './slash-commands';
 import { t } from './i18n';
 import { acquireModalLayer } from './modal-layer';
+import { showDesktopToast } from './notifications';
 import { ContextBody } from './ContextBody';
 import { PaneSurfaceGate } from './PaneSurfaceGate';
 
@@ -30,7 +31,7 @@ const LOADERS: Record<CommandSurfaceName, DesktopCapability[]> = {
   doctor: ['runDoctor'],
 };
 
-// The usage dashboard's first backend build probes live provider quotas and
+// The usage dashboard's first service pass probes live provider quotas and
 // can take seconds. Keep the last loaded payload for the window's lifetime so
 // reopening /usage paints instantly while a silent refresh runs behind it.
 const surfaceDataCache = new Map<CommandSurfaceName, Record<string, unknown>>();
@@ -86,6 +87,9 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose }:
     }
   }, [api, surface]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (error) showDesktopToast(error, 'error');
+  }, [error]);
   useEffect(() => {
     if (surface !== 'context' || loading || typeof api.subscribeState !== 'function') return undefined;
     let disposed = false;
@@ -217,7 +221,6 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose }:
               ? <UsageSkeleton />
               : <p className="settings-loading" role="status">{t('Loading…')}</p>
             : <SurfaceBody surface={surface} data={data} pending={pending} run={run} />}
-          {error && <p className="mixdog-settings__error" role="alert">{error}</p>}
           </div>
           </PaneSurfaceGate>
         </div>

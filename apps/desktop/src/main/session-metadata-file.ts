@@ -1,5 +1,5 @@
 // Desktop session metadata (generated titles, user names, archive stamps) on
-// disk. The backend keeps the live maps while this module owns the file shape:
+// disk. The service keeps the live maps while this module owns the file shape:
 // validation, the pre-v2 reset, and the atomic
 // owner-only write.
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';

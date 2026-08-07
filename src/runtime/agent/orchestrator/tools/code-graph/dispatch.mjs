@@ -4,7 +4,7 @@
 // code-graph.mjs.
 import { resolve as pathResolve, isAbsolute, relative as pathRelative, basename as pathBasename } from 'node:path';
 import { homedir as osHomedir } from 'node:os';
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { normalizeInputPath, toDisplayPath } from '../builtin.mjs';
 import { findFileByBasename } from '../builtin/path-diagnostics.mjs';
 import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
@@ -40,7 +40,9 @@ import {
   _CALLEES_BRACE_LANGS,
   _formatRelated,
   _formatImpact,
+  _impactSourceNodes,
   _resolveReferenceLanguageNode,
+  _prewarmSourceTextNodes,
   _prewarmReferenceSourceText,
   _cheapReferenceSearch,
   _formatCallerReferences,
@@ -375,13 +377,19 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     const depsAll = [...(graph.reverse.get(depRel) || [])].sort();
     if (!depsAll.length) return '(no dependents)';
     const deps = depsAll.slice(0, GRAPH_LIST_CAP);
+    await _prewarmSourceTextNodes(
+      graph,
+      deps.map((dep) => graph.nodes.get(dep)).filter(Boolean),
+      { signal },
+    );
     const basename = depRel.split('/').pop();
     const stem = basename.replace(/\.[^/.]+$/, '');
     const enriched = deps.map((dep) => {
       const depNode = graph.nodes.get(dep);
       if (!depNode) return dep;
-      let text;
-      try { text = readFileSync(depNode.abs, 'utf8'); } catch { return dep; }
+      const cached = graph._sourceTextCache?.get(depNode.rel);
+      if (!cached || cached.fingerprint !== (depNode.fingerprint || '')) return dep;
+      const text = cached.text;
       const linesArr = text.split(/\r?\n/);
       for (let i = 0; i < linesArr.length; i++) {
         const ln = linesArr[i];
@@ -407,6 +415,8 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
   if (mode === 'impact') {
     if (!node) return _appendSameBasenameHint(`Error: code_graph impact: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
     const targetSymbol = String(args?.symbol || '').trim();
+    await _prewarmSourceTextNodes(graph, [node], { signal });
+    await _prewarmSourceTextNodes(graph, _impactSourceNodes(node, graph, targetSymbol), { signal });
     return _formatImpact(node, graph, cwd, targetSymbol);
   }
 
@@ -425,6 +435,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     if (!_CALLEES_BRACE_LANGS.has(declHit.lang)) {
       return `(callees unsupported for ${declHit.lang})`;
     }
+    await _prewarmSourceTextNodes(graph, [graph.nodes.get(declHit.rel)].filter(Boolean), { signal });
     const rows = _extractCallees(graph, declHit, cwd, {
       cap: 200,
       callerSymbol: symbol,
@@ -438,9 +449,11 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
 
   if (mode === 'symbols') {
     if (!node) return _appendSameBasenameHint(`Error: code_graph symbols: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
-    let text = '';
-    try { text = readFileSync(node.abs, 'utf8'); } catch { return '(no symbols)'; }
-    return _extractSymbolsCheap(text, node.lang);
+    await _prewarmSourceTextNodes(graph, [node], { signal });
+    const cached = graph._sourceTextCache?.get(node.rel);
+    return cached && cached.fingerprint === (node.fingerprint || '')
+      ? _extractSymbolsCheap(cached.text, node.lang)
+      : '(no symbols)';
   }
 
   if (mode === 'find_symbol') {
@@ -449,6 +462,15 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     const language = String(args?.language || '').trim() || null;
     const limit = Math.max(1, Math.min(50, Number(args?.limit || 20)));
     if (rel && !node) return _appendSameBasenameHint(`Error: code_graph find_symbol: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
+    if (args?.body !== false) {
+      const hits = _findSymbolHits(graph, symbol, { language });
+      const primary = hits.find((hit) => hit.declarationLike) || hits[0];
+      await _prewarmSourceTextNodes(
+        graph,
+        [primary?.rel ? graph.nodes.get(primary.rel) : null].filter(Boolean),
+        { signal },
+      );
+    }
     return _findSymbolAcrossGraph(graph, symbol, cwd, { language, limit, fileRel: rel, body: args?.body !== false });
   }
 
@@ -461,6 +483,14 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     const keyword = String(args?.symbol || '').trim();
     const keywords = symbolsList.length ? symbolsList : (keyword ? [keyword] : []);
     if (!keywords.length) throw new Error('code_graph symbol_search: "symbol" (or "symbols[]") is required.');
+    // Native graph symbols answer without source text. Nodes lacking native
+    // symbols fall back to cheap text extraction, so warm exactly that subset
+    // asynchronously before the synchronous formatter scans it.
+    await _prewarmSourceTextNodes(
+      graph,
+      [...graph.nodes.values()].filter((candidate) => !Array.isArray(candidate?.symbols) || candidate.symbols.length === 0),
+      { signal },
+    );
     if (keywords.length === 1) {
       return _searchSymbolsByKeyword(graph, keywords[0], cwd, { language, limit });
     }
@@ -487,6 +517,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
       }
     }
     const narrowedByCaller = Boolean(rel || scopeRelPrefix || explicitLanguage);
+    if (node) await _prewarmSourceTextNodes(graph, [node], { signal });
     const resolved = _resolveReferenceLanguageNode(graph, symbol, rel, cwd, explicitLanguage);
     if (rel && resolved.kind === 'file-not-found') {
       return _appendSameBasenameHint(`Error: code_graph references: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
@@ -501,7 +532,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     const userLimit = Number.isFinite(rawLimit) && rawLimit > 0
       ? Math.min(500, Math.floor(rawLimit))
       : null;
-    const _refNodes = await _prewarmReferenceSourceText(graph, symbol, lang);
+    const _refNodes = await _prewarmReferenceSourceText(graph, symbol, lang, { signal });
     const refResult = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, limit: userLimit, fileRel: rel, scopeRelPrefix, nodes: _refNodes });
     return narrowedByCaller ? refResult : _augmentNoHitDiagnostic(refResult, '(no references)', graph, cwd, symbol);
   }
@@ -517,6 +548,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
       }
     }
     const narrowedByCaller = Boolean(rel || scopeRelPrefix || explicitLanguage);
+    if (node) await _prewarmSourceTextNodes(graph, [node], { signal });
     const resolved = _resolveReferenceLanguageNode(graph, symbol, rel, cwd, explicitLanguage);
     if (rel && resolved.kind === 'file-not-found') {
       return _appendSameBasenameHint(`Error: code_graph callers: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
@@ -531,7 +563,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     const userLimit = Number.isFinite(rawLimit) && rawLimit > 0
       ? Math.min(500, Math.floor(rawLimit))
       : null;
-    const _callerNodes = await _prewarmReferenceSourceText(graph, symbol, lang);
+    const _callerNodes = await _prewarmReferenceSourceText(graph, symbol, lang, { signal });
     const depth = Math.max(1, Math.min(5, Math.floor(Number(args?.depth) || 1)));
     if (depth > 1) {
       return _formatTransitiveCallers(graph, symbol, cwd, { language: lang, depth, page: args?.page });
@@ -576,11 +608,22 @@ async function findSymbolTool(args, cwd, signal = null, options = {}) {
   if (!symbol) {
     if (fileRel) {
       const node = graph.nodes.get(fileRel);
-      let text = '';
-      try { text = readFileSync(node.abs, 'utf8'); } catch { return '(no symbols)'; }
-      return _extractSymbolsCheap(text, node.lang);
+      await _prewarmSourceTextNodes(graph, [node], { signal });
+      const cached = graph._sourceTextCache?.get(node.rel);
+      return cached && cached.fingerprint === (node.fingerprint || '')
+        ? _extractSymbolsCheap(cached.text, node.lang)
+        : '(no symbols)';
     }
     throw new Error('find_symbol: provide "symbol" (to locate) or "file" (to list its symbols).');
+  }
+  if (args?.body !== false) {
+    const hits = _findSymbolHits(graph, symbol, { language });
+    const primary = hits.find((hit) => hit.declarationLike) || hits[0];
+    await _prewarmSourceTextNodes(
+      graph,
+      [primary?.rel ? graph.nodes.get(primary.rel) : null].filter(Boolean),
+      { signal },
+    );
   }
   return _findSymbolAcrossGraph(graph, symbol, cwd, { language, limit, fileRel, body: args?.body !== false });
 }
@@ -632,6 +675,7 @@ export async function resolveSymbolReadSpan(cwd, { symbol, path = null, language
   }
   if (!Number.isFinite(endLine) || endLine < startLine) {
     const node = graph.nodes.get(primary.rel);
+    await _prewarmSourceTextNodes(graph, [node].filter(Boolean));
     const srcText = node ? _getSourceTextForNode(graph, node) : null;
     const inferred = srcText ? _inferSpanEndByIndent(srcText.split('\n'), startLine) : null;
     if (inferred) {

@@ -6,26 +6,25 @@ import { fileURLToPath } from 'node:url';
 import { listPackage, statFile } from '@electron/asar';
 
 import { SETTINGS_ITEMS } from '../renderer/settings/settings-items.ts';
-import { backendChildEnvironment } from './backend-child-environment.ts';
+import { childEnvironment } from './child-environment.ts';
 
-test('daemon-owned desktop children never inherit backend identity', () => {
+test('daemon-owned desktop children never inherit service identity', () => {
   const source = {
     PATH: 'C:\\Windows',
     NODE_ENV: 'production',
     MIXDOG_ROOT: 'C:\\runtime.asar',
-    MIXDOG_ENGINE_DAEMON_HOST: '1',
-    MIXDOG_CHANNEL_DAEMON: '1',
+    MIXDOG_DAEMON_HOST: '1',
     MIXDOG_WORKER_MODE: '1',
-    MIXDOG_DAEMON_SPAWNED_FOR: 'engine',
+    MIXDOG_DAEMON_SPAWNED_FOR: 'session',
     MIXDOG_SUPERVISOR_PID: '1234',
   };
-  const env = backendChildEnvironment({ CUSTOM_CHILD_VALUE: 'kept' }, source);
+  const env = childEnvironment({ CUSTOM_CHILD_VALUE: 'kept' }, source);
   assert.equal(env.PATH, source.PATH);
   assert.equal(env.CUSTOM_CHILD_VALUE, 'kept');
   for (const key of Object.keys(source).filter((key) => key !== 'PATH')) {
-    assert.equal(env[key], undefined, `${key} must not cross the backend child boundary`);
+    assert.equal(env[key], undefined, `${key} must not cross the service child boundary`);
   }
-  assert.equal(source.MIXDOG_ENGINE_DAEMON_HOST, '1', 'the source environment is immutable');
+  assert.equal(source.MIXDOG_DAEMON_HOST, '1', 'the source environment is immutable');
 });
 
 async function findRuntimeArchives(directory, depth = 0) {
@@ -58,7 +57,7 @@ test('packaged preload path matches electron-vite output', async () => {
   await access(new URL('../../out/preload/index.js', import.meta.url));
 });
 
-test('renderer bridge cannot dispose the singleton backend client', async () => {
+test('renderer bridge cannot dispose the singleton service client', async () => {
   const [contract, preload, ipc, remote] = await Promise.all([
     readFile(new URL('../shared/contract.ts', import.meta.url), 'utf8'),
     readFile(new URL('../preload/index.ts', import.meta.url), 'utf8'),
@@ -89,45 +88,44 @@ test('a closed stdio pipe cannot crash the main process', async () => {
   assert.match(main, /\[process\.stdout, process\.stderr\][\s\S]{0,120}?on\?\.\('error'/);
 });
 
-test('production desktop uses only the packaged daemon backend adapter', async () => {
+test('production desktop uses only the packaged daemon service adapter', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'));
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
-  const backend = await readFile(new URL('./desktop-backend.ts', import.meta.url), 'utf8');
+  const service = await readFile(new URL('./desktop-service.ts', import.meta.url), 'utf8');
   const ipc = await readFile(new URL('./ipc.ts', import.meta.url), 'utf8');
   const vite = await readFile(new URL('../../electron.vite.config.ts', import.meta.url), 'utf8');
   const builder = await readFile(new URL('../../electron-builder.yml', import.meta.url), 'utf8');
-  const daemonBuild = await readFile(new URL('../../scripts/build-daemon-backend.mjs', import.meta.url), 'utf8');
+  const daemonBuild = await readFile(new URL('../../scripts/build-daemon.mjs', import.meta.url), 'utf8');
   assert.equal(packageJson.scripts.start, 'npm run build && electron-vite preview --skipBuild');
-  assert.doesNotMatch(vite, /'desktop-backend':/);
-  assert.match(daemonBuild, /src['"],\s*['"]main['"],\s*['"]desktop-backend\.ts/);
-  assert.match(main, /new DaemonEngineTransport\(/);
-  assert.match(main, /desktop-backend-daemon\.cjs/);
+  assert.doesNotMatch(vite, /'desktop-service':/);
+  assert.match(daemonBuild, /src['"],\s*['"]main['"],\s*['"]desktop-service\.ts/);
+  assert.match(main, /new SessionTransport\(/);
+  assert.match(main, /daemon\.cjs/);
   assert.match(main, /app\.asar\.unpacked/);
   assert.match(main, /moduleUrl\.searchParams\.set\('build', artifact\)/);
   assert.doesNotMatch(vite, /engine-worker/);
   assert.doesNotMatch(vite, /terminal-worker/);
-  assert.doesNotMatch(main, /MIXDOG_ENGINE_PROCESS|Mixdog Engine/);
   assert.doesNotMatch(main, /startRemoteBridge|startRemoteRelay|rotateRemoteToken|rotateRemoteDevice/);
   assert.doesNotMatch(
     main.slice(main.indexOf('registerDesktopIpc('), main.indexOf("diagnostics?.write('window-created'")),
     /\bsettingsStore\b/,
     'product IPC settings use the daemon operation service',
   );
-  assert.match(backend, /startRemoteBridge/);
-  assert.match(backend, /startRemoteRelay/);
+  assert.match(service, /startRemoteBridge/);
+  assert.match(service, /startRemoteRelay/);
   assert.doesNotMatch(ipc, /import \* as .* from ['"]electron['"]/);
   assert.doesNotMatch(ipc, /from ['"]\.\/window-options['"];/);
   assert.match(builder, /files:\s+-\s*out\/\*\*/);
-  assert.match(builder, /asarUnpack:[\s\S]*out\/main\/desktop-backend-daemon\.cjs/);
+  assert.match(builder, /asarUnpack:[\s\S]*out\/main\/daemon\.cjs/);
   assert.match(builder, /asarUnpack:[\s\S]*out\/renderer\/\*\*/);
 });
 
-test('plain Node can import the standalone daemon backend artifact', async () => {
-  const backendUrl = new URL('../../out/main/desktop-backend-daemon.cjs', import.meta.url);
-  const source = await readFile(backendUrl, 'utf8');
+test('plain Node can import the standalone daemon service artifact', async () => {
+  const serviceUrl = new URL('../../out/main/daemon.cjs', import.meta.url);
+  const source = await readFile(serviceUrl, 'utf8');
   assert.doesNotMatch(source, /(?:from\s+|import\s*\()\s*["']electron["']/);
-  const backend = await import(`${backendUrl.href}?packaging-test=${Date.now()}`);
-  assert.equal(typeof backend.createDesktopBackend, 'function');
+  const service = await import(`${serviceUrl.href}?packaging-test=${Date.now()}`);
+  assert.equal(typeof service.createDesktopService, 'function');
 });
 
 test('closed-window cleanup never reacquires the destroyed BrowserWindow webContents getter', async () => {
@@ -219,11 +217,11 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.doesNotMatch(capture, /thumbnail\.resize/);
   assert.match(capture, /measureSidebarGeometry/);
   assert.match(capture, /method:\s*'horizontal-pixel-scan'/);
-  assert.match(capture, /class CaptureBackend implements DesktopBackend/);
+  assert.match(capture, /class CaptureService implements DesktopService/);
   assert.match(capture, /SETTINGS_CATEGORIES/);
   assert.doesNotMatch(capture, /railButtonCount\s*!==\s*14|railButtonCount,\s*14/);
   assert.match(capture, /async listSessions\(\): Promise<DesktopSessionSummary\[]>/);
-  assert.match(capture, /new CaptureBackend/);
+  assert.match(capture, /new CaptureService/);
   assert.match(capture, /registerDesktopIpc\(window,\s*host,\s*\{[\s\S]*?app,[\s\S]*?ipcMain,[\s\S]*?dialog,[\s\S]*?shell,[\s\S]*?updater:/);
   assert.match(capture, /console-message/);
   assert.match(capture, /Capture renderer preload bridge is missing/);
@@ -259,7 +257,7 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.doesNotMatch(capture, /productionEquivalent/);
   assert.match(capture, /rendererAssets:\s*'built'/);
   assert.match(capture, /packaged:\s*app\.isPackaged/);
-  assert.match(capture, /host:\s*'CaptureBackend'/);
+  assert.match(capture, /host:\s*'CaptureService'/);
   assert.match(capture, /sessionMode:\s*'empty-session'/);
   assert.match(capture, /removeIpc\(\)/);
   // Dispose is bounded: engine teardown may hang 30s+, so the capture exit
@@ -336,12 +334,12 @@ test('production entry has no capture side effects and capture harness is exclud
 
 test('desktop source has no legacy host implementation or local fallback entry', async () => {
   const sourceFiles = [
-    './backend-api.ts',
-    './backend-host.ts',
-    './backend-support.ts',
-    './desktop-backend.ts',
-    './desktop-backend-client.ts',
-    './daemon-engine-transport.ts',
+    './desktop-service-contract.ts',
+    './session-host.ts',
+    './desktop-support.ts',
+    './desktop-service.ts',
+    './desktop-service-client.ts',
+    './session-transport.ts',
     './index.ts',
   ];
   const source = (await Promise.all(
@@ -349,8 +347,7 @@ test('desktop source has no legacy host implementation or local fallback entry',
   )).join('\n');
   const legacyHostPattern = new RegExp(`\\b${['Engine', 'Host'].join('')}\\b|engine-host|engine-lifecycle|session-live-lanes`);
   assert.doesNotMatch(source, legacyHostPattern);
-  assert.doesNotMatch(source, /engineInMain|MIXDOG_ENGINE_PROCESS|engine-worker/);
-  assert.doesNotMatch(source, /session\.invoke|callDaemonSession|engine-daemon-local-bridge/);
+  assert.doesNotMatch(source, /session\.invoke|callDaemonSession/);
 });
 
 test('runtime preparation reuses prepared output and persistent validated dependency caches', async () => {
@@ -446,7 +443,7 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
   for (const required of [
     '/package.json',
     '/node_modules/mixdog/package.json',
-    '/node_modules/mixdog/src/tui/engine.mjs',
+    '/node_modules/mixdog/src/tui/session.mjs',
     '/node_modules/@huggingface/transformers/package.json',
     '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',
     '/node_modules/@huggingface/transformers/dist/transformers.node.mjs',

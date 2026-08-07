@@ -1,4 +1,3 @@
-import { lstatSync, realpathSync, readdirSync, statSync } from 'fs';
 import * as fsPromises from 'fs/promises';
 import { readFile } from 'fs/promises';
 import { extname } from 'path';
@@ -7,7 +6,11 @@ import { buildNotFoundHint, finalizeReadFamilyEnoentTail, tryReadFamilyEnoentRed
 import { getReadSnapshot } from './read-snapshot-runtime.mjs';
 import { recordReadPathRedirect } from './snapshot-store.mjs';
 import { snapshotCoversFullFile, statMatchesSnapshot } from './snapshot-helpers.mjs';
-import { formatBinaryReadPreview } from './binary-file.mjs';
+import {
+    formatBinaryReadPreviewFromBuffer,
+    inspectBinaryFile,
+    isBinaryBuffer,
+} from './binary-file.mjs';
 
 function snapshotBodyWasReturnedByRead(snapshot) {
     return String(snapshot?.source || '').startsWith('read');
@@ -27,22 +30,27 @@ function withSymbolReadNote(text, args) {
 // decoding. utf8-with-BOM (EF BB BF) keeps the utf-8 decoder; its leading
 // U+FEFF is stripped for display downstream, so bomLen is reported but not
 // applied for utf8.
+function detectReadEncodingFromBuffer(head) {
+    const n = head?.length || 0;
+    if (n >= 2 && head[0] === 0xff && head[1] === 0xfe) {
+        return { encoding: 'utf16le', bomLen: 2 };
+    }
+    if (n >= 2 && head[0] === 0xfe && head[1] === 0xff) {
+        return { encoding: 'utf16be', bomLen: 2 };
+    }
+    if (n >= 3 && head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf) {
+        return { encoding: 'utf8', bomLen: 3 };
+    }
+    return { encoding: 'utf8', bomLen: 0 };
+}
+
 async function detectReadEncoding(fullPath) {
     let fh;
     try {
         fh = await fsPromises.open(fullPath, 'r');
         const head = Buffer.alloc(3);
         const { bytesRead: n } = await fh.read(head, 0, 3, 0);
-        if (n >= 2 && head[0] === 0xff && head[1] === 0xfe) {
-            return { encoding: 'utf16le', bomLen: 2 };
-        }
-        if (n >= 2 && head[0] === 0xfe && head[1] === 0xff) {
-            return { encoding: 'utf16be', bomLen: 2 };
-        }
-        if (n >= 3 && head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf) {
-            return { encoding: 'utf8', bomLen: 3 };
-        }
-        return { encoding: 'utf8', bomLen: 0 };
+        return detectReadEncodingFromBuffer(head.subarray(0, n));
     } catch {
         return { encoding: 'utf8', bomLen: 0 };
     } finally {
@@ -164,7 +172,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     let st;
     let _statErr;
     try {
-        st = statSync(fullPath);
+        st = options?._preflightStats?.get?.(fullPath) || await fsPromises.stat(fullPath);
     } catch (err) {
         // Fall through to the existing similar-file recovery path below.
         st = null;
@@ -174,7 +182,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
         if (st.isDirectory()) {
             let entries = [];
             try {
-                entries = readdirSync(fullPath, { withFileTypes: true })
+                entries = (await fsPromises.readdir(fullPath, { withFileTypes: true }))
                     .slice(0, 20)
                     .map((entry) => `${entry.name}${entry.isDirectory() ? '/' : ''}`);
             } catch { /* best-effort preview */ }
@@ -191,14 +199,14 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             return `Error: cannot read special file (FIFO / character / block device / socket): ${normalizeOutputPath(filePath)}`;
         // R1+R2: realpath the resolved path so a symlink → /dev/zero (or any
         // other blocked device, UNC, or Windows reserved name) is caught on
-        // the REAL target, not the symlink name. lstatSync detects whether
-        // the entry IS a symlink first so realpathSync is only called when
+        // the REAL target, not the symlink name. lstat detects whether
+        // the entry IS a symlink first so realpath is only called when
         // it would actually differ — saves a syscall on the common case.
         try {
-            const _lst = lstatSync(fullPath);
+            const _lst = await fsPromises.lstat(fullPath);
             if (_lst && typeof _lst.isSymbolicLink === 'function' && _lst.isSymbolicLink()) {
                 let _realTarget = null;
-                try { _realTarget = realpathSync(fullPath); } catch { _realTarget = null; }
+                try { _realTarget = await fsPromises.realpath(fullPath); } catch { _realTarget = null; }
                 if (_realTarget && _realTarget !== fullPath) {
                     if (isBlockedDevicePath(_realTarget))
                         return `Error: cannot read device file via symlink (would block or produce infinite output): ${normalizeOutputPath(filePath)} → ${normalizeOutputPath(_realTarget)}`;
@@ -211,7 +219,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
                     // the target stat could differ from the link stat in
                     // pathological cases (replaced under us).
                     try {
-                        const _rst = statSync(_realTarget);
+                        const _rst = await fsPromises.stat(_realTarget);
                         if (typeof isSpecialFileStat === 'function' && isSpecialFileStat(_rst))
                             return `Error: cannot read special file via symlink (FIFO / character / block device / socket): ${normalizeOutputPath(filePath)} → ${normalizeOutputPath(_realTarget)}`;
                     } catch { /* if the target is gone, let the normal path surface ENOENT */ }
@@ -430,11 +438,42 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     // large UTF-16LE+BOM file is recognized as text up front and routed to
     // the bounded in-memory utf16le path below, never mis-decoded as utf-8
     // or rejected by the utf-8 streaming/binary branch (Bug 1).
-    const _readEnc = await detectReadEncoding(fullPath);
+    const _preferRangeStream = hasRangeArgs && !wantFull
+        && (options?.forceReadRangeStream === true || st.size > READ_STREAM_RANGE_MIN_BYTES);
+    const _preferSmartStream = !hasRangeArgs && !wantFull
+        && st.size >= READ_SMART_STREAM_MIN_BYTES;
+    const _preferBufferedRead = st.size <= READ_MAX_SIZE_BYTES
+        && !_preferRangeStream
+        && !_preferSmartStream;
+    let _prefetchedRawBuf = null;
+    let _prefetchedRawFromCache = false;
+    if (_preferBufferedRead) {
+        const _cachedRaw = _rawContentCacheGet ? _rawContentCacheGet(fullPath, st) : null;
+        if (_cachedRaw) {
+            _prefetchedRawBuf = _cachedRaw;
+            _prefetchedRawFromCache = true;
+        } else {
+            try { _prefetchedRawBuf = await readFile(fullPath); } catch { _prefetchedRawBuf = null; }
+        }
+    }
+    const _readEnc = _prefetchedRawBuf
+        ? detectReadEncodingFromBuffer(_prefetchedRawBuf.subarray(0, Math.min(3, _prefetchedRawBuf.length)))
+        : await detectReadEncoding(fullPath);
     // UTF-16 (LE or BE) reads share one constraint: the streaming/binary
     // paths decode chunks as utf-8, so a BOM-flagged UTF-16 file must route
     // to the bounded in-memory decode below regardless of byte order.
     const _isUtf16 = _readEnc.encoding === 'utf16le' || _readEnc.encoding === 'utf16be';
+    let _binaryInspection = null;
+    const _inspectBinary = async () => {
+        if (_binaryInspection) return _binaryInspection;
+        _binaryInspection = _prefetchedRawBuf
+            ? {
+                isBinary: isBinaryBuffer(_prefetchedRawBuf, st.size),
+                preview: _prefetchedRawBuf.subarray(0, Math.min(256, _prefetchedRawBuf.length)),
+            }
+            : await inspectBinaryFile(fullPath, st.size);
+        return _binaryInspection;
+    };
     if (st.size > READ_MAX_SIZE_BYTES) {
         // .pdf/.ipynb were already dispatched up front (MEDIA-WINS), so this
         // >10MiB branch only handles the non-media text path from here on.
@@ -450,8 +489,13 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
         if (!hasRangeArgs) {
             return `Error: file size ${st.size} bytes exceeds ${READ_MAX_SIZE_BYTES}-byte cap.`;
         }
-        if (isBinaryFile(fullPath, st.size)) {
-            const { text, snapshotMeta } = formatBinaryReadPreview(fullPath, normalizeOutputPath(filePath), st.size);
+        const _binary = await _inspectBinary();
+        if (_binary.isBinary) {
+            const { text, snapshotMeta } = formatBinaryReadPreviewFromBuffer(
+                _binary.preview,
+                normalizeOutputPath(filePath),
+                st.size,
+            );
             _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
             _cacheSet(cacheKey, text, { paths: [fullPath], readSnapshotMeta: snapshotMeta });
             return withSymbolReadNote(text, args);
@@ -510,11 +554,18 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     // unambiguous TEXT signal, so classify it as utf16le up front and skip
     // NUL rejection. (_readEnc was detected above, before the >10MiB size
     // branch, so the large-file path can classify utf16le.)
-    if (!_isUtf16 && isBinaryFile(fullPath, st.size)) {
-        const { text, snapshotMeta } = formatBinaryReadPreview(fullPath, normalizeOutputPath(filePath), st.size);
-        _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
-        _cacheSet(cacheKey, text, { paths: [fullPath], readSnapshotMeta: snapshotMeta });
-        return withSymbolReadNote(text, args);
+    if (!_isUtf16) {
+        const _binary = await _inspectBinary();
+        if (_binary.isBinary) {
+            const { text, snapshotMeta } = formatBinaryReadPreviewFromBuffer(
+                _binary.preview,
+                normalizeOutputPath(filePath),
+                st.size,
+            );
+            _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
+            _cacheSet(cacheKey, text, { paths: [fullPath], readSnapshotMeta: snapshotMeta });
+            return withSymbolReadNote(text, args);
+        }
     }
     // Whole-file reads above READ_WHOLE_FILE_MAX_BYTES use stream smart-elide
     // (then READ_MAX_OUTPUT_BYTES truncation) instead of refusing. Absolute
@@ -588,8 +639,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
         }
     }
     try {
-        const cachedRawBuf = _rawContentCacheGet ? _rawContentCacheGet(fullPath, st) : null;
-        const rawBuf = cachedRawBuf || await readFile(fullPath);
+        const rawBuf = _prefetchedRawBuf || await readFile(fullPath);
         // Encoding-aware decode (fresh read AND raw-content cache hit both
         // flow through here). For a BOM-flagged UTF-16LE file, strip the
         // 2-byte FF FE BOM and decode as utf16le so it reverses the write
@@ -614,7 +664,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
         // the cache + snapshot record stale bytes.
         let _stPostRead;
         let _readStableForRawCache = true;
-        if (cachedRawBuf) {
+        if (_prefetchedRawFromCache) {
             _stPostRead = st;
         } else {
             try { _stPostRead = await fsPromises.stat(fullPath); } catch { _stPostRead = st; }

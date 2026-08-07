@@ -11,7 +11,7 @@
 // same-tick readers see fresh state, and DEBOUNCE the disk write so a burst of
 // toggles collapses into one persist. Three independent debounce channels:
 //   - config save  (cfgMod.saveConfig, agent-section serialize)
-//   - backend save (channel-admin setBackend, file-locked RMW)
+//   - channel provider save (channel-admin setChannelProvider, file-locked RMW)
 //   - outputStyle  (sharedCfgMod.updateConfig whole-root RMW — cfgMod.saveConfig
 //                   only serializes agent-section fields, so a top-level
 //                   outputStyle would never reach disk via that path)
@@ -30,7 +30,7 @@ export function createConfigLifecycle({
   // shared modules / helpers
   cfgMod,
   sharedCfgMod,
-  setBackendAsync,
+  setChannelProviderAsync,
   setConfiguredShell,
   normalizeSystemShellConfig,
   normalizeSearchRouteConfig,
@@ -188,40 +188,40 @@ export function createConfigLifecycle({
     return adopted;
   }
 
-  // --- debounced backend switch ----------------------------------------------
-  let pendingBackendName = null;
-  let backendSaveTimer = null;
-  let backendFlushInFlight = null;
+  // --- debounced channel provider switch ----------------------------------------------
+  let pendingChannelProvider = null;
+  let channelProviderSaveTimer = null;
+  let channelProviderFlushInFlight = null;
 
-  async function runBackendFlushAsync() {
-    while (pendingBackendName !== null) {
-      const name = pendingBackendName;
+  async function runChannelProviderFlushAsync() {
+    while (pendingChannelProvider !== null) {
+      const name = pendingChannelProvider;
       try {
-        await setBackendAsync(name);
+        await setChannelProviderAsync(name);
       } catch (err) {
-        process.stderr.write(`[channels] async setBackend failed: ${err?.message || err}\n`);
-        if (pendingBackendName === name) pendingBackendName = null;
+        process.stderr.write(`[channels] async setChannelProvider failed: ${err?.message || err}\n`);
+        if (pendingChannelProvider === name) pendingChannelProvider = null;
         break;
       }
-      if (pendingBackendName === name) pendingBackendName = null;
+      if (pendingChannelProvider === name) pendingChannelProvider = null;
     }
   }
 
-  function flushBackendSaveAsync() {
-    if (backendSaveTimer) { clearTimeout(backendSaveTimer); backendSaveTimer = null; }
-    const start = () => runBackendFlushAsync();
-    const p = backendFlushInFlight ? backendFlushInFlight.then(start, start) : start();
-    backendFlushInFlight = p;
-    const clear = () => { if (backendFlushInFlight === p) backendFlushInFlight = null; };
+  function flushChannelProviderSaveAsync() {
+    if (channelProviderSaveTimer) { clearTimeout(channelProviderSaveTimer); channelProviderSaveTimer = null; }
+    const start = () => runChannelProviderFlushAsync();
+    const p = channelProviderFlushInFlight ? channelProviderFlushInFlight.then(start, start) : start();
+    channelProviderFlushInFlight = p;
+    const clear = () => { if (channelProviderFlushInFlight === p) channelProviderFlushInFlight = null; };
     p.then(clear, clear);
     return p;
   }
 
-  function scheduleBackendSave(name) {
-    pendingBackendName = name;
-    if (backendSaveTimer) clearTimeout(backendSaveTimer);
-    backendSaveTimer = setTimeout(() => { flushBackendSaveAsync(); }, CONFIG_SAVE_DEBOUNCE_MS);
-    backendSaveTimer.unref?.();
+  function scheduleChannelProviderSave(name) {
+    pendingChannelProvider = name;
+    if (channelProviderSaveTimer) clearTimeout(channelProviderSaveTimer);
+    channelProviderSaveTimer = setTimeout(() => { flushChannelProviderSaveAsync(); }, CONFIG_SAVE_DEBOUNCE_MS);
+    channelProviderSaveTimer.unref?.();
   }
 
   // --- debounced skills.disabled persist -------------------------------------
@@ -326,7 +326,7 @@ export function createConfigLifecycle({
   async function flushAllConfigSavesAsync() {
     await Promise.all([
       flushConfigSaveAsync(),
-      flushBackendSaveAsync(),
+      flushChannelProviderSaveAsync(),
       flushOutputStyleSaveAsync(),
     ]);
     // The shared config layer also tracks writes started directly by channel,
@@ -420,8 +420,8 @@ export function createConfigLifecycle({
     // Every lifecycle flush uses the async lock path. A synchronous waiter on
     // the same lock would block the event loop needed by an in-flight async
     // writer, so callers must await this before a dependent read/start.
-    flushBackendSave: flushBackendSaveAsync,
-    scheduleBackendSave,
+    flushChannelProviderSave: flushChannelProviderSaveAsync,
+    scheduleChannelProviderSave,
     flushSkillsSave,
     scheduleSkillsSave,
     flushOutputStyleSave,

@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import { createSlashDispatch } from '../src/tui/app/slash-dispatch.mjs';
 import { normalizeSlashCommandName } from '../src/tui/app/slash-commands.mjs';
-import { createEngineApiB } from '../src/tui/engine/session-api-ext.mjs';
+import { createSessionApiB } from '../src/tui/session/session-api-ext.mjs';
 
 const noop = () => {};
 
@@ -100,7 +100,7 @@ test('engine publishes an empty transcript before and after runtime newSession',
     spinner: null,
     lastTurn: null,
   });
-  const api = createEngineApiB({
+  const api = createSessionApiB({
     runtime: {
       newSession: () => new Promise((resolve) => {
         releaseRuntime = () => {

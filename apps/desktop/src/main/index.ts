@@ -6,9 +6,9 @@ import { pathToFileURL } from 'node:url';
 
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, powerMonitor, powerSaveBlocker, screen, session, shell } from 'electron';
 
-import type { DesktopBackend } from './backend-api';
-import { DesktopBackendClient } from './desktop-backend-client';
-import { DaemonEngineTransport } from './daemon-engine-transport';
+import type { DesktopService } from './desktop-service-contract';
+import { DesktopServiceClient } from './desktop-service-client';
+import { SessionTransport } from './session-transport';
 import { readDesktopModelBootstrapSnapshot } from './model-bootstrap';
 import { AgentAwakeService } from './agent-awake';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
@@ -50,7 +50,7 @@ for (const stream of [process.stdout, process.stderr]) {
   stream?.on?.('error', () => { /* dead stdio pipe: logging is best-effort */ });
 }
 // V8 compile cache for the main process's dynamic imports (remote bridge/
-// relay, dialogs) and the daemon backend adapter. Best-effort no-op when the
+// relay, dialogs) and the daemon service adapter. Best-effort no-op when the
 // running Node build lacks the API.
 try {
   (nodeModule as { enableCompileCache?: () => unknown }).enableCompileCache?.();
@@ -106,7 +106,7 @@ if (process.platform === 'win32') {
 }
 
 // Shell/agent launchers may themselves run below normal priority. The desktop
-// chrome must not inherit that class: keep main at normal while the backend
+// chrome must not inherit that class: keep main at normal while the service
 // explicitly lowers only the compute tree that should yield to the UI.
 try {
   setPriority(0, osConstants.priority.PRIORITY_NORMAL);
@@ -174,16 +174,16 @@ if (process.env.MIXDOG_DESKTOP_PERF === '1') {
   });
 }
 
-function desktopBackendModuleUrl(): string {
+function desktopServiceModuleUrl(): string {
   const modulePath = app.isPackaged
     ? join(
       process.resourcesPath,
       'app.asar.unpacked',
       'out',
       'main',
-      'desktop-backend-daemon.cjs',
+      'daemon.cjs',
     )
-    : join(__dirname, 'desktop-backend-daemon.cjs');
+    : join(__dirname, 'daemon.cjs');
   const moduleUrl = pathToFileURL(modulePath);
   let artifact = app.getVersion();
   try {
@@ -197,12 +197,12 @@ function desktopBackendModuleUrl(): string {
 }
 
 let diagnostics: DesktopDiagnostics | null = null;
-const backendClient = new DesktopBackendClient({
-  connect: () => new DaemonEngineTransport(
-    desktopBackendModuleUrl(),
+const serviceClient = new DesktopServiceClient({
+  connect: () => new SessionTransport(
+    desktopServiceModuleUrl(),
     process.cwd(),
   ),
-  engineOptions: () => ({
+  sessionOptions: () => ({
     userDataPath: app.getPath('userData'),
     packaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
@@ -215,34 +215,34 @@ const backendClient = new DesktopBackendClient({
   onDiagnostic: (event, data) => {
     diagnostics?.write(
       event,
-      event === 'backend-transport-error'
+      event === 'desktop-transport-error'
         ? { type: String(data.type || '') }
         : data,
     );
     console.error(`[mixdog] ${event}`, data);
   },
 });
-const host: DesktopBackend = backendClient;
-let daemonBackendBootReported = false;
-function startDaemonBackend(): void {
-  if (!daemonBackendBootReported) {
-    daemonBackendBootReported = true;
-    diagnostics?.write('daemon-backend-start', {
+const host: DesktopService = serviceClient;
+let daemonServiceBootReported = false;
+function startDaemonService(): void {
+  if (!daemonServiceBootReported) {
+    daemonServiceBootReported = true;
+    diagnostics?.write('daemon-service-start', {
       totalMs: Date.now() - desktopProcessStartedAt,
     });
   }
-  void backendClient.start()
+  void serviceClient.start()
     .then(() => {
-      diagnostics?.write('daemon-backend-ready', {
+      diagnostics?.write('daemon-service-ready', {
         totalMs: Date.now() - desktopProcessStartedAt,
       });
     })
     .catch((error: unknown) => {
-      diagnostics?.write('daemon-backend-start-failed', {
+      diagnostics?.write('daemon-service-start-failed', {
         totalMs: Date.now() - desktopProcessStartedAt,
         errorName: error instanceof Error ? error.name : typeof error,
       });
-      console.error('Failed to start the Mixdog backend daemon:', error);
+      console.error('Failed to start the Mixdog daemon:', error);
     });
 }
 // Scheme privileges must be declared before the app is ready, otherwise the
@@ -256,39 +256,39 @@ const settingsStore = new DesktopSettingsStore({
 let mainWindow: BrowserWindow | null = null;
 let removeIpc: (() => void) | null = null;
 // PTYs are daemon-owned; Electron forwards control and receives output events.
-const backendTerminalManager = {
+const serviceTerminalManager = {
   async ensure(
     id: string | null,
     cwd: string | null,
     profile?: import('./terminal-contract').TerminalSpawnProfile | string | null,
   ): Promise<{ id: string; replay: string }> {
-    const value = await backendClient.backendInvoke('termEnsure', [id, cwd, profile ?? null]);
+    const value = await serviceClient.invokeDesktopOperation('termEnsure', [id, cwd, profile ?? null]);
     if (!value || typeof value !== 'object') {
-      throw new Error('The backend terminal did not return a session.');
+      throw new Error('The service terminal did not return a session.');
     }
     const result = value as Record<string, unknown>;
     return { id: String(result.id || ''), replay: String(result.replay || '') };
   },
   write(id: string, data: string): void {
     // Keystrokes take the fire-and-forget lane: a response frame per keypress
-    // only queued the input behind whatever engine request was in flight.
-    backendClient.backendNotify('termWrite', [id, data]);
+    // only queued the input behind whatever session request was in flight.
+    serviceClient.notifyDesktopOperation('termWrite', [id, data]);
   },
   resize(id: string, cols: number, rows: number): void {
-    backendClient.backendNotify('termResize', [id, cols, rows]);
+    serviceClient.notifyDesktopOperation('termResize', [id, cols, rows]);
   },
   pauseOutput(id: string): void {
-    void backendClient.backendInvoke('termPause', [id]).catch(() => {});
+    void serviceClient.invokeDesktopOperation('termPause', [id]).catch(() => {});
   },
   resumeOutput(id: string): void {
-    void backendClient.backendInvoke('termResume', [id]).catch(() => {});
+    void serviceClient.invokeDesktopOperation('termResume', [id]).catch(() => {});
   },
   dispose(id: string): void {
-    void backendClient.backendInvoke('termDispose', [id]).catch(() => {});
+    void serviceClient.invokeDesktopOperation('termDispose', [id]).catch(() => {});
   },
   disposeAll(): void {},
   subscribe(listener: (event: { id: string; data: string }) => void): () => void {
-    return backendClient.subscribeBackendEvents(({ name, value }) => {
+    return serviceClient.subscribeDesktopEvents(({ name, value }) => {
       if (name !== 'terminal-data' || !value || typeof value !== 'object') return;
       const event = value as Record<string, unknown>;
       listener({ id: String(event.id || ''), data: String(event.data || '') });
@@ -300,11 +300,11 @@ const backendTerminalManager = {
 const awakeService = new AgentAwakeService(powerSaveBlocker);
 let turnAttention: TurnAttention | null = null;
 let unsubscribeAwake: (() => void) | null = null;
-let unsubscribeBackendSettings: (() => void) | null = null;
+let unsubscribeServiceSettings: (() => void) | null = null;
 const applyDesktopSettings = (settings: DesktopSettings): void => {
   awakeService.setEnabled(settings.keepAwake !== false);
 };
-unsubscribeBackendSettings = backendClient.subscribeBackendEvents(({ name, value }) => {
+unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value }) => {
   if (name === 'desktop-settings-changed' && value && typeof value === 'object') {
     applyDesktopSettings(value as DesktopSettings);
   }
@@ -377,21 +377,21 @@ function installDesktopMenu(): void {
 }
 
 function startDeferredDesktopServices(): Promise<void> {
-  deferredServicesPromise ??= host.backendInvoke('remoteAccessStart', [])
+  deferredServicesPromise ??= host.invokeDesktopOperation('remoteAccessStart', [])
     .then(() => undefined)
     .finally(() => { deferredServicesPromise = null; });
   return deferredServicesPromise;
 }
 
 async function remoteAccessInfo(): Promise<DesktopRemoteAccessInfo | null> {
-  const descriptor = await host.backendInvoke('remoteAccessInfo', []);
+  const descriptor = await host.invokeDesktopOperation('remoteAccessInfo', []);
   if (!descriptor || typeof descriptor !== 'object') return null;
   const { buildRemoteAccessInfo } = await import('./remote-access-window');
   return buildRemoteAccessInfo(descriptor as RemoteAccessDescriptor);
 }
 
 async function rotateRemoteAccess(): Promise<DesktopRemoteAccessInfo | null> {
-  const descriptor = await host.backendInvoke('remoteAccessRotate', []);
+  const descriptor = await host.invokeDesktopOperation('remoteAccessRotate', []);
   if (!descriptor || typeof descriptor !== 'object') return null;
   const { buildRemoteAccessInfo } = await import('./remote-access-window');
   return buildRemoteAccessInfo(descriptor as RemoteAccessDescriptor);
@@ -453,11 +453,11 @@ function disposeDesktopResources(): Promise<void> {
   }
   unsubscribeAwake?.();
   unsubscribeAwake = null;
-  unsubscribeBackendSettings?.();
-  unsubscribeBackendSettings = null;
+  unsubscribeServiceSettings?.();
+  unsubscribeServiceSettings = null;
   awakeService.dispose();
   if (!disposalPromise) diagnostics?.write('desktop-stop');
-  backendTerminalManager.disposeAll();
+  serviceTerminalManager.disposeAll();
   if (!disposalPromise) {
     const cleanup = Promise.all([
       host.dispose(),
@@ -467,7 +467,7 @@ function disposeDesktopResources(): Promise<void> {
     ])
       .then(() => undefined)
       .catch((error: unknown) => {
-        console.error('Failed to dispose Mixdog engine during quit:', error);
+        console.error('Failed to dispose Mixdog session during quit:', error);
       });
     let timeout: NodeJS.Timeout | null = null;
     const deadline = new Promise<void>((resolve) => {
@@ -657,7 +657,7 @@ async function createWindow(): Promise<void> {
     nativeImage,
     onDesktopSettingsChanged: applyDesktopSettings,
     updater: desktopUpdater,
-    terminals: backendTerminalManager,
+    terminals: serviceTerminalManager,
     remoteAccessInfo,
     rotateRemoteAccess,
   });
@@ -822,7 +822,7 @@ async function createWindow(): Promise<void> {
     // The shell has completed its first React frame. Starting the daemon
     // adapter here avoids competing with Chromium module/font/bootstrap work;
     // renderer data reads may have already started the same idempotent promise.
-    startDaemonBackend();
+    startDaemonService();
     showWhenComposed();
     scheduleDeferredDesktopServices(window);
   };
@@ -918,14 +918,14 @@ if (!app.requestSingleInstanceLock()) {
       electronVersion: process.versions.electron,
       chromeVersion: process.versions.chrome,
       nodeVersion: process.versions.node,
-      engineProcess: 'daemon',
+      sessionProcess: 'daemon',
       gpuRendering: softwareRenderingThisLaunch ? 'software-fallback' : 'hardware',
       ...(gpuFallbackMarker
         ? { gpuFallbackCrashes: gpuFallbackMarker.crashesInWindow }
         : {}),
     });
     startDiagnosticsEventLoopMonitor();
-    // Keep-awake + taskbar attention feed on the same engine state lane.
+    // Keep-awake + taskbar attention feed on the same session state lane.
     unsubscribeAwake = host.subscribe((snapshot) => {
       awakeService.onSnapshot(snapshot);
       turnAttention?.onSnapshot(snapshot);
@@ -937,7 +937,7 @@ if (!app.requestSingleInstanceLock()) {
       // The blocker may have been dropped across sleep; re-assert it, and
       // redial the relay leg instead of waiting for the ping cycle.
       awakeService.reevaluate();
-      void host.backendInvoke('remoteAccessResume', []).catch(() => {});
+      void host.invokeDesktopOperation('remoteAccessResume', []).catch(() => {});
     });
     diagnosticsMemoryTimer = setInterval(() => {
       diagnostics?.write('process-memory', { processes: currentProcessMemory() });

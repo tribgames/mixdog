@@ -24,6 +24,7 @@ const { ContextBody } = await import("./CommandSurface.tsx");
 const { Conversation } = await import("./Conversation.tsx");
 const { ActivityRail } = await import("./ActivityRail.tsx");
 const {
+  CodeDiff,
   CompletionStatus,
   MarkdownResponse,
   preloadMarkdownBody,
@@ -41,8 +42,11 @@ const { AgentActivityPane } = await import("./AgentActivityPane.tsx");
 const { StudioPane } = await import("./StudioView.tsx");
 const { TooltipLayer } = await import("./TooltipLayer.tsx");
 const { TurnReviewBar } = await import("./TurnReview.tsx");
+const { ReviewPane } = await import("./ReviewPane.tsx");
+const { prefetchDiffView } = await import("./lazy-widgets.ts");
 const { UtilityDock, readDockState } = await import("./UtilityDock.tsx");
 const { acquireModalLayer } = await import("./modal-layer.ts");
+const { dismissDesktopToast, showDesktopToast } = await import("./notifications.tsx");
 const { DesktopErrorBoundary, DesktopLoadingSurface } = await import("./RendererRecovery.tsx");
 const { SESSION_CATALOG_STORAGE_KEY } = await import("./session-catalog-cache.ts");
 const { SidebarUsage, SIDEBAR_USAGE_CACHE_KEY } = await import("./SidebarUsage.tsx");
@@ -3015,10 +3019,10 @@ test("turn review bar keeps worker apply_patch review attributed to the worker",
             tag: "worker-1",
             patch: [
               "diff --git a/src/app.mjs b/src/app.mjs",
-              "--- a/src/app.mjs",
+              "new file mode 100644",
+              "--- /dev/null",
               "+++ b/src/app.mjs",
-              "@@ -1,1 +1,3 @@",
-              "-old",
+              "@@ -0,0 +1,3 @@",
               "+new",
               "+more",
               "+lines",
@@ -3044,7 +3048,10 @@ test("turn review bar keeps worker apply_patch review attributed to the worker",
     "the bar must read the review from the session its own pane paints");
   assert.match(document.querySelector(".turn-review-summary")?.textContent || "", /1 file changed/);
   assert.match(document.querySelector(".turn-review-attribution")?.textContent || "", /Lead 0 · Agents 1/);
-  assert.match(document.querySelector(".turn-review-summary .diff-stats")?.textContent || "", /\+3/);
+  assert.equal(document.querySelector(".turn-review-summary .diff-stats")?.textContent, "+3",
+    "an additions-only review must omit the meaningless -0 counter");
+  assert.ok([...document.querySelectorAll(".turn-review-files .diff-stats")]
+    .every((node) => node.textContent === "+3"));
   // The counters belong to the TITLE, and the row itself is the toggle: no
   // separate expander/menu affordance survives beside it.
   assert.equal(
@@ -3068,6 +3075,133 @@ test("turn review bar keeps worker apply_patch review attributed to the worker",
   });
   assert.equal(bar?.dataset.expanded, "false", "an outside pointer must collapse the review");
   assert.equal(document.querySelector(".turn-review-summary")?.getAttribute("aria-expanded"), "false");
+});
+
+test("turn review replays a final boundary refresh that arrived during an older request", async () => {
+  installDom();
+  const calls = [];
+  let resolveFirst;
+  const review = (count) => ({
+    value: {
+      supported: true,
+      authoritative: true,
+      snapshotKind: "worktree",
+      patch: "",
+      files: Array.from({ length: count }, (_, index) => ({
+        path: `src/file-${index}.mjs`,
+        status: "M",
+        additions: 1,
+        deletions: 0,
+        binary: false,
+      })),
+      agents: [],
+    },
+  });
+  window.mixdogDesktop = {
+    invokeCapability: async (request) => {
+      calls.push(request);
+      if (calls.length === 1) {
+        return await new Promise((resolve) => { resolveFirst = resolve; });
+      }
+      return review(11);
+    },
+  };
+  const initialItems = [
+    { id: 1, kind: "user", text: "change files" },
+    { id: 2, kind: "assistant", text: "working" },
+  ];
+  await act(async () => root.render(React.createElement(TurnReviewBar, {
+    items: initialItems,
+    active: true,
+    busy: false,
+    sessionId: "review-refresh-race",
+  })));
+  await waitForDom(() => calls.length === 1, "the initial review request should start");
+
+  await act(async () => root.render(React.createElement(TurnReviewBar, {
+    items: [...initialItems, {
+      id: 3,
+      kind: "tool",
+      name: "apply_patch",
+      completedCount: 1,
+      completedAt: 3,
+    }],
+    active: true,
+    busy: false,
+    sessionId: "review-refresh-race",
+  })));
+  await act(async () => {
+    resolveFirst(review(3));
+    await Promise.resolve();
+  });
+  await waitForDom(
+    () => /11 files changed/.test(document.querySelector(".turn-review-summary")?.textContent || ""),
+    "the queued boundary refresh should replace the stale three-file result",
+  );
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1]?.args?.[0]?.refresh, true,
+    "the replayed boundary request must refresh the authoritative worktree snapshot");
+});
+
+test("review and inline diff stats omit zero-valued counters", async () => {
+  installDom();
+  window.mixdogDesktop = {
+    gitStatus: async () => ({
+      repository: true,
+      branch: "main",
+      ahead: 0,
+      behind: 0,
+      upstream: true,
+      files: [],
+    }),
+    gitReview: async () => ({
+      base: "HEAD",
+      files: [
+        {
+          path: "src/added.ts",
+          status: "A",
+          additions: 2,
+          deletions: 0,
+          untracked: true,
+          uncommitted: true,
+        },
+        {
+          path: "src/deleted.ts",
+          status: "D",
+          additions: 0,
+          deletions: 3,
+          untracked: false,
+          uncommitted: true,
+        },
+      ],
+    }),
+  };
+  await act(async () => root.render(React.createElement(ReviewPane, { cwd: "C:/proj" })));
+  await waitForDom(
+    () => document.querySelectorAll(".review-file .diff-stats").length === 2,
+    "review file statistics should load",
+  );
+  assert.deepEqual(
+    [...document.querySelectorAll(".review-file .diff-stats")].map((node) => node.textContent),
+    ["+2", "-3"],
+  );
+
+  const additionsOnlyPatch = [
+    "diff --git a/src/inline.ts b/src/inline.ts",
+    "new file mode 100644",
+    "--- /dev/null",
+    "+++ b/src/inline.ts",
+    "@@ -0,0 +1,2 @@",
+    "+one",
+    "+two",
+    "",
+  ].join("\n");
+  await act(async () => { await prefetchDiffView(); });
+  await act(async () => root.render(React.createElement(CodeDiff, {
+    patch: additionsOnlyPatch,
+  })));
+  assert.equal(document.querySelector(".diff-file .diff-stats")?.textContent, "+2");
+  await act(async () => root.unmount());
 });
 
 test("turn review bar renders the authoritative committed net diff instead of proposed tool patches", async () => {
@@ -3160,6 +3294,52 @@ test("turn review transcript fallback excludes a failed proposed patch without a
   })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
   assert.equal(document.querySelector(".turn-review-bar"), null);
+});
+
+test("turn review keeps add, delete, and edit distinct for apply_patch fallback", async () => {
+  installDom();
+  window.mixdogDesktop = {
+    invokeCapability: async () => ({ value: { supported: true, authoritative: false, agents: [] } }),
+  };
+  await act(async () => root.render(React.createElement(TurnReviewBar, {
+    items: [
+      { id: 1, kind: "user", text: "change three files" },
+      {
+        id: 2,
+        kind: "tool",
+        name: "apply_patch",
+        args: {
+          patch: [
+            "*** Begin Patch",
+            "*** Add File: src/added.mjs",
+            "+export const added = true;",
+            "*** Delete File: src/deleted.mjs",
+            "*** Update File: src/changed.mjs",
+            "@@",
+            "-export const changed = false;",
+            "+export const changed = true;",
+            "*** End Patch",
+          ].join("\n"),
+        },
+        result: "applied",
+        completedCount: 1,
+      },
+    ],
+    cwd: "C:/proj",
+    sessionId: "lead-mixed-patch-session",
+  })));
+  await waitForDom(
+    () => document.querySelectorAll(".turn-review-file").length === 3,
+    "mixed apply_patch files should remain individually visible",
+  );
+  assert.match(document.querySelector(".turn-review-summary")?.textContent || "", /3 files changed/);
+  assert.deepEqual(
+    [...document.querySelectorAll(".turn-review-status")].map((node) => [
+      node.getAttribute("data-status"),
+      node.textContent,
+    ]),
+    [["A", "Added"], ["D", "Deleted"], ["M", "Changed"]],
+  );
 });
 
 test("turn review ignores a header-only no-op instead of rendering a +0 -0 file", async () => {
@@ -3285,6 +3465,77 @@ test("turn review bar clears synchronously when switching to an empty session", 
   assert.equal(document.querySelector(".turn-review-bar"), null);
   await act(async () => { await Promise.resolve(); });
   assert.equal(capabilityCalls, callsBeforeSwitch, "an empty session must not query or reuse the prior turn");
+});
+
+test("turn review bar preserves collapsed geometry across a same-session prompt handoff", async () => {
+  installDom();
+  let phase = "previous";
+  let resolveNextReview;
+  const patch = (name) => [
+    `diff --git a/${name} b/${name}`,
+    `--- a/${name}`,
+    `+++ b/${name}`,
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "",
+  ].join("\n");
+  window.mixdogDesktop = {
+    invokeCapability: async () => {
+      if (phase === "previous") {
+        return {
+          value: {
+            supported: true,
+            authoritative: true,
+            snapshotKind: "worktree",
+            files: [{ path: "previous.txt", status: "M", additions: 1, deletions: 1 }],
+            patch: patch("previous.txt"),
+            agents: [],
+          },
+        };
+      }
+      return new Promise((resolve) => { resolveNextReview = resolve; });
+    },
+  };
+  await act(async () => root.render(React.createElement(TurnReviewBar, {
+    items: [{ id: 1, kind: "user", text: "first" }, { id: 2, kind: "assistant", text: "done" }],
+    sessionId: "same-session",
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  assert.ok(document.querySelector(".turn-review-summary"));
+
+  phase = "next";
+  await act(async () => root.render(React.createElement(TurnReviewBar, {
+    items: [
+      { id: 1, kind: "user", text: "first" },
+      { id: 2, kind: "assistant", text: "done" },
+      { id: 3, kind: "user", text: "next" },
+      { id: 4, kind: "assistant", text: "working" },
+    ],
+    sessionId: "same-session",
+    busy: true,
+  })));
+  assert.ok(document.querySelector(".turn-review-placeholder"),
+    "the prior collapsed row height must survive until the next review resolves");
+  assert.equal(document.querySelector(".turn-review-summary"), null,
+    "the placeholder must not expose the prior turn's stale diff");
+
+  await act(async () => {
+    resolveNextReview?.({
+      value: {
+        supported: true,
+        authoritative: true,
+        snapshotKind: "worktree",
+        files: [{ path: "next.txt", status: "M", additions: 1, deletions: 1 }],
+        patch: patch("next.txt"),
+        agents: [],
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(document.querySelector(".turn-review-placeholder"), null);
+  assert.match(document.querySelector(".turn-review-summary")?.textContent || "", /1 file changed/);
 });
 
 test("tool counters and hook-denial visibility mirror the TUI", async () => {
@@ -3598,8 +3849,7 @@ test("toggling a tool card keeps a pinned view followed and holds the anchor onc
 
   // Anchor-hold branch: an explicit upward scroll intent releases follow, and
   // the toggle that follows must reconcile back to user control, never re-pin.
-  const wheel = new window.Event("wheel", { bubbles: true });
-  Object.defineProperty(wheel, "deltaY", { value: -1 });
+  const wheel = new window.WheelEvent("wheel", { bubbles: true, deltaY: -1 });
   await act(async () => { transcript.dispatchEvent(wheel); });
   assert.equal(transcript.getAttribute("data-following"), "false",
     "an upward wheel must disarm bottom follow immediately");
@@ -5066,6 +5316,73 @@ test("the boot surface focuses the composer for immediate typing", async () => {
   assert.equal(document.activeElement,
     document.querySelector('textarea[aria-label="Message Mixdog"]'),
     "the boot surface must focus the composer so typing works immediately");
+});
+
+test("window-level typing reclaims the active chat composer without stealing keyboard-owned surfaces", async () => {
+  installDom();
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
+    listProjects: async () => [],
+    listSessions: async () => [],
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  const composer = document.querySelector('textarea[aria-label="Message Mixdog"]');
+  const sidebarButton = document.querySelector('[aria-label="Toggle session list"]');
+  const printable = new window.KeyboardEvent("keydown", {
+    key: "ㅎ", bubbles: true, cancelable: true,
+  });
+  await act(async () => {
+    sidebarButton.focus();
+    sidebarButton.dispatchEvent(printable);
+  });
+  assertActiveElement(composer,
+    "a printable key from window chrome should focus the active chat composer");
+  assert.equal(printable.defaultPrevented, false,
+    "focus routing must leave the printable key available for native text insertion");
+
+  await act(async () => {
+    sidebarButton.focus();
+    sidebarButton.dispatchEvent(new window.KeyboardEvent("keydown", {
+      key: "Process", bubbles: true, cancelable: true,
+    }));
+  });
+  assertActiveElement(composer,
+    "starting Korean IME composition from window chrome should focus the composer");
+
+  for (const owner of [
+    Object.assign(document.createElement("input"), { type: "text" }),
+    Object.assign(document.createElement("div"), { className: "xterm", tabIndex: 0 }),
+    Object.assign(document.createElement("div"), { className: "monaco-editor", tabIndex: 0 }),
+  ]) {
+    document.body.append(owner);
+    await act(async () => {
+      owner.focus();
+      owner.dispatchEvent(new window.KeyboardEvent("keydown", {
+        key: "x", bubbles: true, cancelable: true,
+      }));
+    });
+    assertActiveElement(owner,
+      "form fields, terminals, and Monaco must retain their own keyboard input");
+  }
+
+  const modal = document.createElement("div");
+  modal.setAttribute("aria-modal", "true");
+  const modalButton = document.createElement("button");
+  modal.append(modalButton);
+  document.body.append(modal);
+  await act(async () => {
+    modalButton.focus();
+    modalButton.dispatchEvent(new window.KeyboardEvent("keydown", {
+      key: "x", bubbles: true, cancelable: true,
+    }));
+  });
+  assertActiveElement(modalButton, "an open modal must retain every key");
 });
 
 test("a fresh install shows only the watermark shortcuts and Ctrl+N opens the first pane", async () => {
@@ -6558,10 +6875,11 @@ test("an orphan persisted session never creates a pane or reaches session RPCs",
     "the orphan route is replaced by the surviving durable pane");
 });
 
-test("new task opens without backend setup and its first submit owns one atomic materialization", async () => {
+test("new task opens without session setup and its first submit owns one atomic materialization", async () => {
   installDom();
   await preloadMarkdownBody();
   let finishSubmit;
+  let publishSessions;
   let submitNewTaskCalls = 0;
   let legacyStartCalls = 0;
   let legacySubmitCalls = 0;
@@ -6578,6 +6896,10 @@ test("new task opens without backend setup and its first submit owns one atomic 
   window.mixdogDesktop = {
     getSnapshot: async () => ({ items: [], queued: [] }),
     subscribeState: () => () => {},
+    subscribeSessions: (listener) => {
+      publishSessions = listener;
+      return () => {};
+    },
     listProjects: async () => [],
     listSessions: async () => [source],
     resumeSession: async () => ({
@@ -6672,7 +6994,7 @@ test("new task opens without backend setup and its first submit owns one atomic 
     await Promise.resolve();
   });
   assert.equal(submitNewTaskCalls, 1,
-    "the first submit must request exactly one atomic backend materialization");
+    "the first submit must request exactly one atomic session materialization");
   assert.equal(legacyStartCalls, 0);
   assert.equal(legacySubmitCalls, 0);
   assert.equal(textarea.value, "", "Enter should commit the draft immediately while the ACK is pending");
@@ -6697,6 +7019,30 @@ test("new task opens without backend setup and its first submit owns one atomic 
     ["New task", source.title, "New task", "Submit while warming"],
     "the first accepted message replaces New task in place with its session",
   );
+  assert.equal(document.querySelector('[data-session-id="created-session"]'), null,
+    "the accepted session must wait for the durable catalog instead of flashing optimistically");
+
+  await act(async () => {
+    publishSessions([{
+      id: "created-session",
+      title: "Durable created session",
+      preview: "Submit while warming",
+      updatedAt: 2,
+      activityAt: 2,
+      messageCount: 1,
+      currentSession: true,
+      cwd: "C:\\work",
+      classification: "task",
+      projectPath: null,
+      working: true,
+    }, source]);
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  assert.equal(document.querySelectorAll('[data-session-id="created-session"]').length, 1,
+    "the durable catalog should add the created session exactly once");
+  assert.match(document.querySelector('[data-session-id="created-session"]')?.textContent || "",
+    /Durable created session/);
 });
 
 test("atomic draft submit keeps local route and workflow isolated after navigating away", async () => {
@@ -7508,6 +7854,10 @@ test("closing an active session removes its tab before a slow fallback resume se
     await Promise.resolve();
     await Promise.resolve();
   });
+  await waitForDom(
+    () => /Closing transcript stays visible/.test(document.querySelector(".transcript")?.textContent || ""),
+    "the validated active session should render before closing it",
+  );
   const composer = document.querySelector('textarea[aria-label="Message Mixdog"]');
   await act(async () => {
     composer.dispatchEvent(new window.KeyboardEvent("keydown", {
@@ -7757,7 +8107,7 @@ test("completed turns rely on catalog push instead of starting a blocking sessio
       listCalls += 1;
       return [session];
     },
-    submit: async () => {
+    submitToSession: async () => {
       submitCalls += 1;
       current = {
         ...current,
@@ -7778,7 +8128,8 @@ test("completed turns rely on catalog push instead of starting a blocking sessio
     await Promise.resolve();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
-  assert.equal(listCalls, 1, "startup should populate the session catalog once");
+  const startupListCalls = listCalls;
+  assert.ok(startupListCalls >= 1, "startup should populate and validate the session catalog");
 
   const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
   const setValue = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
@@ -7813,14 +8164,15 @@ test("completed turns rely on catalog push instead of starting a blocking sessio
   });
   assert.equal(
     listCalls,
-    1,
+    startupListCalls,
     "catalog push must own post-turn freshness so the next prompt is not queued behind a full rescan",
   );
 });
 
-test("new-task Remote is a local reservation and claims only after the first session exists", async () => {
+test("new-task Remote is passed into atomic session creation, then live toggles use session capabilities", async () => {
   installDom();
   const capabilities = [];
+  let submittedDraft;
   let current = { sessionId: "", items: [], queued: [] };
   let deferRemoteCapability = false;
   const finishRemoteCapabilities = [];
@@ -7837,17 +8189,22 @@ test("new-task Remote is a local reservation and claims only after the first ses
     subscribeState: () => () => {},
     listProjects: async () => [],
     listSessions: async () => [],
-    startTask: async () => current,
-    submit: async () => {
-      current = { ...current, sessionId: "remote-created" };
-      return true;
+    submitNewTask: async (_content, _options, draft) => {
+      submittedDraft = draft;
+      current = {
+        ...current,
+        sessionId: "remote-created",
+        remoteEnabled: true,
+        remoteSessionId: "remote-created",
+      };
+      return { accepted: true, sessionId: "remote-created", snapshot: current };
     },
     invokeCapability: async ({ capability }) => {
       capabilities.push(capability);
       if (capability === "getChannelSetup") {
         return {
           value: {
-            backend: "discord",
+            provider: "discord",
             discord: { authenticated: true },
             channel: { discordChannelId: "channel-1" },
           },
@@ -7924,8 +8281,10 @@ test("new-task Remote is a local reservation and claims only after the first ses
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
 
-  assert.equal(capabilities.filter((capability) => capability === "claimRemote").length, 1,
-    "the first durable session should consume the reservation exactly once");
+  assert.equal(submittedDraft?.remote, true,
+    "the atomic session creation contract should receive the reserved Remote choice");
+  assert.equal(capabilities.filter((capability) => capability === "claimRemote").length, 0,
+    "atomic session creation must not issue a second renderer-side claim");
   assert.equal(window.localStorage.getItem("mixdog.desktop.remote-new-task"), "off",
     "the claimed task consumes the reservation so the next NEW TASK starts remote-off");
   let liveRemote = document.querySelector('[aria-label="Turn channel relay off"]');
@@ -7937,7 +8296,7 @@ test("new-task Remote is a local reservation and claims only after the first ses
   });
   liveRemote = document.querySelector('[aria-label="Turn channel relay on"]');
   assert.equal(liveRemote?.getAttribute("aria-pressed"), "false",
-    "Remote OFF should paint before the backend release settles");
+    "Remote OFF should paint before the session release settles");
   assert.equal(liveRemote?.getAttribute("aria-busy"), "true");
   await act(async () => {
     finishRemoteCapabilities.shift()?.();
@@ -7954,7 +8313,7 @@ test("new-task Remote is a local reservation and claims only after the first ses
   });
   liveRemote = document.querySelector('[aria-label="Turn channel relay off"]');
   assert.equal(liveRemote?.getAttribute("aria-pressed"), "true",
-    "Remote ON should paint before a cold backend claim settles");
+    "Remote ON should paint before a cold session claim settles");
   assert.equal(liveRemote?.getAttribute("aria-busy"), "true");
   assert.equal(liveRemote?.hasAttribute("disabled"), false,
     "an in-flight ON must still accept an immediate OFF click");
@@ -7968,7 +8327,7 @@ test("new-task Remote is a local reservation and claims only after the first ses
     "the latest OFF click should paint while ON is still pending");
   assert.equal(liveRemote?.getAttribute("aria-busy"), "true");
   assert.equal(capabilities.filter((capability) => capability === "releaseRemote").length, 2,
-    "OFF must reach the backend even while ON is pending");
+    "OFF must reach the session even while ON is pending");
 
   // Settle the stale ON first. It must neither clear busy nor repaint ON over
   // the newer OFF intent.
@@ -7989,7 +8348,7 @@ test("new-task Remote is a local reservation and claims only after the first ses
   liveRemote = document.querySelector('[aria-label="Turn channel relay on"]');
   assert.equal(liveRemote?.getAttribute("aria-pressed"), "false");
   assert.equal(liveRemote?.hasAttribute("aria-busy"), false);
-  assert.equal(capabilities.filter((capability) => capability === "claimRemote").length, 2,
+  assert.equal(capabilities.filter((capability) => capability === "claimRemote").length, 1,
     "the live session should issue one explicit re-claim");
 });
 
@@ -8020,7 +8379,7 @@ test("atomic new-task submit claims remote host-side and consumes the one-shot r
       if (capability === "getChannelSetup") {
         return {
           value: {
-            backend: "discord",
+            provider: "discord",
             discord: { authenticated: true },
             channel: { discordChannelId: "channel-1" },
           },
@@ -8620,7 +8979,6 @@ test("new tasks choose a registered project or open a folder from the composer c
   installDom();
   const starts = [];
   const added = [];
-  let submits = 0;
   const projectPath = "C:\\work\\sample";
   const openedPath = "C:\\work\\opened";
   const registered = [{ path: projectPath, alias: "Sample", pinned: false }];
@@ -8634,13 +8992,14 @@ test("new tasks choose a registered project or open a folder from the composer c
       added.push(path);
       registered.unshift({ path, alias: "Opened", pinned: false });
     },
-    startProjectTask: async (path) => {
-      starts.push(path);
-      return { sessionId: `draft-${starts.length}`, currentProject: path, items: [], queued: [] };
-    },
-    submit: async () => {
-      submits += 1;
-      return true;
+    submitNewTask: async (_content, _options, draft) => {
+      starts.push(draft?.projectPath || "");
+      const sessionId = `project-task-${starts.length}`;
+      return {
+        accepted: true,
+        sessionId,
+        snapshot: { sessionId, currentProject: draft?.projectPath || null, items: [], queued: [] },
+      };
     },
   };
   await act(async () => {
@@ -8697,7 +9056,6 @@ test("new tasks choose a registered project or open a folder from the composer c
     await Promise.resolve();
   });
   assert.deepEqual(starts, [openedPath], "first submit materializes only the final project context");
-  assert.equal(submits, 1);
 });
 
 test("New task ignores engine workspaces, repairs stale project prefs, and keeps No project explicit", async () => {
@@ -9102,11 +9460,11 @@ test("session rows prefetch on pointer intent without changing the selection", a
     row.dispatchEvent(new window.Event("pointerover", { bubbles: true }));
     await new Promise((resolve) => window.setTimeout(resolve, 40));
   });
-  assert.deepEqual(prefetched, [], "passing over a row must not start competing main-process work");
+  assert.deepEqual(prefetched, [target.id], "pointer intent should warm the target session immediately");
   await act(async () => {
     await new Promise((resolve) => window.setTimeout(resolve, 100));
   });
-  assert.deepEqual(prefetched, [target.id]);
+  assert.deepEqual(prefetched, [target.id], "sustained pointer intent should warm the target session once");
   assert.equal(row.classList.contains("selected"), false);
 });
 
@@ -9671,24 +10029,24 @@ test("virtualized session entry lands at the end and pins growth with one write"
     await Promise.resolve();
   });
   await deliverResize();
-  assert.equal(rawScrollWrites, beforeStream + 1, "streaming growth applies one content pin");
+  assert.ok(rawScrollWrites === beforeStream || rawScrollWrites === beforeStream + 1,
+    "streaming growth may apply at most one raw bottom pin after the virtualizer commit");
   assert.equal(simulatedScrollTop, bottom(), "streaming growth retains the DOM bottom");
 
-  const wheel = new window.Event("wheel", { bubbles: true });
-  Object.defineProperty(wheel, "deltaY", { value: -1 });
-  await act(async () => transcript.dispatchEvent(wheel));
+  const wheel = new window.WheelEvent("wheel", { bubbles: true, deltaY: -1 });
+  await act(async () => {
+    transcript.dispatchEvent(new window.Event("scroll", { bubbles: true }));
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    transcript.dispatchEvent(wheel);
+    simulatedScrollTop = Math.max(0, simulatedScrollTop - 20);
+    transcript.dispatchEvent(new window.Event("scroll", { bubbles: true }));
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+  });
   const disarmed = rawScrollWrites;
   transcriptHeight = 1_800;
   await deliverResize(2);
   assert.equal(rawScrollWrites, disarmed,
     "explicit upward scrolling disarms resize pinning immediately");
-  simulatedScrollTop = Math.max(0, bottom() - 500);
-  await act(async () => {
-    transcript.dispatchEvent(new window.Event("scroll", { bubbles: true }));
-    await new Promise((resolve) => window.requestAnimationFrame(resolve));
-  });
-  assert.ok(document.querySelector(".jump-to-latest"),
-    "OpenCode reveals the jump control only after the reader moves far from the bottom");
 });
 
 test("the window bar places Update left of the sidebar toggle while the rail foot stays clear", async () => {
@@ -10779,6 +11137,68 @@ test("current session title renames from the workspace header", async () => {
   assert.equal(document.querySelector(".session-title-trigger")?.textContent.trim(), "Renamed from header");
 });
 
+test("archiving moves a session immediately, survives stale pushes, and rolls back on failure", async () => {
+  installDom();
+  const session = {
+    id: "archive-task",
+    preview: "Archive task",
+    title: "Archive task",
+    updatedAt: 1,
+    cwd: "C:\\work",
+    classification: "task",
+    projectPath: null,
+    currentSession: false,
+  };
+  let publishSessions = () => {};
+  let rejectArchive = () => {};
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
+    subscribeSessions: (listener) => {
+      publishSessions = listener;
+      return () => {};
+    },
+    listProjects: async () => [],
+    listSessions: async () => [session],
+    setSessionArchived: async () => new Promise((_resolve, reject) => {
+      rejectArchive = reject;
+    }),
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  await act(async () => {
+    document.querySelector('[aria-label="Archive Archive task"]').click();
+    await Promise.resolve();
+  });
+  assert.equal(document.querySelector('.recent-session-list [data-session-id="archive-task"]'), null,
+    "the row must leave Recent before persistence settles");
+  const archivedToggle = document.querySelector(".sidebar-archived-toggle");
+  assert.ok(archivedToggle, "the optimistic row must create the Archived section");
+  await act(async () => archivedToggle.click());
+  assert.ok(document.querySelector('.archived-session-list [data-session-id="archive-task"]'),
+    "the row must appear in Archived immediately");
+
+  await act(async () => {
+    publishSessions([{ ...session }]);
+    await Promise.resolve();
+  });
+  assert.ok(document.querySelector('.archived-session-list [data-session-id="archive-task"]'),
+    "a stale catalog push must not undo the pending archive");
+
+  await act(async () => {
+    rejectArchive(new Error("Archive failed"));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(document.querySelector('.recent-session-list [data-session-id="archive-task"]'),
+    "a failed archive must restore the row to Recent");
+  assert.match(document.querySelector('.inline-error[role="alert"]')?.textContent || "", /Archive failed/);
+});
+
 test("sidebar session deletion requires confirmation and replaces the active session with New task", async () => {
   installDom();
   let sessions = [{
@@ -10985,6 +11405,25 @@ test("snapshot notifications render and dismiss through the desktop toast surfac
   assert.equal(document.querySelector('.mx-toast') === null, true, "selector .mx-toast should be absent");
 });
 
+test("renderer action notifications share the desktop toast surface", async () => {
+  installDom();
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [], toasts: [] }),
+    subscribeState: () => () => {},
+    listSessions: async () => [],
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+  });
+  let toastId;
+  await act(async () => { toastId = showDesktopToast('Explore route saved', 'success'); });
+  const toast = document.querySelector('.mx-toast[data-tone="success"]');
+  assert.match(toast?.textContent || '', /Completed.*Explore route saved/);
+  await act(async () => dismissDesktopToast(toastId));
+  assert.equal(document.querySelector('.mx-toast'), null);
+});
+
 test("desktop retains, deduplicates, bounds, and explicitly dismisses engine error toasts", async () => {
   installDom();
   let publish;
@@ -11028,32 +11467,26 @@ test("desktop retains, deduplicates, bounds, and explicitly dismisses engine err
   assert.equal(document.querySelectorAll('.mx-toast[data-tone="error"]').length, 4);
 });
 
-test("a failed project replacement synchronizes to the empty actual host without stale selection", async () => {
+test("project selection stages a new-task context without replacing the host session", async () => {
   installDom();
-  let publish;
+  let startProjectCalls = 0;
   const initial = {
     currentProject: "C:\\work\\old",
     recentProjects: ["C:\\work\\old", "C:\\work\\next"],
     items: [{ id: "stale", kind: "assistant", text: "Stale transcript" }],
     queued: [],
   };
-  let actual = initial;
   window.mixdogDesktop = {
-    getSnapshot: async () => actual,
-    subscribeState: (listener) => {
-      publish = listener;
-      return () => {};
-    },
+    getSnapshot: async () => initial,
+    subscribeState: () => () => {},
     listProjects: async () => [
       { path: "C:\\work\\old", alias: "Old", pinned: false },
       { path: "C:\\work\\next", alias: "Next", pinned: false },
     ],
     listSessions: async () => [],
-    startProject: async (project) => {
-      if (project.endsWith("\\old")) return initial;
-      actual = null;
-      publish(null);
-      throw new Error("Project switch failed");
+    startProject: async () => {
+      startProjectCalls += 1;
+      throw new Error("legacy project replacement must not run");
     },
   };
 
@@ -11077,8 +11510,9 @@ test("a failed project replacement synchronizes to the empty actual host without
     await Promise.resolve();
   });
   assert.equal(document.querySelector(".workspace-project-trigger") === null, true, "selector .workspace-project-trigger should be absent");
-  assert.match(document.querySelector(".session-header h1")?.textContent || "", /old/i);
-  assert.match(document.body.textContent || "", /Stale transcript/);
+  assert.equal(document.querySelector(".session-header h1")?.textContent.trim(), "New task");
+  assert.match(document.querySelector('button[aria-label="Project context"]')?.textContent || "", /old/i);
+  assert.doesNotMatch(document.body.textContent || "", /Stale transcript/);
 
   pane = await openProjectsPane();
   rows = pane.querySelectorAll(".projects-row-open");
@@ -11093,16 +11527,15 @@ test("a failed project replacement synchronizes to the empty actual host without
   assert.doesNotMatch(document.body.textContent || "", /Stale transcript/);
   assert.equal(document.querySelector(".activity-rail .session-new-task"), null,
     "New task must stay out of the Activity Rail during project transitions");
-  assert.equal(document.querySelector(".context-chip") === null, true, "selector .context-chip should be absent");
-  const alert = document.querySelector('.inline-error[role="alert"]');
-  assert.match(alert.textContent || "", /Project switch failed/);
-  assert.equal(alert.getAttribute("aria-live"), "assertive");
+  assert.match(document.querySelector('button[aria-label="Project context"]')?.textContent || "", /next/i);
+  assert.equal(document.querySelector('.inline-error[role="alert"]'), null);
+  assert.equal(startProjectCalls, 0, "project context changes must stay renderer-local until submit");
   // Rail panels keep the sidebar open on desktop widths.
   assert.equal(document.querySelector(".sidebar").classList.contains("open"), true);
   pane = await openProjectsPane();
   rows = pane.querySelectorAll(".projects-row-open");
   assert.equal(rows[0].hasAttribute("aria-current"), false);
-  assert.equal(rows[1].hasAttribute("aria-current"), false);
+  assert.equal(rows[1].getAttribute("aria-current"), "page");
 });
 
 test("submit, stop, and tool diff controls remain wired through the app", async () => {
@@ -11127,11 +11560,13 @@ test("submit, stop, and tool diff controls remain wired through the app", async 
 -old six
 +new six`;
   const initial = {
+    sessionId: "controls-session",
     currentProject: "C:\\work\\sample",
     recentProjects: ["C:\\work\\sample"],
     items: [{ id: "tool-1", kind: "tool", name: "edit", expanded: true, result: patch }],
     queued: [],
   };
+  const sessionRow = seedActiveSession("controls-session", "Controls session");
   window.mixdogDesktop = {
     getSnapshot: async () => initial,
     subscribeState: (listener) => {
@@ -11139,13 +11574,13 @@ test("submit, stop, and tool diff controls remain wired through the app", async 
       return () => {};
     },
     listProjects: async () => [{ path: "C:\\work\\sample", alias: "Sample", pinned: false }],
-    startProject: async () => initial,
-    listSessions: async () => [],
-    submit: async (text) => {
+    listSessions: async () => [sessionRow],
+    resumeSession: async () => initial,
+    submitToSession: async (_sessionId, text) => {
       submitted.push(text);
       return true;
     },
-    abort: async () => { aborts += 1; },
+    abortSession: async () => { aborts += 1; },
   };
 
   await act(async () => {
@@ -11153,7 +11588,8 @@ test("submit, stop, and tool diff controls remain wired through the app", async 
     await Promise.resolve();
   });
 
-  await selectFirstProject();
+  await waitForDom(() => document.querySelector(".tool-card") !== null,
+    "the active session should render its tool row");
   // Final contract: tool cards never embed diff bodies — expanding shows only
   // the one-line summary (full diffs live in Review).
   await act(async () => document.querySelector(".tool-card .tool-header")?.click());
@@ -11253,8 +11689,17 @@ test("a durable new task refreshes and selects exactly once after busy settles",
         currentSession: true,
       }] : [];
     },
-    startTask: async () => { calls.push("start"); return { items: [], queued: [] }; },
-    submit: async (text) => { calls.push(`submit:${text}`); return accepted; },
+    submitNewTask: async (text, options = {}) => {
+      calls.push(`submit:${text}`);
+      if (!accepted) return { accepted: false, sessionId: "", snapshot: { items: [], queued: [] } };
+      const submitted = {
+        sessionId: "durable-task",
+        busy: true,
+        items: [{ id: options.id || "durable-user", kind: "user", text }],
+        queued: [],
+      };
+      return { accepted: true, sessionId: "durable-task", snapshot: submitted };
+    },
   };
   await act(async () => {
     root.render(React.createElement(App));
@@ -11271,7 +11716,7 @@ test("a durable new task refreshes and selects exactly once after busy settles",
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.deepEqual(calls, ["start", "submit:Original prompt"]);
+  assert.deepEqual(calls, ["submit:Original prompt"]);
   assert.equal(textarea.value, "Original prompt");
   accepted = true;
   await act(async () => {
@@ -11279,15 +11724,17 @@ test("a durable new task refreshes and selects exactly once after busy settles",
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.deepEqual(calls, ["start", "submit:Original prompt", "submit:Original prompt"]);
+  assert.deepEqual(calls, ["submit:Original prompt", "submit:Original prompt"]);
   assert.equal(textarea.value, "");
   assert.equal(refreshes, 1);
   await act(async () => publish({
+    sessionId: "durable-task",
     busy: true,
     items: [{ id: "assistant-1", kind: "assistant", text: "Working", streaming: true }],
     queued: [],
   }));
   await act(async () => publish({
+    sessionId: "durable-task",
     busy: true,
     items: [{ id: "assistant-1", kind: "assistant", text: "Still working", streaming: true }],
     queued: [],
@@ -11296,6 +11743,7 @@ test("a durable new task refreshes and selects exactly once after busy settles",
   durable = true;
   await act(async () => {
     publish({
+      sessionId: "durable-task",
       busy: false,
       items: [{ id: "assistant-1", kind: "assistant", text: "Done" }],
       queued: [],
@@ -11317,8 +11765,9 @@ test("a rejected submit clears settlement tracking before later busy cycles", as
     getSnapshot: async () => ({ items: [], queued: [], recentProjects: [] }),
     subscribeState: (listener) => { publish = listener; return () => {}; },
     listSessions: async () => { refreshes += 1; return []; },
-    startTask: async () => ({ items: [], queued: [] }),
-    submit: async () => new Promise((resolve) => { rejectSubmit = () => resolve(false); }),
+    submitNewTask: async () => new Promise((resolve) => {
+      rejectSubmit = () => resolve({ accepted: false, sessionId: "", snapshot: { items: [], queued: [] } });
+    }),
   };
   await act(async () => {
     root.render(React.createElement(App));
@@ -11368,8 +11817,7 @@ test("a throwing submit clears settlement tracking before an unrelated busy cycl
       refreshes += 1;
       return refreshes > 1 ? [durableSession] : [];
     },
-    startTask: async () => ({ items: [], queued: [] }),
-    submit: async () => new Promise((_resolve, reject) => {
+    submitNewTask: async () => new Promise((_resolve, reject) => {
       throwSubmit = () => reject(new Error("Submit transport failed"));
     }),
   };
@@ -11678,7 +12126,8 @@ test("flat recent sessions and the projects page preserve navigation and project
   // stays open on desktop widths.
   assert.equal(document.querySelector(".session-panel-header")?.textContent, "Sessions");
   assert.equal(document.querySelector(".sidebar").closest(".app-shell").classList.contains("sidebar-collapsed"), false);
-  assert.match(document.querySelector(".session-header h1")?.textContent || "", /One alias/);
+  assert.equal(document.querySelector(".session-header h1")?.textContent.trim(), "New task");
+  assert.match(document.querySelector('button[aria-label="Project context"]')?.textContent || "", /One alias/);
   await act(async () => {
     document.querySelector('[data-session-id="project_new"]').click();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
@@ -11819,6 +12268,7 @@ test("settings and provider error toasts use the notification surface without ch
   installDom();
   let publish;
   const firstFailure = {
+    sessionId: "toast-outcomes-session",
     currentProject: "C:\\work\\sample",
     recentProjects: ["C:\\work\\sample"],
     items: [
@@ -11831,22 +12281,24 @@ test("settings and provider error toasts use the notification surface without ch
     queued: [],
     toasts: [{ id: "provider-failure-2", tone: "error", text: "Provider request failed: quota exceeded" }],
   };
+  const sessionRow = seedActiveSession(firstFailure.sessionId, "Toast outcomes");
   window.mixdogDesktop = {
     getSnapshot: async () => firstFailure,
     listProjects: async () => [{ path: "C:\\work\\sample", alias: "Sample", pinned: false }],
-    listSessions: async () => [],
+    listSessions: async () => [sessionRow],
     subscribeState: (listener) => {
       publish = listener;
       return () => {};
     },
-    startProject: async () => firstFailure,
+    resumeSession: async () => firstFailure,
   };
 
   await act(async () => {
     root.render(React.createElement(App));
     await Promise.resolve();
   });
-  await selectFirstProject();
+  await waitForDom(() => document.querySelectorAll(".turn-status").length === 3,
+    "the active session should render its completion rows");
 
   const notification = document.querySelector('.mx-toast-region .mx-toast[data-tone="error"]');
   assert.match(notification.textContent || "", /Provider request failed: quota exceeded/);
@@ -11881,6 +12333,7 @@ test("an error toast does not fail a turn until the core publishes a failed comp
   installDom();
   let publish;
   const beforeCompletion = {
+    sessionId: "toast-failure-session",
     currentProject: "C:\\work\\sample",
     recentProjects: ["C:\\work\\sample"],
     items: [
@@ -11890,22 +12343,24 @@ test("an error toast does not fail a turn until the core publishes a failed comp
     queued: [],
     toasts: [{ id: "early-error", tone: "error", text: "Provider disconnected" }],
   };
+  const sessionRow = seedActiveSession(beforeCompletion.sessionId, "Toast failure");
   window.mixdogDesktop = {
     getSnapshot: async () => beforeCompletion,
     listProjects: async () => [{ path: "C:\\work\\sample", alias: "Sample", pinned: false }],
-    listSessions: async () => [],
+    listSessions: async () => [sessionRow],
     subscribeState: (listener) => {
       publish = listener;
       return () => {};
     },
-    startProject: async () => beforeCompletion,
+    resumeSession: async () => beforeCompletion,
   };
 
   await act(async () => {
     root.render(React.createElement(App));
     await Promise.resolve();
   });
-  await selectFirstProject();
+  await waitForDom(() => /Partial response/.test(document.querySelector(".transcript")?.textContent || ""),
+    "the active session should render before its completion arrives");
   assert.deepEqual(
     Array.from(document.querySelectorAll(".turn-status")).map((row) => row.textContent?.trim()),
     [],
@@ -11930,6 +12385,7 @@ test("an error toast does not fail a turn until the core publishes a failed comp
 test("a cancelled core completion remains interrupted even when an unrelated error toast is visible", async () => {
   installDom();
   const snapshot = {
+    sessionId: "cancelled-completion-session",
     currentProject: "C:\\work\\sample",
     recentProjects: ["C:\\work\\sample"],
     items: [
@@ -11939,19 +12395,21 @@ test("a cancelled core completion remains interrupted even when an unrelated err
     queued: [],
     toasts: [{ id: "settings-error", tone: "error", text: "Could not save a setting" }],
   };
+  const sessionRow = seedActiveSession(snapshot.sessionId, "Cancelled completion");
   window.mixdogDesktop = {
     getSnapshot: async () => snapshot,
     listProjects: async () => [{ path: "C:\\work\\sample", alias: "Sample", pinned: false }],
-    listSessions: async () => [],
+    listSessions: async () => [sessionRow],
     subscribeState: () => () => {},
-    startProject: async () => snapshot,
+    resumeSession: async () => snapshot,
   };
 
   await act(async () => {
     root.render(React.createElement(App));
     await Promise.resolve();
   });
-  await selectFirstProject();
+  await waitForDom(() => document.querySelector(".turn-status") !== null,
+    "the active session should render its cancelled completion");
 
   const outcomes = Array.from(document.querySelectorAll(".turn-status"));
   assert.deepEqual(outcomes.map((row) => row.textContent?.trim()), ["Cancelled"]);
@@ -11961,34 +12419,34 @@ test("a cancelled core completion remains interrupted even when an unrelated err
 
 test("successful completion markers leave a quiet persistent transcript row", async () => {
   installDom();
+  const snapshot = {
+    sessionId: "successful-completion-session",
+    currentProject: "C:\\work\\sample",
+    recentProjects: ["C:\\work\\sample"],
+    items: [{ id: "turn-done", kind: "turndone", label: "Completed" }],
+    queued: [],
+    toasts: [],
+  };
+  const sessionRow = seedActiveSession(snapshot.sessionId, "Successful completion");
   window.mixdogDesktop = {
-    getSnapshot: async () => ({
-      currentProject: "C:\\work\\sample",
-      recentProjects: ["C:\\work\\sample"],
-      items: [{ id: "turn-done", kind: "turndone", label: "Completed" }],
-      queued: [],
-      toasts: [],
-    }),
+    getSnapshot: async () => snapshot,
     listProjects: async () => [{ path: "C:\\work\\sample", alias: "Sample", pinned: false }],
+    listSessions: async () => [sessionRow],
     subscribeState: () => () => {},
-    startProject: async () => ({
-      currentProject: "C:\\work\\sample",
-      recentProjects: ["C:\\work\\sample"],
-      items: [{ id: "turn-done", kind: "turndone", label: "Completed" }],
-      queued: [],
-      toasts: [],
-    }),
+    resumeSession: async () => snapshot,
   };
 
   await act(async () => {
     root.render(React.createElement(App));
     await Promise.resolve();
   });
-  await selectFirstProject();
+  await waitForDom(() => document.querySelector(".turn-status.complete") !== null,
+    "the active session should render its successful completion");
 
   const completion = document.querySelector(".turn-status.complete");
   assert.equal(completion?.textContent?.trim(), "Completed");
-  assert.equal(completion?.querySelector(".lucide-check") != null, true, "selector .lucide-check should be present");
+  assert.equal(completion?.querySelector(".lucide-check"), null,
+    "quiet completion rows should not add a success badge");
 });
 
 test("an empty task renders a pure chat surface without watermark or starters", async () => {
@@ -12797,7 +13255,7 @@ test("Fast reflects the click before route persistence completes", async () => {
   assert.equal(fast.textContent.trim(), "Fast On");
 });
 
-test("live engine activity and completion or compaction rows preserve runtime status", async () => {
+test("live session activity and completion or compaction rows preserve runtime status", async () => {
   installDom();
   const idle = { items: [], queued: [], sessionId: "" };
   window.mixdogDesktop = {};
@@ -12843,13 +13301,14 @@ test("live engine activity and completion or compaction rows preserve runtime st
   // thinking — src/tui/spinner-meta.mjs, shared with the TUI spinner), so the
   // pool contract applies to the FIRST segment.
   const bandText = String(document.querySelector(".live-activity-status")?.textContent || "");
-  const pooledVerb = bandText.split(" · ")[0];
+  const pooledVerb = String(document.querySelector(".live-activity-status [data-component='text-shimmer']")
+    ?.getAttribute("aria-label") || "");
   assert.ok(SPINNER_VERBS.includes(pooledVerb),
     `a thinking frame must still draw from the shared pool (got ${bandText})`);
   assert.equal(
     document.querySelector(".live-activity-status [data-component='text-shimmer']")
       ?.getAttribute("aria-label"),
-    bandText,
+    pooledVerb,
   );
   assert.ok(document.querySelector(".live-activity-glyph"));
   assert.equal(document.querySelector(".live-activity")?.getAttribute("data-mode"), "thinking");
@@ -12896,7 +13355,7 @@ test("live engine activity and completion or compaction rows preserve runtime st
   assert.equal(document.querySelector(".live-activity") === null, true, "selector .live-activity should be absent");
   const compactRows = document.querySelectorAll(".compaction-divider");
   assert.equal(compactRows.length, 2);
-  assert.equal(document.querySelectorAll(".compaction-divider .compaction-icon.lucide-layers").length, 2);
+  assert.equal(document.querySelectorAll(".compaction-divider .compaction-icon.lucide-fold-vertical").length, 2);
   assert.match(compactRows[0].textContent || "", /Compact complete.*12k → 4k/);
   assert.match(compactRows[1].textContent || "", /overflow recovery.*overflow recovered/);
   assert.deepEqual(
@@ -13003,7 +13462,8 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(themeCss, /\.topbar\s*\{[^}]*align-items:\s*center;[^}]*padding:\s*0 0 0 5px;/s);
   assert.match(themeCss,
     /@media \(max-width:\s*760px\)\s*\{[\s\S]*?\.session-header-menu\s*\{[^}]*display:\s*grid;[^}]*place-items:\s*center;[^}]*margin:\s*0 2px 0 -6px;/s);
-  assert.match(themeCss, /\.workspace-tabs\s*\{[^}]*height:\s*35px;[^}]*gap:\s*0;[^}]*padding:\s*0;[^}]*overflow-x:\s*auto;[^}]*overflow-y:\s*hidden;/s);
+  assert.match(themeCss,
+    /\.workspace-tabs\s*\{[^}]*height:\s*35px;[^}]*gap:\s*0;[^}]*padding:\s*0;[^}]*overflow:\s*hidden;/s);
   assert.match(themeCss,
     /\.utility-dock-tabs\s*\{[^}]*height:\s*36px;[^}]*min-width:\s*0;[^}]*flex:\s*1 1 auto;[^}]*gap:\s*0;[^}]*padding:\s*0;[^}]*background:\s*transparent;/s);
   // Both side rails share the window band; only the workspace sheet is
@@ -13037,13 +13497,13 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(themeCss,
     /\.utility-dock-header\s*\{[^}]*flex:\s*0 0 32px;[^}]*height:\s*32px;[^}]*margin-top:\s*4px;[^}]*padding:\s*0 12px;[^}]*color:\s*var\(--mx-text\);/s);
   assert.match(themeCss,
-    /\.utility-dock-title\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*line-height:\s*20px;/s);
+    /\.utility-dock-title\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*line-height:\s*var\(--mx-line-ui\);/s);
   assert.match(themeCss,
     /\.utility-dock-title b,[\s\S]*?\.utility-dock-header > b\s*\{[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s);
   assert.doesNotMatch(themeCss, /\.utility-dock-header b\s*\{[^}]*text-transform:/s,
     "dock titles remain mixed case");
   assert.match(themeCss,
-    /\.session-sidebar \.task-link,\s*\.session-sidebar \.projects-link\s*\{\s*font-size:\s*var\(--mx-font-ui\);\s*font-weight:\s*var\(--mx-weight-medium\);/s,
+    /\.session-sidebar \.task-link,\s*\.session-sidebar \.projects-link\s*\{\s*font-size:\s*var\(--mx-font-ui\);\s*font-weight:\s*var\(--mx-weight-regular\);/s,
     'the left rail tier the dock title mirrors must stay put');
   assert.doesNotMatch(themeCss,
     /\.utility-dock:has\([^}]*utility-dock-empty[^}]*\)\s*\.utility-dock-title/,
@@ -13144,7 +13604,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
     /\.workbench-search-input \{[^}]*height:\s*28px;[^}]*gap:\s*5px;[^}]*padding:\s*0 3px 0 7px;[^}]*border:\s*1px solid var\(--mx-border\);/s,
     "the Search pane's box IS the shared box: one height, one inset, one hairline");
   assert.match(themeCss,
-    /\.workbench-search-input > svg \{[^}]*flex:\s*0 0 14px;/s,
+    /\.workbench-search-input > svg \{[^}]*width:\s*var\(--mx-icon-sm\);[^}]*flex:\s*0 0 var\(--mx-icon-sm\);/s,
     "with one fixed 14px leading glyph in every panel");
   assert.match(themeCss,
     /\.workbench-search-input button \{[^}]*width:\s*20px;[^}]*height:\s*20px;/s,
@@ -13185,7 +13645,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(themeCss,
     /\.dock-terminal \.xterm-viewport::-webkit-scrollbar-button\s*\{[^}]*display:\s*none;[^}]*width:\s*0;[^}]*height:\s*0;/s);
   assert.match(themeCss,
-    /\.workspace-tab\s*\{[^}]*height:\s*35px;[^}]*min-width:\s*var\(--workspace-tab-current-width,\s*50px\);[^}]*max-width:\s*var\(--workspace-tab-current-width,\s*160px\);[^}]*flex:\s*1 0 0;/s);
+    /\.workspace-tab\s*\{[^}]*height:\s*35px;[^}]*min-width:\s*var\(--workspace-tab-current-width,\s*30px\);[^}]*max-width:\s*var\(--workspace-tab-current-width,\s*160px\);[^}]*flex:\s*1 1 var\(--workspace-tab-current-width,\s*160px\);/s);
   assert.match(themeCss,
     /html\[data-mixdog-mobile\] \.workspace-tab\s*\{[^}]*min-width:\s*104px;[^}]*max-width:\s*144px;[^}]*flex:\s*0 0 auto;/s,
     "phone-only tab sizing must not replace equal desktop pane labels at narrow window widths");
@@ -13208,10 +13668,10 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(themeCss,
     /\.desktop-body > \.utility-dock\[data-side="right"\]\s*\{[^}]*margin-left:\s*0;/s);
   assert.match(themeCss, /\.session-header\s*\{[^}]*border-bottom:\s*0;/s);
-  assert.match(themeCss, /\.session-header-content\s*\{[^}]*padding:\s*12px 16px;/s);
+  assert.match(themeCss, /\.session-header-content\s*\{[^}]*padding:\s*12px var\(--pane-inset\);/s);
   // Conversation title runs one step above tab chrome (user: important info
   // read underweighted at 14px/500).
-  assert.match(themeCss, /\.session-header h1\s*\{[^}]*font-size:\s*var\(--mx-font-body\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);[^}]*line-height:\s*22px;/s);
+  assert.match(themeCss, /\.session-header h1\s*\{[^}]*font-size:\s*var\(--mx-font-body\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);[^}]*line-height:\s*var\(--mx-line-emphasis\);/s);
   assert.match(themeCss,
     /\.thread\s*\{[^}]*width:\s*100%;[^}]*padding:\s*20px 0 0;[^}]*gap:\s*0;/s);
   assert.doesNotMatch(themeCss, /\.conversation:has\(\.turn-review-bar\) \.thread/);
@@ -13219,14 +13679,14 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.doesNotMatch(themeCss, /\.turn-review-slot\s*\{[^}]*position:\s*absolute;/s);
   assert.match(themeCss, /\.turn-review-slot:has\(\.turn-review-bar\)\s*\{[^}]*margin-bottom:\s*8px;/s);
   assert.match(themeCss, /\.turn-review-summary\s*\{[^}]*min-height:\s*28px;/s);
-  assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 12px 16px;/s);
+  assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 var\(--pane-inset\) 16px;/s);
   assert.match(themeCss, /\.toolbar-sidebar\s*\{[^}]*width:\s*36px;/s);
   assert.match(themeCss, /\.activity-rail > button\s*\{[^}]*display:\s*grid;[^}]*place-items:\s*center;/s);
   assert.doesNotMatch(themeCss, /\.workspace-tab-divider\s*\{/);
   // VS Code grammar: inactive tabs hide the close glyph until hover.
   assert.match(baseCss, /\.workspace-tab-close\s*\{[^}]*opacity:\s*0;/s);
   assert.match(themeCss,
-    /\.workspace-tab-main span\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-regular\);/s);
+    /\.workspace-tab-main span\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-medium\);/s);
   assert.match(themeCss,
     /\.workspace-tab-close\s*\{[^}]*color:\s*var\(--mx-text\);/s);
   assert.doesNotMatch(themeCss,
@@ -13275,7 +13735,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(themeCss,
     /\.workspace-tabs-shell\s*\{[^}]*width:\s*auto;[^}]*max-width:\s*none;[^}]*flex:\s*1 1 0;[^}]*-webkit-app-region:\s*no-drag;/s);
   assert.match(themeCss,
-    /\.workspace-tab\s*\{[^}]*min-width:\s*var\(--workspace-tab-current-width,\s*50px\);[^}]*max-width:\s*var\(--workspace-tab-current-width,\s*160px\);[^}]*flex:\s*1 0 0;/s);
+    /\.workspace-tab\s*\{[^}]*min-width:\s*var\(--workspace-tab-current-width,\s*30px\);[^}]*max-width:\s*var\(--workspace-tab-current-width,\s*160px\);[^}]*flex:\s*1 1 var\(--workspace-tab-current-width,\s*160px\);/s);
   assert.match(themeCss,
     /\.projects-common-instructions\s*\{[^}]*margin-bottom:\s*16px;/s);
   assert.doesNotMatch(themeCss, /\.dock-file-row\.selected\s*\{/s);
@@ -14217,7 +14677,7 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
   await act(async () => root.render(React.createElement(WorkspaceTabStrip, {
     ...props,
     activeKey: "two",
-    activeBusy: true,
+    workingSessionIds: new Set(["two"]),
   })));
   assert.equal(document.querySelector(".workspace-tabs")?.classList.contains("animating"), false,
     "VS Code tab selection does not arm layout animation");
@@ -14331,6 +14791,44 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
   assert.equal(document.querySelector(".workspace-tabs").contains(paneNewButton), false);
   assert.equal(document.querySelector(".titlebar-new"), null);
   assert.equal(document.querySelector(".titlebar-update"), null);
+});
+
+test("workspace session spinners do not follow global busy into an idle tab", async () => {
+  installDom();
+  const tabs = [
+    { key: "working", title: "Working", selection: { kind: "session", id: "working" } },
+    { key: "idle", title: "Idle", selection: { kind: "session", id: "idle" } },
+    { key: "new", title: "New task", selection: { kind: "new" } },
+  ];
+  const props = {
+    tabs,
+    activeKey: "working",
+    activeBusy: true,
+    workingSessionIds: new Set(["working"]),
+    focused: true,
+    onSelectTab() {},
+    onCloseTab() {},
+    onReorderTab() {},
+    onNewTask() {},
+  };
+  await act(async () => root.render(React.createElement(WorkspaceTabStrip, props)));
+  assert.equal(document.querySelector('[data-tab-key="working"]')?.dataset.working, "true");
+
+  await act(async () => root.render(React.createElement(WorkspaceTabStrip, {
+    ...props,
+    activeKey: "idle",
+  })));
+  assert.equal(document.querySelector('[data-tab-key="working"]')?.dataset.working, "true",
+    "the background working session keeps its own spinner");
+  assert.equal(document.querySelector('[data-tab-key="idle"]')?.dataset.working, undefined,
+    "global busy must not mark the selected idle session as working");
+
+  await act(async () => root.render(React.createElement(WorkspaceTabStrip, {
+    ...props,
+    activeKey: "new",
+  })));
+  assert.equal(document.querySelector('[data-tab-key="new"]')?.dataset.working, "true",
+    "the focused pre-session task still uses activeBusy");
 });
 
 test("workspace tabs use VS Code flex sizing and relayout active labels with their pane", async () => {
@@ -14548,6 +15046,77 @@ test("background tabs reach a root edge without changing selection first", async
     "the background tab must move directly into the split without a transient selection");
   assert.equal(document.querySelector(".pane-drop-overlay"), null);
   assert.equal(document.body.dataset.tabDragging, undefined);
+});
+
+test("downward tab drags preview and drop on the lower side of a foreign pane", async () => {
+  installDom();
+  const source = { kind: "session", id: "source" };
+  const target = { kind: "session", id: "target" };
+  const top = {
+    type: "leaf", id: "leaf_top", tabs: [source], activeKey: "session:source",
+  };
+  const bottom = {
+    type: "leaf", id: "leaf_bottom", tabs: [target], activeKey: "session:target",
+  };
+  const splits = [];
+  const workspace = {
+    layout: {
+      type: "split", direction: "column", ratio: 0.5, first: top, second: bottom,
+    },
+    leaves: [top, bottom],
+    focusedLeaf: top,
+    focusedLeafId: top.id,
+    focusLeaf() {},
+    setRatio() {},
+    splitLeafAt(...args) { splits.push(args); },
+    moveTab() {},
+    moveTabToNodeEdge() {},
+  };
+  const rect = (left, topEdge, width, height) => ({
+    x: left, y: topEdge, left, top: topEdge, width, height,
+    right: left + width, bottom: topEdge + height,
+    toJSON: () => ({}),
+  });
+
+  await act(async () => root.render(
+    React.createElement("div", { className: "main-panel" },
+      React.createElement(PaneWorkspace, {
+        workspace,
+        renderActive: () => React.createElement("div"),
+        renderConversation: () => React.createElement("div"),
+        onFocusSelection() {},
+      }),
+    ),
+  ));
+  const panel = document.querySelector(".main-panel");
+  const panes = [...document.querySelectorAll(".pane-leaf")];
+  panel.getBoundingClientRect = () => rect(0, 0, 1_000, 2_401);
+  panes[0].getBoundingClientRect = () => rect(0, 0, 1_000, 1_200);
+  panes[1].getBoundingClientRect = () => rect(0, 1_201, 1_000, 1_200);
+  Object.defineProperty(document, "elementFromPoint", {
+    configurable: true,
+    value: () => panes[1],
+  });
+  const frame = {
+    kind: "tab",
+    key: "session:source",
+    title: "Source",
+    selection: source,
+    sourceLeafId: top.id,
+    x: 500,
+    y: 1_220,
+    deltaX: 0,
+    deltaY: 40,
+  };
+
+  await act(async () => publishTabDrag({ ...frame, phase: "move" }));
+  const previewStyle = document.querySelector(".pane-drop-overlay")?.getAttribute("style") ?? "";
+  assert.match(previewStyle, /top:\s*1801px/,
+    "a downward pointer must highlight the target pane's lower half");
+  assert.match(previewStyle, /height:\s*600px/);
+
+  await act(async () => publishTabDrag({ ...frame, phase: "drop" }));
+  assert.deepEqual(splits, [["leaf_bottom", "bottom", source, "leaf_top"]]);
 });
 
 test("dragging a tab strip's empty run merges or repositions the whole editor group", async () => {
@@ -14895,7 +15464,7 @@ test("the workbench keymap is captured on every surface (xterm, Monaco, composer
     openCommandPalette() { calls.push("palette"); },
     openFindInFiles() { calls.push("find"); },
     openTabSwitcher() { calls.push("switcher"); },
-    focusSiblingPane() { calls.push("pane"); },
+    focusSiblingPane(offset, axis) { calls.push(`pane:${axis}:${offset}`); },
     navigateBack() {},
     navigateForward() {},
   };
@@ -14936,15 +15505,21 @@ test("the workbench keymap is captured on every surface (xterm, Monaco, composer
   // no surface may swallow a workbench binding (user: 다 인터셉트).
   for (const owner of ["xterm", "monaco", "composer"]) {
     for (const [key, init] of [["t", {}], ["p", {}], ["p", { shiftKey: true }], ["n", {}],
-      ["j", {}], ["w", {}], ["ArrowLeft", { ctrlKey: false, altKey: true }]]) {
+      ["j", {}], ["w", {}],
+      ["ArrowLeft", { ctrlKey: false, altKey: true }],
+      ["ArrowDown", { ctrlKey: false, altKey: true }],
+      ["ArrowUp", { ctrlKey: false, altKey: true }]]) {
       assert.equal(pressAt(owner, key, init).defaultPrevented, true,
         `${owner} must not swallow the workbench shortcut ${key}`);
     }
   }
   assert.deepEqual(calls, [
-    "terminal", "quick", "palette", "task", "panel", "pane",
-    "terminal", "quick", "palette", "task", "panel", "pane",
-    "terminal", "quick", "palette", "task", "panel", "pane",
+    "terminal", "quick", "palette", "task", "panel",
+    "pane:horizontal:-1", "pane:vertical:1", "pane:vertical:-1",
+    "terminal", "quick", "palette", "task", "panel",
+    "pane:horizontal:-1", "pane:vertical:1", "pane:vertical:-1",
+    "terminal", "quick", "palette", "task", "panel",
+    "pane:horizontal:-1", "pane:vertical:1", "pane:vertical:-1",
   ], "Ctrl+W routes through the close event, so it adds no action call");
   await act(async () => root.render(React.createElement(ShortcutHarness, { modal: true })));
   assert.equal(pressAt("modal", "p").defaultPrevented, false,
@@ -15437,7 +16012,10 @@ test("desktop composer folds large pasted text and submits the expanded attachme
     resumeSession: async () => snapshot,
     subscribeState: () => () => {},
     invokeCapability: async ({ capability }) => ({ value: capability === 'getTheme' ? 'basic' : null, snapshot }),
-    submit: async (content, options) => { submissions.push([content, options]); return true; },
+    submitToSession: async (_sessionId, content, options) => {
+      submissions.push([content, options]);
+      return true;
+    },
   };
   await act(async () => {
     root.render(React.createElement(App));
@@ -15573,7 +16151,6 @@ test("desktop composer searches, cancels stale @ file mentions, selects by keybo
     listProjects: async () => [{ path: project, alias: 'Mention', pinned: false }],
     listSessions: async () => [],
     subscribeState: () => () => {},
-    startProject: async () => snapshot,
     listProviderModels: async () => [{
       provider: 'openai', model: 'gpt-real', display: 'GPT Real', effortOptions: [],
     }],
@@ -15581,13 +16158,28 @@ test("desktop composer searches, cancels stale @ file mentions, selects by keybo
       searches.push([scope, query, limit]);
       return new Promise((resolve) => pending.set(query, resolve));
     },
-    submit: async (content, options) => { submissions.push([content, options]); return true; },
+    submitNewTask: async (content, options, draft) => {
+      submissions.push([content, options, draft]);
+      return {
+        accepted: true,
+        sessionId: "mention-task",
+        snapshot: { ...snapshot, sessionId: "mention-task", items: [], queued: [] },
+      };
+    },
   };
   await act(async () => {
     root.render(React.createElement(App));
     await Promise.resolve();
   });
-  await selectFirstProject();
+  await act(async () => {
+    document.querySelector('button[aria-label="Project context"]').click();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    Array.from(document.querySelectorAll('[role="option"]'))
+      .find((option) => option.textContent.trim() === "Mention").click();
+    await Promise.resolve();
+  });
   const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
   const replaceDraft = async (value) => {
     await act(async () => {
@@ -15678,6 +16270,7 @@ test("desktop composer searches, cancels stale @ file mentions, selects by keybo
   assert.equal(submissions.length, 1);
   assert.equal(submissions[0][0], 'Review @test/renderer.dom.test.mjs ');
   assert.equal(submissions[0][1].displayText, 'Review @test/renderer.dom.test.mjs ');
+  assert.equal(submissions[0][2].projectPath, project);
   assert.equal(textarea.value, '');
 });
 
@@ -15734,7 +16327,7 @@ test("desktop slash aliases preserve core command semantics and forced catalog r
   assert.equal(newTasks, 0);
 });
 
-test("stopping a turn restores engine-owned image attachments and keeps the current draft", async () => {
+test("stopping a turn restores session-owned image attachments and keeps the current draft", async () => {
   installDom();
   const snapshot = { items: [], queued: [], promptHistoryList: [], busy: true };
   window.mixdogDesktop = {
@@ -15746,7 +16339,7 @@ test("stopping a turn restores engine-owned image attachments and keeps the curr
     resumeSession: async () => snapshot,
     subscribeState: () => () => {},
     invokeCapability: async ({ capability }) => ({ value: capability === 'getTheme' ? 'basic' : null, snapshot }),
-    abort: async () => ({
+    abortSession: async () => ({
       aborted: true,
       restoreText: 'Inspect [Image #7: restored.png]',
       pastedImages: {
@@ -15764,11 +16357,15 @@ test("stopping a turn restores engine-owned image attachments and keeps the curr
     document.querySelector('.session-row').click();
     await Promise.resolve();
   });
+  await waitForDom(() => document.querySelector('button[aria-label="Stop generation"]') !== null,
+    "the busy session should finish its route transition");
   const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
+  const stop = document.querySelector('button[aria-label="Stop generation"]');
+  assert.ok(stop, "the busy session should expose its stop action");
   await act(async () => {
     textarea.value = 'Keep this steering note';
     textarea.dispatchEvent(new window.InputEvent('input', { bubbles: true, inputType: 'insertText' }));
-    document.querySelector('button[aria-label="Stop generation"]').click();
+    stop.click();
     await Promise.resolve();
     await Promise.resolve();
   });

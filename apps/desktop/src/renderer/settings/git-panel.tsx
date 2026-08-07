@@ -13,6 +13,7 @@ import type {
   DesktopGitCommitPreset,
   DesktopGitGlobalConfig,
 } from '../../shared/contract';
+import { showDesktopToast } from '../notifications';
 
 import { ActionButton, FormRow, Group, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
 import {
@@ -48,6 +49,9 @@ export function GitPanel() {
   const [flow, setFlow] = useState<DesktopGithubCliLoginFlow | null>(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  useEffect(() => {
+    if (error) showDesktopToast(error, 'error');
+  }, [error]);
 
   const refreshStatus = useCallback(async () => {
     if (!host?.githubCliStatus) return;
@@ -265,6 +269,5 @@ export function GitPanel() {
         </p>;
       })()}
     </Group>
-    {error && <p className="mixdog-settings__error" role="alert">{error}</p>}
   </>;
 }

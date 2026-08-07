@@ -1,5 +1,5 @@
 // Session catalog freshness, extracted from App.tsx: the sidebar list state,
-// the optimistic rename/delete overlay, and the three ways a fresh catalog
+// the optimistic rename/archive/delete overlay, and the three ways a fresh catalog
 // arrives (initial/manual refresh, main-process push, safety-net poll).
 import {
   startTransition,
@@ -17,6 +17,7 @@ import {
   mergeSessionCatalogRows,
 } from "../shared/session-catalog";
 import {
+  readCachedSessionCatalog,
   scheduleCachedSessionCatalogWrite,
 } from "./session-catalog-cache";
 
@@ -30,6 +31,8 @@ export interface SessionCatalog {
   refreshSessions: () => Promise<DesktopSessionSummary[]>;
   /** Sessions renamed locally but not yet reconciled with the engine. */
   pendingRenames: React.MutableRefObject<Map<string, { title: string }>>;
+  /** Sessions archived/restored locally but not yet reconciled with the engine. */
+  pendingArchives: React.MutableRefObject<Map<string, { archived: boolean }>>;
   /** Sessions deleted locally but not yet gone from the engine listing. */
   pendingDeletes: React.MutableRefObject<Set<string>>;
   /** Drop in-flight list responses so a local optimistic change is not undone. */
@@ -39,24 +42,34 @@ export interface SessionCatalog {
 export function useSessionCatalog(
   reconcileUnreadSessions: (rows: DesktopSessionSummary[]) => void,
 ): SessionCatalog {
-  // A cached summary is not proof that sessions/<id>.json still exists.
-  // Start empty and let the backend's exact catalog create every visible row.
-  const [sessions, setSessionsState] = useState<DesktopSessionSummary[]>([]);
+  // Paint the durable presentation cache on the first render. It never makes
+  // a session addressable: pane/session reads still validate the exact record,
+  // and the incremental host catalog replaces stale rows in the background.
+  const [sessions, setSessionsState] = useState<DesktopSessionSummary[]>(
+    readCachedSessionCatalog,
+  );
   const sessionsRef = useRef<DesktopSessionSummary[]>(sessions);
   const pendingRenames = useRef(new Map<string, { title: string }>());
+  const pendingArchives = useRef(new Map<string, { archived: boolean }>());
   const pendingDeletes = useRef(new Set<string>());
   const refreshVersion = useRef(0);
 
   const invalidateInFlight = useCallback(() => { refreshVersion.current += 1; }, []);
 
   // Engine rows carry no knowledge of a local mutation still in flight, so the
-  // optimistic title/removal is re-applied on top of every catalog.
+  // optimistic title/archive/removal is re-applied on top of every catalog.
   const projectSessionRows = useCallback((next: DesktopSessionSummary[] | null | undefined) => (
     (Array.isArray(next) ? next : [])
       .filter((session) => !pendingDeletes.current.has(session.id))
       .map((session) => {
-        const pending = pendingRenames.current.get(session.id);
-        return pending ? { ...session, title: pending.title } : session;
+        const rename = pendingRenames.current.get(session.id);
+        const archive = pendingArchives.current.get(session.id);
+        if (!rename && !archive) return session;
+        return {
+          ...session,
+          ...(rename ? { title: rename.title } : {}),
+          ...(archive ? { archived: archive.archived } : {}),
+        };
       })
   ), []);
 
@@ -145,6 +158,7 @@ export function useSessionCatalog(
     setSessions,
     refreshSessions,
     pendingRenames,
+    pendingArchives,
     pendingDeletes,
     invalidateInFlight,
   };

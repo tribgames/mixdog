@@ -61,6 +61,22 @@ export interface WorkspaceTabStripProps {
   onOpenFolder?(): void;
 }
 
+function tabIsWorking(
+  tab: WorkspaceTab | undefined,
+  active: boolean,
+  activeBusy: boolean,
+  workingSessionIds: ReadonlySet<string> | undefined,
+): boolean {
+  if (!tab) return false;
+  if (tab.selection.kind === "session") {
+    return workingSessionIds?.has(tab.selection.id) === true;
+  }
+  // activeBusy belongs to the pre-session task owned by this focused strip.
+  // Established sessions are keyed exclusively by workingSessionIds so a
+  // busy session cannot leak its spinner into the newly selected idle tab.
+  return tab.selection.kind === "new" && active && activeBusy;
+}
+
 /** Tab-kind glyph shared by the compact current-tab button and the switcher
  *  rows (the full strip keeps its inline chain untouched for the strip
  *  contract tests). */
@@ -164,6 +180,8 @@ export function WorkspaceTabStrip({
     outside: boolean;
     lastX: number;
     lastY: number;
+    deltaX: number;
+    deltaY: number;
     /** Pending VS Code drop index while the pointer stays in the strip. */
     dropIndex: number | null;
   } | null>(null);
@@ -446,6 +464,8 @@ export function WorkspaceTabStrip({
           selection: sourceTab.selection,
           x: drag.lastX,
           y: drag.lastY,
+          deltaX: drag.deltaX,
+          deltaY: drag.deltaY,
         });
       }
       return;
@@ -490,6 +510,8 @@ export function WorkspaceTabStrip({
     const strip = tabStrip.current;
     if (!strip) return;
     const stripRect = strip.getBoundingClientRect();
+    drag.deltaX = event.clientX - drag.lastX;
+    drag.deltaY = event.clientY - drag.lastY;
     drag.lastX = event.clientX;
     drag.lastY = event.clientY;
     // VS Code drag image: the ghost label's top-left corner rides at the
@@ -549,6 +571,7 @@ export function WorkspaceTabStrip({
         publishFrame({
           kind: drag.kind, phase: "move", key: sourceTab.key, title: sourceTab.title,
           selection: sourceTab.selection, x: event.clientX, y: event.clientY,
+          deltaX: drag.deltaX, deltaY: drag.deltaY,
         });
       }
       return;
@@ -650,11 +673,7 @@ export function WorkspaceTabStrip({
         data-focused={focused ? "true" : "false"}>
         {compact ? (() => {
           const activeTab = tabs.find((tab) => tab.key === activeKey) ?? tabs[0];
-          const working = Boolean(activeTab
-            && ((activeTab.selection.kind === "session"
-              && workingSessionIds?.has(activeTab.selection.id) === true)
-              || ((activeTab.selection.kind === "session"
-                || activeTab.selection.kind === "new") && activeBusy)));
+          const working = tabIsWorking(activeTab, true, activeBusy, workingSessionIds);
           return <>
             <button type="button" ref={switcherTrigger}
               className="workspace-tab-compact-current"
@@ -716,6 +735,8 @@ export function WorkspaceTabStrip({
               outside: false,
               lastX: event.clientX,
               lastY: event.clientY,
+              deltaX: 0,
+              deltaY: 0,
               dropIndex: null,
             };
           }}
@@ -728,11 +749,7 @@ export function WorkspaceTabStrip({
               && tabs[dropIndex - 1]?.key === tab.key;
             const dropRight = draggingKey && dropIndex !== null
               && tabs[dropIndex]?.key === tab.key;
-            const interactiveChat = tab.selection.kind === "session"
-              || tab.selection.kind === "new";
-            const working = (tab.selection.kind === "session" &&
-              workingSessionIds?.has(tab.selection.id) === true)
-              || (interactiveChat && active && activeBusy);
+            const working = tabIsWorking(tab, active, activeBusy, workingSessionIds);
             const unread = tab.selection.kind === "session" &&
               unreadSessionIds?.has(tab.selection.id) === true;
             const fixedTabWidth = fixedTabWidths.get(tab.key);
@@ -763,6 +780,8 @@ export function WorkspaceTabStrip({
                       outside: false,
                       lastX: event.clientX,
                       lastY: event.clientY,
+                      deltaX: 0,
+                      deltaY: 0,
                       dropIndex: null,
                     };
                   }}

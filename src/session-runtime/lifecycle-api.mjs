@@ -15,6 +15,7 @@ import {
   getStoreDir,
   listSessionHeartbeatMtimes,
 } from '../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs';
+import { SessionClosedError } from '../runtime/agent/orchestrator/session/manager/session-errors.mjs';
 
 export function resolveResumeCwd(session, currentCwd) {
   const desktop = session?.desktopSession;
@@ -52,7 +53,7 @@ export function createLifecycleApi(deps) {
     beginRoutePreparation, clearRoutePreparation,
     pushTranscriptRebind,
     notificationListeners, remoteStateListeners, desktopSession,
-    disposeSessionTitles,
+    disposeSessionTitles, abortActiveTurns, getReservedSessionId,
   } = deps;
   const closeSurfaceSession = (session, reason, options) => {
     if (!session?.id) return false;
@@ -168,6 +169,14 @@ export function createLifecycleApi(deps) {
       // of reaping every session's jobs. CLI exit paths never set this.
       const keepBackgroundWork = options?.keepBackgroundWork === true;
       setCloseRequested(true);
+      const closingTurnId = getSession()?.id || getReservedSessionId?.() || 'pending';
+      try {
+        abortActiveTurns?.(new SessionClosedError(
+          closingTurnId,
+          `runtime close (reason=${reason})`,
+          reason,
+        ));
+      } catch {}
       try { stopSelfUpdateBootCheck?.(); } catch {}
       try { disposeSessionTitles?.(); } catch {}
       // Self-update now stages in the background and swaps on the next clean
@@ -335,8 +344,18 @@ export function createLifecycleApi(deps) {
     },
     abort(reason = 'cli-abort') {
       const session = getSession();
-      if (!session?.id) return false;
-      return mgr.abortSessionTurn(session.id, reason);
+      const sessionId = session?.id || getReservedSessionId?.() || 'pending';
+      const abortError = new SessionClosedError(
+        sessionId,
+        `runtime abort (reason=${reason})`,
+        reason,
+      );
+      let outerAborted = false;
+      try { outerAborted = abortActiveTurns?.(abortError) === true; } catch {}
+      const managerAborted = session?.id
+        ? mgr.abortSessionTurn(session.id, reason)
+        : false;
+      return outerAborted || managerAborted;
     },
     listSessions(options = {}) {
       return listLeadSessions(options);

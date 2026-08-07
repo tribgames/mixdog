@@ -4,7 +4,7 @@
 // user: 단축키는 우리 걸로 다 인터셉트해서 먼저 처리). Only an open modal
 // outranks the table. User-tuned bindings:
 // mod+N new task · ctrl+Tab MRU switcher · ctrl+PageUp/PageDown cycle ·
-// mod+Left/Right tab cycle · alt+Left/Right pane focus ·
+// mod+Left/Right tab cycle · alt+arrows pane focus ·
 // mod+P Quick Open · shift+mod+P Command Palette ·
 // mod+, settings · mod+B left sidebar · alt+mod+B right utility dock ·
 // mod+J panel · ctrl+` and mod+T toggle the terminal panel ·
@@ -28,8 +28,8 @@ export interface WorkspaceShortcutActions {
   openFindInFiles: () => void;
   /** Ctrl+Tab: open/advance the MRU tab switcher (VS Code grammar). */
   openTabSwitcher: (offset: number) => void;
-  /** Alt+Left/Right: move focus to the previous/next pane group. */
-  focusSiblingPane: (offset: number) => void;
+  /** Alt+arrows: move focus through pane groups along the requested axis. */
+  focusSiblingPane: (offset: number, axis: "horizontal" | "vertical") => void;
   navigateBack: () => void;
   navigateForward: () => void;
 }
@@ -55,12 +55,17 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
     /** The keymap itself: returns the command for an event, or null. */
     const resolve = (event: globalThis.KeyboardEvent) => {
       const mod = event.ctrlKey || event.metaKey;
-      // Alt+Left/Right moves PANE focus (user: PANE 이동은 알트, 라벨 이동은
-      // 컨트롤); history stays reachable via mixdog:navigate-history.
+      // Alt+arrows move PANE focus (user: PANE 이동은 알트, 라벨 이동은
+      // 컨트롤); horizontal and vertical traversal keep independent orders.
       if (event.altKey && !mod && !event.shiftKey
-        && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-        const offset = event.key === "ArrowLeft" ? -1 : 1;
-        return () => actionsRef.current.focusSiblingPane(offset);
+        && (event.key === "ArrowLeft" || event.key === "ArrowRight"
+          || event.key === "ArrowUp" || event.key === "ArrowDown")) {
+        const horizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
+        const offset = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+        return () => actionsRef.current.focusSiblingPane(
+          offset,
+          horizontal ? "horizontal" : "vertical",
+        );
       }
       if (!mod) return null;
       const key = event.key.toLowerCase();

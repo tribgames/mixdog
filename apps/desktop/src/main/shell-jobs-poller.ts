@@ -1,7 +1,7 @@
 // Background shell-job strip for the status bar. The runtime has no push event
-// for job counts, so the backend polls with an adaptive delay.
-import type { StatuslineSegmentsModule } from './backend-support';
-import { shellJobsPollDelay } from './backend-support';
+// for job counts, so the service polls with an adaptive delay.
+import type { StatuslineSegmentsModule } from './desktop-support';
+import { shellJobsPollDelay } from './desktop-support';
 
 export interface ShellJobsStatus {
   count: number;
@@ -16,7 +16,7 @@ export interface ShellJobsPollerOptions {
   getEngineState(): Record<string, unknown> | null;
   /** Resolved statusline module URL — imported lazily on the first poll. */
   moduleUrl(): string;
-  /** Daemon-hosted backends inject their own source module so plain Node never
+  /** Daemon-hosted services inject their own source module so plain Node never
    *  has to import an Electron ASAR path. */
   loadModule?: () => Promise<StatuslineSegmentsModule>;
   /** Called only when the status actually changed, carrying the sessions whose

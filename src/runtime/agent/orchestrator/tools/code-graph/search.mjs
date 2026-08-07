@@ -1,7 +1,8 @@
 // Symbol search / callers / callees / references / impact query layer over a
 // built graph. Pure over {graph,cwd,args}; owns no cache state. Extracted
 // verbatim from code-graph.mjs.
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { codeGraphSourceIoAdmission } from '../../../../shared/tool-workload-gates.mjs';
 import { _isJsLike } from './lang-predicates.mjs';
 import { _maskNonCodeText } from './text-mask.mjs';
 import {
@@ -30,7 +31,7 @@ import {
   _keywordMatchesSymbolName,
 } from './keyword-match.mjs';
 
-export { _formatRelated, _formatImpact, _findSymbolAcrossGraph, _resolveReferenceLanguageNode, _formatCallerReferences, _formatTransitiveCallers } from './search-references.mjs';
+export { _formatRelated, _formatImpact, _impactSourceNodes, _findSymbolAcrossGraph, _resolveReferenceLanguageNode, _formatCallerReferences, _formatTransitiveCallers } from './search-references.mjs';
 export function _extractCallees(graph, declHit, _cwd, { cap = 200, callerSymbol = null, language = null } = {}) {
   if (!declHit || !_CALLEES_BRACE_LANGS.has(declHit.lang)) return [];
   const declNode = graph.nodes.get(declHit.rel);
@@ -253,28 +254,64 @@ export function _formatCalleeRow(row) {
   const enclosing = row.enclosing ? `(in ${row.enclosing})` : '(in ?)';
   return `${row.name}\t${callsite}\t${decl}\t${enclosing}`;
 }
-export async function _prewarmReferenceSourceText(graph, symbol, language) {
-  const candidateNodes = _lookupCandidateNodes(graph, symbol, language);
-  // Return the resolved candidate set so the immediately-following
-  // _cheapReferenceSearch (references/callers dispatch) can reuse it instead
-  // of recomputing _lookupCandidateNodes for the same (symbol, language) —
-  // which on a token-index miss is a full-graph scan run twice per symbol.
-  if (!candidateNodes.length) return candidateNodes;
+const CODE_GRAPH_SOURCE_READ_CONCURRENCY = Math.max(
+  1,
+  Math.min(32, Math.floor(Number(process.env.MIXDOG_CODE_GRAPH_SOURCE_READ_CONCURRENCY) || 8)),
+);
+
+export async function _prewarmSourceTextNodes(graph, nodes, {
+  concurrency = CODE_GRAPH_SOURCE_READ_CONCURRENCY,
+  readFileImpl = readFile,
+  signal = null,
+  ownerKey = null,
+} = {}) {
+  const sourceNodes = [];
+  const seen = new Set();
+  for (const node of Array.isArray(nodes) ? nodes : []) {
+    if (!node?.rel || !node?.abs || seen.has(node.rel)) continue;
+    seen.add(node.rel);
+    sourceNodes.push(node);
+  }
   const uncached = [];
-  for (const node of candidateNodes) {
+  for (const node of sourceNodes) {
     const cached = graph._sourceTextCache?.get(node.rel);
     if (!cached || cached.fingerprint !== (node.fingerprint || '')) {
       uncached.push(node);
     }
   }
-  if (uncached.length === 0) return candidateNodes;
-  const { readFile } = await import('fs/promises');
-  await Promise.all(uncached.map(async (node) => {
-    try {
-      const text = await readFile(node.abs, 'utf8');
-      graph._sourceTextCache?.set(node.rel, { fingerprint: node.fingerprint || '', text });
-    } catch { /* skip unreadable file */ }
-  }));
+  let next = 0;
+  const worker = async () => {
+    while (!signal?.aborted) {
+      const index = next++;
+      if (index >= uncached.length) return;
+      const node = uncached[index];
+      try {
+        const text = await codeGraphSourceIoAdmission.run(
+          ownerKey,
+          () => readFileImpl(node.abs, 'utf8'),
+          { signal },
+        );
+        graph._sourceTextCache?.set(node.rel, { fingerprint: node.fingerprint || '', text });
+      } catch { /* skip unreadable/aborted file */ }
+    }
+  };
+  const workerCount = Math.min(
+    Math.max(1, Math.floor(Number(concurrency) || CODE_GRAPH_SOURCE_READ_CONCURRENCY)),
+    Math.max(1, uncached.length),
+  );
+  if (uncached.length > 0) {
+    await Promise.all(Array.from({ length: workerCount }, worker));
+  }
+  return sourceNodes;
+}
+
+export async function _prewarmReferenceSourceText(graph, symbol, language, options = {}) {
+  const candidateNodes = _lookupCandidateNodes(graph, symbol, language);
+  // Return the resolved candidate set so the immediately-following
+  // _cheapReferenceSearch (references/callers dispatch) can reuse it instead
+  // of recomputing _lookupCandidateNodes for the same (symbol, language) —
+  // which on a token-index miss is a full-graph scan run twice per symbol.
+  await _prewarmSourceTextNodes(graph, candidateNodes, options);
   return candidateNodes;
 }
 

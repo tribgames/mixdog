@@ -132,7 +132,7 @@ export function createPrewarmSchedulers({
       if (isCloseRequested()) return;
       // Channels-module and remote toggles gate MESSAGING; automation
       // (enabled schedules/webhooks) keeps the worker boot alive — its
-      // backend runs headless when messaging is off or unconfigured.
+      // channel provider runs headless when messaging is off or unconfigured.
       const automation = await hasActiveAutomation().catch(() => false);
       if (!channelsEnabled() && !automation) {
         bootProfile('channels:start-disabled');

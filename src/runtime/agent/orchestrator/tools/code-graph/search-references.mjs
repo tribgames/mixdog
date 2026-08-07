@@ -2,7 +2,6 @@
 // Symbol search / callers / callees / references / impact query layer over a
 // built graph. Pure over {graph,cwd,args}; owns no cache state. Extracted
 // verbatim from code-graph.mjs.
-import { readFileSync } from 'node:fs';
 import { _isJsLike } from './lang-predicates.mjs';
 import { _maskNonCodeText } from './text-mask.mjs';
 import {
@@ -59,6 +58,18 @@ function _collectImpactSymbols(node, graph) {
   const text = _getSourceTextForNode(graph, node);
   for (const item of _collectCheapSymbols(text, node.lang)) names.add(item.name);
   return [...names];
+}
+
+export function _impactSourceNodes(node, graph, targetSymbol = '') {
+  const symbols = targetSymbol ? [targetSymbol] : _collectImpactSymbols(node, graph).slice(0, 8);
+  const out = [];
+  const seen = new Set();
+  for (const candidate of [node, ...symbols.flatMap((symbol) => _lookupCandidateNodes(graph, symbol, node?.lang || null))]) {
+    if (!candidate?.rel || seen.has(candidate.rel)) continue;
+    seen.add(candidate.rel);
+    out.push(candidate);
+  }
+  return out;
 }
 
 function _buildImpactSummary(node, graph, cwd, targetSymbol = '') {

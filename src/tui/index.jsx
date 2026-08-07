@@ -1,7 +1,7 @@
 /**
  * src/tui/index.jsx — entry that mounts the React/ink TUI.
  *
- * Creates the engine session (runs OUR agentLoop outside React) and ink-renders
+ * Creates the session runtime session (runs OUR agentLoop outside React) and ink-renders
  * <App store={...}/>. Resolves when the app exits (/exit or /quit).
  */
 import React from 'react';
@@ -13,8 +13,8 @@ import { performance } from 'node:perf_hooks';
 import { format } from 'node:util';
 import { App } from './App.jsx';
 import { cancelPendingMouseTrackingRestores } from './app/use-mouse-input.mjs';
-import { createEngineSession } from './engine.mjs';
-import { scheduleRenderFrameAck, TUI_RENDER_FPS } from './engine/render-timing.mjs';
+import { createSessionRuntime } from './session.mjs';
+import { scheduleRenderFrameAck, TUI_RENDER_FPS } from './session/render-timing.mjs';
 import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
 import { finishProcessLifecycle } from '../runtime/shared/process-lifecycle.mjs';
 import { rgbSgr } from '../ui/ansi.mjs';
@@ -472,7 +472,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
 
   // Enter the alternate screen buffer before session/runtime boot so no stale
   // shell rows are visible while the statusline/TUI data warms up. The first
-  // real Ink frame may still arrive after createEngineSession(), but the user
+  // real Ink frame may still arrive after createSessionRuntime(), but the user
   // sees a clean fullscreen surface immediately instead of the previous terminal
   // contents bleeding through the bottom status area.
   process.stdout.write(`${TERMINAL_MODE_RESET_HIDDEN_CURSOR}\x1b[?1049h${TERMINAL_MODE_RESET_HIDDEN_CURSOR}\x1b[2J\x1b[H`);
@@ -488,10 +488,10 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
 
   process.on('exit', restoreTerminal);
 
-  // Engine startup is independent from palette selection. Start it now and
+  // Session runtime startup is independent from palette selection. Start it now and
   // overlap its runtime import/config work with the theme read, while still
   // awaiting the theme before the first React frame.
-  const storeOutcomePromise = createEngineSession({ provider, model, toolMode, remote })
+  const storeOutcomePromise = createSessionRuntime({ provider, model, toolMode, remote })
     .then((store) => ({ store, error: null }), (error) => ({ store: null, error }));
 
   // Apply the persisted UI theme (ui.theme in mixdog-config.json) before the
@@ -501,7 +501,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
   try { await loadThemeSettingFromConfig(); } catch { /* default theme stays */ }
   emitTerminalBackground(theme.background);
 
-  // Static splash + loading spinner while createEngineSession() warms up
+  // Static splash + loading spinner while createSessionRuntime() warms up
   // (config, providers, sessions). Without this the user stares at an empty
   // alt screen for the whole boot, then the UI "pops in" — the splash makes
   // the first ink frame an in-place repaint instead.
@@ -518,13 +518,13 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     try {
       await store.touchProjectSelected(store.getState?.()?.cwd || process.cwd());
     } catch { /* best-effort recency */ }
-    // The palette lives in THIS process: on a daemon-backed store the engine's
+    // The palette lives in THIS process: on a daemon-backed store the session runtime's
     // theme methods would run inside the daemon, so the picker saw a promise
     // instead of the list and a switch repainted nothing here. Bind the three
     // theme methods locally (same pattern as the ink selection helpers below)
-    // and mirror the switch to the engine with persist:false, purely so its
+    // and mirror the switch to the session runtime with persist:false, purely so its
     // themeEpoch bump re-renders this tree.
-    if (store.isRemoteEngine === true) {
+    if (store.isRemoteSession === true) {
       const remoteSetTheme = store.setTheme;
       store.listThemes = () => listThemes();
       store.getTheme = () => getThemeSetting();
@@ -547,7 +547,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     process.stderr.write(`mixdog: ${error?.message || error}\n`);
     return 1;
   }
-  // The engine store is a daemon-backed Proxy: every method it does not
+  // The session runtime store is a daemon-backed Proxy: every method it does not
   // implement locally comes back as an ASYNC remote call. A synchronous
   // getOnboardingStatus() probe inside App therefore sees a Promise, never
   // `.completed`, and re-opens the finished wizard on every launch. Resolve

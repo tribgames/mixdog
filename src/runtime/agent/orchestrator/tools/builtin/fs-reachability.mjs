@@ -47,6 +47,6 @@ export async function assertPathReachable(path, deadlineMs = FS_REACHABILITY_DEA
 // the wall-clock cost is one deadline, not N.
 export async function assertPathsReachable(paths, deadlineMs = FS_REACHABILITY_DEADLINE_MS) {
     const list = Array.isArray(paths) ? paths.filter((p) => typeof p === 'string' && p.length) : [];
-    if (list.length === 0) return;
-    await Promise.all(list.map((p) => assertPathReachable(p, deadlineMs)));
+    if (list.length === 0) return [];
+    return await Promise.all(list.map((p) => assertPathReachable(p, deadlineMs)));
 }

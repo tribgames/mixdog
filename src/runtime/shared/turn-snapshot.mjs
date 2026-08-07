@@ -449,8 +449,23 @@ export async function completeTurnSnapshot(sessionId) {
   return true;
 }
 
+/** Abandon an aborted Lead turn without waiting for optional Git snapshot IO. */
+export function cancelTurnSnapshot(sessionId) {
+  const ownerSessionId = clean(sessionId);
+  if (!ownerSessionId) return false;
+  let removed = false;
+  for (const [trackedSessionId, tracker] of _diffTrackersBySession) {
+    if (trackedSessionId !== ownerSessionId && tracker.ownerSessionId !== ownerSessionId) continue;
+    releaseDiffTrackerContent(tracker);
+    _diffTrackersBySession.delete(trackedSessionId);
+    removed = true;
+  }
+  if (_turnsBySession.delete(ownerSessionId)) removed = true;
+  return removed;
+}
+
 /** Return the authoritative Lead net diff plus attributed child reviews. */
-export async function getTurnReviewDiff(_worktree, sessionId) {
+export async function getTurnReviewDiff(_worktree, sessionId, options = {}) {
   if (DISABLED) return { supported: false, files: [], patch: '', agents: [] };
   const ownerSessionId = clean(sessionId);
   const turn = _turnsBySession.get(ownerSessionId);
@@ -458,7 +473,7 @@ export async function getTurnReviewDiff(_worktree, sessionId) {
   const isolatedWorktreeSnapshot = tracker?.worktreeContended
     ? null
     : tracker?.worktreeSnapshot || null;
-  if (isolatedWorktreeSnapshot && !tracker.sealed) {
+  if (isolatedWorktreeSnapshot && !tracker.sealed && options.refresh !== false) {
     try { await refreshTurnWorktreeSnapshot(isolatedWorktreeSnapshot); } catch {}
   }
   const snapshot = isolatedWorktreeSnapshot;

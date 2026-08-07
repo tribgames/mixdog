@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createFrameBatchedStorePublisher } from '../src/tui/engine/frame-batched-store.mjs';
-import { renderFrameDelay, TUI_FRAME_MS } from '../src/tui/engine/render-timing.mjs';
-import { STREAM_BATCH_INTERVAL_MS } from '../src/tui/engine/turn.mjs';
+import { createFrameBatchedStorePublisher } from '../src/tui/session/frame-batched-store.mjs';
+import { renderFrameDelay, TUI_FRAME_MS } from '../src/tui/session/render-timing.mjs';
+import { STREAM_BATCH_INTERVAL_MS } from '../src/tui/session/turn.mjs';
 
 function harness() {
   let draft = { items: [], structureRevision: 4 };

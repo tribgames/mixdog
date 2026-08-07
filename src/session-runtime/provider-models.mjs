@@ -16,7 +16,7 @@ const PROVIDER_MODELS_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(
 ));
 
 // Raw provider model lists are process-global because the provider registry is
-// process-global in the backend daemon. Session runtimes keep only the cheap
+// process-global in the daemon. Session runtimes keep only the cheap
 // hydrated projection (saved effort/fast/current-route ordering). This stops
 // every open pane from repeating the same provider list walk after startup.
 let sharedCatalogRevision = -1;

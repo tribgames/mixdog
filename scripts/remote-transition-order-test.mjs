@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createRemoteTransitionQueue } from '../src/session-runtime/remote-transition-queue.mjs';
 import { createRemoteTranscript } from '../src/session-runtime/remote-transcript.mjs';
-import { createEngineApiB } from '../src/tui/engine/session-api-ext.mjs';
+import { createSessionApiB } from '../src/tui/session/session-api-ext.mjs';
 
 test('remote OFF completes before the following ON starts', async () => {
   const queue = createRemoteTransitionQueue();
@@ -73,14 +73,14 @@ test('transcript refresh never transfers Remote to another session', () => {
   assert.equal(owner, 'manual-owner');
 });
 
-test('Remote capabilities paint desired state before the backend settles', async () => {
+test('Remote capabilities paint desired state before the session settles', async () => {
   let state = {
     sessionId: 'session-a',
     remoteEnabled: false,
     remoteSessionId: null,
   };
-  let backendEnabled = false;
-  let backendSessionId = null;
+  let sessionEnabled = false;
+  let sessionSessionId = null;
   let finishClaim;
   let finishRelease;
   const claimGate = new Promise((resolve) => { finishClaim = resolve; });
@@ -88,18 +88,18 @@ test('Remote capabilities paint desired state before the backend settles', async
   const runtime = {
     startRemote: async () => {
       await claimGate;
-      backendEnabled = true;
-      backendSessionId = 'session-a';
+      sessionEnabled = true;
+      sessionSessionId = 'session-a';
     },
     releaseRemote: async () => {
       await releaseGate;
-      backendEnabled = false;
-      backendSessionId = null;
+      sessionEnabled = false;
+      sessionSessionId = null;
     },
-    isRemoteEnabled: () => backendEnabled,
-    getRemoteSessionId: () => backendSessionId,
+    isRemoteEnabled: () => sessionEnabled,
+    getRemoteSessionId: () => sessionSessionId,
   };
-  const api = createEngineApiB({
+  const api = createSessionApiB({
     runtime,
     getState: () => state,
     set: (update) => { state = { ...state, ...update }; },
@@ -120,7 +120,7 @@ test('Remote capabilities paint desired state before the backend settles', async
   assert.equal(state.remoteEnabled, false);
 });
 
-test('an optimistic Remote claim reconciles after backend failure', async () => {
+test('an optimistic Remote claim reconciles after session failure', async () => {
   let state = {
     sessionId: 'session-a',
     remoteEnabled: false,
@@ -128,7 +128,7 @@ test('an optimistic Remote claim reconciles after backend failure', async () => 
   };
   let failClaim;
   const gate = new Promise((_, reject) => { failClaim = reject; });
-  const api = createEngineApiB({
+  const api = createSessionApiB({
     runtime: {
       startRemote: () => gate,
       isRemoteEnabled: () => false,

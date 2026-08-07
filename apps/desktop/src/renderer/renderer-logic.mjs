@@ -161,6 +161,9 @@ export function normalizeApplyPatch(value) {
     index -= 1;
     const oldName = operation === 'Add' ? '/dev/null' : `a/${fileName}`;
     const newName = operation === 'Delete' ? '/dev/null' : `b/${fileName}`;
+    const mode = operation === 'Add'
+      ? 'new file mode 100644'
+      : operation === 'Delete' ? 'deleted file mode 100644' : '';
     let patchBody = body.join('\n').replace(/\n+$/, '');
     if (operation === 'Add' && patchBody && !/^@@/m.test(patchBody)) {
       const added = patchBody.split('\n').filter((line) => line.startsWith('+')).length;
@@ -168,6 +171,7 @@ export function normalizeApplyPatch(value) {
     }
     sections.push([
       `diff --git a/${fileName} b/${fileName}`,
+      mode,
       `--- ${oldName}`,
       `+++ ${newName}`,
       patchBody,
@@ -225,6 +229,17 @@ function namesFor(section) {
   };
 }
 
+export function diffFileStatus(section) {
+  const text = String(section || '');
+  if (/^Binary files /m.test(text)) return 'binary';
+  if (/^rename from /m.test(text) || /^rename to /m.test(text)) return 'R';
+  if (/^copy from /m.test(text) || /^copy to /m.test(text)) return 'C';
+  if (/^new file mode /m.test(text) || /^---\s+\/dev\/null(?:\s|$)/m.test(text)) return 'A';
+  if (/^deleted file mode /m.test(text) || /^\+\+\+\s+\/dev\/null(?:\s|$)/m.test(text)) return 'D';
+  if (/^(old mode|new mode) /m.test(text)) return 'T';
+  return '';
+}
+
 function parseFileSection(section) {
   const lines = section.replace(/\r\n?/g, '\n').split('\n');
   const hunks = [];
@@ -239,6 +254,7 @@ function parseFileSection(section) {
   }
   if (current) hunks.push(current.join('\n'));
   const { oldName, newName } = namesFor(section);
+  const status = diffFileStatus(section) || (hunks.length > 0 ? 'M' : '');
   return {
     oldFile: { fileName: oldName, content: '' },
     newFile: { fileName: newName, content: '' },
@@ -246,6 +262,7 @@ function parseFileSection(section) {
     patch: section,
     renderPatch: renderablePatch(section, hunks),
     renderable: hunks.length > 0,
+    status,
   };
 }
 
@@ -380,7 +397,7 @@ export function toolInputRows(name, args) {
 // The conversation surface paints the host's LIVE snapshot. Background engines
 // (parked sessions finishing work, automations) must never repaint a view the
 // user is not in: a live frame whose sessionId differs from the viewed scope is
-// always foreign. Explicit backend acknowledgements change the pane's scope;
+// always foreign. Explicit session acknowledgements change the pane's scope;
 // stream publications never change ownership. A scopeSessionId of '' models
 // the renderer-only New task draft, so only blank frames match.
 export function createSessionScopedSnapshotGate(scopeSessionId) {

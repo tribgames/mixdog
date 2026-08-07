@@ -34,7 +34,7 @@ import {
 import type { NavigationSelection } from "./nav-types";
 import { publishTabDrag } from "./tab-drag-bus";
 
-const SESSION_PREFETCH_INTENT_DELAY_MS = 120;
+const SESSION_PREFETCH_INTENT_DELAY_MS = 40;
 const RECENT_SESSION_INITIAL_ROWS = 24;
 const RECENT_SESSION_PAGE_ROWS = 32;
 /** How close the Recent end sentinel has to come to the scroller viewport

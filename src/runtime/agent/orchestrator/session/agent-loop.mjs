@@ -30,7 +30,7 @@ import {
 } from './loop/tool-classify.mjs';
 import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { runRecallFastTrackCompact } from './loop/recall-fasttrack.mjs';
-import { executeTool, _scopedCacheOutcomeForCall } from './loop/tool-exec.mjs';
+import { executeTool, _scopedCacheOutcomeForCall, resolveLiveToolCwd } from './loop/tool-exec.mjs';
 
 // classifyResultKind is imported from result-classification.mjs at the top of
 // this file; import it from there directly rather than via this module.
@@ -420,11 +420,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         const name = String(call?.name || call?.toolName || call?.function?.name || '').toLowerCase();
         return name === 'sleep' || name.endsWith('/sleep') || name.endsWith('.sleep');
     };
-    // Tool execution must use the session cwd even when the caller omitted the
-    // legacy positional cwd argument. Agent workers always carry their cwd on
-    // sessionRef; falling through to pwd()/process.cwd() resolves relatives
-    // against the host/plugin root instead of the worker workspace.
-    cwd = cwd || sessionRef?.cwd || undefined;
+    // sessionRef.cwd is the live SSOT. The legacy positional cwd is only the
+    // turn-start snapshot and becomes stale after an in-turn cwd tool call.
+    cwd = resolveLiveToolCwd(cwd, sessionRef);
     // Staged pre-cap warnings + one true hard stop. The ONLY count-based
     // forced termination is the hard cap at maxLoopIterations (default 200):
     // a genuine runaway guard. Before it, staged warnings fire at 50%/75%/90%
@@ -445,6 +443,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             Math.floor(maxLoopIterations * 0.9),
         ];
     while (true) {
+        // A cwd tool call updates sessionRef in place. Refresh before building
+        // this iteration's eager dispatcher and cache keys so every following
+        // tool family, including apply_patch, observes the new write root.
+        cwd = resolveLiveToolCwd(cwd, sessionRef);
         const _iterT0 = Date.now();
         throwIfAborted();
         if (iterations >= maxLoopIterations) {

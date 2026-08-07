@@ -14,7 +14,7 @@ export function readMainConfig() {
 
 // Recap toggle lives in the `agent` config section (agent.recap.enabled,
 // default true) — the same file the session runtime persists via
-// saveConfigAndAdopt. The memory daemon runs as a detached cross-process HTTP
+// saveConfigAndAdopt. The memory runtime is hosted by the unified daemon
 // worker, so it re-reads this section from disk each cycle tick (poll-on-use)
 // rather than relying on IPC.
 

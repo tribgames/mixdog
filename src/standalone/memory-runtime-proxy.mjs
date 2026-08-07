@@ -540,6 +540,45 @@ export function createStandaloneMemoryRuntime({
     return { running: true, port, mode: 'http-proxy' };
   }
 
+  async function retain() {
+    const started = await start();
+    const port = await ensureClientRegistered(started.port);
+    return { ...started, port };
+  }
+
+  async function requestMemoryPath(path, body, {
+    timeoutMs = 30_000,
+    readOnlyRpc = false,
+  } = {}) {
+    return await withTransientMemoryRpcRetry(async () => {
+      const started = await retain();
+      return await requestJson({
+        port: started.port,
+        method: 'POST',
+        path,
+        body,
+        timeoutMs,
+      });
+    }, { readOnlyRpc });
+  }
+
+  async function appendEntry(data = {}) {
+    return await requestMemoryPath('/entry', data, { timeoutMs: 3_000 });
+  }
+
+  async function ingestTranscript(filePath, { cwd: transcriptCwd } = {}) {
+    return await requestMemoryPath('/ingest-transcript', {
+      filePath,
+      ...(transcriptCwd ? { cwd: transcriptCwd } : {}),
+    });
+  }
+
+  async function recordTraceEvents(events = []) {
+    return await requestMemoryPath('/admin/trace-record', { events }, {
+      timeoutMs: 5_000,
+    });
+  }
+
   async function handleToolCall(name, args = {}, signalOrOptions = null) {
     const signal = signalOrOptions?.signal || signalOrOptions || null;
     const readOnlyRpc = isMemoryReadOnlyToolCall(name, args);
@@ -631,12 +670,30 @@ export function createStandaloneMemoryRuntime({
   }
 
   return {
-    init: start,
+    init: retain,
+    retain,
     start,
     stop,
     status,
     handleToolCall,
     buildSessionCoreMemoryPayload,
+    appendEntry,
+    ingestTranscript,
+    recordTraceEvents,
     moduleUrl: pathToFileURL(entry).href,
   };
+}
+
+const sharedMemoryRuntimes = new Map();
+
+export function getStandaloneMemoryRuntime(options = {}) {
+  const entry = options.entry ? resolve(options.entry) : '';
+  const dataDir = options.dataDir ? resolve(options.dataDir) : '';
+  const key = `${entry}\0${dataDir}`;
+  let runtime = sharedMemoryRuntimes.get(key);
+  if (!runtime) {
+    runtime = createStandaloneMemoryRuntime(options);
+    sharedMemoryRuntimes.set(key, runtime);
+  }
+  return runtime;
 }

@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { loadConfig, createBackend } from "./config.mjs";
+import { loadConfig, createProvider } from "./config.mjs";
 import { WebhookServer } from "./webhook.mjs";
 import { EventPipeline } from "./event-pipeline.mjs";
 import { startSnapshotWriter, stopSnapshotWriter } from "./status-snapshot.mjs";
@@ -12,16 +12,16 @@ import {
   clearActiveInstance,
 } from "./runtime-paths.mjs";
 // Owned-runtime lifecycle extracted from channels/index.mjs (behavior-
-// preserving): bridge-ownership claim/refresh/loss, backend connect/disconnect,
+// preserving): bridge-ownership claim/refresh/loss, provider connect/disconnect,
 // scheduler + webhook/event runtime, owner heartbeat gating, and config
-// hot-reload. Owns its own in-flight flags + timers; shares config / backend /
+// hot-reload. Owns its own in-flight flags + timers; shares config / provider /
 // bridgeRuntimeConnected / webhookServer / eventPipeline with the worker via
 // get/set so file-level reference semantics are preserved.
 export function createOwnedRuntime({
   getConfig,
   setConfig,
-  getBackend,
-  setBackend,
+  getProvider,
+  setProvider,
   getBridgeRuntimeConnected,
   setBridgeRuntimeConnected,
   getWebhookServer,
@@ -50,16 +50,16 @@ export function createOwnedRuntime({
   let bridgeOwnershipRefreshInFlight = null;
   let _memoryDrainTimer = null;
   // Automation (scheduler + webhook server + relay tunnel) can outlive a
-  // failed/absent messaging backend: it is tracked separately so teardown and
+  // failed/absent messaging provider: it is tracked separately so teardown and
   // reload know it is running even while bridgeRuntimeConnected stays false.
   let automationRunning = false;
   let automationStartPromise = null;
   // Promise that resolves when the current startOwnedRuntime() run fully
   // settles (bridgeRuntimeStarting -> false). reloadRuntimeConfig awaits this
-  // before issuing a restart so a backend swap that lands mid-start is not
+  // before issuing a restart so a provider swap that lands mid-start is not
   // dropped by startOwnedRuntime's in-flight guard (lost-restart race).
   let _inFlightStart = null;
-  // Daemon model: the machine-global channels daemon (singleton-owner lock in
+  // Daemon model: the machine-global service (singleton-owner lock in
   // src/standalone) guarantees exactly one runtime per machine, so this process
   // is the unconditional bridge owner. The OS seat lock is retired — no takeover
   // handler, no vacant-reacquire poll, no cross-process ownership-loss detection.
@@ -158,7 +158,7 @@ async function startAutomationRuntime() {
     startSnapshotWriter(scheduler);
     syncOwnedWebhookAndEventRuntime();
     automationRunning = true;
-    process.stderr.write('mixdog: automation runtime up without messaging backend\n');
+    process.stderr.write('mixdog: automation runtime up without messaging provider\n');
   })();
   automationStartPromise = run;
   try {
@@ -175,8 +175,8 @@ let _ownedRuntimeSelfHealing = false;
 // activation/reload recovery only.
 async function selfHealOwnedRuntime(options = {}) {
   const shouldRestoreBinding = options.restoreBinding === true;
-  const shouldResetBackend = options.resetBackend === true;
-  if (!shouldRestoreBinding && !shouldResetBackend) return;
+  const shouldResetProvider = options.resetProvider === true;
+  if (!shouldRestoreBinding && !shouldResetProvider) return;
   if (_ownedRuntimeSelfHealing) return;
   _ownedRuntimeSelfHealing = true;
   try {
@@ -185,9 +185,9 @@ async function selfHealOwnedRuntime(options = {}) {
         process.stderr.write(`mixdog: self-heal bindPersistedTranscriptIfAny failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
       });
     }
-    if (shouldResetBackend && typeof getBackend()?._resetClient === "function") {
-      await getBackend()._resetClient().catch((e) => {
-        process.stderr.write(`mixdog: self-heal getBackend() reset failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
+    if (shouldResetProvider && typeof getProvider()?._resetClient === "function") {
+      await getProvider()._resetClient().catch((e) => {
+        process.stderr.write(`mixdog: self-heal getProvider() reset failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
       });
     }
     // Do NOT nudge forwardNewText() here. bindPersistedTranscriptIfAny() above
@@ -217,28 +217,28 @@ async function startOwnedRuntime(options = {}) {
     _settleStart = null;
     done?.();
   };
-  // Capture the getBackend() instance that THIS start operation will connect. A
-  // reloadRuntimeConfig() hot-swap can replace the global `getBackend()` while this
+  // Capture the getProvider() instance that THIS start operation will connect. A
+  // reloadRuntimeConfig() hot-swap can replace the global `getProvider()` while this
   // start is still awaiting connect(); using the captured instance for both
   // connect() and the bail-path disconnect() guarantees we tear down the
-  // getBackend() WE started (not the freshly-swapped one), closing the
-  // both-backends-live window.
-  const startingBackend = getBackend();
+  // getProvider() WE started (not the freshly-swapped one), closing the
+  // both-providers-live window.
+  const startingProvider = getProvider();
   // Daemon model: this runtime is the singleton bridge owner (enforced by the
   // standalone daemon's singleton-owner lock), so there is no seat to claim and
   // no cross-process contender to back off from. Just advertise metadata
-  // (memory_port/pg_*/channelId/... preserved inside refreshActiveInstance);
+  // (pg_*/channelId/... preserved inside refreshActiveInstance);
   // active-instance.json is a pure advert. Wrapped so any throw resets
   // bridgeRuntimeStarting.
   try {
-    refreshActiveInstance(instanceId, { backendReady: false });
+    refreshActiveInstance(instanceId, { providerReady: false });
   } catch (e) {
     settleInFlightStart();
     process.stderr.write(`mixdog: pre-connect metadata advert aborted (${e instanceof Error ? e.message : String(e)})\n`);
     return;
   }
   // Periodic buffer drain: replays memory-buffer/entry-*/ingest-*.json once the
-  // memory service publishes its port. Idempotent + reentrancy-guarded inside
+  // daemon-hosted memory runtime is ready. Idempotent + reentrancy-guarded inside
   // drainBuffer(); unref'd so it never holds the worker open.
   if (!_memoryDrainTimer) {
     _memoryDrainTimer = setInterval(() => { void memoryDrainBuffer().catch(() => {}); }, 5e3);
@@ -249,11 +249,11 @@ async function startOwnedRuntime(options = {}) {
   // webhook/binding launches below would revive owner state after stop).
   // Idempotent: stop's sync teardown already ran; re-running disconnect +
   // teardown is safe and covers both the pre-connected window (stop could
-  // not disconnect an in-flight getBackend()) and the post-connected window
+  // not disconnect an in-flight getProvider()) and the post-connected window
   // (stop did disconnect; redo to be defensive).
   const bailIfStopRequested = async () => {
     if (!_ownedRuntimeStopRequested) return false;
-    try { await startingBackend.disconnect(); } catch {}
+    try { await startingProvider.disconnect(); } catch {}
     try { releaseOwnedChannelLocks(instanceId); } catch {}
     try { clearActiveInstance(instanceId); } catch {}
     setBridgeRuntimeConnected(false);
@@ -266,20 +266,20 @@ async function startOwnedRuntime(options = {}) {
       process.stderr.write(`mixdog: bindPersistedTranscriptIfAny failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
     })
     : null;
-  // Await getBackend().connect() so callers (and bindingReady) only resolve after
+  // Await getProvider().connect() so callers (and bindingReady) only resolve after
   // the Discord binding is real. Previously this was fire-and-forget and
   // refreshBridgeOwnership returned immediately, letting bindingReady fire
-  // before getBackend() listeners were attached.
+  // before getProvider() listeners were attached.
   try {
-    await startingBackend.connect();
+    await startingProvider.connect();
     if (await bailIfStopRequested()) {
       cancelPendingTranscriptRearm();
       try { forwarder.stopWatch(); } catch {}
       if (bindPersistedTranscriptTask) await bindPersistedTranscriptTask;
       return;
     }
-    // Advertise backend readiness (metadata advert).
-    try { refreshActiveInstance(instanceId, { backendReady: true }); } catch {}
+    // Advertise provider readiness (metadata advert).
+    try { refreshActiveInstance(instanceId, { providerReady: true }); } catch {}
     setBridgeRuntimeConnected(true);
     // Fresh confirmed connection — tell the parent to flip remote ON. Reached
     // ONLY on a not-connected -> connected transition (the top-of-fn
@@ -327,18 +327,18 @@ async function startOwnedRuntime(options = {}) {
         });
       }
     }
-    process.stderr.write(`mixdog: running with ${getBackend().name} getBackend()\n`);
+    process.stderr.write(`mixdog: running with ${getProvider().name} getProvider()\n`);
     logOwnership(`active owner lead=${TERMINAL_LEAD_PID} pid=${process.pid}`);
   } catch (e) {
-    process.stderr.write(`mixdog: getBackend() connect failed (non-fatal, cycle1/MCP still up): ${e instanceof Error ? e.message : String(e)}\n`);
+    process.stderr.write(`mixdog: getProvider() connect failed (non-fatal, cycle1/MCP still up): ${e instanceof Error ? e.message : String(e)}\n`);
     cancelPendingTranscriptRearm();
     try { forwarder.stopWatch(); } catch {}
     if (bindPersistedTranscriptTask) await bindPersistedTranscriptTask;
     // Roll back partial owner-side state advertised before connect() ran:
-    // disconnect the backend WE started (a post-connect startup step may have
+    // disconnect the provider WE started (a post-connect startup step may have
     // thrown while the gateway is live), then release the channel locks + clear
     // the active-instance advert.
-    try { await startingBackend.disconnect(); } catch {}
+    try { await startingProvider.disconnect(); } catch {}
     try { releaseOwnedChannelLocks(instanceId); } catch {}
     try { clearActiveInstance(instanceId); } catch {}
     if (_memoryDrainTimer) { clearInterval(_memoryDrainTimer); _memoryDrainTimer = null; }
@@ -370,13 +370,13 @@ async function stopOwnedRuntime(reason) {
   // (startWatch is not owner-gated), leaking a live watcher past shutdown.
   cancelPendingTranscriptRearm();
   // startOwnedRuntime() advertises owner HTTP/heartbeat/active-instance and
-  // claims channel locks BEFORE awaiting getBackend().connect(). If shutdown lands
+  // claims channel locks BEFORE awaiting getProvider().connect(). If shutdown lands
   // during that window (bridgeRuntimeStarting=true, getBridgeRuntimeConnected()
   // still false) we still need to tear that partial state down — otherwise
   // the port stays bound and active-instance.json stays stale.
   if (!getBridgeRuntimeConnected() && !bridgeRuntimeStarting && !automationRunning && !automationStartPromise) return;
   // If a start is in flight (bridgeRuntimeStarting=true), signal the in-flight
-  // startOwnedRuntime() to abort right after its getBackend().connect() resolves.
+  // startOwnedRuntime() to abort right after its getProvider().connect() resolves.
   // Without this the in-flight start re-marks connected and re-launches
   // scheduler/webhook/heartbeat after we tear them down here.
   if (bridgeRuntimeStarting || automationStartPromise) _ownedRuntimeStopRequested = true;
@@ -398,15 +398,15 @@ async function stopOwnedRuntime(reason) {
   releaseOwnedChannelLocks(instanceId);
   clearActiveInstance(instanceId);
   try {
-    // Only disconnect the getBackend() when connect() actually completed; calling
+    // Only disconnect the getProvider() when connect() actually completed; calling
     // disconnect() mid-connect races the connect promise.
     if (wasConnected) {
       // Drain in-flight outbound sends before disconnecting so a handoff
       // (owned=false observed → ownership lost) never cuts off a reply
       // mid-delivery. Bounded inside drainPendingSends so a wedged send can
       // not stall teardown — we still disconnect promptly.
-      try { await getBackend().drainPendingSends?.(); } catch {}
-      await getBackend().disconnect();
+      try { await getProvider().drainPendingSends?.(); } catch {}
+      await getProvider().disconnect();
     }
   } finally {
     setBridgeRuntimeConnected(false);
@@ -442,7 +442,7 @@ function notifyRemoteAcquired() {
   sendNotifyToParent('notifications/mixdog/remote', { state: 'acquired' });
 }
 async function refreshBridgeOwnership(options = {}) {
-  // Coalesce concurrent callers onto the in-flight refresh so getBackend() tool
+  // Coalesce concurrent callers onto the in-flight refresh so getProvider() tool
   // calls landing during normal login wait for the same connect attempt
   // instead of returning early and observing spurious auto-connect failure.
   if (bridgeOwnershipRefreshInFlight) return bridgeOwnershipRefreshInFlight;
@@ -465,8 +465,8 @@ async function refreshBridgeOwnership(options = {}) {
 }
 
 async function reloadRuntimeConfig() {
-  const previousBackend = getBackend();
-  const previousBackendName = previousBackend?.name || "";
+  const previousProvider = getProvider();
+  const previousProviderName = previousProvider?.name || "";
   // File-watch/tool-triggered reloads must bypass the short keychain hit cache:
   // another process may have just saved or rotated the channel credential.
   setConfig(await loadConfig({ freshSecrets: true }));
@@ -478,37 +478,37 @@ async function reloadRuntimeConfig() {
     // The scheduler must be RE-ARMED by the reload whenever it is supposed to
     // be running. `restart: false` only destroys the cron/one-shot bindings and
     // hands lifecycle back to the caller — but on an automation-only install
-    // (no messaging backend) startAutomationRuntime() is already past its
+    // (no messaging provider) startAutomationRuntime() is already past its
     // `automationRunning` guard, so nobody would ever call scheduler.start()
     // again and every saved/edited schedule stayed silently disarmed until the
     // daemon restarted.
     { restart: automationRunning || getBridgeRuntimeConnected() }
   );
-  const nextBackend = createBackend(getConfig());
-  const backendTypeChanged = (nextBackend?.name || "") !== previousBackendName;
-  const credentialsChanged = !backendTypeChanged
-    && String(nextBackend?.token || "") !== String(previousBackend?.token || "");
-  const backendChanged = backendTypeChanged || credentialsChanged;
-  if (backendChanged) {
+  const nextProvider = createProvider(getConfig());
+  const providerTypeChanged = (nextProvider?.name || "") !== previousProviderName;
+  const credentialsChanged = !providerTypeChanged
+    && String(nextProvider?.token || "") !== String(previousProvider?.token || "");
+  const providerChanged = providerTypeChanged || credentialsChanged;
+  if (providerChanged) {
     const shouldRestart = getBridgeRuntimeConnected() || bridgeRuntimeStarting;
-    if (shouldRestart) await stopOwnedRuntime("getBackend() getConfig() changed");
+    if (shouldRestart) await stopOwnedRuntime("getProvider() getConfig() changed");
     // A start that was in flight when stopOwnedRuntime landed was signalled to
-    // bail (and disconnects the OLD backend it was connecting). Wait for it to
+    // bail (and disconnects the OLD provider it was connecting). Wait for it to
     // FULLY settle before issuing the fresh start below — otherwise
     // startOwnedRuntime's `if (bridgeRuntimeStarting) return` guard would drop
-    // the restart and the NEW backend would never connect (lost-restart race).
+    // the restart and the NEW provider would never connect (lost-restart race).
     if (_inFlightStart) { try { await _inFlightStart; } catch {} }
-    setBackend(nextBackend);
-    // The persisted routing channelId belongs to the OLD getBackend() (e.g. a
+    setProvider(nextProvider);
+    // The persisted routing channelId belongs to the OLD getProvider() (e.g. a
     // Discord snowflake) and is meaningless for the new one — sending to it
     // would 400 "chat not found". There is no id mapping between platforms, so
     // CLEAR the stale binding: drop the forwarder's context + watcher and wipe
-    // status.channelId/transcriptPath. The next inbound from the new getBackend()
+    // status.channelId/transcriptPath. The next inbound from the new getProvider()
     // rebinds the correct chat via applyTranscriptBinding(). Only done on
-    // backendChanged — same-getBackend() reloads keep their binding untouched.
+    // providerChanged — same-getProvider() reloads keep their binding untouched.
     // (active-instance is cleared by stopOwnedRuntime on the restart path; we
     // don't re-advertise here to avoid resurrecting a just-cleared entry.)
-    if (backendTypeChanged) {
+    if (providerTypeChanged) {
       try { forwarder.stopWatch(); } catch {}
       forwarder.channelId = "";
       forwarder.transcriptPath = "";
@@ -520,11 +520,11 @@ async function reloadRuntimeConfig() {
       } catch {}
     }
     // stopOwnedRuntime above tore the owned runtime down; a same-session reload
-    // reconnects the NEW backend here. The in-flight start (if any) has already
+    // reconnects the NEW provider here. The in-flight start (if any) has already
     // settled above, so this start is not dropped by the in-flight guard.
-    if (shouldRestart) refreshBridgeOwnershipSafe({ restoreBinding: !backendTypeChanged });
-  } else if (nextBackend !== previousBackend) {
-    try { await nextBackend.disconnect?.(); } catch {}
+    if (shouldRestart) refreshBridgeOwnershipSafe({ restoreBinding: !providerTypeChanged });
+  } else if (nextProvider !== previousProvider) {
+    try { await nextProvider.disconnect?.(); } catch {}
   }
   if (getBridgeRuntimeConnected() || automationRunning) {
     syncOwnedWebhookAndEventRuntime({ reload: true });

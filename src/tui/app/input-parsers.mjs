@@ -139,7 +139,7 @@ export function parseMemoryCandidateRows(text) {
   // op:'candidates' returns this exact sentinel (index.mjs ~3158) when the
   // resolved scope has none — treat as an empty list, not an inert text row.
   if (!trimmed || /^core candidates:\s*none$/i.test(trimmed)) return [];
-  // Backend row shape (index.mjs ~3164), one candidate per line, no group
+  // Service row shape (index.mjs ~3164), one candidate per line, no group
   // headers:
   //   id=<n> project=<COMMON|slug> score=<x.xx|-> <element> — <summary> (<reason>)
   const rowPattern = /^id=(\d+)\s+project=(\S+)\s+score=(\S+)\s+(.+?)\s+—\s+(.+?)\s+\(([^)]*)\)$/;
@@ -171,7 +171,7 @@ export function parseMemoryCandidateRows(text) {
     });
 }
 
-// Backend "core" op errors are flattened to plain text by store.memoryControl
+// Service "core" operation errors are flattened to plain text by store.memoryControl
 // (isError is dropped -- see engine.mjs memoryControl / toolResponseText in
 // mixdog-session-runtime.mjs). Success text always uses a past-tense verb
 // ("core added/edited/deleted/promoted...", "core candidate dismissed...");

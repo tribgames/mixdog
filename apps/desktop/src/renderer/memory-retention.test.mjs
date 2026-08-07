@@ -55,17 +55,17 @@ test("boot surface diagnostics retain only a bounded completed history", () => {
 });
 
 test("desktop large-object caches and transports expose explicit memory guards", async () => {
-  const [transcript, review, backend, utility, ipc] = await Promise.all([
+  const [transcript, review, service, utility, ipc] = await Promise.all([
     readFile(new URL("./TranscriptView.tsx", import.meta.url), "utf8"),
     readFile(new URL("./TurnReview.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../main/desktop-backend.ts", import.meta.url), "utf8"),
-    readFile(new URL("../main/desktop-backend-client.ts", import.meta.url), "utf8"),
+    readFile(new URL("../main/desktop-service.ts", import.meta.url), "utf8"),
+    readFile(new URL("../main/desktop-service-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../main/ipc.ts", import.meta.url), "utf8"),
   ]);
   assert.match(transcript, /PATCH_CACHE_MAX_CHARS/);
   assert.match(review, /TURN_REVIEW_PATCH_CACHE_MAX_CHARS/);
   assert.match(review, /AGENT_REVIEW_CACHE_MAX_CHARS/);
-  for (const source of [backend, utility, ipc]) {
+  for (const source of [service, utility, ipc]) {
     assert.match(source, /releaseHiddenSessionStateEntries/);
   }
 });

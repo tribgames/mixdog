@@ -360,10 +360,13 @@ test('a completed Codex redeem returns its outcome even when the dashboard refre
     );
 });
 
-test('Codex usage preserves an embedded reset credit when the detail endpoint is unavailable', async () => {
+test('Codex usage uses backend-api endpoints and preserves an embedded reset credit', async () => {
     const originalFetch = globalThis.fetch;
+    const requestedUrls = [];
     globalThis.fetch = async (url) => {
-        if (String(url).endsWith('/rate-limit-reset-credits')) {
+        const requestedUrl = String(url);
+        requestedUrls.push(requestedUrl);
+        if (requestedUrl === 'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits') {
             return new Response('', { status: 503 });
         }
         return new Response(JSON.stringify({
@@ -391,6 +394,11 @@ test('Codex usage preserves an embedded reset credit when the detail endpoint is
         assert.equal(snapshot.resetCredits.availableCount, 1);
         assert.match(snapshot.resetCredits.offerRevision, /^v1:[a-f0-9]{64}$/);
         assert.equal(snapshot.quotaWindows[0].label, '5H');
+        assert.deepEqual(new Set(requestedUrls), new Set([
+            'https://chatgpt.com/backend-api/wham/usage',
+            'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits',
+        ]));
+        assert.equal(requestedUrls.length, 2);
     } finally {
         globalThis.fetch = originalFetch;
     }

@@ -3,7 +3,7 @@
 // path, so this reads only the selected preset from the small shared JSON file.
 import { readFileSync } from 'node:fs';
 
-import type { EngineSnapshot } from '../shared/contract';
+import type { SessionSnapshot } from '../shared/contract';
 import { mixdogConfigPath } from './onboarding-status-file';
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -24,7 +24,7 @@ function selectedPreset(agent: Record<string, unknown>): Record<string, unknown>
   return presets.find((preset) => String(preset.id || preset.name || '') === String(key)) || null;
 }
 
-export function desktopModelBootstrapFromConfig(value: unknown): EngineSnapshot {
+export function desktopModelBootstrapFromConfig(value: unknown): SessionSnapshot {
   const root = record(value);
   let agent = record(root?.agent);
   if (record(agent?.agent)?.providers) agent = record(agent?.agent);
@@ -54,7 +54,7 @@ export function desktopModelBootstrapFromConfig(value: unknown): EngineSnapshot 
   };
 }
 
-export function readDesktopModelBootstrapSnapshot(): EngineSnapshot {
+export function readDesktopModelBootstrapSnapshot(): SessionSnapshot {
   try {
     return desktopModelBootstrapFromConfig(JSON.parse(readFileSync(mixdogConfigPath(), 'utf8')));
   } catch {

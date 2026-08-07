@@ -3,6 +3,7 @@ import { createSessionTitleController } from './session-title.mjs';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { fileURLToPath } from 'node:url';
 import keychain from '../lib/keychain-cjs.cjs';
 import './hitch-profile.mjs';
 import { ensureStandaloneEnvironment } from '../standalone/seeds.mjs';
@@ -10,8 +11,8 @@ import { createStandaloneAgent } from '../standalone/agent-tool.mjs';
 import { isAgentOwner } from '../runtime/agent/orchestrator/agent-owner.mjs';
 import { EXPLORE_TOOL, runExplore } from '../standalone/explore-tool.mjs';
 import { createStandaloneChannelWorker } from '../standalone/channel-worker.mjs';
-import { createStandaloneMemoryRuntime } from '../standalone/memory-runtime-proxy.mjs';
 import { createStandaloneHookBus } from '../standalone/hook-bus.mjs';
+import { getStandaloneMemoryRuntime } from '../standalone/memory-runtime-proxy.mjs';
 import { createRemoteTransitionQueue } from './remote-transition-queue.mjs';
 import { writeLastSessionCwd } from '../runtime/shared/user-cwd.mjs';
 import { cancelBackgroundTasks } from '../runtime/shared/background-tasks.mjs';
@@ -67,8 +68,8 @@ import {
   saveTelegramToken,
   saveSchedule,
   saveWebhook,
-  setBackend,
-  setBackendAsync,
+  setChannelProvider,
+  setChannelProviderAsync,
   setScheduleEnabled,
   setWebhookEnabled,
   setWebhookConfig,
@@ -260,13 +261,10 @@ import {
   SEARCH_RUNTIME,
   SEARCH_TOOL_DEFS,
   MEMORY_TOOL_DEFS,
-  MEMORY_RUNTIME,
   CHANNEL_TOOL_DEFS,
-  CHANNEL_WORKER_ENTRY,
   CODE_GRAPH_TOOL_DEFS,
   CODE_GRAPH_RUNTIME,
   STATUSLINE_SESSION_ROUTES,
-  SESSION_RUNTIME_DIR,
   STANDALONE_SOURCE_ROOT,
   STANDALONE_ROOT,
   STANDALONE_DATA_DIR,
@@ -297,6 +295,7 @@ const searchCapableFor = makeSearchCapableFor(normalizeSearchProviderId, isSearc
 const KEYCHAIN_PREWARM_WAIT_MS = 5000;
 
 const outputStyleStatus = (dataDir = STANDALONE_DATA_DIR, opts = {}) => outputStyleStatusRaw(STANDALONE_ROOT, dataDir || STANDALONE_DATA_DIR, opts);
+const MEMORY_RUNTIME_ENTRY = fileURLToPath(new URL('../runtime/memory/index.mjs', import.meta.url));
 // Workflow/agent pack loaders bound to this runtime's root/data layout.
 const {
   listWorkflowPacks,
@@ -417,13 +416,6 @@ export async function createMixdogSessionRuntime({
   // seconds. Timer is unref'd and first fires after CLEANUP_INITIAL_DELAY_MS
   // (5min), so this adds zero boot-path cost.
   try { mgr.startIdleCleanup?.(); } catch { /* cleanup is best-effort */ }
-  const memoryRuntime = createStandaloneMemoryRuntime({
-    // Entry constants are module-relative ('../runtime/...'); resolve against
-    // this module's dir, not STANDALONE_ROOT, or the 'src/' segment is lost.
-    entry: join(SESSION_RUNTIME_DIR, MEMORY_RUNTIME),
-    dataDir: pluginDataDir,
-    cwd,
-  });
   rt.memoryModPromise = null;
   rt.searchModPromise = null;
   rt.codeGraphModPromise = null;
@@ -435,7 +427,19 @@ export async function createMixdogSessionRuntime({
 
   async function getMemoryModule() {
     const startedAt = performance.now();
-    rt.memoryModPromise ??= Promise.resolve(memoryRuntime);
+    rt.memoryModPromise ??= Promise.resolve().then(() => {
+      const runtime = getStandaloneMemoryRuntime({
+        entry: MEMORY_RUNTIME_ENTRY,
+        dataDir: process.env.MIXDOG_DATA_DIR || cfgMod.getPluginData?.() || STANDALONE_DATA_DIR,
+      });
+      // Session teardown must never stop a process shared by every other live
+      // session. The daemon owns the actual stop()/deregister lifecycle.
+      return {
+        init: () => runtime.init(),
+        handleToolCall: (...args) => runtime.handleToolCall(...args),
+        buildSessionCoreMemoryPayload: (...args) => runtime.buildSessionCoreMemoryPayload(...args),
+      };
+    });
     const mod = await rt.memoryModPromise;
     if (typeof mod?.init === 'function') {
       await mod.init();
@@ -527,6 +531,20 @@ export async function createMixdogSessionRuntime({
     channelStartPromise: null,
   };
   rt.activeTurnCount = 0;
+  rt.activeTurnAbortControllers = new Set();
+  const registerActiveTurnController = (controller) => {
+    rt.activeTurnAbortControllers.add(controller);
+    return () => rt.activeTurnAbortControllers.delete(controller);
+  };
+  const abortActiveTurns = (reason) => {
+    let aborted = false;
+    for (const controller of [...rt.activeTurnAbortControllers]) {
+      if (controller.signal.aborted) continue;
+      aborted = true;
+      try { controller.abort(reason); } catch {}
+    }
+    return aborted;
+  };
   rt.firstTurnCompleted = false;
   function hookTranscriptPath(sessionId) {
     const id = clean(sessionId);
@@ -739,7 +757,6 @@ export async function createMixdogSessionRuntime({
   };
   const channelsStartedAt = performance.now();
   const channels = createStandaloneChannelWorker({
-    entry: join(SESSION_RUNTIME_DIR, CHANNEL_WORKER_ENTRY),
     rootDir: STANDALONE_ROOT,
     dataDir: cfgMod.getPluginData(),
     cwd,
@@ -964,8 +981,8 @@ export async function createMixdogSessionRuntime({
     adoptConfig,
     saveConfigAndAdopt,
     flushConfigSave,
-    flushBackendSave,
-    scheduleBackendSave,
+    flushChannelProviderSave,
+    scheduleChannelProviderSave,
     scheduleSkillsSave,
     flushSkillsSave,
     flushOutputStyleSave,
@@ -985,8 +1002,8 @@ export async function createMixdogSessionRuntime({
     getRoute: () => rt.route,
     cfgMod,
     sharedCfgMod,
-    setBackend,
-    setBackendAsync,
+    setChannelProvider,
+    setChannelProviderAsync,
     setConfiguredShell,
     normalizeSystemShellConfig,
     normalizeSearchRouteConfig,
@@ -1245,7 +1262,7 @@ export async function createMixdogSessionRuntime({
     channels,
     channelsEnabled,
     hasActiveAutomation,
-    flushBackendSave,
+    flushChannelProviderSave,
     invokeChannelStart,
     createCurrentSession,
     ensureRemoteTranscriptWriter,
@@ -1296,7 +1313,7 @@ export async function createMixdogSessionRuntime({
   // was toggled into) remote mode. Non-remote sessions never contend for the
   // channel; see startRemote()/stopRemote() and the `/remote` toggle.
   // A manual `mixdog --remote` request is deferred past the TUI's
-  // first frame. startRemote() front-loads heavy work — memory daemon fork
+  // first frame. startRemote() front-loads memory initialization
   // (PG + forced ONNX embed warmup in the child), eager session create, and
   // the channel-worker fork — and running it inline here interleaves that
   // CPU/disk load with engine boot, visibly delaying the first ink frame by
@@ -1315,7 +1332,7 @@ export async function createMixdogSessionRuntime({
   } else {
     // Automation decoupling (user decision): enabled schedules/webhooks boot
     // the worker on their own — no remote flag, no remote.autoStart, and no
-    // messaging backend. A later explicit Remote ON promotes the same
+    // messaging provider. A later explicit Remote ON promotes the same
     // daemon without restarting schedules or webhooks.
     prewarmTimers.channelStartTimer = setTimeout(() => {
       prewarmTimers.channelStartTimer = null;
@@ -1333,7 +1350,7 @@ export async function createMixdogSessionRuntime({
 
   // Pure settings-delegate methods (onboarding status/skip, autoClear, profile,
   // compaction, recap/memory, channels, systemShell, update settings, channel
-  // token save/forget, setBackend). Extracted to session-runtime/settings-api.mjs
+  // token save/forget, setChannelProvider). Extracted to session-runtime/settings-api.mjs
   // and SPREAD into the API object below so the external surface is unchanged.
   const settingsApi = createSettingsApi({
     getConfig: () => rt.config,
@@ -1342,7 +1359,7 @@ export async function createMixdogSessionRuntime({
     getRemoteEnabled: () => rt.remoteEnabled,
     adoptConfig,
     saveConfigAndAdopt,
-    scheduleBackendSave,
+    scheduleChannelProviderSave,
     scheduleSkillsSave,
     cfgMod,
     hasOwn,
@@ -1383,11 +1400,11 @@ export async function createMixdogSessionRuntime({
     forgetDiscordToken,
     saveTelegramToken,
     forgetTelegramToken,
-    setBackend,
+    setChannelProvider,
   });
 
   const channelConfigApi = createChannelConfigApi({
-    flushBackendSave,
+    flushChannelProviderSave,
     channels,
     reloadChannelsSoon,
     // Automation saved mid-session boots the worker (claim-if-vacant) even
@@ -1436,6 +1453,8 @@ export async function createMixdogSessionRuntime({
     getMemoryModPromise: () => rt.memoryModPromise,
     setMemoryModPromise: (v) => { rt.memoryModPromise = v; },
     setSessionNeedsCwdRefresh: (v) => { rt.sessionNeedsCwdRefresh = v; },
+    getReservedSessionId: () => rt.reservedSessionId,
+    abortActiveTurns,
     hooks,
     hookCommonPayload,
     mgr,
@@ -1447,7 +1466,7 @@ export async function createMixdogSessionRuntime({
     warmupTimers,
     prewarmTimers,
     flushConfigSave,
-    flushBackendSave,
+    flushChannelProviderSave,
     flushOutputStyleSave,
     flushAllConfigSavesAsync,
     withTeardownDeadline,
@@ -1615,6 +1634,7 @@ export async function createMixdogSessionRuntime({
     mcpTurnGraceMs,
     awaitRoutePreparation: () => routePreparation.wait(),
     getReservedSessionId: () => rt.reservedSessionId,
+    registerActiveTurnController,
     sessionTitles,
   });
 
@@ -1624,7 +1644,11 @@ export async function createMixdogSessionRuntime({
     ...providerAuthApi,
     ...mediaApi,
     // Turn-scoped worktree review plus exact child apply_patch attribution.
-    getTurnReviewDiff: () => getTurnSnapshotReviewDiff(rt.currentCwd, rt.session?.id),
+    getTurnReviewDiff: (options = {}) => getTurnSnapshotReviewDiff(
+      rt.currentCwd,
+      rt.session?.id,
+      options,
+    ),
     revertTurnReviewFile: (file) => revertTurnSnapshotReviewFile(
       rt.currentCwd,
       rt.session?.id,

@@ -106,7 +106,7 @@ export function resolvedSystemLocale() {
   }
 }
 
-/** Shared backend controller used by every lead surface (TUI and desktop). */
+/** Shared session controller used by every lead surface (TUI and desktop). */
 export function createSessionTitleController(deps = {}) {
   const firstAttempts = new Set();
   const thirdAttempts = new Set();

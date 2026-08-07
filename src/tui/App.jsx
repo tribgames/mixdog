@@ -10,7 +10,7 @@
  *   queued steering prompts + rounded prompt input (one cluster)
  *   statusline (vendored L1/L2)
  *
- * State comes from the engine store via useEngine; submitting a line calls
+ * State comes from the session store via useSession; submitting a line calls
  * store.submit() (or handles a slash command locally). The whole tree is live
  * (no <Static>): full-width bands and the native hardware caret both need real
  * layout, which <Static> collapses. The terminal handles scrollback itself as
@@ -19,7 +19,7 @@
 import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import { theme, surfaceBackground } from './theme.mjs';
-import { useEngine } from './hooks/useEngine.mjs';
+import { useSession } from './hooks/useSession.mjs';
 import { classifyToolCategory } from '../runtime/shared/tool-surface.mjs';
 import { localPackageVersion } from '../runtime/shared/update-checker.mjs';
 import { Spinner } from './components/Spinner.jsx';
@@ -257,7 +257,7 @@ function resolveOnboardingCompleted(store, onboardingCompleted) {
 }
 
 export function App({ store, initialStatusLine = '', forceOnboarding = false, onboardingCompleted = undefined }) {
-  const state = useEngine(store);
+  const state = useSession(store);
   const [toolOutputExpanded, setToolOutputExpanded] = useState(false);
   // True for the entire first-run onboarding wizard (every step + nested depth)
   // so the welcome banner stays reserved and the layout doesn't jump when the
@@ -380,7 +380,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   const [usagePanel, setUsagePanel] = useState(null);
   const usageRequestRef = useRef(0);
   // Cache of the last computed heavy settings-picker status objects (MCP,
-  // hooks, plugins, skills, channel backend). ←/→ cycle/toggle handlers in
+  // hooks, plugins, skills, channel provider). ←/→ cycle/toggle handlers in
   // openSettingsPicker() pass { light: true } to reuse this cache instead of
   // re-querying these heavy getters on every keystroke; only a full open
   // (initial /config or Esc-return) recomputes them.

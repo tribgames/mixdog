@@ -486,7 +486,7 @@ const shellJobsBusy = () => {
 };
 
 // Drive one full Lead session (create runtime -> auto-resume loop -> close).
-// Mirrors the TUI auto-resume (engine/agent-job-feed.mjs): a runtime
+// Mirrors the TUI auto-resume (src/tui/session/agent-job-feed.mjs): a runtime
 // notification enqueues the model-visible completion into the session's
 // pending queue; we then kick an EMPTY pending-resume ask via queueMicrotask
 // (the pre-send drain pulls the pending messages). No polling / synthetic

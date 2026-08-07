@@ -15,10 +15,10 @@ import { runScheduleSession } from '../runtime/shared/schedule-session-run.mjs';
 
 // Channel/webhook/schedule config surface. Extracted verbatim from the runtime
 // API object; the mutating admin helpers are imported directly here and the
-// runtime injects only the closure-owned callbacks (backend flush, channel
+// runtime injects only the closure-owned callbacks (channel provider flush, channel
 // worker handle, soft reload).
 export function createChannelConfigApi({
-  flushBackendSave,
+  flushChannelProviderSave,
   channels,
   reloadChannelsSoon,
   ensureAutomationRuntime = () => {},
@@ -26,10 +26,10 @@ export function createChannelConfigApi({
 }) {
   return {
     async getChannelSetup() {
-      // Flush a pending debounced backend switch first so setup readers
+      // Flush a pending debounced channel provider switch first so setup readers
       // (Settings → Channel Setting, remote toggles) never observe the
-      // previous backend during the 150ms debounce window.
-      try { await flushBackendSave(); } catch {}
+      // previous provider during the 150ms debounce window.
+      try { await flushChannelProviderSave(); } catch {}
       // Bot tokens live in the OS keychain. Reading them before the batch
       // prewarm lands costs one SYNCHRONOUS PowerShell DPAPI decrypt each
       // (measured 971ms + 579ms on a cold desktop boot, blocking the whole

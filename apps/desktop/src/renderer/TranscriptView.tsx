@@ -1156,9 +1156,16 @@ export function CodeDiff({ patch }: { patch: string }) {
               .filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
             const deletions = file.hunks.join("\n").split("\n")
               .filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+            const operation = file.status === "A" ? t("Added")
+              : file.status === "D" ? t("Deleted")
+                : file.status === "M" ? t("Changed") : "";
             return <div className="diff-file" key={`${file.newFile.fileName}-${index}`}>
               <header><FileDiff size={16} /><b>{file.newFile.fileName}</b>
-                <span className="diff-stats"><i>+{additions}</i><em>-{deletions}</em></span>
+                {operation && <span className="diff-operation" data-status={file.status}>{operation}</span>}
+                {(additions > 0 || deletions > 0) && <span className="diff-stats">
+                  {additions > 0 && <i>+{additions}</i>}
+                  {deletions > 0 && <em>-{deletions}</em>}
+                </span>}
                 <CopyControl value={file.patch} label={`Copy diff for ${file.newFile.fileName}`}
                   className="tool-detail-copy diff-copy" />
               </header>

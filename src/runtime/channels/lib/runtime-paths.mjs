@@ -189,9 +189,8 @@ function buildActiveInstanceState(instanceId, meta) {
     ...meta?.channelId ? { channelId: meta.channelId } : {},
       ...meta?.transcriptPath ? { transcriptPath: meta.transcriptPath } : {},
       ...meta?.httpPort ? { httpPort: meta.httpPort } : {},
-      ...meta?.memory_port ? { memory_port: meta.memory_port } : {},
       ...gatewayMeta,
-      ...typeof meta?.backendReady === "boolean" ? { backendReady: meta.backendReady } : {}
+      ...typeof meta?.providerReady === "boolean" ? { providerReady: meta.providerReady } : {}
   };
 }
 function refreshActiveInstance(instanceId, meta, options) {
@@ -208,7 +207,7 @@ function refreshActiveInstance(instanceId, meta, options) {
     // check ownership OUTSIDE this lock, so a newer session can claim the
     // seat between that check and this locked update. Without this re-read,
     // the tick would overwrite the newer owner's instanceId (TOCTOU
-    // re-steal -> ownership ping-pong / double backend connections).
+    // re-steal -> ownership ping-pong / double provider connections).
     // Returning undefined aborts the update with no write. Explicit claims
     // (boot, claimBridgeOwnership) omit the option and stay last-wins.
     if (options?.onlyIfOwned && (!prev?.instanceId || prev.instanceId !== instanceId)) {
@@ -249,9 +248,8 @@ function refreshActiveInstance(instanceId, meta, options) {
       ...meta?.channelId ? { channelId: meta.channelId } : {},
       ...meta?.transcriptPath ? { transcriptPath: meta.transcriptPath } : {},
       ...meta?.httpPort ? { httpPort: meta.httpPort } : {},
-      ...meta?.memory_port ? { memory_port: meta.memory_port } : {},
       ...gatewayMeta,
-      ...typeof meta?.backendReady === "boolean" ? { backendReady: meta.backendReady } : {},
+      ...typeof meta?.providerReady === "boolean" ? { providerReady: meta.providerReady } : {},
     };
     if (typeof meta?.transcriptPath === "string" && meta.transcriptPath) {
       const outgoing = prevForPreserve?.transcriptPath;
@@ -267,34 +265,10 @@ function refreshActiveInstance(instanceId, meta, options) {
     delete next.pinned;
     // I1: pg_* spreads FIRST so newFields above win on conflict.
     // prev.pg_port='A', meta.httpPort-adjacent pg_port='B' → result.pg_port='B'.
-    // memory_port: preserve when the advertising memory worker is still alive
-    // (sync process.kill(pid,0); ESRCH=dead). Same server_pid restart still
-    // preserves; a live owner from another session must not be dropped on handoff.
     const preservedExtra = Object.fromEntries(
       Object.entries(prevForPreserve ?? {}).filter(([k]) => k.startsWith('pg_'))
     );
-    const prevMemoryServerPid = parsePositivePid(prevForPreserve?.memory_server_pid);
-    const prevMemoryOwnerAlive = (() => {
-      if (prevMemoryServerPid === null) return false;
-      try {
-        process.kill(prevMemoryServerPid, 0);
-        return true;
-      } catch (e) {
-        if (e && e.code === "ESRCH") return false;
-        return true;
-      }
-    })();
-    const sameMemoryAdvertiser =
-      prevMemoryServerPid !== null &&
-      identity.server_pid !== null &&
-      prevMemoryServerPid === identity.server_pid;
-    if (sameMemoryAdvertiser || prevMemoryOwnerAlive) {
-      if (prevForPreserve && Object.prototype.hasOwnProperty.call(prevForPreserve, 'memory_port')) {
-        preservedExtra.memory_port = prevForPreserve.memory_port;
-        preservedExtra.memory_server_pid = prevMemoryServerPid;
-      }
-    }
-    // gateway_port follows the same preservation rule as memory_port: the
+    // gateway_port is preserved while the gateway owner is alive: the
     // gateway child advertises itself independently, and active-owner
     // heartbeats must not erase that discovery record while its owning
     // server-main process is still alive.

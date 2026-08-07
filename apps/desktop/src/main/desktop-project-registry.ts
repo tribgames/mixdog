@@ -8,13 +8,13 @@ import type {
   DesktopProjectPreferences,
   MixdogProject,
   MixdogProjectsModule,
-} from './backend-support';
+} from './desktop-support';
 import {
   matchingProjectPath,
   normalizedProjectKey,
   projectAlias,
   withoutMatchingProject,
-} from './backend-support';
+} from './desktop-support';
 
 /** Recent-project list length shown in the snapshot. */
 const RECENT_PROJECT_LIMIT = 12;

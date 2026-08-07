@@ -15,7 +15,7 @@ export function createSettingsApi({
   // config-lifecycle
   adoptConfig,
   saveConfigAndAdopt,
-  scheduleBackendSave,
+  scheduleChannelProviderSave,
   scheduleSkillsSave,
   // normalizers / helpers
   cfgMod,
@@ -55,7 +55,7 @@ export function createSettingsApi({
   forgetDiscordToken,
   saveTelegramToken,
   forgetTelegramToken,
-  setBackend,
+  setChannelProvider,
 }) {
   return {
     getOnboardingStatus() {
@@ -208,7 +208,7 @@ export function createSettingsApi({
     // Recap toggle: user-facing switch that gates ONLY the background memory
     // cycles (1/2/3). The memory module (transcript watcher/ingest, on-demand
     // recall/fasttrack drains) is always-on. Persisted via the same
-    // saveConfigAndAdopt path as compaction/autoClear. The memory daemon
+    // saveConfigAndAdopt path as compaction/autoClear. The memory runtime
     // re-reads recap from the agent config section each cycle tick, so toggling
     // takes effect without a restart (no memory-service stop/start here).
     getRecapSettings() {
@@ -350,7 +350,7 @@ export function createSettingsApi({
       reloadChannelsSoon();
       return result;
     },
-    setBackend(name) {
+    setChannelProvider(name) {
       // Validate synchronously (same contract as before: bad input throws on
       // this call so the TUI's try/catch can react immediately). The actual
       // channels-section file read-modify-write is the hitch source on the
@@ -359,10 +359,10 @@ export function createSettingsApi({
       // disk synchronously inside the key handler.
       const value = String(name || '').trim();
       if (value !== 'discord' && value !== 'telegram') {
-        throw new Error('backend must be discord or telegram');
+        throw new Error('provider must be discord or telegram');
       }
-      scheduleBackendSave(value);
-      return { ok: true, backend: value };
+      scheduleChannelProviderSave(value);
+      return { ok: true, provider: value };
     },
   };
 }

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { DiscordBackend } from '../src/runtime/channels/backends/discord.mjs';
+import { DiscordProvider } from '../src/runtime/channels/providers/discord.mjs';
 import { OutputForwarder } from '../src/runtime/channels/lib/output-forwarder.mjs';
 
 test('transcript drain leaves one blank line between preambles and tool cards', () => {
@@ -104,42 +104,42 @@ test('remote continuation spacing belongs to the active transcript turn', async 
   ], 'only a later item in the same transcript turn is a continuation');
 });
 
-test('daemon-global Discord backend obeys explicit continuation and retry state only', async () => {
+test('daemon-global Discord provider obeys explicit continuation and retry state only', async () => {
   const stateDir = mkdtempSync(join(tmpdir(), 'mixdog-discord-format-'));
   try {
     const payloads = [];
-    const backend = new DiscordBackend({
+    const provider = new DiscordProvider({
       token: 'test-token',
       mainChannelId: 'remote-channel',
       accessMode: 'static',
       access: {},
     }, stateDir);
-    backend.fetchAllowedChannel = async () => ({
+    provider.fetchAllowedChannel = async () => ({
       send: async (payload) => {
         payloads.push(payload.content);
         return { id: String(payloads.length) };
       },
     });
-    backend.loadAccess = () => ({ textChunkLimit: 2_000, replyToMode: 'off' });
-    backend.noteSent = () => {};
+    provider.loadAccess = () => ({ textChunkLimit: 2_000, replyToMode: 'off' });
+    provider.noteSent = () => {};
 
     // An unrelated daemon send cannot make the active session's first response
     // acquire continuation spacing.
-    await backend.sendMessage('remote-channel', 'scheduler', {});
-    await backend.sendMessage('remote-channel', 'first\n\nparagraph', {
+    await provider.sendMessage('remote-channel', 'scheduler', {});
+    await provider.sendMessage('remote-channel', 'first\n\nparagraph', {
       continuation: false,
     });
-    await backend.sendMessage('remote-channel', 'second', {
+    await provider.sendMessage('remote-channel', 'second', {
       continuation: true,
     });
-    await backend.sendMessage('remote-channel', 'next turn', {
+    await provider.sendMessage('remote-channel', 'next turn', {
       continuation: false,
     });
 
     // Retry state freezes the original prefix decision even if the caller's
     // current turn state now says otherwise.
     const retried = '\u3164\nretry';
-    await backend.sendMessage('remote-channel', 'retry', {
+    await provider.sendMessage('remote-channel', 'retry', {
       continuation: false,
       resumeToken: {
         hash: createHash('md5').update(retried).digest('hex'),

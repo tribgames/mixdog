@@ -1,9 +1,9 @@
 // Transport-neutral method table for the remote (LAN/WebSocket) bridge: the
-// same desktop backend surface registerDesktopIpc exposes, minus desktop-only OS
+// same desktop service surface registerDesktopIpc exposes, minus desktop-only OS
 // integrations (dialogs, shell reveal/open, zoom, updater, quit). Validation
 // reuses the ipc.ts validators so the remote surface can never accept a shape
 // the in-process IPC surface would reject.
-import type { DesktopBackend } from './backend-api';
+import type { DesktopService } from './desktop-service-contract';
 import type { DesktopSettingsStore } from './settings-store';
 import type { DesktopSettings } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
@@ -68,7 +68,7 @@ function assertRemoteCapability(capability: string): void {
 }
 
 export interface RemoteMethodDependencies {
-  host: DesktopBackend;
+  host: DesktopService;
   settingsStore?: Pick<DesktopSettingsStore, 'read' | 'update'>;
   /** Fires after a successful desktop-settings write (keep-awake wiring). */
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
@@ -85,10 +85,10 @@ export type RemoteMethod = (params: unknown[]) => unknown;
 export function createRemoteMethods(
   { host, settingsStore, onDesktopSettingsChanged, terminals }: RemoteMethodDependencies,
 ): Record<string, RemoteMethod> {
-  const backendInvoke = (name: string, args: unknown[]): Promise<unknown> =>
-    host.backendInvoke(name, args);
-  const operation = (name: string) => (...args: unknown[]) => backendInvoke(name, args);
-  // Remote bridge/relay are transport clients, not another backend. Keep their
+  const invokeDesktopOperation = (name: string, args: unknown[]): Promise<unknown> =>
+    host.invokeDesktopOperation(name, args);
+  const operation = (name: string) => (...args: unknown[]) => invokeDesktopOperation(name, args);
+  // Remote bridge/relay are transport clients, not another service. Keep their
   // existing validation grammar while every Git mutation executes in the same
   // daemon operation service as Electron IPC.
   const {
@@ -355,7 +355,7 @@ export function createRemoteMethods(
       typeof cwd === 'string' && cwd ? cwd : null,
       typeof shell === 'string' && shell ? shell : null,
     );
-    methods.termProfiles = () => backendInvoke('termProfiles', []);
+    methods.termProfiles = () => invokeDesktopOperation('termProfiles', []);
     methods.termWrite = ([id, data]) => {
       terminals.write(String(id || ''), String(data ?? ''));
     };

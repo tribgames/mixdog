@@ -18,10 +18,12 @@ import {
     cacheGet,
     cacheSet,
     getCachedReadOnlyStat,
+    lstatPathsForMtime,
     statCacheSet,
     statPathsForMtime,
     registerCacheInvalidationListener,
 } from './cache-layers.mjs';
+import { formatListSize, formatMtime } from './list-formatting.mjs';
 import {
     compileSimpleGlob,
     NOISE_DIR_NAMES,

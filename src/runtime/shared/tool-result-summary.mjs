@@ -24,7 +24,7 @@ function countNonEmptyLines(text) {
 
 // Zero-result recognizer (audit HIGH): result text that SAYS "nothing found"
 // must summarize as an explicit zero, not be line-counted into "1 match".
-// Matches the shapes emitted by grep/glob/find/list/recall backends:
+// Matches the shapes emitted by grep/glob/find/list/recall providers:
 //   "(no matches)", "no matches found", "(no results)", "No results",
 //   "(no fuzzy match for \"...\")", "0 matches", "(empty)", "(no entries)".
 function looksLikeZeroResultText(text) {

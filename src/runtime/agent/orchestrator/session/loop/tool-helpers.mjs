@@ -40,9 +40,10 @@ export function isEagerDispatchable(name, tools) {
     return set.has(name);
 }
 
-// Full-parallel dispatch policy: EVERY valid tool call in an assistant turn
-// starts immediately. Mutations rely on their own conflict scope (apply_patch
-// uses per-path locks), so disjoint writes never wait behind a global barrier.
+// Full dispatch policy: EVERY valid tool call in an assistant turn is queued
+// immediately. Mutations rely on their own conflict scope (apply_patch uses
+// per-path locks); the eager dispatcher adds only the apply_patch -> shell
+// execution barrier required for same-turn validation.
 // isEagerDispatchable above remains the READ-ONLY classifier used for dedup
 // eligibility, steering, and post-mutation result invalidation.
 export function isParallelDispatchable(name) {

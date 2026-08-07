@@ -1,145 +1,37 @@
-import http from 'node:http'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createStandaloneMemoryRuntime } from '../../../standalone/memory-runtime-proxy.mjs'
-import { readServicePort, markServiceUnreachable, isConnRefuseError } from '../../shared/service-discovery.mjs'
+import { getStandaloneMemoryRuntime } from '../../../standalone/memory-runtime-proxy.mjs'
 
 const RUNTIME_ROOT = process.env.MIXDOG_RUNTIME_ROOT
   ? path.resolve(process.env.MIXDOG_RUNTIME_ROOT)
   : path.join(os.tmpdir(), 'mixdog')
-const ACTIVE_INSTANCE_FILE = path.join(RUNTIME_ROOT, 'active-instance.json')
-
-let _portCache = null // { port, mtime, ts }
-
-// Shared memory-runtime proxy handle for respawn. The channels worker is the
-// one process that can find the daemon dead (no port / ECONNREFUSED) while a
-// remote session is still alive. Rather than dead-lettering forever, it asks
-// the SAME proxy the host uses (createStandaloneMemoryRuntime.start()) to
-// re-ensure the singleton daemon. Owner-claim + fork logic is NOT duplicated
-// here — start() reuses the on-disk singleton owner file, so a live daemon is
-// reused and only a genuinely dead one is respawned.
+let _memoryRuntimePromise = null
 const MEMORY_ENTRY = fileURLToPath(new URL('../../memory/index.mjs', import.meta.url))
-const MEMORY_DATA_DIR = process.env.MIXDOG_DATA_DIR
-  ? path.resolve(process.env.MIXDOG_DATA_DIR)
-  : RUNTIME_ROOT
-let _memoryProxy = null
-let _ensuringDaemon = null
-function getMemoryProxy() {
-  if (!_memoryProxy) {
-    _memoryProxy = createStandaloneMemoryRuntime({ entry: MEMORY_ENTRY, dataDir: MEMORY_DATA_DIR })
-  }
-  return _memoryProxy
-}
-// Ensure the daemon exists via the shared proxy. Reentrancy-guarded so a burst
-// of failed appends/drains coalesces into a single start(). On success the
-// port cache is invalidated so the next getMemoryPort() re-reads the freshly
-// published active-instance.json. Never throws — callers keep buffering on
-// failure, so a respawn miss degrades to the existing retry path, not a crash.
-async function ensureMemoryDaemon() {
-  if (_ensuringDaemon) return _ensuringDaemon
-  _ensuringDaemon = (async () => {
-    try {
-      const res = await getMemoryProxy().start()
-      _portCache = null
-      return res?.port ?? null
-    } catch (e) {
-      process.stderr.write(`[memory-client] ensureMemoryDaemon failed (${e.message})\n`)
-      return null
-    } finally {
-      _ensuringDaemon = null
-    }
-  })()
-  return _ensuringDaemon
-}
 
-function isConnRefusedLike(err) {
-  const code = String(err?.code || '')
-  const msg = String(err?.message || err || '')
-  return code === 'ECONNREFUSED'
-    || /ECONNREFUSED|missing memory_port|memory-service timeout/i.test(msg)
-}
-
-// A discovery advert validates only the owner pid, which can be a recycled pid
-// living on an unrelated process while its advertised port is dead. This client
-// has no separate /health probe, so on a connect-level failure we distrust the
-// port: mark it unreachable (readServicePort then skips it → legacy fallback)
-// and drop the port cache so the next getMemoryPort re-resolves.
-function _distrustMemoryPort(port, err) {
-  // Connection-level failures ONLY. A 'memory-service timeout' means the daemon
-  // is slow-but-alive — distrusting it would false-route to legacy/buffer.
-  if (port && isConnRefuseError(err)) {
-    markServiceUnreachable('memory', port)
-    _portCache = null
-  }
-}
-
-async function getMemoryPort() {
-  const now = Date.now()
-  if (_portCache && (now - _portCache.ts) < 5_000) return _portCache.port
-  // Prefer the single-writer discovery advert (discovery/memory.json), which
-  // validates the owner pid is alive. Fall back to the legacy
-  // active-instance.json memory_port field for cross-version compat.
-  const advertPort = readServicePort('memory', { requirePid: false })
-  if (advertPort) { _portCache = { port: advertPort, mtime: 0, ts: now }; return advertPort }
+async function memoryRuntime() {
+  _memoryRuntimePromise ??= Promise.resolve(getStandaloneMemoryRuntime({
+    entry: MEMORY_ENTRY,
+    dataDir: process.env.MIXDOG_DATA_DIR,
+  }))
   try {
-    const stat = await fs.promises.stat(ACTIVE_INSTANCE_FILE)
-    const mtime = stat.mtimeMs
-    if (_portCache && _portCache.mtime === mtime) {
-      _portCache.ts = now
-      return _portCache.port
-    }
-    const raw = await fs.promises.readFile(ACTIVE_INSTANCE_FILE, 'utf8')
-    const active = JSON.parse(raw)
-    const port = Number(active && active.memory_port)
-    if (!Number.isFinite(port) || port <= 0) return null
-    _portCache = { port, mtime, ts: now }
-    return port
-  } catch {
-    return null
+    const runtime = await _memoryRuntimePromise
+    await runtime.init()
+    return runtime
+  } catch (error) {
+    _memoryRuntimePromise = null
+    throw error
   }
 }
 
-async function memoryFetch(method, endpoint, body = null, timeoutMs = 10_000, { throwOnError = false } = {}) {
-  const port = await getMemoryPort()
-  return new Promise((resolve, reject) => {
-    if (!port) { reject(new Error('active-instance.json missing memory_port')); return }
-    const payload = body ? JSON.stringify(body) : null
-    const req = http.request({
-      hostname: '127.0.0.1',
-      port,
-      path: endpoint,
-      method,
-      headers: payload
-        ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-        : {},
-      timeout: timeoutMs,
-    }, res => {
-      let data = ''
-      res.on('data', chunk => { data += chunk })
-      res.on('end', () => {
-        const status = res.statusCode || 0
-        let parsed
-        try { parsed = JSON.parse(data) }
-        catch { parsed = { raw: data } }
-        // Live callers keep lenient semantics (resolve on any response).
-        // Drain replay passes throwOnError so a non-2xx status or an
-        // {error} body is treated as a FAILED replay — the buffer file is
-        // then kept for retry instead of being unlinked (data-loss guard).
-        if (throwOnError && (status < 200 || status >= 300 || (parsed && parsed.error != null))) {
-          const detail = parsed && parsed.error != null ? String(parsed.error) : `HTTP ${status}`
-          reject(new Error(`memory replay rejected: ${detail}`))
-          return
-        }
-        resolve(parsed)
-      })
-    })
-    req.on('error', err => { _distrustMemoryPort(port, err); reject(err) })
-    req.on('timeout', () => { req.destroy(); const err = new Error('memory-service timeout'); _distrustMemoryPort(port, err); reject(err) })
-    if (payload) req.write(payload)
-    req.end()
-  })
+async function replayBuffered(kind, payload) {
+  const module = await memoryRuntime()
+  const result = kind === 'ingest'
+    ? await module.ingestTranscript(payload.filePath, { cwd: payload.cwd })
+    : await module.appendEntry(payload)
+  if (result?.error) throw new Error(`memory replay rejected: ${result.error}`)
+  return result
 }
 
 const BUFFER_DIR = path.join(RUNTIME_ROOT, 'memory-buffer')
@@ -166,18 +58,12 @@ export async function appendEntry(data) {
     cwd: data.cwd ?? null,
   }
   // Bounded fast attempt. On failure, buffer to disk immediately and let
-  // the periodic drainer ship buffered entries when the service is back.
-  // Caller is fire-and-forget (channels worker), so capping the tail at
-  // ~3s prevents promises from lingering on minute-long timeouts.
+  // the periodic drainer retry after the in-process runtime recovers.
   try {
-    return await memoryFetch('POST', '/entry', payload, 3_000)
+    const module = await memoryRuntime()
+    return await module.appendEntry(payload)
   } catch (e) {
     process.stderr.write(`[memory-client] appendEntry failed (${e.message}) — buffering\n`)
-    // No-port / connection-refused means the daemon is likely dead. Ask the
-    // shared proxy to re-ensure the singleton (reentrancy-guarded, non-throwing)
-    // so buffered entries have a live target on the next periodic drain instead
-    // of being retried against nothing until quarantine.
-    if (isConnRefusedLike(e)) void ensureMemoryDaemon()
     const bufferPath = bufferToDisk('entry', payload)
     return bufferPath ? { ok: false, buffered: true, path: bufferPath } : { ok: false }
   }
@@ -185,7 +71,8 @@ export async function appendEntry(data) {
 
 export async function ingestTranscript(filePath, { cwd } = {}) {
   try {
-    return await memoryFetch('POST', '/ingest-transcript', { filePath, ...(cwd ? { cwd } : {}) })
+    const module = await memoryRuntime()
+    return await module.ingestTranscript(filePath, { cwd })
   } catch (e) {
     process.stderr.write(`[memory-client] ingestTranscript failed (${e.message}) — buffering\n`)
     // Dedupe by transcriptPath: replace any already-buffered ingest for the
@@ -306,8 +193,8 @@ function enforceBufferCap() {
 
 // Replay buffered entry-*/ingest-* files once the memory port is live.
 // Oldest-first (filename carries a ms timestamp), dedupe-safe (each file is
-// deleted only after a 2xx replay — memoryFetch(throwOnError) rejects on
-// non-2xx/{error}, so a rejected replay keeps the file for retry, no data
+// deleted only after a successful in-process replay; a rejected replay keeps
+// the file for retry, so no data
 // loss). Retry count is PERSISTED in the filename suffix (`.rN`) so process
 // restarts don't reset the poison cap; after MAX_DRAIN_ATTEMPTS the file is
 // MOVED to memory-buffer/dead/ (not deleted, not left blocking the queue).
@@ -325,14 +212,8 @@ function retryName(name, n) {
 }
 export async function drainBuffer() {
   if (_draining) return { ok: true, skipped: 'in-progress' }
-  const port = await getMemoryPort()
-  if (!port) {
-    // No published port: the daemon is down while buffered work is waiting.
-    // Respawn it via the shared proxy (reused singleton — no fork dup) and
-    // let the next tick drain against the freshly published port.
-    void ensureMemoryDaemon()
-    return { ok: false, reason: 'no-port' }
-  }
+  try { await memoryRuntime() }
+  catch (error) { return { ok: false, reason: error?.message || 'memory runtime unavailable' } }
   _draining = true
   let drained = 0
   let failed = 0
@@ -362,11 +243,9 @@ export async function drainBuffer() {
         if (!moveToDead(name, 'unparseable buffer file')) skipThisPass.add(name)
         continue
       }
-      const endpoint = name.startsWith('ingest-') ? '/ingest-transcript' : '/entry'
+      const kind = name.startsWith('ingest-') ? 'ingest' : 'entry'
       try {
-        // throwOnError: non-2xx status or an {error} body REJECTS, so the
-        // file is kept/aged for retry instead of unlinked (HIGH: data loss).
-        await memoryFetch('POST', endpoint, payload, 10_000, { throwOnError: true })
+        await replayBuffered(kind, payload)
         try {
           fs.unlinkSync(bufferPath)
           dropDedupeIndexForPath(bufferPath)
@@ -375,10 +254,6 @@ export async function drainBuffer() {
       } catch (e) {
         const attempts = parseRetry(name) + 1
         failed++
-        // Connection-refused mid-drain: the daemon died between the port read
-        // and this POST. Re-ensure it via the shared proxy so the next tick
-        // has a live target (the file is aged/kept below, never dropped here).
-        if (isConnRefusedLike(e)) void ensureMemoryDaemon()
         if (attempts >= MAX_DRAIN_ATTEMPTS) {
           // Quarantine, don't drop: move to dead/ so a poison record neither
           // wedges the queue nor silently vanishes (recoverable for triage).
@@ -413,4 +288,3 @@ export async function drainBuffer() {
   }
   return { ok: failed === 0, drained, failed }
 }
-

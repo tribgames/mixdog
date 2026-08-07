@@ -2285,7 +2285,7 @@ diff --git a/src/probe.ts b/src/probe.ts
 
   // Phase 1: remoteAttached ENTER session B. The stored restore ends at the
   // user's last message; the owner FULL frame already contains the progressed
-  // turn and streaming tail. CaptureBackend holds the former and resolves
+  // turn and streaming tail. CaptureService holds the former and resolves
   // resume with the latter, matching the real live-share entry barrier.
   let tailText = assistantMarkdown(97);
   const tail = () => ({ id: 'probe-tail', kind: 'assistant', text: tailText, streaming: true });

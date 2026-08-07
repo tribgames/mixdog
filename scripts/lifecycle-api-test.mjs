@@ -104,6 +104,23 @@ test('closing an attached viewer does not close the live owner session', async (
   assert.equal(closeCalls, 0);
 });
 
+test('abort settles the outer turn before a manager session exists', () => {
+  let outerReason = null;
+  const lifecycle = lifecycleFor(null, {
+    getReservedSessionId: () => 'reserved-turn',
+    abortActiveTurns: (reason) => {
+      outerReason = reason;
+      return true;
+    },
+    mgr: { abortSessionTurn: () => false },
+  });
+
+  assert.equal(lifecycle.abort('user-cancel'), true);
+  assert.equal(outerReason?.name, 'SessionClosedError');
+  assert.equal(outerReason?.sessionId, 'reserved-turn');
+  assert.equal(outerReason?.reason, 'user-cancel');
+});
+
 test('lifecycle cancels the pending self-update boot check before yielding', async () => {
   const events = [];
   await lifecycleFor(null, {
@@ -190,7 +207,7 @@ test('lifecycle barrier drains a direct updateSectionAsync with no queued lifecy
       getPluginData: () => dataDir,
     },
     sharedCfgMod,
-    setBackendAsync: async () => {},
+    setChannelProviderAsync: async () => {},
     setConfiguredShell: () => {},
     normalizeSystemShellConfig: () => ({ command: '' }),
     normalizeSearchRouteConfig: () => null,

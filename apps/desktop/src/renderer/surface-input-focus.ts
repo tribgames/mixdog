@@ -21,10 +21,32 @@ const SURFACE_INTERACTIVE_SELECTOR = [
   "[role='slider']",
 ].join(",");
 
+const SURFACE_KEYBOARD_OWNER_SELECTOR = [
+  "input",
+  "textarea",
+  "select",
+  "[contenteditable]:not([contenteditable='false'])",
+  ".xterm",
+  ".monaco-editor",
+  "[role='dialog']",
+  "[role='listbox']",
+  "[role='menu']",
+  "[role='menuitem']",
+  "[role='option']",
+].join(",");
+
 export function shouldFocusSurfaceInput(event: ReactMouseEvent<HTMLElement>): boolean {
   if (event.button !== 0 || event.defaultPrevented) return false;
   const target = event.target;
   if (!(target instanceof Element) || target.closest(SURFACE_INTERACTIVE_SELECTOR)) return false;
   const selection = window.getSelection?.();
   return !selection || selection.isCollapsed;
+}
+
+export function shouldFocusComposerFromWindowKey(event: KeyboardEvent): boolean {
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return false;
+  if (event.key.length !== 1 && event.key !== "Process" && event.key !== "Dead") return false;
+  if (document.querySelector('[aria-modal="true"]')) return false;
+  const target = event.target;
+  return !(target instanceof Element) || !target.closest(SURFACE_KEYBOARD_OWNER_SELECTOR);
 }

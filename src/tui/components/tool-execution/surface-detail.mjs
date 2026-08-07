@@ -44,7 +44,7 @@ export {
 //   all failed       -> theme.error
 //   cancelled        -> theme.warning
 // The RED/orange failure color is driven ONLY by real tool-call errors
-// (`callFailedCount` — backend isError / error toolKind), NOT by command/result
+// (`callFailedCount` — provider isError / error toolKind), NOT by command/result
 // failures like a `[status: failed]` result. A shell command-exit
 // (`exitFailedCount`) is its own distinct neutral state: warning color, never
 // red. `terminalStatus` is still consulted so a cancelled card stays warning.

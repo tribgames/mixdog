@@ -63,19 +63,19 @@ export function createSettingsPicker({
     const plugins = heavyCache ? heavyCache.plugins : (snapshot.plugins || { count: 0 });
     const skills = heavyCache ? heavyCache.skills : (snapshot.skills || { count: 0 });
     const channelWorker = snapshot.channelWorker || null;
-    const channelBackend = heavyCache
-      ? (heavyCache.channelBackend || 'discord')
-      : (snapshot.channelBackend || 'discord');
-    const effectiveChannelBackend = overrides
-      && Object.prototype.hasOwnProperty.call(overrides, 'channelBackend')
-      ? overrides.channelBackend
-      : channelBackend;
+    const channelProvider = heavyCache
+      ? (heavyCache.channelProvider || 'discord')
+      : (snapshot.channelProvider || 'discord');
+    const effectiveChannelProvider = overrides
+      && Object.prototype.hasOwnProperty.call(overrides, 'channelProvider')
+      ? overrides.channelProvider
+      : channelProvider;
     // Refresh the cache every build (light or full) so the next light
     // refresh reuses whatever was most recently known, and so an
-    // optimistic override (e.g. channel backend cycle) sticks without
+    // optimistic override (e.g. channel provider cycle) sticks without
     // re-running the heavy getter it came from.
-    settingsHeavyCacheRef.current = { mcp, hooks, plugins, skills, channelBackend: effectiveChannelBackend };
-    const channelBackendLabel = effectiveChannelBackend === 'telegram' ? 'Telegram' : 'Discord';
+    settingsHeavyCacheRef.current = { mcp, hooks, plugins, skills, channelProvider: effectiveChannelProvider };
+    const channelProviderLabel = effectiveChannelProvider === 'telegram' ? 'Telegram' : 'Discord';
     const remoteEnabled = snapshot.remoteEnabled === true;
     const remoteRuntimeDescription = channelWorker?.running
       ? `runtime running · pid ${channelWorker.pid}`
@@ -198,25 +198,25 @@ export function createSettingsPicker({
         .catch((e) => store.pushNotice(`Remote toggle failed: ${e?.message || e}`, 'error'))
         .finally(() => { void openSettingsPicker({ light: true }); });
     };
-    const cycleChannelBackend = (direction = 1) => {
-      const backends = ['discord', 'telegram'];
-      const currentIndex = Math.max(0, backends.indexOf(effectiveChannelBackend));
-      const chosen = backends[(currentIndex + direction + backends.length) % backends.length];
-      if (chosen === effectiveChannelBackend) {
-        openSettingsPicker({ light: true, overrides: { channelBackend: effectiveChannelBackend } });
+    const cycleChannelProvider = (direction = 1) => {
+      const providers = ['discord', 'telegram'];
+      const currentIndex = Math.max(0, providers.indexOf(effectiveChannelProvider));
+      const chosen = providers[(currentIndex + direction + providers.length) % providers.length];
+      if (chosen === effectiveChannelProvider) {
+        openSettingsPicker({ light: true, overrides: { channelProvider: effectiveChannelProvider } });
         return;
       }
       try {
-        store.setBackend(chosen);
+        store.setChannelProvider(chosen);
         const label = chosen === 'telegram' ? 'Telegram' : 'Discord';
         const restartHint = (remoteEnabled || channelWorker?.running)
           ? `Channel set to ${label}. Restart remote to apply.`
           : `Channel set to ${label}.`;
         store.pushNotice(restartHint, 'info');
       } catch (e) {
-        store.pushNotice(`channel backend failed: ${e?.message || e}`, 'error');
+        store.pushNotice(`channel provider failed: ${e?.message || e}`, 'error');
       }
-      openSettingsPicker({ light: true, overrides: { channelBackend: chosen } });
+      openSettingsPicker({ light: true, overrides: { channelProvider: chosen } });
     };
     // Row order groups by concern — routing/model first, then session
     // behavior, integrations, channels/remote, system — and must stay in
@@ -350,11 +350,11 @@ export function createSettingsPicker({
         _action: 'channels',
       },
       {
-        value: 'channel-backend',
+        value: 'channel-provider',
         label: 'Channel',
-        meta: channelBackendLabel,
+        meta: channelProviderLabel,
         description: 'Left/Right or Enter changes channel type (Discord or Telegram).',
-        _action: 'channel-backend',
+        _action: 'channel-provider',
       },
       {
         value: 'channel-setting',
@@ -410,7 +410,7 @@ export function createSettingsPicker({
         else if (item?._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
         else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
         else if (item?._action === 'remote-runtime') applyRemoteRuntime();
-        else if (item?._action === 'channel-backend') cycleChannelBackend(-1);
+        else if (item?._action === 'channel-provider') cycleChannelProvider(-1);
         else if (item?._action === 'output-style') cycleOutputStyle(-1);
         else if (item?._action === 'theme') cycleTheme(-1);
         else if (item?._action === 'workflow') cycleWorkflow(-1);
@@ -420,7 +420,7 @@ export function createSettingsPicker({
         else if (item?._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
         else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
         else if (item?._action === 'remote-runtime') applyRemoteRuntime();
-        else if (item?._action === 'channel-backend') cycleChannelBackend(1);
+        else if (item?._action === 'channel-provider') cycleChannelProvider(1);
         else if (item?._action === 'output-style') cycleOutputStyle(1);
         else if (item?._action === 'theme') cycleTheme(1);
         else if (item?._action === 'workflow') cycleWorkflow(1);
@@ -431,7 +431,7 @@ export function createSettingsPicker({
         else if (item._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
         else if (item._action === 'channels') applyChannels(!(channels.enabled !== false));
         else if (item._action === 'remote-runtime') applyRemoteRuntime();
-        else if (item._action === 'channel-backend') cycleChannelBackend(1);
+        else if (item._action === 'channel-provider') cycleChannelProvider(1);
         else if (item._action === 'channel-setting') openChannelSettingTypePicker({ returnTo: openSettingsPicker });
         else if (item._action === 'output-style') openOutputStylePicker({ returnTo: openSettingsPicker });
         else if (item._action === 'theme') openThemePicker({ returnTo: openSettingsPicker });

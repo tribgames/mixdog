@@ -4,12 +4,13 @@ import { requestMemoryPressureSnapshot } from './memory-snapshot.mjs';
 
 const MB = 1024 * 1024;
 
-// Normal work is parallel by default. Finite concurrency is an explicit
-// operator policy; memory thresholds are diagnostic and never refuse work.
+// The unified daemon queues bursts instead of starting an unbounded number of
+// agent/provider/shell tasks in one process. Environment overrides remain
+// available for larger hosts; memory thresholds are diagnostic only.
 export const RESOURCE_ADMISSION_DEFAULTS = Object.freeze({
-  maxAgents: Infinity,
-  maxShells: Infinity,
-  maxHighLoad: Infinity,
+  maxAgents: 8,
+  maxShells: 8,
+  maxHighLoad: 12,
   maxQueue: 1024,
   minFreeMemoryMb: 0,
   maxRssMb: 0,

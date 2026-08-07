@@ -9,7 +9,7 @@ import { exec } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { backendChildEnvironment } from './backend-child-environment';
+import { childEnvironment } from './child-environment';
 import type { TerminalSpawnProfile } from './terminal-contract';
 
 export interface DesktopShellProfileInfo {
@@ -52,7 +52,7 @@ function wslDistributions(wslPath: string): Promise<string[]> {
       encoding: 'utf16le',
       timeout: 3_000,
       windowsHide: true,
-      env: backendChildEnvironment(),
+      env: childEnvironment(),
     },
       (error, stdout) => {
         if (error) {

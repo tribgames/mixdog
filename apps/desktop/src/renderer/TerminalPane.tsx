@@ -439,7 +439,7 @@ export default function TerminalPane({
         if (!noticeShown) {
           noticeShown = true;
           try {
-            term.write("\r\n\x1b[31mterminal backend unavailable — retrying…\x1b[0m\r\n");
+            term.write("\r\n\x1b[31mterminal service unavailable — retrying…\x1b[0m\r\n");
           } catch { /* xterm disposed mid-failure */ }
         }
         try {

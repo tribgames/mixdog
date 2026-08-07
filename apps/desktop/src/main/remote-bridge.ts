@@ -17,7 +17,7 @@ import {
   sendStaticFile,
 } from '../../../relay/lib/static-http.mjs';
 import { parseMediaRequest, sendMediaFile } from '../../../relay/lib/media-http.mjs';
-import type { DesktopBackend } from './backend-api';
+import type { DesktopService } from './desktop-service-contract';
 import { resolveMediaFileTarget } from './media-source';
 import { createRemoteMethods, executeRemoteFrame, type RemoteMethodDependencies } from './remote-methods';
 import { readSecretFile, writeSecretFile } from './secret-file';
@@ -154,7 +154,7 @@ function serveStatic(
  * answers with cache validators and Range support.
  */
 function handleMediaRequest(
-  host: DesktopBackend,
+  host: DesktopService,
   token: string,
   request: IncomingMessage,
   response: ServerResponse,

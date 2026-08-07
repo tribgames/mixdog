@@ -1,5 +1,5 @@
 import { Check, FileDiff, RotateCcw, X } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { t } from "./i18n";
 import { GitDiffBody } from "./ReviewPane";
 import { findPatch, PATCH_CACHE_LIMIT } from "./TranscriptView";
@@ -99,15 +99,6 @@ function rememberAgentReviews(
   }
 }
 
-function patchMetadataStatus(patch: string): string {
-  if (/^Binary files /m.test(patch)) return "binary";
-  if (/^rename from /m.test(patch) || /^rename to /m.test(patch)) return "R";
-  if (/^new file mode /m.test(patch)) return "A";
-  if (/^deleted file mode /m.test(patch)) return "D";
-  if (/^(old mode|new mode) /m.test(patch)) return "T";
-  return "";
-}
-
 function analyzeTurnReviewPatch(patch: string) {
   const cached = turnReviewPatchCache.get(patch);
   if (cached) {
@@ -124,7 +115,7 @@ function analyzeTurnReviewPatch(patch: string) {
       if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
       else if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
     }
-    const status = patchMetadataStatus(String(part.patch || ""));
+    const status = String(part.status || "");
     // A bare `diff --git` header is not a file change. It used to survive as
     // an empty parsed part and rendered the misleading “+0 -0” row.
     if (additions === 0 && deletions === 0 && !status) return [];
@@ -260,16 +251,18 @@ function statusLabel(entry: TurnReviewSummary["files"] extends Map<string, infer
   if (entry.status === "A") return t("Added");
   if (entry.status === "D") return t("Deleted");
   if (entry.status === "T") return t("Metadata");
-  return entry.lineStats ? "" : t("Changed");
+  return t("Changed");
 }
 
 // Single-quoted so the capability-inventory source scan counts this surface.
 const TURN_REVIEW_CAPABILITY = 'getTurnReviewDiff';
 
-export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId }: {
+export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId, active = true, busy = false }: {
   items: TranscriptItem[];
   cwd?: string;
   sessionId?: string;
+  active?: boolean;
+  busy?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [openFile, setOpenFile] = useState("");
@@ -332,10 +325,17 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   const authoritativeWorktreeSnapshot = authoritativeSnapshotKind === "worktree";
   const capabilityFailures = useRef(0);
   const capabilityRequestInFlight = useRef(false);
+  const pendingCapabilityRefresh = useRef<{
+    scopeKey: string;
+    refreshWorktree: boolean;
+  } | null>(null);
+  const refreshAgentReviewsRef = useRef<(refreshWorktree?: boolean) => Promise<void>>(
+    async () => undefined,
+  );
   const lastAgentReviewSignature = useRef<string | null>(null);
   useEffect(() => {
     capabilityFailures.current = 0;
-    capabilityRequestInFlight.current = false;
+    pendingCapabilityRefresh.current = null;
     lastAgentReviewSignature.current = null;
     setExpanded(false);
     setOpenFile("");
@@ -351,7 +351,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     }
     return false;
   }, [items]);
-  const refreshAgentReviews = useCallback(async () => {
+  const refreshAgentReviews = useCallback(async (refreshWorktree = false) => {
     const api = window.mixdogDesktop as {
       invokeCapability?: (request: {
         capability: string;
@@ -360,8 +360,17 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
       }) => Promise<{ value?: unknown }>;
     } | undefined;
     if (!sessionId || !api?.invokeCapability || capabilityFailures.current >= 3) return;
-    if (capabilityRequestInFlight.current || document.visibilityState === "hidden") return;
     const requestedScope = turnScopeKey;
+    if (document.visibilityState === "hidden") return;
+    if (capabilityRequestInFlight.current) {
+      const pending = pendingCapabilityRefresh.current;
+      pendingCapabilityRefresh.current = {
+        scopeKey: requestedScope,
+        refreshWorktree: refreshWorktree
+          || (pending?.scopeKey === requestedScope && pending.refreshWorktree),
+      };
+      return;
+    }
     capabilityRequestInFlight.current = true;
     try {
       // This bar belongs to the pane's session. During a tab switch the host's
@@ -369,7 +378,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
       // mixed another turn's diff into the bar and could hit a stale view.
       const result = await api.invokeCapability({
         capability: TURN_REVIEW_CAPABILITY,
-        args: [],
+        args: [{ refresh: refreshWorktree }],
         sessionId,
       });
       const value = (result?.value ?? null) as {
@@ -441,11 +450,15 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
       capabilityFailures.current += 1;
     } finally {
       capabilityRequestInFlight.current = false;
+      const pending = pendingCapabilityRefresh.current;
+      pendingCapabilityRefresh.current = null;
+      if (pending && activeScope.current === pending.scopeKey) {
+        void refreshAgentReviewsRef.current(pending.refreshWorktree);
+      }
     }
   }, [sessionId, turnScopeKey]);
+  refreshAgentReviewsRef.current = refreshAgentReviews;
   // Refresh on turn boundaries, not every streaming transcript publication.
-  // The idle poll catches a worker completion that lands without another Lead
-  // transcript item; unchanged review signatures avoid redundant state writes.
   const turnBoundaryKey = useMemo(() => {
     for (let index = items.length - 1; index >= 0; index--) {
       const item = items[index];
@@ -457,14 +470,37 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     return "";
   }, [items]);
   useEffect(() => {
-    if (hasTurnActivity) void refreshAgentReviews();
+    // A tool/turn boundary is the authoritative point at which the visible
+    // count must catch up. If an older request is still running, the callback
+    // above coalesces this into one mandatory follow-up refresh instead of
+    // dropping the final file set and leaving an earlier count on screen.
+    if (active && hasTurnActivity) void refreshAgentReviews(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- turnBoundaryKey stands in for items
-  }, [refreshAgentReviews, hasTurnActivity, turnBoundaryKey]);
+  }, [active, busy, refreshAgentReviews, hasTurnActivity, turnBoundaryKey]);
   useEffect(() => {
-    if (!hasTurnActivity && agentReviews.length === 0) return undefined;
-    const timer = window.setInterval(() => { void refreshAgentReviews(); }, 6_000);
-    return () => window.clearInterval(timer);
-  }, [refreshAgentReviews, hasTurnActivity, agentReviews.length]);
+    if (!active || (!hasTurnActivity && agentReviews.length === 0)) return undefined;
+    // While a turn is active (or the review is open), keep the display fresh.
+    // Once idle, use a bounded backoff window to catch a late child completion
+    // without leaving every mounted session on a permanent six-second poll.
+    if (busy || expanded) {
+      void refreshAgentReviews(true);
+      const timer = window.setInterval(() => { void refreshAgentReviews(true); }, 6_000);
+      return () => window.clearInterval(timer);
+    }
+    const delays = [6_000, 12_000, 24_000, 48_000];
+    let index = 0;
+    let timer = 0;
+    const schedule = () => {
+      if (index >= delays.length) return;
+      timer = window.setTimeout(() => {
+        index += 1;
+        void refreshAgentReviews(false);
+        schedule();
+      }, delays[index]);
+    };
+    schedule();
+    return () => window.clearTimeout(timer);
+  }, [active, busy, expanded, refreshAgentReviews, hasTurnActivity, agentReviews.length, turnBoundaryKey]);
   // Shares the Review pane's persisted diff-style preference (user request:
   // the expanded bar renders real diffs, so it needs the same Unified/Split
   // control).
@@ -545,7 +581,48 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
       : []),
     ...agentSources,
   ], [transcriptSummary, agentSources, authoritativeWorktreeSnapshot]);
-  if (summary.files.size === 0) return null;
+  const reviewVisible = summary.files.size > 0;
+  const reviewResolved = agentReviewState.scopeKey === turnScopeKey;
+  const currentSessionKey = String(sessionId || "draft");
+  const previousReview = useRef({
+    scopeKey: turnScopeKey,
+    sessionKey: currentSessionKey,
+    visible: reviewVisible,
+  });
+  const [handoffScope, setHandoffScope] = useState("");
+  useLayoutEffect(() => {
+    const previous = previousReview.current;
+    if (previous.scopeKey !== turnScopeKey) {
+      // A submitted prompt publishes before the next turn's authoritative diff.
+      // Keep the prior collapsed row's geometry through that same-session
+      // handoff, but never carry it across an actual session switch.
+      setHandoffScope(previous.sessionKey === currentSessionKey && previous.visible
+        ? turnScopeKey
+        : "");
+    }
+    previousReview.current = {
+      scopeKey: turnScopeKey,
+      sessionKey: currentSessionKey,
+      visible: reviewVisible,
+    };
+  }, [currentSessionKey, reviewVisible, turnScopeKey]);
+  useLayoutEffect(() => {
+    if (handoffScope !== turnScopeKey) return;
+    // A real bar replaces the placeholder at the same height. An empty result
+    // releases it only after the turn settles (or a submission ends before any
+    // turn activity), so a late diff cannot push the transcript twice.
+    if (reviewVisible || (!busy && (!hasTurnActivity || reviewResolved))) {
+      setHandoffScope("");
+    }
+  }, [busy, handoffScope, hasTurnActivity, reviewResolved, reviewVisible, turnScopeKey]);
+  const holdHandoffGeometry = handoffScope === turnScopeKey
+    && !reviewVisible
+    && (busy || (hasTurnActivity && !reviewResolved));
+  if (!reviewVisible) {
+    return holdHandoffGeometry
+      ? <div className="turn-review-bar turn-review-placeholder" aria-hidden="true" />
+      : null;
+  }
   return (
     <section ref={barElement} className="turn-review-bar" aria-label={t("Files changed this turn")}
       data-expanded={expanded ? "true" : "false"}>
@@ -563,7 +640,10 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
           {/* The counters belong to the TITLE, not to the (now removed)
               expander side of the row. */}
           {summary.hasLineStats && (
-            <span className="diff-stats"><i>+{summary.additions}</i><em>-{summary.deletions}</em></span>
+            <span className="diff-stats">
+              {summary.additions > 0 && <i>+{summary.additions}</i>}
+              {summary.deletions > 0 && <em>-{summary.deletions}</em>}
+            </span>
           )}
           {agentSources.length > 0 && <span className="turn-review-attribution">
             {authoritativeWorktreeSnapshot
@@ -592,7 +672,8 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
               <span>{source.summary.files.size === 1 ? t("1 file") : t("{{count}} files", { count: source.summary.files.size })}</span>
               {source.summary.hasLineStats && (
                 <span className="diff-stats">
-                  <i>+{source.summary.additions}</i><em>-{source.summary.deletions}</em>
+                  {source.summary.additions > 0 && <i>+{source.summary.additions}</i>}
+                  {source.summary.deletions > 0 && <em>-{source.summary.deletions}</em>}
                 </span>
               )}
             </li>
@@ -614,9 +695,13 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
             <button type="button" className="turn-review-file" aria-expanded={openFile === rowKey}
               onClick={() => setOpenFile((current) => current === rowKey ? "" : rowKey)}>
               <code>{rel}</code>
-              {statusLabel(entry) && <span className="turn-review-status">{statusLabel(entry)}</span>}
+              {statusLabel(entry) && <span className="turn-review-status"
+                data-status={entry.status || (entry.lineStats ? "M" : "")}>{statusLabel(entry)}</span>}
               {entry.lineStats && (
-                <span className="diff-stats"><i>+{entry.additions}</i><em>-{entry.deletions}</em></span>
+                <span className="diff-stats">
+                  {entry.additions > 0 && <i>+{entry.additions}</i>}
+                  {entry.deletions > 0 && <em>-{entry.deletions}</em>}
+                </span>
               )}
             </button>
             {Boolean(cwd) && authoritativeWorktreeSnapshot && source.key === "turn" && !isReverted && (confirming ? (

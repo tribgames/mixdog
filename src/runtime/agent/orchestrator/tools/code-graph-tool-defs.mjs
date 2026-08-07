@@ -14,6 +14,7 @@ export const CODE_GRAPH_TOOL_DEFS = [
         limit: { type: 'number', minimum: 1, description: 'Max results.' },
         depth: { type: 'number', minimum: 1, maximum: 5, description: 'Caller depth.' },
         page: { type: 'number', minimum: 1, description: 'Caller page.' },
+        cwd: { type: 'string', description: 'Explicit root.' },
       },
       required: ['mode'],
       additionalProperties: false,

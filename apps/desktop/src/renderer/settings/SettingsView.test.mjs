@@ -45,7 +45,7 @@ afterEach(async () => {
 const VALUES = [
   'model', 'search', 'workflow', 'output-style', 'profile', 'theme', 'autocompact',
   'compact-type', 'autoclear', 'memory', 'providers', 'mcp', 'plugins', 'hooks', 'skills',
-  'channels', 'channel-backend', 'channel-setting', 'remote-runtime', 'update',
+  'channels', 'channel-provider', 'channel-setting', 'remote-runtime', 'update',
 ];
 const LABELS = [
   'Model', 'Search model', 'Workflow', 'Output style', 'Profile', 'Theme', 'Auto-compact',
@@ -85,7 +85,7 @@ function capabilityApi(overrides = {}) {
     isRemoteEnabled: false,
     getChannelWorkerStatus: { running: false },
     getChannelSetup: {
-      backend: 'discord',
+      provider: 'discord',
       discord: { authenticated: true, status: 'On' },
       telegram: { authenticated: false, status: 'Off' },
       channel: { discordChannelId: '111', telegramChatId: '' },
@@ -566,7 +566,7 @@ test('category panes expose TUI routes, automation, memory, voice, and doctor co
   const { api } = capabilityApi({
     listAgents: [{ id: 'lead', name: 'Lead', route: { provider: 'default', model: 'default' } }],
     getChannelSetup: {
-      backend: 'discord',
+      provider: 'discord',
       channel: {},
       schedules: [{ name: 'daily', time: '0 9 * * *', enabled: true }],
       webhooks: [{ name: 'github', parser: 'github', enabled: true, secretSet: true }],
@@ -825,7 +825,7 @@ test('status badges stay with row titles while metadata and actions remain separ
       servers: [{ name: 'docs', status: 'connected', toolCount: 3, enabled: true }],
     },
     getChannelSetup: {
-      backend: 'discord',
+      provider: 'discord',
       discord: { stored: true, status: 'set' },
       telegram: { stored: true, status: 'set' },
       webhook: { stored: true, status: 'set' },
@@ -921,11 +921,13 @@ test('inline toggles and channel cycle use the TUI capability semantics', async 
   const telegram = Array.from(document.querySelectorAll('[role="option"]'))
     .find((entry) => entry.textContent.trim() === 'Telegram');
   await act(async () => { telegram.click(); await Promise.resolve(); });
-  assert.deepEqual(calls[2], ['setBackend', ['telegram']]);
+  assert.deepEqual(calls[2], ['setChannelProvider', ['telegram']]);
 });
 
-test('channel backend change surfaces restart guidance while the remote worker runs', async () => {
+test('channel provider change surfaces restart guidance while the remote worker runs', async () => {
   mount();
+  let toast;
+  window.addEventListener('mixdog:desktop-toast', (event) => { toast = event.detail; }, { once: true });
   const { api } = capabilityApi({
     isRemoteEnabled: true,
     getChannelWorkerStatus: { running: true, pid: 42 },
@@ -941,7 +943,11 @@ test('channel backend change surfaces restart guidance while the remote worker r
   const telegram = Array.from(document.querySelectorAll('[role="option"]'))
     .find((entry) => entry.textContent.trim() === 'Telegram');
   await act(async () => { telegram.click(); await Promise.resolve(); await Promise.resolve(); });
-  assert.match(document.querySelector('[role="status"]')?.textContent || '', /Channel set to Telegram\. Restart remote to apply\./);
+  assert.deepEqual({ text: toast?.text, tone: toast?.tone }, {
+    text: 'Channel set to Telegram. Restart remote to apply.',
+    tone: 'info',
+  });
+  assert.equal(document.querySelector('.settings-notice'), null);
 });
 
 test('Context keeps the Auto-clear switch and provider idle windows inline', async () => {
@@ -982,7 +988,7 @@ test('channel-setting deep link opens the Channels tab with token and target for
   mount();
   const { api, calls } = capabilityApi({
     getChannelSetup: {
-      backend: 'discord',
+      provider: 'discord',
       discord: { authenticated: true, stored: true, status: 'Set' },
       telegram: { authenticated: true, stored: true, status: 'Set' },
       channel: { discordChannelId: '111', telegramChatId: '222' },
@@ -1018,7 +1024,7 @@ test('channel-setting deep link opens the Channels tab with token and target for
     await Promise.resolve();
   });
   assert.ok(calls.some(([name, args]) => name === 'setChannel'
-    && args[0]?.backend === 'discord' && args[0]?.channelId === '222'));
+    && args[0]?.provider === 'discord' && args[0]?.channelId === '222'));
 });
 
 test('General exposes the three desktop-local modes with persistent preference', async () => {

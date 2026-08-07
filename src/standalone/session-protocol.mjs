@@ -1,9 +1,8 @@
 /**
  * Explicit session protocol shared by every Mixdog client.
  *
- * The wire exposes session lifetime operations directly. Engine capabilities
- * are finite and split into read/configure lanes; clients cannot discover or
- * invoke arbitrary properties on the daemon-hosted runtime.
+ * Session capabilities are finite and split into read/configure lanes; clients
+ * cannot discover or invoke arbitrary properties on the daemon-hosted runtime.
  */
 
 export const SESSION_READ_ACTIONS = Object.freeze([
@@ -17,6 +16,7 @@ export const SESSION_READ_ACTIONS = Object.freeze([
   'getDisabledSkills',
   'getMediaJob',
   'getOnboardingStatus',
+  'getOAuthProviderLoginStatus',
   'getOutputStyle',
   'getProfile',
   'getProviderSetup',
@@ -63,11 +63,14 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'beginOAuthProviderLogin',
   'cacheMediaThumbnail',
   'cancelMediaJob',
+  'cancelOAuthProviderLogin',
   'checkForUpdate',
   'claimRemote',
   'clear',
   'compact',
   'completeOnboarding',
+  'completeOAuthProviderLogin',
+  'consumeCodexRateLimitResetCredit',
   'createWorkflow',
   'deleteAgentDefinition',
   'deleteHookRule',
@@ -96,6 +99,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'removeNotice',
   'removePlugin',
   'renameSessionTitle',
+  'resizeImage',
   'restoreNewerTranscript',
   'restoreOlderTranscript',
   'restoreQueued',
@@ -117,7 +121,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'setAgentRoute',
   'setAutoClear',
   'setAutoUpdate',
-  'setBackend',
+  'setChannelProvider',
   'setChannel',
   'setChannelsEnabled',
   'setCompactionSettings',

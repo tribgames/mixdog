@@ -5,7 +5,7 @@ import { agentLoop } from '../src/runtime/agent/orchestrator/session/loop.mjs';
 import { estimateMessagesTokens, estimateToolSchemaTokens, providerTokenCalibration } from '../src/runtime/agent/orchestrator/session/context-utils.mjs';
 import { runSessionCompaction } from '../src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs';
 import { agentCompactEventDetail } from '../src/runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs';
-import { compactEventDetail } from '../src/tui/engine/labels.mjs';
+import { compactEventDetail } from '../src/tui/session/labels.mjs';
 import { autoCompactWindowForRoute, summarizeGatewayUsage } from '../src/vendor/statusline/src/gateway/route-meta.mjs';
 
 function assert(condition, message) {

@@ -6,7 +6,7 @@
  * (`makeAgentDispatch({ taskType })`) and, for memory maintenance specifically,
  * through `maintenance-llm.mjs`'s thin wrapper.
  *
- * Only preset resolution remains here: memory-cycle and future backend
+ * Only preset resolution remains here: memory-cycle and future provider
  * callers still need a consistent way to map `(task, agent-config)` to a
  * preset id.
  */

@@ -20,7 +20,7 @@
 //   ./patch/orchestrator.mjs  — apply_patch orchestration + executePatchTool
 //     + replay capture + UI-diff side-channel.
 //
-// Backend is unchanged: NATIVE-ONLY dispatch to the mixdog-patch Rust engine,
+// Executor is unchanged: NATIVE-ONLY dispatch to the mixdog-patch Rust engine,
 // no JS apply fallback. Public exports below match the pre-split surface.
 
 // Side-effect import: schedules the native-patch prewarm on module load, as
