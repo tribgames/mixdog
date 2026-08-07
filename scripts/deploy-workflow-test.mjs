@@ -9,12 +9,15 @@ test('Deploy is the one-click release entry with incremental native workers', as
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.match(deploy, /workflow_dispatch:/);
   assert.match(deploy, /id-token:\s*write/);
+  assert.match(deploy, /git fetch --tags --force origin[\s\S]*node --test scripts\/release-version-discipline-test\.mjs/);
   assert.match(deploy, /options:\s*\[auto,\s*force,\s*skip\]/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/build-runtime\.yml/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/patch-release\.yml/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/graph-release\.yml/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/release\.yml/);
   assert.match(deploy, /changedSince\(`\$\{tagPrefix\}\$\{manifestVersion\}`/);
+  assert.match(deploy, /const preBumped = !currentTagExists && !currentReleaseExists/);
+  assert.match(deploy, /const appVersion = resume \|\| preBumped/);
   assert.match(deploy, /needs\.runtime\.result == 'success' \|\| needs\.runtime\.result == 'skipped'/);
   assert.match(deploy,
     /always\(\) && needs\.plan\.result == 'success' && needs\.prepare-app\.result == 'success'/);
@@ -30,6 +33,7 @@ test('Deploy is the one-click release entry with incremental native workers', as
 
 test('application release stages every platform before publishing', async () => {
   const release = await workflow('release.yml');
+  assert.match(release, /validate:[\s\S]*fetch-depth:\s*0/);
   assert.match(release, /publish:[\s\S]*needs:\s*\[validate,\s*desktop-windows,\s*desktop-unix\]/);
   assert.match(release, /desktop-build:[\s\S]*name:\s*build-desktop-once/);
   assert.match(release, /Restore unchanged desktop output[\s\S]*desktop-out-v1-\$\{\{ hashFiles/);

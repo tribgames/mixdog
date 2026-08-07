@@ -60,6 +60,7 @@ jobs:
           test "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH"
           git fetch --tags --force origin
           test "$(git rev-parse HEAD)" = "$(git rev-parse "origin/${DEFAULT_BRANCH}")"
+          node --test scripts/release-version-discipline-test.mjs
 
       - name: Resolve app version and changed native components
         id: plan
@@ -111,8 +112,16 @@ jobs:
           const currentApp = readJson('package.json').version;
           if (!strict.test(currentApp)) throw new Error(`Invalid app version ${currentApp}`);
           const currentTag = `v${currentApp}`;
-          const resume = tagExists(currentTag) && !releaseExists(currentTag);
-          const appVersion = resume ? currentApp : increment(currentApp, process.env.BUMP);
+          const currentTagExists = tagExists(currentTag);
+          const currentReleaseExists = releaseExists(currentTag);
+          const resume = currentTagExists && !currentReleaseExists;
+          // Protocol-breaking work is pre-bumped before merge so a checkout can
+          // never impersonate the published app version. Release that pending
+          // identity as-is instead of incrementing it a second time.
+          const preBumped = !currentTagExists && !currentReleaseExists;
+          const appVersion = resume || preBumped
+            ? currentApp
+            : increment(currentApp, process.env.BUMP);
 
           // Release gate: a fresh release requires changelog entries.
           const changelog = readFileSync('CHANGELOG.md', 'utf8');
@@ -179,7 +188,7 @@ jobs:
             runtime_tag: runtimeTag,
           };
           for (const [key, value] of Object.entries(values)) appendFileSync(output, `${key}=${value}\n`);
-          console.log(JSON.stringify({ mode, resume, ...values }, null, 2));
+          console.log(JSON.stringify({ mode, resume, preBumped, ...values }, null, 2));
           NODE
 
   prepare-native:

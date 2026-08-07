@@ -5,6 +5,18 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Development checkouts now use checkout-specific backend runtime and data
+  roots shared by their CLI and unpackaged desktop, so protocol work can never
+  claim or write through the installed app's daemon.
+- Release discipline now requires every app package to be pre-bumped when the
+  engine wire protocol changes, keeps workspace versions synchronized, and
+  publishes that pending identity without an accidental second increment.
+- Desktop protocol conflicts now explain the update/close-and-reopen recovery
+  path instead of surfacing a raw backend transport exception.
+- The unified protocol-4 backend removes the duplicate desktop engine host,
+  restores daemon reconnect/resync behavior, and preserves completed tool work
+  across timeout and cancellation boundaries.
+
 ## v0.9.95 - 2026-08-06
 
 - Engine daemon by DEFAULT: a machine-global process owns every live session

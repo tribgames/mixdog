@@ -53,6 +53,30 @@ test('failed desktop initialization closes its daemon attachment and preserves t
   assert.deepEqual(calls, ['desktop.init', 'desktop.unsubscribe']);
 });
 
+test('a newer daemon conflict tells desktop users how to recover', async () => {
+  const conflict = Object.assign(
+    new Error('engine daemon 0.9.96 (protocol 4) is newer than this client'),
+    { daemonNewerThanClient: true },
+  );
+  const transport = new DaemonEngineTransport(
+    'file:///C:/tmp/desktop-backend-daemon.cjs',
+    process.cwd(),
+    async () => ({
+      ensureEngineDaemon: async () => { throw conflict; },
+      attachEngineDaemon: async () => { throw new Error('must not attach'); },
+    }),
+  );
+  let exit = null;
+  transport.on('exit', (code, cause) => { exit = { code, cause }; });
+  transport.postMessage({ kind: 'init', options });
+
+  await waitFor(() => exit);
+  assert.equal(exit.code, 1);
+  assert.match(exit.cause.message, /newer Mixdog backend is already running/i);
+  assert.match(exit.cause.message, /close every Mixdog window and terminal/i);
+  assert.equal(exit.cause.cause, conflict);
+});
+
 test('a transient pooled-socket reset retries one desktop request with the same call id', async () => {
   const invocations = [];
   const transport = new DaemonEngineTransport(
