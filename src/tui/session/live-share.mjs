@@ -299,14 +299,20 @@ export function createLiveShare({
         try { socket.destroy(); } catch { /* already gone */ }
       });
       attachLineReader(socket, (frame) => {
-        if (frame.t === 'submit' && typeof frame.text === 'string' && frame.text.trim()) {
+        if (frame.t === 'submit' && (
+          (typeof frame.text === 'string' && frame.text.trim())
+          || typeof frame.prompt === 'string'
+          || Array.isArray(frame.prompt)
+        )) {
           // Optional submission metadata (additive, old viewers omit it): the
           // originating surface's submission id must survive the pipe so its
           // optimistic user row releases when the SAME id settles in the
           // owner's transcript (user: 방금 친 메세지가 2개 남는다).
           const id = typeof frame.id === 'string' && frame.id.trim() ? frame.id : undefined;
           const submittedAt = Number(frame.submittedAt);
-          const delivered = onRemoteSubmit(frame.text, {
+          const prompt = frame.prompt ?? frame.text;
+          const delivered = onRemoteSubmit(prompt, {
+            ...(frame.options && typeof frame.options === 'object' ? frame.options : {}),
             ...(id ? { id } : {}),
             ...(Number.isFinite(submittedAt) && submittedAt > 0
               ? { submittedAt: Math.round(submittedAt) }
@@ -660,16 +666,21 @@ export function createLiveShare({
     ensure: ensureShare,
     viewerConnected: () => clientUp,
     waitForViewerSync,
-    sendSubmit(text, meta = null) {
+    sendSubmit(prompt, meta = null) {
       if (!clientUp || !client) return false;
       const ackId = `ack-${process.pid}-${Date.now()}-${(submitAckSeq += 1)}`;
       const onUndelivered = typeof meta?.onUndelivered === 'function' ? meta.onUndelivered : null;
       try {
         const id = meta && meta.id != null && String(meta.id).trim() ? String(meta.id) : undefined;
         const submittedAt = Number(meta?.submittedAt);
+        const displayText = String(meta?.displayText
+          ?? meta?.options?.displayText
+          ?? (typeof prompt === 'string' ? prompt : ''));
         client.write(frameLine({
           t: 'submit',
-          text: String(text),
+          text: displayText,
+          prompt,
+          ...(meta?.options && typeof meta.options === 'object' ? { options: meta.options } : {}),
           ack: ackId,
           ...(id ? { id } : {}),
           ...(Number.isFinite(submittedAt) && submittedAt > 0
@@ -723,9 +734,10 @@ export function createLiveShare({
  * the SAME identity and the owner reuses it for the settled user row — which is
  * what releases the submitting surface's optimistic bubble.
  */
-export function forwardViewerSubmit({ text, options = {}, share, spool, pid = process.pid }) {
+export function forwardViewerSubmit({ prompt = null, text, options = {}, share, spool, pid = process.pid }) {
   const value = String(text || '').trim();
-  if (!value) return false;
+  const content = prompt ?? value;
+  if (!value && !(Array.isArray(content) && content.length > 0)) return false;
   // Reconcile first so a session that became attachable this event-loop turn
   // takes the instant pipe path instead of the durable detour.
   try { share.ensure?.(); } catch { /* durable fallback below */ }
@@ -736,9 +748,11 @@ export function forwardViewerSubmit({ text, options = {}, share, spool, pid = pr
   // A pipe WRITE is not a delivery: the owner may refuse the prompt and the
   // socket may die between write and read, so an unacknowledged submit is
   // re-delivered through the spool — late, never lost.
-  if (share.sendSubmit(value, {
+  if (share.sendSubmit(content, {
     id: submissionId,
     submittedAt: options.submittedAt,
+    displayText: value,
+    options,
     onUndelivered: deliverDurably,
   })) return true;
   return deliverDurably();

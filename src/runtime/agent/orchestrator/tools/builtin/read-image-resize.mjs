@@ -3,10 +3,11 @@
 // readImageWithTokenBudget) so a `read` on an image returns a viewable,
 // budget-bounded image block instead of refusing oversized originals.
 //
-// sharp is an OPTIONAL dependency. Every entry point degrades to a `null`
-// return when sharp can't be loaded (not installed, native binding missing,
-// dlopen failure); callers fall back to the legacy pass-through-with-cap
-// behaviour. No code path throws on a missing sharp.
+// sharp is a direct runtime dependency. Entry points still degrade to `null`
+// when a platform-native binding cannot load so a damaged install reports the
+// existing bounded fallback instead of crashing the whole daemon.
+
+import { createHash } from 'node:crypto';
 
 // Anthropic inline-image input is capped near 5MB base64 (API rejects on the
 // base64 LENGTH, not raw bytes). IMAGE_TARGET_RAW_SIZE is the raw-byte target
@@ -20,6 +21,70 @@ const IMAGE_MAX_HEIGHT = 2000;
 // dimension/raw-size resize governs the common case and the token gate only
 // fires on pathologically dense images.
 const DEFAULT_IMAGE_MAX_TOKENS = Math.ceil(API_IMAGE_MAX_BASE64_SIZE * 0.125);
+export const OPENAI_IMAGE_MAX_DIMENSION = 2048;
+export const OPENAI_IMAGE_PATCH_SIZE = 32;
+export const OPENAI_IMAGE_MAX_PATCHES = 1536;
+const IMAGE_RESIZE_CACHE_MAX_BYTES = 64 * 1024 * 1024;
+const imageResizeCache = new Map();
+let imageResizeCacheBytes = 0;
+let imageResizeCacheHits = 0;
+let imageResizeCacheMisses = 0;
+
+export function imageProfileForProvider(provider) {
+    const value = String(provider || '').trim().toLowerCase();
+    return /^(?:openai|xai|grok|deepseek|opencode-go|ollama|lmstudio)(?:-|$)/.test(value)
+        ? 'openai'
+        : 'anthropic';
+}
+
+export function openAIImagePatchCount(width, height) {
+    return Math.ceil(Math.max(1, Number(width) || 1) / OPENAI_IMAGE_PATCH_SIZE)
+        * Math.ceil(Math.max(1, Number(height) || 1) / OPENAI_IMAGE_PATCH_SIZE);
+}
+
+function resizeCacheKey(buffer, ext, maxTokens, profile) {
+    return createHash('sha256')
+        .update(String(ext || '')).update('\0')
+        .update(String(maxTokens || 0)).update('\0')
+        .update(String(profile || '')).update('\0')
+        .update(buffer)
+        .digest('hex');
+}
+
+function cloneResizeResult(result) {
+    return {
+        ...result,
+        ...(result?.dimensions ? { dimensions: { ...result.dimensions } } : {}),
+    };
+}
+
+function rememberResizeResult(key, result) {
+    const bytes = Buffer.byteLength(String(result?.data || ''), 'base64');
+    if (bytes <= 0 || bytes > IMAGE_RESIZE_CACHE_MAX_BYTES) return;
+    const existing = imageResizeCache.get(key);
+    if (existing) {
+        imageResizeCacheBytes -= existing.bytes;
+        imageResizeCache.delete(key);
+    }
+    imageResizeCache.set(key, { result: cloneResizeResult(result), bytes });
+    imageResizeCacheBytes += bytes;
+    while (imageResizeCacheBytes > IMAGE_RESIZE_CACHE_MAX_BYTES && imageResizeCache.size > 0) {
+        const oldest = imageResizeCache.keys().next().value;
+        const evicted = imageResizeCache.get(oldest);
+        imageResizeCache.delete(oldest);
+        imageResizeCacheBytes -= evicted?.bytes || 0;
+    }
+}
+
+export function imageResizeCacheStats() {
+    return {
+        entries: imageResizeCache.size,
+        bytes: imageResizeCacheBytes,
+        maxBytes: IMAGE_RESIZE_CACHE_MAX_BYTES,
+        hits: imageResizeCacheHits,
+        misses: imageResizeCacheMisses,
+    };
+}
 
 // Cached dynamic import. Resolves to the sharp factory or null (absent /
 // failed). Cached so repeated reads don't re-attempt a failing import.
@@ -36,6 +101,10 @@ async function loadSharp() {
         })();
     }
     return _sharpPromise;
+}
+
+export function prewarmImageResizer() {
+    return loadSharp();
 }
 
 // True when sharp resolved; used for the per-file change summary / fallback note.
@@ -88,8 +157,21 @@ export function imageMetadataText(dims, sourcePath) {
 // Returns { data (base64), mimeType ("image/..."), dimensions } on success,
 // or null when sharp is unavailable OR any sharp op threw (caller falls back
 // to legacy pass-through-with-cap).
-export async function resizeImageBuffer(buffer, ext, { maxTokens = DEFAULT_IMAGE_MAX_TOKENS } = {}) {
+export async function resizeImageBuffer(buffer, ext, {
+    maxTokens = DEFAULT_IMAGE_MAX_TOKENS,
+    profile = 'anthropic',
+} = {}) {
     if (!Buffer.isBuffer(buffer) || buffer.length === 0) return null;
+    const normalizedProfile = profile === 'openai' ? 'openai' : 'anthropic';
+    const cacheKey = resizeCacheKey(buffer, ext, maxTokens, normalizedProfile);
+    const cached = imageResizeCache.get(cacheKey);
+    if (cached) {
+        imageResizeCacheHits += 1;
+        imageResizeCache.delete(cacheKey);
+        imageResizeCache.set(cacheKey, cached);
+        return cloneResizeResult(cached.result);
+    }
+    imageResizeCacheMisses += 1;
     const sharp = await loadSharp();
     if (!sharp) return null;
     try {
@@ -108,13 +190,20 @@ export async function resizeImageBuffer(buffer, ext, { maxTokens = DEFAULT_IMAGE
             // Constrain dimensions while preserving aspect ratio.
             let width = originalWidth;
             let height = originalHeight;
-            if (width > IMAGE_MAX_WIDTH) {
-                height = Math.round((height * IMAGE_MAX_WIDTH) / width);
-                width = IMAGE_MAX_WIDTH;
+            const maxWidth = normalizedProfile === 'openai' ? OPENAI_IMAGE_MAX_DIMENSION : IMAGE_MAX_WIDTH;
+            const maxHeight = normalizedProfile === 'openai' ? OPENAI_IMAGE_MAX_DIMENSION : IMAGE_MAX_HEIGHT;
+            let scale = Math.min(1, maxWidth / width, maxHeight / height);
+            if (normalizedProfile === 'openai') {
+                scale = Math.min(
+                    scale,
+                    Math.sqrt((OPENAI_IMAGE_MAX_PATCHES * OPENAI_IMAGE_PATCH_SIZE ** 2) / (width * height)),
+                );
             }
-            if (height > IMAGE_MAX_HEIGHT) {
-                width = Math.round((width * IMAGE_MAX_HEIGHT) / height);
-                height = IMAGE_MAX_HEIGHT;
+            width = Math.max(1, Math.floor(width * scale));
+            height = Math.max(1, Math.floor(height * scale));
+            while (normalizedProfile === 'openai' && openAIImagePatchCount(width, height) > OPENAI_IMAGE_MAX_PATCHES) {
+                if (width >= height) width -= 1;
+                else height -= 1;
             }
             const needsResize = width !== originalWidth || height !== originalHeight;
             if (needsResize || originalSize > IMAGE_TARGET_RAW_SIZE) {
@@ -162,11 +251,13 @@ export async function resizeImageBuffer(buffer, ext, { maxTokens = DEFAULT_IMAGE
             }
         }
 
-        return {
+        const result = {
             data: base64,
             mimeType: `image/${mediaType}`,
             dimensions: { originalWidth, originalHeight, displayWidth, displayHeight },
         };
+        rememberResizeResult(cacheKey, result);
+        return result;
     } catch {
         // sharp present but processing failed (corrupt header, unsupported
         // format, OOM). Signal fallback rather than throwing.

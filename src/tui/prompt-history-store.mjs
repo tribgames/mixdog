@@ -9,6 +9,10 @@ import { dirname, join, resolve } from 'node:path';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 
 export const PROMPT_HISTORY_LIMIT = 50;
+export const PROMPT_HISTORY_CACHE_LIMIT = Math.max(
+  8,
+  Number(process.env.MIXDOG_PROMPT_HISTORY_CACHE_LIMIT) || 128,
+);
 
 export function promptHistoryKey(value) {
   return String(value || '').trim().replace(/\s+/g, ' ');
@@ -101,10 +105,43 @@ const memCache = new Map(); // filePath -> entries[] (optimistic in-memory view)
 const pendingAppends = new Map(); // filePath -> string[] appends since last flush
 const pendingTimers = new Map(); // filePath -> timeout handle
 
-function cachedEntries(filePath) {
-  if (memCache.has(filePath)) return memCache.get(filePath);
-  const entries = readEntries(filePath);
+function flushPendingSyncForEviction(filePath) {
+  const timer = pendingTimers.get(filePath);
+  if (timer) clearTimeout(timer);
+  pendingTimers.delete(filePath);
+  const pend = pendingAppends.get(filePath);
+  pendingAppends.delete(filePath);
+  if (!pend?.length) return;
+  const merged = reconcileWithDisk(filePath, pend);
+  writeEntriesSync(filePath, merged);
+}
+
+function trimMemCache() {
+  while (memCache.size > PROMPT_HISTORY_CACHE_LIMIT) {
+    const oldest = memCache.keys().next().value;
+    if (oldest === undefined) break;
+    // Never drop the only optimistic copy of an unflushed prompt. Cwd churn is
+    // rare; once the cache is full, synchronously landing the oldest dirty
+    // bucket gives all three maps a deterministic process-lifetime bound.
+    flushPendingSyncForEviction(oldest);
+    memCache.delete(oldest);
+  }
+}
+
+function rememberCachedEntries(filePath, entries) {
+  memCache.delete(filePath);
   memCache.set(filePath, entries);
+  trimMemCache();
+}
+
+function cachedEntries(filePath) {
+  if (memCache.has(filePath)) {
+    const entries = memCache.get(filePath);
+    rememberCachedEntries(filePath, entries);
+    return entries;
+  }
+  const entries = readEntries(filePath);
+  rememberCachedEntries(filePath, entries);
   return entries;
 }
 
@@ -141,13 +178,15 @@ async function writeBehindFlush(filePath) {
   // and reconcile against the file we are about to write.
   pendingAppends.set(filePath, []);
   const merged = reconcileWithDisk(filePath, pend);
-  memCache.set(filePath, merged);
+  rememberCachedEntries(filePath, merged);
   const ok = await writeEntriesAsync(filePath, merged);
   if (!ok) {
     // Retry: re-queue our appends ahead of any newer ones (oldest → newest).
     const cur = pendingAppends.get(filePath) || [];
     pendingAppends.set(filePath, pend.concat(cur));
     scheduleWriteBehind(filePath);
+  } else if (!(pendingAppends.get(filePath)?.length)) {
+    pendingAppends.delete(filePath);
   }
 }
 
@@ -229,14 +268,23 @@ export function appendPromptHistory(cwd, value) {
   if (!filePath) return null;
   // Optimistic in-memory update for immediate return/reads.
   const trimmed = applyAppend(cachedEntries(filePath), value);
-  memCache.set(filePath, trimmed);
   // Queue the append for a durable, disk-reconciled flush (async, coalesced).
   const pend = pendingAppends.get(filePath) || [];
   pend.push(String(value).trim());
   pendingAppends.set(filePath, pend);
+  rememberCachedEntries(filePath, trimmed);
   // Bound crash-loss to FLUSH_CAP appends; otherwise coalesce over the window.
   if (pend.length >= FLUSH_CAP) void writeBehindFlush(filePath);
   else scheduleWriteBehind(filePath);
   return trimmed;
+}
+
+export function promptHistoryStoreStatsForTest() {
+  return {
+    cacheEntries: memCache.size,
+    pendingEntries: pendingAppends.size,
+    timerEntries: pendingTimers.size,
+    cacheLimit: PROMPT_HISTORY_CACHE_LIMIT,
+  };
 }
 

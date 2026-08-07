@@ -103,6 +103,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'restoreNewerTranscript',
   'restoreOlderTranscript',
   'restoreQueued',
+  'revertTurnReview',
   'revertTurnReviewFile',
   'rewindToItem',
   'runDoctor',

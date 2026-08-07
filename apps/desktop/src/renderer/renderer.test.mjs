@@ -1960,6 +1960,23 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
   assert.match(follow,
     /if \(!viewportHeightChanged && distance < BOTTOM_THRESHOLD_PX\) return;/,
     'virtual-core still owns every growth it follows itself: the observer writes only once the tail was lost');
+  // Reader intent vs the core's bottom anchor: the two rollbacks.
+  assert.match(follow, /setAnchorBottomRef\?\.current\?\.\(next\);/,
+    'a release must reach the virtual anchor in the SAME task, not one render later');
+  assert.match(list,
+    /const shouldAnchorBottom = anchorOverride\.current \?\? anchorBottomProp;/,
+    'the imperative anchor decision must hold across renders until React catches up');
+  assert.match(list,
+    /instance\.setOptions\(\{ \.\.\.instance\.options, anchorTo, followOnAppend: bottom \}\);/,
+    'the anchor override is applied to the core instance, not queued behind a render');
+  assert.match(follow, /grewWhileAtBottom\(\{ distanceBefore, growth \}\)/,
+    'the content-commit bottom rule reads a PRE-mutation snapshot (Codex/opencode parity)');
+  assert.doesNotMatch(follow, /return distance < threshold \+ growth/,
+    'growth measured after the fact cannot tell a growing tail from a row resolving above the reader');
+  assert.match(follow, /if \(attachDelivery\) \{\s*attachDelivery = false;\s*return;\s*\}/,
+    'a fresh observer reports the current box: that attach delivery may only seed baselines');
+  assert.match(follow, /programmatic\.current = queue\.slice\(-PROGRAMMATIC_MEMORY\);/,
+    'one commit writes several offsets, so the timeline write memory is a queue, not one slot');
   assert.doesNotMatch(follow, /inlineReflowFrame|viewportObserver|previousInlineSize/,
     'OpenCode parity must not add a second pane-width observer grammar');
   const widthProbe = probe.slice(
@@ -2073,11 +2090,35 @@ test('settings dialog reserves the native window-controls safe area', async () =
     /\.mixdog-settings-v2 \.settings-resource-title\s*\{[^}]*flex-direction:\s*column;[^}]*align-items:\s*flex-start;/s,
     'resource status tags must stack under their names');
   assert.match(settings,
-    /\.settings-row-control > \.settings-model-trigger > svg,[\s\S]*?\.settings-agent-route \.fast-control \.mx-select-trigger > svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;[^}]*color:\s*var\(--mx-icon-muted\);[^}]*opacity:\s*1;/s,
-    'every route picker must use the same visible down-chevron geometry and color');
+    /\.settings-row-control > \.settings-model-trigger > svg,[\s\S]*?\.settings-agent-route \.effort-control \.mx-select-trigger > svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;[^}]*color:\s*var\(--mx-icon-muted\);[^}]*opacity:\s*1;/s,
+    'model and effort route pickers must use the same visible down-chevron geometry and color');
   assert.match(settings,
     /\.settings-model-trigger\[aria-expanded="true"\] > svg\s*\{\s*transform:\s*rotate\(180deg\);\s*\}/,
     'model and select chevrons must share the same expanded direction');
+});
+
+test('context command surface stays viewport-bound and follows the onboarding card grammar', async () => {
+  const styles = await readFile(new URL('./desktop.css', import.meta.url), 'utf8');
+  const availableHeight = String.raw`min\(560px,\s*calc\(var\(--vvh,\s*100vh\) - var\(--settings-layer-safe-top,\s*16px\) - var\(--settings-layer-safe-bottom,\s*16px\)\)\)`;
+  assert.match(styles, new RegExp(
+    String.raw`\.command-surface\[data-surface="context"\]\s*\{[^}]*max-height:\s*${availableHeight};[^}]*border-radius:\s*12px;`,
+    's',
+  ));
+  assert.match(styles, new RegExp(
+    String.raw`\.command-surface\[data-surface="context"\] \.mixdog-settings__panel\s*\{[^}]*max-height:\s*${availableHeight};`,
+    's',
+  ), 'the context panel must have a definite viewport limit so its body can shrink');
+  assert.match(styles,
+    /\.command-surface\[data-surface="context"\] \.mixdog-settings__body\s*\{[^}]*flex:\s*0 1 auto;[^}]*overflow-y:\s*auto;[^}]*padding:\s*24px;/s,
+    'only the context body should scroll when the viewport is shorter than its content');
+  assert.match(styles,
+    /\.context-card\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*linear-gradient\([^;]+var\(--mx-bg-layer-1\);[^}]*box-shadow:/s,
+    'context content should use the same rounded layered card grammar as onboarding');
+  assert.match(styles,
+    /\.context-mix-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);[^}]*gap:\s*8px;/s);
+  assert.match(styles,
+    /@media \(max-width:\s*640px\)\s*\{[^}]*\.context-mix-grid\s*\{\s*grid-template-columns:\s*1fr;/s,
+    'the composition cards must collapse to one column on narrow windows');
 });
 
 test('every renderer stylesheet resolves through the shared desktop theme contract', async () => {
@@ -2422,6 +2463,12 @@ test('copy hover changes only icon color while keyboard focus keeps its frame', 
   assert.match(styles,
     /\.composer-attachments > div:hover,\s*\.composer-attachments > div:focus-within\s*\{[^}]*box-shadow:\s*0 0 0 1px var\(--mx-border-strong\);/s,
     'composer attachments should expose the same hover/focus boundary as the reference UI');
+  assert.match(styles,
+    /\.composer-attachments > div:not\(\.image\)\s*\{[^}]*height:\s*32px;[^}]*background:\s*var\(--mx-bg-layer-1\);/s,
+    'text and document attachments should use the compact composer chip geometry');
+  assert.match(styles,
+    /\.composer-attachments \.attachment-remove\s*\{[^}]*width:\s*20px;[^}]*height:\s*20px;[^}]*flex:\s*0 0 20px;[^}]*border-radius:\s*4px;/s,
+    'attachment removal should use the canonical unsquashed icon-button box');
 });
 
 test('desktop media byte lane is CORS-enabled before app readiness', async () => {

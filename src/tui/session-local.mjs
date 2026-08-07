@@ -111,8 +111,12 @@ import { createSessionApi } from './session/session-api.mjs';
 import { createFrameBatchedStorePublisher } from './session/frame-batched-store.mjs';
 import { createLiveShare, forwardViewerSubmit, liveSharePipePath } from './session/live-share.mjs';
 import { displayModelName } from '../ui/model-display.mjs';
+import { prewarmImageResizer } from '../runtime/agent/orchestrator/tools/builtin/read-image-resize.mjs';
 
 const SESSION_RUNTIME_MODULE = '../mixdog-session-runtime.mjs';
+// Start the native binding load with daemon startup rather than making the
+// user's first image attachment pay the cold dynamic-import cost.
+void prewarmImageResizer();
 
 // The runtime graph is imported lazily, but that import (measured ~250ms) used
 // to land inside the FIRST session runtime creation, which desktop performs while it
@@ -869,9 +873,13 @@ export async function createLocalSessionRuntime({
       if (injected.length === 0) return;
       for (const item of injected) {
         if (!item || typeof item !== 'object' || (item.text == null && item.content == null)) continue;
-        const text = item.text ?? item.content;
+        const content = item.content ?? item.text;
         const id = typeof item.id === 'string' && item.id.trim() ? item.id.trim() : undefined;
-        bag.enqueue(text, id ? { id } : {});
+        bag.enqueue(content, {
+          ...(item.options && typeof item.options === 'object' ? item.options : {}),
+          ...(item.text ? { displayText: item.text } : {}),
+          ...(id ? { id } : {}),
+        });
       }
       void bag.drain();
     })().catch(() => { /* the watch/tick pair retries */ });
@@ -889,7 +897,7 @@ export async function createLocalSessionRuntime({
     socketPathFor: (id) => liveSharePipePath(id, sessionPath(id)),
     getPublishedState: () => publishedState,
     listeners,
-    onRemoteSubmit: (text, meta) => {
+    onRemoteSubmit: (prompt, meta) => {
       // A refusal must be REPORTED, never silent. This session runtime can be unable to
       // take a foreign prompt (disposed, or it became an attached viewer
       // itself); swallowing it here is what made a submitted message vanish
@@ -900,8 +908,8 @@ export async function createLocalSessionRuntime({
       // the settled user item then carry the id the submitting surface used
       // for its optimistic row, so that row releases instead of duplicating.
       const queued = bag.enqueue(
-        text,
-        meta && meta.id ? { id: meta.id, submittedAt: meta.submittedAt } : {},
+        prompt,
+        meta && typeof meta === 'object' ? meta : {},
       ) !== false;
       void bag.drain();
       return queued;
@@ -951,6 +959,7 @@ export async function createLocalSessionRuntime({
     if (!text) return { accepted: false };
     return {
       accepted: forwardViewerSubmit({
+        prompt,
         text,
         options,
         share: liveShare,
@@ -960,6 +969,7 @@ export async function createLocalSessionRuntime({
           content: prompt,
           text,
           id: submissionId,
+          options,
         }) === true,
       }),
     };

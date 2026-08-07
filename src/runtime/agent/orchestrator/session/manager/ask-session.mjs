@@ -9,6 +9,7 @@ import { readStreamOutcome } from '../../providers/lib/stream-outcome.mjs';
 import { normalizeCompactType, DEFAULT_COMPACT_TYPE } from '../compact.mjs';
 import { loadSession, saveSession, saveSessionAsync, saveSessionAsyncDeferred, readSessionLifecycleFromDisk } from '../store.mjs';
 import { createAbortController } from '../../../../shared/abort-controller.mjs';
+import { estimateJsonBytes } from '../../../../shared/json-metrics.mjs';
 import { logLlmCall } from '../../../../shared/llm/usage-log.mjs';
 import { appendAgentTrace } from '../../agent-trace.mjs';
 import { recordStandaloneStatusTelemetry } from './status-telemetry.mjs';
@@ -568,7 +569,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 const _prefetchBytes = Buffer.byteLength(explicitPrefetchResult || '', 'utf8');
                 const _promptBytes = promptContentBytes(prompt);
                 const _userTurnBytes = promptContentBytes(_userTurnContent);
-                const _messagesBytes = Buffer.byteLength(JSON.stringify(historyMessages || []), 'utf8');
+                const _messagesBytes = estimateJsonBytes(historyMessages || []);
                 const _totalBytes = _userTurnBytes + _messagesBytes;
                 appendAgentTrace({
                     kind: 'context',

@@ -395,7 +395,11 @@ export function createAgentJobFeed({
           if (modelContent) parts.push({ type: 'text', text: modelContent });
           for (const p of imagePaths) {
             let att = null;
-            try { att = await readImageAttachmentFromPath(p); } catch { att = null; }
+            try {
+              att = await readImageAttachmentFromPath(p, process.cwd(), {
+                provider: getState()?.provider || '',
+              });
+            } catch { att = null; }
             if (!att) continue;
             if (att.metadataText) parts.push({ type: 'text', text: att.metadataText });
             parts.push({ type: 'image', data: att.content, mimeType: att.mediaType || 'image/png' });

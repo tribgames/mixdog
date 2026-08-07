@@ -116,7 +116,7 @@ function pendingPromptImages(options?: DesktopSubmitOptions): NonNullable<Transc
     id: image.id,
     name: image.filename || "Image",
     mimeType: image.mediaType,
-    bytes: image.content.length,
+    bytes: Number(image.sizeBytes) || String(image.content || "").length,
   }));
 }
 
@@ -282,6 +282,9 @@ export function Conversation({
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const scrollToEndRef = useRef<(behavior?: ScrollBehavior) => void>(() => {});
+  // Reader intent must reach the virtual timeline's anchor in the same task it
+  // is decided in; React state gets there a render later.
+  const setTranscriptAnchorBottomRef = useRef<(bottom: boolean) => void>(() => {});
   // Auto-scroll + message-gesture split.
   const {
     following,
@@ -305,6 +308,7 @@ export function Conversation({
       ? "new-task"
       : String(routeSnapshot.sessionId || "new-task"),
     contentMounted: !transcriptPending,
+    setAnchorBottomRef: setTranscriptAnchorBottomRef,
   });
   const [optimisticPrompts, setOptimisticPrompts] = useState<PendingPromptItem[]>([]);
   // A first submit already replaced the blank watermark with its optimistic
@@ -952,6 +956,7 @@ export function Conversation({
             rows={transcriptRows} viewport={viewport} content={content}
             shouldAnchorBottom={shouldAnchorTranscriptBottom}
             markProgrammaticScroll={markTranscriptProgrammaticScroll}
+            setAnchorBottomRef={setTranscriptAnchorBottomRef}
             scrollToEndRef={scrollToEndRef} renderRow={renderTranscriptRow} />}
         </div>
       </div>

@@ -31,21 +31,30 @@ test('Deploy is the one-click release entry with incremental native workers', as
   }
 });
 
-test('application release stages every platform before publishing', async () => {
+test('application release overlaps gates and publishes one exact hidden draft', async () => {
   const release = await workflow('release.yml');
   assert.match(release, /validate:[\s\S]*fetch-depth:\s*0/);
-  assert.match(release, /publish:[\s\S]*needs:\s*\[validate,\s*desktop-windows,\s*desktop-unix\]/);
+  assert.match(release,
+    /release-regressions:[\s\S]*group:\s*\[contracts,\s*providers,\s*compact,\s*session\]/);
+  assert.match(release,
+    /release-regressions:[\s\S]*npm run test:release-focused:\$\{\{ matrix\.group \}\}/);
   assert.match(release, /desktop-build:[\s\S]*name:\s*build-desktop-once/);
-  assert.match(release, /desktop-build:[\s\S]*needs:\s*validate/);
+  assert.doesNotMatch(release, /desktop-build:\s*\n(?:[^\n]*\n){0,3}\s*needs:/);
   assert.doesNotMatch(release, /name:\s*Execute code graph from a clean cache/);
   assert.match(release, /Restore unchanged desktop output[\s\S]*desktop-out-v1-\$\{\{ hashFiles/);
   assert.match(release, /name:\s*Stage common desktop output[\s\S]*actions\/upload-artifact@v7/);
-  assert.match(release, /desktop-windows:[\s\S]*needs:\s*desktop-build/);
-  assert.match(release, /desktop-unix:[\s\S]*needs:\s*desktop-build/);
+  assert.match(release,
+    /prepare-github-release:[\s\S]*needs:\s*\[validate,\s*release-regressions\][\s\S]*draft:\s*true/);
+  assert.match(release,
+    /desktop-windows:[\s\S]*needs:\s*\[validate,\s*release-regressions,\s*desktop-build,\s*prepare-github-release\]/);
+  assert.match(release,
+    /desktop-unix:[\s\S]*needs:\s*\[validate,\s*release-regressions,\s*desktop-build,\s*prepare-github-release\]/);
   assert.match(release, /name:\s*Download common desktop output[\s\S]*actions\/download-artifact@v8/);
   assert.match(release, /name:\s*Restore Electron downloads[\s\S]*ELECTRON_BUILDER_CACHE/);
   assert.equal((release.match(/name:\s*Resolve runtime dependency cache key/g) || []).length, 2);
   assert.equal((release.match(/name:\s*Restore pruned runtime dependencies/g) || []).length, 2);
+  assert.equal((release.match(/name:\s*Restore prepared runtime archive/g) || []).length, 2);
+  assert.equal((release.match(/desktop-prepared-runtime-v1-/g) || []).length, 2);
   assert.match(release, /runtime-dependency-cache-key\.mjs[\s\S]*--platform=win32 --arch=x64/);
   assert.match(release, /MIXDOG_RUNTIME_DEPENDENCY_CACHE/);
   assert.match(release, /key:\s*desktop-\$\{\{ steps\.runtime-dependencies\.outputs\.key \}\}/);
@@ -54,19 +63,45 @@ test('application release stages every platform before publishing', async () => 
   assert.doesNotMatch(release, /name:\s*Verify platform embedding runtime/);
   assert.doesNotMatch(release, /name:\s*Install runtime dependencies/);
   assert.match(release, /npm ci --prefix apps\/desktop --prefer-offline --no-audit --no-fund/);
-  assert.match(release, /platform:\s*darwin,\s*arch:\s*x64,\s*runner:\s*macos-15-intel/);
+  assert.match(release,
+    /platform:\s*darwin,\s*arch:\s*x64,\s*artifact_arch:\s*x64,\s*runner:\s*macos-15-intel/);
   assert.match(release, /name:\s*Stage npm package[\s\S]*actions\/upload-artifact/);
-  assert.match(release, /name:\s*Stage Windows installer and update feed[\s\S]*actions\/upload-artifact/);
-  assert.match(release, /name:\s*Download staged desktop packages[\s\S]*actions\/download-artifact/);
-  assert.match(release, /name:\s*Verify complete staged release/);
+  assert.doesNotMatch(release, /name:\s*Stage (?:Windows|macOS|Linux)/);
+  assert.doesNotMatch(release, /name:\s*Download staged desktop packages/);
+  assert.equal((release.match(/gh release upload/g) || []).length, 4);
+  assert.match(release, /name:\s*Verify complete hidden release/);
+  assert.match(release, /Hidden release asset set is not exact/);
   assert.ok(
-    release.indexOf('name: Publish staged npm package') > release.indexOf('name: Verify complete staged release'),
+    release.indexOf('name: Publish staged npm package') > release.indexOf('name: Verify complete hidden release'),
   );
   assert.ok(
     release.indexOf('name: Publish one complete GitHub release') > release.indexOf('name: Publish staged npm package'),
   );
   assert.match(release, /npm publish \.\/staged-npm\/\*\.tgz --provenance --access public/);
+  assert.match(release, /-F draft=false -f make_latest=true/);
   assert.doesNotMatch(release, /actions\/(?:upload|download)-artifact@v4/);
+});
+
+test('desktop production dependencies contain only main-process runtime externals', async () => {
+  const desktop = JSON.parse(await readFile(new URL('../apps/desktop/package.json', import.meta.url), 'utf8'));
+  assert.deepEqual(Object.keys(desktop.dependencies).sort(), [
+    '@homebridge/node-pty-prebuilt-multiarch',
+    'electron-updater',
+    'qrcode',
+    'vscode-jsonrpc',
+    'ws',
+  ]);
+  for (const bundled of [
+    '@fontsource-variable/inter',
+    '@git-diff-view/react',
+    '@monaco-editor/react',
+    'monaco-editor',
+    'pretendard',
+    'react',
+    'react-dom',
+  ]) {
+    assert.ok(desktop.devDependencies[bundled], `${bundled} must stay build-only`);
+  }
 });
 
 test('native release workflows are reusable and unchanged runtime platforms stay skipped', async () => {

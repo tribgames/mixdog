@@ -12,7 +12,6 @@ import {
 import { projectNameFromPath } from './app-format.mjs';
 import {
   buildPromptContentWithImages,
-  expandPastedTextTokens,
   imageReferenceIds,
   pastedTextReferenceIds,
 } from '../paste-attachments.mjs';
@@ -489,15 +488,14 @@ export function createPromptSubmit({
     const textSnapshot = Object.fromEntries(Object.entries(pastedTextsRef.current || {})
       .filter(([id]) => textRefs.has(Number(id))));
     const hasTextSnapshot = Object.keys(textSnapshot).length > 0;
-    const expandedText = hasTextSnapshot ? expandPastedTextTokens(text, textSnapshot) : text;
-    const content = buildPromptContentWithImages(expandedText, imageSnapshot);
+    const content = buildPromptContentWithImages(text, imageSnapshot);
+    const imageRestoreMeta = Object.fromEntries(Object.entries(imageSnapshot).map(([id, image]) => {
+      const { content: _content, ...metadata } = image;
+      return [id, { ...metadata, sizeBytes: Math.floor((String(image.content || '').length * 3) / 4) }];
+    }));
     const accepted = submitPrompt(content, {
-      // Store the EXPANDED text in the transcript/history so a later prompt-
-      // history recall resubmits the real content, not the literal token
-      // (pastedTexts entries are cleared on accept). History recall therefore
-      // shows the full original text instead of the token — acceptable.
-      displayText: expandedText,
-      pastedImages: imageSnapshot,
+      ...((hasImageSnapshot || hasTextSnapshot) ? { displayText: text } : {}),
+      pastedImages: imageRestoreMeta,
       pastedTexts: textSnapshot,
       onCommitted: (hasImageSnapshot || hasTextSnapshot)
         ? () => { clearPastedImagesSnapshot(imageSnapshot); clearPastedTextsSnapshot(textSnapshot); }

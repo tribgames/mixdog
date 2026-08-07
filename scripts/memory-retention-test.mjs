@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PassThrough } from 'node:stream';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +10,9 @@ process.env.MIXDOG_DATA_DIR = dataDir;
 
 const turnSnapshots = await import('../src/runtime/shared/turn-snapshot.mjs');
 const readSnapshots = await import('../src/runtime/agent/orchestrator/tools/builtin/snapshot-store.mjs');
+const promptHistory = await import('../src/tui/prompt-history-store.mjs');
+const { readBody } = await import('../src/runtime/memory/lib/http-wire.mjs');
+const { RateLimiter } = await import('../apps/relay/server.mjs');
 
 after(async () => {
   turnSnapshots._resetTurnSnapshotForTest();
@@ -89,4 +93,38 @@ test('persistent diagnostic probe owns parent and CDP shutdown guards', async ()
   assert.match(source, /socket\.addEventListener\('close'/);
   assert.match(source, /pending\.delete\(id\)/);
   assert.match(source, /CDP request timed out/);
+});
+
+test('HTTP JSON intake rejects streaming bodies above its byte cap', async () => {
+  const req = new PassThrough();
+  req.headers = {};
+  const body = readBody(req, { maxBytes: 32 });
+  req.end(Buffer.from(JSON.stringify({ payload: 'x'.repeat(64) })));
+  await assert.rejects(body, (error) => error?.statusCode === 413);
+});
+
+test('cwd prompt history cache and completed write-behind state stay bounded', async () => {
+  for (let index = 0; index < promptHistory.PROMPT_HISTORY_CACHE_LIMIT + 32; index += 1) {
+    promptHistory.loadPromptHistory(join(dataDir, `project-${index}`));
+  }
+  let stats = promptHistory.promptHistoryStoreStatsForTest();
+  assert.ok(stats.cacheEntries <= stats.cacheLimit);
+
+  promptHistory.appendPromptHistory(join(dataDir, 'pending-project'), 'bounded pending prompt');
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  stats = promptHistory.promptHistoryStoreStatsForTest();
+  assert.ok(stats.cacheEntries <= stats.cacheLimit);
+  assert.equal(stats.pendingEntries, 0);
+  assert.equal(stats.timerEntries, 0);
+});
+
+test('relay rate-key churn obeys a hard LRU bound', () => {
+  const limiter = new RateLimiter(2, 60_000, 32);
+  for (let index = 0; index < 10_000; index += 1) {
+    assert.equal(limiter.allow(`key-${index}`), true);
+  }
+  assert.equal(limiter.hits.size, 32);
+  assert.equal(limiter.allow('tail'), true);
+  assert.equal(limiter.allow('tail'), true);
+  assert.equal(limiter.allow('tail'), false);
 });

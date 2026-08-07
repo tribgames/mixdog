@@ -1,5 +1,5 @@
-import { createHash } from 'crypto';
 import { isInclusiveProvider } from '../../shared/llm/cost.mjs';
+import { estimateJsonBytes, hashStructuredValue } from '../../shared/json-metrics.mjs';
 import {
     appendAgentTrace,
     drainAgentTrace,
@@ -17,7 +17,23 @@ import {
 
 function estimateProviderPayloadBytes(messages, model, tools) {
     try {
-        return Buffer.byteLength(JSON.stringify({ model, messages, tools: tools || [] }), 'utf8');
+        let referencedBytes = 0;
+        const seen = new Set();
+        const walk = (value) => {
+            if (!value || typeof value !== 'object' || seen.has(value)) return;
+            seen.add(value);
+            if (typeof value.attachmentRef === 'string') {
+                const bytes = Number(value.sizeBytes) || 0;
+                referencedBytes += value.type === 'image' || value.type === 'file'
+                    ? Math.ceil(bytes / 3) * 4
+                    : bytes;
+                return;
+            }
+            if (Array.isArray(value)) value.forEach(walk);
+            else Object.values(value).forEach(walk);
+        };
+        walk(messages);
+        return estimateJsonBytes({ model, messages, tools: tools || [] }) + referencedBytes;
     }
     catch {
         return null;
@@ -60,9 +76,7 @@ function extractCacheWriteTokens(usage) {
 // hashing megabytes per turn. Truncated SHA1 keeps the trace row compact.
 function messagePrefixHash(messages) {
     try {
-        const json = JSON.stringify(messages || []);
-        const slice = json.length > 4096 ? json.slice(0, 4096) : json;
-        return createHash('sha1').update(slice).digest('hex').slice(0, 12);
+        return hashStructuredValue(messages || [], { maxStringChars: 4096 }).slice(0, 12);
     } catch {
         return null;
     }

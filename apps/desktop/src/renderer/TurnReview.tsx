@@ -267,13 +267,15 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   const [expanded, setExpanded] = useState(false);
   const [openFile, setOpenFile] = useState("");
   const [confirmFile, setConfirmFile] = useState("");
+  const [confirmAll, setConfirmAll] = useState(false);
+  const [revertingAll, setRevertingAll] = useState(false);
   const [reverted, setReverted] = useState<string[]>([]);
   // An expanded review closes on the first pointer press OUTSIDE its own box.
   // Presses inside (rows, revert, diff style) keep it open, so the disclosure
   // never collapses under its own controls.
   const barElement = useRef<HTMLElement | null>(null);
   useEffect(() => {
-    if (!expanded) return undefined;
+    if (!expanded && !confirmAll) return undefined;
     const closeOnOutsidePointer = (event: Event) => {
       const element = barElement.current;
       const target = event.target as Node | null;
@@ -281,10 +283,11 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
       setExpanded(false);
       setOpenFile("");
       setConfirmFile("");
+      setConfirmAll(false);
     };
     window.addEventListener("pointerdown", closeOnOutsidePointer, true);
     return () => window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
-  }, [expanded]);
+  }, [confirmAll, expanded]);
   const turnScopeKey = useMemo(() => {
     let lastUser = -1;
     for (let index = items.length - 1; index >= 0; index--) {
@@ -340,6 +343,8 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     setExpanded(false);
     setOpenFile("");
     setConfirmFile("");
+    setConfirmAll(false);
+    setRevertingAll(false);
     setReverted([]);
   }, [turnScopeKey]);
   // Only probe once the transcript shows turn activity: a fresh/empty session
@@ -632,7 +637,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
             const next = !value;
             // Collapsing also closes any open inline diff/confirm so reopening
             // starts from the tidy list, not a tall stale diff.
-            if (!next) { setOpenFile(""); setConfirmFile(""); }
+            if (!next) { setOpenFile(""); setConfirmFile(""); setConfirmAll(false); }
             return next;
           })}>
           <FileDiff size={14} aria-hidden="true" />
@@ -654,6 +659,47 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
               })}
           </span>}
         </button>
+        {Boolean(cwd) && authoritativeWorktreeSnapshot && !busy && (confirmAll ? (
+          <span className="turn-review-confirm turn-review-confirm-all" role="group"
+            aria-label={t("Confirm")}>
+            <button type="button" className="turn-review-revert"
+              aria-label={t("Cancel")} data-tooltip={t("Cancel")}
+              onClick={() => setConfirmAll(false)}>
+              <X size={12} />
+            </button>
+            <button type="button" className="turn-review-revert danger"
+              aria-label={t("Confirm")} data-tooltip={t("Confirm")}
+              onClick={() => {
+                setConfirmAll(false);
+                setRevertingAll(true);
+                void window.mixdogDesktop.invokeCapability?.({
+                  capability: "revertTurnReview",
+                  args: [],
+                  sessionId,
+                })
+                  .then(async () => {
+                    setOpenFile("");
+                    setConfirmFile("");
+                    setReverted([]);
+                    await refreshAgentReviews(true);
+                  })
+                  .catch(() => setConfirmAll(true))
+                  .finally(() => setRevertingAll(false));
+              }}>
+              <Check size={12} />
+            </button>
+          </span>
+        ) : (
+          <button type="button" className="turn-review-undo"
+            aria-label={t("Undo")} data-tooltip={t("Undo")} disabled={revertingAll}
+            onClick={() => {
+              setConfirmFile("");
+              setConfirmAll(true);
+            }}>
+            <RotateCcw size={12} aria-hidden="true" />
+            <span>{t("Undo")}</span>
+          </button>
+        ))}
         {expanded && <div className="review-style-toggle turn-review-style" role="radiogroup"
           aria-label={t("Diff style")}>
           <button type="button" aria-pressed={diffStyle === "unified"}
@@ -733,7 +779,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
             ) : (
               <button type="button" className="turn-review-revert"
                 aria-label={t("Revert {{file}}", { file: rel })} data-tooltip={t("Revert file to turn start")}
-                onClick={() => setConfirmFile(name)}>
+                onClick={() => { setConfirmAll(false); setConfirmFile(name); }}>
                 <RotateCcw size={12} />
               </button>
             ))}

@@ -200,7 +200,7 @@ async function applyParsedWave({ parsed: wparsed, entries: wentries, headerRewri
 async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
   const {
     v4aConvertOpts, dryRun, fuzz, fuzzy, rejectPartial,
-    readStateScope, abortSignal, mutationPlan, rollbackOnFailure,
+    readStateScope, abortSignal, mutationPlan,
     toolCallId, sessionId,
   } = ctx;
 
@@ -328,52 +328,8 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
 
   return withBuiltinPathLocks(lockPaths, () =>
     withAdvisoryLocks(lockPaths, async () => {
-      // Most multi-file failures are stale context in a later, independent
-      // file. For unique targets, validate every section against current bytes
-      // before the first write. Same-target sequences retain the existing
-      // ordered conversion/rollback path because later sections may
-      // intentionally depend on earlier edits.
-      const preparedUnits = new Map();
-      const uniqueTargets = new Set(lockPaths.map(patchPathKey)).size === units.length;
-      if (!dryRun && rollbackOnFailure && uniqueTargets) {
-        for (let i = 0; i < units.length; i++) {
-          const unit = units[i];
-          if (abortSignal?.aborted) return 'Error: apply_patch aborted during preflight; no files were written';
-          let parsed;
-          try {
-            parsed = await unit.buildParsed();
-          } catch (err) {
-            return `Error: apply_patch preflight rejected section ${i + 1}/${units.length} (${unit.displayPath}); no files were written.\n${err?.message || String(err)}`;
-          }
-          if (!Array.isArray(parsed) || parsed.length === 0) {
-            preparedUnits.set(i, { parsed, wave: null });
-            continue;
-          }
-          let wave;
-          try {
-            const { entries, headerRewrites } = await preValidateNativeBatch(parsed, basePath);
-            wave = { parsed, entries, headerRewrites };
-          } catch (err) {
-            return `Error: apply_patch preflight rejected section ${i + 1}/${units.length} (${unit.displayPath}); no files were written.\n${err?.message || String(err)}`;
-          }
-          const checked = await applyParsedWave(wave, basePath, { ...waveOpts, dryRun: true });
-          if (checked.error) {
-            const detail = checked.error.replace(/^Error:\s*/, '');
-            return `Error: apply_patch preflight rejected section ${i + 1}/${units.length} (${unit.displayPath}); no files were written.\n${detail}`;
-          }
-          preparedUnits.set(i, { parsed, wave });
-        }
-      }
-      let rollbackSnapshots = [];
       let uiBeforeSnapshots = [];
-      if (!dryRun && rollbackOnFailure) {
-        try {
-          rollbackSnapshots = capturePatchRollbackState(lockPaths);
-          uiBeforeSnapshots = rollbackSnapshots;
-        } catch (err) {
-          return `Error: ${err?.message || String(err)}`;
-        }
-      } else if (!dryRun && toolCallId && sessionId) {
+      if (!dryRun && toolCallId && sessionId) {
         try {
           uiBeforeSnapshots = capturePatchRollbackState(lockPaths);
         } catch {
@@ -393,15 +349,13 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
           failedIndex = i;
           continue;
         }
-        let parsed = preparedUnits.get(i)?.parsed;
-        if (!preparedUnits.has(i)) {
-          try {
-            parsed = await unit.buildParsed();
-          } catch (err) {
-            failed = { displayPath: unit.displayPath, error: `Error: ${err?.message || String(err)}` };
-            failedIndex = i;
-            continue;
-          }
+        let parsed;
+        try {
+          parsed = await unit.buildParsed();
+        } catch (err) {
+          failed = { displayPath: unit.displayPath, error: `Error: ${err?.message || String(err)}` };
+          failedIndex = i;
+          continue;
         }
         if (!Array.isArray(parsed) || parsed.length === 0) {
           // Section produced no applicable hunks (all skipped / no-op). Nothing
@@ -409,16 +363,14 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
           applied.push({ displayPath: unit.displayPath, text: `(no changes) ${unit.displayPath}` });
           continue;
         }
-        let wave = preparedUnits.get(i)?.wave;
-        if (!wave) {
-          try {
-            const { entries, headerRewrites } = await preValidateNativeBatch(parsed, basePath);
-            wave = { parsed, entries, headerRewrites };
-          } catch (err) {
-            failed = { displayPath: unit.displayPath, error: `Error: ${err?.message || String(err)}` };
-            failedIndex = i;
-            continue;
-          }
+        let wave;
+        try {
+          const { entries, headerRewrites } = await preValidateNativeBatch(parsed, basePath);
+          wave = { parsed, entries, headerRewrites };
+        } catch (err) {
+          failed = { displayPath: unit.displayPath, error: `Error: ${err?.message || String(err)}` };
+          failedIndex = i;
+          continue;
         }
         const res = await applyParsedWave(wave, basePath, waveOpts);
         executor = res.executor;
@@ -462,13 +414,10 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
         return wrapPatchMutationOutput(body, mutationPlan, { executor });
       }
       const failMsg = failed.error.replace(/^Error:\s*/, '');
-      const rollbackErrors = (!dryRun && rollbackOnFailure)
-        ? restorePatchRollbackState(rollbackSnapshots, readStateScope)
-        : [];
       if (
         !dryRun
         && uiBeforeSnapshots.length > 0
-        && ((!rollbackOnFailure && applied.length > 0) || rollbackErrors.length > 0)
+        && applied.length > 0
       ) {
         registerCommittedPatchUiDiff({
           callId: toolCallId,
@@ -480,22 +429,18 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
       }
       const committedPhrase = dryRun
         ? `${applied.length} earlier section(s) were validated`
-        : (rollbackOnFailure
-          ? (rollbackErrors.length === 0
-            ? `${applied.length} earlier section(s) were applied, then all touched paths were rolled back to their pre-patch state`
-            : `${applied.length} earlier section(s) were applied, but rollback was incomplete`)
-          : `${applied.length} earlier section(s) were applied to disk (committed) and left in place`);
+        : `${applied.length} earlier section(s) were applied to disk (committed) and left in place`;
       const lines = [
         `Error: apply_patch sequence stopped at section ${failedIndex + 1}/${units.length} (${failed.displayPath}); `
           + `${committedPhrase}; ${skipped.length} later section(s) were skipped (not attempted).`,
       ];
+      if (!dryRun) {
+        lines.push('Retry only the failed and skipped sections; do not resend committed sections.');
+      }
       if (appliedTexts) {
-        lines.push(`--- ${dryRun ? 'validated' : (rollbackOnFailure ? 'applied before rollback' : 'applied (committed to disk)')} ---`, appliedTexts);
+        lines.push(`--- ${dryRun ? 'validated' : 'applied (committed to disk)'} ---`, appliedTexts);
       }
       lines.push(`--- failed section: ${failed.displayPath} ---`, failMsg);
-      if (rollbackErrors.length > 0) {
-        lines.push('--- rollback incomplete ---', ...rollbackErrors);
-      }
       if (skipped.length > 0) {
         lines.push(`--- skipped (not attempted): ${skipped.join(', ')} ---`);
       }
@@ -830,11 +775,10 @@ async function apply_patch(args, cwd, options = {}) {
   let inputPatchStr = patchStr;
   const rejectedV4AHunks = [];
   const v4aConvertOpts = { rejectPartial, rejectedHunks: rejectedV4AHunks, fuzzy, dryRun, readStateScope };
-  // Default internal ordered mode: apply sections in listed order, stop at the
-  // first failure, and roll every touched path back to its pre-patch state.
-  // mode:"partial" retains the old committed-prefix behavior for internal
-  // callers that explicitly need it.
-  // The legacy bulk/atomic path remains available as an explicit escape hatch.
+  // Default ordered mode mirrors Codex's lower executor: apply sections in
+  // listed order, stop at the first failure, and keep the committed prefix.
+  // The model-visible schema stays unchanged; legacy bulk/atomic rollback
+  // remains an internal escape hatch.
   const patchMode = String(args?.mode || '').toLowerCase();
   const legacyBulkMode = args?.sequence === false
     || ['atomic', 'bulk'].includes(patchMode);
@@ -842,7 +786,6 @@ async function apply_patch(args, cwd, options = {}) {
     const seqOut = await applyPatchSequence(patchStr, requestedFormat, basePath, {
       v4aConvertOpts, dryRun, fuzz, fuzzy, rejectPartial,
       readStateScope, abortSignal, mutationPlan,
-      rollbackOnFailure: patchMode !== 'partial',
       toolCallId: options?.toolCallId || null,
       sessionId: options?.sessionId || null,
     });

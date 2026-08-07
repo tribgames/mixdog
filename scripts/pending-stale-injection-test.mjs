@@ -81,6 +81,33 @@ test('foreign drain injects fresh submits and late-delivers stale ones', async (
   assert.equal(store.sessions[sid], undefined, 'both submits removed alongside the drain');
 });
 
+test('foreign drain preserves structured attachment references and restore metadata', async () => {
+  const sid = 'sess_structured_foreign';
+  const now = Date.now();
+  const ref = 'b'.repeat(64);
+  writeSpool((store) => {
+    store.sessions[sid] = [{
+      id: 'foreign_structured',
+      content: [
+        { type: 'text', text: 'inspect' },
+        { type: 'image', attachmentRef: ref, sizeBytes: 3, mimeType: 'image/png' },
+      ],
+      text: 'inspect [Image]',
+      options: {
+        pastedImages: {
+          1: { id: 1, type: 'image', attachmentRef: ref, sizeBytes: 3, mediaType: 'image/png' },
+        },
+      },
+      enqueuedAt: now,
+    }];
+    store.sessionTouchedAt[sid] = now;
+  });
+  const [taken] = await drainForeignUserInjections(sid);
+  assert.equal(taken.id, 'foreign_structured');
+  assert.equal(taken.content[1].attachmentRef, ref);
+  assert.equal(taken.options.pastedImages[1].attachmentRef, ref);
+});
+
 test('legacy string entries age from sessionTouchedAt and still late-deliver', async () => {
   const sid = 'sess_stale_legacy';
   const now = Date.now();

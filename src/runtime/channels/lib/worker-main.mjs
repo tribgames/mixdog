@@ -35,7 +35,6 @@ import {
   makeInstanceId,
   getTurnEndPath,
   getStatusPath,
-  getPermissionResultPath,
   getChannelOwnerPath,
   getActiveOwnerPid,
   getTerminalLeadPid,
@@ -51,7 +50,6 @@ import {
   clearServerPid,
   RUNTIME_ROOT
 } from "./runtime-paths.mjs";
-import { getDiscordToken } from "./config.mjs";
 import { invalidateConfigReadCache } from "../../shared/config.mjs";
 import { bootProfile, localTimestamp } from "./boot-profile.mjs";
 import {
@@ -125,7 +123,6 @@ const _bootLogEarly = path.join(
 const {
   isMixdogDebugEnabled: isMixdogDebug,
   pruneStalePluginDataLogSiblings,
-  appendSessionStartCriticalLog,
   DEFAULT_STALE_LOG_SIBLING_MAX,
 } = _require("../../../lib/mixdog-debug.cjs");
 // One-shot log rotation at worker boot (10 MB threshold, .1 suffix overwrite).
@@ -134,7 +131,6 @@ if (isMixdogDebug()) {
   fs.appendFileSync(_bootLogEarly, `[${localTimestamp()}] bootstrap start pid=${process.pid}
 `);
 }
-const _bootLog = path.join(DATA_DIR, "boot.log");
 let config = await loadConfig();
 let provider = createProvider(config);
 const INSTANCE_ID = makeInstanceId();
@@ -499,12 +495,8 @@ function wireEventQueueHandlers(eventQueue) {
   eventQueue.setOwnerGetter(() => bridgeRuntimeConnected && currentOwnerState().owned);
   forwarder.setOwnerGetter(() => bridgeRuntimeConnected && currentOwnerState().owned);
 }
-const {
-  pendingPermRequests,
-  refreshToolExecConsumerMarker,
-} = createInteractionHandlers({
+createInteractionHandlers({
   getProvider: () => provider,
-  getConfig: () => config,
   getBridgeRuntimeConnected: () => bridgeRuntimeConnected,
   instanceId: INSTANCE_ID,
   getBridgeOwnershipSnapshot,
@@ -512,20 +504,11 @@ const {
   pendingSetup,
   buildModalRequestSpec,
   loadProfileConfig,
-  getDiscordToken,
   sendNotifyToParent,
   scheduler,
   controlClaudeSession,
   writeTextFile,
   TURN_END_FILE,
-  getPermissionResultPath,
-  TERMINAL_LEAD_PID,
-  localTimestamp,
-  isMixdogDebug,
-  appendSessionStartCriticalLog,
-  DATA_DIR,
-  _bootLog,
-  RUNTIME_ROOT,
 });
 const { isVoiceAttachment, transcribeVoice } = createVoiceTranscription({
   getConfig: () => config,
@@ -741,8 +724,6 @@ if (_isWorkerMode && process.send && process.env.MIXDOG_DAEMON_HOST !== '1') {
     statusState,
     getProvider: () => provider,
     getConfig: () => config,
-    pendingPermRequests,
-    refreshToolExecConsumerMarker,
     handleMemoryCallResponse,
     handleToolCallWithBridgeRetry,
     bootProfile,

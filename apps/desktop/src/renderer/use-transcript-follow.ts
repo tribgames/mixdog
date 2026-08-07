@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MutableRefObject,
+  type RefObject,
+} from "react";
 
 /**
  * Transcript auto-scroll + session scroll-gesture grammar.
@@ -21,6 +28,12 @@ const SCROLL_KEYS = ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"
 // reader intent; the reference implementation never sees it because it does not
 // virtualize (user: 병렬 작업 중 타이핑하면 스크롤이 계속 풀린다).
 const RELEASE_MOVE_PX = 1;
+// Programmatic writes arrive in BURSTS: one measurement commit can move the
+// offset several times (core adjustment, spacer growth, end re-pin) before a
+// single scroll event lands. Remembering only the last one made every earlier
+// write in the burst read as reader intent.
+const PROGRAMMATIC_WINDOW_MS = 1_500;
+const PROGRAMMATIC_MEMORY = 12;
 
 /**
  * Content-commit bottom rule, shared by all three reference implementations:
@@ -28,23 +41,29 @@ const RELEASE_MOVE_PX = 1;
  * prevMaxScroll)`), opencode (`session.tsx`: `distance < 10 + max(0, delta)`)
  * and Codex (`pager_overlay.rs`: snapshot `is_scrolled_to_bottom()` BEFORE the
  * mutation, re-pin after). All three answer ONE question — was the viewport at
- * the bottom BEFORE this growth? — instead of measuring the distance after it
- * landed. Measuring after is what buried a turn that opens with a tool card and
- * no preamble: one commit grows the transcript by a whole card, so the 10px
- * band can never be met even though the reader never left the tail.
+ * the bottom BEFORE this growth? — and they answer it from a SNAPSHOT taken
+ * before the mutation, never from the distance the mutation left behind.
+ *
+ * Deriving it after the fact (`distance < threshold + growth`) cannot tell
+ * "the tail grew below me" from "a row ABOVE me resolved from its estimate and
+ * pushed everything down". An idle transcript does the latter constantly — a
+ * tool card measured at 60px resolves to hundreds — so a reader parked far
+ * above the tail satisfied the after-the-fact band and was yanked back to the
+ * bottom (user: 멈춰 있는 세션에서도 위로 못 올린다).
  */
-export function atBottomBeforeGrowth({
-  distance,
+export function grewWhileAtBottom({
+  distanceBefore,
   growth,
   threshold = BOTTOM_THRESHOLD_PX,
 }: {
-  distance: number;
+  /** Distance from the bottom BEFORE the mutation that produced `growth`. */
+  distanceBefore: number;
   growth: number;
   threshold?: number;
 }): boolean {
-  if (!Number.isFinite(distance) || !Number.isFinite(growth)) return false;
-  if (growth < 0) return false;
-  return distance < threshold + growth;
+  if (!Number.isFinite(distanceBefore) || !Number.isFinite(growth)) return false;
+  if (growth <= 0) return false;
+  return distanceBefore < threshold;
 }
 
 function reportRelease(reason: string, element: HTMLElement, previousTop: number): void {
@@ -149,6 +168,7 @@ export function useTranscriptFollow({
   content,
   sessionKey,
   contentMounted = true,
+  setAnchorBottomRef,
 }: {
   viewport: RefObject<HTMLDivElement | null>;
   content: RefObject<HTMLDivElement | null>;
@@ -156,6 +176,11 @@ export function useTranscriptFollow({
   /** The timeline mounts only once its rows can be rendered for real, so the
    *  content observer has to re-attach when that mount finally happens. */
   contentMounted?: boolean;
+  /** Flips the virtual timeline's bottom anchor in the SAME task as the
+   *  reader's intent. React state reaches the timeline a render later, and the
+   *  core's end anchor rolls back every frame it still owns — a wheel notch
+   *  inside the core's end band was reversed before the release could land. */
+  setAnchorBottomRef?: MutableRefObject<(bottom: boolean) => void>;
 }): TranscriptFollow {
   const [following, setFollowing] = useState(true);
   const [showJump, setShowJump] = useState(false);
@@ -171,18 +196,23 @@ export function useTranscriptFollow({
   // reports them here. They are the timeline keeping its own promise, never
   // reader intent — counted as a gesture they released follow mid-stream
   // (user: 자동스크롤이 너무 자주 풀린다).
-  const programmatic = useRef<{ tops: number[]; time: number } | undefined>(undefined);
-  const programmaticTimer = useRef(0);
+  const programmatic = useRef<{ top: number; time: number }[]>([]);
   // Last observed offset, so a release demands an actual UPWARD move.
   const lastTop = useRef(0);
   // Last observed content height, so a growth commit can be judged against the
-  // bottom it had BEFORE that growth (see atBottomBeforeGrowth).
+  // bottom it had BEFORE that growth (see grewWhileAtBottom).
   const lastScrollHeight = useRef(0);
+  // Distance from the bottom as of the last event that was NOT a content
+  // mutation — the pre-mutation snapshot the reference implementations take.
+  const lastDistance = useRef(0);
 
   const publish = useCallback((next: boolean) => {
     followingRef.current = next;
+    // The timeline anchor is part of the same decision, not a consequence of
+    // the re-render that follows it.
+    setAnchorBottomRef?.current?.(next);
     setFollowing((current) => (current === next ? current : next));
-  }, []);
+  }, [setAnchorBottomRef]);
 
   const markGesture = useCallback(() => {
     gestureAt.current = Date.now();
@@ -215,25 +245,26 @@ export function useTranscriptFollow({
   }, []);
 
   const markProgrammaticScroll = useCallback((top: number, intended?: number) => {
-    const tops = [Math.round(top)];
-    if (typeof intended === "number" && Number.isFinite(intended)) tops.push(Math.round(intended));
-    programmatic.current = { tops, time: Date.now() };
-    window.clearTimeout(programmaticTimer.current);
-    programmaticTimer.current = window.setTimeout(() => {
-      programmatic.current = undefined;
-      programmaticTimer.current = 0;
-    }, 1_500);
+    const time = Date.now();
+    const queue = programmatic.current.filter(
+      (entry) => time - entry.time < PROGRAMMATIC_WINDOW_MS,
+    );
+    queue.push({ top: Math.round(top), time });
+    if (typeof intended === "number" && Number.isFinite(intended)) {
+      queue.push({ top: Math.round(intended), time });
+    }
+    programmatic.current = queue.slice(-PROGRAMMATIC_MEMORY);
   }, []);
 
   const isProgrammatic = useCallback((element: HTMLElement) => {
-    const value = programmatic.current;
-    if (!value) return false;
-    if (Date.now() - value.time > 1_500) {
-      programmatic.current = undefined;
-      return false;
-    }
+    const time = Date.now();
+    const queue = programmatic.current.filter(
+      (entry) => time - entry.time < PROGRAMMATIC_WINDOW_MS,
+    );
+    programmatic.current = queue;
+    if (!queue.length) return false;
     const top = Math.round(element.scrollTop);
-    return value.tops.some((candidate) => Math.abs(top - candidate) < 2);
+    return queue.some((entry) => Math.abs(top - entry.top) < 2);
   }, []);
 
   const scrollToBottomNow = useCallback((
@@ -324,6 +355,9 @@ export function useTranscriptFollow({
     const previousTop = lastTop.current;
     lastTop.current = element.scrollTop;
     lastScrollHeight.current = element.scrollHeight;
+    // A scroll event is the reader's (or the core's) position talking, not a
+    // content mutation: it is exactly the snapshot the content observer needs.
+    lastDistance.current = distanceFromBottom(element);
     // Re-attaching at the tail is NOT gesture-gated. Smooth-scroll and inertial
     // tails deliver their last frames well after the 250ms window closes, and a
     // streaming turn keeps pushing the bottom down, so requiring an open
@@ -462,10 +496,27 @@ export function useTranscriptFollow({
     // Seed the growth baseline with the height already on screen so the first
     // observation cannot report the whole transcript as this commit's growth.
     lastScrollHeight.current = element.scrollHeight;
+    lastDistance.current = distanceFromBottom(element);
+    // A fresh observer delivers the CURRENT box of every target it starts
+    // watching — that first callback is an attach report, not a mutation. This
+    // effect re-runs on every follow flip, so writing on it re-pinned the tail
+    // one frame after the reader had released it (user: 위로 올려도 다시
+    // 내려온다). The attach delivery may only seed the baselines.
+    let attachDelivery = true;
     const observer = new ResizeObserver(() => {
       const root = viewport.current;
       if (!root) return;
       scheduleScrollState(root);
+      const height = Math.round(root.getBoundingClientRect().height);
+      const viewportHeightChanged = height !== viewportHeight;
+      viewportHeight = height;
+      const growth = root.scrollHeight - lastScrollHeight.current;
+      lastScrollHeight.current = root.scrollHeight;
+      const distance = distanceFromBottom(root);
+      // The pre-mutation snapshot: the distance left by the last event that
+      // was NOT this content mutation.
+      const distanceBefore = lastDistance.current;
+      lastDistance.current = distance;
       // Opencode parity (createAutoScroll): a transcript that no longer
       // OVERFLOWS holds no reading position, so it re-arms follow. The CONTENT
       // side of that rule is driven by the rows commit in Conversation, not by
@@ -475,12 +526,10 @@ export function useTranscriptFollow({
         if (!followingRef.current) publish(true);
         return;
       }
-      const height = Math.round(root.getBoundingClientRect().height);
-      const viewportHeightChanged = height !== viewportHeight;
-      viewportHeight = height;
-      const growth = root.scrollHeight - lastScrollHeight.current;
-      lastScrollHeight.current = root.scrollHeight;
-      const distance = distanceFromBottom(root);
+      if (attachDelivery) {
+        attachDelivery = false;
+        return;
+      }
       if (!followingRef.current) {
         // Reference parity (CC sticky restore, Codex `follow_bottom`): a commit
         // that GREW while the viewport still sat at the previous bottom means
@@ -488,7 +537,16 @@ export function useTranscriptFollow({
         // bottom is taken. A turn that opens with a tool card and no preamble
         // lands its whole card in one commit, which is precisely the case the
         // after-the-fact 10px band could never recognise.
-        if (!viewportHeightChanged && atBottomBeforeGrowth({ distance, growth })) {
+        if (viewportHeightChanged) return;
+        // A growth the virtual core compensated itself — a row ABOVE the
+        // reading offset resolving from its estimate — lands with the offset
+        // sitting on the core's own corrective write. That is the timeline
+        // holding the reader still, never the reader arriving at the tail.
+        if (isProgrammatic(root)) return;
+        // Nor is a frame the reader is actively scrolling through: the wheel
+        // that just released follow is still animating its notch.
+        if (hasGesture()) return;
+        if (grewWhileAtBottom({ distanceBefore, growth })) {
           publish(true);
           scrollToBottom(false);
         }
@@ -516,11 +574,21 @@ export function useTranscriptFollow({
     observer.observe(element);
     observer.observe(target);
     return () => observer.disconnect();
-  }, [content, contentMounted, following, publish, scheduleScrollState, scrollToBottom, sessionKey, viewport]);
+  }, [
+    content,
+    contentMounted,
+    following,
+    hasGesture,
+    isProgrammatic,
+    publish,
+    scheduleScrollState,
+    scrollToBottom,
+    sessionKey,
+    viewport,
+  ]);
 
   useEffect(() => () => {
     window.clearTimeout(autoTimer.current);
-    window.clearTimeout(programmaticTimer.current);
     if (scrollStateFrame.current) window.cancelAnimationFrame(scrollStateFrame.current);
   }, []);
 

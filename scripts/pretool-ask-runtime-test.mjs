@@ -1,6 +1,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   approvalGranted,
   formatMissingToolApprovalUiDenial,
@@ -51,4 +52,27 @@ test('PreToolUse ask with granted approval allows tool execution', async () => {
   });
   assert.equal(outcome.denial, undefined);
   assert.equal(approvalGranted(outcome.approval), true);
+});
+
+test('Discord channel runtime contains no disconnected approval protocol', () => {
+  const files = [
+    '../src/runtime/channels/lib/interaction-handlers.mjs',
+    '../src/runtime/channels/lib/worker-ipc.mjs',
+    '../src/runtime/channels/lib/worker-main.mjs',
+    '../src/runtime/channels/lib/runtime-paths.mjs',
+  ];
+  const source = files
+    .map((file) => readFileSync(new URL(file, import.meta.url), 'utf8'))
+    .join('\n');
+  for (const deadPattern of [
+    /permission_request_inbound/,
+    /notifications\/claude\/channel\/permission/,
+    /perm-ch-/,
+    /pendingPermRequests/,
+    /getPermissionResultPath/,
+    /\.tool-exec-consumer/,
+    /tool-exec-.*\.signal/,
+  ]) {
+    assert.doesNotMatch(source, deadPattern);
+  }
 });

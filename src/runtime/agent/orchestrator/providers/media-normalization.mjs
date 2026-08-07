@@ -1,4 +1,9 @@
 import { createHash } from 'node:crypto';
+import {
+    attachmentTextForPart,
+    isAttachmentReference,
+    readAttachmentBase64,
+} from '../../../attachments/store.mjs';
 
 const DEFAULT_IMAGE_MIME = 'image/png';
 
@@ -9,6 +14,9 @@ function cleanMimeType(value) {
 
 function imageInfo(block) {
     if (!block || typeof block !== 'object' || block.type !== 'image') return null;
+    if (isAttachmentReference(block)) {
+        return { data: readAttachmentBase64(block), mimeType: cleanMimeType(block.mimeType || block.mediaType) };
+    }
     if (typeof block.data === 'string' && block.data) {
         return { data: block.data, mimeType: cleanMimeType(block.mimeType || block.mediaType) };
     }
@@ -32,10 +40,13 @@ function geminiInlineInfo(block) {
 // as their native document shape; estimators must never serialize its base64.
 function fileInfo(block) {
     if (!block || typeof block !== 'object' || block.type !== 'file') return null;
-    if (typeof block.data !== 'string' || !block.data) return null;
+    const data = isAttachmentReference(block)
+        ? readAttachmentBase64(block)
+        : (typeof block.data === 'string' ? block.data : '');
+    if (!data) return null;
     const mimeType = String(block.mimeType || block.mediaType || 'application/pdf').trim().toLowerCase() || 'application/pdf';
     const filename = typeof block.filename === 'string' && block.filename ? block.filename : '';
-    return { data: block.data, mimeType, filename };
+    return { data, mimeType, filename };
 }
 
 function imageUrlFromPart(block) {
@@ -95,6 +106,7 @@ function imageMimeFromDataUrl(url) {
 function textFromPart(block) {
     if (typeof block === 'string') return block;
     if (!block || typeof block !== 'object') return '';
+    if (block.type === 'text' && isAttachmentReference(block)) return attachmentTextForPart(block);
     if (typeof block.text === 'string') return block.text;
     if (typeof block.content === 'string') return block.content;
     return '';
@@ -112,7 +124,7 @@ function contentParts(content) {
     if (content && typeof content === 'object'
         && (imageUrlFromPart(content) || imageFileIdFromPart(content)
             || imageFileUriFromPart(content) || geminiInlineInfo(content)
-            || fileInfo(content))) return [content];
+            || fileInfo(content) || isAttachmentReference(content))) return [content];
     return null;
 }
 
@@ -149,6 +161,14 @@ function imageIdentity(kind, value, mimeType = '') {
 
 function imageDescriptor(part) {
     if (!part || typeof part !== 'object') return null;
+    if (part.type === 'image' && isAttachmentReference(part)) {
+        return {
+            identity: imageIdentity('attachment-ref', part.attachmentRef, part.mimeType || part.mediaType),
+            width: positiveDimension(part.width, part.dimensions?.width),
+            height: positiveDimension(part.height, part.dimensions?.height),
+            detail: String(part.detail || 'auto').toLowerCase(),
+        };
+    }
     const info = imageInfo(part);
     const inline = geminiInlineInfo(part);
     const url = imageUrlFromPart(part);
@@ -187,6 +207,9 @@ export function contentFileDescriptors(content) {
     const parts = contentParts(content);
     if (!parts) return [];
     return parts.flatMap((part) => {
+        if (part?.type === 'file' && isAttachmentReference(part)) {
+            return [{ mimeType: String(part.mimeType || part.mediaType || 'application/pdf'), sizeBytes: Number(part.sizeBytes) || 0 }];
+        }
         const file = fileInfo(part);
         if (!file) return [];
         return [{ mimeType: file.mimeType, sizeBytes: Math.floor((file.data.length * 3) / 4) }];
@@ -215,6 +238,7 @@ function storedHistoryImagePlaceholder(part) {
 function sanitizePartForStoredHistory(part) {
     if (typeof part === 'string') return part;
     if (!part || typeof part !== 'object') return part;
+    if (isAttachmentReference(part)) return part;
     if (part.type === 'image' || part.type === 'image_url' || part.type === 'input_image' || imageUrlFromPart(part) || imageFileIdFromPart(part) || imageFileUriFromPart(part) || geminiInlineInfo(part)) {
         return { type: 'text', text: storedHistoryImagePlaceholder(part) };
     }
@@ -306,6 +330,9 @@ export function normalizeContentForAnthropic(content) {
         }
         if (part?.type === 'input_text' || part?.type === 'output_text') {
             return { type: 'text', text: part.text || '' };
+        }
+        if (part?.type === 'text' && isAttachmentReference(part)) {
+            return { type: 'text', text: attachmentTextForPart(part) };
         }
         return part;
     });

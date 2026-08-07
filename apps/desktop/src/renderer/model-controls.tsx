@@ -7,6 +7,7 @@ import {
   reportBootSurfaceStage,
 } from "./boot-metrics";
 import { type RecordValue } from "./desktop-types";
+import { FastModeToggle } from "./FastModeToggle";
 import { t } from "./i18n";
 import { readCachedModelCatalog, writeCachedModelCatalog } from "./model-catalog-cache";
 import { ModelPicker } from "./ModelPicker";
@@ -509,10 +510,8 @@ export const ModelSelector = memo(function ModelSelector({
     {fastAvailable && (
       <div ref={fastControl} className="fast-control" aria-busy={routing || undefined}
         onFocusCapture={() => { restoreFastAfterDisabled.current = true; }}>
-        <OpenSelect variant="route" ariaLabel={t("Fast mode")} disabled={tuningUnavailable}
-          value={displayedFast ? "on" : "off"}
-          options={[{ value: "on", label: "Fast On" }, { value: "off", label: "Fast Off" }]}
-          onChange={(value) => void changeFast(value === "on")} />
+        <FastModeToggle enabled={displayedFast} disabled={tuningUnavailable}
+          onChange={(enabled) => void changeFast(enabled)} />
       </div>
     )}
   </div>;

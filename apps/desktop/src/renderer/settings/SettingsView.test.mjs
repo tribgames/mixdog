@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client';
 register(new URL('./test-css-loader.mjs', import.meta.url));
 const { SettingsView, preloadSettings, preloadConnectionInfo } = await import('./SettingsView.tsx');
 const { OnboardingWizard } = await import('./OnboardingWizard.tsx');
+const { default: i18next } = await import('../i18n.ts');
 const { OAuthControl } = await import('./CapabilitySettings.tsx');
 const { CommandSurface } = await import('../CommandSurface.tsx');
 const { StatusPopover } = await import('../StatusPopover.tsx');
@@ -37,6 +38,7 @@ function mount() {
 
 afterEach(async () => {
   if (root) await act(async () => root.unmount());
+  await i18next.changeLanguage('en');
   dom?.window.close();
   root = undefined;
   dom = undefined;
@@ -1426,6 +1428,25 @@ test('onboarding skip requires confirmation, cancels safely, and only skips afte
   });
   assert.equal(calls.filter((capability) => capability === 'skipOnboarding').length, 1);
   assert.equal(completed, 1);
+});
+
+test('onboarding renders its first-run copy in the selected desktop language', async () => {
+  mount();
+  const { api } = capabilityApi();
+  for (const language of ['ko', 'ja', 'zh-CN', 'zh-TW', 'es', 'fr', 'de', 'it', 'pt-BR', 'ru', 'vi']) {
+    const translate = i18next.getFixedT(language);
+    assert.notEqual(translate('Make it yours'), 'Make it yours', `${language} onboarding title must be translated`);
+    assert.notEqual(translate('Skip setup'), 'Skip setup', `${language} onboarding controls must be translated`);
+  }
+  await i18next.changeLanguage('ko');
+  await act(async () => {
+    root.render(React.createElement(OnboardingWizard, { api, onDone() {} }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(document.querySelector('#onboarding-title')?.textContent, '나만의 Mixdog 만들기');
+  assert.equal(document.querySelector('.onboarding-dialog > footer > button.secondary')?.textContent, '설정 건너뛰기');
+  assert.equal(document.querySelector('.onboarding-profile-fields label span')?.textContent, '호칭');
 });
 
 test('onboarding lets a portaled model menu consume Escape without opening skip confirmation', async () => {

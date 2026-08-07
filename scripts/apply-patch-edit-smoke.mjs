@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { once } from 'node:events';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { executePatchTool, takeApplyPatchUiDiff } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
@@ -85,9 +85,8 @@ try {
   assert(review.authoritative === true && /-beta/.test(review.patch) && /\+bravo/.test(review.patch),
     `turn review did not retain the first-before/latest-after diff:\n${review.patch}`);
 
-  writeFileSync(join(tmp, 'rollback-blocker.txt'), 'present\n', 'utf8');
-  const targetMtimeBeforeRejectedPatch = statSync(join(tmp, 'target.txt')).mtimeMs;
-  const rollbackResult = await executePatchTool('apply_patch', {
+  writeFileSync(join(tmp, 'partial-blocker.txt'), 'present\n', 'utf8');
+  const partialResult = await executePatchTool('apply_patch', {
     base_path: tmp,
     patch: `*** Begin Patch
 *** Update File: target.txt
@@ -97,30 +96,30 @@ try {
 +temporary
  gamma
 *** Add File: rollback-created.txt
-+must not survive
-*** Update File: rollback-blocker.txt
++must survive
+*** Update File: partial-blocker.txt
 @@
 -missing
 +replacement
 *** End Patch
 `,
   }, tmp, {});
-  assert(/^Error[\s:]/.test(String(rollbackResult)), `rollback precondition patch unexpectedly passed:\n${rollbackResult}`);
-  assert(/preflight rejected section 3\/3/i.test(String(rollbackResult))
-    && /no files were written/i.test(String(rollbackResult)),
-  `rollback result did not report no-write preflight rejection:\n${rollbackResult}`);
+  assert(/^Error[\s:]/.test(String(partialResult)), `partial-apply precondition patch unexpectedly passed:\n${partialResult}`);
+  assert(/stopped at section 3\/3/i.test(String(partialResult))
+    && /committed/i.test(String(partialResult))
+    && /Retry only the failed and skipped sections/i.test(String(partialResult)),
+  `partial-apply result did not report the committed prefix and economical retry scope:\n${partialResult}`);
   assert(
-    readFileSync(join(tmp, 'target.txt'), 'utf8') === 'alpha\nbravo\ngamma\n',
-    'apply_patch failure left an earlier update committed',
+    readFileSync(join(tmp, 'target.txt'), 'utf8') === 'alpha\ntemporary\ngamma\n',
+    'apply_patch failure did not preserve the earlier committed update',
   );
-  assert(!existsSync(join(tmp, 'rollback-created.txt')), 'apply_patch failure left an earlier added file committed');
   assert(
-    readFileSync(join(tmp, 'rollback-blocker.txt'), 'utf8') === 'present\n',
+    readFileSync(join(tmp, 'rollback-created.txt'), 'utf8') === 'must survive\n',
+    'apply_patch failure did not preserve the earlier committed add',
+  );
+  assert(
+    readFileSync(join(tmp, 'partial-blocker.txt'), 'utf8') === 'present\n',
     'apply_patch failure changed the failing target',
-  );
-  assert(
-    statSync(join(tmp, 'target.txt')).mtimeMs === targetMtimeBeforeRejectedPatch,
-    'apply_patch stale preflight wrote and rolled back an earlier valid target',
   );
 
   const canonicalDir = join(tmp, 'actual', 'nested');

@@ -547,6 +547,25 @@ export async function revertTurnWorktreeFile(snapshot, value) {
   });
 }
 
+export async function revertTurnWorktreeSnapshot(snapshot) {
+  if (!snapshot?.state || !snapshot.baselineTree) throw new Error('turn worktree snapshot is unavailable');
+  return await withStateLock(snapshot.state, async () => {
+    // Resolve and validate every path before the first mutation. Renames and
+    // copies contribute both sides so the worktree returns to the exact
+    // turn-start tree rather than leaving a destination behind.
+    const targets = [...new Set(snapshot.files
+      .flatMap((file) => [file.path, file.oldPath])
+      .filter(Boolean))]
+      .map((target) => safeRelativePath(snapshot.root, target));
+    for (const target of targets) {
+      await restorePathFromTree(snapshot, target);
+    }
+    const currentTree = await captureTreeUnlocked(snapshot.state);
+    Object.assign(snapshot, await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree));
+    return snapshot;
+  });
+}
+
 export function _resetTurnWorktreeSnapshotsForTest() {
   states.clear();
 }

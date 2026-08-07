@@ -15,6 +15,10 @@ import {
   SESSION_CONFIGURE_ACTION_SET,
   SESSION_READ_ACTION_SET,
 } from './session-protocol.mjs';
+import {
+  materializePromptSubmission,
+  preparePromptSubmissionForProvider,
+} from '../runtime/attachments/store.mjs';
 
 const MAX_CLONE_DEPTH = 24;
 const requireDesktopService = createRequire(import.meta.url);
@@ -272,6 +276,20 @@ export function createSessionService({
     const items = entry.itemCache ??= new Map();
     const out = {};
     for (const [key, value] of Object.entries(raw)) {
+      if (key === 'queued' && Array.isArray(value)) {
+        const projected = value.map((item) => ({
+          id: item?.id,
+          submittedAt: item?.submittedAt,
+          text: String(item?.displayText ?? item?.text ?? '').slice(0, 2_000),
+          displayText: String(item?.displayText ?? item?.text ?? '').slice(0, 2_000),
+          mode: item?.mode || 'prompt',
+          priority: item?.priority || 'next',
+          ...(Array.isArray(item?.images) && item.images.length ? { images: item.images } : {}),
+        }));
+        fields.set(key, { source: value, value: projected });
+        out[key] = projected;
+        continue;
+      }
       if (key === 'items' && Array.isArray(value)) {
         const nextItems = new Map();
         out.items = value.map((item) => {
@@ -815,10 +833,14 @@ export function createSessionService({
     const entry = await entryForSession(id, openHints || {});
     const target = entry.runtime.submitAsync;
     if (typeof target !== 'function') throw new TypeError('session runtime must implement submitAsync');
+    const intake = await preparePromptSubmissionForProvider(
+      materializePromptSubmission(prompt, options || {}),
+      entry.runtime.provider || entry.runtime.session?.provider || '',
+    );
     // Await intake only: submitAsync resolves once the prompt is represented by
     // the queue/user row, while provider execution remains daemon-owned and
     // detached.
-    const accepted = await Promise.resolve(target.call(entry.runtime, prompt, options || {}));
+    const accepted = await Promise.resolve(target.call(entry.runtime, intake.prompt, intake.options));
     const firstSubmit = accepted === true && entry.reservedOnly;
     if (accepted === true) {
       entry.reservedOnly = false;

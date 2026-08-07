@@ -111,10 +111,23 @@ export function createSessionTitleController(deps = {}) {
   const firstAttempts = new Set();
   const thirdAttempts = new Set();
   const active = new Map();
+  const attemptLimit = Number.isFinite(Number(deps.attemptLimit))
+    ? Math.max(1, Number(deps.attemptLimit))
+    : 2048;
   const timeoutMs = Number.isFinite(Number(deps.timeoutMs))
     ? Math.max(1, Number(deps.timeoutMs))
     : SESSION_TITLE_TIMEOUT_MS;
   let disposed = false;
+
+  const rememberAttempt = (attempts, sessionId) => {
+    attempts.delete(sessionId);
+    attempts.add(sessionId);
+    while (attempts.size > attemptLimit) {
+      const oldest = attempts.values().next().value;
+      if (oldest === undefined) break;
+      attempts.delete(oldest);
+    }
+  };
 
   const log = (line) => {
     const message = `[mixdog] llm-title ${line}`;
@@ -190,7 +203,7 @@ export function createSessionTitleController(deps = {}) {
     if (priorMeaningfulUser) return false;
     const source = firstTurnTitleSource(prompt);
     if (!source) return false;
-    firstAttempts.add(sessionId);
+    rememberAttempt(firstAttempts, sessionId);
     const greeting = greetingTitle(source);
     if (greeting) {
       log(`generated id=${sessionId} stage=first title=${JSON.stringify(greeting)} deterministic=greeting`);
@@ -211,7 +224,7 @@ export function createSessionTitleController(deps = {}) {
       || session?.generatedTitleStage === 'third') return false;
     const source = thirdTurnTitleSource(session?.messages);
     if (!source) return false;
-    thirdAttempts.add(sessionId);
+    rememberAttempt(thirdAttempts, sessionId);
     run(sessionId, source, 'third', thirdAttempts);
     return true;
   }
@@ -222,7 +235,18 @@ export function createSessionTitleController(deps = {}) {
       abort.abort(new Error('Session title generation disposed.'));
     }
     active.clear();
+    firstAttempts.clear();
+    thirdAttempts.clear();
   }
 
-  return { scheduleFirst, observeThird, disposeAll };
+  return {
+    scheduleFirst,
+    observeThird,
+    disposeAll,
+    attemptStatsForTest: () => ({
+      first: firstAttempts.size,
+      third: thirdAttempts.size,
+      limit: attemptLimit,
+    }),
+  };
 }

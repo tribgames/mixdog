@@ -4,6 +4,7 @@ import {
   createTurnWorktreeSnapshot,
   refreshTurnWorktreeSnapshot,
   revertTurnWorktreeFile,
+  revertTurnWorktreeSnapshot,
 } from './turn-worktree-snapshot.mjs';
 
 // Turn-scoped review registry.
@@ -498,6 +499,18 @@ export async function revertTurnReviewFile(_worktree, sessionId, file) {
   }
   if (!tracker?.worktreeSnapshot) throw new Error('turn worktree snapshot is unavailable');
   await revertTurnWorktreeFile(tracker.worktreeSnapshot, file);
+  return await getTurnReviewDiff(_worktree, ownerSessionId);
+}
+
+/** Restore every file in the reviewed turn to its turn-start state. */
+export async function revertTurnReview(_worktree, sessionId) {
+  const ownerSessionId = clean(sessionId);
+  const tracker = _diffTrackersBySession.get(ownerSessionId);
+  if (tracker?.worktreeContended) {
+    throw new Error('turn review revert is unavailable while sessions share a worktree');
+  }
+  if (!tracker?.worktreeSnapshot) throw new Error('turn worktree snapshot is unavailable');
+  await revertTurnWorktreeSnapshot(tracker.worktreeSnapshot);
   return await getTurnReviewDiff(_worktree, ownerSessionId);
 }
 

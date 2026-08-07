@@ -40,6 +40,7 @@ import {
   startRemoteRelay,
   type RemoteRelayHandle,
 } from './remote-relay';
+import { rotateRelayE2EEIdentity } from './remote-e2ee';
 
 interface DesktopServiceFactoryInput {
   options: SerializableDesktopServiceOptions;
@@ -117,6 +118,7 @@ export async function createDesktopService(
       relay: remoteRelay ? {
         clientUrl: remoteRelay.clientUrl,
         token: remoteRelay.token,
+        pairing: remoteRelay.pairing,
       } : null,
     };
   };
@@ -190,6 +192,7 @@ export async function createDesktopService(
     await Promise.all([
       rotateRemoteToken(options.userDataPath),
       rotateRemoteDevice(options.userDataPath),
+      rotateRelayE2EEIdentity(options.userDataPath),
     ]);
     remoteBridge = null;
     remoteRelay = null;

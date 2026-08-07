@@ -112,6 +112,13 @@ function _sanitizeGrokModels(models) {
         const display = _displayGrokModel(m);
         const family = _normalizeGrokFamily(m?.id);
         const reasoningLevels = _grokModelSupportsEffort(m?.id) ? ['none', 'low', 'medium', 'high'] : [];
+        // api.x.ai /models does not expose a max-output field. Historical
+        // enrichment could persist contextWindow as outputTokens (for example
+        // 500k/500k); clear it rather than advertise an invented request cap.
+        if (out?.outputTokens != null) {
+            changed = true;
+            out = { ...out, outputTokens: null };
+        }
         if (display && display !== out?.display) {
             changed = true;
             out = { ...out, display, name: out?.name || out?.id };

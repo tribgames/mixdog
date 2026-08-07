@@ -6,6 +6,7 @@ import { resetAllStreamingMarkdownStablePrefixes } from '../markdown/streaming-m
 import { createSessionStats } from './session-stats.mjs';
   import { queuePriorityValue, defaultQueuePriority, isQueuedEntryEditable, isQueuedEntryVisible, isSlashQueuedEntry, notificationDisplayText, sessionActivityTimestamp, promptDisplayText, promptContentImageMeta, mergePromptContents, mergePastedImages, mergePastedTexts, callCommitCallbacks, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { appendTuiSteeringPersist, dropTuiSteeringPersist, drainTuiSteeringPersist } from './tui-steering-persist.mjs';
+import { hydratePastedAttachments } from '../../runtime/attachments/store.mjs';
 
 export function createSessionFlow(bag) {
   const {
@@ -560,12 +561,13 @@ export function createSessionFlow(bag) {
     removeQueuedEntries(queued);
     const queuedText = queued.map((item) => item.text).filter((text) => String(text || '').trim()).join('\n');
     const combinedText = [queuedText, String(currentText || '')].filter((text) => text.trim()).join('\n');
+    const hydrated = hydratePastedAttachments(mergePastedImages(queued), mergePastedTexts(queued));
     return {
       count: queued.length,
       ids: queued.map((item) => String(item.id || '')).filter(Boolean),
       text: combinedText,
-      pastedImages: mergePastedImages(queued),
-      pastedTexts: mergePastedTexts(queued),
+      pastedImages: hydrated.pastedImages,
+      pastedTexts: hydrated.pastedTexts,
     };
   }
 

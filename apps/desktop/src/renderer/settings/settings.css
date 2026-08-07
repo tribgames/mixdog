@@ -303,15 +303,12 @@
   flex: 0 0 100%;
 }
 .settings-row-control > .effort-control .mx-select-root,
-.settings-row-control > .fast-control .mx-select-root,
-.settings-row-control > .effort-control .mx-select-trigger,
-.settings-row-control > .fast-control .mx-select-trigger {
+.settings-row-control > .effort-control .mx-select-trigger {
   width: 100%;
   min-width: 0;
   max-width: none;
 }
-.settings-row-control > .effort-control .mx-select-value,
-.settings-row-control > .fast-control .mx-select-value {
+.settings-row-control > .effort-control .mx-select-value {
   text-align: right;
 }
 .settings-model-trigger > span {
@@ -343,8 +340,7 @@
   max-width: 100%;
 }
 .settings-agent-route .settings-model-trigger,
-.settings-agent-route .effort-control .mx-select-trigger,
-.settings-agent-route .fast-control .mx-select-trigger {
+.settings-agent-route .effort-control .mx-select-trigger {
   height: 28px;
   justify-content: flex-end;
   gap: 6px;
@@ -373,20 +369,17 @@
   color: var(--mx-text);
   background: var(--mx-hover);
 }
-.settings-row-control > .effort-control .mx-select-trigger,
-.settings-row-control > .fast-control .mx-select-trigger {
+.settings-row-control > .effort-control .mx-select-trigger {
   color: var(--mx-text);
   font-weight: var(--mx-weight-regular);
 }
 
 /* ModelPicker and OpenSelect use different primitives. Settings routes own one
-   shared closed-state chevron, value column, and right edge for both. */
+   shared closed-state chevron and right edge; Fast stays a compact glyph. */
 .settings-row-control > .settings-model-trigger,
 .settings-row-control > .effort-control .mx-select-trigger,
-.settings-row-control > .fast-control .mx-select-trigger,
 .settings-agent-route .settings-model-trigger,
-.settings-agent-route .effort-control .mx-select-trigger,
-.settings-agent-route .fast-control .mx-select-trigger {
+.settings-agent-route .effort-control .mx-select-trigger {
   height: 28px;
   justify-content: flex-end;
   gap: 6px;
@@ -401,10 +394,8 @@
 }
 .settings-row-control > .settings-model-trigger > svg,
 .settings-row-control > .effort-control .mx-select-trigger > svg,
-.settings-row-control > .fast-control .mx-select-trigger > svg,
 .settings-agent-route .settings-model-trigger > svg,
-.settings-agent-route .effort-control .mx-select-trigger > svg,
-.settings-agent-route .fast-control .mx-select-trigger > svg {
+.settings-agent-route .effort-control .mx-select-trigger > svg {
   width: 14px;
   height: 14px;
   flex: 0 0 14px;
@@ -415,6 +406,10 @@
   stroke-width: 2;
   transition: transform 90ms ease-out;
 }
+.settings-row-control > .fast-control,
+.settings-agent-route .fast-control { justify-content: flex-end; }
+.settings-row-control .fast-mode-toggle,
+.settings-agent-route .fast-mode-toggle { flex: 0 0 28px; }
 .settings-model-trigger[aria-expanded="true"] > svg { transform: rotate(180deg); }
 .settings-empty-list {
   box-sizing: border-box;
@@ -836,9 +831,7 @@ html[data-mixdog-mobile] .settings-row-control > .settings-model-trigger,
 html[data-mixdog-mobile] .settings-row-control > .effort-control,
 html[data-mixdog-mobile] .settings-row-control > .fast-control,
 html[data-mixdog-mobile] .settings-row-control > .effort-control .mx-select-root,
-html[data-mixdog-mobile] .settings-row-control > .fast-control .mx-select-root,
-html[data-mixdog-mobile] .settings-row-control > .effort-control .mx-select-trigger,
-html[data-mixdog-mobile] .settings-row-control > .fast-control .mx-select-trigger {
+html[data-mixdog-mobile] .settings-row-control > .effort-control .mx-select-trigger {
   width: 100%;
   min-width: 0;
   max-width: 100%;
