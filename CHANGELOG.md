@@ -8,6 +8,8 @@ the Unreleased section is empty, and stamps it with the released version.
 - Synchronous model-catalog reads no longer launch an implicit global network
   request. Session warmup remains the single owner of remote catalog I/O, so
   provider-injected transports stay hermetic on a cold installation.
+- The isolated release lane now prepares one verified native code-graph runtime
+  explicitly instead of depending on an ambient binary left by an earlier job.
 
 ## v0.9.98 - 2026-08-07
 
