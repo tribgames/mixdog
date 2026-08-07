@@ -50,6 +50,19 @@ function isTransientConnectionReset(error: unknown): boolean {
     || /socket hang up|read ECONNRESET|write EPIPE/i.test(message);
 }
 
+function desktopDaemonCompatibilityError(error: unknown): Error {
+  if (!error || typeof error !== 'object'
+    || (error as Record<string, unknown>).daemonNewerThanClient !== true) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+  const cause = error instanceof Error ? error : new Error(String(error));
+  return new Error(
+    'A newer Mixdog backend is already running. Update this desktop app, or close every '
+      + 'Mixdog window and terminal before reopening it.',
+    { cause },
+  );
+}
+
 /** Desktop backend client transport backed by the singleton daemon. */
 export class DaemonEngineTransport implements BackendTransport {
   private readonly listeners = new Map<string, Set<(...args: any[]) => void>>();
@@ -117,10 +130,15 @@ export class DaemonEngineTransport implements BackendTransport {
             message.options.appPath,
           )
         ) as EngineDaemonClient;
-      const discovery = await daemonModule.ensureEngineDaemon({
-        cwd: this.cwd,
-        log: (line) => this.emit('error', 'daemon', line),
-      });
+      let discovery: Record<string, unknown>;
+      try {
+        discovery = await daemonModule.ensureEngineDaemon({
+          cwd: this.cwd,
+          log: (line) => this.emit('error', 'daemon', line),
+        });
+      } catch (error) {
+        throw desktopDaemonCompatibilityError(error);
+      }
       const client = await daemonModule.attachEngineDaemon({
         discovery,
         cwd: this.cwd,

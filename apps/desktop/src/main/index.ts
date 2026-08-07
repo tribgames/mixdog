@@ -6,6 +6,8 @@ import { pathToFileURL } from 'node:url';
 
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, powerMonitor, powerSaveBlocker, screen, session, shell } from 'electron';
 
+// @ts-expect-error Shared runtime modules are plain ESM without declarations.
+import { configureCheckoutRuntimeRoot } from '../../../../src/runtime/shared/runtime-root.mjs';
 import type { DesktopBackend } from './backend-api';
 import { DesktopBackendClient } from './desktop-backend-client';
 import { DaemonEngineTransport } from './daemon-engine-transport';
@@ -60,6 +62,10 @@ const desktopBootScenario = String(process.env.MIXDOG_BOOT_SCENARIO || '')
   .replace(/[^A-Za-z0-9_.:-]/g, '')
   .slice(0, 80);
 const DESKTOP_WINDOW_SHOW_DEADLINE_MS = 3_000;
+
+if (!app.isPackaged) {
+  configureCheckoutRuntimeRoot(resolve(app.getAppPath(), '../..'));
+}
 
 // Profile identity. Unpackaged shells (electron-vite dev/preview, source-mode
 // E2E) derive userData from this package's name (@mixdog/desktop), so every
