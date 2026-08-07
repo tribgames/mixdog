@@ -7,12 +7,14 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## v0.9.96 - 2026-08-07
 
-- Development checkouts now use checkout-specific backend runtime and data
-  roots shared by their CLI and unpackaged desktop, so protocol work can never
-  claim or write through the installed app's daemon.
 - Release discipline now requires every app package to be pre-bumped when the
   engine wire protocol changes, keeps workspace versions synchronized, and
   publishes that pending identity without an accidental second increment.
+- Development and installed surfaces continue to share the existing data and
+  authentication store; protocol/version discipline prevents same-version
+  daemon skew without hiding credentials behind a new profile.
+- Release validation now gates platform packaging and removes a duplicate
+  code-graph run, avoiding five expensive package jobs when a focused gate fails.
 - Desktop protocol conflicts now explain the update/close-and-reopen recovery
   path instead of surfacing a raw backend transport exception.
 - The unified protocol-4 backend removes the duplicate desktop engine host,

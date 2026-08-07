@@ -36,6 +36,8 @@ test('application release stages every platform before publishing', async () => 
   assert.match(release, /validate:[\s\S]*fetch-depth:\s*0/);
   assert.match(release, /publish:[\s\S]*needs:\s*\[validate,\s*desktop-windows,\s*desktop-unix\]/);
   assert.match(release, /desktop-build:[\s\S]*name:\s*build-desktop-once/);
+  assert.match(release, /desktop-build:[\s\S]*needs:\s*validate/);
+  assert.doesNotMatch(release, /name:\s*Execute code graph from a clean cache/);
   assert.match(release, /Restore unchanged desktop output[\s\S]*desktop-out-v1-\$\{\{ hashFiles/);
   assert.match(release, /name:\s*Stage common desktop output[\s\S]*actions\/upload-artifact@v7/);
   assert.match(release, /desktop-windows:[\s\S]*needs:\s*desktop-build/);

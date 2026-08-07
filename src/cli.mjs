@@ -2,14 +2,11 @@
 
 import { fileURLToPath } from 'node:url';
 import { classifyCliInvocation } from './headless-command.mjs';
-import { configureCheckoutRuntimeRoot } from './runtime/shared/runtime-root.mjs';
 import {
   beginProcessLifecycle,
   finishProcessLifecycleAsync,
 } from './runtime/shared/process-lifecycle.mjs';
 import { stagedChildExitCode } from './runtime/shared/staged-child-result.mjs';
-
-configureCheckoutRuntimeRoot(fileURLToPath(new URL('..', import.meta.url)));
 
 const argv = process.argv.slice(2);
 
