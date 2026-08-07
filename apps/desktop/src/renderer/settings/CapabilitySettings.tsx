@@ -4,10 +4,11 @@ import type {
   DesktopCapability,
   DesktopModelOption,
   DesktopUpdaterState,
-  EngineSnapshot
+  SessionSnapshot
 } from '../../shared/contract';
 
 import { PaneSurfaceGate } from '../PaneSurfaceGate';
+import { showDesktopToast } from '../notifications';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
 import { SettingsConfirmDialog, preferredEffort } from "./capability-controls";
 import { type CapabilitySettingsProps, type PanelContext, type SettingsConfirmation, getCachedCapabilitySettings, preloadCapabilitySettings, record } from "./capability-data";
@@ -21,9 +22,8 @@ export function CapabilitySettings({ api, category, onCompose, onOpenCategory }:
   const [hydrating, setHydrating] = useState(() => !initialCache);
   const [pending, setPending] = useState('');
   const [error, setError] = useState(() => initialCache?.error || '');
-  const [notice, setNotice] = useState<{ message: string; tone: 'info' | 'warn' } | null>(null);
   const [confirmation, setConfirmation] = useState<SettingsConfirmation | null>(null);
-  const [liveSnapshot, setLiveSnapshot] = useState<EngineSnapshot>(null);
+  const [liveSnapshot, setLiveSnapshot] = useState<SessionSnapshot>(null);
   const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: 'disabled' });
   const [revision, setRevision] = useState(0);
   const loadSequence = useRef(0);
@@ -31,6 +31,9 @@ export function CapabilitySettings({ api, category, onCompose, onOpenCategory }:
   // Tail of the in-flight mutation chain: capability calls run one after the
   // other so a burst of clicks lands in order instead of being dropped.
   const mutationChain = useRef<Promise<void>>(Promise.resolve());
+  useEffect(() => {
+    if (error) showDesktopToast(error, 'error');
+  }, [error]);
 
   const load = useCallback(async (force = false) => {
     const sequence = ++loadSequence.current;
@@ -201,7 +204,7 @@ export function CapabilitySettings({ api, category, onCompose, onOpenCategory }:
 
   const confirm = useCallback((options: SettingsConfirmation) => setConfirmation(options), []);
   const pushNotice = useCallback((message: string, tone: 'info' | 'warn' = 'info') => {
-    setNotice({ message, tone });
+    showDesktopToast(message, tone);
   }, []);
 
   const effectivePending = hydrating ? 'settings-hydrating' : pending;
@@ -215,9 +218,6 @@ export function CapabilitySettings({ api, category, onCompose, onOpenCategory }:
   return <PaneSurfaceGate ready={!hydrating} label="Loading settings…">
     <div className="capability-settings-content">
     <CategoryPanel category={category} context={context} />
-    {error && <p className="mixdog-settings__error" role="alert">{error}</p>}
-    {notice && <p className={`settings-notice settings-notice--${notice.tone}`}
-      role={notice.tone === 'warn' ? 'alert' : 'status'}>{notice.message}</p>}
     {confirmation && <SettingsConfirmDialog options={confirmation} onClose={() => setConfirmation(null)} />}
     </div>
   </PaneSurfaceGate>;

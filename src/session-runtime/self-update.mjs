@@ -14,7 +14,7 @@ import {
 
 const STAGE_POLL_MS = 3_000;
 const STAGE_POLL_MAX_MS = 10 * 60 * 1000;
-// A backend daemon can host many session runtimes. Their boot controllers all
+// A daemon can host many session runtimes. Their boot controllers all
 // need the same update state, not one forced registry request per pane.
 const processBootChecks = new Map();
 

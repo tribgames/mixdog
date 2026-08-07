@@ -1,5 +1,5 @@
 // Bridge ownership snapshot + ownership logging. Under the machine-global
-// channels daemon (singleton-owner lock in src/standalone) there is exactly one
+// unified daemon (singleton-owner lock in src/standalone) has exactly one
 // runtime per machine, so this process is the unconditional bridge owner — the
 // OS seat lock and its file heartbeat / last-wins CAS are retired.
 // active-instance.json is now a pure metadata advert; it is no longer read to

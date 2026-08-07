@@ -5,6 +5,7 @@ export type DiffData = {
   patch: string;
   renderPatch: string;
   renderable: boolean;
+  status: string;
 };
 export type TurnFailureModel = {
   scope: string;
@@ -64,6 +65,7 @@ export function attemptApproval(
   approved: boolean,
 ): Promise<boolean>;
 export function normalizeApplyPatch(value: unknown): string;
+export function diffFileStatus(section: unknown): string;
 export function parseUnifiedDiff(patch: string): DiffData[];
 export type ToolInputRow = { key: string; value: string; block: boolean };
 export function toolInputRows(name: string, args: unknown): ToolInputRow[];

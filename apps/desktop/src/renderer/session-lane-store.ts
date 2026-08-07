@@ -44,8 +44,7 @@ interface SessionLaneEntry {
   snapshot: Snapshot;
   bytes: number;
   estimatedAt: number;
-  /** Authoritative content generation this cached transcript was accepted at
-   *  (null while the host publishes unversioned frames). */
+  /** Authoritative content generation this cached transcript was accepted at. */
   revision: number | null;
 }
 
@@ -84,15 +83,15 @@ function laneUpdateIsUrgent(previous: Snapshot | null, next: Snapshot | null): b
 /** Where a lane frame came from. These are the renderer's OWN call
  *  boundaries — not a guess about the frame's content:
  *  - "session-lane": mixdog:session-state, the session's own publication
- *    (its pooled engine's live frame, or the one-shot disk/replay peek used
- *    for a session with no pooled engine). Authoritative for that session's
+ *    (its pooled session runtime's live frame, or the one-shot disk/replay peek used
+ *    for a session with no pooled session runtime). Authoritative for that session's
  *    live state; its transcript may be a tail WINDOW because both
  *    projections cap at the host transcript item limit.
  *  - "focused-state": the settled focused mixdog:state stream — the same
  *    authority for the session it names.
  *  - "focused-transition": the focused stream WHILE a renderer-initiated
  *    session route (resumeSession) is in flight. Such a frame describes a
- *    host transition: an empty/partial transcript there is the engine
+ *    host transition: an empty/partial transcript there is the session runtime
  *    loading, not the session losing rows.
  *  - "renderer-result": a renderer-initiated answer (submit, /clear, the
  *    resume RPC result). Always replaces the cache. */
@@ -284,10 +283,10 @@ export function laneFrameRetainingSettledRows(
 
 /** What the store was told about ONE incoming frame. `source` is the
  *  renderer's own call boundary; `frameSource`/`contentRevision` are the
- *  host's optional lane metadata (absent on remote/legacy hosts). */
+ *  host's lane metadata. */
 export interface SessionLaneFrameProvenance {
   source: SessionLaneFrameSource;
-  frameSource?: "live" | "replay";
+  frameSource: "live" | "replay";
   contentRevision?: number;
 }
 
@@ -325,8 +324,7 @@ function rejectedSessionLaneRevision(
 /** Content-generation gate for host lane frames. A replay carries the
  *  generation it was derived from, so it can only be older than or equal to
  *  the frame it raced; both are rejected whole (transcript AND the stale
- *  route/usage/work read-outs travelling with them). Unversioned hosts and
- *  the focused pipeline return null and keep the compatibility path. */
+ *  route/usage/work read-outs travelling with them). */
 export function staleSessionLaneReplay(
   priorRevision: number | null,
   provenance: SessionLaneFrameProvenance,
@@ -424,7 +422,7 @@ function reportLaneDecision(
   }
   try {
     window.mixdogDesktop?.perfLog?.(`lane-frame id=${sessionId} source=${provenance.source}`
-      + ` frame=${provenance.frameSource || "unversioned"}`
+      + ` frame=${provenance.frameSource}`
       + ` rev=${provenance.contentRevision ?? "-"} decision=${decision.reason}`);
   } catch {
     // Diagnostics never affect the lane.
@@ -494,7 +492,7 @@ export function createSessionLaneStore({
     const priorSnapshot = prior?.snapshot ?? null;
     const provenance: SessionLaneFrameProvenance = {
       source,
-      ...(update.frameSource ? { frameSource: update.frameSource } : {}),
+      frameSource: update.frameSource,
       ...(typeof update.contentRevision === "number"
         ? { contentRevision: update.contentRevision }
         : {}),
@@ -598,6 +596,7 @@ export function createSessionLaneStore({
       applyUpdate({
         sessionId,
         snapshot: snapshot as DesktopSessionStateUpdate["snapshot"],
+        frameSource: "live",
       }, true, source);
     },
     stats: () => ({

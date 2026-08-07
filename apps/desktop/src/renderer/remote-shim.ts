@@ -11,7 +11,7 @@ import type {
   DesktopSessionStateUpdate,
   DesktopTranscriptItem,
   DesktopUpdaterState,
-  EngineSnapshot,
+  SessionSnapshot,
 } from '../shared/contract';
 
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
@@ -54,7 +54,7 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
 
   interface PendingCall { resolve: (value: unknown) => void; reject: (error: Error) => void }
   const pending = new Map<number, PendingCall>();
-  const stateListeners = new Set<(snapshot: EngineSnapshot) => void>();
+  const stateListeners = new Set<(snapshot: SessionSnapshot) => void>();
   const sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
   const termListeners = new Set<(event: { id: string; data: string }) => void>();
   let socket: WebSocket | null = null;
@@ -323,7 +323,7 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
     else window.addEventListener('DOMContentLoaded', mount, { once: true });
   };
 
-  const dispatchState = (snapshot: EngineSnapshot): void => {
+  const dispatchState = (snapshot: SessionSnapshot): void => {
     for (const listener of [...stateListeners]) {
       try { listener(snapshot); } catch { /* renderer listener fault */ }
     }
@@ -373,8 +373,8 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
     lastResyncAt = now;
     fire('stateResync', []);
   };
-  const applyStatePayload = (payload: unknown): EngineSnapshot | null => {
-    if (!payload || typeof payload !== 'object') return payload as EngineSnapshot;
+  const applyStatePayload = (payload: unknown): SessionSnapshot | null => {
+    if (!payload || typeof payload !== 'object') return payload as SessionSnapshot;
     const record = payload as Record<string, unknown>;
     const patch = record.__itemsPatch as
       { base?: unknown; revision?: unknown; prefix?: unknown; append?: unknown } | undefined;
@@ -446,7 +446,7 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
         ...deltaStateFields,
         items: deltaItems,
         streamingTail: deltaStreamingTail,
-      } as EngineSnapshot;
+      } as SessionSnapshot;
     }
     if (typeof record.__itemsRevision === 'number') {
       deltaRevision = record.__itemsRevision;
@@ -458,12 +458,12 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
       const clean: Record<string, unknown> = { ...record };
       delete clean.__itemsRevision;
       delete clean.__streamingTailTextEpoch;
-      return clean as unknown as EngineSnapshot;
+      return clean as unknown as SessionSnapshot;
     }
     // Legacy full snapshot without revision: future patches cannot verify
     // their base against it, so force the next patch through a resync.
     resetDeltaState();
-    return payload as EngineSnapshot;
+    return payload as SessionSnapshot;
   };
 
   const handleMessage = (raw: unknown): void => {
@@ -599,7 +599,7 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
         }
         if (everConnected) {
           // Re-sync after a drop: state pushes sent while offline are gone.
-          void call<EngineSnapshot>('getSnapshot').then(dispatchState).catch(() => {});
+          void call<SessionSnapshot>('getSnapshot').then(dispatchState).catch(() => {});
         }
         everConnected = true;
         resolve(ws);

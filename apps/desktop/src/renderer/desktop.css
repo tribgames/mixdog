@@ -922,7 +922,7 @@ button:focus-visible { outline-offset: 1.5px; }
      reverted (user: 완전 이상한데 — 기존으로 롤백); only the height changed. */
   left: 0;
   right: 0;
-  height: 3px;
+  height: 2px;
   border-radius: 0;
   background: transparent;
   pointer-events: none;
@@ -2946,10 +2946,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   width: 8px;
   text-align: center;
 }
-/* Reading scale, Korean-first: the 14px base is an English terminal
-   metric and reads small against modern chat prose (~15-16px). Chrome
-   (tabs/sidebar/labels) stays on the 13px small scale; READING surfaces run
-   15px with >=1.53 leading. */
+/* Task transcript scale: Codex-like prose keeps paragraphs, lists and
+   timeline state rows on one compact 14/22 reading rhythm. App chrome and the
+   composer retain their own scales; this rule is transcript-only. */
 /* 450 optical weight: variable Geist/Pretendard fill Hangul strokes the way
    heavier chat faces do — 400 read thin next to it. */
 /* Reading surface runs Pretendard-first for BOTH scripts: with Geist leading,
@@ -2961,9 +2960,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .message-body {
   color: var(--mx-text);
   font-family: var(--mx-font-prose);
-  font-size: var(--mx-font-body);
+  font-size: var(--mx-font-emphasis);
   font-weight: var(--mx-weight-body);
-  line-height: var(--mx-line-body);
+  line-height: var(--mx-line-emphasis);
   letter-spacing: 0;
 }
 .message-body p { margin: 0 0 12px; }
@@ -3131,10 +3130,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
      use the deeper pressed tint so the pill is clearly a block. */
   background: var(--mx-pressed);
 }
-.message.user.pending .message-body {
-  border-style: dashed;
-  opacity: var(--mx-op-secondary);
-}
 .message-pending-status {
   position: absolute;
   top: calc(100% + 1px);
@@ -3239,12 +3234,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   gap: 6px;
   overflow: hidden;
 }
-/* TUI font parity (user): tool rows read in the terminal's mono voice —
-   bold mono header, muted mono arg summary. */
-.tool-title b, .tool-title small { font-family: var(--mx-font-mono); font-size: var(--mx-font-code); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-meta); }
-/* Card titles carry the primary "what happened" info: one weight rule — the
-   TUI's bold header voice (a second 500 rule silently overrode 600 before). */
-.tool-title b { font-weight: var(--mx-weight-semibold); }
+/* Tool rows keep their terminal voice but share the transcript's 14/22
+   rhythm, so command activity no longer shrinks between prose paragraphs. */
+.tool-title b, .tool-title small { font-family: var(--mx-font-mono); font-size: var(--mx-font-code-prose); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-emphasis); }
+/* Tool titles remain one restrained step above transcript prose without
+   becoming heading-weight at the shared 14px size. */
+.tool-title b { font-weight: var(--mx-weight-medium); }
 /* Narrow windows: the title must ellipsize instead of shoving the elapsed
    readout/chevron sideways (user: fully narrowed, text invades the side).
    The subtitle absorbs shrink first (999), the bold label only after. */
@@ -3467,14 +3462,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex-direction: column;
   overflow: visible;
   gap: 8px;
-  font-size: var(--mx-font-ui);
-  /* Matches the settled status row exactly — 13px/600 phrase, 12px meta — so
+  font-size: var(--mx-font-emphasis);
+  line-height: var(--mx-line-emphasis);
+  /* Matches the settled status row exactly — 14px phrase, 12px meta — so
      the line does not change weight the moment the turn finishes (user:
      띵킹 스피너도 같이). The earlier drop to 400 was made while this band was
      still muted grey, where 600 read as shouting; now that the phrase sits on
      full ink with the accent sweep, the strong weight is what the settled
      twin uses and the two states finally agree. */
-  font-weight: var(--mx-weight-medium);
+  font-weight: var(--mx-weight-body);
 }
 /* Busy-band slot: no box at all while idle (display: contents keeps the
    thread's flex/gap grammar identical to the band being a direct child), but
@@ -3628,13 +3624,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   margin-right: 7px;
   color: var(--mx-text-faint);
 }
-.thinking-disclosure { max-width: 100%; color: var(--mx-text-muted); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); }
+.thinking-disclosure { max-width: 100%; color: var(--mx-text-muted); font-size: var(--mx-font-emphasis); font-weight: var(--mx-weight-body); }
 .thinking-disclosure summary {
   width: max-content;
   border-radius: 4px;
   color: var(--mx-text-muted);
   cursor: pointer;
-  line-height: var(--mx-line-ui);
+  line-height: var(--mx-line-emphasis);
 }
 .thinking-disclosure summary:hover,
 .thinking-disclosure summary:focus-visible { color: var(--mx-text); background: var(--mx-hover); }
@@ -3651,8 +3647,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   box-shadow: none;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: var(--mx-font-ui);
-  line-height: var(--mx-line-ui);
+  font-size: var(--mx-font-emphasis);
+  line-height: var(--mx-line-emphasis);
 }
 .turn-status.complete, .turn-status.success,
 .turn-status.failed, .turn-status.interrupted {
@@ -3665,9 +3661,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   justify-content: flex-start;
   gap: 7px;
   padding: 0;
-  line-height: var(--mx-line-ui);
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-emphasis);
+  font-size: var(--mx-font-emphasis);
+  font-weight: var(--mx-weight-body);
 }
 .turn-status[data-animate="true"] {
   animation: transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1);
@@ -3675,14 +3671,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .turn-status.complete, .turn-status.success {
   color: var(--mx-text-soft);
   /* The settled row and the running band are the SAME line at two moments, so
-     the SIZE never changes between them: 13px phrase, 12px meta. Bumping this
-     row to 14px made the two states look like different components stacked in
-     the same slot (user: 너무 웨이트가 두껍고).
+     the SIZE never changes between them: 14px phrase, 12px meta.
      Weight is where they differ, and it compensates: the running band is full
      ink with a travelling shimmer, so 400 already reads; the settled row has
      neither motion nor full ink, so it takes the strong weight to stay legible
      (user: 좀 더 두껍게, 잘 보이게). Same ladder rung, opposite axis. */
-  font-weight: var(--mx-weight-medium);
+  font-weight: var(--mx-weight-body);
 }
 /* Quiet TUI-style marker instead of a check badge (user): ◈ + phrase, both in
    NEUTRAL ink. A finished turn is history — colouring its text and mark was
@@ -3772,9 +3766,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border-radius: 0;
   color: var(--mx-accent);
   background: transparent;
-  font-size: var(--mx-font-ui);
+  font-size: var(--mx-font-emphasis);
   font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-ui);
+  line-height: var(--mx-line-emphasis);
   cursor: pointer;
 }
 .turn-retry:hover:not(:disabled),
@@ -3797,11 +3791,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 12px 0;
   color: var(--mx-accent);
   background: transparent;
-  font-size: var(--mx-font-ui);
+  font-size: var(--mx-font-emphasis);
   /* Same status-label tier as the turn rows, the live band and the tab
      labels — compaction IS one of those state lines. */
-  font-weight: var(--mx-weight-medium);
-  line-height: var(--mx-line-ui);
+  font-weight: var(--mx-weight-body);
+  line-height: var(--mx-line-emphasis);
 }
 .compaction-divider[data-animate="true"] {
   animation: transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1);
@@ -3999,6 +3993,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border-radius: 12px;
   background: var(--mx-bg-base);
   box-shadow: var(--mx-raised);
+  /* Keep textarea autosize/focus paint inside the composer formatting
+     context; a keystroke must not invalidate the virtual transcript paint. */
+  contain: layout paint style;
   transition: box-shadow 85ms ease-out;
 }
 .composer:focus-within {
@@ -4696,6 +4693,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   transition: box-shadow 85ms ease-out;
 }
 /* The ring marks keyboard focus only; hover already darkens the tile. */
+.composer-attachments > div:hover,
 .composer-attachments > div:focus-within { box-shadow: 0 0 0 1px var(--mx-border-strong); }
 .composer-attachments > div.image { height: 64px; }
 .composer-attachments img,
@@ -4922,7 +4920,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .mx-toast[data-tone="success"] > svg { color: var(--mx-success); }
 .mx-toast-copy { min-width: 0; flex: 1; display: grid; gap: 4px; }
 .mx-toast-copy b { overflow: hidden; color: var(--mx-text); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-ui); text-overflow: ellipsis; white-space: nowrap; }
-.thinking-disclosure { max-width: 100%; color: var(--mx-text-muted); font-size: var(--mx-font-emphasis); font-weight: var(--mx-weight-regular); }
 .mx-toast-close { width: 20px; height: 20px; padding: 2px; border: 0; border-radius: 4px; color: var(--mx-icon-muted); background: transparent; }
 .mx-toast-close:hover { color: var(--mx-icon); background: var(--mx-hover); }
 .mx-toast-close { cursor: pointer; }
@@ -7081,13 +7078,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .schedules-frequency input[type="time"] { flex: 0 0 130px; min-width: 130px; }
 .schedules-model-trigger { max-width: 240px; }
 .schedules-form-error { margin: 0; color: var(--mx-danger); font-size: var(--mx-font-minor); }
-.schedules-notice { margin: 0; color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
-.schedules-feedback-slot {
-  min-height: 18px;
-  display: flex;
-  align-items: center;
-}
-.schedules-feedback-slot > p { margin: 0; }
 /* Webhook editor connection block: endpoint URL + signing secret rows with
    icon-only copy affordances, ready to paste into the external service. */
 .webhook-connection {
@@ -8154,11 +8144,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .onboarding-workflow-grid > button .onboarding-choice-check { position: absolute; top: 12px; right: 12px; color: var(--mx-success); }
 /* Phone pairing (reuses the Settings → Connection QR cards). */
 .onboarding-pair { display: grid; justify-items: center; gap: 12px; width: min(600px, 100%); margin-inline: auto; }
-/* Channels: authenticated backends pick which one Mixdog talks through. */
+/* Channels: authenticated providers pick which one Mixdog talks through. */
 /* Beats `.onboarding-provider-row > div` (grid/flex:1): the segmented toggle
    must stay a compact side-by-side pair, not stacked full-width rows. */
-.onboarding-provider-row > div.onboarding-backend-toggle,
-.onboarding-backend-toggle {
+.onboarding-provider-row > div.onboarding-provider-toggle,
+.onboarding-provider-toggle {
   min-width: 0;
   flex: none;
   display: flex;
@@ -8168,7 +8158,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--mx-bg-base);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
-.onboarding-backend-toggle > button {
+.onboarding-provider-toggle > button {
   min-height: 24px;
   padding: 0 12px;
   border: 0;
@@ -8180,8 +8170,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
 }
-.onboarding-backend-toggle > button:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
-.onboarding-backend-toggle > button.active {
+.onboarding-provider-toggle > button:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+.onboarding-provider-toggle > button.active {
   color: var(--mx-text);
   background: var(--mx-bg-layer-3);
   box-shadow: inset 0 0 0 .5px var(--mx-border);
@@ -9156,7 +9146,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     border-radius: 999px;
     /* Overlay voice: translucent sheet + blur so transcript text scrolling
        underneath stays legible without a hard band. */
-    background: color-mix(in srgb, var(--mx-workspace-sheet) 65%, transparent);
+    background: color-mix(in srgb, var(--mx-workspace-sheet) 50%, transparent);
     backdrop-filter: blur(8px);
   }
 .workspace-tabs-shell .workspace-tabs {
@@ -9310,49 +9300,34 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   white-space: pre-wrap;
 }
 
-/* Heading ladder: SIZE, LEADING and SPACE step down together (reference
-   consensus — assistant-ui 20/18/16/16/14/14 with mt-5..mt-3, cherry-studio
-   2em/1.5em/1.2em, jan 3xl/2xl/xl/lg). The old sheet stepped size only down
-   to h3, then let h4-h6 collapse onto the 15px body under ONE shared
-   24px/12px margin, so three levels read as a single rung. h5/h6 keep the
-   body size and separate on weight alone — the last step before plain prose.
-   Korean-friendly leading stays >=1.3 at every level. */
+/* Restrained transcript heading ladder: prose structure stays visible without
+   breaking the shared 14/22 rhythm into a second typographic system. */
 .markdown h1, .markdown h2, .markdown h3,
 .markdown h4, .markdown h5, .markdown h6 {
   color: var(--mx-text);
-  font-weight: 700;
+  font-weight: var(--mx-weight-semibold);
 }
-.markdown h1 { margin: 32px 0 12px; font-size: 21px; line-height: 28px; }
-/* h2/h3 leading happens to equal --mx-line-body/--mx-line-emphasis. It stays
-   LITERAL on purpose: the heading ramp is a content scale (like its 21/18/16
-   sizes), and tokenising only the two rungs that collide would split one
-   ladder across two systems. */
-.markdown h2 { margin: 28px 0 12px; font-size: 18px; line-height: 24px; }
-.markdown h3 { margin: 24px 0 12px; font-size: 16px; line-height: 22px; }
-.markdown h4 { margin: 20px 0 8px; font-size: var(--mx-font-body); line-height: var(--mx-line-ui); }
+.markdown h1 { margin: 24px 0 8px; font-size: 17px; line-height: var(--mx-line-body); }
+.markdown h2 { margin: 20px 0 8px; font-size: 16px; line-height: var(--mx-line-emphasis); }
+.markdown h3 { margin: 16px 0 8px; font-size: var(--mx-font-emphasis); line-height: var(--mx-line-emphasis); }
+.markdown h4 { margin: 16px 0 8px; font-size: var(--mx-font-emphasis); line-height: var(--mx-line-emphasis); }
 .markdown h5 {
   margin: 16px 0 8px;
-  font-size: var(--mx-font-body);
+  font-size: var(--mx-font-emphasis);
   font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-ui);
+  line-height: var(--mx-line-emphasis);
 }
-/* h6 is the LAST rung before plain prose. At h5's 15px/600 the two rendered
-   byte-identical, so the level simply did not exist: one size down plus the
-   muted tier (GitHub's own h6 treatment) makes the step real. */
+/* h6 remains the quiet final rung through ink rather than another size. */
 .markdown h6 {
   margin: 16px 0 8px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-emphasis);
   font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-ui);
+  line-height: var(--mx-line-emphasis);
 }
-/* Emphasis sits ONE step under the headings (600 vs 700): at a shared 700 a
-   bolded sentence read as a subheading mid-paragraph. Against the 450 prose
-   weight 600 is still a +150 jump, the same separation opencode
-   (medium vs heading) and assistant-ui (semibold) keep. */
-.markdown strong, .markdown b { color: var(--mx-text); font-weight: var(--mx-weight-semibold); }
-/* …but never INSIDE a heading: 600 under a 700 heading rendered the bolded
-   words THINNER than the heading around them — emphasis inverted. */
+/* Inline emphasis stays on the prose size and moves only one subtle weight
+   step; headings retain their stronger 600 weight. */
+.markdown strong, .markdown b { color: var(--mx-text); font-weight: var(--mx-weight-medium); }
 .markdown :is(h1, h2, h3, h4, h5, h6) :is(strong, b) { font-weight: inherit; }
 .markdown ul, .markdown ol { margin: 12px 0; padding-left: 32px; }
 /* A NESTED list lives inside its parent item, so the flow-block margin belongs
@@ -9519,11 +9494,29 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .diff-file > header { min-width: 0; }
 .diff-file > header b {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.diff-operation,
+.turn-review-status {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--mx-text-muted);
+  background: var(--mx-alpha-light-6);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
+  white-space: nowrap;
+}
+.diff-operation[data-status="A"],
+.turn-review-status[data-status="A"] { color: var(--mx-success); }
+.diff-operation[data-status="D"],
+.turn-review-status[data-status="D"] { color: var(--mx-danger); }
+.diff-operation[data-status="M"],
+.turn-review-status[data-status="M"] { color: var(--mx-warning); }
 .diff-stats { flex: 0 0 auto; display: inline-flex; gap: 6px; white-space: nowrap; }
 /* Conventional review colors: additions green, deletions red (app-wide). */
 .diff-stats i { color: var(--mx-success); font-style: normal; }
@@ -12780,6 +12773,10 @@ html.mx-window-resizing .panel-backdrop {
   background: var(--mx-surface-plate);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
+.turn-review-placeholder {
+  min-height: 28px;
+  visibility: hidden;
+}
 .turn-review-summary {
   width: 100%;
   min-height: 28px;
@@ -12908,6 +12905,8 @@ html.mx-window-resizing .panel-backdrop {
   color: var(--mx-text-faint);
 }
 .turn-review-files code {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   color: var(--mx-text-muted);
   text-overflow: ellipsis;

@@ -75,7 +75,7 @@ export function usePromptQueueHistory({
       }
       return true;
     };
-    // Ask the backend for the queued portion only. The live draft remains
+    // Ask the session service for the queued portion only. The live draft remains
     // renderer-owned and is merged in apply(), after a daemon promise settles.
     const restored = store.restoreQueued?.('');
     // A daemon-backed store answers this as an ASYNC remote call, so the

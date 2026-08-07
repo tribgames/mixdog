@@ -54,7 +54,7 @@ export function shellJobsStatus({ clientHostPid, sessionId } = {}) {
   return (scope && value.sessions?.[scope]) || EMPTY_SHELL_JOBS_SESSION;
 }
 
-// Memory cycle L2 segment source. The memory daemon writes
+// Memory cycle L2 segment source. The daemon-hosted memory runtime writes
 // data/memory-cycle-state.json on every cycle start/finish (index.mjs
 // _writeCycleStateFile) — no HTTP call from the statusline path. Cached at
 // the same 1s cadence as the shell segment. Shows a single unified "Memory"

@@ -1,13 +1,8 @@
 #!/usr/bin/env bun
 import { __mixdogMemoryLog } from './lib/memory-log.mjs';
 
-process.removeAllListeners('warning')
-process.on('warning', () => {})
-
-// V8 compile cache: the memory runtime is its own long-lived child process
-// (spawned by the channel daemon / standalone proxy) and never passes through
-// cli.mjs, so it pays full ESM parse cost on every boot without this. Same
-// best-effort guard as cli.mjs.
+// V8 compile cache: the memory runtime is a separate long-lived child in
+// product mode. The standalone MCP entry uses the same module directly.
 try {
   const { enableCompileCache } = await import('node:module')
   enableCompileCache?.()
@@ -25,8 +20,6 @@ const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 import { readPluginVersion, readPromotionCodeFingerprint } from './lib/promotion-fingerprint.mjs'
 const PLUGIN_VERSION = readPluginVersion(PLUGIN_ROOT)
 const BOOT_PROMOTION_CODE_FINGERPRINT = readPromotionCodeFingerprint(PLUGIN_ROOT)
-
-try { os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL) } catch {}
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -104,8 +97,14 @@ import {
   assertSecondaryPgAttachable as _assertSecondaryPgAttachable,
 } from './lib/memory-config-flags.mjs'
 const IS_MEMORY_ENTRY = !!process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
-const USE_ARG_DATA_DIR = IS_MEMORY_ENTRY || process.env.MIXDOG_WORKER_MODE === '1'
+if (IS_MEMORY_ENTRY) {
+  process.removeAllListeners('warning')
+  process.on('warning', () => {})
+  try { os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL) } catch {}
+}
+const USE_ARG_DATA_DIR = IS_MEMORY_ENTRY
 const DATA_DIR = process.env.MIXDOG_DATA_DIR || (USE_ARG_DATA_DIR ? process.argv[2] : '') || resolvePluginData()
+const INTEGRATED_DAEMON_HOST = process.env.MIXDOG_DAEMON_HOST === '1' && !IS_MEMORY_ENTRY
 if (!DATA_DIR) {
   __mixdogMemoryLog('[memory-service] memory data dir not set and no explicit data dir provided\n')
   process.exit(1)
@@ -126,9 +125,6 @@ function memoryProfile(event, fields = {}) {
 import {
   parsePositivePid,
   isPidAliveLocal,
-  tryAcquireMemoryOwnerLock as _tryAcquireMemoryOwnerLock,
-  releaseMemoryOwnerLock as _releaseMemoryOwnerLock,
-  killPreviousServer as _killPreviousServer,
   acquireLock as _acquireLock,
   releaseLock as _releaseLock,
 } from './lib/memory-process-lock.mjs'
@@ -169,19 +165,6 @@ const _daemonLifecycle = createMemoryDaemonLifecycle({
 const { touchDaemonIdleTimer, registerClient, deregisterClient } = _daemonLifecycle
 
 const LOCK_FILE = path.join(DATA_DIR, '.memory-service.lock')
-// Owner-election lock. Separate from LOCK_FILE so single-instance mode keeps
-// its kill-the-previous protocol while multi-instance fork-proxy workers use
-// atomic CAS for takeover. Created via fs.openSync(path,'wx') — node guarantees
-// EEXIST when another process won the race.
-const OWNER_LOCK_FILE = path.join(DATA_DIR, '.memory-owner.lock')
-
-function tryAcquireMemoryOwnerLock() {
-  return _tryAcquireMemoryOwnerLock(OWNER_LOCK_FILE, __mixdogMemoryLog)
-}
-
-function releaseMemoryOwnerLock() {
-  return _releaseMemoryOwnerLock(OWNER_LOCK_FILE)
-}
 
 const BASE_PORT = 3350
 const MAX_PORT = 3357
@@ -189,10 +172,6 @@ const MAX_PORT = 3357
 let _traceDb = null
 
 const MEMORY_INSTRUCTIONS_TEXT = ''
-
-function killPreviousServer(pid) {
-  return _killPreviousServer(pid, __mixdogMemoryLog)
-}
 
 function acquireLock() {
   return _acquireLock(LOCK_FILE, __mixdogMemoryLog)
@@ -352,7 +331,7 @@ async function _initStore() {
   } else {
     __mixdogMemoryLog('[memory-service] secondary mode; skipping llm worker\n')
   }
-  // Provider/session/agent modules live once in the backend daemon. Memory
+  // Provider/session/agent modules live once in the daemon. Memory
   // cycles cross the authenticated loopback broker instead of initializing a
   // second registry in this process.
   _bootTimestamp = Date.now()
@@ -587,31 +566,61 @@ export { TOOL_DEFS, handleToolCall, buildSessionCoreMemoryPayload }
 export { MEMORY_INSTRUCTIONS_TEXT as instructions }
 export { acquireLock, releaseLock }
 export { cwdFromTranscriptPath }
-function sendMemoryWorkerMessage(message) {
-  return safeIpcSend(process, message, {
-    onError: (error) => {
-      const code = error?.code ? ` code=${error.code}` : ''
-      __mixdogMemoryLog(`[memory-worker] IPC send failed${code}: ${error?.message || error}\n`)
-    },
+
+/** In-process write surface used by the unified channel/session daemon. */
+export async function appendEntry(data = {}) {
+  await init()
+  const role = String(data.role ?? 'user')
+  const content = String(data.content ?? '')
+  const cleaned = cleanMemoryText(content)
+  if (!cleaned || !cleaned.trim()) return { error: content ? 'empty after clean' : 'content required' }
+  const sourceRef = String(data.sourceRef ?? `manual:${Date.now()}-${process.pid}`)
+  const sessionId = data.sessionId ?? null
+  const tsMs = parseTsToMs(data.ts ?? Date.now())
+  const projectId = resolveProjectScope(typeof data.cwd === 'string' && data.cwd ? data.cwd : null)
+  const result = await db.query(`
+    INSERT INTO entries(ts, role, content, source_ref, session_id, project_id)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    ON CONFLICT DO NOTHING
+    RETURNING id
+  `, [tsMs, role, cleaned, sourceRef, sessionId, projectId])
+  const insertedId = result.rows[0]?.id ?? null
+  return {
+    ok: true,
+    id: insertedId !== null ? Number(insertedId) : null,
+    changes: Number(result.rowCount ?? result.affectedRows ?? 0),
+  }
+}
+
+/** In-process transcript ingest surface used by the unified daemon. */
+export async function ingestTranscript(filePath, { cwd } = {}) {
+  await init()
+  if (!filePath) return { error: 'filePath required' }
+  const ingested = await ingestTranscriptFile(filePath, { cwd })
+  return { ok: true, ingested }
+}
+
+/** Direct trace sink for agent orchestration running in this daemon process. */
+export async function recordTraceEvents(events = []) {
+  await init()
+  if (!Array.isArray(events)) throw new TypeError('events must be an array')
+  if (events.length > 500) throw new RangeError('too many events (max 500)')
+  if (!_traceDb) {
+    _traceDb = await openTraceDatabase(DATA_DIR)
+    registerTraceExitDrain(_traceDb)
+  }
+  enqueueTraceEvents(_traceDb, events)
+  void insertAgentCalls(_traceDb, events).catch((error) => {
+    __mixdogMemoryLog(`[trace] insertAgentCalls error: ${error?.message}\n`)
   })
+  return { ok: true, queued: events.length }
 }
 export async function init() {
   if (_initialized) return
   __mixdogMemoryLog(`[boot-time] tag=memory-init-start tMs=${Date.now()}\n`)
-  if (process.env.MIXDOG_WORKER_MODE === '1' && process.send) {
-    // Single-worker daemon: acquire the owner lock (which reclaims a crashed
-    // predecessor's stale, dead-PID lock). If a LIVE peer still holds it — an
-    // anomaly, since server-main forks exactly one memory worker — exit so
-    // server-main respawns us instead of running a second owner.
-    if (!tryAcquireMemoryOwnerLock()) {
-      __mixdogMemoryLog('[memory-service] live peer holds owner lock — exiting for respawn\n')
-      process.exit(0)
-    }
-    process.on('exit', releaseMemoryOwnerLock)
-  }
   const runtimeReady = _beginRuntimeInit()
   let boundPort = null
-  if (!memorySecondaryMode()) {
+  if (!memorySecondaryMode() && !INTEGRATED_DAEMON_HOST) {
     boundPort = await _startHttpServer()
     advertiseMemoryPort(boundPort)
     try {
@@ -630,11 +639,10 @@ export async function init() {
   } else {
     await runtimeReady
   }
-  if (process.env.MIXDOG_WORKER_MODE === '1' && process.send) {
-    __mixdogMemoryLog(`[boot-time] tag=memory-ready tMs=${Date.now()}\n`)
-    sendMemoryWorkerMessage({ type: 'ready', port: boundPort })
-  }
   __mixdogMemoryLog(`[memory-service] init() complete (entries unified mode, version=${PLUGIN_VERSION})\n`)
+  if (process.env.MIXDOG_WORKER_MODE === '1' && process.send) {
+    safeIpcSend(process, { type: 'ready', port: boundPort })
+  }
   touchDaemonIdleTimer('init')
 }
 
@@ -669,49 +677,11 @@ export async function stop() {
     await closeDatabase(DATA_DIR)
     // Stop the PG postmaster after the connection pools have been drained.
     // closeDatabase() only ends the client pool; without this the child
-    // postmaster keeps running after the memory service exits.
+    // postmaster keeps running after the unified daemon exits.
     if (!memorySecondaryMode()) {
       try {
-        // Conservative check: only skip stopPgForShutdown when the owner
-        // record is unambiguously (a) a memory-runtime-daemon owner record
-        // (kind check — guards against a stale/foreign pid reusing this pid
-        // number for an unrelated process) and (b) that pid is alive AND not
-        // this process. Any read/parse failure or ambiguous state falls back
-        // to stopping PG (previous unconditional behavior) rather than
-        // risking an orphaned PG postmaster.
-        const anotherOwnerAlive = await (async () => {
-          try {
-            const { readSingletonOwner } = await import('../shared/singleton-owner.mjs')
-            const ownerPath = path.join(DATA_DIR, 'memory-runtime-owner.json')
-            const { owner, alive } = readSingletonOwner(ownerPath)
-            if (!alive) return false
-            if (owner?.kind !== 'memory-runtime-daemon') return false
-            const ownerPid = Number(owner?.pid)
-            if (!Number.isInteger(ownerPid) || ownerPid === process.pid) return false
-            // Best-effort process-name check (mirrors supervisor.mjs's
-            // isPostgresPid pattern) — confirms the pid is actually a node
-            // process before trusting it as a live sibling memory owner.
-            // Falls back to true (trust the owner file) when the platform
-            // check is unavailable or inconclusive.
-            try {
-              if (process.platform === 'win32') {
-                const { execFileSync } = await import('node:child_process')
-                const out = execFileSync('tasklist', ['/FI', `PID eq ${ownerPid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true })
-                if (!String(out || '').toLowerCase().includes('node')) return false
-              } else if (process.platform === 'linux') {
-                const comm = fs.readFileSync(`/proc/${ownerPid}/comm`, 'utf8').trim()
-                if (!comm.includes('node')) return false
-              }
-            } catch { /* inconclusive — trust the owner file (already alive+kind-matched) */ }
-            return true
-          } catch { return false }
-        })()
-        if (anotherOwnerAlive) {
-          __mixdogMemoryLog('[memory-service] shutdown: another live memory owner holds memory-runtime-owner.json — leaving PG running\n')
-        } else {
-          const { stopPgForShutdown } = await import('./lib/pg/supervisor.mjs')
-          await stopPgForShutdown()
-        }
+        const { stopPgForShutdown } = await import('./lib/pg/supervisor.mjs')
+        await stopPgForShutdown()
       } catch {}
     } else {
       __mixdogMemoryLog('[memory-service] secondary mode; leaving shared PG running\n')
@@ -778,120 +748,9 @@ function _startHttpServer() {
   return _httpReadyPromise
 }
 
-if (process.env.MIXDOG_WORKER_MODE === '1' && process.send) {
-  // SIGTERM/SIGINT handler for worker mode: call stop() (fsyncs,
-  // removes port file) then exit(0). Prevents taskkill /F from bypassing
-  // graceful shutdown and leaving pgdata in an inconsistent checkpoint state.
-  let _stopInFlight = false
-  let _syncPgStopRequested = false
-  const _workerSignalHandler = (sig) => {
-    if (_stopInFlight) {
-      __mixdogMemoryLog(`[memory-worker] ${sig} — stop already in flight, ignoring\n`)
-      return
-    }
-    _stopInFlight = true
-    _syncPgStopRequested = true
-    __mixdogMemoryLog(`[memory-worker] received ${sig} — calling stop() for clean shutdown\n`)
-    const _exitTimer = setTimeout(() => {
-      __mixdogMemoryLog(`[memory-worker] stop() timed out after 6000ms — forcing exit(2)\n`)
-      process.exit(2)
-    }, 6000)
-    stop().then(() => {
-      clearTimeout(_exitTimer)
-      __mixdogMemoryLog(`[memory-worker] stop() complete — exiting cleanly\n`)
-      process.exit(0)
-    }).catch((e) => {
-      clearTimeout(_exitTimer)
-      __mixdogMemoryLog(`[memory-worker] stop() error on ${sig}: ${e && (e.message || e)}\n`)
-      process.exit(1)
-    })
-  }
-  process.on('SIGTERM', () => _workerSignalHandler('SIGTERM'))
-  process.on('SIGINT',  () => _workerSignalHandler('SIGINT'))
-
-  // Windows-safe last resort: SIGTERM may TerminateProcess before the async
-  // stop() path runs, orphaning PG mid-write. Best-effort sync pg_ctl stop on
-  // exit (no-op after a completed graceful stop). Skip in secondary mode — we
-  // do not own the shared PG there.
-  if (!memorySecondaryMode()) process.on('exit', () => {
-    // Do not stop shared PG on an unexpected Memory crash. The singleton proxy
-    // will respawn a daemon that can attach to the still-healthy cluster. The
-    // sync stop is only a last resort after an explicit shutdown signal began.
-    if (_syncPgStopRequested) {
-      try { stopPgForShutdownSync() } catch {}
-    }
-  })
-
-  // callId → AbortController for in-flight IPC calls (cancel handler uses this).
-  const _inFlightCalls = new Map()
-
-  process.on('message', async (msg) => {
-    // Handle parent-initiated graceful shutdown IPC message.
-    if (msg.type === 'shutdown') {
-      __mixdogMemoryLog('[memory-worker] received IPC shutdown — calling stop()\n')
-      _workerSignalHandler('IPC:shutdown')
-      return
-    }
-    if (msg.type === 'cancel' && msg.callId) {
-      const entry = _inFlightCalls.get(msg.callId)
-      if (entry) {
-        // Mark cancelled so the in-flight call's result/error branch below
-        // does not double-respond after the AbortController fires.
-        entry.cancelled = true
-        entry.ac.abort()
-        _inFlightCalls.delete(msg.callId)
-        sendMemoryWorkerMessage({ type: 'result', callId: msg.callId, error: 'cancelled' })
-      }
-      return
-    }
-    if (msg.type !== 'call' || !msg.callId) return
-    const entry = { ac: new AbortController(), cancelled: false }
-    _inFlightCalls.set(msg.callId, entry)
-    try {
-      let result
-      try {
-        result = await handleToolCall(msg.name, msg.args || {}, entry.ac.signal)
-      } finally {
-        _inFlightCalls.delete(msg.callId)
-      }
-      if (!entry.cancelled) sendMemoryWorkerMessage({ type: 'result', callId: msg.callId, result })
-    } catch (e) {
-      if (!entry.cancelled) sendMemoryWorkerMessage({ type: 'result', callId: msg.callId, error: e.message })
-    }
-  })
-  init().catch(e => {
-    let detail
-    try {
-      const parts = []
-      if (e?.name) parts.push(`name=${e.name}`)
-      if (e?.code) parts.push(`code=${e.code}`)
-      if (e?.errno) parts.push(`errno=${e.errno}`)
-      if (e?.syscall) parts.push(`syscall=${e.syscall}`)
-      if (e?.path) parts.push(`path=${e.path}`)
-      if (e?.message) parts.push(`message=${e.message}`)
-      let stringified = null
-      try { stringified = JSON.stringify(e, Object.getOwnPropertyNames(e || {})) } catch {}
-      if (stringified && stringified !== '{}' && stringified !== '"{}"') parts.push(`json=${stringified}`)
-      if (e?.stack) parts.push(`\nstack=\n${e.stack}`)
-      if (parts.length === 0) parts.push(`raw=${typeof e}:${String(e)}`)
-      detail = parts.join(' | ')
-    } catch (logErr) {
-      detail = `(error formatting failed: ${logErr?.message}) raw=${String(e)}`
-    }
-    __mixdogMemoryLog(`[memory-worker] init failed: ${detail}\n`)
-    // Signal degraded state to parent before exiting so it records the failure
-    // rather than treating this as a normal pre-ready crash.
-    sendMemoryWorkerMessage({ type: 'ready', degraded: true, error: detail.slice(0, 800) })
-    process.exit(1)
-  })
-}
-
-// Standalone MCP launcher path. When this module is the entry script AND no
-// MIXDOG_WORKER_MODE flag is set, we own stdio and bring up the full MCP
-// server with acquireLock + StdioServerTransport. Server-main spawnWorker
-// also forks this file with MIXDOG_WORKER_MODE='1'; that path uses the IPC
-// handler block above and acquireLock/init() as the single memory owner.
-if (IS_MEMORY_ENTRY && process.env.MIXDOG_WORKER_MODE !== '1') {
+// Standalone MCP launcher path. Product mode imports this module into the
+// unified daemon; running the module directly owns stdio for MCP clients.
+if (IS_MEMORY_ENTRY) {
   ;(async () => {
     acquireLock()
     process.on('exit', releaseLock)
@@ -908,10 +767,12 @@ if (IS_MEMORY_ENTRY && process.env.MIXDOG_WORKER_MODE !== '1') {
     process.on('SIGINT', stopFromSignal)
     process.on('SIGTERM', stopFromSignal)
     await init()
-    const transport = new StdioServerTransport()
-    await mcp.connect(transport)
-    await new Promise((resolve) => { mcp.onclose = resolve })
-    await stop()
+    if (!(process.env.MIXDOG_WORKER_MODE === '1' && process.send)) {
+      const transport = new StdioServerTransport()
+      await mcp.connect(transport)
+      await new Promise((resolve) => { mcp.onclose = resolve })
+      await stop()
+    }
   })().catch((err) => {
     __mixdogMemoryLog(`[memory-service] startup failed: ${err.stack || err.message}\n`)
     process.exit(1)

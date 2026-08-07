@@ -23,9 +23,8 @@ import type {
   DesktopUpdaterState,
   DesktopWorkflowState,
   DesktopWorkspaceFolder,
-  EngineSnapshot
+  SessionSnapshot
 } from "../shared/contract";
-import { optimisticSubmittedSessionCatalog } from "../shared/session-catalog";
 import {
   promptTitle,
   sessionSummaryTitle
@@ -47,6 +46,7 @@ import {
 import {
   canSplitPaneSize,
   paneActiveSelection,
+  paneLeavesInColumnOrder,
   paneLeavesInVisualOrder,
   type PaneLeaf,
 } from "./pane-layout";
@@ -133,7 +133,7 @@ import {
 } from "./renderer-load-metrics";
 import type { SourceControlDiffRequest } from "./SourceControlDock";
 import { loadStudioViewModule } from "./studio-loader";
-import { shouldFocusSurfaceInput } from "./surface-input-focus";
+import { shouldFocusComposerFromWindowKey, shouldFocusSurfaceInput } from "./surface-input-focus";
 import { asRecord, displayProject, navigationKey, newDraftSelection, newFolderSelection, newStudioSelection, newTerminalSelection } from "./text-format";
 import { isMarkdownBodyReady, preloadMarkdownBody } from "./TranscriptView";
 import { clampDockWidth, DOCK_STATE_KEY, readDockState, type UtilityDockTab } from "./UtilityDock";
@@ -928,9 +928,8 @@ export function App() {
     if (!requested || !projectCatalogReady) return requested;
     return registeredProjectPath(requested) || preferredDraftProjectPath;
   }, [preferredDraftProjectPath, projectCatalogReady, registeredProjectPath]);
-  // Persisted non-session panes restore synchronously. Persisted session tabs
-  // stay withheld until usePaneWorkspace validates them against the durable
-  // catalog, so an orphan id never mounts a conversation surface.
+  // Persisted panes restore synchronously. Session addresses are reconciled
+  // incrementally after first paint and remain guarded by exact daemon reads.
   const paneWorkspace = usePaneWorkspace();
   const startupFocusedPaneSelection = paneWorkspace.focusedLeaf
     ? paneActiveSelection(paneWorkspace.focusedLeaf)
@@ -1389,6 +1388,26 @@ export function App() {
       .__mixdogStartupSettled),
   );
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
+  useEffect(() => {
+    const focusComposerForTyping = (event: globalThis.KeyboardEvent) => {
+      if (focusedPaneSelection?.kind !== "session" && focusedPaneSelection?.kind !== "new") return;
+      if (!shouldFocusComposerFromWindowKey(event)) return;
+      const pane = document.querySelector<HTMLElement>(
+        `[data-pane-id="${paneWorkspace.focusedLeafId}"]`,
+      );
+      const composer = pane?.querySelector<HTMLTextAreaElement>(
+        'textarea[aria-label="Message Mixdog"]',
+      );
+      if (!composer || composer.closest("[inert]")) return;
+      // Focus during keydown capture, before Chromium commits the printable
+      // character or starts IME composition. This gives the desktop shell the
+      // same type-anywhere grammar as Codex/OpenCode while real editors,
+      // terminals, menus, dialogs, and form fields keep their own keyboard.
+      composer.focus({ preventScroll: true });
+    };
+    window.addEventListener("keydown", focusComposerForTyping, true);
+    return () => window.removeEventListener("keydown", focusComposerForTyping, true);
+  }, [focusedPaneSelection?.kind, paneWorkspace.focusedLeafId]);
   // Studio's module chunk is heavy; entering a Studio tab cold paid the whole
   // import at click time (user: 스튜디오 로딩이 너무 오래 걸린다). Prefetch it
   // once the shell has settled and the main thread is idle.
@@ -1474,23 +1493,11 @@ export function App() {
     void loadSettingsViewModule().catch(() => {});
   }, []);
   useEffect(() => {
-    // The Settings chunk warms in the first idle slot; the capability
-    // snapshot follows in a later, quieter one (user: 설정 첫 진입이 빈
-    // 화면+스피너 — 카테고리가 캐시에서 바로 떠야 한다). The dialog still
-    // re-sweeps a stale cache on open, so the prewarm only removes the cold
-    // spinner and never serves minutes-old values as final.
-    const cancelChunk = schedulePostInteractionIdle(warmSettingsView);
-    const cancelData = schedulePostInteractionIdle(() => {
-      const api = window.mixdogDesktop;
-      if (!api) return;
-      void loadSettingsViewModule()
-        .then((module) => module.preloadSettings(api))
-        .catch(() => {});
-    }, 5_000, 1_500, 5_000);
-    return () => {
-      cancelChunk();
-      cancelData();
-    };
+    // Warm code only. Hydrating every settings capability in the background
+    // collided with the first real typing/session interactions (measured
+    // 123ms composer paint and multi-second capability queues). Settings owns
+    // data hydration when the user opens it.
+    return schedulePostInteractionIdle(warmSettingsView);
   }, [warmSettingsView]);
   useEffect(() => {
     const host = window.mixdogDesktop;
@@ -1788,13 +1795,14 @@ export function App() {
   const { unreadSessionIds, reconcileUnreadSessions, consumeUnread } = useUnreadSessions({
     viewedSessionRef: unreadViewedSessionRef,
   });
-  // Sidebar catalog state, optimistic rename/delete overlay, push + poll
+  // Sidebar catalog state, optimistic rename/archive/delete overlay, push + poll
   // freshness: app-session-catalog.ts.
   const {
     sessions,
     setSessions,
     refreshSessions,
     pendingRenames: pendingSessionRenames,
+    pendingArchives: pendingSessionArchives,
     pendingDeletes: pendingSessionDeletes,
     invalidateInFlight: invalidateSessionListings,
   } = useSessionCatalog(reconcileUnreadSessions);
@@ -1862,7 +1870,14 @@ export function App() {
       markBootStage("startup-settled");
       window.dispatchEvent(new Event("mixdog:startup-settled"));
     };
-    if (restoredStartupNavigation.current || paneWorkspace.restorePending) return;
+    if (restoredStartupNavigation.current) return;
+    if (paneWorkspace.restorePending) {
+      // The persisted geometry and provisional surfaces are already mounted.
+      // Reveal them now; the completed reconciliation will synchronize the
+      // final focused route without keeping the whole workbench covered.
+      window.requestAnimationFrame(settleStartup);
+      return;
+    }
     // All active persisted pane tabs already mounted and hydrate independently.
     // Synchronize only the focused interaction route; never reopen every
     // session or wait for the sidebar catalog to validate pane identities.
@@ -1886,7 +1901,7 @@ export function App() {
       window.requestAnimationFrame(settleStartup);
       return;
     }
-    if (!sessionCatalogReady || !projectCatalogReady || snapshot === EMPTY_SNAPSHOT) return;
+    if (!projectCatalogReady || snapshot === EMPTY_SNAPSHOT) return;
     restoredStartupNavigation.current = true;
     // The persisted LAST VIEWED selection outranks the engine's current
     // session. The engine-first order made every renderer reload (crash
@@ -1945,7 +1960,6 @@ export function App() {
     preferredDraftProjectPath,
     projectCatalogReady,
     resetNewTaskDraft,
-    sessionCatalogReady,
     sessions,
     snapshot,
     paneWorkspace.restoredFromStorage,
@@ -2112,17 +2126,30 @@ export function App() {
   // Archive: hide from Recent without touching the on-disk file.
   // Optimistic flip moves the row immediately; the sessions push reconciles.
   const archiveSession = useCallback(async (sessionId: string, archived: boolean) => {
+    const previousSession = sessions.find((session) => session.id === sessionId);
+    if (!previousSession || previousSession.archived === archived) return;
+    const pending = { archived };
+    pendingSessionArchives.current.set(sessionId, pending);
+    invalidateSessionListings();
+    setSessions((current) => current.map((session) => session.id === sessionId
+      ? { ...session, archived }
+      : session));
     setError("");
     try {
       await window.mixdogDesktop.setSessionArchived?.(sessionId, archived);
     } catch (reason) {
+      if (pendingSessionArchives.current.get(sessionId) !== pending) return;
+      pendingSessionArchives.current.delete(sessionId);
+      invalidateSessionListings();
+      setSessions((current) => current.map((session) =>
+        session.id === sessionId && session.archived === archived ? previousSession : session));
       setError(reason instanceof Error ? reason.message : String(reason));
       throw reason;
     }
-    setSessions((current) => current.map((session) => session.id === sessionId
-      ? { ...session, archived }
-      : session));
-  }, [setError]);
+    if (pendingSessionArchives.current.get(sessionId) === pending) {
+      pendingSessionArchives.current.delete(sessionId);
+    }
+  }, [invalidateSessionListings, pendingSessionArchives, sessions, setError, setSessions]);
   const deleteSession = useCallback(async (sessionId: string) => {
     const previousSession = sessions.find((session) => session.id === sessionId);
     if (!previousSession || pendingSessionDeletes.current.has(sessionId)) return;
@@ -2131,7 +2158,7 @@ export function App() {
       || String(snapshot.sessionId || "") === sessionId;
     pendingSessionDeletes.current.add(sessionId);
     setError("");
-    let next: EngineSnapshot;
+    let next: SessionSnapshot;
     try {
       next = await window.mixdogDesktop.deleteSession(sessionId);
     } catch (reason) {
@@ -2406,7 +2433,7 @@ export function App() {
             // it a second time seconds later.
             applySessionResult(selected);
             if (String(snapshotRef.current.sessionId || "") !== effectiveSessionId) {
-              applySnapshot(selected as EngineSnapshot);
+              applySnapshot(selected as SessionSnapshot);
             }
             setResumeAuthoritativeSessionId(effectiveSessionId);
           }
@@ -2597,9 +2624,9 @@ export function App() {
           const resultRecord = asRecord(result.snapshot);
           const resultSessionId = String(resultRecord?.sessionId || "");
           if (!resultRecord || resultSessionId !== startedSessionId) {
-            throw new Error("New task backend returned a mismatched session snapshot.");
+            throw new Error("New task session returned a mismatched session snapshot.");
           }
-          // The backend projection is authoritative. The optimistic input row
+          // The session projection is authoritative. The optimistic input row
           // remains a renderer concern until the durable user item arrives.
           applyFocusedSnapshotToSessionLane(resultRecord as Snapshot, defaultSessionLaneStore, {
             source: "renderer-result",
@@ -2633,20 +2660,6 @@ export function App() {
         const activeSessionId = startedSessionId;
         if (activeSessionId) {
           const title = promptTitle(content, options?.displayText || "") || "New task";
-          const submittedAt = Date.now();
-          setSessions((current) => optimisticSubmittedSessionCatalog(current, {
-            id: activeSessionId,
-            preview: title === "New task" ? "" : title,
-            title,
-            updatedAt: submittedAt,
-            activityAt: submittedAt,
-            messageCount: 1,
-            cwd: submittedProjectPath,
-            classification: submittedProjectPath ? "project" : "task",
-            projectPath: submittedProjectPath || null,
-            currentSession: true,
-            working: true,
-          }));
           const sessionSelection = { kind: "session", id: activeSessionId } as const;
           if (draftStillSelected()) {
             navigationEpoch.current += 1;
@@ -3623,12 +3636,15 @@ export function App() {
     bottomPanel.setTab("terminal");
     focusPanelTerminal();
   };
-  // Reading-order pane focus cycle, shared verbatim by Alt+Left/Right and
-  // the window bar's persistent ◀ ▶ buttons (user: 코덱스처럼 좌우버튼
-  // 상시). At narrow widths the carousel derives its visible pane from the
-  // same focus, so one path drives both presentations.
-  const focusSiblingPane = (offset: number) => {
-    const leaves = paneLeavesInVisualOrder(paneWorkspace.layout);
+  // Axis-aware pane focus cycle. Left/right keeps visual row-major order;
+  // up/down walks each vertical lane before wrapping into the next one.
+  const focusSiblingPane = (
+    offset: number,
+    axis: "horizontal" | "vertical",
+  ) => {
+    const leaves = axis === "vertical"
+      ? paneLeavesInColumnOrder(paneWorkspace.layout)
+      : paneLeavesInVisualOrder(paneWorkspace.layout);
     if (leaves.length < 2) return;
     const index = leaves.findIndex((leaf) => leaf.id === paneWorkspace.focusedLeafId);
     const next = leaves[(index + offset + leaves.length) % leaves.length];
@@ -3647,7 +3663,7 @@ export function App() {
     // from the requested row even though the outgoing pane remains mounted.
     activeTabKey: focusedActiveTabKey,
     navigateTab: navigateFocusedPaneTab,
-    // Alt+Left/Right: reading-order pane focus cycle across every group.
+    // Alt+arrows: axis-specific pane focus cycles across every group.
     focusSiblingPane,
     startTask,
     openSettings,
@@ -4735,11 +4751,9 @@ export function App() {
     ? bottomPanel.tab
     : "problems";
   const desktopBootReady = snapshotHydrated
-    && sessionCatalogReady
     && projectCatalogReady
     && onboardingReady
     && updaterStateReady
-    && !paneWorkspace.restorePending
     && startupSettled;
   // PANE tabs are part of the visible workspace: a session tab that is
   // already open must not cold-load on its first click (user: PANE에 이미

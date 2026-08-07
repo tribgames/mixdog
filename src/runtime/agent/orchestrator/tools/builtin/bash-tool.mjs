@@ -506,38 +506,24 @@ export async function executeBashTool(args, workDir, options = {}) {
         { backgroundTasksDisabled: _bgTasksDisabled },
     );
     if (longForegroundHint) return formatShellToolFailure(longForegroundHint);
-    // Auto-background threshold. Reference-CLI parity: sync commands run to
-    // their timeout without any default auto-promotion, so the default is 0
-    // (disabled) for ALL callers. It is an explicit opt-in only: set
-    // MIXDOG_SHELL_AUTO_BACKGROUND_MS (positive ms) to re-enable detaching a
-    // still-running foreground one-shot into a tracked shell-job. When enabled,
-    // the value stays a soft hint clamped below `timeout` so the hard ceiling
-    // remains a separate, later bound. Never applies to run_in_background
-    // (already detached) or persistent sessions (handled far above).
-    // Promotion threshold (Codex `yield_time_ms` / CC startBackgrounding
-    // analogue). Previously 0 = OFF, so every long command held the turn open
-    // to the full foreground timeout and, at the cap, produced a wasted wait.
-    // 30 s keeps ordinary builds/tests inline (measured shell p90 ~ 18 s) while
-    // detaching the long tail (measured: 111 calls/day above 30 s, 30 of them
-    // burning the entire 120 s cap) as a tracked job with partial output.
+    // Main-agent blocking budget. A timeout is the command's total deadline,
+    // not permission to hold the conversation open for that whole duration:
+    // after 15 s a still-running command becomes a tracked background task and
+    // completion is pushed to the owner. Explicit timeouts keep their remaining
+    // deadline after promotion. Never applies to run_in_background (already
+    // detached), persistent sessions, or commands barred from backgrounding.
     // MIXDOG_SHELL_AUTO_BACKGROUND_MS overrides; an explicit 0 disables.
     const _autoBgEnvRaw = process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
     const _autoBgEnvMs = Number(_autoBgEnvRaw);
     const DEFAULT_AUTO_BACKGROUND_MS = (_autoBgEnvRaw != null && String(_autoBgEnvRaw).trim() !== ''
       && Number.isFinite(_autoBgEnvMs) && _autoBgEnvMs >= 0)
       ? Math.floor(_autoBgEnvMs)
-      : 30_000;
+      : 15_000;
     // Gate on backgroundOnTimeout rather than just `runInBackground`: it already
     // encodes "promotion is available for this command" (not detached, background
     // tasks enabled, command shape allows it), so the soft threshold can never
     // promote something the hard timeout would refuse to.
-    // An EXPLICIT caller timeout is a deliberate "I intend to wait this long"
-    // (a long build/test/install), so the soft threshold never overrides it —
-    // the call stays inline until its own deadline, where backgroundOnTimeout
-    // still promotes instead of killing. Auto-promotion therefore only applies
-    // to the OMITTED-timeout default, which is exactly the case where nobody
-    // declared how long the command should be allowed to hold the turn.
-    const autoBackgroundMs = (!backgroundOnTimeout || hasExplicitTimeout || DEFAULT_AUTO_BACKGROUND_MS <= 0)
+    const autoBackgroundMs = (!backgroundOnTimeout || DEFAULT_AUTO_BACKGROUND_MS <= 0)
       ? 0
       : Math.min(DEFAULT_AUTO_BACKGROUND_MS, timeout);
 
@@ -712,6 +698,10 @@ export async function executeBashTool(args, workDir, options = {}) {
             // tracked background job (unlimited) instead of killing it.
             backgroundOnTimeout,
             promotedTimeoutMs,
+            // Soft/interrupt promotion happens before the foreground cap.
+            // Preserve an explicit total deadline by passing it separately;
+            // omitted-timeout promotions retain the existing unlimited job.
+            backgroundDeadlineMs: hasExplicitTimeout ? totalTimeout : 0,
             // Threaded so an auto-backgrounded foreground job is stamped with
             // the dispatching terminal's claude.exe pid (per-terminal scope).
             clientHostPid: options?.clientHostPid,

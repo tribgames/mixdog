@@ -2,7 +2,7 @@
 // an Electron powerSaveBlocker so the OS never suspends mid-turn; release it
 // the moment the work stops. `prevent-app-suspension` keeps the machine and
 // network alive while still letting the display sleep.
-import type { EngineSnapshot } from '../shared/contract';
+import type { SessionSnapshot } from '../shared/contract';
 
 // A crashed engine can freeze the last snapshot on "working". Never hold the
 // machine awake on a signal older than this window (matches orca's staleness).
@@ -14,7 +14,7 @@ export interface PowerSaveBlockerLike {
   isStarted(id: number): boolean;
 }
 
-export function snapshotHasActiveWork(snapshot: EngineSnapshot): boolean {
+export function snapshotHasActiveWork(snapshot: SessionSnapshot): boolean {
   if (!snapshot || typeof snapshot !== 'object') return false;
   const state = snapshot as Record<string, unknown>;
   // Mirrors the renderer's hasActiveSnapshotWork, plus background shell jobs:
@@ -55,7 +55,7 @@ export class AgentAwakeService {
     this.refresh();
   }
 
-  onSnapshot(snapshot: EngineSnapshot): void {
+  onSnapshot(snapshot: SessionSnapshot): void {
     this.working = snapshotHasActiveWork(snapshot);
     if (this.working) this.lastWorkSignalAt = this.now();
     this.refresh();

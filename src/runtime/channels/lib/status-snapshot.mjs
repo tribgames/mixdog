@@ -9,7 +9,7 @@
  *
  * Usage (from channels/index.mjs):
  *   import { startSnapshotWriter } from './lib/status-snapshot.mjs';
- *   startSnapshotWriter(scheduler, backend, webhookServer);
+ *   startSnapshotWriter(scheduler, provider, webhookServer);
  */
 
 import * as fs from 'fs';
@@ -38,8 +38,8 @@ const _discordUnread = new Map();
 const DISCORD_UNREAD_MAX_CHANNELS = 500;
 
 /**
- * Called whenever the backend observes messages for a channelId.
- * `messages` is the array returned by backend.fetchMessages().
+ * Called whenever the provider observes messages for a channelId.
+ * `messages` is the array returned by provider.fetchMessages().
  * We record the most-recently-seen message id and count messages
  * received since the last call as "unread since last fetch".
  * Pass { markRead: true } for live gateway messages that were already

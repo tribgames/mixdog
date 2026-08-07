@@ -45,7 +45,7 @@
   .mixdog-settings__switch { position: relative; display: inline-flex; flex: 0 0 auto; }
   .mixdog-settings__switch input { position: absolute; opacity: 0; pointer-events: none; }
   .mixdog-settings__switch span::after { display: block; content: ""; }
-  .settings-notice, .mixdog-settings__error, .settings-empty, .settings-loading { margin: 0; }
+  .mixdog-settings__error, .settings-empty, .settings-loading { margin: 0; }
   .capability-settings-content,
   .command-surface-content,
   .onboarding-ready-content { min-width: 0; }

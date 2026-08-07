@@ -1,7 +1,7 @@
 // Taskbar attention (orca-inspired): when the active turn finishes while the
 // window is unfocused, flash the taskbar button (Windows/Linux urgency hint)
 // or bounce the dock (macOS). Focusing the window clears the signal.
-import type { EngineSnapshot } from '../shared/contract';
+import type { SessionSnapshot } from '../shared/contract';
 
 export interface TurnAttentionHooks {
   isFocused(): boolean;
@@ -10,11 +10,11 @@ export interface TurnAttentionHooks {
 }
 
 export interface TurnAttention {
-  onSnapshot(snapshot: EngineSnapshot): void;
+  onSnapshot(snapshot: SessionSnapshot): void;
   onFocus(): void;
 }
 
-export function turnInProgress(snapshot: EngineSnapshot): boolean {
+export function turnInProgress(snapshot: SessionSnapshot): boolean {
   if (!snapshot || typeof snapshot !== 'object') return false;
   const state = snapshot as { busy?: unknown; commandBusy?: unknown };
   return Boolean(state.busy || state.commandBusy);

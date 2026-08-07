@@ -144,18 +144,21 @@ test('shared tool policy routes facets without duplicate content acquisition', (
     /explicit project change→`cwd`/i,
     /explicit user-requested conversation reset→\s*`session_manage`/i,
   ]) assert.match(policy, route, `routing table lost ${route}`);
-  // 2. `shell` ranks below the retrieval tools and never replaces them.
+  // 2. `shell` is conditional, ranks below retrieval tools, and never replaces them.
   assert.match(policy, /→`shell`/i);
+  assert.match(policy, /Call `shell` only when the task actually requires one of those operations[\s\S]*do not treat it as a routine investigation or completion step/i);
   assert.match(policy, /Never use shell equivalents for file discovery or content retrieval/i);
-  // 3. Retrieve once, then emit final edit + verification in one mixed batch.
-  assert.match(policy, /one message/i);
-  assert.match(policy, /one `shell` chain for verification/i);
-  assert.match(policy, /Once every final edit is fully determined[\s\S]*one assistant tool batch[\s\S]*one `apply_patch`[\s\S]*one `shell` chain/i);
-  assert.match(policy, /runtime supports this mixed batch/i);
-  assert.doesNotMatch(policy, /wait for the patch result|next assistant tool turn|post_shell/i);
-  assert.match(policy, /fetch all information needed in that batch/i);
-  assert.match(policy, /zero\/error or a newly revealed dependency/i);
+  assert.match(policy, /explicit paths may be outside cwd/i);
+  // 3. Maximize routed retrieval fan-out, then conditionally verify after editing.
+  assert.match(policy, /Maximize fan-out across routed retrieval tools/i);
+  assert.match(policy, /Once the edit is determined[\s\S]*one assistant turn[\s\S]*one `apply_patch` for all edits[\s\S]*If final verification actually requires `shell`[\s\S]*one verification chain after the edit[\s\S]*otherwise finish without it/i);
+  assert.doesNotMatch(policy, /one `apply_patch` for all edits and one `shell` chain|Prefer parallel calls when independent|risk-proportionate|rerun only failures|zero\/error or a newly revealed dependency|cross-scope verification/i);
+  assert.match(policy, /fetch all information needed in one batch/i);
   assert.match(policy, /never re-fetch an unchanged span/i);
+  const leadToolPolicy = readFileSync(new URL('../src/rules/lead/lead-tool.md', import.meta.url), 'utf8');
+  const leadGeneralPolicy = readFileSync(new URL('../src/rules/lead/01-general.md', import.meta.url), 'utf8');
+  assert.doesNotMatch(leadToolPolicy, /cross-scope verification/i);
+  assert.doesNotMatch(leadGeneralPolicy, /Act proactively|exhaust safe in-scope checks/i);
   const patchTool = PATCH_TOOL_DEFS[0] || {};
   assert.doesNotMatch(`${patchTool.description || ''}\n${patchTool.freeformDescription || ''}`, /do not call.*parallel|must not.*parallel/i);
 });
@@ -214,6 +217,7 @@ test('code graph and eager-dispatch boundaries preserve runtime shape', () => {
   };
   assertBatchShape(schema.files);
   assertBatchShape(schema.symbols);
+  assert.match(schema.cwd?.description || '', /explicit root/i);
   assert.equal(schema.file, undefined);
   assert.equal(schema.symbol, undefined);
   assert.equal(schema.language, undefined);

@@ -65,23 +65,6 @@ measured cache writes; the archived OpenAI runs did not retain
 artifacts, the exact run commands, and the metric scripts that recompute
 every number above live under `benchmarks/terminal-bench-2.1/`.
 
-## Boot overhead — measured, not estimated
-
-Fixed cost of the default system prompt + tool schemas, measured with a
-minimal one-turn ping ("hi"). Every number below is what the provider's own
-usage accounting reported for the first API call — same tokenizer on both
-sides of each row, no offline estimates (2026-08).
-
-| Tokenizer | Baseline harness | First-call prompt | mixdog Lead | mixdog worker agent |
-|-----------|------------------|------------------:|------------:|--------------------:|
-| Anthropic — pristine containers, TB2.1 harness | Claude Code 2.1.220 | 19,149 tok (median, n=89) | **7,295 (−62%)** | 4,856 (−75%) |
-| OpenAI — same host, same model (`gpt-5.6-sol`) | Codex CLI 0.145.0 | 17,706 tok | **7,488 (−58%)** | 4,616 (−74%) |
-
-The Lead surface carries the full default rule set, skills manifest, and
-per-user profile; spawning a sub-agent costs a flat ~4.6–4.9k tokens. Low
-boot overhead compounds: it is re-read on every request, so it is the
-baseline of every cache write, compaction, and long-session turn.
-
 ## Why mixdog
 
 **Maximum performance at minimum cost**

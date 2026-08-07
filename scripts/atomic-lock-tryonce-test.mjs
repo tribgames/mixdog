@@ -26,7 +26,7 @@ function tmpLock() {
   return { dir, lockPath: join(dir, 't.lock') };
 }
 
-// One process now hosts every session (engine daemon) plus its channels and
+// One unified daemon now hosts every session plus its channels and
 // config writers, so same-process contention is the COMMON case. The OS lock
 // cannot express "already mine": contenders spun to ELOCKTIMEOUT and a nested
 // call waited for itself forever. These pin the in-process queue instead.

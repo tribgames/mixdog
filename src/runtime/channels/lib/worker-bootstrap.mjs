@@ -78,7 +78,7 @@ if (!isWorkerMode) {
   // Publish owner identity immediately so the SessionStart shim's
   // owner_lead_alive() sees a live owner and uses the full connect budget
   // instead of the 5s no-owner grace (fixes missing recap/core on restart).
-  // backendReady intentionally omitted — readiness stays gated until connect.
+  // providerReady intentionally omitted — readiness stays gated until connect.
   try {
     refreshActiveInstance(instanceId);
   } catch (e) {

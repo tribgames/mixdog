@@ -42,13 +42,13 @@ app.commandLine.appendSwitch('use-fake-device-for-media-stream');
 app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
 
 import { captureTitle, destroyCaptureWindow, imageReader, measureShellTopEdge, readDesktopAssertions, readLightThemeAssertions, readMobileClosedAssertions, readMobileOpenAssertions, readModalStackAssertions, readPhoneSettingsAssertions, readSettingsPlacement, schemaVersion, targetSize, validateAndDestroyRenderer, waitForRenderer, withCaptureTimeout, type LiveCaptureAssertions } from "./capture-assertions";
-import { CaptureBackend } from "./capture-host";
+import { CaptureService } from "./capture-host";
 
 async function captureWindow(): Promise<void> {
   if (!requestedOutputPath) throw new Error('Capture output path is required and must end in .png.');
   if (!captureId) throw new Error('Capture ID is required.');
   await app.whenReady();
-  const host = new CaptureBackend({
+  const host = new CaptureService({
     getUserDataPath: () => app.getPath('userData'),
     packaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
@@ -711,7 +711,7 @@ async function captureWindow(): Promise<void> {
       captureEnvironment: {
         rendererAssets: 'built',
         packaged: app.isPackaged,
-        host: 'CaptureBackend',
+        host: 'CaptureService',
         sessionMode: 'empty-session',
       },
       captureMethod,

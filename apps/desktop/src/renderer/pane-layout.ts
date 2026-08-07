@@ -543,10 +543,11 @@ export function paneLeafRelativeRect(
   return walk(root, { left: 0, top: 0, width: 1, height: 1 });
 }
 
-/** Visual row-major order: traverse panes left-to-right within the topmost
- *  lane before continuing downward. The binary tree's DFS order becomes
- *  column-major when each side of a row split is split vertically. */
-export function paneLeavesInVisualOrder(root: PaneNode): PaneLeaf[] {
+function paneLeavesInCoordinateOrder(
+  root: PaneNode,
+  primary: "left" | "top",
+  secondary: "left" | "top",
+): PaneLeaf[] {
   const leaves = paneLeaves(root);
   const fallbackOrder = new Map(leaves.map((leaf, index) => [leaf.id, index]));
   const rects = new Map(leaves.map((leaf) => [leaf.id, paneLeafRelativeRect(root, leaf.id)]));
@@ -556,12 +557,25 @@ export function paneLeavesInVisualOrder(root: PaneNode): PaneLeaf[] {
     if (!leftRect || !rightRect) {
       return (fallbackOrder.get(left.id) ?? 0) - (fallbackOrder.get(right.id) ?? 0);
     }
-    const vertical = leftRect.top - rightRect.top;
-    if (Math.abs(vertical) > Number.EPSILON) return vertical;
-    const horizontal = leftRect.left - rightRect.left;
-    if (Math.abs(horizontal) > Number.EPSILON) return horizontal;
+    const primaryDelta = leftRect[primary] - rightRect[primary];
+    if (Math.abs(primaryDelta) > Number.EPSILON) return primaryDelta;
+    const secondaryDelta = leftRect[secondary] - rightRect[secondary];
+    if (Math.abs(secondaryDelta) > Number.EPSILON) return secondaryDelta;
     return (fallbackOrder.get(left.id) ?? 0) - (fallbackOrder.get(right.id) ?? 0);
   });
+}
+
+/** Visual row-major order: traverse panes left-to-right within the topmost
+ *  lane before continuing downward. The binary tree's DFS order becomes
+ *  column-major when each side of a row split is split vertically. */
+export function paneLeavesInVisualOrder(root: PaneNode): PaneLeaf[] {
+  return paneLeavesInCoordinateOrder(root, "top", "left");
+}
+
+/** Visual column-major order: traverse each vertical lane from top to bottom,
+ *  then continue in the next lane to the right. */
+export function paneLeavesInColumnOrder(root: PaneNode): PaneLeaf[] {
+  return paneLeavesInCoordinateOrder(root, "left", "top");
 }
 
 function replacePaneNodeAtPath(root: PaneNode, path: string, replacement: PaneNode): PaneNode {
@@ -689,9 +703,12 @@ export function movePaneTabToRootEdge(
  *  root — '' for the root split, then 'first'/'second' segments joined with
  *  dots (orca-style), which stays stable while the user drags one handle. */
 export function setPaneSplitRatio(root: PaneNode, path: string, ratio: number): PaneNode {
+  const target = paneNodeAtPath(root, path);
+  if (!target || target.type !== "split") return root;
+  const nextRatio = clampPaneRatio(ratio);
   const walk = (node: PaneNode, segments: string[]): PaneNode => {
     if (node.type !== "split") return node;
-    if (segments.length === 0) return { ...node, ratio: clampPaneRatio(ratio) };
+    if (segments.length === 0) return { ...node, ratio: nextRatio };
     const [head, ...rest] = segments;
     if (head === "first") {
       const first = walk(node.first, rest);
@@ -703,7 +720,39 @@ export function setPaneSplitRatio(root: PaneNode, path: string, ratio: number): 
     }
     return node;
   };
-  return walk(root, path ? path.split(".") : []);
+  const segments = path ? path.split(".") : [];
+  let next = walk(root, segments);
+  if (segments.length === 0) return next;
+
+  // A visual grid is represented as independent binary stacks (for example,
+  // root row → left column + right column). Sashes that were already aligned
+  // must remain one continuous grid line when either side is dragged. Only
+  // matching ratios are linked, so intentionally staggered/T-junction layouts
+  // keep their independent geometry.
+  const referenceRatio = clampPaneRatio(target.ratio);
+  const alignParallel = (node: PaneNode): PaneNode => {
+    if (node.type === "leaf") return node;
+    if (node.direction === target.direction) {
+      if (Math.abs(clampPaneRatio(node.ratio) - referenceRatio) > 1e-6) return node;
+      return node.ratio === nextRatio ? node : { ...node, ratio: nextRatio };
+    }
+    const first = alignParallel(node.first);
+    const second = alignParallel(node.second);
+    return first === node.first && second === node.second
+      ? node
+      : { ...node, first, second };
+  };
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const parentPath = segments.slice(0, index).join(".");
+    const parent = paneNodeAtPath(root, parentPath);
+    if (!parent || parent.type !== "split" || parent.direction === target.direction) break;
+    const siblingSegment = segments[index] === "first" ? "second" : "first";
+    const sibling = alignParallel(parent[siblingSegment]);
+    if (sibling === parent[siblingSegment]) continue;
+    const siblingPath = parentPath ? `${parentPath}.${siblingSegment}` : siblingSegment;
+    next = replacePaneNodeAtPath(next, siblingPath, sibling);
+  }
+  return next;
 }
 
 /** Even distribution (VS Code arrange): after a structural change every

@@ -107,7 +107,7 @@ export function startAutoUpdater(
     controller = createUpdaterController({
       enabled: true,
       currentVersion: app.getVersion(),
-      backend: autoUpdater,
+      service: autoUpdater,
       persistence: readyPersistence(join(app.getPath('userData'), 'updater-ready.json')),
       stop,
       log(message, data) {

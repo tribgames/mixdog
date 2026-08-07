@@ -3,7 +3,7 @@
 // App.tsx so the component consumes one hook instead of the wiring.
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { EngineSnapshot } from "../shared/contract";
+import type { SessionSnapshot } from "../shared/contract";
 import { type Snapshot, EMPTY_SNAPSHOT } from "./desktop-types";
 import {
   createDesktopSnapshotStore,
@@ -41,7 +41,7 @@ export function useDesktopState() {
   // gate can tell a user-driven session move from a background publication.
   const lastRendererApplyAt = useRef(0);
   const applyReceivedSnapshot = useCallback((
-    next: EngineSnapshot | null,
+    next: SessionSnapshot | null,
     immediate = false,
   ) => {
     const decorated = transcriptDecorator.current!.decorate(next);
@@ -62,7 +62,7 @@ export function useDesktopState() {
     }
     scheduleLayoutFrame(snapshotStore, () => snapshotStore.publish(snapshotRef.current));
   }, [snapshotStore]);
-  const applySnapshot = useCallback((next: EngineSnapshot | null) => {
+  const applySnapshot = useCallback((next: SessionSnapshot | null) => {
     lastRendererApplyAt.current = Date.now();
     applyReceivedSnapshot(next, true);
   }, [applyReceivedSnapshot]);
@@ -72,9 +72,9 @@ export function useDesktopState() {
    *  still receive the renderer's authoritative answer — otherwise a
    *  legitimate older-branch, cleared or rewritten transcript would only ever
    *  reach the cache as a host push and be reconciled against stale rows. */
-  const applySessionResult = useCallback((next: EngineSnapshot | Snapshot | null) => {
+  const applySessionResult = useCallback((next: SessionSnapshot | Snapshot | null) => {
     lastRendererApplyAt.current = Date.now();
-    const decorated = transcriptDecorator.current!.decorate(next as EngineSnapshot);
+    const decorated = transcriptDecorator.current!.decorate(next as SessionSnapshot);
     // Native session lanes still need this renderer-result boundary. The
     // focused state publication can resolve before the target pane's lane
     // replay, and exposing the cached pane first makes its Markdown/script DOM
@@ -92,7 +92,7 @@ export function useDesktopState() {
       return;
     }
     let live = true;
-    const update = (next: EngineSnapshot | null) => {
+    const update = (next: SessionSnapshot | null) => {
       if (live) {
         applyReceivedSnapshot(next);
         setHydrated(true);

@@ -351,7 +351,7 @@ function renderNativeStatusline({
   ], agentJobs);
   const { runningWorkers } = classifyAgentWorkers(agentPayload.workers);
   // Shell segment scope: one host process can own MANY sessions' jobs (the
-  // desktop pools every pane's engine; the daemon backend hosts every
+  // desktop pools every pane's engine; the daemon hosts every
   // terminal's session), so the owner-wide aggregate would show one
   // terminal's running shell on every other terminal. Render this session's
   // own jobs whenever we know which session we are; only a session-less

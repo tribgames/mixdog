@@ -121,7 +121,11 @@ export function _queueSessionSummaryUpsert(session, version = null) {
  */
 export function _queueSessionSummaryUpsertRow(row, version = null) {
     if (!row) return;
-    _setCachedBaseSummary(row);
+    const fileProbe = probePath(join(getStoreDir(), `${row.id}.json`));
+    const durableRow = fileProbe.state === PROBE_PRESENT
+        ? { ...row, storageMtimeMs: fileProbe.mtimeMs, storageSize: fileProbe.size }
+        : row;
+    _setCachedBaseSummary(durableRow);
     if (version === null || (_summaryCacheVersions.get(row.id) || 0) === version) {
         _summaryCacheUpserts.delete(row.id);
         if (_summaryCacheLatestRows.get(row.id)?.version === version) {
@@ -130,7 +134,7 @@ export function _queueSessionSummaryUpsertRow(row, version = null) {
         _summaryCacheRemovals.delete(row.id);
         _invalidateSummaryRowsView();
     }
-    _upsertSessionSummaryRow(row);
+    _upsertSessionSummaryRow(durableRow);
 }
 
 export function _queueSessionSummaryRemoval(id) {
@@ -220,7 +224,10 @@ export function _scanStoredSessionSummaryRows() {
             else markInvalid(f);
             continue;
         }
-        const row = session ? _sessionSummary(session) : null;
+        const summary = session ? _sessionSummary(session) : null;
+        const row = summary
+            ? { ...summary, storageMtimeMs: fileProbe.mtimeMs, storageSize: fileProbe.size }
+            : null;
         _summaryScanCache.set(f, { mtimeMs: fileProbe.mtimeMs, size: fileProbe.size, row });
         changed = true;
         if (row) rows.push(row);

@@ -9,7 +9,7 @@ import { _resolvePwshPoolTarget } from '../src/runtime/agent/orchestrator/tools/
 import { _rgThreadCap } from '../src/runtime/agent/orchestrator/tools/builtin/rg-runner.mjs';
 
 test('daemon pwsh pool scales with CPU and free memory while explicit policy wins', () => {
-  const daemonEnv = { MIXDOG_ENGINE_DAEMON_HOST: '1' };
+  const daemonEnv = { MIXDOG_DAEMON_HOST: '1' };
   const liveCpuTarget = Math.max(1, Math.min(4, availableParallelism() - 1 || 1));
   const liveFree = freemem();
   const liveExpected = liveFree < 768 * 1024 ** 2

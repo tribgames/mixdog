@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'fs';
+import { readFile, stat } from 'fs/promises';
 import { extname } from 'path';
 import {
   API_IMAGE_MAX_BASE64_SIZE,
@@ -36,14 +36,14 @@ export function imageMimeForPath(p) {
 // sharp absent / resize failed: GRACEFUL fallback to the legacy
 // pass-through-with-cap behaviour (refuse over-cap originals with an isError
 // text result, else emit the raw base64 image block). No throw on missing sharp.
-export async function readImageAsContent(fullPath, displayPath) {
+export async function readImageAsContent(fullPath, displayPath, preflightStat = null) {
   const mimeType = imageMimeForPath(fullPath);
   if (!mimeType) return null;
   let st;
-  try { st = statSync(fullPath); } catch { return null; }
+  try { st = preflightStat || await stat(fullPath); } catch { return null; }
 
   let buf;
-  try { buf = readFileSync(fullPath); } catch { return null; }
+  try { buf = await readFile(fullPath); } catch { return null; }
   if (buf.length === 0) {
     return {
       content: [{ type: 'text', text: `Error: image "${displayPath}" is empty (0 bytes).` }],

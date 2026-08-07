@@ -49,17 +49,17 @@ export function createPromptSubmit({
   pastedImagesRef,
   pastedTextsRef,
 }) {
-  const backendCall = (name, ...args) => {
+  const serviceCall = (name, ...args) => {
     const target = store?.[name];
     if (typeof target !== 'function') {
-      return Promise.reject(new TypeError(`project backend method ${name} is unavailable`));
+      return Promise.reject(new TypeError(`project service method ${name} is unavailable`));
     }
     return Promise.resolve(target.apply(store, args));
   };
   const submitPrompt = (prompt, options) => {
     if (typeof store.submitAsync !== 'function') return store.submit(prompt, options);
     void Promise.resolve(store.submitAsync(prompt, options)).then((accepted) => {
-      if (accepted === false) store.pushNotice('prompt was not accepted by the session backend', 'error');
+      if (accepted === false) store.pushNotice('prompt was not accepted by the session service', 'error');
     }).catch((error) => {
       store.pushNotice(`prompt submit failed: ${error?.message || error}`, 'error');
     });
@@ -192,7 +192,7 @@ export function createPromptSubmit({
           const channelId = isPipe ? parts[1] : parts[0];
           Promise.resolve(store.setChannel({
             channelId,
-            backend: channelPrompt.backend,
+            provider: channelPrompt.provider,
           }))
             .then(() => resumeAfterChannelPrompt(channelPrompt))
             .catch((e) => {
@@ -240,7 +240,7 @@ export function createPromptSubmit({
             store.pushNotice('working directory path is required', 'warn');
             return false;
           }
-          void backendCall('setCwd', commandText, {
+          void serviceCall('setCwd', commandText, {
             message: `Project set: ${projectNameFromPath(commandText)}`,
           }).then(() => {
             setSettingsPrompt(null);
@@ -255,7 +255,7 @@ export function createPromptSubmit({
             store.pushNotice('project path is required', 'warn');
             return false;
           }
-          void backendCall('inspectProjectPath', commandText).then((result) => {
+          void serviceCall('inspectProjectPath', commandText).then((result) => {
             const path = String(result?.path || commandText);
             if (result?.directory === true) {
               setSettingsPrompt(null);
@@ -281,7 +281,7 @@ export function createPromptSubmit({
           const pendingPath = String(settingsPrompt.pendingPath || '');
           const answer = String(commandText || '').trim().toLowerCase();
           if (answer === 'y' || answer === 'yes') {
-            void backendCall('ensureProjectDirectory', pendingPath).then((created) => {
+            void serviceCall('ensureProjectDirectory', pendingPath).then((created) => {
               setSettingsPrompt(null);
               void registerProject(created || pendingPath);
             }).catch((error) => {
@@ -296,7 +296,7 @@ export function createPromptSubmit({
         }
         if (settingsPrompt.kind === 'project-rename') {
           const targetPath = String(settingsPrompt.projectPath || '');
-          void backendCall('renameProject', targetPath, commandText).then((updated) => {
+          void serviceCall('renameProject', targetPath, commandText).then((updated) => {
             if (updated) {
               store.pushNotice(`project renamed to "${updated.name}"`, 'info');
             }

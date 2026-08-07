@@ -1,6 +1,6 @@
 /** Spawn specification shared by Electron's validated terminal surface and the
- * singleton backend daemon. The renderer names only a detected profile ID; the
- * backend resolves that ID before starting a PTY. */
+ * singleton daemon. The renderer names only a detected profile ID; the
+ * service resolves that ID before starting a PTY. */
 export interface TerminalSpawnProfile {
   path: string;
   args?: string[];

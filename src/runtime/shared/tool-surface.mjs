@@ -70,6 +70,40 @@ export {
   isMemorySurface,
 };
 
+function patchOperationProfile(args = {}) {
+  const a = parseToolArgs(args);
+  const patchText = String(a.patch ?? '');
+  const counts = new Map();
+  const add = (kind, count = 1) => {
+    counts.set(kind, Number(counts.get(kind) || 0) + Math.max(1, Number(count || 1)));
+  };
+
+  for (const line of patchText.split('\n')) {
+    const match = /^\*\*\*\s+(Update|Add|Delete) File:\s+.+\s*$/i.exec(line);
+    if (!match) continue;
+    add(match[1].toLowerCase());
+  }
+  if (counts.size > 0) return counts;
+
+  const gitSections = patchText
+    .split(/(?=^diff --git )/m)
+    .filter((section) => /^diff --git /m.test(section));
+  const unifiedSections = gitSections.length > 0
+    ? gitSections
+    : (/^---\s+.+\n\+\+\+\s+.+$/m.test(patchText) ? [patchText] : []);
+  for (const section of unifiedSections) {
+    if (/^new file mode /m.test(section) || /^---\s+\/dev\/null(?:\s|$)/m.test(section)) add('add');
+    else if (/^deleted file mode /m.test(section) || /^\+\+\+\s+\/dev\/null(?:\s|$)/m.test(section)) add('delete');
+    else add('update');
+  }
+  if (counts.size > 0) return counts;
+
+  if (a.old_string === '') add('add');
+  else if (a.new_string === '' && a.old_string != null) add('delete');
+  else add('update', patchFileCount(a) || 1);
+  return counts;
+}
+
 export function displayToolName(name, args = {}) {
   if (isExternalMcpToolName(name)) {
     const mcp = parseMcpToolName(name);
@@ -84,7 +118,11 @@ export function displayToolName(name, args = {}) {
     case 'apply_patch': {
       const parsed = parseToolArgs(args);
       if (parsed && parsed.dry_run === true) return 'Check';
-      return parsed && parsed.old_string === '' ? 'Create' : 'Update';
+      const operations = patchOperationProfile(parsed);
+      if (operations.size > 1) return 'Change';
+      if (operations.has('add')) return 'Create';
+      if (operations.has('delete')) return 'Delete';
+      return 'Update';
     }
     case 'shell':
     case 'bash':
@@ -433,6 +471,29 @@ function queryCount(args, ...keys) {
   return collectionCount(...keys.map((key) => args?.[key]));
 }
 
+function patchMutationUnits(args = {}) {
+  const a = parseToolArgs(args);
+  if (a.dry_run === true) {
+    return [unitDescriptor('Patch', {
+      count: patchFileCount(a) || 1,
+      active: 'Checking',
+      done: 'Checked',
+      noun: 'file',
+    })];
+  }
+  const copy = {
+    add: { active: 'Creating', done: 'Created' },
+    delete: { active: 'Deleting', done: 'Deleted' },
+    update: { active: 'Editing', done: 'Edited' },
+  };
+  return [...patchOperationProfile(a)].map(([kind, count]) => unitDescriptor('Patch', {
+    count,
+    active: copy[kind]?.active || 'Editing',
+    done: copy[kind]?.done || 'Edited',
+    noun: 'file',
+  }));
+}
+
 export function toolWorkUnit(name, args = {}, category = '') {
   const a = parseToolArgs(args);
   const normalized = normalizeToolName(name);
@@ -452,25 +513,12 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'read_mcp_resource':
       return unitDescriptor('Read', { count: queryCount(a, 'uri', 'uris') || 1, noun: 'resource' });
     case 'apply_patch': {
-      const patchText = String(a.patch ?? '');
-      const creating = a.old_string === '' || /^\*\*\*\s+Add File:/mi.test(patchText);
-      const deleting = (!creating && a.new_string === '' && a.old_string != null)
-        || /^\*\*\*\s+Delete File:/mi.test(patchText);
-      // A dry_run patch validates the diff WITHOUT writing any file, so the
-      // header must not claim "Editing/Edited" (which made a pure validation
-      // look like a real edit). Surface it as "Checking/Checked" instead.
-      if (a.dry_run === true) {
-        return unitDescriptor('Patch', {
-          count: patchFileCount(a) || 1,
-          active: 'Checking',
-          done: 'Checked',
-          noun: 'file',
-        });
-      }
+      const units = patchMutationUnits(a);
+      if (units.length === 1) return units[0];
       return unitDescriptor('Patch', {
-        count: patchFileCount(a) || 1,
-        active: creating ? 'Creating' : deleting ? 'Deleting' : 'Editing',
-        done: creating ? 'Created' : deleting ? 'Deleted' : 'Edited',
+        count: units.reduce((total, unit) => total + unit.count, 0),
+        active: 'Changing',
+        done: 'Changed',
         noun: 'file',
       });
     }
@@ -601,6 +649,26 @@ export function aggregateToolCategoryEntry(name, args = {}, category = '') {
   };
 }
 
+export function aggregateToolCategoryEntries(name, args = {}, category = '') {
+  const cat = category || classifyToolCategory(name, args);
+  const normalized = normalizeToolName(name);
+  const units = normalized === 'apply_patch'
+    ? patchMutationUnits(args)
+    : [toolWorkUnit(name, args, cat)];
+  return units.map((unit) => {
+    const key = [cat, unit.active, unit.done, unit.noun, unit.pluralNoun].join('|');
+    return {
+      key,
+      category: cat,
+      active: unit.active,
+      done: unit.done,
+      noun: unit.noun,
+      pluralNoun: unit.pluralNoun,
+      count: Math.max(1, Number(unit.count || 1)),
+    };
+  });
+}
+
 /**
  * Rebuild the per-category count map for the DONE state. Counts ATTEMPTS —
  * failed calls included — so the collapsed header total always agrees with
@@ -613,9 +681,10 @@ export function aggregateDoneCategories(calls = []) {
   const map = new Map();
   for (const rec of calls || []) {
     if (!rec) continue;
-    const entry = aggregateToolCategoryEntry(rec.name, rec.args, rec.category);
-    const prev = map.get(entry.key);
-    map.set(entry.key, { ...entry, count: Number(prev?.count || 0) + Number(entry.count || 1) });
+    for (const entry of aggregateToolCategoryEntries(rec.name, rec.args, rec.category)) {
+      const prev = map.get(entry.key);
+      map.set(entry.key, { ...entry, count: Number(prev?.count || 0) + Number(entry.count || 1) });
+    }
   }
   return Object.fromEntries(map);
 }

@@ -20,10 +20,10 @@ export function createProjectPicker({
   projectNameFromPath,
   pickFolder,
 }) {
-  const backendCall = (name, ...args) => {
+  const serviceCall = (name, ...args) => {
     const target = store?.[name];
     if (typeof target !== 'function') {
-      return Promise.reject(new TypeError(`project backend method ${name} is unavailable`));
+      return Promise.reject(new TypeError(`project service method ${name} is unavailable`));
     }
     return Promise.resolve(target.apply(store, args));
   };
@@ -60,9 +60,9 @@ export function createProjectPicker({
       _projectRequestId: requestId,
       _projectInitialPending: loading && initialEntry,
       title: 'Project',
-      description: loading ? 'Loading projects from the backend…' : 'Choose a project.',
+      description: loading ? 'Loading projects from the session…' : 'Choose a project.',
       help: loading
-        ? 'Waiting for the project backend…'
+        ? 'Waiting for the project service…'
         : initialEntry
         ? '↑/↓ Select · Enter Open · c Create · r Rename'
         : '↑/↓ Select · Enter Open · c Create · r Rename · Esc Back',
@@ -170,7 +170,7 @@ export function createProjectPicker({
       return false;
     }
     try {
-      const project = await backendCall('addProject', path);
+      const project = await serviceCall('addProject', path);
       if (project?.name) store.pushNotice(`project added: ${project.name}`, 'info');
       await openProjectPicker();
       return true;
@@ -191,11 +191,11 @@ export function createProjectPicker({
     try {
       // Switch cwd first; only persist the project once the runtime accepts it,
       // so an invalid/missing path can never be written to projects.json.
-      const resolved = await backendCall('setCwd', path, {
+      const resolved = await serviceCall('setCwd', path, {
         notice: options?.notice !== false,
         message: `Project set: ${projectNameFromPath(path)}`,
       });
-      if (options?.register !== false) await backendCall('addProject', resolved || path);
+      if (options?.register !== false) await serviceCall('addProject', resolved || path);
       return true;
     } catch (e) {
       store.pushNotice(`project switch failed: ${e?.message || e}`, 'error');
@@ -241,7 +241,7 @@ export function createProjectPicker({
       requestId,
     }));
     try {
-      const projects = await backendCall('listProjects');
+      const projects = await serviceCall('listProjects');
       setPicker((current) => current?._projectRequestId === requestId
         ? buildProjectPickerState({
           initialEntry,

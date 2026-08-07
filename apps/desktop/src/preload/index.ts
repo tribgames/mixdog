@@ -15,7 +15,7 @@ import {
   type DesktopStateStreamingTailPatch,
   type DesktopStateWire,
   type DesktopTranscriptItem,
-  type EngineSnapshot,
+  type SessionSnapshot,
   type DesktopUpdaterState,
 } from '../shared/contract';
 import { createSnapshotDeltaDecoder } from '../main/state-delta';
@@ -210,7 +210,7 @@ const api: DesktopApi = {
   subscribeState: (listener) => {
     // Reassemble transcript deltas (see DesktopStateWire): the host sends the
     // full items array once, then identity-prefix patches. Renderers keep
-    // consuming complete EngineSnapshot objects; unchanged items retain their
+    // consuming complete SessionSnapshot objects; unchanged items retain their
     // object identity across snapshots, so memoized rows skip re-rendering.
     let items: unknown[] = [];
     let streamingTail: DesktopTranscriptItem | null = null;
@@ -238,7 +238,7 @@ const api: DesktopApi = {
         streamingTail = null;
         stateFields = {};
         revision = null;
-        listener(wire as EngineSnapshot);
+        listener(wire as SessionSnapshot);
         return;
       }
       const record = wire as Record<string, unknown>;
@@ -258,7 +258,7 @@ const api: DesktopApi = {
           ? snapshot.streamingTail as DesktopTranscriptItem
           : null;
         stateFields = stateFieldsFrom(snapshot);
-        listener(snapshot as EngineSnapshot);
+        listener(snapshot as SessionSnapshot);
         return;
       }
       const statePatch = record.__statePatch as DesktopStateFieldsPatch | undefined;
@@ -316,14 +316,14 @@ const api: DesktopApi = {
       snapshot.items = items;
       snapshot.streamingTail = nextStreamingTail;
       streamingTail = nextStreamingTail;
-      listener(snapshot as EngineSnapshot);
+      listener(snapshot as SessionSnapshot);
     };
     ipcRenderer.on(DESKTOP_IPC.state, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.state, receive);
   },
   // Keep perf instrumentation entirely off the production renderer hot path.
   // Renderer call sites use optional chaining, so omitting the bridge prevents
-  // them from scheduling measurements that the backend would only discard.
+  // them from scheduling measurements that the daemon would only discard.
   ...(process.env.MIXDOG_DESKTOP_PERF === '1'
     ? {
       perfLog: (line: string) => {
@@ -470,8 +470,8 @@ const api: DesktopApi = {
       if (update.wire === null) decoders.delete(sessionId);
       listener({
         sessionId,
-        snapshot: decoded.snapshot as EngineSnapshot,
-        ...(update.frameSource ? { frameSource: update.frameSource } : {}),
+        snapshot: decoded.snapshot as SessionSnapshot,
+        frameSource: update.frameSource,
         ...(typeof update.contentRevision === 'number'
           ? { contentRevision: update.contentRevision }
           : {}),

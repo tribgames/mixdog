@@ -535,12 +535,9 @@ export async function _streamResponse({
     // only) trips a short, named terminal StreamStalledError instead of coasting
     // to the 300s inter-chunk cap / 30-min agent watchdog.
     let semanticIdleTimer = null;
-    // WS gets its own shorter semantic-idle window. The shared SSE semantic
-    // timeout is intentionally near the 300s stall warning to protect Anthropic
-    // effort-mode "silent thinking"; using that value here lets a wedged WS
-    // request race the TUI 300s watchdog. Keep websocket stalls provider-owned:
-    // fail/retry/fallback here first, then let the TUI watchdog remain a final
-    // safety net only.
+    // WS owns its semantic-idle window. The TUI backstop is deliberately much
+    // longer, so this timeout can fail/retry/fallback at the provider boundary
+    // without racing an outer turn abort (Claude Code/Codex parity).
     const semanticIdleMs = PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS;
     const semanticIdleEnabled = PROVIDER_SSE_IDLE_WATCHDOG_ENABLED && semanticIdleMs > 0;
     // First-meaningful-frame watchdog timer + one-shot latch. Armed alongside

@@ -74,7 +74,7 @@ test('an unknown owner pid reports nothing', () => {
   assert.equal(shellJobsStatus({ clientHostPid: 0, sessionId: 'session-a' }).count, 0);
 });
 
-// The rendered statusline must inherit that scope: the daemon backend hosts
+// The rendered statusline must inherit that scope: the daemon daemon hosts
 // every terminal's session in ONE process, so an owner-wide shell segment
 // showed a shell started in one terminal on every other terminal (user
 // report). A session-less caller (plain shim) still sees the aggregate.

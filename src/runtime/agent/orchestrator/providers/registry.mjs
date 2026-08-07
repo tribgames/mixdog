@@ -35,7 +35,7 @@ let _initChain = Promise.resolve();
 let _inFlightPromise = null;
 let _inFlightSig = null;
 let _lastAppliedSig = null;
-// Provider instances are process-global inside the backend daemon. Catalog
+// Provider instances are process-global inside the daemon. Catalog
 // readers use this revision to share one raw model snapshot while still
 // rebuilding their cheap route/config projection after auth/config changes.
 let _providerCatalogRevision = 0;
@@ -367,7 +367,7 @@ function warmupCatalogs() {
     }
 }
 
-// Force-refresh each provider's /models catalog ONCE per backend-daemon
+// Force-refresh each provider's /models catalog once per daemon.
 // lifetime. Every session runtime joins this process-global promise and then
 // reads the same provider-instance caches. Unlike
 // warmupCatalogs (which calls listModels() and so respects the 24h provider

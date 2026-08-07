@@ -19,6 +19,32 @@ import { acquireTitleBarDim } from "./titlebar-dim";
 
 import { type Toast } from "./desktop-types";
 
+export const DESKTOP_TOAST_EVENT = "mixdog:desktop-toast";
+export const DESKTOP_TOAST_DISMISS_EVENT = "mixdog:desktop-toast-dismiss";
+export type DesktopToastTone = "info" | "success" | "warn" | "error";
+let rendererToastSequence = 0;
+
+export function showDesktopToast(text: string, tone: DesktopToastTone = "info"): string | undefined {
+  const message = String(text || "").trim();
+  if (!message || typeof window === "undefined") return;
+  const id = `renderer:${Date.now()}:${++rendererToastSequence}`;
+  window.dispatchEvent(new window.CustomEvent<Toast>(DESKTOP_TOAST_EVENT, {
+    detail: {
+      id,
+      text: message,
+      tone,
+    },
+  }));
+  return id;
+}
+
+export function dismissDesktopToast(id: string | undefined) {
+  if (!id || typeof window === "undefined") return;
+  window.dispatchEvent(new window.CustomEvent<string>(DESKTOP_TOAST_DISMISS_EVENT, {
+    detail: id,
+  }));
+}
+
 
 export function DesktopUpdateDialog({ version, onCancel, onConfirm }: {
   version: string;
@@ -119,7 +145,29 @@ export function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }
     tone: string;
     bridge: boolean;
   }>>([]);
-  const sourceEntries = toasts.map((toast, index) => {
+  const [rendererToasts, setRendererToasts] = useState<Toast[]>([]);
+  useLayoutEffect(() => {
+    const receiveToast = (event: Event) => {
+      const toast = (event as CustomEvent<Toast>).detail;
+      const text = String(toast?.text || toast?.message || "").trim();
+      if (!text) return;
+      setRendererToasts((current) => [...current, { ...toast, text }].slice(-20));
+    };
+    const dismissToast = (event: Event) => {
+      const key = String((event as CustomEvent<string>).detail || "");
+      if (!key) return;
+      setRendererToasts((current) => current.filter((toast) => String(toast.id) !== key));
+      setRetainedErrors((current) => current.filter((entry) => entry.key !== key));
+      setDismissed((current) => new Set(current).add(key));
+    };
+    window.addEventListener(DESKTOP_TOAST_EVENT, receiveToast);
+    window.addEventListener(DESKTOP_TOAST_DISMISS_EVENT, dismissToast);
+    return () => {
+      window.removeEventListener(DESKTOP_TOAST_EVENT, receiveToast);
+      window.removeEventListener(DESKTOP_TOAST_DISMISS_EVENT, dismissToast);
+    };
+  }, []);
+  const sourceEntries = [...toasts, ...rendererToasts].map((toast, index) => {
     const text = String(toast.text || toast.message || '').trim();
     const tone = String(toast.tone || 'info').toLowerCase();
     return {
@@ -178,7 +226,7 @@ export function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }
     const keys = expiringKeys.split('\u0000');
     const timer = window.setTimeout(() => {
       setDismissed((current) => new Set([...current, ...keys]));
-    }, 6500);
+    }, 5000);
     return () => window.clearTimeout(timer);
   }, [expiringKeys]);
   useLayoutEffect(() => {

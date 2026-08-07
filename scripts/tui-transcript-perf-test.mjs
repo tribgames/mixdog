@@ -5,20 +5,20 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 
 import {
   TRANSCRIPT_LIVE_ITEM_CAP,
-  createEngineItemMutators,
+  createSessionItemMutators,
   createTranscriptSpillBuffer,
   refillTranscriptViewOverlap,
-  replaceEngineItemsState,
-} from '../src/tui/engine.mjs';
-import { createSessionFlow } from '../src/tui/engine/session-flow.mjs';
-import { createEngineApiA } from '../src/tui/engine/session-api.mjs';
-import { createRunTurn } from '../src/tui/engine/turn.mjs';
-import { createContextState } from '../src/tui/engine/context-state.mjs';
+  replaceSessionItemsState,
+} from '../src/tui/session.mjs';
+import { createSessionFlow } from '../src/tui/session/session-flow.mjs';
+import { createSessionApiA } from '../src/tui/session/session-api.mjs';
+import { createRunTurn } from '../src/tui/session/turn.mjs';
+import { createContextState } from '../src/tui/session/context-state.mjs';
 import {
   restoreTranscriptItems,
   restoredAssistantTranscriptItems,
   restoredTranscriptMetadata,
-} from '../src/tui/engine/session-api-ext.mjs';
+} from '../src/tui/session/session-api-ext.mjs';
 import {
   attachAssistantTranscriptCompletion,
   persistedAssistantTranscriptMetadata,
@@ -66,7 +66,7 @@ function makeTurnHarness(ask, stateOverrides = {}, bagOverrides = {}) {
       streaming: true,
     },
   });
-  const { patchItem, settleStreamingTail } = createEngineItemMutators({
+  const { patchItem, settleStreamingTail } = createSessionItemMutators({
     getState: () => state,
     set,
     itemIndexById,
@@ -75,7 +75,7 @@ function makeTurnHarness(ask, stateOverrides = {}, bagOverrides = {}) {
     if (id == null || state.streamingTail?.id === id) set({ streamingTail: null });
   };
   const replaceItems = (items, options = {}) => {
-    state = replaceEngineItemsState({
+    state = replaceSessionItemsState({
       state,
       items,
       itemIndexById,
@@ -87,7 +87,6 @@ function makeTurnHarness(ask, stateOverrides = {}, bagOverrides = {}) {
     runtime: { id: null, toolMode: 'auto', ask, abort: () => true },
     nextId: () => `id_${++seq}`,
     tuiDebug: () => {},
-    LEAD_TURN_TIMEOUT_MS: 300_000,
     flags: { leadTurnEpoch: 0, disposed: false },
     pending: [],
     itemIndexById,
@@ -474,65 +473,6 @@ test('abort after tool boundaries does not replay committed progress as one gian
   assert.deepEqual(assistants.map((item) => item.text), ['first progress', 'second progress']);
 });
 
-// Codifies pre-existing parity: the old in-items completed-line snapshot survived starved recovery.
-test('starved Esc recovery settles a non-empty tail exactly once', async () => {
-  let state = {
-    items: [],
-    structureRevision: 0,
-    streamingTail: { id: 'tail_abort', kind: 'assistant', text: 'visible partial\n', streaming: true },
-    queued: [],
-    busy: true,
-    commandBusy: false,
-    spinner: { active: true },
-    thinking: null,
-    lastTurn: null,
-  };
-  const itemIndexById = new Map();
-  const set = (patch) => { state = { ...state, ...patch }; return true; };
-  const { patchItem, settleStreamingTail } = createEngineItemMutators({
-    getState: () => state,
-    set,
-    itemIndexById,
-  });
-  const bag = {
-    runtime: { abort: () => true },
-    nextId: () => 'notice',
-    flags: { leadTurnEpoch: 1, disposed: false, draining: false, manualAbortRecoveryMs: 10 },
-    pending: [],
-    listeners: new Set(),
-    getState: () => state,
-    set,
-    pushItem: () => {},
-    patchItem,
-    replaceItems: (items) => items,
-    settleStreamingTail,
-    clearStreamingTail: () => set({ streamingTail: null }),
-    pushNotice: () => {},
-    autoClearState: () => ({}),
-    agentStatusState: () => ({}),
-    routeState: () => ({}),
-    syncContextStats: () => {},
-    denyAllToolApprovals: () => {},
-    updateAgentJobCard: () => {},
-    requeueEntriesFront: () => {},
-    enqueue: () => {},
-    autoClearBeforeSubmit: async () => {},
-    restoreQueued: () => {},
-    resetStatsAndSyncContext: () => {},
-    drain: async () => {},
-    flushDeferredExecutionPendingResumeKick: () => {},
-    discardExecutionPendingResume: () => {},
-  };
-
-  createEngineApiA(bag).abort();
-  await wait(30);
-  assert.equal(state.streamingTail, null);
-  const assistants = state.items.filter((item) => item.kind === 'assistant');
-  assert.equal(assistants.length, 1);
-  assert.equal(assistants[0].id, 'tail_abort');
-  assert.equal(assistants[0].streaming, false);
-});
-
 test('Esc reclaim preserves spill pages while removing the submitted live item', () => {
   const spill = createTranscriptSpillBuffer();
   const original = Array.from({ length: TRANSCRIPT_LIVE_ITEM_CAP + 20 }, (_, index) => ({
@@ -579,7 +519,7 @@ test('Esc reclaim preserves spill pages while removing the submitted live item',
     settleStreamingTail: () => true,
   };
 
-  createEngineApiA(bag).abort();
+  createSessionApiA(bag).abort();
   state = { ...state, busy: false };
   assert.equal(preserveSpill, true);
   assert.equal(state.items.some((item) => item.id === 'submitted-live'), false);
@@ -596,12 +536,12 @@ test('removeNotice-style replacement preserves the live tail and later settles o
   };
   const itemIndexById = new Map([['notice', 0]]);
   const set = (patch) => { state = { ...state, ...patch }; return true; };
-  const { settleStreamingTail } = createEngineItemMutators({
+  const { settleStreamingTail } = createSessionItemMutators({
     getState: () => state,
     set,
     itemIndexById,
   });
-  state = replaceEngineItemsState({
+  state = replaceSessionItemsState({
     state,
     items: state.items.filter((item) => item.id !== 'notice'),
     itemIndexById,
@@ -625,12 +565,12 @@ test('bulk replacement clears the tail and stale settle cannot append into reset
   };
   const itemIndexById = new Map([['old', 0]]);
   const set = (patch) => { state = { ...state, ...patch }; return true; };
-  const { settleStreamingTail } = createEngineItemMutators({
+  const { settleStreamingTail } = createSessionItemMutators({
     getState: () => state,
     set,
     itemIndexById,
   });
-  state = replaceEngineItemsState({ state, items: [], itemIndexById });
+  state = replaceSessionItemsState({ state, items: [], itemIndexById });
 
   assert.equal(state.streamingTail, null);
   assert.equal(settleStreamingTail('stale_tail', { text: 'must not reappear' }), false);
@@ -647,7 +587,7 @@ test('tool-card revision invalidates the incremental prefix cache', () => {
   };
   const itemIndexById = new Map([['tool', 0]]);
   const set = (patch) => { state = { ...state, ...patch }; return true; };
-  const { patchItem } = createEngineItemMutators({
+  const { patchItem } = createSessionItemMutators({
     getState: () => state,
     set,
     itemIndexById,

@@ -1,5 +1,5 @@
 // Remote bridge smoke tests: token gate, rpc routing, state fanout, and the
-// remote capability blocklist, all against a stub desktop backend.
+// remote capability blocklist, all against a stub desktop service.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';

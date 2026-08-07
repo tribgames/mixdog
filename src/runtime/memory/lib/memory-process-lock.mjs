@@ -1,6 +1,5 @@
-// Extracted from index.mjs — single/multi-instance process-lock + owner-election
-// helpers. Pure functions parameterized on lock-file paths so index.mjs retains
-// ownership of DATA_DIR-derived constants and the daemon logger.
+// Process lock for the standalone memory MCP entry. Product mode is hosted
+// A direct entry (including the isolated daemon child) owns this lock.
 import fs from 'node:fs'
 import { execFileSync } from 'node:child_process'
 
@@ -15,55 +14,7 @@ export function isPidAliveLocal(pid) {
   catch (e) { return e.code !== 'ESRCH' }
 }
 
-export function tryAcquireMemoryOwnerLock(ownerLockFile, log = () => {}) {
-  // Returns true on success (this process now owns memory worker for the data
-  // dir), false when a live peer holds the lock. Stale locks (dead PID) are
-  // unlinked and retried atomically. Throws on unexpected fs errors so callers
-  // surface lock-system corruption rather than silently downgrading.
-  //
-  // EPERM/EBUSY/EACCES at openSync are transient — AV scanners (SignKorea /
-  // SKCert / ezPDFWS etc) briefly lock newly-created files during inspection.
-  // The 0.1.x baseline threw immediately and the worker promoted to
-  // permanentlyDegraded, killing memory tools for the rest of the session.
-  // Treat the AV error codes as retryable with bounded backoff (~750ms total)
-  // before giving up and rethrowing.
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      const fd = fs.openSync(ownerLockFile, 'wx')
-      fs.writeSync(fd, String(process.pid))
-      fs.closeSync(fd)
-      return true
-    } catch (e) {
-      if (e.code === 'EEXIST') {
-        let ownerPid = NaN
-        try { ownerPid = Number(fs.readFileSync(ownerLockFile, 'utf8').trim()) } catch {}
-        if (isPidAliveLocal(ownerPid)) return false
-        // Stale lock: dead owner — unlink and retry exclusive create.
-        try { fs.unlinkSync(ownerLockFile) } catch {}
-        continue
-      }
-      const transient = e.code === 'EPERM' || e.code === 'EBUSY' || e.code === 'EACCES'
-      if (transient && attempt < 4) {
-        // Sync busy-wait acceptable here: this runs on memory worker boot
-        // path, once per process; the parent handler is not blocked.
-        const end = Date.now() + 50 * (attempt + 1)
-        while (Date.now() < end) {}
-        continue
-      }
-      throw e
-    }
-  }
-  return false
-}
-
-export function releaseMemoryOwnerLock(ownerLockFile) {
-  try {
-    const ownerPid = Number(fs.readFileSync(ownerLockFile, 'utf8').trim())
-    if (ownerPid === process.pid) fs.unlinkSync(ownerLockFile)
-  } catch {}
-}
-
-export function killPreviousServer(pid, log = () => {}) {
+function killPreviousServer(pid, log = () => {}) {
   if (pid <= 0 || pid === process.pid) return false
   if (process.platform === 'win32') {
     try {
@@ -117,14 +68,8 @@ export function killPreviousServer(pid, log = () => {}) {
 }
 
 export function acquireLock(lockFile, log = () => {}) {
-  // Multi-instance guard. In multi-terminal mode the lock owner is a *peer*
-  // memory worker serving recall for another CC session. killPreviousServer
-  // would taskkill /F that healthy peer mid-flight, then this fork-proxy
-  // mode wouldn't even need a lock anyway. Skip the entire kill-the-previous
-  // protocol; fork-proxy detection in init() takes priority. If neither
-  // proxy nor lock-owner path applies (race window during simultaneous
-  // boot), the worker simply continues without the lock — server-main /
-  // PG / port-listen handle the actual conflict cases.
+  // Multi-instance mode is coordinated by the unified daemon, so a direct MCP
+  // entry does not evict an already-running peer from another client.
   if (process.env.MIXDOG_MULTI_INSTANCE === '1') return
   try {
     if (fs.existsSync(lockFile)) {

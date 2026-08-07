@@ -1,5 +1,7 @@
 import { strict as assert } from "node:assert";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -15,12 +17,14 @@ import {
   TRANSCRIPT_VIRTUAL_CACHE_LIMIT,
 } from "../renderer/transcript-virtual-cache.ts";
 import { hasActiveSnapshotWork, workingSessionIdsForSnapshot } from "../renderer/desktop-types.ts";
+import { SessionHost } from "./session-host.ts";
 import {
   desktopChromeSnapshotsEqual,
   desktopConversationShellSnapshotsEqual,
   desktopConversationSnapshotsEqual,
   desktopDockSnapshotsEqual,
   desktopHeaderSnapshotsEqual,
+  desktopRuntimeProgressSnapshotsEqual,
   desktopSidebarSnapshotsEqual,
 } from "../renderer/desktop-snapshot-store.ts";
 import {
@@ -72,6 +76,70 @@ test("session catalog rows preserve identity across lifecycle-only saves", () =>
   assert.equal(changed[0], first[0], "unchanged rows should retain object identity");
   assert.notEqual(changed[1], first[1]);
 
+});
+
+test("archiving republishes the resident catalog without rescanning sessions or agents", async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), "mixdog-archive-catalog-"));
+  let sessionListCalls = 0;
+  let agentPoolLoads = 0;
+  const sessionClient = {
+    async list() {
+      sessionListCalls += 1;
+      return {
+        sessions: [{
+          id: "archive-fast-path",
+          preview: "Archive fast path",
+          title: "Archive fast path",
+          updatedAt: 1,
+          cwd: "C:\\work",
+          desktopSession: { classification: "task", projectPath: null },
+        }],
+      };
+    },
+    async create() { return {}; },
+    async read() { return {}; },
+    async subscribe() { return {}; },
+    async unsubscribe() { return {}; },
+    async submit() { return {}; },
+    async abort() { return {}; },
+    async approve() { return {}; },
+    async configure() { return {}; },
+    async close() {},
+  };
+  const host = await SessionHost.create({
+    userDataPath,
+    packaged: false,
+    resourcesPath: userDataPath,
+    appPath: userDataPath,
+  }, {
+    async attachSessionClient() { return sessionClient; },
+    async loadProjects() { return {}; },
+    async loadSessionStore() {
+      agentPoolLoads += 1;
+      return { listStoredAgentWorkers: () => [] };
+    },
+    async executeCodeGraphTool() { return null; },
+  });
+  // This unit test owns no real session-store directory.
+  host.ensureStoreWatcher = () => {};
+  const publications = [];
+  const unsubscribe = host.subscribeSessions((sessions) => publications.push(sessions));
+  try {
+    await host.listSessions();
+    await host.setSessionArchived("archive-fast-path", true);
+    assert.equal(sessionListCalls, 1, "archive must reuse the already loaded session rows");
+    assert.equal(agentPoolLoads, 0, "archive must not refresh the unrelated agent pool");
+    assert.equal(publications.at(-1)?.[0]?.archived, true);
+    const stored = JSON.parse(await readFile(
+      join(userDataPath, "desktop-session-metadata.json"),
+      "utf8",
+    ));
+    assert.ok(stored.archived["archive-fast-path"] > 0, "the fast path must remain durable");
+  } finally {
+    unsubscribe();
+    await host.dispose();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
 });
 
 test("only the visible file editor remains mounted", async () => {
@@ -265,39 +333,39 @@ test("more than eight pane lanes retain incremental 5,000-row delta baselines", 
   assert.ok(deltaBytes < initialBytes / 10,
     `pane event-storm deltas are too large (${deltaBytes} vs initial ${initialBytes})`);
 
-  const [backendHost, ipc, backend, backendClient, preload, rendererEntry] = await Promise.all([
-    readFile(new URL("./backend-host.ts", import.meta.url), "utf8"),
+  const [serviceHost, ipc, service, serviceClient, preload, rendererEntry] = await Promise.all([
+    readFile(new URL("./session-host.ts", import.meta.url), "utf8"),
     readFile(new URL("./ipc.ts", import.meta.url), "utf8"),
-    readFile(new URL("./desktop-backend.ts", import.meta.url), "utf8"),
-    readFile(new URL("./desktop-backend-client.ts", import.meta.url), "utf8"),
+    readFile(new URL("./desktop-service.ts", import.meta.url), "utf8"),
+    readFile(new URL("./desktop-service-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../preload/index.ts", import.meta.url), "utf8"),
     readFile(new URL("../renderer/main.tsx", import.meta.url), "utf8"),
   ]);
-  assert.doesNotMatch(backendHost, /MAX_VISIBLE_SESSION_LIVE_VIEWS|slice\(0,\s*8\)/);
+  assert.doesNotMatch(serviceHost, /MAX_VISIBLE_SESSION_LIVE_VIEWS|slice\(0,\s*8\)/);
   assert.doesNotMatch(ipc, /sessionStateEncoders\.size\s*>\s*8|slice\(0,\s*8\)/);
-  assert.doesNotMatch(backend, /SESSION_STATE_DELTA_CACHE_LIMIT|sessionStateEncoders\.size\s*>\s*8/);
-  assert.doesNotMatch(backendClient, /sessionStateDecoders\.size\s*>\s*8|slice\(0,\s*8\)/);
+  assert.doesNotMatch(service, /SESSION_STATE_DELTA_CACHE_LIMIT|sessionStateEncoders\.size\s*>\s*8/);
+  assert.doesNotMatch(serviceClient, /sessionStateDecoders\.size\s*>\s*8|slice\(0,\s*8\)/);
   assert.doesNotMatch(preload, /decoders\.size\s*>\s*8/);
   assert.doesNotMatch(rendererEntry, /slice\(0,\s*8\)/);
-  assert.match(backendHost, /this\.sessionClient\.subscribe\(\{/,
+  assert.match(serviceHost, /this\.sessionClient\.subscribe\(\{/,
     "visible panes must subscribe through the explicit daemon session protocol");
   const visible = new Set(["pane_visible"]);
   assert.equal(shouldPublishSessionState("pane_visible", {}, visible), true);
   assert.equal(shouldPublishSessionState("pane_hidden", {}, visible), false);
   assert.equal(shouldPublishSessionState("pane_hidden", null, visible), true,
     "release frames must cross the visibility gate");
-  assert.match(backend,
+  assert.match(service,
     /shouldPublishSessionState\(update\.sessionId, update\.snapshot, visibleSessionIds\)/,
-    "daemon backend pane IPC must stay proportional to visible panes");
+    "daemon service pane IPC must stay proportional to visible panes");
   assert.match(ipc,
     /shouldPublishSessionState\(sessionId, update\.snapshot, visibleSessionStateIds\)/,
     "main-process pane IPC must stay proportional to visible panes");
-  assert.match(backend, /snapshot === null[\s\S]*?sessionStateEncoders\.delete\(sessionId\)/,
-    "closed panes must release daemon-backend delta baselines");
+  assert.match(service, /snapshot === null[\s\S]*?sessionStateEncoders\.delete\(sessionId\)/,
+    "closed panes must release daemon-service delta baselines");
   assert.match(ipc, /update\.snapshot === null[\s\S]*?sessionStateEncoders\.delete\(sessionId\)/,
     "closed panes must release main-process delta baselines");
-  assert.match(backendClient, /message\.wire === null\) this\.sessionStateDecoders\.delete\(sessionId\)/,
-    "closed panes must release backend-client decoders");
+  assert.match(serviceClient, /message\.wire === null\) this\.sessionStateDecoders\.delete\(sessionId\)/,
+    "closed panes must release service-client decoders");
   assert.match(preload, /update\.wire === null\) decoders\.delete\(sessionId\)/,
     "closed panes must release renderer-process decoders");
 });
@@ -325,6 +393,21 @@ test("desktop snapshot selectors isolate streaming transcript publications", () 
     ...streamed,
     streamingTail: { ...streamed.streamingTail, id: "next-tail" },
   }), false, "tail identity changes must still rebuild shell geometry");
+  const statusOnly = {
+    ...settled,
+    thinking: { publicSummary: "Working" },
+    spinner: { active: true, text: "Working" },
+    commandStatus: { active: true },
+    progressHint: { text: "Indexing" },
+  };
+  assert.equal(desktopConversationShellSnapshotsEqual(settled, statusOnly), true,
+    "live status publications must not invalidate the transcript/composer shell");
+  assert.equal(desktopRuntimeProgressSnapshotsEqual(settled, statusOnly), false,
+    "the isolated runtime-progress selector must observe progress text");
+  assert.equal(desktopRuntimeProgressSnapshotsEqual(statusOnly, {
+    ...statusOnly,
+    spinner: { active: true, text: "Still working" },
+  }), true, "spinner-only publications must not invalidate runtime progress");
   assert.equal(desktopSidebarSnapshotsEqual(settled, streamed), true);
   assert.equal(desktopDockSnapshotsEqual(settled, streamed), true);
   assert.equal(desktopHeaderSnapshotsEqual(settled, streamed), false,
@@ -437,14 +520,14 @@ test("desktop Markdown bypasses GFM only for safe literal single lines", () => {
 });
 
 test("desktop hot paths avoid synchronous process and filesystem work", async () => {
-  const [conversation, turnReview, snapshotStore, shellRuntime, atomicFile, backendHost, main] =
+  const [conversation, turnReview, snapshotStore, shellRuntime, atomicFile, serviceHost, main] =
     await Promise.all([
       readFile(new URL("../renderer/Conversation.tsx", import.meta.url), "utf8"),
       readFile(new URL("../renderer/TurnReview.tsx", import.meta.url), "utf8"),
       readFile(new URL("../renderer/desktop-snapshot-store.ts", import.meta.url), "utf8"),
       readFile(new URL("../../../../src/runtime/agent/orchestrator/tools/builtin/shell-runtime.mjs", import.meta.url), "utf8"),
       readFile(new URL("../../../../src/runtime/shared/atomic-file.mjs", import.meta.url), "utf8"),
-      readFile(new URL("./backend-host.ts", import.meta.url), "utf8"),
+      readFile(new URL("./session-host.ts", import.meta.url), "utf8"),
       readFile(new URL("./index.ts", import.meta.url), "utf8"),
     ]);
   assert.match(conversation, /<TurnReviewBar items=\{settledItems\}/);
@@ -455,7 +538,7 @@ test("desktop hot paths avoid synchronous process and filesystem work", async ()
   assert.doesNotMatch(asyncUpdate, /\breadFileSync\s*\(|\bwriteJsonAtomicSync\s*\(/);
   assert.match(asyncUpdate, /await readFileAsync\(/);
   assert.match(asyncUpdate, /await writeJsonAtomicAsync\(/);
-  assert.doesNotMatch(backendHost, /appendFileSync/);
+  assert.doesNotMatch(serviceHost, /appendFileSync/);
   assert.doesNotMatch(main, /appendFileSync/);
   assert.match(main, /const installed = \[wrap\('spawnSync'\), wrap\('execSync'\), wrap\('execFileSync'\)\]\.some\(Boolean\)/);
   assert.match(main, /\}\)\(\)\.catch\(\(error\) => \{/,
@@ -477,7 +560,7 @@ test("heavy renderer surfaces remain dynamic imports", async () => {
     snapshotViews,
     rendererRecovery,
     paneWorkspaceState,
-    desktopBackend,
+    desktopService,
     studioLoader,
     sessionSidebar,
     sourceControl,
@@ -495,7 +578,7 @@ test("heavy renderer surfaces remain dynamic imports", async () => {
     readFile(new URL("../renderer/app-snapshot-views.tsx", import.meta.url), "utf8"),
     readFile(new URL("../renderer/RendererRecovery.tsx", import.meta.url), "utf8"),
     readFile(new URL("../renderer/pane-workspace-state.ts", import.meta.url), "utf8"),
-    readFile(new URL("./desktop-backend.ts", import.meta.url), "utf8"),
+    readFile(new URL("./desktop-service.ts", import.meta.url), "utf8"),
     readFile(new URL("../renderer/studio-loader.ts", import.meta.url), "utf8"),
     readFile(new URL("../renderer/session-sidebar.tsx", import.meta.url), "utf8"),
     readFile(new URL("../renderer/SourceControlDock.tsx", import.meta.url), "utf8"),
@@ -608,31 +691,53 @@ test("heavy renderer surfaces remain dynamic imports", async () => {
   assert.doesNotMatch(sessionSidebar, /SessionSidebarBootShell|sidebarChromeReady|recentStartupReady/);
   assert.doesNotMatch(sessionSidebar, /\{rows\.map\(\(session\) => <SessionSidebarRow/,
     "the cold sidebar must not construct every historical session row");
-  assert.match(desktopBackend, /stateMailbox\.publish\(host\.getSnapshot\(\)\)/,
-    "the daemon backend should publish lightweight state before pane requests");
-  assert.doesNotMatch(desktopBackend, /host\.listSessions\(\)/,
-    "daemon backend startup must not enumerate the session catalog before pane requests");
+  assert.match(desktopService, /stateMailbox\.publish\(host\.getSnapshot\(\)\)/,
+    "the daemon service should publish lightweight state before pane requests");
+  assert.doesNotMatch(desktopService, /host\.listSessions\(\)/,
+    "daemon service startup must not enumerate the session catalog before pane requests");
 });
 
 test("cold desktop entry keeps optional native and network modules outside its graph", async () => {
-  const [entry, terminal, updater, backendHost, backendDaemon, desktopBackend] = await Promise.all([
+  const [entry, terminal, updater, serviceHost, serviceDaemon, desktopService] = await Promise.all([
     readFile(new URL("./index.ts", import.meta.url), "utf8"),
     readFile(new URL("./terminal-manager.ts", import.meta.url), "utf8"),
     readFile(new URL("./updater.ts", import.meta.url), "utf8"),
-    readFile(new URL("./backend-host.ts", import.meta.url), "utf8"),
-    readFile(new URL("../../../../src/standalone/backend-daemon.mjs", import.meta.url), "utf8"),
-    readFile(new URL("./desktop-backend.ts", import.meta.url), "utf8"),
+    readFile(new URL("./session-host.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../../../src/standalone/daemon.mjs", import.meta.url), "utf8"),
+    readFile(new URL("./desktop-service.ts", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(entry,
     /from ['"]\.\/remote-(?:bridge|relay)['"]|import\(['"]\.\/remote-(?:bridge|relay)['"]\)/,
-    "Electron main must not load backend-owned remote services");
-  assert.match(desktopBackend, /from ['"]\.\/remote-bridge['"]/);
-  assert.match(desktopBackend, /from ['"]\.\/remote-relay['"]/);
+    "Electron main must not load service-owned remote services");
+  assert.match(desktopService, /from ['"]\.\/remote-bridge['"]/);
+  assert.match(desktopService, /from ['"]\.\/remote-relay['"]/);
   assert.doesNotMatch(terminal, /^import \{[^}]*spawn[^}]*\} from ['"]@homebridge\/node-pty/m);
   assert.match(terminal, /import\(['"]@homebridge\/node-pty-prebuilt-multiarch['"]\)/);
   assert.doesNotMatch(updater, /^import electronUpdater from ['"]electron-updater['"];?$/m);
   assert.match(updater, /import\(['"]electron-updater['"]\)/);
-  assert.match(backendDaemon, /session\/store-summary-reader\.mjs/);
-  assert.doesNotMatch(backendHost, /scheduleDefaultEnginePrewarm|enginePrewarmPromise/,
+  assert.match(serviceDaemon, /session\/store-summary-reader\.mjs/);
+  assert.doesNotMatch(serviceHost, /scheduleDefaultEnginePrewarm|enginePrewarmPromise/,
     "cold sidebar listing must not enqueue background runtime work");
+});
+
+test("composer input and cold session entry keep their immediate paint paths", async () => {
+  const [app, serviceHost, sidebar, desktopCss] = await Promise.all([
+    readFile(new URL("../renderer/App.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./session-host.ts", import.meta.url), "utf8"),
+    readFile(new URL("../renderer/session-sidebar.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../renderer/desktop.css", import.meta.url), "utf8"),
+  ]);
+  assert.doesNotMatch(app, /\.preloadSettings\(/,
+    "background settings capability hydration must not collide with typing");
+  assert.match(desktopCss,
+    /\.composer\s*\{[^}]*contain:\s*layout paint style;/s,
+    "composer layout and paint invalidation must stay outside the virtual transcript");
+  assert.match(app,
+    /if \(!availableFrozenSeedFor\(sessionId\)\) void requestSessionPeek\(sessionId\);/,
+    "a direct cold session open must request its durable transcript immediately");
+  assert.match(serviceHost,
+    /readStoredSessionTranscript\?\.\(id,[\s\S]*?publishSessionReplay\(id,/,
+    "pane peeks must publish disk transcript before full engine restoration");
+  assert.match(sidebar, /const SESSION_PREFETCH_INTENT_DELAY_MS = 40;/,
+    "session hover intent must begin engine warmup before the old 120ms delay");
 });

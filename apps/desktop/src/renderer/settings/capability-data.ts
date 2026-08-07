@@ -6,7 +6,7 @@ import type {
   DesktopModelOption,
   DesktopReadCapability,
   DesktopUpdaterState,
-  EngineSnapshot
+  SessionSnapshot
 } from '../../shared/contract';
 import { providerDisplayName } from '../provider-display';
 import type { SettingsCategory } from './settings-items';
@@ -28,7 +28,7 @@ export interface CapabilitySettingsProps {
 export interface PanelContext {
   api: CapabilityApi;
   data: Record<string, unknown>;
-  snapshot: EngineSnapshot;
+  snapshot: SessionSnapshot;
   pending: string;
   run<T = unknown>(
     capability: DesktopCapability,

@@ -21,7 +21,7 @@ test('agent config migrates legacy Fast preferences and stops persisting dead co
       embedding: { model: 'keep-me' },
     },
     channels: {
-      backend: 'discord',
+      provider: 'discord',
       promptInjection: { mode: 'hook' },
       schedules: { items: [{ name: 'retired' }] },
       nonInteractive: [{ name: 'retired' }],
@@ -100,7 +100,7 @@ test('agent config migrates legacy Fast preferences and stops persisting dead co
     assert.equal(migratedRoot.channels.schedules, undefined);
     assert.equal(migratedRoot.channels.nonInteractive, undefined);
     assert.equal(migratedRoot.channels.interactive, undefined);
-    assert.deepEqual(migratedRoot.channels.channel, { discordChannelId: '123456789012345678' });
+    assert.deepEqual(migratedRoot.channels.channel, {});
     assert.deepEqual(migratedRoot.agent.autoClear, { enabled: false, idleMs: 60000 });
     assert.deepEqual(migratedRoot.agent.compaction, { auto: false, type: 'semantic' });
     assert.deepEqual(migratedRoot.agent.shell, { timeoutMs: 9876, command: 'pwsh' });

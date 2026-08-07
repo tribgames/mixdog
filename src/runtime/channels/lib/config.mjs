@@ -1,7 +1,7 @@
 import { readFileSync, mkdirSync } from "fs";
 import { join } from "path";
-import { DiscordBackend } from "../backends/discord.mjs";
-import { TelegramBackend } from "../backends/telegram.mjs";
+import { DiscordProvider } from "../providers/discord.mjs";
+import { TelegramProvider } from "../providers/telegram.mjs";
 import {
   readSection,
   updateSection,
@@ -22,7 +22,7 @@ const DEFAULT_ACCESS = {
   channels: {}
 };
 const DEFAULT_CONFIG = {
-  backend: "discord",
+  provider: "discord",
   discord: { token: "" },
   telegram: { token: "" },
   access: DEFAULT_ACCESS,
@@ -40,18 +40,18 @@ function applyDefaults(config) {
   return out;
 }
 
-function channelIdForBackend(entry = {}, backend = "discord") {
-  if (backend === "telegram") {
-    return String(entry?.telegramChatId || (entry?.discordChannelId ? "" : entry?.channelId) || "");
+function channelIdForProvider(entry = {}, provider = "discord") {
+  if (provider === "telegram") {
+    return String(entry?.telegramChatId || "");
   }
-  return String(entry?.discordChannelId || (entry?.telegramChatId ? "" : entry?.channelId) || "");
+  return String(entry?.discordChannelId || "");
 }
 
-// Resolve the single active-backend channel id from the config's `channel`
+// Resolve the single active-provider channel id from the config's `channel`
 // section. Disk config carries a single `channel` object only.
-function resolveChannelId(raw = {}, backend = "discord") {
+function resolveChannelId(raw = {}, provider = "discord") {
   const channel = raw.channel && typeof raw.channel === "object" ? raw.channel : null;
-  if (channel) return channelIdForBackend(channel, backend);
+  if (channel) return channelIdForProvider(channel, provider);
   return "";
 }
 
@@ -88,20 +88,20 @@ async function loadConfig({ freshSecrets = false } = {}) {
     if (discordTokenProblem) {
       process.stderr.write(`mixdog: discord token ignored: ${discordTokenProblem}\n`);
     }
-    // Single-backend select: config.backend picks ONE of discord|telegram.
+    // Single-provider select: config.provider picks ONE of discord|telegram.
     // Anything else falls back to the discord default.
-    const backend = raw.backend === "telegram" ? "telegram" : "discord";
+    const provider = raw.provider === "telegram" ? "telegram" : "discord";
     const telegramToken = getTelegramToken();
-    const channelId = resolveChannelId(raw, backend);
+    const channelId = resolveChannelId(raw, provider);
     // The runtime reads only the resolved `channelId`; disk carries a single
     // `channel` object, so spread `raw` directly.
     return applyDefaults({
       ...DEFAULT_CONFIG,
       ...raw,
-      backend,
+      provider,
       channelId,
       discord: { ...DEFAULT_CONFIG.discord, ...(({ token: _, ...rest }) => rest)(raw.discord || {}), ...(discordToken && !discordTokenProblem ? { token: discordToken } : {}) },
-      // Merge the keychain-resolved telegram token (harmless when backend is
+      // Merge the keychain-resolved telegram token (harmless when provider is
       // discord; the secret never lands in the on-disk config either way).
       telegram: { ...DEFAULT_CONFIG.telegram, ...(({ token: _t, ...rest }) => rest)(raw.telegram || {}), ...(telegramToken ? { token: telegramToken } : {}) },
       access: {
@@ -117,7 +117,7 @@ async function loadConfig({ freshSecrets = false } = {}) {
       updateSection("channels", () => DEFAULT_CONFIG);
       process.stderr.write(
         `mixdog: default channels config created in ${MIXDOG_CONFIG_PATH}
-  edit the active backend channel id to connect.
+  edit the active provider channel id to connect.
 `
       );
       return applyDefaults(DEFAULT_CONFIG);
@@ -125,7 +125,7 @@ async function loadConfig({ freshSecrets = false } = {}) {
     throw err;
   }
 }
-const HEADLESS_BACKEND = {
+const HEADLESS_PROVIDER = {
   name: "headless",
   MAX_MESSAGE_LENGTH: 2000,
   formatOutgoing(t) {
@@ -156,31 +156,31 @@ const HEADLESS_BACKEND = {
   on() {
   }
 };
-function createBackend(config) {
+function createProvider(config) {
   // Channels-module toggle is MESSAGING-ONLY: automation (scheduler/webhooks)
-  // keeps the worker alive, so a disabled module runs the headless backend
+  // keeps the worker alive, so a disabled module runs the headless provider
   // instead of blocking the whole runtime.
   if (config.enabled === false) {
     process.stderr.write("mixdog: channels messaging disabled; channel runtime running in headless mode\n");
-    return HEADLESS_BACKEND;
+    return HEADLESS_PROVIDER;
   }
-  // Single-backend select: exactly one backend is constructed based on
-  // config.backend (discord|telegram). The two are mutually exclusive.
-  if (config.backend === "telegram") {
+  // Single-provider select: exactly one provider is constructed based on
+  // config.provider (discord|telegram). The two are mutually exclusive.
+  if (config.provider === "telegram") {
     const telegramToken = getTelegramToken();
     if (!telegramToken) {
       process.stderr.write("mixdog: telegram bot not configured; channel runtime running in headless mode\n");
-      return HEADLESS_BACKEND;
+      return HEADLESS_PROVIDER;
     }
     const tgStateDir = config.telegram?.stateDir ?? join(DATA_DIR, "telegram");
     mkdirSync(tgStateDir, { recursive: true });
-    return new TelegramBackend({
+    return new TelegramProvider({
       ...config.telegram,
       configPath: CONFIG_FILE,
       access: config.access,
       // Single-source channel setup: the main chat is auto-allowed inside
-      // TelegramBackend.loadAccess() so a configured channel.channelId
-      // is enough for both inbound gating and outbound.
+      // TelegramProvider.loadAccess() so the configured Telegram target is
+      // enough for both inbound gating and outbound.
       mainChannelId: config.channelId
     }, tgStateDir);
   }
@@ -189,19 +189,19 @@ function createBackend(config) {
   if (discordTokenProblem) {
     process.stderr.write(`mixdog: discord token ignored: ${discordTokenProblem}\n`);
   }
-  if (config.backend !== "discord" || !discordToken || discordTokenProblem) {
+  if (config.provider !== "discord" || !discordToken || discordTokenProblem) {
     process.stderr.write("mixdog: discord bot not configured; channel runtime running in headless mode\n");
-    return HEADLESS_BACKEND;
+    return HEADLESS_PROVIDER;
   }
   const stateDir = config.discord.stateDir ?? join(DATA_DIR, "discord");
   mkdirSync(stateDir, { recursive: true });
-  return new DiscordBackend({
+  return new DiscordProvider({
     ...config.discord,
     configPath: CONFIG_FILE,
     access: config.access,
     // Single-source channel setup: the main channel is auto-allowed inside
-    // DiscordBackend.loadAccess() so a configured channel.channelId
-    // is enough for both inbound and outbound — no separate access.channels entry.
+    // DiscordProvider.loadAccess() so the configured Discord target is enough
+    // for both inbound and outbound — no separate access.channels entry.
     mainChannelId: config.channelId
   }, stateDir);
 }
@@ -215,7 +215,7 @@ function loadProfileConfig() {
 }
 export {
   DATA_DIR,
-  createBackend,
+  createProvider,
   getDiscordToken,
   getTelegramToken,
   loadConfig,

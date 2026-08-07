@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { executeSingleReadTool } from './read-single-tool.mjs';
 import { imageMimeForPath, readImageAsContent } from './read-image.mjs';
 import { readEntryCoalescedDiskWindow } from './read-batch.mjs';
@@ -6,6 +6,8 @@ import { readPathStringGuardError } from './read-open.mjs';
 import { parseReadLineNumberArg } from './read-args.mjs';
 import { assertPathsReachable } from './fs-reachability.mjs';
 import { coerceReadFamilyPathArg } from './path-utils.mjs';
+import { readIoAdmission } from '../../../../shared/tool-workload-gates.mjs';
+import { currentToolExecutionOwner } from '../../../../shared/tool-execution-owner.mjs';
 
 function hasLineCoordinate(path) {
     return typeof path === 'string' && /(?:#L\d+|:\d+(?:-\d+)?(?::|$))/i.test(path);
@@ -50,15 +52,14 @@ function _guardedReadError(p, helpers) {
 }
 
 // Reachability preflight for EVERY read shape (scalar / array / reads[]). MUST
-// run before any sync FS — including path normalization and the image
-// stat/read. A dead mount would otherwise freeze the event loop, defeating even
-// the 630s dispatch ceiling.
+// run before any filesystem access. Besides bounding a dead mount, its Stats
+// objects seed the real read so the common path does not immediately re-stat.
 async function _readReachPreflight(rawPath, workDir, helpers) {
     const {
         normalizeInputPath, resolveAgainstCwd,
     } = helpers;
     // A guarded path (UNC/SMB, Windows device, ADS, /dev/* block) must be
-    // REJECTED here, not skipped: skipping would let the later sync guard/open
+    // REJECTED here, not skipped: skipping would let the later guard/open
     // path touch it and trigger NTLM/raw-device access or hang. Reject up front
     // with the same message the inline guards emit.
     // normalizeInputPath FIRST (FS-pure) so we stat the same path the real read
@@ -71,7 +72,7 @@ async function _readReachPreflight(rawPath, workDir, helpers) {
         const stripped = _stripLineCoordForReach(normalizeInputPath(raw));
         const full = resolveAgainstCwd(stripped, workDir);
         const guardMsg = _guardedReadError(stripped, helpers) || _guardedReadError(full, helpers);
-        if (guardMsg) return guardMsg;
+        if (guardMsg) return { error: guardMsg, statsByPath: null };
         // Dedup by resolved path so a batch repeating the same file (or the
         // same union window) issues one stat probe, not one per entry —
         // bounding the preflight's FS work to the distinct target set.
@@ -79,9 +80,17 @@ async function _readReachPreflight(rawPath, workDir, helpers) {
         seenFull.add(full);
         candidates.push(full);
     }
-    if (candidates.length === 0) return null;
-    try { await assertPathsReachable(candidates); return null; }
-    catch (e) { return `Error: ${e?.message || e}`; }
+    if (candidates.length === 0) return { error: null, statsByPath: new Map() };
+    try {
+        const stats = await assertPathsReachable(candidates);
+        const statsByPath = new Map();
+        for (let i = 0; i < candidates.length; i++) {
+            if (stats[i]) statsByPath.set(candidates[i], stats[i]);
+        }
+        return { error: null, statsByPath };
+    } catch (e) {
+        return { error: `Error: ${e?.message || e}`, statsByPath: null };
+    }
 }
 
 export async function executeReadTool(args, workDir, readStateScope, executeChildBuiltinTool, options = {}, helpers = {}) {
@@ -118,8 +127,8 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
         }
     }
     args.path = coerceReadFamilyPathArg(args.path, workDir);
-    // Reachability preflight up front (all shapes) — before readPathStringGuardError /
-    // image stat, all of which can touch sync FS.
+    // Reachability preflight up front (all shapes) — before
+    // readPathStringGuardError / image stat.
     // options._skipReachPreflight: set only by the batch dispatcher on its
     // child reads (below). The parent batch call already ran this exact
     // preflight over EVERY candidate path in the array (_collectReachCandidates
@@ -128,8 +137,9 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
     // child (readPathStringGuardError / image fast-path) — only the async
     // reachability stat is skipped, never the security guards.
     if (options?._skipReachPreflight !== true) {
-        const _reErr = await _readReachPreflight(args.path, workDir, helpers);
-        if (_reErr) return _reErr;
+        const _preflight = await _readReachPreflight(args.path, workDir, helpers);
+        if (_preflight.error) return _preflight.error;
+        options = { ...options, _preflightStats: _preflight.statsByPath };
     }
     // Image files (png/jpg/jpeg/gif/webp): return an MCP image block so the
     // model can actually SEE the image. native Read does this, but mixdog's
@@ -140,7 +150,7 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
     if (options?.mediaTextOnly !== true && typeof args.path === 'string' && imageMimeForPath(args.path)) {
         const _imgNorm = normalizeInputPath(args.path);
         // W1 H: device-file / UNC / Windows-device / ADS guards must run
-        // BEFORE the image fast-path so statSync/readFileSync of a
+        // BEFORE the image fast-path so stat/readFile of a
         // UNC/device path can't bypass the checks the normal read path
         // enforces (NTLM hash leak, raw-device access, ADS).
         if (typeof isUncPath === 'function' && isUncPath(_imgNorm))
@@ -158,7 +168,11 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
             return `Error: cannot read Windows device path (reserved name or raw-device namespace): ${normalizeOutputPath(_imgFull)}`;
         if (typeof hasUnsafeWin32Component === 'function' && hasUnsafeWin32Component(_imgFull))
             return `Error: cannot read Windows path with trailing dot/space or NTFS ADS suffix (bypasses device guard): ${normalizeOutputPath(_imgFull)}`;
-        const _imgResult = await readImageAsContent(_imgFull, normalizeOutputPath(_imgNorm));
+        const _imgResult = await readImageAsContent(
+            _imgFull,
+            normalizeOutputPath(_imgNorm),
+            options?._preflightStats?.get?.(_imgFull) || null,
+        );
         if (_imgResult) return _imgResult;
     }
     // Unified-read dispatch (v0.6.283+):
@@ -399,7 +413,7 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
                 let rangeHashes = rangeHashesByPath.get(fullPath) || [];
                 if (rangeHashes.length === 0 && mergedRanges.length > 0) {
                     try {
-                        const rawLines = readFileSync(fullPath, 'utf-8').split('\n');
+                        const rawLines = (await readFile(fullPath, 'utf-8')).split('\n');
                         rangeHashes = mergedRanges.map((range) => {
                             const startIdx = Math.max(0, range.startLine - 1);
                             const endIdx = Math.min(rawLines.length, range.endLine);
@@ -608,11 +622,16 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
     // Mode routing. A window already dropped any conflicting head/tail/summary
     // glance above (so the window is served by executeSingleReadTool); what
     // remains here is a mode-only read, or count/hex which are not text windows.
-    if (args.mode === 'head') return executeChildBuiltinTool('head', { path: args.path, n: args.n }, workDir);
-    if (args.mode === 'tail') return executeChildBuiltinTool('tail', { path: args.path, n: args.n }, workDir);
-    if (args.mode === 'count') return executeChildBuiltinTool('wc', { path: args.path }, workDir);
-    if (args.mode === 'summary') return executeChildBuiltinTool('summary', { path: args.path, n: args.n, limit: args.limit }, workDir);
-    if (args.mode === 'hex') return executeChildBuiltinTool('hex', { path: args.path, n: args.n, offset: args.offset }, workDir);
-    return executeSingleReadTool(args, workDir, readStateScope, options, helpers);
+    const runReadIo = (task) => readIoAdmission.run(
+        options?.callerSessionId || options?.sessionId || currentToolExecutionOwner(),
+        task,
+        { signal: options?.signal || options?.abortSignal || null },
+    );
+    if (args.mode === 'head') return runReadIo(() => executeChildBuiltinTool('head', { path: args.path, n: args.n }, workDir));
+    if (args.mode === 'tail') return runReadIo(() => executeChildBuiltinTool('tail', { path: args.path, n: args.n }, workDir));
+    if (args.mode === 'count') return runReadIo(() => executeChildBuiltinTool('wc', { path: args.path }, workDir));
+    if (args.mode === 'summary') return runReadIo(() => executeChildBuiltinTool('summary', { path: args.path, n: args.n, limit: args.limit }, workDir));
+    if (args.mode === 'hex') return runReadIo(() => executeChildBuiltinTool('hex', { path: args.path, n: args.n, offset: args.offset }, workDir));
+    return runReadIo(() => executeSingleReadTool(args, workDir, readStateScope, options, helpers));
 
 }

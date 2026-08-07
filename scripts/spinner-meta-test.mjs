@@ -1,18 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    SHOW_TOKENS_AFTER_MS,
     buildSpinnerMeta,
     formatSpinnerTokens,
     isReducedMotion,
     spinnerThinkingLabel,
 } from '../src/tui/spinner-meta.mjs';
 
-test('tokens stay hidden on short turns and appear once the turn runs long', () => {
+test('tokens appear with the first token regardless of elapsed time', () => {
     const short = buildSpinnerMeta({ elapsedMs: 5_000, outputTokens: 1234 });
     assert.equal(short.tokensText, '1.2k tokens');
-    assert.equal(short.showTokens, false);
-    const long = buildSpinnerMeta({ elapsedMs: SHOW_TOKENS_AFTER_MS + 1, outputTokens: 1234 });
+    assert.equal(short.showTokens, true);
+    const long = buildSpinnerMeta({ elapsedMs: 120_000, outputTokens: 1234 });
     assert.equal(long.showTokens, true);
     // A zero count is never a segment, however long the turn runs.
     assert.equal(buildSpinnerMeta({ elapsedMs: 120_000, outputTokens: 0 }).showTokens, false);

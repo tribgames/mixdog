@@ -20,7 +20,7 @@ import {
   upperBound,
   transcriptRowAt,
 } from './transcript-window.mjs';
-import { yieldToRenderer } from '../engine/render-timing.mjs';
+import { yieldToRenderer } from '../session/render-timing.mjs';
 
 export function useTranscriptScroll({
   store,

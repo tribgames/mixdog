@@ -68,7 +68,7 @@ test('desktop process snapshots stay bounded and omit user-content fields', asyn
   assert.match(snapshot, /getAppMetrics\(\)\.slice\(0, 32\)/);
   assert.match(source, /'process-memory'.*currentProcessMemory\(\)/s);
   assert.match(source, /onDiagnostic:[\s\S]*diagnostics\?\.write\(/,
-    'backend reconnect diagnostics must survive process restarts');
+    'service reconnect diagnostics must survive process restarts');
   assert.match(source, /5 \* 60 \* 1000/);
   assert.doesNotMatch(snapshot, /commandLine|creationTime|cpu|session|transcript|prompt|cwd/i);
   const initializationFailure = source.match(/diagnostics\?\.write\('desktop-initialize-failed'[\s\S]*?\n\s*}\);/)?.[0];

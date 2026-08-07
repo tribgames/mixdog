@@ -55,10 +55,10 @@ async function waitUntil(predicate, timeoutMs = 5000) {
   }
 }
 
-test('defaults run independent high-load work without memory-based refusal', () => {
-  assert.equal(RESOURCE_ADMISSION_DEFAULTS.maxAgents, Infinity);
-  assert.equal(RESOURCE_ADMISSION_DEFAULTS.maxShells, Infinity);
-  assert.equal(RESOURCE_ADMISSION_DEFAULTS.maxHighLoad, Infinity);
+test('defaults bound unified-daemon high-load work without memory-based refusal', () => {
+  assert.equal(RESOURCE_ADMISSION_DEFAULTS.maxAgents, 8);
+  assert.equal(RESOURCE_ADMISSION_DEFAULTS.maxShells, 8);
+  assert.equal(RESOURCE_ADMISSION_DEFAULTS.maxHighLoad, 12);
   assert.ok(RESOURCE_ADMISSION_DEFAULTS.maxQueue >= 64);
   assert.equal(RESOURCE_ADMISSION_DEFAULTS.minFreeMemoryMb, 0);
   assert.equal(RESOURCE_ADMISSION_DEFAULTS.maxRssMb, 0);

@@ -9,7 +9,8 @@ import { isDiagnosticIOEnabled } from '../../../lib/mixdog-debug.cjs';
 const WARNED_KEYS = new Set();
 
 // ---------------------------------------------------------------------------
-// In-memory buffer + HTTP flush to memory-service /admin/trace-record
+// In-memory buffer. Product sessions flush directly into the daemon-hosted
+// memory module; the standalone path can still use its local HTTP service.
 // ---------------------------------------------------------------------------
 let _buffer = [];
 const _BUFFER_MAX = 2000;
@@ -225,21 +226,11 @@ try {
 function _resolveServiceUrl() {
     if (_serviceUrl) return _serviceUrl;
     try {
-        // Prefer the single-writer discovery advert (discovery/memory.json),
-        // pid-validated; fall back to legacy active-instance.json memory_port.
+        // Standalone memory HTTP uses its pid-validated discovery advert.
         const advertPort = readServicePort('memory', { requirePid: false });
         if (advertPort) { _serviceAdvertPort = advertPort; _serviceUrl = `http://127.0.0.1:${advertPort}`; return _serviceUrl; }
         _serviceAdvertPort = null;
-        const runtimeRoot = process.env.MIXDOG_RUNTIME_ROOT
-            ? join(process.env.MIXDOG_RUNTIME_ROOT)
-            : join(os.tmpdir(), 'mixdog');
-        const activeFile = join(runtimeRoot, 'active-instance.json');
-        if (!existsSync(activeFile)) return null;
-        const active = JSON.parse(readFileSync(activeFile, 'utf-8'));
-        const port = Number(active && active.memory_port);
-        if (!Number.isFinite(port) || port <= 0) return null;
-        _serviceUrl = `http://127.0.0.1:${port}`;
-        return _serviceUrl;
+        return null;
     } catch {
         return null;
     }

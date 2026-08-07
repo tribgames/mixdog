@@ -9,6 +9,8 @@ import { readServicePort, markServiceUnreachable, isConnRefuseError } from '../.
 import { makeToolEnvelope, normalizeToolEnvelope } from '../session/tool-envelope.mjs';
 import { classifyResultKind } from '../session/result-classification.mjs';
 import { createKeyedSingleflight } from './reconnect-singleflight.mjs';
+import { createOwnerFairGate } from '../../../shared/owner-fair-gate.mjs';
+import { currentToolExecutionOwner } from '../../../shared/tool-execution-owner.mjs';
 // --- Types ---
 /** Known auto-detect targets: port file path relative to tmpdir.
  *  Note: `mixdog` used to self-loopback via active-instance.json's
@@ -17,7 +19,7 @@ import { createKeyedSingleflight } from './reconnect-singleflight.mjs';
  *  in-process through agent's toolExecutor (see orchestrator/internal-tools),
  *  so this registry is for genuinely external port-based MCP targets only. */
 const AUTO_DETECT_PORTS = {
-    'mixdog-memory': { discovery: 'memory', dir: 'mixdog', file: 'active-instance.json', portField: 'memory_port', endpoint: '/mcp' },
+    'mixdog-memory': { discovery: 'memory', endpoint: '/mcp' },
 };
 const DEFAULT_MCP_CALL_TIMEOUT_MS = 120000;
 // Per-server STARTUP handshake budget (connect + listTools): 10s.
@@ -25,6 +27,7 @@ const DEFAULT_MCP_STARTUP_TIMEOUT_MS = 10000;
 // --- State ---
 const servers = new Map();
 const reconnects = createKeyedSingleflight();
+const callAdmissions = new Map();
 let mcpSdkPromise = null;
 // Memo for mcpToolHasField(name, field) — keyed by `${toolName}|${field}`.
 // The lookup (regex parse + servers Map get + tools.find + schema property
@@ -165,6 +168,45 @@ export function getMcpServerStatus() {
         })(),
     }));
 }
+function positiveInt(value, fallback) {
+    const parsed = Math.floor(Number(value));
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : fallback;
+}
+function callAdmissionFor(server) {
+    let gate = callAdmissions.get(server.name);
+    if (gate) return gate;
+    const cfg = server?.cfg || {};
+    gate = createOwnerFairGate({
+        name: `MCP ${server.name}`,
+        activeMax: positiveInt(
+            cfg.maxConcurrency ?? cfg.max_concurrency ?? process.env.MIXDOG_MCP_MAX_INFLIGHT,
+            8,
+        ),
+        queueMax: positiveInt(
+            cfg.maxQueue ?? cfg.max_queue ?? process.env.MIXDOG_MCP_MAX_QUEUE,
+            256,
+        ),
+        minOwnerQueue: 8,
+        waitTimeoutMs: positiveInt(
+            cfg.waitTimeoutMs ?? cfg.wait_timeout_ms ?? process.env.MIXDOG_MCP_WAIT_TIMEOUT_MS,
+            30_000,
+        ),
+    });
+    callAdmissions.set(server.name, gate);
+    return gate;
+}
+function closeCallAdmission(name, reason) {
+    const gate = callAdmissions.get(name);
+    if (!gate) return;
+    callAdmissions.delete(name);
+    gate.close(reason || `MCP ${name} disconnected`);
+}
+export function getMcpAdmissionSnapshot() {
+    return [...callAdmissions.entries()].map(([name, gate]) => ({
+        name,
+        ...gate.snapshot(),
+    }));
+}
 
 /** Snapshot of MCP initialize `instructions` per connected server (handshake time). */
 export function getMcpServerInstructionsMap() {
@@ -199,7 +241,7 @@ async function reconnectMcpServer(serverName, failedServer) {
  * Execute an MCP tool call.
  * Name format: `mcp__{serverName}__{toolName}`
  */
-export async function executeMcpTool(name, args) {
+export async function executeMcpTool(name, args, options = {}) {
     // Parse: mcp__{server}__{tool}
     const match = name.match(/^mcp__(.+?)__(.+)$/);
     if (!match)
@@ -208,35 +250,40 @@ export async function executeMcpTool(name, args) {
     const server = servers.get(serverName);
     if (!server)
         throw new Error(`MCP server "${serverName}" not connected`);
-    let result;
-    try {
-        result = await _callToolWithTimeout(server, toolName, args);
-    } catch (firstErr) {
-        const firstMsg = firstErr instanceof Error ? firstErr.message : String(firstErr);
-        if (isMcpToolCallTimeoutError(firstErr)) {
-            mcpLog(`[mcp-client] Tool call timed out; skipping reconnect retry for "${serverName}/${toolName}".\n`);
-            throw firstErr;
-        }
-        mcpLog(`[mcp-client] Tool call failed, attempting shared reconnect...\n`);
-        let retryServer;
+    const gate = callAdmissionFor(server);
+    return gate.run(options?.ownerKey || currentToolExecutionOwner(), async () => {
+        let result;
         try {
-            retryServer = await reconnectMcpServer(serverName, server);
-        } catch (reconnectErr) {
-            const reconnectMsg = reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr);
-            throw new Error(`Tool call failed: ${firstMsg}; reconnect also failed: ${reconnectMsg}`);
+            result = await _callToolWithTimeout(server, toolName, args);
+        } catch (firstErr) {
+            const firstMsg = firstErr instanceof Error ? firstErr.message : String(firstErr);
+            if (isMcpToolCallTimeoutError(firstErr)) {
+                mcpLog(`[mcp-client] Tool call timed out; skipping reconnect retry for "${serverName}/${toolName}".\n`);
+                throw firstErr;
+            }
+            mcpLog(`[mcp-client] Tool call failed, attempting shared reconnect...\n`);
+            let retryServer;
+            try {
+                retryServer = await reconnectMcpServer(serverName, server);
+            } catch (reconnectErr) {
+                const reconnectMsg = reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr);
+                throw new Error(`Tool call failed: ${firstMsg}; reconnect also failed: ${reconnectMsg}`);
+            }
+            try {
+                result = await _callToolWithTimeout(retryServer, toolName, args);
+            } catch (retryErr) {
+                const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+                throw new Error(`Tool call failed: ${firstMsg}; retry after reconnect also failed: ${retryMsg}`);
+            }
         }
-        try {
-            result = await _callToolWithTimeout(retryServer, toolName, args);
-        } catch (retryErr) {
-            const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-            throw new Error(`Tool call failed: ${firstMsg}; retry after reconnect also failed: ${retryMsg}`);
-        }
-    }
-    const normalized = normalizeToolEnvelope(normalizeMcpToolResult(result));
-    const text = capMcpOutput(normalized.result);
-    return normalized.explicitSuccess
-        ? makeToolEnvelope(text, [], { explicitSuccess: true })
-        : text;
+        const normalized = normalizeToolEnvelope(normalizeMcpToolResult(result));
+        const text = capMcpOutput(normalized.result);
+        return normalized.explicitSuccess
+            ? makeToolEnvelope(text, [], { explicitSuccess: true })
+            : text;
+    }, {
+        signal: options?.signal || null,
+    });
 }
 
 // Preserve MCP failure metadata across the object→string boundary. The
@@ -425,6 +472,7 @@ export async function disconnectAll() {
         }
         catch { /* ignore */ }
         servers.delete(name);
+        closeCallAdmission(name, `MCP ${name} disconnected`);
     }
     _invalidateMcpToolFieldMemo();
 }
@@ -442,6 +490,7 @@ export async function disconnectMcpServer(name) {
     }
     catch { /* ignore */ }
     servers.delete(name);
+    closeCallAdmission(name, `MCP ${name} disconnected`);
     _invalidateMcpToolFieldMemo();
     return true;
 }
@@ -494,13 +543,11 @@ async function connectServer(name, cfg, genAtStart = _connectAbortGeneration) {
         const spec = AUTO_DETECT_PORTS[cfg.autoDetect];
         if (!spec)
             throw new Error(`Unknown autoDetect target: "${cfg.autoDetect}"`);
-        // Prefer the single-writer discovery advert (discovery/<service>.json),
-        // pid-validated. Fall back to the legacy active-instance.json portField
-        // when no live advert is present (cross-version compat).
+        // Read the pid-validated single-writer discovery advert.
         let port = spec.discovery ? readServicePort(spec.discovery, { requirePid: false }) : null;
         if (port && spec.discovery) _autoDetectAdvert = { service: spec.discovery, port };
         let portFile = null;
-        if (!port) {
+        if (!port && spec.file) {
           portFile = spec.dir === 'mixdog' && process.env.MIXDOG_RUNTIME_ROOT
             ? join(process.env.MIXDOG_RUNTIME_ROOT, spec.file)
             : join(tmpdir(), spec.dir, spec.file);
@@ -525,6 +572,7 @@ async function connectServer(name, cfg, genAtStart = _connectAbortGeneration) {
             port = parseInt(raw, 10);
           }
         }
+        if (!port) throw new Error(`autoDetect server "${name}": live service advert missing`);
         if (!Number.isFinite(port) || port < 1 || port > 65535) {
             throw new Error(`autoDetect server "${name}": invalid port value${portFile ? ` in ${portFile}` : ''}`);
         }

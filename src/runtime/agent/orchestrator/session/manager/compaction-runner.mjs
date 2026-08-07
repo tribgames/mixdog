@@ -77,8 +77,7 @@ function addCompactUsageToSession(session, usage) {
     session.totalUncachedInputTokens = (session.totalUncachedInputTokens || 0) + uncachedInputTokens;
     session.tokensCumulative = (session.tokensCumulative || 0) + inputTokens + outputTokens;
 }
-// A dead/unreachable memory runtime makes each proxy RPC wait ~30s (waitForPort)
-// and retry once (memory-runtime-proxy.mjs) — that must NEVER wedge the
+// A stalled memory call must NEVER wedge the
 // compact//clear path. Bound every recall-fasttrack memory call with a short
 // local timeout: on timeout we abort (best-effort cancel via a chained signal)
 // and treat it exactly like an RPC failure, so compaction proceeds WITHOUT
@@ -93,7 +92,7 @@ function recallMemoryTimeoutMs(session) {
     // misconfigured tiny value can't turn the bound into a busy no-wait.
     return Math.max(250, configured || RECALL_MEMORY_CALL_TIMEOUT_MS);
 }
-// Cold-start allowance (clear/manual path only): a booting memory daemon can
+// Cold-start allowance (clear/manual path only): a booting memory runtime can
 // miss the tight first bound (waitForPort + first-RPC warmup ~2-10s). On a
 // timeout we retry ONCE with a longer bound before honoring the bail-to-
 // semantic contract, so a rebooting runtime succeeds instead of instantly

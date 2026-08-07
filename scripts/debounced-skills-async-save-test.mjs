@@ -41,9 +41,9 @@ test('debounce timer path routes through the async flush (async icacls), sync fl
   // persist twin — so the timer path never hits the sync icacls RMW.
   assert.match(lifecycle, /scheduleSkillsSave\(names\)[\s\S]*?setTimeout\(\(\) => \{ flushSkillsSaveAsync\(\); \}/);
   assert.match(lifecycle, /runSkillsFlushAsync[\s\S]*?cfgMod\.patchSkillsDisabledAsync\(names\)/);
-  // Config/backend/outputStyle timers likewise fire the async flush.
+  // Config/provider/outputStyle timers likewise fire the async flush.
   assert.match(lifecycle, /setTimeout\(\(\) => \{ flushConfigSaveAsync\(\); \}/);
-  assert.match(lifecycle, /setTimeout\(\(\) => \{ flushBackendSaveAsync\(\); \}/);
+  assert.match(lifecycle, /setTimeout\(\(\) => \{ flushChannelProviderSaveAsync\(\); \}/);
   assert.match(lifecycle, /setTimeout\(\(\) => \{ flushOutputStyleSaveAsync\(\); \}/);
   // Sync flushes stay for reloadFullConfig/teardown durability.
   assert.match(lifecycle, /function flushConfigSave\(\)/);

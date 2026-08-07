@@ -14,14 +14,14 @@ const [
   { ProviderAdmissionScheduler },
   { createStreamJsonPool },
   { acquire: acquireChildSlot, snapshot: childSpawnSnapshot },
-  { createEngineDaemonTransport },
-  { attachEngineDaemon, probeEngineDaemonHealth },
+  { createSessionTransport },
+  { attachSession, probeSessionHealth },
 ] = await Promise.all([
   import('../src/runtime/agent/orchestrator/providers/admission-scheduler.mjs'),
   import('../src/runtime/agent/orchestrator/providers/stream-json-pool.mjs'),
   import('../src/runtime/shared/child-spawn-gate.mjs'),
-  import('../src/standalone/engine-daemon-transport.mjs'),
-  import('../src/standalone/engine-daemon-client.mjs'),
+  import('../src/standalone/session-transport.mjs'),
+  import('../src/standalone/session-client.mjs'),
 ]);
 
 function percentile(values, fraction) {
@@ -66,8 +66,7 @@ test('provider parser workers and child-tool lanes preserve daemon responsivenes
     rmSync(ROOT, { recursive: true, force: true });
   });
 
-  transport = createEngineDaemonTransport({
-    discoveryPath: join(ROOT, 'engine-daemon.json'),
+  transport = createSessionTransport({
     handleCall: async (name, args) => ({
       accepted: name === 'session.submit',
       sessionId: String(args?.sessionId || ''),
@@ -80,7 +79,7 @@ test('provider parser workers and child-tool lanes preserve daemon responsivenes
     }),
   });
   const { port, token } = await transport.start();
-  client = await attachEngineDaemon({
+  client = await attachSession({
     discovery: { pid: process.pid, port, token },
     cwd: ROOT,
   });
@@ -113,7 +112,7 @@ test('provider parser workers and child-tool lanes preserve daemon responsivenes
   const controlProbe = (async () => {
     while (probing) {
       const started = performance.now();
-      const health = await probeEngineDaemonHealth({ port, token, timeoutMs: 1_000 });
+      const health = await probeSessionHealth({ port, token, timeoutMs: 1_000 });
       assert.ok(health, 'health probe timed out during mixed provider/tool load');
       controlLatencies.push(performance.now() - started);
       await new Promise((resolve) => setTimeout(resolve, 2));
@@ -134,15 +133,18 @@ test('provider parser workers and child-tool lanes preserve daemon responsivenes
   await controlProbe;
 
   const ackP95 = percentile(ackLatencies, 0.95);
-  const controlP95 = percentile(controlLatencies, 0.95);
-  const eventLoopP95 = eventLoop.percentile(95) / 1e6;
+  const controlP99 = percentile(controlLatencies, 0.99);
+  const eventLoopP99 = eventLoop.percentile(99) / 1e6;
   assert.ok(ackP95 < 500, `mixed-load ACK p95 ${ackP95.toFixed(1)}ms exceeded 500ms`);
-  assert.ok(controlP95 < 500, `mixed-load control p95 ${controlP95.toFixed(1)}ms exceeded 500ms`);
-  assert.ok(eventLoopP95 < 200, `mixed-load event-loop p95 ${eventLoopP95.toFixed(1)}ms exceeded 200ms`);
+  assert.ok(controlP99 < 50, `mixed-load control p99 ${controlP99.toFixed(1)}ms exceeded 50ms`);
+  // This process deliberately hosts the synthetic 16MB parser result graph;
+  // product session parsing now runs inside a session shard. The independently
+  // probed control transport remains the daemon responsiveness contract.
+  assert.ok(eventLoopP99 < 100, `mixed-load data-plane event-loop p99 ${eventLoopP99.toFixed(1)}ms exceeded 100ms`);
   assert.equal(parserPool.snapshot().ownerAffinities, 32);
   assert.ok(controlLatencies.length > 0);
   t.diagnostic(
     `providers=32 tools=12 ackP95=${ackP95.toFixed(1)}ms `
-    + `controlP95=${controlP95.toFixed(1)}ms eventLoopP95=${eventLoopP95.toFixed(1)}ms`,
+    + `controlP99=${controlP99.toFixed(1)}ms eventLoopP99=${eventLoopP99.toFixed(1)}ms`,
   );
 });

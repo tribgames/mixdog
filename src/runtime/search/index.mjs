@@ -286,9 +286,9 @@ function normalizeNativeSearchPayload(result, args, startedAt) {
 
 async function _searchCore(args, { cacheState, nativeSearch, signal }) {
   const cacheArgs = searchArgsForCacheKey(args)
-  const backend = 'native-web-search'
+  const provider = 'native-web-search'
   const searchCacheKey = buildCacheKey('search', {
-    provider: backend,
+    provider,
     ...cacheArgs,
   })
   const cachedSearch = getCachedEntry(cacheState, searchCacheKey)

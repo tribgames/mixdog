@@ -5,7 +5,7 @@
 // turn keys and stable row identities. Focus therefore changed visible rows
 // ("failed" ↔ "Failed · Retry") even though PaneConversation itself stayed
 // mounted. Both pipelines now pass through this same bounded decorator.
-import type { EngineSnapshot } from "../shared/contract";
+import type { SessionSnapshot } from "../shared/contract";
 import { type Snapshot, type TranscriptItem, EMPTY_SNAPSHOT } from "./desktop-types";
 import { createTranscriptIdentityReconciler } from "./transcript-identity";
 import { reconcileTurnFailures } from "./renderer-logic.mjs";
@@ -19,7 +19,7 @@ interface FailureScope {
 }
 
 export interface TranscriptSnapshotDecorator {
-  decorate(snapshot: EngineSnapshot | null): Snapshot;
+  decorate(snapshot: SessionSnapshot | null): Snapshot;
   clear(): void;
 }
 

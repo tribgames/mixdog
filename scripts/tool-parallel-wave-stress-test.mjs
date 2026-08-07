@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
 import test from 'node:test';
 
-process.env.MIXDOG_ENGINE_DAEMON_HOST = '1';
+process.env.MIXDOG_DAEMON_HOST = '1';
 process.env.MIXDOG_PWSH_STANDBY_POOL = '4';
 
 const [

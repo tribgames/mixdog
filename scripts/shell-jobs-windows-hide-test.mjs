@@ -90,6 +90,19 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitForProcessExit(pid, timeoutMs = 5_000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        try {
+            process.kill(pid, 0);
+        } catch (error) {
+            if (error?.code !== 'EPERM') return true;
+        }
+        await sleep(50);
+    }
+    return false;
+}
+
 function removeJobArtifacts(detail) {
     for (const file of [
         shellJobDetailPath(detail.jobId),
@@ -155,10 +168,17 @@ test('Windows PowerShell shell jobs create no conhost or ConsoleWindowClass wind
                 assert.deepEqual([...newConsoleHosts], [], `${shell} created a console host/window in its process tree: ${[...newConsoleHosts].join(', ')}`);
             } finally {
                 killShellJob(job.jobId);
+                assert.equal(
+                    await waitForProcessExit(job.pid),
+                    true,
+                    `${shell} background wrapper remained alive after publishing completion`,
+                );
                 removeJobArtifacts(job);
             }
         }
     } finally {
-        rmSync(workDir, { recursive: true, force: true });
+        // The wrapper publishes its done marker immediately before process
+        // exit, so Windows can retain the cwd handle for a few milliseconds.
+        rmSync(workDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
     }
 });

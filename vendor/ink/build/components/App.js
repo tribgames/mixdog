@@ -42,7 +42,8 @@ function App({ children, stdin, stdout, stderr, writeToStdout, writeToStderr, ex
     const readableListenerRef = useRef(undefined);
     const inputParserRef = useRef(createInputParser());
     const pendingInputFlushRef = useRef(undefined);
-    // Small delay to let chunked escape sequences complete before flushing as literal input.
+    // Only partial multi-byte escape sequences wait. A raw read containing one
+    // bare ESC is an explicit cancel gesture and must dispatch in this turn.
     const pendingInputFlushDelayMilliseconds = 20;
     const clearPendingInputFlush = useCallback(() => {
         if (!pendingInputFlushRef.current) {
@@ -233,9 +234,17 @@ function App({ children, stdin, stdout, stderr, writeToStdout, writeToStderr, ex
         let chunk;
         // eslint-disable-next-line @typescript-eslint/no-restricted-types
         while ((chunk = stdin.read()) !== null) {
+            const hadPendingEscape = inputParserRef.current.hasPendingEscape();
+            const bareEscapeChunk = !hadPendingEscape && String(chunk) === escape;
             const inputEvents = inputParserRef.current.push(chunk);
             for (const event of inputEvents) {
                 dispatchParsedEvent(event);
+            }
+            if (bareEscapeChunk && inputParserRef.current.hasPendingEscape()) {
+                const escapeEvents = inputParserRef.current.flushPendingEscape();
+                for (const event of escapeEvents ?? []) {
+                    dispatchParsedEvent(event);
+                }
             }
         }
         if (inputParserRef.current.hasPendingEscape()) {

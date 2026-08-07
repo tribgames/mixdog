@@ -1,6 +1,6 @@
 // Cycle LLM dispatch adapters, extracted from index.mjs (pass 3).
 //
-// Each cycleN scheduler/handler routes its LLM work through the backend's
+// Each cycleN scheduler/handler routes its LLM work through the provider's
 // process-singleton agent broker. The memory process owns PG/embeddings only;
 // provider/session modules are not duplicated here. The factory fixes the
 // cycle role/taskType and reshapes to the cycle call signature:
@@ -24,7 +24,7 @@ export function createCycleLlmAdapters({ callAgentDispatch }) {
   // treat these as FACTORIES: call once to obtain the callLlm adapter.
   // Returning the adapter directly here made `getCycle1CallLlm()` execute an
   // LLM dispatch with no arguments — empty prompt → agent-dispatch throw →
-  // unhandled rejection that killed the memory daemon. Keep the factory
+  // unhandled rejection that killed the memory runtime. Keep the factory
   // contract: each getter returns the (memoized) adapter function.
   const cycle1 = buildAdapter('cycle1-agent')
   const cycle2 = buildAdapter('cycle2-agent')

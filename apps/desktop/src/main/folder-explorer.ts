@@ -1,4 +1,4 @@
-// Windows-Explorer-style folder pane backend: absolute-path directory
+// Windows-Explorer-style folder pane service: absolute-path directory
 // listing/mutation for the desktop's local explorer surface. The pane carries
 // the same trust level as the built-in terminal (the full user filesystem),
 // so paths are validated for SHAPE (absolute, bounded, no NUL) instead of

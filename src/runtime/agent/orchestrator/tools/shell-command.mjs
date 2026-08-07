@@ -258,6 +258,7 @@ export function execShellCommand({
   ownerSessionId,
   backgroundOnTimeout,
   promotedTimeoutMs = 0,
+  backgroundDeadlineMs = 0,
   admission = resourceAdmission,
 }) {
   return new Promise(async (resolve) => {
@@ -791,7 +792,12 @@ export function execShellCommand({
       const stdoutPath = taskOutput.spilled ? taskOutput.stdoutPath : null;
       const stderrPath = taskOutput.spilled ? taskOutput.stderrPath : null;
       let job = null;
-      const adoptedTimeoutMs = reason === 'timeout' ? promotedTimeoutMs : 0;
+      const elapsedMs = Math.max(0, Date.now() - _startMs);
+      const adoptedTimeoutMs = reason === 'timeout'
+        ? promotedTimeoutMs
+        : (backgroundDeadlineMs > 0
+          ? Math.max(1, backgroundDeadlineMs - elapsedMs)
+          : 0);
       try {
         job = adoptForegroundShellJob({
           command,

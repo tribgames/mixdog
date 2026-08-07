@@ -29,15 +29,15 @@ import {
   buildToolLine
 } from "./tool-format.mjs";
 
-// Per-item send watchdog. drainQueue awaits ONE backend send at a time; a hung
+// Per-item send watchdog. drainQueue awaits ONE provider send at a time; a hung
 // send would otherwise never settle, so drainQueue never returns and `sending`
 // stays true forever — wedging ALL outbound behind the queue head. The watchdog
 // does NOT abandon the send (racing a still-running send against a retry would
-// double-deliver): it only pokes the backend to reset its wedged client so the
+// double-deliver): it only pokes the provider to reset its wedged client so the
 // AWAITED send fails fast and `sending` releases on real settlement. Sized above
-// the backend's worst-case per-attempt retries.
+// the provider's worst-case per-attempt retries.
 const SEND_ITEM_TIMEOUT_MS = 120_000;
-// After the watchdog resets the backend, wait at most this long for the
+// After the watchdog resets the provider, wait at most this long for the
 // abandoned send to actually settle before releasing the queue.
 const SEND_SETTLE_CAP_MS = 15_000;
 const TAIL_RECOVERY_BYTES = 256 * 1024;
@@ -403,8 +403,8 @@ class OutputForwarder {
       this.commitReadProgress(item.nextFileSize);
       return;
     }
-    // Formatting is routed through the active backend via the send-callback so
-    // the forwarder stays backend-agnostic (Discord/Telegram/etc). Preformatted
+    // Formatting is routed through the active provider via the send-callback so
+    // the forwarder stays provider-agnostic (Discord/Telegram/etc). Preformatted
     // items (tool logs) are sent as-is. Fallback to raw text when no hook.
     const formatted = item.preformatted
       ? item.text
@@ -419,18 +419,18 @@ class OutputForwarder {
       return;
     }
     // The active transcript/turn owns Discord continuation spacing. A daemon
-    // backend is shared by every client and scheduler, so backend-global send
+    // provider is shared by every client and scheduler, so provider-global send
     // counts cannot decide whether THIS session's item is its first response.
     // Freeze the decision on the queue item so retries remain byte-identical.
     if (typeof item._continuation !== "boolean") {
       item._continuation = this.sentCount > 0;
     }
-    // Backend owns chunking + send retry: pass the whole (unchunked) text once.
-    // On failure the backend has already exhausted its per-chunk retries and
+    // Provider owns chunking + send retry: pass the whole (unchunked) text once.
+    // On failure the provider has already exhausted its per-chunk retries and
     // throws; we re-throw so drainQueue/scheduleRetry requeues the whole item.
     try {
       // Hand back any opaque resume token stored from a prior partial-send
-      // failure so the backend resumes at the failed chunk instead of
+      // failure so the provider resumes at the failed chunk instead of
       // re-sending chunks that already landed. The token is opaque here —
       // the forwarder only stores/passes/clears it, never interprets it.
       await this.cb.send(targetChannelId, formatted, {
@@ -462,7 +462,7 @@ class OutputForwarder {
 ${_bt.trim()}` : _bt.trim();
     }
     // sentCount now tracks delivered items (the forwarder no longer knows the
-    // backend's chunk count). Increment by 1 per delivered item.
+    // provider's chunk count). Increment by 1 per delivered item.
     this.sentCount += 1;
     this.commitReadProgress(item.nextFileSize);
   }
@@ -507,7 +507,7 @@ ${_bt.trim()}` : _bt.trim();
     const ftLen = this.finalLane.length;
     // A partially-delivered item carries an opaque _resumeToken pinned (by
     // hash) to its exact text. Mutating its text here would break that hash on
-    // the next retry, forcing the backend to full-resend from chunk 0 and
+    // the next retry, forcing the provider to full-resend from chunk 0 and
     // duplicate the chunks already delivered. Treat any tokenized item as
     // sealed: never coalesce/cap-merge into it; new text goes behind it as a
     // separate item.
@@ -569,15 +569,15 @@ ${_bt.trim()}` : _bt.trim();
   /** Supervise a per-item send. The underlying promise is AWAITED to real
    *  settlement so `sending` is never released early (no unsupervised send
    *  racing a retry → duplicate). The watchdog's only job is to reset the
-   *  backend's wedged client so the awaited send fails fast. */
+   *  provider's wedged client so the awaited send fails fast. */
   _sendSupervised(promise, label) {
     const settled = Promise.resolve(promise);
     settled.catch(() => {}); // never leak an unhandled rejection on late settle
     return new Promise((resolve, reject) => {
       let capTimer = null;
       const watchdog = setTimeout(() => {
-        process.stderr.write(`[output-forwarder] ${label} watchdog fired after ${SEND_ITEM_TIMEOUT_MS}ms; resetting backend\n`);
-        Promise.resolve(this.cb?.resetBackend?.()).catch(() => {});
+        process.stderr.write(`[output-forwarder] ${label} watchdog fired after ${SEND_ITEM_TIMEOUT_MS}ms; resetting provider\n`);
+        Promise.resolve(this.cb?.resetProvider?.()).catch(() => {});
         // Bound the post-reset settlement wait; past the cap, invalidate the
         // in-flight send (gen bump → zombie can't double-advance) and release.
         capTimer = setTimeout(() => {
@@ -705,7 +705,7 @@ ${_bt.trim()}` : _bt.trim();
             // Transient send failure: extractNewText already advanced the read
             // cursor past these bytes, so dropping the item here would lose the
             // final text. Requeue the WHOLE item and let drainQueue retry
-            // instead of silently discarding. The backend owns chunking+retry,
+            // instead of silently discarding. The provider owns chunking+retry,
             // so a requeued send restarts from chunk 0. pendingFinalFlush stays
             // set so a process restart can also resume the flush.
             this.finalLane.push(finalItem);

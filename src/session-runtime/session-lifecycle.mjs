@@ -18,6 +18,7 @@ import { envFlag } from './env.mjs';
 import { createPrewarmSchedulers } from './prewarm.mjs';
 import { hasActiveAutomation } from '../standalone/channel-admin.mjs';
 import { createRemoteTranscript } from './remote-transcript.mjs';
+import { runAbortable, throwIfAborted } from '../runtime/shared/abort-race.mjs';
 export function createSessionLifecycle({
   rt,
   collectProviderModels,
@@ -61,9 +62,10 @@ export function createSessionLifecycle({
   codeGraphPrewarmEnabled,
   prewarmState,
 }) {
-  async function resolveMissingRouteModelForFirstTurn() {
+  async function resolveMissingRouteModelForFirstTurn(signal = null) {
     if (routeHasModel()) return rt.route;
-    const models = await collectProviderModels();
+    const models = await runAbortable(signal, () => collectProviderModels());
+    throwIfAborted(signal);
     const picked = models[0] || null;
     if (!picked) {
       throw new Error('No provider models available. Open /providers to sign in, then /model to choose a model.');
@@ -77,10 +79,14 @@ export function createSessionLifecycle({
     return rt.route;
   }
 
-  async function refreshRouteEffort(modelMetaOverride = null, expectedRoute = null) {
+  async function refreshRouteEffort(modelMetaOverride = null, expectedRoute = null, signal = null) {
     const targetRoute = expectedRoute || rt.route;
-    await ensureProvidersReady(ensureProviderEnabled(rt.config, targetRoute.provider));
-    const modelMeta = modelMetaOverride || await lookupModelMeta(targetRoute.provider, targetRoute.model);
+    await runAbortable(signal, () => ensureProvidersReady(ensureProviderEnabled(rt.config, targetRoute.provider)));
+    const modelMeta = modelMetaOverride || await runAbortable(
+      signal,
+      () => lookupModelMeta(targetRoute.provider, targetRoute.model),
+    );
+    throwIfAborted(signal);
     // A rapid second resume/model change can replace the route while provider
     // metadata is loading. Never let the older completion overwrite it.
     if (expectedRoute && rt.route !== expectedRoute) return null;
@@ -126,8 +132,12 @@ export function createSessionLifecycle({
     return await createCurrentSession();
   }
 
-  async function createCurrentSession(reason = 'demand') {
-    if (rt.sessionCreatePromise) return await rt.sessionCreatePromise;
+  async function createCurrentSession(reason = 'demand', options = {}) {
+    const signal = options?.signal || null;
+    throwIfAborted(signal);
+    if (rt.sessionCreatePromise) {
+      return await runAbortable(signal, () => rt.sessionCreatePromise, 'Session creation aborted');
+    }
     if (rt.session?.id && !rt.sessionNeedsCwdRefresh) {
       const liveSession = mgr.getSession(rt.session.id);
       if (liveSession && liveSession.closed !== true && liveSession.status !== 'closed') {
@@ -152,18 +162,21 @@ export function createSessionLifecycle({
       // explicitly enabled prewarm caller asks for a session). Core-memory
       // startup does not depend on keychain/provider readiness, so overlap the
       // two cold paths instead of paying their bounded waits serially.
-      const coreMemoryContextPromise = loadCoreMemoryContext();
-      await awaitKeychainPrewarm();
+      const coreMemoryContextPromise = Promise.resolve(loadCoreMemoryContext());
+      coreMemoryContextPromise.catch(() => {});
+      await runAbortable(signal, () => awaitKeychainPrewarm());
       ensureConfigForRouteProvider();
-      await resolveMissingRouteModelForFirstTurn();
+      await resolveMissingRouteModelForFirstTurn(signal);
       requireModelRoute();
       bootProfile('session:create:route-ready', { ms: (performance.now() - startedAt).toFixed(1) });
       // Route effort waits on provider readiness while the already-started
       // memory load continues independently.
-      const [, coreMemoryContext] = await Promise.all([
-        refreshRouteEffort(),
+      const expectedRoute = rt.route;
+      const [, coreMemoryContext] = await runAbortable(signal, () => Promise.all([
+        refreshRouteEffort(null, expectedRoute, signal),
         coreMemoryContextPromise,
-      ]);
+      ]));
+      throwIfAborted(signal);
       bootProfile('session:create:effort-ready', { ms: (performance.now() - startedAt).toFixed(1) });
       const providerImpl = reg.getProvider(rt.route.provider);
       if (!providerImpl) {
@@ -171,6 +184,7 @@ export function createSessionLifecycle({
       }
       bootProfile('session:create:provider-ready', { ms: (performance.now() - startedAt).toFixed(1) });
       if (rt.closeRequested) throw new Error('runtime is closing');
+      throwIfAborted(signal);
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       // Load the active WORKFLOW.md pack once for both summary + context block.
       const { summary: workflow, context: workflowContext } = activeWorkflowContext(rt.config, dataDir);
@@ -236,7 +250,10 @@ export function createSessionLifecycle({
         const startSource = /resume/i.test(String(reason || ''))
           ? 'resume'
           : (/clear/i.test(String(reason || '')) ? 'clear' : 'startup');
-        const startDispatch = await hooks.dispatch('SessionStart', hookCommonPayload({ session_id: rt.session.id, source: startSource, model: rt.route.model }));
+        const startDispatch = await runAbortable(
+          signal,
+          () => hooks.dispatch('SessionStart', hookCommonPayload({ session_id: rt.session.id, source: startSource, model: rt.route.model })),
+        );
         const startContext = Array.isArray(startDispatch?.additionalContext)
           ? startDispatch.additionalContext.join('\n\n')
           : String(startDispatch?.additionalContext || '');
@@ -245,7 +262,11 @@ export function createSessionLifecycle({
           rt.session.messages.push({ role: 'assistant', content: '.' });
           rt.session.updatedAt = Date.now();
         }
-      } catch { /* best-effort: never break session create */ }
+      } catch {
+        throwIfAborted(signal);
+        // best-effort: ordinary hook failure never breaks session create
+      }
+      throwIfAborted(signal);
       bootProfile('session:create:ready', {
         ms: (performance.now() - startedAt).toFixed(1),
         reason,

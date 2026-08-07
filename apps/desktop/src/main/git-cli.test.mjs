@@ -978,7 +978,7 @@ test("commit hooks cannot inherit daemon identity or provider secrets", async (t
   const cwd = await createRepository();
   const inherited = {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-    MIXDOG_ENGINE_DAEMON_HOST: process.env.MIXDOG_ENGINE_DAEMON_HOST,
+    MIXDOG_DAEMON_HOST: process.env.MIXDOG_DAEMON_HOST,
     MIXDOG_TEST_HOOK_VISIBLE: process.env.MIXDOG_TEST_HOOK_VISIBLE,
   };
   try {
@@ -988,14 +988,14 @@ test("commit hooks cannot inherit daemon identity or provider secrets", async (t
       return;
     }
     process.env.ANTHROPIC_API_KEY = "provider-secret";
-    process.env.MIXDOG_ENGINE_DAEMON_HOST = "1";
+    process.env.MIXDOG_DAEMON_HOST = "1";
     process.env.MIXDOG_TEST_HOOK_VISIBLE = "visible";
     await writeFile(join(cwd, "hooked.txt"), "hooked\n", "utf8");
     const hook = await writeHook(cwd, "pre-commit", [
       "#!/bin/sh",
       "{",
       "  printf '%s\\n' \"${ANTHROPIC_API_KEY-unset}\"",
-      "  printf '%s\\n' \"${MIXDOG_ENGINE_DAEMON_HOST-unset}\"",
+      "  printf '%s\\n' \"${MIXDOG_DAEMON_HOST-unset}\"",
       "  printf '%s\\n' \"${MIXDOG_TEST_HOOK_VISIBLE-unset}\"",
       "} > hook-environment.txt",
       "",
@@ -1913,6 +1913,7 @@ test("the recorded message matches `git commit -m` in every cleanup mode", async
 // parked at a chosen point: the child touches `.git/park-live` when it gets
 // there and the parent kills the whole tree the moment that marker appears.
 const GIT_CLI_MODULE = new URL("./git-cli.ts", import.meta.url).href;
+const TSX_IMPORT = import.meta.resolve("tsx");
 
 function parkMarker(cwd) {
   return join(cwd, ".git", "park-live");
@@ -2021,7 +2022,7 @@ async function killWhileParked(cwd, source) {
   try {
     const script = join(scriptDir, "interrupt.mjs");
     await writeFile(script, source, "utf8");
-    child = spawn(process.execPath, [script], {
+    child = spawn(process.execPath, ["--import", TSX_IMPORT, script], {
       cwd,
       detached: process.platform !== "win32",
       // stderr is KEPT: a child that dies before it parks has to say why,
@@ -2444,8 +2445,8 @@ test("a refused dirty --mixed reset carries its code on the direct AND the remot
     // field — a remote caller branches on the contract, not on prose.
     const methods = createRemoteMethods({
       host: {
-        backendInvoke(name, args) {
-          if (name !== "gitResetToCommit") throw new Error(`unexpected backend operation ${name}`);
+        invokeDesktopOperation(name, args) {
+          if (name !== "gitResetToCommit") throw new Error(`unexpected service operation ${name}`);
           return gitResetToCommit(...args);
         },
       },

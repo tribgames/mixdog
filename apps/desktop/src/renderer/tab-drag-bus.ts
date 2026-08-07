@@ -15,6 +15,9 @@ export type TabDragFrame = {
   sourceLeafId?: string;
   x: number;
   y: number;
+  /** Most recent pointer movement; omitted by non-pointer drag sources. */
+  deltaX?: number;
+  deltaY?: number;
 };
 
 const listeners = new Set<(frame: TabDragFrame) => void>();

@@ -132,7 +132,7 @@ apply it, and verify the result.
 ### Discord / Telegram / voice channels
 
 1. Check `/channels` (or `/setting` → Channel) and runtime channel status.
-2. Update the requested backend, credential, or main channel/chat setting.
+2. Update the requested provider, credential, or main channel/chat setting.
 3. Restart/reconnect only when the channel implementation requires it.
 4. Verify channel presence and a non-secret status signal.
 

@@ -1,4 +1,4 @@
-// Regression for the execution-pending-resume kick (engine/agent-job-feed.mjs).
+// Regression for the execution-pending-resume kick (src/tui/session/agent-job-feed.mjs).
 // Guards two coupled defects:
 //   A (body loss): parallel completions deferred while busy must each surface
 //     their model-visible body on resume — the old single string slot dropped
@@ -9,7 +9,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createAgentJobFeed } from '../src/tui/engine/agent-job-feed.mjs';
+import { createAgentJobFeed } from '../src/tui/session/agent-job-feed.mjs';
 
 // Minimal harness: a mutable busy flag, a pending queue, and a synchronous
 // drain stub that "resumes" by surfacing every pending-resume entry's body.

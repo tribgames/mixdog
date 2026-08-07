@@ -1,5 +1,5 @@
 // Regression: consolidated completion dedup on the delivered-completions
-// registry (src/tui/engine/agent-job-feed.mjs execution-ui branch).
+// registry (src/tui/session/agent-job-feed.mjs execution-ui branch).
 //
 // Symptom guarded: after a turn completes and the lead goes IDLE, a duplicate
 // execution completion (SAME execution_id, slightly different composite
@@ -9,8 +9,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createAgentJobFeed } from '../src/tui/engine/agent-job-feed.mjs';
-import { buildExecutionResponseToolItem } from '../src/tui/engine/agent-envelope.mjs';
+import { createAgentJobFeed } from '../src/tui/session/agent-job-feed.mjs';
+import { buildExecutionResponseToolItem } from '../src/tui/session/agent-envelope.mjs';
 import {
   _clearDeliveredCompletions,
 } from '../src/runtime/agent/orchestrator/session/manager/delivered-completions.mjs';

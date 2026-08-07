@@ -45,7 +45,7 @@ export function mergeSessionCatalogRows(
   });
 }
 
-/** Backend watcher pushes are exact durable-store scans. Treat them as
+/** Session watcher pushes are exact durable-store scans. Treat them as
  * authoritative so a deleted session cannot survive forever in renderer
  * memory merely because no fallback poll runs for push-capable hosts. */
 export function mergeSessionCatalogPushRows(
@@ -53,20 +53,4 @@ export function mergeSessionCatalogPushRows(
   incoming: readonly DesktopSessionSummary[],
 ): DesktopSessionSummary[] {
   return mergeSessionCatalogRows(current, incoming);
-}
-
-/** Paint a just-accepted session before the debounced store watcher publishes
- * its durable row. The authoritative catalog replaces this projection. */
-export function optimisticSubmittedSessionCatalog(
-  current: readonly DesktopSessionSummary[],
-  submitted: DesktopSessionSummary,
-): DesktopSessionSummary[] {
-  const previous = current.find((row) => row.id === submitted.id);
-  const active = previous ? { ...previous, ...submitted } : submitted;
-  return [
-    active,
-    ...current
-      .filter((row) => row.id !== submitted.id)
-      .map((row) => row.currentSession ? { ...row, currentSession: false } : row),
-  ];
 }

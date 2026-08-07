@@ -5,8 +5,8 @@
 // editing, and never run while a turn is live.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSessionFlow } from '../src/tui/engine/session-flow.mjs';
-import { createEngineApiA } from '../src/tui/engine/session-api.mjs';
+import { createSessionFlow } from '../src/tui/session/session-flow.mjs';
+import { createSessionApiA } from '../src/tui/session/session-api.mjs';
 import { selectableUserItems, messageSelectorLabel } from '../src/tui/app/message-selector.mjs';
 
 function makeEngine({ rewindResult = { removed: 4, remaining: 2 } } = {}) {
@@ -70,7 +70,7 @@ function makeEngine({ rewindResult = { removed: 4, remaining: 2 } } = {}) {
   };
   Object.assign(bag, createSessionFlow(bag));
   bag.drain = async () => {};
-  const api = createEngineApiA(bag);
+  const api = createSessionApiA(bag);
   return { api, bag, getState: () => state, getRewindCalls: () => rewindCalls };
 }
 

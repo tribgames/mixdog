@@ -31,7 +31,7 @@ function awaitSharedPreparation(promise, signal) {
 /**
  * Process-singleton memory LLM broker.
  *
- * The backend daemon owns one provider/session graph. The separate memory
+ * The daemon owns one provider/session/memory graph. Memory
  * process keeps PG, embeddings, and recall, and forwards only cycle LLM calls
  * here. A singleton is NOT a serial lane: every call gets its own dispatch
  * session + AbortController and the fair scheduler starts calls in parallel

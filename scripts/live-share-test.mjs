@@ -1,4 +1,4 @@
-// Integration test for src/tui/engine/live-share.mjs: a real owner pipe
+// Integration test for src/tui/session/live-share.mjs: a real owner pipe
 // server and viewer client exchange full/delta/tail frames and submits over
 // the platform transport (named pipe / unix socket).
 import test from 'node:test';
@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createLiveShare, forwardViewerSubmit, liveSharePipePath } from '../src/tui/engine/live-share.mjs';
+import { createLiveShare, forwardViewerSubmit, liveSharePipePath } from '../src/tui/session/live-share.mjs';
 import { createStoredSessionLiveViewer } from '../src/runtime/agent/orchestrator/session/store-summary-reader.mjs';
 
 const PIPE_ID = `livetest_${process.pid}_${Date.now()}`;

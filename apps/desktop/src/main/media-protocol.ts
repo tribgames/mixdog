@@ -11,7 +11,7 @@ import { Readable } from 'node:stream';
 import { protocol } from 'electron';
 
 import { mediaResponsePlan } from '../../../relay/lib/media-http.mjs';
-import type { DesktopBackend } from './backend-api';
+import type { DesktopService } from './desktop-service-contract';
 import {
   FILE_PREVIEW_SCHEME,
   resolveFilePreview,
@@ -43,7 +43,7 @@ function textResponse(status: number, body: string): Response {
   return new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 }
 
-export function registerMediaProtocol(host: Pick<DesktopBackend, 'invokeCapability'>): void {
+export function registerMediaProtocol(host: Pick<DesktopService, 'invokeCapability'>): void {
   protocol.handle(MEDIA_SCHEME, async (request) => {
     let url: URL;
     try {

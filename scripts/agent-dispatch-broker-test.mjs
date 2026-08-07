@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
 import { callAgentDispatch } from '../src/runtime/memory/lib/agent-ipc.mjs';
 import { createAgentDispatchBroker } from '../src/standalone/agent-dispatch-broker.mjs';
-import { createChannelDaemonTransport } from '../src/standalone/channel-daemon-transport.mjs';
+import { createChannelTransport } from '../src/standalone/channel-transport.mjs';
 
 const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -47,12 +47,16 @@ test('singleton agent broker keeps memory dispatch parallel and cancellation iso
       }
     },
   });
-  const transport = createChannelDaemonTransport({
+  const transport = createChannelTransport({
     handleCall: async () => ({ ok: true }),
-    discoveryPath: join(root, 'channel-daemon.json'),
     agentBroker: broker,
   });
-  await transport.start();
+  const endpoint = await transport.start();
+  writeFileSync(join(root, 'daemon.json'), JSON.stringify({
+    pid: process.pid,
+    startedAt: Date.now(),
+    endpoints: { channel: endpoint },
+  }));
   t.after(async () => {
     await transport.stop();
     broker.close('test cleanup');

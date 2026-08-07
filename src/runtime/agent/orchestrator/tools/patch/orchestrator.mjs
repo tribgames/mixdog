@@ -144,8 +144,8 @@ function restorePatchRollbackState(snapshots, readStateScope) {
 }
 
 // Apply one "wave" (a set of unique-target parsed entries) via the native
-// (+ JS out-of-base) split. Returns { backend, text } on success or
-// { backend, error } so the caller decides whether earlier waves already
+// (+ JS out-of-base) split. Returns { executor, text } on success or
+// { executor, error } so the caller decides whether earlier waves already
 // committed to disk. Extracted verbatim from the inline applyWave closure so
 // both the default wave loop and sequence mode share identical apply
 // semantics.
@@ -156,7 +156,7 @@ async function applyParsedWave({ parsed: wparsed, entries: wentries, headerRewri
   const parsedInside = (wparsed || []).filter(
     (entry) => !isResolvedPathOutsideBase(parsedEntryResolvedPath(entry, basePath), basePath),
   );
-  const backend = outsideEntries.length > 0
+  const executor = outsideEntries.length > 0
     ? (insideEntries.length > 0 ? 'native+js-patch' : 'js-patch')
     : 'native-patch';
   const resultParts = [];
@@ -173,7 +173,7 @@ async function applyParsedWave({ parsed: wparsed, entries: wentries, headerRewri
       signal: abortSignal,
       parsed: parsedInside,
     });
-    if (isPatchErrorText(nativeResult)) return { backend, error: nativeResult };
+    if (isPatchErrorText(nativeResult)) return { executor, error: nativeResult };
     resultParts.push(nativeResult);
   }
   if (outsideEntries.length > 0) {
@@ -187,10 +187,10 @@ async function applyParsedWave({ parsed: wparsed, entries: wentries, headerRewri
       fuzzy,
       readStateScope,
     });
-    if (isPatchErrorText(jsResult)) return { backend, error: jsResult };
+    if (isPatchErrorText(jsResult)) return { executor, error: jsResult };
     resultParts.push(jsResult);
   }
-  return { backend, text: resultParts.join('\n') };
+  return { executor, text: resultParts.join('\n') };
 }
 
 // Default ordered section mode. Apply each file section in listed order,
@@ -384,7 +384,7 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
       const skipped = [];
       let failed = null;
       let failedIndex = -1;
-      let backend = 'native-patch';
+      let executor = 'native-patch';
       for (let i = 0; i < units.length; i++) {
         const unit = units[i];
         if (failed) { skipped.push(unit.displayPath); continue; }
@@ -421,7 +421,7 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
           }
         }
         const res = await applyParsedWave(wave, basePath, waveOpts);
-        backend = res.backend;
+        executor = res.executor;
         if (res.error) {
           failed = { displayPath: unit.displayPath, error: res.error };
           failedIndex = i;
@@ -459,7 +459,7 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
         }
         const head = `apply_patch: ${verb} ${units.length} section(s)`;
         const body = (appliedTexts ? `${head}\n${appliedTexts}` : head) + dryNote + rejectedTail;
-        return wrapPatchMutationOutput(body, mutationPlan, { backend });
+        return wrapPatchMutationOutput(body, mutationPlan, { executor });
       }
       const failMsg = failed.error.replace(/^Error:\s*/, '');
       const rollbackErrors = (!dryRun && rollbackOnFailure)
@@ -499,7 +499,7 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
       if (skipped.length > 0) {
         lines.push(`--- skipped (not attempted): ${skipped.join(', ')} ---`);
       }
-      return wrapPatchMutationOutput(lines.join('\n') + dryNote + rejectedTail, mutationPlan, { backend });
+      return wrapPatchMutationOutput(lines.join('\n') + dryNote + rejectedTail, mutationPlan, { executor });
     }));
 }
 
@@ -723,9 +723,41 @@ function salvageShatteredV4APatchArgs(args) {
   return cleaned;
 }
 
+function extractInlinePatchRoot(patchText) {
+  const text = String(patchText || '');
+  const match = /^(\*\*\* Begin Patch\r?\n)\*\*\* Root:[ \t]*(.*?)\r?\n/.exec(text);
+  if (!match) return { patch: text, root: null };
+  const root = String(match[2] || '').trim();
+  if (!root) throw new Error('apply_patch: "*** Root:" requires a containing directory');
+  return {
+    patch: `${match[1]}${text.slice(match[0].length)}`,
+    root,
+  };
+}
+
+function isFilesystemRootSpecifier(value, cwd) {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  // Keep Windows semantics testable on every host and reject the ambiguous
+  // drive-relative spelling (`C:`) alongside an actual drive root.
+  if (/^[A-Za-z]:(?:[\\/]?)$/.test(raw)) return true;
+  const resolved = resolveBasePath(cwd, raw);
+  return pathDirname(resolved) === resolved;
+}
+
 async function apply_patch(args, cwd, options = {}) {
   args = salvageShatteredV4APatchArgs(args);
-  const patchStr = salvageV4AOpening((typeof args?.patch === 'string' ? args.patch : '').replace(/^\uFEFF/, ''));
+  let patchStr = salvageV4AOpening((typeof args?.patch === 'string' ? args.patch : '').replace(/^\uFEFF/, ''));
+  const inlineRoot = extractInlinePatchRoot(patchStr);
+  patchStr = inlineRoot.patch;
+  if (inlineRoot.root) {
+    const argumentRoot = typeof args?.root === 'string' ? args.root.trim() : '';
+    if (argumentRoot
+        && pathResolve(resolveBasePath(cwd, argumentRoot)) !== pathResolve(resolveBasePath(cwd, inlineRoot.root))) {
+      throw new Error('apply_patch: root argument conflicts with the "*** Root:" directive');
+    }
+    args = { ...(args || {}), root: inlineRoot.root };
+  }
   if (!patchStr.trim()) {
     throw new Error('apply_patch: "patch" is required (unified diff or V4A patch string)');
   }
@@ -761,7 +793,21 @@ async function apply_patch(args, cwd, options = {}) {
   // a mis-scoped working directory can never silently rewrite another tree.
   // Editing outside stays possible, but only as a deliberate act: name the
   // root that contains those targets in the same call.
-  const writeRoot = resolveBasePath(cwd, args?.root ?? args?.base_path ?? null);
+  const explicitRoot = typeof args?.root === 'string' && args.root.trim() ? args.root.trim() : null;
+  if (explicitRoot && isFilesystemRootSpecifier(explicitRoot, cwd)) {
+    throw new Error(`apply_patch: refusing filesystem root as write root: ${normalizeOutputPath(explicitRoot)}`);
+  }
+  const writeRoot = resolveBasePath(cwd, explicitRoot ?? args?.base_path ?? null);
+  if (explicitRoot) {
+    try {
+      await assertPathReachable(writeRoot);
+      if (!statSync(writeRoot).isDirectory()) {
+        throw new Error(`not a directory — ${normalizeOutputPath(writeRoot)}`);
+      }
+    } catch (err) {
+      throw new Error(`apply_patch: invalid write root ${normalizeOutputPath(writeRoot)}: ${err?.message || String(err)}`);
+    }
+  }
   const outsideTargets = [];
   for (const rel of patchTargetPaths(patchStr, basePath)) {
     const abs = isAbsolute(rel) ? pathResolve(rel) : pathResolve(basePath, rel);
@@ -773,7 +819,7 @@ async function apply_patch(args, cwd, options = {}) {
     const more = shown.length > 3 ? ` (+${shown.length - 3} more)` : '';
     throw new Error(
       `apply_patch: ${shown.length} target(s) fall outside the write root ${normalizeOutputPath(writeRoot)}: ${head}${more}. `
-      + 'Check the paths first; if they are intended, re-issue the same patch with root set to the directory that contains them.',
+      + 'Check the paths first; if intended, set root (JSON) or add "*** Root: <containing directory>" after "*** Begin Patch" (freeform).',
     );
   }
   const rejectPartial = args?.reject_partial !== false;
@@ -917,17 +963,17 @@ async function apply_patch(args, cwd, options = {}) {
     if (v4aRenameOnly) {
       const lines = formatV4ARenameSuccessLines(v4aRenameResults);
       if (lines.length === 0) return 'Error: patch contained no applicable file sections';
-      return wrapPatchMutationOutput(`${lines.join('\n')}\n`, mutationPlan, { backend: 'v4a-rename' });
+      return wrapPatchMutationOutput(`${lines.join('\n')}\n`, mutationPlan, { executor: 'v4a-rename' });
     }
     // Apply one wave (a set of unique targets) via applyParsedWave (native +
-    // JS split). Returns { backend, text } on success or { backend, error }.
+    // JS split). Returns { executor, text } on success or { executor, error }.
     const applyWave = (wave) => applyParsedWave(wave, basePath, { fuzz, rejectPartial, dryRun, fuzzy, readStateScope, abortSignal });
 
     // Duplicate-target blocks were split into contiguous sequential groups
     // (listed order preserved); apply them in order, each against the prior
     // group's on-disk result.
     const waveTexts = [];
-    let backend = 'native-patch';
+    let executor = 'native-patch';
     // dry_run never writes, so a later group would validate against unchanged
     // disk and false-fail on any block that depends on an earlier edit. Only
     // the first group is validated under dry_run; the rest are reported as
@@ -935,9 +981,9 @@ async function apply_patch(args, cwd, options = {}) {
     const groupCount = (dryRun && waveDispatch.length > 1) ? 1 : waveDispatch.length;
     for (let w = 0; w < groupCount; w++) {
       const res = await applyWave(waveDispatch[w]);
-      backend = res.backend;
+      executor = res.executor;
       if (res.error) {
-        if (w === 0) return wrapPatchMutationOutput(res.error, mutationPlan, { backend });
+        if (w === 0) return wrapPatchMutationOutput(res.error, mutationPlan, { executor });
         // A later group failed. rejectPartial makes each group all-or-nothing,
         // so every block in groups 1..w is fully committed to disk and left in
         // place. List them all so the caller knows the true on-disk state.
@@ -948,7 +994,7 @@ async function apply_patch(args, cwd, options = {}) {
           '--- failing block ---',
           failMsg,
         ].join('\n');
-        return wrapPatchMutationOutput(note, mutationPlan, { backend });
+        return wrapPatchMutationOutput(note, mutationPlan, { executor });
       }
       waveTexts.push(res.text);
     }
@@ -970,9 +1016,9 @@ async function apply_patch(args, cwd, options = {}) {
         `hunk-level rejected (rejectPartial=false, V4A): ${rejectedV4AHunks.length}`,
         ...rejectedV4AHunks.map((r) => `  REJECT ${r.file || '(unknown)'} — ${String(r.reason || '').split(';')[0].trim()}`),
       ];
-      return wrapPatchMutationOutput(`${combined}\n${tail.join('\n')}`, mutationPlan, { backend });
+      return wrapPatchMutationOutput(`${combined}\n${tail.join('\n')}`, mutationPlan, { executor });
     }
-    return wrapPatchMutationOutput(combined, mutationPlan, { backend });
+    return wrapPatchMutationOutput(combined, mutationPlan, { executor });
   };
 
   return withBuiltinPathLocks(_lockPaths, () =>

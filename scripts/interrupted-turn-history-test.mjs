@@ -35,7 +35,7 @@ test('transcript display hides user cancel rows and shows process-restart as can
         '../src/runtime/shared/tool-execution-contract.mjs'
     );
     const { restoreTranscriptItems } = await import(
-        '../src/tui/engine/session-api-ext.mjs'
+        '../src/tui/session/session-api-ext.mjs'
     );
     assert.equal(isInternalTranscriptDisplayText(USER_INTERRUPTION_MESSAGE), true);
     assert.equal(isInternalTranscriptDisplayText(TOOL_USE_INTERRUPTION_MESSAGE), true);
@@ -103,6 +103,19 @@ test('interrupted turns keep Claude Code-compatible model history boundaries', {
     const expectInterrupted = async (promise) => {
         await assert.rejects(promise, (error) => error?.name === 'SessionClosedError');
     };
+    const expectInterruptedWithin = async (promise, timeoutMs = 500) => {
+        let timer = null;
+        try {
+            await Promise.race([
+                expectInterrupted(promise),
+                new Promise((_, reject) => {
+                    timer = setTimeout(() => reject(new Error('runtime ask did not settle after abort')), timeoutMs);
+                }),
+            ]);
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+    };
 
     await t.test('before response: rewinds the provisional user turn', async () => {
         const session = createTestSession();
@@ -123,6 +136,20 @@ test('interrupted turns keep Claude Code-compatible model history boundaries', {
         assert.deepEqual(persisted.messages, baselineMessages);
         assert.equal(persisted.sessionStartMetaInjected === true, baselineSessionStart);
         assert.equal(persisted.liveTurnMessages, null);
+    });
+
+    await t.test('provider ignoring AbortSignal cannot pin askSession', async () => {
+        const session = createTestSession();
+        const entered = deferred();
+        provider.send = async () => {
+            entered.resolve();
+            return await new Promise(() => {});
+        };
+
+        const asking = askSession(session.id, 'ignore the abort signal', null, null, process.cwd());
+        await entered.promise;
+        assert.equal(abortSessionTurn(session.id, 'user-cancel'), true);
+        await expectInterruptedWithin(asking);
     });
 
     await t.test('released queued IDs keep their spool copy after cancellation rewinds the prompt', async () => {

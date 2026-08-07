@@ -23,6 +23,7 @@ import {
 } from './tool-helpers.mjs';
 import { isOnDeferredToolSurface, prepareDeferredToolCallThrough } from './deferred-call-through.mjs';
 import { preDispatchDenyForSession, routeWebFetchCall } from './pre-dispatch-deny.mjs';
+import { runWithToolExecutionOwner } from '../../../../shared/tool-execution-owner.mjs';
 
 let codeGraphRuntimePromise = null;
 async function executeCodeGraphToolLazy(name, args, cwd, signal = null, options = {}) {
@@ -30,6 +31,11 @@ async function executeCodeGraphToolLazy(name, args, cwd, signal = null, options 
     const mod = await codeGraphRuntimePromise;
     if (typeof mod.executeCodeGraphTool !== 'function') throw new Error('code_graph runtime is not available');
     return mod.executeCodeGraphTool(name, args, cwd, signal, options);
+}
+
+export function resolveLiveToolCwd(cwd, sessionRef) {
+    const liveCwd = typeof sessionRef?.cwd === 'string' ? sessionRef.cwd : '';
+    return liveCwd || cwd;
 }
 
 export function _scopedCacheOutcomeForCall(sessionRef, toolCallId, toolName, callerSessionId, executeOpts = {}) {
@@ -51,7 +57,16 @@ export function _scopedCacheOutcomeForCall(sessionRef, toolCallId, toolName, cal
     return outcome;
 }
 
-export async function executeTool(name, args, cwd, callerSessionId, sessionRef, executeOpts = {}) {
+export function executeTool(name, args, cwd, callerSessionId, sessionRef, executeOpts = {}) {
+    return runWithToolExecutionOwner(callerSessionId, () =>
+        executeToolOwned(name, args, cwd, callerSessionId, sessionRef, executeOpts));
+}
+
+async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, executeOpts = {}) {
+    // cwd is captured when the turn starts. The deferred cwd tool updates
+    // sessionRef.cwd in place, so every later tool call must re-read that live
+    // value instead of continuing to use the stale turn snapshot.
+    cwd = resolveLiveToolCwd(cwd, sessionRef);
     const scopedCacheOutcome = _scopedCacheOutcomeForCall(
         sessionRef,
         executeOpts.toolCallId,
@@ -174,7 +189,10 @@ export async function executeTool(name, args, cwd, callerSessionId, sessionRef, 
             && mcpToolHasField(name, 'cwd')
             && (args == null || args.cwd == null);
         const finalArgs = needsCwdInjection ? { ...(args || {}), cwd } : args;
-        return executeMcpTool(name, finalArgs);
+        return executeMcpTool(name, finalArgs, {
+            signal: executeOpts.signal || null,
+            ownerKey: callerSessionId,
+        });
     }
     if (name === 'code_graph') {
         // cwd chain: args.cwd (caller-explicit) → session cwd → undefined (handler throws)

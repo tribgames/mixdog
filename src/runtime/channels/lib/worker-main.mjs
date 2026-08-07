@@ -4,7 +4,7 @@ import * as path from "path";
 import { performance } from "perf_hooks";
 import { createRequire } from "module";
 const _require = createRequire(import.meta.url);
-import { loadConfig, createBackend, loadProfileConfig, DATA_DIR } from "./config.mjs";
+import { loadConfig, createProvider, loadProfileConfig, DATA_DIR } from "./config.mjs";
 import { resolveVoiceRuntime } from "./voice-runtime-fetcher.mjs";
 import { ensureReady, stopVoiceWhisperServer } from "./whisper-server.mjs";
 import { loadConfig as loadAgentConfig } from "../../agent/orchestrator/config.mjs";
@@ -63,7 +63,7 @@ import {
 } from "./crash-log.mjs";
 import { dropTrace, preview, _dtIdxFlush } from "./index-drop-trace.mjs";
 import { createVoiceTranscription } from "./voice-transcription.mjs";
-import { createBackendDispatch } from "./backend-dispatch.mjs";
+import { createProviderDispatch } from "./provider-dispatch.mjs";
 import { createParentBridge } from "./parent-bridge.mjs";
 import { createInboundRouting } from "./inbound-routing.mjs";
 import { createToolDispatch } from "./tool-dispatch.mjs";
@@ -136,7 +136,7 @@ if (isMixdogDebug()) {
 }
 const _bootLog = path.join(DATA_DIR, "boot.log");
 let config = await loadConfig();
-let backend = createBackend(config);
+let provider = createProvider(config);
 const INSTANCE_ID = makeInstanceId();
 const TERMINAL_LEAD_PID = getTerminalLeadPid();
 runWorkerBootstrap({
@@ -178,14 +178,14 @@ let typingChannelId = null;
 const pendingSetup = new PendingInteractionStore();
 function startServerTyping(channelId) {
   if (typingChannelId && typingChannelId !== channelId) {
-    backend.stopTyping(typingChannelId);
+    provider.stopTyping(typingChannelId);
   }
   typingChannelId = channelId;
-  backend.startTyping(channelId);
+  provider.startTyping(channelId);
 }
 function stopServerTyping() {
   if (typingChannelId) {
-    backend.stopTyping(typingChannelId);
+    provider.stopTyping(typingChannelId);
     typingChannelId = null;
   }
 }
@@ -219,23 +219,23 @@ const forwarder = new OutputForwarder({
     if (!channelBridgeActive) {
       throw new Error("send() called while channel bridge is inactive");
     }
-    await backend.sendMessage(ch, text, opts);
+    await provider.sendMessage(ch, text, opts);
   },
-  formatOutgoing: (text) => backend.formatOutgoing ? backend.formatOutgoing(text) : text,
+  formatOutgoing: (text) => provider.formatOutgoing ? provider.formatOutgoing(text) : text,
   recordAssistantTurn: async () => {
   },
   react: (ch, mid, emoji) => {
     if (!channelBridgeActive) return Promise.resolve();
-    return backend.react(ch, mid, emoji);
+    return provider.react(ch, mid, emoji);
   },
   removeReaction: (ch, mid, emoji) => {
     if (!channelBridgeActive) return Promise.resolve();
-    return backend.removeReaction(ch, mid, emoji);
+    return provider.removeReaction(ch, mid, emoji);
   },
-  // Watchdog backstop: force the backend to tear down + rebuild a wedged
+  // Watchdog backstop: force the provider to tear down + rebuild a wedged
   // client so an over-budget send fails fast and the queue releases.
-  resetBackend: async () => {
-    if (typeof backend?._resetClient === "function") await backend._resetClient();
+  resetProvider: async () => {
+    if (typeof provider?._resetClient === "function") await provider._resetClient();
   }
 }, statusState);
 forwarder.setOnIdle(() => {
@@ -305,7 +305,7 @@ let eventPipeline = null;
 let bridgeRuntimeConnected = false;
 // Stop-requested signal: set by stopOwnedRuntime() when it runs during the
 // startOwnedRuntime() in-flight window (bridgeRuntimeStarting=true). Checked
-// by startOwnedRuntime() right after backend.connect() resolves so the
+// by startOwnedRuntime() right after provider.connect() resolves so the
 // in-flight start does not revive owner state after the stop already tore
 // the partial-start state down.
 const ACTIVE_OWNER_STALE_MS = 1e4;
@@ -313,7 +313,7 @@ const ACTIVE_OWNER_STALE_MS = 1e4;
 // bindingReady gates all send paths until the boot-time refreshBridgeOwnership
 // ({ restoreBinding: true }) call completes. Without this, scheduler/webhook
 // emissions fired within the first ~few hundred ms after restart drop because
-// the Discord backend binding has not yet been established.
+// the Discord provider binding has not yet been established.
 let bindingReadyStatus = "pending";
 let _bindingReadyResolve;
 const bindingReady = new Promise((r) => { _bindingReadyResolve = r; });
@@ -328,7 +328,7 @@ const {
 } = createOwnerHeartbeat();
 // ── Owned-runtime lifecycle ─────────────────────────────────────────────────
 // Extracted -> lib/owned-runtime.mjs. Owns its own start/stop/refresh in-flight
-// flags + ownership timer + memory-drain timer; shares config/backend/
+// flags + ownership timer + memory-drain timer; shares config/provider/
 // bridgeRuntimeConnected/webhookServer/eventPipeline with the worker via get/set.
 const {
   startAutomationRuntime,
@@ -343,8 +343,8 @@ const {
 } = createOwnedRuntime({
   getConfig: () => config,
   setConfig: (v) => { config = v; },
-  getBackend: () => backend,
-  setBackend: (v) => { backend = v; },
+  getProvider: () => provider,
+  setProvider: (v) => { provider = v; },
   getBridgeRuntimeConnected: () => bridgeRuntimeConnected,
   setBridgeRuntimeConnected: (v) => { bridgeRuntimeConnected = v; },
   getWebhookServer: () => webhookServer,
@@ -423,10 +423,10 @@ function forwardLifecycleToDiscord(channelId, content) {
     // falling back to statusState.channelId can route to a stale/unrelated
     // channel when the caller did not supply one intentionally.
     const target = channelId || null;
-    dropTrace("send.lifecycle.entry", { channelId: target || "(none)", bindingReadyStatus, backendPresent: !!backend?.sendMessage, preview: preview(content) });
-    if (!target || !backend?.sendMessage) return;
+    dropTrace("send.lifecycle.entry", { channelId: target || "(none)", bindingReadyStatus, providerPresent: !!provider?.sendMessage, preview: preview(content) });
+    if (!target || !provider?.sendMessage) return;
     void bindingReady.then(() =>
-      backend.sendMessage(target, content)
+      provider.sendMessage(target, content)
         .then(() => dropTrace("send.lifecycle.ok", { channelId: target }))
         .catch((err) => dropTrace("send.lifecycle.err", { channelId: target, err: String(err) }))
     ).catch(() => {});
@@ -451,7 +451,7 @@ scheduler.setSendHandler(async (channelId, text) => {
   await bindingReady;
   dropTrace("send.scheduler.ready", { channelId });
   try {
-    await backend.sendMessage(channelId, text);
+    await provider.sendMessage(channelId, text);
     dropTrace("send.scheduler.ok", { channelId });
   } catch (err) {
     dropTrace("send.scheduler.err", { channelId, err: String(err) });
@@ -476,10 +476,10 @@ function wireWebhookHandlers() {
       prompt,
     });
     const mode = String(delivery || "app");
-    if ((mode === "channel" || mode === "both") && run?.result && backend?.sendMessage) {
+    if ((mode === "channel" || mode === "both") && run?.result && provider?.sendMessage) {
       const target = scheduler.resolveChannel("");
       if (target) {
-        void bindingReady.then(() => backend.sendMessage(target, run.result))
+        void bindingReady.then(() => provider.sendMessage(target, run.result))
           .catch((err) => dropTrace("send.webhook.err", { channelId: target, err: String(err) }));
       }
     }
@@ -503,7 +503,7 @@ const {
   pendingPermRequests,
   refreshToolExecConsumerMarker,
 } = createInteractionHandlers({
-  getBackend: () => backend,
+  getProvider: () => provider,
   getConfig: () => config,
   getBridgeRuntimeConnected: () => bridgeRuntimeConnected,
   instanceId: INSTANCE_ID,
@@ -536,7 +536,7 @@ import { TOOL_DEFS } from '../tool-defs.mjs';
 // bottom of this file (parent's `callWorker` → `handleToolCall`). There is no
 // orphan worker-level MCP Server: the parent (server.mjs) owns the single
 // connected transport and routes CallTool through the IPC `call` path.
-const BACKEND_TOOLS = /* @__PURE__ */ new Set(["reply", "fetch"]);
+const PROVIDER_TOOLS = /* @__PURE__ */ new Set(["reply", "fetch"]);
 // ── Inbound routing / dedup / ownership helpers ─────────────────────────────
 // Extracted → lib/inbound-routing.mjs. Bound to live config/identity getters.
 const {
@@ -548,17 +548,17 @@ const {
   getInstanceId: () => INSTANCE_ID,
   getChannelOwnerPath,
 });
-// ── Backend-tool dispatch helpers ───────────────────────────────────────────
-// Each helper dispatches through the local backend (this process is always the
-// owner in opt-in remote mode). Extracted → lib/backend-dispatch.mjs. Bound to
-// live config/backend getters so runtime reloads keep the original file-level
+// ── Provider-tool dispatch helpers ───────────────────────────────────────────
+// Each helper dispatches through the local provider (this process is always the
+// owner in opt-in remote mode). Extracted → lib/provider-dispatch.mjs. Bound to
+// live config/provider getters so runtime reloads keep the original file-level
 // reference semantics.
 const {
   dispatchReply,
   dispatchFetch,
-} = createBackendDispatch({
+} = createProviderDispatch({
   getConfig: () => config,
-  getBackend: () => backend,
+  getProvider: () => provider,
   scheduler,
 });
 // ── Worker/HTTP tool-call dispatch ──────────────────────────────────────────
@@ -574,7 +574,7 @@ const {
   handleToolCallWithBridgeRetry,
 } = createToolDispatch({
   getForwarder: () => forwarder,
-  BACKEND_TOOLS,
+  PROVIDER_TOOLS,
   isChannelsDegraded,
   dispatchReply,
   dispatchFetch,
@@ -623,7 +623,7 @@ const {
   },
 });
 createInboundHandler({
-  getBackend: () => backend,
+  getProvider: () => provider,
   getConfig: () => config,
   getBridgeRuntimeConnected: () => bridgeRuntimeConnected,
   getChannelBridgeActive: () => channelBridgeActive,
@@ -727,10 +727,10 @@ async function stop() {
   }
 }
 // ── IPC worker mode ──────────────────────────────────────────────
-// Skipped under the machine-global daemon (MIXDOG_CHANNEL_DAEMON=1): the
-// daemon entry (src/standalone/channel-daemon.mjs) drives start()/stop() and
+// Skipped under the machine-global host (MIXDOG_DAEMON_HOST=1): the daemon
+// entry (src/standalone/daemon.mjs) drives start()/stop() and
 // its own HTTP+SSE transport instead of the parent node-IPC call/notify loop.
-if (_isWorkerMode && process.send && process.env.MIXDOG_CHANNEL_DAEMON !== '1') {
+if (_isWorkerMode && process.send && process.env.MIXDOG_DAEMON_HOST !== '1') {
   runWorkerIpc({
     start,
     stop,
@@ -739,7 +739,7 @@ if (_isWorkerMode && process.send && process.env.MIXDOG_CHANNEL_DAEMON !== '1') 
     clearServerPid,
     instanceId: INSTANCE_ID,
     statusState,
-    getBackend: () => backend,
+    getProvider: () => provider,
     getConfig: () => config,
     pendingPermRequests,
     refreshToolExecConsumerMarker,

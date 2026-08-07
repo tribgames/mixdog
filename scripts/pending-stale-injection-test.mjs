@@ -21,8 +21,8 @@ const {
   acknowledgePendingMessages,
 } = await import('../src/runtime/agent/orchestrator/session/manager/pending-messages.mjs');
 const { appendTuiSteeringPersist, drainTuiSteeringPersist, flushTuiSteeringPersist } =
-  await import('../src/tui/engine/tui-steering-persist.mjs');
-const { createSessionFlow } = await import('../src/tui/engine/session-flow.mjs');
+  await import('../src/tui/session/tui-steering-persist.mjs');
+const { createSessionFlow } = await import('../src/tui/session/session-flow.mjs');
 
 const spoolPath = join(dataDir, 'session-pending-messages.json');
 const HOUR = 60 * 60 * 1000;

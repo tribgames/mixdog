@@ -15,6 +15,7 @@ process.env.MIXDOG_DATA_DIR = isolatedDataDir;
 if (!previousGraphBin && ambientGraphBin) process.env.MIXDOG_GRAPH_BIN = ambientGraphBin;
 
 const { executeCodeGraphTool } = await import('../src/runtime/agent/orchestrator/tools/code-graph/dispatch.mjs');
+const { _prewarmSourceTextNodes } = await import('../src/runtime/agent/orchestrator/tools/code-graph/search.mjs');
 const { drainCodeGraphCache } = await import('../src/runtime/agent/orchestrator/tools/code-graph/disk-cache.mjs');
 const project = await mkdtemp(join(tmpdir(), 'mixdog-code-graph-dispatch-project-'));
 const sourceDir = join(project, 'src');
@@ -47,6 +48,61 @@ test.after(async () => {
   else process.env.MIXDOG_DATA_DIR = previousDataDir;
   if (previousGraphBin === undefined) delete process.env.MIXDOG_GRAPH_BIN;
   else process.env.MIXDOG_GRAPH_BIN = previousGraphBin;
+});
+
+test('source prewarm bounds per-call reads and reuses fingerprinted cache entries', async () => {
+  const nodes = Array.from({ length: 24 }, (_, index) => ({
+    rel: `src/file-${index}.mjs`,
+    abs: `virtual-${index}`,
+    fingerprint: `fp-${index}`,
+  }));
+  const graph = { _sourceTextCache: new Map() };
+  let active = 0;
+  let peak = 0;
+  let calls = 0;
+  const readFileImpl = async (path) => {
+    calls += 1;
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setImmediate(resolve));
+    active -= 1;
+    return `export const value = ${JSON.stringify(path)};`;
+  };
+  await _prewarmSourceTextNodes(graph, nodes, { concurrency: 3, readFileImpl });
+  assert.equal(peak, 3);
+  assert.equal(calls, nodes.length);
+  assert.equal(graph._sourceTextCache.size, nodes.length);
+  await _prewarmSourceTextNodes(graph, nodes, { concurrency: 3, readFileImpl });
+  assert.equal(calls, nodes.length, 'matching fingerprints must stay cache hits');
+});
+
+test('source prewarm globally caps a 32-owner burst', async () => {
+  let active = 0;
+  let peak = 0;
+  const calls = Array.from({ length: 32 }, (_, index) => {
+    const node = {
+      rel: `src/session-${index}.mjs`,
+      abs: `virtual-session-${index}`,
+      fingerprint: `session-fp-${index}`,
+    };
+    return _prewarmSourceTextNodes(
+      { _sourceTextCache: new Map() },
+      [node],
+      {
+        ownerKey: `session-${index}`,
+        readFileImpl: async () => {
+          active += 1;
+          peak = Math.max(peak, active);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          active -= 1;
+          return 'export const ok = true;';
+        },
+      },
+    );
+  });
+  await Promise.all(calls);
+  assert.ok(peak > 1, `burst unexpectedly serialized at peak=${peak}`);
+  assert.ok(peak <= 16, `global source-I/O cap exceeded: peak=${peak}`);
 });
 
 test('dispatch partitions every file and symbol mode by its supported target array', async () => {

@@ -2,7 +2,7 @@
 // Remote mode is opt-in per session — only a session that turns it on boots the
 // channel worker and contends for the machine-global bridge seat. Extracted
 // from runtime-core, which injects the mutable session/remote state it owns.
-import { startMemoryDaemonEagerly } from './memory-daemon-probe.mjs';
+import { prewarmMemoryRuntime } from './memory-runtime-prewarm.mjs';
 
 export function createRemoteControl({
   getSession,
@@ -16,7 +16,7 @@ export function createRemoteControl({
   channels,
   channelsEnabled,
   hasActiveAutomation,
-  flushBackendSave,
+  flushChannelProviderSave,
   invokeChannelStart,
   createCurrentSession,
   ensureRemoteTranscriptWriter,
@@ -31,9 +31,8 @@ export function createRemoteControl({
   function startRemote() {
     setRemoteEnabled(true);
     setRemoteSessionId(getSession()?.id || null);
-    // The worker forwards transcript ingests to the memory service, so its port
-    // must be live before the first ingest.
-    startMemoryDaemonEagerly({ getMemoryModule, bootProfile });
+    // Warm the daemon-hosted memory module before the first remote ingest.
+    prewarmMemoryRuntime({ getMemoryModule, bootProfile });
     // Publish the session record + transcript file BEFORE the worker's
     // activate-time discovery polls, so forwarding binds to THIS terminal
     // instead of a stale neighbour. A no-op in lazy mode; the turn-start rebind
@@ -54,9 +53,9 @@ export function createRemoteControl({
           bootProfile('channels:start-disabled');
           return isRemoteEnabled();
         }
-        // A backend switch may still be writing; drain it before the worker
+        // A channel provider switch may still be writing; drain it before the worker
         // reads config rather than racing a sync lock wait.
-        try { await flushBackendSave(); } catch { /* best-effort */ }
+        try { await flushChannelProviderSave(); } catch { /* best-effort */ }
         // Yield before the create/transcript/fork chain so Ink's queued render
         // and input handling are not starved by this detached chain.
         await new Promise((resolve) => setImmediate(resolve));

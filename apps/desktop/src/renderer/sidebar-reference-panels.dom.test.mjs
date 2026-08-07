@@ -17,6 +17,10 @@ const { OpenSelect } = await import('./OpenSelect.tsx');
 const { StatusPopover } = await import('./StatusPopover.tsx');
 const { StudioModelMenu } = await import('./StudioModelMenu.tsx');
 const {
+  DESKTOP_TOAST_DISMISS_EVENT,
+  DESKTOP_TOAST_EVENT,
+} = await import('./notifications.tsx');
+const {
   invalidateSidebarReferenceForMutation,
   prewarmSidebarReferences,
   readSidebarReference,
@@ -77,7 +81,7 @@ function referenceApi() {
       if (capability === 'getChannelSetup') {
         return {
           value: {
-            backend: 'discord',
+            provider: 'discord',
             channel: { discordChannelId: '111' },
             webhook: { publicUrl: 'https://relay.example/hook/device-1' },
             schedules: state.schedules,
@@ -233,7 +237,7 @@ test('scroll surfaces spend one shared gutter inside their existing inline inset
     /\.thread\s*\{[^}]*width:\s*100%;[^}]*padding:\s*20px 0 0;/s,
     'the timeline stays full-width so virtual rows own their measured geometry');
   assert.match(css,
-    /\.transcript-virtual-row-content\[data-tag="UserMessage"\],[\s\S]*?\.transcript-virtual-row-content\[data-tag="Error"\]\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*var\(--pane-scroll-column\);[^}]*margin-inline:\s*auto;[^}]*padding-left:\s*var\(--pane-inset\);[^}]*padding-right:\s*calc\(var\(--pane-inset\) - var\(--mx-scrollbar-size\)\);/s,
+    /\.transcript-virtual-row-content\[data-tag="UserMessage"\],[\s\S]*?\.transcript-virtual-row-content\[data-tag="Error"\]\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*var\(--pane-scroll-column\);[^}]*margin-inline:\s*auto;[^}]*padding-left:\s*calc\(var\(--pane-inset\) \+ var\(--composer-text-inset\)\);[^}]*padding-right:\s*calc\(var\(--pane-inset\) \+ var\(--composer-text-inset\) - var\(--mx-scrollbar-size\)\);/s,
     'projected rows spend the single scrollbar reserve inside their centered reading frame');
   assert.match(css,
     /\.workspace > \.session-header,\s*\.conversation,\s*\.studio-shell\s*\{[^}]*--pane-inset:\s*20px;[^}]*--pane-column:\s*100%;[^}]*--pane-scroll-column:\s*100%;/s,
@@ -484,6 +488,8 @@ test('a mutation invalidates the shared channel setup and refreshes the list', a
 test('a failed revalidation keeps the panel rows on screen', async () => {
   mount();
   const { api, state } = referenceApi();
+  let toast;
+  window.addEventListener(DESKTOP_TOAST_EVENT, (event) => { toast = event.detail; });
   await act(async () => {
     root.render(React.createElement(SchedulesPane, { api, active: false }));
     await Promise.resolve();
@@ -498,7 +504,8 @@ test('a failed revalidation keeps the panel rows on screen', async () => {
   });
 
   assert.deepEqual(rowNames(), ['daily'], 'a failed refresh must retain the stale snapshot');
-  assert.match(document.querySelector('[role="alert"]').textContent, /host offline/);
+  assert.match(toast?.text || '', /host offline/);
+  assert.equal(document.querySelector('[role="alert"]'), null);
 });
 
 test('switching the host never paints the previous host rows', async () => {
@@ -580,6 +587,8 @@ test('workflows filters the search catalog to configured providers', async () =>
 test('default agent routes save only from their overflow-owned editor', async () => {
   mount();
   const { api, counts } = workflowsApi();
+  let toast;
+  window.addEventListener('mixdog:desktop-toast', (event) => { toast = event.detail; }, { once: true });
   await act(async () => {
     root.render(React.createElement(WorkflowsPane, { api, active: true }));
     await Promise.resolve();
@@ -599,6 +608,11 @@ test('default agent routes save only from their overflow-owned editor', async ()
   });
   assert.equal(counts.setSearchRoute, 1);
   assert.equal(document.querySelector('#route-dialog-title'), null);
+  assert.deepEqual({ text: toast?.text, tone: toast?.tone }, {
+    text: 'Saved "Web search" route.',
+    tone: 'success',
+  });
+  assert.equal(document.querySelector('.schedules-feedback-slot'), null);
 });
 
 test('workflow creation lives beside the Workflows heading', async () => {
@@ -800,18 +814,21 @@ test('a host swap never surfaces the previous host error', async () => {
   mount();
   const first = referenceApi();
   first.state.fail = 'host offline';
+  let toast;
+  let dismissed = '';
+  window.addEventListener(DESKTOP_TOAST_EVENT, (event) => { toast = event.detail; });
+  window.addEventListener(DESKTOP_TOAST_DISMISS_EVENT, (event) => { dismissed = event.detail; });
   await act(async () => {
     root.render(React.createElement(SchedulesPane, { api: first.api, active: true }));
     await Promise.resolve();
   });
-  assert.match(document.querySelector('[role="alert"]').textContent, /host offline/);
+  assert.match(toast?.text || '', /host offline/);
 
   const second = referenceApi();
   act(() => {
     root.render(React.createElement(SchedulesPane, { api: second.api, active: true }));
   });
-  assert.equal(document.querySelector('[role="alert"]'), null,
-    'host B first paint must not inherit host A failure');
+  assert.equal(dismissed, toast.id, 'host B first paint must dismiss host A failure');
 
   await act(async () => {
     await Promise.resolve();

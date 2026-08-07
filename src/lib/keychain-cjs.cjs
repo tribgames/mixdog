@@ -6,7 +6,7 @@ const fs = require('fs');
 const { resolvePluginData } = require('./plugin-paths.cjs');
 
 const SERVICE = 'mixdog';
-// Shared bound for every synchronous keychain backend (DPAPI/PowerShell on
+// Shared bound for every synchronous keychain provider (DPAPI/PowerShell on
 // Windows, security(1) on macOS). A single env override keeps them consistent.
 const KEYCHAIN_TIMEOUT_MS = Number(process.env.MIXDOG_KEYCHAIN_TIMEOUT_MS || 15000);
 const POWERSHELL_TIMEOUT_MS = KEYCHAIN_TIMEOUT_MS;

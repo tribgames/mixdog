@@ -1,10 +1,10 @@
 // Per-session snapshot cache: switching back to a recently viewed session shows
-// its last transcript immediately instead of an empty frame while the engine
+// its last transcript immediately instead of an empty frame while the session
 // re-attaches. Bounded by BOTH count and estimated retained JS bytes so six
 // unusually large transcripts cannot pin the renderer heap indefinitely.
 import { useCallback, useEffect, useRef } from "react";
 
-import type { EngineSnapshot } from "../shared/contract";
+import type { SessionSnapshot } from "../shared/contract";
 import type { Snapshot } from "./desktop-types";
 import type { DesktopSnapshotStore } from "./desktop-snapshot-store";
 
@@ -56,7 +56,7 @@ interface SnapshotCacheEntry {
 }
 
 export interface SessionSnapshotCache {
-  remember(snapshot: EngineSnapshot | Snapshot | null | undefined): void;
+  remember(snapshot: SessionSnapshot | Snapshot | null | undefined): void;
   get(sessionId: string): Snapshot | null;
   forget(sessionId: string): void;
 }
@@ -116,7 +116,7 @@ export function useSessionSnapshotCache(snapshotStore: DesktopSnapshotStore) {
   const cacheRef = useRef<SessionSnapshotCache | null>(null);
   cacheRef.current ||= createSessionSnapshotCache();
 
-  const rememberSessionSnapshot = useCallback((next: EngineSnapshot | Snapshot | null | undefined) => {
+  const rememberSessionSnapshot = useCallback((next: SessionSnapshot | Snapshot | null | undefined) => {
     cacheRef.current?.remember(next);
   }, []);
 

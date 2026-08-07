@@ -345,12 +345,12 @@ function UpdatePanel({
 }
 
 function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pending'>) {
-  const backendTheme = String(data.theme || 'basic');
+  const loadedTheme = String(data.theme || 'basic');
   const [preference, setPreference] = useState<DesktopThemePreference>(() =>
-    getDesktopThemePreference() || desktopThemePreferenceForTheme(backendTheme));
+    getDesktopThemePreference() || desktopThemePreferenceForTheme(loadedTheme));
   useEffect(() => {
-    setPreference(getDesktopThemePreference() || desktopThemePreferenceForTheme(backendTheme));
-  }, [backendTheme]);
+    setPreference(getDesktopThemePreference() || desktopThemePreferenceForTheme(loadedTheme));
+  }, [loadedTheme]);
   // Desktop-local theme (user decision): the toggle persists to desktop
   // storage only and never writes the engine/TUI theme.
   const choose = (next: string) => {
@@ -849,14 +849,14 @@ function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
   const progress = record(record(snapshot).progressHint);
   const voiceComponents = record(voice.components);
   const busy = Boolean(pending);
-  const persistedBackend = String(setup.backend || 'discord');
-  const [backend, setBackendChoice] = useState(persistedBackend);
-  const optimisticBackend = useRef<string | null>(null);
+  const persistedProvider = String(setup.provider || 'discord');
+  const [provider, setChannelProviderChoice] = useState(persistedProvider);
+  const optimisticProvider = useRef<string | null>(null);
   useEffect(() => {
-    if (optimisticBackend.current && optimisticBackend.current !== persistedBackend) return;
-    optimisticBackend.current = null;
-    setBackendChoice(persistedBackend);
-  }, [persistedBackend]);
+    if (optimisticProvider.current && optimisticProvider.current !== persistedProvider) return;
+    optimisticProvider.current = null;
+    setChannelProviderChoice(persistedProvider);
+  }, [persistedProvider]);
   return <>
     <Group title="Channel service">
       {/* Messaging-only toggle: schedules/webhooks run sessions through the
@@ -870,15 +870,15 @@ function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
           toggle that resets on every NEW TASK entry (user decision), so a
           persistent settings default would be dead weight — the header toggle
           on the draft is the only control. */}
-      <SelectRow title="Channel" description="Primary outbound channel backend." value={backend} disabled={busy}
+      <SelectRow title="Channel" description="Primary outbound channel provider." value={provider} disabled={busy}
         options={[{ value: 'discord', label: 'Discord' }, { value: 'telegram', label: 'Telegram' }]}
         onChange={(value) => {
-          optimisticBackend.current = value;
-          setBackendChoice(value);
-          void run('setBackend', [value], 'channel-backend', false).then((result) => {
+          optimisticProvider.current = value;
+          setChannelProviderChoice(value);
+          void run('setChannelProvider', [value], 'channel-provider', false).then((result) => {
             if (result === undefined) {
-              optimisticBackend.current = null;
-              setBackendChoice(persistedBackend);
+              optimisticProvider.current = null;
+              setChannelProviderChoice(persistedProvider);
               return;
             }
             const channelLabel = value === 'telegram' ? 'Telegram' : 'Discord';
@@ -901,17 +901,17 @@ function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
       <SecretForm title="Discord bot token" status={record(setup.discord)} disabled={busy}
         onSave={(secret) => void run('saveDiscordToken', [secret])} />
       <AutoSaveRow title="Main channel" name="discordChannelId"
-        value={String(channel.discordChannelId || (setup.backend !== 'telegram' ? channel.channelId || '' : ''))}
+        value={String(channel.discordChannelId || (setup.provider !== 'telegram' ? channel.channelId || '' : ''))}
         placeholder="Discord channel ID" required disabled={busy}
-        onSave={(channelId) => void run('setChannel', [{ backend: 'discord', channelId }])} />
+        onSave={(channelId) => void run('setChannel', [{ provider: 'discord', channelId }])} />
     </Group>
     <Group title="Telegram">
       <SecretForm title="Telegram bot token" status={record(setup.telegram)} disabled={busy}
         onSave={(secret) => void run('saveTelegramToken', [secret])} />
       <AutoSaveRow title="Main chat" name="telegramChatId"
-        value={String(channel.telegramChatId || (setup.backend === 'telegram' ? channel.channelId || '' : ''))}
+        value={String(channel.telegramChatId || (setup.provider === 'telegram' ? channel.channelId || '' : ''))}
         placeholder="Telegram chat ID" required disabled={busy}
-        onSave={(channelId) => void run('setChannel', [{ backend: 'telegram', channelId }])} />
+        onSave={(channelId) => void run('setChannel', [{ provider: 'telegram', channelId }])} />
     </Group>
     {/* No Webhook ingress group: the relay URL is issued automatically and
         surfaces per endpoint (Copy URL) on the main-pane Webhooks page. */}

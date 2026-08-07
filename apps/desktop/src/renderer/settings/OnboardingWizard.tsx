@@ -67,7 +67,7 @@ const STEPS = [
     id: 'providers',
     label: 'Providers',
     title: 'Connect your providers',
-    subtitle: 'Sign in with API keys, OAuth, or a local endpoint — the same backend as the Mixdog TUI.',
+    subtitle: 'Sign in with API keys, OAuth, or a local endpoint — the same provider as the Mixdog TUI.',
   },
   {
     id: 'models',
@@ -1110,7 +1110,7 @@ function ProfileStep({ profile, pending, run, onProfile }: {
 }
 
 // Beginner guide copy for the built-in workflow packs; custom packs fall back
-// to their own backend description.
+// to their own provider description.
 const WORKFLOW_GUIDE: Record<string, { icon: typeof Users; tagline: string; points: string[] }> = {
   cowork: {
     icon: Users,
@@ -1213,7 +1213,7 @@ function ContextStep({ recapEnabled, autoClearOn, compactAuto, pending, run, onR
     <div className="onboarding-context-rows">
       {lifecycle.map((row) => <div className="onboarding-context-row" key={row.key}>
         <div><b>{row.label}</b><small>{row.hint}</small></div>
-        <div className="onboarding-backend-toggle" role="group" aria-label={row.label}>
+        <div className="onboarding-provider-toggle" role="group" aria-label={row.label}>
           {([[true, 'On'], [false, 'Off']] as const).map(([value, name]) => <button key={name} type="button"
             className={row.value === value ? 'active' : ''} disabled={Boolean(pending)}
             onClick={() => {
@@ -1233,13 +1233,13 @@ function ChannelsStep({ setup, pending, run, onReload }: {
   onReload(): void;
 }) {
   const channel = record(setup.channel);
-  const activeBackend = String(setup.backend || 'discord');
+  const activeProvider = String(setup.provider || 'discord');
   const discordReady = record(setup.discord).authenticated === true;
   const telegramReady = record(setup.telegram).authenticated === true;
   // Connected tokens hide their input (an empty password box reads broken);
   // Replace reopens the field.
   const [editingToken, setEditingToken] = useState<Record<string, boolean>>({});
-  const backends = [
+  const providers = [
     { id: 'discord' as const, name: 'Discord', save: 'saveDiscordToken' as const,
       status: record(setup.discord), tokenPlaceholder: 'Discord bot token',
       targetLabel: 'Main channel', targetHint: 'Where Mixdog posts and listens',
@@ -1256,63 +1256,63 @@ function ChannelsStep({ setup, pending, run, onReload }: {
       <h3>Active channel</h3>
       <div className="onboarding-provider-list">
         <div className="onboarding-provider-row onboarding-provider-row--plain">
-          <div><b>Use for messaging</b><small>Mixdog talks through this backend</small></div>
-          <div className="onboarding-backend-toggle" role="group" aria-label="Active channel backend">
+          <div><b>Use for messaging</b><small>Mixdog talks through this provider</small></div>
+          <div className="onboarding-provider-toggle" role="group" aria-label="Active channel provider">
             {([['discord', 'Discord', discordReady], ['telegram', 'Telegram', telegramReady]] as const)
               .map(([id, name, ready]) => <button key={id} type="button"
-                className={activeBackend === id ? 'active' : ''}
+                className={activeProvider === id ? 'active' : ''}
                 disabled={Boolean(pending) || !ready}
                 onClick={() => {
-                  if (activeBackend === id) return;
-                  void run('setBackend', [id], 'onboarding-backend')
+                  if (activeProvider === id) return;
+                  void run('setChannelProvider', [id], 'onboarding-provider')
                     .then((result) => { if (result !== undefined) onReload(); });
                 }}>{name}</button>)}
           </div>
         </div>
       </div>
     </div>}
-    {backends.map((backend) => <div className="onboarding-model-section" key={backend.id}>
-      <h3>{backend.name}</h3>
+    {providers.map((provider) => <div className="onboarding-model-section" key={provider.id}>
+      <h3>{provider.name}</h3>
       <div className="onboarding-provider-list">
         <form onSubmit={(event) => {
           event.preventDefault();
           const form = event.currentTarget;
           const secret = new FormData(form).get('secret');
-          void run(backend.save, [secret], `onboarding-${backend.id}-token`).then((result) => {
+          void run(provider.save, [secret], `onboarding-${provider.id}-token`).then((result) => {
             if (result !== undefined) {
               form.reset();
-              setEditingToken((state) => ({ ...state, [backend.id]: false }));
+              setEditingToken((state) => ({ ...state, [provider.id]: false }));
               onReload();
             }
           });
         }}>
           <div><b>Bot token</b>
-            <small>{backend.status.authenticated
+            <small>{provider.status.authenticated
               ? 'Connected'
-              : String(backend.status.detail || backend.status.status || 'Create a bot and paste its token')}</small></div>
-          {backend.status.authenticated && !editingToken[backend.id]
+              : String(provider.status.detail || provider.status.status || 'Create a bot and paste its token')}</small></div>
+          {provider.status.authenticated && !editingToken[provider.id]
             ? <>
               <input className="masked" value="••••••••••••••••" readOnly disabled
-                aria-label={`${backend.name} bot token (saved)`} />
+                aria-label={`${provider.name} bot token (saved)`} />
               <button type="button" className="ghost" disabled={Boolean(pending)}
-                onClick={() => setEditingToken((state) => ({ ...state, [backend.id]: true }))}>Replace</button>
+                onClick={() => setEditingToken((state) => ({ ...state, [provider.id]: true }))}>Replace</button>
             </>
             : <>
-              <input name="secret" type="password" autoComplete="off" placeholder={backend.tokenPlaceholder} required />
-              <button disabled={Boolean(pending)}>{backend.status.authenticated ? 'Save' : 'Connect'}</button>
-              {backend.status.authenticated && <button type="button" className="ghost" disabled={Boolean(pending)}
-                onClick={() => setEditingToken((state) => ({ ...state, [backend.id]: false }))}>Cancel</button>}
+              <input name="secret" type="password" autoComplete="off" placeholder={provider.tokenPlaceholder} required />
+              <button disabled={Boolean(pending)}>{provider.status.authenticated ? 'Save' : 'Connect'}</button>
+              {provider.status.authenticated && <button type="button" className="ghost" disabled={Boolean(pending)}
+                onClick={() => setEditingToken((state) => ({ ...state, [provider.id]: false }))}>Cancel</button>}
             </>}
         </form>
         <form onSubmit={(event) => {
           event.preventDefault();
           const channelId = new FormData(event.currentTarget).get('channelId');
-          void run('setChannel', [{ backend: backend.id, channelId }], `onboarding-${backend.id}-target`)
+          void run('setChannel', [{ provider: provider.id, channelId }], `onboarding-${provider.id}-target`)
             .then((result) => { if (result !== undefined) onReload(); });
         }}>
-          <div><b>{backend.targetLabel}</b><small>{backend.targetHint}</small></div>
-          <input name="channelId" defaultValue={backend.targetValue}
-            placeholder={backend.targetPlaceholder} required />
+          <div><b>{provider.targetLabel}</b><small>{provider.targetHint}</small></div>
+          <input name="channelId" defaultValue={provider.targetValue}
+            placeholder={provider.targetPlaceholder} required />
           <button disabled={Boolean(pending)}>Save</button>
         </form>
       </div>

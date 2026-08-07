@@ -121,10 +121,7 @@ export function createHttpRouter({
   const _ownerInFlightHttpCalls = new Map()
 
   const requestHandler = async (req, res) => {
-    touchDaemonIdleTimer(`${req.method || 'HTTP'} ${req.url || '/'}`)
-    // Connected-client lifecycle. Proxies register on first use and
-    // deregister on CLI shutdown; the daemon reaps itself shortly after the
-    // last client leaves (see registerClient/deregisterClient in index.mjs).
+    touchDaemonIdleTimer?.(`${req.method || 'HTTP'} ${req.url || '/'}`)
     if (req.method === 'POST' && (req.url === '/client/register' || req.url === '/client/deregister')) {
       if (!isLocalOrigin(req)) {
         sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403)
@@ -136,8 +133,6 @@ export function createHttpRouter({
       if (req.url === '/client/register') {
         const accepted = registerClient?.(clientPid)
         if (accepted === false) {
-          // Daemon is draining — distinct signal so the proxy respawns a fresh
-          // daemon and retries its pending RPC instead of binding to this one.
           sendJson(res, { ok: false, draining: true, error: 'memory worker draining' }, 503)
           return
         }

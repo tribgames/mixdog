@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { backendChildEnvironment } from './backend-child-environment';
+import { childEnvironment } from './child-environment';
 
 import type {
   DesktopGithubCliAccount,
@@ -27,7 +27,7 @@ function run(file: string, args: string[], timeout = 15_000): Promise<RunResult>
     execFile(file, args, {
       timeout,
       windowsHide: true,
-      env: backendChildEnvironment(),
+      env: childEnvironment(),
     }, (error, stdout, stderr) => {
       if (!error) {
         resolve({ code: 0, stdout: String(stdout || ''), stderr: String(stderr || '') });
@@ -184,7 +184,7 @@ export async function githubCliLoginStart(): Promise<DesktopGithubCliLoginFlow> 
       cols: 120,
       rows: 30,
       cwd: homedir(),
-      env: backendChildEnvironment() as Record<string, string>,
+      env: childEnvironment() as Record<string, string>,
     },
   );
   entry.pty = pty;

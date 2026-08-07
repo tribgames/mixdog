@@ -1,11 +1,19 @@
 // Eager tool-dispatch controller, extracted from agent-loop.mjs. Owns the
 // per-turn pending promise map, the intra-turn in-flight signature set, and
-// the mutation epoch. Every valid call may start while the provider is still
-// streaming, including apply_patch and shell in the same batch. Tool-local
-// conflict guards own safety; results are collected later in call order.
+// the mutation epoch. Every valid call dispatches while the provider is still
+// streaming. Calls execute in parallel except that shell after apply_patch
+// waits for every earlier patch in the turn; results are collected later in
+// call order.
 import { normalizeToolEnvelope } from './tool-envelope.mjs';
 import { isInvalidToolArgsMarker } from '../providers/openai-compat-stream.mjs';
-import { _intraTurnSig, _isReadTool, _isScopedCacheableTool, _stripMcpPrefix } from './loop/tool-classify.mjs';
+import {
+    _intraTurnSig,
+    _isMutationTool,
+    _isReadTool,
+    _isScopedCacheableTool,
+    _isShellTool,
+    _stripMcpPrefix,
+} from './loop/tool-classify.mjs';
 import { tryReadCached, tryScopedToolCached } from './read-dedup.mjs';
 import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
@@ -18,6 +26,10 @@ export function createEagerDispatcher({
     executeToolFn = executeTool,
 }) {
         const pending = new Map();
+        // Cumulative settlement barrier for patches already emitted in this
+        // assistant turn. Patches remain path-parallel with each other; only a
+        // later shell waits, so validation cannot observe pre-patch files.
+        let patchBarrier = Promise.resolve();
         // Streaming-time intra-turn dedup. When the LLM emits two
         // tool_use blocks with identical (name, args) signatures in
         // sequence, the provider's onToolCall fires for both BEFORE
@@ -90,9 +102,11 @@ export function createEagerDispatcher({
             // this call there, never start it eagerly here.
             if (preDispatchDenyForSession(sessionRef, call, toolKind) !== null) return null;
             const entry = { startedAt: Date.now(), endedAt: null, mutationEpoch: epoch.mutation };
+            const precedingPatches = _isShellTool(call.name) ? patchBarrier : null;
             if (_dedupEligible) _eagerInFlightSigs.set(_sig, call.id);
             entry.promise = (async () => {
                 try {
+                    if (precedingPatches) await precedingPatches;
                     await opts.beforeToolExecution?.();
                     return { ok: true, value: await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: getNextIteration(), deferShellCwdCommit: true }) };
                 } catch (error) {
@@ -152,6 +166,10 @@ export function createEagerDispatcher({
                     return settled;
                 });
             pending.set(call.id, entry);
+            if (_isMutationTool(call.name)) {
+                const currentPatch = entry.promise;
+                patchBarrier = Promise.allSettled([patchBarrier, currentPatch]).then(() => undefined);
+            }
             return entry;
         };
         const startEagerRun = (calls, startIndex, dupSet) => {

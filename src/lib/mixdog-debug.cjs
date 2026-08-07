@@ -102,8 +102,7 @@ const CANONICAL_PLUGIN_LOG_NAMES = new Set([
   'webhook.log',
   'perf.log',
   'tool-events.log',
-  'memory-runtime-proxy.log',
-  'channels-worker-standalone.log',
+  'daemon.log',
   'mixdog-tui.stderr.log',
 ]);
 
@@ -183,7 +182,7 @@ function rotateBoundedLog(filePath, maxBytes, keepBytes) {
 }
 
 // Shared bound for unbounded per-writer plugin logs (tool-events,
-// memory-runtime-proxy, channels-worker-standalone). Keep a tail so recent
+// memory runtime and daemon logs). Keep a tail so recent
 // context survives rotation while the file stays under the 10 MB cap.
 const PLUGIN_LOG_MAX_BYTES = 10 * 1024 * 1024;
 const PLUGIN_LOG_KEEP_BYTES = 2 * 1024 * 1024;

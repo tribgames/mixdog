@@ -17,7 +17,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -233,6 +233,10 @@ test('A6 the cold summary reader keeps its authority when storage cannot be read
         messages: [{ role: 'user', content: 'cold reader row' }],
         tools: [],
     }), 'utf8');
+    // Give the canonical bytes an older, stable fingerprint before recording
+    // that exact fingerprint in the durable summary row.
+    utimesSync(path, new Date(now - 10_000), new Date(now - 10_000));
+    const initialFile = statSync(path);
     writeFileSync(indexPath, JSON.stringify({
         version: 2,
         rows: [{
@@ -245,11 +249,26 @@ test('A6 the cold summary reader keeps its authority when storage cannot be read
             createdAt: now,
             messageCount: 1,
             preview: 'cold reader row',
+            storageMtimeMs: initialFile.mtimeMs,
+            storageSize: initialFile.size,
         }],
     }), 'utf8');
+    utimesSync(indexPath, new Date(now), new Date(now));
     const hasRow = (rows) => rows.some((row) => row.id === id);
     assert.equal(hasRow(reader.listStoredSessionSummaries()), true, 'baseline: the row is catalogued');
     assert.equal(hasRow(reader.listStoredSessionSummaries({ refreshFromStorage: true })), true, 'baseline: scan sees it');
+
+    let unchangedReads = 0;
+    assert.equal(_setStatProbeFaultHook((probed, phase) => {
+        if (phase === 'read' && String(probed) === path) unchangedReads += 1;
+        return null;
+    }), true, 'incremental read counter armed');
+    try {
+        assert.equal(hasRow(reader.listStoredSessionSummaries()), true);
+    } finally {
+        _setStatProbeFaultHook(null);
+    }
+    assert.equal(unchangedReads, 0, 'unchanged transcript bytes are not reopened');
 
     const withFault = (hook, run) => {
         assert.equal(_setStatProbeFaultHook(hook), true, 'cold-read seam armed');
@@ -288,7 +307,36 @@ test('A6 the cold summary reader keeps its authority when storage cannot be read
         'an unreadable index falls back to the files, not to nothing',
     );
 
-    // 4. Control: proven absence (ENOENT) does drop the row from the scan.
+    // 4. A file newer than the index is the only row reparsed.
+    writeFileSync(path, JSON.stringify({
+        id,
+        owner: 'user',
+        agent: 'lead',
+        status: 'idle',
+        closed: false,
+        generation: 0,
+        createdAt: now,
+        updatedAt: now + 20_000,
+        lastUsedAt: now + 20_000,
+        messages: [{ role: 'user', content: 'incremental reader changed row' }],
+        tools: [],
+    }), 'utf8');
+    utimesSync(path, new Date(now + 20_000), new Date(now + 20_000));
+    let changedReads = 0;
+    assert.equal(_setStatProbeFaultHook((probed, phase) => {
+        if (phase === 'read' && String(probed) === path) changedReads += 1;
+        return null;
+    }), true, 'changed read counter armed');
+    let changedRows;
+    try {
+        changedRows = reader.listStoredSessionSummaries();
+    } finally {
+        _setStatProbeFaultHook(null);
+    }
+    assert.equal(changedReads, 1, 'the changed transcript is read exactly once');
+    assert.match(changedRows.find((row) => row.id === id)?.preview || '', /incremental reader changed row/);
+
+    // 5. Control: proven absence (ENOENT) does drop the row from the scan.
     rmSync(path);
     assert.equal(
         hasRow(reader.listStoredSessionSummaries({ refreshFromStorage: true })),

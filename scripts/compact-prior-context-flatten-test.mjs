@@ -26,7 +26,7 @@ const OLD = [{ role: 'user', content: 'seed task' }, { role: 'assistant', conten
 // not the truncation path, is under test.
 const BIG = 1_000_000;
 // The engine feeds the previous summary body back as the next cycle's prior
-// after stripping the summary header lines (compact/engine.mjs splitRecallFitInputs).
+// after stripping the summary header lines (compact/runner.mjs splitRecallFitInputs).
 const nextPrior = (msg) => stripNestedSummaryHeaderLines(String(msg?.content || ''));
 
 test('formatPriorCompactedContextBlock wraps bare prior text exactly once', () => {

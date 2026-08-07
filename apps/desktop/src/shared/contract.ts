@@ -253,7 +253,7 @@ export interface DesktopWorkflowState extends Readonly<Record<string, unknown>> 
   name?: string;
 }
 
-export interface DesktopEngineState extends Readonly<Record<string, unknown>> {
+export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   items?: DesktopTranscriptItem[];
   streamingTail?: DesktopTranscriptItem | null;
   queued?: unknown[];
@@ -280,21 +280,19 @@ export interface DesktopEngineState extends Readonly<Record<string, unknown>> {
   remoteEnabled?: boolean;
 }
 
-// These are the core engine's real activity/completion fields, not a parallel
+// These are the session runtime's real activity/completion fields, not a parallel
 // desktop status model. In particular, `thinking`/spinner modes describe live
 // work while statusdone/turndone items retain the core completion outcome.
-export type EngineSnapshot = Readonly<DesktopEngineState> | null;
+export type SessionSnapshot = Readonly<DesktopSessionState> | null;
 
 /** One split-pane live-lane publication after preload reconstruction: a
  *  pooled session's own full snapshot, keyed by sessionId. */
 export type DesktopSessionStateUpdate = {
   sessionId: string;
-  snapshot: EngineSnapshot;
-  /** Publication boundary this frame came from. "live" is an OWNER
-   *  publication (pooled engine or live-share viewer); "replay" is a
-   *  re-emitted retained/durable projection. Optional: remote and legacy
-   *  hosts omit it and keep the unversioned compatibility path. */
-  frameSource?: DesktopSessionFrameSource;
+  snapshot: SessionSnapshot;
+  /** Publication boundary this frame came from. "live" is an owner
+   *  publication; "replay" is a re-emitted retained/durable projection. */
+  frameSource: DesktopSessionFrameSource;
   /** Authoritative transcript CONTENT generation for this session — NOT an
    *  arrival counter. It advances only when an owner publication (or a
    *  non-regressing durable read) projects different transcript content, and
@@ -309,7 +307,7 @@ export type DesktopSessionFrameSource = 'live' | 'replay';
 // full `items` array with an identity-prefix patch (settled transcript items
 // are immutable by identity in the host); the preload bridge reassembles the
 // full snapshot before listeners see it, so renderers keep consuming
-// EngineSnapshot. A `base` mismatch (window reload, missed event) triggers a
+// SessionSnapshot. A `base` mismatch (window reload, missed event) triggers a
 // `mixdog:state-resync` request and the host restarts from a full snapshot.
 export interface DesktopStateItemsPatch {
   base: number;
@@ -328,7 +326,7 @@ export interface DesktopStateFieldsPatch {
   changed: Readonly<Record<string, unknown>>;
   removed: string[];
 }
-export type DesktopStateWire = (DesktopEngineState & {
+export type DesktopStateWire = (DesktopSessionState & {
   __itemsRevision?: number;
   __itemsPatch?: DesktopStateItemsPatch;
   __streamingTailPatch?: DesktopStateStreamingTailPatch;
@@ -340,7 +338,7 @@ export type DesktopStateWire = (DesktopEngineState & {
 export type DesktopSessionStateWireUpdate = {
   sessionId: string;
   wire: DesktopStateWire;
-  frameSource?: DesktopSessionFrameSource;
+  frameSource: DesktopSessionFrameSource;
   contentRevision?: number;
 };
 
@@ -424,7 +422,7 @@ export interface DesktopPastedText {
 }
 
 export interface DesktopSubmitOptions {
-  /** Renderer-generated correlation id reused by the engine queue/transcript. */
+  /** Renderer-generated correlation id reused by the session queue/transcript. */
   id?: string;
   /** Wall-clock submit time for privacy-safe queue/steering latency diagnostics. */
   submittedAt?: number;
@@ -452,12 +450,12 @@ export interface DesktopNewTaskDraft {
 export interface DesktopNewTaskSubmitResult {
   accepted: boolean;
   sessionId: string;
-  snapshot: EngineSnapshot;
+  snapshot: SessionSnapshot;
 }
 
-// Public engine features that are safe to expose to the renderer. Keeping this
+// Public session features that are safe to expose to the renderer. Keeping this
 // list explicit prevents the desktop bridge from becoming arbitrary method
-// execution while still making the TUI's existing backend capabilities
+// execution while still making the TUI's existing session capabilities
 // available to the GUI.
 export const DESKTOP_CAPABILITIES = [
   'restoreQueued',
@@ -543,15 +541,16 @@ export const DESKTOP_CAPABILITIES = [
   'saveAgentDefinition',
   'deleteAgentDefinition',
   'listProviders',
+  'listProviderModels',
   'getProviderSetup',
   'getUsageDashboard',
   'consumeCodexRateLimitResetCredit',
   'getOnboardingStatus',
+  'getOAuthProviderLoginStatus',
   'skipOnboarding',
   'completeOnboarding',
   'loginOAuthProvider',
   'beginOAuthProviderLogin',
-  'getOAuthProviderLoginStatus',
   'completeOAuthProviderLogin',
   'cancelOAuthProviderLogin',
   'saveProviderApiKey',
@@ -563,7 +562,7 @@ export const DESKTOP_CAPABILITIES = [
   'forgetProviderAuth',
   'getChannelSetup',
   'getChannelWorkerStatus',
-  'setBackend',
+  'setChannelProvider',
   'saveDiscordToken',
   'forgetDiscordToken',
   'saveTelegramToken',
@@ -626,9 +625,11 @@ export const DESKTOP_READ_CAPABILITIES = [
   'listThemes',
   'getTheme',
   'listProviders',
+  'listProviderModels',
   'getProviderSetup',
   'getUsageDashboard',
   'getOnboardingStatus',
+  'getOAuthProviderLoginStatus',
   'getChannelSetup',
   'getChannelWorkerStatus',
   'listMediaLanes',
@@ -661,7 +662,7 @@ export type DesktopCapabilityReadResult =
 
 export interface DesktopCapabilityResult<T = unknown> {
   value: T;
-  snapshot: EngineSnapshot;
+  snapshot: SessionSnapshot;
 }
 
 export type DesktopSettingKey = 'autoClear' | 'autoCompact' | 'keepAwake';
@@ -1269,9 +1270,9 @@ export interface DesktopApi {
     relPath: string,
     workspaceFile?: string,
   ): Promise<DesktopEditorSettings>;
-  startProject(projectPath: string): Promise<EngineSnapshot>;
-  startProjectTask(projectPath: string): Promise<EngineSnapshot>;
-  startTask(): Promise<EngineSnapshot>;
+  startProject(projectPath: string): Promise<SessionSnapshot>;
+  startProjectTask(projectPath: string): Promise<SessionSnapshot>;
+  startTask(): Promise<SessionSnapshot>;
   listProjects(): Promise<DesktopProjectSummary[]>;
   /** Register a folder without entering it (Projects page add dialog). */
   addProject(projectPath: string): Promise<void>;
@@ -1403,7 +1404,7 @@ export interface DesktopApi {
   subscribeAgentPool?(listener: (agents: DesktopAgentPoolRow[]) => void): () => void;
   renameSession(sessionId: string, title: string): Promise<void>;
   setSessionArchived?(sessionId: string, archived: boolean): Promise<void>;
-  deleteSession(sessionId: string): Promise<EngineSnapshot>;
+  deleteSession(sessionId: string): Promise<SessionSnapshot>;
   /** Settings → Connection: pairing QRs + URLs for the phone remote. Only
    *  the in-process desktop implements it (null while the bridge is off);
    *  the remote shim omits it — a phone never needs its own pairing card. */
@@ -1418,7 +1419,7 @@ export interface DesktopApi {
   /** Register the active session in every visible pane for focus-independent
    *  owner-pipe mirroring. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;
-  resumeSession(sessionId: string): Promise<EngineSnapshot>;
+  resumeSession(sessionId: string): Promise<SessionSnapshot>;
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;
   searchWorkspaceText?(
     projectPath: string,
@@ -1430,8 +1431,8 @@ export interface DesktopApi {
     replacement: string,
     relPaths?: string[],
   ): Promise<DesktopWorkspaceTextReplaceResult>;
-  getSnapshot(): Promise<EngineSnapshot>;
-  subscribeState(listener: (snapshot: EngineSnapshot) => void): () => void;
+  getSnapshot(): Promise<SessionSnapshot>;
+  subscribeState(listener: (snapshot: SessionSnapshot) => void): () => void;
   /** Fire-and-forget renderer perf timing line (MIXDOG_DESKTOP_PERF=1 only). */
   perfLog?(line: string): void;
   /** Privacy-bounded renderer failure/performance evidence; user content is never sent. */
@@ -1562,14 +1563,14 @@ export interface DesktopApi {
     id: string,
     decision: ToolApprovalDecision,
   ): Promise<boolean>;
-  /** Per-session live snapshot lane covering every pooled engine. */
+  /** Per-session live snapshot lane covering every pooled session runtime. */
   subscribeSessionState(listener: (update: DesktopSessionStateUpdate) => void): () => void;
   listProviderModels(options?: DesktopModelCatalogOptions): Promise<DesktopModelOption[]>;
   /** sessionId addresses a PANE's session. Focus decides nothing here: each
    *  pane owns its own model/effort/fast. Omitted = the window's current
    *  surface (draft panes, settings). */
-  setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<EngineSnapshot>;
-  setFast(enabled: boolean, sessionId?: string): Promise<EngineSnapshot>;
+  setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<SessionSnapshot>;
+  setFast(enabled: boolean, sessionId?: string): Promise<SessionSnapshot>;
   readSettings(): Promise<DesktopSettings>;
   updateSetting(key: DesktopSettingKey, enabled: boolean): Promise<DesktopSettings>;
   getZoomFactor(): Promise<number>;

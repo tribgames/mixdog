@@ -138,7 +138,7 @@ export function createOnboardingSteps({
     const done = () => store.pushNotice('First-run setup complete.', 'info');
     const failed = (e) => store.pushNotice(`Couldn’t save setup: ${e?.message || e}`, 'error');
     // Branch 1 — Main Model set: full persist. Agents without an explicit
-    // override are sent; untouched agents are left out so the backend never
+    // override are sent; untouched agents are left out so the session never
     // overwrites them (they follow the Main Model dynamically at runtime).
     if (defaultRoute) {
       void store.completeOnboarding?.({
@@ -150,7 +150,7 @@ export function createOnboardingSteps({
     }
     // Branch 2 — Main unset but some Search/agent picks exist: partial persist.
     // Only the explicit overrides are sent (no defaultRoute); the
-    // backend skips agents lacking a route and marks onboarding complete.
+    // session skips agents lacking a route and marks onboarding complete.
     if (hasOverrides || searchRoute) {
       void store.completeOnboarding?.({
         ...(hasOverrides ? { agentRoutes: { ...overrides } } : {}),

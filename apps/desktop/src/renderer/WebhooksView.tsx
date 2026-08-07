@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
 import { filterConfiguredModels, ModelPicker } from './ModelPicker';
+import { dismissDesktopToast, showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
 import { RowOverflowMenu } from './RowOverflowMenu';
@@ -410,7 +411,16 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
   });
 
   const busy = Boolean(pending) || loading;
-  const run = async (capability: DesktopCapability, args: unknown[] = []): Promise<unknown> => {
+  useEffect(() => {
+    if (!active || !referenceError) return undefined;
+    const toastId = showDesktopToast(referenceError, 'error');
+    return () => dismissDesktopToast(toastId);
+  }, [active, referenceError]);
+  const run = async (
+    capability: DesktopCapability,
+    args: unknown[] = [],
+    errorMode: 'inline' | 'toast' = 'inline',
+  ): Promise<unknown> => {
     if (!api?.invokeCapability || pending) return undefined;
     setPending(capability);
     setError('');
@@ -421,7 +431,9 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
       await completeMutation(capability);
       return result?.value ?? true;
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      const message = reason instanceof Error ? reason.message : String(reason);
+      if (errorMode === 'toast') showDesktopToast(message, 'error');
+      else setError(message);
       return undefined;
     } finally {
       setPending('');
@@ -505,7 +517,7 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
                 id: 'toggle-enabled',
                 label: enabled ? 'Pause' : 'Resume',
                 disabled: busy,
-                onSelect: () => void run('setWebhookEnabled', [name, !enabled]),
+                onSelect: () => void run('setWebhookEnabled', [name, !enabled], 'toast'),
               },
               {
                 id: 'edit',
@@ -525,7 +537,7 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
                     return;
                   }
                   setConfirmingDelete('');
-                  void run('deleteWebhook', [name]);
+                  void run('deleteWebhook', [name], 'toast');
                 },
               },
             ]} />
@@ -535,10 +547,6 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
           <Webhook size={40} strokeWidth={1.5} aria-hidden="true" />
           <p>{webhooks.length ? t('No webhooks match the current filter.') : t('No inbound webhooks yet.')}</p>
         </div>}
-      <div className="schedules-feedback-slot">
-        {(error || referenceError) && !editor
-          && <p className="mixdog-settings__error" role="alert">{error || referenceError}</p>}
-      </div>
     </div>
   </div>;
 }

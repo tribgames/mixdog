@@ -140,6 +140,16 @@ function dropZoneStyle(preview: DropPreview): React.CSSProperties {
   }
 }
 
+function orientVerticalDropZone(
+  zone: PaneDropZone | "center",
+  deltaX: number | undefined,
+  deltaY: number | undefined,
+): PaneDropZone | "center" {
+  if ((zone !== "top" && zone !== "bottom") || !deltaY) return zone;
+  if (Math.abs(deltaY) <= Math.abs(deltaX ?? 0)) return zone;
+  return deltaY > 0 ? "bottom" : "top";
+}
+
 export function PaneWorkspace({
   workspace,
   observedSessionIds = [],
@@ -466,6 +476,12 @@ export function PaneWorkspace({
     let zone: PaneDropZone | "center" = overStrip
       ? "center"
       : paneInnerDropZone(dropRect, frame.x, frame.y, groupDrag);
+    // A pointer crossing into a foreign pane can geometrically enter its
+    // opposite edge (downward motion enters the next pane's top band). Keep
+    // the preview on the side the pointer is actually travelling toward.
+    if (!sessionDrag && sourceLeafId && sourceLeafId !== leafId) {
+      zone = orientVerticalDropZone(zone, frame.deltaX, frame.deltaY);
+    }
     if (zone !== "center") {
       const direction = zone === "left" || zone === "right" ? "row" : "column";
       if (!canSplitPaneSize(direction, dropRect.width, dropRect.height)) {

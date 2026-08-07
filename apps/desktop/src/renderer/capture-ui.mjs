@@ -503,7 +503,7 @@ try {
   assert.deepEqual(metadata.captureEnvironment, {
     rendererAssets: "built",
     packaged: false,
-    host: "CaptureBackend",
+    host: "CaptureService",
     sessionMode: "empty-session",
   });
   assert.deepEqual(metadata.sourceDimensions, { width: 1113, height: 687 });

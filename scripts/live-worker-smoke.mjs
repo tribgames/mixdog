@@ -64,11 +64,13 @@ function taskId(text) {
 }
 
 async function main() {
+  const sharedToolRules = readFileSync('src/rules/shared/01-tool.md', 'utf8');
   const leadToolRules = readFileSync('src/rules/lead/lead-tool.md', 'utf8');
   const workflowRules = readFileSync('src/workflows/default/WORKFLOW.md', 'utf8');
   const soloRules = readFileSync('src/workflows/solo/WORKFLOW.md', 'utf8');
   const compact = (text) => text.toLowerCase().replace(/\s+/g, ' ');
   const hasAll = (text, ...terms) => terms.every((term) => text.includes(term));
+  const shared = compact(sharedToolRules);
   const lead = compact(leadToolRules);
   const workflow = compact(workflowRules);
   const solo = compact(soloRules);
@@ -105,7 +107,9 @@ async function main() {
     ['Review is not unnecessary', false],
   ]) assert(reviewSkipViolation(phrase) === expected, `review-skip detector case failed: ${phrase}`);
   const skipsReview = reviewSkipViolation(workflow);
-  assert(hasAll(lead, 'write-role agents self-verify', 'lead uses `shell` only for git', 'benches', 'cross-scope verification no retrieval tool can produce', 'current project/workspace'), 'lead tool rules must preserve verification, git, and workspace ownership');
+  assert(hasAll(lead, 'current project/workspace'), 'lead tool rules must preserve workspace ownership');
+  assert(hasAll(shared, 'call `shell` only when the task actually requires', 'do not treat it as a routine investigation or completion step', 'if final verification actually requires `shell`', 'otherwise finish without it'), 'shared tool rules must keep shell conditional rather than routine');
+  assert(!/write-role agents self-verify|benches|cross-scope verification/.test(lead), 'lead tool rules must not encourage routine shell verification');
   assert(hasAll(workflow, 'before the user explicitly approves the latest plan', 'no edits, no state mutation, no delegation'), 'default workflow must require latest-plan approval before work');
   assert(hasAll(workflow, 'on approval, delegate maximally', 'one agent per independent scope', 'all spawned in one turn', "only a scope that depends on another's output waits", 'split the plan into as many scopes as possible', 'disjoint file/module sets are independent', 'merge only on a true output dependency', 'prefer parallel scopes over sequential slices in one agent'), 'default workflow must delegate independent scopes maximally');
   assert(hasAll(workflow, 'build, deploy, commit, and push happen only on an explicit user request', 'on direction change, pause and re-consult the user'), 'default workflow must require user authorization and re-consultation');

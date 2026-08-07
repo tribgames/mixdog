@@ -52,14 +52,17 @@
 .pane-split-row > .pane-resize-handle::before {
   top: 0;
   bottom: 0;
-  left: -3px;
-  right: -3px;
+  /* Keep the forgiving seven-pixel target, but place it wholly in the second
+     cell. Extending into the first cell covered the trailing scrollbar and a
+     vertical scrollbar drag could be captured as a pane resize. */
+  left: 0;
+  right: -6px;
 }
 .pane-split-column > .pane-resize-handle::before {
   left: 0;
   right: 0;
-  top: -3px;
-  bottom: -3px;
+  top: 0;
+  bottom: -6px;
 }
 .pane-resize-handle::after {
   content: "";

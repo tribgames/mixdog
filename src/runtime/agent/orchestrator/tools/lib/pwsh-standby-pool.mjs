@@ -43,11 +43,11 @@ export function _resolvePwshPoolTarget({
         if (Number.isFinite(n) && n >= 0) return Math.min(8, n);
     }
     if (platform !== 'win32') return 0;
-    // Tools now execute in the machine-global backend daemon. Keep client/test
+    // Tools now execute in the machine-global daemon. Keep client/test
     // processes at zero by default, but let that ONE host maintain a short-lived
     // warm burst sized to the machine instead of making every shell call pay the
     // ~300ms pwsh startup cost.
-    if (env?.MIXDOG_ENGINE_DAEMON_HOST !== '1' && env?.MIXDOG_CHANNEL_DAEMON !== '1') return 0;
+    if (env?.MIXDOG_DAEMON_HOST !== '1') return 0;
     let cores = Number(parallelism);
     if (!Number.isFinite(cores) || cores < 1) {
         try { cores = availableParallelism(); } catch { cores = 1; }

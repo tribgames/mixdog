@@ -24,6 +24,11 @@ export function createMemoryDaemonLifecycle({
       _idleShutdownTimer = null
     }
     _idleShutdownTimer = setTimeout(() => {
+      pruneDeadClients()
+      if (_connectedClients.size > 0) {
+        touchDaemonIdleTimer('live client retained')
+        return
+      }
       log(`[memory-service] daemon idle TTL elapsed after ${reason}; shutting down\n`)
       stop()
         .then(() => process.exit(0))

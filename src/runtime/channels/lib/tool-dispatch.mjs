@@ -10,7 +10,7 @@ import { OutputForwarder } from "./output-forwarder.mjs";
 // call time — matching the original in-file closure semantics.
 function createToolDispatch({
   getForwarder,
-  BACKEND_TOOLS,
+  PROVIDER_TOOLS,
   isChannelsDegraded,
   dispatchReply,
   dispatchFetch,
@@ -152,11 +152,11 @@ function createToolDispatch({
       _lastForwardMs = now;
       await forwarder.forwardNewText();
     }
-    if (BACKEND_TOOLS.has(toolName) && !getBridgeRuntimeConnected()) {
-      // Remote-owner startup: ensure this owner's backend is connected.
+    if (PROVIDER_TOOLS.has(toolName) && !getBridgeRuntimeConnected()) {
+      // Remote-owner startup: ensure this owner's provider is connected.
       for (let i = 0; i < 2 && !getBridgeRuntimeConnected(); i++) {
         try {
-          // Auto-connect this owner's backend (daemon singleton — no seat claim).
+          // Auto-connect this owner's provider (daemon singleton — no seat claim).
           await refreshBridgeOwnership();
         } catch {
         }

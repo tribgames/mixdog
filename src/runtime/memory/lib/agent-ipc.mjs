@@ -2,9 +2,9 @@
  * Agent-dispatch client for the memory process.
  *
  * PG/embedding/recall remain isolated in the memory process, while the heavy
- * provider/session graph lives exactly once in the machine-global backend
+ * provider/session graph lives exactly once in the machine-global daemon.
  * daemon. Calls use its authenticated loopback broker, so the memory process
- * can outlive its original fork parent and reconnect after a backend restart.
+ * can outlive its original fork parent and reconnect after a daemon restart.
  */
 import http from 'node:http'
 import { readFileSync } from 'node:fs'
@@ -37,12 +37,13 @@ function isPidAlive(value) {
 
 function readBrokerDiscovery() {
   try {
-    const raw = JSON.parse(readFileSync(join(runtimeRoot(), 'channel-daemon.json'), 'utf8'))
-    const port = Number(raw?.port)
-    if (!Number.isInteger(port) || port <= 0 || port >= 65536 || !raw?.token || !isPidAlive(raw?.pid)) {
+    const raw = JSON.parse(readFileSync(join(runtimeRoot(), 'daemon.json'), 'utf8'))
+    const endpoint = raw?.endpoints?.channel
+    const port = Number(endpoint?.port)
+    if (!Number.isInteger(port) || port <= 0 || port >= 65536 || !endpoint?.token || !isPidAlive(raw?.pid)) {
       return null
     }
-    return { port, token: String(raw.token) }
+    return { port, token: String(endpoint.token) }
   } catch {
     return null
   }
@@ -129,7 +130,7 @@ function cancelBrokerCall(discovery, callId, reason) {
 }
 
 /**
- * Dispatch through the singleton backend provider/session graph.
+ * Dispatch through the singleton daemon provider/session graph.
  *
  * @param {object} opts           agent-dispatch construction options
  * @param {string} [opts.agent]
@@ -144,7 +145,7 @@ function cancelBrokerCall(discovery, callId, reason) {
 export async function callAgentDispatch(opts = {}, prompt) {
   const discovery = readBrokerDiscovery()
   if (!discovery) {
-    throw new Error('agent-broker: backend daemon unavailable')
+    throw new Error('agent-broker: daemon unavailable')
   }
   const callId = nextCallId()
   const timeoutMs = Math.max(1000, Number(opts.timeout ?? 600000))

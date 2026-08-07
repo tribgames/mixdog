@@ -7,14 +7,14 @@ import {
 import { refreshActiveInstance } from "./runtime-paths.mjs";
 import { isNetworkError, retryOnNetwork } from "./network-retry.mjs";
 // Inbound message pipeline extracted from channels/index.mjs (behavior-
-// preserving): serial inbound queue, backend.onMessage transcript (re)bind +
+// preserving): serial inbound queue, provider.onMessage transcript (re)bind +
 // steal logic, and handleInbound voice-transcription + parent notify. Bound to
 // live runtime getters and shared primitives.
 function isImageAttachment(contentType) {
   return typeof contentType === "string" && contentType.toLowerCase().startsWith("image/");
 }
 export function createInboundHandler({
-  getBackend,
+  getProvider,
   getConfig,
   getBridgeRuntimeConnected,
   getChannelBridgeActive,
@@ -55,7 +55,7 @@ const inboundQueue = (() => {
   };
 })();
 
-getBackend().onMessage = (msg) => {
+getProvider().onMessage = (msg) => {
   const receivedAtMs = Number.isFinite(msg.receivedAtMs) ? msg.receivedAtMs : Date.now();
   const onMessageAtMs = Date.now();
   const gateBlocked = (!getBridgeRuntimeConnected() || !getBridgeOwnershipSnapshot().owned)
@@ -72,7 +72,7 @@ getBackend().onMessage = (msg) => {
       msg.__bridgeGateRetries = attempt;
       msg.receivedAtMs = receivedAtMs;
       setTimeout(() => {
-        try { getBackend().onMessage?.(msg); } catch { /* best-effort */ }
+        try { getProvider().onMessage?.(msg); } catch { /* best-effort */ }
       }, 2000 * attempt)?.unref?.();
     } else {
       try { process.stderr.write(`mixdog: inbound message dropped after ${attempt - 1} ${gateBlocked} retries (channel=${msg.chatId}, id=${msg.messageId})\n`); } catch {}
@@ -242,7 +242,7 @@ getBackend().onMessage = (msg) => {
   });
   void (async () => {
     try {
-      await getBackend().react(msg.chatId, msg.messageId, "\u{1F914}");
+      await getProvider().react(msg.chatId, msg.messageId, "\u{1F914}");
     } catch {
     }
     await bindingDone;
@@ -271,7 +271,7 @@ async function handleInbound(msg, route, options = {}) {
         const files = await retryOnNetwork(
           // Short per-attempt timeout (vs the 180s default) bounds worst-case
           // blockage of the serial inboundQueue on a bad voice message.
-          () => getBackend().downloadAttachment(msg.chatId, msg.messageId, { timeoutMs: 20_000 }),
+          () => getProvider().downloadAttachment(msg.chatId, msg.messageId, { timeoutMs: 20_000 }),
           { label: "voice.download" }
         );
         // concurrency handled inside transcribeVoice queue; loop is sequential so last att wins
@@ -312,7 +312,7 @@ async function handleInbound(msg, route, options = {}) {
   if (imageAtts.length > 0) {
     try {
       const files = (await retryOnNetwork(
-        () => getBackend().downloadAttachment(msg.chatId, msg.messageId, {
+        () => getProvider().downloadAttachment(msg.chatId, msg.messageId, {
           timeoutMs: 20_000,
           filter: (a) => isImageAttachment(a.contentType),
         }),

@@ -18,6 +18,7 @@ import type {
 import { agentIcon } from './agent-icons';
 import { t } from './i18n';
 import { filterConfiguredModels } from './ModelPicker';
+import { dismissDesktopToast, showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import { RowOverflowMenu } from './RowOverflowMenu';
 import { modelDisplayName, normalizeModelOptions } from './provider-display';
@@ -459,7 +460,6 @@ export function WorkflowsPane({
   ), [values.searchModels, providerSetup]);
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [editor, setEditor] = useState<{ pack: RecordValue | null } | null>(null);
   const [agentEditor, setAgentEditor] = useState<{ agent: RecordValue | null } | null>(null);
   const [routeEditor, setRouteEditor] = useState<RouteEditorTarget | null>(null);
@@ -477,7 +477,16 @@ export function WorkflowsPane({
     setConfirmingDelete('');
   });
   const busy = Boolean(pending) || loading;
-  const run = async (capability: DesktopCapability, args: unknown[] = []): Promise<unknown> => {
+  useEffect(() => {
+    if (!active || !referenceError) return undefined;
+    const toastId = showDesktopToast(referenceError, 'error');
+    return () => dismissDesktopToast(toastId);
+  }, [active, referenceError]);
+  const run = async (
+    capability: DesktopCapability,
+    args: unknown[] = [],
+    errorMode: 'inline' | 'toast' = 'inline',
+  ): Promise<unknown> => {
     if (!api?.invokeCapability || pending) return undefined;
     setPending(capability);
     setError('');
@@ -488,7 +497,9 @@ export function WorkflowsPane({
       await completeMutation(capability);
       return result?.value ?? true;
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      const message = reason instanceof Error ? reason.message : String(reason);
+      if (errorMode === 'toast') showDesktopToast(message, 'error');
+      else setError(message);
       return undefined;
     } finally {
       setPending('');
@@ -498,28 +509,27 @@ export function WorkflowsPane({
   const openEditor = async (id: string) => {
     if (!api?.invokeCapability) return;
     setConfirmingDelete('');
-    setNotice('');
     try {
       const result = await api.invokeCapability<RecordValue>({ capability: 'getWorkflowPack', args: [id] });
       setError('');
       setEditor({ pack: record(result?.value) });
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
     }
   };
   const saveWorkflow = async (payload: RecordValue) => {
     const result = await run(editor?.pack ? 'saveWorkflowPack' : 'createWorkflow', [payload]);
     if (result !== undefined) {
       setEditor(null);
-      setNotice(`Saved "${String(payload.name || payload.id)}".`);
+      showDesktopToast(`Saved "${String(payload.name || payload.id)}".`, 'success');
     }
   };
   const deleteWorkflowPack = async (id: string) => {
-    const result = await run('deleteWorkflow', [id]);
+    const result = await run('deleteWorkflow', [id], 'toast');
     if (result !== undefined) {
-      setNotice(record(result).revertedToBuiltIn === true
+      showDesktopToast(record(result).revertedToBuiltIn === true
         ? `"${id}" reverted to the built-in pack.`
-        : `Deleted "${id}".`);
+        : `Deleted "${id}".`, 'success');
     }
   };
   const agentRoster = useMemo<AgentSummary[]>(() => agents.map((agent) => ({
@@ -537,27 +547,26 @@ export function WorkflowsPane({
   const editableAgents = agentRoster.filter((agent) => !DEFAULT_AGENT_IDS.has(agent.id));
   const openAgentEditor = async (id: string) => {
     if (!api?.invokeCapability) return;
-    setNotice('');
     try {
       const result = await api.invokeCapability<RecordValue>({ capability: 'getAgentDefinition', args: [id] });
       setError('');
       setAgentEditor({ agent: record(result?.value) });
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
     }
   };
   const saveAgent = async (payload: RecordValue) => {
     const result = await run('saveAgentDefinition', [payload]);
     if (result !== undefined) {
       setAgentEditor(null);
-      setNotice(`Saved agent "${String(payload.name || payload.id)}".`);
+      showDesktopToast(`Saved agent "${String(payload.name || payload.id)}".`, 'success');
     }
   };
   const deleteAgent = async (id: string) => {
     const result = await run('deleteAgentDefinition', [id]);
     if (result !== undefined) {
       setAgentDeleteTarget(null);
-      setNotice(`Deleted agent "${id}".`);
+      showDesktopToast(`Deleted agent "${id}".`, 'success');
     }
   };
   const saveRoute = async (route: RecordValue) => {
@@ -568,7 +577,7 @@ export function WorkflowsPane({
     const result = await run(routeEditor.capability, args);
     if (result !== undefined) {
       setRouteEditor(null);
-      setNotice(`Saved "${routeEditor.label}" route.`);
+      showDesktopToast(`Saved "${routeEditor.label}" route.`, 'success');
     }
   };
   const renderAgentRow = (agent: AgentSummary) => {
@@ -592,7 +601,6 @@ export function WorkflowsPane({
           danger: true,
           onSelect: () => {
             setError('');
-            setNotice('');
             const workflowNames = workflows
               .filter((workflow) => workflow.agentsConfigured === true
                 && Array.isArray(workflow.agents)
@@ -644,7 +652,6 @@ export function WorkflowsPane({
           aria-label={t("New workflow")} data-tooltip={t("New workflow")}
           onClick={() => {
             setError('');
-            setNotice('');
             setEditor({ pack: null });
           }}>
           <Plus size={16} aria-hidden="true" />
@@ -766,7 +773,6 @@ export function WorkflowsPane({
             aria-label={t("New agent")} data-tooltip={t("New agent")}
             onClick={() => {
               setError('');
-              setNotice('');
               setAgentEditor({ agent: null });
             }}>
             <Plus size={16} aria-hidden="true" />
@@ -777,13 +783,6 @@ export function WorkflowsPane({
           {editableAgents.map(renderAgentRow)}
         </div>
       </section>
-      <div className="schedules-feedback-slot">
-        {(error || referenceError) && !editor && !agentEditor
-          ? <p className="schedules-form-error" role="alert">{error || referenceError}</p>
-          : notice && !editor && !agentEditor
-            ? <p className="schedules-notice" role="status">{notice}</p>
-            : null}
-      </div>
     </div>
   </div>;
 }

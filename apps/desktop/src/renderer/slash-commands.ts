@@ -1,6 +1,6 @@
 export type SettingsSection =
   | 'profile' | 'autoclear' | 'autocompact' | 'compact-type' | 'channels'
-  | 'remote-runtime' | 'channel-backend' | 'channel-setting' | 'output-style'
+  | 'remote-runtime' | 'channel-provider' | 'channel-setting' | 'output-style'
   | 'theme' | 'workflow' | 'model' | 'search' | 'providers' | 'mcp'
   | 'plugins' | 'hooks' | 'skills' | 'update';
 

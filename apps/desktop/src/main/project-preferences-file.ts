@@ -1,10 +1,10 @@
 // Desktop-only project preferences (aliases, legacy hidden tombstones)
-// on disk. This module owns the file shape and bounds; the backend keeps the
+// on disk. This module owns the file shape and bounds; the service keeps the
 // in-memory copy and decides when to persist.
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { DesktopProjectPreferences } from './backend-support';
+import type { DesktopProjectPreferences } from './desktop-support';
 
 const FILE_NAME = 'desktop-projects.json';
 const MAX_PATH_ENTRIES = 50;

@@ -26,6 +26,7 @@ import {
   paneActiveSelection,
   paneLeafRelativeRect,
   paneLeaves,
+  paneLeavesInColumnOrder,
   paneLeavesInVisualOrder,
   paneNodeMinimumSize,
   parsePaneLayout,
@@ -123,6 +124,40 @@ test("visual pane order crosses the current lane before moving downward", () => 
     paneLeavesInVisualOrder(grid).map((leaf) => leaf.id),
     ["leaf_top_left", "leaf_top_right", "leaf_bottom_left", "leaf_bottom_right"],
     "pane focus must follow visual row-major order",
+  );
+  assert.deepEqual(
+    paneLeavesInColumnOrder(grid).map((leaf) => leaf.id),
+    ["leaf_top_left", "leaf_bottom_left", "leaf_top_right", "leaf_bottom_right"],
+    "vertical pane focus must finish each visual column before moving right",
+  );
+});
+
+test("column pane order stays line-based for uneven five-pane layouts", () => {
+  const topLeft = createPaneLeaf(session("top-left"), "leaf_top_left");
+  const bottomLeft = createPaneLeaf(session("bottom-left"), "leaf_bottom_left");
+  const topMiddle = createPaneLeaf(session("top-middle"), "leaf_top_middle");
+  const bottomMiddle = createPaneLeaf(session("bottom-middle"), "leaf_bottom_middle");
+  const right = createPaneLeaf(session("right"), "leaf_right");
+  const left = splitPaneLeaf(topLeft, topLeft.id, "column", bottomLeft, 0.35);
+  const middle = splitPaneLeaf(topMiddle, topMiddle.id, "column", bottomMiddle, 0.7);
+  const leftAndMiddle = {
+    type: "split",
+    direction: "row",
+    ratio: 0.4,
+    first: left,
+    second: middle,
+  };
+  const layout = {
+    type: "split",
+    direction: "row",
+    ratio: 0.75,
+    first: leftAndMiddle,
+    second: right,
+  };
+
+  assert.deepEqual(
+    paneLeavesInColumnOrder(layout).map((leaf) => leaf.id),
+    ["leaf_top_left", "leaf_bottom_left", "leaf_top_middle", "leaf_bottom_middle", "leaf_right"],
   );
 });
 
@@ -355,6 +390,35 @@ test("setPaneSplitRatio addresses splits by path and clamps", () => {
   assert.equal(root.second.ratio, PANE_MAX_RATIO);
   // Unknown paths leave the tree untouched.
   assert.equal(setPaneSplitRatio(root, "first.bogus", 0.5), root);
+});
+
+test("aligned 2x2 sashes stay continuous while staggered stacks remain independent", () => {
+  const topLeft = createPaneLeaf(session("top-left"), "leaf_top_left");
+  const bottomLeft = createPaneLeaf(session("bottom-left"), "leaf_bottom_left");
+  const topRight = createPaneLeaf(session("top-right"), "leaf_top_right");
+  const bottomRight = createPaneLeaf(session("bottom-right"), "leaf_bottom_right");
+  const grid = {
+    type: "split",
+    direction: "row",
+    ratio: 0.5,
+    first: splitPaneLeaf(topLeft, topLeft.id, "column", bottomLeft, 0.5),
+    second: splitPaneLeaf(topRight, topRight.id, "column", bottomRight, 0.5),
+  };
+
+  const aligned = setPaneSplitRatio(grid, "first", 0.62);
+  assert.equal(aligned.first.ratio, 0.62);
+  assert.equal(aligned.second.ratio, 0.62,
+    "the two halves of one horizontal grid line must move together");
+
+  const staggered = {
+    ...grid,
+    first: { ...grid.first, ratio: 0.35 },
+    second: { ...grid.second, ratio: 0.7 },
+  };
+  const independentlyResized = setPaneSplitRatio(staggered, "first", 0.4);
+  assert.equal(independentlyResized.first.ratio, 0.4);
+  assert.equal(independentlyResized.second.ratio, 0.7,
+    "an intentional T-junction must not be snapped to another row");
 });
 
 test("openTabInPaneLeaf appends, activates, and promotes in place", () => {

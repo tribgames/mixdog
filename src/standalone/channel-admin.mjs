@@ -44,7 +44,7 @@ import { readHookPublicBase } from '../runtime/channels/lib/webhook/relay-tunnel
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DEFAULT_CHANNELS = Object.freeze({
-  backend: 'discord',
+  provider: 'discord',
   discord: {},
   access: { dmPolicy: 'allowlist', allowFrom: [], channels: {} },
   channel: { discordChannelId: '', telegramChatId: '' },
@@ -103,26 +103,17 @@ function normalizeChannelsConfig(raw = {}) {
   };
 }
 
-function channelIdForBackend(entry = {}, backend = 'discord') {
-  if (backend === 'telegram') {
-    return String(entry?.telegramChatId || (entry?.discordChannelId ? '' : entry?.channelId) || '');
+function channelIdForProvider(entry = {}, provider = 'discord') {
+  if (provider === 'telegram') {
+    return String(entry?.telegramChatId || '');
   }
-  return String(entry?.discordChannelId || (entry?.telegramChatId ? '' : entry?.channelId) || '');
-}
-
-function seedBackendChannelIds(entry = {}, backend = 'discord') {
-  const next = { ...(entry || {}) };
-  if (next.channelId) {
-    if (backend === 'telegram' && !next.telegramChatId && !next.discordChannelId) next.telegramChatId = next.channelId;
-    if (backend !== 'telegram' && !next.discordChannelId && !next.telegramChatId) next.discordChannelId = next.channelId;
-  }
-  return next;
+  return String(entry?.discordChannelId || '');
 }
 
 // Resolve the single-channel entry from the config's `channel` object.
 function resolveChannelEntry(cfg = {}) {
   if (cfg.channel && typeof cfg.channel === 'object'
-    && (cfg.channel.channelId || cfg.channel.discordChannelId || cfg.channel.telegramChatId)) {
+    && (cfg.channel.discordChannelId || cfg.channel.telegramChatId)) {
     return cfg.channel;
   }
   return cfg.channel && typeof cfg.channel === 'object' ? cfg.channel : {};
@@ -140,7 +131,7 @@ function updateChannelsSection(build) {
 }
 
 // Async twin of updateChannelsSection: identical normalize/strip logic, but the
-// channels-section RMW runs through updateSectionAsync so a debounced backend
+// channels-section RMW runs through updateSectionAsync so a debounced provider
 // flush does not block the event loop. Same config lock file → linearizable
 // with the sync writers.
 async function updateChannelsSectionAsync(build) {
@@ -168,10 +159,10 @@ function listEntryDirs(dir) {
 // settings/TUI layer consumes.
 function getChannel(config = {}) {
   const cfg = normalizeChannelsConfig(config);
-  const backend = cfg.backend === 'telegram' ? 'telegram' : 'discord';
+  const provider = cfg.provider === 'telegram' ? 'telegram' : 'discord';
   const entry = resolveChannelEntry(cfg);
   return {
-    channelId: channelIdForBackend(entry, backend),
+    channelId: channelIdForProvider(entry, provider),
     discordChannelId: String(entry?.discordChannelId || ''),
     telegramChatId: String(entry?.telegramChatId || ''),
   };
@@ -201,36 +192,36 @@ export function forgetTelegramToken() {
   return { ok: true };
 }
 
-// Single-channel write: persists `cfg.channel`, keeping the per-backend id
-// fields (discordChannelId/telegramChatId) so a backend switch retains both
-// ids. `backend` selects which per-backend field the id updates; when omitted
-// the id lands on the active backend's field.
-export function setChannel({ channelId, backend = null } = {}) {
+// Single-channel write: persists `cfg.channel`, keeping the per-provider id
+// fields (discordChannelId/telegramChatId) so a provider switch retains both
+// ids. `provider` selects which per-provider field the id updates; when omitted
+// the id lands on the active provider's field.
+export function setChannel({ channelId, provider = null } = {}) {
   const id = String(channelId || '').trim();
   if (!id) throw new Error('channelId is required');
-  const targetBackend = backend === 'telegram' || backend === 'discord' ? backend : null;
+  const targetProvider = provider === 'telegram' || provider === 'discord' ? provider : null;
   return updateChannelsSection((cfg) => {
-    const activeBackend = cfg.backend === 'telegram' ? 'telegram' : 'discord';
-    const writeBackend = targetBackend || activeBackend;
-    const current = seedBackendChannelIds(resolveChannelEntry(cfg), activeBackend);
+    const activeProvider = cfg.provider === 'telegram' ? 'telegram' : 'discord';
+    const writeProvider = targetProvider || activeProvider;
+    const current = resolveChannelEntry(cfg);
     const nextEntry = { ...current };
-    if (writeBackend === 'telegram') nextEntry.telegramChatId = id;
+    if (writeProvider === 'telegram') nextEntry.telegramChatId = id;
     else nextEntry.discordChannelId = id;
     delete nextEntry.channelId;
     return { ...cfg, channel: nextEntry };
   });
 }
 
-export async function setChannelAsync({ channelId, backend = null } = {}) {
+export async function setChannelAsync({ channelId, provider = null } = {}) {
   const id = String(channelId || '').trim();
   if (!id) throw new Error('channelId is required');
-  const targetBackend = backend === 'telegram' || backend === 'discord' ? backend : null;
+  const targetProvider = provider === 'telegram' || provider === 'discord' ? provider : null;
   return updateChannelsSectionAsync((cfg) => {
-    const activeBackend = cfg.backend === 'telegram' ? 'telegram' : 'discord';
-    const writeBackend = targetBackend || activeBackend;
-    const current = seedBackendChannelIds(resolveChannelEntry(cfg), activeBackend);
+    const activeProvider = cfg.provider === 'telegram' ? 'telegram' : 'discord';
+    const writeProvider = targetProvider || activeProvider;
+    const current = resolveChannelEntry(cfg);
     const nextEntry = { ...current };
-    if (writeBackend === 'telegram') nextEntry.telegramChatId = id;
+    if (writeProvider === 'telegram') nextEntry.telegramChatId = id;
     else nextEntry.discordChannelId = id;
     delete nextEntry.channelId;
     return { ...cfg, channel: nextEntry };
@@ -261,32 +252,30 @@ export async function setWebhookConfigAsync(patch = {}) {
   }));
 }
 
-function validateBackend(name) {
+function validateProvider(name) {
   const value = String(name || '').trim();
   if (value !== 'discord' && value !== 'telegram') {
-    throw new Error('backend must be discord or telegram');
+    throw new Error('provider must be discord or telegram');
   }
   return value;
 }
-function backendBuilder(value) {
+function providerBuilder(value) {
   return (cfg) => {
-    const activeBackend = cfg.backend === 'telegram' ? 'telegram' : 'discord';
-    const seeded = seedBackendChannelIds(resolveChannelEntry(cfg), activeBackend);
-    const channel = { ...seeded };
+    const channel = { ...resolveChannelEntry(cfg) };
     delete channel.channelId;
-    return { ...cfg, channel, backend: value };
+    return { ...cfg, channel, provider: value };
   };
 }
-export function setBackend(name) {
-  const value = validateBackend(name);
-  updateChannelsSection(backendBuilder(value));
-  return { ok: true, backend: value };
+export function setChannelProvider(name) {
+  const value = validateProvider(name);
+  updateChannelsSection(providerBuilder(value));
+  return { ok: true, provider: value };
 }
-// Async twin used by the debounced backend-save flush timer.
-export async function setBackendAsync(name) {
-  const value = validateBackend(name);
-  await updateChannelsSectionAsync(backendBuilder(value));
-  return { ok: true, backend: value };
+// Async twin used by the debounced provider-save flush timer.
+export async function setChannelProviderAsync(name) {
+  const value = validateProvider(name);
+  await updateChannelsSectionAsync(providerBuilder(value));
+  return { ok: true, provider: value };
 }
 
 function normalizeCron(time) {
@@ -578,16 +567,16 @@ export async function channelSetup(config = null) {
   const discordProblem = diagnoseDiscordTokenValue(discordToken, cfg);
   const telegramToken = getTelegramToken();
   return {
-    backend: cfg.backend || 'discord',
+    provider: cfg.provider || 'discord',
     discord: {
-      backend: 'discord',
+      provider: 'discord',
       authenticated: Boolean(discordToken && !discordProblem),
       stored: hasStoredSecret(SECRET_ACCOUNTS.discordToken),
       status: discordToken ? (discordProblem ? 'Invalid' : 'Set') : 'Off',
       problem: discordProblem || null,
     },
     telegram: {
-      backend: 'telegram',
+      provider: 'telegram',
       authenticated: Boolean(telegramToken),
       stored: hasStoredSecret(SECRET_ACCOUNTS.telegramToken),
       status: telegramToken ? 'Set' : 'Off',

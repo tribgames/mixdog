@@ -14,7 +14,7 @@ export function StatusPopover() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [runtime, setRuntime] = useState<RuntimeHealth | null>(null);
-  const [engineState, setEngineState] = useState('Checking…');
+  const [sessionState, setSessionState] = useState('Checking…');
   const [workflowMode, setWorkflowMode] = useState('Default Mode');
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -35,7 +35,7 @@ export function StatusPopover() {
         window.mixdogDesktop.getSnapshot(),
       ]);
       setRuntime(result.value && typeof result.value === 'object' ? result.value : {});
-      setEngineState(snapshot?.busy || snapshot?.commandBusy ? 'Busy' : 'Ready');
+      setSessionState(snapshot?.busy || snapshot?.commandBusy ? 'Busy' : 'Ready');
       const workflow = snapshot?.workflow && typeof snapshot.workflow === 'object'
         ? snapshot.workflow as Record<string, unknown>
         : {};
@@ -116,7 +116,7 @@ export function StatusPopover() {
         <button type="button" aria-label={t('Close runtime status')} onClick={() => setOpen(false)}><X size={14} /></button></header>
       <div className="runtime-status-body">
         <div><span>{t('Desktop bridge')}</span><b>{t('Connected')}</b></div>
-        <div><span>{t('Engine')}</span><b>{t(engineState)}</b></div>
+        <div><span>{t('Session')}</span><b>{t(sessionState)}</b></div>
         <div><span>{t('Workflow')}</span><b>{t(workflowMode)}</b></div>
         <div><span>{t('Channel worker')}</span><b>{runtime?.running ? t('Running') : loading ? t('Checking…') : t('Stopped')}</b></div>
         <div><span>{t('Process ID')}</span><b>{runtime?.pid || '—'}</b></div>

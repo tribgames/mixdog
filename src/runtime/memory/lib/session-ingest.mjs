@@ -305,7 +305,7 @@ export function shouldExcludeIngestMessage(m) {
   if (role === 'user' && typeof raw === 'string' && /^Reference files:\s*/i.test(raw.trimStart())) {
     return true
   }
-  // Attachment-only placeholder rows (e.g. Discord backend discord.mjs:724
+  // Attachment-only placeholder rows (e.g. Discord provider discord.mjs:724
   // `"(attachment)"` fallback when a message carries no text, only files).
   // Carries zero retrievable content — excluded so recall isn't polluted
   // with bare "(attachment)" memory rows.

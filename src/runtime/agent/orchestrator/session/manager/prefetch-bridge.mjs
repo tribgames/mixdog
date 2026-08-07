@@ -6,8 +6,10 @@ import { executeInternalTool } from '../../internal-tools.mjs';
 import { classifyResultKind } from '../result-classification.mjs';
 import { tryPrefetchCached, setPrefetchCached } from '../read-dedup.mjs';
 import { _executeCodeGraphToolLazy } from './runtime-loaders.mjs';
+import { runAbortable, throwIfAborted } from '../../../../shared/abort-race.mjs';
 
-export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
+export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch, signal = null) {
+    throwIfAborted(signal);
     if (!explicitPrefetch || typeof explicitPrefetch !== 'object') return null;
     if (!isAgentOwner(session)) return null;
     const parts = [];
@@ -52,7 +54,10 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
         totalEntries.push(...files);
         // R20: per-file prefetch cache (cross-dispatch, process-local).
         // Try each file from cache first; batch misses into one disk read.
-        const { resolve: _pfResolve, isAbsolute: _pfIsAbs, normalize: _pfNorm } = await import('path');
+        const { resolve: _pfResolve, isAbsolute: _pfIsAbs, normalize: _pfNorm } = await runAbortable(
+            signal,
+            () => import('path'),
+        );
         const _pfCwd = session.cwd || null;
         function _pfAbsPath(f) {
             const abs = _pfIsAbs(f) ? f : _pfResolve(_pfCwd || process.cwd(), f);
@@ -79,7 +84,7 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
         if (missFiles.length > 0) {
             // Read each miss file individually so we can cache per-file.
             // The files list is small (typically 2-5), so N awaits is fine.
-            await Promise.all(missFiles.map(async (f) => {
+            await runAbortable(signal, () => Promise.all(missFiles.map(async (f) => {
                 const opts = _readOptsByFile.get(f) || {};
                 const readArgs = { path: f };
                 if (opts.mode === 'full') {
@@ -95,7 +100,7 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
                 if (out !== null) {
                     missResults[f] = String(out);
                 }
-            }));
+            })));
             // Cache successful miss results.
             for (const { file, abs } of fileMisses) {
                 const content = missResults[file];
@@ -157,7 +162,7 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
                     return { symbol, out: null };
                 });
         });
-        const callerResults = await Promise.allSettled(callerTasks);
+        const callerResults = await runAbortable(signal, () => Promise.allSettled(callerTasks));
         for (const r of callerResults) {
             const { symbol, out } = r.status === 'fulfilled' ? r.value : { symbol: '?', out: null };
             if (out && classifyResultKind(String(out)) !== 'error') {
@@ -182,7 +187,7 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
                     return { symbol, out: null };
                 });
         });
-        const refResults = await Promise.allSettled(refTasks);
+        const refResults = await runAbortable(signal, () => Promise.allSettled(refTasks));
         for (const r of refResults) {
             const { symbol, out } = r.status === 'fulfilled' ? r.value : { symbol: '?', out: null };
             if (out && classifyResultKind(String(out)) !== 'error') {
@@ -192,6 +197,7 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
             }
         }
     }
+    throwIfAborted(signal);
     if (session && typeof session === 'object' && (callers.length > 0 || references.length > 0)) {
         if (!session.prefetchStats) session.prefetchStats = { files: 0, cached: 0, miss: 0, failed: 0, callers: 0, references: 0 };
         session.prefetchStats.callers = (session.prefetchStats.callers || 0) + callers.length;

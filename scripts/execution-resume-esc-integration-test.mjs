@@ -5,10 +5,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createAgentJobFeed } from '../src/tui/engine/agent-job-feed.mjs';
-import { createSessionFlow } from '../src/tui/engine/session-flow.mjs';
-import { createRunTurn } from '../src/tui/engine/turn.mjs';
-import { createEngineApiA } from '../src/tui/engine/session-api.mjs';
+import { createAgentJobFeed } from '../src/tui/session/agent-job-feed.mjs';
+import { createSessionFlow } from '../src/tui/session/session-flow.mjs';
+import { createRunTurn } from '../src/tui/session/turn.mjs';
+import { createSessionApiA } from '../src/tui/session/session-api.mjs';
 import { _clearDeliveredCompletions } from '../src/runtime/agent/orchestrator/session/manager/delivered-completions.mjs';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -59,7 +59,6 @@ function makeHarness() {
     runtime,
     nextId: () => `id_${++seq}`,
     tuiDebug: () => {},
-    LEAD_TURN_TIMEOUT_MS: 300_000,
     flags: { leadTurnEpoch: 0, drainEpoch: 0, disposed: false, draining: false, activePromptRestore: null },
     pending,
     pendingNotificationKeys: new Set(),
@@ -118,7 +117,7 @@ function makeHarness() {
   });
   Object.assign(bag, feed);
   bag.runTurn = createRunTurn(bag);
-  const api = createEngineApiA(bag);
+  const api = createSessionApiA(bag);
   feed.subscribeRuntimeNotifications();
 
   return {

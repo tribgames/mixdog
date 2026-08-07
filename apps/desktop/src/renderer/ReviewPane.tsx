@@ -201,7 +201,8 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
         <h2>{t("Review")}</h2>
         <span className="review-branch"><b>{status.branch}</b>{base !== "HEAD" ? ` → ${base}` : ""}</span>
         {(totalAdditions > 0 || totalDeletions > 0) && <span className="diff-stats review-total">
-          <i>+{totalAdditions}</i><em>-{totalDeletions}</em>
+          {totalAdditions > 0 && <i>+{totalAdditions}</i>}
+          {totalDeletions > 0 && <em>-{totalDeletions}</em>}
         </span>}
         {status.ahead > 0 && <button type="button" className="dock-git-sync" disabled={busy}
           title={`Push ${status.ahead} commit${status.ahead === 1 ? "" : "s"}`}
@@ -257,7 +258,8 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
                 {added && <em className="review-change-label" data-type="added">{t("Added")}</em>}
                 {deleted && <em className="review-change-label" data-type="removed">{t("Removed")}</em>}
                 {(file.additions > 0 || file.deletions > 0) && <span className="diff-stats">
-                  <i>+{file.additions}</i><em>-{file.deletions}</em>
+                  {file.additions > 0 && <i>+{file.additions}</i>}
+                  {file.deletions > 0 && <em>-{file.deletions}</em>}
                 </span>}
               </span>
               <ChevronDown size={14} className="review-chevron" aria-hidden="true" />

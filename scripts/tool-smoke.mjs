@@ -44,7 +44,7 @@ import { TOOL_DEFS as MEMORY_TOOL_DEFS } from '../src/runtime/memory/tool-defs.m
 import { mergeSessionRowsIntoGlobal } from '../src/runtime/memory/lib/memory-session-merge.mjs';
 import { TOOL_DEFS as SEARCH_TOOL_DEFS } from '../src/runtime/search/tool-defs.mjs';
 import { TOOL_DEFS as CHANNEL_TOOL_DEFS } from '../src/runtime/channels/tool-defs.mjs';
-import { createBackendDispatch } from '../src/runtime/channels/lib/backend-dispatch.mjs';
+import { createProviderDispatch } from '../src/runtime/channels/lib/provider-dispatch.mjs';
 import { AGENT_OWNER } from '../src/runtime/agent/orchestrator/agent-owner.mjs';
 import { recursiveWrapperToolNameForPublicAgent } from '../src/runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
 import {
@@ -400,11 +400,11 @@ if (/refs[\\/]/i.test(String(implicitRefsGlobOut))) {
 }
 
 const explicitSrcGlobOut = await executeBuiltinTool('glob', {
-  pattern: '**/engine.mjs',
+  pattern: '**/runner.mjs',
   path: 'src',
   head_limit: 20,
 }, root);
-assertOk('glob explicit src', explicitSrcGlobOut, /src[\\/].*engine\.mjs/i);
+assertOk('glob explicit src', explicitSrcGlobOut, /src[\\/].*runner\.mjs/i);
 
 const globPathOnlyOut = await executeBuiltinTool('glob', {
   path: 'scripts',
@@ -594,6 +594,7 @@ if (!/^Error[\s:[]/.test(String(readDirOut)) || !/read expects a file/i.test(Str
     const firstImage = join(imageBatchTmp, 'first.png');
     const secondImage = join(imageBatchTmp, 'second.png');
     const textFile = join(imageBatchTmp, 'note.txt');
+    const binaryFile = join(imageBatchTmp, 'sample.bin');
     const missingImage = join(imageBatchTmp, 'missing.png');
     const onePixelPng = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl8Y5sAAAAASUVORK5CYII=',
@@ -602,6 +603,12 @@ if (!/^Error[\s:[]/.test(String(readDirOut)) || !/read expects a file/i.test(Str
     writeFileSync(firstImage, onePixelPng);
     writeFileSync(secondImage, onePixelPng);
     writeFileSync(textFile, 'batch text body\n', 'utf8');
+    writeFileSync(binaryFile, Buffer.from([0x41, 0x00, 0x42, 0x43]));
+
+    const binaryRead = await executeBuiltinTool('read', { path: binaryFile }, root);
+    if (!/binary, 4 bytes/.test(String(binaryRead)) || !/41 00 42 43/.test(String(binaryRead))) {
+      throw new Error(`binary read must retain async-probe hex preview contract: ${binaryRead}`);
+    }
 
     const twoImageBatch = await executeBuiltinTool('read', {
       path: [firstImage, secondImage],
@@ -931,8 +938,8 @@ if (!/^Error[\s:[]/.test(String(shellArgFailOut)) || !/\[shell-tool-failed\]/.te
 
 // Auto-promotion: a sync foreground command still running past the (soft)
 // promotion budget is detached into a tracked background task and returns the
-// same task_id envelope as explicit async — the caller never pre-chose async.
-// Shrink the budget via MIXDOG_SHELL_AUTO_BACKGROUND_MS so the smoke stays fast.
+// same task_id envelope as explicit async — including when the caller supplied
+// a long total timeout. Shrink the budget so the smoke stays fast.
 const _priorAutoBgBudget = process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
 process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = '800';
 let shellAutoPromoteOut;
@@ -941,6 +948,7 @@ try {
     command: 'node -e "setTimeout(() => console.log(\'tool-smoke-autopromote-done\'), 6000)"',
     cwd: root,
     shell: 'powershell',
+    timeout: 10_000,
   }, root);
 } finally {
   if (_priorAutoBgBudget === undefined) delete process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
@@ -1224,59 +1232,47 @@ async function waitForSmoke(predicate, label, timeoutMs = 5000) {
 
 const channelWorkerTmp = mkdtempSync(join(tmpdir(), 'mixdog-channel-worker-env-'));
 let channelEnvWorker = null;
-const prevChannelDaemon = process.env.MIXDOG_CHANNEL_DAEMON;
-const prevChannelSingleton = process.env.MIXDOG_CHANNEL_SINGLETON;
-const prevChannelWorkerProcess = process.env.MIXDOG_CHANNEL_WORKER_PROCESS;
+const prevDaemonHost = process.env.MIXDOG_DAEMON_HOST;
 const prevRuntimeRoot = process.env.MIXDOG_RUNTIME_ROOT;
 const prevEnvOut = process.env.SMOKE_CHANNEL_ENV_OUT;
-const prevDaemonEntry = process.env.MIXDOG_CHANNEL_DAEMON_ENTRY;
+const prevDaemonEntry = process.env.MIXDOG_DAEMON_ENTRY;
 try {
   // Daemon-mode worker env coverage: start() spawn-or-attaches the machine
   // -global daemon (the stub daemon entry — no Discord token) instead of
-  // forking `entry`, so assert the flags on the SPAWNED DAEMON's env (the stub
-  // dumps them to SMOKE_CHANNEL_ENV_OUT). The old fork-path env assertion died
-  // with the fork path itself; full flip/attach coverage lives in
-  // scripts/channel-daemon-smoke.mjs.
-  const stubEntry = join(root, 'scripts', 'channel-daemon-stub.mjs');
+  // Assert the flags on the spawned daemon's environment.
+  const stubEntry = join(root, 'scripts', 'daemon-stub.mjs');
   const dataDir = join(channelWorkerTmp, 'data');
   const runtimeDir = join(channelWorkerTmp, 'runtime');
   const envOut = join(channelWorkerTmp, 'env.json');
   mkdirSync(dataDir, { recursive: true });
   mkdirSync(runtimeDir, { recursive: true });
-  process.env.MIXDOG_CHANNEL_DAEMON = '1';
-  process.env.MIXDOG_CHANNEL_SINGLETON = '1';
-  process.env.MIXDOG_CHANNEL_WORKER_PROCESS = '1';
+  process.env.MIXDOG_DAEMON_HOST = '1';
   process.env.MIXDOG_RUNTIME_ROOT = runtimeDir;
   process.env.SMOKE_CHANNEL_ENV_OUT = envOut;
-  process.env.MIXDOG_CHANNEL_DAEMON_ENTRY = stubEntry;
+  process.env.MIXDOG_DAEMON_ENTRY = stubEntry;
   channelEnvWorker = createStandaloneChannelWorker({
-    entry: stubEntry,
     rootDir: root,
     dataDir,
     cwd: root,
   });
   await channelEnvWorker.start();
   const childEnv = JSON.parse(readFileSync(envOut, 'utf8'));
-  if (childEnv.daemon !== '1') {
-    throw new Error(`channel daemon smoke expected daemon=1, got ${childEnv.daemon}`);
+  if (childEnv.host !== '1') {
+    throw new Error(`channel service smoke expected host=1, got ${childEnv.host}`);
   }
   if (childEnv.cliOwned !== '0') {
-    throw new Error(`channel daemon must advertise owner HTTP (MIXDOG_CLI_OWNED=0), got ${childEnv.cliOwned}`);
+    throw new Error(`channel service must advertise owner HTTP (MIXDOG_CLI_OWNED=0), got ${childEnv.cliOwned}`);
   }
 } finally {
   try { await channelEnvWorker?.stop?.('channel-worker-env-smoke', { force: true }); } catch {}
-  if (prevChannelDaemon == null) delete process.env.MIXDOG_CHANNEL_DAEMON;
-  else process.env.MIXDOG_CHANNEL_DAEMON = prevChannelDaemon;
-  if (prevChannelSingleton == null) delete process.env.MIXDOG_CHANNEL_SINGLETON;
-  else process.env.MIXDOG_CHANNEL_SINGLETON = prevChannelSingleton;
-  if (prevChannelWorkerProcess == null) delete process.env.MIXDOG_CHANNEL_WORKER_PROCESS;
-  else process.env.MIXDOG_CHANNEL_WORKER_PROCESS = prevChannelWorkerProcess;
+  if (prevDaemonHost == null) delete process.env.MIXDOG_DAEMON_HOST;
+  else process.env.MIXDOG_DAEMON_HOST = prevDaemonHost;
   if (prevRuntimeRoot == null) delete process.env.MIXDOG_RUNTIME_ROOT;
   else process.env.MIXDOG_RUNTIME_ROOT = prevRuntimeRoot;
   if (prevEnvOut == null) delete process.env.SMOKE_CHANNEL_ENV_OUT;
   else process.env.SMOKE_CHANNEL_ENV_OUT = prevEnvOut;
-  if (prevDaemonEntry == null) delete process.env.MIXDOG_CHANNEL_DAEMON_ENTRY;
-  else process.env.MIXDOG_CHANNEL_DAEMON_ENTRY = prevDaemonEntry;
+  if (prevDaemonEntry == null) delete process.env.MIXDOG_DAEMON_ENTRY;
+  else process.env.MIXDOG_DAEMON_ENTRY = prevDaemonEntry;
   // Detach only ends OUR attachment; the stub daemon self-shuts after its
   // client-grace window. Give it that window before deleting its tmp root.
   await new Promise((resolveWait) => setTimeout(resolveWait, 700));
@@ -1805,7 +1801,8 @@ if (patchTool?.freeformDescription !== COMPACT_APPLY_PATCH_FREEFORM_DESCRIPTION
   throw new Error(`apply_patch must expose freeform grammar metadata: ${JSON.stringify(patchTool)}`);
 }
 for (const requiredGrammarLine of [
-  'start: begin_patch hunk+ end_patch',
+  'start: begin_patch root_line? hunk+ end_patch',
+  'root_line: "*** Root: " filename LF',
   'add_hunk: "*** Add File: " filename LF add_line+',
   'change_move: "*** Move to: " filename LF',
   '%import common.LF',
@@ -1978,15 +1975,15 @@ if (/line\/context/i.test(JSON.stringify(readTool?.inputSchema || {}))) {
     || !/session\.providerCacheOpts = buildSessionProviderCacheOpts\(session\.provider, session\.id, session\.agent\) \|\| null/.test(updateSessionRouteBlock)) {
     throw new Error('updateSessionRoute must refresh provider-scoped prompt cache fields when an empty live session changes provider/model');
   }
-  const engineSrc = [
-    readMjsSources('src/tui/engine.mjs'),
-    readMjsSources('src/tui/engine-local-session.mjs'),
-    readMjsSources('src/tui/engine'),
+  const sessionSrc = [
+    readMjsSources('src/tui/session.mjs'),
+    readMjsSources('src/tui/session-local.mjs'),
+    readMjsSources('src/tui/session'),
   ].join('\n');
-  if (/setRoute\(\{ model: m \}, \{ applyToCurrentSession: true \}\)/.test(engineSrc)) {
+  if (/setRoute\(\{ model: m \}, \{ applyToCurrentSession: true \}\)/.test(sessionSrc)) {
     throw new Error('TUI setModel must not force applyToCurrentSession:true (model changes must apply to the next session only)');
   }
-  if (!/routeOpts\.applyToCurrentSession === true/.test(engineSrc)) {
+  if (!/routeOpts\.applyToCurrentSession === true/.test(sessionSrc)) {
     throw new Error('TUI setRoute wrapper must default applyToCurrentSession to false');
   }
 }
@@ -2009,6 +2006,9 @@ if (!/File modes take files\[\]/i.test(codeGraphDescription) || !/symbol modes t
 }
 if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/Source file path/i.test(codeGraphProps.files?.description || '')) {
   throw new Error('code_graph schema must keep compact, repo-local field descriptions');
+}
+if (!/Explicit root/i.test(codeGraphProps.cwd?.description || '')) {
+  throw new Error('code_graph schema must expose its explicit outside-cwd root');
 }
 const recallTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'recall');
 const recallProps = recallTool?.inputSchema?.properties || {};
@@ -2414,9 +2414,9 @@ if (!replyTool?.inputSchema?.required?.includes('message') || replyTool?.inputSc
 {
   const sent = [];
   let activity = 0;
-  const { dispatchReply } = createBackendDispatch({
+  const { dispatchReply } = createProviderDispatch({
     getConfig: () => ({ channelId: 'configured-channel' }),
-    getBackend: () => ({
+    getProvider: () => ({
       sendMessage: async (...args) => {
         sent.push(args);
         return { sentIds: ['sent-1'] };
@@ -2434,7 +2434,7 @@ if (!replyTool?.inputSchema?.required?.includes('message') || replyTool?.inputSc
       || sent[0][2]?.files?.[0] !== 'C:\\tmp\\attachment.txt'
       || activity !== 2
       || !/sent \(id: sent-1\)/.test(replyResult?.content?.[0]?.text || '')) {
-    throw new Error(`channel reply public args must normalize into backend dispatch: ${JSON.stringify({ sent, activity, replyResult })}`);
+    throw new Error(`channel reply public args must normalize into provider dispatch: ${JSON.stringify({ sent, activity, replyResult })}`);
   }
 }
 const fetchTool = CHANNEL_TOOL_DEFS.find((tool) => tool.name === 'fetch');

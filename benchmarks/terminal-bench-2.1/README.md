@@ -101,7 +101,7 @@ harbor run -d terminal-bench/terminal-bench-2-1 `
 ```powershell
 node analysis/results-table.mjs   # regenerates results.md/.json (78/89, 75/89)
 node analysis/final-context.mjs   # final-context medians for all four runs
-node harness/cost-exact.mjs jobs-full-opus5-clean-20260804-042235 cc-baseline.json  # cost/speed
+node harness/cost-exact.mjs jobs-full-opus5-clean-20260804-042235/2026-08-04__04-22-48 cc-baseline.json  # cost/speed
 ```
 
 ### Claim → raw evidence map

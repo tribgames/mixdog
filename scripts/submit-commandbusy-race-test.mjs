@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSessionFlow } from '../src/tui/engine/session-flow.mjs';
-import { createEngineApiA } from '../src/tui/engine/session-api.mjs';
+import { createSessionFlow } from '../src/tui/session/session-flow.mjs';
+import { createSessionApiA } from '../src/tui/session/session-api.mjs';
 
 // Regression harness for prompt loss when a submit races an in-flight session
 // command (commandBusy) or an auto-clear. Wires the real session-flow queue
 // (enqueue/drain) + the real submit() against a minimal bag whose set() mirrors
-// engine.mjs's commandBusy-release drain kick.
+// session.mjs's commandBusy-release drain kick.
 function makeEngine({
   autoClearBeforeSubmit,
   autoClearEnabled = false,
@@ -93,7 +93,7 @@ function makeEngine({
   };
   Object.assign(bag, createSessionFlow(bag));
   if (autoClearBeforeSubmit) bag.autoClearBeforeSubmit = autoClearBeforeSubmit;
-  const api = createEngineApiA(bag);
+  const api = createSessionApiA(bag);
   return {
     api,
     bag,

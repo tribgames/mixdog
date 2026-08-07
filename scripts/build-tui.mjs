@@ -41,13 +41,13 @@ const sharedRuntimeExternalPlugin = {
   },
 };
 
-const engineDaemonClientExternalPlugin = {
-  name: 'mixdog-engine-daemon-client-external',
+const sessionClientExternalPlugin = {
+  name: 'mixdog-session-client-external',
   setup(build) {
-    build.onResolve({ filter: /^\.\.\/standalone\/engine-daemon-client\.mjs$/ }, () => ({
+    build.onResolve({ filter: /^\.\.\/standalone\/session-client\.mjs$/ }, () => ({
       // Keep this module outside the TUI bundle so its import.meta.url stays
-      // anchored in src/standalone, where backend-daemon.mjs actually lives.
-      path: '../../standalone/engine-daemon-client.mjs',
+      // anchored in src/standalone, where daemon.mjs actually lives.
+      path: '../../standalone/session-client.mjs',
       external: true,
     }));
   },
@@ -90,7 +90,7 @@ await build({
   plugins: [
     mixdogInkAliasPlugin,
     sharedRuntimeExternalPlugin,
-    engineDaemonClientExternalPlugin,
+    sessionClientExternalPlugin,
   ],
   logLevel: 'info',
 });
