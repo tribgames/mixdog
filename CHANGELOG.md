@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.98 - 2026-08-07
+
 - Remote browser pairing now establishes an authenticated end-to-end encrypted
   channel before any session state, terminal data, or RPC payload can cross the
   relay; unencrypted media lanes remain closed.
