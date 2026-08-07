@@ -1,4 +1,4 @@
-import { Paperclip } from 'lucide-react';
+import { Paperclip, X } from 'lucide-react';
 import { useRef } from 'react';
 import { MxIcon } from './MxIcon';
 
@@ -151,8 +151,11 @@ export function AutomationAttachmentChips({ attachments, disabled, onChange }: {
         ? <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
         : <span aria-hidden="true"><Paperclip size={14} /></span>}
       <span data-tooltip={attachment.name}>{attachment.name}</span>
-      <button type="button" aria-label={`Remove ${attachment.name}`} disabled={disabled}
-        onClick={() => onChange(attachments.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+      <button type="button" className="attachment-remove" aria-label={`Remove ${attachment.name}`}
+        data-tooltip="Remove" disabled={disabled}
+        onClick={() => onChange(attachments.filter((_, itemIndex) => itemIndex !== index))}>
+        <X size={14} aria-hidden="true" />
+      </button>
     </div>)}
   </div>;
 }

@@ -7,6 +7,7 @@ import type {
   DesktopModelOption,
   DesktopModelSelection
 } from '../../shared/contract';
+import { FastModeToggle } from '../FastModeToggle';
 import { ModelPicker } from '../ModelPicker';
 import { OpenSelect } from '../OpenSelect';
 import { modelDisplayName, modelOptionLabel, providerDisplayName } from '../provider-display';
@@ -179,10 +180,12 @@ export function RouteEditor({ title, description: _description, route, models, d
         value={effort || selected.effortOptions[0]?.value || 'auto'} disabled={disabled}
         options={selected.effortOptions}
         onChange={(value) => onChange(selectionFor(selected, { effort: value }))} />}
-      {selected?.fastCapable && <QuietSelectRow title="Fast mode" kind="fast"
-        value={fast ? 'on' : 'off'} disabled={disabled}
-        options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
-        onChange={(value) => onChange(selectionFor(selected, { fast: value === 'on' }))} />}
+      {selected?.fastCapable && <div className="mixdog-settings__row"><div className="mixdog-settings__copy">
+        <span className="mixdog-settings__row-title">{t('Fast mode')}</span>
+      </div><div className="settings-row-control"><div className="fast-control">
+        <FastModeToggle enabled={fast} disabled={disabled}
+          onChange={(enabled) => onChange(selectionFor(selected, { fast: enabled }))} />
+      </div></div></div>}
     </>;
   }
   return <div className="settings-route-editor compact">
@@ -194,9 +197,8 @@ export function RouteEditor({ title, description: _description, route, models, d
           onChange={(value) => onChange(selectionFor(selected, { effort: value }))} />
       </div>}
       {selected?.fastCapable && <div className="fast-control">
-        <OpenSelect variant="route" ariaLabel={`${title} fast mode`} value={fast ? 'on' : 'off'} disabled={disabled}
-          options={[{ value: 'on', label: t('Fast On') }, { value: 'off', label: t('Fast Off') }]}
-          onChange={(value) => onChange(selectionFor(selected, { fast: value === 'on' }))} />
+        <FastModeToggle ariaLabel={`${title} fast mode`} enabled={fast} disabled={disabled}
+          onChange={(enabled) => onChange(selectionFor(selected, { fast: enabled }))} />
       </div>}
     </div>
   </div>;

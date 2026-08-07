@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import {
+  existsSync,
   mkdtempSync,
   readFileSync,
   renameSync,
@@ -18,6 +19,7 @@ const {
   completeTurnSnapshot,
   getTurnReviewDiff,
   recordTurnDiffChanges,
+  revertTurnReview,
   revertTurnReviewFile,
   _resetTurnSnapshotForTest,
 } = await import('../src/runtime/shared/turn-snapshot.mjs');
@@ -83,6 +85,41 @@ test('worktree snapshots include shell/untracked edits and preserve the dirty tu
   }
 });
 
+test('turn-wide revert restores every changed path to the turn baseline', async () => {
+  _resetTurnSnapshotForTest();
+  const dir = worktreeFixture();
+  try {
+    writeFileSync(join(dir, 'rename-me.txt'), 'rename baseline\n');
+    writeFileSync(join(dir, 'delete-me.txt'), 'delete baseline\n');
+    git(dir, ['add', 'rename-me.txt', 'delete-me.txt']);
+    writeFileSync(join(dir, 'tracked.txt'), 'dirty before turn\n');
+    await beginTurnSnapshot(dir, 'lead-revert-all');
+
+    writeFileSync(join(dir, 'tracked.txt'), 'changed during turn\n');
+    writeFileSync(join(dir, 'shell-created.txt'), 'created during turn\n');
+    renameSync(join(dir, 'rename-me.txt'), join(dir, 'renamed.txt'));
+    rmSync(join(dir, 'delete-me.txt'), { force: true });
+
+    const review = await getTurnReviewDiff(dir, 'lead-revert-all');
+    assert.deepEqual(review.files.map((file) => file.path), [
+      'delete-me.txt',
+      'renamed.txt',
+      'shell-created.txt',
+      'tracked.txt',
+    ]);
+
+    const reverted = await revertTurnReview(dir, 'lead-revert-all');
+    assert.equal(readFileSync(join(dir, 'tracked.txt'), 'utf8'), 'dirty before turn\n');
+    assert.equal(readFileSync(join(dir, 'rename-me.txt'), 'utf8'), 'rename baseline\n');
+    assert.equal(readFileSync(join(dir, 'delete-me.txt'), 'utf8'), 'delete baseline\n');
+    assert.equal(existsSync(join(dir, 'renamed.txt')), false);
+    assert.equal(existsSync(join(dir, 'shell-created.txt')), false);
+    assert.deepEqual(reverted.files, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('concurrent sessions in one worktree expose only their session-owned mutations', async () => {
   _resetTurnSnapshotForTest();
   const dir = worktreeFixture();
@@ -126,6 +163,10 @@ test('same-worktree turns are isolated before either asynchronous baseline finis
     assert.equal(right.snapshotKind, 'tool');
     await assert.rejects(
       () => revertTurnReviewFile(dir, 'parallel-start-a', 'tracked.txt'),
+      /sessions share a worktree/,
+    );
+    await assert.rejects(
+      () => revertTurnReview(dir, 'parallel-start-a'),
       /sessions share a worktree/,
     );
   } finally {

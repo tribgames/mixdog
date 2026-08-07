@@ -176,6 +176,24 @@ test('live-share mirrors owner deltas and routes viewer submits', async () => {
       meta: { id: 'desktop-submit-42', submittedAt: 1235 },
     });
 
+    const structuredPrompt = [
+      { type: 'text', text: 'inspect this' },
+      { type: 'image', attachmentRef: 'a'.repeat(64), sizeBytes: 3, mimeType: 'image/png' },
+    ];
+    assert.equal(viewerShare.sendSubmit(structuredPrompt, {
+      id: 'desktop-submit-structured',
+      displayText: 'inspect this [Image]',
+      options: {
+        displayText: 'inspect this [Image]',
+        pastedImages: {
+          1: { id: 1, type: 'image', attachmentRef: 'a'.repeat(64), sizeBytes: 3, mediaType: 'image/png' },
+        },
+      },
+    }), true);
+    await waitFor(() => receivedSubmits.length === 3, 'structured viewer submit');
+    assert.deepEqual(receivedSubmits[2].text, structuredPrompt);
+    assert.equal(receivedSubmits[2].meta.pastedImages[1].attachmentRef, 'a'.repeat(64));
+
     // Owner shutdown notifies the viewer promotion path.
     owner.dispose();
     await waitFor(() => ownerClosedCount === 1, 'owner close notification');
@@ -598,6 +616,7 @@ test('a viewer submit rides the pipe under the caller submission id', () => {
   assert.equal(share.calls[0].text, 'typed on the desktop');
   assert.equal(share.calls[0].meta.id, 'desktop-submit-7');
   assert.equal(share.calls[0].meta.submittedAt, 1234);
+  assert.equal(share.calls[0].meta.options.id, 'desktop-submit-7');
   assert.deepEqual(spooled, [], 'a delivered submit never touches the spool');
 
   // No caller id (legacy/TUI submit): one is minted and it is the id the owner

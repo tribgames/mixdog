@@ -355,6 +355,9 @@ function normalizePendingMessageEntry(entry) {
         id: pendingMessageId(entry),
         enqueuedAt: Number(entry.enqueuedAt) || Date.now(),
     };
+    const entryOptions = entry.options && typeof entry.options === 'object'
+        ? { options: entry.options }
+        : {};
     const marker = entry.notificationKind === COMPLETION_NOTIFICATION_KIND
         ? { notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt: Number(entry.enqueuedAt) || Date.now() }
         : null;
@@ -366,13 +369,13 @@ function normalizePendingMessageEntry(entry) {
     if (content == null) return null;
     const text = typeof entry.text === 'string' ? entry.text.trim() : promptContentText(content).trim();
     let out = null;
-    if (Array.isArray(content)) out = content.length > 0 ? { content, text } : null;
+    if (Array.isArray(content)) out = content.length > 0 ? { content, text, ...entryOptions } : null;
     else if (typeof content === 'string') {
         const value = content.trim();
-        out = value ? { content: value, text: text || value } : null;
+        out = value ? { content: value, text: text || value, ...entryOptions } : null;
     } else {
         const fallback = promptContentText(content).trim();
-        out = fallback ? { content: fallback, text: text || fallback } : null;
+        out = fallback ? { content: fallback, text: text || fallback, ...entryOptions } : null;
     }
     if (!out) return null;
     // The lifecycle token rides along every derived copy (see carryLifecycleToken).
@@ -394,7 +397,12 @@ function pendingMessageQueueEntry(entry) {
     const marker = isCompletionNotificationEntry(normalized)
         ? { notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt: normalized.enqueuedAt }
         : null;
-    const base = { ...identity, content: normalized.content, text: normalized.text || promptContentText(normalized.content).trim() };
+    const base = {
+        ...identity,
+        content: normalized.content,
+        text: normalized.text || promptContentText(normalized.content).trim(),
+        ...(normalized.options ? { options: normalized.options } : {}),
+    };
     return carryLifecycleToken(marker ? { ...base, ...marker } : base, entry);
 }
 
@@ -426,6 +434,20 @@ function normalizePersistedEntry(entry, options = {}) {
     if (typeof entry.message === 'string') {
         const message = entry.message.trim();
         return message ? { id, message, enqueuedAt } : null;
+    }
+    if (Object.prototype.hasOwnProperty.call(entry, 'content')) {
+        const normalized = normalizePendingMessageEntry(entry);
+        if (!normalized) return null;
+        if (typeof normalized.content === 'string' && !normalized.options) {
+            return { id, message: normalized.text || normalized.content, enqueuedAt };
+        }
+        return {
+            id,
+            content: normalized.content,
+            text: normalized.text,
+            ...(normalized.options ? { options: normalized.options } : {}),
+            enqueuedAt,
+        };
     }
     const t = pendingMessageText(entry);
     return t ? { id, message: t, enqueuedAt } : null;
@@ -1195,10 +1217,26 @@ async function _flushForeignDrainBatch() {
                         && !isCompletionNotificationEntry(entry)
                         && !isLegacyUnmarkedCompletionNotification(text)
                         && text && !isInternalRuntimeNotificationText(text);
+                    const normalized = normalizePendingMessageEntry(entry);
+                    const structured = Array.isArray(normalized?.content) || Boolean(normalized?.options);
                     if (foreignUser && isStaleUserInjection(entry)) {
-                        taken.push({ text: lateDeliveryText(text, entry), id });
+                        const lateText = lateDeliveryText(text, entry);
+                        const content = Array.isArray(normalized?.content)
+                            ? [{ type: 'text', text: `${lateText.slice(0, lateText.length - text.length)}` }, ...normalized.content]
+                            : lateText;
+                        taken.push({
+                            ...(structured ? { content } : {}),
+                            text: lateText,
+                            id,
+                            ...(normalized?.options ? { options: normalized.options } : {}),
+                        });
                     } else if (foreignUser) {
-                        taken.push({ text, id });
+                        taken.push({
+                            ...(structured ? { content: normalized?.content ?? text } : {}),
+                            text,
+                            id,
+                            ...(normalized?.options ? { options: normalized.options } : {}),
+                        });
                     } else {
                         kept.push(entry);
                     }

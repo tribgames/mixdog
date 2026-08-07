@@ -12,17 +12,28 @@ import WebSocket from 'ws';
 
 import { mediaResponsePlan } from '../../../relay/lib/media-http.mjs';
 import { loadOrCreateToken } from './remote-bridge';
+import {
+  acceptRelayE2EEClientHello,
+  createRelayE2EEChallenge,
+  isRelayE2EEHello,
+  relayE2EEPairingMaterial,
+  type RelayE2EEChannel,
+  type RelayE2EEChallenge,
+  type RelayE2EEPairingMaterial,
+} from '../shared/remote-e2ee';
 import { resolveMediaFileTarget } from './media-source';
 import {
   createRemoteMethods,
   executeRemoteFrame,
   type RemoteMethodDependencies,
 } from './remote-methods';
+import { loadOrCreateRelayE2EEIdentity } from './remote-e2ee';
 import { readSecretFile, writeSecretFile } from './secret-file';
 import { createSnapshotDeltaEncoder, isStateResyncFrame } from './state-delta';
 
 const MAX_WS_PAYLOAD_BYTES = 64 * 1024 * 1024;
 const REVOKE_TIMEOUT_MS = 5_000;
+const E2EE_HANDSHAKE_TIMEOUT_MS = 10_000;
 // Media chunk size and the socket backlog that pauses the read. Bigger frames
 // waste memory on the relay, smaller ones waste round trips; 256 KB keeps a
 // clip flowing while a phone that stalls stops the pump within a few frames.
@@ -53,6 +64,7 @@ export interface RemoteRelayHandle {
   /** URL a phone opens (relay origin + pairing token). */
   clientUrl: string;
   token: string;
+  pairing: RelayE2EEPairingMaterial;
   readonly clientCount: number;
   /** System resume: the socket is likely half-dead after sleep — drop it and
    *  redial immediately instead of waiting for the ping cycle to notice. */
@@ -203,6 +215,8 @@ function relayClientUrl(relayUrl: string, token: string): string {
 export async function startRemoteRelay(options: RemoteRelayOptions): Promise<RemoteRelayHandle> {
   const token = await loadOrCreateToken(options.userDataPath);
   const { deviceId, deviceSecret } = await loadOrCreateDevice(options.userDataPath);
+  const e2eeIdentity = await loadOrCreateRelayE2EEIdentity(options.userDataPath);
+  const pairing = relayE2EEPairingMaterial(e2eeIdentity);
   const methods = createRemoteMethods(options);
   let socket: WebSocket | null = null;
   let closed = false;
@@ -219,7 +233,12 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   // the floor anyway, so the desktop goes quiet instead of streaming state
   // upstream 24/7 — the relay lane then costs keepalive bytes only. Each
   // join restarts the delta lane with a full snapshot, so nothing is lost.
-  const activeClients = new Set<string>();
+  interface RelayClientState {
+    challenge: RelayE2EEChallenge;
+    channel: RelayE2EEChannel | null;
+    handshakeTimer: NodeJS.Timeout;
+  }
+  const activeClients = new Map<string, RelayClientState>();
   const notifyClientCount = (): void => options.onClientCountChanged?.();
   // Media streams currently pumping to the relay, keyed by request id: an
   // aborted phone request (scrolled away, closed tab) must stop the read.
@@ -240,16 +259,45 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       try { socket.send(JSON.stringify(payload)); } catch { /* relay vanished */ }
     }
   };
+  const removeClient = (clientId: string): boolean => {
+    const state = activeClients.get(clientId);
+    if (!state) return false;
+    clearTimeout(state.handshakeTimer);
+    activeClients.delete(clientId);
+    return true;
+  };
+  const closeClient = (clientId: string, reason: string): void => {
+    if (removeClient(clientId)) notifyClientCount();
+    sendEnvelope({ type: 'close-client', clientId, reason });
+  };
+  const sendEncryptedFrame = async (
+    clientId: string,
+    payload: unknown,
+    droppable = false,
+  ): Promise<void> => {
+    const state = activeClients.get(clientId);
+    if (!state?.channel) return;
+    try {
+      const data = await state.channel.encryptJson(payload);
+      sendEnvelope({ type: 'frame', clientId, data, ...(droppable ? { droppable: true } : {}) });
+    } catch {
+      closeClient(clientId, 'relay encryption failed');
+    }
+  };
+  const broadcastEncrypted = (payload: unknown, droppable: boolean): void => {
+    for (const [clientId, state] of activeClients) {
+      if (state.channel) void sendEncryptedFrame(clientId, payload, droppable);
+    }
+  };
   // `critical` marks a FULL snapshot (join / resync answer). The relay drops
   // ordinary pushes for a congested phone; dropping the recovery frame itself
   // would leave that phone stranded on a transcript missing the answer.
   const broadcastState = (snapshot: unknown, critical = false): void => {
     if (activeClients.size === 0) return;
-    sendEnvelope({
-      type: 'broadcast',
-      ...(critical ? { critical: true } : {}),
-      data: JSON.stringify({ event: 'state', payload: deltaEncoder.encode(snapshot) }),
-    });
+    broadcastEncrypted(
+      { event: 'state', payload: deltaEncoder.encode(snapshot) },
+      !critical,
+    );
   };
   const drainQueuedRevocations = async (): Promise<void> => {
     if (closed || drainingRevocations) return;
@@ -352,6 +400,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       sendEnvelope({ type: 'media-end', id });
     });
   };
+  // Retained for a future encrypted byte lane. The active relay protocol
+  // rejects media requests before this plaintext implementation can run.
+  void serveRelayMedia;
 
   const connect = (): void => {
     if (closed) return;
@@ -384,6 +435,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       // A fresh desktop leg supersedes the old one and the relay closed its
       // phone legs; phones re-open and re-announce themselves.
       if (activeClients.size > 0) {
+        for (const state of activeClients.values()) clearTimeout(state.handshakeTimer);
         activeClients.clear();
         notifyClientCount();
       }
@@ -391,7 +443,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       // relay can answer a phone's media request the moment a client leg
       // binds. An older relay ignores the frame; a newer one stops proxying
       // media to desktops that would never answer.
-      sendEnvelope({ type: 'desktop-lanes', media: true });
+      // HTTP media is disabled until its byte protocol is encrypted. Remote
+      // galleries fall back to the encrypted RPC payload.
+      sendEnvelope({ type: 'desktop-lanes', media: false, e2ee: 1 });
       // Register the phone pairing token before any client leg can bind.
       sendEnvelope({ type: 'set-client-token', token });
       // Unpair is local-first so it also works offline. Once any new relay leg
@@ -409,63 +463,86 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         }
         if (envelope.type === 'client-open') {
           if (typeof envelope.clientId === 'string') {
-            const before = activeClients.size;
-            activeClients.add(envelope.clientId);
-            if (activeClients.size !== before) notifyClientCount();
+            removeClient(envelope.clientId);
+            const challenge = createRelayE2EEChallenge();
+            const handshakeTimer = setTimeout(() => {
+              closeClient(envelope.clientId as string, 'relay encryption handshake timed out');
+            }, E2EE_HANDSHAKE_TIMEOUT_MS);
+            handshakeTimer.unref?.();
+            activeClients.set(envelope.clientId, {
+              challenge,
+              channel: null,
+              handshakeTimer,
+            });
+            notifyClientCount();
+            sendEnvelope({
+              type: 'frame',
+              clientId: envelope.clientId,
+              data: JSON.stringify(challenge),
+            });
           }
-          // A phone joined mid-stream: restart the delta lane with one full
-          // snapshot so it has a base revision to patch against.
-          deltaEncoder.reset();
-          broadcastState(options.host.getSnapshot(), true);
           return;
         }
         if (envelope.type === 'client-close') {
-          if (typeof envelope.clientId === 'string' && activeClients.delete(envelope.clientId)) {
+          if (typeof envelope.clientId === 'string' && removeClient(envelope.clientId)) {
             notifyClientCount();
           }
           return;
         }
         // Relay flow control for the phone leg: its HTTP response filled up,
         // so stop reading until it drains. An older relay never sends these.
-        if (envelope.type === 'media-pause' || envelope.type === 'media-resume') {
+        if (typeof envelope.type === 'string' && envelope.type.startsWith('media-')) {
           const id = String((envelope as Record<string, unknown>).id ?? '');
-          const pump = mediaStreams.get(id);
-          if (!pump) return;
-          pump.relayPaused = envelope.type === 'media-pause';
-          if (pump.relayPaused) pump.stream.pause();
-          else resumeMedia(id);
-          return;
-        }
-        // Media frames carry bytes, not RPC: answer them on their own lane.
-        if (envelope.type === 'media-request' || envelope.type === 'media-abort') {
-          const frame = envelope as Record<string, unknown>;
-          const id = String(frame.id ?? '');
-          if (envelope.type === 'media-abort') {
-            const pump = mediaStreams.get(id);
-            mediaStreams.delete(id);
-            pump?.stream.destroy();
-            return;
-          }
-          void serveRelayMedia({
-            id,
-            assetId: String(frame.assetId ?? ''),
-            variant: String(frame.variant ?? 'original'),
-            method: String(frame.method ?? 'GET'),
-            range: String(frame.range ?? ''),
-            ifNoneMatch: String(frame.ifNoneMatch ?? ''),
-          });
+          if (id) sendEnvelope({ type: 'media-error', id });
           return;
         }
         if (envelope.type !== 'frame' || typeof envelope.clientId !== 'string') return;
+        const client = activeClients.get(envelope.clientId);
+        if (!client) return;
         const frame = String(envelope.data ?? '');
-        if (isStateResyncFrame(frame)) {
+        if (!client.channel) {
+          let hello: unknown;
+          try { hello = JSON.parse(frame); } catch {
+            closeClient(envelope.clientId, 'relay encryption handshake required');
+            return;
+          }
+          if (!isRelayE2EEHello(hello)) {
+            closeClient(envelope.clientId, 'relay encryption handshake required');
+            return;
+          }
+          try {
+            client.channel = await acceptRelayE2EEClientHello(
+              e2eeIdentity,
+              client.challenge,
+              hello,
+            );
+            clearTimeout(client.handshakeTimer);
+            await sendEncryptedFrame(
+              envelope.clientId,
+              { type: 'e2ee-ready', version: 1 },
+            );
+            deltaEncoder.reset();
+            broadcastState(options.host.getSnapshot(), true);
+          } catch {
+            closeClient(envelope.clientId, 'relay encryption authentication failed');
+          }
+          return;
+        }
+        let clearFrame: string;
+        try {
+          clearFrame = JSON.stringify(await client.channel.decryptJson(frame));
+        } catch {
+          closeClient(envelope.clientId, 'invalid encrypted relay frame');
+          return;
+        }
+        if (isStateResyncFrame(clearFrame)) {
           deltaEncoder.reset();
           broadcastState(options.host.getSnapshot(), true);
           return;
         }
-        const response = await executeRemoteFrame(methods, frame);
+        const response = await executeRemoteFrame(methods, clearFrame);
         if (response !== undefined) {
-          sendEnvelope({ type: 'frame', clientId: envelope.clientId, data: JSON.stringify(response) });
+          await sendEncryptedFrame(envelope.clientId, response);
         }
       })();
     });
@@ -473,6 +550,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     ws.on('close', () => {
       clearInterval(heartbeat);
       if (activeClients.size > 0) {
+        for (const state of activeClients.values()) clearTimeout(state.handshakeTimer);
         activeClients.clear();
         notifyClientCount();
       }
@@ -495,19 +573,17 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   const unsubscribeState = options.host.subscribe((snapshot) => broadcastState(snapshot));
   const unsubscribeSessionStates = options.host.subscribeSessionStates((update) => {
     if (activeClients.size === 0) return;
-    sendEnvelope({
-      type: 'broadcast',
-      data: JSON.stringify({ event: 'sessionState', payload: update }),
-    });
+    broadcastEncrypted({ event: 'sessionState', payload: update }, true);
   });
   const unsubscribeTerminals = options.subscribeTerminalData?.((event) => {
     if (activeClients.size === 0) return;
-    sendEnvelope({ type: 'broadcast', data: JSON.stringify({ event: 'termData', payload: event }) });
+    broadcastEncrypted({ event: 'termData', payload: event }, true);
   }) ?? (() => {});
 
   return {
     clientUrl: relayClientUrl(options.relayUrl, token),
     token,
+    pairing,
     get clientCount() { return activeClients.size; },
     resume: (): void => {
       if (closed) return;
@@ -601,6 +677,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         socket = null;
       }
       if (activeClients.size > 0) {
+        for (const state of activeClients.values()) clearTimeout(state.handshakeTimer);
         activeClients.clear();
         notifyClientCount();
       }

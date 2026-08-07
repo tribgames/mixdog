@@ -26,6 +26,7 @@ import {
   Terminal,
   Undo2,
   X,
+  Zap,
 } from 'lucide-react';
 
 // Name-keyed facade over the shared lucide icon set, so call sites stay
@@ -63,6 +64,7 @@ const GLYPHS: Record<string, ComponentType<SVGProps<SVGSVGElement> & { size?: nu
   tasks: ListChecks,
   terminal: Terminal,
   tests: FlaskConical,
+  zap: Zap,
 };
 
 export function MxIcon({ name, size = 16, className = '', ...rest }: {

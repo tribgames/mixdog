@@ -24,6 +24,7 @@ import {
   themePreviewPalette,
   type DesktopThemePreference,
 } from '../desktop-theme';
+import { t } from '../i18n';
 import { OpenSelect } from '../OpenSelect';
 import { PaneSurfaceGate } from '../PaneSurfaceGate';
 import { modelOptionLabel, providerDisplayName } from '../provider-display';
@@ -59,69 +60,69 @@ const ONBOARDING_STEP_KEY = 'mixdog.onboarding.step';
 const STEPS = [
   {
     id: 'profile',
-    label: 'Profile',
-    title: 'Make it yours',
-    subtitle: 'Tell Mixdog what to call you and which language to answer in.',
+    label: () => t('Profile'),
+    title: () => t('Make it yours'),
+    subtitle: () => t('Tell Mixdog what to call you and which language to answer in.'),
   },
   {
     id: 'providers',
-    label: 'Providers',
-    title: 'Connect your providers',
-    subtitle: 'Sign in with API keys, OAuth, or a local endpoint — the same provider as the Mixdog TUI.',
+    label: () => t('Providers'),
+    title: () => t('Connect your providers'),
+    subtitle: () => t('Sign in with API keys, OAuth, or a local endpoint — the same provider as the Mixdog TUI.'),
   },
   {
     id: 'models',
-    label: 'Models',
-    title: 'Assign your models',
-    subtitle: 'Pick the Main model. Search and every agent follow Main unless you set an explicit override.',
+    label: () => t('Models'),
+    title: () => t('Assign your models'),
+    subtitle: () => t('Pick the Main model. Search and every agent follow Main unless you set an explicit override.'),
   },
   {
     id: 'workflow',
-    label: 'Workflow',
-    title: 'Pick your workflow',
-    subtitle: 'Workflows decide how much Mixdog delegates to agents. Pick one now — you can switch any time.',
+    label: () => t('Workflow'),
+    title: () => t('Pick your workflow'),
+    subtitle: () => t('Workflows decide how much Mixdog delegates to agents. Pick one now — you can switch any time.'),
   },
   {
     id: 'git',
-    label: 'Git',
-    title: 'Set up Git & GitHub',
-    subtitle: 'Connect the GitHub CLI and you are set — commits and pull requests just work.',
+    label: () => t('Git'),
+    title: () => t('Set up Git & GitHub'),
+    subtitle: () => t('Connect the GitHub CLI and you are set — commits and pull requests just work.'),
   },
   {
     id: 'memory',
-    label: 'Context',
-    title: 'Keep context under control',
-    subtitle: 'Auto-compact long chats, auto-clear idle sessions, and keep curated memories across projects.',
+    label: () => t('Context'),
+    title: () => t('Keep context under control'),
+    subtitle: () => t('Auto-compact long chats, auto-clear idle sessions, and keep curated memories across projects.'),
   },
   {
     id: 'channels',
-    label: 'Channels',
-    title: 'Chat from anywhere',
-    subtitle: 'Hook up Discord or Telegram to reach Mixdog away from your desk.',
+    label: () => t('Channels'),
+    title: () => t('Chat from anywhere'),
+    subtitle: () => t('Hook up Discord or Telegram to reach Mixdog away from your desk.'),
   },
   {
     id: 'theme',
-    label: 'Theme',
-    title: 'Make it feel like home',
-    subtitle: 'System follows your OS. Fine-tune colors any time in Settings.',
+    label: () => t('Theme'),
+    title: () => t('Make it feel like home'),
+    subtitle: () => t('System follows your OS. Fine-tune colors any time in Settings.'),
   },
   {
     id: 'output',
-    label: 'Output style',
-    title: 'Choose how Mixdog answers',
-    subtitle: 'The output style shapes how the Lead agent structures its responses.',
+    label: () => t('Output style'),
+    title: () => t('Choose how Mixdog answers'),
+    subtitle: () => t('The output style shapes how the Lead agent structures its responses.'),
   },
   {
     id: 'connection',
-    label: 'Remote',
-    title: 'Pair a remote',
-    subtitle: 'Scan with your phone camera — the web app works on any network, nothing to install.',
+    label: () => t('Remote'),
+    title: () => t('Pair a remote'),
+    subtitle: () => t('Scan with your phone camera — the web app works on any network, nothing to install.'),
   },
   {
     id: 'star',
-    label: 'Star',
-    title: 'One last thing',
-    subtitle: 'Mixdog is free and open source — a GitHub star genuinely helps it grow.',
+    label: () => t('Star'),
+    title: () => t('One last thing'),
+    subtitle: () => t('Mixdog is free and open source — a GitHub star genuinely helps it grow.'),
   },
 ] as const;
 
@@ -145,7 +146,7 @@ function rows(value: unknown, key?: string): RecordValue[] {
 }
 
 function title(value: RecordValue): string {
-  return String(value.label || value.name || value.display || value.id || 'Unknown');
+  return t(String(value.label || value.name || value.display || value.id || 'Unknown'));
 }
 
 function providerTitle(value: RecordValue): string {
@@ -494,25 +495,28 @@ export function OnboardingWizard({ api, onDone }: {
     <section ref={dialogRef} className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-title" tabIndex={-1}>
       <header>
         <div className="onboarding-hero">
-          <h1 id="onboarding-title">{meta.title}</h1>
-          <p>{meta.subtitle}</p>
+          <h1 id="onboarding-title">{meta.title()}</h1>
+          <p>{meta.subtitle()}</p>
         </div>
         <div className="onboarding-top-actions">
-          <nav aria-label="Setup progress">
-            {STEPS.map((entry, index) => <button key={entry.id} type="button" title={entry.label}
+          <nav aria-label={t('Setup progress')}>
+            {STEPS.map((entry, index) => <button key={entry.id} type="button" title={entry.label()}
               className={`onboarding-progress-bar${index === step ? ' active' : index < step ? ' complete' : ''}`}
-              aria-label={`Go to step ${index + 1}: ${entry.label}`}
+              aria-label={t('Go to step {{step}}: {{label}}', { step: index + 1, label: entry.label() })}
               aria-current={index === step ? 'step' : undefined}
               disabled={Boolean(pending)}
               onClick={() => setStep(index)} />)}
-            <span className="onboarding-progress-count">{step + 1} of {STEPS.length}</span>
+            <span className="onboarding-progress-count">{t('{{current}} of {{total}}', {
+              current: step + 1,
+              total: STEPS.length,
+            })}</span>
           </nav>
-          <button ref={closeRef} type="button" aria-label="Skip setup" disabled={Boolean(pending)}
+          <button ref={closeRef} type="button" aria-label={t('Skip setup')} disabled={Boolean(pending)}
             onClick={(event) => requestSkip(event.currentTarget)}><X size={16} /></button>
         </div>
       </header>
       <div className="onboarding-body">
-        <PaneSurfaceGate ready={!loading} label="Loading your Mixdog configuration…">
+        <PaneSurfaceGate ready={!loading} label={t('Loading your Mixdog configuration…')}>
           <div className="onboarding-ready-content">
           <div className="onboarding-step-view" key={meta.id}>
           {meta.id === 'profile' && <ProfileStep profile={profile} pending={pending} run={run}
@@ -554,14 +558,14 @@ export function OnboardingWizard({ api, onDone }: {
       </div>
       <footer>
         <button type="button" className="secondary" disabled={Boolean(pending)}
-          onClick={(event) => requestSkip(event.currentTarget)}>Skip setup</button>
+          onClick={(event) => requestSkip(event.currentTarget)}>{t('Skip setup')}</button>
         <div>{step > 0 && <button type="button" disabled={Boolean(pending)} onClick={() => setStep((value) => value - 1)}>
-          <ArrowLeft size={14} /> Back</button>}
+          <ArrowLeft size={14} /> {t('Back')}</button>}
           {step < STEPS.length - 1
             ? <button type="button" className="primary" disabled={Boolean(pending)} onClick={() => advanceRef.current()}>
-              Next <ArrowRight size={14} /></button>
+              {t('Next')} <ArrowRight size={14} /></button>
             : <button type="button" className="primary" disabled={Boolean(pending)} onClick={() => void finish()}>
-              <Check size={14} /> Finish</button>}</div>
+              <Check size={14} /> {t('Finish')}</button>}</div>
       </footer>
       {confirmSkip && <OnboardingSkipConfirmation onCancel={closeSkipConfirmation} onConfirm={confirmSkipOnboarding} />}
     </section>
@@ -581,15 +585,15 @@ function OnboardingSkipConfirmation({ onCancel, onConfirm }: {
     <section className="settings-confirm-dialog" role="alertdialog" aria-modal="true"
       aria-labelledby="onboarding-skip-title" aria-describedby="onboarding-skip-description"
       data-settings-nested-dialog>
-      <header><h3 id="onboarding-skip-title">Skip Mixdog setup?</h3>
-        <button type="button" aria-label="Close skip confirmation" onClick={onCancel}>
+      <header><h3 id="onboarding-skip-title">{t('Skip Mixdog setup?')}</h3>
+        <button type="button" aria-label={t('Close skip confirmation')} onClick={onCancel}>
           <X aria-hidden="true" size={16} />
         </button></header>
       <p id="onboarding-skip-description">
-        You can configure providers, models, Git, themes, and output style later in Settings.
+        {t('You can configure providers, models, Git, themes, and output style later in Settings.')}
       </p>
-      <footer><button ref={cancelRef} type="button" onClick={onCancel}>Cancel</button>
-        <button type="button" className="danger" onClick={onConfirm}>Skip setup</button></footer>
+      <footer><button ref={cancelRef} type="button" onClick={onCancel}>{t('Cancel')}</button>
+        <button type="button" className="danger" onClick={onConfirm}>{t('Skip setup')}</button></footer>
     </section>
   </div>;
 }
@@ -613,14 +617,14 @@ function ProviderStep({ setup, pending, run, onSaveApiKey, onReload }: {
   const oauthProviders = rows(setup.oauth);
   const localProviders = rows(setup.local);
   return <>
-    {oauthProviders.length > 0 && <div className="onboarding-model-section"><h3>OAuth</h3>
+    {oauthProviders.length > 0 && <div className="onboarding-model-section"><h3>{t('OAuth')}</h3>
     <div className="onboarding-provider-list">
       {/* One status slot for every provider kind: the state reads under the
           name, never above the row's actions (user: 커넥티드 위치가 제각각).
           The token file/store location is plumbing, not setup guidance. */}
       {oauthProviders.map((provider) => <div className="onboarding-provider-row" key={String(provider.id)}><div><b>{providerTitle(provider)}</b>
         <small className={`onboarding-provider-state${provider.authenticated ? ' connected' : ''}`}>
-          {provider.authenticated ? 'Connected' : 'Not connected'}</small></div>
+          {provider.authenticated ? t('Connected') : t('Not connected')}</small></div>
         <span className="onboarding-provider-action">
           <OAuthControl provider={{ ...provider, label: providerTitle(provider) }} disabled={Boolean(pending)} run={run} onComplete={onReload} />
         </span>
@@ -628,43 +632,43 @@ function ProviderStep({ setup, pending, run, onSaveApiKey, onReload }: {
           void run('forgetProviderAuth', [provider.id], `forget-${provider.id}`).then((result) => {
             if (result !== undefined) onReload();
           });
-        }}>Forget</button>}</div>)}
+        }}>{t('Forget')}</button>}</div>)}
     </div></div>}
-    {apiProviders.length > 0 && <div className="onboarding-model-section"><h3>API keys</h3>
+    {apiProviders.length > 0 && <div className="onboarding-model-section"><h3>{t('API keys')}</h3>
     <div className="onboarding-provider-list">
       {apiProviders.map((provider) => <form key={String(provider.id)} onSubmit={(event) => onSaveApiKey(event, String(provider.id))}>
         <div><b>{providerTitle(provider)}</b>
           <small className={`onboarding-provider-state${provider.authenticated ? ' connected' : ''}`}>
-            {provider.authenticated ? 'Connected' : String(provider.detail || provider.status || 'API key required')}</small></div>
+            {provider.authenticated ? t('Connected') : t(String(provider.detail || provider.status || 'API key required'))}</small></div>
         {String(provider.id) === 'opencode-go' && <button type="button" className="ghost" disabled={Boolean(pending)} onClick={() => {
           void run('loginOpenCodeGoUsage', [], 'opencode-go-usage').then((result) => {
             if (result !== undefined) onReload();
           });
-        }}>Usage sign-in</button>}
-        <input name="secret" type="password" autoComplete="off" placeholder={provider.authenticated ? 'Replace API key' : 'API key'} required />
-        <button disabled={Boolean(pending)}>{provider.authenticated ? 'Replace' : 'Connect'}</button>
+        }}>{t('Usage sign-in')}</button>}
+        <input name="secret" type="password" autoComplete="off" placeholder={provider.authenticated ? t('Replace API key') : t('API key')} required />
+        <button disabled={Boolean(pending)}>{provider.authenticated ? t('Replace') : t('Connect')}</button>
         {Boolean(provider.stored || (!provider.env && provider.authenticated)) &&
           <button type="button" className="ghost" disabled={Boolean(pending)} onClick={() => {
           void run('forgetProviderAuth', [provider.id], `forget-${provider.id}`).then((result) => {
             if (result !== undefined) onReload();
           });
-        }}>Forget</button>}
+        }}>{t('Forget')}</button>}
       </form>)}
     </div></div>}
-    {localProviders.length > 0 && <div className="onboarding-model-section"><h3>Local</h3>
+    {localProviders.length > 0 && <div className="onboarding-model-section"><h3>{t('Local')}</h3>
     <div className="onboarding-provider-list">
       {localProviders.map((provider) => <form key={String(provider.id)} onSubmit={(event) => {
         event.preventDefault();
         const baseURL = new FormData(event.currentTarget).get('baseURL');
         void run('setLocalProvider', [provider.id, { enabled: true, baseURL }], `local-${provider.id}`)
           .then((result) => { if (result !== undefined) onReload(); });
-      }}><div><b>{providerTitle(provider)}</b><small>{String(provider.status || 'Local OpenAI-compatible endpoint')}</small></div>
+      }}><div><b>{providerTitle(provider)}</b><small>{t(String(provider.status || 'Local OpenAI-compatible endpoint'))}</small></div>
         <input name="baseURL" type="url" defaultValue={String(provider.baseURL || provider.defaultURL || '')} required />
-        <button disabled={Boolean(pending)}>{provider.enabled ? 'Update' : 'Enable'}</button>
+        <button disabled={Boolean(pending)}>{provider.enabled ? t('Update') : t('Enable')}</button>
         {Boolean(provider.enabled) && <button type="button" className="ghost" disabled={Boolean(pending)} onClick={() => {
           void run('setLocalProvider', [provider.id, { enabled: false, baseURL: provider.baseURL }], `local-disable-${provider.id}`)
             .then((result) => { if (result !== undefined) onReload(); });
-        }}>Disable</button>}</form>)}
+        }}>{t('Disable')}</button>}</form>)}
     </div></div>}
   </>;
 }
@@ -685,40 +689,40 @@ function ModelStep({ models, searchModels, agents, mainRoute, searchRoute, agent
     return model ? routeFromModel(model) : null;
   };
   const agentRow = (agent: RecordValue) => <label key={String(agent.id)}><span><b>{title(agent)}</b>
-    <small>{String(agent.description || record(agent.definition).description || '')}</small></span>
-    <OpenSelect ariaLabel={`${title(agent)} model`} value={routeKey(agentRoutes[String(agent.id)])} onChange={(value) => {
+    <small>{t(String(agent.description || record(agent.definition).description || ''))}</small></span>
+    <OpenSelect ariaLabel={t('{{name}} model', { name: title(agent) })} value={routeKey(agentRoutes[String(agent.id)])} onChange={(value) => {
       const next = { ...agentRoutes };
       const selected = selectModel(value, models);
       if (selected) next[String(agent.id)] = selected; else delete next[String(agent.id)];
       onAgents(next);
-    }} options={[{ value: '', label: 'Default · follows Main' }, ...modelOptions(models)]} /></label>;
+    }} options={[{ value: '', label: t('Default · follows Main') }, ...modelOptions(models)]} /></label>;
   // Three sections (user decision): Main → required defaults (web search +
   // the slot-backed Explore/Maintainer) → the remaining custom roles.
   const defaultAgents = agents.filter((agent) => Boolean(agent.workflowSlot));
   const customAgents = agents.filter((agent) => !agent.workflowSlot);
   return <>
     <div className="onboarding-model-section">
-      <h3>Main model</h3>
+      <h3>{t('Main model')}</h3>
       <div className="onboarding-model-grid">
-        <label><span><b>Main</b><small>Main chat, planning, and agent default</small></span><OpenSelect ariaLabel="Main model"
-          value={routeKey(mainRoute)} options={[{ value: '', label: 'Select model…' }, ...modelOptions(models)]}
+        <label><span><b>{t('Main')}</b><small>{t('Main chat, planning, and agent default')}</small></span><OpenSelect ariaLabel={t('Main model')}
+          value={routeKey(mainRoute)} options={[{ value: '', label: t('Select model…') }, ...modelOptions(models)]}
           onChange={(value) => onMain(selectModel(value, models))} /></label>
       </div>
     </div>
     <div className="onboarding-model-section">
-      <h3>Default models</h3>
+      <h3>{t('Default models')}</h3>
       <div className="onboarding-model-grid">
-        <label><span><b>Search</b><small>Native web-search model</small></span><OpenSelect ariaLabel="Search model"
+        <label><span><b>{t('Search')}</b><small>{t('Native web-search model')}</small></span><OpenSelect ariaLabel={t('Search model')}
           value={searchRoute?.provider === 'default' && searchRoute?.model === 'default' ? '__default__' : routeKey(searchRoute)} onChange={(value) => {
           onSearch(value === '__default__'
             ? { provider: 'default', model: 'default' }
             : selectModel(value, searchModels));
-        }} options={[{ value: '__default__', label: 'Default · follows Main' }, ...modelOptions(searchModels)]} /></label>
+        }} options={[{ value: '__default__', label: t('Default · follows Main') }, ...modelOptions(searchModels)]} /></label>
         {defaultAgents.map(agentRow)}
       </div>
     </div>
     {customAgents.length > 0 && <div className="onboarding-model-section">
-      <h3>Custom models</h3>
+      <h3>{t('Custom models')}</h3>
       <div className="onboarding-model-grid">
         {customAgents.map(agentRow)}
       </div>
@@ -810,7 +814,7 @@ function GitStep({ api }: { api: DesktopApi }) {
 
   if (!supported) {
     return <p className="onboarding-note">
-      Git and GitHub connect from the desktop app. You can set this up any time in Settings → Git.
+      {t('Git and GitHub connect from the desktop app. You can set this up any time in Settings → Git.')}
     </p>;
   }
 
@@ -826,9 +830,9 @@ function GitStep({ api }: { api: DesktopApi }) {
   const busyAny = Boolean(busy);
   const flowLive = flowState === 'pending' || flowState === 'code';
 
-  const pill: [string, string] = loading ? ['neutral', 'Checking…']
-    : !status?.installed ? ['warn', 'CLI not installed']
-      : authenticated ? ['ok', 'Connected'] : ['warn', 'Not connected'];
+  const pill: [string, string] = loading ? ['neutral', t('Checking…')]
+    : !status?.installed ? ['warn', t('CLI not installed')]
+      : authenticated ? ['ok', t('Connected')] : ['warn', t('Not connected')];
   const login = String(status?.login || account?.name || '');
   const showAvatar = authenticated && Boolean(login) && !avatarFailed;
   return <div className="onboarding-star-card onboarding-connect-card">
@@ -838,7 +842,7 @@ function GitStep({ api }: { api: DesktopApi }) {
         : <Github size={26} />}
     </span>
     <div>
-      <span className="onboarding-connect-title">{authenticated && login ? login : 'Connect GitHub'}</span>
+      <span className="onboarding-connect-title">{authenticated && login ? login : t('Connect GitHub')}</span>
       <span className="onboarding-connect-pills">
         <span className={`onboarding-pill ${pill[0]}`}>{pill[1]}</span>
         {Boolean(status?.version) && <span className="onboarding-pill neutral">gh {status?.version}</span>}
@@ -846,14 +850,14 @@ function GitStep({ api }: { api: DesktopApi }) {
       {authenticated
         ? <>
           {Boolean(account?.email) && <p className="onboarding-connect-mail">{account?.email}</p>}
-          <p>Commits and pull requests are ready to go.</p>
+          <p>{t('Commits and pull requests are ready to go.')}</p>
         </>
         : <p>{!status?.installed && !loading
-          ? 'Mixdog installs the GitHub CLI and signs you in — one click, no terminal needed.'
-          : 'Sign in opens github.com with a one-time code — Mixdog links your commits automatically.'}</p>}
+          ? t('Mixdog installs the GitHub CLI and signs you in — one click, no terminal needed.')
+          : t('Sign in opens github.com with a one-time code — Mixdog links your commits automatically.')}</p>}
     </div>
     {authenticated
-      ? <small>Manage in Settings → Git.</small>
+      ? <small>{t('Manage in Settings → Git.')}</small>
       : <div className="onboarding-star-actions">
       {!loading && !status?.installed && <>
         <button type="button" className="primary" disabled={busyAny} onClick={() => act('install', () => api.installGithubCli?.()
@@ -861,29 +865,28 @@ function GitStep({ api }: { api: DesktopApi }) {
             if (!next) return;
             setStatus(next);
             patchCachedGitPanelInfo(api, { status: next });
-          }))}>{busy === 'install' ? 'Installing…' : 'Install GitHub CLI'}</button>
+          }))}>{busy === 'install' ? t('Installing…') : t('Install GitHub CLI')}</button>
         <button type="button" className="ghost" disabled={busyAny} onClick={() => open(CLI_DOWNLOAD_URL)}>
-          <ExternalLink size={14} /> Manual download</button>
+          <ExternalLink size={14} /> {t('Manual download')}</button>
       </>}
       {status?.installed && !status.authenticated && !flowLive &&
         <button type="button" className="primary" disabled={busyAny} onClick={() => act('connect', () =>
           api.githubCliLoginStart?.().then((started) => { if (started) setFlow(started); }))}>
-          <Github size={14} /> Sign in with GitHub</button>}
+          <Github size={14} /> {t('Sign in with GitHub')}</button>}
       {flowLive && <button type="button" className="ghost" disabled={busyAny} onClick={() => {
         const id = flowId;
         setFlow(null);
         act('cancel', () => api.githubCliLoginCancel?.(id));
-      }}>Cancel</button>}
+      }}>{t('Cancel')}</button>}
     </div>}
     {flowLive && <p className="onboarding-note" role="status">
       {flow?.code
-        ? <>Enter code <code className="onboarding-code">{flow.code}</code> at github.com/login/device — the
-          browser should open by itself. <button type="button" className="onboarding-link"
-            onClick={() => open(flow.url || 'https://github.com/login/device')}>Open github.com ↗</button></>
-        : 'Starting GitHub sign-in…'}
+        ? <>{t('Enter code')} <code className="onboarding-code">{flow.code}</code> {t('at github.com/login/device — the browser should open by itself.')} <button type="button" className="onboarding-link"
+            onClick={() => open(flow.url || 'https://github.com/login/device')}>{t('Open github.com ↗')}</button></>
+        : t('Starting GitHub sign-in…')}
     </p>}
     {flowState === 'error' && <p className="onboarding-error" role="alert">
-      Sign-in failed: {flow?.message || 'unknown error'}
+      {t('Sign-in failed: {{message}}', { message: flow?.message || t('unknown error') })}
     </p>}
     {gitError && <p className="onboarding-error" role="alert">{gitError}</p>}
   </div>;
@@ -891,10 +894,14 @@ function GitStep({ api }: { api: DesktopApi }) {
 
 // Desktop surface modes only (user decision): System / Dark / White, the same
 // desktop-local preference Settings → General writes. Gray IS Dark now.
-const THEME_MODES: ReadonlyArray<{ id: DesktopThemePreference; label: string; hint: string }> = [
-  { id: 'system', label: 'System', hint: 'Match OS' },
-  { id: 'dark', label: 'Dark', hint: 'Neutral charcoal' },
-  { id: 'white', label: 'White', hint: 'Bright & crisp' },
+const THEME_MODES: ReadonlyArray<{
+  id: DesktopThemePreference;
+  label(): string;
+  hint(): string;
+}> = [
+  { id: 'system', label: () => t('System'), hint: () => t('Match OS') },
+  { id: 'dark', label: () => t('Dark'), hint: () => t('Neutral charcoal') },
+  { id: 'white', label: () => t('White'), hint: () => t('Bright & crisp') },
 ];
 
 /** The desktop surface ramps, mirrored from desktop.css for the mini preview
@@ -918,9 +925,9 @@ function ThemeStep({ mode, onSelect }: {
           </span>
           : <ThemeChromeMock id={entry.id === 'white' ? 'light' : 'basic'} surface={String(entry.id)} />}
       </span>
-      <span className="onboarding-theme-name"><b>{entry.label}</b>
+      <span className="onboarding-theme-name"><b>{entry.label()}</b>
         {mode === entry.id ? <Check size={14} /> : null}
-        <small>{entry.hint}</small></span>
+        <small>{entry.hint()}</small></span>
     </button>
   ))}</div>;
 }
@@ -987,8 +994,8 @@ function ChoiceStep({ rows: entries, selected, onSelect }: {
       <span className="onboarding-choice-preview" aria-hidden="true">
         {volume.lines.map((width, index) => <i key={index} style={{ width }} />)}
       </span>
-      <small>{String(entry.description || '')}</small>
-      <span className="onboarding-choice-meta">Output {volume.badge}</span>
+      <small>{t(String(entry.description || ''))}</small>
+      <span className="onboarding-choice-meta">{t('Output {{volume}}', { volume: volume.badge })}</span>
     </button>;
   })}</div>;
 }
@@ -1028,25 +1035,24 @@ function StarStep({ api }: { api: DesktopApi }) {
     <div className="onboarding-repo-head">
       <Github size={18} aria-hidden="true" />
       <b><span>mixdog</span></b>
-      <span className="onboarding-pill neutral">Public</span>
+      <span className="onboarding-pill neutral">{t('Public')}</span>
     </div>
-    <p>Standalone coding-agent workspace — multi-provider agent workflows across
-      CLI, desktop, and phone. {starred
-        ? 'Thank you for the star — it genuinely helps mixdog grow!'
-        : 'Built in the open; a star helps other developers find it.'}</p>
+    <p>{t('Standalone coding-agent workspace — multi-provider agent workflows across CLI, desktop, and phone.')} {starred
+        ? t('Thank you for the star — it genuinely helps mixdog grow!')
+        : t('Built in the open; a star helps other developers find it.')}</p>
     <div className="onboarding-repo-meta">
-      <span><i aria-hidden="true" /> Free &amp; open source</span>
-      <span>Runs on your machine</span>
-      <span>No sign-up</span>
+      <span><i aria-hidden="true" /> {t('Free & open source')}</span>
+      <span>{t('Runs on your machine')}</span>
+      <span>{t('No sign-up')}</span>
     </div>
     <div className="onboarding-star-actions onboarding-repo-actions">
       <button type="button" className="ghost" disabled={busy} onClick={() => open(MIXDOG_REPO_URL)}>
-        <ExternalLink size={14} /> Open on GitHub</button>
+        <ExternalLink size={14} /> {t('Open on GitHub')}</button>
       {/* Star sits at the card's bottom-right — the easiest spot to hit. */}
       <button type="button" className={starred ? 'primary starred' : 'primary'}
         disabled={busy || starred} onClick={star}>
         <Star size={14} fill={starred ? 'currentColor' : 'none'} />
-        {starred ? 'Starred' : busy ? 'Starring…' : 'Star'}
+        {starred ? t('Starred') : busy ? t('Starring…') : t('Star')}
       </button>
     </div>
   </div>;
@@ -1083,27 +1089,27 @@ function ProfileStep({ profile, pending, run, onProfile }: {
       {initial ? <b>{initial}</b> : <UserRound size={26} />}
     </span>
     <p className="onboarding-profile-greeting" aria-live="polite">
-      Hello{trimmed ? `, ${trimmed}` : ' there'} 👋
+      {trimmed ? t('Hello, {{name}} 👋', { name: trimmed }) : t('Hello there 👋')}
     </p>
     <div className="onboarding-profile-fields">
       <label>
-        <span>Title</span>
-        <input name="title" value={draft} placeholder="Your name or role"
-          aria-label="Profile title" disabled={Boolean(pending)}
+        <span>{t('Title')}</span>
+        <input name="title" value={draft} placeholder={t('Your name or role')}
+          aria-label={t('Profile title')} disabled={Boolean(pending)}
           onChange={(event) => { setTouched(true); setDraft(event.currentTarget.value); }}
           onBlur={commitTitle}
           onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
-        <small>How Mixdog addresses you.</small>
+        <small>{t('How Mixdog addresses you.')}</small>
       </label>
       <label>
-        <span>Language</span>
-        <OpenSelect ariaLabel="Response language" value={String(profile.language || 'system')}
-          options={languages.length ? languages : [{ value: 'system', label: 'System' }]}
+        <span>{t('Language')}</span>
+        <OpenSelect ariaLabel={t('Response language')} value={String(profile.language || 'system')}
+          options={languages.length ? languages : [{ value: 'system', label: t('System') }]}
           onChange={(language) => {
             onProfile({ ...profile, language });
             void run('setProfile', [{ language }], 'onboarding-profile-language');
           }} />
-        <small>Every reply follows this language.</small>
+        <small>{t('Every reply follows this language.')}</small>
       </label>
     </div>
   </div>;
@@ -1111,23 +1117,27 @@ function ProfileStep({ profile, pending, run, onProfile }: {
 
 // Beginner guide copy for the built-in workflow packs; custom packs fall back
 // to their own provider description.
-const WORKFLOW_GUIDE: Record<string, { icon: typeof Users; tagline: string; points: string[] }> = {
+const WORKFLOW_GUIDE: Record<string, {
+  icon: typeof Users;
+  tagline(): string;
+  points(): string[];
+}> = {
   cowork: {
     icon: Users,
-    tagline: 'Lead coordinates a team of agents working in parallel.',
-    points: [
-      'Lead plans the task and splits the work',
-      'Workers implement changes side by side',
-      'Reviewer and Debugger cover risky changes',
+    tagline: () => t('Lead coordinates a team of agents working in parallel.'),
+    points: () => [
+      t('Lead plans the task and splits the work'),
+      t('Workers implement changes side by side'),
+      t('Reviewer and Debugger cover risky changes'),
     ],
   },
   solo: {
     icon: UserRound,
-    tagline: 'Lead does everything itself — simple and predictable.',
-    points: [
-      'One agent, no delegation overhead',
-      'Fastest turnaround for small tasks',
-      'Great for quick fixes, reviews, and Q&A',
+    tagline: () => t('Lead does everything itself — simple and predictable.'),
+    points: () => [
+      t('One agent, no delegation overhead'),
+      t('Fastest turnaround for small tasks'),
+      t('Great for quick fixes, reviews, and Q&A'),
     ],
   },
 };
@@ -1140,7 +1150,7 @@ function WorkflowStep({ workflows, pending, run, onChange }: {
   run: RunCapability;
   onChange(id: string): void;
 }) {
-  if (!workflows.length) return <p className="onboarding-note">No workflow profiles available yet.</p>;
+  if (!workflows.length) return <p className="onboarding-note">{t('No workflow profiles available yet.')}</p>;
   return <div className="onboarding-workflow-grid">{workflows.map((workflow) => {
     const id = String(workflow.id || '');
     const active = workflow.active === true;
@@ -1156,9 +1166,9 @@ function WorkflowStep({ workflows, pending, run, onChange }: {
       <span className="onboarding-choice-check">{active ? <Check size={14} /> : null}</span>
       <span className="onboarding-workflow-icon" aria-hidden="true"><Icon size={18} /></span>
       <b>{title(workflow)}</b>
-      <small>{guide?.tagline || String(workflow.description || '')}</small>
+      <small>{guide?.tagline() || t(String(workflow.description || ''))}</small>
       {guide && <ul className="onboarding-workflow-points">
-        {guide.points.map((point) => <li key={point}>{point}</li>)}
+        {guide.points().map((point) => <li key={point}>{point}</li>)}
       </ul>}
     </button>;
   })}</div>;
@@ -1178,23 +1188,23 @@ function ContextStep({ recapEnabled, autoClearOn, compactAuto, pending, run, onR
 }) {
   // On/Off as two radio cards (user request) instead of a state pill + toggle.
   const recapOptions = [
-    { value: true, label: 'Recap on', hint: 'Summarize recent sessions in background memory cycles.' },
-    { value: false, label: 'Recap off', hint: 'Pause background recaps; core memories and on-demand recall stay available.' },
+    { value: true, label: t('Recap on'), hint: t('Summarize recent sessions in background memory cycles.') },
+    { value: false, label: t('Recap off'), hint: t('Pause background recaps; core memories and on-demand recall stay available.') },
   ];
   const lifecycle = [
-    { key: 'compact', label: 'Auto-compact', hint: 'Compact automatically as the context reaches its limit',
+    { key: 'compact', label: t('Auto-compact'), hint: t('Compact automatically as the context reaches its limit'),
       value: compactAuto, apply: onCompact,
       save: (next: boolean) => run('setCompactionSettings', [{ auto: next }], 'onboarding-autocompact') },
-    { key: 'clear', label: 'Auto-clear', hint: 'Clear idle sessions after the provider default window',
+    { key: 'clear', label: t('Auto-clear'), hint: t('Clear idle sessions after the provider default window'),
       value: autoClearOn, apply: onAutoClear,
       save: (next: boolean) => run('setAutoClear', [{ enabled: next }], 'onboarding-autoclear') },
   ];
   return <div className="onboarding-star-card onboarding-connect-card onboarding-context-card">
     <div>
-      <span className="onboarding-connect-title">Memory recap</span>
-      <p>Choose whether Mixdog summarizes recent sessions in the background. Core memory remains available either way.</p>
+      <span className="onboarding-connect-title">{t('Memory recap')}</span>
+      <p>{t('Choose whether Mixdog summarizes recent sessions in the background. Core memory remains available either way.')}</p>
     </div>
-    <div className="onboarding-memory-options" role="radiogroup" aria-label="Memory recap">
+    <div className="onboarding-memory-options" role="radiogroup" aria-label={t('Memory recap')}>
       {recapOptions.map(({ value, label, hint }) => <button type="button" key={label} role="radio"
         aria-checked={recapEnabled === value} className={recapEnabled === value ? 'selected' : ''}
         disabled={Boolean(pending)}
@@ -1214,7 +1224,7 @@ function ContextStep({ recapEnabled, autoClearOn, compactAuto, pending, run, onR
       {lifecycle.map((row) => <div className="onboarding-context-row" key={row.key}>
         <div><b>{row.label}</b><small>{row.hint}</small></div>
         <div className="onboarding-provider-toggle" role="group" aria-label={row.label}>
-          {([[true, 'On'], [false, 'Off']] as const).map(([value, name]) => <button key={name} type="button"
+          {([[true, t('On')], [false, t('Off')]] as const).map(([value, name]) => <button key={name} type="button"
             className={row.value === value ? 'active' : ''} disabled={Boolean(pending)}
             onClick={() => {
               if (row.value === value) return;
@@ -1241,23 +1251,23 @@ function ChannelsStep({ setup, pending, run, onReload }: {
   const [editingToken, setEditingToken] = useState<Record<string, boolean>>({});
   const providers = [
     { id: 'discord' as const, name: 'Discord', save: 'saveDiscordToken' as const,
-      status: record(setup.discord), tokenPlaceholder: 'Discord bot token',
-      targetLabel: 'Main channel', targetHint: 'Where Mixdog posts and listens',
-      targetPlaceholder: 'Discord channel ID',
+      status: record(setup.discord), tokenPlaceholder: t('Discord bot token'),
+      targetLabel: t('Main channel'), targetHint: t('Where Mixdog posts and listens'),
+      targetPlaceholder: t('Discord channel ID'),
       targetValue: String(channel.discordChannelId || '') },
     { id: 'telegram' as const, name: 'Telegram', save: 'saveTelegramToken' as const,
-      status: record(setup.telegram), tokenPlaceholder: 'Telegram bot token',
-      targetLabel: 'Main chat', targetHint: 'Where Mixdog posts and listens',
-      targetPlaceholder: 'Telegram chat ID',
+      status: record(setup.telegram), tokenPlaceholder: t('Telegram bot token'),
+      targetLabel: t('Main chat'), targetHint: t('Where Mixdog posts and listens'),
+      targetPlaceholder: t('Telegram chat ID'),
       targetValue: String(channel.telegramChatId || '') },
   ];
   return <>
     {(discordReady || telegramReady) && <div className="onboarding-model-section">
-      <h3>Active channel</h3>
+      <h3>{t('Active channel')}</h3>
       <div className="onboarding-provider-list">
         <div className="onboarding-provider-row onboarding-provider-row--plain">
-          <div><b>Use for messaging</b><small>Mixdog talks through this provider</small></div>
-          <div className="onboarding-provider-toggle" role="group" aria-label="Active channel provider">
+          <div><b>{t('Use for messaging')}</b><small>{t('Mixdog talks through this provider')}</small></div>
+          <div className="onboarding-provider-toggle" role="group" aria-label={t('Active channel provider')}>
             {([['discord', 'Discord', discordReady], ['telegram', 'Telegram', telegramReady]] as const)
               .map(([id, name, ready]) => <button key={id} type="button"
                 className={activeProvider === id ? 'active' : ''}
@@ -1286,22 +1296,22 @@ function ChannelsStep({ setup, pending, run, onReload }: {
             }
           });
         }}>
-          <div><b>Bot token</b>
+          <div><b>{t('Bot token')}</b>
             <small>{provider.status.authenticated
-              ? 'Connected'
-              : String(provider.status.detail || provider.status.status || 'Create a bot and paste its token')}</small></div>
+              ? t('Connected')
+              : t(String(provider.status.detail || provider.status.status || 'Create a bot and paste its token'))}</small></div>
           {provider.status.authenticated && !editingToken[provider.id]
             ? <>
               <input className="masked" value="••••••••••••••••" readOnly disabled
-                aria-label={`${provider.name} bot token (saved)`} />
+                aria-label={t('{{name}} bot token (saved)', { name: provider.name })} />
               <button type="button" className="ghost" disabled={Boolean(pending)}
-                onClick={() => setEditingToken((state) => ({ ...state, [provider.id]: true }))}>Replace</button>
+                onClick={() => setEditingToken((state) => ({ ...state, [provider.id]: true }))}>{t('Replace')}</button>
             </>
             : <>
               <input name="secret" type="password" autoComplete="off" placeholder={provider.tokenPlaceholder} required />
-              <button disabled={Boolean(pending)}>{provider.status.authenticated ? 'Save' : 'Connect'}</button>
+              <button disabled={Boolean(pending)}>{provider.status.authenticated ? t('Save') : t('Connect')}</button>
               {provider.status.authenticated && <button type="button" className="ghost" disabled={Boolean(pending)}
-                onClick={() => setEditingToken((state) => ({ ...state, [provider.id]: false }))}>Cancel</button>}
+                onClick={() => setEditingToken((state) => ({ ...state, [provider.id]: false }))}>{t('Cancel')}</button>}
             </>}
         </form>
         <form onSubmit={(event) => {
@@ -1313,11 +1323,11 @@ function ChannelsStep({ setup, pending, run, onReload }: {
           <div><b>{provider.targetLabel}</b><small>{provider.targetHint}</small></div>
           <input name="channelId" defaultValue={provider.targetValue}
             placeholder={provider.targetPlaceholder} required />
-          <button disabled={Boolean(pending)}>Save</button>
+          <button disabled={Boolean(pending)}>{t('Save')}</button>
         </form>
       </div>
     </div>)}
-    <p className="onboarding-note">The channel worker and advanced options live in Settings → Channels.</p>
+    <p className="onboarding-note">{t('The channel worker and advanced options live in Settings → Channels.')}</p>
   </>;
 }
 
@@ -1344,14 +1354,14 @@ function PairStep({ api }: { api: DesktopApi }) {
     return () => { live = false; window.clearTimeout(timer); };
   }, [api, ready, supported]);
   if (!supported) {
-    return <p className="onboarding-note">Phone pairing lives in the desktop app under Settings → Connection.</p>;
+    return <p className="onboarding-note">{t('Phone pairing lives in the desktop app under Settings → Connection.')}</p>;
   }
   if (!ready) {
     return <div className="onboarding-pair"><div className="settings-connection-grid">
       <figure className="settings-connection-card settings-connection-card--loading"
-        aria-label="Preparing pairing code" aria-busy="true">
+        aria-label={t('Preparing pairing code')} aria-busy="true">
         <div className="settings-connection-qr-placeholder" aria-hidden="true" />
-        <figcaption><b>Preparing pairing code…</b><small>Starting the secure relay</small></figcaption>
+        <figcaption><b>{t('Preparing pairing code…')}</b><small>{t('Starting the secure relay')}</small></figcaption>
       </figure>
     </div></div>;
   }
@@ -1359,9 +1369,9 @@ function PairStep({ api }: { api: DesktopApi }) {
     <div className="settings-connection-grid">
       <figure className="settings-connection-card">
         <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: info?.relayBrowserQrSvg || '' }} />
-        <figcaption><b>Open the web app</b><small>Works on iPhone and Android — nothing to install</small></figcaption>
+        <figcaption><b>{t('Open the web app')}</b><small>{t('Works on iPhone and Android — nothing to install')}</small></figcaption>
       </figure>
     </div>
-    <p className="onboarding-note">You can pair more devices later in Settings → Connection.</p>
+    <p className="onboarding-note">{t('You can pair more devices later in Settings → Connection.')}</p>
   </div>;
 }

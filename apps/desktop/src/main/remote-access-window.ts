@@ -3,10 +3,11 @@
 // Browser tab QR opens the web app; Android tab QRs install the APK and
 // deep-link the installed app (mixdog://pair). Until the relay link is up
 // the window shows a connecting note instead of LAN QRs.
-import { BrowserWindow } from 'electron';
+import type { BrowserWindow } from 'electron';
 import QRCode from 'qrcode';
 
 import type { DesktopRemoteAccessInfo } from '../shared/contract';
+import type { RelayE2EEPairingMaterial } from '../shared/remote-e2ee';
 
 export interface RemoteAccessDescriptor {
   bridge: {
@@ -17,6 +18,7 @@ export interface RemoteAccessDescriptor {
   relay: {
     clientUrl: string;
     token: string;
+    pairing: RelayE2EEPairingMaterial;
   } | null;
 }
 
@@ -60,11 +62,15 @@ export async function buildRemoteAccessInfo(
     [info.browserQrSvg, info.appQrSvg] = await Promise.all([qrSvg(browserUrl), qrSvg(appLink)]);
   }
   if (relay) {
-    // Relay pairing works from any network; the bridge and relay share one
-    // token, so either QR authorizes the same phone.
+    // The relay-visible token only routes the socket. E2EE material stays in
+    // the browser fragment or in the native deep link scanned by the phone.
     const relayOrigin = new URL(relay.clientUrl).origin;
-    info.relayBrowserUrl = `${relayOrigin}/?token=${encodeURIComponent(relay.token)}`;
-    info.relayAppLink = `mixdog://pair?server=${encodeURIComponent(relayOrigin)}&token=${encodeURIComponent(relay.token)}`;
+    const key = encodeURIComponent(relay.pairing.serverPublicKey);
+    const secret = encodeURIComponent(relay.pairing.pairingSecret);
+    info.relayBrowserUrl = `${relayOrigin}/?token=${encodeURIComponent(relay.token)}`
+      + `#e2eeKey=${key}&e2eeSecret=${secret}`;
+    info.relayAppLink = `mixdog://pair?server=${encodeURIComponent(relayOrigin)}`
+      + `&token=${encodeURIComponent(relay.token)}&e2eeKey=${key}&e2eeSecret=${secret}`;
     // Install downloads are the relay's biggest per-user bandwidth cost, so
     // the QR points at the GitHub release asset (public CDN, no token). The
     // relay still serves /mixdog.apk behind the pairing token as a fallback.
@@ -84,6 +90,7 @@ export async function showRemoteAccessWindow(
   info: DesktopRemoteAccessInfo,
   parent?: BrowserWindow | null,
 ): Promise<void> {
+  const { BrowserWindow: ElectronBrowserWindow } = await import('electron');
   const browserQr = info.relayBrowserQrSvg;
   const appQr = info.relayAppQrSvg;
   const paired = Boolean(browserQr && appQr);
@@ -141,7 +148,7 @@ ${body}
     });
   });
 </script>`;
-  const window = new BrowserWindow({
+  const window = new ElectronBrowserWindow({
     width: 560,
     height: 560,
     resizable: false,

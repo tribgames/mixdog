@@ -1152,6 +1152,30 @@ test('channel calls start a second client without a synthetic global permit', as
   }
 });
 
+test('disconnected channel remote-state churn keeps only the latest frame', async () => {
+  const transport = createChannelTransport({
+    handleCall: async () => ({ ok: true }),
+  });
+  const endpoint = await transport.start();
+  try {
+    const registered = await daemonPost(endpoint, '/client/register', {
+      leadPid: process.pid,
+      cwd: process.cwd(),
+      passive: true,
+    });
+    const client = transport._clientsForTest.get(registered.token);
+    assert.ok(client);
+    for (let index = 0; index < 10_000; index += 1) {
+      transport._writeRemoteStateToForTest(client, `state-${index}`);
+    }
+    assert.equal(typeof client.pendingRemoteStateFrame, 'string');
+    assert.equal(JSON.parse(client.pendingRemoteStateFrame).params.state, 'state-9999');
+    assert.equal(Object.hasOwn(client, 'pending'), false);
+  } finally {
+    await transport.stop();
+  }
+});
+
 test('call idempotency is isolated per client process', async () => {
   await withDaemon(async ({ discovery }) => {
     const first = await attachSession({

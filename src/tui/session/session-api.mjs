@@ -8,6 +8,7 @@ import { createSessionApiB } from './session-api-ext.mjs';
 import { buildDoctorReport } from '../app/doctor.mjs';
 import { recomputePromptHistory } from './prompt-history.mjs';
 import { appendPromptHistory, buildMergedPromptHistory, loadPromptHistory, promptHistoryKey } from '../prompt-history-store.mjs';
+import { hydratePastedAttachments } from '../../runtime/attachments/store.mjs';
 
 export function createSessionApi(bag) {
   const api = { ...createSessionApiA(bag), ...createSessionApiB(bag) };
@@ -736,7 +737,15 @@ export function createSessionApiA(bag) {
         } catch { /* best-effort */ }
       }, 150);
       pendingAfterAbortKick.unref?.();
-      return { aborted, restoreText, pastedImages: restorePastedImages, discardPastedImages, pastedTexts: restorePastedTexts, discardPastedTexts };
+      const restored = hydratePastedAttachments(restorePastedImages, restorePastedTexts);
+      return {
+        aborted,
+        restoreText,
+        pastedImages: restored.pastedImages,
+        discardPastedImages,
+        pastedTexts: restored.pastedTexts,
+        discardPastedTexts,
+      };
     },
   };
 }

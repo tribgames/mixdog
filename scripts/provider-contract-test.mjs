@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -34,6 +34,7 @@ import {
 } from '../src/runtime/shared/llm/cost.mjs';
 import { createProviderAuthApi } from '../src/session-runtime/provider-auth-api.mjs';
 import { createProviderModels } from '../src/session-runtime/provider-models.mjs';
+import { createQuickModelRows } from '../src/session-runtime/quick-model-rows.mjs';
 import {
     providerModelCacheRow,
     sortProviderModels,
@@ -45,6 +46,8 @@ import {
     providerCatalogRevision,
     refreshProviderCatalogsOnStartup,
 } from '../src/runtime/agent/orchestrator/providers/registry.mjs';
+import { providerCachedModelMetadataSync } from '../src/runtime/agent/orchestrator/providers/provider-catalog-cache.mjs';
+import { readRuntimeTunables } from '../src/session-runtime/runtime-tunables.mjs';
 import {
     consumeOpenAICodexResetCredit,
     fetchOpenAICodexResetCredits,
@@ -136,6 +139,198 @@ test('session runtimes share one provider catalog read and rebuild only their lo
     const refreshed = await second.collectProviderModels();
     assert.equal(reads, 2);
     assert.equal(refreshed[0].id, `shared-${revision}`);
+});
+
+test('quick picker read seeds a secrets-aware full catalog load', async () => {
+    let keychainReads = 0;
+    let listReads = 0;
+    let releaseList;
+    const listGate = new Promise((resolve) => { releaseList = resolve; });
+    const provider = {
+        async listModels() {
+            listReads += 1;
+            await listGate;
+            return [{ id: 'full-model', display: 'Full model', mode: 'chat' }];
+        },
+    };
+    const registry = {
+        getAllProviders: () => new Map([['catalog-provider', provider]]),
+        providerCatalogRevision: () => 74001,
+    };
+    const api = createProviderModels({
+        caches: {
+            providerModelsCache: { models: null, at: 0 },
+            providerModelsPromise: null,
+            providerModelsLoadSeq: 0,
+            searchProviderModelsCache: { models: null, at: 0 },
+        },
+        modelMetaByRoute: new Map(),
+        getRoute: () => ({ provider: 'catalog-provider' }),
+        getConfig: () => ({ providers: { 'catalog-provider': { enabled: true } } }),
+        getReg: () => registry,
+        searchCapableFor: () => false,
+        sortProviderModelsRaw: sortProviderModels,
+        providerModelCacheRowRaw: providerModelCacheRow,
+        normalizeSearchProviderId: (value) => value,
+        isSearchCapableProvider: () => false,
+        ensureFullConfig: () => {},
+        awaitKeychainPrewarm: async () => { keychainReads += 1; },
+        ensureProvidersReady: async () => {},
+        bootProfile: () => {},
+        scheduleProviderModelWarmup: () => {},
+        quickHelpers: {
+            quickProviderModelRows: () => [{ id: 'quick-model', provider: 'catalog-provider' }],
+        },
+    });
+
+    const quick = await api.collectProviderModels({ quick: true });
+    const fullPromise = api.collectProviderModels();
+    assert.equal(quick[0].id, 'quick-model');
+    assert.equal(keychainReads, 1);
+    releaseList();
+    const full = await fullPromise;
+    assert.equal(listReads, 1);
+    assert.equal(full[0].id, 'full-model');
+});
+
+test('first full picker load waits for startup provider catalog refresh', async () => {
+    let revision = 75001;
+    let refreshed = false;
+    let listReads = 0;
+    let releaseRefresh;
+    const refreshGate = new Promise((resolve) => { releaseRefresh = resolve; });
+    const provider = {
+        async listModels() {
+            listReads += 1;
+            return [{ id: refreshed ? 'fresh-model' : 'stale-model', mode: 'chat' }];
+        },
+    };
+    const registry = {
+        getAllProviders: () => new Map([['catalog-provider', provider]]),
+        providerCatalogRevision: () => revision,
+        refreshProviderCatalogsOnStartup: async () => {
+            await refreshGate;
+            refreshed = true;
+            revision += 1;
+        },
+    };
+    const api = createProviderModels({
+        caches: {
+            providerModelsCache: { models: null, at: 0 },
+            providerModelsPromise: null,
+            providerModelsLoadSeq: 0,
+            searchProviderModelsCache: { models: null, at: 0 },
+        },
+        modelMetaByRoute: new Map(),
+        getRoute: () => ({ provider: 'catalog-provider' }),
+        getConfig: () => ({ providers: { 'catalog-provider': { enabled: true } } }),
+        getReg: () => registry,
+        searchCapableFor: () => false,
+        sortProviderModelsRaw: sortProviderModels,
+        providerModelCacheRowRaw: providerModelCacheRow,
+        normalizeSearchProviderId: (value) => value,
+        isSearchCapableProvider: () => false,
+        ensureFullConfig: () => {},
+        awaitKeychainPrewarm: async () => {},
+        ensureProvidersReady: async () => {},
+        bootProfile: () => {},
+        scheduleProviderModelWarmup: () => {},
+        quickHelpers: {},
+    });
+
+    const pending = api.collectProviderModels();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(listReads, 0);
+    releaseRefresh();
+    const full = await pending;
+    assert.equal(listReads, 1);
+    assert.equal(full[0].id, 'fresh-model');
+});
+
+test('quick picker rows use the last provider-native disk catalog', () => {
+    const cacheFile = join(process.env.MIXDOG_DATA_DIR, 'openai-oauth-models.json');
+    writeFileSync(cacheFile, JSON.stringify({
+        version: 1,
+        fetchedAt: Date.now(),
+        models: [{
+            id: 'cached-live-model',
+            display: 'Cached Live Model',
+            provider: 'openai-oauth',
+            contextWindow: 321000,
+            outputTokens: 24000,
+            mode: 'chat',
+        }],
+    }));
+    try {
+        const helpers = createQuickModelRows({
+            getRoute: () => ({ provider: 'openai-oauth', model: 'configured-model' }),
+            getSearchRoute: () => null,
+            displayConfig: () => ({
+                providers: { 'openai-oauth': { enabled: true } },
+                presets: [],
+                workflowRoutes: {},
+                agents: {},
+            }),
+            providerModelCacheRow: (provider, model) => ({ ...model, provider }),
+            providerModelsFromCacheRows: (rows) => rows,
+            sortProviderModels: (rows) => rows,
+            modelMetaByRoute: new Map(),
+            modelMetaKey: (provider, model) => `${provider}\n${model}`,
+            normalizeSearchProviderId: (value) => value,
+            normalizeSearchRouteConfig: (value) => value,
+            isSearchCapableProvider: () => true,
+            searchCapableFor: () => true,
+            currentMainSearchModelMeta: () => null,
+        });
+        const rows = helpers.quickProviderModelRows();
+        const cached = rows.find((row) => row.id === 'cached-live-model');
+        assert.ok(cached);
+        assert.equal(cached.contextWindow, 321000);
+        assert.equal(cached.outputTokens, 24000);
+        assert.ok(rows.some((row) => row.id === 'configured-model'));
+    } finally {
+        unlinkSync(cacheFile);
+    }
+});
+
+test('daemon model catalog prefetch starts immediately without changing standalone exit behavior', () => {
+    const previousDelay = process.env.MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS;
+    const previousDaemon = process.env.MIXDOG_DAEMON_HOST;
+    try {
+        delete process.env.MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS;
+        delete process.env.MIXDOG_DAEMON_HOST;
+        assert.equal(readRuntimeTunables().providerModelWarmupDelayMs, 2000);
+        process.env.MIXDOG_DAEMON_HOST = '1';
+        assert.equal(readRuntimeTunables().providerModelWarmupDelayMs, 0);
+    } finally {
+        if (previousDelay === undefined) delete process.env.MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS;
+        else process.env.MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS = previousDelay;
+        if (previousDaemon === undefined) delete process.env.MIXDOG_DAEMON_HOST;
+        else process.env.MIXDOG_DAEMON_HOST = previousDaemon;
+    }
+});
+
+test('Grok provider cache never reports a derived context-sized output ceiling', () => {
+    const cacheFile = join(process.env.MIXDOG_DATA_DIR, 'grok-oauth-models.json');
+    writeFileSync(cacheFile, JSON.stringify({
+        version: 1,
+        fetchedAt: Date.now(),
+        models: [{
+            id: 'grok-output-regression',
+            provider: 'grok-oauth',
+            contextWindow: 500000,
+            outputTokens: 500000,
+            mode: 'chat',
+        }],
+    }));
+    try {
+        const meta = providerCachedModelMetadataSync('grok-oauth', 'grok-output-regression');
+        assert.equal(meta.contextWindow, 500000);
+        assert.equal(meta.outputTokens, null);
+    } finally {
+        unlinkSync(cacheFile);
+    }
 });
 
 test('provider setup refresh waits for keychain readiness and bypasses stale setup state', async () => {

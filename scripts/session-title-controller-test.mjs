@@ -202,3 +202,23 @@ test('a failed third-turn attempt is released and retries on a later turn', asyn
   assert.deepEqual(promotions, [['재시도 제목', 'third']]);
   controller.disposeAll();
 });
+
+test('completed title one-shot markers remain bounded under session churn', async () => {
+  let promotions = 0;
+  const controller = createSessionTitleController({
+    attemptLimit: 32,
+    log: () => {},
+    generateSessionTitle: async () => assert.fail('greetings must not dispatch a provider'),
+    promoteGeneratedTitle: async () => {
+      promotions += 1;
+      return true;
+    },
+  });
+  for (let index = 0; index < 100; index += 1) {
+    assert.equal(controller.scheduleFirst({ id: `title_churn_${index}`, messages: [] }, 'hello'), true);
+  }
+  await waitFor(() => promotions === 100);
+  assert.deepEqual(controller.attemptStatsForTest(), { first: 32, third: 0, limit: 32 });
+  controller.disposeAll();
+  assert.deepEqual(controller.attemptStatsForTest(), { first: 0, third: 0, limit: 32 });
+});

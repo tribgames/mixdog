@@ -526,6 +526,9 @@ async function main() {
   function prewarmSessionRuntime() {
     if (sessionRuntimePrewarmStarted) return;
     sessionRuntimePrewarmStarted = true;
+    void import('../runtime/agent/orchestrator/tools/builtin/read-image-resize.mjs')
+      .then((module) => module.prewarmImageResizer?.())
+      .catch((error) => log(`image pipeline prewarm failed (non-fatal): ${error?.message || error}`));
     void sessionRuntimePool.prewarm()
       .then(() => log('session shard runtime/agent-loop/keychain prewarm started'))
       .catch((error) => {

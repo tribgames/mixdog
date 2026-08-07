@@ -16,6 +16,7 @@ if (files.length === 0) {
 }
 
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/;
+const INTERPOLATION = /\{\{[^}]+\}\}/g;
 
 const catalogs = new Map();
 for (const name of files) {
@@ -36,13 +37,21 @@ for (const [name, catalog] of catalogs) {
     .map(([key]) => key);
   const missing = [...union].filter((key) => !(key in catalog));
   const plural = Object.keys(catalog).filter((key) => PLURAL_SUFFIX.test(key));
-  if (empty.length === 0 && missing.length === 0 && plural.length === 0) continue;
+  const interpolation = Object.entries(catalog)
+    .filter(([key, value]) => {
+      if (typeof value !== "string") return false;
+      const expected = [...key.matchAll(INTERPOLATION)].map(([token]) => token).sort();
+      const actual = [...value.matchAll(INTERPOLATION)].map(([token]) => token).sort();
+      return expected.join("\0") !== actual.join("\0");
+    })
+    .map(([key]) => key);
+  if (empty.length === 0 && missing.length === 0 && plural.length === 0 && interpolation.length === 0) continue;
   failed = true;
-  console.error(`check-i18n: ${name} — empty: ${empty.length}, missing: ${missing.length}, plural artifacts: ${plural.length}`);
-  for (const key of [...empty.slice(0, 10), ...missing.slice(0, 10), ...plural.slice(0, 5)]) {
+  console.error(`check-i18n: ${name} — empty: ${empty.length}, missing: ${missing.length}, plural artifacts: ${plural.length}, interpolation mismatches: ${interpolation.length}`);
+  for (const key of [...empty.slice(0, 10), ...missing.slice(0, 10), ...plural.slice(0, 5), ...interpolation.slice(0, 10)]) {
     console.error(`  · ${key}`);
   }
-  if (empty.length + missing.length + plural.length > 25) console.error("  · …");
+  if (empty.length + missing.length + plural.length + interpolation.length > 35) console.error("  · …");
 }
 
 if (failed) {

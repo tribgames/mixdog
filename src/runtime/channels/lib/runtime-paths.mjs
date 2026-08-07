@@ -117,9 +117,6 @@ function getControlPath(instanceId) {
 function getControlResponsePath(instanceId) {
   return join(RUNTIME_ROOT, `control-${sanitize(instanceId)}.response.json`);
 }
-function getPermissionResultPath(instanceId, uuid) {
-  return join(RUNTIME_ROOT, `perm-${sanitize(instanceId)}-${sanitize(uuid)}.result`);
-}
 function getStopFlagPath(instanceId) {
   return join(RUNTIME_ROOT, `stop-${sanitize(instanceId)}.flag`);
 }
@@ -424,6 +421,7 @@ function cleanupInstanceRuntimeFiles(instanceId) {
   for (const target of targets) {
     removeFileIfExists(target);
   }
+  // Remove artifacts left by pre-standalone Discord approval builds.
   forEachFile(RUNTIME_ROOT, (fullPath, file) => {
     if (file.startsWith(`perm-${sanitize(instanceId)}-`)) {
       removeFileIfExists(fullPath);
@@ -455,7 +453,6 @@ export {
   getChannelOwnerPath,
   getControlPath,
   getControlResponsePath,
-  getPermissionResultPath,
   getTerminalLeadPid,
   getStatusPath,
   getTurnEndPath,

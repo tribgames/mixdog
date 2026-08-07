@@ -4,13 +4,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isInternalRuntimeNotificationText as contractIsInternalRuntimeNotificationText } from '../../../../shared/tool-execution-contract.mjs';
 import { SUMMARY_PREFIX } from '../compact.mjs';
+import { attachmentTextForPart, isAttachmentReference } from '../../../../attachments/store.mjs';
 
 export function promptContentText(content) {
     if (typeof content === 'string') return content;
     if (Array.isArray(content)) {
         return content.map((part) => {
             if (typeof part === 'string') return part;
-            if (part?.type === 'text') return part.text || '';
+            if (part?.type === 'text') return isAttachmentReference(part) ? attachmentTextForPart(part) : (part.text || '');
             if (part?.type === 'image') return '[Image]';
             return part?.text || '';
         }).filter(Boolean).join('\n');

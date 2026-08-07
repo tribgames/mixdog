@@ -13,6 +13,12 @@ import type {
   DesktopUpdaterState,
   SessionSnapshot,
 } from '../shared/contract';
+import {
+  createRelayE2EEClientHandshake,
+  isRelayE2EEChallenge,
+  type RelayE2EEChannel,
+  type RelayE2EEPairingMaterial,
+} from '../shared/remote-e2ee';
 
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
 const TOKEN_STORAGE_KEY = 'mixdog.remote-token';
@@ -21,6 +27,8 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
 // reopened while the desktop sleeps counts three quick retries and throws the
 // pairing screen over a perfectly valid pairing.
 const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
+const E2EE_PUBLIC_KEY_STORAGE_KEY = 'mixdog.remote-e2ee-public-key';
+const E2EE_SECRET_STORAGE_KEY = 'mixdog.remote-e2ee-secret';
 
 (() => {
   const w = window as Window & { mixdogDesktop?: DesktopApi };
@@ -35,22 +43,44 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
   let serverBase = '';
   try { serverBase = localStorage.getItem(SERVER_STORAGE_KEY) || ''; } catch { /* pairing screen */ }
 
-  // ?token= wins and is persisted for reconnects; strip it from the visible
-  // URL so casual screen shares do not leak the bridge secret.
+  // ?token= wins and is persisted for reconnects. Relay E2EE material rides
+  // the fragment so it never reaches relay HTTP logs; strip both after use.
   let token = '';
+  let e2eePublicKey = '';
+  let e2eeSecret = '';
   try {
     const params = new URLSearchParams(location.search);
+    const fragment = new URLSearchParams(location.hash.replace(/^#/u, ''));
     const fromUrl = params.get('token');
+    const publicKeyFromUrl = fragment.get('e2eeKey') || params.get('e2eeKey');
+    const secretFromUrl = fragment.get('e2eeSecret') || params.get('e2eeSecret');
     if (fromUrl) {
       token = fromUrl;
       localStorage.setItem(TOKEN_STORAGE_KEY, fromUrl);
+      if (publicKeyFromUrl && secretFromUrl) {
+        e2eePublicKey = publicKeyFromUrl;
+        e2eeSecret = secretFromUrl;
+        localStorage.setItem(E2EE_PUBLIC_KEY_STORAGE_KEY, publicKeyFromUrl);
+        localStorage.setItem(E2EE_SECRET_STORAGE_KEY, secretFromUrl);
+      } else {
+        localStorage.removeItem(E2EE_PUBLIC_KEY_STORAGE_KEY);
+        localStorage.removeItem(E2EE_SECRET_STORAGE_KEY);
+      }
       params.delete('token');
+      params.delete('e2eeKey');
+      params.delete('e2eeSecret');
       const query = params.toString();
-      history.replaceState(null, '', location.pathname + (query ? `?${query}` : '') + location.hash);
+      history.replaceState(null, '', location.pathname + (query ? `?${query}` : ''));
     } else {
       token = localStorage.getItem(TOKEN_STORAGE_KEY) || '';
+      e2eePublicKey = localStorage.getItem(E2EE_PUBLIC_KEY_STORAGE_KEY) || '';
+      e2eeSecret = localStorage.getItem(E2EE_SECRET_STORAGE_KEY) || '';
     }
   } catch { /* token stays empty; the bridge refuses the socket */ }
+  const e2eePairing: RelayE2EEPairingMaterial | null =
+    e2eePublicKey && e2eeSecret
+      ? { version: 1, serverPublicKey: e2eePublicKey, pairingSecret: e2eeSecret }
+      : null;
 
   interface PendingCall { resolve: (value: unknown) => void; reject: (error: Error) => void }
   const pending = new Map<number, PendingCall>();
@@ -65,6 +95,8 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
   let retryMs = 500;
   let failedAttempts = 0;
   let nextId = 1;
+  let secureChannel: RelayE2EEChannel | null = null;
+  let connectionReady = false;
 
   const wsUrl = (): string => {
     if (serverBase) {
@@ -88,6 +120,9 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
     try {
       const link = new URL(raw.trim());
       const pairToken = link.searchParams.get('token');
+      const fragment = new URLSearchParams(link.hash.replace(/^#/u, ''));
+      const pairPublicKey = fragment.get('e2eeKey') || link.searchParams.get('e2eeKey');
+      const pairSecret = fragment.get('e2eeSecret') || link.searchParams.get('e2eeSecret');
       let origin = '';
       if (link.protocol === 'mixdog:') {
         const server = link.searchParams.get('server');
@@ -100,6 +135,13 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
       }
       localStorage.setItem(SERVER_STORAGE_KEY, origin);
       if (pairToken) localStorage.setItem(TOKEN_STORAGE_KEY, pairToken);
+      if (pairPublicKey && pairSecret) {
+        localStorage.setItem(E2EE_PUBLIC_KEY_STORAGE_KEY, pairPublicKey);
+        localStorage.setItem(E2EE_SECRET_STORAGE_KEY, pairSecret);
+      } else {
+        localStorage.removeItem(E2EE_PUBLIC_KEY_STORAGE_KEY);
+        localStorage.removeItem(E2EE_SECRET_STORAGE_KEY);
+      }
       // A new desktop has to prove itself again before it counts as reachable.
       localStorage.removeItem(PAIRED_STORAGE_KEY);
       everPaired = false;
@@ -466,13 +508,7 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
     return payload as SessionSnapshot;
   };
 
-  const handleMessage = (raw: unknown): void => {
-    let message: Record<string, unknown>;
-    try {
-      const parsed: unknown = JSON.parse(String(raw));
-      if (!parsed || typeof parsed !== 'object') return;
-      message = parsed as Record<string, unknown>;
-    } catch { return; }
+  const handleMessage = (message: Record<string, unknown>): void => {
     // Any inbound frame proves the socket is alive; pong frames carry
     // nothing else.
     awaitingPong = false;
@@ -582,13 +618,18 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
   };
 
   const connect = (): Promise<WebSocket> => {
-    if (socket && socket.readyState === WebSocket.OPEN) return Promise.resolve(socket);
+    if (socket && socket.readyState === WebSocket.OPEN && connectionReady) {
+      return Promise.resolve(socket);
+    }
     openPromise ??= new Promise<WebSocket>((resolve, reject) => {
       const ws = new WebSocket(wsUrl());
       let opened = false;
-      ws.onopen = () => {
+      let handshakeTimer: number | null = null;
+      const finishOpen = () => {
+        if (opened) return;
         opened = true;
-        socket = ws;
+        connectionReady = true;
+        if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
         retryMs = 500;
         failedAttempts = 0;
         stopPairingCamera?.();
@@ -598,16 +639,66 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
           try { localStorage.setItem(PAIRED_STORAGE_KEY, '1'); } catch { /* no storage */ }
         }
         if (everConnected) {
-          // Re-sync after a drop: state pushes sent while offline are gone.
           void call<SessionSnapshot>('getSnapshot').then(dispatchState).catch(() => {});
         }
         everConnected = true;
         resolve(ws);
       };
-      ws.onmessage = (event) => handleMessage(event.data);
+      ws.onopen = () => {
+        socket = ws;
+        connectionReady = false;
+        secureChannel = null;
+        if (!e2eePairing) {
+          finishOpen();
+          return;
+        }
+        handshakeTimer = window.setTimeout(() => {
+          try { ws.close(); } catch { /* reconnect loop handles it */ }
+        }, 10_000);
+      };
+      ws.onmessage = (event) => {
+        void (async () => {
+          let parsed: unknown;
+          try { parsed = JSON.parse(String(event.data)); } catch { return; }
+          if (!parsed || typeof parsed !== 'object') return;
+          const clear = parsed as Record<string, unknown>;
+          awaitingPong = false;
+          if ('pong' in clear) return;
+          if ('resync' in clear) {
+            requestResync();
+            return;
+          }
+          if (!e2eePairing) {
+            handleMessage(clear);
+            return;
+          }
+          if (isRelayE2EEChallenge(clear)) {
+            if (secureChannel) throw new Error('Duplicate relay encryption challenge.');
+            const handshake = await createRelayE2EEClientHandshake(e2eePairing, clear);
+            secureChannel = handshake.channel;
+            ws.send(JSON.stringify(handshake.hello));
+            return;
+          }
+          if (!secureChannel) throw new Error('Relay encryption handshake was not established.');
+          const decrypted = await secureChannel.decryptJson(clear);
+          if (!decrypted || typeof decrypted !== 'object') return;
+          const message = decrypted as Record<string, unknown>;
+          if (message.type === 'e2ee-ready' && message.version === 1) {
+            finishOpen();
+            return;
+          }
+          if (!connectionReady) throw new Error('Relay sent data before encryption was ready.');
+          handleMessage(message);
+        })().catch(() => {
+          try { ws.close(); } catch { /* reconnect loop handles it */ }
+        });
+      };
       ws.onclose = () => {
+        if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
         if (socket === ws) socket = null;
         openPromise = null;
+        connectionReady = false;
+        secureChannel = null;
         // A new connection starts a fresh delta lane; a stale base revision
         // must never accidentally match the new encoder's numbering.
         deltaRevision = -1;
@@ -619,6 +710,18 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
       };
     });
     return openPromise;
+  };
+
+  const sendApplicationFrame = async (
+    ws: WebSocket,
+    payload: Record<string, unknown>,
+  ): Promise<void> => {
+    if (e2eePairing) {
+      if (!secureChannel || !connectionReady) throw new Error('Relay encryption is not ready.');
+      ws.send(await secureChannel.encryptJson(payload));
+      return;
+    }
+    ws.send(JSON.stringify(payload));
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -643,17 +746,18 @@ const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
           reject(reason);
         },
       });
-      try {
-        ws.send(JSON.stringify({ id, method, params }));
-      } catch (error) {
+      void sendApplicationFrame(ws, { id, method, params }).catch((error) => {
         pending.delete(id);
         reject(error instanceof Error ? error : new Error(String(error)));
-      }
+        try { ws.close(); } catch { /* reconnect loop handles it */ }
+      });
     });
   };
 
   const fire = (method: string, params: unknown[]): void => {
-    void connect().then((ws) => { ws.send(JSON.stringify({ method, params })); }).catch(() => {});
+    void connect()
+      .then((ws) => sendApplicationFrame(ws, { method, params }))
+      .catch(() => {});
   };
 
   const api: DesktopApi = {

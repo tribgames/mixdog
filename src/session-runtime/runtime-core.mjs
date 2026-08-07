@@ -229,6 +229,7 @@ import { createWarmupSchedulers } from './warmup-schedulers.mjs';
 import { createPrewarmSchedulers } from './prewarm.mjs';
 import {
   getTurnReviewDiff as getTurnSnapshotReviewDiff,
+  revertTurnReview as revertTurnSnapshotReview,
   revertTurnReviewFile as revertTurnSnapshotReviewFile,
 } from '../runtime/shared/turn-snapshot.mjs';
 import { createMcpGlue } from './mcp-glue.mjs';
@@ -1303,10 +1304,10 @@ export async function createMixdogSessionRuntime({
   scheduleProviderSetupWarmup();
   scheduleModelCatalogWarmup();
   scheduleProviderWarmup();
-  // Warm the provider model catalog in the background, but keep it on its own
-  // delay so short-lived detached runtimes can exit before /models I/O starts.
-  // Operators that want earlier catalog warming can lower
-  // MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS explicitly.
+  // Daemon-hosted product sessions warm the provider model catalog immediately
+  // in the background. This does not delay runtime readiness; an early picker
+  // joins the boot prefetch instead of starting duplicate provider I/O.
+  // Standalone runtimes retain an exit-safe grace period (runtime-tunables).
   scheduleProviderModelWarmup();
   scheduleStatuslineUsageWarmup();
   // Channels are opt-in: only boot the worker when this session started in (or
@@ -1648,6 +1649,10 @@ export async function createMixdogSessionRuntime({
       rt.currentCwd,
       rt.session?.id,
       options,
+    ),
+    revertTurnReview: () => revertTurnSnapshotReview(
+      rt.currentCwd,
+      rt.session?.id,
     ),
     revertTurnReviewFile: (file) => revertTurnSnapshotReviewFile(
       rt.currentCwd,

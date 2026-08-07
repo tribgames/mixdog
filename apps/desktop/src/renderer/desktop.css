@@ -4044,7 +4044,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 @keyframes composer-mic-spin {
   to { transform: rotate(360deg); }
 }
-.composer-tool, .send-button, .route-controls > .fast-control, .fast-control .mx-select-trigger, .effort-control select {
+.composer-tool, .send-button, .fast-mode-toggle, .effort-control select {
   width: 28px;
   height: 28px;
   border: 0;
@@ -4053,7 +4053,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: transparent;
   box-shadow: none;
 }
-.composer-tool:hover, .composer-tool:focus-visible, .route-controls > .fast-control:hover, .fast-control .mx-select-trigger:hover,
+.composer-tool:hover, .composer-tool:focus-visible, .fast-mode-toggle:hover:not(:disabled),
 .effort-control select:hover { color: var(--mx-text); background: var(--mx-hover); }
 /* Attach + and mic match the composer control text ink (model trigger). */
 .composer-tool { color: var(--mx-text); }
@@ -4075,7 +4075,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .send-button:focus-visible { outline: 0; box-shadow: 0 0 0 1px var(--mx-border-strong); }
 .send-button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 .route-controls { gap: 2px; }
-.model-trigger, .effort-control select, .fast-control .mx-select-trigger {
+.model-trigger, .effort-control select {
   height: 28px;
   padding: 0 8px;
   border-radius: 6px;
@@ -4095,24 +4095,29 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding-right: 20px;
 }
 .effort-control { position: relative; }
-.fast-control .mx-select-trigger {
-  width: auto;
-  min-width: 40px;
+.fast-control {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .route-controls > .fast-control {
-  width: max-content;
-  min-width: 0;
-  flex: 0 0 auto;
-  white-space: nowrap;
+  flex: 0 0 28px;
 }
-.fast-control .mx-select-trigger:hover:not(:disabled),
-.fast-control .mx-select-trigger[aria-expanded="true"]:not(:disabled) {
-  color: var(--mx-text);
-  background: var(--mx-hover);
+.fast-mode-toggle {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
 }
-.route-controls > .fast-control[aria-busy="true"],
-.fast-control[aria-busy="true"] .mx-select-trigger { color: var(--mx-text-muted); cursor: progress; }
-.model-trigger:hover, .model-trigger:focus-visible, .fast-control .mx-select-trigger:hover,
+.fast-mode-toggle.is-on { color: var(--mx-text-accent); }
+.fast-mode-toggle.is-on:hover:not(:disabled) { color: var(--mx-text-accent); }
+.fast-mode-toggle:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.fast-mode-toggle svg.lucide { stroke-width: 2px; }
+.fast-control[aria-busy="true"] .fast-mode-toggle { cursor: progress; }
+.model-trigger:hover, .model-trigger:focus-visible,
 .effort-control select:hover { color: var(--mx-text); background: var(--mx-hover); }
 .mx-select-root.route-select,
 .effort-control .mx-select-root.route-select,
@@ -4677,38 +4682,41 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   animation: spin 6s linear infinite;
 }
 .composer-attachments {
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 6px 2px;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 0;
 }
 .composer-attachments > div {
-  height: 48px;
-  max-width: 200px;
-  padding: 4px;
   border: 0;
-  border-radius: 8px;
   color: var(--mx-text);
-  background: var(--mx-bg-layer-2);
-  box-shadow: 0 0 0 .5px var(--mx-border-strong);
-  transition: box-shadow 85ms ease-out;
-}
-/* The ring marks keyboard focus only; hover already darkens the tile. */
-.composer-attachments > div:hover,
-.composer-attachments > div:focus-within { box-shadow: 0 0 0 1px var(--mx-border-strong); }
-.composer-attachments > div.image { height: 64px; }
-.composer-attachments img,
-.composer-attachments > div > span:first-child {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
   border-radius: 6px;
+  transition: background 85ms ease-out, box-shadow 85ms ease-out;
+}
+.composer-attachments > div:not(.image) {
+  height: 32px;
+  max-width: 240px;
+  gap: 6px;
+  padding: 3px 4px 3px 6px;
+  background: var(--mx-bg-layer-1);
+  box-shadow: 0 0 0 .5px var(--mx-border);
+}
+.composer-attachments > div:hover,
+.composer-attachments > div:focus-within {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-layer-1);
+  box-shadow: 0 0 0 1px var(--mx-border-strong);
+}
+.composer-attachments > div.image { height: 64px; }
+.composer-attachments > div:not(.image) > span:first-child {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
   color: var(--mx-icon-muted);
-  background: var(--mx-bg-deep);
+  background: transparent;
 }
 .composer-attachments > div.image img { width: 56px; height: 56px; flex-basis: 56px; }
-.composer-attachments > div > span:nth-child(2) { padding-inline: 2px; font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); }
-.composer-attachments button { color: var(--mx-icon-muted); }
-.composer-attachments button:hover { color: var(--mx-danger); background: var(--mx-hover); }
+.composer-attachments > div > span:nth-child(2) { padding-inline: 0; font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); }
+.composer-attachments .attachment-remove { color: var(--mx-icon-muted); }
+.composer-attachments .attachment-remove:hover { color: var(--mx-danger); background: var(--mx-hover); }
 .composer-error { color: var(--mx-danger); background: var(--mx-danger-bg); }
 .composer-notice { color: var(--mx-text-muted); background: var(--mx-bg-layer-2); }
 .task-drop-overlay {
@@ -7320,9 +7328,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex: 0 0 auto;
 }
 .workflows-route-controls .effort-control .mx-select-root,
-.workflows-route-controls .fast-control .mx-select-root,
-.workflows-route-controls .effort-control .mx-select-trigger,
-.workflows-route-controls .fast-control .mx-select-trigger {
+.workflows-route-controls .effort-control .mx-select-trigger {
   width: max-content;
   min-width: 0;
   max-width: none;
@@ -8923,9 +8929,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Model / effort / fast stay LEFT-PACKED as one cluster: fixed 64px fast
-     and capped route width let the row overflow-clip mid-pill on a phone,
-     which read as broken alignment. Everything shrinks in place instead. */
+  /* Model / effort / fast stay LEFT-PACKED as one cluster. The Fast control
+     is already a fixed glyph, so only the text-bearing controls may shrink. */
   .route-controls {
     max-width: none;
     flex: 1 1 auto;
@@ -8933,12 +8938,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   }
   .effort-control .mx-select-root { min-width: 0; }
   .effort-control .mx-select-trigger { min-width: 0; }
-  .fast-control .mx-select-trigger,
   .route-controls > .fast-control {
-    width: auto;
-    min-width: 0;
-    flex: 0 1 auto;
-    overflow: hidden;
+    width: 28px;
+    min-width: 28px;
+    flex: 0 0 28px;
   }
 }
 
@@ -9708,16 +9711,14 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .composer-tool,
 .model-trigger,
-.route-controls > .fast-control,
-.fast-control .mx-select-trigger,
+.fast-mode-toggle,
 .effort-control .mx-select-trigger,
 .send-button {
   transition: color 85ms ease-out, background 85ms ease-out, box-shadow 85ms ease-out, opacity 85ms ease-out;
 }
 .composer-tool:focus-visible,
 .model-trigger:focus-visible,
-.route-controls > .fast-control:focus-visible,
-.fast-control .mx-select-trigger:focus-visible,
+.fast-mode-toggle:focus-visible,
 .effort-control .mx-select-trigger:focus-visible,
 .send-button:focus-visible {
   outline: 0;
@@ -9749,9 +9750,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .fast-control,
 .route-controls > .fast-control {
-  width: 64px;
-  min-width: 64px;
-  flex: 0 0 64px;
+  width: 28px;
+  min-width: 28px;
+  flex: 0 0 28px;
 }
 .send-button { flex: 0 0 28px; margin-left: auto; }
 /* Stop affordance stays a STATIC filled square sized like the send arrow —
@@ -9809,11 +9810,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-.composer-attachments button {
-  flex: 0 0 22px;
+.composer-attachments .attachment-remove {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border-radius: 4px;
+  background: transparent;
   cursor: pointer;
 }
-.composer-attachments > div.image button {
+.composer-attachments > div.image .attachment-remove {
   position: absolute;
   z-index: 2;
   top: -5px;
@@ -9824,9 +9829,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   box-shadow: var(--mx-button);
   opacity: 0;
 }
-.composer-attachments > div.image:hover button,
-.composer-attachments > div.image:focus-within button,
-.composer-attachments > div.image button:focus-visible { opacity: 1; }
+.composer-attachments > div.image:hover .attachment-remove,
+.composer-attachments > div.image:focus-within .attachment-remove,
+.composer-attachments > div.image .attachment-remove:focus-visible { opacity: 1; }
 .composer-error,
 .composer-notice {
   /* Banner ABOVE the input card: full column width, card-language radius. */
@@ -9916,11 +9921,19 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 
 .command-surface { outline: 0; }
 .command-surface[data-surface="context"] {
+  width: min(680px, calc(100vw - 32px));
   height: auto;
-  max-height: min(560px, calc(var(--vvh, 100vh) - 32px));
+  max-height: min(560px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
+  border-radius: 12px;
 }
-.command-surface[data-surface="context"] .mixdog-settings__panel { max-height: 100%; }
-.command-surface[data-surface="context"] .mixdog-settings__body { flex: 0 1 auto; }
+.command-surface[data-surface="context"] .mixdog-settings__panel {
+  max-height: min(560px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
+}
+.command-surface[data-surface="context"] .mixdog-settings__body {
+  flex: 0 1 auto;
+  overflow-y: auto;
+  padding: 24px;
+}
 .command-surface .mixdog-settings__body { gap: 28px; }
 .command-surface .mixdog-settings__header h1 { flex: 1 1 auto; }
 .command-surface-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
@@ -10111,26 +10124,45 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .session-context-popover span { color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
 .session-context-popover b { font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); font-variant-numeric: tabular-nums; }
 
-.context-view { display: grid; gap: 18px; min-width: 0; }
+.context-view { min-width: 0; }
+.context-card {
+  min-width: 0;
+  display: grid;
+  overflow: hidden;
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted),
+    0 1px 2px color-mix(in srgb, var(--mx-bg-deep) 45%, transparent);
+}
 .context-usage-overview,
-.context-runtime-lines,
 .context-mix {
   display: grid;
   gap: 12px;
   min-width: 0;
-  padding: 14px;
-  border: .5px solid var(--mx-border);
-  border-radius: 8px;
-  background: var(--mx-bg-layer-1);
+}
+.context-usage-overview { padding: 22px 22px 20px; }
+.context-mix {
+  padding: 18px 20px 20px;
+  border-top: .5px solid var(--mx-border-muted);
 }
 .context-usage-heading {
   display: flex;
-  align-items: baseline;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
 }
-.context-usage-heading strong { color: var(--mx-text); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-semibold); }
-.context-usage-heading span { color: var(--mx-text); font-size: var(--mx-font-minor); font-variant-numeric: tabular-nums; }
+.context-usage-heading strong {
+  color: var(--mx-text);
+  font-size: 24px;
+  font-weight: var(--mx-weight-semibold);
+  line-height: 1.1;
+  letter-spacing: var(--mx-tracking-tight);
+}
+.context-usage-heading span {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  font-variant-numeric: tabular-nums;
+}
 .context-main-bar {
   width: 100%;
   height: 8px;
@@ -10170,13 +10202,21 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--mx-hover);
 }
 .context-stack-bar b { height: 100%; min-width: 2px; background: var(--ctx-color, var(--mx-text-accent)); }
-.context-mix-grid { display: grid; gap: 0; }
+.context-mix-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
 .context-mix-row {
   min-width: 0;
-  min-height: 26px;
+  min-height: 34px;
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
 .context-mix-row i {
   width: 10px;
@@ -10205,6 +10245,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .context-mix [data-context-key="request"] { --ctx-color: #7a756c; }
 @media (max-width: 640px) {
   .context-mix-grid { grid-template-columns: 1fr; }
+  .context-usage-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
 }
 
 /* Round-2 polish: review bar, queue remove, popover, compact action. */
@@ -12804,9 +12845,28 @@ html.mx-window-resizing .panel-backdrop {
   white-space: nowrap;
 }
 .turn-review-summary .diff-stats { margin-left: 0; }
-/* Expanded header row: summary button + Unified/Split toggle side by side. */
+/* Header row: summary disclosure + turn-wide undo + optional diff style. */
 .turn-review-head { display: flex; align-items: center; }
 .turn-review-head .turn-review-summary { width: auto; flex: 1; min-width: 0; }
+.turn-review-undo {
+  min-height: 24px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 8px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--mx-text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  cursor: pointer;
+}
+.turn-review-undo:hover { color: var(--mx-danger); background: var(--mx-hover); }
+.turn-review-undo:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.turn-review-confirm-all { flex: 0 0 auto; margin-right: 8px; }
 .turn-review-style { flex: 0 0 auto; margin-right: 8px; }
 /* No separate expander affordance: the summary row IS the toggle (user
    request), so the chevron that used to trail it is gone. */
@@ -12855,7 +12915,7 @@ html.mx-window-resizing .panel-backdrop {
 .turn-review-source strong { color: var(--mx-text); font-weight: var(--mx-weight-semibold); }
 .turn-review-source .diff-stats { margin-left: auto; }
 /* Row → inline diff + guarded revert (user request): the filename is a
-   disclosure button; revert resets the file's WORKING TREE to HEAD. */
+   disclosure button; revert restores the file to this turn's baseline. */
 .turn-review-file {
   display: flex;
   flex: 1;

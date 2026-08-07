@@ -1,16 +1,15 @@
 import { readFile, stat } from 'fs/promises';
 import { open } from 'fs/promises';
-import { createRequire } from 'module';
 import { READ_MAX_SIZE_BYTES } from './read-constants.mjs';
 import { imageBlocksFromBuffer } from './read-image-resize.mjs';
+import { inspectPdfBuffer } from '../../../../attachments/pdf-extract.mjs';
 
-const requireCjs = createRequire(import.meta.url);
 const DEFAULT_READ_MAX_OUTPUT_BYTES = 100 * 1024;
 
 // PDFs at or under this size are emitted as an Anthropic base64 document
 // block (the model reads the rendered PDF directly): 20MB raw → ~27MB
 // base64, which stays under the 32MB request cap.
-// Larger PDFs fall back to pdf-parse TEXT extraction.
+// Larger PDFs fall back to bounded PDF.js text extraction.
 const PDF_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
 
 // %PDF- magic bytes (0x25 0x50 0x44 0x46 0x2D). A document block must only be
@@ -66,37 +65,18 @@ function parsePagesArg(pagesArg) {
     return { filter: { from, to } };
 }
 
-// pdf-parse TEXT extraction. Fallback path for PDFs over the document-block
+// PDF.js text extraction. Fallback path for PDFs over the document-block
 // size cap, and the always-path when a page range is requested (a base64
 // document block can't be page-filtered, so a narrowed read keeps using text).
 async function extractPdfTextBody(fullPath, pageFilter, maxOutputBytes) {
-    const pdfParse = requireCjs('pdf-parse');
     const buf = await readFile(fullPath);
-    const pageTexts = [];
-    const data = await pdfParse(buf, {
-        pagerender: (pageData) => {
-            // pdf-parse exposes either `pageNumber` (1-based, pdf.js) or
-            // `_pageIndex` (0-based, internal); preferring pageIndex+1 over
-            // pageNumber dropped/duplicated pages when pdf.js renumbered with
-            // annotations or oddball page trees. Use pageNumber first.
-            const pageNum = (typeof pageData.pageNumber === 'number')
-                ? pageData.pageNumber
-                : ((pageData._pageIndex ?? pageData.pageIndex ?? 0) + 1);
-            if (pageFilter && (pageNum < pageFilter.from || pageNum > pageFilter.to)) return Promise.resolve('');
-            return pageData.getTextContent().then((tc) => {
-                const text = tc.items.map((i) => i.str).join(' ');
-                pageTexts.push({ page: pageNum, text });
-                return text;
-            });
-        },
+    const result = await inspectPdfBuffer(buf, {
+        extractText: true,
+        maxPages: Infinity,
+        maxOutputBytes,
+        pageRange: pageFilter,
     });
-    let out = pageFilter
-        ? pageTexts.map((p) => `--- Page ${p.page} ---\n${p.text}`).join('\n\n')
-        : (data.text || '');
-    if (out.length > maxOutputBytes) {
-        out = out.slice(0, maxOutputBytes) + `\n\n... [PDF output truncated at ${Math.round(maxOutputBytes / 1024)} KB; use pages param to narrow]`;
-    }
-    return out || '(no text content extracted from PDF)';
+    return result.text || '(no text content extracted from PDF)';
 }
 
 export async function extractPdfText(fullPath, pagesArg, { maxOutputBytes = DEFAULT_READ_MAX_OUTPUT_BYTES, textOnly = false } = {}) {
@@ -136,7 +116,7 @@ export async function extractPdfText(fullPath, pagesArg, { maxOutputBytes = DEFA
         // TEXT fallback: >20MB PDFs, page-filtered reads, or non-magic files.
         return await extractPdfTextBody(fullPath, pages.filter, maxOutputBytes);
     } catch (err) {
-        return `Error: pdf-parse failed — ${err instanceof Error ? err.message : String(err)}`;
+        return `Error: PDF extraction failed — ${err instanceof Error ? err.message : String(err)}`;
     }
 }
 

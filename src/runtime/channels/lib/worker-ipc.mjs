@@ -14,8 +14,6 @@ export function runWorkerIpc({
   statusState,
   getProvider,
   getConfig,
-  pendingPermRequests,
-  refreshToolExecConsumerMarker,
   handleMemoryCallResponse,
   handleToolCallWithBridgeRetry,
   bootProfile,
@@ -82,70 +80,6 @@ export function runWorkerIpc({
           await getProvider().sendMessage(target, msg.content).catch(() => {});
         }
       } catch { /* best-effort */ }
-      return;
-    }
-    // Host permission request → Discord Allow/Deny prompt.
-    // Parent (server.mjs) receives notifications/claude/channel/permission_request
-    // from the MCP host and forwards the params here. We post a buttoned message;
-    // button clicks are handled in getProvider().onInteraction and sent back to CC as
-    // notifications/claude/channel/permission via sendNotifyToParent.
-    if (msg && msg.type === 'permission_request_inbound') {
-      try {
-        const { request_id, tool_name, description, input_preview } = msg.params || {};
-        // tool_input arrives via the passthrough() schema in server.mjs when
-        // The host includes it in the permission_request notification.
-        // Used to bind the pendingPermRequest to a specific file so two
-        // concurrent Edit/Write requests cannot cross-approve via the
-        // terminal signal.
-        const toolInputParam = (msg.params && (msg.params.tool_input || msg.params.toolInput)) || {};
-        const filePathParam = toolInputParam.file_path || '';
-        if (!request_id || !tool_name) return;
-        if (pendingPermRequests.size > 100) {
-          const cutoff = Date.now() - 30 * 60 * 1000;
-          for (const [k, v] of pendingPermRequests) {
-            if (v.createdAt < cutoff) pendingPermRequests.delete(k);
-          }
-          refreshToolExecConsumerMarker();
-        }
-        const target = (statusState?.read?.().channelId)
-          || getConfig()?.channelId
-          || null;
-        if (!target || !getProvider()?.sendMessage) {
-          process.stderr.write(`mixdog channels: permission_request dropped, no target channel (request_id=${request_id})\n`);
-          return;
-        }
-        const lines = [`🔐 **Permission Request**`, `Tool: \`${tool_name}\``];
-        if (description) lines.push(description);
-        if (input_preview) lines.push('```\n' + String(input_preview).slice(0, 800) + '\n```');
-        const content = lines.join('\n');
-        const components = [{
-          type: 1,
-          components: [
-            { type: 2, style: 3, label: 'Allow', custom_id: `perm-ch-${request_id}-allow` },
-            { type: 2, style: 1, label: 'Session Allow', custom_id: `perm-ch-${request_id}-session` },
-            { type: 2, style: 4, label: 'Deny', custom_id: `perm-ch-${request_id}-deny` },
-          ],
-        }];
-        let sentIds = null;
-        try {
-          const sendResult = await getProvider().sendMessage(target, content, { components });
-          sentIds = sendResult?.sentIds;
-        } catch (err) {
-          process.stderr.write(`mixdog channels: permission_request Discord send failed: ${err && err.message || err}\n`);
-          return;
-        }
-        const messageId = Array.isArray(sentIds) && sentIds.length > 0 ? sentIds[0] : null;
-        pendingPermRequests.set(request_id, {
-          toolName: tool_name,
-          filePath: filePathParam,
-          createdAt: Date.now(),
-          channelId: target,
-          messageId,
-        });
-        refreshToolExecConsumerMarker();
-      } catch (err) {
-        try { process.stderr.write(`mixdog channels: permission_request handler error: ${err && err.message || err}\n`); } catch {}
-      }
       return;
     }
     if (handleMemoryCallResponse(msg)) return;

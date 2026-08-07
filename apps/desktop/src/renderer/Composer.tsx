@@ -1,7 +1,7 @@
 import { ArrowUp, Command, Mic, X } from "lucide-react";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import type { DesktopAbortOptions, DesktopCapability, DesktopModelSelection, DesktopPromptAttachment, DesktopPromptContent, DesktopSubmitOptions, SessionSnapshot } from "../shared/contract";
+import type { DesktopAbortOptions, DesktopCapability, DesktopModelSelection, DesktopPastedText, DesktopPromptAttachment, DesktopPromptContent, DesktopSubmitOptions, SessionSnapshot } from "../shared/contract";
 import { type RecordValue } from "./desktop-types";
 import { t } from "./i18n";
 import { ModelSelector } from "./model-controls";
@@ -151,6 +151,10 @@ export const Composer = memo(function Composer({
   const [persistedHistory, setPersistedHistory] = useState(() => readPromptHistory(historyScope));
   const activeHistoryScope = useRef(historyScope);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  // Chromium does not report `KeyboardEvent.isComposing` consistently across
+  // every IME event ordering. Keep the explicit composition lifecycle too,
+  // matching OpenCode's desktop prompt.
+  const composingRef = useRef(false);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const escapeClearAtRef = useRef(0);
@@ -179,11 +183,50 @@ export const Composer = memo(function Composer({
   transitioningRef.current = transitioning;
   const wasTransitioning = useRef(transitioning);
   const historyNavigation = useRef({ index: -1, seed: '' });
+  useEffect(() => {
+    const element = textarea.current;
+    if (!element) return undefined;
+    let reconcileFrame = 0;
+    const onCompositionStart = () => {
+      composingRef.current = true;
+    };
+    const onCompositionEnd = () => {
+      composingRef.current = false;
+      // OpenCode reconciles once composition has fully committed. Chromium can
+      // deliver compositionend before the final input mutation, so wait one
+      // frame and make the DOM value authoritative.
+      window.cancelAnimationFrame(reconcileFrame);
+      reconcileFrame = window.requestAnimationFrame(() => {
+        if (composingRef.current || textarea.current !== element) return;
+        const value = element.value;
+        draftRef.current = value;
+        setDraft((current) => current === value ? current : value);
+        setCaretOffset(element.selectionStart);
+      });
+    };
+    const onBeforeInput = (event: InputEvent) => {
+      // A composing Enter commits the IME candidate; it is not a request for a
+      // line break. Let composition commit, but cancel Chromium's occasional
+      // follow-up `insertLineBreak` default on <textarea>.
+      if ((composingRef.current || event.isComposing) &&
+        event.inputType === 'insertLineBreak') event.preventDefault();
+    };
+    element.addEventListener('compositionstart', onCompositionStart);
+    element.addEventListener('compositionend', onCompositionEnd);
+    element.addEventListener('beforeinput', onBeforeInput);
+    return () => {
+      window.cancelAnimationFrame(reconcileFrame);
+      element.removeEventListener('compositionstart', onCompositionStart);
+      element.removeEventListener('compositionend', onCompositionEnd);
+      element.removeEventListener('beforeinput', onBeforeInput);
+    };
+  }, []);
   useLayoutEffect(() => {
     if (activeHistoryScope.current === historyScope) return;
     activeHistoryScope.current = historyScope;
     attachmentsRef.current = [];
     dragDepth.current = 0;
+    composingRef.current = false;
     mentionSearchGeneration.current += 1;
     // Scope settles ASYNC after a session switch/promotion; when the user is
     // ALREADY typing in the composer, the in-flight text carries over instead
@@ -639,13 +682,23 @@ export const Composer = memo(function Composer({
       const text = asRecord(raw);
       if (!text || typeof text.text !== 'string') continue;
       const rawId = Number(text.id || key) || 0;
-      const match = textValue.match(new RegExp(`\\[Pasted text #${rawId}(?: \\+\\d+ lines)?\\]`));
+      const pastedMatch = textValue.match(new RegExp(`\\[Pasted text #${rawId}(?: \\+\\d+ lines)?\\]`));
+      const fileMatch = textValue.match(new RegExp(`\\[File #${rawId}(?:: [^\\]\\r\\n]+)?\\]`));
+      const source = text.source === 'file' || (!pastedMatch && Boolean(fileMatch)) ? 'file' : 'paste';
+      const match = source === 'file' ? fileMatch : pastedMatch;
       if (!match) continue;
       const id = uniqueId(rawId);
       const token = id === rawId ? match[0] : match[0].replace(`#${rawId}`, `#${id}`);
       if (token !== match[0]) textValue = textValue.replace(match[0], token);
-      restored.push({ id, name: `Pasted text ${id}`, kind: 'text', mimeType: 'text/plain', data: text.text,
-        token, source: 'paste' });
+      restored.push({
+        id,
+        name: String(text.filename || (source === 'file' ? `File ${id}` : `Pasted text ${id}`)),
+        kind: 'text',
+        mimeType: String(text.mimeType || 'text/plain'),
+        data: text.text,
+        token,
+        source,
+      });
     }
     return { attachments: restored, text: textValue };
   }, []);
@@ -902,22 +955,23 @@ export const Composer = memo(function Composer({
       }
       setAttachmentError('');
       const used = attachments.filter((attachment) => draft.includes(attachment.token));
-      let expandedText = draft;
+      const expandedText = draft;
       const pastedImages: Record<string, DesktopPromptAttachment> = {};
-      const pastedTexts: Record<string, { id: number; text: string }> = {};
+      const pastedTexts: Record<string, DesktopPastedText> = {};
       for (const attachment of used) {
         if (attachment.kind === 'text') {
-          const safeName = attachment.name.replace(/[<>"']/g, '_');
-          const expanded = attachment.source === 'paste'
-            ? attachment.data
-            : `<file name="${safeName}">\n${attachment.data}\n</file>`;
-          expandedText = expandedText.replaceAll(attachment.token, expanded);
-          pastedTexts[String(attachment.id)] = { id: attachment.id, text: attachment.data };
+          pastedTexts[String(attachment.id)] = {
+            id: attachment.id,
+            text: attachment.data,
+            filename: attachment.name,
+            mimeType: attachment.mimeType,
+            source: attachment.source || 'file',
+          };
         } else if (attachment.kind === 'image') {
           pastedImages[String(attachment.id)] = {
             id: attachment.id,
             type: 'image',
-            content: attachment.data,
+            sizeBytes: Math.floor((attachment.data.length * 3) / 4),
             mediaType: attachment.mimeType,
             filename: attachment.name,
             ...(attachment.metadataText ? { metadataText: attachment.metadataText } : {}),
@@ -980,7 +1034,7 @@ export const Composer = memo(function Composer({
       let accepted: unknown;
       try {
         accepted = await submit(content, {
-          displayText: expandedText,
+          ...(used.length ? { displayText: text } : {}),
           ...(Object.keys(pastedImages).length ? { pastedImages } : {}),
           ...(Object.keys(pastedTexts).length ? { pastedTexts } : {}),
         });
@@ -1110,7 +1164,8 @@ export const Composer = memo(function Composer({
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Escape') escapeClearAtRef.current = 0;
-    const composing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
+    const composing = event.nativeEvent.isComposing || composingRef.current ||
+      event.nativeEvent.keyCode === 229;
     // A newline chord pressed while an IME syllable is still composing is
     // swallowed by the commit: the composition ends and NOTHING breaks the
     // line (user: 개행이 안돼). Let the commit land, then insert the break the
@@ -1126,7 +1181,13 @@ export const Composer = memo(function Composer({
       return;
     }
     if (composing && (event.key === 'Enter' || event.key === 'Escape' || event.key === 'Tab' ||
-      event.key.startsWith('Arrow'))) return;
+      event.key.startsWith('Arrow'))) {
+      // Keep the key owned by the IME without cancelling its native commit.
+      // Otherwise it bubbles into workbench shortcuts even though the composer
+      // correctly skipped slash/mention submission.
+      event.stopPropagation();
+      return;
+    }
     if (event.key === 'Enter' && event.repeat) return;
     if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'u') {
       event.preventDefault();
@@ -1359,7 +1420,9 @@ export const Composer = memo(function Composer({
               return next;
             });
             setDraft((current) => current.replace(attachment.token, '').replace(/ {2,}/g, ' '));
-          }}><MxIcon name="close-small" size={14} /></button>
+          }} className="attachment-remove" data-tooltip={t("Remove")}>
+            <X size={14} aria-hidden="true" />
+          </button>
         </div>)}
       </div>}
       <textarea ref={textarea} value={draft} onInput={(event) => {
@@ -1374,7 +1437,9 @@ export const Composer = memo(function Composer({
             if (ms >= 25) window.mixdogDesktop?.perfLog?.(`composer-keystroke paint=${ms.toFixed(0)}ms`);
           }));
         }
-        setDraft(event.currentTarget.value);
+        const value = event.currentTarget.value;
+        draftRef.current = value;
+        setDraft(value);
         escapeClearAtRef.current = 0;
         if (attachmentError) setAttachmentError('');
         if (composerNotice) setComposerNotice('');
@@ -1382,7 +1447,10 @@ export const Composer = memo(function Composer({
         if (slashDismissedDraft) setSlashDismissedDraft('');
         if (mentionDismissed) setMentionDismissed('');
         historyNavigation.current = { index: -1, seed: '' };
-      }} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)}
+      }} onFocus={() => setComposerFocused(true)} onBlur={() => {
+        composingRef.current = false;
+        setComposerFocused(false);
+      }}
         onPointerDown={() => { escapeClearAtRef.current = 0; }}
         onSelect={(event) => setCaretOffset(event.currentTarget.selectionStart)} onKeyDown={onKeyDown}
         onPaste={(event) => {

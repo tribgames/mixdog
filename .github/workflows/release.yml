@@ -1,8 +1,9 @@
 # Reusable application release worker. Deploy computes and commits the version,
-# then calls this workflow with an immutable tag + SHA. Every npm/desktop asset
-# is built and smoke-tested into Actions artifacts first; publishing starts only
-# after the complete five-platform matrix succeeds. Deploy is the only release
-# entry point; there is no direct tag-push trigger.
+# then calls this workflow with an immutable tag + SHA. The npm package remains
+# staged as an Actions artifact, while verified desktop packages upload directly
+# to one hidden GitHub draft. The draft becomes public only after the exact
+# five-platform asset set succeeds. Deploy is the only release entry point;
+# there is no direct tag-push trigger.
 # Requires the NPM_TOKEN repo secret (npm automation token).
 
 name: Release
@@ -85,9 +86,6 @@ jobs:
       - name: Build TUI
         run: npm run build:tui
 
-      - name: Focused release regressions
-        run: npm run test:release-focused
-
       - name: Smoke
         run: npm run smoke
 
@@ -108,12 +106,46 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
+  # The focused release gate used to serialize four independent groups in one
+  # runner. Isolated lanes keep their temp/process state separate while letting
+  # the slow tool, compaction, provider, and session groups overlap.
+  release-regressions:
+    name: verify-${{ matrix.group }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [contracts, providers, compact, session]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Install ripgrep for tool contracts
+        if: matrix.group == 'contracts'
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Build TUI
+        run: npm run build:tui
+
+      - name: Verify ${{ matrix.group }} release lane
+        run: npm run test:release-focused:${{ matrix.group }}
+
   # main/preload/renderer output is platform-neutral. Build it once, cache it
   # by the exact desktop/shared source inputs, then feed the same verified
   # artifact to every native packager instead of running Vite five times.
   desktop-build:
     name: build-desktop-once
-    needs: validate
     runs-on: ubuntu-22.04
     env:
       NODE_OPTIONS: --max-old-space-size=6144
@@ -163,11 +195,33 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
+  # Keep partially uploaded platform assets invisible. Every platform writes to
+  # this one draft, and the final job publishes it only after the remote asset
+  # set and npm package have both been verified.
+  prepare-github-release:
+    name: prepare-hidden-release
+    needs: [validate, release-regressions]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.draft.outputs.id }}
+    steps:
+      - name: Create or resume one hidden draft
+        id: draft
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          target_commitish: ${{ inputs.ref || github.sha }}
+          draft: true
+          prerelease: false
+          generate_release_notes: true
+
   # Desktop update feed. electron-updater reads latest.yml from the LATEST
   # GitHub release, so a tag without these assets leaves every installed app
   # stranded on its current version ("no update available" forever).
   desktop-windows:
-    needs: desktop-build
+    needs: [validate, release-regressions, desktop-build, prepare-github-release]
     runs-on: windows-2022
     permissions:
       contents: write
@@ -210,6 +264,12 @@ jobs:
           path: ${{ env.MIXDOG_RUNTIME_DEPENDENCY_CACHE }}
           key: desktop-${{ steps.runtime-dependencies.outputs.key }}
 
+      - name: Restore prepared runtime archive
+        uses: actions/cache@v6
+        with:
+          path: apps/desktop/.runtime
+          key: desktop-prepared-runtime-v1-${{ steps.runtime-dependencies.outputs.key }}-${{ hashFiles('package.json', 'package-lock.json', 'README.md', 'NOTICE.md', 'LICENSES/**', 'scripts/**', 'src/**', 'vendor/**', 'apps/desktop/package-lock.json', 'apps/desktop/scripts/prepare-runtime.mjs') }}
+
       - name: Install desktop dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
         working-directory: apps/desktop
@@ -239,21 +299,30 @@ jobs:
         run: npm run verify:packaged-runtime
         working-directory: apps/desktop
 
-      - name: Stage Windows installer and update feed
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-win32-x64
-          path: |
-            apps/desktop/dist/mixdog-desktop-win-x64.exe
-            apps/desktop/dist/mixdog-desktop-win-x64.exe.blockmap
-            apps/desktop/dist/latest.yml
-          if-no-files-found: error
-          retention-days: 2
+      - name: Upload verified Windows assets to hidden draft
+        timeout-minutes: 6
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          $assets = @(
+            'apps/desktop/dist/mixdog-desktop-win-x64.exe',
+            'apps/desktop/dist/mixdog-desktop-win-x64.exe.blockmap',
+            'apps/desktop/dist/latest.yml'
+          )
+          foreach ($asset in $assets) {
+            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) {
+              throw "Missing Windows release asset: $asset"
+            }
+          }
+          gh release upload $env:RELEASE_TAG @assets --clobber
+          if ($LASTEXITCODE -ne 0) { throw "gh release upload exited with $LASTEXITCODE" }
 
   # Native macOS/Linux desktop packages. Each runner's postinstall keeps only
   # its own Transformers.js Node bundle and ONNX platform/architecture payload.
   desktop-unix:
-    needs: desktop-build
+    needs: [validate, release-regressions, desktop-build, prepare-github-release]
     permissions:
       contents: write
     env:
@@ -265,12 +334,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { platform: darwin, arch: arm64, runner: macos-14, target: mac }
+          - { platform: darwin, arch: arm64, artifact_arch: arm64, runner: macos-14, target: mac }
           # Keep x64 on Intel: packaged-runtime verification launches host
           # Electron against x64-only native embedding binaries.
-          - { platform: darwin, arch: x64, runner: macos-15-intel, target: mac }
-          - { platform: linux, arch: x64, runner: ubuntu-22.04, target: linux }
-          - { platform: linux, arch: arm64, runner: ubuntu-22.04-arm, target: linux }
+          - { platform: darwin, arch: x64, artifact_arch: x64, runner: macos-15-intel, target: mac }
+          - { platform: linux, arch: x64, artifact_arch: x86_64, runner: ubuntu-22.04, target: linux }
+          - { platform: linux, arch: arm64, artifact_arch: arm64, runner: ubuntu-22.04-arm, target: linux }
     name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     steps:
@@ -308,6 +377,12 @@ jobs:
           path: ${{ env.MIXDOG_RUNTIME_DEPENDENCY_CACHE }}
           key: desktop-${{ steps.runtime-dependencies.outputs.key }}
 
+      - name: Restore prepared runtime archive
+        uses: actions/cache@v6
+        with:
+          path: apps/desktop/.runtime
+          key: desktop-prepared-runtime-v1-${{ steps.runtime-dependencies.outputs.key }}-${{ hashFiles('package.json', 'package-lock.json', 'README.md', 'NOTICE.md', 'LICENSES/**', 'scripts/**', 'src/**', 'vendor/**', 'apps/desktop/package-lock.json', 'apps/desktop/scripts/prepare-runtime.mjs') }}
+
       - name: Install desktop dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
         working-directory: apps/desktop
@@ -334,30 +409,38 @@ jobs:
         run: npm run verify:packaged-runtime
         working-directory: apps/desktop
 
-      - name: Stage macOS packages
+      - name: Upload verified macOS assets to hidden draft
         if: matrix.platform == 'darwin'
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
-          path: |
-            apps/desktop/dist/mixdog-desktop-*.dmg
-            apps/desktop/dist/mixdog-desktop-*.zip
-          if-no-files-found: error
-          retention-days: 2
+        timeout-minutes: 6
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets=(
+            "apps/desktop/dist/mixdog-desktop-mac-${{ matrix.artifact_arch }}.dmg"
+            "apps/desktop/dist/mixdog-desktop-mac-${{ matrix.artifact_arch }}.zip"
+          )
+          for asset in "${assets[@]}"; do test -f "$asset"; done
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
 
-      - name: Stage Linux package
+      - name: Upload verified Linux asset to hidden draft
         if: matrix.platform == 'linux'
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
-          path: |
-            apps/desktop/dist/mixdog-desktop-*.AppImage
-          if-no-files-found: error
-          retention-days: 2
+        timeout-minutes: 6
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="apps/desktop/dist/mixdog-desktop-linux-${{ matrix.artifact_arch }}.AppImage"
+          test -f "$asset"
+          gh release upload "$RELEASE_TAG" "$asset" --clobber
 
   publish:
     name: publish-staged-release
-    needs: [validate, desktop-windows, desktop-unix]
+    needs: [validate, release-regressions, prepare-github-release, desktop-windows, desktop-unix]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -378,17 +461,21 @@ jobs:
           name: npm-package
           path: staged-npm
 
-      - name: Download staged desktop packages
-        uses: actions/download-artifact@v8
-        with:
-          pattern: desktop-*
-          path: staged-desktop
-          merge-multiple: true
-
-      - name: Verify complete staged release
+      - name: Verify complete hidden release
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_REF: ${{ inputs.ref || github.sha }}
+          RELEASE_ID: ${{ needs.prepare-github-release.outputs.release_id }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
+          set -euo pipefail
+          test -n "$RELEASE_ID"
+          git fetch --force origin "+refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          test "$(git rev-list -n 1 "refs/tags/${RELEASE_TAG}")" = "$RELEASE_REF"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > /tmp/release.json
+          gh api --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" > /tmp/assets.json
           node --input-type=module <<'NODE'
           import { readdirSync } from 'node:fs';
           import { readFileSync } from 'node:fs';
@@ -398,23 +485,40 @@ jobs:
             throw new Error(`Staged ref version ${version} does not match ${process.env.RELEASE_TAG}`);
           }
           const npm = readdirSync('staged-npm').filter(name => name.endsWith('.tgz'));
-          const desktop = readdirSync('staged-desktop');
-          const count = suffix => desktop.filter(name => name.endsWith(suffix)).length;
-          const expected = {
-            npm: npm.length,
-            exe: count('.exe'),
-            blockmap: count('.exe.blockmap'),
-            yml: desktop.filter(name => name === 'latest.yml').length,
-            dmg: count('.dmg'),
-            zip: count('.zip'),
-            appImage: count('.AppImage'),
-          };
-          if (JSON.stringify(expected) !== JSON.stringify({
-            npm: 1, exe: 1, blockmap: 1, yml: 1, dmg: 2, zip: 2, appImage: 2,
-          })) {
-            throw new Error(`Incomplete staged release: ${JSON.stringify({ expected, desktop, npm })}`);
+          if (npm.length !== 1) throw new Error(`Expected one staged npm package, found ${npm.length}`);
+
+          const release = JSON.parse(readFileSync('/tmp/release.json', 'utf8'));
+          if (String(release.id) !== process.env.RELEASE_ID
+              || release.tag_name !== process.env.RELEASE_TAG
+              || release.target_commitish !== process.env.RELEASE_REF
+              || !release.draft || release.prerelease) {
+            throw new Error('Hidden GitHub release identity no longer matches this immutable build');
           }
-          console.log(`Verified staged release ${process.env.RELEASE_TAG}: 1 npm + ${desktop.length} desktop assets.`);
+
+          const expected = [
+            'latest.yml',
+            'mixdog-desktop-linux-arm64.AppImage',
+            'mixdog-desktop-linux-x86_64.AppImage',
+            'mixdog-desktop-mac-arm64.dmg',
+            'mixdog-desktop-mac-arm64.zip',
+            'mixdog-desktop-mac-x64.dmg',
+            'mixdog-desktop-mac-x64.zip',
+            'mixdog-desktop-win-x64.exe',
+            'mixdog-desktop-win-x64.exe.blockmap',
+          ].sort();
+          const assets = JSON.parse(readFileSync('/tmp/assets.json', 'utf8')).flat();
+          const actual = assets.map(asset => asset.name).sort();
+          if (new Set(actual).size !== actual.length
+              || JSON.stringify(actual) !== JSON.stringify(expected)) {
+            throw new Error(`Hidden release asset set is not exact: ${JSON.stringify(actual)}`);
+          }
+          for (const asset of assets) {
+            if (asset.state !== 'uploaded' || !(asset.size > 0)
+                || !/^sha256:[0-9a-f]{64}$/.test(String(asset.digest || ''))) {
+              throw new Error(`Incomplete hidden release asset: ${asset.name}`);
+            }
+          }
+          console.log(`Verified hidden ${process.env.RELEASE_TAG}: 1 npm + ${assets.length} desktop assets.`);
           NODE
 
       - name: Publish staged npm package
@@ -434,12 +538,19 @@ jobs:
           fi
 
       - name: Publish one complete GitHub release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ inputs.tag || github.ref_name }}
-          target_commitish: ${{ inputs.ref || github.sha }}
-          files: staged-desktop/*
-          fail_on_unmatched_files: true
-          overwrite_files: true
-          generate_release_notes: true
-          make_latest: true
+        env:
+          RELEASE_ID: ${{ needs.prepare-github-release.outputs.release_id }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false -f make_latest=true > /tmp/published.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const release = JSON.parse(readFileSync('/tmp/published.json', 'utf8'));
+          if (release.draft || release.tag_name !== process.env.RELEASE_TAG) {
+            throw new Error('GitHub release finalization did not publish the expected tag');
+          }
+          NODE

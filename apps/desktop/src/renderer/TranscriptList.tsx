@@ -64,8 +64,9 @@ export function TranscriptList({
   rows,
   viewport,
   content,
-  shouldAnchorBottom,
+  shouldAnchorBottom: anchorBottomProp,
   scrollToEndRef,
+  setAnchorBottomRef,
   renderRow,
   markProgrammaticScroll,
 }: {
@@ -75,6 +76,9 @@ export function TranscriptList({
   content: MutableRefObject<HTMLDivElement | null>;
   shouldAnchorBottom: boolean;
   scrollToEndRef: MutableRefObject<(behavior?: ScrollBehavior) => void>;
+  /** The follow hook flips the anchor here the instant it decides, without
+   *  waiting for the render that carries `shouldAnchorBottom`. */
+  setAnchorBottomRef?: MutableRefObject<(bottom: boolean) => void>;
   renderRow: (row: TranscriptRowModel) => ReactNode;
   /** Every offset this list writes is reported to the follow hook, which
    *  would otherwise read the core's own scrolls as a reader gesture. */
@@ -83,6 +87,14 @@ export function TranscriptList({
   const spacer = useRef<HTMLDivElement>(null);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  // Reader intent reaches the core in the SAME task it was decided in: the
+  // follow hook calls setAnchorBottomRef synchronously, and this override
+  // keeps every render until React's own state catches up agreeing with it.
+  // While the two disagreed, the core still owned the end anchor and rolled
+  // each wheel notch back by the growth of the frame it landed in.
+  const anchorOverride = useRef<boolean | null>(null);
+  if (anchorOverride.current === anchorBottomProp) anchorOverride.current = null;
+  const shouldAnchorBottom = anchorOverride.current ?? anchorBottomProp;
   const markProgrammaticScrollRef = useRef(markProgrammaticScroll);
   markProgrammaticScrollRef.current = markProgrammaticScroll;
   // Rows that changed size by more than a viewport stay in the range for two
@@ -241,6 +253,23 @@ export function TranscriptList({
       }
     };
   }, [scrollToEndRef]);
+
+  useLayoutEffect(() => {
+    if (!setAnchorBottomRef) return undefined;
+    const setAnchorBottom = (bottom: boolean) => {
+      anchorOverride.current = bottom;
+      const instance = virtualizerRef.current;
+      const anchorTo = bottom ? "end" : "start";
+      if (instance.options.anchorTo === anchorTo) return;
+      instance.setOptions({ ...instance.options, anchorTo, followOnAppend: bottom });
+    };
+    setAnchorBottomRef.current = setAnchorBottom;
+    return () => {
+      if (setAnchorBottomRef.current === setAnchorBottom) {
+        setAnchorBottomRef.current = () => {};
+      }
+    };
+  }, [setAnchorBottomRef]);
 
   useLayoutEffect(() => {
     overscanFrame.current = window.requestAnimationFrame(() => {

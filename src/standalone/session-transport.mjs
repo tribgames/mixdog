@@ -12,7 +12,7 @@
 // the same transport is exercised by the real daemon entry AND by the smoke
 // harness with a stub session runtime (no provider, no model download).
 import http from 'node:http';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { sendJson, sendError } from '../runtime/memory/lib/http-wire.mjs';
 import {
   compareRuntimeVersions,
@@ -22,6 +22,7 @@ import {
   runtimeVersion,
 } from './session-wire.mjs';
 import { createFairCallScheduler } from './fair-call-scheduler.mjs';
+import { hashStructuredValue } from '../runtime/shared/json-metrics.mjs';
 
 // A loopback front door still buffers whatever a client sends before it can be
 // parsed, so the body has an explicit ceiling instead of the client's memory.
@@ -93,7 +94,7 @@ function readLimitedBody(req, {
  *  submission id that happens to be reused carries a different one. */
 function callSignature(name, args) {
   try {
-    return createHash('sha1').update(`${name}\u0000${JSON.stringify(args ?? {})}`).digest('hex');
+    return hashStructuredValue({ name, args: args ?? {} });
   } catch { return null; }
 }
 

@@ -4,12 +4,9 @@ import { renameWithRetrySync } from '../../../../shared/atomic-file.mjs';
 import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from '../lifecycle-scan.mjs';
 
-// The live in-memory session (and every model request)
-// retains attached image bytes across turns so multi-turn recognition works.
-// The persisted session JSON, however, replaces image content with a short
-// text placeholder at serialization time — keeping session files small without
-// starving the model of the image mid-conversation. Returns the same object
-// reference when nothing changed (no-image sessions pay only a shallow scan).
+// Inline legacy media is replaced with placeholders on disk. New prompt media
+// already arrives as durable content-addressed refs, so session JSON stays small
+// while provider lowering can still resolve it across turns.
 // Per-message disk projection shared by _sessionForDisk and the save-worker
 // delta path (tail-only projection). Returns the SAME array reference when no
 // message changed. Idempotent: already-sanitized content passes through

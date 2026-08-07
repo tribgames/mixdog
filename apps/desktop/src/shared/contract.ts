@@ -409,7 +409,9 @@ export type DesktopPromptPriority = 'now' | 'next' | 'later';
 export interface DesktopPromptAttachment {
   id: number;
   type: 'image';
-  content: string;
+  content?: string;
+  attachmentRef?: string;
+  sizeBytes?: number;
   mediaType: string;
   filename?: string;
   sourcePath?: string;
@@ -418,7 +420,13 @@ export interface DesktopPromptAttachment {
 
 export interface DesktopPastedText {
   id: number;
-  text: string;
+  text?: string;
+  attachmentRef?: string;
+  sizeBytes?: number;
+  chars?: number;
+  filename?: string;
+  mimeType?: string;
+  source?: 'file' | 'paste';
 }
 
 export interface DesktopSubmitOptions {
@@ -504,6 +512,7 @@ export const DESKTOP_CAPABILITIES = [
   'hooksStatus',
   'contextStatus',
   'getTurnReviewDiff',
+  'revertTurnReview',
   'revertTurnReviewFile',
   'addHookRule',
   'setHookRuleEnabled',

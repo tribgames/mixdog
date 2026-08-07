@@ -5,6 +5,24 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Remote browser pairing now establishes an authenticated end-to-end encrypted
+  channel before any session state, terminal data, or RPC payload can cross the
+  relay; unencrypted media lanes remain closed.
+- Desktop attachments preserve file identity and metadata through the session
+  boundary, with bounded image/PDF extraction and shared media normalization
+  for provider inputs.
+- Desktop onboarding and related settings copy are localized across every
+  shipped language, while IME composition, virtual transcript following, and
+  fast-mode controls behave consistently in long-running panes.
+- Session recovery, pending-message delivery, provider catalog caching, title
+  generation, worktree snapshots, and bounded runtime metrics are tightened
+  around the unified session service.
+- Release validation is split into parallel lanes, desktop compilation overlaps
+  the gates, prepared runtimes are cached, and platform packages upload to one
+  hidden draft before atomic publication. Renderer-only dependencies are no
+  longer duplicated in the desktop archive, cutting the Windows installer by
+  roughly one third.
+
 ## v0.9.97 - 2026-08-07
 
 - Session protocol 1 now carries an explicit compatibility index, allowing

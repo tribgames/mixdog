@@ -584,9 +584,8 @@ export function createSessionApiB(bag) {
       }
     },
     // Desktop composer image attach: run the SAME optional-sharp resize
-    // pipeline the TUI paste path uses (<=2000x2000, 5MB-base64 token budget,
-    // identical no-sharp size errors) so both clients send identical image
-    // payloads to the provider.
+    // pipeline the TUI paste path uses. The current provider selects the
+    // Anthropic 2000px/5MB profile or OpenAI 2048px/1536-patch profile.
     resizeImage: async ({ data, mimeType = 'image/png', filename = '' } = {}) => {
       const base64 = String(data || '');
       if (!base64) throw new Error('resizeImage: image payload is required');
@@ -595,7 +594,10 @@ export function createSessionApiB(bag) {
       const attachment = await imageAttachmentFromBuffer(
         Buffer.from(base64, 'base64'),
         String(mimeType || 'image/png'),
-        { filename: String(filename || 'Pasted image') },
+        {
+          filename: String(filename || 'Pasted image'),
+          provider: routeState().provider || '',
+        },
       );
       return {
         data: attachment.content,
@@ -646,6 +648,12 @@ export function createSessionApiB(bag) {
     },
     getTurnReviewDiff: async (options = {}) => {
       return (await runtime.getTurnReviewDiff?.(options)) ?? { supported: false, files: [], patch: '' };
+    },
+    revertTurnReview: async () => {
+      if (typeof runtime.revertTurnReview !== 'function') {
+        throw new Error('Turn review revert is unavailable');
+      }
+      return await runtime.revertTurnReview();
     },
     revertTurnReviewFile: async (file) => {
       if (typeof runtime.revertTurnReviewFile !== 'function') {

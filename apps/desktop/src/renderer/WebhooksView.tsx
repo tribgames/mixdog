@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
+import { FastModeToggle } from './FastModeToggle';
 import { t } from './i18n';
 import { filterConfiguredModels, ModelPicker } from './ModelPicker';
 import { dismissDesktopToast, showDesktopToast } from './notifications';
@@ -297,10 +298,8 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
               }} />
             {selected && selected.effortOptions.length > 0 && <OpenSelect ariaLabel={t("Webhook reasoning effort")}
               value={effortValue} disabled={busy} options={selected.effortOptions} onChange={setEffort} />}
-            {selected?.fastCapable && <OpenSelect ariaLabel={t("Webhook fast mode")}
-              value={fast ? 'on' : 'off'} disabled={busy}
-              options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
-              onChange={(value) => setFast(value === 'on')} />}
+            {selected?.fastCapable && <FastModeToggle ariaLabel={t("Webhook fast mode")}
+              enabled={fast} disabled={busy} onChange={setFast} />}
             {/* Same flat, right-aligned workflow control as the chat
                 composer (effort-control/workflow-control skin). */}
             <div className="effort-control workflow-control">

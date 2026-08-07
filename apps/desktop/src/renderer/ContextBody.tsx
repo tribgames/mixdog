@@ -74,32 +74,34 @@ export function ContextBody({ status, snapshot }: { status: unknown; snapshot: u
     : 1;
 
   return <div className="context-view">
-    <section className="context-usage-overview" aria-label="Context usage">
-      <div className="context-usage-heading">
-        <strong>{usage.percent}% used</strong>
-        <span>{compactTokens(used)} / {compactTokens(windowTokens)} · {compactTokens(freeTokens)} free</span>
-      </div>
-      <div className="context-main-bar" role="img"
-        aria-label={`${usage.percent}% context used`}>
-        <span style={{ width: `${usedPercent}%` }} />
-      </div>
-    </section>
-    <section className="context-mix" aria-labelledby="context-mix-title">
-      <h3 id="context-mix-title">Context mix</h3>
-      <div className="context-stack-bar" role="img" aria-label="Context composition">
-        {categories.filter((category) => category.tokens > 0).map((category) => (
-          <b key={category.key} data-context-key={category.key}
-            style={{ width: `${Math.max(0.75, contextPercent(category.tokens * categoryScale, windowTokens) || 0)}%` }} />
-        ))}
-      </div>
-      <div className="context-mix-grid">
-        {categories.map((category) => <div className="context-mix-row" key={category.key}
-          data-context-key={category.key}>
-          <i aria-hidden="true" />
-          <span>{category.label}</span>
-          <strong>{compactTokens(category.tokens)}</strong>
-        </div>)}
-      </div>
-    </section>
+    <div className="context-card">
+      <section className="context-usage-overview" aria-label="Context usage">
+        <div className="context-usage-heading">
+          <strong>{usage.percent}% used</strong>
+          <span>{compactTokens(used)} / {compactTokens(windowTokens)} · {compactTokens(freeTokens)} free</span>
+        </div>
+        <div className="context-main-bar" role="img"
+          aria-label={`${usage.percent}% context used`}>
+          <span style={{ width: `${usedPercent}%` }} />
+        </div>
+      </section>
+      <section className="context-mix" aria-labelledby="context-mix-title">
+        <h3 id="context-mix-title">Context mix</h3>
+        <div className="context-stack-bar" role="img" aria-label="Context composition">
+          {categories.filter((category) => category.tokens > 0).map((category) => (
+            <b key={category.key} data-context-key={category.key}
+              style={{ width: `${Math.max(0.75, contextPercent(category.tokens * categoryScale, windowTokens) || 0)}%` }} />
+          ))}
+        </div>
+        <div className="context-mix-grid">
+          {categories.map((category) => <div className="context-mix-row" key={category.key}
+            data-context-key={category.key}>
+            <i aria-hidden="true" />
+            <span>{category.label}</span>
+            <strong>{compactTokens(category.tokens)}</strong>
+          </div>)}
+        </div>
+      </section>
+    </div>
   </div>;
 }

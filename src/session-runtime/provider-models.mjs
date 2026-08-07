@@ -233,6 +233,13 @@ export function createProviderModels({
     const providersStartedAt = performance.now();
     await ensureProvidersReady(config().providers || {});
     profile('providers-ready', { ms: (performance.now() - providersStartedAt).toFixed(1) });
+    // ensureProvidersReady starts the daemon-wide force refresh without
+    // blocking boot. A foreground full picker load must join that refresh;
+    // otherwise it can snapshot yesterday's provider cache moments before the
+    // refresh invalidates it, leaving the UI on the stale first-open rows.
+    if (!forceRefresh && typeof reg().refreshProviderCatalogsOnStartup === 'function') {
+      await reg().refreshProviderCatalogsOnStartup();
+    }
     if (forceRefresh && typeof reg().refreshCatalogs === 'function') {
       await reg().refreshCatalogs();
     }
@@ -305,7 +312,10 @@ export function createProviderModels({
       return providerModelsFromCacheRows(caches.providerModelsCache.models);
     }
     if (!force && quick) {
-      warmProviderModelCache();
+      // A user-facing quick read seeds the authoritative secrets-aware load.
+      // Desktop asks quick first and full second; a no-secrets warm here made
+      // the full request join a partial catalog and only recover on re-entry.
+      warmProviderModelCache({ loadSecrets: true });
       return quickHelpers.quickProviderModelRows();
     }
     if (force) {

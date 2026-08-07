@@ -6,16 +6,19 @@ import { envDelayMs, envFlag, envPresent } from './env.mjs';
 
 export function readRuntimeTunables() {
   const codeGraphPrewarmEnabled = !envFlag('MIXDOG_DISABLE_CODE_GRAPH_PREWARM');
+  const daemonHosted = envFlag('MIXDOG_DAEMON_HOST');
   return {
     providerSetupWarmupDelayMs: envDelayMs('MIXDOG_PROVIDER_SETUP_WARMUP_DELAY_MS', 300, { min: 0, max: 60_000 }),
     modelCatalogWarmupDelayMs: envDelayMs('MIXDOG_MODEL_CATALOG_WARMUP_DELAY_MS', 200, { min: 0, max: 60_000 }),
     providerWarmupDelayMs: envDelayMs('MIXDOG_PROVIDER_WARMUP_DELAY_MS', 1_500, { min: 0, max: 60_000 }),
-    // Background model-catalog prefetch delay. Kept short so the first `/model`
-    // open finds a warm cache instead of paying a cold full network load. The
-    // work is async + unref'd, so short-lived detached runtimes still exit
-    // cleanly without waiting on it. Operators can raise it via env if a
-    // detached runtime must avoid the /models round-trip entirely.
-    providerModelWarmupDelayMs: envDelayMs('MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS', 2_000, { min: 0, max: 120_000 }),
+    // A product session lives in the long-running daemon, so start its model
+    // prefetch on the first background tick. Standalone/short-lived runtimes
+    // keep the old grace period so provider sockets cannot hold process exit.
+    providerModelWarmupDelayMs: envDelayMs(
+      'MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS',
+      daemonHosted ? 0 : 2_000,
+      { min: 0, max: 120_000 },
+    ),
     codeGraphPrewarmDelayMs: envDelayMs('MIXDOG_CODE_GRAPH_PREWARM_DELAY_MS', 250, { min: 0, max: 60_000 }),
     statuslineUsageWarmupDelayMs: envDelayMs('MIXDOG_STATUSLINE_USAGE_WARMUP_DELAY_MS', 800, { min: 0, max: 60_000 }),
     // Idle keep-alive: re-fetch usage before the statusline's 10-min staleness

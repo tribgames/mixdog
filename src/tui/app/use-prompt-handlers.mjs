@@ -83,7 +83,11 @@ export function usePromptHandlers({
       return Promise.all(chunks.map(async (chunk) => {
       if (!chunk.imagePath) return chunk.text;
       try {
-        const image = await readImageAttachmentFromPath(chunk.text, state.cwd || process.cwd());
+        const image = await readImageAttachmentFromPath(
+          chunk.text,
+          state.cwd || process.cwd(),
+          { provider: state.provider || '' },
+        );
         if (!image) return chunk.text;
         const ref = registerPastedImage(image);
         showPromptHint(`attached ${image.filename || 'image'}`, 'plain');
@@ -123,7 +127,7 @@ export function usePromptHandlers({
         .then((clip) => {
           const normalized = String(clip ?? '').replace(/\r\n?/g, '\n');
           if (normalized) return processText(normalized, true);
-          return readClipboardImageAttachment()
+          return readClipboardImageAttachment({ provider: state.provider || '' })
             .then((image) => {
               if (!image) {
                 showPromptHint('no text or image found on clipboard', 'plain');
@@ -141,7 +145,7 @@ export function usePromptHandlers({
     }
 
     return processText(value);
-  }, [registerPastedImage, registerPastedText, showPromptHint, state.cwd]);
+  }, [registerPastedImage, registerPastedText, showPromptHint, state.cwd, state.provider]);
 
   const handlePromptHistoryNavigate = useCallback((direction, currentText = '', meta = {}) => {
     const currentValue = String(currentText || '');

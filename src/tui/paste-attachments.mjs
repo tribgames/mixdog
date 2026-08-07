@@ -8,6 +8,7 @@ import { basename, extname, isAbsolute, resolve } from 'node:path';
 import {
   API_IMAGE_MAX_BASE64_SIZE,
   IMAGE_TARGET_RAW_SIZE,
+  imageProfileForProvider,
   imageMetadataText,
   resizeImageBuffer,
 } from '../runtime/agent/orchestrator/tools/builtin/read-image-resize.mjs';
@@ -148,10 +149,14 @@ export function splitPastedImagePathCandidates(text) {
 // Exported for the desktop engine capability surface (resizeImage): the GUI
 // composer routes its attachments through this SAME pipeline so desktop and
 // TUI submit byte-identical image payloads.
-export async function imageAttachmentFromBuffer(buffer, mimeType, { filename = 'Pasted image', sourcePath = '' } = {}) {
+export async function imageAttachmentFromBuffer(buffer, mimeType, {
+  filename = 'Pasted image',
+  sourcePath = '',
+  provider = '',
+} = {}) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new Error('image is empty');
   const ext = (mimeType || 'image/png').split('/')[1] || 'png';
-  const resized = await resizeImageBuffer(buffer, ext);
+  const resized = await resizeImageBuffer(buffer, ext, { profile: imageProfileForProvider(provider) });
   if (resized) {
     return {
       type: 'image',
@@ -172,7 +177,7 @@ export async function imageAttachmentFromBuffer(buffer, mimeType, { filename = '
   return { type: 'image', content: data, mediaType: mimeType || 'image/png', filename, sourcePath };
 }
 
-export async function readImageAttachmentFromPath(rawPath, cwd = process.cwd()) {
+export async function readImageAttachmentFromPath(rawPath, cwd = process.cwd(), { provider = '' } = {}) {
   const cleaned = cleanPathText(rawPath);
   const mimeType = mimeForPath(cleaned);
   if (!mimeType) return null;
@@ -190,6 +195,7 @@ export async function readImageAttachmentFromPath(rawPath, cwd = process.cwd()) 
   return imageAttachmentFromBuffer(buffer, mimeType, {
     filename: basename(fullPath),
     sourcePath: fullPath,
+    provider,
   });
 }
 
@@ -210,19 +216,19 @@ async function readClipboardImageToTempFile() {
   return null;
 }
 
-export async function readClipboardImageAttachment() {
+export async function readClipboardImageAttachment({ provider = '' } = {}) {
   if (process.platform === 'linux') {
     const wl = await execFileBuffer('wl-paste', ['--type', 'image/png'], { timeout: 3000 });
-    if (wl.ok && wl.stdout?.length) return imageAttachmentFromBuffer(wl.stdout, 'image/png');
+    if (wl.ok && wl.stdout?.length) return imageAttachmentFromBuffer(wl.stdout, 'image/png', { provider });
     const xc = await execFileBuffer('xclip', ['-selection', 'clipboard', '-t', 'image/png', '-o'], { timeout: 3000 });
-    if (xc.ok && xc.stdout?.length) return imageAttachmentFromBuffer(xc.stdout, 'image/png');
+    if (xc.ok && xc.stdout?.length) return imageAttachmentFromBuffer(xc.stdout, 'image/png', { provider });
     return null;
   }
   const file = await readClipboardImageToTempFile();
   if (!file) return null;
   try {
     const buffer = await readFileAsync(file);
-    return await imageAttachmentFromBuffer(buffer, 'image/png');
+    return await imageAttachmentFromBuffer(buffer, 'image/png', { provider });
   } finally {
     try { unlinkSync(file); } catch {}
   }

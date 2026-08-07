@@ -9,6 +9,7 @@ import {
   parseAgentJob,
   parseSyntheticAgentMessage,
 } from './agent-envelope.mjs';
+import { attachmentTextForPart, isAttachmentReference } from '../../runtime/attachments/store.mjs';
 
 const QUEUE_PRIORITY = { now: 0, next: 1, later: 2 };
 
@@ -79,7 +80,7 @@ export function promptContentText(content) {
   if (Array.isArray(content)) {
     return content.map((part) => {
       if (typeof part === 'string') return part;
-      if (part?.type === 'text') return part.text || '';
+      if (part?.type === 'text') return isAttachmentReference(part) ? attachmentTextForPart(part) : (part.text || '');
       if (part?.type === 'image') return '[Image]';
       if (part?.type === 'file') return '[File]';
       return part?.text || '';
@@ -151,10 +152,9 @@ export function mergePastedImages(entries) {
   return Object.keys(out).length > 0 ? out : null;
 }
 
-// Byte-free image metadata for the user transcript item. The prompt content
-// keeps the full base64 payload for the provider send; transcript items (and
-// therefore desktop snapshots published on every update) carry only
-// name/mime/size so previews can render without bloating state.
+// Byte-free image metadata for the user transcript item. Prompt content carries
+// only a content-addressed attachment ref after daemon intake; transcript items
+// and desktop snapshots carry just name/mime/size.
 export function promptContentImageMeta(content, pastedImages) {
   const parts = Array.isArray(content) ? content.filter((part) => part?.type === 'image') : [];
   if (parts.length === 0) return null;
@@ -168,7 +168,7 @@ export function promptContentImageMeta(content, pastedImages) {
       id: meta?.id ?? null,
       name: String(meta?.filename || `Image ${index + 1}`),
       mimeType: String(part.mimeType || part.mediaType || meta?.mediaType || 'image/png'),
-      bytes: data.length,
+      bytes: Number(part.sizeBytes) || data.length,
     };
   });
 }

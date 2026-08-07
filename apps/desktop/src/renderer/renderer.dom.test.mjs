@@ -1859,6 +1859,8 @@ test("context view renders engine stats and omits unavailable optional fields", 
   };
   await act(async () => root.render(React.createElement(ContextBody, { status, snapshot })));
   const text = document.querySelector(".context-view")?.textContent || "";
+  assert.ok(document.querySelector(".context-card"),
+    "expanded context should use the shared onboarding-style card shell");
   assert.doesNotMatch(text, /Context fixture|sess_/);
   assert.match(text, /79% used16k \/ 20k · 4\.1k free/);
   // Runtime detail lines (Source/Compaction/API-cache) were removed by user
@@ -3421,6 +3423,60 @@ test("worktree review keeps binary/rename status out of numeric totals and does 
   await act(async () => document.querySelector(".turn-review-summary")?.click());
   assert.match(document.querySelector(".turn-review-files")?.textContent || "", /Binary/);
   assert.match(document.querySelector(".turn-review-files")?.textContent || "", /Renamed/);
+});
+
+test("worktree review undo restores the whole turn after inline confirmation", async () => {
+  installDom();
+  const calls = [];
+  let reverted = false;
+  const review = () => ({
+    value: {
+      supported: true,
+      authoritative: true,
+      snapshotKind: "worktree",
+      files: reverted ? [] : [
+        { path: "src/app.mjs", status: "M", additions: 1, deletions: 1, binary: false },
+        { path: "src/new.mjs", status: "A", additions: 2, deletions: 0, binary: false },
+      ],
+      patch: reverted ? "" : [
+        "diff --git a/src/app.mjs b/src/app.mjs",
+        "--- a/src/app.mjs",
+        "+++ b/src/app.mjs",
+        "@@ -1 +1 @@",
+        "-old",
+        "+new",
+        "",
+      ].join("\n"),
+      agents: [],
+    },
+  });
+  window.mixdogDesktop = {
+    invokeCapability: async (request) => {
+      calls.push(request);
+      if (request.capability === "revertTurnReview") reverted = true;
+      return review();
+    },
+  };
+  await act(async () => root.render(React.createElement(TurnReviewBar, {
+    items: [{ id: 1, kind: "user", text: "change" }, { id: 2, kind: "assistant", text: "done" }],
+    cwd: "C:/proj",
+    sessionId: "undo-turn-session",
+  })));
+  await waitForDom(() => Boolean(document.querySelector(".turn-review-undo")),
+    "the collapsed worktree card should expose turn-wide undo");
+
+  await act(async () => document.querySelector(".turn-review-undo")?.click());
+  assert.ok(document.querySelector(".turn-review-confirm-all"),
+    "undo must require an in-card confirmation");
+  await act(async () => {
+    document.querySelector(".turn-review-confirm-all .danger")?.click();
+    await Promise.resolve();
+  });
+  await waitForDom(() => !document.querySelector(".turn-review-bar"),
+    "a successful turn-wide undo should clear the review card");
+  const revertCall = calls.find((request) => request.capability === "revertTurnReview");
+  assert.deepEqual(revertCall?.args, []);
+  assert.equal(revertCall?.sessionId, "undo-turn-session");
 });
 
 test("turn review bar clears synchronously when switching to an empty session", async () => {
@@ -12896,14 +12952,14 @@ test("model control styles keep the reference compact geometry and bounded list"
   assert.match(css, /\.model-search\s*\{[^}]*height:\s*32px;/s);
   assert.match(css, /\.model-group button\s*\{[^}]*width:\s*100%;[^}]*display:\s*flex;/s);
   assert.match(css, /\.model-list\s*\{[^}]*overflow-y:\s*auto;/s);
-  for (const selector of [".model-trigger", ".effort-control select", ".fast-control"]) {
+  for (const selector of [".model-trigger", ".effort-control select"]) {
     assert.match(css, new RegExp(`\\${selector}\\s*\\{[^}]*height:\\s*28px;`, "s"));
   }
-  assert.match(themeCss, /\.fast-control \.mx-select-trigger\s*\{[^}]*width:\s*auto;[^}]*min-width:\s*40px;/s,
-    "the Fast picker must keep its compact click target");
+  assert.match(themeCss, /\.fast-mode-toggle\s*\{[^}]*display:\s*inline-grid;[^}]*cursor:\s*pointer;/s,
+    "Fast must render as a direct compact toggle");
   assert.match(themeCss,
-    /\.fast-control \.mx-select-trigger:hover:not\(:disabled\),[\s\S]*?\{[^}]*color:\s*var\(--mx-text\);[^}]*background:\s*var\(--mx-hover\);/s,
-    "the Fast picker must expose hover feedback");
+    /\.fast-mode-toggle\.is-on\s*\{[^}]*color:\s*var\(--mx-text-accent\);/s,
+    "enabled Fast must use Mixdog's blue accent");
   assert.match(themeCss,
     /\.mx-select-root\.route-select \.mx-select-trigger > svg\s*\{[^}]*width:\s*var\(--mx-icon-sm\);[^}]*height:\s*var\(--mx-icon-sm\);/s,
     "route pickers must expose the shared compact chevron");
@@ -13093,20 +13149,17 @@ test("Fast follows core capability, stays live during a turn, and disables only 
   });
   const fast = document.querySelector('[aria-label="Fast mode"]');
   assert.equal(fast != null, true, "Fast control should be present for a capable model");
-  assert.equal(fast.getAttribute("aria-expanded"), "false");
+  assert.equal(fast.getAttribute("aria-pressed"), "false");
   assert.equal(fast.textContent.trim(), "Fast Off");
-  await act(async () => fast.click());
-  const fastOn = Array.from(document.querySelectorAll('.mx-menu [role="option"]'))
-    .find((option) => option.textContent.includes("Fast On"));
   await act(async () => {
-    fastOn.click();
+    fast.click();
     await Promise.resolve();
     await Promise.resolve();
   });
   await waitForDom(() => fast.textContent.trim() === "Fast On",
     "Fast control should render the applied snapshot");
   assert.deepEqual(calls, [true]);
-  assert.equal(fast.getAttribute("aria-expanded"), "false");
+  assert.equal(fast.getAttribute("aria-pressed"), "true");
   assert.equal(fast.textContent.trim(), "Fast On");
   await act(async () => publish({ ...idle, busy: true }));
   assert.equal(fast.disabled, false,
@@ -13173,11 +13226,8 @@ test("Fast recovers from a rejected toggle and can be retried", async () => {
   });
 
   const fast = document.querySelector('[aria-label="Fast mode"]');
-  await act(async () => fast.click());
-  let fastOn = Array.from(document.querySelectorAll('.mx-menu [role="option"]'))
-    .find((option) => option.textContent.includes("Fast On"));
   await act(async () => {
-    fastOn.click();
+    fast.click();
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -13189,11 +13239,8 @@ test("Fast recovers from a rejected toggle and can be retried", async () => {
   assert.equal(fast.textContent.trim(), "Fast Off");
   assert.match(document.querySelector(".inline-error")?.textContent || "", /Fast preference was not applied/);
 
-  await act(async () => fast.click());
-  fastOn = Array.from(document.querySelectorAll('.mx-menu [role="option"]'))
-    .find((option) => option.textContent.includes("Fast On"));
   await act(async () => {
-    fastOn.click();
+    fast.click();
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -13235,11 +13282,8 @@ test("Fast reflects the click before route persistence completes", async () => {
     await Promise.resolve();
   });
   const fast = document.querySelector('[aria-label="Fast mode"]');
-  await act(async () => fast.click());
-  const fastOn = Array.from(document.querySelectorAll('.mx-menu [role="option"]'))
-    .find((option) => option.textContent.includes("Fast On"));
   await act(async () => {
-    fastOn.click();
+    fast.click();
     await Promise.resolve();
   });
   assert.deepEqual(calls, [true]);
@@ -15915,10 +15959,47 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   await replaceDraft('/co');
   const imeArrow = await press('ArrowDown', { isComposing: true });
   const imeEnter = await press('Enter', { isComposing: true });
-  assert.equal(imeArrow.defaultPrevented, false);
-  assert.equal(imeEnter.defaultPrevented, false);
+  assert.equal(imeArrow.defaultPrevented, false, 'native IME ArrowDown remains owned by composition');
+  assert.equal(imeEnter.defaultPrevented, false, 'native IME Enter remains owned by composition');
   assert.equal(getTextarea().value, '/co');
-  assert.equal(capabilities.some(([capability]) => capability === 'compact'), false);
+  assert.equal(capabilities.some(([capability]) => capability === 'compact'), false,
+    'native IME Enter does not accept the slash command');
+
+  // OpenCode desktop parity: track the full composition lifecycle because
+  // Chromium does not consistently expose isComposing/keyCode 229 on every
+  // event in a Korean IME commit. A composing Enter must neither submit nor
+  // allow textarea's occasional insertLineBreak default.
+  await act(async () => {
+    getTextarea().dispatchEvent(new window.CompositionEvent('compositionstart', {
+      bubbles: true,
+      data: '글',
+    }));
+  });
+  const lifecycleImeEnter = await press('Enter');
+  assert.equal(lifecycleImeEnter.defaultPrevented, false,
+    'compositionstart keeps Enter owned by IME even without native flags');
+  assert.equal(capabilities.some(([capability]) => capability === 'compact'), false,
+    'composition lifecycle Enter does not accept the slash command');
+  const imeLineBreak = new window.InputEvent('beforeinput', {
+    bubbles: true,
+    cancelable: true,
+    inputType: 'insertLineBreak',
+    data: null,
+    isComposing: true,
+  });
+  await act(async () => {
+    getTextarea().dispatchEvent(imeLineBreak);
+    await Promise.resolve();
+  });
+  assert.equal(imeLineBreak.defaultPrevented, true,
+    'composing insertLineBreak is suppressed for textarea parity');
+  await act(async () => {
+    getTextarea().dispatchEvent(new window.CompositionEvent('compositionend', {
+      bubbles: true,
+      data: '글',
+    }));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
 
   await press('Escape');
   assert.equal(getTextarea().value, '/co', 'Escape closes the slash palette without changing its draft');
@@ -16037,12 +16118,17 @@ test("desktop composer folds large pasted text and submits the expanded attachme
   });
   assert.match(textarea.value, /\[Pasted text #1 \+4 lines\]/);
   assert.match(document.querySelector('.composer-attachments').textContent, /Pasted text/);
+  const textAttachment = document.querySelector('.attachment-chip.text');
+  assert.ok(textAttachment);
+  assert.ok(textAttachment.querySelector('.attachment-remove svg.lucide-x'),
+    'pasted-text removal should use the canonical X icon');
   await act(async () => {
     textarea.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await Promise.resolve();
   });
   assert.equal(submissions.length, 1);
-  assert.match(String(submissions[0][0]), /first line[\s\S]*fourth line/);
+  assert.match(String(submissions[0][0]), /\[Pasted text #1 \+4 lines\]/);
+  assert.doesNotMatch(String(submissions[0][0]), /first line[\s\S]*fourth line/);
   assert.doesNotMatch(String(submissions[0][0]), /<file name=/);
   assert.equal('priority' in submissions[0][1], false);
   assert.equal(submissions[0][1].pastedTexts['1'].text, pasted);
@@ -16269,7 +16355,8 @@ test("desktop composer searches, cancels stale @ file mentions, selects by keybo
   });
   assert.equal(submissions.length, 1);
   assert.equal(submissions[0][0], 'Review @test/renderer.dom.test.mjs ');
-  assert.equal(submissions[0][1].displayText, 'Review @test/renderer.dom.test.mjs ');
+  assert.equal('displayText' in submissions[0][1], false,
+    'plain text is carried once in content instead of duplicated in recovery metadata');
   assert.equal(submissions[0][2].projectPath, project);
   assert.equal(textarea.value, '');
 });
@@ -16341,11 +16428,19 @@ test("stopping a turn restores session-owned image attachments and keeps the cur
     invokeCapability: async ({ capability }) => ({ value: capability === 'getTheme' ? 'basic' : null, snapshot }),
     abortSession: async () => ({
       aborted: true,
-      restoreText: 'Inspect [Image #7: restored.png]',
+      restoreText: 'Inspect [Image #7: restored.png]\nReview [File #8: notes.ts]',
       pastedImages: {
         7: { id: 7, type: 'image', content: 'aGVsbG8=', mediaType: 'image/png', filename: 'restored.png' },
       },
-      pastedTexts: null,
+      pastedTexts: {
+        8: {
+          id: 8,
+          text: 'export const restored = true;',
+          source: 'file',
+          filename: 'notes.ts',
+          mimeType: 'text/typescript',
+        },
+      },
     }),
   };
   await act(async () => {
@@ -16371,8 +16466,9 @@ test("stopping a turn restores session-owned image attachments and keeps the cur
   });
   // Restored image tokens are stripped from the draft; the image comes back as
   // a chip-only attachment.
-  assert.equal(textarea.value, 'Inspect\nKeep this steering note');
+  assert.equal(textarea.value, 'Inspect\nReview [File #8: notes.ts]\nKeep this steering note');
   assert.match(document.querySelector('.composer-attachments').textContent, /restored\.png/);
+  assert.match(document.querySelector('.composer-attachments').textContent, /notes\.ts/);
   assert.match(document.querySelector('.composer-attachments img').src, /^data:image\/png;base64,aGVsbG8=/);
 });
 

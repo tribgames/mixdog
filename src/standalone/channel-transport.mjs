@@ -20,6 +20,12 @@ import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { readBody, sendJson, sendError } from '../runtime/memory/lib/http-wire.mjs';
 import { createFairCallScheduler } from './fair-call-scheduler.mjs';
 
+export const CHANNEL_HTTP_BODY_MAX_BYTES = 64 * 1024 * 1024;
+
+function readChannelBody(req) {
+  return readBody(req, { maxBytes: CHANNEL_HTTP_BODY_MAX_BYTES });
+}
+
 function parsePid(value) {
   const n = Number(value);
   return Number.isInteger(n) && n > 0 ? n : null;
@@ -425,7 +431,13 @@ export function createChannelTransport({
   function writeRemoteStateTo(client, state) {
     if (!client) return false;
     const frame = JSON.stringify({ type: 'notify', method: REMOTE_STATE_METHOD, params: { state } });
-    if (!client.sse) { client.pending.push(frame); return true; }
+    if (!client.sse) {
+      // This is state, not an event log. Ownership churn before an SSE
+      // reconnect only needs the newest transition; retaining every displaced
+      // frame lets one disconnected client grow without bound.
+      client.pendingRemoteStateFrame = frame;
+      return true;
+    }
     try { client.sse.write(`data: ${frame}\n\n`); return true; }
     catch (err) { log(`remote-state '${state}' write failed for lead=${client.leadPid}: ${err?.message || err}`); return false; }
   }
@@ -539,7 +551,7 @@ export function createChannelTransport({
       leadPid: pid,
       cwd: cwd || null,
       sse: null,
-      pending: [],
+      pendingRemoteStateFrame: null,
       lastSeen: nowMs(),
       registeredAt: nowMs(),
     });
@@ -574,7 +586,10 @@ export function createChannelTransport({
       const replacedWasPointer = pointerToken === replaced.token;
       // Token-scoped state belongs to the logical client, not only the owner.
       // A non-owner can hold a buffered superseded frame or stored bind intent.
-      if (replaced.pending?.length) fresh.pending.push(...replaced.pending.splice(0));
+      if (replaced.pendingRemoteStateFrame) {
+        fresh.pendingRemoteStateFrame = replaced.pendingRemoteStateFrame;
+        replaced.pendingRemoteStateFrame = null;
+      }
       if (replaced.remoteSessionId) fresh.remoteSessionId = replaced.remoteSessionId;
       if (replacedWasPointer) pointerToken = token;
       removeClientRecord(replaced.token);
@@ -605,10 +620,10 @@ export function createChannelTransport({
     c.lastSeen = nowMs();
     // Flush any targeted frames buffered while this client had no stream (e.g. a
     // 'superseded' emitted at the moment it was reconnecting). Drop-with-client.
-    if (c.pending?.length) {
-      for (const frame of c.pending.splice(0)) {
-        try { res.write(`data: ${frame}\n\n`); } catch {}
-      }
+    if (c.pendingRemoteStateFrame) {
+      const frame = c.pendingRemoteStateFrame;
+      c.pendingRemoteStateFrame = null;
+      try { res.write(`data: ${frame}\n\n`); } catch {}
     }
     // Replay the sticky 'acquired' badge ONLY when THIS attaching client is the
     // current pointer (the owner). A non-pointer late attach must NOT light the
@@ -661,7 +676,7 @@ export function createChannelTransport({
           sendError(res, `daemon is draining: ${drainingReason}`, 503);
           return;
         }
-        const body = await readBody(req);
+        const body = await readChannelBody(req);
         const clientToken = registerClient({
           leadPid: body.leadPid, cwd: body.cwd, passive: body.passive === true,
           replaceToken: body.replaceToken, registrationId: body.registrationId,
@@ -672,7 +687,7 @@ export function createChannelTransport({
         return;
       }
       if (req.method === 'POST' && pathName === '/client/deregister') {
-        const body = await readBody(req);
+        const body = await readChannelBody(req);
         if (body.registrationId) {
           const cancelled = cancelReplacementRegistration(body);
           if (cancelled === 'forbidden') { sendError(res, 'forbidden replacement deregister', 403); return; }
@@ -695,7 +710,7 @@ export function createChannelTransport({
       // parallel fair scheduler and per-call cancellation.
       if (req.method === 'POST' && pathName === '/agent/dispatch') {
         if (!agentBroker?.dispatch) { sendError(res, 'agent broker unavailable', 503); return; }
-        const body = await readBody(req);
+        const body = await readChannelBody(req);
         const callId = String(body.callId || '').trim();
         if (!callId) { sendError(res, 'callId required', 400); return; }
         res.on('close', () => {
@@ -712,7 +727,7 @@ export function createChannelTransport({
       }
       if (req.method === 'POST' && pathName === '/agent/cancel') {
         if (!agentBroker?.cancel) { sendError(res, 'agent broker unavailable', 503); return; }
-        const body = await readBody(req);
+        const body = await readChannelBody(req);
         const callId = String(body.callId || '').trim();
         if (!callId) { sendError(res, 'callId required', 400); return; }
         const cancelled = agentBroker.cancelAndWait
@@ -728,7 +743,7 @@ export function createChannelTransport({
         return;
       }
       if (req.method === 'POST' && pathName === '/call') {
-        const body = await readBody(req);
+        const body = await readChannelBody(req);
         const clientToken = body.token || null;
         const c = clientToken ? clients.get(clientToken) : null;
         if (!c) { sendError(res, 'unknown client token', 404); return; }
@@ -920,6 +935,7 @@ export function createChannelTransport({
     _clientsForTest: clients,
     _registrationReplaysForTest: registrationReplays,
     _resolveTargetForTest: resolveTarget,
+    _writeRemoteStateToForTest: writeRemoteStateTo,
     get _pointerTokenForTest() { return pointerToken; },
     get _remoteIntentForTest() { return remoteIntent; },
   };

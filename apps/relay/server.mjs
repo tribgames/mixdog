@@ -101,12 +101,13 @@ const REGISTER_RATE_WINDOW_MS = 10 * 60_000;
 const UNAUTHORIZED_RATE_LIMIT = 60;
 const UNAUTHORIZED_RATE_WINDOW_MS = 60_000;
 const MAX_REGISTERED_DEVICES = 5000;
-const MAX_RATE_KEYS = 10_000;
+export const MAX_RATE_KEYS = 10_000;
 
-class RateLimiter {
-  constructor(limit, windowMs) {
+export class RateLimiter {
+  constructor(limit, windowMs, maxKeys = MAX_RATE_KEYS) {
     this.limit = limit;
     this.windowMs = windowMs;
+    this.maxKeys = Math.max(1, Number(maxKeys) || MAX_RATE_KEYS);
     this.hits = new Map();
   }
 
@@ -114,16 +115,23 @@ class RateLimiter {
     const id = String(key || 'unknown');
     const now = Date.now();
     const cutoff = now - this.windowMs;
-    // Lazy sweep: the map only grows while traffic does, and a full pass runs
-    // solely when the key count crosses the cap.
-    if (this.hits.size > MAX_RATE_KEYS) {
+    const prior = this.hits.get(id);
+    if (prior) this.hits.delete(id);
+    if (!prior && this.hits.size >= this.maxKeys) {
       for (const [existing, stamps] of this.hits) {
         const live = stamps.filter((stamp) => stamp > cutoff);
         if (live.length) this.hits.set(existing, live);
         else this.hits.delete(existing);
       }
+      // An attacker can keep every key live. Enforce the cap after the expiry
+      // sweep as an LRU: bounded memory outranks retaining an old bucket.
+      while (this.hits.size >= this.maxKeys) {
+        const oldest = this.hits.keys().next().value;
+        if (oldest === undefined) break;
+        this.hits.delete(oldest);
+      }
     }
-    const stamps = (this.hits.get(id) || []).filter((stamp) => stamp > cutoff);
+    const stamps = (prior || []).filter((stamp) => stamp > cutoff);
     if (stamps.length >= this.limit) {
       this.hits.set(id, stamps);
       return false;
@@ -840,8 +848,15 @@ function runDesktopLeg(context, deviceId, socket) {
     }
     if (message.type === 'frame' && typeof message.data === 'string') {
       const phone = entry.clients.get(String(message.clientId || ''));
-      // RPC responses are not droppable: the phone awaits this exact reply.
-      if (phone) sendToPhone(phone, message.data, false);
+      if (phone) sendToPhone(phone, message.data, message.droppable === true);
+      return;
+    }
+    if (message.type === 'close-client') {
+      const phone = entry.clients.get(String(message.clientId || ''));
+      if (phone) {
+        const reason = String(message.reason || 'desktop rejected client').slice(0, 120);
+        try { phone.close(4004, reason); } catch { /* already gone */ }
+      }
       return;
     }
     // Media proxy frames: head, body chunks, then end. The relay only

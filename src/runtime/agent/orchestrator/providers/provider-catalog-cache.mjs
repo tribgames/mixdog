@@ -31,6 +31,22 @@ function readModelsFromCacheFile(fileName) {
   }
 }
 
+export function providerCachedModelsSync(provider) {
+  const p = String(provider || '').toLowerCase();
+  const files = PROVIDER_CACHE_FILES[p] || [];
+  const rows = [];
+  const seen = new Set();
+  for (const fileName of files) {
+    for (const row of readModelsFromCacheFile(fileName)) {
+      const id = rowId(row);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      rows.push({ ...row, id });
+    }
+  }
+  return rows;
+}
+
 function modelAliases(id) {
   const text = String(id || '').trim();
   if (!text) return [];
@@ -60,11 +76,17 @@ function getProviderCachedModelSync(provider, model) {
 }
 
 export function providerCachedModelMetadataSync(provider, model) {
+  const p = String(provider || '').toLowerCase();
   const row = getProviderCachedModelSync(provider, model);
   if (!row) return null;
   return {
     contextWindow: num(row.contextWindow ?? row.context_window ?? row.maxContextWindow ?? row.max_context_window ?? row.max_input_tokens),
-    outputTokens: num(row.outputTokens ?? row.maxOutputTokens ?? row.max_output_tokens ?? row.output_token_limit),
+    // Grok's /models response currently publishes a context window but no
+    // output ceiling. Older enriched cache rows copied contextWindow into
+    // outputTokens; never feed that derived value back as provider-native.
+    outputTokens: p === 'grok-oauth'
+      ? null
+      : num(row.outputTokens ?? row.maxOutputTokens ?? row.max_output_tokens ?? row.output_token_limit),
     supportsVision: row.supportsVision === true,
     supportsFunctionCalling: row.supportsFunctionCalling === true,
     supportsWebSearch: row.supportsWebSearch === true,

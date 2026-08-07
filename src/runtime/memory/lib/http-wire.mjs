@@ -2,11 +2,41 @@
 // utilities with no module state — no db, _traceDb, or timer dependencies.
 // index.mjs imports these; behavior and signatures are unchanged.
 
-export function readBody(req) {
+export const MAX_HTTP_BODY_BYTES = 1024 * 1024
+
+export function readBody(req, { maxBytes = MAX_HTTP_BODY_BYTES } = {}) {
   return new Promise((resolve, reject) => {
-    const chunks = []
-    req.on('data', c => chunks.push(c))
+    const limit = Math.max(1, Number(maxBytes) || MAX_HTTP_BODY_BYTES)
+    const contentLength = Number(req.headers?.['content-length'] || 0)
+    let chunks = []
+    let total = 0
+    let settled = false
+    const rejectTooLarge = () => {
+      if (settled) return
+      settled = true
+      chunks = []
+      const error = new Error(`request body exceeds the ${limit} byte limit`)
+      error.statusCode = 413
+      reject(error)
+    }
+    if (Number.isFinite(contentLength) && contentLength > limit) {
+      req.resume?.()
+      rejectTooLarge()
+      return
+    }
+    req.on('data', c => {
+      if (settled) return
+      const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c)
+      total += chunk.length
+      if (total > limit) {
+        rejectTooLarge()
+        return
+      }
+      chunks.push(chunk)
+    })
     req.on('end', () => {
+      if (settled) return
+      settled = true
       const raw = Buffer.concat(chunks).toString('utf8').trim()
       if (!raw) { resolve({}); return }
       try { resolve(JSON.parse(raw)) }
@@ -16,7 +46,12 @@ export function readBody(req) {
         reject(e)
       }
     })
-    req.on('error', reject)
+    req.on('error', error => {
+      if (settled) return
+      settled = true
+      chunks = []
+      reject(error)
+    })
   })
 }
 

@@ -650,6 +650,35 @@ test('a dry-run Add File onto an existing target is rejected and writes nothing'
   });
 });
 
+test('default ordered mode keeps a Codex-style committed prefix and skips the tail', async () => {
+  await withWorkspace(async ({ base }) => {
+    const created = join(base, 'created.txt');
+    const blocker = join(base, 'blocker.txt');
+    const skipped = join(base, 'skipped.txt');
+    writeFileSync(blocker, 'present\n', 'utf8');
+    const result = assertRejected(await applyPatch(base, [
+      '*** Begin Patch',
+      '*** Add File: created.txt',
+      '+hello',
+      '*** Update File: blocker.txt',
+      '@@',
+      '-missing',
+      '+replacement',
+      '*** Add File: skipped.txt',
+      '+not attempted',
+      '*** End Patch',
+      '',
+    ].join('\n')));
+    assert.match(result, /stopped at section 2\/3/i);
+    assert.match(result, /applied \(committed to disk\)/i);
+    assert.match(result, /Retry only the failed and skipped sections; do not resend committed sections/i);
+    assert.match(result, /skipped \(not attempted\): skipped\.txt/i);
+    assert.equal(read(created), 'hello\n');
+    assert.equal(read(blocker), 'present\n');
+    assert.ok(!existsSync(skipped));
+  });
+});
+
 test('legacy mode:"atomic" rolls back native writes when an out-of-base entry fails', async () => {
   await withWorkspace(async ({ base, outside }) => {
     const nativeTarget = join(base, 'f.txt');
@@ -699,12 +728,9 @@ test('legacy mode:"atomic" rolls back and reports when a V4A rename throws', asy
   });
 });
 
-// Commit-bearing version of the same guarantee: two duplicate-target sections
-// really write f.txt to disk (duplicate targets disable the preflight), and
-// only then does the rename section throw. Everything must come back.
-// (mode:"atomic" cannot express this shape — a V4A rename may not be combined
-// with other sections, so the rename would be rejected before any write.)
-test('a rename that throws after earlier sections committed restores every touched path', async () => {
+// A later unsupported rename stops the sequence without undoing the two
+// same-target sections that already committed.
+test('a rename that throws after earlier sections committed keeps the committed prefix', async () => {
   await withWorkspace(async ({ base }) => {
     const committed = join(base, 'f.txt');
     const renameSrc = join(base, 'a.txt');
@@ -730,9 +756,10 @@ test('a rename that throws after earlier sections committed restores every touch
       '',
     ].join('\n')));
     assert.match(result, /stopped at section 3\/3/);
-    assert.match(result, /rolled back/i);
+    assert.match(result, /committed/i);
+    assert.match(result, /Retry only the failed and skipped sections/i);
     assert.match(result, /rename/i);
-    assert.equal(read(committed), 'one\ntwo\n', 'the committed section must be restored');
+    assert.equal(read(committed), 'ONE\nTWO\n', 'the committed sections must remain applied');
     assert.equal(read(renameSrc), 'source\n');
     assert.ok(!existsSync(renameDest), 'the rename destination must not exist');
   });
