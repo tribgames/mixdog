@@ -5,6 +5,10 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Synchronous model-catalog reads no longer launch an implicit global network
+  request. Session warmup remains the single owner of remote catalog I/O, so
+  provider-injected transports stay hermetic on a cold installation.
+
 ## v0.9.98 - 2026-08-07
 
 - Remote browser pairing now establishes an authenticated end-to-end encrypted

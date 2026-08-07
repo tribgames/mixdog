@@ -360,7 +360,7 @@ function _modelsDevMetadataSync(id, provider) {
     if (!pid) return null;
     if (!_mdCache) {
         warmModelsDevFromDiskSync();
-        if (!_mdCache) { void loadModelsDevCatalog(); return null; }
+        if (!_mdCache) return null;
     }
     const row = _mdCache?.[pid]?.models?.[id];
     if (!row || !row.cost) return null;
@@ -372,10 +372,12 @@ function _modelsDevMetadataSync(id, provider) {
 // require a `cost` field (staleness only needs family/release_date) and
 // returns the raw row untouched. Warms from disk one-shot if memory is cold;
 // returns null when the catalog is unavailable so callers can skip filtering.
+// Sync reads never start network work: session warmup owns remote catalog I/O,
+// and injected/provider-local transports must remain request-hermetic.
 // `_test` (tests only) injects a fake catalog map without touching disk.
 export function getModelsDevRowSync(id, provider, _test) {
     const cat = _test || _mdCache || (warmModelsDevFromDiskSync(), _mdCache);
-    if (!cat) { void loadModelsDevCatalog(); return null; }
+    if (!cat) return null;
     const pid = _modelsDevProviderId(provider);
     if (!pid) return null;
     const row = cat?.[pid]?.models?.[id];
@@ -387,7 +389,7 @@ export function getModelsDevRowSync(id, provider, _test) {
 // provider's whole catalog. Returns null when the catalog is cold/unavailable.
 export function getModelsDevProviderModelsSync(provider, _test) {
     const cat = _test || _mdCache || (warmModelsDevFromDiskSync(), _mdCache);
-    if (!cat) { void loadModelsDevCatalog(); return null; }
+    if (!cat) return null;
     const pid = _modelsDevProviderId(provider);
     if (!pid) return null;
     const models = cat?.[pid]?.models;
