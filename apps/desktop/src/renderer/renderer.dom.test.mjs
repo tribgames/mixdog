@@ -1858,7 +1858,7 @@ test("context view renders engine stats and omits unavailable optional fields", 
     ],
   };
   await act(async () => root.render(React.createElement(ContextBody, { status, snapshot })));
-  const text = document.querySelector(".context-view")?.textContent || "";
+  const text = document.querySelector(".context-surface-view")?.textContent || "";
   assert.ok(document.querySelector(".context-card"),
     "expanded context should use the shared onboarding-style card shell");
   assert.doesNotMatch(text, /Context fixture|sess_/);
@@ -1898,7 +1898,7 @@ test("expanded context uses the same provider usage and auto-compact limit as it
     }),
   )));
   const popoverText = document.querySelector(".session-context-popover")?.textContent || "";
-  const expandedText = document.querySelector(".context-view")?.textContent || "";
+  const expandedText = document.querySelector(".context-surface-view")?.textContent || "";
   assert.match(popoverText, /Usage79%Tokens796 \/ 1,000/);
   assert.match(expandedText, /79% used796 \/ 1\.0k · 204 free/);
 });
@@ -1912,7 +1912,7 @@ test("context view never projects raw transcript records", async () => {
       stats: {},
     },
   })));
-  assert.doesNotMatch(document.querySelector(".context-view")?.textContent || "", /private transcript|secret/);
+  assert.doesNotMatch(document.querySelector(".context-surface-view")?.textContent || "", /private transcript|secret/);
   assert.equal(document.querySelector(".context-raw-messages") === null, true,
     "selector .context-raw-messages should be absent");
 });
@@ -1934,10 +1934,10 @@ test("context view keeps the TUI sections for a zero-token session", async () =>
     },
     snapshot: { items: [], stats: {} },
   })));
-  assert.equal(document.querySelector(".context-view") != null, true);
+  assert.equal(document.querySelector(".context-surface-view") != null, true);
   assert.equal(document.querySelector(".context-main-bar span")?.style.width, "0%");
   assert.equal(document.querySelectorAll(".context-mix-row").length, 9);
-  assert.match(document.querySelector(".context-view")?.textContent || "", /0% used/);
+  assert.match(document.querySelector(".context-surface-view")?.textContent || "", /0% used/);
 });
 
 test("header context usage floors percent and dismisses focus popover without reopening", async () => {

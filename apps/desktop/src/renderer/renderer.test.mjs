@@ -1910,7 +1910,9 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
   assert.match(list, /overscan:\s*50,/);
   assert.match(list, /defaultRangeExtractor\(\{ \.\.\.range, overscan: renderOverscan \}\)/);
   assert.match(list, /current < TRANSCRIPT_VIRTUAL_OVERSCAN \? TRANSCRIPT_VIRTUAL_OVERSCAN : current/);
-  assert.match(list, /if \(shouldAnchorBottom\) virtualizerRef\.current\.scrollToEnd\(\);/);
+  assert.match(list, /virtualizerRef\.current\.options\.anchorTo === "end"/);
+  assert.doesNotMatch(list, /\}, \[sessionKey, shouldAnchorBottom\]\);/,
+    'follow flips must not restart the entry overscan frames and roll back a small wheel movement');
   assert.match(list, /initialMeasurementsCache:\s*restored\?\.measurements/,
     're-entry must replay the real measurements, not re-derive estimates');
   assert.match(list,
@@ -2104,8 +2106,20 @@ test('settings dialog reserves the native window-controls safe area', async () =
 });
 
 test('context command surface stays viewport-bound and follows the onboarding card grammar', async () => {
-  const styles = await readFile(new URL('./desktop.css', import.meta.url), 'utf8');
+  const [styles, contextBody, commandSurface] = await Promise.all([
+    readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
+    readFile(new URL('./ContextBody.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./CommandSurface.tsx', import.meta.url), 'utf8'),
+  ]);
   const availableHeight = String.raw`min\(560px,\s*calc\(var\(--vvh,\s*100vh\) - var\(--settings-layer-safe-top,\s*16px\) - var\(--settings-layer-safe-bottom,\s*16px\)\)\)`;
+  assert.match(contextBody, /className="context-surface-view"/,
+    'the context body must not reuse Monaco global context-view positioning');
+  assert.doesNotMatch(contextBody, /className="context-view"/);
+  assert.match(styles, /\.context-surface-view\s*\{[^}]*min-width:\s*0;/s);
+  assert.doesNotMatch(styles, /(?:^|\n)\.context-view(?:\s|\{)/,
+    'desktop context styles must stay isolated from Monaco context-view');
+  assert.match(commandSurface, /import '\.\/settings\/settings\.css';/,
+    'command surfaces must load their structural CSS without opening Settings first');
   assert.match(styles, new RegExp(
     String.raw`\.command-surface\[data-surface="context"\]\s*\{[^}]*max-height:\s*${availableHeight};[^}]*border-radius:\s*12px;`,
     's',

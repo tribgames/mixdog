@@ -1301,7 +1301,7 @@ test('Context command surface follows live state and coalesces status refreshes'
     ?.querySelector('strong')?.textContent;
   assert.equal(contextCalls, 1);
   assert.equal(typeof stateListener, 'function');
-  assert.match(document.querySelector('.context-view')?.textContent || '', /10% used/);
+  assert.match(document.querySelector('.context-surface-view')?.textContent || '', /10% used/);
   assert.equal(messageTokens(), '100');
 
   await act(async () => {
@@ -1314,7 +1314,7 @@ test('Context command surface follows live state and coalesces status refreshes'
   });
   assert.equal(contextCalls, 3,
     'a live burst keeps one status request in flight and one latest refresh queued');
-  assert.match(document.querySelector('.context-view')?.textContent || '', /30% used/);
+  assert.match(document.querySelector('.context-surface-view')?.textContent || '', /30% used/);
   assert.equal(messageTokens(), '300');
 
   await act(async () => root.render(null));

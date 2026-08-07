@@ -22,6 +22,9 @@ test('Deploy is the one-click release entry with incremental native workers', as
   assert.match(deploy,
     /always\(\) && needs\.plan\.result == 'success' && needs\.prepare-app\.result == 'success'/);
   assert.match(deploy, /if gh release view "\$TAG"[\s\S]*Published tag \$\{TAG\} is immutable/);
+  assert.match(deploy,
+    /'isDraft', '--jq', '\.isDraft'[\s\S]*result\.stdout\.trim\(\) === 'false'/,
+    'a hidden draft must remain resumable instead of consuming a release version');
   assert.match(deploy, /Moving unpublished recovery tag \$\{TAG\}/);
   assert.match(deploy,
     /const unreleasedPattern = \/\^## Unreleased[\s\S]*else if \(unreleasedBody\)[\s\S]*text\.replace\(versionHeading/,
@@ -61,6 +64,9 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.equal((release.match(/name:\s*Restore pruned runtime dependencies/g) || []).length, 2);
   assert.equal((release.match(/name:\s*Restore prepared runtime archive/g) || []).length, 2);
   assert.equal((release.match(/desktop-prepared-runtime-v1-/g) || []).length, 2);
+  assert.equal((release.match(/name:\s*Restore stable desktop npm downloads/g) || []).length, 2);
+  assert.equal((release.match(/dependency-lock-cache-key\.mjs/g) || []).length, 2);
+  assert.equal((release.match(/desktop-npm-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}/g) || []).length, 2);
   assert.match(release, /runtime-dependency-cache-key\.mjs[\s\S]*--platform=win32 --arch=x64/);
   assert.match(release, /MIXDOG_RUNTIME_DEPENDENCY_CACHE/);
   assert.match(release, /key:\s*desktop-\$\{\{ steps\.runtime-dependencies\.outputs\.key \}\}/);

@@ -184,7 +184,6 @@ function createTranscript({ count = 300, rowHeight = (i) => 260 + (i % 7) * 190 
   function reactCommit() {
     reactPending = false;
     const nextProp = hook.following;
-    const propChanged = nextProp !== anchorProp;
     anchorProp = nextProp;
     if (anchorOverride === anchorProp) anchorOverride = null;
     const effective = anchorOverride ?? anchorProp;
@@ -194,13 +193,8 @@ function createTranscript({ count = 300, rowHeight = (i) => 260 + (i % 7) * 190 
       followOnAppend: effective,
     });
     v._willUpdate();
-    if (propChanged) {
-      // TranscriptList's overscan effect re-runs on the anchor prop.
-      fakeWindow.requestAnimationFrame(() => {
-        if (effective) v.scrollToEnd();
-        fakeWindow.requestAnimationFrame(() => { if (effective) v.scrollToEnd(); });
-      });
-    }
+    // TranscriptList's overscan warm-up is session-entry-only. Follow flips
+    // must not queue end writes after a sub-threshold wheel movement.
     if (followFlippedTrue) {
       followFlippedTrue = false;
       // Conversation's re-pin effect on `following`.
@@ -268,7 +262,7 @@ function createTranscript({ count = 300, rowHeight = (i) => 260 + (i % 7) * 190 
   // so a programmatic write inside the animation moves the whole ramp with it.
   let wheelRemaining = 0;
   let commitPending = false;
-  function frame({ wheel = 0, tail = 0, above = 0 } = {}) {
+  function frame({ wheel = 0, deliverWheel = true, tail = 0, above = 0 } = {}) {
     now += FRAME_MS;
     events.length = 0;
     const before = el.scrollTop;
@@ -282,7 +276,7 @@ function createTranscript({ count = 300, rowHeight = (i) => 260 + (i % 7) * 190 
       // Wheel rule: an upward wheel releases immediately, however small.
       if (wheel < 0) publish(false);
     }
-    if (wheelRemaining) {
+    if (deliverWheel && wheelRemaining) {
       const ramp = wheelRemaining * 0.35;
       const applied = Math.abs(ramp) < 1 ? wheelRemaining : ramp;
       wheelRemaining -= applied;
@@ -330,6 +324,22 @@ test('an idle transcript keeps every wheel notch the reader spends', () => {
   assert.ok(end.distance > 5 * WHEEL_NOTCH_PX * 0.8,
     `six wheel notches must survive, got ${Math.round(end.distance)}px from the bottom`);
   assert.deepEqual(sim.hook.writes, [], 'the follow hook must not write during a reader gesture');
+});
+
+test('a sub-threshold wheel movement is not rolled back after its native scroll event', () => {
+  const sim = createTranscript();
+  // React may commit the wheel handler's immediate release before Chromium
+  // delivers the native scroll movement in the next frame.
+  const intent = sim.frame({ wheel: -2, deliverWheel: false });
+  assert.equal(intent.following, false, 'wheel intent releases the core before native movement');
+  const moved = sim.frame();
+  assert.equal(moved.following, true, 'the shared bottom band may reattach after a 2px movement');
+  assert.equal(moved.distance, 2, 'the native wheel movement lands');
+  const settled = sim.frame({ deliverWheel: false });
+  assert.equal(settled.distance, moved.distance,
+    'reattaching follow must not queue an end write that erases the movement');
+  assert.equal(settled.events.some((event) => event.startsWith('core write')), false);
+  assert.deepEqual(sim.hook.writes, []);
 });
 
 test('rows measured above the reading offset never drag an idle reader back', () => {

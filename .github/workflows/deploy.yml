@@ -90,9 +90,13 @@ jobs:
             return `${parts[0]}.${parts[1]}.${parts[2] + 1}`;
           };
           const tagExists = tag => spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`]).status === 0;
-          const releaseExists = tag => spawnSync(
-            'gh', ['release', 'view', tag, '--json', 'tagName'], { stdio: 'ignore', env: process.env },
-          ).status === 0;
+          const releaseExists = tag => {
+            const result = spawnSync(
+              'gh', ['release', 'view', tag, '--json', 'isDraft', '--jq', '.isDraft'],
+              { encoding: 'utf8', env: process.env },
+            );
+            return result.status === 0 && result.stdout.trim() === 'false';
+          };
           const changedSince = (tag, paths) => {
             if (!tagExists(tag)) return true;
             const result = spawnSync('git', ['diff', '--quiet', `${tag}..HEAD`, '--', ...paths]);
