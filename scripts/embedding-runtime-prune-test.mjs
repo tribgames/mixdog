@@ -11,6 +11,7 @@ import {
   pruneEmbeddingRuntime,
 } from './prune-embedding-runtime.mjs'
 import { runtimeDependencyFingerprint } from './runtime-dependency-cache-key.mjs'
+import { dependencyLockCacheKey } from './dependency-lock-cache-key.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -172,4 +173,28 @@ test('runtime dependency fingerprint ignores release identity but invalidates ru
   assert.notEqual(fingerprint(), fingerprint({ lockfile: changedDependency }))
   assert.notEqual(fingerprint(), fingerprint({ prunerSource: 'pruner-v2' }))
   assert.notEqual(fingerprint(), fingerprint({ target: 'linux-x64', host: 'linux-x64' }))
+})
+
+test('desktop npm cache identity ignores release-only package identity', () => {
+  const lockfile = {
+    name: '@mixdog/desktop',
+    version: '0.9.99',
+    lockfileVersion: 3,
+    packages: {
+      '': {
+        name: '@mixdog/desktop',
+        version: '0.9.99',
+        dependencies: { runtime: '^1.0.0' },
+      },
+      'node_modules/runtime': { version: '1.0.0' },
+    },
+  }
+  const nextRelease = structuredClone(lockfile)
+  nextRelease.version = '0.9.100'
+  nextRelease.packages[''].version = '0.9.100'
+  assert.equal(dependencyLockCacheKey(lockfile), dependencyLockCacheKey(nextRelease))
+
+  const changedDependency = structuredClone(lockfile)
+  changedDependency.packages['node_modules/runtime'].version = '1.1.0'
+  assert.notEqual(dependencyLockCacheKey(lockfile), dependencyLockCacheKey(changedDependency))
 })

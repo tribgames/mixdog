@@ -73,7 +73,7 @@ export function ContextBody({ status, snapshot }: { status: unknown; snapshot: u
     ? used / categorizedTokens
     : 1;
 
-  return <div className="context-view">
+  return <div className="context-surface-view">
     <div className="context-card">
       <section className="context-usage-overview" aria-label="Context usage">
         <div className="context-usage-heading">

@@ -8,6 +8,7 @@ import { acquireModalLayer } from './modal-layer';
 import { showDesktopToast } from './notifications';
 import { ContextBody } from './ContextBody';
 import { PaneSurfaceGate } from './PaneSurfaceGate';
+import './settings/settings.css';
 
 export { ContextBody } from './ContextBody';
 

@@ -5,6 +5,14 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Context command styling no longer depends on opening Settings first or
+  collides with Monaco's global context class, and transcript reattachment no
+  longer rolls back a small reader wheel movement.
+- Desktop packagers now restore npm downloads with a dependency-only cache key,
+  so release version stamps do not cold-start every platform installation.
+- Hidden drafts are treated as resumable work rather than published releases,
+  preventing failed releases from consuming an extra patch version.
+
 ## v0.9.99 - 2026-08-07
 
 - Desktop transcript typography now separates content, operational status, and

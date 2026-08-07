@@ -272,13 +272,23 @@ export function TranscriptList({
   }, [setAnchorBottomRef]);
 
   useLayoutEffect(() => {
+    // Warm the full overscan once per session entry. A follow release/reattach
+    // must not schedule another pair of end writes: a small wheel movement can
+    // re-enter the bottom band after its native scroll event, and those stale
+    // frames would roll that movement back. Read the live core anchor at
+    // delivery time so reader intent also cancels an entry frame already
+    // waiting in the queue.
     overscanFrame.current = window.requestAnimationFrame(() => {
-      if (shouldAnchorBottom) virtualizerRef.current.scrollToEnd();
+      if (virtualizerRef.current.options.anchorTo === "end") {
+        virtualizerRef.current.scrollToEnd();
+      }
       overscanFrame.current = window.requestAnimationFrame(() => {
         overscanFrame.current = 0;
         setRenderOverscan((current) =>
           current < TRANSCRIPT_VIRTUAL_OVERSCAN ? TRANSCRIPT_VIRTUAL_OVERSCAN : current);
-        if (shouldAnchorBottom) virtualizerRef.current.scrollToEnd();
+        if (virtualizerRef.current.options.anchorTo === "end") {
+          virtualizerRef.current.scrollToEnd();
+        }
       });
     });
     return () => {
@@ -286,7 +296,7 @@ export function TranscriptList({
       window.cancelAnimationFrame(overscanFrame.current);
       overscanFrame.current = 0;
     };
-  }, [sessionKey, shouldAnchorBottom]);
+  }, [sessionKey]);
 
   useLayoutEffect(() => {
     // Session entry resets the prepend-reading bookkeeping so a prior visit's

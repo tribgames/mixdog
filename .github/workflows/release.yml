@@ -237,10 +237,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            apps/desktop/package-lock.json
 
       - name: Restore Electron downloads
         uses: actions/cache@v6
@@ -256,7 +252,16 @@ jobs:
         shell: pwsh
         run: |
           $key = node scripts/runtime-dependency-cache-key.mjs --platform=win32 --arch=x64
+          $npmKey = node scripts/dependency-lock-cache-key.mjs apps/desktop/package-lock.json
           "key=$key" >> $env:GITHUB_OUTPUT
+          "npm_key=$npmKey" >> $env:GITHUB_OUTPUT
+          "npm_cache=$((npm config get cache).Trim())" >> $env:GITHUB_OUTPUT
+
+      - name: Restore stable desktop npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.runtime-dependencies.outputs.npm_cache }}
+          key: desktop-npm-${{ runner.os }}-${{ runner.arch }}-${{ steps.runtime-dependencies.outputs.npm_key }}
 
       - name: Restore pruned runtime dependencies
         uses: actions/cache@v6
@@ -350,10 +355,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            apps/desktop/package-lock.json
 
       - name: Restore Electron downloads
         uses: actions/cache@v6
@@ -370,6 +371,15 @@ jobs:
         run: |
           echo "key=$(node scripts/runtime-dependency-cache-key.mjs \
             --platform=${{ matrix.platform }} --arch=${{ matrix.arch }})" >> "$GITHUB_OUTPUT"
+          echo "npm_key=$(node scripts/dependency-lock-cache-key.mjs \
+            apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
+          echo "npm_cache=$(npm config get cache)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore stable desktop npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.runtime-dependencies.outputs.npm_cache }}
+          key: desktop-npm-${{ runner.os }}-${{ runner.arch }}-${{ steps.runtime-dependencies.outputs.npm_key }}
 
       - name: Restore pruned runtime dependencies
         uses: actions/cache@v6

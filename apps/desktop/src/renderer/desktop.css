@@ -10106,7 +10106,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .session-context-popover span { color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
 .session-context-popover b { font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); font-variant-numeric: tabular-nums; }
 
-.context-view { min-width: 0; }
+.context-surface-view { min-width: 0; }
 .context-card {
   min-width: 0;
   display: grid;
@@ -10164,7 +10164,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .context-mix-row > span { color: var(--mx-text-muted); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-minor); }
 /* Section heading matches the settings group-heading tier (user: unify the
    type scale — 12px/400 read as a third, weaker grammar). */
-.context-view h3 { color: var(--mx-text); font-size: var(--mx-font-emphasis); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); }
+.context-surface-view h3 { color: var(--mx-text); font-size: var(--mx-font-emphasis); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); }
 .context-runtime-lines strong {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -10173,7 +10173,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-minor);
 }
-.context-view h3 { margin: 0; }
+.context-surface-view h3 { margin: 0; }
 /* Cursor-style composition: one stacked bar + color-chip legend. */
 .context-stack-bar {
   display: flex;
