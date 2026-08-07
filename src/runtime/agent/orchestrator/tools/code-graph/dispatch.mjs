@@ -52,6 +52,7 @@ import {
 const CODE_GRAPH_BATCHABLE_MODES = new Set(['symbol', 'find_symbol', 'symbol_search', 'callers', 'callees', 'references']);
 const CODE_GRAPH_FILE_BATCHABLE_MODES = new Set(['imports', 'dependents', 'related', 'impact', 'symbols', 'overview']);
 const CODE_GRAPH_MAX_BATCH_SYMBOLS = 20;
+const CODE_GRAPH_FILE_BATCH_CAP = 20;
 
 function _collectGraphSymbolList(args) {
   const split = (s) => String(s || '').split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
@@ -115,13 +116,18 @@ function _normalizeGraphFileArgs(args) {
   return out;
 }
 
-function _collectGraphFileList(args) {
+function _collectGraphFileList(args, { cap = true } = {}) {
   const split = (s) => String(s || '').split(/,+/).map((t) => t.trim()).filter(Boolean);
   const list = [...new Set([
     ...(Array.isArray(args?.files) ? args.files.map((f) => String(f || '').trim()).filter(Boolean) : []),
     ...(typeof args?.files === 'string' ? split(args.files) : []),
     ...(typeof args?.file === 'string' && args.file.trim() ? [args.file.trim()] : []),
   ])];
+  if (cap && list.length > CODE_GRAPH_FILE_BATCH_CAP) {
+    const capped = list.slice(0, CODE_GRAPH_FILE_BATCH_CAP);
+    capped._capped = true;
+    return capped;
+  }
   return list;
 }
 
@@ -159,6 +165,8 @@ function _resolveAggregateFileProjectRoot(args, baseCwd) {
   // already been normalized to an actual array above.
   if (typeof args?.files === 'string' && args.files.includes(',')) return null;
   const files = _collectGraphFileList(args, { cap: false });
+  // Recovery cannot silently discard anchors that normal batch dispatch caps.
+  if (files.length > CODE_GRAPH_FILE_BATCH_CAP) return null;
   const roots = new Set();
   for (const file of files) {
     // Never infer a root from a glob-shaped anchor, including a literal file
@@ -729,6 +737,9 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
       if (files.some((file) => _AGGREGATE_FILE_WILDCARD_RE.test(file))) {
         return `Error: ${name}: wildcard-shaped file anchors are not allowed at a filesystem root`;
       }
+      if (files.length > CODE_GRAPH_FILE_BATCH_CAP) {
+        return `Error: ${name}: file list exceeds cap of ${CODE_GRAPH_FILE_BATCH_CAP}`;
+      }
       const routed = files.map((file) => {
         const abs = isAbsolute(file) ? pathResolve(file) : pathResolve(baseCwd, file);
         return {
@@ -909,12 +920,14 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
           const fileList = _collectGraphFileList(args);
           if (fileList.length > 1) {
             return (async () => {
+              const capped = fileList._capped;
               const sections = await Promise.all(fileList.map(async (f) => {
                 let body;
                 try { body = await dispatchOne({ ...args, file: f, files: undefined }); }
                 catch (e) { body = `Error: ${e?.message || String(e)}`; }
                 return `# ${batchMode} ${f}\n${body}`;
               }));
+              if (capped) sections.push(`Note: file list capped at ${CODE_GRAPH_FILE_BATCH_CAP} entries.`);
               return sections.join('\n\n');
             })();
           }
