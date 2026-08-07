@@ -1,6 +1,6 @@
 {
   "name": "@mixdog/relay",
-  "version": "0.9.99",
+  "version": "0.9.100",
   "private": true,
   "description": "Mixdog remote relay: pairs phone clients with a desktop over outbound WebSockets.",
   "type": "module",

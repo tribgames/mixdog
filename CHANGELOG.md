@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.100 - 2026-08-07
+
 - Context command styling no longer depends on opening Settings first or
   collides with Monaco's global context class, and transcript reattachment no
   longer rolls back a small reader wheel movement.
