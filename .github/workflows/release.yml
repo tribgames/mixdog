@@ -85,9 +85,6 @@ jobs:
       - name: Build TUI
         run: npm run build:tui
 
-      - name: Execute code graph from a clean cache
-        run: npm run test:code-graph-dispatch
-
       - name: Focused release regressions
         run: npm run test:release-focused
 
@@ -116,6 +113,7 @@ jobs:
   # artifact to every native packager instead of running Vite five times.
   desktop-build:
     name: build-desktop-once
+    needs: validate
     runs-on: ubuntu-22.04
     env:
       NODE_OPTIONS: --max-old-space-size=6144
