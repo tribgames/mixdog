@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.96 - 2026-08-07
+
 - Development checkouts now use checkout-specific backend runtime and data
   roots shared by their CLI and unpackaged desktop, so protocol work can never
   claim or write through the installed app's daemon.
