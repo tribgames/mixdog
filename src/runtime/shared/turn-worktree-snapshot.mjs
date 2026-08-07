@@ -43,15 +43,17 @@ function runGit(args, {
   allowFailure = false,
 } = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
+    const hasInput = (typeof input === 'string' || Buffer.isBuffer(input)) && input.length > 0;
     const child = spawn('git', args, {
       cwd,
       windowsHide: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: [hasInput ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     });
     const stdout = [];
     const stderr = [];
     let stdoutBytes = 0;
     let stderrBytes = 0;
+    let stdinError = null;
     let settled = false;
     const finish = (error, result) => {
       if (settled) return;
@@ -93,9 +95,19 @@ function runGit(args, {
         finish(commandError(args, result.stderr, result.code));
         return;
       }
+      if (stdinError && result.code === 0) {
+        finish(stdinError);
+        return;
+      }
       finish(null, result);
     });
-    child.stdin.end(input);
+    if (child.stdin) {
+      // A short-lived git command can close before Node flushes stdin. Keep
+      // that transport race inside this promise instead of emitting an
+      // unhandled EPIPE that terminates the entire release validator.
+      child.stdin.on('error', (error) => { stdinError = error; });
+      child.stdin.end(input);
+    }
   });
 }
 
