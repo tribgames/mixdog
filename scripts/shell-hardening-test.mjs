@@ -129,7 +129,7 @@ test('C: shell surface keeps execution contract separate from the platform comma
         return;
     }
     assert.match(commandDescription, /PowerShell:/);
-    assert.match(commandDescription, /Select-String/);
+    assert.match(commandDescription, /\$PID is reserved/);
 });
 
 // ---------------------------------------------------------------------------

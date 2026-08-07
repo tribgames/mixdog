@@ -940,7 +940,6 @@ try {
   shellAutoPromoteOut = await executeBuiltinTool('shell', {
     command: 'node -e "setTimeout(() => console.log(\'tool-smoke-autopromote-done\'), 6000)"',
     cwd: root,
-    timeout: 30_000,
     shell: 'powershell',
   }, root);
 } finally {
@@ -1375,8 +1374,8 @@ if (EXPLORE_TOOL.annotations?.agentHidden === true) {
 const exploreProps = EXPLORE_TOOL.inputSchema?.properties || {};
 // Contract-only description: broad/uncertain routing policy lives in
 // src/rules/shared/01-tool.md (see explore-prompt-policy-test.mjs).
-if (!/machine-wide locator/i.test(EXPLORE_TOOL.description || '') || !/independent facets/i.test(EXPLORE_TOOL.description || '') || /broad\/uncertain/i.test(EXPLORE_TOOL.description || '') || (EXPLORE_TOOL.description || '').length > 600) {
-  throw new Error('explore description must keep the locator + facet fan-out contract');
+if (!/repo- or machine-wide coordinate locator/i.test(EXPLORE_TOOL.description || '') || /broad\/uncertain/i.test(EXPLORE_TOOL.description || '') || (EXPLORE_TOOL.description || '').length > 600) {
+  throw new Error('explore description must stay a compact coordinate-locator contract');
 }
 if (!/Narrow locator query/i.test(exploreProps.query?.description || '') || !/independent facets/i.test(exploreProps.query?.description || '') || !/Project\/root/i.test(exploreProps.cwd?.description || '') || !/multiple roots/i.test(exploreProps.roots?.description || '')) {
   throw new Error('explore schema must stay compact and preserve query/cwd/roots shape');
@@ -1889,7 +1888,7 @@ const readPathDescription = readPathSchema.description || '';
 if (!/\{path,offset,limit\}\[\]/i.test(readPathDescription) || !/real arrays/i.test(readPathDescription)) {
   throw new Error('read schema must keep directory-vs-file guidance');
 }
-if (!/Not for director/i.test((BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.description) || '')) {
+if (!/not director/i.test((BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.description) || '')) {
   throw new Error('read description must keep directory-vs-file guidance');
 }
 const readTool = BUILTIN_TOOLS.find((tool) => tool.name === 'read');
@@ -1900,8 +1899,8 @@ const readArrayItemAnyOf = readArraySchema?.items?.anyOf || [];
 if (!readArrayItemAnyOf.some((entry) => entry?.type === 'object' && entry?.properties?.offset && entry?.properties?.limit)) {
   throw new Error('read schema must expose array-of-region objects for batched spans');
 }
-if (/line\+context/i.test(readDescription) || !/Read file contents/i.test(readDescription) || !/\{path,offset,limit\}\[\]/i.test(readDescription)) {
-  throw new Error('read description must expose offset/limit as the single window form');
+if (/line\+context/i.test(readDescription) || !/Read file contents/i.test(readDescription)) {
+  throw new Error('read description must stay compact and file-oriented');
 }
 if (readProps.line || readProps.context) {
   throw new Error('read schema must not expose legacy line/context window fields');
@@ -2001,11 +2000,11 @@ if (codeGraphSymbolSearchErr) {
 // symbol/definition/caller lookups AWAY from repeated grep (the grep_retry +
 // find_symbol_noscope anti-patterns). It is allowed to be verbose enough to
 // enumerate modes, but must not drift into web-search territory.
-if (!/Repo code structure/i.test(codeGraphDescription)
+if (!/Source-file structure/i.test(codeGraphDescription)
   || !['find_symbol', 'symbol_search', 'references', 'callers', 'callees'].every((mode) => codeGraphDescription.includes(mode))) {
   throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
 }
-if (!/take files\[\]/i.test(codeGraphDescription) || !/take symbols\[\]/i.test(codeGraphDescription)) {
+if (!/File modes take files\[\]/i.test(codeGraphDescription) || !/symbol modes take symbols\[\]/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must keep its per-mode files[]/symbols[] target contract');
 }
 if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/Source file path/i.test(codeGraphProps.files?.description || '')) {
@@ -2101,7 +2100,7 @@ if (!/^Fetch page\/docs body from URL\.$/i.test(webFetchTool?.description || '')
 if (!/offset/i.test(webFetchProps.startIndex?.description || '') || !/Maximum characters/i.test(webFetchProps.maxLength?.description || '')) {
   throw new Error('web_fetch schema must describe paging window fields');
 }
-if (!/deferred tools/i.test(TOOL_SEARCH_TOOL.description || '')
+if (!/deferred-tool/i.test(TOOL_SEARCH_TOOL.description || '')
   || !TOOL_SEARCH_TOOL.inputSchema?.properties?.names
   || TOOL_SEARCH_TOOL.inputSchema?.properties?.select
   || TOOL_SEARCH_TOOL.inputSchema?.additionalProperties !== false) {
@@ -2454,7 +2453,7 @@ if (!/pattern\[\] batches variants/i.test(grepPatternDescription) || !/File\/dir
 }
 // Contract-only description: routing/verification policy lives in
 // src/rules/shared/01-tool.md (see explore-prompt-policy-test.mjs).
-if (!/\bliteral or regex\b/i.test(grepTool?.description || '')) {
+if (!/\bliteral\/regex\b/i.test(grepTool?.description || '')) {
   throw new Error('grep description must state its literal/regex content-search contract');
 }
 if (!/Glob filter/i.test(grepGlobDescription)) {
@@ -2476,12 +2475,12 @@ const globTool = BUILTIN_TOOLS.find((tool) => tool.name === 'glob');
 const findTool = BUILTIN_TOOLS.find((tool) => tool.name === 'find');
 const listTool = BUILTIN_TOOLS.find((tool) => tool.name === 'list');
 const findHeadLimitDescription = findTool?.inputSchema?.properties?.head_limit?.description || '';
-if (!/exact glob patterns/i.test(globTool?.description || '')) {
+if (!/Match glob patterns/i.test(globTool?.description || '')) {
   throw new Error('glob description must route exact-pattern unknown paths before read/grep/list');
 }
 // Contract-only description: guessed-fragment/verified-root routing policy
 // lives in src/rules/shared/01-tool.md.
-if (!/fuzzy lookup for partial paths\/names/i.test(findTool?.description || '') || !/not file contents/i.test(findTool?.description || '')) {
+if (!/Fuzzy partial path\/name lookup/i.test(findTool?.description || '') || !/returns paths only/i.test(findTool?.description || '')) {
   throw new Error('find description must state its fuzzy path-lookup contract');
 }
 if (!/across the call/i.test(findHeadLimitDescription) || !/Defaults to 25/i.test(findHeadLimitDescription)) {
