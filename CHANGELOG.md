@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.99 - 2026-08-07
+
 - Desktop transcript typography now separates content, operational status, and
   metadata into a steadier hierarchy, while Fast uses a compact stateful icon.
 - Explorer retrieval now fans out every concrete locator facet once, preserves
