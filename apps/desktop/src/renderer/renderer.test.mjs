@@ -1532,22 +1532,26 @@ test('the transcript timeline paints one contained layer with OpenCode cold over
     'turn boundaries must be explicit virtual rows');
 });
 
-test('task transcript uses one compact reading scale with restrained markdown hierarchy', async () => {
+test('task transcript uses a clean content, operation, and meta type hierarchy', async () => {
   const css = await readFile(new URL('./desktop.css', import.meta.url), 'utf8');
   assert.match(css,
     /\.message-body\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*line-height:\s*var\(--mx-line-emphasis\);/s);
   assert.match(css,
-    /\.tool-title b,\s*\.tool-title small\s*\{[^}]*font-size:\s*var\(--mx-font-code-prose\);[^}]*line-height:\s*var\(--mx-line-emphasis\);/s);
+    /\.tool-title b,\s*\.tool-title small\s*\{[^}]*font-size:\s*var\(--mx-font-code\);[^}]*line-height:\s*var\(--mx-line-ui\);/s);
   assert.match(css,
     /\.tool-title b\s*\{[^}]*font-weight:\s*var\(--mx-weight-medium\);/s);
   assert.match(css,
-    /\.live-activity\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*line-height:\s*var\(--mx-line-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-body\);/s);
+    /\.tool-detail-line\s*\{[^}]*font-size:\s*var\(--mx-font-code\);[^}]*line-height:\s*var\(--mx-line-ui\);/s);
   assert.match(css,
-    /\.turn-status\.complete,\s*\.turn-status\.success,[\s\S]*?font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-body\);/);
+    /\.live-activity\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*line-height:\s*var\(--mx-line-ui\);[^}]*font-weight:\s*var\(--mx-weight-medium\);/s);
   assert.match(css,
-    /\.compaction-divider\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-body\);[^}]*line-height:\s*var\(--mx-line-emphasis\);/s);
+    /\.turn-status\.complete,\s*\.turn-status\.success,[\s\S]*?font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-medium\);/);
   assert.match(css,
-    /\.thinking-disclosure\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-body\);/s);
+    /\.compaction-divider\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-medium\);[^}]*line-height:\s*var\(--mx-line-ui\);/s);
+  assert.match(css,
+    /\.thinking-disclosure\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-medium\);/s);
+  assert.match(css,
+    /\.live-activity-meta\s*\{[^}]*font-size:\s*var\(--mx-font-meta\);[^}]*line-height:\s*var\(--mx-line-meta\);/s);
   assert.match(css, /\.markdown h1\s*\{[^}]*font-size:\s*17px;/s);
   assert.match(css, /\.markdown h2\s*\{[^}]*font-size:\s*16px;/s);
   assert.match(css,
@@ -1555,8 +1559,10 @@ test('task transcript uses one compact reading scale with restrained markdown hi
   assert.match(css,
     /\.markdown strong,\s*\.markdown b\s*\{[^}]*font-weight:\s*var\(--mx-weight-medium\);/s);
   assert.match(css,
-    /\.composer textarea\s*\{[^}]*font-size:\s*var\(--mx-font-body\);[^}]*line-height:\s*var\(--mx-line-body\);/s,
-    'the compact reading scale must stay scoped to transcript content');
+    /\.markdown :not\(pre\) > code\s*\{[^}]*font-size:\s*var\(--mx-font-code\);/s);
+  assert.match(css,
+    /\.composer textarea\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-body\);[^}]*line-height:\s*var\(--mx-line-emphasis\);/s,
+    'typed text and submitted prose must share the same content metrics');
 });
 
 test('streaming markdown repartitions without hiding visible source text', async () => {
@@ -2542,7 +2548,7 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.match(styles,
     /\.live-activity \[data-component="text-shimmer"\]\s*\{[^}]*font-weight:\s*var\(--mx-weight-medium\);/s);
   assert.match(styles,
-    /\.turn-status\.complete,[\s\S]*?\.turn-status\.interrupted\s*\{[^}]*font-weight:\s*var\(--mx-weight-body\);/s);
+    /\.turn-status\.complete,[\s\S]*?\.turn-status\.interrupted\s*\{[^}]*font-weight:\s*var\(--mx-weight-medium\);/s);
   assert.match(styles,
     /\.turn-status\.complete,\s*\.turn-status\.success\s*\{[^}]*color:\s*var\(--mx-text-soft\);/s,
     "a settled turn stays a quiet marker row, never a colored badge");
@@ -2556,7 +2562,7 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.doesNotMatch(retryRule, /grid-row:\s*2/,
     "Retry must stay to the right of Failed on the same row");
   assert.match(styles,
-    /\.compaction-divider\s*\{[^}]*font-weight:\s*var\(--mx-weight-body\);/s);
+    /\.compaction-divider\s*\{[^}]*font-weight:\s*var\(--mx-weight-medium\);/s);
   assert.match(styles,
     /\.compaction-divider\s*\{\s*color:\s*var\(--mx-text-muted\);\s*\}/s);
   assert.match(styles,

@@ -358,8 +358,19 @@ jobs:
           const version = process.env.VERSION;
           const date = new Date().toISOString().slice(0, 10);
           let text = readFileSync('CHANGELOG.md', 'utf8');
-          if (!text.includes(`\n## v${version}`)) {
+          const versionHeading = `## v${version}`;
+          const unreleasedPattern = /^## Unreleased[^\n]*\n([\s\S]*?)(?=^##\s)/m;
+          const unreleased = text.match(unreleasedPattern);
+          const unreleasedBody = unreleased?.[1].trim() || '';
+          if (!text.includes(`\n${versionHeading}`)) {
             text = text.replace(/^## Unreleased[^\n]*$/m, `## Unreleased\n\n## v${version} - ${date}`);
+            writeFileSync('CHANGELOG.md', text);
+          } else if (unreleasedBody) {
+            // A failed unpublished release can be resumed at the same version.
+            // Fold recovery notes into that version instead of leaving already
+            // shipped fixes in Unreleased after the draft is published.
+            text = text.replace(unreleasedPattern, '## Unreleased\n\n');
+            text = text.replace(versionHeading, `${versionHeading}\n\n${unreleasedBody}`);
             writeFileSync('CHANGELOG.md', text);
           }
           NODE

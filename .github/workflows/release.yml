@@ -411,10 +411,11 @@ jobs:
 
       - name: Upload verified macOS assets to hidden draft
         if: matrix.platform == 'darwin'
-        timeout-minutes: 6
+        timeout-minutes: 7
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_ID: ${{ needs.prepare-github-release.outputs.release_id }}
         shell: bash
         run: |
           set -euo pipefail
@@ -423,7 +424,11 @@ jobs:
             "apps/desktop/dist/mixdog-desktop-mac-${{ matrix.artifact_arch }}.zip"
           )
           for asset in "${assets[@]}"; do test -f "$asset"; done
-          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          if [[ "${{ matrix.arch }}" == x64 ]]; then
+            bash .github/scripts/upload-release-assets.sh "${assets[@]}"
+          else
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          fi
 
       - name: Upload verified Linux asset to hidden draft
         if: matrix.platform == 'linux'

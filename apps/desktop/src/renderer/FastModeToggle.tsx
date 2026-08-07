@@ -16,7 +16,7 @@ export function FastModeToggle({ enabled, disabled = false, ariaLabel = 'Fast mo
     data-tooltip={stateLabel}
     data-tooltip-side="top"
     onClick={() => onChange(!enabled)}>
-    <MxIcon name="zap" size={16} />
+    <MxIcon name="zap" size={14} fill={enabled ? 'currentColor' : 'none'} />
     <span className="sr-only">{stateLabel}</span>
   </button>;
 }

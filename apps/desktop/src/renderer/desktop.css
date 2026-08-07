@@ -115,12 +115,6 @@
   --mx-font-meta: 12px;
   --mx-font-minor: 13px;
   --mx-font-code: 13px;
-  /* Mono INSIDE prose. The 15px reading scale needs its own code step: the
-     13px chrome mono read a tier small next to it, and the inline chips had
-     drifted to a relative .92em (13.8px, a fractional size that hints
-     differently from every other glyph). One integer 14px now serves both
-     the inline `code` spans and the fenced blocks in a message. */
-  --mx-font-code-prose: 14px;
   --mx-font-ui: 13px;
   --mx-font-emphasis: 14px;
   --mx-font-body: 15px;
@@ -152,9 +146,8 @@
      heavier than the mono rows beside it, and 400 disappears under them, so
      13px/500 is the weight that sits right in both places. It is a LABEL
      tier — do not let it creep back into body text or row copy.
-     450 remains the Pretendard reading weight for
-     transcript prose; 700 stays literal for CONTENT bold (markdown strong,
-     hljs, watermark) like the content font sizes above. */
+     450 remains the Pretendard reading weight for transcript prose; Markdown
+     strong uses the 500 label step without changing size. */
   --mx-weight-regular: 400;
   --mx-weight-body: 450;
   --mx-weight-medium: 500;
@@ -3171,10 +3164,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
 }
-/* A fenced block inside a message is PROSE-scale code: at 13px it read a step
-   under the inline `code` spans in the sentence right above it (which track
-   the 15px prose). Both now land on the one 14px prose mono. */
-.markdown pre { font-size: var(--mx-font-code-prose); }
+/* Code is an operational tier inside prose: the mono face has a larger optical
+   body, so 13px sits cleanly beside 14px reading text without protruding. */
+.markdown pre { font-size: var(--mx-font-code); }
 
 /* Tool / diff / approval surfaces use the same v2 layers. */
 .tool-card {
@@ -3209,9 +3201,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .tool-header:focus-visible .tool-icon,
 .tool-header:focus-visible .tool-chevron { color: var(--mx-icon); }
 .tool-icon {
-  width: 16px;
+  width: 14px;
   height: 20px;
-  flex: 0 0 16px;
+  flex: 0 0 14px;
   align-self: center;
   display: grid;
   place-items: center;
@@ -3220,8 +3212,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   transform: translateY(-1px);
 }
 .tool-icon > svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   display: block;
   margin: 0;
 }
@@ -3234,11 +3226,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   gap: 6px;
   overflow: hidden;
 }
-/* Tool rows keep their terminal voice but share the transcript's 14/22
-   rhythm, so command activity no longer shrinks between prose paragraphs. */
-.tool-title b, .tool-title small { font-family: var(--mx-font-mono); font-size: var(--mx-font-code-prose); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-emphasis); }
-/* Tool titles remain one restrained step above transcript prose without
-   becoming heading-weight at the shared 14px size. */
+/* Operational rows sit one rung below 14px content. Mono keeps their terminal
+   voice while the 13/20 metrics stop them overpowering prose. */
+.tool-title b, .tool-title small { font-family: var(--mx-font-mono); font-size: var(--mx-font-code); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); }
+/* Weight, not size, separates the primary tool label from its subtitle. */
 .tool-title b { font-weight: var(--mx-weight-medium); }
 /* Narrow windows: the title must ellipsize instead of shoving the elapsed
    readout/chevron sideways (user: fully narrowed, text invades the side).
@@ -3285,10 +3276,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   align-items: baseline;
   /* v0.9.66 reference presentation: a quiet plain summary line indented to
      the title column — no tree glyph. */
-  padding: 2px 8px 0 22px;
+  padding: 2px 8px 0 20px;
   font-family: var(--mx-font-mono);
   font-size: var(--mx-font-code);
-  line-height: var(--mx-line-minor);
+  line-height: var(--mx-line-ui);
   color: var(--mx-text-muted);
   /* Toggle smoothness (user: the summary "pops in from a weird spot"): a
      short fade-in settles the text in place; position stability itself comes
@@ -3407,7 +3398,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--mx-font-minor);
-  line-height: var(--mx-line-minor);
+  line-height: var(--mx-line-ui);
 }
 /* Transcript notices are a card, not bare text: without an inset the copy sat
    flush against the hairline and read as a broken quote block (user: 오류
@@ -3462,15 +3453,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex-direction: column;
   overflow: visible;
   gap: 8px;
-  font-size: var(--mx-font-emphasis);
-  line-height: var(--mx-line-emphasis);
-  /* Matches the settled status row exactly — 14px phrase, 12px meta — so
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  /* Matches the settled status row exactly — 13px phrase, 12px meta — so
      the line does not change weight the moment the turn finishes (user:
-     띵킹 스피너도 같이). The earlier drop to 400 was made while this band was
-     still muted grey, where 600 read as shouting; now that the phrase sits on
-     full ink with the accent sweep, the strong weight is what the settled
-     twin uses and the two states finally agree. */
-  font-weight: var(--mx-weight-body);
+     띵킹 스피너도 같이). The moving phrase and settled twin share the 500
+     operational-label step; only color and motion distinguish their state. */
+  font-weight: var(--mx-weight-medium);
 }
 /* Busy-band slot: no box at all while idle (display: contents keeps the
    thread's flex/gap grammar identical to the band being a direct child), but
@@ -3624,13 +3613,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   margin-right: 7px;
   color: var(--mx-text-faint);
 }
-.thinking-disclosure { max-width: 100%; color: var(--mx-text-muted); font-size: var(--mx-font-emphasis); font-weight: var(--mx-weight-body); }
+.thinking-disclosure { max-width: 100%; color: var(--mx-text-muted); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-medium); }
 .thinking-disclosure summary {
   width: max-content;
   border-radius: 4px;
   color: var(--mx-text-muted);
   cursor: pointer;
-  line-height: var(--mx-line-emphasis);
+  line-height: var(--mx-line-ui);
 }
 .thinking-disclosure summary:hover,
 .thinking-disclosure summary:focus-visible { color: var(--mx-text); background: var(--mx-hover); }
@@ -3647,8 +3636,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   box-shadow: none;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: var(--mx-font-emphasis);
-  line-height: var(--mx-line-emphasis);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
 }
 .turn-status.complete, .turn-status.success,
 .turn-status.failed, .turn-status.interrupted {
@@ -3661,22 +3651,18 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   justify-content: flex-start;
   gap: 7px;
   padding: 0;
-  line-height: var(--mx-line-emphasis);
-  font-size: var(--mx-font-emphasis);
-  font-weight: var(--mx-weight-body);
+  line-height: var(--mx-line-ui);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-medium);
 }
 .turn-status[data-animate="true"] {
   animation: transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1);
 }
 .turn-status.complete, .turn-status.success {
   color: var(--mx-text-soft);
-  /* The settled row and the running band are the SAME line at two moments, so
-     the SIZE never changes between them: 14px phrase, 12px meta.
-     Weight is where they differ, and it compensates: the running band is full
-     ink with a travelling shimmer, so 400 already reads; the settled row has
-     neither motion nor full ink, so it takes the strong weight to stay legible
-     (user: 좀 더 두껍게, 잘 보이게). Same ladder rung, opposite axis. */
-  font-weight: var(--mx-weight-body);
+  /* The settled row and running band are the same 13px operational line;
+     12px metadata remains the one quiet rung beneath them. */
+  font-weight: var(--mx-weight-medium);
 }
 /* Quiet TUI-style marker instead of a check badge (user): ◈ + phrase, both in
    NEUTRAL ink. A finished turn is history — colouring its text and mark was
@@ -3766,9 +3752,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border-radius: 0;
   color: var(--mx-accent);
   background: transparent;
-  font-size: var(--mx-font-emphasis);
+  font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-emphasis);
+  line-height: var(--mx-line-ui);
   cursor: pointer;
 }
 .turn-retry:hover:not(:disabled),
@@ -3791,11 +3777,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 12px 0;
   color: var(--mx-accent);
   background: transparent;
-  font-size: var(--mx-font-emphasis);
+  font-size: var(--mx-font-ui);
   /* Same status-label tier as the turn rows, the live band and the tab
      labels — compaction IS one of those state lines. */
-  font-weight: var(--mx-weight-body);
-  line-height: var(--mx-line-emphasis);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-ui);
 }
 .compaction-divider[data-animate="true"] {
   animation: transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1);
@@ -4015,13 +4001,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   /* Same single-face rule as .message-body: typed Korean+Latin must not mix
      Geist/Pretendard ink densities inside one sentence. */
   font-family: var(--mx-font-prose);
-  /* The typing surface must match what the message becomes: .message-body
-     renders the SAME text at 15px/450/24px, so a 400/22px composer made the
-     line subtly thicken and open up on submit (user: 크기가 다르게 느껴진다).
-     Size alone was matched before; weight and leading now follow. */
-  font-size: var(--mx-font-body);
+  /* The typing surface matches the submitted message exactly: one 14/22
+     content line at the same optical reading weight. */
+  font-size: var(--mx-font-emphasis);
   font-weight: var(--mx-weight-body);
-  line-height: var(--mx-line-body);
+  line-height: var(--mx-line-emphasis);
   letter-spacing: 0;
 }
 .composer textarea::placeholder { color: var(--mx-text-faint); }
@@ -9388,17 +9372,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* Plain-text stand-in while the lazy markdown chunk streams in. */
 .markdown-plain { white-space: pre-wrap; overflow-wrap: anywhere; }
 .markdown :not(pre) > code {
-  padding: 1px 4px;
+  padding: 0 3px;
   border-radius: 4px;
   color: var(--mx-text);
   /* Inline emphasis chips deepen with the bubble (same pressed tint). */
   background: var(--mx-pressed);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  /* The prose mono tier (14px), not the 13px chrome mono that read undersized
-     for the paths/tokens users scan. This was a relative .92em resolving to a
-     fractional 13.8px; the integer token hints consistently and matches the
-     fenced blocks in the same message. */
-  font-size: var(--mx-font-code-prose);
+  /* Mono has a larger optical body than Pretendard, so the 13px code tier
+     reads level with 14px prose instead of looking like oversized emphasis. */
+  font-size: var(--mx-font-code);
   overflow-wrap: anywhere;
 }
 /* Inside a heading the chip tracks the HEADING, not the prose. The absolute

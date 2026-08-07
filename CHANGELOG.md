@@ -5,11 +5,22 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Desktop transcript typography now separates content, operational status, and
+  metadata into a steadier hierarchy, while Fast uses a compact stateful icon.
+- Explorer retrieval now fans out every concrete locator facet once, preserves
+  returned paths verbatim, and stops bounded recovery instead of returning a
+  weak or reconstructed anchor.
 - Synchronous model-catalog reads no longer launch an implicit global network
   request. Session warmup remains the single owner of remote catalog I/O, so
   provider-injected transports stay hermetic on a cold installation.
 - The isolated release lane now prepares one verified native code-graph runtime
   explicitly instead of depending on an ambient binary left by an earlier job.
+- Intel macOS release assets use bounded, file-by-file HTTP/1.1 uploads with
+  remote completion checks and retries, preventing one stalled CLI transfer
+  from holding the entire release indefinitely.
+- Unpublished same-version release recovery now folds its accumulated notes
+  into that version before publishing instead of leaving shipped work marked
+  as Unreleased.
 
 ## v0.9.98 - 2026-08-07
 
