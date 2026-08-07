@@ -51,6 +51,7 @@ import {
 
 const CODE_GRAPH_BATCHABLE_MODES = new Set(['symbol', 'find_symbol', 'symbol_search', 'callers', 'callees', 'references']);
 const CODE_GRAPH_FILE_BATCHABLE_MODES = new Set(['imports', 'dependents', 'related', 'impact', 'symbols', 'overview']);
+const CODE_GRAPH_MAX_BATCH_SYMBOLS = 20;
 
 function _collectGraphSymbolList(args) {
   const split = (s) => String(s || '').split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
@@ -877,7 +878,8 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
           ? findSymbolTool(_stripEmptyArgs(a), effectiveCwd, signal, options)
           : codeGraph(a, effectiveCwd, signal, options));
         if (CODE_GRAPH_BATCHABLE_MODES.has(batchMode)) {
-          const symbolList = _collectGraphSymbolList(args);
+          const collectedSymbols = _collectGraphSymbolList(args);
+          const symbolList = collectedSymbols.slice(0, CODE_GRAPH_MAX_BATCH_SYMBOLS);
           if (symbolList.length > 1) {
             return (async () => {
               // Concurrent fan-out: the underlying graph build is single-flight
@@ -890,6 +892,12 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
                 catch (e) { body = `Error: ${e?.message || String(e)}`; }
                 return `# ${batchMode} ${sym}\n${body}`;
               }));
+              if (collectedSymbols.length > symbolList.length) {
+                sections.push(
+                  `[arg-guard] notice: symbol list capped at ${CODE_GRAPH_MAX_BATCH_SYMBOLS} `
+                    + `(${collectedSymbols.length - symbolList.length} omitted)`,
+                );
+              }
               return sections.join('\n\n');
             })();
           }
