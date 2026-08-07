@@ -12943,9 +12943,10 @@ test("model selector never presents an unknown persisted route as a selectable m
 });
 
 test("model control styles keep the reference compact geometry and bounded list", async () => {
-  const [css, themeCss] = await Promise.all([
+  const [css, themeCss, fastSource] = await Promise.all([
     readFile(new URL("./styles.css", import.meta.url), "utf8"),
     readFile(new URL("./desktop.css", import.meta.url), "utf8"),
+    readFile(new URL("./FastModeToggle.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(css, /\.model-picker-layer\s*\{[^}]*place-items:\s*center;/s);
   assert.match(css, /\.model-picker-dialog\s*\{[^}]*width:\s*min\(calc\(100vw - 16px\), 640px\);[^}]*height:\s*min\(calc\(var\(--vvh, 100vh\) - 16px\), 512px\);/s);
@@ -12960,6 +12961,9 @@ test("model control styles keep the reference compact geometry and bounded list"
   assert.match(themeCss,
     /\.fast-mode-toggle\.is-on\s*\{[^}]*color:\s*var\(--mx-text-accent\);/s,
     "enabled Fast must use Mixdog's blue accent");
+  assert.match(fastSource,
+    /<MxIcon name="zap" size=\{14\} fill=\{enabled \? 'currentColor' : 'none'\} \/>/,
+    "Fast must use a smaller outline glyph at rest and a filled glyph when enabled");
   assert.match(themeCss,
     /\.mx-select-root\.route-select \.mx-select-trigger > svg\s*\{[^}]*width:\s*var\(--mx-icon-sm\);[^}]*height:\s*var\(--mx-icon-sm\);/s,
     "route pickers must expose the shared compact chevron");

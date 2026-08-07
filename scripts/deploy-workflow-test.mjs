@@ -23,6 +23,9 @@ test('Deploy is the one-click release entry with incremental native workers', as
     /always\(\) && needs\.plan\.result == 'success' && needs\.prepare-app\.result == 'success'/);
   assert.match(deploy, /if gh release view "\$TAG"[\s\S]*Published tag \$\{TAG\} is immutable/);
   assert.match(deploy, /Moving unpublished recovery tag \$\{TAG\}/);
+  assert.match(deploy,
+    /const unreleasedPattern = \/\^## Unreleased[\s\S]*else if \(unreleasedBody\)[\s\S]*text\.replace\(versionHeading/,
+    'an unpublished same-version recovery must fold its notes into that release');
   for (const bump of ['patch', 'minor', 'major']) {
     assert.equal(
       packageJson.scripts[`release:${bump}`],
@@ -32,7 +35,10 @@ test('Deploy is the one-click release entry with incremental native workers', as
 });
 
 test('application release overlaps gates and publishes one exact hidden draft', async () => {
-  const release = await workflow('release.yml');
+  const [release, uploadScript] = await Promise.all([
+    workflow('release.yml'),
+    readFile(new URL('../.github/scripts/upload-release-assets.sh', import.meta.url), 'utf8'),
+  ]);
   assert.match(release, /validate:[\s\S]*fetch-depth:\s*0/);
   assert.match(release,
     /release-regressions:[\s\S]*group:\s*\[contracts,\s*providers,\s*compact,\s*session\]/);
@@ -68,7 +74,15 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.match(release, /name:\s*Stage npm package[\s\S]*actions\/upload-artifact/);
   assert.doesNotMatch(release, /name:\s*Stage (?:Windows|macOS|Linux)/);
   assert.doesNotMatch(release, /name:\s*Download staged desktop packages/);
-  assert.equal((release.match(/gh release upload/g) || []).length, 4);
+  assert.equal((release.match(/^\s*gh release upload/gm) || []).length, 3);
+  assert.match(release,
+    /matrix\.arch \}\}" == x64[\s\S]*upload-release-assets\.sh[\s\S]*gh release upload/);
+  assert.match(release, /RELEASE_ID:\s*\$\{\{ needs\.prepare-github-release\.outputs\.release_id \}\}/);
+  assert.match(uploadScript, /--http1\.1/);
+  assert.match(uploadScript, /--max-time 150/);
+  assert.match(uploadScript, /--header "Expect:"/);
+  assert.match(uploadScript, /for attempt in 1 2/);
+  assert.match(uploadScript, /remote_asset_is_complete/);
   assert.match(release, /name:\s*Verify complete hidden release/);
   assert.match(release, /Hidden release asset set is not exact/);
   assert.ok(
