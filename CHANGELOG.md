@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.97 - 2026-08-07
+
 - Session protocol 1 now carries an explicit compatibility index, allowing
   newer clients to reject older daemons while older clients can attach through
   the supported compatibility surface without parallel engine/backend stacks.
