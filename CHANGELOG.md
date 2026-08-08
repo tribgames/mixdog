@@ -5,6 +5,27 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Escape now recalls queued, still-unprocessed messages into the composer
+  before anything else — Claude Code's order — so a mid-turn Esc edits the
+  waiting follow-up instead of interrupting the turn; a second press still
+  cancels.
+- Workflows are pure working-style definitions: packs no longer carry an
+  agent roster. Every defined agent (built-in and custom) is available to any
+  delegating workflow, Solo stays delegation-free via `delegation: none`, and
+  deleting a custom agent removes it from every surface at once, including
+  spawn-by-name.
+- Settings → General gained independent Web search, Explorer, and Memory
+  toggles; Memory now gates the memory/recall tools plus core-memory
+  injection, while background memory cycles moved to Context as their own
+  switch.
+- Headless role runs and bench sessions start with explorer, web search, and
+  memory off (classic surface) and opt back in per run via flags or
+  MIXDOG_FEATURE_* variables.
+- The shared tool policy drops the mandatory post-edit verification round,
+  takes the cheapest sufficient evidence per lookup, and defines explore as a
+  plain source search over source trees and files with one concrete target per
+  query.
+
 ## v0.9.100 - 2026-08-07
 
 - Context command styling no longer depends on opening Settings first or
