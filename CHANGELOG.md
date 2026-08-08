@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Maintenance version bump; no functional changes over v0.9.101.
+
 ## v0.9.101 - 2026-08-08
 
 - Escape now recalls queued, still-unprocessed messages into the composer
