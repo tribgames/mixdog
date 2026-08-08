@@ -309,8 +309,10 @@ function num(v) {
 const USD_PER_1M = {
   'gpt-5.5': { in: 5.00, cachedIn: 0.50, out: 30.00 },
   'gpt-5.6-sol': { in: 5.00, cachedIn: 0.50, out: 30.00 },
-  'gpt-5.6-terra': { in: 2.50, cachedIn: 0.25, out: 15.00 },
-  'gpt-5.6-luna': { in: 1.00, cachedIn: 0.10, out: 6.00 },
+  // Official list prices — keep in lockstep with
+  // benchmarks/terminal-bench-2.1/harness/cost-exact.mjs RATES.
+  'gpt-5.6-terra': { in: 2.00, cachedIn: 0.20, out: 12.00 },
+  'gpt-5.6-luna': { in: 0.20, cachedIn: 0.02, out: 1.20 },
   'claude-sonnet-5': { in: 2.00, cachedIn: 0.20, out: 10.00 },
   'claude-fable-5': { in: 5.00, cachedIn: 0.50, out: 25.00 },
 };
