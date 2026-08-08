@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.102 - 2026-08-08
+
 - Maintenance version bump; no functional changes over v0.9.101.
 
 ## v0.9.101 - 2026-08-08
