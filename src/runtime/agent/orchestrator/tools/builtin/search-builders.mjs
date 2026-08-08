@@ -175,6 +175,7 @@ export function buildListCacheKey(parts) {
         modifiedAfter,
         modifiedBefore,
         includeNoise,
+        meta,
     } = parts;
     return [
         'list',
@@ -192,5 +193,6 @@ export function buildListCacheKey(parts) {
         modifiedAfter || '',
         modifiedBefore || '',
         includeNoise ? 'n1' : 'n0',
+        meta ? 'm1' : 'm0',
     ].join('|');
 }

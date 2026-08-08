@@ -4,7 +4,10 @@ import { readFile } from 'node:fs/promises';
 
 import { classifyPromptEscape } from '../src/tui/components/prompt-input/escape-policy.mjs';
 import { promptInterruptRestoreText } from '../src/tui/components/prompt-input/interrupt-policy.mjs';
-import { mergeQueuedRestoreText } from '../src/tui/components/prompt-input/restore-policy.mjs';
+import {
+  mergeQueuedRestoreDraft,
+  mergeQueuedRestoreText,
+} from '../src/tui/components/prompt-input/restore-policy.mjs';
 import {
   isAnyModifiedEnterSequence,
   isModifiedEnterSequence,
@@ -35,16 +38,15 @@ test('idle non-empty Esc requires a second press while idle empty Esc reaches qu
   );
 });
 
-test('Claude-compatible queue restore precedes draft clearing AND active cancel (CC pops the queue first)', () => {
+test('Claude-compatible active cancellation precedes queued-message editing', () => {
   assert.deepEqual(
     classifyPromptEscape({ hasQueuedMessages: true, value: 'current draft' }),
     { action: 'restore-queue', nextClearPressAt: 0 },
   );
   assert.deepEqual(
     classifyPromptEscape({ interruptActive: true, hasQueuedMessages: true, value: 'current draft' }),
-    { action: 'restore-queue', nextClearPressAt: 0 },
+    { action: 'interrupt', nextClearPressAt: 0 },
   );
-  // With the queue drained, the next Esc reaches the interrupt as before.
   assert.deepEqual(
     classifyPromptEscape({ interruptActive: true, hasQueuedMessages: false, value: 'current draft' }),
     { action: 'interrupt', nextClearPressAt: 0 },
@@ -65,6 +67,18 @@ test('queued restore rebases delayed daemon text onto the latest local draft', (
     'queued follow-up\ntyped while restore settles',
   );
   assert.equal(mergeQueuedRestoreText('', 'latest draft'), 'latest draft');
+  assert.deepEqual(
+    mergeQueuedRestoreDraft('queued follow-up', {
+      value: 'latest draft',
+      cursor: 6,
+      selectionAnchor: null,
+    }),
+    {
+      value: 'queued follow-up\nlatest draft',
+      cursor: 'queued follow-up\n'.length + 6,
+      selectionAnchor: null,
+    },
+  );
 });
 
 test('empty-draft double Esc opens the message selector only when a conversation exists', () => {

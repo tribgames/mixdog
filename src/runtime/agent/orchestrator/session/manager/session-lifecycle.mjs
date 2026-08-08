@@ -210,7 +210,12 @@ export function createSession(opts) {
     // what narrow retrieval roles need. Role docs (e.g. 30-explorer.md)
     // override role-inapplicable entries such as the explore routing row.
     const injectedRules = skipAgentRules ? '' : _buildSharedRules();
-    const roleRules = skipAgentRules ? '' : (ownerIsAgent ? _buildAgentRules(agentRulesProfile) : _buildLeadRules());
+    const delegationFree = !ownerIsAgent && workflowDisallowsAgentTool(opts.workflow);
+    const roleRules = skipAgentRules
+        ? ''
+        : (ownerIsAgent
+            ? _buildAgentRules(agentRulesProfile)
+            : _buildLeadRules({ includeLeadBrief: !delegationFree }));
     const metaContext = skipAgentRules ? '' : (ownerIsAgent ? '' : _buildLeadMetaContext());
     // Prompt permission is metadata for the write bundle, but a read-only role
     // is stamped BEFORE the toolSpec decision so its schema ships the narrowed

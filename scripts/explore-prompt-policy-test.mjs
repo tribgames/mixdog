@@ -208,20 +208,25 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   assert.doesNotMatch(policy, /process\/env, git, build\/run\/test→`shell`|Call `shell` only when/i);
   assert.doesNotMatch(policy, /Never use shell equivalents/i);
   const shellDescription = BUILTIN_TOOLS.find((tool) => tool.name === 'shell')?.description || '';
-  assert.match(shellDescription, /Executable\/runtime\/state evidence only — never a file-exploration segment anywhere in a command, alone, chained, or piped/i);
+  assert.match(shellDescription, /Executable\/runtime\/state evidence only — never a file-exploration segment anywhere in a command/i);
   assert.match(shellDescription, /NOT ls\/find\/cat\/head\/tail\/grep\/rg\/sed — the dedicated file tools cover those/i);
   assert.match(shellDescription, /Chain dependent commands with &&/i);
+  const descOf = (name) => BUILTIN_TOOLS.find((tool) => tool.name === name)?.description || '';
+  assert.match(descOf('list'), /Replaces ls; meta:true adds size\/mtime\/mode\./);
+  assert.match(descOf('read'), /Replaces cat\/head\/tail\./);
+  assert.match(descOf('grep'), /Replaces grep\/rg\./);
+  assert.match(descOf('glob'), /Replaces find -name\./);
   assert.match(policy, /explicit paths may be outside cwd/i);
   // 3. Retrieval fans out maximally, while execution and mutation retain
   // their own phase boundary.
   assert.match(policy, /`explore`, when exposed, is a fast path only[\s\S]*call it first once for all such independent facets in one query array[\s\S]*minimal complete direct `path:line` anchors[\s\S]*resume baseline routing from those anchors/i);
   assert.match(policy, /Baseline routing assigns each facet directly by the evidence needed/i);
   assert.match(policy, /before each retrieval batch[\s\S]*extract every independent evidence facet[\s\S]*deduplicate overlap[\s\S]*assign exactly ONE routed tool per facet[\s\S]*launch all independent retrieval calls together in one maximum-fanout turn — independence alone decides batching[\s\S]*Never add `shell`, `apply_patch`, or another mutation call merely to widen a retrieval batch[\s\S]*Never duplicate a retrieval facet through another tool[\s\S]*reserve known work[\s\S]*serialize independent retrieval calls[\s\S]*cap facet count/i);
-  assert.match(policy, /Once the edit is determined[\s\S]*one assistant turn[\s\S]*one `apply_patch` per file or cohesive unit[\s\S]*all patches first[\s\S]*one batched verification `shell` when needed[\s\S]*runtime waits for patches[\s\S]*Retry only failed envelopes[\s\S]*Create or edit text only with `apply_patch`, never `shell`[\s\S]*A passing check is final[\s\S]*Earlier `shell` is only for[\s\S]*executable\/runtime\/state evidence[\s\S]*Never expand or repeat a conclusive state result/i);
+  assert.match(policy, /Once the edit is determined[\s\S]*one assistant turn[\s\S]*one `apply_patch` per file or cohesive unit[\s\S]*all patches first[\s\S]*one batched verification `shell` when needed — it runs after the patches apply[\s\S]*Retry only failed envelopes[\s\S]*Create or edit text only with `apply_patch`, never `shell`[\s\S]*A passing check is final[\s\S]*Earlier `shell` is only for[\s\S]*executable\/runtime\/state evidence[\s\S]*Never expand or repeat a conclusive state result/i);
   assert.doesNotMatch(policy, /before every tool batch|whatever the tool|every turn, widest probe to last|one `apply_patch` for all edits and one `shell` chain|otherwise finish without it|Prefer parallel calls when independent|risk-proportionate|rerun only failures|zero\/error or a newly revealed dependency|cross-scope verification/i);
   assert.match(policy, /Take the cheapest sufficient evidence per facet[\s\S]*symbol relations end at `code_graph`[\s\S]*values\/locations end at the context grep returns[\s\S]*`read` covers only what returned spans cannot[\s\S]*anchored offset\/limit window[\s\S]*never a full-file read when a window suffices/i);
   assert.match(policy, /adjacent context around an edit point counts as needed evidence[\s\S]*The moment evidence determines the edit, stop retrieving and patch/i);
-  assert.match(policy, /Never duplicate a retrieval facet through another tool or re-issue it broadened[\s\S]*one call per facet carries every credible pattern variant and scope/i);
+  assert.match(policy, /Never duplicate a retrieval facet through another tool or `shell` segment, or re-issue it broadened[\s\S]*one call per facet carries every credible pattern variant and scope/i);
   assert.match(policy, /A passing check is final — finish without re-reading edits/i);
   assert.match(policy, /Never expand or repeat a conclusive state result[\s\S]*output is required to form the next call/i);
   const leadToolPolicy = readFileSync(new URL('../src/rules/lead/lead-tool.md', import.meta.url), 'utf8');

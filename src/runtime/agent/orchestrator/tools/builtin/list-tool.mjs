@@ -86,6 +86,19 @@ function displayRelPath(entPath, rootPath) {
     return normalizeOutputPath(rel);
 }
 
+// `meta` column renderers: compact `ls -l` equivalents (size bytes,
+// second-precision UTC mtime, octal permission bits). Stat-failed entries
+// render `?` so a denied/hung lstat is visible instead of masquerading as an
+// empty epoch-zero file.
+function _metaMtimeIso(mtimeMs) {
+    if (!(mtimeMs > 0)) return '?';
+    return new Date(mtimeMs).toISOString().slice(0, 19) + 'Z';
+}
+function _metaModeOctal(mode) {
+    if (!(mode > 0)) return '?';
+    return (mode & 0o7777).toString(8).padStart(3, '0');
+}
+
 export async function executeListTool(args, workDir, options = {}) {
     args.path = coerceReadFamilyPathArg(args.path, workDir);
     if (Array.isArray(args.path)) {
@@ -144,6 +157,7 @@ export async function executeListTool(args, workDir, options = {}) {
     const offset = typeof args.offset === 'number' && args.offset > 0 ? args.offset : 0;
     const needsGlobalStat = sort === 'mtime' || sort === 'size';
     const includeNoise = Boolean(args.include_noise);
+    const meta = Boolean(args.meta);
     const _listGuard = listGuardPath(inputPath);
     if (_listGuard) return _listGuard;
     const fullPath = resolveAgainstCwd(inputPath, workDir);
@@ -159,6 +173,7 @@ export async function executeListTool(args, workDir, options = {}) {
         headLimit,
         offset,
         includeNoise,
+        meta,
     });
     const cached = cacheGet(cacheKey);
     if (cached !== null) return cached;
@@ -200,6 +215,7 @@ export async function executeListTool(args, workDir, options = {}) {
                 type: entType,
                 size: 0,
                 mtimeMs: 0,
+                mode: 0,
                 fullPath: entPath,
             });
             if (rows.length >= LIST_ABSOLUTE_CAP) {
@@ -220,6 +236,7 @@ export async function executeListTool(args, workDir, options = {}) {
             if (!item?.stat) continue;
             rows[i].size = item.size;
             rows[i].mtimeMs = item.mtimeMs;
+            rows[i].mode = item.stat.mode;
         }
     }
 
@@ -229,10 +246,25 @@ export async function executeListTool(args, workDir, options = {}) {
 
     const windowed = offset > 0 ? rows.slice(offset) : rows;
     const sliced = headLimit > 0 ? windowed.slice(0, headLimit) : windowed;
-    // Paths and entry types are the list contract. Size/mtime columns were
-    // neither exposed in the model schema nor used by routing, yet consumed
-    // roughly 28–40% of live list output and forced a stat per visible entry.
-    const lines = sliced.map(r => `${displayRelPath(r.path, fullPath)}\t${r.type}`);
+    // Paths and entry types are the default list contract; size/mtime/mode
+    // stat columns are opt-in via `meta` so the `ls -la` metadata surface has
+    // a first-class home without taxing every listing. Meta-only requests
+    // stat just the visible window (a global stat already ran for
+    // mtime/size sorts); `sliced` shares row objects with `rows`, so the
+    // assignments land on the rendered entries.
+    if (meta && !needsGlobalStat && sliced.length > 0) {
+        const stats = await lstatPathsForMtime(sliced.map((row) => row.fullPath), workDir, 64, { deadlineMs: 5000 });
+        for (let i = 0; i < sliced.length; i++) {
+            const item = stats[i];
+            if (!item?.stat) continue;
+            sliced[i].size = item.size;
+            sliced[i].mtimeMs = item.mtimeMs;
+            sliced[i].mode = item.stat.mode;
+        }
+    }
+    const lines = sliced.map(r => meta
+        ? `${displayRelPath(r.path, fullPath)}\t${r.type}\t${r.size}\t${_metaMtimeIso(r.mtimeMs)}\t${_metaModeOctal(r.mode)}`
+        : `${displayRelPath(r.path, fullPath)}\t${r.type}`);
     if (windowed.length > sliced.length) lines.push(`... [entries ${offset + 1}-${offset + sliced.length} of ${rows.length}; pass offset:${offset + sliced.length} to continue]`);
     if (truncatedByCap) lines.push(`... walk truncated at ${LIST_ABSOLUTE_CAP} rows or ${LIST_WALK_TIMEOUT_MS}ms timeout; narrow the path or lower depth for a complete listing`);
     let emptyMsg = '(empty directory)';
