@@ -1,7 +1,7 @@
 import fs from "node:fs"; import path from "node:path";
 // usage: node watch-detail.mjs [dirPrefix] [opus|sol] [baseline.json]
 const prefix=process.argv[2]||"jobs-full-opus5-clean-";
-const mixR=(process.argv[3]||"opus")==="sol"?{in:5,cr:0.5,cw:0,out:30}:{in:5,cr:0.5,cw:10,out:25};
+const mixR=(process.argv[3]||"opus")==="sol"?{in:5,cr:0.5,cw:6.25,out:30,family:"openai"}:{in:5,cr:0.5,cw:10,out:25,family:"anthropic"};
 const ccR={in:5,cr:0.5,cw:10,out:25};
 const jd=fs.readdirSync(".").filter(n=>n.startsWith(prefix)).sort().pop();
 if(!jd){console.log("no jobs dir yet for prefix "+prefix);process.exit(0)}
@@ -11,9 +11,13 @@ const base=path.join(jd,sub);
 const bp=process.argv[4]||"cc-baseline.json";
 const cb=fs.existsSync(bp)?JSON.parse(fs.readFileSync(bp,"utf8")):{};
 const cost=(u,R)=>(u.unc*R.in+u.cr*R.cr+u.cw*R.cw+u.out*R.out)/1e6;
-// haiku = explorer lane: 5-min cache (1.25x write). Lead lanes (opus/fable): 1h cache (2x write).
-const RATES={haiku:{in:1,cr:0.1,cw:1.25,out:5},luna:{in:1,cr:0.1,cw:0,out:6},terra:{in:2.5,cr:0.25,cw:0,out:15},sol:{in:5,cr:0.5,cw:0,out:30},opus:{in:5,cr:0.5,cw:10,out:25},fable:{in:5,cr:0.5,cw:10,out:25}};
+// Official list prices. haiku = explorer lane: 5-min cache (1.25x write).
+// Lead lanes (opus/fable): 1h cache (2x write). GPT-5.6 writes 1.25x input
+// (oauth mirror reports no cache_write_tokens — openai costs are lower bounds).
+// family: openai usage inputTokens = uncached+cached; anthropic = uncached.
+const RATES={haiku:{in:1,cr:0.1,cw:1.25,out:5,family:"anthropic"},luna:{in:0.2,cr:0.02,cw:0.25,out:1.2,family:"openai"},terra:{in:2,cr:0.2,cw:2.5,out:12,family:"openai"},sol:{in:5,cr:0.5,cw:6.25,out:30,family:"openai"},opus:{in:5,cr:0.5,cw:10,out:25,family:"anthropic"},fable:{in:5,cr:0.5,cw:10,out:25,family:"anthropic"}};
 const rateFor=(m)=>{m=String(m||"").toLowerCase();for(const k of Object.keys(RATES))if(m.includes(k))return RATES[k];return mixR};
+const uncFor=(R,inp,cached)=>R.family==="openai"?Math.max((inp||0)-(cached||0),0):(inp||0);
 let agg={t:0,cr:0,c:0},cagg={t:0,cr:0,c:0},n=0,pass=0,done=0,inflight=[],fails=[];
 let finSum=0,finN=0;
 const rowsOut=[],slower=[],costlier=[],ctxWorse=[],strong=[],par=[],weak=[];
@@ -31,9 +35,9 @@ for(const tr of fs.readdirSync(base).sort()){
  try{
   const ud=JSON.parse(fs.readFileSync(path.join(base,tr,"agent","usage.json"),"utf8"));
   const u=ud.totals;
-  mu={unc:u.inputTokens,cr:u.cacheTokens,cw:u.cacheWriteTokens,out:u.outputTokens};
+  mu={unc:uncFor(mixR,u.inputTokens,u.cacheTokens),cr:u.cacheTokens,cw:u.cacheWriteTokens,out:u.outputTokens};
   if(Array.isArray(ud.sessions)&&ud.sessions.length)mu.cr=ud.sessions.filter(x=>x.agentRole!=="explorer").reduce((s,x)=>s+(x.cacheTokens||0),0);
-  muC=Array.isArray(ud.sessions)&&ud.sessions.length?ud.sessions.reduce((s,x)=>s+cost({unc:x.inputTokens||0,cr:x.cacheTokens||0,cw:x.cacheWriteTokens||0,out:x.outputTokens||0},rateFor((x.models||[])[0])),0):cost(mu,mixR);
+  muC=Array.isArray(ud.sessions)&&ud.sessions.length?ud.sessions.reduce((s,x)=>{const R=rateFor((x.models||[])[0]);return s+cost({unc:uncFor(R,x.inputTokens,x.cacheTokens),cr:x.cacheTokens||0,cw:x.cacheWriteTokens||0,out:x.outputTokens||0},R)},0):cost(mu,mixR);
   const st=JSON.parse(fs.readFileSync(path.join(base,tr,"agent","session-transcript.json"),"utf8"));
   turns=st.lastIterationIndex||"?";
   mu.fin=Number(st.lastContextTokens)||null;

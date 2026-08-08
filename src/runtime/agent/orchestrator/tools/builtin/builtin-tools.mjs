@@ -74,7 +74,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Mixdog Shell',
         annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run a shell command. ${TOOL_ASYNC_EXECUTION_CONTRACT}`,
+        description: `Run a shell command. ${TOOL_ASYNC_EXECUTION_CONTRACT} Never a substitute for the file-discovery/content-retrieval tools. Chain dependent commands with &&.`,
         inputSchema: {
             type: 'object',
             properties: {
