@@ -2448,7 +2448,7 @@ const grepGlobDescription = grepTool?.inputSchema?.properties?.glob?.description
 const grepOutputModeDescription = grepTool?.inputSchema?.properties?.output_mode?.description || '';
 const grepHeadLimitDescription = grepTool?.inputSchema?.properties?.head_limit?.description || '';
 const grepContextDescription = grepTool?.inputSchema?.properties?.context?.description || '';
-if (!/pattern\[\] batches variants/i.test(grepPatternDescription) || !/File\/dir scope/i.test(grepPathDescription)) {
+if (!/pattern\[\] batches exact query literals and identifier variants/i.test(grepPatternDescription) || !/File\/dir scope/i.test(grepPathDescription)) {
   throw new Error('grep schema must keep compact pattern/path guidance');
 }
 // Contract-only description: routing/verification policy lives in
@@ -2480,7 +2480,7 @@ if (!/Match glob patterns/i.test(globTool?.description || '')) {
 }
 // Contract-only description: guessed-fragment/verified-root routing policy
 // lives in src/rules/shared/01-tool.md.
-if (!/Fuzzy partial path\/name lookup/i.test(findTool?.description || '') || !/returns paths only/i.test(findTool?.description || '')) {
+if (!/Fuzzy filename\/directory path-string lookup/i.test(findTool?.description || '') || !/returns paths only/i.test(findTool?.description || '')) {
   throw new Error('find description must state its fuzzy path-lookup contract');
 }
 if (!/across the call/i.test(findHeadLimitDescription) || !/Defaults to 25/i.test(findHeadLimitDescription)) {
