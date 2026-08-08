@@ -5,6 +5,18 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Desktop navigation, composer, Studio, settings, and transcript surfaces now
+  share a tighter responsive layout, with stronger virtual-scroll following,
+  local-file handling, and expanded DOM regression coverage.
+- The remote renderer ships as an installable web app with a stable manifest,
+  icon, and network-only service worker, while the relay serves those assets
+  with the required manifest and service-worker content types.
+- Solo execution no longer carries obsolete debugger, scheduler-task, or
+  webhook-handler agent definitions and removes their stale routing/cache
+  protocol, keeping built-in services separate from editable custom agents.
+- Hosted Codex image generation explicitly selects the image tool for supported
+  models, with focused request-body coverage.
+
 ## v0.9.102 - 2026-08-08
 
 - Maintenance version bump; no functional changes over v0.9.101.

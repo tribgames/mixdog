@@ -8657,6 +8657,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 @media (max-width: 760px) {
   .desktop-body { padding-inline: 0; }
   .workspace { border-radius: 0; }
+  .studio-header { display: flex; }
+  .session-header-menu { display: grid; place-items: center; margin: 0 2px 0 -6px; }
   /* Narrow layouts retain the same desktop chrome and only fold panels. */
   .main-panel { flex-direction: column; }
   /* ONE fixed frame owns geometry, motion, shadow and ring.

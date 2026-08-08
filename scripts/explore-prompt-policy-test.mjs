@@ -195,6 +195,7 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   assert.doesNotMatch(policy, /Never use shell equivalents/i);
   const shellDescription = BUILTIN_TOOLS.find((tool) => tool.name === 'shell')?.description || '';
   assert.match(shellDescription, /Never a substitute for the file-discovery\/content-retrieval tools/i);
+  assert.match(shellDescription, /NOT ls\/find\/cat\/head\/tail\/grep\/rg\/sed — use the dedicated file tools/i);
   assert.match(shellDescription, /Chain dependent commands with &&/i);
   assert.match(policy, /explicit paths may be outside cwd/i);
   // 3. One shared maximum-fanout contract governs every tool batch —
