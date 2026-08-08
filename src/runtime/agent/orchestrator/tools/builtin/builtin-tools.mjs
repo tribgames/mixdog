@@ -74,7 +74,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Mixdog Shell',
         annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run a shell command. ${TOOL_ASYNC_EXECUTION_CONTRACT} Never a substitute for the file-discovery/content-retrieval tools. Chain dependent commands with &&.`,
+        description: `Run a shell command. ${TOOL_ASYNC_EXECUTION_CONTRACT} Never a substitute for the file-discovery/content-retrieval tools: NOT ls/find/cat/head/tail/grep/rg/sed — use the dedicated file tools. Chain dependent commands with &&.`,
         inputSchema: {
             type: 'object',
             properties: {

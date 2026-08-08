@@ -372,7 +372,12 @@ export const ModelSelector = memo(function ModelSelector({
       fastWasDisabled.current = true;
       fastFocusMovedWhileDisabled.current = false;
       const trackFocus = (event: FocusEvent) => {
-        if (event.target !== fastControl.current?.querySelector('button')) {
+        // Disabling the focused button can move focus to the document body
+        // without user intent. Preserve the restore request for that browser
+        // fallback, but respect any explicit move to another control.
+        if (event.target !== document.body
+          && event.target !== document.documentElement
+          && event.target !== fastControl.current?.querySelector('button')) {
           fastFocusMovedWhileDisabled.current = true;
         }
       };

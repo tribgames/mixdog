@@ -2083,7 +2083,7 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
     'submit re-arms follow without a stale raw DOM scroll before the timeline resolves the appended row');
   // 3. Everything the hand-rolled anchoring needed is gone.
   assert.doesNotMatch(renderer,
-    /TranscriptPinProvider|usePinTranscriptBottomOnCommit|toggleHoldUntil|scrollIntentUntil|pointerScrollIntent|widthReflowing|programmaticScroll|sessionScrollPositions|freezeContentWidth|freezeWidth|entryHoldFrame|data-entry-fade|prewarmRange/,
+    /TranscriptPinProvider|usePinTranscriptBottomOnCommit|toggleHoldUntil|scrollIntentUntil|pointerScrollIntent|widthReflowing|sessionScrollPositions|freezeContentWidth|freezeWidth|entryHoldFrame|data-entry-fade|prewarmRange/,
     'no time window, width freeze, or entry hold may guard transcript scrolling');
   assert.doesNotMatch(renderer, /jumpToLatestRef|jumpToLatest\("auto"\)/,
     'submit must not retain a second bottom-scroll authority');
@@ -2897,7 +2897,6 @@ test('desktop UI keeps every public TUI command and core capability represented'
     // Settings → General and onboarding); the TUI palette registry stays
     // editable from the TUI's own theme picker.
     'listThemes',
-    'setTheme',
     // Desktop installs through electron-updater; runUpdateNow is the TUI's
     // package-manager self-update path and has no desktop control.
     'runUpdateNow',

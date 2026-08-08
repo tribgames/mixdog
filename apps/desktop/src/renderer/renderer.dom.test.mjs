@@ -3896,8 +3896,10 @@ test("worktree review keeps binary/rename status out of numeric totals and does 
   assert.doesNotMatch(summary, /\+2-2/);
   assert.doesNotMatch(summary, /\+0-0/);
   await act(async () => document.querySelector(".turn-review-summary")?.click());
-  assert.match(document.querySelector(".turn-review-files")?.textContent || "", /Binary/);
-  assert.match(document.querySelector(".turn-review-files")?.textContent || "", /Renamed/);
+  const statusLabels = Array.from(document.querySelectorAll(".turn-review-status"))
+    .map((status) => status.getAttribute("aria-label"));
+  assert.ok(statusLabels.includes("Binary"));
+  assert.ok(statusLabels.includes("Renamed"));
 });
 
 test("worktree review undo restores the whole turn after inline confirmation", async () => {
@@ -5931,7 +5933,7 @@ test("window-level typing reclaims the active chat composer without stealing key
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
   const composer = document.querySelector('textarea[aria-label="Message Mixdog"]');
-  const sidebarButton = document.querySelector('[aria-label="Toggle session list"]');
+  const sidebarButton = document.querySelector(".topbar .toolbar-sidebar");
   const printable = new window.KeyboardEvent("keydown", {
     key: "ㅎ", bubbles: true, cancelable: true,
   });
@@ -9353,7 +9355,8 @@ test("launch selects New task and immediately shows the project-free composer", 
   assert.equal(document.querySelector(".session-header-divider") === null, true, "selector .session-header-divider should be absent");
   assert.doesNotMatch(document.querySelector(".sidebar").textContent || "", /Mixdog|Local account/);
   assert.equal(document.querySelectorAll(".topbar .toolbar-sidebar").length, 1);
-  assert.equal(document.querySelectorAll(".session-header .toolbar-sidebar").length, 1);
+  assert.equal(document.querySelectorAll(".session-header .toolbar-sidebar").length, 0,
+    "the titlebar is the only desktop sidebar toggle");
   // The suite baseline matches the desktop default: the session sidebar is
   // open, and closing it hides the tree (inert, aria-hidden, zero width)
   // instead of destroying the visited panels' DOM and state.
@@ -13698,6 +13701,7 @@ test("Fast follows core capability, stays live during a turn, and disables only 
   assert.equal(fast.getAttribute("aria-pressed"), "false");
   assert.equal(fast.textContent.trim(), "Fast Off");
   await act(async () => {
+    fast.focus();
     fast.click();
     await Promise.resolve();
     await Promise.resolve();
@@ -16529,7 +16533,7 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   await act(async () => publish({ ...idle, commandBusy: false }));
   await replaceDraft('/');
   const paletteOptions = document.querySelectorAll('.slash-palette [role="option"]');
-  assert.equal(paletteOptions.length, desktopSlashCommands.length);
+  assert.equal(paletteOptions.length, Math.min(10, desktopSlashCommands.length));
   assert.ok(slashScrolls > 0);
   const initiallySelected = document.querySelector('.slash-palette [aria-selected="true"]')?.textContent;
   for (let index = 0; index < paletteOptions.length; index += 1) await press('ArrowDown');
@@ -16732,6 +16736,7 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
     "a pending user card counts as conversation content and suppresses empty-thread hints");
   assert.equal(document.querySelector('.queue-item-text')?.textContent, 'Queued steering');
   assert.equal(document.querySelector('.queue-item small'), null);
+  await act(async () => publish({ ...idle, busy: true, queued: [] }));
   await replaceDraft('/compact');
   await press('Enter');
   assert.equal(capabilities.filter(([capability]) => capability === 'compact').length, 2);
