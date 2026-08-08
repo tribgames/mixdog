@@ -26,8 +26,7 @@ const _rulesBuilder = (() => {
 let _sharedRulesCache = null;
 let _sharedRulesMtime = 0;
 const _agentRulesCacheByProfile = new Map();
-let _leadRulesCache = null;
-let _leadRulesMtime = 0;
+const _leadRulesCacheByDelegation = new Map();
 let _leadMetaCache = null;
 let _leadMetaMtime = 0;
 
@@ -74,7 +73,7 @@ export function _buildAgentRules(profile = 'full') {
     }
 }
 
-export function _buildLeadRules() {
+export function _buildLeadRules({ includeLeadBrief = true } = {}) {
     if (!_rulesBuilder || typeof _rulesBuilder.buildLeadRoleContent !== 'function') return '';
     const PLUGIN_ROOT = mixdogRoot();
     const DATA_DIR = resolvePluginData();
@@ -83,13 +82,14 @@ export function _buildLeadRules() {
         join(RULES_DIR, 'lead'),
         join(DATA_DIR, 'mixdog-config.json'),
     ]);
-    if (_leadRulesCache !== null && mtime <= _leadRulesMtime) {
-        return _leadRulesCache;
+    const key = includeLeadBrief ? 'delegating' : 'delegation-free';
+    const cached = _leadRulesCacheByDelegation.get(key);
+    if (cached && mtime <= cached.mtime) {
+        return cached.value;
     }
     try {
-        const built = _rulesBuilder.buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR });
-        _leadRulesCache = built;
-        _leadRulesMtime = mtime;
+        const built = _rulesBuilder.buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR, includeLeadBrief });
+        _leadRulesCacheByDelegation.set(key, { mtime, value: built });
         return built;
     } catch (e) {
         throw new Error(`[session] lead role rules build failed: ${e.message}`);

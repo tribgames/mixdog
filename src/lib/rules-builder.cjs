@@ -20,7 +20,7 @@
  * Source files (rules/):
  *   - shared/01-tool.md              — universal tool policy (Lead + agent BP1, identical full set)
  *   - lead/lead-tool.md             — Lead-specific control-tower / delegation / ToolSearch guidance
- *   - lead/lead-brief.md            — Lead brief contract (skipped in solo workflow)
+ *   - lead/lead-brief.md            — Lead brief contract (delegating workflows only)
  *   - lead/01-general.md             — Lead general
  *   - output-styles/<name>.md        — Lead output style, selected by config outputStyle
  *   - agent/00-core.md               — universal agent constraints (BP2, all profiles)
@@ -190,7 +190,7 @@ function buildSharedToolContent({ PLUGIN_ROOT }) {
   return readOptional(path.join(SHARED_DIR, '01-tool.md'));
 }
 
-function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR }) {
+function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR, includeLeadBrief = true }) {
   const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');
   const LEAD_DIR = path.join(RULES_DIR, 'lead');
   const general = readOptional(path.join(LEAD_DIR, '01-general.md'));
@@ -199,15 +199,7 @@ function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR }) {
   const toolLead = readOptional(path.join(LEAD_DIR, 'lead-tool.md'));
   if (toolLead) parts.push(toolLead);
 
-  // Solo workflow forbids delegation, so the agent-brief contract is dead
-  // weight there. Cache safety: lead rules cache keys on mixdog-config.json
-  // mtime, so switching workflow rebuilds this block.
-  const workflowActive = String(
-    (readConfigSection(DATA_DIR, 'agent').workflow || {}).active
-      || readConfigSection(DATA_DIR, 'workflow').active
-      || 'default',
-  ).trim().toLowerCase();
-  if (workflowActive !== 'solo') {
+  if (includeLeadBrief) {
     const briefLead = readOptional(path.join(LEAD_DIR, 'lead-brief.md'));
     if (briefLead) parts.push(briefLead);
   }

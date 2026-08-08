@@ -358,6 +358,20 @@ function assertOk(name, result, pattern = null) {
 const listOut = await executeBuiltinTool('list', { path: 'scripts', head_limit: 20 }, root);
 assertOk('list', listOut, /smoke\.mjs/);
 
+// list meta: opt-in stat columns (size bytes, UTC mtime, octal mode) close
+// the `ls -la` metadata gap while the default contract stays path + type.
+const listMetaOut = await executeBuiltinTool('list', { path: 'scripts', head_limit: 0, meta: true }, root);
+assertOk('list meta', listMetaOut, /smoke\.mjs\tfile\t\d+\t\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\t[0-7]{3,4}/);
+
+// list hidden: dotfiles are opt-in via the exposed `hidden` flag (`ls -a`
+// parity); default listings keep them filtered.
+const listHiddenOut = await executeBuiltinTool('list', { path: '.', hidden: true, head_limit: 0 }, root);
+assertOk('list hidden', listHiddenOut, /\.gitignore\tfile/);
+const listRootDefaultOut = await executeBuiltinTool('list', { path: '.', head_limit: 0 }, root);
+if (/\.gitignore\tfile/.test(listRootDefaultOut)) {
+  throw new Error('default list must keep dotfiles filtered (hidden defaults false)');
+}
+
 const grepOut = await executeBuiltinTool('grep', {
   pattern: ['standalone mixdog CLI/TUI coding agent', 'smoke passed'],
   path: 'scripts',

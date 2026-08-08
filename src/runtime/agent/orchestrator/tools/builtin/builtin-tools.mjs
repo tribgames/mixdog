@@ -35,7 +35,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Known-file contents or line ranges; not directories.',
+        description: 'Known-file contents or line ranges; not directories. Replaces cat/head/tail.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -74,7 +74,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Mixdog Shell',
         annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run a shell command. ${TOOL_ASYNC_EXECUTION_CONTRACT} Executable/runtime/state evidence only — never a file-exploration segment anywhere in a command, alone, chained, or piped: NOT ls/find/cat/head/tail/grep/rg/sed — the dedicated file tools cover those. Chain dependent commands with &&.`,
+        description: `Run a shell command. ${TOOL_ASYNC_EXECUTION_CONTRACT} Executable/runtime/state evidence only — never a file-exploration segment anywhere in a command: NOT ls/find/cat/head/tail/grep/rg/sed — the dedicated file tools cover those. Chain dependent commands with &&.`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -114,7 +114,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'File-content literal/regex search; returns contextual path:line blocks.',
+        description: 'File-content literal/regex search; returns contextual path:line blocks. Replaces grep/rg.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -155,7 +155,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Mixdog Glob',
         annotations: { title: 'Mixdog Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Known-base wildcard paths; returns paths only.',
+        description: 'Known-base wildcard paths; returns paths only. Replaces find -name.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -206,7 +206,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'Mixdog List Directory',
         annotations: { title: 'Mixdog List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Known-directory immediate entries (path + type); no wildcard.',
+        description: 'Known-directory immediate entries (path + type); no wildcard. Replaces ls; meta:true adds size/mtime/mode.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -217,6 +217,8 @@ export const BUILTIN_TOOLS = [
                     ],
                     description: 'Directory; path[] batches.',
                 },
+                hidden: { type: 'boolean', description: 'Include dotfiles.' },
+                meta: { type: 'boolean', description: 'Per-entry size bytes, UTC mtime, octal mode.' },
                 head_limit: { type: 'number', description: 'Max entries. Defaults to 200; 0 = no cap.' },
                 offset: { type: 'number', description: 'Skip N entries for paging.' },
             },

@@ -8,9 +8,12 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const SRC_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'src');
 const DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-workflow-editor-'));
+const require = createRequire(import.meta.url);
+const { buildLeadRoleContent } = require('../src/lib/rules-builder.cjs');
 // Both roots are env-resolved at call time; point the data dir at a scratch
 // tree so the test never reads or writes the real ~/.mixdog install.
 process.env.MIXDOG_ROOT = SRC_ROOT;
@@ -91,6 +94,22 @@ test('delegation none keeps a workflow delegation-free', () => {
   assert.equal(pack.delegatesAgents, false);
   const block = helpers.workflowContextBlock({ workflow: { active: 'zz-solo-flag' } }, DATA_DIR);
   assert.doesNotMatch(block, /# Available Agents/);
+});
+
+test('lead brief surface follows delegation capability, not workflow id', () => {
+  const delegating = buildLeadRoleContent({
+    PLUGIN_ROOT: SRC_ROOT,
+    DATA_DIR,
+    includeLeadBrief: true,
+  });
+  const delegationFree = buildLeadRoleContent({
+    PLUGIN_ROOT: SRC_ROOT,
+    DATA_DIR,
+    includeLeadBrief: false,
+  });
+  assert.match(delegating, /# Lead Brief/);
+  assert.doesNotMatch(delegationFree, /# Lead Brief/);
+  assert.match(delegationFree, /# General/);
 });
 
 test('hidden solo-bench loads explicitly without exposing an approval gate', () => {
