@@ -35,13 +35,18 @@ test('idle non-empty Esc requires a second press while idle empty Esc reaches qu
   );
 });
 
-test('Claude-compatible idle queue restore precedes draft clearing while active cancel still wins', () => {
+test('Claude-compatible queue restore precedes draft clearing AND active cancel (CC pops the queue first)', () => {
   assert.deepEqual(
     classifyPromptEscape({ hasQueuedMessages: true, value: 'current draft' }),
     { action: 'restore-queue', nextClearPressAt: 0 },
   );
   assert.deepEqual(
     classifyPromptEscape({ interruptActive: true, hasQueuedMessages: true, value: 'current draft' }),
+    { action: 'restore-queue', nextClearPressAt: 0 },
+  );
+  // With the queue drained, the next Esc reaches the interrupt as before.
+  assert.deepEqual(
+    classifyPromptEscape({ interruptActive: true, hasQueuedMessages: false, value: 'current draft' }),
     { action: 'interrupt', nextClearPressAt: 0 },
   );
 });
