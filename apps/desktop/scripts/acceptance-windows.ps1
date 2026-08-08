@@ -251,7 +251,7 @@ try {
       $value.mode -ne 'direct-user-environment' -or
       $value.inventory.tuiCommands -ne 30 -or
       $value.inventory.desktopCommands -ne 30 -or
-      $value.inventory.settingsItems -ne 20 -or
+      $value.inventory.settingsItems -ne 24 -or
       $value.inventory.settingsCategories -ne 14 -or
       $value.capabilityFailures.Count -ne 0 -or
       $value.renderer.exceptions.Count -ne 0
