@@ -1,7 +1,9 @@
 # Tool Use
 
 - Call `explore` only to locate unknown coordinates in repository source; it
-  returns locations, not analysis or solutions. Then route each anchored facet
+  returns locations, not analysis or solutions; never batch another
+  exploration tool onto a facet already sent to `explore` in the same turn —
+  narrow first, then route. Then route each anchored facet
   exactly once by the evidence required to determine the complete edit:
   path/name only→`find`; exact directory entries→`list`; wildcard paths→`glob`;
   source content/value/`path:line`→`grep`; known file/range→`read`; exact
@@ -16,13 +18,16 @@
   per facet, and launch all independent calls, whatever the tool, together in
   one maximum-fanout turn — independence alone decides batching. Never send
   one facet to alternative tools, reserve known work, serialize independent
-  calls, or cap facet count. Fetch all information needed in that batch.
-  Known state is never re-acquired — neither content already read nor the
-  effect of your own successful call.
+  calls, or cap facet count. Take the cheapest sufficient evidence per facet:
+  symbol relations end at `code_graph`, values/locations end at the context
+  grep returns; `read` covers only what returned spans cannot, as an anchored
+  offset/limit window — never a full-file read when a window suffices.
+  Adjacent context around an edit point counts as needed evidence. A batch
+  carries only the evidence needed to determine the edit; the moment evidence
+  determines it, stop retrieving and patch. Known state is never re-acquired —
+  neither content already read nor the effect of your own successful call.
 - Once the edit is determined, finish in one assistant turn with one
-  `apply_patch` for all edits. When final verification uses `shell`, run it
-  after `apply_patch` in that same assistant turn, batching all required
-  verification commands into one `shell` call.
+  `apply_patch` for all edits.
 - After a call returns a background `task_id`, end the turn; its completion
   notification resumes work. Never poll; use task control only for recovery or
   a required blocking result.

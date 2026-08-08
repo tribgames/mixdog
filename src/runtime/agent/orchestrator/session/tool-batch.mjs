@@ -372,14 +372,18 @@ export async function processToolBatch(ctx) {
             }
             // Update the cross-iteration repeat-failure guard with this call's
             // outcome: bump the consecutive-failure count for an identical
-            // signature, or clear it the moment the same call succeeds.
+            // signature, or clear the chain on ANY success. A successful
+            // different tool is the requested "change approach" and may have
+            // mutated the inputs/environment (apply_patch → verification is
+            // the common case), so retaining the old failure count would no
+            // longer describe consecutive failures.
             if (sessionRef) {
                 const _failed = !_executeOk || _resultKind === 'error';
                 if (_failed) {
                     sessionRef._repeatFailGuard = (sessionRef._repeatFailGuard?.sig === _repeatFailSig)
                         ? { sig: _repeatFailSig, count: sessionRef._repeatFailGuard.count + 1 }
                         : { sig: _repeatFailSig, count: 1 };
-                } else if (sessionRef._repeatFailGuard?.sig === _repeatFailSig) {
+                } else {
                     sessionRef._repeatFailGuard = null;
                 }
             }

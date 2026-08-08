@@ -30,6 +30,15 @@ import { appendBuffered, drainPathSync, hasInFlightWrite } from './buffered-appe
 // cheap statSync so no extra timer/interval is needed.
 const TRANSCRIPT_ROTATE_BYTES = 10 * 1024 * 1024;
 
+function conversationText(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text)
+    .join('\n');
+}
+
 // Byte-identical to cwdToProjectSlug() in
 // src/runtime/channels/lib/session-discovery.mjs. Inlined to avoid a
 // shared -> channels import coupling; keep the two in sync if either changes.
@@ -134,6 +143,52 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
     }
   }
 
+  // A local Desktop/TUI session may already contain substantial history when
+  // its per-session JSONL is created for the first time (resume, upgrade, or a
+  // session that predates always-on transcript persistence). Seed an EMPTY
+  // transcript once so the memory watcher receives that existing conversation
+  // before later turns append incrementally. A non-empty file is authoritative
+  // and is never rewritten, which keeps this idempotent across runtime reloads.
+  function ensureConversationBackfill(messages) {
+    try {
+      ensureProjectDir();
+      if (existsSync(transcriptPath) && statSync(transcriptPath).size > 0) return false;
+      const entries = [];
+      for (const message of Array.isArray(messages) ? messages : []) {
+        const role = message?.role;
+        if (role !== 'user' && role !== 'assistant') continue;
+        const text = conversationText(message?.content);
+        if (!text.trim()) continue;
+        entries.push({
+          type: role,
+          sessionId,
+          ...(message?.timestamp != null
+            ? { timestamp: message.timestamp }
+            : message?.ts != null
+              ? { ts: message.ts }
+              : {}),
+          message: { content: [{ type: 'text', text }] },
+        });
+      }
+      if (entries.length === 0) {
+        ensureTranscriptFile();
+        return false;
+      }
+      const payload = `${entries.map((entry) => JSON.stringify(entry)).join('\n')}\n`;
+      // The size check and write are synchronous in the owning runtime, so no
+      // local append can interleave between them. Cross-runtime ownership is
+      // already serialized by the session service.
+      writeFileSync(transcriptPath, payload, { flag: 'w', mode: 0o600 });
+      sizeChecked = true;
+      lastKnownSize = Buffer.byteLength(payload);
+      bytesSinceCheck = 0;
+      return true;
+    } catch (err) {
+      logOnce(err);
+      return false;
+    }
+  }
+
   function writeSessionRecord() {
     try {
       mkdirSync(dirname(sessionRecordPath), { recursive: true });
@@ -230,6 +285,7 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
     transcriptPath,
     sessionRecordPath,
     writeSessionRecord,
+    ensureConversationBackfill,
     ensureTranscriptFile,
     refresh,
     appendAssistant,

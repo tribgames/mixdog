@@ -5,6 +5,7 @@
 // runtime-core; every mutable local it needs is injected as an accessor.
 import { createTranscriptWriter } from '../runtime/shared/transcript-writer.mjs';
 import { mixdogHome } from '../runtime/shared/plugin-paths.mjs';
+import { isAgentOwner } from '../runtime/agent/orchestrator/agent-owner.mjs';
 
 const REBIND_MAX_ATTEMPTS = 3;
 
@@ -30,22 +31,19 @@ export function createRemoteTranscript({
     get transcriptKey() { return writerKey; },
     get pendingRebind() { return pendingRebind; },
     resetPendingRebind() { pendingRebind = false; },
+    ensureSessionTranscriptWriter,
     ensureRemoteTranscriptWriter,
     pushTranscriptRebind,
     flushPendingTranscriptRebind,
   };
 
-  // Bind (or refresh) only the manually selected session. Session creation,
-  // close, or liveness never transfers Remote ownership.
-  function ensureRemoteTranscriptWriter() {
+  // Every user-facing main session owns a conversation JSONL, independent of
+  // Remote/channel state. The always-on memory watcher tails this same file,
+  // while agent-owned sessions retain semantic compaction and stay out of the
+  // user's recall pool.
+  function ensureSessionTranscriptWriter() {
     const session = getSession();
-    if (!isRemoteEnabled() || !session?.id) return false;
-    const owner = getRemoteSessionId();
-    if (!owner) {
-      setRemoteSessionId(session.id);
-    } else if (session.id !== owner) {
-      return false;
-    }
+    if (!session?.id || isAgentOwner(session)) return false;
     const cwd = getCwd();
     const key = `${session.id}\u0000${cwd}`;
     if (writerKey !== key) {
@@ -56,7 +54,6 @@ export function createRemoteTranscript({
           cwd,
           pid: process.pid,
         });
-        writer.writeSessionRecord();
         writerKey = key;
       } catch (error) {
         process.stderr.write(`mixdog: transcript-writer: init failed: ${error?.message || error}\n`);
@@ -64,14 +61,29 @@ export function createRemoteTranscript({
         writerKey = '';
         return false;
       }
-    } else {
-      // Same binding — refresh updatedAt so worker-side discovery keeps ranking
-      // this session as the live parent-chain candidate.
-      try { writer?.writeSessionRecord(); } catch { /* discovery hint only */ }
     }
+    try { writer?.ensureConversationBackfill(session.messages); } catch { /* best-effort */ }
     try { writer?.ensureTranscriptFile(); } catch (error) {
       process.stderr.write(`mixdog: transcript-writer: ensureTranscriptFile failed: ${error?.message || error}\n`);
     }
+    return writer != null;
+  }
+
+  // Bind (or refresh) outbound forwarding only for the manually selected
+  // Remote owner. Session creation, close, or liveness never transfers Remote.
+  function ensureRemoteTranscriptWriter() {
+    const session = getSession();
+    if (!isRemoteEnabled() || !session?.id) return false;
+    const owner = getRemoteSessionId();
+    if (!owner) {
+      setRemoteSessionId(session.id);
+    } else if (session.id !== owner) {
+      return false;
+    }
+    if (!ensureSessionTranscriptWriter()) return false;
+    // Session records are channel discovery hints, so local-only sessions do
+    // not write them even though their memory transcript is always present.
+    try { writer?.writeSessionRecord(); } catch { /* discovery hint only */ }
     return writer != null;
   }
 

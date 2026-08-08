@@ -40,7 +40,7 @@ export function createSessionTurnApi(deps) {
     getPendingSessionReset, setPendingSessionReset,
     getTranscriptWriter, getTwKey, getLastAppendedAssistant, setLastAppendedAssistant,
     scheduleCodeGraphPrewarm, scheduleToolRuntimeWarmup, refreshSessionForCwdIfNeeded, createCurrentSession,
-    ensureRemoteTranscriptWriter, channelsEnabled, invokeChannelStart, channels,
+    ensureSessionTranscriptWriter, ensureRemoteTranscriptWriter, channelsEnabled, invokeChannelStart, channels,
     pushTranscriptRebind, flushPendingTranscriptRebind,
     hooks, hookCommonPayload, mgr, notifyFnForSession, bootProfile,
     scheduleProviderWarmup, scheduleProviderModelWarmup, invalidateContextStatusCache,
@@ -195,22 +195,22 @@ export function createSessionTurnApi(deps) {
           await awaitTurn(() => createCurrentSession('turn', { signal: turnSignal }));
         }
         throwIfAborted(turnSignal);
-        // Remote outbound: ensure a transcript writer bound to the current
-        // session.id + cwd. Gated on remoteEnabled so non-remote sessions write nothing.
+        // Main-session conversation persistence is independent of Remote:
+        // Desktop and local TUI turns feed the same JSONL memory watcher.
+        setLastAppendedAssistant('');
+        const prevKey = getTwKey();
+        ensureSessionTranscriptWriter?.();
+        if (getTranscriptWriter()) {
+          try { getTranscriptWriter().appendUser(prompt); }
+          catch (error) { process.stderr.write(`mixdog: transcript-writer: appendUser failed: ${error?.message || error}\n`); }
+        }
+        // Remote outbound reuses that writer but alone owns channel discovery
+        // and forwarding/rebind behavior.
         if (getRemoteEnabled()) {
-          setLastAppendedAssistant('');
-          const prevKey = getTwKey();
           ensureRemoteTranscriptWriter();
           // Flush a rebind deferred before the session/writer existed ('acquired'
           // in lazy mode). One-shot: no-op unless a push was actually deferred.
           flushPendingTranscriptRebind?.();
-          // Record the user prompt in the transcript so the memory watcher
-          // ingests both sides of the conversation (the forwarder ignores
-          // plain user text rows, so nothing echoes back to the channel).
-          if (getTranscriptWriter()) {
-            try { getTranscriptWriter().appendUser(prompt); }
-            catch (error) { process.stderr.write(`mixdog: transcript-writer: appendUser failed: ${error?.message || error}\n`); }
-          }
           if (getTwKey() && getTwKey() !== prevKey && channelsEnabled() && !envFlag('MIXDOG_DISABLE_CHANNEL_START')) {
             void invokeChannelStart()
               .then(() => {
@@ -325,7 +325,7 @@ export function createSessionTurnApi(deps) {
             onTextReset: options.onTextReset,
             onReasoningDelta: options.onReasoningDelta,
             onAssistantText: (text) => {
-              if (getRemoteEnabled() && getTranscriptWriter()) {
+              if (getTranscriptWriter()) {
                 try {
                   const value = typeof text === 'string' ? text : (text == null ? '' : String(text));
                   if (value.trim()) {
@@ -385,7 +385,7 @@ export function createSessionTurnApi(deps) {
         if (!turnTimingEmitted) turnTimingStatus = 'complete-no-delta';
         setSession(mgr.getSession(session0.id) || getSession());
         try { sessionTitles?.observeThird(getSession()); } catch { /* title refresh is best-effort */ }
-        if (getRemoteEnabled() && getTranscriptWriter()) {
+        if (getTranscriptWriter()) {
           try {
             const finalText = result?.content != null ? String(result.content) : '';
             if (finalText.trim() && finalText !== getLastAppendedAssistant()) {

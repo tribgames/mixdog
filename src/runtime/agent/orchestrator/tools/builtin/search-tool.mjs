@@ -576,6 +576,54 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         && outputMode === 'content'
         && !options._grepChunkMerge
         && !options._grepPatternFanout) {
+        // Fan-out prefilter, started CONCURRENTLY with the combined attempt
+        // below: ONE rg --files-with-matches pass over ALL patterns yields
+        // every file any pattern touches. The combined single-spawn path
+        // returns without ever awaiting it; the frequent match-heavy bail
+        // path (cap/partial) used to pay this pass as a THIRD serial rg wave
+        // — overlapping it with the combined attempt removes one full spawn
+        // round-trip (~100ms on win32) from every bailed multi-pattern grep.
+        // Owner-fair gating keeps the speculative spawn a self-cost of this
+        // call. Best-effort: any failure/cap/partial falls back to the
+        // unscoped fan-out unchanged. MIXDOG_GREP_FANOUT_PREFILTER=0 disables.
+        const GREP_FANOUT_PREFILTER_FILE_CAP = 400;
+        const startFanoutPrefilter = async () => {
+            try {
+                let preSpawnCwd = workDir;
+                let preSearchPath = searchPath;
+                const preStat = statSync(grepResolvedPath);
+                if (!preStat.isDirectory()) return null;
+                if (isAbsolute(preSearchPath)) {
+                    preSearchPath = trueCasePath(preSearchPath);
+                    preSpawnCwd = preSearchPath;
+                }
+                const prefilterArgs = buildGrepRgArgs({
+                    patterns,
+                    searchPath: preSearchPath,
+                    globPatterns: normalizedGlobPatterns,
+                    outputMode: 'files_with_matches',
+                    caseInsensitive,
+                    showLineNumbers: false,
+                    beforeN: null,
+                    afterN: null,
+                    contextN: null,
+                    multilineMode,
+                    fileType,
+                    onlyMatching: false,
+                    pcre2: pcre2Mode,
+                    withFilename: false,
+                });
+                const pre = await runRgWindowedLines(
+                    prefilterArgs,
+                    { cwd: preSpawnCwd, signal: options.signal },
+                    { offset: 0, limit: GREP_FANOUT_PREFILTER_FILE_CAP, summaryLimit: 0 },
+                );
+                return pre.complete && !pre.partial ? pre.lines : null;
+            } catch { return null; }
+        };
+        const fanoutPrefilterPromise = process.env.MIXDOG_GREP_FANOUT_PREFILTER !== '0'
+            ? startFanoutPrefilter()
+            : null;
         // Combined single-spawn fan-out: ONE rg run carrying every pattern
         // (-e p1 -e p2 …), then JS-side attribution of each matched line back
         // to its pattern(s) rebuilds the per-pattern sections. K patterns cost
@@ -711,56 +759,21 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             }
             return patternCapNote + sections.join('\n\n');
         }
-        // Combined prefilter: ONE rg --files-with-matches pass over ALL
-        // patterns yields every file any pattern touches. When it completes
-        // under the cap, each per-pattern grep below scopes to that candidate
-        // list — K patterns cost 1 repo walk + K file-list scans instead of K
-        // full walks (the dominant fan-out cost once the win32 child-spawn
-        // gate serializes rg). Zero candidates short-circuits with no further
-        // spawns. Best-effort: any failure/cap/partial falls back to the
-        // unscoped fan-out unchanged. MIXDOG_GREP_FANOUT_PREFILTER=0 disables.
-        const GREP_FANOUT_PREFILTER_FILE_CAP = 400;
+        // Prefilter result (started above, overlapped with the combined
+        // attempt): when it completed under the cap, each per-pattern grep
+        // below scopes to that candidate list — K patterns cost 1 repo walk +
+        // K file-list scans instead of K full walks. Zero candidates
+        // short-circuits with no further spawns.
         let fanoutCandidateFiles = null;
-        if (process.env.MIXDOG_GREP_FANOUT_PREFILTER !== '0') {
-            try {
-                let preSpawnCwd = workDir;
-                let preSearchPath = searchPath;
-                const preStat = statSync(grepResolvedPath);
-                if (preStat.isDirectory()) {
-                    if (isAbsolute(preSearchPath)) {
-                        preSearchPath = trueCasePath(preSearchPath);
-                        preSpawnCwd = preSearchPath;
-                    }
-                    const prefilterArgs = buildGrepRgArgs({
-                        patterns,
-                        searchPath: preSearchPath,
-                        globPatterns: normalizedGlobPatterns,
-                        outputMode: 'files_with_matches',
-                        caseInsensitive,
-                        showLineNumbers: false,
-                        beforeN: null,
-                        afterN: null,
-                        contextN: null,
-                        multilineMode,
-                        fileType,
-                        onlyMatching: false,
-                        pcre2: pcre2Mode,
-                        withFilename: false,
-                    });
-                    const pre = await runRgWindowedLines(
-                        prefilterArgs,
-                        { cwd: preSpawnCwd, signal: options.signal },
-                        { offset: 0, limit: GREP_FANOUT_PREFILTER_FILE_CAP, summaryLimit: 0 },
-                    );
-                    if (pre.complete && !pre.partial) {
-                        if (pre.lines.length === 0) {
-                            const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
-                            return `${patternCapNote}(no matches) pattern=${JSON.stringify(patterns)} path=${searchPath}${globStr}; path exists (dir)`;
-                        }
-                        fanoutCandidateFiles = pre.lines;
-                    }
+        if (fanoutPrefilterPromise) {
+            const pre = await fanoutPrefilterPromise;
+            if (pre) {
+                if (pre.length === 0) {
+                    const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
+                    return `${patternCapNote}(no matches) pattern=${JSON.stringify(patterns)} path=${searchPath}${globStr}; path exists (dir)`;
                 }
-            } catch { /* fall back to unscoped fan-out */ }
+                fanoutCandidateFiles = pre;
+            }
         }
         const seen = new Set();
         const subOptions = {

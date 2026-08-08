@@ -95,6 +95,7 @@ export function sanitizeForWire(value, depth = 0, seen = new WeakSet()) {
 export function createSessionService({
   createSessionRuntime = null,
   sessionExists = null,
+  readStoredSession = null,
   listSessions = null,
   desktopRuntime = null,
   publishIntervalMs = 16,
@@ -103,6 +104,7 @@ export function createSessionService({
   onExternalClientsChanged = () => {},
   idleEvictMs = null,
   evictSweepMs = null,
+  agentIdleEvictMs = null,
 } = {}) {
   const createRuntime = createSessionRuntime;
   if (typeof createRuntime !== 'function') throw new Error('createSessionRuntime is required');
@@ -137,6 +139,16 @@ export function createSessionService({
     ? Number(idleEvictMs)
     : Math.max(60_000, Number(process.env.MIXDOG_SESSION_IDLE_EVICT_MS) || 2 * 60_000);
   const EVICT_SWEEP_MS = Number(evictSweepMs) > 0 ? Number(evictSweepMs) : 30_000;
+  // Agent-hosted sessions (shard spread) are worker sessions: their transcript
+  // is durable on disk and a same-tag follow-up re-materializes the runtime on
+  // demand, so an idle+unwatched worker runtime returns its shard memory much
+  // sooner than an interactive session a user may re-open any moment.
+  const AGENT_IDLE_EVICT_MS = Math.min(
+    IDLE_EVICT_MS,
+    Number(agentIdleEvictMs) > 0
+      ? Number(agentIdleEvictMs)
+      : Math.max(5_000, Number(process.env.MIXDOG_AGENT_SESSION_IDLE_EVICT_MS) || 45_000),
+  );
   let evictTimer = null;
 
   // ── Cross-client subscriptions ──────────────────────────────────────────────
@@ -159,12 +171,47 @@ export function createSessionService({
     return entry;
   }
 
+  // ── Stored-session views ────────────────────────────────────────────────────
+  // Parity with the codex/claude-code/opencode session models: a stored
+  // session that is merely VISIBLE is served from disk; only execution
+  // (submit/abort/approve/action/create) materializes a runtime. A client that
+  // subscribed while the session was cold is remembered here and adopted by
+  // the entry the moment one materializes, so its live frames start flowing
+  // without a second subscribe round-trip.
+  const pendingViewers = new Map(); // sessionId -> Set<clientToken>
+
+  function trackPendingViewer(sessionId, ctx) {
+    const token = subscriberToken(ctx);
+    if (!token) return;
+    let tokens = pendingViewers.get(sessionId);
+    if (!tokens) pendingViewers.set(sessionId, tokens = new Set());
+    tokens.add(token);
+  }
+
+  function dropPendingViewer(sessionId, ctx) {
+    const token = subscriberToken(ctx);
+    const tokens = pendingViewers.get(sessionId);
+    if (!token || !tokens) return;
+    tokens.delete(token);
+    if (tokens.size === 0) pendingViewers.delete(sessionId);
+  }
+
+  function adoptPendingViewers(entry, sessionId) {
+    const tokens = pendingViewers.get(String(sessionId || ''));
+    if (!tokens) return;
+    pendingViewers.delete(String(sessionId || ''));
+    for (const token of tokens) addSubscriber(entry, { clientToken: token });
+  }
+
   /** A client that deregistered (or whose process died) stops being a viewer.
    *  Its session runtimes are never destroyed here: work outlives the client that
    *  walked away, so an session runtime nobody watches goes back on the idle clock. */
   function releaseClient(clientToken) {
     const token = String(clientToken || '');
     if (!token) return { ok: true };
+    for (const [pendingId, tokens] of [...pendingViewers]) {
+      if (tokens.delete(token) && tokens.size === 0) pendingViewers.delete(pendingId);
+    }
     for (const entry of sessions) {
       if (!entry.subscribers?.delete(token)) continue;
       if (entry.subscribers.size > 0) continue;
@@ -218,7 +265,7 @@ export function createSessionService({
         // A client came back to it: watched session runtimes are never reclaimed.
         if (entry.subscribers?.size > 0) { entry.retainedAt = null; continue; }
         if (sessionBusy(entry)) { entry.retainedAt = now; continue; }
-        if (now - entry.retainedAt < IDLE_EVICT_MS) continue;
+        if (now - entry.retainedAt < (entry.agentSession ? AGENT_IDLE_EVICT_MS : IDLE_EVICT_MS)) continue;
         void destroy(entry, 'idle and unwatched');
       }
       stopEvictionSweepIfIdle();
@@ -453,12 +500,22 @@ export function createSessionService({
       toolMode: params.toolMode || 'full',
       remote: params.remote === true,
       desktopSession: params.desktopSession ?? null,
+      // Agent shard spread: a Lead spawning workers passes the resolved agent
+      // session spec (built Lead-side) plus its own shard index so the pool
+      // places the worker runtime on a DIFFERENT event loop.
+      ...(params.agentSession && typeof params.agentSession === 'object'
+        ? { agentSession: params.agentSession }
+        : {}),
+      ...(Number.isInteger(params.avoidShardIndex)
+        ? { avoidShardIndex: params.avoidShardIndex }
+        : {}),
     });
     const entry = {
       runtime, cwd: params.cwd || process.cwd(), timer: null, disposed: false,
       unsubscribe: null, subscribers: new Set(), reservedOnly: false, lastPublishedAt: 0,
       indexedSessionId: '', busy: null, headless: !subscriberToken(ctx), retainedAt: null,
       revision: revisionEpoch,
+      agentSession: Boolean(params.agentSession && typeof params.agentSession === 'object'),
     };
     sessions.add(entry);
     try {
@@ -493,6 +550,10 @@ export function createSessionService({
       model: hints.model,
       toolMode: hints.toolMode,
       desktopSession: hints.desktopSession ?? null,
+      agentSession: hints.agentSession ?? null,
+      ...(Number.isInteger(hints.avoidShardIndex)
+        ? { avoidShardIndex: hints.avoidShardIndex }
+        : {}),
     });
     // Nothing is watching this session runtime yet: it is the daemon's own load, so the
     // idle sweep must be able to reclaim it if no view ever attaches.
@@ -516,6 +577,7 @@ export function createSessionService({
     // single-flight promise. A second pane arriving in the next microtask must
     // find this owner in O(1), not create a duplicate session runtime.
     advance(entry);
+    adoptPendingViewers(entry, sessionId);
     retainUnwatched(entry, 'headless session load');
     log(`session ${sessionId} loaded on demand`);
     return entry;
@@ -545,6 +607,54 @@ export function createSessionService({
     });
     sessionLoads.set(sessionId, loading);
     return loading;
+  }
+
+  /** Entry that is live now or already loading (e.g. a competing submit).
+   *  Views never start a load themselves. */
+  async function liveEntryForView(sessionId) {
+    const owner = sessionOwner(sessionId);
+    if (owner) return owner;
+    const inFlight = sessionLoads.get(sessionId);
+    if (!inFlight) return null;
+    try {
+      return await inFlight;
+    } catch {
+      // The failed load answers its own caller; a view falls through to disk.
+      return null;
+    }
+  }
+
+  async function storedSessionProjection(sessionId, hints) {
+    if (typeof readStoredSession !== 'function') return null;
+    const requested = Number(hints?.resumeOptions?.transcriptItemLimit);
+    let snapshot = null;
+    try {
+      snapshot = await readStoredSession(sessionId, {
+        transcriptItemLimit: Number.isFinite(requested) && requested > 0 ? requested : 512,
+      });
+    } catch (err) {
+      log(`stored session projection failed session=${sessionId}: ${err?.message || err}`);
+      return null;
+    }
+    if (!snapshot || typeof snapshot !== 'object') return null;
+    return sanitizeForWire({
+      ...snapshot,
+      sessionId,
+      queued: Array.isArray(snapshot.queued) ? snapshot.queued : [],
+    });
+  }
+
+  /** Cold view body. Revision 0 sits below every live revision (epoch-based),
+   *  so a projection racing a materialized frame can never roll a view back. */
+  function projectionResult(sessionId, projection, extra = {}) {
+    return {
+      sessionId,
+      reservedOnly: false,
+      projection: true,
+      ...extra,
+      revision: 0,
+      full: projection,
+    };
   }
 
   async function runSessionAction({
@@ -736,6 +846,7 @@ export function createSessionService({
         sessionId = currentSessionId(entry);
       }
       if (!sessionId) throw new Error('session creation returned no sessionId');
+      adoptPendingViewers(entry, sessionId);
       const step = advance(entry);
       if (step.changed) publishStep(entry, step);
       log(`session created session=${sessionId}`);
@@ -757,6 +868,24 @@ export function createSessionService({
     }
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
+    const live = await liveEntryForView(id);
+    if (live) {
+      const step = advance(live);
+      retainUnwatched(live, 'headless session read');
+      return sessionResult(live, step, baseRevision);
+    }
+    if (typeof readStoredSession === 'function') {
+      const projection = await storedSessionProjection(id, openHints);
+      const lateOwner = sessionOwner(id);
+      if (lateOwner) {
+        const step = advance(lateOwner);
+        retainUnwatched(lateOwner, 'headless session read');
+        return sessionResult(lateOwner, step, baseRevision);
+      }
+      if (!projection) throw new Error(`session ${id} is not available`);
+      return projectionResult(id, projection);
+    }
+    // Embedders without a store reader keep the legacy load-on-read seam.
     const entry = await entryForSession(id, openHints || {});
     const step = advance(entry);
     retainUnwatched(entry, 'headless session read');
@@ -771,6 +900,31 @@ export function createSessionService({
   ) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
+    const live = await liveEntryForView(id);
+    if (live) {
+      addSubscriber(live, ctx);
+      const step = advance(live);
+      return sessionResult(live, step, baseRevision, { subscribed: true });
+    }
+    if (typeof readStoredSession === 'function') {
+      // Register BEFORE the disk read: a concurrent materialization adopts
+      // pending viewers only after its runtime is indexed, so this order
+      // guarantees either adoption or the live re-check below.
+      trackPendingViewer(id, ctx);
+      const projection = await storedSessionProjection(id, openHints);
+      const lateOwner = sessionOwner(id);
+      if (lateOwner) {
+        dropPendingViewer(id, ctx);
+        addSubscriber(lateOwner, ctx);
+        const step = advance(lateOwner);
+        return sessionResult(lateOwner, step, baseRevision, { subscribed: true });
+      }
+      if (!projection) {
+        dropPendingViewer(id, ctx);
+        throw new Error(`session ${id} is not available`);
+      }
+      return projectionResult(id, projection, { subscribed: true });
+    }
     const entry = await entryForSession(id, openHints || {});
     addSubscriber(entry, ctx);
     const step = advance(entry);
@@ -780,6 +934,7 @@ export function createSessionService({
   async function unsubscribeSession({ sessionId } = {}, ctx = null) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
+    dropPendingViewer(id, ctx);
     const owner = sessionOwner(id);
     if (!owner) return { sessionId: id, unsubscribed: true };
     const entry = owner;
@@ -1102,6 +1257,7 @@ export function createSessionService({
         watched,
         retained,
         projected,
+        pendingViewerSessions: pendingViewers.size,
         evictionSweepActive: evictTimer !== null,
       };
     },

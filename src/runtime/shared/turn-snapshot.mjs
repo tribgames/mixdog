@@ -1,4 +1,6 @@
 import { createTwoFilesPatch } from 'diff';
+import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import {
   _resetTurnWorktreeSnapshotsForTest,
   createTurnWorktreeSnapshot,
@@ -220,6 +222,109 @@ function refreshUnifiedDiff(tracker) {
     unifiedDiff += rendered;
   }
   tracker.unifiedDiff = unifiedDiff;
+}
+
+function trackedPairs(tracker) {
+  const pairs = [];
+  const handledOrigins = new Set();
+  for (const [destinationKey, after] of tracker.currentByPath) {
+    const originKey = tracker.originByCurrentPath.get(destinationKey) || destinationKey;
+    handledOrigins.add(originKey);
+    pairs.push({
+      originKey,
+      destinationKey,
+      before: tracker.baselineByPath.get(originKey) || null,
+      after,
+    });
+  }
+  for (const [originKey, before] of tracker.baselineByPath) {
+    if (handledOrigins.has(originKey)) continue;
+    pairs.push({ originKey, destinationKey: originKey, before, after: null });
+  }
+  return pairs;
+}
+
+function safeTrackedTarget(worktree, value) {
+  const root = resolve(clean(worktree));
+  const target = isAbsolute(clean(value)) ? resolve(clean(value)) : resolve(root, clean(value));
+  const rel = relative(root, target);
+  if (!rel || rel === '.' || rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error('turn review file path is outside the worktree');
+  }
+  return target;
+}
+
+function pairMatchesFile(pair, worktree, file) {
+  const requested = safeTrackedTarget(worktree, file);
+  return [pair.before, pair.after].some((entry) => {
+    if (!entry) return false;
+    const values = [entry.path, entry.displayPath].filter(Boolean);
+    return values.some((value) => safeTrackedTarget(worktree, value) === requested);
+  });
+}
+
+async function currentTrackedContent(path) {
+  try {
+    const stat = await lstat(path);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      throw new Error('turn review revert only supports regular files');
+    }
+    return await readFile(path);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function validateTrackedPair(pair, worktree) {
+  const beforePath = safeTrackedTarget(worktree, pair.before?.path || pair.before?.displayPath
+    || pair.after?.path || pair.after?.displayPath);
+  const afterPath = safeTrackedTarget(worktree, pair.after?.path || pair.after?.displayPath
+    || pair.before?.path || pair.before?.displayPath);
+  const expectedAfter = pair.after?.content ?? null;
+  const actualAfter = await currentTrackedContent(afterPath);
+  if (!sameContent(actualAfter, expectedAfter)) {
+    throw new Error('turn review revert refused because the file changed after this session edit');
+  }
+  if (beforePath !== afterPath && await currentTrackedContent(beforePath) !== null) {
+    throw new Error('turn review revert refused because the original path changed after this session edit');
+  }
+  return { beforePath, afterPath };
+}
+
+async function restoreTrackedPair(pair, paths) {
+  if (paths.afterPath !== paths.beforePath) await rm(paths.afterPath, { force: true });
+  if (pair.before?.content == null) {
+    await rm(paths.beforePath, { force: true });
+  } else {
+    await mkdir(dirname(paths.beforePath), { recursive: true });
+    await writeFile(paths.beforePath, pair.before.content);
+  }
+}
+
+function commitTrackedPairRestore(tracker, pair) {
+  tracker.currentByPath.delete(pair.destinationKey);
+  tracker.currentByPath.delete(pair.originKey);
+  tracker.originByCurrentPath.delete(pair.destinationKey);
+  tracker.originByCurrentPath.delete(pair.originKey);
+  if (pair.before) tracker.currentByPath.set(pair.originKey, { ...pair.before });
+}
+
+async function revertTrackedPairs(tracker, worktree, pairs) {
+  if (!tracker?.valid || pairs.length === 0) {
+    throw new Error('turn review tracked file snapshot is unavailable');
+  }
+  // Validate every current file before the first write so an external edit
+  // cannot leave a turn-wide revert half-applied.
+  const validated = [];
+  for (const pair of pairs) validated.push(await validateTrackedPair(pair, worktree));
+  for (let index = 0; index < pairs.length; index += 1) {
+    await restoreTrackedPair(pairs[index], validated[index]);
+    commitTrackedPairRestore(tracker, pairs[index]);
+  }
+  tracker.revision += 1;
+  refreshUnifiedDiff(tracker);
+  if (!tracker.unifiedDiff) releaseDiffTrackerContent(tracker);
 }
 
 /**
@@ -446,7 +551,10 @@ export async function completeTurnSnapshot(sessionId) {
     try { await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot); } catch {}
   }
   tracker.sealed = true;
-  releaseDiffTrackerContent(tracker);
+  // A contended worktree cannot use the shared Git baseline safely. Retain
+  // this session's bounded exact apply_patch before/after buffers so Review can
+  // still undo its own files after the turn completes.
+  if (!tracker.worktreeContended) releaseDiffTrackerContent(tracker);
   return true;
 }
 
@@ -478,11 +586,15 @@ export async function getTurnReviewDiff(_worktree, sessionId, options = {}) {
     try { await refreshTurnWorktreeSnapshot(isolatedWorktreeSnapshot); } catch {}
   }
   const snapshot = isolatedWorktreeSnapshot;
+  const trackedRevertAvailable = tracker?.worktreeContended === true
+    && tracker.valid
+    && trackedPairs(tracker).length > 0;
   return {
     supported: true,
     files: snapshot?.files || [],
     patch: snapshot?.patch ?? tracker?.unifiedDiff ?? '',
     snapshotKind: snapshot ? 'worktree' : 'tool',
+    revertMode: snapshot ? 'worktree' : trackedRevertAvailable ? 'tracked' : '',
     patchTruncated: snapshot?.patchTruncated === true,
     authoritative: Boolean(turn && tracker),
     agents: publicAgentReviews(ownerSessionId),
@@ -495,7 +607,14 @@ export async function revertTurnReviewFile(_worktree, sessionId, file) {
   const ownerSessionId = clean(sessionId);
   const tracker = _diffTrackersBySession.get(ownerSessionId);
   if (tracker?.worktreeContended) {
-    throw new Error('turn review revert is unavailable while sessions share a worktree');
+    const pairs = trackedPairs(tracker);
+    if (pairs.length === 0) {
+      throw new Error('turn review revert is unavailable while sessions share a worktree');
+    }
+    const pair = pairs.find((entry) => pairMatchesFile(entry, _worktree, file));
+    if (!pair) throw new Error('turn review tracked file snapshot is unavailable');
+    await revertTrackedPairs(tracker, _worktree, [pair]);
+    return await getTurnReviewDiff(_worktree, ownerSessionId);
   }
   if (!tracker?.worktreeSnapshot) throw new Error('turn worktree snapshot is unavailable');
   await revertTurnWorktreeFile(tracker.worktreeSnapshot, file);
@@ -507,7 +626,12 @@ export async function revertTurnReview(_worktree, sessionId) {
   const ownerSessionId = clean(sessionId);
   const tracker = _diffTrackersBySession.get(ownerSessionId);
   if (tracker?.worktreeContended) {
-    throw new Error('turn review revert is unavailable while sessions share a worktree');
+    const pairs = trackedPairs(tracker);
+    if (pairs.length === 0) {
+      throw new Error('turn review revert is unavailable while sessions share a worktree');
+    }
+    await revertTrackedPairs(tracker, _worktree, pairs);
+    return await getTurnReviewDiff(_worktree, ownerSessionId);
   }
   if (!tracker?.worktreeSnapshot) throw new Error('turn worktree snapshot is unavailable');
   await revertTurnWorktreeSnapshot(tracker.worktreeSnapshot);

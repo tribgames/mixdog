@@ -327,11 +327,16 @@ export async function createMixdogSessionRuntime({
   toolMode = 'full',
   remote = false,
   desktopSession: initialDesktopSession = null,
+  agentSession = null,
 } = {}) {
   // Shared mutable runtime state, promoted from closure `let`s so extracted
   // modules can read/write live values through one reference.
   const rt = {};
   rt.desktopSession = initialDesktopSession;
+  // Agent shard spread: a daemon-hosted worker runtime carries the resolved
+  // agent session spec; session creation routes through prepareAgentSession
+  // (session-lifecycle) instead of the Lead session shape.
+  rt.agentSessionSpec = agentSession && typeof agentSession === 'object' ? agentSession : null;
   bootProfile('session-runtime:start', { provider, model, toolMode, cwd });
   rt.remoteEnabled = remote === true;
   // SESSION-SCOPED Remote is manual-only. Explicit ON selects/overrides; no
@@ -664,7 +669,9 @@ export async function createMixdogSessionRuntime({
   const autoUpdateEnabled = () => selfUpdate.autoUpdateEnabled();
   const checkForUpdateInternal = (...a) => selfUpdate.checkForUpdate(...a);
   const runUpdateNowInternal = (...a) => selfUpdate.runUpdateNow();
-  selfUpdate.startBootCheck();
+  // Agent-hosted runtimes (shard spread) never own the install: skip the
+  // network-bound update boot check per worker spawn.
+  if (!rt.agentSessionSpec) selfUpdate.startBootCheck();
 
   // Notification fan-out (listener broadcast + pending-queue mirroring of
   // terminal completions) lives in notification-bus.mjs.
@@ -1260,6 +1267,7 @@ export async function createMixdogSessionRuntime({
     codeGraphPrewarmEnabled,
     prewarmState,
   });
+  const ensureSessionTranscriptWriter = () => remoteTranscript.ensureSessionTranscriptWriter();
   const ensureRemoteTranscriptWriter = () => remoteTranscript.ensureRemoteTranscriptWriter();
   const pushTranscriptRebind = () => remoteTranscript.pushTranscriptRebind();
   const flushPendingTranscriptRebind = () => remoteTranscript.flushPendingTranscriptRebind();
@@ -1286,6 +1294,7 @@ export async function createMixdogSessionRuntime({
     flushChannelProviderSave,
     invokeChannelStart,
     createCurrentSession,
+    ensureSessionTranscriptWriter,
     ensureRemoteTranscriptWriter,
     getTranscriptPath: () => remoteTranscript.transcriptWriter?.transcriptPath || null,
     emitRemoteStateChange,
@@ -1321,15 +1330,17 @@ export async function createMixdogSessionRuntime({
   // Heavy session/tool/code-graph work is demand-driven. Startup restores the
   // visible pane tree only; the first real turn arms these warmups.
   bootProfile('runtime:prewarm-deferred', { reason: 'first-turn' });
-  scheduleProviderSetupWarmup();
-  scheduleModelCatalogWarmup();
+  // Agent-hosted runtimes (shard spread) keep only the warmups that shorten
+  // their FIRST ask (route provider + model metadata); provider-setup caches,
+  // full model catalogs, statusline usage, and channel automation are
+  // Lead-surface work that would otherwise run once per worker spawn.
   scheduleProviderWarmup();
-  // Daemon-hosted product sessions warm the provider model catalog immediately
-  // in the background. This does not delay runtime readiness; an early picker
-  // joins the boot prefetch instead of starting duplicate provider I/O.
-  // Standalone runtimes retain an exit-safe grace period (runtime-tunables).
   scheduleProviderModelWarmup();
-  scheduleStatuslineUsageWarmup();
+  if (!rt.agentSessionSpec) {
+    scheduleProviderSetupWarmup();
+    scheduleModelCatalogWarmup();
+    scheduleStatuslineUsageWarmup();
+  }
   // Channels are opt-in: only boot the worker when this session started in (or
   // was toggled into) remote mode. Non-remote sessions never contend for the
   // channel; see startRemote()/stopRemote() and the `/remote` toggle.
@@ -1342,7 +1353,9 @@ export async function createMixdogSessionRuntime({
   // early /remote (startRemote clears it), stopRemote(), and close() all
   // cancel it through the existing clearTimeout paths. Runtime /remote calls
   // still start immediately (user-initiated, UI already painted).
-  if (rt.remoteEnabled) {
+  if (rt.agentSessionSpec) {
+    // Worker sessions never run channels or schedule automation probes.
+  } else if (rt.remoteEnabled) {
     bootProfile('channels:manual-start-deferred', { delayMs: remoteAutoStartDelayMs });
     prewarmTimers.channelStartTimer = setTimeout(() => {
       prewarmTimers.channelStartTimer = null;
@@ -1630,6 +1643,7 @@ export async function createMixdogSessionRuntime({
     scheduleToolRuntimeWarmup,
     refreshSessionForCwdIfNeeded,
     createCurrentSession,
+    ensureSessionTranscriptWriter,
     ensureRemoteTranscriptWriter,
     pushTranscriptRebind,
     flushPendingTranscriptRebind,
@@ -1658,7 +1672,10 @@ export async function createMixdogSessionRuntime({
     awaitRoutePreparation: () => routePreparation.wait(),
     getReservedSessionId: () => rt.reservedSessionId,
     registerActiveTurnController,
-    sessionTitles,
+    // Agent-hosted runtimes (shard spread) are ephemeral worker sessions: an
+    // LLM title per spawn/explore would be pure cost, and in-process agent
+    // sessions never titled either.
+    sessionTitles: rt.agentSessionSpec ? null : sessionTitles,
   });
 
   return {

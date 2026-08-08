@@ -207,6 +207,7 @@ export function Conversation({
   onClearProject,
   onResumeSession,
   onOpenSessions,
+  onOpenProjects,
   onOpenSettings,
   projects,
   showProjectSelector,
@@ -242,6 +243,7 @@ export function Conversation({
   onClearProject: () => void;
   onResumeSession: (id: string) => void;
   onOpenSessions: () => void;
+  onOpenProjects: () => void;
   onOpenSettings: (section?: SettingsSection | null) => void;
   projects: DesktopProjectSummary[];
   showProjectSelector: boolean;
@@ -353,11 +355,11 @@ export function Conversation({
   }, [draftMode, warmPaintHandoff]);
   const composerActions = useRef({
     submit, invokeResult, applySnapshot, onNewTask, onResumeSession,
-    onOpenSessions, onOpenSettings, onOpenCommandSurface,
+    onOpenSessions, onOpenProjects, onOpenSettings, onOpenCommandSurface,
   });
   composerActions.current = {
     submit, invokeResult, applySnapshot, onNewTask, onResumeSession,
-    onOpenSessions, onOpenSettings, onOpenCommandSurface,
+    onOpenSessions, onOpenProjects, onOpenSettings, onOpenCommandSurface,
   };
   // TUI parity: a prompt only reads as "Queued" when it actually waits behind
   // an active turn. An idle submit — including a draft's first prompt, whose
@@ -527,20 +529,30 @@ export function Conversation({
     return earliest > 0 ? Math.min(earliest, startedAt) : startedAt;
   }, 0);
   const itemCount = liveItemCount + transcriptPendingPromptItems.length;
+  // An idle submit starts the next review scope on its optimistic user row,
+  // not one host round-trip later when that row settles. Otherwise the prior
+  // turn's review bar/reservation remains fixed above the composer while the
+  // next response begins streaming.
+  const reviewItems = useMemo(
+    () => transcriptPendingPromptItems.length > 0
+      ? [...settledItems, ...transcriptPendingPromptItems]
+      : settledItems,
+    [settledItems, transcriptPendingPromptItems],
+  );
   // A turn that can actually produce a diff reserves the collapsed review row,
   // so a result arriving mid-stream fills existing geometry instead of
   // shrinking the transcript viewport. Reserving it for EVERY live turn left a
   // conversation-only turn floating an empty 36px plate above the input
   // (user: DIFF가 없는 경우에도 스크립트가 좀 떠있네).
   const turnTouchesFiles = useMemo(() => {
-    for (let index = settledItems.length - 1; index >= 0; index--) {
-      const item = settledItems[index];
+    for (let index = reviewItems.length - 1; index >= 0; index--) {
+      const item = reviewItems[index];
       if (!item) continue;
       if (item.kind === "user") break;
       if (toolTouchesFiles(item)) return true;
     }
     return toolTouchesFiles(activeStreamingTail);
-  }, [activeStreamingTail, settledItems]);
+  }, [activeStreamingTail, reviewItems]);
   const reviewSlotReserved = turnTouchesFiles && Boolean(
     snapshot.busy
     || snapshot.commandBusy
@@ -828,6 +840,7 @@ export function Conversation({
   const composerOnNewTask = useCallback(() => composerActions.current.onNewTask(), []);
   const composerOnResumeSession = useCallback((id: string) => composerActions.current.onResumeSession(id), []);
   const composerOnOpenSessions = useCallback(() => composerActions.current.onOpenSessions(), []);
+  const composerOnOpenProjects = useCallback(() => composerActions.current.onOpenProjects(), []);
   const composerOnOpenSettings = useCallback(
     (section?: SettingsSection | null) => composerActions.current.onOpenSettings(section),
     [],
@@ -1010,7 +1023,7 @@ export function Conversation({
             card floating over the composer. */}
         <div className="turn-review-slot"
           data-reserved={reviewSlotReserved ? "true" : "false"}>
-          <TurnReviewBar items={settledItems}
+          <TurnReviewBar items={reviewItems}
             active={reviewActive}
             busy={Boolean(snapshot.busy || routeSnapshot.commandBusy)}
             sessionId={draftMode ? "" : String(sessionAddress || routeSnapshot.sessionId || "")}
@@ -1048,6 +1061,7 @@ export function Conversation({
           onNewTask={composerOnNewTask}
           onResumeSession={composerOnResumeSession}
           onOpenSessions={composerOnOpenSessions}
+          onOpenProjects={composerOnOpenProjects}
           onOpenSettings={composerOnOpenSettings}
           onOpenCommandSurface={composerOnOpenCommandSurface}
           dropTargetRef={conversation} />

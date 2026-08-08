@@ -9,6 +9,7 @@ import {
     acquire as acquireChildSpawnSlot,
     snapshot as childSpawnSnapshot,
 } from '../../../../shared/child-spawn-gate.mjs';
+import { tryServeSearch } from './native-search-client.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -581,6 +582,15 @@ function spawnRg(argsList, execOptions) {
 }
 
 export async function runRg(argsList, execOptions = {}) {
+    // `rg --files` (glob tool) has the same spawn-dominated cost profile as
+    // content grep; the resident server answers it without a process. Only a
+    // COMPLETE served listing substitutes for the buffered-stdout contract.
+    if (argsList.includes('--files')) {
+        try {
+            const served = await tryServeSearch(argsList, execOptions, { offset: 0, limit: 0 });
+            if (served && served.complete) return served.lines.join('\n');
+        } catch { /* server is an accelerator only */ }
+    }
     await assertRgAvailable();
     try {
         return await spawnRg(argsList, execOptions);
@@ -816,6 +826,13 @@ function spawnRgWindowedLines(argsList, execOptions, opts = {}) {
 }
 
 export async function runRgWindowedLines(argsList, execOptions = {}, opts = {}) {
+    // Resident native search first: a warm in-process scan replaces the
+    // ~100ms win32 spawn+AV fixed cost. Unsupported/unavailable/error all
+    // fall through to the real rg spawn unchanged.
+    try {
+        const served = await tryServeSearch(argsList, execOptions, opts);
+        if (served) return served;
+    } catch { /* server is an accelerator only */ }
     await assertRgAvailable();
     try {
         return await spawnRgWindowedLines(argsList, execOptions, opts);

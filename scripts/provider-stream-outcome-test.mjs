@@ -1258,9 +1258,15 @@ test('classifyError: server MESSAGE TEXT never synthesizes a status or transienc
     assert.equal(classifyError(err('rate limited', { httpStatus: 429 })), 'permanent');
     assert.equal(classifyError(err('nope', { httpStatus: 401 })), 'auth');
     assert.equal(classifyError(err('reset', { code: 'ECONNRESET' })), 'transient');
-    // A bare fetch TypeError with no errno is unknown; with the errno on
-    // `cause` (what undici actually produces) it is transient.
-    assert.equal(classifyError(err('fetch failed', { name: 'TypeError' })), 'unknown');
+    // A bare fetch failure with no status and no errno is a transport
+    // symptom: the EXACT runtime message ('fetch failed' / 'Failed to
+    // fetch' / "Couldn't fetch" / 'Load failed') classifies transient so a
+    // network blip retries instead of failing the turn (observed live).
+    // Free-form server text above still never synthesizes transience.
+    assert.equal(classifyError(err('fetch failed', { name: 'TypeError' })), 'transient');
+    assert.equal(classifyError(err("Couldn't fetch")), 'transient');
+    assert.equal(classifyError(err("Couldn't fetch", { httpStatus: 400 })), 'permanent',
+        'a real HTTP status still outranks the bare-fetch message');
     assert.equal(
         classifyError(err('fetch failed', { name: 'TypeError', cause: { code: 'ECONNRESET' } })),
         'transient',

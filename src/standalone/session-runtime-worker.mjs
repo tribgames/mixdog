@@ -4,6 +4,10 @@
 // stay on this event loop. The machine daemon receives only identity-preserving
 // state deltas and remains free to serve health, input, and abort dispatch.
 process.env.MIXDOG_SESSION_SHARD = '1';
+// Pid-scoped shard marker: agent shard spread defaults ON only when this
+// exact process is a shard child. A plain MIXDOG_SESSION_SHARD flag leaks to
+// every grandchild (shell tools, test runners) through env inheritance.
+process.env.MIXDOG_SESSION_SHARD_PID = String(process.pid);
 process.env.MIXDOG_QUIET_SESSION_LOG ??= '1';
 
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
@@ -128,7 +132,26 @@ async function prewarm() {
   module.preloadSessionRuntimeModule?.();
   module.preloadAgentLoopRuntime?.();
   module.preloadKeychainSecrets?.();
+  module.preloadProviderRuntime?.();
+  module.preloadMemoryRuntime?.();
   return { ready: true };
+}
+
+/** Shard-local workload telemetry for the daemon status panel. Gate modules
+ *  are already resident once any tool has run; loading them here otherwise is
+ *  cheap and side-effect-free. */
+async function workloadSnapshot() {
+  const [gate, workload, resources] = await Promise.all([
+    import('../runtime/shared/child-spawn-gate.mjs'),
+    import('../runtime/shared/tool-workload-gates.mjs'),
+    import('../runtime/shared/resource-admission.mjs'),
+  ]);
+  return {
+    runtimes: records.size,
+    childSpawns: gate.snapshot(),
+    toolIo: workload.toolWorkloadSnapshot(),
+    resources: resources.resourceAdmission.snapshot(),
+  };
 }
 
 async function stopAll(reason = 'session shard shutdown') {
@@ -159,6 +182,7 @@ process.on('message', (message) => {
       return { published: true };
     }
     if (message.type === 'prewarm') return prewarm();
+    if (message.type === 'workload') return workloadSnapshot();
     if (message.type === 'shutdown') {
       await stopAll(message.reason);
       return { stopped: true };

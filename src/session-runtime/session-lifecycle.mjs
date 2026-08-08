@@ -11,6 +11,7 @@ import { STANDALONE_DATA_DIR } from './runtime-paths.mjs';
 import { LEAD_DISALLOWED_TOOLS } from './tool-defs.mjs';
 import { attachSessionHooks } from './session-hooks.mjs';
 import { applyDeferredToolSurface } from './tool-catalog.mjs';
+import { prepareAgentSession } from '../runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
 import { writeStatuslineRoute } from './statusline-route.mjs';
 import { createWarmupSchedulers } from './warmup-schedulers.mjs';
 import { warmCatalogsInBackground } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
@@ -163,6 +164,36 @@ export function createSessionLifecycle({
       // explicitly enabled prewarm caller asks for a session). Core-memory
       // startup does not depend on keychain/provider readiness, so overlap the
       // two cold paths instead of paying their bounded waits serially.
+      if (rt.agentSessionSpec) {
+        // Agent shard spread: this runtime hosts a spawned worker session.
+        // Build it through the shared agent session builder so permission,
+        // role rules, and preset telemetry match an in-process spawn; skip
+        // every Lead-only fold (workflow pack, core-memory block, Lead tool
+        // surface, statusline route, session hooks).
+        await runAbortable(signal, () => awaitKeychainPrewarm());
+        ensureConfigForRouteProvider();
+        await resolveMissingRouteModelForFirstTurn(signal);
+        requireModelRoute();
+        const expectedAgentRoute = rt.route;
+        await runAbortable(signal, () => refreshRouteEffort(null, expectedAgentRoute, signal));
+        throwIfAborted(signal);
+        if (!reg.getProvider(rt.route.provider)) {
+          throw new Error(`Provider "${rt.route.provider}" is not configured.`);
+        }
+        if (rt.closeRequested) throw new Error('runtime is closing');
+        const { session } = prepareAgentSession({
+          ...rt.agentSessionSpec,
+          ...(rt.reservedSessionId ? { sessionId: rt.reservedSessionId } : {}),
+        });
+        rt.session = session;
+        rt.reservedSessionId = null;
+        rt.sessionNeedsCwdRefresh = false;
+        bootProfile('session:create:agent-ready', {
+          ms: (performance.now() - startedAt).toFixed(1),
+          agent: rt.agentSessionSpec.agent || null,
+        });
+        return rt.session;
+      }
       const coreMemoryContextPromise = Promise.resolve(loadCoreMemoryContext());
       coreMemoryContextPromise.catch(() => {});
       await runAbortable(signal, () => awaitKeychainPrewarm());

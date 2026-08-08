@@ -70,6 +70,7 @@ const { createDesktopSnapshotStore } = await import("./desktop-snapshot-store.ts
 const { modelDisplayName } = await import("./provider-display.tsx");
 const { navigationKey } = await import("./text-format.ts");
 const { defaultSessionLaneStore } = await import("./session-lane-store.ts");
+const { SLASH_COMMANDS: desktopSlashCommands } = await import("./slash-commands.ts");
 const { createTranscriptSnapshotDecorator } = await import("./snapshot-transcript-decoration.ts");
 const {
   parseQuickOpenQuery,
@@ -3264,6 +3265,57 @@ test("turn review bar renders the authoritative committed net diff instead of pr
   assert.doesNotMatch(text, /intermediate/);
 });
 
+test("turn review headline mirrors edit workload while expanded rows keep the authoritative net diff", async () => {
+  installDom();
+  window.mixdogDesktop = {
+    invokeCapability: async () => ({
+      value: {
+        supported: true,
+        authoritative: true,
+        snapshotKind: "worktree",
+        files: [
+          { path: "src/generated.mjs", status: "A", additions: 322, deletions: 0, binary: false },
+        ],
+        patch: [
+          "diff --git a/src/generated.mjs b/src/generated.mjs",
+          "new file mode 100644",
+          "--- /dev/null",
+          "+++ b/src/generated.mjs",
+          "@@ -0,0 +1 @@",
+          "+final",
+          "",
+        ].join("\n"),
+        agents: [],
+      },
+    }),
+  };
+  await act(async () => root.render(React.createElement(TurnReviewBar, {
+    items: [
+      { id: 1, kind: "user", text: "refactor it" },
+      {
+        id: 2,
+        kind: "tool",
+        aggregate: true,
+        categories: { Patch: { count: 3 } },
+        count: 3,
+        completedCount: 3,
+        result: "Updated 3 Files · +330 lines · -8 lines",
+      },
+    ],
+    cwd: "C:/proj",
+    sessionId: "lead-workload-session",
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  assert.equal(document.querySelector(".turn-review-summary .diff-stats")?.textContent, "+330-8",
+    "the collapsed headline should retain activity-card additions and deletions");
+  await act(async () => document.querySelector(".turn-review-summary")?.click());
+  assert.equal(document.querySelector(".turn-review-source .diff-stats")?.textContent, "+322",
+    "the source totals should align above the file additions and deletions columns");
+  assert.doesNotMatch(document.querySelector(".turn-review-source")?.textContent || "", /1 file/,
+    "the source label should not repeat the headline file count");
+  assert.equal(document.querySelector(".turn-review-file .diff-stats")?.textContent, "+322");
+});
+
 test("turn review transcript fallback excludes a failed proposed patch without a committed uiDiff", async () => {
   installDom();
   window.mixdogDesktop = {
@@ -3296,6 +3348,36 @@ test("turn review transcript fallback excludes a failed proposed patch without a
   })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
   assert.equal(document.querySelector(".turn-review-bar"), null);
+});
+
+test("turn review transcript fallback ignores diff-shaped non-patch tool output", async () => {
+  installDom();
+  window.mixdogDesktop = {
+    invokeCapability: async () => ({ value: { supported: true, authoritative: false, agents: [] } }),
+  };
+  await act(async () => root.render(React.createElement(TurnReviewBar, {
+    items: [
+      { id: 1, kind: "user", text: "inspect it" },
+      {
+        id: 2,
+        kind: "tool",
+        name: "shell",
+        args: { command: "npm test" },
+        result: [
+          "comparison output",
+          "@@ -1,2 +1,2 @@",
+          "-before",
+          "+after",
+        ].join("\n"),
+        completedCount: 1,
+      },
+    ],
+    cwd: "C:/proj",
+    sessionId: "lead-shell-output-session",
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  assert.equal(document.querySelector(".turn-review-bar"), null,
+    "printed diff output from a non-patch tool must not create an `after` phantom file");
 });
 
 test("turn review keeps add, delete, and edit distinct for apply_patch fallback", async () => {
@@ -3340,7 +3422,7 @@ test("turn review keeps add, delete, and edit distinct for apply_patch fallback"
       node.getAttribute("data-status"),
       node.textContent,
     ]),
-    [["A", "Added"], ["D", "Deleted"], ["M", "Changed"]],
+    [["A", "A"], ["D", "D"], ["M", "M"]],
   );
 });
 
@@ -3434,6 +3516,7 @@ test("worktree review undo restores the whole turn after inline confirmation", a
       supported: true,
       authoritative: true,
       snapshotKind: "worktree",
+      revertMode: "worktree",
       files: reverted ? [] : [
         { path: "src/app.mjs", status: "M", additions: 1, deletions: 1, binary: false },
         { path: "src/new.mjs", status: "A", additions: 2, deletions: 0, binary: false },
@@ -3477,6 +3560,73 @@ test("worktree review undo restores the whole turn after inline confirmation", a
   const revertCall = calls.find((request) => request.capability === "revertTurnReview");
   assert.deepEqual(revertCall?.args, []);
   assert.equal(revertCall?.sessionId, "undo-turn-session");
+});
+
+test("tool-backed review reserves aligned columns and exposes header and file undo", async () => {
+  installDom();
+  const calls = [];
+  const review = {
+    supported: true,
+    authoritative: true,
+    snapshotKind: "tool",
+    revertMode: "tracked",
+    files: [],
+    patch: [
+      "diff --git a/src/app.mjs b/src/app.mjs",
+      "--- a/src/app.mjs",
+      "+++ b/src/app.mjs",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      "diff --git a/src/new.mjs b/src/new.mjs",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/new.mjs",
+      "@@ -0,0 +1 @@",
+      "+created",
+      "",
+    ].join("\n"),
+    agents: [],
+  };
+  window.mixdogDesktop = {
+    invokeCapability: async (request) => {
+      calls.push(request);
+      return { value: review };
+    },
+  };
+  const props = {
+    items: [{ id: 1, kind: "user", text: "change" }, { id: 2, kind: "assistant", text: "done" }],
+    cwd: "C:/proj",
+    sessionId: "tracked-undo-session",
+  };
+  await act(async () => root.render(React.createElement(TurnReviewBar, { ...props, busy: true })));
+  await waitForDom(() => Boolean(document.querySelector(".turn-review-undo")),
+    "the header should reserve the whole-turn undo action while busy");
+  assert.equal(document.querySelector(".turn-review-undo")?.disabled, true);
+  await act(async () => document.querySelector(".turn-review-summary")?.click());
+  const controls = document.querySelector(".turn-review-controls");
+  assert.equal(controls?.firstElementChild?.classList.contains("turn-review-style"), true,
+    "view mode must precede the destructive action in the right controls group");
+  assert.equal(controls?.lastElementChild?.classList.contains("turn-review-undo"), true);
+  const busyFileActions = [...document.querySelectorAll(".turn-review-revert")];
+  assert.equal(busyFileActions.length, 2);
+  assert.ok(busyFileActions.every((button) => button.disabled));
+  assert.ok([...document.querySelectorAll(".turn-review-file .diff-stats")]
+    .every((stats) => stats.children.length === 2),
+  "every file should reserve both numeric columns");
+
+  await act(async () => root.render(React.createElement(TurnReviewBar, { ...props, busy: false })));
+  assert.equal(document.querySelector(".turn-review-undo")?.disabled, false);
+  const firstRevert = document.querySelector(".turn-review-revert");
+  assert.equal(firstRevert?.disabled, false);
+  await act(async () => firstRevert?.click());
+  await act(async () => {
+    document.querySelector(".turn-review-confirm .danger")?.click();
+    await Promise.resolve();
+  });
+  assert.ok(calls.some((request) =>
+    request.capability === "revertTurnReviewFile"
+    && request.sessionId === "tracked-undo-session"));
 });
 
 test("turn review bar clears synchronously when switching to an empty session", async () => {
@@ -3523,7 +3673,7 @@ test("turn review bar clears synchronously when switching to an empty session", 
   assert.equal(capabilityCalls, callsBeforeSwitch, "an empty session must not query or reuse the prior turn");
 });
 
-test("turn review bar preserves collapsed geometry across a same-session prompt handoff", async () => {
+test("turn review bar releases prior geometry at a same-session prompt boundary", async () => {
   installDom();
   let phase = "previous";
   let resolveNextReview;
@@ -3571,10 +3721,10 @@ test("turn review bar preserves collapsed geometry across a same-session prompt 
     sessionId: "same-session",
     busy: true,
   })));
-  assert.ok(document.querySelector(".turn-review-placeholder"),
-    "the prior collapsed row height must survive until the next review resolves");
+  assert.equal(document.querySelector(".turn-review-bar"), null,
+    "a chat-only next turn must not retain a fixed empty row above the composer");
   assert.equal(document.querySelector(".turn-review-summary"), null,
-    "the placeholder must not expose the prior turn's stale diff");
+    "the next turn must not expose the prior turn's stale diff");
 
   await act(async () => {
     resolveNextReview?.({
@@ -3590,7 +3740,6 @@ test("turn review bar preserves collapsed geometry across a same-session prompt 
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.equal(document.querySelector(".turn-review-placeholder"), null);
   assert.match(document.querySelector(".turn-review-summary")?.textContent || "", /1 file changed/);
 });
 
@@ -15978,8 +16127,7 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   await act(async () => publish({ ...idle, commandBusy: false }));
   await replaceDraft('/');
   const paletteOptions = document.querySelectorAll('.slash-palette [role="option"]');
-  // Desktop keeps a deliberate SUBSET of the TUI palette (slash-commands.ts).
-  assert.equal(paletteOptions.length, 8);
+  assert.equal(paletteOptions.length, desktopSlashCommands.length);
   assert.ok(slashScrolls > 0);
   const initiallySelected = document.querySelector('.slash-palette [aria-selected="true"]')?.textContent;
   for (let index = 0; index < paletteOptions.length; index += 1) await press('ArrowDown');
@@ -16513,12 +16661,11 @@ test("desktop composer searches, cancels stale @ file mentions, selects by keybo
   assert.equal(textarea.value, '');
 });
 
-test("desktop slash aliases preserve core command semantics and forced catalog refresh", async () => {
+test("desktop slash commands preserve core command semantics", async () => {
   installDom();
   const capabilities = [];
   const catalogOptions = [];
   const fastValues = [];
-  let newTasks = 0;
   const snapshot = { items: [], queued: [], promptHistoryList: [], fast: true, fastCapable: true };
   window.mixdogDesktop = {
     getSnapshot: async () => snapshot,
@@ -16527,7 +16674,7 @@ test("desktop slash aliases preserve core command semantics and forced catalog r
       cwd: 'C:\\workspace', classification: 'task', projectPath: null, currentSession: true,
     }],
     resumeSession: async () => snapshot,
-    startTask: async () => { newTasks += 1; return snapshot; },
+    startTask: async () => snapshot,
     subscribeState: () => () => {},
     listProviderModels: async (options) => { catalogOptions.push(options); return []; },
     setFast: async (enabled) => { fastValues.push(enabled); return { ...snapshot, fast: enabled }; },
@@ -16555,15 +16702,15 @@ test("desktop slash aliases preserve core command semantics and forced catalog r
       textarea.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
       await Promise.resolve();
       await Promise.resolve();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
     });
   };
   await sendSlash('/remote');
-  await sendSlash('/new');
+  await sendSlash('/fast off');
+  await sendSlash('/effort high');
   assert.ok(capabilities.some(([capability]) => capability === 'claimRemote'));
-  // New task is a renderer-only draft until its first prompt; model/catalog
-  // controls likewise stay outside the session-scoped command surface.
-  assert.deepEqual(fastValues, []);
-  assert.equal(newTasks, 0);
+  assert.ok(capabilities.some(([capability, args]) => capability === 'setEffort' && args[0] === 'high'));
+  assert.deepEqual(fastValues, [false]);
 });
 
 test("stopping a turn restores session-owned image attachments and keeps the current draft", async () => {

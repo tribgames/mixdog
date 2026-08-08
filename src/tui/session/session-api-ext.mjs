@@ -1046,6 +1046,23 @@ export function createSessionApiB(bag) {
         ...sessionContextSnapshotProjection(session, contextStatus),
       };
     },
+    // RAW session messages (wire-sanitized downstream). Agent shard spread:
+    // the Lead-side watchdog partial-handoff and terminal-result collection
+    // read raw `session.messages`, which the display projection cannot carry.
+    // `start` slices from a caller-known baseline so turn-end reads stay small.
+    peekSessionMessages: (id, options = {}) => {
+      const session = runtime.peekSession?.(id);
+      if (!session) return null;
+      const messages = Array.isArray(session.messages) ? session.messages : [];
+      const start = Math.max(0, Math.floor(Number(options.start) || 0));
+      return {
+        sessionId: String(session.id || id),
+        messageCount: messages.length,
+        messages: start > 0 ? messages.slice(start) : messages,
+        agent: session.agent || null,
+        status: session.closed === true ? 'closed' : (session.status || 'idle'),
+      };
+    },
     resume: async (id, options = {}) => {
       if (getState().commandBusy) return false;
       // quiet: viewer-follow refreshes (session runtime share tick) re-resume on every

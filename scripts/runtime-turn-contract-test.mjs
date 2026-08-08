@@ -18,6 +18,8 @@ function makeTurnHarness({
   beginTurnSnapshotForTurn = async () => {},
   turnCleanupSettleMs = 20,
   askSession = async () => ({ content: '' }),
+  transcriptWriter = null,
+  ensureSessionTranscriptWriter = () => {},
 } = {}) {
   const session = {
     id: sessionId,
@@ -41,6 +43,12 @@ function makeTurnHarness({
     setFirstTurnCompleted: () => {},
     getCodeGraphFirstTurnPrewarmDone: () => true,
     getRemoteEnabled: () => false,
+    getTranscriptWriter: () => transcriptWriter,
+    getTwKey: () => '',
+    getLastAppendedAssistant: () => '',
+    setLastAppendedAssistant: () => {},
+    ensureSessionTranscriptWriter,
+    ensureRemoteTranscriptWriter: () => {},
     getCloseRequested: () => false,
     getReservedSessionId: () => null,
     registerActiveTurnController: (controller) => {
@@ -171,4 +179,27 @@ test('optional turn snapshot cleanup cannot pin a successful ask', async () => {
   assert.equal(result.result.content, 'done');
   assert.equal(harness.getActiveTurnCount(), 0);
   assert.equal(harness.wasUnregistered(), true);
+});
+
+test('local main turns persist user and assistant conversation without Remote', async () => {
+  const rows = [];
+  let ensured = 0;
+  const writer = {
+    appendUser: (text) => rows.push(['user', text]),
+    appendAssistant: (text) => rows.push(['assistant', text]),
+  };
+  const harness = makeTurnHarness({
+    transcriptWriter: writer,
+    ensureSessionTranscriptWriter: () => { ensured += 1; },
+    askSession: async (...args) => {
+      args[7]?.onAssistantText?.('local reply');
+      return { content: 'local reply' };
+    },
+  });
+  await harness.api.ask('local prompt');
+  assert.equal(ensured, 1);
+  assert.deepEqual(rows, [
+    ['user', 'local prompt'],
+    ['assistant', 'local reply'],
+  ]);
 });

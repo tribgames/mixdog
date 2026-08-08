@@ -63,6 +63,7 @@ export {
   parseToolArgs,
   displayToolPath,
   displayModelName,
+  parseLineDelta,
   extractErrorCause,
   summarizeToolResult,
   isExplorerSurface,

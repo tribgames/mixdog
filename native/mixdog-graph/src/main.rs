@@ -30,6 +30,8 @@ use sha2::{Digest, Sha256};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Parser, Query, QueryCursor};
 
+mod serve_search;
+
 // Mirrors CODE_GRAPH_MAX_FILES on the Node side. --walk caps parse work
 // here so large repos don't pay full parse cost before truncation.
 const MAX_FILES: usize = 10_000;
@@ -2173,6 +2175,7 @@ fn main() {
     match args.get(2) {
         Some(flag) if flag == "--files" => run_files(root, &args[3..]),
         Some(flag) if flag == "--manifest" => run_manifest(root),
+        Some(flag) if flag == "--serve-search" => serve_search::run(),
         Some(sym) if !sym.is_empty() => run_search(root, sym),
         _ => run_walk(root),
     }

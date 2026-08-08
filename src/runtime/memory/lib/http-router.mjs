@@ -19,7 +19,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { TOOL_DEFS } from '../tool-defs.mjs'
-import { readBody, sendJson, sendError, isLocalOrigin, normalizeCoreProjectId } from './http-wire.mjs'
+import { readBody, sendJson, sendError, isLocalOrigin, normalizeCoreProjectId, TOOL_HTTP_BODY_MAX_BYTES } from './http-wire.mjs'
 import { listCore, addCore, deleteCore } from './core-memory-store.mjs'
 import { isBootstrapComplete, cleanMemoryText } from './memory.mjs'
 import { resolveProjectScope } from './project-id-resolver.mjs'
@@ -465,7 +465,9 @@ export function createHttpRouter({
       })
       if (callId) _ownerInFlightHttpCalls.set(callId, ac)
       try {
-        const body = await readBody(req)
+        // Raised cap: ingest_session ships whole-session transcripts (see
+        // TOOL_HTTP_BODY_MAX_BYTES in http-wire.mjs).
+        const body = await readBody(req, { maxBytes: TOOL_HTTP_BODY_MAX_BYTES })
         const result = await handleToolCall(body.name, body.arguments ?? {}, ac.signal)
         sendJson(res, result)
       } catch (e) {

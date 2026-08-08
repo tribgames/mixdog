@@ -342,6 +342,45 @@ export function makeAgentDispatch(opts = {}) {
         // pooled or resumed. Cache prefix matching happens at the provider
         // layer (account-level), not the session level.
         const finalPrompt = prompt;
+        // Agent shard spread: inside a shard child the ephemeral hidden-role
+        // session runs on a peer shard through the daemon session protocol —
+        // the same single spawn path the agent tool uses. ONE path per mode:
+        // a remote failure fails the dispatch (no in-process fallback).
+        const spreadMod = await import('../../../../standalone/agent-tool/shard-spread.mjs')
+            .catch(() => null);
+        if (spreadMod?.agentShardSpreadEnabled?.()) {
+            const raw = await spreadMod.dispatchHiddenAgentRemote({
+                spec: {
+                    agent,
+                    presetName,
+                    preset,
+                    runtimeSpec,
+                    permission,
+                    cwd,
+                    sourceType: opts.sourceType,
+                    sourceName: sourceNameArg || opts.sourceName,
+                    parentSessionId: opts.parentSessionId || null,
+                    ownerSessionId: opts.ownerSessionId === undefined ? (opts.parentSessionId || null) : opts.ownerSessionId,
+                    clientHostPid: opts.clientHostPid,
+                    skipRoleReminder: isPoolC,
+                    schemaAllowedTools: resolveHiddenRoleSchemaAllowedTools(hidden),
+                    taskType: opts.taskType,
+                    maxLoopIterations: opts.maxLoopIterations,
+                },
+                provider: preset.provider,
+                model: preset.model,
+                cwd,
+                prompt: finalPrompt,
+                parentSignals: [opts.parentSignal, callParentSignal],
+                watchdogPolicy: resolveAgentWatchdogPolicy(agent, {
+                    idleTimeoutMs: Number.isFinite(callIdleTimeoutMs)
+                        ? callIdleTimeoutMs
+                        : opts.idleTimeoutMs,
+                    firstResponseTimeoutMs: opts.firstResponseTimeoutMs,
+                }),
+            });
+            return opts.brief === false ? raw : applyBriefCap(raw);
+        }
         const { session } = prepareAgentSession({
             agent,
             presetName,

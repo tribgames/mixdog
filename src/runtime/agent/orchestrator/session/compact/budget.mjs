@@ -6,6 +6,7 @@ import {
     dedupToolResultBodies,
     reconcileDedupStubs,
     estimateMessagesTokens,
+    estimateMessageTokens,
     DEFAULT_COMPACTION_KEEP_TOKENS,
 } from '../context-utils.mjs';
 import { extractText, summarizeToolCall, redactRawSecretString, TOOL_CALL_FACT_ARGS_MAX_CHARS } from './text-utils.mjs';
@@ -151,7 +152,13 @@ function pruneToolOutputText(text, maxChars, toolCallId) {
 export function pruneToolOutputs(messages, budgetTokens, opts = {}) {
     const budget = effectiveBudget(budgetTokens, opts);
     let result = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
-    if (estimateMessagesTokens(result) <= budget) return result;
+    // Running total with per-message deltas: the estimator is additive, so
+    // replacing one message shifts the total by exactly that message's delta.
+    // Re-estimating the WHOLE transcript after every pruned message was
+    // O(candidates × transcript) and measured ~1.25s on a 2.5MB session.
+    // Parity: opencode's prune keeps the same running-total shape.
+    let total = estimateMessagesTokens(result);
+    if (total <= budget) return result;
 
     const maxChars = Math.max(256, Number(opts?.maxToolOutputChars) || PRUNE_TOOL_OUTPUT_MAX_CHARS);
     const protectFrom = protectedTailStart(result, Number(opts?.tailTurns) || PRUNE_TAIL_TURNS);
@@ -165,13 +172,15 @@ export function pruneToolOutputs(messages, budgetTokens, opts = {}) {
     candidates.sort((a, b) => b.length - a.length);
     for (const c of candidates) {
         const m = result[c.index];
-        result[c.index] = {
+        const pruned = {
             ...m,
             content: pruneToolOutputText(m.content, maxChars, m.toolCallId),
             compacted: true,
             compactedKind: 'tool_output_prune',
         };
-        if (estimateMessagesTokens(result) <= budget) break;
+        total += estimateMessageTokens(pruned) - estimateMessageTokens(m);
+        result[c.index] = pruned;
+        if (total <= budget) break;
     }
     return reconcileDedupStubs(result);
 }
@@ -189,7 +198,8 @@ export function pruneToolOutputs(messages, budgetTokens, opts = {}) {
 export function pruneToolOutputsUnanchored(messages, budgetTokens, opts = {}) {
     const budget = effectiveBudget(budgetTokens, opts);
     let result = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
-    if (estimateMessagesTokens(result) <= budget) return result;
+    let total = estimateMessagesTokens(result);
+    if (total <= budget) return result;
 
     const maxChars = Math.max(256, Number(opts?.maxToolOutputChars) || PRUNE_TOOL_OUTPUT_MAX_CHARS);
     // Oldest -> newest so recent tool output survives longest. No user-turn
@@ -198,13 +208,15 @@ export function pruneToolOutputsUnanchored(messages, budgetTokens, opts = {}) {
         const m = result[i];
         if (m?.role !== 'tool' || typeof m.content !== 'string') continue;
         if (m.content.length <= maxChars) continue;
-        result[i] = {
+        const pruned = {
             ...m,
             content: pruneToolOutputText(m.content, maxChars, m.toolCallId),
             compacted: true,
             compactedKind: 'tool_output_prune',
         };
-        if (estimateMessagesTokens(result) <= budget) break;
+        total += estimateMessageTokens(pruned) - estimateMessageTokens(m);
+        result[i] = pruned;
+        if (total <= budget) break;
     }
     return reconcileDedupStubs(result);
 }

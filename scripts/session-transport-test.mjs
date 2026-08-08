@@ -129,7 +129,7 @@ function waitForValue(predicate, timeoutMs = 2_000) {
 
 test('protocol stays at 1 while revision then app build chooses the daemon', () => {
   assert.equal(SESSION_PROTOCOL, 1);
-  assert.equal(SESSION_REVISION, 1);
+  assert.equal(SESSION_REVISION, 2);
   assert.match(SESSION_CAPABILITY_FINGERPRINT, /^[0-9a-f]{16}$/);
   assert.equal(sessionDaemonCompatibility({
     protocol: 1,
@@ -1690,6 +1690,7 @@ test('repeated idle session churn releases runtimes, projections, and its sweep 
           watched: 0,
           retained: 0,
           projected: 0,
+          pendingViewerSessions: 0,
           evictionSweepActive: false,
         });
         if (global.gc) {

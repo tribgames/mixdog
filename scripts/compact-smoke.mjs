@@ -628,6 +628,57 @@ assert(overflowError?.code === 'AGENT_CONTEXT_OVERFLOW', `overflow should surfac
 assert(overflowSendCount === 2, `overflow should send twice (original + one reactive compact-retry), sent=${overflowSendCount}`);
 assert(overflowCompactSendCount === 1, `reactive compact-retry should run exactly one in-loop semantic compaction, compactSends=${overflowCompactSendCount}`);
 
+// Main-session auto compact remains recall-fasttrack-only. Stored Memory
+// absence must preserve the live transcript and surface overflow; it must never
+// spend a semantic summary call or send a silently changed compaction type.
+const memoryMissMessages = [{ role: 'system', content: 'system rules stay mandatory' }];
+let memoryMissIndex = 0;
+while (estimateMessagesTokens(memoryMissMessages) < 14_000) {
+  memoryMissMessages.push({ role: 'user', content: `older local request ${memoryMissIndex}: ${'important context '.repeat(100)}` });
+  memoryMissMessages.push({ role: 'assistant', content: `older local answer ${memoryMissIndex}: ${'implementation detail '.repeat(100)}` });
+  memoryMissIndex += 1;
+}
+memoryMissMessages.push({ role: 'user', content: 'current local request must remain verbatim' });
+let memoryMissCompactCalls = 0;
+let memoryMissMainCalls = 0;
+const memoryMissProvider = {
+  name: 'memory-miss-smoke',
+  async send(_sentMessages, _model, _tools, opts = {}) {
+    if (String(opts?.sessionId || '').endsWith(':compact')) memoryMissCompactCalls += 1;
+    memoryMissMainCalls += 1;
+    return { content: 'unexpected provider call' };
+  },
+};
+const memoryMissSession = {
+  id: `compact-smoke-main-memory-miss-${process.pid}-${Date.now()}`,
+  owner: 'cli',
+  provider: 'memory-miss-smoke',
+  model: 'fake-model',
+  contextWindow: 12_000,
+  rawContextWindow: 12_000,
+  compactBoundaryTokens: 12_000,
+  compaction: { auto: true, type: COMPACT_TYPE_RECALL_FASTTRACK, compactType: COMPACT_TYPE_RECALL_FASTTRACK },
+};
+const memoryMissBefore = JSON.stringify(memoryMissMessages);
+let memoryMissError = null;
+try {
+  await agentLoop(
+    memoryMissProvider,
+    memoryMissMessages,
+    'fake-model',
+    [],
+    null,
+    process.cwd(),
+    { session: memoryMissSession, sessionId: memoryMissSession.id },
+  );
+} catch (err) {
+  memoryMissError = err;
+}
+assert(memoryMissError?.code === 'AGENT_COMPACT_FAILED', `memory miss should preserve the recall-fasttrack failure contract, got ${memoryMissError?.code || memoryMissError?.message}`);
+assert(memoryMissCompactCalls === 0, `memory miss must not make a semantic compact call, got ${memoryMissCompactCalls}`);
+assert(memoryMissMainCalls === 0, `memory miss must fail before the main provider send, got ${memoryMissMainCalls}`);
+assert(JSON.stringify(memoryMissMessages) === memoryMissBefore, 'memory miss must preserve the full live transcript');
+
 
 function countRealUserTail(messages) {
   return messages.filter((m) => m?.role === 'user' && typeof m.content === 'string' && !m.content.startsWith(SUMMARY_PREFIX)).length;
