@@ -84,7 +84,7 @@ import {
 } from './editor-code-graph.ts';
 import { applyLspTextEdits } from './editor-language-store.ts';
 import { filePreviewTypeForPath } from '../shared/file-preview.ts';
-import { localFileMimeTypeForPath } from '../shared/local-files.ts';
+import { isLocalTextFilePath, localFileMimeTypeForPath } from '../shared/local-files.ts';
 import {
   MIXDOG_ABSOLUTE_PATHS_MIME,
   MIXDOG_PROJECT_PATHS_MIME,
@@ -466,6 +466,20 @@ test('shared file drags resolve Project and Files paths for every pane target', 
   assert.deepEqual(droppedLocalPaths(absoluteTransfer), ['C:\\Users\\me\\A B.txt']);
   assert.equal(terminalPathText(droppedLocalPaths(absoluteTransfer)), '"C:\\Users\\me\\A B.txt"');
   assert.equal(localFileMimeTypeForPath('reference.WEBP'), 'image/webp');
+  assert.equal(isLocalTextFilePath('C:\\work\\src\\main.tsx'), true);
+  assert.equal(isLocalTextFilePath('C:\\work\\src\\runtime.cjs'), true);
+  assert.equal(isLocalTextFilePath('C:\\work\\src\\module.mts'), true);
+  assert.equal(isLocalTextFilePath('C:\\work\\src\\module.cts'), true);
+  assert.equal(isLocalTextFilePath('C:\\work\\notes\\analysis.ipynb'), true);
+  assert.equal(isLocalTextFilePath('C:\\work\\desktop\\Project.csproj'), true);
+  assert.equal(isLocalTextFilePath('C:\\work\\.env.local'), true);
+  assert.equal(isLocalTextFilePath('C:\\work\\Dockerfile.dev'), true);
+  assert.equal(isLocalTextFilePath('C:\\work\\diagram.svg'), true);
+  assert.equal(isLocalTextFilePath('C:\\work\\README'), true);
+  assert.equal(isLocalTextFilePath('C:\\work\\LICENSE-MIT'), true);
+  assert.equal(isLocalTextFilePath('C:\\work\\report.docx'), false);
+  assert.equal(isLocalTextFilePath('C:\\work\\photo.png'), false);
+  assert.equal(isLocalTextFilePath('C:\\work\\program.exe'), false);
 });
 
 test('media playback requires an active surface and a foreground app window', () => {
@@ -2464,7 +2478,7 @@ test('Maintainer keeps its default model row but stays out of workflow agent cho
   assert.match(view,
     /HIDDEN_WORKFLOW_AGENT_IDS = new Set\(\['scheduler-task', 'webhook-handler'\]\)/);
   assert.match(view, /DEFAULT_AGENT_IDS = new Set\(\['maintainer', 'explore'\]\)/);
-  assert.match(view, /workflowAgents = agentRoster\.filter\(\(agent\) => !DEFAULT_AGENT_IDS\.has\(agent\.id\)\)/);
+  assert.match(view, /editableAgents = agentRoster\.filter\(\(agent\) => !DEFAULT_AGENT_IDS\.has\(agent\.id\)\)/);
   assert.match(view, /pack=\{editor\.pack\} agents=\{workflowAgents\}/);
   assert.match(view, /editableAgents = agentRoster\.filter\(\(agent\) => !DEFAULT_AGENT_IDS\.has\(agent\.id\)\)/);
   // Web search, Explore, and Maintainer share the shared-service section.

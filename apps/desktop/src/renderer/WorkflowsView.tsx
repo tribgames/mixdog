@@ -19,7 +19,6 @@ import { agentIcon } from './agent-icons';
 import { t } from './i18n';
 import { filterConfiguredModels } from './ModelPicker';
 import { dismissDesktopToast, showDesktopToast } from './notifications';
-import { OpenSelect } from './OpenSelect';
 import { RowOverflowMenu } from './RowOverflowMenu';
 import { modelDisplayName, normalizeModelOptions } from './provider-display';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
@@ -111,33 +110,21 @@ function RouteControls({ label, route, models, disabled, onChange }: {
   </div>;
 }
 
-// Popup editor (schedules-dialog grammar): name/description, agent subset,
-// and the WORKFLOW.md body. `pack` null means create.
-function WorkflowEditorDialog({ pack, agents, busy, error = '', onCancel, onSave }: {
+// Popup editor (schedules-dialog grammar): name/description, delegation
+// on/off, and the WORKFLOW.md body. `pack` null means create. Agents are
+// global — packs no longer carry a roster.
+function WorkflowEditorDialog({ pack, busy, error = '', onCancel, onSave }: {
   pack: RecordValue | null;
-  agents: AgentSummary[];
   busy: boolean;
   error?: string;
   onCancel(): void;
   onSave(payload: RecordValue): void;
 }) {
   const editing = Boolean(pack);
-  // An EMPTY list means the pack keeps every default agent (no `agents`
-  // frontmatter); agents are added explicitly, like workflow rows.
-  const [selected, setSelected] = useState<string[]>(() => (
-    editing && pack?.agentsConfigured === true
-      ? (Array.isArray(pack?.agents)
-        ? (pack.agents as unknown[]).map(String).filter((id) => !HIDDEN_WORKFLOW_AGENT_IDS.has(id))
-        : [])
-      : []
-  ));
-  // An EMPTY list is ambiguous on its own: a pack with `agents:` present but
-  // empty (Solo) delegates to NOBODY, while a pack without the key keeps every
-  // default agent. Track which one an empty selection means so a plain
-  // open-and-save round trip cannot silently flip Solo into a delegating pack.
-  const [agentsConfigured, setAgentsConfigured] = useState(() => editing && pack?.agentsConfigured === true);
+  // ONE agent-related setting per pack: delegates (every defined agent is
+  // available) or not (Solo-style, `delegation: none`).
+  const [delegates, setDelegates] = useState(() => !editing || pack?.delegatesAgents !== false);
   const [formError, setFormError] = useState('');
-  const available = agents.filter((agent) => !selected.includes(agent.id));
   // The scrim cannot dim the NATIVE caption band — hold the titlebar claim
   // while this dialog is mounted (user: - ㅁ x 딤드 안 먹음).
   useEffect(() => acquireTitleBarDim(), []);
@@ -171,9 +158,9 @@ function WorkflowEditorDialog({ pack, agents, busy, error = '', onCancel, onSave
           ...(editing ? { id: String(pack?.id || '') } : {}),
           name: text('workflow-name'),
           description: text('workflow-description'),
-          // null omits `agents` (every role stays available); an empty array
-          // writes an explicit empty list (no agents at all).
-          agents: selected.length === 0 && !agentsConfigured ? null : selected,
+          // null keeps the pack delegating (no frontmatter key); 'none'
+          // writes `delegation: none` (Solo-style, no agents at all).
+          delegation: delegates ? null : 'none',
           body,
         });
       }}>
@@ -188,44 +175,15 @@ function WorkflowEditorDialog({ pack, agents, busy, error = '', onCancel, onSave
         <div className="schedules-field">
           <span>{t('Agents')}</span>
           <div className="workflows-agent-list">
-            {selected.map((id) => {
-              const agent = agents.find((option) => option.id === id)
-                || { id, label: id, description: '', custom: true };
-              const Icon = agentIcon(id);
-              return <div key={id} className="workflows-agent-row">
-                <span className="workflows-agent-icon"><Icon size={14} aria-hidden="true" /></span>
-                <span className="workflows-agent-copy">
-                  <b>{agent.label}</b>
-                  <small>{agent.description}</small>
-                </span>
-                <button type="button" className="workflows-agent-remove" disabled={busy}
-                  aria-label={t("Remove {{name}}", { name: agent.label })}
-                  onClick={() => setSelected((current) => current.filter((entry) => entry !== id))}>
-                  <X size={14} aria-hidden="true" />
-                </button>
-              </div>;
-            })}
-            {selected.length === 0 && <div className="workflows-agent-empty-row">
-              <p className="workflows-agent-empty">{agentsConfigured
-                ? t('No agents — this workflow delegates to none.')
-                : t('No agents added — every default agent stays available.')}</p>
+            <div className="workflows-agent-empty-row">
+              <p className="workflows-agent-empty">{delegates
+                ? t('Every defined agent is available to this workflow.')
+                : t('No agents — this workflow delegates to none.')}</p>
               <button type="button" className="workflows-agent-mode" disabled={busy}
-                onClick={() => setAgentsConfigured((current) => !current)}>
-                {agentsConfigured ? t('Allow every default agent') : t('Use no agents')}
+                onClick={() => setDelegates((current) => !current)}>
+                {delegates ? t('Use no agents') : t('Allow agents')}
               </button>
-            </div>}
-            {available.length > 0 && <div className="workflows-agent-add">
-              <OpenSelect ariaLabel={t("Add agent")} value="" displayValue="Add agent…" disabled={busy}
-                options={[
-                  { value: '', label: 'Add agent…', disabled: true },
-                  ...available.map((agent) => ({ value: agent.id, label: agent.label })),
-                ]}
-                onChange={(value) => {
-                  if (!value) return;
-                  setAgentsConfigured(true);
-                  setSelected((current) => (current.includes(value) ? current : [...current, value]));
-                }} />
-            </div>}
+            </div>
           </div>
         </div>
         <label className="schedules-field workflows-md-field">WORKFLOW.md
@@ -380,13 +338,12 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
 }
 
 function AgentDeleteDialog({ target, busy, error = '', onCancel, onDelete }: {
-  target: { id: string; label: string; workflowNames: string[] };
+  target: { id: string; label: string };
   busy: boolean;
   error?: string;
   onCancel(): void;
   onDelete(): void;
 }) {
-  const inUse = target.workflowNames.length > 0;
   useEffect(() => acquireTitleBarDim(), []);
   return createPortal(<div className="schedules-dialog-layer"
     onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
@@ -398,26 +355,20 @@ function AgentDeleteDialog({ target, busy, error = '', onCancel, onDelete }: {
       }
     }}>
     <section className="schedules-dialog workflows-dialog workflows-delete-dialog"
-      role={inUse ? 'alertdialog' : 'dialog'} aria-modal="true" aria-labelledby="agent-delete-dialog-title">
+      role="dialog" aria-modal="true" aria-labelledby="agent-delete-dialog-title">
       <header>
-        <h2 id="agent-delete-dialog-title">{inUse ? t('Agent is in use') : t('Delete agent')}</h2>
+        <h2 id="agent-delete-dialog-title">{t('Delete agent')}</h2>
         <button type="button" aria-label={t("Close agent delete dialog")} onClick={onCancel}>
           <X size={16} aria-hidden="true" />
         </button>
       </header>
       <div className="workflows-delete-dialog-body">
-        {inUse
-          ? <>
-            <p>{t('{{name}} cannot be deleted while a workflow uses it.', { name: target.label })}</p>
-            <p>{target.workflowNames.length === 1 ? t('Remove it from this workflow first:') : t('Remove it from these workflows first:')}</p>
-            <ul>{target.workflowNames.map((name) => <li key={name}>{name}</li>)}</ul>
-          </>
-          : <p>{t('Delete {{name}} permanently? This cannot be undone.', { name: target.label })}</p>}
+        <p>{t('Delete {{name}} permanently? This cannot be undone.', { name: target.label })}</p>
       </div>
       <footer>
         {error && <p className="schedules-form-error" role="alert">{error}</p>}
-        <button type="button" disabled={busy} onClick={onCancel}>{inUse ? t('Close') : t('Cancel')}</button>
-        {!inUse && <button type="button" className="danger" disabled={busy} onClick={onDelete}>{t('Delete')}</button>}
+        <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
+        <button type="button" className="danger" disabled={busy} onClick={onDelete}>{t('Delete')}</button>
       </footer>
     </section>
   </div>, document.body);
@@ -464,7 +415,7 @@ export function WorkflowsPane({
   const [agentEditor, setAgentEditor] = useState<{ agent: RecordValue | null } | null>(null);
   const [routeEditor, setRouteEditor] = useState<RouteEditorTarget | null>(null);
   const [agentDeleteTarget, setAgentDeleteTarget] =
-    useState<{ id: string; label: string; workflowNames: string[] } | null>(null);
+    useState<{ id: string; label: string } | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState('');
   // Both editors portal to document.body, outside the sidebar's inert box:
   // deactivating the panel closes them and disarms pending deletions, while
@@ -539,7 +490,6 @@ export function WorkflowsPane({
     custom: agent.custom === true,
     userOverride: agent.userOverride === true,
   })).filter((agent) => agent.id && !HIDDEN_WORKFLOW_AGENT_IDS.has(agent.id)), [agents]);
-  const workflowAgents = agentRoster.filter((agent) => !DEFAULT_AGENT_IDS.has(agent.id));
   const maintainerAgent = agentRoster.find((agent) => agent.id === 'maintainer');
   const maintainerRow = agents.find((agent) => String(agent.id || '') === 'maintainer');
   const exploreAgent = agentRoster.find((agent) => agent.id === 'explore');
@@ -592,8 +542,8 @@ export function WorkflowsPane({
       </div>
       <RowOverflowMenu label={`Actions for ${agent.label}`} items={[
         { id: 'edit', label: 'Edit', disabled: busy, onSelect: () => void openAgentEditor(agent.id) },
-        // Shipped roles are protected. Only user-authored roles expose Delete,
-        // and the dialog names every workflow that must release the role first.
+        // Shipped roles are protected. Only user-authored roles expose Delete;
+        // agents are global, so deletion needs no workflow bookkeeping.
         ...(agent.custom ? [{
           id: 'delete',
           label: 'Delete',
@@ -601,12 +551,7 @@ export function WorkflowsPane({
           danger: true,
           onSelect: () => {
             setError('');
-            const workflowNames = workflows
-              .filter((workflow) => workflow.agentsConfigured === true
-                && Array.isArray(workflow.agents)
-                && workflow.agents.map(String).includes(agent.id))
-              .map((workflow) => String(workflow.name || workflow.id || 'Unnamed workflow'));
-            setAgentDeleteTarget({ id: agent.id, label: agent.label, workflowNames });
+            setAgentDeleteTarget({ id: agent.id, label: agent.label });
           },
         }] : []),
       ]} />
@@ -618,7 +563,7 @@ export function WorkflowsPane({
     inert={active ? undefined : true} aria-hidden={active ? undefined : true}>
     <div className="schedules-page workflows-settings-page">
       {active && editor && <WorkflowEditorDialog key={String(record(editor.pack).id || '(new)')}
-        pack={editor.pack} agents={workflowAgents} busy={busy} error={error}
+        pack={editor.pack} busy={busy} error={error}
         onCancel={() => {
           setError('');
           setEditor(null);

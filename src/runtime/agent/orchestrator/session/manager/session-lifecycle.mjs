@@ -510,14 +510,15 @@ const ACTIVE_OWNER_HB_FRESH_MS = 2 * 60 * 1000; // heartbeat freshness window
 const PREPARED_RESUME_LIMIT = 8;
 const _preparedResumes = new Map();
 
-// A workflow that delegates to NOBODY (agents: declared empty — e.g. Solo)
+// A workflow that delegates to NOBODY (`delegation: none` — e.g. Solo)
 // must not put the `agent` tool in the session tool list: policy rejects
 // every call, so a schema-visible tool is a guaranteed error turn plus dead
-// schema weight. Field source: workflowSummary() carries agentsConfigured /
-// agents; older persisted sessions lack them and keep the tool (safe).
+// schema weight. Field source: workflowSummary() carries delegatesAgents;
+// older persisted sessions carry the legacy roster fields or nothing (safe).
 function workflowDisallowsAgentTool(workflow) {
-    return Boolean(workflow && typeof workflow === 'object'
-        && workflow.agentsConfigured === true
+    if (!workflow || typeof workflow !== 'object') return false;
+    if (workflow.delegatesAgents === false) return true;
+    return Boolean(workflow.agentsConfigured === true
         && Array.isArray(workflow.agents) && workflow.agents.length === 0);
 }
 

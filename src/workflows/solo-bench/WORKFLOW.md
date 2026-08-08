@@ -2,7 +2,7 @@
 id: solo-bench
 name: Solo Bench
 description: "Benchmark-only Solo without the planning approval gate."
-agents:
+delegation: none
 hidden: true
 ---
 

@@ -2,7 +2,7 @@
 // deferral, admission control), the progress-idle watchdogs, spawn prep
 // (provider/session preparation), and the full runSpawn
 // execution with turn-review collection and terminal accounting.
-import { clean, clearAgentStatuslineRoute, nonNegativeInt, normalizeAgentName, positiveInt, presetKey, readAgentFrontmatterPermission, resolvePrompt, terminalPidForContext, withCwdHeader, writeAgentStatuslineRoute } from './helpers.mjs';
+import { agentDefinitionExists, clean, clearAgentStatuslineRoute, nonNegativeInt, normalizeAgentName, positiveInt, presetKey, readAgentFrontmatterPermission, resolvePrompt, terminalPidForContext, withCwdHeader, writeAgentStatuslineRoute } from './helpers.mjs';
 import { createNotify } from './notify.mjs';
 import { reconcileBackgroundTask, sanitizeTaskMeta, startBackgroundTask } from '../../runtime/shared/background-tasks.mjs';
 import { abnormalEmptyFinishError, renderResult } from './render.mjs';
@@ -184,6 +184,11 @@ export function createSpawnFlow({
     const config = cfgMod.loadConfig();
     const agent = normalizeAgentName(args.agent);
     if (!agent) throw new Error('agent spawn: agent is required');
+    // Deleted/unknown agents fail here: settings-deleted custom roles would
+    // otherwise still spawn as role-less generic agents by remembered name.
+    if (!agentDefinitionExists(agent, dataDir, STANDALONE_SOURCE_ROOT)) {
+      throw new Error(`agent spawn: unknown agent "${agent}"`);
+    }
     const agentPermission = readAgentFrontmatterPermission(agent, dataDir, STANDALONE_SOURCE_ROOT);
     const agentPerm = normalizeAgentPermission(agentPermission) || null;
     const { presetName, preset } = resolveAgentSpawnPreset(config, args);

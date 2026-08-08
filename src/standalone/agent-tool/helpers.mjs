@@ -254,3 +254,20 @@ export function readAgentFrontmatterPermission(agent, dataDir, standaloneSourceR
   _frontmatterPermCache.set(cacheKey, { value: resolved, atMs: Date.now() });
   return resolved;
 }
+
+// Agents are global definitions (agents/<id>/ under the data dir or the
+// shipped source root). A spawn of an id with no definition anywhere —
+// typically a custom agent deleted in settings — must fail loudly instead of
+// silently running as a role-less generic agent.
+export function agentDefinitionExists(agent, dataDir, standaloneSourceRoot) {
+  const cleanAgent = clean(agent);
+  if (!cleanAgent) return false;
+  const candidates = [];
+  if (dataDir) {
+    candidates.push(join(dataDir, 'agents', cleanAgent, 'AGENT.md'));
+    candidates.push(join(dataDir, 'agents', `${cleanAgent}.md`));
+  }
+  candidates.push(join(standaloneSourceRoot, 'agents', cleanAgent, 'AGENT.md'));
+  candidates.push(join(standaloneSourceRoot, 'agents', `${cleanAgent}.md`));
+  return candidates.some((file) => existsSync(file));
+}
