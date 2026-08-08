@@ -1599,9 +1599,9 @@ setInternalToolsProvider({
     // explore role) still omits them.
     // No terminal-action tool is registered: a no-tool assistant message ends
     // the turn, so the schema carries capabilities only.
-    const expectedReadTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'shell', 'task', 'explore', 'search', 'web_fetch', 'Skill'];
-    const expectedPublicReadTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'explore', 'search', 'web_fetch', 'Skill'];
-    const expectedWriteTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'shell', 'task', 'explore', 'search', 'web_fetch', 'Skill'];
+    const expectedReadTools = ['explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
+    const expectedPublicReadTools = ['explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read', 'search', 'web_fetch', 'Skill'];
+    const expectedWriteTools = ['explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read', 'apply_patch', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
     if (JSON.stringify(readTools) !== JSON.stringify(expectedReadTools)) {
       throw new Error(`read agent schema must be fixed allow-list: expected=${expectedReadTools.join(', ')} actual=${readTools.join(', ')}`);
     }
@@ -1669,7 +1669,7 @@ setInternalToolsProvider({
   try {
     const resumed = await resumeSession(resumeAgentSession.id, 'full');
     const resumedTools = (resumed?.tools || []).map((tool) => tool?.name).filter(Boolean);
-    const expectedWriteTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'shell', 'task', 'explore', 'search', 'web_fetch', 'Skill'];
+    const expectedWriteTools = ['explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read', 'apply_patch', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
     if (JSON.stringify(resumedTools) !== JSON.stringify(expectedWriteTools)) {
       throw new Error(`resumed read-write agent schema must keep fixed allow-list: expected=${expectedWriteTools.join(', ')} actual=${resumedTools.join(', ')}`);
     }
@@ -2453,7 +2453,7 @@ if (!/pattern\[\] batches exact query literals and identifier variants/i.test(gr
 }
 // Contract-only description: routing/verification policy lives in
 // src/rules/shared/01-tool.md (see explore-prompt-policy-test.mjs).
-if (!/\bliteral\/regex\b/i.test(grepTool?.description || '')) {
+if (!/\bFile-content literal\/regex\b/i.test(grepTool?.description || '')) {
   throw new Error('grep description must state its literal/regex content-search contract');
 }
 if (!/Glob filter/i.test(grepGlobDescription)) {
@@ -2475,8 +2475,9 @@ const globTool = BUILTIN_TOOLS.find((tool) => tool.name === 'glob');
 const findTool = BUILTIN_TOOLS.find((tool) => tool.name === 'find');
 const listTool = BUILTIN_TOOLS.find((tool) => tool.name === 'list');
 const findHeadLimitDescription = findTool?.inputSchema?.properties?.head_limit?.description || '';
-if (!/Match glob patterns/i.test(globTool?.description || '')) {
-  throw new Error('glob description must route exact-pattern unknown paths before read/grep/list');
+if (!/Known-base wildcard paths/i.test(globTool?.description || '')
+    || !/returns paths only/i.test(globTool?.description || '')) {
+  throw new Error('glob description must state its known-base wildcard path contract');
 }
 // Contract-only description: guessed-fragment/verified-root routing policy
 // lives in src/rules/shared/01-tool.md.
@@ -2486,8 +2487,10 @@ if (!/Fuzzy filename\/directory path-string lookup/i.test(findTool?.description 
 if (!/across the call/i.test(findHeadLimitDescription) || !/Defaults to 25/i.test(findHeadLimitDescription)) {
   throw new Error('find head_limit must be one call-level result budget');
 }
-if (!/List directory entries/i.test(listTool?.description || '') || !/path\[\]/i.test(listTool?.inputSchema?.properties?.path?.description || '')) {
-  throw new Error('list description must require verified directories and locator-first unknown dirs');
+if (!/Known-directory immediate entries/i.test(listTool?.description || '')
+    || !/no wildcard/i.test(listTool?.description || '')
+    || !/path\[\]/i.test(listTool?.inputSchema?.properties?.path?.description || '')) {
+  throw new Error('list description must state its known-directory immediate-entry contract');
 }
 const codeGraphModeDescription = codeGraphProps.mode?.description || '';
 const codeGraphSymbolsDescription = codeGraphProps.symbols?.description || '';

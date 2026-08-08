@@ -45,7 +45,7 @@ const APPLY_PATCH_JSON_DESCRIPTION = [
   'Every section starts with exactly one header: *** Add File: <path> (+content lines), *** Delete File: <path> (nothing after), *** Update File: <path> (optional *** Move to: <new path>).',
   'Hunks open with @@ or @@ <symbol>; prefix lines with space, -, or +; an end-of-file hunk may close with *** End of File.',
   'Copy 3 context lines above/below verbatim from the newest tool output — after your own patch use its post-patch body, never memory. No duplicate overlapping context; if still ambiguous, stack @@ headers: @@ class Foo then @@ def bar.',
-  'Project-relative paths; every added line needs +. Never submit a compacted-history marker — re-read and send a fresh patch.',
+  'Relative or explicit absolute paths; every added line needs +. Never submit a compacted-history marker — re-read and send a fresh patch.',
 ].join('\n');
 
 export const PATCH_TOOL_DEFS = [

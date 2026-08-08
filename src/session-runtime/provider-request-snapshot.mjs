@@ -20,8 +20,6 @@ import {
   DEFERRED_DEFAULT_LEAD_TOOLS,
   DEFERRED_DEFAULT_READONLY_TOOLS,
   DEFERRED_SELECT_ALIASES,
-  MEASURED_TOOL_ORDER,
-  MEASURED_TOOL_USAGE,
   READONLY_TOOL_NAMES,
 } from './tool-catalog-data.mjs';
 import { parseToolSelection, ANTHROPIC_NATIVE_PROVIDERS } from './tool-catalog-schema.mjs';

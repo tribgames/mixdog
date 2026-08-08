@@ -23,7 +23,7 @@ export const EXPLORE_TOOL = {
   inputSchema: {
     type: 'object',
     properties: {
-        query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'One concrete target (symbol, value, behavior, or file) per query — never a topic list; array = independent facets fanned out in parallel.' },
+        query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'One concrete unknown target per query; return its minimal complete direct path:line set. Never a topic list; array = independent targets fanned out.' },
       cwd: { type: 'string', description: 'Project/root directory.' },
       roots: {
         anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }],
@@ -570,9 +570,6 @@ const ANCHOR_PATHONLY_CAPTURE_RE = /^(\S+[\\/][^\s:]+)(?=\s+[—–-]|\s*$)/;
 // Explorer self-count markers ("turn 1/3") belong on tool messages only;
 // strip them defensively if they leak into the final answer.
 const TURN_COUNTER_LINE_RE = /^turn\s+\d+\s*\/\s*\d+\b/i;
-// Contract cap: anchor answers are max 3 lines per query; extra anchors are
-// cost, not quality (rules/agent/30-explorer.md).
-const EXPLORE_MAX_ANCHOR_LINES = 3;
 const FAILED_RE = /\b(?:EXPLORATION_FAILED|exploration failed|no credible (?:anchor|location)|no relevant (?:anchor|location)|not found|could(?: not|n't) find)\b/i;
 
 // Failure taxonomy: every miss carries a machine-stable tag and reason so a
@@ -652,25 +649,23 @@ function cleanExplorerText(text, cwd = null, roots = []) {
     else passthrough.push(sourceLine);
   }
   if (anchors.length) {
-    const real = (cwd ? anchors.filter((l) => anchorLineExists(l, cwd, roots)) : anchors)
-      .slice(0, EXPLORE_MAX_ANCHOR_LINES);
+    const real = cwd ? anchors.filter((l) => anchorLineExists(l, cwd, roots)) : anchors;
     // All anchors pointed at nonexistent paths: fail harmlessly instead of
     // forwarding hallucinated locations.
     if (real.length) return real.join('\n');
     traceExploreDrop('unverified-anchors', raw);
     return explorationFailure(
       'unverified-anchors',
-      `dropped ${anchors.length} unverified anchor(s): ${anchors.slice(0, EXPLORE_MAX_ANCHOR_LINES).map((l) => l.match(ANCHOR_COORD_CAPTURE_RE)?.[1] || l).join(', ')}`,
+      `dropped ${anchors.length} unverified anchor(s): ${anchors.slice(0, 3).map((l) => l.match(ANCHOR_COORD_CAPTURE_RE)?.[1] || l).join(', ')}`,
     );
   }
   if (pathOnly.length) {
-    const real = (cwd ? pathOnly.filter((l) => anchorLineExists(l, cwd, roots, ANCHOR_PATHONLY_CAPTURE_RE)) : pathOnly)
-      .slice(0, EXPLORE_MAX_ANCHOR_LINES);
+    const real = cwd ? pathOnly.filter((l) => anchorLineExists(l, cwd, roots, ANCHOR_PATHONLY_CAPTURE_RE)) : pathOnly;
     if (real.length) return real.join('\n');
     traceExploreDrop('unverified-anchors', raw);
     return explorationFailure(
       'unverified-anchors',
-      `dropped ${pathOnly.length} unverified path(s): ${pathOnly.slice(0, EXPLORE_MAX_ANCHOR_LINES).map((l) => l.match(ANCHOR_PATHONLY_CAPTURE_RE)?.[1] || l).join(', ')}`,
+      `dropped ${pathOnly.length} unverified path(s): ${pathOnly.slice(0, 3).map((l) => l.match(ANCHOR_PATHONLY_CAPTURE_RE)?.[1] || l).join(', ')}`,
     );
   }
   if (FAILED_RE.test(raw)) {

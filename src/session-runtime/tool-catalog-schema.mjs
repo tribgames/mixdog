@@ -21,9 +21,9 @@ import {
   DEFERRED_DEFAULT_LEAD_TOOLS,
   DEFERRED_DEFAULT_READONLY_TOOLS,
   DEFERRED_SELECT_ALIASES,
-  MEASURED_TOOL_ORDER,
   MEASURED_TOOL_USAGE,
   READONLY_TOOL_NAMES,
+  ROUTE_TOOL_ORDER,
 } from './tool-catalog-data.mjs';
 
 const toolSchemaBreakdownMemo = new WeakMap();
@@ -147,21 +147,22 @@ export function parseToolSearchQuerySelection(query) {
   return match ? parseToolSelection(match[1]) : [];
 }
 
-export function measuredToolRank(name) {
-  const index = MEASURED_TOOL_ORDER.indexOf(clean(name));
+export function routeToolRank(name) {
+  const index = ROUTE_TOOL_ORDER.indexOf(clean(name));
   return index === -1 ? Number.MAX_SAFE_INTEGER : index;
 }
 
 export function sortedCatalogByMeasuredUsage(catalog) {
+  // Canonical route order first; measured usage orders the unrouted tail.
   return (catalog || [])
     .map((tool, index) => ({ tool, index }))
     .sort((a, b) => {
+      const ar = routeToolRank(a.tool?.name);
+      const br = routeToolRank(b.tool?.name);
+      if (ar !== br) return ar - br;
       const au = measuredToolUsage(a.tool?.name);
       const bu = measuredToolUsage(b.tool?.name);
       if (bu !== au) return bu - au;
-      const ar = measuredToolRank(a.tool?.name);
-      const br = measuredToolRank(b.tool?.name);
-      if (ar !== br) return ar - br;
       return a.index - b.index;
     })
     .map((entry) => entry.tool);

@@ -41,12 +41,16 @@ function _getMcpTools() {
     });
 }
 
+// Canonical route order (mirrors rules/shared/01-tool.md and the deferred
+// catalog's ROUTE_TOOL_ORDER): locator → path → content → symbol → read →
+// edit → execute.
 const SESSION_ROUTE_TOOL_ORDER = [
-    'code_graph',
+    'explore',
     'find',
     'glob',
     'list',
     'grep',
+    'code_graph',
     'read',
     'apply_patch',
     'shell',
@@ -268,7 +272,7 @@ function _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession = fa
             return _dedupByName([...skillTools]);
         }
         if (toolSpec.includes('full')) {
-            return _dedupByName([...ALL_BUILTIN_SESSION_TOOLS, ...mcp, ...skillTools]);
+            return orderSessionTools(_dedupByName([...ALL_BUILTIN_SESSION_TOOLS, ...mcp, ...skillTools]));
         }
         const byName = new Map();
         const add = (tool) => { if (tool?.name && !byName.has(tool.name)) byName.set(tool.name, tool); };
@@ -306,12 +310,12 @@ function _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession = fa
                     process.stderr.write(`[session] unknown toolset id "${tag}" (profile.tools); skipping\n`);
             }
         }
-        return _dedupByName([...byName.values(), ...skillTools]);
+        return orderSessionTools(_dedupByName([...byName.values(), ...skillTools]));
     }
 
     switch (toolSpec) {
         case 'mcp':
-            return _dedupByName([...mcp, ...skillTools]);
+            return orderSessionTools(_dedupByName([...mcp, ...skillTools]));
         case 'readonly': {
             const readTools = ALL_BUILTIN_SESSION_TOOLS.filter(t => READONLY_TOOL_NAMES.has(t.name));
 // Read-ROLE agent sessions (reviewer) must self-verify, so
@@ -323,11 +327,11 @@ function _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession = fa
             const verifyTools = ownerIsAgentSession
                 ? ALL_BUILTIN_SESSION_TOOLS.filter(t => t.name === 'shell' || t.name === 'task')
                 : [];
-            return _dedupByName([...readTools, ...verifyTools, ...mcp, ...skillTools]);
+            return orderSessionTools(_dedupByName([...readTools, ...verifyTools, ...mcp, ...skillTools]));
         }
         case 'full':
         default:
-            return _dedupByName([...ALL_BUILTIN_SESSION_TOOLS, ...mcp, ...skillTools]);
+            return orderSessionTools(_dedupByName([...ALL_BUILTIN_SESSION_TOOLS, ...mcp, ...skillTools]));
     }
 }
 

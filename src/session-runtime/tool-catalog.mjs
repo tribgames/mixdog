@@ -22,11 +22,10 @@ import {
   DEFERRED_DEFAULT_LEAD_TOOLS,
   DEFERRED_DEFAULT_READONLY_TOOLS,
   DEFERRED_SELECT_ALIASES,
-  MEASURED_TOOL_ORDER,
   MEASURED_TOOL_USAGE,
   READONLY_TOOL_NAMES,
 } from './tool-catalog-data.mjs';
-import { toolKind, measuredToolUsage, parseToolSelection, parseToolSearchQuerySelection, measuredToolRank, sortedCatalogByMeasuredUsage, activeToolForSurface, deferredProviderMode, nativeProviderFamily } from './tool-catalog-schema.mjs';
+import { toolKind, measuredToolUsage, parseToolSelection, parseToolSearchQuerySelection, routeToolRank, sortedCatalogByMeasuredUsage, activeToolForSurface, deferredProviderMode, nativeProviderFamily } from './tool-catalog-schema.mjs';
 export { toolKind, toolSchemaBucket, estimateToolSchemaBreakdown, measuredToolUsage, parseToolSelection, parseToolSearchQuerySelection, sortedCatalogByMeasuredUsage } from './tool-catalog-schema.mjs';
 export { resolveProviderRequestTools, snapshotProviderRequestTools } from './provider-request-snapshot.mjs';
 export {
@@ -45,13 +44,14 @@ export function filterDisallowedTools(tools, disallowed = []) {
 }
 
 export function sortedNamesByMeasuredUsage(names) {
+  // Canonical route order first; measured usage orders the unrouted tail.
   return [...(names || [])].sort((a, b) => {
+    const ar = routeToolRank(a);
+    const br = routeToolRank(b);
+    if (ar !== br) return ar - br;
     const au = measuredToolUsage(a);
     const bu = measuredToolUsage(b);
     if (bu !== au) return bu - au;
-    const ar = measuredToolRank(a);
-    const br = measuredToolRank(b);
-    if (ar !== br) return ar - br;
     return String(a).localeCompare(String(b));
   });
 }

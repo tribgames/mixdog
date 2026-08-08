@@ -74,7 +74,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Mixdog Shell',
         annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run a shell command. ${TOOL_ASYNC_EXECUTION_CONTRACT} Never a substitute for the file-discovery/content-retrieval tools: NOT ls/find/cat/head/tail/grep/rg/sed — use the dedicated file tools. Chain dependent commands with &&.`,
+        description: `Run a shell command. ${TOOL_ASYNC_EXECUTION_CONTRACT} Executable/runtime/state evidence only — never a file-exploration segment anywhere in a command, alone, chained, or piped: NOT ls/find/cat/head/tail/grep/rg/sed — the dedicated file tools cover those. Chain dependent commands with &&.`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -114,7 +114,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Source-content literal/regex search over file/dir scopes; returns path:line blocks with context.',
+        description: 'File-content literal/regex search; returns contextual path:line blocks.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -155,7 +155,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Mixdog Glob',
         annotations: { title: 'Mixdog Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Match glob patterns under base directories.',
+        description: 'Known-base wildcard paths; returns paths only.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -206,7 +206,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'Mixdog List Directory',
         annotations: { title: 'Mixdog List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'List directory entries (path + type).',
+        description: 'Known-directory immediate entries (path + type); no wildcard.',
         inputSchema: {
             type: 'object',
             properties: {
