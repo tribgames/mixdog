@@ -6321,6 +6321,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 ::selection { color: var(--mx-bg-base); background: var(--mx-text); }
 .studio-composer[data-dropping="true"] { box-shadow: var(--mx-raised), inset 0 0 0 1.5px var(--mx-border-strong); }
+.dock-terminal-surface[data-dropping="true"],
+.pane-cell[data-file-dropping="true"] .pane-surface-stack {
+  box-shadow: inset 0 0 0 1.5px var(--mx-border-strong);
+}
 .studio-composer-bar {
   display: flex;
   align-items: center;

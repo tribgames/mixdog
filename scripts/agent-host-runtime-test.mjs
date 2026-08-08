@@ -45,7 +45,12 @@ function createFakeManager({ askDelayMs = 20 } = {}) {
         { role: 'user', content: String(prompt) },
         { role: 'assistant', content: `echo:${String(prompt)}` },
       );
-      return { content: `echo:${String(prompt)}` };
+      return {
+        content: `echo:${String(prompt)}`,
+        ...(String(prompt).includes('TRUNC')
+          ? { terminationReason: 'truncated', iterations: 2, stopReason: 'length' }
+          : {}),
+      };
     },
     async resumeSession(id) {
       const restored = { id, messages: [{ role: 'assistant', content: 'restored' }], closed: false, agent: 'worker' };
@@ -133,6 +138,16 @@ test('abort cascades into the linked turn signal and marks an error turndone', a
 });
 
 test('resume rebinds the stored session and dispose releases without a tombstone', async () => {
+  const mgrForMeta = createFakeManager();
+  const metaHost = await createAgentHostRuntime({ agentSession: SPEC }, hostDeps(mgrForMeta));
+  metaHost.reserveSession('sess_meta_1');
+  await metaHost.submitAsync('please TRUNC this', { id: 'meta' });
+  await waitFor(() => metaHost.getState().busy === false, 'abnormal turn settles');
+  const done = [...metaHost.getState().items].reverse().find((item) => item.kind === 'turndone');
+  assert.equal(done?.terminationReason, 'truncated', 'turndone carries the abnormal reason');
+  assert.equal(done?.stopReason, 'length');
+  assert.equal(done?.iterations, 2);
+
   const mgr = createFakeManager();
   const host = await createAgentHostRuntime({ agentSession: SPEC }, hostDeps(mgr));
   assert.equal(await host.resume('sess_resume_1'), true);

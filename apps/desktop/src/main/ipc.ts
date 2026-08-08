@@ -11,7 +11,12 @@ import type {
 } from 'electron';
 
 import { randomUUID } from 'node:crypto';
-import { mkdir as fsMkdir, readFile as fsReadFile, writeFile as fsWriteFile } from 'node:fs/promises';
+import {
+  mkdir as fsMkdir,
+  readFile as fsReadFile,
+  stat as fsStat,
+  writeFile as fsWriteFile,
+} from 'node:fs/promises';
 import { homedir } from 'node:os';
 import {
   basename as pathBasename,
@@ -35,6 +40,7 @@ import {
   type DesktopLspDocumentInput,
   type DesktopLspRequestInput,
   type DesktopLspRequestMethod,
+  type DesktopLocalPathEntry,
   type DesktopModelCatalogOptions,
   type DesktopModelSelection,
   type DesktopNewTaskDraft,
@@ -50,6 +56,7 @@ import {
   type SessionSnapshot,
   type ToolApprovalDecision,
 } from '../shared/contract';
+import { localFileMimeTypeForPath } from '../shared/local-files';
 import { requiredSessionId } from './desktop-state';
 import type { TerminalSpawnProfile } from './terminal-contract';
 import type { DesktopService } from './desktop-service-contract';
@@ -80,6 +87,7 @@ const MAX_PROMPT_LENGTH = 1_000_000;
 const MAX_IMAGE_BASE64_LENGTH = 16_000_000;
 // 20 MiB of raw attachment bytes per submit (~28M base64).
 const MAX_FILE_BASE64_LENGTH = 28_000_000;
+const MAX_LOCAL_DROP_FILE_BYTES = 20 * 1024 * 1024;
 
 const SERVICE_OPERATION_NAMES = [
   'githubStarStatus', 'starGithub', 'githubCliStatus', 'installGithubCli',
@@ -827,6 +835,57 @@ export function registerDesktopIpc(
     await fsMkdir(pathDirname(selectedFileGrantStore), { recursive: true });
     await fsWriteFile(selectedFileGrantStore, JSON.stringify(rows), 'utf8');
   };
+  const describeLocalPaths = async (value: unknown): Promise<DesktopLocalPathEntry[]> => {
+    if (!Array.isArray(value) || value.length === 0 || value.length > 100) {
+      throw new TypeError('paths are invalid.');
+    }
+    const projects = await host.listProjects().catch(() => []);
+    let grantsChanged = false;
+    const rows: DesktopLocalPathEntry[] = [];
+    for (const raw of value) {
+      const absolutePath = browsableFolderPath(raw);
+      const info = await fsStat(absolutePath);
+      const row: DesktopLocalPathEntry = {
+        absolutePath,
+        name: pathBasename(absolutePath) || absolutePath,
+        dir: info.isDirectory(),
+        size: Number(info.size) || 0,
+      };
+      if (!row.dir) {
+        const normalizedFile = process.platform === 'win32'
+          ? absolutePath.toLocaleLowerCase()
+          : absolutePath;
+        const owner = projects
+          .map((project) => ({ project, root: resolvePath(project.path) }))
+          .filter(({ root }) => {
+            const normalizedRoot = process.platform === 'win32' ? root.toLocaleLowerCase() : root;
+            return normalizedFile.startsWith(normalizedRoot + pathSep)
+              || normalizedFile === normalizedRoot;
+          })
+          .sort((left, right) => right.root.length - left.root.length)[0];
+        if (owner) {
+          row.projectPath = owner.project.path;
+          row.relPath = pathRelative(owner.root, absolutePath).replace(/\\/g, '/');
+        } else {
+          const accessToken = randomUUID();
+          selectedFileGrants.set(accessToken, absolutePath);
+          row.projectPath = pathDirname(absolutePath);
+          row.relPath = pathBasename(absolutePath);
+          row.accessToken = accessToken;
+          grantsChanged = true;
+        }
+      }
+      rows.push(row);
+    }
+    while (selectedFileGrants.size > 100) {
+      const oldest = selectedFileGrants.keys().next().value;
+      if (!oldest) break;
+      selectedFileGrants.delete(oldest);
+      grantsChanged = true;
+    }
+    if (grantsChanged) await persistSelectedFileGrants();
+    return rows;
+  };
   const grantedFile = async (
     accessToken: unknown,
     projectPath: unknown,
@@ -965,6 +1024,22 @@ export function registerDesktopIpc(
     }
     return '';
   });
+  handle(DESKTOP_IPC.resolveLocalPaths, (_event, paths) => describeLocalPaths(paths));
+  handle(DESKTOP_IPC.readLocalFile, async (_event, rawPath) => {
+    const file = browsableFolderPath(rawPath);
+    const info = await fsStat(file);
+    if (!info.isFile()) throw new Error('Only files can be attached.');
+    if (info.size > MAX_LOCAL_DROP_FILE_BYTES) {
+      throw new Error(`${pathBasename(file)}: files must be 20 MB or smaller.`);
+    }
+    const data = await fsReadFile(file);
+    return {
+      name: pathBasename(file),
+      size: info.size,
+      mimeType: localFileMimeTypeForPath(file),
+      data: data.toString('base64'),
+    };
+  });
   // Explorer pane live refresh is daemon-owned and refcounted there.
   handle(DESKTOP_IPC.folderWatch, (_event, dirRaw) => {
     const dir = browsableFolderPath(dirRaw);
@@ -984,36 +1059,20 @@ export function registerDesktopIpc(
     });
     const file = result.canceled ? '' : resolvePath(result.filePaths[0] || '');
     if (!file) return null;
-    const projects = await host.listProjects().catch(() => []);
-    const normalizedFile = process.platform === 'win32' ? file.toLocaleLowerCase() : file;
-    const owner = projects
-      .map((project) => ({ project, root: resolvePath(project.path) }))
-      .filter(({ root }) => {
-        const normalizedRoot = process.platform === 'win32' ? root.toLocaleLowerCase() : root;
-        return normalizedFile.startsWith(normalizedRoot + pathSep)
-          || normalizedFile === normalizedRoot;
-      })
-      .sort((left, right) => right.root.length - left.root.length)[0];
-    if (owner) {
-      return {
-        projectPath: owner.project.path,
-        relPath: pathRelative(owner.root, file).replace(/\\/g, '/'),
-      };
-    }
     await loadSelectedFileGrants();
-    const accessToken = randomUUID();
-    selectedFileGrants.set(accessToken, file);
-    while (selectedFileGrants.size > 100) {
-      const oldest = selectedFileGrants.keys().next().value;
-      if (!oldest) break;
-      selectedFileGrants.delete(oldest);
-    }
-    await persistSelectedFileGrants();
-    return {
-      projectPath: pathDirname(file),
-      relPath: pathBasename(file),
-      accessToken,
-    };
+    return (await describeLocalPaths([file]))[0] ?? null;
+  });
+  handle(DESKTOP_IPC.chooseFiles, async (_event, defaultPath) => {
+    const result = await dialog.showOpenDialog(window, {
+      title: 'Open files',
+      ...(typeof defaultPath === 'string' && pathIsAbsolute(defaultPath)
+        ? { defaultPath }
+        : {}),
+      properties: ['openFile', 'multiSelections'],
+    });
+    if (result.canceled || !result.filePaths.length) return null;
+    await loadSelectedFileGrants();
+    return describeLocalPaths(result.filePaths.map((file) => resolvePath(file)));
   });
   handle(DESKTOP_IPC.chooseWorkspace, async () => {
     const result = await dialog.showOpenDialog(window, {

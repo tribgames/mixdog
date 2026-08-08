@@ -232,11 +232,12 @@ class RemoteWorkerHandle {
 
   runtimeInfo() {
     const busy = this.state?.busy === true || this.state?.commandBusy === true;
+    const hostStage = typeof this.state?.stage === 'string' && this.state.stage ? this.state.stage : null;
     return {
-      stage: this.facade.closed ? 'closed' : (busy ? 'streaming' : 'idle'),
+      stage: this.facade.closed ? 'closed' : (busy ? (hostStage || 'streaming') : 'idle'),
       lastStreamDeltaAt: this.lastFrameAt,
       controller: null,
-      lastToolCall: null,
+      lastToolCall: this.state?.lastToolCall || null,
     };
   }
 
@@ -296,6 +297,23 @@ class RemoteWorkerHandle {
       const turndoneCount = (items) => (Array.isArray(items)
         ? items.reduce((sum, item) => sum + (item?.kind === 'turndone' ? 1 : 0), 0)
         : 0);
+      const latestTurndoneMeta = () => {
+        const items = Array.isArray(this.state?.items) ? this.state.items : [];
+        for (let index = items.length - 1; index >= 0; index -= 1) {
+          const item = items[index];
+          if (item?.kind !== 'turndone') continue;
+          const meta = {};
+          if (typeof item.terminationReason === 'string' && item.terminationReason) {
+            meta.terminationReason = item.terminationReason;
+          }
+          for (const field of ['iterations', 'toolCallsTotal', 'maxLoopIterations']) {
+            if (Number.isFinite(Number(item[field]))) meta[field] = Number(item[field]);
+          }
+          if (typeof item.stopReason === 'string' && item.stopReason) meta.stopReason = item.stopReason;
+          return meta;
+        }
+        return {};
+      };
       const baselineTurndone = turndoneCount(this.state?.items);
       const submissionId = `agent-spread-${process.pid}-${randomUUID()}`;
       const submitted = await this.callTransport('session.submit', {
@@ -333,7 +351,10 @@ class RemoteWorkerHandle {
           const grew = messages.length > baselineCount;
           if (turnEnded || grew || Date.now() - submitAt > REMOTE_TURN_SETTLE_MS) {
             const content = lastAssistantText(messages.slice(baselineCount));
-            const result = { content };
+            // Terminal metadata rides the turndone marker so the Lead-side
+            // abnormal-finish classifier (iteration_cap/truncated/empty) sees
+            // the same terminationReason an in-process ask would return.
+            const result = { content, ...(turnEnded ? latestTurndoneMeta() : {}) };
             timing(`ask session=${this.sessionId} accepted=${acceptedMs}ms firstBusy=${firstBusyMs}ms `
               + `turnEnd=${turnEndMs}ms total=${Date.now() - askStartedAt}ms`);
             try { askOpts.onTerminalResult?.(result); } catch { /* caller callback */ }

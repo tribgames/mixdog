@@ -102,13 +102,29 @@ export async function createAgentHostRuntime(options = {}, overrides = {}) {
     return session;
   }
 
-  function appendTurndone(status) {
+  function appendTurndone(status, meta = {}) {
     turnSeq += 1;
     const items = [
       ...state.items.slice(-(TURNDONE_ITEM_CAP - 1)),
-      { id: `turndone-${turnSeq}`, kind: 'turndone', status, at: Date.now() },
+      { id: `turndone-${turnSeq}`, kind: 'turndone', status, at: Date.now(), ...meta },
     ];
     return items;
+  }
+
+  /** Wire-safe terminal fields for the Lead-side abnormal-finish classifier
+   *  (render.mjs keys purely off terminationReason). */
+  function terminalTurnMeta(result) {
+    if (!result || typeof result !== 'object') return {};
+    const meta = {};
+    if (typeof result.terminationReason === 'string' && result.terminationReason) {
+      meta.terminationReason = result.terminationReason;
+    }
+    for (const field of ['iterations', 'toolCallsTotal', 'maxLoopIterations']) {
+      if (Number.isFinite(Number(result[field]))) meta[field] = Number(result[field]);
+    }
+    const stopReason = result.stopReason ?? result.stop_reason;
+    if (typeof stopReason === 'string' && stopReason) meta.stopReason = stopReason;
+    return meta;
   }
 
   async function runOneTurn(prompt) {
@@ -130,28 +146,36 @@ export async function createAgentHostRuntime(options = {}, overrides = {}) {
     try { mgr.linkParentSignalToSession?.(target.id, controller.signal); } catch { /* abort best-effort */ }
     try { await mgr.updateSessionStatus?.(target.id, 'running'); } catch { /* status best-effort */ }
     let lastProgressAt = 0;
+    let stageNow = 'requesting';
+    let lastToolCall = null;
     const bumpProgress = () => {
       const now = Date.now();
       if (now - lastProgressAt < PROGRESS_PUBLISH_MIN_MS) return;
       lastProgressAt = now;
       // Liveness frame: the Lead-side spread watchdog treats frame arrival as
       // progress; without it a long provider stream would look like a stall.
-      set({ progressAt: now });
+      set({ progressAt: now, stage: stageNow, lastToolCall });
     };
     let terminal = 'idle';
     try {
-      await mgr.askSession(target.id, prompt, null, null, askCwd, undefined, {
-        onStreamDelta: bumpProgress,
-        onToolResult: bumpProgress,
-        onStageChange: bumpProgress,
+      const result = await mgr.askSession(target.id, prompt, null, null, askCwd, undefined, {
+        onStreamDelta: () => { stageNow = 'streaming'; bumpProgress(); },
+        onToolResult: (message) => {
+          if (message?.name) lastToolCall = { name: String(message.name), at: Date.now() };
+          bumpProgress();
+        },
+        onStageChange: (stage) => {
+          if (typeof stage === 'string' && stage) stageNow = stage;
+          bumpProgress();
+        },
       });
-      set({ items: appendTurndone('complete') });
+      set({ items: appendTurndone('complete', terminalTurnMeta(result)), stage: 'idle' });
     } catch (error) {
       terminal = 'error';
       // Parity with the in-process path: the salvageable partial already lives
       // in session.messages; the Lead adapter collects it via
       // peekSessionMessages. Only the terminal marker carries the failure.
-      set({ items: appendTurndone('error') });
+      set({ items: appendTurndone('error'), stage: 'idle' });
       try {
         process.stderr.write(`[agent-host] turn failed session=${target.id}: ${error?.message || error}\n`);
       } catch { /* diagnostics */ }
@@ -176,7 +200,7 @@ export async function createAgentHostRuntime(options = {}, overrides = {}) {
         }
       } finally {
         draining = null;
-        set({ busy: false });
+        set({ busy: false, stage: 'idle', lastToolCall: null });
       }
     })();
     return draining;

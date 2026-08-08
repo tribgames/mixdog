@@ -13,6 +13,11 @@ import {
   reportBootSurfaceStage,
 } from './boot-metrics';
 import { TerminalWritePump } from './terminal-write-pump';
+import {
+  dataTransferHasLocalFiles,
+  droppedLocalPaths,
+  terminalPathText,
+} from './file-drag';
 
 type ShellProfile = { id: string; label: string; path: string; default?: boolean };
 
@@ -290,6 +295,7 @@ export default function TerminalPane({
   const [shell, setShell] = useState(() => readShellChoice(key));
   const [profiles, setProfiles] = useState<ShellProfile[] | null>(() => shellProfilesCache);
   const [shellMenuOpen, setShellMenuOpen] = useState(false);
+  const [droppingPaths, setDroppingPaths] = useState(false);
   beginBootSurface('terminal', key);
   reportBootSurfaceStage('terminal', key, 'module');
   // Prefetch on mount so the picker opens on a ready list; an opened menu
@@ -497,7 +503,37 @@ export default function TerminalPane({
   const shellLabel = shell
     ? profiles?.find((profile) => profile.id === shell)?.label || shell
     : defaultShellLabel;
-  return <div className="dock-terminal-surface">
+  return <div className="dock-terminal-surface"
+    data-dropping={droppingPaths ? "true" : undefined}
+    onDragEnter={(event) => {
+      if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setDroppingPaths(true);
+    }}
+    onDragOver={(event) => {
+      if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "copy";
+      setDroppingPaths(true);
+    }}
+    onDragLeave={(event) => {
+      if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+      setDroppingPaths(false);
+    }}
+    onDrop={(event) => {
+      if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setDroppingPaths(false);
+      const paths = droppedLocalPaths(event.dataTransfer);
+      const text = terminalPathText(paths);
+      if (!text) return;
+      const view = terminalView(key);
+      view.term.paste(text);
+      view.term.focus();
+    }}>
     {/* File-breadcrumb strip grammar (user: TASK나 파일처럼 띠 하나): a 30px
         band above the terminal with the shell switcher on the right edge.
         NO title text — every host (workspace tab, bottom panel) already

@@ -46,6 +46,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { DesktopFolderEntry, DesktopFolderPlace } from "../shared/contract";
+import {
+  MIXDOG_ABSOLUTE_PATHS_MIME,
+  MIXDOG_PROJECT_PATHS_MIME,
+  dataTransferHasLocalFiles,
+  droppedLocalPaths,
+} from "./file-drag";
 
 interface FolderPaneProps {
   paneId: string;
@@ -475,7 +481,6 @@ let folderClipboard: { op: "copy" | "cut"; paths: string[] } | null = null;
  *  dropping a folder onto itself or its own descendants). */
 let activeDragPaths: string[] | null = null;
 let placesCache: DesktopFolderPlace[] | null = null;
-const FOLDER_DRAG_MIME = "application/x-mixdog-folder-paths";
 
 interface FolderMenuState {
   x: number;
@@ -1556,7 +1561,8 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
       setAnchorName(entry.name);
     }
     activeDragPaths = paths;
-    event.dataTransfer.setData(FOLDER_DRAG_MIME, JSON.stringify(paths));
+    event.dataTransfer.setData(MIXDOG_ABSOLUTE_PATHS_MIME, JSON.stringify(paths));
+    event.dataTransfer.setData("text/plain", paths.join("\n"));
     event.dataTransfer.effectAllowed = "copyMove";
   };
   const onEntryDragEnd = () => {
@@ -1567,9 +1573,12 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
   };
   const dropProps = (targetDir: string, accept: boolean) => accept ? {
     onDragOver: (event: React.DragEvent) => {
-      const external = event.dataTransfer.types.includes("Files")
-        && !event.dataTransfer.types.includes(FOLDER_DRAG_MIME);
-      if (!external && !event.dataTransfer.types.includes(FOLDER_DRAG_MIME)) return;
+      if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+      const internal = event.dataTransfer.types.includes(MIXDOG_ABSOLUTE_PATHS_MIME);
+      const external = !internal && (
+        event.dataTransfer.types.includes("Files")
+        || event.dataTransfer.types.includes(MIXDOG_PROJECT_PATHS_MIME)
+      );
       // Never target the dragged items themselves or their descendants.
       if (activeDragPaths?.some((path) => targetDir === path
         || targetDir.toLowerCase().startsWith(path.toLowerCase() + pathSepOf(path)))) {
@@ -1605,27 +1614,12 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
       setDropTarget("");
       window.clearTimeout(springRef.current.timer);
       springRef.current = { path: "", timer: 0 };
-      const raw = event.dataTransfer.getData(FOLDER_DRAG_MIME);
-      if (!raw) {
-        // OS-native drop (files dragged in from Explorer itself).
-        const files = [...event.dataTransfer.files];
-        if (!files.length) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const dropped = files
-          .map((file) => window.mixdogDesktop?.folderPathForFile?.(file) || "")
-          .filter(Boolean);
-        if (dropped.length) transferInto(dropped, targetDir, !event.shiftKey);
-        return;
-      }
       event.preventDefault();
       event.stopPropagation();
-      try {
-        const paths = JSON.parse(raw) as string[];
-        if (Array.isArray(paths) && paths.length) {
-          transferInto(paths.map(String), targetDir, event.ctrlKey);
-        }
-      } catch { /* foreign drag payload */ }
+      const paths = droppedLocalPaths(event.dataTransfer);
+      if (!paths.length) return;
+      const internal = event.dataTransfer.types.includes(MIXDOG_ABSOLUTE_PATHS_MIME);
+      transferInto(paths, targetDir, internal ? event.ctrlKey : !event.shiftKey);
     },
   } : {};
 

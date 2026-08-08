@@ -84,6 +84,13 @@ import {
 } from './editor-code-graph.ts';
 import { applyLspTextEdits } from './editor-language-store.ts';
 import { filePreviewTypeForPath } from '../shared/file-preview.ts';
+import { localFileMimeTypeForPath } from '../shared/local-files.ts';
+import {
+  MIXDOG_ABSOLUTE_PATHS_MIME,
+  MIXDOG_PROJECT_PATHS_MIME,
+  droppedLocalPaths,
+  terminalPathText,
+} from './file-drag.ts';
 import { mediaPlaybackAllowed } from './media-lifecycle.ts';
 import {
   normalizeEditorModelText,
@@ -436,6 +443,29 @@ test('file editor classifies browser-native image, PDF, audio, and video preview
   assert.deepEqual(filePreviewTypeForPath('audio/theme.m4a'), { kind: 'audio', mime: 'audio/mp4' });
   assert.deepEqual(filePreviewTypeForPath('clips/demo.webm'), { kind: 'video', mime: 'video/webm' });
   assert.equal(filePreviewTypeForPath('archive/data.zip'), null);
+});
+
+test('shared file drags resolve Project and Files paths for every pane target', () => {
+  const projectTransfer = {
+    types: [MIXDOG_PROJECT_PATHS_MIME],
+    files: [],
+    getData: () => JSON.stringify({
+      projectPath: 'C:\\work\\project',
+      paths: ['src/a.ts', 'art/hero.png'],
+    }),
+  };
+  assert.deepEqual(droppedLocalPaths(projectTransfer), [
+    'C:\\work\\project\\src\\a.ts',
+    'C:\\work\\project\\art\\hero.png',
+  ]);
+  const absoluteTransfer = {
+    types: [MIXDOG_ABSOLUTE_PATHS_MIME],
+    files: [],
+    getData: () => JSON.stringify(['C:\\Users\\me\\A B.txt']),
+  };
+  assert.deepEqual(droppedLocalPaths(absoluteTransfer), ['C:\\Users\\me\\A B.txt']);
+  assert.equal(terminalPathText(droppedLocalPaths(absoluteTransfer)), '"C:\\Users\\me\\A B.txt"');
+  assert.equal(localFileMimeTypeForPath('reference.WEBP'), 'image/webp');
 });
 
 test('media playback requires an active surface and a foreground app window', () => {
