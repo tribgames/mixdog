@@ -17,7 +17,8 @@
   one maximum-fanout turn — independence alone decides batching. Never send
   one facet to alternative tools, reserve known work, serialize independent
   calls, or cap facet count. Fetch all information needed in that batch.
-  Unchanged evidence is final — never re-read, re-verify, or re-fetch it.
+  Known state is never re-acquired — neither content already read nor the
+  effect of your own successful call.
 - Once the edit is determined, finish in one assistant turn with one
   `apply_patch` for all edits. When final verification uses `shell`, run it
   after `apply_patch` in that same assistant turn, batching all required
