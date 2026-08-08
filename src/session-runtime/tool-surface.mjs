@@ -34,13 +34,17 @@ export function createToolSurface({
   function workflowAllowsAgents() {
     try {
       const sessionWorkflow = getSession()?.workflow;
-      if (sessionWorkflow && typeof sessionWorkflow === 'object'
-          && sessionWorkflow.agentsConfigured === true) {
-        return Array.isArray(sessionWorkflow.agents) && sessionWorkflow.agents.length > 0;
+      if (sessionWorkflow && typeof sessionWorkflow === 'object') {
+        if (typeof sessionWorkflow.delegatesAgents === 'boolean') {
+          return sessionWorkflow.delegatesAgents;
+        }
+        // Legacy persisted sessions carry the old roster fields.
+        if (sessionWorkflow.agentsConfigured === true) {
+          return Array.isArray(sessionWorkflow.agents) && sessionWorkflow.agents.length > 0;
+        }
       }
       const pack = loadWorkflowPack(cfgMod.getPluginData?.() || dataDir, activeWorkflowId(getConfig()));
-      if (!pack || pack.agentsConfigured !== true) return true;
-      return Array.isArray(pack.agents) && pack.agents.length > 0;
+      return !pack || pack.delegatesAgents !== false;
     } catch {
       return true;
     }

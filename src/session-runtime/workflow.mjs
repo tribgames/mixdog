@@ -20,7 +20,9 @@ export const FIXED_AGENT_SLOTS = Object.freeze([
   { id: 'worker', label: 'Worker', description: 'Simple tasks' },
   { id: 'heavy-worker', label: 'Heavy Worker', description: 'Complex tasks' },
   { id: 'reviewer', label: 'Reviewer', description: 'Diff and risk review' },
-  { id: 'debugger', label: 'Debugger', description: 'Root-cause debugging' },
+  // Escalation-only (user rule: 2+cycle bugs or explicit request). Spawnable
+  // by name/CLI but kept out of the Lead delegation catalog.
+  { id: 'debugger', label: 'Debugger', description: 'Root-cause debugging', catalog: false },
 ]);
 const AGENT_ROLE_IDS = new Set(FIXED_AGENT_SLOTS.map((agent) => agent.id));
 // Slot-backed built-ins (explore/maintainer) run through their own dedicated
@@ -29,6 +31,10 @@ const AGENT_ROLE_IDS = new Set(FIXED_AGENT_SLOTS.map((agent) => agent.id));
 const BUILTIN_SLOT_AGENT_IDS = new Set(
   FIXED_AGENT_SLOTS.filter((agent) => agent.workflowSlot).map((agent) => agent.id),
 );
+// Delegation catalog: non-slot built-ins that are not escalation-only.
+const DELEGABLE_FIXED_AGENT_IDS = FIXED_AGENT_SLOTS
+  .filter((agent) => !agent.workflowSlot && agent.catalog !== false)
+  .map((agent) => agent.id);
 export const DEFAULT_WORKFLOW_ID = 'default';
 
 const SEARCH_CAPABLE_PROVIDERS = new Set([
@@ -176,20 +182,25 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
     const fm = doc.frontmatter || {};
     const id = normalizeWorkflowId(clean(fm.id) || dirName || basename(dir));
     if (!id) return null;
-    const agentsConfigured = Object.prototype.hasOwnProperty.call(fm, 'agents');
+    // Workflows no longer carry an agent roster: a pack either delegates
+    // (every defined agent is available) or it does not (`delegation: none`,
+    // e.g. Solo). Legacy `agents:` frontmatter maps empty→no delegation and
+    // non-empty→delegates; the roster itself is ignored.
+    const delegationRaw = String(fm.delegation ?? '').trim().toLowerCase();
+    let delegatesAgents = !['none', 'false', 'off', '0'].includes(delegationRaw);
+    if (!delegationRaw && Object.prototype.hasOwnProperty.call(fm, 'agents')) {
+      delegatesAgents = String(fm.agents || '')
+        .split(',')
+        .map((agent) => agent.trim())
+        .filter(Boolean).length > 0;
+    }
     return {
       id,
       name: clean(fm.name) || id,
       description: clean(fm.description),
       entry,
       hidden: String(fm.hidden ?? '').trim().toLowerCase() === 'true',
-      agentsConfigured,
-      agents: agentsConfigured
-        ? String(fm.agents || '')
-            .split(',')
-            .map((agent) => normalizeAgentId(agent) || normalizeWorkflowId(agent))
-            .filter(Boolean)
-        : [],
+      delegatesAgents,
       body,
       source,
     };
@@ -238,13 +249,13 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
       name: clean(pack?.name) || (id === DEFAULT_WORKFLOW_ID ? 'Default' : id),
       description: clean(pack?.description),
       source: clean(pack?.source),
-      // Delegation surface fields: the session stores this summary as
-      // session.workflow, and the agent-tool gate (tool-surface.mjs
-      // workflowAllowsAgents) needs them to filter the agent tool for
-      // packs that delegate to nobody — including headless/bench sessions
-      // whose workflow never touches the config-active pack.
-      agentsConfigured: pack?.agentsConfigured === true,
-      agents: Array.isArray(pack?.agents) ? pack.agents.slice() : [],
+      // Delegation surface field: the session stores this summary as
+      // session.workflow, and the agent-tool gates (tool-surface.mjs
+      // workflowAllowsAgents + orchestrator workflowDisallowsAgentTool) need
+      // it to drop the agent tool for packs that delegate to nobody —
+      // including headless/bench sessions whose workflow never touches the
+      // config-active pack.
+      delegatesAgents: pack?.delegatesAgents !== false,
     };
   }
 
@@ -296,12 +307,14 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
       ? rawBody.slice(firstBreak + 1).replace(/^\s+/, '')
       : rawBody;
     const lines = [`# Active Workflow: ${pack.name}${pack.description ? ` — ${pack.description}` : ''}`, body];
-    // A hand-edited pack may name a hidden role in its `agents:` frontmatter;
-    // internal roles are never delegatable, so they never enter the catalog.
-    // Slot-backed built-ins are equally non-delegatable (they ride the explore
-    // tool / memory cycle), so they are filtered even when a pack names them.
-    const agentIds = (pack.agentsConfigured ? pack.agents : FIXED_AGENT_SLOTS.map((agent) => agent.id))
-      .filter((id) => !isHiddenAgent(id) && !BUILTIN_SLOT_AGENT_IDS.has(id));
+    // Agents are global: a delegating pack always sees every delegable
+    // built-in plus every user-defined custom agent. Slot-backed built-ins
+    // (explore/maintainer) ride their own channels, hidden roles are
+    // Mixdog-internal, and escalation-only roles stay out of the catalog.
+    const agentIds = pack.delegatesAgents === false
+      ? []
+      : [...DELEGABLE_FIXED_AGENT_IDS, ...listCustomAgentIds(dir)]
+        .filter((id) => !isHiddenAgent(id) && !BUILTIN_SLOT_AGENT_IDS.has(id));
     const agentBlocks = agentIds.map((id) => loadAgentDefinition(dir, id)).filter(Boolean);
     if (agentBlocks.length) {
       lines.push('# Available Agents');

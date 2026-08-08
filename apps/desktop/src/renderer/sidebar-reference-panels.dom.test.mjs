@@ -119,7 +119,7 @@ function workflowsApi() {
   const state = {
     workflows: [{
       id: 'squad', name: 'Squad', source: 'user', description: 'Custom pack',
-      agentsConfigured: true, agents: ['worker'],
+      delegatesAgents: true,
     }],
   };
   const bump = (name) => {
@@ -682,7 +682,7 @@ test('editable agents show a quiet route summary and edit only from the overflow
     'the overflow Edit dialog retains model, effort, and fast settings');
 });
 
-test('custom agent deletion is blocked with the workflows that use it', async () => {
+test('custom agent deletion is a plain confirm — agents are global, no workflow bookkeeping', async () => {
   mount();
   const { api, counts } = workflowsApi();
   await act(async () => {
@@ -698,10 +698,15 @@ test('custom agent deletion is blocked with the workflows that use it', async ()
     Array.from(menu.querySelectorAll('button')).find((button) => button.textContent === 'Delete').click();
     await Promise.resolve();
   });
-  const warning = document.querySelector('[role="alertdialog"]');
-  assert.equal(warning?.querySelector('#agent-delete-dialog-title')?.textContent, 'Agent is in use');
-  assert.equal(warning?.querySelector('li')?.textContent, 'Squad');
-  assert.equal(counts.deleteAgentDefinition || 0, 0);
+  assert.equal(document.querySelector('[role="alertdialog"]'), null,
+    'no in-use warning: workflows no longer reference agents');
+  const dialog = document.querySelector('.workflows-delete-dialog');
+  assert.equal(dialog?.querySelector('#agent-delete-dialog-title')?.textContent, 'Delete agent');
+  await act(async () => {
+    Array.from(dialog.querySelectorAll('button')).find((button) => button.textContent === 'Delete').click();
+    await Promise.resolve();
+  });
+  assert.equal(counts.deleteAgentDefinition, 1);
 });
 
 test('built-in agents remain protected and never expose delete or reset actions', async () => {

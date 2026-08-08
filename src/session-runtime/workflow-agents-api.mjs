@@ -154,10 +154,9 @@ export function createWorkflowAgentsApi(deps) {
         description: workflow.description,
         source: workflow.source,
         active: workflow.id === active,
-        // Distinguishes "agents: (empty) = Lead only" from "no agents key =
-        // all fixed agents" for surfaces that render the pack's agent set.
-        agentsConfigured: workflow.agentsConfigured === true,
-        agents: workflow.agents,
+        // Delegation on/off is the only agent-related pack surface left:
+        // agents are global, packs never carry a roster.
+        delegatesAgents: workflow.delegatesAgents !== false,
       }));
     },
     getOutputStyle() {
@@ -230,8 +229,7 @@ export function createWorkflowAgentsApi(deps) {
         name: pack.name,
         description: pack.description,
         source: pack.source,
-        agentsConfigured: pack.agentsConfigured === true,
-        agents: pack.agents,
+        delegatesAgents: pack.delegatesAgents !== false,
         body: pack.body,
         userOverride: existsSync(join(dataDir, 'workflows', id, 'WORKFLOW.md')),
       };
@@ -245,12 +243,9 @@ export function createWorkflowAgentsApi(deps) {
       const oneLine = (value) => clean(value).replace(/\s+/g, ' ');
       const name = oneLine(payload.name) || id;
       const description = oneLine(payload.description);
-      // agents: null/absent keeps the pack on "all agents" (no frontmatter key).
-      const agents = Array.isArray(payload.agents)
-        ? [...new Set(payload.agents
-            .map((agent) => normalizeAgentId(agent) || normalizeWorkflowId(agent))
-            .filter(Boolean))]
-        : null;
+      // Delegation on/off replaces the legacy `agents` roster payload: only an
+      // explicit "none" writes frontmatter; anything else means "delegates".
+      const delegation = String(payload.delegation ?? '').trim().toLowerCase();
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const dir = join(dataDir, 'workflows', id);
       mkdirSync(dir, { recursive: true });
@@ -258,7 +253,7 @@ export function createWorkflowAgentsApi(deps) {
         id,
         name,
         ...(description ? { description } : {}),
-        ...(agents ? { agents: agents.join(', ') } : {}),
+        ...(delegation === 'none' ? { delegation: 'none' } : {}),
       }, body));
       return this.getWorkflowPack(id);
     },
@@ -368,22 +363,9 @@ export function createWorkflowAgentsApi(deps) {
           ? `agent "${id}" has no user override to reset`
           : `agent "${id}" not found`);
       }
-      // Custom definitions are hard references from explicit workflow agent
-      // lists. Refuse deletion instead of leaving a pack that fails only when
-      // it next tries to delegate.
-      if (!builtIn) {
-        const workflowNames = listWorkflowPacks(dataDir)
-          .filter((workflow) => workflow.agentsConfigured === true
-            && Array.isArray(workflow.agents)
-            && workflow.agents.includes(id))
-          .map((workflow) => workflow.name || workflow.id);
-        if (workflowNames.length) {
-          throw new Error(
-            `agent "${id}" is used by ${workflowNames.length === 1 ? 'workflow' : 'workflows'}: `
-            + `${workflowNames.join(', ')}. Remove it from those workflows before deleting it`,
-          );
-        }
-      }
+      // Agents are global (no workflow rosters): deleting a custom agent
+      // removes it from every surface at once — catalog, editor, routes, and
+      // spawn (the spawn path rejects unknown agent ids).
       rmSync(dir, { recursive: true, force: true });
       clearAgentDefinitionCache(id);
       const revertedToBuiltIn = Boolean(loadAgentDefinition(dataDir, id));

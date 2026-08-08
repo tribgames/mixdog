@@ -2,7 +2,7 @@
 id: solo
 name: Solo
 description: "Lead works alone."
-agents:
+delegation: none
 ---
 
 # Solo

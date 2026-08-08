@@ -2,7 +2,6 @@
 id: default
 name: Cowork
 description: "Parallel delegation."
-agents: worker, heavy-worker, reviewer
 ---
 
 # Cowork

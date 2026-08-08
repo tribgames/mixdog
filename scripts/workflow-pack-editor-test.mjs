@@ -1,6 +1,7 @@
 // Workflow/agent editor contracts that the desktop Workflows page depends on:
-// user-authored roles must reach the SPAWNED agent (not just Lead), and an
-// explicit empty `agents:` list must stay delegation-free across a round trip.
+// user-authored roles must reach the SPAWNED agent (not just Lead), agents are
+// GLOBAL (no per-pack rosters), and a `delegation: none` pack stays
+// delegation-free across a round trip (legacy empty `agents:` maps the same).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -74,12 +75,19 @@ test('built-in roles without an override still load their shipped contract', () 
   assert.doesNotMatch(text, /ZZ_OVERRIDDEN_WORKER_MARKER/);
 });
 
-test('an explicit empty agents list keeps a workflow delegation-free', () => {
+test('legacy empty agents frontmatter maps to delegation none', () => {
   writeUserWorkflow('zz-solo-like', { name: 'ZZ Solo Like', agents: '' }, '# ZZ Solo\n\nLead handles everything.');
   const pack = helpers.loadWorkflowPack(DATA_DIR, 'zz-solo-like');
-  assert.equal(pack.agentsConfigured, true);
-  assert.deepEqual(pack.agents, []);
+  assert.equal(pack.delegatesAgents, false);
   const block = helpers.workflowContextBlock({ workflow: { active: 'zz-solo-like' } }, DATA_DIR);
+  assert.doesNotMatch(block, /# Available Agents/);
+});
+
+test('delegation none keeps a workflow delegation-free', () => {
+  writeUserWorkflow('zz-solo-flag', { name: 'ZZ Solo Flag', delegation: 'none' }, '# ZZ Solo Flag\n\nLead handles everything.');
+  const pack = helpers.loadWorkflowPack(DATA_DIR, 'zz-solo-flag');
+  assert.equal(pack.delegatesAgents, false);
+  const block = helpers.workflowContextBlock({ workflow: { active: 'zz-solo-flag' } }, DATA_DIR);
   assert.doesNotMatch(block, /# Available Agents/);
 });
 
@@ -87,8 +95,7 @@ test('hidden solo-bench loads explicitly without exposing an approval gate', () 
   const pack = helpers.loadWorkflowPack(DATA_DIR, 'solo-bench');
   assert.equal(pack.id, 'solo-bench');
   assert.equal(pack.hidden, true);
-  assert.equal(pack.agentsConfigured, true);
-  assert.deepEqual(pack.agents, []);
+  assert.equal(pack.delegatesAgents, false);
   assert.ok(!helpers.listWorkflowPacks(DATA_DIR).some((item) => item.id === 'solo-bench'));
   assert.doesNotMatch(pack.body, /consult the user and build the plan|approves? the latest plan|read-only investigation|on approval|approved plan/i);
   assert.match(pack.body, /lead executes all work itself — never spawn, send, or delegate to agents/i);
@@ -97,12 +104,17 @@ test('hidden solo-bench loads explicitly without exposing an approval gate', () 
   assert.match(pack.body, /on direction change, pause and re-consult the user/i);
 });
 
-test('omitting the agents key keeps every default agent available', () => {
+test('a delegating pack lists every delegable built-in plus every custom agent', () => {
   writeUserWorkflow('zz-fanout', { name: 'ZZ Fanout' }, '# ZZ Fanout\n\nDelegate broadly.');
   const pack = helpers.loadWorkflowPack(DATA_DIR, 'zz-fanout');
-  assert.equal(pack.agentsConfigured, false);
+  assert.equal(pack.delegatesAgents, true);
   const block = helpers.workflowContextBlock({ workflow: { active: 'zz-fanout' } }, DATA_DIR);
   assert.match(block, /# Available Agents/);
+  assert.match(block, /\(worker\)/);
+  assert.match(block, /\(zz-release-scribe\)/);
+  // Escalation-only and slot-backed built-ins stay out of the catalog.
+  assert.doesNotMatch(block, /\(debugger\)/);
+  assert.doesNotMatch(block, /\(explore\)|\(maintainer\)/);
 });
 
 test('custom agent ids are discovered without shadowing the fixed roles', () => {
@@ -120,7 +132,7 @@ test('internal hidden roles never surface as custom agents', () => {
   assert.ok(!ids.includes('webhook-handler'));
 });
 
-test('a pack naming a hidden role keeps it out of the agent catalog', () => {
+test('legacy roster frontmatter is ignored and hidden roles stay out of the catalog', () => {
   writeUserWorkflow('zz-hidden-claim', { name: 'ZZ Hidden Claim', agents: 'worker, scheduler-task' },
     '# ZZ Hidden Claim\n\nDelegate to worker only.');
   const block = helpers.workflowContextBlock({ workflow: { active: 'zz-hidden-claim' } }, DATA_DIR);
@@ -128,15 +140,17 @@ test('a pack naming a hidden role keeps it out of the agent catalog', () => {
   assert.doesNotMatch(block, /scheduler-task/);
 });
 
-test('a custom agent referenced by a workflow cannot be deleted', async () => {
+test('deleting a custom agent removes it from every surface at once', async () => {
   writeUserAgent('zz-used-agent', 'ZZ Used Agent', 'ZZ_USED_AGENT_MARKER');
   writeUserWorkflow('zz-uses-agent', {
     name: 'ZZ Uses Agent',
     agents: 'zz-used-agent',
   }, '# ZZ Uses Agent\n\nDelegate to the custom role.');
-  await assert.rejects(
-    deletionApi().deleteAgentDefinition('zz-used-agent'),
-    /agent "zz-used-agent" is used by workflow: ZZ Uses Agent/,
-  );
-  assert.equal(existsSync(join(DATA_DIR, 'agents', 'zz-used-agent', 'AGENT.md')), true);
+  const before = helpers.workflowContextBlock({ workflow: { active: 'zz-fanout' } }, DATA_DIR);
+  assert.match(before, /\(zz-used-agent\)/);
+  const result = await deletionApi().deleteAgentDefinition('zz-used-agent');
+  assert.equal(result.deleted, true);
+  assert.equal(existsSync(join(DATA_DIR, 'agents', 'zz-used-agent', 'AGENT.md')), false);
+  const after = helpers.workflowContextBlock({ workflow: { active: 'zz-fanout' } }, DATA_DIR);
+  assert.doesNotMatch(after, /\(zz-used-agent\)/);
 });
