@@ -3,9 +3,11 @@ export const PROMPT_ESCAPE_CLEAR_WINDOW_MS = 800;
 /**
  * Claude Code-compatible chat Escape priority after overlays/selections have
  * already had a chance to consume the key:
- * active turn -> interrupt, idle queue -> restore for editing,
- * idle non-empty draft -> double-press clear, idle empty draft with history ->
- * double-press message selector, otherwise fallback.
+ * queued editable messages -> restore for editing (Claude Code pops the queue
+ * FIRST, even mid-turn — that is the only moment a queue exists), then
+ * active turn -> interrupt, idle non-empty draft -> double-press clear,
+ * idle empty draft with history -> double-press message selector, otherwise
+ * fallback.
  */
 export function classifyPromptEscape({
   interruptActive = false,
@@ -15,8 +17,8 @@ export function classifyPromptEscape({
   lastClearPressAt = 0,
   now = Date.now(),
 } = {}) {
-  if (interruptActive) return { action: 'interrupt', nextClearPressAt: 0 };
   if (hasQueuedMessages) return { action: 'restore-queue', nextClearPressAt: 0 };
+  if (interruptActive) return { action: 'interrupt', nextClearPressAt: 0 };
 
   const current = Number(now);
   const previous = Number(lastClearPressAt);
