@@ -1,3 +1,12 @@
+// Canonical route order — the single surface order wherever tools serialize:
+// locator → path → content → symbol → read → edit → execute.
+export const ROUTE_TOOL_ORDER = Object.freeze([
+  'explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read',
+  'apply_patch', 'shell', 'task',
+]);
+
+// Measured call counts (3-day trace window); orders the unrouted tail and
+// feeds session.deferredToolUsage telemetry.
 export const MEASURED_TOOL_USAGE = Object.freeze({
   read: 710,
   code_graph: 520,
@@ -14,22 +23,21 @@ export const MEASURED_TOOL_USAGE = Object.freeze({
   search: 2,
   web_fetch: 2,
 });
-export const MEASURED_TOOL_ORDER = Object.freeze(Object.keys(MEASURED_TOOL_USAGE));
 
 export const DEFERRED_DEFAULT_FULL_TOOLS = Object.freeze([
-  'read', 'code_graph', 'grep', 'find', 'glob', 'list', 'explore',
+  'explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read',
   'apply_patch', 'Skill', 'load_tool',
 ]);
 export const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
-  'read', 'code_graph', 'grep', 'find', 'glob', 'list', 'explore',
+  'explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read',
   'Skill', 'load_tool',
 ]);
 export const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
-  'read', 'code_graph', 'grep', 'find', 'glob', 'list', 'shell', 'task',
+  'explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read',
   // cwd / session_manage / web_fetch demoted to the deferred manifest 2026-08:
   // 0 / 0 / 10 calls in a 3-day 7.6k-call trace window; they auto-load on
   // first direct call.
-  'explore', 'apply_patch', 'agent', 'recall', 'search',
+  'apply_patch', 'shell', 'task', 'agent', 'recall', 'search',
   'Skill', 'load_tool',
 ]);
 
