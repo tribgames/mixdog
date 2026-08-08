@@ -1,5 +1,5 @@
 import "./process-shim";
-// Browser-served remote sessions (phone via the remote bridge) install a
+// Browser-served remote sessions install a
 // WebSocket-backed DesktopApi before any module reads window.mixdogDesktop;
 // inside Electron the preload bridge already exists and this is a no-op.
 import "./remote-shim";
@@ -31,14 +31,27 @@ import "./desktop.css";
 // Split-pane workspace + bottom panel chrome (components import no css).
 import "./pane-layout.css";
 import "./webview-zoom";
-// Phone/tablet only: visual-viewport pinning + app-like touch behavior.
-import "./mobile-shell";
 import { markBootStage } from "./boot-metrics";
 import { scheduleFontWarmup } from "./font-warmup";
 import { preloadMarkdownBody } from "./TranscriptView";
 import { defaultSessionLaneStore } from "./session-lane-store";
 import { readStoredPaneLayout } from "./pane-workspace-state";
 import { paneActiveSelection, paneLeaves } from "./pane-layout";
+
+// VPS/LAN browser surfaces are installable PWAs. Electron and the retired
+// Capacitor shell never register this worker; the worker is deliberately
+// network-only so a newly deployed renderer cannot be stranded behind an
+// application-shell cache.
+const remoteWebSurface = Boolean(
+  (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer,
+);
+if (remoteWebSurface && window.isSecureContext && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    void navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {
+      // Installation is optional; a failed worker must never block web access.
+    });
+  }, { once: true });
+}
 
 markBootStage("renderer-entry");
 if (import.meta.env?.DEV) performance.mark("mixdog:startup:renderer-entry");

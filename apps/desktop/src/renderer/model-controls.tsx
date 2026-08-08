@@ -448,16 +448,12 @@ export const ModelSelector = memo(function ModelSelector({
     }
     setOptimisticFast(enabled);
     routingGuard.current = true;
-    restoreFastAfterDisabled.current = true;
-    restoreAfterRoute.current = fastControl.current?.querySelector('button') || null;
-    setRouting(true);
     try {
-    const next = await invokeResult(() => window.mixdogDesktop.setFast(enabled, sessionId));
+      const next = await invokeResult(() => window.mixdogDesktop.setFast(enabled, sessionId));
       if (next !== undefined) applySnapshot(next);
     } finally {
       setOptimisticFast(null);
       routingGuard.current = false;
-      setRouting(false);
     }
   };
   const changeEffort = async (effort: string) => {
@@ -508,7 +504,8 @@ export const ModelSelector = memo(function ModelSelector({
       </div>
     )}
     {fastAvailable && (
-      <div ref={fastControl} className="fast-control" aria-busy={routing || undefined}
+      <div ref={fastControl} className="fast-control"
+        aria-busy={optimisticFast !== null || undefined}
         onFocusCapture={() => { restoreFastAfterDisabled.current = true; }}>
         <FastModeToggle enabled={displayedFast} disabled={tuningUnavailable}
           onChange={(enabled) => void changeFast(enabled)} />

@@ -29,9 +29,7 @@ class WebhookServer {
   setEventPipeline(pipeline) {
     this.eventPipeline = pipeline;
   }
-  // fn({ role, prompt, cwd, context }) — invoked for delegate-mode webhooks.
-  // Wired from src/channels/index.mjs to call agent.handleToolCall('bridge')
-  // with a notifyFn that forwards bridge output as a channel notification.
+  // Invoked for webhook-backed visible automation sessions.
   setBridgeDispatch(fn) {
     this.bridgeDispatch = typeof fn === "function" ? fn : null;
   }

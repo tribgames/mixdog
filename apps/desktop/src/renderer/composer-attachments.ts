@@ -16,8 +16,13 @@ import {
 
 const MAX_IMAGE_FILE_BYTES = 12_000_000;
 const SUPPORTED_IMAGE_TYPES = /^image\/(?:png|jpe?g|gif|webp)$/i;
+const SUPPORTED_IMAGE_PATH = /\.(?:png|jpe?g|gif|webp)$/i;
 const TEXT_LIKE_MIME = /^application\/(?:json|ld\+json|toml|x-toml|yaml|x-yaml|xml)$/;
 const TEXT_LIKE_EXTENSION = /\.(?:md|mdx|txt|json|jsonl|ya?ml|toml|xml|csv|tsv|[cm]?[jt]sx?|py|rb|rs|go|java|kt|swift|cs|cpp|cc|c|h|hh|hpp|sh|zsh|ps1|bat|cmd|sql|css|scss|sass|html|htm|vue|svelte|log|env|ini|conf|cfg|gql|graphql)$/i;
+
+export function isSupportedComposerImagePath(path: string): boolean {
+  return SUPPORTED_IMAGE_PATH.test(String(path || "").trim());
+}
 
 /** Empty when the attachment fits the per-turn budget, else the user message. */
 export function attachmentPolicyError(

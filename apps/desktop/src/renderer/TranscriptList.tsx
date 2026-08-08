@@ -69,6 +69,7 @@ export function TranscriptList({
   setAnchorBottomRef,
   renderRow,
   markProgrammaticScroll,
+  hasScrollGesture,
 }: {
   sessionKey: string;
   rows: readonly TranscriptRowModel[];
@@ -83,6 +84,8 @@ export function TranscriptList({
   /** Every offset this list writes is reported to the follow hook, which
    *  would otherwise read the core's own scrolls as a reader gesture. */
   markProgrammaticScroll?: (top: number, intended?: number) => void;
+  /** True from the first wheel/touch/drag intent through its inertial tail. */
+  hasScrollGesture: () => boolean;
 }) {
   const spacer = useRef<HTMLDivElement>(null);
   const rowsRef = useRef(rows);
@@ -97,6 +100,16 @@ export function TranscriptList({
   const shouldAnchorBottom = anchorOverride.current ?? anchorBottomProp;
   const markProgrammaticScrollRef = useRef(markProgrammaticScroll);
   markProgrammaticScrollRef.current = markProgrammaticScroll;
+  const hasScrollGestureRef = useRef(hasScrollGesture);
+  hasScrollGestureRef.current = hasScrollGesture;
+  // Sizes measured DURING a reader gesture for rows fully above the viewport
+  // are deferred here. Applying them mid-gesture shifts the whole timeline
+  // under the reader with no compensating write allowed (the pane "tears" and
+  // snaps back at the bottom); applying them after the gesture lands the size
+  // and its scroll compensation in one pre-paint transaction instead.
+  const pendingResizes = useRef(new Map<unknown, { index: number; size: number }>());
+  const resizeFlushFrame = useRef(0);
+  const baseResizeItem = useRef<((index: number, size: number) => void) | null>(null);
   // Rows that changed size by more than a viewport stay in the range for two
   // frames: a rewrap must never unmount the rows the reader is looking at.
   const resizePinned = useRef<number[]>([]);
@@ -164,15 +177,73 @@ export function TranscriptList({
       markProgrammaticScrollRef.current?.(element ? element.scrollTop : intended, intended);
     },
   });
+  const indexForPendingKey = useCallback((key: unknown, hint: number) => {
+    if (rowsRef.current[hint]?.key === key) return hint;
+    return rowsRef.current.findIndex((row) => row.key === key);
+  }, []);
+  const flushDeferredResizes = useCallback(() => {
+    const apply = baseResizeItem.current;
+    const pending = pendingResizes.current;
+    if (!apply || pending.size === 0) return;
+    pending.forEach((entry, key) => {
+      const at = indexForPendingKey(key, entry.index);
+      if (at >= 0) apply(at, entry.size);
+    });
+    pending.clear();
+  }, [indexForPendingKey]);
+  const pumpDeferredResizes = useCallback(() => {
+    resizeFlushFrame.current = 0;
+    const pending = pendingResizes.current;
+    if (pending.size === 0) return;
+    if (!hasScrollGestureRef.current()) {
+      flushDeferredResizes();
+      return;
+    }
+    // A pending row the reader scrolled back INTO must not keep painting at
+    // stale geometry. It is no longer fully above the offset, so the resize
+    // applies without a compensation write and cannot reverse the gesture.
+    const instance = virtualizerRef.current;
+    const offset = logicalScrollOffset(instance);
+    pending.forEach((entry, key) => {
+      const at = indexForPendingKey(key, entry.index);
+      if (at < 0) {
+        pending.delete(key);
+        return;
+      }
+      const measured = instance.measurementsCache[at];
+      if (measured && measured.end > offset) {
+        pending.delete(key);
+        baseResizeItem.current?.(at, entry.size);
+      }
+    });
+    if (pending.size > 0) {
+      resizeFlushFrame.current = window.requestAnimationFrame(pumpDeferredResizes);
+    }
+  }, [flushDeferredResizes, indexForPendingKey]);
+  const scheduleResizeFlush = useCallback(() => {
+    if (resizeFlushFrame.current) return;
+    resizeFlushFrame.current = window.requestAnimationFrame(pumpDeferredResizes);
+  }, [pumpDeferredResizes]);
   // React re-renders reuse one virtualizer instance. Patch resizeItem exactly
   // once instead of wrapping the previous wrapper again on every render.
   const patchedVirtualizer = useRef<Virtualizer<HTMLDivElement, HTMLDivElement> | null>(null);
   if (patchedVirtualizer.current !== virtualizer) {
     patchedVirtualizer.current = virtualizer;
     const resizeItem = virtualizer.resizeItem;
+    baseResizeItem.current = resizeItem;
     virtualizer.resizeItem = (index, size) => {
       const element = viewport.current;
       const measured = virtualizer.measurementsCache[index];
+      // Reader gesture + row fully above the reading offset: DEFER. Never
+      // drop — a dropped delta leaves the reader displaced by exactly that
+      // delta once the geometry it saw is recomputed.
+      if (measured && hasScrollGestureRef.current()
+        && measured.end <= logicalScrollOffset(virtualizer)) {
+        pendingResizes.current.set(measured.key, { index, size });
+        scheduleResizeFlush();
+        return;
+      }
+      pendingResizes.current.delete(measured?.key ?? index);
       const previous = measured
         ? virtualizer.itemSizeCache.get(measured.key) ?? measured.size
         : undefined;
@@ -196,12 +267,19 @@ export function TranscriptList({
       resizeItem(index, size);
     };
   }
-  // Rows measured above the reading offset keep the reader's content
-  // still. At the end, virtual-core's anchorTo:"end" wasAtEnd path applies the
-  // total-size delta BEFORE this predicate is consulted, so the bottom pin has
-  // exactly one writer during a rewrap storm (pane drag, window resize).
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) =>
-    item.end <= logicalScrollOffset(instance);
+  // Rows measured above an IDLE reading offset keep the reader's content
+  // still. Never write scrollTop during wheel/touch/scrollbar motion: a late
+  // row measurement otherwise adds its positive correction to Chromium's
+  // negative wheel ramp and briefly reverses the visible direction near the
+  // history boundary. The follow hook tracks only non-programmatic reader
+  // motion, so virtual-core's own corrective scroll does not block the next
+  // idle measurement in a settling burst.
+  // At the end, anchorTo:"end" wasAtEnd applies the total-size delta before
+  // this predicate, so the bottom pin still has one writer during a rewrap.
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
+    if (hasScrollGestureRef.current()) return false;
+    return item.end <= logicalScrollOffset(instance);
+  };
   const virtualizerRef = useRef(virtualizer);
   virtualizerRef.current = virtualizer;
   const overscanFrame = useRef(0);
@@ -236,11 +314,14 @@ export function TranscriptList({
   }, [content]);
 
   useLayoutEffect(() => () => {
+    // Pending gesture-deferred sizes are part of the truth this snapshot
+    // promises to replay on re-entry.
+    flushDeferredResizes();
     rememberTranscriptVirtualMeasurements(
       sessionKey,
       virtualizerRef.current.takeSnapshot(),
     );
-  }, [sessionKey, viewport]);
+  }, [flushDeferredResizes, sessionKey, viewport]);
 
   useLayoutEffect(() => {
     const scrollToEnd = (behavior: ScrollBehavior = "auto") => {
@@ -404,6 +485,7 @@ export function TranscriptList({
     if (overscanFrame.current) window.cancelAnimationFrame(overscanFrame.current);
     if (bottomAnchorFrame.current) window.cancelAnimationFrame(bottomAnchorFrame.current);
     if (prependAnchorFrame.current) window.cancelAnimationFrame(prependAnchorFrame.current);
+    if (resizeFlushFrame.current) window.cancelAnimationFrame(resizeFlushFrame.current);
   }, []);
 
   const virtualRows = virtualizer.getVirtualItems();

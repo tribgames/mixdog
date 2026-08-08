@@ -68,7 +68,6 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): st
   return [modelLabel, effortLabel, fastLabel].filter(Boolean).join(' · ');
 }
 
-const HIDDEN_WORKFLOW_AGENT_IDS = new Set(['scheduler-task', 'webhook-handler']);
 // Shared services, not delegation targets: they run behind a tool (search,
 // explore) or a background cycle (maintainer), so they carry a model route but
 // no editable definition and never appear in a workflow's agent subset.
@@ -489,7 +488,7 @@ export function WorkflowsPane({
     description: String(agent.description || record(agent.definition).description || ''),
     custom: agent.custom === true,
     userOverride: agent.userOverride === true,
-  })).filter((agent) => agent.id && !HIDDEN_WORKFLOW_AGENT_IDS.has(agent.id)), [agents]);
+  })).filter((agent) => agent.id), [agents]);
   const maintainerAgent = agentRoster.find((agent) => agent.id === 'maintainer');
   const maintainerRow = agents.find((agent) => String(agent.id || '') === 'maintainer');
   const exploreAgent = agentRoster.find((agent) => agent.id === 'explore');
@@ -542,8 +541,8 @@ export function WorkflowsPane({
       </div>
       <RowOverflowMenu label={`Actions for ${agent.label}`} items={[
         { id: 'edit', label: 'Edit', disabled: busy, onSelect: () => void openAgentEditor(agent.id) },
-        // Shipped roles are protected. Only user-authored roles expose Delete;
-        // agents are global, so deletion needs no workflow bookkeeping.
+        // Fixed services are protected. Starter and user-authored custom roles
+        // expose Delete; agents are global, so no workflow bookkeeping is needed.
         ...(agent.custom ? [{
           id: 'delete',
           label: 'Delete',
@@ -723,7 +722,7 @@ export function WorkflowsPane({
             <Plus size={16} aria-hidden="true" />
           </button>
         </div>
-        <p>{t('Built-in and custom roles with editable definitions and models.')}</p>
+            <p>{t('Starter and custom roles with editable definitions and models.')}</p>
         <div className="schedules-list">
           {editableAgents.map(renderAgentRow)}
         </div>

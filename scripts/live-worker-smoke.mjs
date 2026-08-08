@@ -133,12 +133,12 @@ async function main() {
         agents: {
           worker: { provider: 'openai-oauth', model: 'gpt-5.5', effort: 'medium', fast: true },
           reviewer: { provider: 'openai-oauth', model: 'gpt-5.5', effort: 'low' },
-          debugger: { provider: 'openai-oauth', model: 'gpt-5.5', effort: 'low' },
+          'heavy-worker': { provider: 'openai-oauth', model: 'gpt-5.5', effort: 'low' },
         },
         presets: [
           { id: 'fake-worker', name: 'Fake Worker', provider: 'openai-oauth', model: 'gpt-5.5', tools: 'full', effort: 'medium', fast: true },
           { id: 'fake-reviewer', name: 'Fake Reviewer', provider: 'openai-oauth', model: 'gpt-5.5', tools: 'readonly', effort: 'low' },
-          { id: 'fake-debugger', name: 'Fake Debugger', provider: 'openai-oauth', model: 'gpt-5.5', tools: 'readonly', effort: 'low' },
+          { id: 'fake-heavy-worker', name: 'Fake Heavy Worker', provider: 'openai-oauth', model: 'gpt-5.5', tools: 'full', effort: 'low' },
         ],
       };
     },
@@ -186,8 +186,8 @@ async function main() {
         const body = readFileSync(join(cwdOverride, 'feature.txt'), 'utf8');
         return { content: body.includes('worker') ? 'reviewer ok' : 'reviewer missing worker change' };
       }
-      if (/debug/i.test(prompt)) {
-        return { content: `debugger ${readFileSync(join(cwdOverride, 'notes.txt'), 'utf8').trim()}` };
+      if (/timeout clue/i.test(prompt)) {
+        return { content: `heavy-worker ${readFileSync(join(cwdOverride, 'notes.txt'), 'utf8').trim()}` };
       }
       return { content: `ack ${session?.agent || 'worker'}` };
     } finally {
@@ -257,15 +257,15 @@ async function main() {
     cwd: root,
     prompt: 'review feature.txt for the worker change',
   }, { invocationSource: 'model-tool', cwd: root });
-  const debugOut = await agentRunner.execute({
+  const heavyOut = await agentRunner.execute({
     type: 'spawn',
-    agent: 'debugger',
-    tag: 'dbg1',
+    agent: 'heavy-worker',
+    tag: 'heavy1',
     cwd: root,
-    prompt: 'debug notes.txt timeout clue',
+    prompt: 'inspect notes.txt timeout clue',
   }, { invocationSource: 'model-tool', cwd: root });
   await waitJob(reviewOut, /reviewer ok/, 'reviewer');
-  await waitJob(debugOut, /debugger TODO/, 'debugger');
+  await waitJob(heavyOut, /heavy-worker TODO/, 'heavy-worker');
 
   const parallelSpawns = await Promise.all([
     agentRunner.execute({
@@ -284,17 +284,17 @@ async function main() {
     }, { invocationSource: 'model-tool', cwd: root }),
     agentRunner.execute({
       type: 'spawn',
-      agent: 'debugger',
-      tag: 'parDebugger',
+      agent: 'heavy-worker',
+      tag: 'parHeavy',
       cwd: root,
-      prompt: 'parallel slow debug task',
+      prompt: 'parallel slow heavy task',
     }, { invocationSource: 'model-tool', cwd: root }),
   ]);
   assert(parallelSpawns.every((out) => /agent task:/.test(out)), `parallel spawns must return tasks: ${parallelSpawns.join('\n---\n')}`);
   await Promise.all([
     waitJob(parallelSpawns[0], /ack worker/, 'parallel worker'),
     waitJob(parallelSpawns[1], /reviewer ok/, 'parallel reviewer'),
-    waitJob(parallelSpawns[2], /debugger TODO/, 'parallel debugger'),
+    waitJob(parallelSpawns[2], /ack heavy-worker/, 'parallel heavy-worker'),
   ]);
   assert(maxActiveAsks >= 2, `agents did not overlap; maxActiveAsks=${maxActiveAsks}`);
 

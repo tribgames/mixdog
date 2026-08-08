@@ -42,7 +42,11 @@ import {
   writePromptHistory,
 } from "./composer-support";
 // Attachment budget policy and file -> attachment conversion.
-import { attachmentFromFile, attachmentPolicyError } from "./composer-attachments";
+import {
+  attachmentFromFile,
+  attachmentPolicyError,
+  isSupportedComposerImagePath,
+} from "./composer-attachments";
 export {
   PROJECT_CONTEXT_LOCAL,
   PROJECT_CONTEXT_OPEN,
@@ -78,6 +82,7 @@ export const Composer = memo(function Composer({
   invokeResult,
   applySnapshot,
   onNewTask,
+  onClearToNewTask,
   onResumeSession,
   onOpenSessions,
   onOpenProjects,
@@ -113,6 +118,9 @@ export const Composer = memo(function Composer({
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
   applySnapshot: (snapshot: SessionSnapshot | null) => void;
   onNewTask: () => void;
+  /** Session-pane /clear · /new: close this session's tab and open a New
+   *  Task in its place with the session's settings inherited. */
+  onClearToNewTask?: () => void;
   onResumeSession: (id: string) => void;
   onOpenSessions: () => void;
   onOpenProjects: () => void;
@@ -166,7 +174,6 @@ export const Composer = memo(function Composer({
   // every IME event ordering, so keep the explicit composition lifecycle too.
   const composingRef = useRef(false);
   const suppressImeLineBreakRef = useRef(false);
-  const imeLineBreakGuardTimerRef = useRef(0);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const escapeClearAtRef = useRef(0);
@@ -224,20 +231,19 @@ export const Composer = memo(function Composer({
     };
     const onBeforeInput = (event: InputEvent) => {
       // A composing Enter commits the IME candidate; it is not a request for a
-      // line break. Let composition commit, but cancel Chromium's occasional
-      // follow-up `insertLineBreak` default on <textarea>.
-      if (event.inputType === 'insertLineBreak' &&
+      // line break. Electron can deliver the follow-up newline after
+      // compositionend and a later task, using either browser input type.
+      const newline = event.inputType === 'insertLineBreak' || event.inputType === 'insertParagraph';
+      if (newline &&
         (composingRef.current || event.isComposing || suppressImeLineBreakRef.current)) {
         event.preventDefault();
         suppressImeLineBreakRef.current = false;
-        window.clearTimeout(imeLineBreakGuardTimerRef.current);
       }
     };
     element.addEventListener('compositionstart', onCompositionStart);
     element.addEventListener('compositionend', onCompositionEnd);
     element.addEventListener('beforeinput', onBeforeInput);
     return () => {
-      window.clearTimeout(imeLineBreakGuardTimerRef.current);
       window.cancelAnimationFrame(reconcileFrame);
       element.removeEventListener('compositionstart', onCompositionStart);
       element.removeEventListener('compositionend', onCompositionEnd);
@@ -251,7 +257,6 @@ export const Composer = memo(function Composer({
     dragDepth.current = 0;
     composingRef.current = false;
     suppressImeLineBreakRef.current = false;
-    window.clearTimeout(imeLineBreakGuardTimerRef.current);
     mentionSearchGeneration.current += 1;
     // Scope settles ASYNC after a session switch/promotion; when the user is
     // ALREADY typing in the composer, the in-flight text carries over instead
@@ -476,10 +481,10 @@ export const Composer = memo(function Composer({
     attachmentsRef.current = nextAttachments;
     setAttachments(nextAttachments);
     const element = textarea.current;
-    // Chip-only attachments (images) carry no bracket token: the thumbnail
-    // chip is their sole representation, so the draft text stays untouched
-    // (user: pasting an image left a redundant "[Image #N]" box in the input).
-    if (!attachment.token) {
+    // Chip-only attachments (images, pasted text) keep the draft untouched:
+    // the chip is their sole editor representation (user: pasting left a
+    // redundant "[Image #N]" / "[Pasted text #N]" token in the input).
+    if (!attachment.token || attachment.chipOnly === true) {
       window.setTimeout(() => { textarea.current?.focus(); }, 0);
       historyNavigation.current = { index: -1, seed: '' };
       return true;
@@ -610,6 +615,16 @@ export const Composer = memo(function Composer({
     if (loaded.errors.length) setAttachmentError(loaded.errors[0]);
     if (loaded.files.length) await attachFiles(loaded.files);
   }, [attachFiles, insertAbsolutePaths]);
+  const attachProjectPaths = useCallback(async (projectPath: string, paths: string[]) => {
+    const imagePaths = paths.filter(isSupportedComposerImagePath);
+    insertProjectMentions(paths.filter((path) => !isSupportedComposerImagePath(path)));
+    if (!imagePaths.length) return;
+    await attachLocalPaths(absolutePathsForDragPayload({
+      kind: "project",
+      projectPath,
+      paths: imagePaths,
+    }));
+  }, [attachLocalPaths, insertProjectMentions]);
 
   useEffect(() => {
     const target = dropTargetRef.current;
@@ -656,7 +671,7 @@ export const Composer = memo(function Composer({
           const source = payload.projectPath.replace(/[\\/]+/g, '/').toLocaleLowerCase();
           const targetProject = projectScope.replace(/[\\/]+/g, '/').toLocaleLowerCase();
           if (source && targetProject && source === targetProject) {
-            insertProjectMentions(payload.paths);
+            void attachProjectPaths(payload.projectPath, payload.paths);
             return;
           }
         }
@@ -680,7 +695,7 @@ export const Composer = memo(function Composer({
       target.removeEventListener('drop', onDrop);
       dragDepth.current = 0;
     };
-  }, [attachFiles, attachLocalPaths, dropTargetRef, insertProjectMentions, projectScope]);
+  }, [attachFiles, attachLocalPaths, attachProjectPaths, dropTargetRef, projectScope]);
 
   // Push-to-talk dictation: record locally, transcribe through the engine's
   // managed whisper.cpp runtime, and append the transcript to the draft.
@@ -754,10 +769,8 @@ export const Composer = memo(function Composer({
       // taxonomy across dictation errors).
       const name = reason instanceof DOMException ? reason.name : '';
       showComposerNotice(name === 'NotAllowedError'
-        ? (document.documentElement.hasAttribute('data-mixdog-mobile')
-          // The same composer serves the phone web/app shell: pointing a
-          // phone user at Windows Settings reads as a broken feature.
-          ? 'Microphone access is blocked. Allow microphone access for Mixdog in your phone settings and reload.'
+        ? ((window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer
+          ? 'Microphone access is blocked. Allow microphone access for this site in your browser settings and reload.'
           : 'Microphone access is blocked. Allow microphone access for desktop apps in Windows Settings → Privacy & security → Microphone.')
         : name === 'NotFoundError' || name === 'OverconstrainedError'
           ? 'No microphone was detected. Connect one and try again.'
@@ -999,10 +1012,16 @@ export const Composer = memo(function Composer({
       setAttachmentError(`Wait for the current turn to finish before /${rawName}.`);
       return false;
     }
-    if (rawName === 'new') onNewTask();
+    if (rawName === 'new' || name === 'clear') {
+      // A session pane's /new and /clear close THIS session tab and open a
+      // New Task in its place (settings inherited). Outside a session pane
+      // the old routes remain: /new opens a draft, /clear clears the engine.
+      if (!draftMode && sessionId && onClearToNewTask) onClearToNewTask();
+      else if (rawName === 'new') onNewTask();
+      else await commandCapability('clear');
+    }
     else if (name === 'project') onOpenProjects();
     else if (name === 'resume') argument ? onResumeSession(argument) : onOpenSessions();
-    else if (name === 'clear') await commandCapability('clear');
     else if (name === 'compact') await commandCapability('compact');
     else if (name === 'doctor') onOpenCommandSurface('doctor');
     else if (name === 'remote') await commandCapability('claimRemote');
@@ -1123,9 +1142,10 @@ export const Composer = memo(function Composer({
     const submittedDraft = textarea.current?.value ?? draftRef.current;
     const submittedAttachments = [...attachmentsRef.current];
     const text = (slashOverride || submittedDraft).trim();
-    // Chip-only image/PDF attachments carry no draft token, so an image-only
-    // send legitimately has empty text.
-    const chipOnlyAttachments = submittedAttachments.some((attachment) => !attachment.token);
+    // Chip-only attachments (images, pasted text) leave no token in the
+    // draft, so an attachment-only send legitimately has empty text.
+    const chipOnlyAttachments = submittedAttachments
+      .some((attachment) => !attachment.token || attachment.chipOnly === true);
     if ((!text && !chipOnlyAttachments) || submittingRef.current || transitioningRef.current) return;
     submittingRef.current = true;
     setSubmitting(true);
@@ -1149,8 +1169,22 @@ export const Composer = memo(function Composer({
         return;
       }
       setAttachmentError('');
-      const used = submittedAttachments.filter((attachment) => submittedDraft.includes(attachment.token));
-      const expandedText = submittedDraft;
+      // Decoded byte length of a base64 payload. The transcript preview cache
+      // is keyed by (id, bytes) and the settled item's bytes come back from
+      // the daemon as the decoded buffer length, so this must match exactly.
+      const base64Bytes = (data: string) => Math.floor((data.length * 3) / 4)
+        - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
+      // Chip-only pasted text keeps its bracket token out of the editor; the
+      // token joins the outgoing text here so the daemon still expands the
+      // pasted payload in place and the transcript folds it back into a chip.
+      const chipOnlyTextTokens = submittedAttachments
+        .filter((attachment) => attachment.chipOnly === true && attachment.token
+          && !submittedDraft.includes(attachment.token))
+        .map((attachment) => attachment.token);
+      const expandedText = chipOnlyTextTokens.length
+        ? [submittedDraft.trim(), ...chipOnlyTextTokens].filter(Boolean).join('\n')
+        : submittedDraft;
+      const used = submittedAttachments.filter((attachment) => expandedText.includes(attachment.token));
       const pastedImages: Record<string, DesktopPromptAttachment> = {};
       const pastedTexts: Record<string, DesktopPastedText> = {};
       for (const attachment of used) {
@@ -1166,7 +1200,7 @@ export const Composer = memo(function Composer({
           pastedImages[String(attachment.id)] = {
             id: attachment.id,
             type: 'image',
-            sizeBytes: Math.floor((attachment.data.length * 3) / 4),
+            sizeBytes: base64Bytes(attachment.data),
             mediaType: attachment.mimeType,
             filename: attachment.name,
             ...(attachment.metadataText ? { metadataText: attachment.metadataText } : {}),
@@ -1178,7 +1212,7 @@ export const Composer = memo(function Composer({
       // Register byte-free preview sources for the transcript chips this
       // submit will produce. The transcript item itself carries metadata only.
       for (const attachment of imageAttachments) {
-        registerImagePreview(attachment.id, attachment.data.length,
+        registerImagePreview(attachment.id, base64Bytes(attachment.data),
           `data:${attachment.mimeType};base64,${attachment.data}`);
       }
       if (expandedText.length > MAX_SUBMIT_TEXT_LENGTH) {
@@ -1228,7 +1262,7 @@ export const Composer = memo(function Composer({
       let accepted: unknown;
       try {
         accepted = await submit(content, {
-          ...(used.length ? { displayText: text } : {}),
+          ...(used.length ? { displayText: expandedText.trim() } : {}),
           ...(Object.keys(pastedImages).length ? { pastedImages } : {}),
           ...(Object.keys(pastedTexts).length ? { pastedTexts } : {}),
         });
@@ -1237,7 +1271,7 @@ export const Composer = memo(function Composer({
         throw error;
       }
       if (accepted === true) {
-        rememberPrompt(text, committedAttachments);
+        rememberPrompt(expandedText, committedAttachments);
       } else restoreSubmitted();
     } finally {
       submittingRef.current = false;
@@ -1361,14 +1395,13 @@ export const Composer = memo(function Composer({
     if (event.key !== 'Escape') escapeClearAtRef.current = 0;
     const composing = event.nativeEvent.isComposing || composingRef.current ||
       event.nativeEvent.keyCode === 229;
+    // If the previous composing Enter produced no native newline, its one-shot
+    // guard expires at the next real key. Plain Enter below still submits.
+    if (!composing) suppressImeLineBreakRef.current = false;
     if (composing && event.key === 'Enter') {
       // Do not cancel keydown: the IME still owns candidate confirmation.
-      // Guard only the textarea line-break default that may follow it.
+      // Keep the guard through compositionend and delayed beforeinput.
       suppressImeLineBreakRef.current = true;
-      window.clearTimeout(imeLineBreakGuardTimerRef.current);
-      imeLineBreakGuardTimerRef.current = window.setTimeout(() => {
-        suppressImeLineBreakRef.current = false;
-      }, 0);
     }
     // A newline chord pressed while an IME syllable is still composing is
     // swallowed by the commit: the composition ends and NOTHING breaks the
@@ -1678,7 +1711,6 @@ export const Composer = memo(function Composer({
       }} onFocus={() => setComposerFocused(true)} onBlur={() => {
         composingRef.current = false;
         suppressImeLineBreakRef.current = false;
-        window.clearTimeout(imeLineBreakGuardTimerRef.current);
         setComposerFocused(false);
       }}
         onPointerDown={() => { escapeClearAtRef.current = 0; }}
@@ -1700,7 +1732,7 @@ export const Composer = memo(function Composer({
             const lines = text.split('\n').length;
             const inserted = insertAttachment({
               id, name: `Pasted text · ${lines} lines`, kind: 'text', mimeType: 'text/plain', data: text,
-              token: `[Pasted text #${id} +${lines} lines]`, source: 'paste',
+              token: `[Pasted text #${id} +${lines} lines]`, source: 'paste', chipOnly: true,
             });
             if (inserted) event.preventDefault();
           }
@@ -1744,7 +1776,7 @@ export const Composer = memo(function Composer({
           className={`send-button${turnBusy && !draft.trim() ? " stop" : ""}`}
           onClick={turnBusy && !draft.trim() ? () => void stop() : undefined}
           disabled={turnBusy && !draft.trim() ? false
-            : (!draft.trim() && !attachments.some((attachment) => !attachment.token))
+            : (!draft.trim() && !attachments.some((attachment) => !attachment.token || attachment.chipOnly === true))
               || submitting || transitioning}
           aria-label={turnBusy && !draft.trim() ? t("Stop generation")
             : submitting ? (hasConversation ? t("Sending message") : t("Starting session"))

@@ -109,9 +109,9 @@ function ShortcutsPanel() {
   </>;
 }
 
-// Settings → Connection: pairing card for the phone remote (ChatGPT-desktop
-// 연결 page grammar). Data + pre-rendered QR SVGs come from the main process;
-// the remote shim omits the API, so a phone session shows the fallback note.
+// Settings → Connection: pairing card for the installable web app. Data and
+// the pre-rendered QR SVG come from the main process; the remote shim omits
+// the API, so a browser session reports its current connection instead.
 // Until the relay QRs exist the card polls (each read also makes the main
 // process retry a failed bridge/relay leg) and keeps a QR-sized loading
 // shell, so the panel heals in place instead of flashing notes.
@@ -144,17 +144,17 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
     return () => { live = false; window.clearTimeout(timer); };
   }, [api, ready]);
   if (!api.getRemoteAccessInfo) {
-    // Remote surface (phone/browser): the desktop API is absent by design —
+    // Remote browser: the desktop API is absent by design —
     // report where this device is connected instead of desktop-only pairing.
     const remoteServer = (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer;
     if (remoteServer) {
-      return <Group title="Phone remote">
+      return <Group title="Web app">
         <p className="settings-connection-note">
-          {t('This device is paired and connected through {{server}}. Pairing QR codes for other devices live in the desktop app under Settings → Connection.', { server: remoteServer })}
+          {t('This web app is paired and connected through {{server}}. Pairing QR codes for other browsers live in the desktop app under Settings → Connection.', { server: remoteServer })}
         </p>
       </Group>;
     }
-    return <Group title="Phone remote">
+    return <Group title="Web app">
       <p className="settings-connection-note">
         {t('Remote access is unavailable in this session. On the desktop it is on by default; restart without MIXDOG_REMOTE_BRIDGE=0 to enable pairing.')}
       </p>
@@ -163,20 +163,20 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
   if (!ready) {
     if (stalledAttempts >= CONNECTION_STALLED_ATTEMPTS) {
       if (info === null) {
-        return <Group title="Phone remote">
+        return <Group title="Web app">
           <p className="settings-connection-note">
             {t('Remote access could not start in this session. On the desktop it is on by default; restart without MIXDOG_REMOTE_BRIDGE=0 to enable pairing.')}
           </p>
         </Group>;
       }
-      return <Group title="Phone remote">
+      return <Group title="Web app">
         <p className="settings-connection-note">
           {t('Connecting to the Mixdog relay… this card refreshes automatically. If this persists, check this PC’s internet connection.')}
         </p>
       </Group>;
     }
-    return <Group title="Phone remote"
-      description="Works on any network. Scan with the phone camera.">
+    return <Group title="Web app"
+      description="Works on any network. Open the secure link in a browser.">
       <div className="settings-connection-grid">
         <figure className="settings-connection-card settings-connection-card--loading"
           aria-label={t('Preparing pairing code')} aria-busy="true">
@@ -190,20 +190,19 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
     </Group>;
   }
   // Relay-only pairing (user decision: Anywhere only, no LAN fallback) — the
-  // LAN bridge stays a transport detail and never surfaces here. Browser-only
-  // (user decision): the web app covers every phone, so the Android APK tab
-  // was dropped from pairing surfaces.
+  // LAN bridge stays a transport detail and never surfaces here. The web app
+  // is the only remote client and can be installed directly by the browser.
   const browserQrSvg = info.relayBrowserQrSvg || '';
-  return <Group title="Phone remote"
-    description="Works on any network. Scan with the phone camera.">
+  return <Group title="Web app"
+    description="Works on any network. Scan or open the secure browser link.">
     <div className="settings-connection-grid">
       <figure className="settings-connection-card">
         <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: browserQrSvg }} />
-        <figcaption><b>{t('Open the web app')}</b><small>{t('Works on iPhone and Android — nothing to install')}</small></figcaption>
+        <figcaption><b>{t('Open or install the web app')}</b><small>{t('Chrome/Edge: Install app · Safari: Add to Home Screen')}</small></figcaption>
       </figure>
     </div>
     <ResourceRow title="Unpair every device"
-      description="Mints a new pairing token. Phones and browsers paired so far lose access and must scan again."
+      description="Mints a new pairing token. Browsers paired so far lose access and must scan again."
       actions={<ActionButton disabled={rotating} onClick={() => {
         if (!confirmRotate) {
           setConfirmRotate(true);
@@ -393,11 +392,10 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
     getSidePanelMode,
     () => 'close-both',
   );
-  const mobile = document.documentElement.dataset.mixdogMobile === '1' ||
-    window.matchMedia?.('(max-width: 760px)').matches === true;
-  const mode = mobile ? 'close-both' : configuredMode;
+  const narrow = window.matchMedia?.('(max-width: 760px)').matches === true;
+  const mode = narrow ? 'close-both' : configuredMode;
   return <Group title="Side panels">
-    <SelectRow title="Side panels" value={mode} disabled={Boolean(pending) || mobile}
+    <SelectRow title="Side panels" value={mode} disabled={Boolean(pending) || narrow}
       options={[
         { value: 'close-left', label: 'Left closed' },
         { value: 'close-right', label: 'Right closed' },

@@ -1128,7 +1128,6 @@ const WORKFLOW_GUIDE: Record<string, {
     points: () => [
       t('Lead plans the task and splits the work'),
       t('Workers implement changes side by side'),
-      t('Reviewer and Debugger cover risky changes'),
     ],
   },
   solo: {

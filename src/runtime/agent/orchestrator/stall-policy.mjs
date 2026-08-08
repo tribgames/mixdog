@@ -288,7 +288,6 @@ export const PROVIDER_RETRY_JITTER_RATIO = (() => {
 const WORKFLOW_AGENT_STALL_ABORT_S = {
     'worker': 300,
     'reviewer': 300,
-    'debugger': 420,
     'heavy-worker': 420,
     'maintainer': 300,
     'explore': 240,

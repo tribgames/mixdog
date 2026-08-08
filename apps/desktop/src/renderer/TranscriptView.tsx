@@ -658,15 +658,10 @@ export function transcriptItemsEqual(
 }
 
 export function messageMetadata(item: TranscriptItem) {
-  const agent = typeof item.agent === "string" ? item.agent.trim() : "";
-  const model = typeof item.model === "string" ? item.model.trim() : "";
   const shortTime = typeof item.at === "number" && Number.isFinite(item.at) && item.at > 0
     ? new Date(item.at).toLocaleTimeString(undefined, { timeStyle: "short" })
     : "";
-  return {
-    details: [agent, model, shortTime].filter(Boolean),
-    shortTime,
-  };
+  return { shortTime };
 }
 
 // The transcript renders attached images as chips, so the raw composer token
@@ -676,6 +671,23 @@ function stripImageTokens(text: string): string {
     .replace(/ ?\[Image #\d+(?::[^\]]*)?\] ?/g, ' ')
     .replace(/ {2,}/g, ' ')
     .trim();
+}
+
+// Chip-only pasted text keeps its "[Pasted text #N +M lines]" token in the
+// outgoing prompt (the daemon expands it in place); the transcript folds the
+// raw token back into the compact chip the composer showed.
+interface PastedTextChip { name: string }
+function extractPastedTextMarkers(text: string): { text: string; chips: PastedTextChip[] } {
+  const chips: PastedTextChip[] = [];
+  const stripped = String(text || "").replace(/ ?\[Pasted text #\d+ \+(\d+) lines\] ?/g, (_match, lines) => {
+    chips.push({ name: `Pasted text · ${lines} lines` });
+    return " ";
+  });
+  if (chips.length === 0) return { text, chips };
+  const cleaned = stripped
+    .split(/\r?\n/).map((line) => line.replace(/ {2,}/g, " ").trim())
+    .join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return { text: cleaned, chips };
 }
 
 // TUI-side / stored-history image markers arrive as literal bracket lines in
@@ -839,7 +851,9 @@ export const TranscriptRow = memo(function TranscriptRow({
   const userDisplayText = attachedImages.length > 0
     ? stripImageTokens(imageMarkers.text)
     : imageMarkers.text;
-  const webhookFold = user ? extractWebhookPayload(userDisplayText) : { text: userDisplayText, payload: "" };
+  const pastedFold = user ? extractPastedTextMarkers(userDisplayText)
+    : { text: userDisplayText, chips: [] as PastedTextChip[] };
+  const webhookFold = user ? extractWebhookPayload(pastedFold.text) : { text: pastedFold.text, payload: "" };
   return (
     <>
       <article className={`message ${user ? "user" : "assistant"} ${item.streaming ? "streaming" : "settled"} ${item.pending ? "pending" : ""} ${user && attachedUser ? "attached-user" : ""}`}
@@ -847,8 +861,9 @@ export const TranscriptRow = memo(function TranscriptRow({
         aria-busy={item.pending === true ? "true" : undefined}>
         <div className="message-body" onDragStart={(event) => event.preventDefault()}>
           {user ? <>
-            {(attachedImages.length > 0 || markerChips.length > 0) && <div className="message-image-chips"
-              aria-label={t("Attached images")}>
+            {(attachedImages.length > 0 || markerChips.length > 0 || pastedFold.chips.length > 0)
+              && <div className="message-image-chips"
+              aria-label={t("Attachments")}>
               {attachedImages.map((image, index) => {
                 const preview = imagePreviewCache.get(imagePreviewKey(image.id, image.bytes));
                 return <span className="message-image-chip" key={`${image.id ?? 'img'}-${index}`}
@@ -870,6 +885,14 @@ export const TranscriptRow = memo(function TranscriptRow({
                   </span>
                 </span>
               ))}
+              {pastedFold.chips.map((chip, index) => (
+                <span className="message-image-chip message-pasted-chip" key={`pasted-${index}`} title={chip.name}>
+                  <span className="message-image-fallback">
+                    <MxIcon name="open-file" size={14} />
+                    <span>{chip.name}</span>
+                  </span>
+                </span>
+              ))}
             </div>}
             {webhookFold.text ? <p>{webhookFold.text}</p> : null}
           </> : (
@@ -884,8 +907,11 @@ export const TranscriptRow = memo(function TranscriptRow({
         </span>}
         {user && !item.pending && !item.streaming && text && <footer className="message-meta-line"
           aria-label={t("Message details")}>
-          {metadata.details.length > 0 && <span className="message-meta">
-            {metadata.details.join("\u00A0\u00B7\u00A0")}
+          {/* Hover meta stays minimal (user): the send time only — the
+              workflow/model labels the bubble used to repeat live in the
+              composer already. */}
+          {metadata.shortTime && <span className="message-meta">
+            {metadata.shortTime}
           </span>}
           <CopyControl value={text} label={t("Copy message")}
             className="message-actions user-copy" />

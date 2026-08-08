@@ -211,7 +211,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     const isExplorerSession = sessionAgent === 'explorer' || sessionAgent === 'explore';
     const loopUsageMetricsEpoch = () => Number(sessionRef?.usageMetricsEpoch) || 0;
     const loopUsageMetricsTurnId = () => Number(sessionRef?.usageMetricsTurnId) || 0;
-    // Sub-agent (worker/heavy-worker/reviewer/debugger/explore/…) sessions
+    // Sub-agent (worker/heavy-worker/reviewer/explore/…) sessions
     // drop mid-turn assistant preamble text outright. Only the final
     // <final-answer> reply is consumed by Lead, so any "Now let me…" prose
     // that precedes a tool call is pure noise — both for live surfacing AND
@@ -798,9 +798,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // Opus 4.6 emits 'Now I'll polish…' preamble before its first tool
         // call) and used to leave the session idle until the idle sweep
         // collected it. Re-prompt the worker with a contract reminder on each
-        // empty turn (hard iteration cap bounds total turns). Hidden roles
-        // (cycle1-agent / cycle2-agent / explorer /
-        // scheduler-task / webhook-handler) are exempt:
+        // empty turn (hard iteration cap bounds total turns). Hidden roles are
+        // exempt:
         // their own role rules define a different output contract (pipe-
         // separated chunker output, structured pipe-format, etc.) and a
         // text-only terminal turn is the correct shape — nudging them

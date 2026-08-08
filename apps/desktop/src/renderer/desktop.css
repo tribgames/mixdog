@@ -4466,6 +4466,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .model-empty {
   margin: 0;
   padding: 24px 16px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 10px;
   color: var(--mx-text-muted);
   background: var(--mx-bg-layer-1);
@@ -6053,6 +6057,33 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--mx-bg-layer-1);
   box-shadow: inset 0 0 0 1px var(--mx-border-muted);
 }
+/* A queue slot owns the reference and prompt captured at submit time. Showing
+   that snapshot makes later composer edits visibly belong to the next run. */
+.studio-pending-reference {
+  position: absolute;
+  inset: 0;
+  opacity: .42;
+  filter: saturate(.72);
+}
+.studio-pending-prompt {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  display: -webkit-box;
+  max-width: calc(100% - 24px);
+  margin: 0;
+  padding: 5px 7px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  border-radius: 7px;
+  color: var(--mx-text);
+  background: color-mix(in srgb, var(--mx-bg-base) 78%, transparent);
+  font-size: var(--mx-font-meta);
+  line-height: 1.35;
+  text-align: center;
+}
+.studio-tile--pending[data-size="compact"] .studio-pending-prompt { -webkit-line-clamp: 2; }
+.studio-tile--pending[data-size="tiny"] .studio-pending-prompt { display: none; }
 /* The sweep is a transform-only overlay: animating the tile's own background
    repainted it every frame and the keyframe wrap popped the band back
    (user: 섬네일 애니가 튄다 / 가볍게). It enters and leaves fully off the tile,
@@ -8623,119 +8654,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .onboarding-error { color: var(--mx-danger); font-size: var(--mx-font-meta); }
 .onboarding-dialog button:disabled { opacity: var(--mx-op-disabled); cursor: wait; }
 
-/* Mobile-only drawer toggle inside the session header (phones drop the
-   workspace-tab strip; desktop keeps the topbar toggle). */
-.session-header-menu { display: none; }
-
 @media (max-width: 760px) {
-  /* Native shells draw edge-to-edge (Android 15 enforces it): pad the shell
-     below the system status bar or the tab-bar buttons sit under it. */
-  .app-shell {
-    padding-top: env(safe-area-inset-top, 0px);
-    /* ...and above the gesture bar, or the composer sits under it. */
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
   .desktop-body { padding-inline: 0; }
   .workspace { border-radius: 0; }
-  /* TOUCH SHELLS ONLY (html[data-mixdog-mobile]) drop the workspace-tab
-     strip: ONE top row — the session header — with the drawer toggle on the
-     left and the context/review/dock cluster on the right. A narrow DESKTOP
-     window keeps the topbar band and its compact header instead (user:
-     제목이 자리를 많이 먹음 — 위에 띠 하나 유지): the tab strip already
-     titles the pane, so the 64px promotion below is phone-only. */
-  /* Roomier phone header (user: too cramped): one centered line — the title
-     column caps at ~30% of the width (user decision) so the project badge
-     sits IMMEDIATELY to its right instead of under it. */
-  html[data-mixdog-mobile] .app-shell { --titlebar-height: 64px; }
-  html[data-mixdog-mobile] .topbar { display: none; }
-  html[data-mixdog-mobile] .session-header {
-    flex-basis: 64px;
-    min-height: 64px;
-    border-bottom: .5px solid var(--mx-border-muted);
-  }
-  html[data-mixdog-mobile] .studio-header { display: flex; }
-  /* The coarse-pointer rule gives this button a 40px slot while the trailing
-     controls retain a 28px flex basis. Pull the leading slot out by half the
-     12px difference so both outer glyphs share the same optical inset. */
-  html[data-mixdog-mobile] .session-header-menu { display: grid; place-items: center; margin: 0 2px 0 -6px; }
-  html[data-mixdog-mobile] .session-header-content {
-    height: 64px;
-    display: grid;
-    grid-template-columns: auto fit-content(30%) minmax(0, 1fr) auto;
-    align-items: center;
-    align-content: center;
-    column-gap: 8px;
-  }
-  html[data-mixdog-mobile] .session-header-menu { grid-row: 1; grid-column: 1; }
-  html[data-mixdog-mobile] .session-header-content h1 {
-    grid-row: 1;
-    grid-column: 2;
-    min-width: 0;
-    font-size: 16px;
-    line-height: var(--mx-line-body);
-  }
-  html[data-mixdog-mobile] .session-project-badge {
-    grid-row: 1;
-    grid-column: 3;
-    justify-self: start;
-    min-width: 0;
-    max-width: 100%;
-    height: 22px;
-    padding-inline: 8px;
-    font-size: var(--mx-font-minor);
-    line-height: var(--mx-line-emphasis);
-  }
-  html[data-mixdog-mobile] .session-header-menu .sidebar-toggle-icon,
-  html[data-mixdog-mobile] .session-dock-toggle svg.lucide { width: var(--mx-icon-xl); height: var(--mx-icon-xl); }
-  html[data-mixdog-mobile] .live-work-spinner { width: 18px; height: 18px; }
-  html[data-mixdog-mobile] .session-header-status { grid-row: 1; grid-column: 4; }
-  /* Phone: the main panel stacks header, workspace, and bottom panel. */
+  /* Narrow layouts retain the same desktop chrome and only fold panels. */
   .main-panel { flex-direction: column; }
-  /* Native phone shells keep the standalone session drawer: their Activity
-     Rail remains outside this desktop-only merged frame. */
-  html[data-mixdog-mobile] .sidebar.session-sidebar,
-  html[data-mixdog-mobile] .sidebar-collapsed .sidebar.session-sidebar {
-    position: fixed;
-    z-index: 40;
-    /* The drawer respects the dedicated tab zone: it opens flush under the
-       bar (user: covering the tabs read as the sidebar invading them). */
-    top: calc(var(--titlebar-height, 48px) + env(safe-area-inset-top, 0px));
-    bottom: 0;
-    left: 0;
-    width: min(var(--session-sidebar-width, 260px), calc(100vw - 32px));
-    /* The inline rail's height: 100% would push the fixed sheet 35px past
-       the window bottom (top offset + full height), clipping the rounded
-       corner and ring off-screen — top/bottom define the drawer box. */
-    height: auto;
-    flex: none;
-    margin: 0;
-    padding: 8px 8px max(8px, env(safe-area-inset-bottom, 0px));
-    background: var(--mx-window-band);
-    /* Floating sheet (ChatGPT reference; user: 상단 구분선이 지저분): the
-       drawer detaches from the chrome bands instead of continuing them —
-       both right corners round, no single-edge border, and one uniform
-       hairline ring + overlay shadow define the card edge. */
-    border-right: 0;
-    border-radius: 0 16px 16px 0;
-    /* INSET ring on purpose: the fixed sheet is clipped to the desktop-body
-       box (top = window bar's 35px), so an OUTER 1px ring loses its top
-       line and the card looks sliced (user: 사이드탭 위쪽이 자꾸 잘린다,
-       pixel-verified — y34 ring row never painted). Inside the border-box
-       the ring survives any ancestor clip. */
-    box-shadow: inset 0 0 0 1px var(--mx-border-muted), var(--mx-overlay);
-    transform: translateX(-100%);
-    visibility: hidden;
-    pointer-events: auto;
-    transition: transform var(--mx-sheet-motion), visibility var(--mx-sheet-motion);
-  }
-  html[data-mixdog-mobile] .sidebar.session-sidebar[data-state="open"] {
-    transform: none;
-    visibility: visible;
-  }
-  /* Narrow desktop: ONE fixed frame owns geometry, motion, shadow and ring.
+  /* ONE fixed frame owns geometry, motion, shadow and ring.
      Its stable 48 + 232px width exists even before the session tree's first
      mount, so opening can never reveal the standing rail as a separate part. */
-  html:not([data-mixdog-mobile]) .sidebar-drawer-frame {
+  .sidebar-drawer-frame {
     position: fixed;
     z-index: 40;
     top: calc(var(--titlebar-height, 48px) + env(safe-area-inset-top, 0px));
@@ -8756,7 +8683,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   /* The rail/list divider belongs to the shared frame too: painting it above
      both child surfaces keeps the 48px boundary visible for the full drawer
      height without reintroducing a separately moving rail edge. */
-  html:not([data-mixdog-mobile]) .sidebar-drawer-frame::before {
+  .sidebar-drawer-frame::before {
     content: "";
     position: absolute;
     z-index: 1;
@@ -8770,7 +8697,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   /* Overlay the ring after both child surfaces paint. A parent inset shadow
      sits below child backgrounds and was the reason the top/left edge seemed
      to disappear even though a shadow declaration existed. */
-  html:not([data-mixdog-mobile]) .sidebar-drawer-frame::after {
+  .sidebar-drawer-frame::after {
     content: "";
     position: absolute;
     z-index: 1;
@@ -8779,20 +8706,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     box-shadow: inset 0 0 0 1px var(--mx-border-muted);
     pointer-events: none;
   }
-  html:not([data-mixdog-mobile]) .sidebar-drawer-frame[data-state="open"] {
+  .sidebar-drawer-frame[data-state="open"] {
     transform: none;
     visibility: visible;
   }
-  html.mx-open-sidebar:not([data-mixdog-mobile]) .sidebar-drawer-frame[data-state="open"] {
+  html.mx-open-sidebar .sidebar-drawer-frame[data-state="open"] {
     animation: sidebar-slide-in var(--mx-sheet-motion);
   }
-  html:not([data-mixdog-mobile]) .sidebar-drawer-frame[data-motion="instant"] {
+  .sidebar-drawer-frame[data-motion="instant"] {
     transition: none;
   }
-  html.mx-open-sidebar:not([data-mixdog-mobile]) .sidebar-drawer-frame[data-motion="instant"] {
+  html.mx-open-sidebar .sidebar-drawer-frame[data-motion="instant"] {
     animation: none;
   }
-  html:not([data-mixdog-mobile]) .sidebar-drawer-frame > .activity-rail {
+  .sidebar-drawer-frame > .activity-rail {
     position: relative;
     z-index: auto;
     width: 48px;
@@ -8802,8 +8729,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     border-right: 0;
     box-shadow: none;
   }
-  html:not([data-mixdog-mobile]) .sidebar-drawer-frame > .sidebar.session-sidebar,
-  html:not([data-mixdog-mobile]) .sidebar-collapsed .sidebar-drawer-frame > .sidebar.session-sidebar {
+  .sidebar-drawer-frame > .sidebar.session-sidebar,
+  .sidebar-collapsed .sidebar-drawer-frame > .sidebar.session-sidebar {
     position: relative;
     z-index: auto;
     inset: auto;
@@ -8849,8 +8776,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     pointer-events: auto;
   }
   .session-sidebar-resize { display: none; }
-  /* Touch has no hover: tab close buttons must be always-on. */
-  html[data-mixdog-mobile] .workspace-tab-close { opacity: 1; }
   .mx-toast-region {
     width: calc(100vw - 32px);
   }
@@ -8880,36 +8805,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     min-height: 240px;
     border-radius: 16px 16px 0 0;
     animation: mx-sheet-up 200ms ease;
-  }
-  /* Phone tab strip: uniform 6px rhythm, no divider ticks, tabs scroll
-     horizontally and only the ACTIVE tab carries a close button (Chrome
-     mobile grammar) — three desktop tabs collapsed into a broken jumble. */
-  /* The topbar itself keeps its desktop geometry at every width — the old
-     phone padding override shifted the sidebar toggle off the Activity
-     Rail's icon axis on a narrow DESKTOP window (user: 하단 아이콘이랑
-     중앙정렬이 안 됨); phones hide this bar entirely. */
-  html[data-mixdog-mobile] .workspace-tabs-shell {
-    min-width: 0;
-    flex: 1 1 auto;
-    overflow: hidden;
-  }
-  html[data-mixdog-mobile] .workspace-tabs {
-    gap: 6px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-  }
-  html[data-mixdog-mobile] .workspace-tabs::-webkit-scrollbar { display: none; }
-  html[data-mixdog-mobile] .workspace-tab {
-    min-width: 104px;
-    max-width: 144px;
-    flex: 0 0 auto;
-  }
-  html[data-mixdog-mobile] .workspace-tab:not(:first-child):not(.active)::before {
-    display: none;
-  }
-  html[data-mixdog-mobile] .workspace-tab:not(.active) .workspace-tab-close {
-    display: none;
   }
   /* Composer pills must WRAP their text: when the footer row crowds, the
      model trigger shrinks with an ellipsis inside the shape instead of the
@@ -8954,10 +8849,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     flex-direction: column;
   }
   .onboarding-provider-list form > input, .onboarding-provider-list input { width: 100%; }
-}
-
-@media (max-width: 480px) {
-  html[data-mixdog-mobile] .workspace-tab { min-width: 28px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -9107,8 +8998,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    context/remote cluster floats as a quiet top-right overlay above the
    transcript, at EVERY window width (user: 창 작아질 때도 이름/프로젝트명
    없이 컨텍스트·커넥션만 창 클 때랑 똑같이). The header element stays in
-   the tree because the MOBILE app still uses it as its top bar — those
-   html[data-mixdog-mobile] rules out-rank this block. */
+   the tree because non-task pane renderers share the same structure. */
 .workspace { position: relative; }
   .workspace > .session-header {
     position: absolute;
@@ -11346,7 +11236,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .dock-scm-context-menu button.menu-separator { margin-top: 4px; box-shadow: inset 0 1px var(--mx-border-muted); }
 .dock-scm-context-check { width: 12px; height: 12px; flex: 0 0 12px; display: grid; place-items: center; }
 .dock-scm-context-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (pointer: coarse) { .dock-scm-context-menu button { min-height: 40px; } }
 /* Instructions editor (Projects): borrows the WORKFLOW.md editor grammar
    wholesale, INCLUDING the 800px card width and the shared
    .workflows-md-field textarea skin (user: 워크플로우 편집 레이아웃에 맞춰). */
@@ -12633,8 +12522,6 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
        wider halo next to the drawer's directional 24px throw. */
     box-shadow: -24px 0 24px var(--mx-alpha-dark-24);
   }
-  /* Phone: the ≤760 drawer wears the overlay elevation, so the dock does too. */
-  html[data-mixdog-mobile] .utility-dock { box-shadow: var(--mx-overlay); }
   /* The ring rides an overlay, not the box: an OUTER ring loses its top
      line to the desktop-body clip (same as the drawer), and an INSET one
      hides under the tabs-header's opaque band (pixel-verified: y35 flat).
@@ -12673,13 +12560,13 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
   }
   /* Same rail carve-out as the drawer scrim: rail destinations stay
      clickable while any sheet is up (exclusivity swaps the surfaces). */
-  html:not([data-mixdog-mobile]) .dock-backdrop,
-  html:not([data-mixdog-mobile]) .panel-backdrop { left: 48px; }
+  .dock-backdrop,
+  .panel-backdrop { left: 48px; }
   /* ≤760px merges the rail INTO the drawer frame — no standing rail to
      carve out, so the scrims run from the window edge again. */
   @media (max-width: 760px) {
-    html:not([data-mixdog-mobile]) .dock-backdrop,
-    html:not([data-mixdog-mobile]) .panel-backdrop { left: 0; }
+    .dock-backdrop,
+    .panel-backdrop { left: 0; }
   }
   /* Fixed sheet mode ignores inline width, so slide via transform instead. */
   .utility-dock { animation: utility-dock-sheet-in var(--mx-sheet-motion); }
@@ -12718,7 +12605,7 @@ html.mx-window-resizing .panel-backdrop {
   .studio-tile,
   .utility-dock.closing { transition: none; }
   .utility-dock { animation: none; }
-  html.mx-open-sidebar:not([data-mixdog-mobile]) .sidebar-drawer-frame { animation: none; }
+  html.mx-open-sidebar .sidebar-drawer-frame { animation: none; }
   html.mx-open-sidebar .sidebar.session-sidebar { animation: none; }
   .utility-dock--persistent:not([data-entering="true"]) { animation: none; }
   .bottom-panel:not([data-settled="true"]) { animation: none; }
@@ -12873,21 +12760,25 @@ html.mx-window-resizing .panel-backdrop {
   padding: 0 7px;
   border: 0;
   border-radius: 5px;
-  color: var(--mx-text-muted);
-  background: var(--mx-alpha-light-6);
+  color: var(--mx-text-soft);
+  background: var(--mx-alpha-light-10);
   font: inherit;
   font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
   cursor: pointer;
   justify-content: center;
 }
 .turn-review-undo:hover { color: var(--mx-text); background: var(--mx-hover); }
 .turn-review-undo:disabled {
-  color: var(--mx-text-faint);
+  /* Busy/unavailable still needs to read as a labeled action at 12px; the
+     quieter plate and lack of hover carry the disabled state. */
+  color: var(--mx-text-muted);
+  background: var(--mx-alpha-light-6);
   opacity: 1;
   cursor: default;
 }
 .turn-review-undo:disabled:hover {
-  color: var(--mx-text-faint);
+  color: var(--mx-text-muted);
   background: var(--mx-alpha-light-6);
 }
 .turn-review-confirm-all { flex: 0 0 auto; }
@@ -13299,85 +13190,9 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
 }
 .review-context-menu button[data-danger] { color: var(--mx-danger); }
 
-/* ------------------------------------------------------------------ */
-/* Mobile app shell. mobile-shell.ts tags <html data-mixdog-mobile> on  */
-/* touch sessions and tracks the VISUAL viewport in --mixdog-vvh so the */
-/* soft keyboard resizes the app instead of panning the header away.    */
-html[data-mixdog-mobile] {
-  height: 100%;
-  overflow: hidden;
-  overscroll-behavior: none;
-  -webkit-tap-highlight-color: transparent;
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
-  /* Overlays measure against the tracked visual viewport, never 100vh. */
-  --vvh: var(--mixdog-vvh, 100dvh);
-}
-html[data-mixdog-mobile] body {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  overscroll-behavior: none;
-  /* Native feel: chrome does not select like a web page. */
-  -webkit-user-select: none;
-  user-select: none;
-}
-html[data-mixdog-mobile] .app-shell { height: var(--mixdog-vvh, 100dvh); }
-/* Prose, code and form fields stay selectable/copyable. */
-html[data-mixdog-mobile] .message-body,
-html[data-mixdog-mobile] .markdown,
-html[data-mixdog-mobile] pre,
-html[data-mixdog-mobile] code,
-html[data-mixdog-mobile] input,
-html[data-mixdog-mobile] textarea {
-  -webkit-user-select: text;
-  user-select: text;
-}
-/* No double-tap zoom delay on controls. */
-html[data-mixdog-mobile] button,
-html[data-mixdog-mobile] a,
-html[data-mixdog-mobile] label { touch-action: manipulation; }
-/* Scrollers never chain into a page bounce. */
-html[data-mixdog-mobile] .transcript,
-html[data-mixdog-mobile] .session-sidebar-scroll,
-html[data-mixdog-mobile] .utility-dock-body,
-html[data-mixdog-mobile] .mixdog-settings__body { overscroll-behavior: contain; }
-/* 16px form text stops the zoom-on-focus jump everywhere, not just the
-   composer. */
-html[data-mixdog-mobile] input,
-html[data-mixdog-mobile] textarea,
-html[data-mixdog-mobile] select { font-size: 16px; }
-/* Finger-sized targets: 40px header controls, 44px sidebar rows. */
-@media (pointer: coarse) {
-  .session-dock-toggle, .session-header .icon-button, .titlebar-new,
-  .toolbar-sidebar { width: 40px; height: 40px; }
-  .session-sidebar .task-link,
-  .session-sidebar .projects-link,
-  .session-sidebar .session-row { height: 44px; min-height: 44px; }
-  .row-overflow-trigger { width: 40px; height: 40px; }
-  .row-overflow-menu button { height: 44px; min-height: 44px; }
-  /* Hover-revealed controls do not exist under a finger: keep the session
-     row actions and message action bars always on. */
-  .session-row-action { opacity: 1; pointer-events: auto; }
-  /* Session rows stay CLEAN on touch (user decision): no always-on archive
-     cluster — row management happens from the desktop. */
-  .session-row .session-row-actions { display: none; }
-  .message-actions,
-  .message.user .message-meta-line .message-actions { opacity: 1; }
-}
-/* Touch browsers can keep :hover latched after a tap. Header controls should
-   return to their transparent rest state while desktop hover remains intact. */
-@media (hover: none) and (pointer: coarse) {
-  .session-header-menu:hover,
-  .session-dock-toggle:hover { background: transparent; }
-}
-
 /* Compact desktop: when both navigation rails are present, keep the Task and
    Studio content usable instead of spending the remaining pane width on
-   gutters and the Task header's secondary project label. Phone layout owns
-   its own header composition below 760px. */
+   gutters and the Task header's secondary project label. */
 @media (min-width: 761px) and (max-width: 1024px) {
   .session-header-content { gap: 6px; }
   .session-header-content h1 {
@@ -13391,19 +13206,6 @@ html[data-mixdog-mobile] select { font-size: 16px; }
   .session-project-badge { display: none; }
 }
 
-/* Settings -> Connection: platform tabs (Browser / Android / iOS). */
-.settings-connection-tabs { display: flex; justify-content: center; gap: 6px; margin-bottom: 14px; }
-.settings-connection-tabs button {
-  padding: 5px 14px;
-  border: 0;
-  border-radius: 999px;
-  color: var(--mx-text-muted);
-  background: transparent;
-  font-size: var(--mx-font-ui);
-  cursor: pointer;
-}
-.settings-connection-tabs button:hover { color: var(--mx-text); background: var(--mx-hover); }
-.settings-connection-tabs button.active { color: var(--mx-text); background: var(--mx-bg-layer-2); }
 /* Provider usage (/usage): one compact table separates subscription plans
    from API-key billing while keeping every quota window directly comparable.
    Fit all nine provider rows at the desktop window's minimum height, while
@@ -13894,13 +13696,6 @@ html[data-mixdog-mobile] select { font-size: 16px; }
   padding: 4px 8px;
   border-bottom: 1px solid var(--mx-border-muted);
 }
-.folder-tool-divider {
-  display: block;
-  width: 1px;
-  height: 18px;
-  margin: 0 5px;
-  background: var(--mx-border-muted);
-}
 .folder-toolbar-spring { flex: 1 1 auto; }
 .folder-sort-select {
   height: 26px;
@@ -14132,33 +13927,6 @@ html[data-mixdog-mobile] select { font-size: 16px; }
 }
 .folder-entry-icon { flex: 0 0 auto; object-fit: contain; }
 .folder-entry-glyph { flex: 0 0 auto; color: var(--mx-icon-muted); }
-/* Large-tile document card: vector paper + ext label + 1:1 icon badge. */
-.folder-doc-card {
-  position: relative;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-}
-.folder-doc-card > svg { display: block; }
-.folder-doc-ext {
-  position: absolute;
-  bottom: 22%;
-  left: 0;
-  right: 0;
-  color: #5b6270;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-align: center;
-  pointer-events: none;
-}
-.folder-doc-center {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 32px;
-  height: 32px;
-  transform: translate(-50%, -58%);
-}
 /* The Name column can never collapse under its icon (user-flagged overlap
    when other columns are widened). */
 .folder-cell-name { min-width: 150px; }

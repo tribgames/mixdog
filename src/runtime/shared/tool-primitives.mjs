@@ -203,7 +203,6 @@ const AGENT_DISPLAY_NAMES = new Map([
   ['worker', 'Worker'],
   ['heavy-worker', 'Heavy Worker'],
   ['reviewer', 'Reviewer'],
-  ['debugger', 'Debugger'],
 ]);
 
 function titleizeDisplayName(value) {

@@ -12,9 +12,6 @@ import React, {
 } from "react";
 // react-markdown and the remark/unified ecosystem are heavy; they load as a
 // separate lazy chunk (MarkdownBody) so the first paint never pays for them.
-import {
-  PanelLeft
-} from "lucide-react";
 import type {
   DesktopModelSelection,
   DesktopProjectSummary,
@@ -433,7 +430,6 @@ import { useSessionSnapshotCache } from "./app-session-snapshots";
 import { useSidePanelOpenFlip } from "./app-side-panel-flip";
 import { useUnreadSessions } from "./app-unread-sessions";
 import { useWorkspaceShortcuts } from "./app-workspace-shortcuts";
-import { classifyMobileTaskSwipe } from "./mobile-task-gestures";
 import { DesktopLoadingSurface } from "./RendererRecovery";
 import { useWorkbenchWorkspace } from "./workbench-workspace";
 
@@ -468,14 +464,13 @@ export function App() {
     getSidePanelMode,
     (): SidePanelMode => "close-both",
   );
-  // Mobile always uses the both-folding policy; either drawer can still be
-  // opened temporarily, then navigation closes both to protect the viewport.
-  const mobileSidePanels = document.documentElement.dataset.mixdogMobile === "1" ||
-    window.matchMedia?.("(max-width: 760px)").matches === true;
-  const activeSidePanelMode = mobileSidePanels ? "close-both" : preferredSidePanelMode;
+  // Narrow web/desktop windows use the both-folding policy; the layout now
+  // depends only on available resolution, never device or pointer type.
+  const responsiveSidePanels = window.matchMedia?.("(max-width: 760px)").matches === true;
+  const activeSidePanelMode = responsiveSidePanels ? "close-both" : preferredSidePanelMode;
   const activeSidePanelLayout = sidePanelLayout(activeSidePanelMode);
   // Chrome-like responsive side panels (user decision): crossing into the
-  // phone band changes the panels' MODE (inline → overlay drawer), never
+  // narrow band changes the panels' MODE (inline → overlay drawer), never
   // their meaning — a drawer always starts closed, and returning to the
   // desktop band restores the inline open/collapsed states exactly as they
   // were (접혀있던 걸 굳이 펼치거나 펼쳐져 있던 걸 굳이 접지 않기).
@@ -518,7 +513,7 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (activeSidePanelLayout.sidebarLockedOpen) return true;
     try {
-      if (mobileSidePanels) return false;
+      if (responsiveSidePanels) return false;
       // Default layout starts MINIMIZED on both edges (user decision): only
       // an explicit stored "true" (the user opened it before) restores an
       // open sidebar. The right dock already defaults to closed.
@@ -529,7 +524,7 @@ export function App() {
   });
   const desktopSidebarOpen = useRef(sidebarOpen);
   useEffect(() => {
-    // Phone-band drawer toggles are transient: they update neither the
+    // Narrow-band drawer toggles are transient: they update neither the
     // stored preference nor the restore target. The wasNarrowShell guard
     // also holds the first wide render back until the crossing effect below
     // has re-applied the inline state.
@@ -978,12 +973,21 @@ export function App() {
   const setNewTaskRemoteEnabled = useCallback((enabled: boolean): void => {
     setRemoteNewTaskMode(enabled ? "on" : "off");
   }, []);
+  // /clear · /new replacing a remote-holding session arms exactly ONE skip of
+  // the draft remote-off reset below so the seat carries into the replacement
+  // task (user rule: 전 세션 리모트 설정 승계).
+  const inheritDraftRemoteOnce = useRef(false);
   useEffect(() => {
     // One-shot remote never carries between drafts (user decision): entering a
     // NEW TASK always starts remote-off, so an unconsumed toggle from an
     // abandoned draft — or a stale persisted value from a previous run — can
     // never leak into the next task.
-    if (selection.kind === "new") setRemoteNewTaskMode("off");
+    if (selection.kind !== "new") return;
+    if (inheritDraftRemoteOnce.current) {
+      inheritDraftRemoteOnce.current = false;
+      return;
+    }
+    setRemoteNewTaskMode("off");
   }, [selection]);
   // The registry starts EMPTY (VS Code/Orca): the workspace opens with no
   // pane, and the first task creates its tab.
@@ -1468,12 +1472,6 @@ export function App() {
   });
   // Per-session throttle for foreign-frame suppression diagnostics.
   const foreignFrameLogAt = useRef(new Map<string, number>());
-  const mobileTaskSwipe = useRef<{
-    startX: number;
-    startY: number;
-    lastX: number;
-    lastY: number;
-  } | null>(null);
   const isBusy = Boolean(snapshot.busy || snapshot.commandBusy);
   const activeBusy = hasActiveSnapshotWork(sidebarSnapshot);
   const startupMeasured = useRef(false);
@@ -1493,11 +1491,27 @@ export function App() {
     void loadSettingsViewModule().catch(() => {});
   }, []);
   useEffect(() => {
-    // Warm code only. Hydrating every settings capability in the background
-    // collided with the first real typing/session interactions (measured
-    // 123ms composer paint and multi-second capability queues). Settings owns
-    // data hydration when the user opens it.
-    return schedulePostInteractionIdle(warmSettingsView);
+    // Stage 1 warms the settings chunk on idle. Stage 2 (separate idle slot,
+    // 1.5s quiet window): hydrate the
+    // capability/git/connection caches after the chunk exists, so the first
+    // settings open paints from cache instead of holding the dialog behind
+    // the hydrate spinner (user: 옵션이 스피너만 보이고 늦게 뜬다). An
+    // earlier always-on hydrate collided with the first typing interactions;
+    // the quiet window plus interaction-postponed idle keeps the sweep out
+    // of the user's way, and open-time refresh still replaces stale values
+    // without a spinner.
+    const host = window.mixdogDesktop;
+    if (!host) return schedulePostInteractionIdle(warmSettingsView);
+    let cancelData: (() => void) | undefined;
+    const cancelCode = schedulePostInteractionIdle(() => {
+      void loadSettingsViewModule().then((module) => {
+        cancelData = schedulePostInteractionIdle(
+          () => { void module.preloadSettings(host).catch(() => {}); },
+          5_000, 1_500, 1_500,
+        );
+      }).catch(() => {});
+    });
+    return () => { cancelCode(); cancelData?.(); };
   }, [warmSettingsView]);
   useEffect(() => {
     const host = window.mixdogDesktop;
@@ -1689,41 +1703,6 @@ export function App() {
       document.querySelector<HTMLButtonElement>(".toolbar-sidebar")?.focus();
     }
   }, [sidebarOpen]);
-
-  // Android hardware back (dispatched by remote-shim in the native shell):
-  // close the topmost mobile layer; unconsumed events minimize the app.
-  useEffect(() => {
-    const onHardwareBack = (event: Event) => {
-      if (sidebarOpen && window.innerWidth <= 760) {
-        applySidebarOpen(false);
-        event.preventDefault();
-        return;
-      }
-      if (dockOpen) {
-        applyDockOpen(false);
-        event.preventDefault();
-      }
-    };
-    window.addEventListener("mixdog:hardware-back", onHardwareBack);
-    return () => window.removeEventListener("mixdog:hardware-back", onHardwareBack);
-  }, [dockOpen, sidebarOpen]);
-
-  // Mobile WEB: Chrome's back / left-edge swipe navigated the SPA away and
-  // reloaded it (user: opening the drawer "showed a refresh"). A sentinel
-  // history entry absorbs the gesture and routes it through the same
-  // hardware-back path, so it closes the topmost layer instead.
-  useEffect(() => {
-    if (!document.documentElement.dataset.mixdogMobile) return;
-    // The native shell owns hardware back via the Capacitor App plugin.
-    if ((window as unknown as { Capacitor?: unknown }).Capacitor) return;
-    try { window.history.pushState({ mixdogShell: true }, ""); } catch { return; }
-    const onPopState = () => {
-      try { window.history.pushState({ mixdogShell: true }, ""); } catch { /* keep the app alive regardless */ }
-      window.dispatchEvent(new CustomEvent("mixdog:hardware-back", { cancelable: true }));
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
 
   const invoke = useCallback(async (action: () => unknown): Promise<void> => {
     setError("");
@@ -2055,7 +2034,7 @@ export function App() {
   };
 
   const closeSidebarForNavigation = () => {
-    if (window.innerWidth <= 760 || document.documentElement.dataset.mixdogMobile === "1") {
+    if (window.innerWidth <= 760) {
       applySidebarOpen(false);
       applyDockOpen(false);
     }
@@ -2526,11 +2505,72 @@ export function App() {
     setSettingsSection(section);
     setSettingsOpen(true);
   }, [openWorkflows, warmSettingsView]);
+  /** /clear · /new typed in a session pane: close that session's tab and open
+   *  a New Task draft in its exact strip position, seeded from the cleared
+   *  session's own project/model/workflow and its remote seat (user rule:
+   *  전 세션의 마지막 세팅 승계). The session itself keeps its transcript and
+   *  stays available in the sidebar history. */
+  const clearSessionToNewTask = (sessionId: string) => {
+    const sessionKey = navigationKey({ kind: "session", id: sessionId });
+    const leaves = paneLeavesRef.current;
+    const ownerLeaf = leaves.find((leaf) => leaf.id === focusedLeafIdRef.current
+        && leaf.tabs.some((tab) => navigationKey(tab) === sessionKey))
+      ?? leaves.find((leaf) => leaf.tabs.some((tab) => navigationKey(tab) === sessionKey));
+    // The session's OWN route seeds the draft: pane-local lane frame first,
+    // then the focused engine snapshot; the usual inheritance chain fills any
+    // field the session never named.
+    const lane = defaultSessionLaneStore.get(sessionId);
+    const source = lane
+      ?? (String(snapshotRef.current.sessionId || "") === sessionId
+        ? snapshotRef.current
+        : null);
+    const inherited = inheritedDraftPrefs();
+    const seeded: DraftPanePrefs = {
+      projectPath: effectiveDraftProjectPath(
+        String(source?.currentProject || source?.project || "") || inherited.projectPath),
+      modelSelection: (source ? draftModelSelectionFromSnapshot(source) : null)
+        ?? inherited.modelSelection,
+      workflow: (asRecord(source?.workflow)
+        ? source?.workflow as unknown as DesktopWorkflowState
+        : null) ?? inherited.workflow,
+    };
+    const draftSelection = newDraftSelection();
+    const draftKey = navigationKey(draftSelection);
+    draftPanePrefs.current.set(draftKey, seeded);
+    // The cleared session's settings become the seed for FUTURE new tasks as
+    // well (same rule as explicit staging).
+    lastNewTaskPrefs.current = seeded;
+    persistDraftPanePrefs();
+    setDraftPrefsVersion((value) => value + 1);
+    navigationEpoch.current += 1;
+    pendingResumeTarget.current = "";
+    setRequestedSessionId("");
+    optimisticSessionOpen.current = null;
+    finishPendingConversationHandoff();
+    if (ownerLeaf && ownerLeaf.id !== focusedLeafIdRef.current) {
+      // Addressed replacement in a background pane: swap the tab in place
+      // without stealing focus, and leave the one-shot remote toggle (owned
+      // by the FOCUSED draft) untouched.
+      promoteSelectionInLeaf(ownerLeaf.id, draftSelection, sessionKey);
+      registerWorkspaceSelection(draftSelection, "New task", sessionKey);
+      return;
+    }
+    // Remote seat: when the cleared session holds it, the replacement draft
+    // starts remote-on so its first submit takes the seat over.
+    const holdsRemote = source?.remoteEnabled === true
+      || (snapshotRef.current.remoteEnabled === true
+        && String(snapshotRef.current.remoteSessionId || "") === sessionId);
+    inheritDraftRemoteOnce.current = holdsRemote;
+    setRemoteNewTaskMode(holdsRemote ? "on" : "off");
+    activateSelection(draftSelection, "New task", ownerLeaf ? sessionKey : "");
+    setComposerFocusRequest((value) => value + 1);
+  };
   // App owns broad workspace state and legitimately re-renders for chrome,
   // panel and catalog changes. Conversation is the expensive persistent tree:
   // stable event facades let React.memo retain it while each callback still
   // dispatches through the latest render state.
   const conversationNewTask = useStableEvent(() => startTask());
+  const conversationClearToNewTask = useStableEvent(clearSessionToNewTask);
   const conversationClearProject = useStableEvent(() => stageNewTaskProject(""));
   const conversationResumeSession = useStableEvent((sessionId: string) => {
     void resumeSession(sessionId);
@@ -3398,44 +3438,6 @@ export function App() {
       detach();
     };
     window.requestAnimationFrame(attempt);
-  };
-  const startMobileTaskSwipe = (event: React.TouchEvent<HTMLDivElement>) => {
-    mobileTaskSwipe.current = null;
-    if (document.documentElement.dataset.mixdogMobile !== "1" || event.touches.length !== 1) return;
-    const target = event.target instanceof Element ? event.target : null;
-    if (!target || target.closest(
-      "button, a, input, textarea, select, [contenteditable='true'], [role='button'], [role='slider']",
-    )) return;
-    const transcript = target.closest<HTMLElement>(".transcript");
-    if (!transcript) return;
-    const touch = event.touches[0];
-    mobileTaskSwipe.current = {
-      startX: touch.clientX,
-      startY: touch.clientY,
-      lastX: touch.clientX,
-      lastY: touch.clientY,
-    };
-  };
-  const moveMobileTaskSwipe = (event: React.TouchEvent<HTMLDivElement>) => {
-    const swipe = mobileTaskSwipe.current;
-    if (!swipe || event.touches.length !== 1) return;
-    swipe.lastX = event.touches[0].clientX;
-    swipe.lastY = event.touches[0].clientY;
-  };
-  const finishMobileTaskSwipe = (event: React.TouchEvent<HTMLDivElement>) => {
-    const swipe = mobileTaskSwipe.current;
-    mobileTaskSwipe.current = null;
-    if (!swipe || document.documentElement.dataset.mixdogMobile !== "1") return;
-    const touch = event.changedTouches[0];
-    const action = classifyMobileTaskSwipe({
-      deltaX: (touch?.clientX ?? swipe.lastX) - swipe.startX,
-      deltaY: (touch?.clientY ?? swipe.lastY) - swipe.startY,
-    });
-    if (!action) return;
-    event.preventDefault();
-    window.dispatchEvent(new CustomEvent("mixdog:cycle-tab", {
-      detail: action === "next-tab" ? 1 : -1,
-    }));
   };
   /** Close one tab inside one group. The registry
    *  entry only leaves when no other group still shows the tab; an emptied
@@ -4451,18 +4453,9 @@ export function App() {
         aria-hidden={activeHandoff ? true : undefined}
         onPointerDownCapture={focused ? undefined : (event) => {
           if (event.button === 0) focusPane();
-        }}
-        onTouchStart={focused ? startMobileTaskSwipe : undefined}
-        onTouchMove={focused ? moveMobileTaskSwipe : undefined}
-        onTouchEnd={focused ? finishMobileTaskSwipe : undefined}
-        onTouchCancel={focused ? () => { mobileTaskSwipe.current = null; } : undefined}>
+        }}>
         <header className="session-header" aria-label="Current task">
           <div className="session-header-content">
-            <button type="button" className="toolbar-sidebar session-header-menu"
-              aria-label="Toggle session list" aria-expanded={sidebarOpen}
-              onClick={toggleSidebar}>
-              <PanelLeft className="sidebar-toggle-icon" size={18} aria-hidden="true" />
-            </button>
             <h1 data-tooltip={paneTitle}>
               {focusedSession && selectedSession
                 ? <StableSessionTitle title={paneTitle}
@@ -4532,6 +4525,7 @@ export function App() {
             transitioning={false}
             composerFocusRequest={focused ? composerFocusRequest : 0}
             onNewTask={conversationNewTask}
+            onClearToNewTask={conversationClearToNewTask}
             onClearProject={conversationClearProject}
             onResumeSession={conversationResumeSession}
             onOpenSessions={openSidebar}
@@ -4566,11 +4560,6 @@ export function App() {
       }}>
       <header className="session-header" aria-label="Agent session">
         <div className="session-header-content">
-          <button type="button" className="toolbar-sidebar session-header-menu"
-            aria-label="Toggle session list" aria-expanded={sidebarOpen}
-            onClick={toggleSidebar}>
-            <PanelLeft className="sidebar-toggle-icon" size={18} aria-hidden="true" />
-          </button>
           <h1 data-tooltip={paneSelection.title}>{paneSelection.title}</h1>
           <span className="session-project-badge">Read only</span>
         </div>
@@ -4764,6 +4753,7 @@ export function App() {
               ? <Suspense fallback={null}>
                   <FolderPane paneId={utilitySelection.id}
                     root={utilitySelection.path} active={utilityActive}
+                    onOpenTextFile={(path) => openDroppedPaths(leafId, [path])}
                     onTitleChange={(title) => setFolderPaneTitles((current) => {
                       if (current.get(key) === title) return current;
                       const next = new Map(current);
@@ -4980,18 +4970,9 @@ export function App() {
               streams live from its session lane. */}
           {(() => {
             const workspaceSurface = (
-          <div className="workspace"
-            onTouchStart={startMobileTaskSwipe}
-            onTouchMove={moveMobileTaskSwipe}
-            onTouchEnd={finishMobileTaskSwipe}
-            onTouchCancel={() => { mobileTaskSwipe.current = null; }}>
+          <div className="workspace">
             <header className="session-header" aria-label="Current task">
               <div className="session-header-content">
-                <button type="button" className="toolbar-sidebar session-header-menu"
-                  aria-label="Toggle session list" aria-expanded={sidebarOpen}
-                  onClick={toggleSidebar}>
-                  <PanelLeft className="sidebar-toggle-icon" size={18} aria-hidden="true" />
-                </button>
                 <h1 data-tooltip={visibleSessionTitle}>
                   {selectedSession
                     ? <StableSessionTitle title={visibleSessionTitle}
@@ -5017,6 +4998,7 @@ export function App() {
               transitioning={false}
               composerFocusRequest={composerFocusRequest}
               onNewTask={conversationNewTask}
+              onClearToNewTask={conversationClearToNewTask}
               onClearProject={conversationClearProject}
               onResumeSession={conversationResumeSession}
               onOpenSessions={openSidebar}

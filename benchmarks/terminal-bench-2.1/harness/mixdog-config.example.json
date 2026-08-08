@@ -26,8 +26,7 @@
       "explore": { "provider": "anthropic-oauth", "model": "claude-haiku-4-5-20251001" },
       "worker": { "provider": "anthropic-oauth", "model": "claude-opus-4-8", "effort": "medium" },
       "heavy-worker": { "provider": "anthropic-oauth", "model": "claude-opus-4-8", "effort": "high" },
-      "reviewer": { "provider": "openai-oauth", "model": "gpt-5.5", "effort": "high", "fast": true },
-      "debugger": { "provider": "openai-oauth", "model": "gpt-5.5", "effort": "xhigh", "fast": true }
+      "reviewer": { "provider": "openai-oauth", "model": "gpt-5.5", "effort": "high", "fast": true }
     }
   }
 }

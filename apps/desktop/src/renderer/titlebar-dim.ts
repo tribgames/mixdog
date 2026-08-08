@@ -44,7 +44,11 @@ function resolveCssColor(value: string): Rgba | null {
  *  claims guessed one layer per modal; reading the LIVE layers makes the
  *  caption match whatever the DOM actually shows, nesting included. */
 const SCRIM_LAYERS = '.onboarding-layer, .schedules-dialog-layer, .mixdog-settings-layer,'
-  + ' .settings-confirm-layer, .mx-dialog-layer, .settings-oauth-layer';
+  + ' .settings-confirm-layer, .mx-dialog-layer, .settings-oauth-layer,'
+  // Cold-settings backplate: the dialog holds back until its snapshot exists
+  // and only this fixed dim + spinner paints, so the native band must ride
+  // the same scrim instead of staying at full theme brightness.
+  + ' .desktop-loading-surface--overlay';
 
 /** Compact settings replaces the whole window instead of floating above it.
  *  Its layer still owns the normal modal scrim token, but that paint is fully

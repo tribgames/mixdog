@@ -19,6 +19,7 @@ process.env.MIXDOG_DATA_DIR = DATA_DIR;
 const { loadScopedRoleInstructions } = await import('../src/runtime/agent/orchestrator/context/collect.mjs');
 const { createWorkflowHelpers } = await import('../src/session-runtime/workflow.mjs');
 const { createWorkflowAgentsApi } = await import('../src/session-runtime/workflow-agents-api.mjs');
+const { agentDefinitionExists } = await import('../src/standalone/agent-tool/helpers.mjs');
 const { readMarkdownDocument, normalizeAgentPermissionOrNone, serializeFrontmatterDoc } =
   await import('../src/runtime/shared/markdown-frontmatter.mjs');
 
@@ -49,6 +50,7 @@ function deletionApi(config = {}) {
     STANDALONE_DATA_DIR: DATA_DIR,
     listWorkflowPacks: helpers.listWorkflowPacks,
     loadAgentDefinition: helpers.loadAgentDefinition,
+    agentRouteFromConfig: () => null,
     saveConfigAndAdopt: (next) => { currentConfig = next; },
   });
 }
@@ -69,7 +71,7 @@ test('a data-dir override replaces the built-in role body exactly once', () => {
   assert.equal(text.match(/^## worker$/gm)?.length, 1);
 });
 
-test('built-in roles without an override still load their shipped contract', () => {
+test('shipped starter roles without an override still load their contract', () => {
   const text = loadScopedRoleInstructions('reviewer');
   assert.match(text, /^## reviewer$/m);
   assert.doesNotMatch(text, /ZZ_OVERRIDDEN_WORKER_MARKER/);
@@ -104,7 +106,7 @@ test('hidden solo-bench loads explicitly without exposing an approval gate', () 
   assert.match(pack.body, /on direction change, pause and re-consult the user/i);
 });
 
-test('a delegating pack lists every delegable built-in plus every custom agent', () => {
+test('a delegating pack lists every active starter and custom agent', () => {
   writeUserWorkflow('zz-fanout', { name: 'ZZ Fanout' }, '# ZZ Fanout\n\nDelegate broadly.');
   const pack = helpers.loadWorkflowPack(DATA_DIR, 'zz-fanout');
   assert.equal(pack.delegatesAgents, true);
@@ -112,32 +114,18 @@ test('a delegating pack lists every delegable built-in plus every custom agent',
   assert.match(block, /# Available Agents/);
   assert.match(block, /\(worker\)/);
   assert.match(block, /\(zz-release-scribe\)/);
-  // Escalation-only and slot-backed built-ins stay out of the catalog.
-  assert.doesNotMatch(block, /\(debugger\)/);
+  // Slot-backed built-ins stay out of the catalog.
   assert.doesNotMatch(block, /\(explore\)|\(maintainer\)/);
 });
 
-test('custom agent ids are discovered without shadowing the fixed roles', () => {
+test('starter agents are custom while fixed services stay protected', () => {
   const ids = helpers.listCustomAgentIds(DATA_DIR);
   assert.ok(ids.includes('zz-release-scribe'));
-  assert.ok(!ids.includes('worker'));
-});
-
-// Hidden roles ship agents/<id>/AGENT.md exactly like user roles, so the
-// data source must drop them or every listing surface (TUI /agents included)
-// exposes internal roles and lets a user re-route them.
-test('internal hidden roles never surface as custom agents', () => {
-  const ids = helpers.listCustomAgentIds(DATA_DIR);
-  assert.ok(!ids.includes('scheduler-task'));
-  assert.ok(!ids.includes('webhook-handler'));
-});
-
-test('legacy roster frontmatter is ignored and hidden roles stay out of the catalog', () => {
-  writeUserWorkflow('zz-hidden-claim', { name: 'ZZ Hidden Claim', agents: 'worker, scheduler-task' },
-    '# ZZ Hidden Claim\n\nDelegate to worker only.');
-  const block = helpers.workflowContextBlock({ workflow: { active: 'zz-hidden-claim' } }, DATA_DIR);
-  assert.match(block, /\(worker\)/);
-  assert.doesNotMatch(block, /scheduler-task/);
+  assert.ok(ids.includes('worker'));
+  assert.ok(ids.includes('heavy-worker'));
+  assert.ok(ids.includes('reviewer'));
+  assert.ok(!ids.includes('explore'));
+  assert.ok(!ids.includes('maintainer'));
 });
 
 test('deleting a custom agent removes it from every surface at once', async () => {
@@ -153,4 +141,26 @@ test('deleting a custom agent removes it from every surface at once', async () =
   assert.equal(existsSync(join(DATA_DIR, 'agents', 'zz-used-agent', 'AGENT.md')), false);
   const after = helpers.workflowContextBlock({ workflow: { active: 'zz-fanout' } }, DATA_DIR);
   assert.doesNotMatch(after, /\(zz-used-agent\)/);
+});
+
+test('deleting a shipped starter persists until the agent is recreated', async () => {
+  const api = deletionApi({ agents: { worker: { provider: 'test', model: 'starter' } } });
+  const result = await api.deleteAgentDefinition('worker');
+  assert.equal(result.deleted, true);
+  assert.equal(result.revertedToBuiltIn, false);
+  assert.equal(existsSync(join(DATA_DIR, 'agents', 'worker', '.deleted')), true);
+  assert.equal(helpers.listCustomAgentIds(DATA_DIR).includes('worker'), false);
+  assert.equal(helpers.loadAgentDefinition(DATA_DIR, 'worker'), null);
+  assert.equal(agentDefinitionExists('worker', DATA_DIR, SRC_ROOT), false);
+
+  const restored = await api.saveAgentDefinition({
+    id: 'worker',
+    name: 'Worker',
+    description: 'Restored starter',
+    body: '# Worker\n\nRestored starter role.',
+  });
+  assert.equal(restored.custom, true);
+  assert.equal(existsSync(join(DATA_DIR, 'agents', 'worker', '.deleted')), false);
+  assert.equal(helpers.listCustomAgentIds(DATA_DIR).includes('worker'), true);
+  assert.equal(agentDefinitionExists('worker', DATA_DIR, SRC_ROOT), true);
 });

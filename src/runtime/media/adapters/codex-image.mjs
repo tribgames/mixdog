@@ -36,8 +36,7 @@ function collectImage(event, state) {
   }
 }
 
-export async function generateImage({ model, prompt, options = {}, references = [], signal }) {
-  const auth = await resolveCodexAuth();
+export function codexImageRequestBody({ model, prompt, options = {}, references = [] }) {
   // Reference images ride as input_image parts on the user turn — the same
   // shape the chat path uses for pasted images.
   const content = [
@@ -47,15 +46,22 @@ export async function generateImage({ model, prompt, options = {}, references = 
     })),
     { type: 'input_text', text: prompt },
   ];
-  const body = {
+  return {
     model,
     stream: true,
     store: false,
     instructions: 'You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.',
     input: [{ type: 'message', role: 'user', content }],
     tools: [imageTool(options)],
-    tool_choice: 'auto',
+    // Smaller mainline models may answer with text when left on auto even
+    // though they support the hosted tool. Studio always requests an image.
+    tool_choice: { type: 'image_generation' },
   };
+}
+
+export async function generateImage({ model, prompt, options = {}, references = [], signal }) {
+  const auth = await resolveCodexAuth();
+  const body = codexImageRequestBody({ model, prompt, options, references });
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const res = await fetch(CODEX_RESPONSES_URL, {
     method: 'POST',

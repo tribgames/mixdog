@@ -312,9 +312,8 @@ export function createOnboardingSteps({
       return;
     }
     // Main Model stays unset until the user picks one; no auto-recommendation.
-    // Load the real agent roster once (explore/maintainer/worker/heavy-worker/
-    // reviewer/debugger). Each agent defaults to the Main Model unless the user
-    // set an explicit override in agentRoutes.
+    // Load the real agent roster once: fixed Explore/Maintainer services plus
+    // active starter/custom agents. Each defaults to Main unless overridden.
     if (!Array.isArray(onboardingRef.current.agents) || onboardingRef.current.agents.length === 0) {
       try {
         onboardingRef.current.agents = ((await store.listAgents?.()) || []).map((a) => ({ id: a.id, label: a.label || a.id, description: a.description || '' }));

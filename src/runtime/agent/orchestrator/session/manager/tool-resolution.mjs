@@ -78,7 +78,7 @@ const AGENT_STRING_PERMISSION_READ_ALLOW = Object.freeze([
     'list',
     'grep',
     'read',
-    // shell/task: read-role agents (reviewer/debugger) must run their own
+    // shell/task: verifying read-role agents (reviewer) must run their own
     // verification (tests/repro). task is required because shell's
     // auto-background transition settles with a bare jobId — agent sessions
     // get no completion notification, so `task wait/read` is the only way to
@@ -96,7 +96,7 @@ const AGENT_STRING_PERMISSION_READ_ALLOW = Object.freeze([
 // no-shell read surface. Covers hidden retrieval agents (kind 'retrieval')
 // AND public wrapper roles (explore + any invokedBy wrapper) — the same set
 // pre-dispatch-deny treats as recursive wrappers. Only verifying read roles
-// (reviewer/debugger) get shell/task.
+// (reviewer) get shell/task.
 const AGENT_STRING_PERMISSION_READ_RETRIEVAL_ALLOW = Object.freeze(
     AGENT_STRING_PERMISSION_READ_ALLOW.filter((n) => n !== 'shell' && n !== 'task'),
 );
@@ -314,7 +314,7 @@ function _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession = fa
             return _dedupByName([...mcp, ...skillTools]);
         case 'readonly': {
             const readTools = ALL_BUILTIN_SESSION_TOOLS.filter(t => READONLY_TOOL_NAMES.has(t.name));
-            // Read-ROLE agent sessions (reviewer/debugger) must self-verify, so
+// Read-ROLE agent sessions (reviewer) must self-verify, so
             // their base bundle carries shell/task defs. The 'read' permission
             // allowlist (AGENT_STRING_PERMISSION_READ_ALLOW) is a pure FILTER —
             // it can only keep tools already assembled here, so without this the

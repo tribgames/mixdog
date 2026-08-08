@@ -123,9 +123,6 @@ export function TooltipLayer() {
       setTooltip(null);
     };
     const reveal = (target: HTMLElement, delay: number) => {
-      // Touch shells have no hover: a tap would pin the tooltip through the
-      // focusin path until the next tap elsewhere (user: sticky bubbles).
-      if (document.documentElement.dataset.mixdogMobile) return;
       if (active.current === target) return;
       if (timer.current !== null) window.clearTimeout(timer.current);
       active.current = target;

@@ -555,7 +555,6 @@ import {
     listHiddenAgentsByKind,
     isHiddenAgent,
     getAgentCatalogShareAgents,
-    isInboundEventAgent,
 } from '../internal-agents.mjs';
 
 function loadAgentClassification() {
@@ -617,9 +616,8 @@ function agentSectionDirs(pluginRoot) {
 }
 
 function loadAgentSections(pluginRoot) {
-    // agents/ holds two layouts that must BOTH be loaded:
-    //   - flat:    agents/<agent>.md                (legacy: scheduler-task, webhook-handler)
-    //   - nested:  agents/<agent>/AGENT.md          (current: worker, heavy-worker, reviewer, …)
+    // agents/ accepts both the compatibility flat layout and the current
+    // nested agents/<agent>/AGENT.md layout.
     // The previous flat-only readdir silently dropped every nested agent, so a
     // public agent like heavy-worker produced an EMPTY scoped instruction block
     // (BP2) — the model lost its agent contract and the tool smoke's
@@ -659,14 +657,6 @@ function loadAgentSections(pluginRoot) {
 // provider-specific experiment without changing today's cache layout.
 const EXPLICIT_CACHE_PROVIDERS = new Set();
 
-// Inbound-event maintenance agents that report results back to Lead are
-// declared via `inboundEvent: true` in defaults/agents.json and read
-// through isInboundEventAgent(). Such agents must follow
-// rules/agent/20-skip-protocol.md so genuine no-ops (label-only events,
-// dedup, "nothing to report") prefix their output with `[meta:silent]` and the
-// dispatch layer suppresses the Lead inject. Other agents (cycle1/cycle2 memory
-// maintenance, retrieval agents) never emit toward Lead.
-
 export function loadScopedRoleInstructions(agent, provider = null) {
     const useUnified = !!(provider && EXPLICIT_CACHE_PROVIDERS.has(provider));
     const cacheKey = useUnified ? '__unified__' : (agent || '__all__');
@@ -704,10 +694,6 @@ export function loadScopedRoleInstructions(agent, provider = null) {
     const agentSharesCatalog = agent && classification.retrieval.has(agent)
         ? new Set(getAgentCatalogShareAgents(agent))
         : new Set();
-    const agentIsInboundEvent = agent && classification.maintenance.has(agent)
-        ? isInboundEventAgent(agent)
-        : false;
-
     try {
         const agentSections = loadAgentSections(pluginRoot);
         const hiddenPairs = loadHiddenAgentSnippets(pluginRoot);
@@ -742,13 +728,6 @@ export function loadScopedRoleInstructions(agent, provider = null) {
                 // work without needing a duplicate agent rule file.
                 const fromAgent = agentSections.find(s => s.startsWith(`## ${agent}\n`));
                 if (fromAgent) agentRuleSectionsToEmit.push(fromAgent);
-            }
-            // Inbound-event agents also need the skip-protocol rule so they
-            // can opt their no-op outputs out of the Lead inject (BP1 would
-            // waste the bytes on unrelated agents).
-            if (agentIsInboundEvent) {
-                const skip = hiddenPairs.find(p => p.name === 'skip-protocol');
-                if (skip) agentRuleSectionsToEmit.push(`## ${skip.name}\n\n${skip.body}`);
             }
             agentSectionsToEmit = [];
         } else if (agent) {

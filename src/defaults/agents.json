@@ -59,34 +59,6 @@
       "kind": "maintenance",
       "permission": "read",
       "stallCap": { "idleSeconds": 90, "toolRunningSeconds": 90 }
-    },
-    {
-      "agent": "scheduler-task",
-      "slot": "scheduler",
-      "systemFile": "agents/scheduler-task/AGENT.md",
-      "description": "Scheduled-task executor invoked by scheduler tick",
-      "invokedBy": "scheduler",
-      "toolSchemaProfile": "read-write-search",
-      "schemaAllowedTools": ["code_graph", "find", "glob", "list", "grep", "read", "apply_patch", "search", "web_fetch"],
-      "kind": "maintenance",
-      "permission": "read-write",
-      "inboundEvent": true,
-      "instructionDir": "schedules",
-      "stallCap": { "idleSeconds": 600, "toolRunningSeconds": 600 }
-    },
-    {
-      "agent": "webhook-handler",
-      "slot": "webhook",
-      "systemFile": "agents/webhook-handler/AGENT.md",
-      "description": "Webhook payload handler invoked by inbound webhook events",
-      "invokedBy": "webhook",
-      "toolSchemaProfile": "read-write-search",
-      "schemaAllowedTools": ["code_graph", "find", "glob", "list", "grep", "read", "apply_patch", "search", "web_fetch"],
-      "kind": "maintenance",
-      "permission": "read-write",
-      "inboundEvent": true,
-      "instructionDir": "webhooks",
-      "stallCap": { "idleSeconds": 600, "toolRunningSeconds": 600 }
     }
   ]
 }

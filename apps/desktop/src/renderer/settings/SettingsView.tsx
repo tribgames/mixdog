@@ -22,8 +22,9 @@ import { createPortal } from 'react-dom';
 
 import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
-import { acquireTitleBarDim } from '../titlebar-dim';
-import { CapabilitySettings, preloadCapabilitySettings } from './CapabilitySettings';
+import { DesktopLoadingSurface } from '../RendererRecovery';
+import { acquireTitleBarDim, refreshTitleBarDim } from '../titlebar-dim';
+import { CapabilitySettings, getCachedCapabilitySettings, preloadCapabilitySettings } from './CapabilitySettings';
 import { preloadConnectionInfo } from './connection-info';
 import { preloadGitPanelInfo } from './git-panel-info';
 import {
@@ -42,9 +43,7 @@ export function preloadSettings(api: SettingsApi): Promise<unknown> {
   return Promise.all([
     preloadCapabilitySettings(api),
     preloadGitPanelInfo(api),
-    // Connection is desktop-only (phone shells hide the category), so the
-    // background prewarm skips its pairing read there.
-    ...(isMobileShell() ? [] : [preloadConnectionInfo(api)]),
+    preloadConnectionInfo(api),
   ]);
 }
 
@@ -76,11 +75,6 @@ const CATEGORY_ICONS = {
   about: Heart,
 } satisfies Record<SettingsCategory, typeof Settings>;
 
-// Phone shell (data-mixdog-mobile, set by mobile-shell.ts before mount):
-// Connection is desktop-only — it exists to pair a phone, and the phone IS
-// the paired device, so the category is hidden there (user decision).
-const isMobileShell = () => document.documentElement.dataset.mixdogMobile === '1';
-
 const FOCUSABLE = [
   'a[href]',
   'button:not([disabled])',
@@ -100,11 +94,32 @@ export function SettingsView({
   const [category, setCategory] = useState<SettingsCategory>(
     initialSection ? categoryForSettingsItem(initialSection) : 'general',
   );
-  const mobile = isMobileShell();
   const dialogRef = useRef<HTMLElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const priorFocus = useRef<HTMLElement | null>(null);
+  // Cold open (no cached capability snapshot yet): the empty dialog frame
+  // used to paint first with its body behind an opaque cover — a black box
+  // (user: 엉뚱한 검정 프레임이 이상하다). Instead hold the whole dialog
+  // back and show only the dim backplate with a centered spinner until the
+  // snapshot cache exists; the dialog then mounts fully populated.
+  const [coldHydrating, setColdHydrating] = useState(
+    () => open && !getCachedCapabilitySettings(api),
+  );
+  useEffect(() => {
+    if (!open || getCachedCapabilitySettings(api)) {
+      setColdHydrating(false);
+      return undefined;
+    }
+    setColdHydrating(true);
+    let live = true;
+    // Resolves even on engine errors (the cache entry carries the error
+    // string), so the dialog always mounts and surfaces the failure inline.
+    void preloadCapabilitySettings(api)
+      .catch(() => undefined)
+      .finally(() => { if (live) setColdHydrating(false); });
+    return () => { live = false; };
+  }, [open, api]);
 
   // Every (re)open starts fresh: explicit section when given, else General
   // (user: the kept-mounted dialog must not resume the last-visited page).
@@ -119,18 +134,23 @@ export function SettingsView({
     if (!open) return undefined;
     return acquireTitleBarDim();
   }, [open]);
+  // The cold backplate and the mounted dialog paint different scrims: the
+  // claim above samples whichever is live, so re-sample when the dialog
+  // replaces the overlay (and jsdom tests see the composited color without
+  // relying on the rAF follow window).
+  useEffect(() => {
+    if (!open || coldHydrating) return;
+    refreshTitleBarDim();
+  }, [open, coldHydrating]);
   // Warm the Connection pairing card as soon as the dialog opens (one cached
   // IPC): entering Connection later paints the complete QR card instead of
   // flashing the empty placeholder square first (user: 커넥션 들어갈 때 빈
-  // 칸이 거슬린다). Mobile shells hide the category and skip the read.
+  // 칸이 거슬린다).
   useEffect(() => {
     if (!open) return;
-    // Git card warms on every open (phone shells included: a missing API
-    // resolves to null harmlessly); Connection stays desktop-only.
     void preloadGitPanelInfo(api);
-    if (mobile) return;
     void preloadConnectionInfo(api);
-  }, [open, mobile, api]);
+  }, [open, api]);
   useLayoutEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
   }, [category]);
@@ -144,7 +164,9 @@ export function SettingsView({
   };
 
   useLayoutEffect(() => {
-    if (!open) return undefined;
+    // While the cold overlay is up there is no dialog to trap focus in; the
+    // trap arms when the populated dialog actually mounts.
+    if (!open || coldHydrating) return undefined;
     priorFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
     const background = Array.from(document.body.children)
@@ -170,20 +192,22 @@ export function SettingsView({
       }
       restoreFocus();
     };
-  }, [open]);
+  }, [open, coldHydrating]);
 
   // Perf diagnostics: report request→first-paint for the settings dialog
   // (opener stamps __mixdogSettingsOpenAt; main drops lines unless
   // MIXDOG_DESKTOP_PERF=1).
   useEffect(() => {
-    if (!open) return;
+    // The stamp is consumed at CONTENT paint, so cold opens report the full
+    // overlay wait instead of the overlay's own first frame.
+    if (!open || coldHydrating) return;
     const stamped = (window as unknown as Record<string, unknown>).__mixdogSettingsOpenAt;
     if (typeof stamped !== 'number') return;
     delete (window as unknown as Record<string, unknown>).__mixdogSettingsOpenAt;
     window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
       window.mixdogDesktop?.perfLog?.(`settings-open paint=${(performance.now() - stamped).toFixed(0)}ms`);
     }));
-  }, [open]);
+  }, [open, coldHydrating]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -236,6 +260,14 @@ export function SettingsView({
     return () => document.removeEventListener('keydown', handleKey, true);
   }, [open, onClose]);
 
+  if (coldHydrating) {
+    // Same dim + centered spinner grammar as the lazy-chunk Suspense overlay,
+    // so chunk wait and data wait read as one continuous surface.
+    return createPortal(
+      <DesktopLoadingSurface label={t('Loading settings…')} overlay />,
+      document.body,
+    );
+  }
   return createPortal(
     <div className="mixdog-settings-layer stable-surface-preserved"
       data-surface-active={open ? 'true' : 'false'}
@@ -253,7 +285,7 @@ export function SettingsView({
               short rows read better as a single run. `group` survives in the
               data purely as the authoring order. */}
           <div className="mixdog-settings__rail-group">
-            {SETTINGS_CATEGORIES.filter((item) => !(mobile && item.value === 'connection')).map((item) => {
+            {SETTINGS_CATEGORIES.map((item) => {
               const Icon = CATEGORY_ICONS[item.value];
               return <button type="button" key={item.value}
                 className={category === item.value ? 'active' : ''}

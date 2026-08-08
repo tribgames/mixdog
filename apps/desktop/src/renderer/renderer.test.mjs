@@ -1986,6 +1986,14 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
   assert.match(list,
     /shouldAdjustScrollPositionOnItemSizeChange = \(item, _delta, instance\) =>/,
     'the anchor-compensation predicate rides on the virtualizer instance');
+  assert.match(list,
+    /if \(hasScrollGestureRef\.current\(\)\) return false;/,
+    'reader wheel, touch, scrollbar, and inertial motion must outrank row-size compensation');
+  assert.match(list,
+    /pendingResizes\.current\.set\(measured\.key, \{ index, size \}\);/,
+    'a size measured mid-gesture above the offset is deferred with its compensation, never dropped (the bottom-arrival tear)');
+  assert.match(follow, /hasScrollGesture:\s*hasReaderScroll,/,
+    'reader motion must extend through native inertia without borrowing virtual-core writes');
   assert.match(list, /spacer\.current\.style\.height = `\$\{instance\.getTotalSize\(\)\}px`/);
   assert.match(list, /item\.end <= logicalScrollOffset\(instance\)/,
     'reader anchoring compensates rows above the logical scroll offset');
@@ -2098,6 +2106,29 @@ test('terminal prefers WebGL rendering and safely retains the DOM fallback', asy
   assert.match(terminal, /else term\.open\(container\);\s*tryEnableWebglRenderer\(view\);/);
   assert.match(terminal, /term\.onScroll\(schedulePersist\)/);
   assert.match(terminal, /window\.setTimeout\(\(\) => \{[\s\S]{0,180}writeTerminalViewState\(key, view\);[\s\S]{0,60}\}, 120\)/);
+});
+
+test('remote renderer publishes an installable network-only web app', async () => {
+  const [main, html, manifestRaw, worker, config, staticHttp] = await Promise.all([
+    readFile(new URL('./main.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./index.html', import.meta.url), 'utf8'),
+    readFile(new URL('./public/manifest.webmanifest', import.meta.url), 'utf8'),
+    readFile(new URL('./public/sw.js', import.meta.url), 'utf8'),
+    readFile(new URL('../../electron.vite.config.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../../../relay/lib/static-http.mjs', import.meta.url), 'utf8'),
+  ]);
+  const manifest = JSON.parse(manifestRaw);
+  assert.doesNotMatch(main, /import "\.\/mobile-shell"/);
+  assert.match(main, /navigator\.serviceWorker\.register\("\/sw\.js", \{ scope: "\/" \}\)/);
+  assert.match(html, /<link rel="manifest" href="\.\/manifest\.webmanifest" \/>/);
+  assert.equal(manifest.display, 'standalone');
+  assert.equal(manifest.start_url, '/');
+  assert.equal(manifest.icons[0].purpose, 'any maskable');
+  assert.match(worker, /event\.respondWith\(fetch\(request\)\)/);
+  assert.doesNotMatch(worker, /caches\.(?:open|match)/);
+  assert.match(config, /publicDir:\s*resolve\(__dirname, 'src\/renderer\/public'\)/);
+  assert.match(staticHttp, /'\.webmanifest':\s*'application\/manifest\+json; charset=utf-8'/);
+  assert.match(staticHttp, /target\.endsWith\('sw\.js'\)/);
 });
 
 test('settings dialog reserves the native window-controls safe area', async () => {
@@ -2362,11 +2393,11 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
   assert.match(styles,
     /\.sidebar-recent-heading\.sidebar-heading-toggle svg\s*\{[^}]*transform:\s*translateY\(1px\);/s,
     "sidebar disclosure chevrons must sit on the title's optical center");
-  // Phone drawer: the sidebar overlays the thread instead of squeezing it
-  // out of a 390px viewport (user: "message pane not visible" on a phone).
-  assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*html\[data-mixdog-mobile\] \.sidebar\.session-sidebar,[\s\S]*?position:\s*fixed;[\s\S]*?transform:\s*translateX\(-100%\)/);
+  // Narrow web and desktop windows share one overlay drawer instead of
+  // switching composition based on the input device.
+  assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*?\.sidebar-drawer-frame\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?transform:\s*translateX\(-100%\)/);
   assert.match(styles, /\.sidebar-backdrop\s*\{\s*display:\s*none;\s*\}/);
-  assert.match(styles, /html\[data-mixdog-mobile\] \.sidebar\.session-sidebar\[data-state="open"\]\s*\{[^}]*transform:\s*none;/);
+  assert.match(styles, /\.sidebar-drawer-frame\[data-state="open"\]\s*\{[^}]*transform:\s*none;/);
   assert.match(navigation, /aria-label=\{t\(["']Session manager["']\)\}/);
   assert.match(navigation, /session\.classification === "task" \|\| session\.classification === "project"/);
   assert.match(navigation, /className="schedules-list projects-list"/);
@@ -2475,11 +2506,8 @@ test('Maintainer keeps its default model row but stays out of workflow agent cho
     readFile(new URL('./WorkflowsView.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
   ]);
-  assert.match(view,
-    /HIDDEN_WORKFLOW_AGENT_IDS = new Set\(\['scheduler-task', 'webhook-handler'\]\)/);
+  assert.doesNotMatch(view, /HIDDEN_WORKFLOW_AGENT_IDS/);
   assert.match(view, /DEFAULT_AGENT_IDS = new Set\(\['maintainer', 'explore'\]\)/);
-  assert.match(view, /editableAgents = agentRoster\.filter\(\(agent\) => !DEFAULT_AGENT_IDS\.has\(agent\.id\)\)/);
-  assert.match(view, /pack=\{editor\.pack\} agents=\{workflowAgents\}/);
   assert.match(view, /editableAgents = agentRoster\.filter\(\(agent\) => !DEFAULT_AGENT_IDS\.has\(agent\.id\)\)/);
   // Web search, Explore, and Maintainer share the shared-service section.
   assert.equal((view.match(/workflows-default-agent-summary-row/g) || []).length, 3);
@@ -2718,20 +2746,13 @@ test('session title actions, message hover rows, and tool disclosures keep the d
     'the archived-row action pair must not remount when confirmation starts');
 });
 
-test('phone header uses the roomier mobile scale', async () => {
+test('narrow renderers retain the desktop header scale', async () => {
   const [styles, app] = await Promise.all([
     readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
     readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
   ]);
-  assert.match(styles, /html\[data-mixdog-mobile\] \.app-shell\s*\{\s*--titlebar-height:\s*64px;/);
-  assert.match(styles, /html\[data-mixdog-mobile\] \.session-header\s*\{[^}]*flex-basis:\s*64px;[^}]*min-height:\s*64px;/s);
-  assert.match(styles, /html\[data-mixdog-mobile\] \.session-header-content\s*\{[^}]*height:\s*64px;[^}]*grid-template-columns:/s);
-  assert.match(styles, /html\[data-mixdog-mobile\] \.session-header-content h1\s*\{[^}]*font-size:\s*16px;[^}]*line-height:\s*var\(--mx-line-body\);/s);
-  assert.match(styles, /html\[data-mixdog-mobile\] \.session-project-badge\s*\{[^}]*height:\s*22px;[^}]*font-size:\s*var\(--mx-font-minor\);[^}]*line-height:\s*var\(--mx-line-emphasis\);/s);
-  assert.match(styles, /html\[data-mixdog-mobile\] \.session-header-menu \.sidebar-toggle-icon,[^}]*html\[data-mixdog-mobile\] \.session-dock-toggle svg\.lucide\s*\{[^}]*width:\s*var\(--mx-icon-xl\);[^}]*height:\s*var\(--mx-icon-xl\);/s);
-  assert.match(styles, /@media \(pointer:\s*coarse\)\s*\{[^}]*\.toolbar-sidebar\s*\{[^}]*width:\s*40px;[^}]*height:\s*40px;/s);
-  assert.match(styles,
-    /@media \(hover:\s*none\) and \(pointer:\s*coarse\)\s*\{[\s\S]*?\.session-header-menu:hover,[\s\S]*?\.session-dock-toggle:hover\s*\{[^}]*background:\s*transparent;/s);
+  assert.doesNotMatch(styles, /data-mixdog-mobile|pointer:\s*coarse|hover:\s*none/);
+  assert.doesNotMatch(app, /mixdogMobile|startMobileTaskSwipe|finishMobileTaskSwipe/);
   assert.match(app, /renderUtilityTabs=\{paneUtilityTabs\}/);
 });
 
@@ -2815,11 +2836,11 @@ test('turn review keeps a compact hierarchy and fixed columns at narrow pane wid
     /\.turn-review-bar \.turn-review-status\[data-status="R"\]\s*\{\s*color:\s*var\(--mx-accent\);/);
   assert.match(css, /\.turn-review-undo:hover\s*\{\s*color:\s*var\(--mx-text\);/);
   assert.match(css,
-    /\.turn-review-undo\s*\{[^}]*background:\s*var\(--mx-alpha-light-6\);/s,
-    'the whole-turn undo action must retain a visible button surface');
+    /\.turn-review-undo\s*\{[^}]*color:\s*var\(--mx-text-soft\);[^}]*background:\s*var\(--mx-alpha-light-10\);[^}]*font-weight:\s*var\(--mx-weight-medium\);/s,
+    'enabled undo must keep a readable medium-weight label and visible button surface');
   assert.match(css,
-    /\.turn-review-undo:disabled\s*\{[^}]*color:\s*var\(--mx-text-faint\);[^}]*opacity:\s*1;/s,
-    'disabled undo must remain readable without appearing actionable');
+    /\.turn-review-undo:disabled\s*\{[^}]*color:\s*var\(--mx-text-muted\);[^}]*background:\s*var\(--mx-alpha-light-6\);[^}]*opacity:\s*1;/s,
+    'disabled undo must remain readable while its quieter plate keeps it non-actionable');
   assert.match(css, /\.turn-review-revert\.danger\s*\{\s*color:\s*var\(--mx-text\);\s*\}/);
 });
 

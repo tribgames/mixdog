@@ -16,7 +16,7 @@ const connectionInfoCache = new WeakMap<object, ConnectionInfoCacheEntry>();
 export function connectionInfoReady(
   value: DesktopRemoteAccessInfo | null | undefined,
 ): value is DesktopRemoteAccessInfo {
-  return Boolean(value && value.relayBrowserQrSvg && value.relayAppQrSvg);
+  return Boolean(value && value.relayBrowserQrSvg);
 }
 
 function cacheEntry(api: ConnectionInfoApi): ConnectionInfoCacheEntry {

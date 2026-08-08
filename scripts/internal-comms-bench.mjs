@@ -31,11 +31,9 @@ const HEADLESS = pathToFileURL(resolve(__dir, '../src/headless-role.mjs')).href;
 const RULE_FILES = [
   'rules/agent/00-core.md',
   'rules/agent/00-common.md',
-  'rules/agent/20-skip-protocol.md',
   'agents/worker/AGENT.md',
   'agents/heavy-worker/AGENT.md',
   'agents/reviewer/AGENT.md',
-  'agents/debugger/AGENT.md',
   'workflows/default/WORKFLOW.md',
   'workflows/solo/WORKFLOW.md',
   'rules/lead/01-general.md',

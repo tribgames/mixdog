@@ -64,6 +64,7 @@ function createTranscript({ count = 300, rowHeight = (i) => 260 + (i % 7) * 190 
     lastDistance: 0,
     programmatic: [],
     gestureAt: -Infinity,
+    readerMotionAt: -Infinity,
     attachDelivery: true,
     writes: [],
   };
@@ -72,8 +73,12 @@ function createTranscript({ count = 300, rowHeight = (i) => 260 + (i % 7) * 190 
   let anchorOverride = null;
   let followFlippedTrue = false;
   const events = [];
-  const markGesture = () => { hook.gestureAt = now; };
+  const markGesture = () => {
+    hook.gestureAt = now;
+    hook.readerMotionAt = now;
+  };
   const hasGesture = () => now - hook.gestureAt < GESTURE_WINDOW_MS;
+  const hasReaderScroll = () => hasGesture() || now - hook.readerMotionAt < 180;
   const markProgrammatic = (top, intended) => {
     hook.programmatic = hook.programmatic
       .filter((entry) => now - entry.time < 1_500)
@@ -109,8 +114,45 @@ function createTranscript({ count = 300, rowHeight = (i) => 260 + (i % 7) * 190 
     scrollEndThreshold: 80,
     paddingEnd: SPACER,
   });
-  v.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) =>
-    item.end <= (instance.scrollOffset ?? 0) + (instance.scrollAdjustments ?? 0);
+  v.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
+    if (hasReaderScroll()) return false;
+    return item.end <= (instance.scrollOffset ?? 0) + (instance.scrollAdjustments ?? 0);
+  };
+  // TranscriptList's resizeItem wrapper: a size measured DURING a reader
+  // gesture for a row fully above the reading offset is deferred, then
+  // applied together with its scroll compensation once the gesture ends (or
+  // as soon as the row re-enters the view). Dropping it instead displaced the
+  // reader by exactly that delta — the mid-scroll tear.
+  const pendingResizes = new Map();
+  const baseResizeItem = v.resizeItem;
+  const logicalOffset = () => (v.scrollOffset ?? 0) + (v.scrollAdjustments ?? 0);
+  v.resizeItem = (index, size) => {
+    const measured = v.measurementsCache[index];
+    if (measured && hasReaderScroll() && measured.end <= logicalOffset()) {
+      pendingResizes.set(measured.key, { index, size });
+      return;
+    }
+    if (measured) pendingResizes.delete(measured.key);
+    baseResizeItem(index, size);
+  };
+  function pumpDeferredResizes() {
+    if (!pendingResizes.size) return false;
+    let did = false;
+    for (const [key, entry] of [...pendingResizes]) {
+      const measured = v.measurementsCache[entry.index];
+      if (!measured || measured.key !== key) {
+        pendingResizes.delete(key);
+        continue;
+      }
+      if (!hasReaderScroll() || measured.end > logicalOffset()) {
+        pendingResizes.delete(key);
+        baseResizeItem(entry.index, entry.size);
+        did = true;
+      }
+    }
+    if (did) el.scrollHeight = v.getTotalSize();
+    return did;
+  }
   v._didMount();
   v._willUpdate();
 
@@ -280,11 +322,18 @@ function createTranscript({ count = 300, rowHeight = (i) => 260 + (i % 7) * 190 
       const ramp = wheelRemaining * 0.35;
       const applied = Math.abs(ramp) < 1 ? wheelRemaining : ramp;
       wheelRemaining -= applied;
+      const previous = el.scrollTop;
       setTop(el.scrollTop + applied);
+      if (el.scrollTop !== previous && hasReaderScroll()) hook.readerMotionAt = now;
     }
     if (pendingScroll) { pendingScroll = false; offsetCb?.(el.scrollTop, true); handleScroll(); }
     frames.splice(0).forEach((cb) => cb());
-    const grew = [measureRendered(), growTail(tail), growAbove(above)].some(Boolean);
+    const grew = [
+      pumpDeferredResizes(),
+      measureRendered(),
+      growTail(tail),
+      growAbove(above),
+    ].some(Boolean);
     el.scrollHeight = v.getTotalSize();
     if (grew || hook.attachDelivery) observerDelivery();
     if (pendingScroll) { pendingScroll = false; offsetCb?.(el.scrollTop, true); handleScroll(); }
@@ -342,10 +391,24 @@ test('a sub-threshold wheel movement is not rolled back after its native scroll 
   assert.deepEqual(sim.hook.writes, []);
 });
 
+test('an above-row measurement cannot reverse an active wheel or inertial ramp', () => {
+  const sim = createTranscript();
+  for (let i = 0; i < 20; i += 1) {
+    const moved = sim.frame({
+      wheel: i === 0 ? -WHEEL_NOTCH_PX : 0,
+      above: 400 + i * 30,
+    });
+    assert.ok(moved.net <= 0,
+      `wheel frame ${i + 1} must stay upward, reversed by ${Math.round(moved.net)}px`);
+    assert.equal(moved.events.some((event) => event.startsWith('core write')), false,
+      `wheel frame ${i + 1} must not receive an anchor-compensation write`);
+  }
+});
+
 test('rows measured above the reading offset never drag an idle reader back', () => {
   const sim = createTranscript();
   sim.frame({ wheel: -WHEEL_NOTCH_PX });
-  for (let i = 0; i < 12; i += 1) sim.frame();
+  for (let i = 0; i < 32; i += 1) sim.frame();
   const parked = sim.state();
   assert.equal(parked.following, false);
   // Long after the gesture window closes, late measurements keep growing the
@@ -391,4 +454,49 @@ test('an armed transcript still follows its growing tail', () => {
   assert.equal(end.following, true, 'nothing released follow');
   assert.ok(end.distance <= BOTTOM_THRESHOLD_PX,
     `the tail stays pinned, ${Math.round(end.distance)}px left below`);
+});
+
+test('a downward return arrives at the tail while rows keep settling above', () => {
+  const sim = createTranscript();
+  for (let i = 0; i < 4; i += 1) sim.frame({ wheel: -WHEEL_NOTCH_PX });
+  for (let i = 0; i < 32; i += 1) sim.frame();
+  const parked = sim.state();
+  assert.equal(parked.following, false, 'the reader parked above the tail');
+  // Wheel back down while late measurements keep growing the transcript ABOVE
+  // the reader by more than the whole ramp. Dropping those deltas pushed the
+  // bottom away faster than the wheel approached it — the reader could never
+  // arrive, and every drop tore the viewport by its delta (user: 바닥에서
+  // pane이 절단되듯 갈라졌다가 돌아온다).
+  for (let i = 0; i < 30; i += 1) {
+    const out = sim.frame({
+      wheel: i < 4 ? 2 * WHEEL_NOTCH_PX : 0,
+      above: i % 3 === 1 ? 400 : 0,
+    });
+    assert.ok(out.net >= 0,
+      `arrival frame ${i + 1} must never move the reader back up, got ${Math.round(out.net)}px`);
+  }
+  const end = sim.state();
+  assert.equal(end.following, true, 'the reader arrives and follow reattaches');
+  assert.equal(end.anchorTo, 'end', 'arrival hands the anchor back to the core');
+  assert.ok(end.distance <= BOTTOM_THRESHOLD_PX,
+    `the tail is actually reached, ${Math.round(end.distance)}px left below`);
+});
+
+test('a delta deferred during a gesture is compensated afterwards, not dropped', () => {
+  const sim = createTranscript();
+  for (let i = 0; i < 12; i += 1) sim.frame({ wheel: -WHEEL_NOTCH_PX });
+  for (let i = 0; i < 32; i += 1) sim.frame();
+  const parked = sim.state();
+  assert.equal(parked.following, false);
+  // One short downward notch while a tool card above resolves from its
+  // estimate mid-gesture: once everything settles, the reading position must
+  // reflect ONLY the wheel — the settled card is invisible in distance space.
+  for (let i = 0; i < 30; i += 1) {
+    sim.frame({ wheel: i === 0 ? WHEEL_NOTCH_PX : 0, above: i === 2 ? 400 : 0 });
+  }
+  const end = sim.state();
+  assert.equal(end.following, false, 'a mid-transcript settle is not an arrival');
+  assert.ok(Math.abs(end.distance - (parked.distance - WHEEL_NOTCH_PX)) < 2,
+    `the reading position must move by the wheel alone, got ${Math.round(parked.distance - end.distance)}px`);
+  assert.deepEqual(sim.hook.writes, [], 'the follow hook never writes for a deferred settle');
 });

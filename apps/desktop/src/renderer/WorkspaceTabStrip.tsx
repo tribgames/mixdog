@@ -194,21 +194,15 @@ export function WorkspaceTabStrip({
   const [newMenu, setNewMenu] = useState<{ left: number; top: number } | null>(null);
   const [tabMenu, setTabMenu] = useState<{ key: string; left: number; top: number } | null>(null);
   const tabMenuNode = useRef<HTMLDivElement>(null);
-  // Chrome parity split (user: PC는 크롬처럼 끝까지 축소, 모바일 뷰는
-  // 이름+숫자 스위처): desktop follows Chromium's tab_strip_layout — tabs
-  // shrink to sliver floors and NEVER switch modes — so the count-switcher
-  // collapse only serves TOUCH shells. Headless test DOMs measure 0 width
-  // and keep the full strip.
+  // Chrome parity: every renderer follows Chromium's tab_strip_layout —
+  // tabs shrink to sliver floors and never switch to a device-specific mode.
   const shellNode = useRef<HTMLDivElement>(null);
-  const [shellWidth, setShellWidth] = useState(0);
+  const [, setShellWidth] = useState(0);
   const [stripAvailable, setStripAvailable] = useState(0);
   const [tabSwitcher, setTabSwitcher] = useState<{ left: number; top: number } | null>(null);
   const switcherNode = useRef<HTMLDivElement>(null);
   const switcherTriggers = useRef(new Set<HTMLElement>());
-  const mobileShell = typeof document !== "undefined"
-    && document.documentElement.getAttribute("data-mixdog-mobile") === "1";
-  const compact = mobileShell && tabs.length >= 2 && shellWidth > 0
-    && shellWidth < tabs.length * 80;
+  const compact = false;
   // Chromium layout INPUT: the width the tab run may spend — the shell minus
   // the fixed + slot and the trailing controls (tab_strip.cc passes the
   // available width into CalculateTabBounds the same way).

@@ -5,7 +5,6 @@ import { createRequire } from 'module';
 import { join } from 'path';
 import { resolvePluginData, mixdogRoot } from '../../../../shared/plugin-paths.mjs';
 import { maxMtimeRecursive } from '../../cache-mtime.mjs';
-import { getAgentInstructionDir } from '../../internal-agents.mjs';
 
 // Phase B: Pool B Tier 2 content builder (common rules only).
 // Loaded once per process via createRequire so the CJS module reaches us.
@@ -120,36 +119,5 @@ export function _buildLeadMetaContext() {
         return built;
     } catch (e) {
         throw new Error(`[session] lead meta context build failed: ${e.message}`);
-    }
-}
-
-// BP4-adjacent agent-specific data cache — keyed by agent. webhook / schedule
-// agents each have their own scoped instruction set; other agents return ''.
-const _roleSpecificCache = new Map(); // agent → { value, mtime }
-export function _buildAgentSpecific(currentAgent) {
-    if (!_rulesBuilder || typeof _rulesBuilder.buildAgentRoleSpecificContent !== 'function') return '';
-    if (!currentAgent) return '';
-    const PLUGIN_ROOT = mixdogRoot();
-    const DATA_DIR = resolvePluginData();
-    const RULES_DIR = join(PLUGIN_ROOT, 'rules');
-    const roleInstructionDir = getAgentInstructionDir(currentAgent);
-    const mtime = maxMtimeRecursive([
-        join(RULES_DIR, 'shared'),
-        join(DATA_DIR, 'mixdog-config.json'),
-        join(DATA_DIR, 'webhooks'),
-        join(DATA_DIR, 'schedules'),
-        ...(roleInstructionDir ? [join(DATA_DIR, roleInstructionDir)] : []),
-        join(PLUGIN_ROOT, 'defaults', 'agents.json'),
-    ]);
-    const entry = _roleSpecificCache.get(currentAgent);
-    if (entry && mtime <= entry.mtime) {
-        return entry.value;
-    }
-    try {
-        const built = _rulesBuilder.buildAgentRoleSpecificContent({ PLUGIN_ROOT, DATA_DIR, currentAgent });
-        _roleSpecificCache.set(currentAgent, { mtime, value: built });
-        return built;
-    } catch (e) {
-        throw new Error(`[session] agent-specific rules build failed (agent: ${currentAgent}): ${e.message}`);
     }
 }

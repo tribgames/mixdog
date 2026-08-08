@@ -12,17 +12,12 @@ import { isHiddenAgent } from '../runtime/agent/orchestrator/internal-agents.mjs
 import { configuredAgentRouteCandidates } from '../runtime/shared/agent-route-config.mjs';
 
 export const WORKFLOW_ROUTE_SLOTS = ['lead', 'agent', 'explorer', 'memory'];
+export const AGENT_DELETED_MARKER = '.deleted';
 export const FIXED_AGENT_SLOTS = Object.freeze([
   // Short one-liners on purpose: these render inside the 260px sidebar rail
   // (user: 창이 크지 않으니 설명은 짧게).
   { id: 'explore', label: 'Explore', description: 'Repository exploration', workflowSlot: 'explorer' },
   { id: 'maintainer', label: 'Maintainer', description: 'Memory and upkeep', workflowSlot: 'memory' },
-  { id: 'worker', label: 'Worker', description: 'Simple tasks' },
-  { id: 'heavy-worker', label: 'Heavy Worker', description: 'Complex tasks' },
-  { id: 'reviewer', label: 'Reviewer', description: 'Diff and risk review' },
-  // Escalation-only (user rule: 2+cycle bugs or explicit request). Spawnable
-  // by name/CLI but kept out of the Lead delegation catalog.
-  { id: 'debugger', label: 'Debugger', description: 'Root-cause debugging', catalog: false },
 ]);
 const AGENT_ROLE_IDS = new Set(FIXED_AGENT_SLOTS.map((agent) => agent.id));
 // Slot-backed built-ins (explore/maintainer) run through their own dedicated
@@ -31,10 +26,6 @@ const AGENT_ROLE_IDS = new Set(FIXED_AGENT_SLOTS.map((agent) => agent.id));
 const BUILTIN_SLOT_AGENT_IDS = new Set(
   FIXED_AGENT_SLOTS.filter((agent) => agent.workflowSlot).map((agent) => agent.id),
 );
-// Delegation catalog: non-slot built-ins that are not escalation-only.
-const DELEGABLE_FIXED_AGENT_IDS = FIXED_AGENT_SLOTS
-  .filter((agent) => !agent.workflowSlot && agent.catalog !== false)
-  .map((agent) => agent.id);
 export const DEFAULT_WORKFLOW_ID = 'default';
 
 const SEARCH_CAPABLE_PROVIDERS = new Set([
@@ -87,9 +78,6 @@ export function normalizeAgentId(value) {
   const id = clean(value).toLowerCase().replace(/[\s_]+/g, '-');
   if (id === 'explorer') return 'explore';
   if (id === 'maint' || id === 'maintenance' || id === 'memory') return 'maintainer';
-  if (id === 'heavy' || id === 'heavyworker') return 'heavy-worker';
-  if (id === 'review') return 'reviewer';
-  if (id === 'debug') return 'debugger';
   return AGENT_ROLE_IDS.has(id) ? id : '';
 }
 
@@ -145,21 +133,21 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
   }
 
   function agentSourceDirs(dir, id) {
+    const userDir = join(dir || dataDir, 'agents', id);
+    if (existsSync(join(userDir, AGENT_DELETED_MARKER))) return [userDir];
     return [
-      join(dir || dataDir, 'agents', id),
+      userDir,
       join(rootDir, 'agents', id),
     ];
   }
 
-  // Custom agents (user-authored roles beyond FIXED_AGENT_SLOTS): every
-  // agents/<id>/AGENT.md directory whose id is not a fixed role. Mixdog-managed
-  // hidden roles (defaults/agents.json: scheduler-task, webhook-handler, …) ship
-  // the same directory layout, so they are excluded here — at the data source —
-  // instead of per-surface, or the TUI /agents list exposes internal roles the
-  // desktop UI happens to filter out.
+  // Custom agents include shipped starter roles and user-authored roles.
+  // A data-dir tombstone suppresses a shipped starter after the user deletes it,
+  // so package updates do not silently resurrect the role.
   function listCustomAgentIds(dir) {
     const ids = new Set();
-    for (const root of [join(dir || dataDir, 'agents'), join(rootDir, 'agents')]) {
+    const userRoot = join(dir || dataDir, 'agents');
+    for (const root of [userRoot, join(rootDir, 'agents')]) {
       if (!existsSync(root)) continue;
       let entries = [];
       try { entries = readdirSync(root, { withFileTypes: true }); } catch { entries = []; }
@@ -167,6 +155,7 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
         if (!entry.isDirectory()) continue;
         const id = normalizeWorkflowId(entry.name);
         if (!id || AGENT_ROLE_IDS.has(id) || isHiddenAgent(id)) continue;
+        if (root !== userRoot && existsSync(join(userRoot, id, AGENT_DELETED_MARKER))) continue;
         if (!existsSync(join(root, entry.name, 'AGENT.md'))) continue;
         ids.add(id);
       }
@@ -307,13 +296,12 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
       ? rawBody.slice(firstBreak + 1).replace(/^\s+/, '')
       : rawBody;
     const lines = [`# Active Workflow: ${pack.name}${pack.description ? ` — ${pack.description}` : ''}`, body];
-    // Agents are global: a delegating pack always sees every delegable
-    // built-in plus every user-defined custom agent. Slot-backed built-ins
-    // (explore/maintainer) ride their own channels, hidden roles are
-    // Mixdog-internal, and escalation-only roles stay out of the catalog.
+    // Agents are global: a delegating pack sees every active custom agent.
+    // Slot-backed built-ins (explore/maintainer) ride their own channels and
+    // hidden roles stay Mixdog-internal.
     const agentIds = pack.delegatesAgents === false
       ? []
-      : [...DELEGABLE_FIXED_AGENT_IDS, ...listCustomAgentIds(dir)]
+      : listCustomAgentIds(dir)
         .filter((id) => !isHiddenAgent(id) && !BUILTIN_SLOT_AGENT_IDS.has(id));
     const agentBlocks = agentIds.map((id) => loadAgentDefinition(dir, id)).filter(Boolean);
     if (agentBlocks.length) {

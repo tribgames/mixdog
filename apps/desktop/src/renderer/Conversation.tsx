@@ -204,6 +204,7 @@ export function Conversation({
   transitioning,
   composerFocusRequest,
   onNewTask,
+  onClearToNewTask,
   onClearProject,
   onResumeSession,
   onOpenSessions,
@@ -240,6 +241,9 @@ export function Conversation({
   transitioning: boolean;
   composerFocusRequest: number;
   onNewTask: () => void;
+  /** Session-pane /clear · /new: close this session's tab and open a New
+   *  Task in its place with the session's settings inherited. */
+  onClearToNewTask?: (sessionId: string) => void;
   onClearProject: () => void;
   onResumeSession: (id: string) => void;
   onOpenSessions: () => void;
@@ -291,6 +295,7 @@ export function Conversation({
   const {
     following,
     showJump,
+    hasScrollGesture: hasTranscriptScrollGesture,
     handleScroll: handleTranscriptScroll,
     handleWheel: handleTranscriptWheel,
     handlePointerDown: handleTranscriptPointerDown,
@@ -356,10 +361,12 @@ export function Conversation({
   const composerActions = useRef({
     submit, invokeResult, applySnapshot, onNewTask, onResumeSession,
     onOpenSessions, onOpenProjects, onOpenSettings, onOpenCommandSurface,
+    onClearToNewTask,
   });
   composerActions.current = {
     submit, invokeResult, applySnapshot, onNewTask, onResumeSession,
     onOpenSessions, onOpenProjects, onOpenSettings, onOpenCommandSurface,
+    onClearToNewTask,
   };
   // TUI parity: a prompt only reads as "Queued" when it actually waits behind
   // an active turn. An idle submit — including a draft's first prompt, whose
@@ -838,6 +845,12 @@ export function Conversation({
     [],
   );
   const composerOnNewTask = useCallback(() => composerActions.current.onNewTask(), []);
+  // A session pane's /clear · /new addresses ITS OWN session (pane-local
+  // route), never the globally focused one.
+  const composerOnClearToNewTask = useCallback(() => {
+    const sessionId = routeSessionIdRef.current;
+    if (sessionId) composerActions.current.onClearToNewTask?.(sessionId);
+  }, []);
   const composerOnResumeSession = useCallback((id: string) => composerActions.current.onResumeSession(id), []);
   const composerOnOpenSessions = useCallback(() => composerActions.current.onOpenSessions(), []);
   const composerOnOpenProjects = useCallback(() => composerActions.current.onOpenProjects(), []);
@@ -969,6 +982,7 @@ export function Conversation({
             rows={transcriptRows} viewport={viewport} content={content}
             shouldAnchorBottom={shouldAnchorTranscriptBottom}
             markProgrammaticScroll={markTranscriptProgrammaticScroll}
+            hasScrollGesture={hasTranscriptScrollGesture}
             setAnchorBottomRef={setTranscriptAnchorBottomRef}
             scrollToEndRef={scrollToEndRef} renderRow={renderTranscriptRow} />}
         </div>
@@ -1059,6 +1073,7 @@ export function Conversation({
           invokeResult={composerInvokeResult}
           applySnapshot={composerApplySnapshot}
           onNewTask={composerOnNewTask}
+          onClearToNewTask={onClearToNewTask ? composerOnClearToNewTask : undefined}
           onResumeSession={composerOnResumeSession}
           onOpenSessions={composerOnOpenSessions}
           onOpenProjects={composerOnOpenProjects}

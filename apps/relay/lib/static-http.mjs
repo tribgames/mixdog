@@ -14,6 +14,7 @@ export const MIME_TYPES = {
   '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.map': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
@@ -87,7 +88,11 @@ export function sendStaticFile(request, response, target, extraHeaders = {}) {
     && /\bgzip\b/i.test(String(request.headers['accept-encoding'] || ''));
   const headers = {
     'Content-Type': type,
-    'Cache-Control': target.endsWith('index.html') ? 'no-cache' : 'public, max-age=86400',
+    'Cache-Control': target.endsWith('index.html')
+      || target.endsWith('manifest.webmanifest')
+      || target.endsWith('sw.js')
+      ? 'no-cache'
+      : 'public, max-age=86400',
     Vary: 'Accept-Encoding',
     ...extraHeaders,
   };

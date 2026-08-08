@@ -374,18 +374,6 @@ function injectAndRecord(channelId, name, content, options) {
   // self-corrects, but agent roles commonly echo them and we don't want them
   // surfacing in Discord / Lead channel push.
   if (typeof content === 'string') content = stripSoftWarns(content);
-  // Skip-protocol guard: agents (webhook-handler / scheduler-task)
-  // prefix `[meta:silent]` on the first line to opt out
-  // of Lead inject for genuine no-op results (label-only events, dedup,
-  // "nothing to report"). The body still goes to Discord for audit; only
-  // the Lead-context inject is suppressed. See rules/agent/20-skip-protocol.md.
-  if (typeof content === 'string') {
-    const m = content.match(/^\s*\[meta:silent\][^\n]*\n?([\s\S]*)$/);
-    if (m) {
-      content = m[1];
-      options = { ...(options || {}), silent_to_agent: true };
-    }
-  }
   const ts = new Date().toISOString();
   const now = new Date();
   const timeLabel = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")} `;
@@ -436,13 +424,6 @@ scheduler.setInjectHandler((channelId, name, content, options) => {
 // the visible-session run so the fire is never lost.
 scheduler.setInjectReadyCheck(() => bridgeRuntimeConnected && currentOwnerState().owned);
 scheduler.setSendHandler(async (channelId, text) => {
-  // Skip protocol: a scheduler-task emitting `[meta:silent]` has nothing to
-  // report — suppress the channel send entirely (no noise). Mirrors the
-  // webhook delegate drop and injectAndRecord's silent handling.
-  if (typeof text === "string" && /^\s*\[meta:silent\]/.test(text)) {
-    dropTrace("send.scheduler.silent", { channelId });
-    return;
-  }
   dropTrace("send.scheduler.entry", { channelId, preview: preview(text) });
   await bindingReady;
   dropTrace("send.scheduler.ready", { channelId });

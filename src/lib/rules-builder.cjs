@@ -9,7 +9,6 @@
  *   - buildAgentRoleContent             — BP2: agent role/system rules
  *   - buildAgentRetrievalInjectionContent — BP2: narrow read-only retrieval role
  *   - buildLeadMetaContent              — BP3: Lead memory/meta context
- *   - buildAgentRoleSpecificContent     — BP4-adjacent user/task data
  *   - buildInjectionContent             — legacy joined Lead session content
  *
  * 4-BP cache layout (composeSystemPrompt):
@@ -186,61 +185,6 @@ function loadOutputStyle({ PLUGIN_ROOT, DATA_DIR }) {
   return '';
 }
 
-/**
- * Resolve the DATA_DIR subdir whose *.md instruction tree is sent as
- * BP4-adjacent user/task data, from the agent's `instructionDir` metadata in
- * defaults/agents.json. Returns null when the agent declares none.
- *
- * Mirrors internal-agents.mjs getAgentInstructionDir — rules-builder is CommonJS
- * and cannot import the ESM module, so it reads the same source of truth
- * directly. Keeps the webhook-handler→webhooks / scheduler-task→schedules
- * mapping declarative instead of a hard-coded agent-name ternary.
- *
- * @param {string} mixdogRoot
- * @param {string} agent
- * @returns {string|null}
- */
-function resolveAgentInstructionDir(mixdogRoot, agent) {
-  if (!mixdogRoot || !agent) return null;
-  const metaPath = path.join(mixdogRoot, 'defaults', 'agents.json');
-  let raw;
-  try {
-    raw = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-  } catch (e) {
-    throw new Error(`[rules-builder] failed to read/parse agents.json at ${metaPath}: ${e.message}`);
-  }
-  for (const entry of (raw.agents || [])) {
-    if (entry && entry.agent === agent) {
-      const dir = typeof entry.instructionDir === 'string' ? entry.instructionDir.trim() : '';
-      return dir || null;
-    }
-  }
-  return null;
-}
-
-/**
- * Recursively collect all `.md` files under `dir`. Returns absolute paths
- * in stack-DFS order (callers sort before use). Missing/unreadable `dir`
- * yields an empty array — matches the previous inline `try {} catch {}`
- * behavior at every call site.
- */
-function collectMarkdownFilesRecursive(dir) {
-  const collected = [];
-  try {
-    const stack = [dir];
-    while (stack.length) {
-      const current = stack.pop();
-      const entries = fs.readdirSync(current, { withFileTypes: true });
-      for (const entry of entries) {
-        const full = path.join(current, entry.name);
-        if (entry.isDirectory()) stack.push(full);
-        else if (entry.isFile() && entry.name.endsWith('.md')) collected.push(full);
-      }
-    }
-  } catch {}
-  return collected;
-}
-
 function buildSharedToolContent({ PLUGIN_ROOT }) {
   const SHARED_DIR = path.join(PLUGIN_ROOT, 'rules', 'shared');
   return readOptional(path.join(SHARED_DIR, '01-tool.md'));
@@ -365,45 +309,6 @@ function buildAgentRetrievalInjectionContent({ PLUGIN_ROOT }) {
   return parts.join('\n');
 }
 
-/**
- * BP4-adjacent role-specific data. Only the calling role's own task / tool
- * detail body emits — webhook-handler gets webhooks/<all-events>/ and
- * scheduler gets schedules/<all-tasks>/. Other roles return ''.
- *
- * NOTE: webhook-event narrowing (one event per call) requires the inbound
- * payload's event id at compose time; not implemented yet, so all webhook
- * instruction files still ride with the webhook-handler user/task context.
- *
- * @param {object} opts
- * @param {string} opts.PLUGIN_ROOT
- * @param {string} opts.DATA_DIR
- * @param {string|null} opts.currentAgent
- * @returns {string}
- */
-function buildAgentRoleSpecificContent({ PLUGIN_ROOT, DATA_DIR, currentAgent }) {
-  if (!currentAgent) return '';
-  const parts = [];
-
-  // The agent's instruction subdir (webhook-handler → webhooks, scheduler-task
-  // → schedules) is declared via `instructionDir` in defaults/agents.json
-  // rather than hard-coded here, so adding a new inbound-event agent needs only
-  // a metadata entry.
-  const subdirForAgent = resolveAgentInstructionDir(PLUGIN_ROOT, currentAgent);
-  if (subdirForAgent) {
-    const dir = path.join(DATA_DIR, subdirForAgent);
-    const collected = collectMarkdownFilesRecursive(dir);
-    if (collected.length > 0) {
-      collected.sort();
-      const blocks = collected.map(f => stripFrontmatter(readOptional(f))).filter(Boolean);
-      if (blocks.length > 0) {
-        parts.push([`# Agent ${subdirForAgent}`, '', blocks.join('\n\n')].join('\n'));
-      }
-    }
-  }
-
-  return parts.join('\n\n');
-}
-
 module.exports = {
   buildSharedToolContent,
   buildLeadRoleContent,
@@ -412,5 +317,4 @@ module.exports = {
   buildInjectionContent,
   buildAgentInjectionContent,
   buildAgentRetrievalInjectionContent,
-  buildAgentRoleSpecificContent,
 };
