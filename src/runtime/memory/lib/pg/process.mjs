@@ -482,6 +482,90 @@ export function stopPgSync({ runtimeDir, pgdataDir }) {
 }
 
 // ---------------------------------------------------------------------------
+// Orphan temp-postmaster sweep
+//
+// A force-killed harness/daemon cannot run its stop hook, and a postmaster
+// whose throwaway root is never booted again survives forever (observed: six
+// perf roots holding ~60-100MB PG trees each). Only postmasters whose -D
+// pgdata lives under the OS temp dir inside a mixdog-named path AND that have
+// been running for a comfortable margin longer than any test could are
+// reaped — the real data dir, dev roots, and live test runs never match.
+// ---------------------------------------------------------------------------
+
+const ORPHAN_TEMP_PG_MIN_UPTIME_SEC = 30 * 60
+
+function normalizePathForMatch(value) {
+  return String(value || '').replaceAll('\\', '/').toLowerCase()
+}
+
+/** Pure classifier (unit-tested): one postmaster row -> reap or keep. */
+export function classifyOrphanTempPostmaster({
+  args,
+  uptimeSec,
+  tempRoot,
+  minUptimeSec = ORPHAN_TEMP_PG_MIN_UPTIME_SEC,
+}) {
+  const commandLine = String(args || '')
+  // Postmaster only: `-D <pgdata>` on the main process. Backends
+  // (--forkbackend etc.) exit on their own once the postmaster dies.
+  const dataDirMatch = commandLine.match(/(?:^|\s)-D\s+"?([^"]+?)"?(?:\s|$)/)
+  if (!dataDirMatch) return false
+  if (/--fork/.test(commandLine)) return false
+  const dataDir = normalizePathForMatch(dataDirMatch[1])
+  const root = normalizePathForMatch(tempRoot).replace(/\/+$/, '')
+  if (!root || !dataDir.startsWith(`${root}/`)) return false
+  if (!dataDir.includes('mixdog')) return false
+  return Number(uptimeSec) >= Math.max(60, Number(minUptimeSec) || ORPHAN_TEMP_PG_MIN_UPTIME_SEC)
+}
+
+function listPostmasterRows() {
+  if (process.platform === 'win32') {
+    const result = spawnSync('powershell', ['-NoProfile', '-Command',
+      'Get-CimInstance Win32_Process -Filter "Name=\'postgres.exe\'" | '
+      + 'ForEach-Object { ConvertTo-Json -Compress @{ pid = $_.ProcessId; '
+      + 'started = [int](New-TimeSpan -Start $_.CreationDate -End (Get-Date)).TotalSeconds; '
+      + 'args = $_.CommandLine } }',
+    ], { encoding: 'utf8', timeout: 15_000, windowsHide: true })
+    if (result.status !== 0) return []
+    return String(result.stdout || '').split(/\r?\n/).filter(Boolean).flatMap((line) => {
+      try {
+        const row = JSON.parse(line)
+        return [{ pid: Number(row.pid), uptimeSec: Number(row.started), args: String(row.args || '') }]
+      } catch { return [] }
+    })
+  }
+  const result = spawnSync('ps', ['-eo', 'pid=,etimes=,args='], {
+    encoding: 'utf8', timeout: 15_000,
+  })
+  if (result.status !== 0) return []
+  return String(result.stdout || '').split(/\r?\n/).flatMap((line) => {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*postgres.*)$/)
+    if (!match) return []
+    return [{ pid: Number(match[1]), uptimeSec: Number(match[2]), args: match[3] }]
+  })
+}
+
+/** Best-effort machine hygiene, run once after our own PG is healthy. */
+export function sweepOrphanTempPostmasters({ tempRoot, minUptimeSec } = {}) {
+  let reaped = 0
+  try {
+    // Lazy import keeps this module's top-level dependency-free for tests.
+    const os = { tmpdir: () => process.env.TMPDIR || process.env.TEMP || process.env.TMP || '/tmp' }
+    const root = tempRoot || os.tmpdir()
+    for (const row of listPostmasterRows()) {
+      if (!row.pid || row.pid === process.pid) continue
+      if (!classifyOrphanTempPostmaster({ ...row, tempRoot: root, minUptimeSec })) continue
+      try {
+        process.kill(row.pid)
+        reaped += 1
+        __mixdogMemoryLog(`[pg-process] reaped orphan temp postmaster pid=${row.pid}\n`)
+      } catch { /* already gone or foreign-owned */ }
+    }
+  } catch { /* hygiene is best-effort */ }
+  return reaped
+}
+
+// ---------------------------------------------------------------------------
 // healthcheckPg
 // ---------------------------------------------------------------------------
 

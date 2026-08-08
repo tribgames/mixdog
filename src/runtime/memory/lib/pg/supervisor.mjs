@@ -421,7 +421,24 @@ async function _startFresh(dataDir, pgdata, port, runtimeDir) {
     pg_pgdata: pgdata, pg_runtime_dir: runtimeDir,
   }, { timeoutMs: 1000, background: true });
   __mixdogMemoryLog(`[supervisor-pg] ${proc?.attached ? 'attached to' : 'started'} PG port=${actualPort} pgdata=${pgdata}\n`);
+  scheduleOrphanTempPostmasterSweep();
   return { host: '127.0.0.1', port: actualPort, runtimeDir, pgdataDir };
+}
+
+// Once per process, off the critical path: reap force-kill debris — temp-root
+// mixdog postmasters whose owners died without a stop hook (they otherwise
+// hold 60-100MB each forever). Own-instance start above is already settled.
+let _orphanSweepStarted = false;
+function scheduleOrphanTempPostmasterSweep() {
+  if (_orphanSweepStarted) return;
+  _orphanSweepStarted = true;
+  const timer = setTimeout(() => {
+    void _getPgProc().then(({ sweepOrphanTempPostmasters }) => {
+      const reaped = sweepOrphanTempPostmasters?.() || 0;
+      if (reaped > 0) __mixdogMemoryLog(`[supervisor-pg] orphan sweep reaped ${reaped} temp postmaster(s)\n`);
+    }).catch(() => { /* hygiene is best-effort */ });
+  }, 30_000);
+  timer.unref?.();
 }
 
 async function tryReusePgInstance({ pgdata, runtimeDir, healthcheckPg, source = 'reuse' }) {
