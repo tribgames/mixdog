@@ -108,7 +108,8 @@ async function main() {
   ]) assert(reviewSkipViolation(phrase) === expected, `review-skip detector case failed: ${phrase}`);
   const skipsReview = reviewSkipViolation(workflow);
   assert(hasAll(lead, 'current project/workspace'), 'lead tool rules must preserve workspace ownership');
-  assert(hasAll(shared, 'call `shell` only when the task actually requires', 'do not treat it as a routine investigation or completion step', 'if final verification actually requires `shell`', 'otherwise finish without it'), 'shared tool rules must keep shell conditional rather than routine');
+  assert(hasAll(shared, 'when final verification uses `shell`', 'after `apply_patch` in that same assistant turn', 'batching all required verification commands into one `shell` call'), 'shared tool rules must mention shell only for batched final verification');
+  assert(!hasAll(shared, 'process/env, git, build/run/test→`shell`') && !/call `shell` only when/i.test(shared), 'shared tool rules must not prompt routine shell use');
   assert(!/write-role agents self-verify|benches|cross-scope verification/.test(lead), 'lead tool rules must not encourage routine shell verification');
   assert(hasAll(workflow, 'before the user explicitly approves the latest plan', 'no edits, no state mutation, no delegation'), 'default workflow must require latest-plan approval before work');
   assert(hasAll(workflow, 'on approval, delegate maximally', 'one agent per independent scope', 'all spawned in one turn', "only a scope that depends on another's output waits", 'split the plan into as many scopes as possible', 'disjoint file/module sets are independent', 'merge only on a true output dependency', 'prefer parallel scopes over sequential slices in one agent'), 'default workflow must delegate independent scopes maximally');

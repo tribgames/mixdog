@@ -8,12 +8,19 @@ import path from 'node:path';
 import { createEagerDispatcher } from '../src/runtime/agent/orchestrator/session/eager-dispatch.mjs';
 import { processToolBatch } from '../src/runtime/agent/orchestrator/session/tool-batch.mjs';
 import { resolveSessionCwd, stateFilePath } from '../src/runtime/agent/orchestrator/tools/shell-state.mjs';
+import { buildRequestBody as buildOpenAIRequestBody } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
+import { _buildRequestBodyForCacheSmoke as buildAnthropicRequestBody } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 
 const TEST_TOOLS = [
     { name: 'read', annotations: { readOnlyHint: true } },
     { name: 'shell', annotations: { readOnlyHint: false } },
     { name: 'apply_patch', annotations: { readOnlyHint: false } },
 ];
+const PROVIDER_TEST_TOOLS = TEST_TOOLS.map((tool) => ({
+    ...tool,
+    description: `Stable ${tool.name} test schema.`,
+    inputSchema: { type: 'object', properties: {} },
+}));
 
 function makeDispatcher(started, executeToolFn = async () => 'ok', opts = {}) {
     return createEagerDispatcher({
@@ -232,6 +239,103 @@ test('tool results preserve call order when a later duplicate is skipped early',
     assert.deepEqual(results.map((result) => result.toolCallId), ['r1', 'r2']);
     assert.equal(results[0].content, 'read body');
     assert.match(results[1].content, /\[intra-turn-dedup\]/);
+});
+
+test('opposite parallel completion orders preserve provider prompt-cache bytes', async () => {
+    const baseMessages = [
+        { role: 'system', content: 'Stable base rules.' },
+        { role: 'system', content: 'Stable role rules.' },
+        { role: 'system', content: 'Stable session marker.', cacheTier: 'tier3' },
+        { role: 'user', content: 'Read the three independent files.' },
+    ];
+    const callSpecs = [
+        { id: 'cache-call-a', name: 'read', arguments: { path: 'a.txt' } },
+        { id: 'cache-call-b', name: 'read', arguments: { path: 'b.txt' } },
+        { id: 'cache-call-c', name: 'read', arguments: { path: 'c.txt' } },
+    ];
+    const runScheduledBatch = async (delays) => {
+        const calls = structuredClone(callSpecs);
+        const completionOrder = [];
+        const results = await runBatch(calls, async (_name, _args, _cwd, _sessionId, _sessionRef, options) => {
+            const callId = options.toolCallId;
+            await new Promise((resolve) => setTimeout(resolve, delays[callId]));
+            completionOrder.push(callId);
+            return `stable-result:${callId}`;
+        });
+        return {
+            completionOrder,
+            history: [
+                ...structuredClone(baseMessages),
+                { role: 'assistant', content: '', toolCalls: calls },
+                ...results,
+            ],
+        };
+    };
+
+    const reverse = await runScheduledBatch({
+        'cache-call-a': 30,
+        'cache-call-b': 15,
+        'cache-call-c': 1,
+    });
+    const forward = await runScheduledBatch({
+        'cache-call-a': 1,
+        'cache-call-b': 15,
+        'cache-call-c': 30,
+    });
+    assert.deepEqual(reverse.completionOrder, ['cache-call-c', 'cache-call-b', 'cache-call-a']);
+    assert.deepEqual(forward.completionOrder, ['cache-call-a', 'cache-call-b', 'cache-call-c']);
+
+    const sendOpts = {
+        sessionId: 'parallel-cache-parity',
+        promptCacheKey: 'parallel-cache-parity',
+        providerCacheKey: 'parallel-cache-parity',
+        effort: 'high',
+        cacheStrategy: {
+            tools: 'none',
+            system: '1h',
+            tier3: '1h',
+            messages: '1h',
+        },
+    };
+    const initialOpenAI = buildOpenAIRequestBody(
+        baseMessages,
+        'gpt-5.4',
+        PROVIDER_TEST_TOOLS,
+        sendOpts,
+    );
+    const reverseOpenAI = buildOpenAIRequestBody(
+        reverse.history,
+        'gpt-5.4',
+        PROVIDER_TEST_TOOLS,
+        sendOpts,
+    );
+    const forwardOpenAI = buildOpenAIRequestBody(
+        forward.history,
+        'gpt-5.4',
+        PROVIDER_TEST_TOOLS,
+        sendOpts,
+    );
+    assert.equal(reverseOpenAI.prompt_cache_key, initialOpenAI.prompt_cache_key);
+    assert.deepEqual(
+        reverseOpenAI.input.slice(0, initialOpenAI.input.length),
+        initialOpenAI.input,
+        'the previous OpenAI request must remain a byte-stable input prefix',
+    );
+    assert.equal(JSON.stringify(reverseOpenAI), JSON.stringify(forwardOpenAI));
+
+    const reverseAnthropic = buildAnthropicRequestBody(
+        reverse.history,
+        'claude-sonnet-4-5',
+        PROVIDER_TEST_TOOLS,
+        sendOpts,
+    );
+    const forwardAnthropic = buildAnthropicRequestBody(
+        forward.history,
+        'claude-sonnet-4-5',
+        PROVIDER_TEST_TOOLS,
+        sendOpts,
+    );
+    assert.equal(JSON.stringify(reverseAnthropic), JSON.stringify(forwardAnthropic));
 });
 
 test('shells and patch share one immediate parallel wave', async () => {

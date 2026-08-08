@@ -10,7 +10,7 @@ import { _rgThreadCap } from '../src/runtime/agent/orchestrator/tools/builtin/rg
 
 test('daemon pwsh pool scales with CPU and free memory while explicit policy wins', () => {
   const daemonEnv = { MIXDOG_DAEMON_HOST: '1' };
-  const liveCpuTarget = Math.max(1, Math.min(4, availableParallelism() - 1 || 1));
+  const liveCpuTarget = Math.max(1, Math.min(8, availableParallelism() - 1 || 1));
   const liveFree = freemem();
   const liveExpected = liveFree < 768 * 1024 ** 2
     ? 0
@@ -18,7 +18,9 @@ test('daemon pwsh pool scales with CPU and free memory while explicit policy win
       ? Math.min(1, liveCpuTarget)
       : liveFree < 3072 * 1024 ** 2
         ? Math.min(2, liveCpuTarget)
-        : liveCpuTarget;
+        : liveFree < 6144 * 1024 ** 2
+          ? Math.min(4, liveCpuTarget)
+          : liveCpuTarget;
   assert.equal(_resolvePwshPoolTarget({
     env: daemonEnv,
     platform: 'win32',
@@ -28,7 +30,7 @@ test('daemon pwsh pool scales with CPU and free memory while explicit policy win
     platform: 'win32',
     parallelism: 16,
     freeMemoryBytes: 8 * 1024 ** 3,
-  }), 4);
+  }), 8);
   assert.equal(_resolvePwshPoolTarget({
     env: daemonEnv,
     platform: 'win32',

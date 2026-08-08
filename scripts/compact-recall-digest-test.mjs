@@ -55,8 +55,8 @@ assert.equal((integrated.text.match(/오케이/g) || []).length, 1, 'compact sea
 assert.equal((integrated.text.match(/cache recent session snapshots/g) || []).length, 1, 'compact search path removes near duplicates');
 
 // Compaction digest must not apply the in-flight current-turn cutoff: the
-// transcript was just fully ingested, so the newest (finalized) turn carries a
-// fresh ingest-time ts and would otherwise be dropped from the digest.
+// watcher-backed stored history may contain a newly finalized turn whose
+// timestamp is still fresh and would otherwise be dropped from the digest.
 const freshTurnRows = [
   { id: 21, ts: Date.now(), role: 'assistant', content: 'newest finalized answer', is_root: 0, chunk_root: null, source_turn: 7 },
   { id: 20, ts: Date.now() - 1000, role: 'user', content: 'older question', is_root: 0, chunk_root: null, source_turn: 6 },

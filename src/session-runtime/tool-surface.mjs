@@ -21,6 +21,7 @@ export function createToolSurface({
   loadWorkflowPack,
   activeWorkflowId,
   dataDir,
+  getFeatureDisallowedTools = () => [],
 }) {
   let preSessionSurface = null;
 
@@ -46,16 +47,23 @@ export function createToolSurface({
   }
 
   function modelStandaloneTools() {
-    return workflowAllowsAgents()
+    const workflowTools = workflowAllowsAgents()
       ? standaloneTools
       : standaloneTools.filter((tool) => !agentToolNames.has(String(tool?.name || '')));
+    const denied = new Set(getFeatureDisallowedTools().map((name) => String(name || '')));
+    return denied.size
+      ? workflowTools.filter((tool) => !denied.has(String(tool?.name || '')))
+      : workflowTools;
   }
 
   function buildPreSessionSurface() {
     const previewTools = typeof mgr.previewSessionTools === 'function'
       ? mgr.previewSessionTools(toolSpecForMode(mode), [])
       : [];
-    const tools = filterDisallowedTools(previewTools, LEAD_DISALLOWED_TOOLS);
+    const tools = filterDisallowedTools(previewTools, [
+      ...LEAD_DISALLOWED_TOOLS,
+      ...getFeatureDisallowedTools(),
+    ]);
     const surface = { tools: Array.isArray(tools) ? tools.slice() : [] };
     applyDeferredToolSurface(surface, deferredSurfaceModeForLead(mode), modelStandaloneTools(), {
       provider: getRoute().provider,

@@ -9,6 +9,10 @@ import { performance } from 'node:perf_hooks';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import {
+  applySessionStatePatch,
+  diffSessionState,
+} from '../src/standalone/session-state-patch.mjs';
 
 const RUNTIME_ROOT = mkdtempSync(join(tmpdir(), 'mixdog-session-transport-'));
 process.env.MIXDOG_RUNTIME_ROOT = RUNTIME_ROOT;
@@ -164,6 +168,25 @@ test('protocol stays at 1 while revision then app build chooses the daemon', () 
     version: '1.2.3',
     capabilityFingerprint: '0000000000000000',
   }, { revision: 1, version: '1.2.3' }).capabilityMismatch, true);
+});
+
+test('a 2k-item tool-card update sends only the changed transcript suffix', () => {
+  const items = Array.from({ length: 2_000 }, (_, index) => ({
+    id: `item-${index}`,
+    kind: index === 1_999 ? 'tool' : 'message',
+    status: 'settled',
+    text: `row-${index}`,
+  }));
+  const nextItems = items.slice();
+  nextItems[1_999] = { ...nextItems[1_999], status: 'completed', text: 'tool result' };
+  const previous = { sessionId: 'suffix-test', busy: true, items };
+  const next = { sessionId: 'suffix-test', busy: false, items: nextItems };
+  const patch = diffSessionState(previous, next);
+
+  assert.equal(Object.hasOwn(patch.set, 'items'), false);
+  assert.deepEqual(patch.itemsAppend, { from: 1_999, values: [nextItems[1_999]] });
+  assert.ok(JSON.stringify(patch).length < 512, 'one tool update stays independent of transcript size');
+  assert.deepEqual(applySessionStatePatch(previous, patch), next);
 });
 
 test('daemon-owned OAuth flows expose serializable status, completion, and cancellation', async () => {

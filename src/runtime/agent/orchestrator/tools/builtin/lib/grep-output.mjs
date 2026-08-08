@@ -198,7 +198,7 @@ export function dedupeFanoutMatchLines(body, seen) {
     return out.join('\n');
 }
 
-export function formatGrepOutput({ windowed, totalWindowed, totalKnown, headLimit, offset, outputMode, patterns: _patterns, beforeN, afterN, contextN, searchPath, grepResolvedPath: _grepResolvedPath, workDir, globPatterns: _globPatterns, fileType: _fileType, filenameOmitted = false, prefix = '', broadAdvisory: _broadAdvisory = true, disableContentGrouping = false }) {
+export function formatGrepOutput({ windowed, totalWindowed, totalKnown, headLimit, offset, outputMode, patterns: _patterns, beforeN, afterN, contextN, searchPath, grepResolvedPath: _grepResolvedPath, workDir, globPatterns: _globPatterns, fileType: _fileType, filenameOmitted = false, prefix = '', broadAdvisory: _broadAdvisory = true, disableContentGrouping = false, includeMatchCount = false }) {
     const lines = headLimit === Infinity ? windowed : windowed.slice(0, headLimit);
     const normalized = lines.map((line) => relativeGrepLine(line, workDir, outputMode === 'files_with_matches', outputMode, filenameOmitted));
     const remaining = Math.max(0, totalWindowed - lines.length);
@@ -227,6 +227,9 @@ export function formatGrepOutput({ windowed, totalWindowed, totalKnown, headLimi
     const groupedBody = (outputMode === 'content' && !hasContext && !filenameOmitted && !disableContentGrouping)
         ? groupGrepContentByFile(normalized)
         : normalized.join('\n');
-    const body = groupedBody + truncated + countSummary;
+    const matchCountSummary = includeMatchCount && outputMode === 'content' && totalKnown && total > 0
+        ? `\n[total ${total} matches]`
+        : '';
+    const body = groupedBody + truncated + countSummary + matchCountSummary;
     return `${prefix}${body}`;
 }

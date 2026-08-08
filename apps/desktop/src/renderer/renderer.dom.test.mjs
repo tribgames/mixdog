@@ -13915,6 +13915,24 @@ test("Explorer keeps one selection while active editor tabs and folders change",
   });
   const first = document.querySelector('.dock-file-row[title="one.ts"]');
   const second = document.querySelector('.dock-file-row[title="two.ts"]');
+  const explorerDragData = new Map();
+  await act(async () => {
+    const event = new window.Event("dragstart", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", {
+      value: {
+        effectAllowed: "none",
+        setData(type, value) { explorerDragData.set(type, value); },
+        setDragImage() {},
+      },
+    });
+    first?.dispatchEvent(event);
+  });
+  assert.deepEqual(
+    JSON.parse(explorerDragData.get("application/x-mixdog-project-paths")),
+    { projectPath, paths: ["one.ts"] },
+    "Explorer drags must expose a typed Project-path payload to the composer",
+  );
+  await act(async () => first?.dispatchEvent(new window.Event("dragend", { bubbles: true })));
   const dockTabs = document.querySelector(".utility-dock-tabs");
   const filesSurface = document.querySelector(".dock-files");
   const tabsHeader = document.querySelector(".utility-dock-tabs-header");
@@ -15857,6 +15875,7 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   let aborts = 0;
   const abortOptions = [];
   let rejectCompact = false;
+  let submitGate = null;
   const capabilities = [];
   const submissions = [];
   const idle = {
@@ -15869,9 +15888,14 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
     subscribeState: (listener) => { publish = listener; return () => {}; },
     listSessions: async () => [row],
     startTask: async () => idle,
-    submit: async (content, options) => { submissions.push([content, options]); return true; },
+    submit: async (content, options) => {
+      submissions.push([content, options]);
+      if (submitGate) await submitGate;
+      return true;
+    },
     submitToSession: async (_sessionId, content, options) => {
       submissions.push([content, options]);
+      if (submitGate) await submitGate;
       return true;
     },
     abort: async (options) => { aborts += 1; abortOptions.push(options); return { aborted: true }; },
@@ -15945,7 +15969,8 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   await replaceDraft('queued while command runs');
   assert.equal(getTextarea().value, 'queued while command runs');
   assert.equal(document.querySelector('.send-button')?.disabled, false);
-  await press('Enter');
+  const plainEnter = await press('Enter');
+  assert.equal(plainEnter.defaultPrevented, true, 'plain Enter suppresses the textarea line break');
   assert.equal(submissions.length, 1);
   assert.equal(submissions[0][0], 'queued while command runs');
   assert.equal('priority' in submissions[0][1], false);
@@ -15969,39 +15994,44 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   assert.equal(capabilities.some(([capability]) => capability === 'compact'), false,
     'native IME Enter does not accept the slash command');
 
-  // OpenCode desktop parity: track the full composition lifecycle because
-  // Chromium does not consistently expose isComposing/keyCode 229 on every
-  // event in a Korean IME commit. A composing Enter must neither submit nor
-  // allow textarea's occasional insertLineBreak default.
+  // Track the full composition lifecycle because Chromium does not consistently
+  // expose isComposing/keyCode 229 on every event in a Korean IME commit. A
+  // composing Enter must neither submit nor allow textarea's occasional
+  // insertLineBreak default, even when it follows compositionend.
+  let lifecycleImeEnter;
+  let imeLineBreak;
   await act(async () => {
     getTextarea().dispatchEvent(new window.CompositionEvent('compositionstart', {
       bubbles: true,
       data: '글',
     }));
-  });
-  const lifecycleImeEnter = await press('Enter');
-  assert.equal(lifecycleImeEnter.defaultPrevented, false,
-    'compositionstart keeps Enter owned by IME even without native flags');
-  assert.equal(capabilities.some(([capability]) => capability === 'compact'), false,
-    'composition lifecycle Enter does not accept the slash command');
-  const imeLineBreak = new window.InputEvent('beforeinput', {
-    bubbles: true,
-    cancelable: true,
-    inputType: 'insertLineBreak',
-    data: null,
-    isComposing: true,
-  });
-  await act(async () => {
-    getTextarea().dispatchEvent(imeLineBreak);
-    await Promise.resolve();
-  });
-  assert.equal(imeLineBreak.defaultPrevented, true,
-    'composing insertLineBreak is suppressed for textarea parity');
-  await act(async () => {
+    lifecycleImeEnter = new window.KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      cancelable: true,
+    });
+    getTextarea().dispatchEvent(lifecycleImeEnter);
     getTextarea().dispatchEvent(new window.CompositionEvent('compositionend', {
       bubbles: true,
       data: '글',
     }));
+    imeLineBreak = new window.InputEvent('beforeinput', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'insertLineBreak',
+      data: null,
+      isComposing: false,
+    });
+    getTextarea().dispatchEvent(imeLineBreak);
+    await Promise.resolve();
+  });
+  assert.equal(lifecycleImeEnter.defaultPrevented, false,
+    'compositionstart keeps Enter owned by IME even without native flags');
+  assert.equal(capabilities.some(([capability]) => capability === 'compact'), false,
+    'composition lifecycle Enter does not accept the slash command');
+  assert.equal(imeLineBreak.defaultPrevented, true,
+    'post-composition insertLineBreak is suppressed for textarea parity');
+  await act(async () => {
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
 
@@ -16014,13 +16044,82 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   assert.equal(getTextarea().value, 'alpha\n');
   // Ctrl+J belongs to the workbench keymap (toggle panel) on EVERY surface;
   // the composer keeps Shift/Ctrl+Enter for newlines.
-  await press('Enter', { shiftKey: true });
+  const shiftEnter = await press('Enter', { shiftKey: true });
+  assert.equal(shiftEnter.defaultPrevented, true);
   assert.equal(getTextarea().value, 'alpha\n\n');
-  await press('Enter', { altKey: true });
+  const altEnter = await press('Enter', { altKey: true });
+  assert.equal(altEnter.defaultPrevented, true);
   assert.equal(getTextarea().value, 'alpha\n\n\n');
+  const ctrlEnter = await press('Enter', { ctrlKey: true });
+  assert.equal(ctrlEnter.defaultPrevented, true);
+  assert.equal(getTextarea().value, 'alpha\n\n\n\n');
+  const metaEnter = await press('Enter', { metaKey: true });
+  assert.equal(metaEnter.defaultPrevented, true);
+  assert.equal(getTextarea().value, 'alpha\n\n\n\n\n');
+  const repeatedEnter = await press('Enter', { repeat: true });
+  assert.equal(repeatedEnter.defaultPrevented, true,
+    'repeated plain Enter cannot fall through to a textarea line break');
+  assert.equal(getTextarea().value, 'alpha\n\n\n\n\n');
+  assert.equal(submissions.length, 1, 'newline chords and repeated Enter do not submit');
 
   await press('Tab');
-  assert.equal(getTextarea().value, 'alpha\n\n\n');
+  assert.equal(getTextarea().value, 'alpha\n\n\n\n\n');
+
+  // Windows Korean IME can deliver compositionend immediately before the
+  // keydown from the same physical Enter. The reference composer clears its
+  // composition flag synchronously, so that keydown submits without requiring
+  // a second Enter.
+  await replaceDraft('한글 제');
+  let postCompositionEnter;
+  await act(async () => {
+    const textarea = getTextarea();
+    textarea.dispatchEvent(new window.CompositionEvent('compositionstart', {
+      bubbles: true,
+      data: '출',
+    }));
+    textarea.value = '한글 제출';
+    textarea.dispatchEvent(new window.CompositionEvent('compositionend', {
+      bubbles: true,
+      data: '출',
+    }));
+    postCompositionEnter = new window.KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      cancelable: true,
+    });
+    textarea.dispatchEvent(postCompositionEnter);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(postCompositionEnter.defaultPrevented, true,
+    'the Enter delivered after compositionend is handled as submit');
+  assert.equal(submissions.length, 2, 'Korean IME submit does not require a second Enter');
+  assert.equal(submissions[1][0], '한글 제출');
+  assert.equal(getTextarea().value, '');
+
+  let releaseRapidSubmit;
+  submitGate = new Promise((resolve) => { releaseRapidSubmit = resolve; });
+  await replaceDraft('submit exactly once');
+  await act(async () => {
+    const firstEnter = new window.KeyboardEvent('keydown', {
+      key: 'Enter', bubbles: true, cancelable: true,
+    });
+    const secondEnter = new window.KeyboardEvent('keydown', {
+      key: 'Enter', bubbles: true, cancelable: true,
+    });
+    getTextarea().dispatchEvent(firstEnter);
+    getTextarea().dispatchEvent(secondEnter);
+    await Promise.resolve();
+  });
+  assert.equal(submissions.length, 3, 'same-frame Enter presses share one synchronous submit latch');
+  assert.equal(submissions[2][0], 'submit exactly once');
+  await act(async () => {
+    releaseRapidSubmit();
+    submitGate = null;
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
   await replaceDraft('/co');
   await press('Tab');
   assert.equal(getTextarea().value, '/compact ');
@@ -16112,7 +16211,8 @@ test("desktop composer folds large pasted text and submits the expanded attachme
     await Promise.resolve();
   });
   const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
-  const pasted = 'first line\nsecond line\nthird line\nfourth line';
+  const pasted = 'first line\r\nsecond line\rthird line\nfourth line';
+  const normalizedPaste = 'first line\nsecond line\nthird line\nfourth line';
   await act(async () => {
     const event = new window.Event('paste', { bubbles: true, cancelable: true });
     Object.defineProperty(event, 'clipboardData', {
@@ -16135,7 +16235,27 @@ test("desktop composer folds large pasted text and submits the expanded attachme
   assert.doesNotMatch(String(submissions[0][0]), /first line[\s\S]*fourth line/);
   assert.doesNotMatch(String(submissions[0][0]), /<file name=/);
   assert.equal('priority' in submissions[0][1], false);
-  assert.equal(submissions[0][1].pastedTexts['1'].text, pasted);
+  assert.equal(submissions[0][1].pastedTexts['1'].text, normalizedPaste,
+    'folded paste payloads normalize platform line endings before storage');
+
+  await act(async () => {
+    textarea.dispatchEvent(new window.KeyboardEvent('keydown', {
+      key: 'ArrowUp', bubbles: true, cancelable: true,
+    }));
+    await Promise.resolve();
+  });
+  assert.match(textarea.value, /\[Pasted text #1 \+4 lines\]/);
+  assert.equal(textarea.selectionStart, 0,
+    'history recall places the caret at the start like the reference composers');
+  assert.match(document.querySelector('.composer-attachments')?.textContent || '', /Pasted text/,
+    'history recall restores the structured pasted-text payload with its token');
+  await act(async () => {
+    textarea.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(submissions.length, 2);
+  assert.equal(submissions[1][1].pastedTexts['1'].text, normalizedPaste);
 });
 
 test("desktop composer accepts clipboard images exposed through DataTransfer items", async () => {
@@ -16179,11 +16299,13 @@ test("desktop composer accepts clipboard images exposed through DataTransfer ite
   assert.equal(document.querySelector('.send-button')?.disabled, false);
 });
 
-test("desktop task accepts file drops across the full conversation area", async () => {
+test("desktop task accepts file drops and Explorer mentions across the full conversation area", async () => {
   installDom();
-  const snapshot = { items: [], queued: [], promptHistoryList: [] };
+  const project = 'C:\\workspace\\drop-project';
+  const snapshot = { currentProject: project, items: [], queued: [], promptHistoryList: [] };
   window.mixdogDesktop = {
     getSnapshot: async () => snapshot,
+    listProjects: async () => [{ path: project, alias: 'Drop project', pinned: false }],
     listSessions: async () => [],
     subscribeState: () => () => {},
   };
@@ -16224,6 +16346,32 @@ test("desktop task accepts file drops across the full conversation area", async 
   });
   assert.equal(document.querySelector('.task-drop-overlay'), null);
   assert.match(document.querySelector('.composer-attachments')?.textContent || '', /dragged\.txt/);
+
+  await act(async () => {
+    document.querySelector('button[aria-label="Project context"]').click();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    Array.from(document.querySelectorAll('[role="option"]'))
+      .find((option) => option.textContent.trim() === 'Drop project')?.click();
+    await Promise.resolve();
+  });
+  const projectTransfer = {
+    types: ['application/x-mixdog-project-paths'],
+    getData: (type) => type === 'application/x-mixdog-project-paths'
+      ? JSON.stringify({ projectPath: project, paths: ['src/dragged.ts', 'docs/guide.md'] })
+      : '',
+    dropEffect: 'none',
+  };
+  await act(async () => {
+    const event = new window.Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'dataTransfer', { value: projectTransfer });
+    dropTarget.dispatchEvent(event);
+    await Promise.resolve();
+  });
+  const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
+  assert.match(textarea.value, /@src\/dragged\.ts @docs\/guide\.md/,
+    'dropping Explorer rows inserts Project-relative mentions at the composer caret');
 });
 
 test("desktop composer searches, cancels stale @ file mentions, selects by keyboard, and submits the path", async () => {

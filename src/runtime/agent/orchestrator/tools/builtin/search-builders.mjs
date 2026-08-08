@@ -32,6 +32,7 @@ export function buildGrepCacheKey(parts) {
         pcre2,
         withFilename,
         contextCharBudget = 0,
+        flatOutput = false,
         patternCapTotal = 0,
         candidatesKey = '',
     } = parts;
@@ -54,6 +55,7 @@ export function buildGrepCacheKey(parts) {
         pcre2 ? 'p1' : 'p0',
         withFilename ? 'H1' : 'H0',
         'cb' + String(contextCharBudget || 0),
+        flatOutput ? 'flat1' : 'flat0',
         // Cap total keeps a capped request (first-N of M patterns, carrying the
         // "[capped at N of M]" notice) from colliding with an exact N-pattern
         // request or with a differently-capped one (of 15 vs of 20).

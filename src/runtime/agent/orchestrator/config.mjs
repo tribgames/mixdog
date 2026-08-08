@@ -343,6 +343,16 @@ function canonicalizeShellStorage(value) {
 function canonicalizeModulesStorage(value) {
     const modules = configObject(value);
     delete modules.memory;
+    for (const name of ['search', 'explore']) {
+        if (!Object.prototype.hasOwnProperty.call(modules, name)) continue;
+        const raw = modules[name];
+        modules[name] = {
+            ...(raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}),
+            enabled: raw && typeof raw === 'object' && !Array.isArray(raw)
+                ? raw.enabled !== false
+                : raw !== false,
+        };
+    }
     return nonEmptyConfigObject(modules);
 }
 
@@ -405,7 +415,8 @@ function canonicalizeLegacyAgentStorage(value = {}) {
         }
         delete modules.memory;
     }
-    if (Object.keys(modules).length) next.modules = modules;
+    const canonicalModules = canonicalizeModulesStorage(modules);
+    if (canonicalModules) next.modules = canonicalModules;
     else delete next.modules;
     delete next.fastModels;
     delete next.agentMaintenance;
@@ -558,7 +569,7 @@ export function loadConfig(options = {}) {
                 shell: raw.shell && typeof raw.shell === 'object' ? raw.shell : {},
                 update: raw.update && typeof raw.update === 'object' ? { ...raw.update } : {},
                 recap: recapConfig,
-                modules: raw.modules && typeof raw.modules === 'object' ? { ...raw.modules } : {},
+                modules: canonicalizeModulesStorage(raw.modules) || {},
             });
             if (storageNeedsMigration) {
                 try {

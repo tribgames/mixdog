@@ -74,7 +74,10 @@ import {
 } from '../shared/session-catalog.ts';
 import { normalizeCachedSessionCatalog } from './session-catalog-cache.ts';
 import { classifyMobileTaskSwipe } from './mobile-task-gestures.ts';
-import { LatestMarkdownAstQueue } from './markdown-worker-client.ts';
+import {
+  LatestMarkdownAstQueue,
+  parseStreamingMarkdownAst,
+} from './markdown-worker-client.ts';
 import {
   parseCodeGraphLocations,
   parseCodeGraphSymbols,
@@ -1535,7 +1538,7 @@ test('the transcript timeline paints one contained layer with OpenCode cold over
 test('task transcript uses a clean content, operation, and meta type hierarchy', async () => {
   const css = await readFile(new URL('./desktop.css', import.meta.url), 'utf8');
   assert.match(css,
-    /\.message-body\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*line-height:\s*var\(--mx-line-emphasis\);/s);
+    /\.message-body\s*\{[^}]*font-size:\s*var\(--mx-font-body\);[^}]*line-height:\s*var\(--mx-line-body\);/s);
   assert.match(css,
     /\.tool-title b,\s*\.tool-title small\s*\{[^}]*font-size:\s*var\(--mx-font-code\);[^}]*line-height:\s*var\(--mx-line-ui\);/s);
   assert.match(css,
@@ -1547,7 +1550,7 @@ test('task transcript uses a clean content, operation, and meta type hierarchy',
   assert.match(css,
     /\.turn-status\.complete,\s*\.turn-status\.success,[\s\S]*?font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-medium\);/);
   assert.match(css,
-    /\.compaction-divider\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-medium\);[^}]*line-height:\s*var\(--mx-line-ui\);/s);
+    /\.compaction-divider\s*\{[^}]*font-size:\s*var\(--mx-font-body\);[^}]*font-weight:\s*var\(--mx-weight-medium\);[^}]*line-height:\s*var\(--mx-line-body\);/s);
   assert.match(css,
     /\.thinking-disclosure\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-medium\);/s);
   assert.match(css,
@@ -1555,13 +1558,14 @@ test('task transcript uses a clean content, operation, and meta type hierarchy',
   assert.match(css, /\.markdown h1\s*\{[^}]*font-size:\s*17px;/s);
   assert.match(css, /\.markdown h2\s*\{[^}]*font-size:\s*16px;/s);
   assert.match(css,
-    /\.markdown h3\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);/s);
+    /\.markdown h3\s*\{[^}]*font-size:\s*var\(--mx-font-body\);[^}]*line-height:\s*var\(--mx-line-body\);/s);
+  assert.match(css, /\.markdown li\s*\{\s*margin-bottom:\s*8px;\s*\}/s);
   assert.match(css,
     /\.markdown strong,\s*\.markdown b\s*\{[^}]*font-weight:\s*var\(--mx-weight-medium\);/s);
   assert.match(css,
     /\.markdown :not\(pre\) > code\s*\{[^}]*font-size:\s*var\(--mx-font-code\);/s);
   assert.match(css,
-    /\.composer textarea\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-body\);[^}]*line-height:\s*var\(--mx-line-emphasis\);/s,
+    /\.composer textarea\s*\{[^}]*font-size:\s*var\(--mx-font-body\);[^}]*font-weight:\s*var\(--mx-weight-body\);[^}]*line-height:\s*var\(--mx-line-body\);/s,
     'typed text and submitted prose must share the same content metrics');
 });
 
@@ -3511,6 +3515,50 @@ test('streaming Markdown worker AST is cloneable, GFM-complete, and HTML-safe', 
   assert.doesNotMatch(serialized, /"tagName":"script"/,
     'raw HTML must remain literal text instead of becoming executable HAST');
   assert.match(serialized, /<script>alert\(1\)<\/script>/);
+});
+
+test('streaming Markdown recovers rich formatting when its worker fails', async () => {
+  const originalWorker = globalThis.Worker;
+  let prevented = false;
+  class FailingMarkdownWorker {
+    constructor() {
+      this.handlers = new Map();
+    }
+    addEventListener(type, handler) {
+      if (!this.handlers.has(type)) this.handlers.set(type, []);
+      this.handlers.get(type).push(handler);
+    }
+    postMessage() {
+      queueMicrotask(() => {
+        for (const handler of this.handlers.get('error') || []) {
+          handler({
+            message: 'worker bootstrap failed',
+            preventDefault() { prevented = true; },
+          });
+        }
+      });
+    }
+    terminate() {}
+  }
+  globalThis.Worker = FailingMarkdownWorker;
+  try {
+    const root = await parseStreamingMarkdownAst(
+      '제가 **3턴째도 도구 금지 후 보고**로 잘못 해석했습니다.',
+    );
+    const serialized = JSON.stringify(root);
+    assert.match(serialized, /"tagName":"strong"/);
+    assert.match(serialized, /3턴째도 도구 금지 후 보고/);
+    assert.doesNotMatch(serialized, /\*\*/,
+      'worker failure must promote the same rich AST instead of retaining source markers');
+    assert.equal(prevented, true, 'the duplicate global worker error must remain absorbed');
+
+    const later = await parseStreamingMarkdownAst('후속 **응답**도 정상 표시');
+    assert.match(JSON.stringify(later), /"tagName":"strong"/,
+      'later requests must keep using the renderer fallback after a permanent worker failure');
+  } finally {
+    if (originalWorker === undefined) delete globalThis.Worker;
+    else globalThis.Worker = originalWorker;
+  }
 });
 
 test('streaming Markdown worker queue drops obsolete waiting snapshots', async () => {

@@ -9,6 +9,7 @@ process.env.MIXDOG_QUIET_SESSION_LOG ??= '1';
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
 import { sanitizeForWire } from './session-service.mjs';
 import { disposeSessionRuntimeRecord } from './session-runtime-record.mjs';
+import { diffSessionState } from './session-state-patch.mjs';
 
 const records = new Map();
 let sessionModulePromise = null;
@@ -69,29 +70,6 @@ function projectState(record, raw) {
   return out;
 }
 
-function diffState(previous, next) {
-  if (!previous || !next || typeof previous !== 'object' || typeof next !== 'object') return null;
-  const set = {};
-  const remove = [];
-  let itemsAppend = null;
-  for (const [key, value] of Object.entries(next)) {
-    if (previous[key] === value) continue;
-    if (key === 'items' && Array.isArray(value) && Array.isArray(previous.items)
-      && value.length >= previous.items.length
-      && previous.items.every((item, index) => item === value[index])) {
-      if (value.length > previous.items.length) {
-        itemsAppend = { from: previous.items.length, values: value.slice(previous.items.length) };
-      }
-      continue;
-    }
-    set[key] = value;
-  }
-  for (const key of Object.keys(previous)) {
-    if (!(key in next)) remove.push(key);
-  }
-  return { set, remove, itemsAppend };
-}
-
 function publish(record, forceFull = false) {
   if (!record || record.disposed) return;
   const projected = projectState(record, record.runtime.getState?.() || {});
@@ -105,7 +83,7 @@ function publish(record, forceFull = false) {
     revision: record.revision,
     ...(forceFull || !previous
       ? { full: projected }
-      : { patch: diffState(previous, projected) }),
+      : { patch: diffSessionState(previous, projected) }),
   });
 }
 

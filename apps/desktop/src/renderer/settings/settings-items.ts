@@ -17,10 +17,13 @@ export const SETTINGS_ITEMS = [
   { value: 'output-style', label: 'Output style', description: 'Response tone and format.', kind: 'open' },
   { value: 'profile', label: 'Profile', description: 'Your title and response language.', kind: 'open' },
   { value: 'theme', label: 'Theme', description: 'TUI color theme.', kind: 'open' },
+  { value: 'web-search-enabled', label: 'Web search', description: 'Expose web search and fetch tools to new sessions.', kind: 'toggle' },
+  { value: 'explorer-enabled', label: 'Explorer', description: 'Expose the repository locator tool to new sessions.', kind: 'toggle' },
+  { value: 'memory-enabled', label: 'Memory', description: 'Background cycles and model memory writes.', kind: 'toggle' },
   { value: 'autocompact', label: 'Auto-compact', description: 'Compact when context is high.', kind: 'toggle' },
   { value: 'compact-type', label: 'Compact type', description: 'Uses Memory recall to rebuild context faster on large histories.', kind: 'static' },
   { value: 'autoclear', label: 'Auto-clear', description: 'Idle auto-clear disabled. Enter for options.', kind: 'toggle' },
-  { value: 'memory', label: 'Memory', description: 'Session memory and core memories.', kind: 'open' },
+  { value: 'memory', label: 'Core memories', description: 'List and edit user-curated core memories.', kind: 'open' },
   { value: 'providers', label: 'Providers', description: 'Auth, API keys, OAuth, local.', kind: 'open' },
   { value: 'mcp', label: 'MCP servers', description: '0/0 connected', kind: 'open' },
   { value: 'plugins', label: 'Plugins', description: '0 detected', kind: 'open' },
@@ -55,7 +58,7 @@ export const SETTINGS_CATEGORIES = [
     value: 'general',
     label: 'General',
     group: 'Mixdog',
-    items: ['profile', 'theme'],
+    items: ['profile', 'theme', 'web-search-enabled', 'explorer-enabled', 'memory-enabled'],
   },
   // Context management (user decision): auto-compact, auto-clear, and memory
   // merged into ONE category — everything about how a session's context

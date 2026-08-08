@@ -46,7 +46,7 @@ import {
   extractPowerShellCommandInner,
 } from './shell-powershell.mjs';
 import { spawnShellWithRetry as _spawnShellWithRetry } from './lib/shell-spawn-retry.mjs';
-import { takePwshStandby } from './lib/pwsh-standby-pool.mjs';
+import { takePwshStandbyBurst } from './lib/pwsh-standby-pool.mjs';
 
 export {
   _maybeEncodePowerShellCommand,
@@ -206,31 +206,6 @@ export async function acquireShellLeaseBounded(admission, {
   }
 }
 
-// After the direct child exits, descendants that survive tree-kill (GUI/daemon
-// helpers such as Electron crashpad) can keep the quiescence tracker pending
-// forever, permanently holding an admission lease. Cap the post-exit linger:
-// the tree stays observed, but the admission capacity is reclaimed so new
-// shell work cannot deadlock on saturation. 0 disables the cap.
-const _envLeaseLinger = Math.floor(Number(process.env.MIXDOG_SHELL_LEASE_LINGER_MAX_MS));
-const SHELL_LEASE_LINGER_MAX_MS = Number.isFinite(_envLeaseLinger) && _envLeaseLinger >= 0
-  ? _envLeaseLinger
-  : 120_000;
-
-function _armLeaseLingerCap(getLease, label) {
-  if (!(SHELL_LEASE_LINGER_MAX_MS > 0)) return;
-  const timer = setTimeout(() => {
-    let lease = null;
-    try { lease = typeof getLease === 'function' ? getLease() : getLease; } catch {}
-    if (!lease || lease.released) return;
-    console.warn(
-      `[shell] ${label}: admission lease force-released ${SHELL_LEASE_LINGER_MAX_MS}ms after root exit; `
-      + 'descendant processes are still alive and remain untracked daemons.',
-    );
-    try { Promise.resolve(lease.release()).catch(() => {}); } catch {}
-  }, SHELL_LEASE_LINGER_MAX_MS);
-  if (timer.unref) timer.unref();
-}
-
 // Count of shell spawns currently in-flight (including those parked in an
 // EPERM backoff). Logged with each failed spawn so a Defender-induced storm
 // is reconstructable: activeSpawnCount > 1 means concurrent spawns were
@@ -299,25 +274,27 @@ export function execShellCommand({
     };
     const releaseResourceLeaseWhenTreeQuiescent = (pid, { waitForRootExit = false } = {}) => {
       if (resourceLeaseSettlement) return resourceLeaseSettlement;
-      if (!resourceLease) return { pending: false, promise: Promise.resolve() };
+      if (!resourceLease) {
+        return { pending: false, release: () => Promise.resolve(), tracker: null, lease: null };
+      }
       const lease = resourceLease;
       resourceLease = null;
-      const cleanup = Promise.withResolvers();
-      const tracker = trackProcessTreeQuiescence(pid, () => {
+      let releasePromise = null;
+      const release = () => {
+        if (releasePromise) return releasePromise;
         try {
-          Promise.resolve(lease.release()).then(
-            () => cleanup.resolve({ error: null }),
-            (error) => cleanup.resolve({ error }),
-          );
-        } catch (error) {
-          cleanup.resolve({ error });
+          releasePromise = Promise.resolve(lease.release()).catch(() => {});
+        } catch {
+          releasePromise = Promise.resolve();
         }
-      }, { waitForRootExit });
+        return releasePromise;
+      };
+      const tracker = trackProcessTreeQuiescence(pid, release, { waitForRootExit });
       resourceLeaseSettlement = {
         lease,
         tracker,
+        release,
         get pending() { return tracker.pending; },
-        promise: cleanup.promise,
       };
       return resourceLeaseSettlement;
     };
@@ -425,7 +402,10 @@ export function execShellCommand({
       // output can be produced before the capture handlers are attached.
       // Standby children always use pipe capture — identical to the win32
       // default (SHELL_DIRECT_CAPTURE is false on win32).
-      _standby = takePwshStandby({ shell, shellArgs, env });
+      _standby = await takePwshStandbyBurst(
+        { shell, shellArgs, env },
+        { signal: abortSignal || null },
+      );
       if (_standby) {
         child = _standby.child;
         child.on('error', _onChildError);
@@ -469,14 +449,6 @@ export function execShellCommand({
         childGroupPid: child.pid,
         label: 'shell-command',
       });
-      // Windows has no process-group handle. Begin observing while the owned
-      // root still exists so descendants can be proven before root exit.
-      // Standby children skip the eager tracker: their root stays ALIVE across
-      // commands (waitForRootExit could never confirm and its CIM polling
-      // would run for the standby's whole lifetime). Marker settle releases
-      // the lease through the recycle path instead; kill/exit fallbacks below
-      // create the tracker lazily once the root is really gone.
-      if (!_standby) releaseResourceLeaseWhenTreeQuiescent(child.pid, { waitForRootExit: true });
     } catch (err) {
       const cleanupError = await releaseResourceLease();
       const spawnText = String((err && err.message) || err);
@@ -649,11 +621,12 @@ export function execShellCommand({
       }
       if (_viaMarker && _standby) {
         // Marker-settled standby: the root pwsh is ALIVE by design, so the
-        // waitForRootExit tracker could never confirm. recycle() probes for
-        // leftover descendants off the result path (returns the standby to the
-        // pool when clean, tree-kills it otherwise) and the lease frees after.
+        // waitForRootExit tracker could never confirm. Return admission as soon
+        // as the command result is complete; recycle() probes for leftover
+        // descendants off the result path and discards a polluted standby.
         const lease = resourceLease;
         resourceLease = null;
+        try { Promise.resolve(lease?.release()).catch(() => {}); } catch {}
         // The standby root survives this command and may return to the pool.
         // Stop this command-scoped guardian so every reuse does not leave
         // another detached Node process watching the same pwsh forever.
@@ -661,27 +634,22 @@ export function execShellCommand({
         childGuardian = null;
         void _standby.recycle()
           .catch(() => false)
-          .then(() => { try { return Promise.resolve(lease?.release()).catch(() => {}); } catch { return null; } })
           .finally(() => standbyGuardian?.stop?.());
       } else {
       childGuardian?.stop?.();
       childGuardian = null;
-      const leaseSettlement = resourceLeaseSettlement
-        || releaseResourceLeaseWhenTreeQuiescent(child.pid);
-      leaseSettlement.tracker?.rootExited?.();
-      // Decoupled lease settlement: the tool RESULT resolves immediately —
-      // the output is fully captured above and nothing in ExecResult depends
-      // on admission accounting. The quiescence proof (a Windows CIM process
-      // snapshot costing ~200ms per call) and the lease release continue in
-      // the background: exactly-once release is owned by the tracker/lease,
-      // and the linger cap still bounds a stuck descendant tree.
-      void (async () => {
-        try {
-          await leaseSettlement.tracker?.afterRootExitCheck?.();
-          if (!leaseSettlement.pending) await leaseSettlement.promise;
-          else _armLeaseLingerCap(() => leaseSettlement.lease, taskId);
-        } catch { /* background release must never throw */ }
-      })();
+      if (resourceLeaseSettlement) {
+        // A promotion attempt started descendant tracking while the root was
+        // alive. A foreground terminal path won afterward, so return admission
+        // now while allowing that ownership observation to finish off-path.
+        resourceLeaseSettlement.tracker?.rootExited?.();
+        void resourceLeaseSettlement.release();
+      } else {
+        // Foreground completion owns no continuing work. Do not put a Windows
+        // CIM descendant probe on the admission path: CC/Codex both return
+        // their execution gate when the tool future completes.
+        void releaseResourceLease();
+      }
       }
       resolveResult(
         new ExecResult({
@@ -764,6 +732,10 @@ export function execShellCommand({
       if (settled || autoBackgrounded || killed || timedOut) return;
       if (child.exitCode != null || child.signalCode != null) return;
       autoBackgrounded = true;
+      // Background lifetime, unlike foreground completion, retains admission
+      // until the owned tree is quiescent. Start while the root still exists so
+      // Windows snapshots can attribute descendants even if it exits mid-handoff.
+      releaseResourceLeaseWhenTreeQuiescent(child.pid, { waitForRootExit: true });
       // Standby handoff: stop feeding this process. Once the in-flight
       // command completes, the marker loop reads stdin EOF and exits with
       // that command's code — the adopted job's close-wired exit file then
@@ -833,8 +805,17 @@ export function execShellCommand({
         }
         return;
       }
-      const promotedLease = resourceLeaseSettlement?.lease || resourceLease;
-      child.once('close', () => { resourceLeaseSettlement?.tracker?.rootExited?.(); });
+      // Only a SUCCESSFUL promotion keeps owning shell capacity after the tool
+      // result. Start descendant tracking here, while the root is still live,
+      // rather than for every foreground command. Foreground completion can
+      // therefore return admission immediately without a Windows CIM probe,
+      // while adopted jobs still hold their lease for their real lifetime.
+      const leaseSettlement = releaseResourceLeaseWhenTreeQuiescent(
+        child.pid,
+        { waitForRootExit: true },
+      );
+      const promotedLease = leaseSettlement.lease;
+      child.once('close', () => { leaseSettlement.tracker?.rootExited?.(); });
       // Wire the lifecycle: on close, write the exit-code file FIRST then
       // touch donePath STRICTLY AFTER — the exact ordering refreshShellJob()
       // gates completion on (donePath visible ⇒ exit file fully flushed).
@@ -898,6 +879,8 @@ export function execShellCommand({
       // job detail off 'running'.
       if (child.exitCode != null || child.signalCode != null) {
         const rc = child.exitCode == null ? 1 : child.exitCode;
+        leaseSettlement.tracker?.rootExited?.();
+        void leaseSettlement.release();
         if (job && job.exitPath && job.donePath) {
           try { writeFileSync(job.exitPath, String(rc)); } catch {}
           try { writeFileSync(job.donePath, ''); } catch {}

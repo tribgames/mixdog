@@ -26,6 +26,7 @@ import {
   validateExplorerName,
   wellFormedExplorerName,
 } from "./explorer-logic";
+import { COMPOSER_PROJECT_PATHS_MIME } from "./composer-support";
 import { t } from "./i18n";
 import { scheduleEditorPanePrefetch } from "./lazy-widgets";
 import { setiIconFor } from "./seti-icons";
@@ -703,6 +704,10 @@ export const FilesRootPane = memo(function FilesRootPane({
         dragRels.current = rels;
         event.dataTransfer.effectAllowed = "copyMove";
         event.dataTransfer.setData("text/plain", rels.join("\n"));
+        event.dataTransfer.setData(COMPOSER_PROJECT_PATHS_MIME, JSON.stringify({
+          projectPath,
+          paths: rels,
+        }));
         if (rels.length > 1) {
           // VS Code multi-drag feedback: an "N items" badge replaces the
           // default row snapshot as the drag image.

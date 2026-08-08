@@ -410,6 +410,10 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
 
 function GeneralPanel({ data, pending, run }: PanelContext) {
   const profile = record(data.profile);
+  const toolModules = record(data.toolModules);
+  const searchModule = record(toolModules.search);
+  const exploreModule = record(toolModules.explore);
+  const recap = record(data.recap);
   const languageOptions = rows(profile.languages).map((entry) => ({ value: String(entry.id || entry.value || 'system'), label: label(entry) }));
   const busy = Boolean(pending);
   return <>
@@ -419,6 +423,17 @@ function GeneralPanel({ data, pending, run }: PanelContext) {
         onSave={(title) => void run('setProfile', [{ title }])} />
       <SelectRow title="Language" value={String(profile.language || 'system')} disabled={busy}
         options={languageOptions} onChange={(language) => void run('setProfile', [{ language }])} />
+    </Group>
+    <Group title="Features">
+      <ToggleRow title="Web search" description="Expose search and web fetch tools to new sessions."
+        checked={searchModule.enabled !== false} disabled={busy}
+        onChange={(enabled) => void run('setWebSearchEnabled', [enabled])} />
+      <ToggleRow title="Explorer" description="Expose the repository locator tool to new sessions."
+        checked={exploreModule.enabled !== false} disabled={busy}
+        onChange={(enabled) => void run('setExploreEnabled', [enabled])} />
+      <ToggleRow title="Memory" description="Run background memory cycles and expose memory writes to new sessions. Recall and manual core memory remain available."
+        checked={recap.enabled !== false} disabled={busy}
+        onChange={(enabled) => void run('setRecapEnabled', [enabled])} />
     </Group>
     <UiLanguageChoices pending={pending} />
         <ThemeChoices data={data} pending={pending} />
@@ -698,7 +713,6 @@ function HooksPanel({ data, pending, run }: PanelContext) {
 // Context management (user decision): ONE page owns how a session's context
 // evolves — auto-compact, idle auto-clear, and the memory that carries over.
 function ContextPanel({ data, pending, run, confirm }: PanelContext) {
-  const recap = record(data.recap);
   const autoClear = record(data.autoClear);
   const compaction = record(data.compaction);
   const providerDefaults = rows(autoClear.providerDefaults);
@@ -718,9 +732,6 @@ function ContextPanel({ data, pending, run, confirm }: PanelContext) {
           { provider: entry.provider, resetProvider: true },
         ], `autoclear-reset-${entry.provider}`)}>Reset</ActionButton>} />)}
     </Group>
-    <Group title="Memory"><ToggleRow title="Background recap"
-      description="Recap sessions in the background. Core memories and on-demand recall remain available."
-      checked={recap.enabled !== false} disabled={busy} onChange={(enabled) => void run('setRecapEnabled', [enabled])} /></Group>
     <section className="settings-group core-memory-section">
       <header><h3>{t('Core memories')}</h3><p>{t('User-curated memories shared across Mixdog sessions.')}</p></header>
       <CoreMemoryManager initialValue={data.coreMemory} pending={pending} run={run} confirm={confirm} />

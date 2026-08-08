@@ -2939,9 +2939,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   width: 8px;
   text-align: center;
 }
-/* Task transcript scale: Codex-like prose keeps paragraphs, lists and
-   timeline state rows on one compact 14/22 reading rhythm. App chrome and the
-   composer retain their own scales; this rule is transcript-only. */
+/* Task transcript scale: Codex-like prose keeps paragraphs and lists on a
+   roomier 15/24 reading rhythm. The composer and compaction boundary use the
+   same reading tier; operational rows retain their smaller chrome scale. */
 /* 450 optical weight: variable Geist/Pretendard fill Hangul strokes the way
    heavier chat faces do — 400 read thin next to it. */
 /* Reading surface runs Pretendard-first for BOTH scripts: with Geist leading,
@@ -2953,9 +2953,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .message-body {
   color: var(--mx-text);
   font-family: var(--mx-font-prose);
-  font-size: var(--mx-font-emphasis);
+  font-size: var(--mx-font-body);
   font-weight: var(--mx-weight-body);
-  line-height: var(--mx-line-emphasis);
+  line-height: var(--mx-line-body);
   letter-spacing: 0;
 }
 .message-body p { margin: 0 0 12px; }
@@ -3777,11 +3777,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 12px 0;
   color: var(--mx-accent);
   background: transparent;
-  font-size: var(--mx-font-ui);
-  /* Same status-label tier as the turn rows, the live band and the tab
-     labels — compaction IS one of those state lines. */
+  /* Compaction splits the reading flow, so its label stays on the same tier
+     as the prose around it instead of shrinking to operational chrome. */
+  font-size: var(--mx-font-body);
   font-weight: var(--mx-weight-medium);
-  line-height: var(--mx-line-ui);
+  line-height: var(--mx-line-body);
 }
 .compaction-divider[data-animate="true"] {
   animation: transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1);
@@ -4001,11 +4001,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   /* Same single-face rule as .message-body: typed Korean+Latin must not mix
      Geist/Pretendard ink densities inside one sentence. */
   font-family: var(--mx-font-prose);
-  /* The typing surface matches the submitted message exactly: one 14/22
+  /* The typing surface matches the submitted message exactly: one 15/24
      content line at the same optical reading weight. */
-  font-size: var(--mx-font-emphasis);
+  font-size: var(--mx-font-body);
   font-weight: var(--mx-weight-body);
-  line-height: var(--mx-line-emphasis);
+  line-height: var(--mx-line-body);
   letter-spacing: 0;
 }
 .composer textarea::placeholder { color: var(--mx-text-faint); }
@@ -9288,7 +9288,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 
 /* Restrained transcript heading ladder: prose structure stays visible without
-   breaking the shared 14/22 rhythm into a second typographic system. */
+   breaking the shared 15/24 rhythm into a second typographic system. */
 .markdown h1, .markdown h2, .markdown h3,
 .markdown h4, .markdown h5, .markdown h6 {
   color: var(--mx-text);
@@ -9296,21 +9296,21 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .markdown h1 { margin: 24px 0 8px; font-size: 17px; line-height: var(--mx-line-body); }
 .markdown h2 { margin: 20px 0 8px; font-size: 16px; line-height: var(--mx-line-emphasis); }
-.markdown h3 { margin: 16px 0 8px; font-size: var(--mx-font-emphasis); line-height: var(--mx-line-emphasis); }
-.markdown h4 { margin: 16px 0 8px; font-size: var(--mx-font-emphasis); line-height: var(--mx-line-emphasis); }
+.markdown h3 { margin: 16px 0 8px; font-size: var(--mx-font-body); line-height: var(--mx-line-body); }
+.markdown h4 { margin: 16px 0 8px; font-size: var(--mx-font-body); line-height: var(--mx-line-body); }
 .markdown h5 {
   margin: 16px 0 8px;
-  font-size: var(--mx-font-emphasis);
+  font-size: var(--mx-font-body);
   font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-emphasis);
+  line-height: var(--mx-line-body);
 }
 /* h6 remains the quiet final rung through ink rather than another size. */
 .markdown h6 {
   margin: 16px 0 8px;
   color: var(--mx-text-muted);
-  font-size: var(--mx-font-emphasis);
+  font-size: var(--mx-font-body);
   font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-emphasis);
+  line-height: var(--mx-line-body);
 }
 /* Inline emphasis stays on the prose size and moves only one subtle weight
    step; headings retain their stronger 600 weight. */
@@ -9321,7 +9321,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    to the outermost list alone — otherwise every level opened a 12px hole
    between the parent line and its own children. */
 .markdown li > ul, .markdown li > ol { margin: 4px 0 0; }
-.markdown li { margin-bottom: 6px; }
+.markdown li { margin-bottom: 8px; }
 .markdown li::marker { color: var(--mx-text-faint); }
 /* Closing blocks never push their own container open: `p:last-child` covered
    only paragraphs, so a quote or item ending in a list, table or code card
@@ -9379,7 +9379,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--mx-pressed);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
   /* Mono has a larger optical body than Pretendard, so the 13px code tier
-     reads level with 14px prose instead of looking like oversized emphasis. */
+     remains legible one step below 15px prose without becoming oversized. */
   font-size: var(--mx-font-code);
   overflow-wrap: anywhere;
 }

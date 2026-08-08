@@ -424,7 +424,14 @@ export async function createMixdogSessionRuntime({
   // Memory is always-on. The user-facing toggle is `recap` (background cycles
   // only), read via recapEnabled(config).
   const recapEnabledFn = () => recapEnabled(rt.config, true);
+  const webSearchEnabled = () => moduleEnabled(rt.config, 'search', true);
+  const exploreEnabled = () => moduleEnabled(rt.config, 'explore', true);
   const channelsEnabled = () => moduleEnabled(rt.config, 'channels', true);
+  const featureDisallowedTools = () => [
+    ...(webSearchEnabled() ? [] : ['search', 'web_fetch']),
+    ...(exploreEnabled() ? [] : ['explore']),
+    ...(recapEnabledFn() ? [] : ['memory']),
+  ];
 
   async function getMemoryModule() {
     const startedAt = performance.now();
@@ -825,6 +832,7 @@ export async function createMixdogSessionRuntime({
     loadWorkflowPack,
     activeWorkflowId,
     dataDir: STANDALONE_DATA_DIR,
+    getFeatureDisallowedTools: featureDisallowedTools,
   });
 
   const { contextStatus: computeContextStatus, invalidateContextStatusCache } = createContextStatus({
@@ -851,6 +859,17 @@ export async function createMixdogSessionRuntime({
     tools: [...standaloneTools, ...searchRuntimeTools.filter((tool) => tool?.public === false)],
     executor: async (name, args, callerCtx = {}) => {
       const callerCwd = callerCtx?.callerCwd || rt.currentCwd;
+      if (callerCtx?.invocationSource === 'model-tool') {
+        if ((name === 'search' || name === 'web_fetch') && !webSearchEnabled()) {
+          throw new Error('web search is disabled in settings; start a new session to refresh the tool list');
+        }
+        if (name === 'explore' && !exploreEnabled()) {
+          throw new Error('explore is disabled in settings; start a new session to refresh the tool list');
+        }
+        if (name === 'memory' && !recapEnabledFn()) {
+          throw new Error('memory is disabled in settings; recall and manual core memory remain available');
+        }
+      }
       if (name === 'search' || name === 'web_fetch' || name === 'local_fetch' || name === 'image_fetch') {
         return dispatchSearchRuntimeTool(name, args, callerCtx, {
           getSearchModule,
@@ -1213,6 +1232,7 @@ export async function createMixdogSessionRuntime({
     hookCommonPayload,
     mcpClient,
     modelStandaloneTools,
+    featureDisallowedTools,
     applyPreSessionToolSelection,
     statusRoutes,
     warmupTimers,
@@ -1379,6 +1399,8 @@ export async function createMixdogSessionRuntime({
     formatDurationMs,
     localPackageVersion,
     recapEnabledFn,
+    webSearchEnabled,
+    exploreEnabled,
     channelsEnabled,
     autoUpdateEnabled,
     getUpdateCheckState: () => selfUpdate.getCheckState(),

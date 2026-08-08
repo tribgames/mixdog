@@ -35,7 +35,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read file contents or line ranges; not directories.',
+        description: 'Known-file contents or line ranges; not directories.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -114,7 +114,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Literal/regex search over file/dir scopes; returns source blocks with context.',
+        description: 'Source-content literal/regex search over file/dir scopes; returns path:line blocks with context.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -123,7 +123,7 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Text/regex; pattern[] batches variants in one call.',
+                    description: 'Text/regex; pattern[] batches exact query literals and identifier variants in one call.',
                 },
                 path: {
                     anyOf: [
@@ -184,7 +184,7 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Mixdog Find Files',
         annotations: { title: 'Mixdog Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Fuzzy partial path/name lookup; returns paths only.',
+        description: 'Fuzzy filename/directory path-string lookup; returns paths only. No source-content, symbol, value, or line search.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -193,7 +193,7 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Partial path/name words; query[] batches.',
+                    description: 'Filename or directory path fragments matched against path strings; query[] batches.',
                 },
                 path: { type: 'string', description: 'Base directory.' },
                 head_limit: { type: 'number', description: 'Max paths across the call. Defaults to 25.' },

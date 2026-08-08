@@ -124,10 +124,9 @@ export function createQueryHandlers({
     // is fresh (within FRESHNESS_MS of now) — an older newest-unchunked-turn
     // is completed history (cycle1 just hasn't gotten to it, or drain timed
     // out) and must stay visible, not be silently hidden every browse.
-    // Never applies to a compaction digest: that browse runs over a freshly
-    // and fully ingested transcript, so every row (including the previous
-    // turn's FINAL assistant message) carries an ingest-time ts and would be
-    // misread as in-flight, silently dropping the newest turn from the digest.
+    // Never applies to a compaction digest: that browse reads the completed
+    // session history already persisted by the transcript watcher. Applying a
+    // freshness cutoff there could silently drop the newest finalized turn.
     const IN_FLIGHT_TURN_FRESHNESS_MS = 5 * 60 * 1000
     let excludeSourceTurnId = null
     if (!compactDigest && terms.length === 0) {

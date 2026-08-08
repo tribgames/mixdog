@@ -92,6 +92,7 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
     const completionToolOpts = {
         ...toolOpts,
         sessionId: callerSessionId,
+        agent: sessionRef?.agent || null,
         callerSessionId: notificationSessionId || callerSessionId,
         routingSessionId: callerSessionId,
         clientHostPid: sessionRef?.clientHostPid,
@@ -210,6 +211,7 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
             signal: executeOpts.signal,
             routingSessionId: callerSessionId,
             notifyFn,
+            invocationSource: 'model-tool',
         });
     }
     if (name === 'shell') {

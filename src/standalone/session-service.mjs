@@ -15,6 +15,7 @@ import {
   SESSION_CONFIGURE_ACTION_SET,
   SESSION_READ_ACTION_SET,
 } from './session-protocol.mjs';
+import { diffSessionState } from './session-state-patch.mjs';
 import {
   materializePromptSubmission,
   preparePromptSubmissionForProvider,
@@ -312,32 +313,6 @@ export function createSessionService({
     return out;
   }
 
-  /** Frame delta. A streaming turn appends to `items` and touches a couple of
-   *  scalars; sending the whole snapshot each time cost ~1MB per frame on a
-   *  2k-item transcript. Null means "no cheap delta — send the full state". */
-  function diffSnapshots(previous, next) {
-    if (!previous || !next || typeof previous !== 'object' || typeof next !== 'object') return null;
-    const set = {};
-    const remove = [];
-    let itemsAppend = null;
-    for (const [key, value] of Object.entries(next)) {
-      if (previous[key] === value) continue;
-      if (key === 'items' && Array.isArray(value) && Array.isArray(previous.items)
-        && value.length >= previous.items.length
-        && previous.items.every((item, index) => item === value[index])) {
-        if (value.length > previous.items.length) {
-          itemsAppend = { from: previous.items.length, values: value.slice(previous.items.length) };
-        }
-        continue;
-      }
-      set[key] = value;
-    }
-    for (const key of Object.keys(previous)) {
-      if (!(key in next)) remove.push(key);
-    }
-    return { set, remove, itemsAppend };
-  }
-
   /** Advance the session runtime's published revision one step. */
   function advance(entry) {
     const snapshot = snapshotOf(entry);
@@ -355,7 +330,7 @@ export function createSessionService({
       snapshot,
       revision: entry.revision,
       previousRevision,
-      patch: previous ? diffSnapshots(previous, snapshot) : null,
+      patch: previous ? diffSessionState(previous, snapshot) : null,
     };
   }
 

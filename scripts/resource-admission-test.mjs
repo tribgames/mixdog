@@ -358,12 +358,8 @@ test('real shell lifetime holds and releases one lease', async () => {
     admission,
   });
   assert.equal(result.exitCode, 0);
-  // Lease settlement is decoupled from the result: release lands asynchronously
-  // after the process-tree quiescence proof.
-  await waitUntil(() => {
-    const active = admission.snapshot().active;
-    return active.agent === 0 && active.shell === 0;
-  }, 5000);
+  assert.deepEqual(admission.snapshot().active, { agent: 0, shell: 0 },
+    'foreground completion returns admission with the result');
 });
 
 test('process-tree quiescence tracker retains ownership and confirms exactly once', async () => {
@@ -484,9 +480,7 @@ test('rejected foreground lease cleanup still returns one shell result', async (
     },
   });
   assert.equal(result.exitCode, 0);
-  // Release (and its contained rejection) lands asynchronously after the
-  // decoupled quiescence proof.
-  await waitUntil(() => releases === 1, 5000);
+  assert.equal(releases, 1, 'foreground cleanup runs before the result is observed');
 });
 
 test('spawn failure contains rejected lease cleanup and returns one result', async () => {

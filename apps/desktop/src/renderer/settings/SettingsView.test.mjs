@@ -45,13 +45,15 @@ afterEach(async () => {
 });
 
 const VALUES = [
-  'model', 'search', 'workflow', 'output-style', 'profile', 'theme', 'autocompact',
-  'compact-type', 'autoclear', 'memory', 'providers', 'mcp', 'plugins', 'hooks', 'skills',
+  'model', 'search', 'workflow', 'output-style', 'profile', 'theme', 'web-search-enabled',
+  'explorer-enabled', 'memory-enabled', 'autocompact', 'compact-type', 'autoclear',
+  'memory', 'providers', 'mcp', 'plugins', 'hooks', 'skills',
   'channels', 'channel-provider', 'channel-setting', 'remote-runtime', 'update',
 ];
 const LABELS = [
-  'Model', 'Search model', 'Workflow', 'Output style', 'Profile', 'Theme', 'Auto-compact',
-  'Compact type', 'Auto-clear', 'Memory', 'Providers', 'MCP servers', 'Plugins', 'Hooks',
+  'Model', 'Search model', 'Workflow', 'Output style', 'Profile', 'Theme', 'Web search',
+  'Explorer', 'Memory', 'Auto-compact', 'Compact type', 'Auto-clear', 'Core memories',
+  'Providers', 'MCP servers', 'Plugins', 'Hooks',
   'Skills', 'Channels enabled', 'Channel', 'Setting', 'Remote Runtime', 'Update',
 ];
 const DESCRIPTIONS = [
@@ -61,10 +63,13 @@ const DESCRIPTIONS = [
   'Response tone and format.',
   'Your title and response language.',
   'TUI color theme.',
+  'Expose web search and fetch tools to new sessions.',
+  'Expose the repository locator tool to new sessions.',
+  'Background cycles and model memory writes.',
   'Compact when context is high.',
   'Uses Memory recall to rebuild context faster on large histories.',
   'Idle auto-clear disabled. Enter for options.',
-  'Session memory and core memories.',
+  'List and edit user-curated core memories.',
   'Auth, API keys, OAuth, local.',
   '0/0 connected',
   '0 detected',
@@ -83,6 +88,7 @@ function capabilityApi(overrides = {}) {
     getAutoClear: { enabled: true, idleMs: 3_600_000, provider: 'default', providerDefaults: [] },
     getCompactionSettings: { auto: false },
     getRecapSettings: { enabled: true },
+    getToolModuleSettings: { search: { enabled: true }, explore: { enabled: true } },
     getChannelSettings: { enabled: true },
     isRemoteEnabled: false,
     getChannelWorkerStatus: { running: false },
@@ -309,7 +315,8 @@ test('SETTINGS_ITEMS is the exact TUI row registry and order', () => {
   assert.deepEqual(SETTINGS_ITEMS.map((item) => item.label), LABELS);
   assert.deepEqual(SETTINGS_ITEMS.map((item) => item.description), DESCRIPTIONS);
   assert.deepEqual(SETTINGS_ITEMS.map((item) => item.kind), [
-    'open', 'open', 'open', 'open', 'open', 'open', 'toggle', 'static', 'toggle', 'open',
+    'open', 'open', 'open', 'open', 'open', 'open', 'toggle', 'toggle', 'toggle', 'toggle',
+    'static', 'toggle', 'open',
     'open', 'open', 'open', 'open', 'open', 'toggle', 'cycle', 'open', 'toggle', 'open',
   ]);
   for (const item of SETTINGS_ITEMS) {
@@ -439,6 +446,9 @@ test('settings renders the flat settings-v2 rail and inline General groups', asy
     'selector button[aria-label="Back to settings"] should be absent');
   assert.ok(document.querySelector('input[name="title"]'));
   assert.match(document.querySelector('[aria-label="Theme"]')?.textContent || '', /Dark/);
+  assert.ok(document.querySelector('input[aria-label="Web search"]'));
+  assert.ok(document.querySelector('input[aria-label="Explorer"]'));
+  assert.ok(document.querySelector('input[aria-label="Memory"]'));
   const generalRowTitles = Array.from(
     document.querySelectorAll('.mixdog-settings__row-title'),
     (node) => node.textContent,
@@ -486,6 +496,8 @@ test('settings renders the flat settings-v2 rail and inline General groups', asy
   );
   assert.doesNotMatch(document.body.textContent, /Compaction strategy|Recall fast-track/);
   assert.match(document.body.textContent, /Core memories/);
+  assert.equal(document.querySelector('input[aria-label="Memory"]'), null,
+    'the Memory feature toggle lives in General, not Context');
 });
 
 test('rail tabs swap the pane for every depth surface without subpages', async () => {
@@ -908,7 +920,12 @@ test('inline toggles and channel cycle use the TUI capability semantics', async 
   });
   assert.deepEqual(calls[0], ['setCompactionSettings', [{ auto: true }]]);
   await act(async () => {
-    document.querySelector('input[aria-label="Background recap"]').click();
+    Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+      .find((button) => button.textContent === 'General').click();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    document.querySelector('input[aria-label="Memory"]').click();
     await Promise.resolve();
   });
   assert.deepEqual(calls[1], ['setRecapEnabled', [false]]);
