@@ -5,8 +5,6 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
-## v0.9.101 - 2026-08-08
-
 - Escape now recalls queued, still-unprocessed messages into the composer
   before anything else — Claude Code's order — so a mid-turn Esc edits the
   waiting follow-up instead of interrupting the turn; a second press still
