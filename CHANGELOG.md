@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.103 - 2026-08-08
+
 - Desktop navigation, composer, Studio, settings, and transcript surfaces now
   share a tighter responsive layout, with stronger virtual-scroll following,
   local-file handling, and expanded DOM regression coverage.
