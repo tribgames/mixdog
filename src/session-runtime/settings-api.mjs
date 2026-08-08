@@ -29,6 +29,7 @@ export function createSettingsApi({
   autoClearProviderDefaults,
   setConfiguredShell,
   setRecapEnabledInConfig,
+  setMemoryToolsEnabledInConfig,
   setModuleEnabledInConfig,
   summarizeWorkflowRoutes,
   parseDurationMs,
@@ -36,6 +37,7 @@ export function createSettingsApi({
   localPackageVersion,
   // state getters / feature flags
   recapEnabledFn,
+  memoryToolsEnabledFn,
   webSearchEnabled,
   exploreEnabled,
   channelsEnabled,
@@ -228,6 +230,7 @@ export function createSettingsApi({
       return {
         search: { enabled: webSearchEnabled() },
         explore: { enabled: exploreEnabled() },
+        memory: { enabled: memoryToolsEnabledFn() },
       };
     },
     setWebSearchEnabled(enabled) {
@@ -241,6 +244,12 @@ export function createSettingsApi({
     setExploreEnabled(enabled) {
       const config = getConfig();
       saveConfigAndAdopt(setModuleEnabledInConfig({ ...config }, 'explore', enabled !== false));
+      invalidatePreSessionToolSurface();
+      return this.getToolModuleSettings();
+    },
+    setMemoryToolsEnabled(enabled) {
+      const config = getConfig();
+      saveConfigAndAdopt(setMemoryToolsEnabledInConfig({ ...config }, enabled !== false));
       invalidatePreSessionToolSurface();
       return this.getToolModuleSettings();
     },

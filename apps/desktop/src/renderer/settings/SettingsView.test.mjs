@@ -47,12 +47,12 @@ afterEach(async () => {
 const VALUES = [
   'model', 'search', 'workflow', 'output-style', 'profile', 'theme', 'web-search-enabled',
   'explorer-enabled', 'memory-enabled', 'autocompact', 'compact-type', 'autoclear',
-  'memory', 'providers', 'mcp', 'plugins', 'hooks', 'skills',
+  'memory-cycles', 'memory', 'providers', 'mcp', 'plugins', 'hooks', 'skills',
   'channels', 'channel-provider', 'channel-setting', 'remote-runtime', 'update',
 ];
 const LABELS = [
   'Model', 'Search model', 'Workflow', 'Output style', 'Profile', 'Theme', 'Web search',
-  'Explorer', 'Memory', 'Auto-compact', 'Compact type', 'Auto-clear', 'Core memories',
+  'Explorer', 'Memory', 'Auto-compact', 'Compact type', 'Auto-clear', 'Memory cycles', 'Core memories',
   'Providers', 'MCP servers', 'Plugins', 'Hooks',
   'Skills', 'Channels enabled', 'Channel', 'Setting', 'Remote Runtime', 'Update',
 ];
@@ -65,10 +65,11 @@ const DESCRIPTIONS = [
   'TUI color theme.',
   'Expose web search and fetch tools to new sessions.',
   'Expose the repository locator tool to new sessions.',
-  'Background cycles and model memory writes.',
+  'Memory and recall tools plus core-memory injection for new sessions.',
   'Compact when context is high.',
   'Uses Memory recall to rebuild context faster on large histories.',
   'Idle auto-clear disabled. Enter for options.',
+  'Background memory cycles and model memory writes.',
   'List and edit user-curated core memories.',
   'Auth, API keys, OAuth, local.',
   '0/0 connected',
@@ -88,7 +89,7 @@ function capabilityApi(overrides = {}) {
     getAutoClear: { enabled: true, idleMs: 3_600_000, provider: 'default', providerDefaults: [] },
     getCompactionSettings: { auto: false },
     getRecapSettings: { enabled: true },
-    getToolModuleSettings: { search: { enabled: true }, explore: { enabled: true } },
+    getToolModuleSettings: { search: { enabled: true }, explore: { enabled: true }, memory: { enabled: true } },
     getChannelSettings: { enabled: true },
     isRemoteEnabled: false,
     getChannelWorkerStatus: { running: false },
@@ -316,7 +317,7 @@ test('SETTINGS_ITEMS is the exact TUI row registry and order', () => {
   assert.deepEqual(SETTINGS_ITEMS.map((item) => item.description), DESCRIPTIONS);
   assert.deepEqual(SETTINGS_ITEMS.map((item) => item.kind), [
     'open', 'open', 'open', 'open', 'open', 'open', 'toggle', 'toggle', 'toggle', 'toggle',
-    'static', 'toggle', 'open',
+    'static', 'toggle', 'toggle', 'open',
     'open', 'open', 'open', 'open', 'open', 'toggle', 'cycle', 'open', 'toggle', 'open',
   ]);
   for (const item of SETTINGS_ITEMS) {
@@ -928,7 +929,18 @@ test('inline toggles and channel cycle use the TUI capability semantics', async 
     document.querySelector('input[aria-label="Memory"]').click();
     await Promise.resolve();
   });
-  assert.deepEqual(calls[1], ['setRecapEnabled', [false]]);
+  assert.deepEqual(calls[1], ['setMemoryToolsEnabled', [false]]);
+
+  await act(async () => {
+    Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+      .find((button) => button.textContent === 'Context').click();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    document.querySelector('input[aria-label="Memory cycles"]').click();
+    await Promise.resolve();
+  });
+  assert.deepEqual(calls[2], ['setRecapEnabled', [false]]);
 
   await act(async () => {
     Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
@@ -940,7 +952,7 @@ test('inline toggles and channel cycle use the TUI capability semantics', async 
   const telegram = Array.from(document.querySelectorAll('[role="option"]'))
     .find((entry) => entry.textContent.trim() === 'Telegram');
   await act(async () => { telegram.click(); await Promise.resolve(); });
-  assert.deepEqual(calls[2], ['setChannelProvider', ['telegram']]);
+  assert.deepEqual(calls[3], ['setChannelProvider', ['telegram']]);
 });
 
 test('channel provider change surfaces restart guidance while the remote worker runs', async () => {

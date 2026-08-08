@@ -169,7 +169,7 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   const policy = rule.replace(/\s+/g, ' ');
   // 1. Repository-source coordinates may route to explorer. Explorer never
   // owns analysis or solutions; the rule carries no positive shell steer.
-  assert.match(policy, /Call `explore` only to locate unknown coordinates in repository source[\s\S]*returns locations, not analysis or solutions/i);
+  assert.match(policy, /Call `explore`, when exposed, only to locate unknown coordinates in repository source[\s\S]*returns locations, not analysis or solutions/i);
   assert.doesNotMatch(policy, /Git state|executable availability/i);
   for (const route of [
     /path\/name only→`find`/i,
@@ -199,6 +199,7 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   assert.match(policy, /Before each tool batch[\s\S]*extract every independent facet[\s\S]*deduplicate overlap[\s\S]*assign exactly ONE routed tool per facet[\s\S]*launch all independent calls, whatever the tool, together in one maximum-fanout turn — independence alone decides batching[\s\S]*Never send one facet to alternative tools[\s\S]*reserve known work[\s\S]*serialize independent calls[\s\S]*cap facet count/i);
   assert.match(policy, /Once the edit is determined[\s\S]*one assistant turn[\s\S]*one `apply_patch` for all edits/i);
   assert.match(policy, /never batch another[\s\S]*exploration tool onto a facet already sent to `explore` in the same turn/i);
+  assert.match(policy, /it is plain search over source trees and files/i);
   assert.doesNotMatch(policy, /final verification|one `apply_patch` for all edits and one `shell` chain|otherwise finish without it|Prefer parallel calls when independent|risk-proportionate|rerun only failures|zero\/error or a newly revealed dependency|cross-scope verification/i);
   assert.match(policy, /Take the cheapest sufficient evidence per facet[\s\S]*symbol relations end at `code_graph`[\s\S]*values\/locations end at the context grep returns[\s\S]*`read` covers only what returned spans cannot[\s\S]*anchored offset\/limit window[\s\S]*never a full-file read when a window suffices/i);
   assert.match(policy, /Adjacent context around an edit point counts as needed evidence[\s\S]*A batch carries only the evidence needed to determine the edit[\s\S]*the moment evidence determines it, stop retrieving and patch/i);
@@ -397,11 +398,12 @@ test('grep scopes do not masquerade as read regions', () => {
 
 test('explore locates; location-freeze policy lives in shared rules', () => {
   assert.match(EXPLORE_TOOL.description, /repo- or machine-wide coordinate locator/i);
+  assert.match(EXPLORE_TOOL.description, /plain search over source trees and files/i);
   assert.doesNotMatch(EXPLORE_TOOL.description, /up to \d+|fan-out cap/i);
   const rule = readFileSync(new URL('../src/rules/shared/01-tool.md', import.meta.url), 'utf8');
   const policy = rule.replace(/\s+/g, ' ');
   // explore handles repository-source coordinates alone.
-  assert.match(policy, /Call `explore` only to locate unknown coordinates in repository source/i);
+  assert.match(policy, /Call `explore`, when exposed, only to locate unknown coordinates in repository source/i);
   assert.match(policy, /returns locations, not analysis or solutions/i);
   assert.match(policy, /route each anchored facet exactly once by the evidence required/i);
   assert.match(policy, /Known state is never re-acquired/i);

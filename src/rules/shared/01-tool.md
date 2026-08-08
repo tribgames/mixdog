@@ -1,6 +1,7 @@
 # Tool Use
 
-- Call `explore` only to locate unknown coordinates in repository source; it
+- Call `explore`, when exposed, only to locate unknown coordinates in
+  repository source — it is plain search over source trees and files; it
   returns locations, not analysis or solutions; never batch another
   exploration tool onto a facet already sent to `explore` in the same turn —
   narrow first, then route. Then route each anchored facet
@@ -9,7 +10,8 @@
   source content/value/`path:line`→`grep`; known file/range→`read`; exact
   symbol/relation→`code_graph`;
   web/current→`search` when exposed; returned URL body→`web_fetch` when exposed;
-  prior work→`recall`; durable compact English memory→`memory` when exposed;
+  prior work→`recall` when exposed; durable compact English memory→`memory`
+  when exposed;
   explicit project change→`cwd`; explicit user-requested conversation reset→
   `session_manage`. Use only named tools present in the current tool surface.
 - Use verified paths (cwd/project/user/tool); explicit paths may be outside cwd;

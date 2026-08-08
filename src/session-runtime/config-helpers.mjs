@@ -327,6 +327,15 @@ export function setMemoryToolsEnabledInConfig(configLike, enabled) {
   return next;
 }
 
+// Headless/bench feature override: an explicit MIXDOG_FEATURE_* env value wins
+// over the stored config toggle for THIS process only (never persisted).
+// Unset/empty → null (config decides).
+export function featureEnvOverride(name) {
+  const raw = String(process.env[name] ?? '').trim().toLowerCase();
+  if (!raw) return null;
+  return !(raw === '0' || raw === 'false' || raw === 'no' || raw === 'off');
+}
+
 export function setModuleEnabledInConfig(configLike, name, enabled) {
   const next = { ...(configLike || {}) };
   next.modules = { ...(next.modules || {}) };

@@ -57,6 +57,7 @@ export function createSettingsPicker({
     const toolModules = snapshot.toolModules || {};
     const webSearchOn = toolModules.search?.enabled !== false;
     const exploreOn = toolModules.explore?.enabled !== false;
+    const memoryToolsOn = toolModules.memory?.enabled !== false;
     const channels = snapshot.channels || { enabled: true };
     const systemShell = snapshot.systemShell || { source: 'auto', command: '', effective: '' };
     const outputStyle = snapshot.outputStyle || {};
@@ -136,7 +137,17 @@ export function createSettingsPicker({
     };
     const toggleWebSearch = () => applyToolModule('Web search', store.setWebSearchEnabled, !webSearchOn);
     const toggleExplore = () => applyToolModule('Explorer', store.setExploreEnabled, !exploreOn);
-    const toggleMemory = () => applyToolModule('Memory', store.setRecapEnabled, !(recap.enabled !== false));
+    const toggleMemory = () => applyToolModule('Memory', store.setMemoryToolsEnabled, !memoryToolsOn);
+    const toggleMemoryCycles = () => {
+      const enabled = !(recap.enabled !== false);
+      void Promise.resolve(store.setRecapEnabled?.(enabled))
+        .then((next) => {
+          if (!next) store.pushNotice('Memory cycles setting is busy', 'warn');
+          else store.pushNotice(`Memory cycles ${enabled ? 'on' : 'off'}`, 'info');
+        })
+        .catch((e) => store.pushNotice(`Memory cycles setting failed: ${e?.message || e}`, 'error'))
+        .finally(() => openSettingsPicker({ light: true }));
+    };
     const cycleOutputStyle = async (direction = 1) => {
       let status = null;
       try { status = (await store.listOutputStyles?.()) || null; } catch (e) {
@@ -308,10 +319,8 @@ export function createSettingsPicker({
       {
         value: 'memory-enabled',
         label: 'Memory',
-        meta: boolLabel(recap.enabled !== false),
-        description: recap.enabled === false
-          ? 'Background cycles off. Recall and manual core memory stay available.'
-          : 'Background cycles and model memory writes.',
+        meta: boolLabel(memoryToolsOn),
+        description: 'Memory and recall tools plus core-memory injection for new sessions.',
         _action: 'memory-enabled',
       },
       {
@@ -336,6 +345,15 @@ export function createSettingsPicker({
           ? `Clear idle sessions after ${formatDuration(autoClear.idleMs)}${autoClear.custom ? '' : ` (${autoClear.provider || 'default'} default)`}. Enter for options.`
           : 'Idle auto-clear disabled. Enter for options.',
         _action: 'autoclear',
+      },
+      {
+        value: 'memory-cycles',
+        label: 'Memory cycles',
+        meta: boolLabel(recap.enabled !== false),
+        description: recap.enabled === false
+          ? 'Background cycles off. Recall and manual core memory stay available.'
+          : 'Background memory cycles and model memory writes.',
+        _action: 'memory-cycles',
       },
       {
         value: 'memory',
@@ -446,6 +464,7 @@ export function createSettingsPicker({
         else if (item?._action === 'web-search-enabled') toggleWebSearch();
         else if (item?._action === 'explorer-enabled') toggleExplore();
         else if (item?._action === 'memory-enabled') toggleMemory();
+        else if (item?._action === 'memory-cycles') toggleMemoryCycles();
         else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
         else if (item?._action === 'remote-runtime') applyRemoteRuntime();
         else if (item?._action === 'channel-provider') cycleChannelProvider(-1);
@@ -459,6 +478,7 @@ export function createSettingsPicker({
         else if (item?._action === 'web-search-enabled') toggleWebSearch();
         else if (item?._action === 'explorer-enabled') toggleExplore();
         else if (item?._action === 'memory-enabled') toggleMemory();
+        else if (item?._action === 'memory-cycles') toggleMemoryCycles();
         else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
         else if (item?._action === 'remote-runtime') applyRemoteRuntime();
         else if (item?._action === 'channel-provider') cycleChannelProvider(1);
@@ -473,6 +493,7 @@ export function createSettingsPicker({
         else if (item._action === 'web-search-enabled') toggleWebSearch();
         else if (item._action === 'explorer-enabled') toggleExplore();
         else if (item._action === 'memory-enabled') toggleMemory();
+        else if (item._action === 'memory-cycles') toggleMemoryCycles();
         else if (item._action === 'channels') applyChannels(!(channels.enabled !== false));
         else if (item._action === 'remote-runtime') applyRemoteRuntime();
         else if (item._action === 'channel-provider') cycleChannelProvider(1);
