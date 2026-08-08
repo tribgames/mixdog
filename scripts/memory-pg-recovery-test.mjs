@@ -23,7 +23,10 @@ test('PG startup uses the portable SQL probe and initializes before the macOS ma
   assert.match(source, /if \(process\.platform === 'linux'\) \{\s*lines\.push\('effective_io_concurrency = 32'\)/)
   assert.match(source, /'max_connections = 32'/)
   assert.match(source, /'jit = off'/)
-  assert.doesNotMatch(source, /shared_buffers\s*=/)
+  // Deliberate footprint cap (2026-08-08 memory round): the bundled PG serves
+  // small indexed lookups, so 32MB replaces the 128MB default. The guard now
+  // locks the explicit value instead of forbidding the key.
+  assert.match(source, /'shared_buffers = 32MB'/)
   const initIndex = source.indexOf('spawnSync(initdb')
   const markerIndex = source.indexOf("join(pgdataDir, '.metadata_never_index')")
   assert.ok(initIndex >= 0 && markerIndex > initIndex)
