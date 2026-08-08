@@ -413,7 +413,7 @@ function GeneralPanel({ data, pending, run }: PanelContext) {
   const toolModules = record(data.toolModules);
   const searchModule = record(toolModules.search);
   const exploreModule = record(toolModules.explore);
-  const recap = record(data.recap);
+  const memoryModule = record(toolModules.memory);
   const languageOptions = rows(profile.languages).map((entry) => ({ value: String(entry.id || entry.value || 'system'), label: label(entry) }));
   const busy = Boolean(pending);
   return <>
@@ -431,9 +431,9 @@ function GeneralPanel({ data, pending, run }: PanelContext) {
       <ToggleRow title="Explorer" description="Expose the repository locator tool to new sessions."
         checked={exploreModule.enabled !== false} disabled={busy}
         onChange={(enabled) => void run('setExploreEnabled', [enabled])} />
-      <ToggleRow title="Memory" description="Run background memory cycles and expose memory writes to new sessions. Recall and manual core memory remain available."
-        checked={recap.enabled !== false} disabled={busy}
-        onChange={(enabled) => void run('setRecapEnabled', [enabled])} />
+      <ToggleRow title="Memory" description="Memory and recall tools plus core-memory injection for new sessions."
+        checked={memoryModule.enabled !== false} disabled={busy}
+        onChange={(enabled) => void run('setMemoryToolsEnabled', [enabled])} />
     </Group>
     <UiLanguageChoices pending={pending} />
         <ThemeChoices data={data} pending={pending} />
@@ -715,6 +715,7 @@ function HooksPanel({ data, pending, run }: PanelContext) {
 function ContextPanel({ data, pending, run, confirm }: PanelContext) {
   const autoClear = record(data.autoClear);
   const compaction = record(data.compaction);
+  const recap = record(data.recap);
   const providerDefaults = rows(autoClear.providerDefaults);
   const busy = Boolean(pending);
   return <>
@@ -723,6 +724,9 @@ function ContextPanel({ data, pending, run, confirm }: PanelContext) {
         checked={compaction.auto !== false} disabled={busy} onChange={(enabled) => void run('setCompactionSettings', [{ auto: enabled }])} />
       <ToggleRow title="Auto-clear" description={`Clear idle sessions after ${formatDuration(autoClear.idleMs) || 'the provider default'}.`}
         checked={autoClear.enabled !== false} disabled={busy} onChange={(enabled) => void run('setAutoClear', [{ enabled }])} />
+      <ToggleRow title="Memory cycles" description="Run background memory cycles and model memory writes. Recall and manual core memory remain available."
+        checked={recap.enabled !== false} disabled={busy}
+        onChange={(enabled) => void run('setRecapEnabled', [enabled])} />
       {providerDefaults.map((entry) => <AutoSaveRow key={String(entry.provider)}
         title={`${providerDisplayName(String(entry.provider || 'default'))} idle window`}
         name="duration" value={durationTextInput(entry.idleMs)} placeholder={durationTextInput(entry.builtInMs)}

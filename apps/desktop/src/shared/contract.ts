@@ -489,6 +489,7 @@ export const DESKTOP_CAPABILITIES = [
   'getToolModuleSettings',
   'setWebSearchEnabled',
   'setExploreEnabled',
+  'setMemoryToolsEnabled',
   'getChannelSettings',
   'setChannelsEnabled',
   'getVoiceStatus',

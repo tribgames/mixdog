@@ -136,6 +136,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'setHookRuleEnabled',
   'setLocalProvider',
   'setMcpServerEnabled',
+  'setMemoryToolsEnabled',
   'setModel',
   'setOutputStyle',
   'setProfile',

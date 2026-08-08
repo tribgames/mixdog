@@ -136,6 +136,9 @@ import {
   setModuleEnabledInConfig,
   recapEnabled,
   setRecapEnabledInConfig,
+  memoryToolsEnabled,
+  setMemoryToolsEnabledInConfig,
+  featureEnvOverride,
   formatDurationMs,
   parseDurationMs,
   modelMetaLooksResolved,
@@ -426,16 +429,21 @@ export async function createMixdogSessionRuntime({
   rt.searchModPromise = null;
   rt.codeGraphModPromise = null;
 
-  // Memory is always-on. The user-facing toggle is `recap` (background cycles
-  // only), read via recapEnabled(config).
+  // Memory ingest is always-on. `recap` gates only the background cycles;
+  // `memoryTools` gates the model-facing memory/recall tool surface. Headless
+  // runs override any toggle per process via MIXDOG_FEATURE_* env values.
   const recapEnabledFn = () => recapEnabled(rt.config, true);
-  const webSearchEnabled = () => moduleEnabled(rt.config, 'search', true);
-  const exploreEnabled = () => moduleEnabled(rt.config, 'explore', true);
+  const memoryToolsEnabledFn = () => featureEnvOverride('MIXDOG_FEATURE_MEMORY')
+    ?? memoryToolsEnabled(rt.config, true);
+  const webSearchEnabled = () => featureEnvOverride('MIXDOG_FEATURE_WEB_SEARCH')
+    ?? moduleEnabled(rt.config, 'search', true);
+  const exploreEnabled = () => featureEnvOverride('MIXDOG_FEATURE_EXPLORE')
+    ?? moduleEnabled(rt.config, 'explore', true);
   const channelsEnabled = () => moduleEnabled(rt.config, 'channels', true);
   const featureDisallowedTools = () => [
     ...(webSearchEnabled() ? [] : ['search', 'web_fetch']),
     ...(exploreEnabled() ? [] : ['explore']),
-    ...(recapEnabledFn() ? [] : ['memory']),
+    ...(memoryToolsEnabledFn() ? [] : ['memory', 'recall']),
   ];
 
   async function getMemoryModule() {
@@ -873,8 +881,8 @@ export async function createMixdogSessionRuntime({
         if (name === 'explore' && !exploreEnabled()) {
           throw new Error('explore is disabled in settings; start a new session to refresh the tool list');
         }
-        if (name === 'memory' && !recapEnabledFn()) {
-          throw new Error('memory is disabled in settings; recall and manual core memory remain available');
+        if ((name === 'memory' || name === 'recall') && !memoryToolsEnabledFn()) {
+          throw new Error('memory tools are disabled in settings; background memory and manual core memory remain available');
         }
       }
       if (name === 'search' || name === 'web_fetch' || name === 'local_fetch' || name === 'image_fetch') {
@@ -1406,12 +1414,14 @@ export async function createMixdogSessionRuntime({
     normalizeSystemShellCommand,
     setConfiguredShell,
     setRecapEnabledInConfig,
+    setMemoryToolsEnabledInConfig,
     setModuleEnabledInConfig,
     summarizeWorkflowRoutes,
     parseDurationMs,
     formatDurationMs,
     localPackageVersion,
     recapEnabledFn,
+    memoryToolsEnabledFn,
     webSearchEnabled,
     exploreEnabled,
     channelsEnabled,

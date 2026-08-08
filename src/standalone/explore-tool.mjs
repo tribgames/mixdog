@@ -19,11 +19,11 @@ export const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Explore',
   annotations: { title: 'Explore', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  description: 'Repo- or machine-wide coordinate locator.',
+  description: 'Repo- or machine-wide coordinate locator: plain search over source trees and files, answering in path:line coordinates.',
   inputSchema: {
     type: 'object',
     properties: {
-        query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Narrow locator query; array = independent facets fanned out in parallel.' },
+        query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'One concrete target (symbol, value, behavior, or file) per query — never a topic list; array = independent facets fanned out in parallel.' },
       cwd: { type: 'string', description: 'Project/root directory.' },
       roots: {
         anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }],

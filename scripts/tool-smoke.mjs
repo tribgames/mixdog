@@ -1373,7 +1373,7 @@ const exploreProps = EXPLORE_TOOL.inputSchema?.properties || {};
 if (!/repo- or machine-wide coordinate locator/i.test(EXPLORE_TOOL.description || '') || /broad\/uncertain/i.test(EXPLORE_TOOL.description || '') || (EXPLORE_TOOL.description || '').length > 600) {
   throw new Error('explore description must stay a compact coordinate-locator contract');
 }
-if (!/Narrow locator query/i.test(exploreProps.query?.description || '') || !/independent facets/i.test(exploreProps.query?.description || '') || !/Project\/root/i.test(exploreProps.cwd?.description || '') || !/multiple roots/i.test(exploreProps.roots?.description || '')) {
+if (!/One concrete target .* per query/i.test(exploreProps.query?.description || '') || !/never a topic list/i.test(exploreProps.query?.description || '') || !/independent facets/i.test(exploreProps.query?.description || '') || !/Project\/root/i.test(exploreProps.cwd?.description || '') || !/multiple roots/i.test(exploreProps.roots?.description || '')) {
   throw new Error('explore schema must stay compact and preserve query/cwd/roots shape');
 }
 const normalizedExplore = normalizeExploreQueries('["where is model selection?","  ","which file owns agent async?"]');
@@ -1896,7 +1896,7 @@ const readArrayItemAnyOf = readArraySchema?.items?.anyOf || [];
 if (!readArrayItemAnyOf.some((entry) => entry?.type === 'object' && entry?.properties?.offset && entry?.properties?.limit)) {
   throw new Error('read schema must expose array-of-region objects for batched spans');
 }
-if (/line\+context/i.test(readDescription) || !/Read file contents/i.test(readDescription)) {
+if (/line\+context/i.test(readDescription) || !/Known-file contents or line ranges/i.test(readDescription)) {
   throw new Error('read description must stay compact and file-oriented');
 }
 if (readProps.line || readProps.context) {

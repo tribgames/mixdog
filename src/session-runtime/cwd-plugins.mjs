@@ -1,4 +1,5 @@
 import { discoverPluginMcp } from './plugin-mcp.mjs';
+import { featureEnvOverride, memoryToolsEnabled } from './config-helpers.mjs';
 
 // cwd-plugins.mjs — cwd resolution/apply + plugins-status + core-memory context,
 // extracted from mixdog-session-runtime.mjs. Dependency-injected factory that
@@ -236,7 +237,13 @@ export function createCwdPlugins({
   }
 
   async function loadCoreMemoryContext() {
-    // User-curated core memory injects into new sessions by default.
+    // User-curated core memory injects into new sessions by default. The
+    // Memory toggle (settings → General) OFF skips ONLY this accumulated
+    // core-memory block — profile and Project Instructions inject regardless.
+    if (!(featureEnvOverride('MIXDOG_FEATURE_MEMORY') ?? memoryToolsEnabled(getConfig(), true))) {
+      bootProfile('core-memory:disabled');
+      return '';
+    }
     // Explicit opt-out (MIXDOG_BOOT_CORE_MEMORY=0/false/no/off) skips the
     // memory/PG startup cost; recall and memory tools still initialize the
     // memory service on first use.
