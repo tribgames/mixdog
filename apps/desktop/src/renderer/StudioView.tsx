@@ -1136,6 +1136,30 @@ export function StudioPane({
   return <div className="studio-root stable-surface-preserved" ref={studioRootRef}
     data-surface-active={active ? 'true' : 'false'}
     inert={active ? undefined : true} aria-hidden={active ? undefined : true}
+    onDragEnter={(event) => {
+      if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setDropping(true);
+    }}
+    onDragOver={(event) => {
+      if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = 'copy';
+      setDropping(true);
+    }}
+    onDragLeave={(event) => {
+      if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+      setDropping(false);
+    }}
+    onDrop={(event) => {
+      if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setDropping(false);
+      void addDroppedFiles(event.dataTransfer);
+    }}
     onClick={(event) => {
       if (active && shouldFocusSurfaceInput(event)) {
         promptRef.current?.focus({ preventScroll: true });
@@ -1359,34 +1383,7 @@ export function StudioPane({
         {/* Progress AND job failures live on the pending tile; the banner is
             only for pane-level errors. */}
         <InlineErrors messages={[error].filter(Boolean)} />
-        <div className="studio-composer"
-          // Drag & drop was declared but never wired: the composer now accepts
-          // dropped image files anywhere on the card.
-          onDragEnter={(event) => {
-            if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
-            event.preventDefault();
-            event.stopPropagation();
-            setDropping(true);
-          }}
-          onDragOver={(event) => {
-            if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
-            event.preventDefault();
-            event.stopPropagation();
-            event.dataTransfer.dropEffect = 'copy';
-            setDropping(true);
-          }}
-          onDragLeave={(event) => {
-            if (event.currentTarget.contains(event.relatedTarget as Node)) return;
-            setDropping(false);
-          }}
-          onDrop={(event) => {
-            if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
-            event.preventDefault();
-            event.stopPropagation();
-            setDropping(false);
-            void addDroppedFiles(event.dataTransfer);
-          }}
-          data-dropping={dropping ? 'true' : undefined}>
+        <div className="studio-composer" data-dropping={dropping ? 'true' : undefined}>
           {refs.length > 0 && <div className="studio-refs" aria-label={t('Reference images')}>
             {refs.map((ref, index) => <span key={ref.url} className="studio-ref">
               <img src={ref.url} alt="" />

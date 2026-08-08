@@ -311,6 +311,22 @@ export function setRecapEnabledInConfig(configLike, enabled) {
   return next;
 }
 
+// Memory tools toggle (general option, deliberately NOT an agent module key):
+// gates only the model-facing memory tool surface (`memory` writes + `recall`
+// retrieval) for NEW sessions. Background ingest/watcher and user-curated core
+// memory stay always-on; the recap toggle above stays cycles-only. Default on.
+export function memoryToolsEnabled(configLike, fallback = true) {
+  const entry = configLike?.memoryTools;
+  if (entry && typeof entry === 'object' && entry.enabled === false) return false;
+  return fallback !== false;
+}
+
+export function setMemoryToolsEnabledInConfig(configLike, enabled) {
+  const next = { ...(configLike || {}) };
+  next.memoryTools = { ...(next.memoryTools || {}), enabled: enabled !== false };
+  return next;
+}
+
 export function setModuleEnabledInConfig(configLike, name, enabled) {
   const next = { ...(configLike || {}) };
   next.modules = { ...(next.modules || {}) };

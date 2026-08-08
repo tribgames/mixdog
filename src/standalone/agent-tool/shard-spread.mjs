@@ -42,8 +42,12 @@ export function agentShardSpreadEnabled() {
   return process.env.MIXDOG_SESSION_SHARD_PID === String(process.pid);
 }
 
-/** Shard index of THIS process when it is a pool shard child (else null). */
+/** Shard index of THIS process when it is a pool shard child (else null).
+ *  Pid-guarded like agentShardSpreadEnabled: the shard marker envs leak into
+ *  every spawned grandchild (shell tools, harnesses), and a non-shard process
+ *  must not avoid a warm shard it does not actually run on. */
 function ownShardIndex() {
+  if (process.env.MIXDOG_SESSION_SHARD_PID !== String(process.pid)) return null;
   const n = Number(process.env.MIXDOG_SESSION_SHARD_INDEX);
   return Number.isInteger(n) && n >= 0 ? n : null;
 }

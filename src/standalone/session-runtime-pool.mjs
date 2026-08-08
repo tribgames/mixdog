@@ -612,6 +612,15 @@ export function createSessionRuntimePool({
       if (!sessionId && avoidIndex !== null && count > 1 && index === avoidIndex) {
         index = (index + 1) % count;
       }
+      // One line per agent create: enough to reconstruct why a fanout landed
+      // where it did (a cold boot paid while a warm peer sat empty is a bug).
+      if (options.agentSession) {
+        const rows = shardPlacementInfo()
+          .map((row, at) => `${at}${row.alive ? '+' : '-'}${row.resident}b${row.busy}`)
+          .join(' ');
+        log(`agent placement ${sessionId.slice(-8) || `rr${index}`} hash=${sessionShardIndex(sessionId, count)}`
+          + ` avoid=${avoidIndex ?? '-'} -> shard ${index} [${rows}]`);
+      }
       return shards[index].create(options);
     },
     prewarm() {
