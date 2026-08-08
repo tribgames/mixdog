@@ -215,7 +215,10 @@ function runNpm(args, options = {}) {
 }
 
 async function prepareRuntime(manifest, fingerprint) {
-  await rm(runtimeDir, { recursive: true, force: true });
+  // Windows: deleting a large just-written tree races AV/indexer scans, which
+  // surfaces as spurious ENOTEMPTY/EPERM rmdir failures. Same bounded-retry
+  // policy as the cleanup block below.
+  await rm(runtimeDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
   await mkdir(runtimeDir, { recursive: true });
   let prepared = false;
 
@@ -245,7 +248,9 @@ async function prepareRuntime(manifest, fingerprint) {
         console.log(`Reused cached ${embeddingTarget.key} runtime dependencies.`);
       } catch (error) {
         console.warn(`Cached runtime dependencies failed validation: ${error?.message || error}`);
-        await rm(join(stagingDir, 'node_modules'), { recursive: true, force: true });
+        await rm(join(stagingDir, 'node_modules'), {
+          recursive: true, force: true, maxRetries: 10, retryDelay: 250,
+        });
         restoredDependencies = false;
       }
     }

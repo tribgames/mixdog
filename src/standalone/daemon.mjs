@@ -530,7 +530,18 @@ async function main() {
       .then((module) => module.prewarmImageResizer?.())
       .catch((error) => log(`image pipeline prewarm failed (non-fatal): ${error?.message || error}`));
     void sessionRuntimePool.prewarm()
-      .then(() => log('session shard runtime/agent-loop/keychain prewarm started'))
+      .then(() => {
+        log('session shard runtime/agent-loop/keychain/provider prewarm started');
+        // Agent shard spread: warm the peer shards a Lead fanout will land on,
+        // staggered in the background so boot never pays an N-fork burst.
+        void sessionRuntimePool.prewarmSpread()
+          .then((warmed) => {
+            if (Array.isArray(warmed) && warmed.length > 1) {
+              log(`session shard spread-prewarm warmed shards [${warmed.join(', ')}]`);
+            }
+          })
+          .catch((error) => log(`session shard spread-prewarm failed (non-fatal): ${error?.message || error}`));
+      })
       .catch((error) => {
         sessionRuntimePrewarmStarted = false;
         log(`session runtime/keychain prewarm failed (non-fatal): ${error?.message || error}`);
@@ -541,6 +552,14 @@ async function main() {
     sessionExists: async (sessionId) => {
       const store = await desktopRuntime.loadSessionStore();
       return store.storedSessionExists?.(sessionId) === true;
+    },
+    // View seam: session.read/subscribe on a cold session serve this disk
+    // projection instead of materializing a shard runtime (see
+    // session-service.mjs stored-session views).
+    readStoredSession: async (sessionId, options = {}) => {
+      const store = await desktopRuntime.loadSessionStore();
+      if (typeof store.readStoredSessionTranscript !== 'function') return null;
+      return await store.readStoredSessionTranscript(sessionId, options) ?? null;
     },
     listSessions: async (options = {}) => {
       const store = await desktopRuntime.loadSessionStore();
@@ -569,6 +588,10 @@ async function main() {
       busy: sessionService.busyCount,
       sessionPool: sessionService.status,
       sessionShards: sessionRuntimePool.status,
+      // Machine-wide spawn budget + per-shard gate snapshots (cached, lazy
+      // refresh): tool execution lives in shard processes, so the daemon's
+      // own workload block below only covers daemon-hosted work.
+      sessionShardWorkloads: sessionRuntimePool.workloads,
       workload: {
         resources: resourceAdmission.snapshot(),
         childSpawns: childSpawnSnapshot(),

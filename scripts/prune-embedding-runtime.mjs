@@ -29,7 +29,11 @@ async function removeChildrenExcept(directory, keep) {
   }
   await Promise.all(entries
     .filter((entry) => !keep.has(entry.name))
-    .map((entry) => rm(join(directory, entry.name), { recursive: true, force: true })))
+    // Windows: pruning a freshly-installed npm tree races AV scans; bounded
+    // retries absorb the transient ENOTEMPTY/EPERM rmdir failures.
+    .map((entry) => rm(join(directory, entry.name), {
+      recursive: true, force: true, maxRetries: 10, retryDelay: 250,
+    })))
 }
 
 async function packageName(directory) {

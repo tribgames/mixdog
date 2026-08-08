@@ -108,6 +108,7 @@ async function findFreePort(preferred) {
 
 const MIXDOG_CONF_V2_MARKER = '# mixdog overrides v2 — bgwriter / checkpoint distribution'
 const MIXDOG_CONF_V3_MARKER = '# mixdog overrides v3 — bounded local-app resources'
+const MIXDOG_CONF_V4_MARKER = '# mixdog overrides v4 — resident-memory bounds'
 
 // Lines emitted into postgresql.conf for v2. effective_io_concurrency requires
 // posix_fadvise; PostgreSQL rejects non-zero values on Windows and macOS.
@@ -140,6 +141,28 @@ function buildV3Block() {
   ].join('\n') + '\n'
 }
 
+function buildV4Block() {
+  return [
+    '',
+    MIXDOG_CONF_V4_MARKER,
+    // Single-user local store: the working set is a few hundred MB of rows
+    // behind indexed lookups, so the PG default 128MB shared_buffers mostly
+    // duplicates the OS page cache. 32MB keeps hot btree/HNSW pages resident
+    // while returning ~100MB to the machine; cold pages ride the OS cache.
+    'shared_buffers = 32MB',
+    // Follows shared_buffers down (default is 1/32 of it, min 64kB; a fixed
+    // 1MB keeps commit bursts from the memory-cycle writers batched).
+    'wal_buffers = 1MB',
+    // Bounded per-backend sort/hash memory for the small result sets Mixdog
+    // queries produce (default 4MB is already modest; make it explicit so a
+    // future PG bump cannot silently raise it).
+    'work_mem = 4MB',
+    // Vacuum/index maintenance on this store touches small tables; 64MB is
+    // ample and caps autovacuum spikes (default 64MB kept explicit).
+    'maintenance_work_mem = 64MB',
+  ].join('\n') + '\n'
+}
+
 // Migration: an earlier v2 emitted effective_io_concurrency on every POSIX
 // platform. Strip it anywhere except Linux so old macOS clusters can start.
 function stripPlatformInvalidLines(conf) {
@@ -159,6 +182,10 @@ function ensureConfV2(pgdataDir) {
   }
   if (!conf.includes(MIXDOG_CONF_V3_MARKER)) {
     conf += buildV3Block()
+    changed = true
+  }
+  if (!conf.includes(MIXDOG_CONF_V4_MARKER)) {
+    conf += buildV4Block()
     changed = true
   }
   if (!changed) return false

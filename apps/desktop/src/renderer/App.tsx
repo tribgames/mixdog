@@ -2535,6 +2535,10 @@ export function App() {
   const conversationResumeSession = useStableEvent((sessionId: string) => {
     void resumeSession(sessionId);
   });
+  const conversationOpenProjects = useStableEvent(() => {
+    openProjects();
+    void refreshProjects();
+  });
   const conversationSelectProject = useStableEvent((path: string) => {
     selectNewTaskProject(path);
   });
@@ -4503,6 +4507,7 @@ export function App() {
             onClearProject={conversationClearProject}
             onResumeSession={conversationResumeSession}
             onOpenSessions={openSidebar}
+            onOpenProjects={conversationOpenProjects}
             onOpenSettings={openSettings}
             projects={projects}
             showProjectSelector={Boolean(draftKey)}
@@ -4987,6 +4992,7 @@ export function App() {
               onClearProject={conversationClearProject}
               onResumeSession={conversationResumeSession}
               onOpenSessions={openSidebar}
+              onOpenProjects={conversationOpenProjects}
               onOpenSettings={openSettings}
               projects={projects}
               showProjectSelector={selection.kind === "new"}

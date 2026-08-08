@@ -147,6 +147,56 @@ export function preloadAgentLoopRuntime() {
   });
 }
 
+// Provider init (SDK graph + stored credentials) used to start inside the
+// FIRST session create, so a cold shard paid keychain + provider init serially
+// right in front of provider.send (measured: a 13.5s first turn whose title
+// sibling call timed out at 10s). Hosts warm the same registry the create and
+// title paths use; initProviders dedupes repeat calls, so the authoritative
+// create path simply finds it ready.
+let providerRuntimePrewarmPromise = null;
+export function preloadProviderRuntime() {
+  providerRuntimePrewarmPromise ??= (async () => {
+    const [{ loadConfig }, { initProviders }] = await Promise.all([
+      import('../runtime/agent/orchestrator/config.mjs'),
+      import('../runtime/agent/orchestrator/providers/registry.mjs'),
+    ]);
+    await initProviders(loadConfig().providers || {});
+  })();
+  void providerRuntimePrewarmPromise.catch(() => {
+    // Opportunistic: the create path retries provider init on its own.
+    providerRuntimePrewarmPromise = null;
+  });
+}
+
+// Memory-runtime attach (PG proxy + embed warmup) measured ~6.5s cold and is
+// the largest first-turn blocker: loadCoreMemoryContext races it with a 2s
+// cap, but a cold attach stalls the event loop hard enough that even that
+// timer fires seconds late (probe: core-memory settle at ~6.0s). Warm the
+// EXACT shared proxy instance the session create path resolves —
+// getStandaloneMemoryRuntime caches by entry+dataDir, so the first turn finds
+// it initialized. Honors the same MIXDOG_BOOT_CORE_MEMORY opt-out.
+let memoryRuntimePrewarmPromise = null;
+export function preloadMemoryRuntime() {
+  const bootFlag = String(process.env.MIXDOG_BOOT_CORE_MEMORY ?? '').trim().toLowerCase();
+  if (bootFlag === '0' || bootFlag === 'false' || bootFlag === 'no' || bootFlag === 'off') return;
+  memoryRuntimePrewarmPromise ??= (async () => {
+    const [{ getStandaloneMemoryRuntime }, { getPluginData }, { fileURLToPath }] = await Promise.all([
+      import('../standalone/memory-runtime-proxy.mjs'),
+      import('../runtime/agent/orchestrator/config.mjs'),
+      import('node:url'),
+    ]);
+    const runtime = getStandaloneMemoryRuntime({
+      entry: fileURLToPath(new URL('../runtime/memory/index.mjs', import.meta.url)),
+      dataDir: process.env.MIXDOG_DATA_DIR || getPluginData?.() || undefined,
+    });
+    await runtime.init();
+  })();
+  void memoryRuntimePrewarmPromise.catch(() => {
+    // Opportunistic: loadCoreMemoryContext retries through the same proxy.
+    memoryRuntimePrewarmPromise = null;
+  });
+}
+
 // Windows keychain reads go through a DPAPI PowerShell host whose cold start
 // dominates a packaged boot (measured ~1.5s). The runtime batches every secret
 // into one call, but it only starts that batch when the runtime is created —
@@ -184,7 +234,18 @@ export async function createLocalSessionRuntime({
   remote = false,
   cwd,
   desktopSession,
+  agentSession = null,
 } = {}) {
+  // Agent shard spread workers: host the session on the LIGHTWEIGHT agent
+  // runtime (manager turns + minimal projection) instead of the full Lead
+  // session runtime. MIXDOG_AGENT_HOST_LITE=0 falls back to the full runtime.
+  if (agentSession && typeof agentSession === 'object'
+    && !/^(?:0|false|off|no)$/i.test(String(process.env.MIXDOG_AGENT_HOST_LITE ?? ''))) {
+    const { createAgentHostRuntime } = await import('../standalone/agent-host-runtime.mjs');
+    return createAgentHostRuntime({
+      provider: providerName, model, cwd, agentSession,
+    });
+  }
   const startedAt = performance.now();
   bootProfile('session:create:start', { provider: providerName, model, toolMode, remote });
   // Silence provider/session diagnostics so they cannot tear through the
@@ -205,6 +266,7 @@ export async function createLocalSessionRuntime({
     remote,
     ...(cwd ? { cwd } : {}),
     ...(desktopSession ? { desktopSession } : {}),
+    ...(agentSession && typeof agentSession === 'object' ? { agentSession } : {}),
   });
   bootProfile('session:create:runtime-ready', { ms: (performance.now() - startedAt).toFixed(1) });
   const runtimeCwd = runtime.cwd || process.cwd();

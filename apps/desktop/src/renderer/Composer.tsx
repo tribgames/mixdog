@@ -75,6 +75,7 @@ export const Composer = memo(function Composer({
   onNewTask,
   onResumeSession,
   onOpenSessions,
+  onOpenProjects,
   onOpenSettings,
   onOpenCommandSurface,
   dropTargetRef,
@@ -109,6 +110,7 @@ export const Composer = memo(function Composer({
   onNewTask: () => void;
   onResumeSession: (id: string) => void;
   onOpenSessions: () => void;
+  onOpenProjects: () => void;
   onOpenSettings: (section?: SettingsSection | null) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
   dropTargetRef: React.RefObject<HTMLElement | null>;
@@ -952,12 +954,75 @@ export const Composer = memo(function Composer({
       return false;
     }
     if (rawName === 'new') onNewTask();
+    else if (name === 'project') onOpenProjects();
     else if (name === 'resume') argument ? onResumeSession(argument) : onOpenSessions();
     else if (name === 'clear') await commandCapability('clear');
     else if (name === 'compact') await commandCapability('compact');
     else if (name === 'doctor') onOpenCommandSurface('doctor');
     else if (name === 'remote') await commandCapability('claimRemote');
-    else if (name === 'model' && argument) {
+    else if (name === 'settings') onOpenSettings();
+    else if (name === 'quit') await invokeResult(() => window.mixdogDesktop.quit());
+    else if (name === 'autoclear' && argument) {
+      const value = argument.toLowerCase();
+      const next = await commandCapability<unknown>(
+        value === 'status' || value === 'current' || value === 'show' ? 'getAutoClear' : 'setAutoClear',
+        value === 'status' || value === 'current' || value === 'show'
+          ? []
+          : [{ ...(value === 'on' || value === 'enable' || value === 'enabled'
+            ? { enabled: true }
+            : value === 'off' || value === 'disable' || value === 'disabled'
+              ? { enabled: false }
+              : { duration: value }) }],
+      );
+      const status = asRecord(next);
+      if (!invocationFailed) {
+        showComposerNotice(`Auto-clear ${status?.enabled ? 'on' : 'off'}${status?.idleMs
+          ? ` · idle ${status.idleMs}ms`
+          : ''}`);
+      }
+    } else if (name === 'outputstyle' && argument) {
+      const statusOnly = ['status', 'current', 'show'].includes(argument.toLowerCase());
+      const value = await commandCapability<unknown>(statusOnly ? 'getOutputStyle' : 'setOutputStyle',
+        statusOnly ? [] : [argument]);
+      if (!invocationFailed) {
+        const result = asRecord(value);
+        const current = asRecord(result?.current);
+        showComposerNotice(`Output style: ${String(current?.label || current?.id ||
+          result?.configured || result?.label || result?.id || argument)}`);
+      }
+    } else if (name === 'theme' && argument) {
+      const statusOnly = ['status', 'current', 'show'].includes(argument.toLowerCase());
+      const value = await commandCapability<unknown>(statusOnly ? 'getTheme' : 'setTheme',
+        statusOnly ? [] : [argument, { persist: true }]);
+      if (!invocationFailed) {
+        const result = asRecord(value);
+        showComposerNotice(`Theme: ${String(result?.label || result?.id || value || argument)}`);
+      }
+    } else if (name === 'effort' && argument) {
+      const next = await commandCapability<unknown>('setEffort', [argument]);
+      if (!invocationFailed) showComposerNotice(`Effort set to ${String(next || argument)}`);
+    } else if (name === 'fast') {
+      const value = argument.toLowerCase();
+      const nextFast = value
+        ? ['1', 'true', 'yes', 'on', 'enable', 'enabled'].includes(value)
+          ? true
+          : ['0', 'false', 'no', 'off', 'disable', 'disabled'].includes(value)
+            ? false
+            : null
+        : !fast;
+      if (nextFast === null) {
+        setAttachmentError('Usage: /fast [on|off]');
+        return false;
+      }
+      if (draftMode && onDraftModelSelection && provider && model) {
+        onDraftModelSelection({ provider, model, effort, fast: nextFast });
+      } else {
+        const next = await invokeResult(() => window.mixdogDesktop.setFast(nextFast, sessionId || undefined));
+        if (next === undefined) return false;
+        applySnapshot(next);
+      }
+      showComposerNotice(`Fast mode ${nextFast ? 'on' : 'off'}`);
+    } else if (name === 'model' && argument) {
       if (argument.toLowerCase() === 'refresh') {
         const models = await invokeResult(() => window.mixdogDesktop.listProviderModels({ force: true }));
         if (models === undefined) return false;

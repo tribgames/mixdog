@@ -16,6 +16,7 @@ import { prepareAgentSession } from '../../runtime/agent/orchestrator/agent-runt
 import { AGENT_OWNER } from '../../runtime/agent/orchestrator/agent-owner.mjs';
 export function createSpawnFlow({
   mgr,
+  shardSpread = null,
   forgetTerminalSession,
   pendingSpawnMeta,
   DEFAULT_SPAWN_PREP_TIMEOUT_MS,
@@ -169,21 +170,23 @@ export function createSpawnFlow({
 
   async function prepareSpawn(args, callerCwd = null, context = {}, prepState = null) {
     refreshTagsFromSessions({ context });
+    // ONE path per mode: a shard child spreads its workers to peer shards; a
+    // plain/embedded process hosts them in-process. A remote failure fails the
+    // spawn outright — there is no silent in-process fallback.
+    if (shardSpread?.enabled?.()) {
+      return prepareSpawnRemote(args, callerCwd, context, prepState);
+    }
     return prepareSpawnInProcess(args, callerCwd, context, prepState);
   }
 
-  async function prepareSpawnInProcess(args, callerCwd = null, context = {}, prepState = null) {
+  /** Shared spawn-prep validations (agent/preset/tag/cwd/prompt). */
+  async function resolveSpawnPlan(args, callerCwd, context, prepState) {
     const config = cfgMod.loadConfig();
     const agent = normalizeAgentName(args.agent);
     if (!agent) throw new Error('agent spawn: agent is required');
     const agentPermission = readAgentFrontmatterPermission(agent, dataDir, STANDALONE_SOURCE_ROOT);
     const agentPerm = normalizeAgentPermission(agentPermission) || null;
     const { presetName, preset } = resolveAgentSpawnPreset(config, args);
-    await ensureProvider(config, preset.provider);
-    if (prepState?.timedOut) {
-      throw new Error('agent spawn prep timed out before session bind');
-    }
-
     const tag = clean(args.tag) || nextTag(agent, context);
     // Any resolved same-tag binding in this terminal (live or lingering trace)
     // blocks a fresh spawn. execute() routes live reuse before prepareSpawn.
@@ -196,14 +199,18 @@ export function createSpawnFlow({
     if (prepState?.timedOut) {
       throw new Error('agent spawn prep timed out before session bind');
     }
-    const runtimeSpec = cfgMod.resolveRuntimeSpec(preset, { lane: 'agent', agentId: tag });
-    const maxLoopIterations = positiveInt(args.maxLoopIterations) || null;
-    const watchdogPolicy = resolveAgentWatchdogPolicy(agent);
-    const { session, effectiveCwd } = prepareAgentSession({
+    return { config, agent, agentPerm, presetName, preset, tag, workerCwd, prompt };
+  }
+
+  /** ONE agent session spec for BOTH hosts: in-process prepareAgentSession and
+   *  the remote shard runtime (serialized verbatim over session.create). */
+  function spawnSessionSpec(plan, args, context) {
+    const { agent, agentPerm, presetName, preset, tag, workerCwd } = plan;
+    return {
       agent,
       presetName,
       preset,
-      runtimeSpec,
+      runtimeSpec: cfgMod.resolveRuntimeSpec(preset, { lane: 'agent', agentId: tag }),
       owner: AGENT_OWNER,
       cwd: workerCwd,
       sourceType: 'cli',
@@ -213,13 +220,18 @@ export function createSpawnFlow({
       clientHostPid: terminalPidForContext(context) || null,
       agentTag: tag,
       taskType: clean(args.taskType) || clean(args.typeHint) || undefined,
-      maxLoopIterations: maxLoopIterations || undefined,
+      maxLoopIterations: positiveInt(args.maxLoopIterations) || undefined,
       permission: agentPerm || undefined,
       cacheKeyOverride: args.cacheKey || undefined,
-    });
-    // Lead sessions write a gateway-session route when created; agent sessions
-    // are built through prepareAgentSession(), so mirror that registration here
-    // or the vendored L1/L2 statusline cannot resolve the agent route/model.
+    };
+  }
+
+  /** Shared post-create wiring. Lead sessions write a gateway-session route on
+   *  create; agent sessions are built through prepareAgentSession()/the remote
+   *  runtime, so mirror that registration here or the vendored L1/L2
+   *  statusline cannot resolve the agent route/model. */
+  function bindSpawnedSession(session, plan) {
+    const { agent, presetName, preset, tag } = plan;
     writeAgentStatuslineRoute(session.id, preset);
     bindTag(tag, session, {
       agent,
@@ -232,18 +244,60 @@ export function createSpawnFlow({
       stage: 'idle',
     });
     cancelReap(session.id);
+  }
+
+  function preparedSpawnResult(plan, args, session, spec, extra = {}) {
     return {
       args,
-      tag,
+      tag: plan.tag,
       session,
-      agent,
-      preset,
-      presetName,
-      workerCwd: effectiveCwd || workerCwd,
-      prompt,
-      maxLoopIterations,
-      watchdogPolicy,
+      agent: plan.agent,
+      preset: plan.preset,
+      presetName: plan.presetName,
+      workerCwd: plan.workerCwd,
+      prompt: plan.prompt,
+      maxLoopIterations: spec.maxLoopIterations || null,
+      watchdogPolicy: resolveAgentWatchdogPolicy(plan.agent),
+      ...extra,
     };
+  }
+
+  /** Agent shard spread: the worker session lives on ANOTHER shard through the
+   *  daemon session protocol. This is the ONLY spawn path inside a shard
+   *  child; a create/transport failure fails the spawn, and an incompatible
+   *  daemon is refused by the adapter — never silently downgraded. */
+  async function prepareSpawnRemote(args, callerCwd = null, context = {}, prepState = null) {
+    const plan = await resolveSpawnPlan(args, callerCwd, context, prepState);
+    const spec = spawnSessionSpec(plan, args, context);
+    const handle = await shardSpread.createRemoteSession({
+      spec,
+      provider: plan.preset.provider,
+      model: plan.preset.model,
+      cwd: plan.workerCwd,
+    });
+    if (prepState?.timedOut) {
+      try { handle.close('agent-spawn-prep-timeout'); } catch {}
+      throw new Error('agent spawn prep timed out before session bind');
+    }
+    bindSpawnedSession(handle.facade, plan);
+    return preparedSpawnResult(plan, args, handle.facade, spec, { remoteShard: true });
+  }
+
+  async function prepareSpawnInProcess(args, callerCwd = null, context = {}, prepState = null) {
+    const plan = await resolveSpawnPlan(args, callerCwd, context, prepState);
+    await ensureProvider(plan.config, plan.preset.provider);
+    if (prepState?.timedOut) {
+      throw new Error('agent spawn prep timed out before session bind');
+    }
+    const spec = spawnSessionSpec(plan, args, context);
+    const { session, effectiveCwd } = prepareAgentSession(spec);
+    bindSpawnedSession(session, plan);
+    return preparedSpawnResult(
+      { ...plan, workerCwd: effectiveCwd || plan.workerCwd },
+      args,
+      session,
+      spec,
+    );
   }
 
   async function runSpawn(prepared, notifyContext = null, job = null) {

@@ -1,10 +1,12 @@
 import { Check, FileDiff, RotateCcw, X } from "lucide-react";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t } from "./i18n";
 import { GitDiffBody } from "./ReviewPane";
 import { findPatch, PATCH_CACHE_LIMIT } from "./TranscriptView";
 import { REVIEW_DIFF_STYLE_KEY, type TranscriptItem } from "./desktop-types";
 import { parseUnifiedDiff } from "./renderer-logic.mjs";
+// @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
+import { classifyToolCategory, parseLineDelta, parseToolArgs, summarizeToolResult } from "../../../../src/runtime/shared/tool-surface.mjs";
 
 
 // "Review Changes": the headline is one authoritative turn-start → current
@@ -60,6 +62,7 @@ const agentReviewCache = new Map<string, AgentTurnReview[]>();
 const leadReviewCache = new Map<string, string | null>();
 const leadReviewFilesCache = new Map<string, TurnReviewFile[]>();
 const leadReviewSnapshotKindCache = new Map<string, string>();
+const leadReviewRevertModeCache = new Map<string, string>();
 function reviewChars(reviews: AgentTurnReview[], leadPatch: string | null): number {
   return (leadPatch?.length || 0) + reviews.reduce((total, review) => total + review.patch.length, 0);
 }
@@ -76,16 +79,19 @@ function rememberAgentReviews(
   leadPatch: string | null,
   files: TurnReviewFile[],
   snapshotKind: string,
+  revertMode: string,
 ): void {
   agentReviewCache.delete(scopeKey);
   leadReviewCache.delete(scopeKey);
   leadReviewFilesCache.delete(scopeKey);
   leadReviewSnapshotKindCache.delete(scopeKey);
+  leadReviewRevertModeCache.delete(scopeKey);
   if (reviewChars(reviews, leadPatch) > AGENT_REVIEW_SCOPE_MAX_CHARS) return;
   agentReviewCache.set(scopeKey, reviews);
   leadReviewCache.set(scopeKey, leadPatch);
   leadReviewFilesCache.set(scopeKey, files);
   leadReviewSnapshotKindCache.set(scopeKey, snapshotKind);
+  leadReviewRevertModeCache.set(scopeKey, revertMode);
   while (
     agentReviewCache.size > AGENT_REVIEW_CACHE_LIMIT
     || retainedReviewChars() > AGENT_REVIEW_CACHE_MAX_CHARS
@@ -96,6 +102,7 @@ function rememberAgentReviews(
     leadReviewCache.delete(oldest);
     leadReviewFilesCache.delete(oldest);
     leadReviewSnapshotKindCache.delete(oldest);
+    leadReviewRevertModeCache.delete(oldest);
   }
 }
 
@@ -254,8 +261,60 @@ function statusLabel(entry: TurnReviewSummary["files"] extends Map<string, infer
   return t("Changed");
 }
 
+function statusCode(entry: TurnReviewSummary["files"] extends Map<string, infer T> ? T : never): string {
+  const status = String(entry.status || "").toUpperCase();
+  if (["A", "D", "M", "R", "C", "T"].includes(status)) return status;
+  if (entry.binary) return "B";
+  return entry.lineStats ? "M" : "";
+}
+
 // Single-quoted so the capability-inventory source scan counts this surface.
 const TURN_REVIEW_CAPABILITY = 'getTurnReviewDiff';
+
+function toolPublishesPatch(item: TranscriptItem): boolean {
+  const categories = item.categories;
+  if (categories && typeof categories === "object" && Object.hasOwn(categories, "Patch")) return true;
+  return classifyToolCategory(String(item.name || ""), item.args) === "Patch";
+}
+
+function summarizeTurnReviewOperations(items: TranscriptItem[]) {
+  let lastUser = -1;
+  for (let index = items.length - 1; index >= 0; index--) {
+    if (items[index]?.kind === "user") { lastUser = index; break; }
+  }
+  let additions = 0;
+  let deletions = 0;
+  for (let index = lastUser + 1; index < items.length; index++) {
+    const item = items[index];
+    if (!item || item.kind !== "tool" || !toolPublishesPatch(item)) continue;
+    const count = Math.max(1, Number(item.count || 1));
+    if (item.isError === true || Number(item.errorCount || 0) >= count) continue;
+    if (parseToolArgs(item.args)?.dry_run === true) continue;
+    const result = item.result ?? item.rawResult ?? "";
+    const summaryText = item.aggregate
+      ? String(result)
+      : (summarizeToolResult(String(item.name || ""), item.args, String(result), false) || "");
+    const delta = parseLineDelta(summaryText);
+    if (delta.seen) {
+      additions += delta.added;
+      deletions += delta.removed;
+      continue;
+    }
+    const patch = findPatch(item);
+    if (!patch) continue;
+    try {
+      for (const analyzed of analyzeTurnReviewPatch(patch)) {
+        additions += analyzed.additions;
+        deletions += analyzed.deletions;
+      }
+    } catch { /* malformed/non-diff payload — skip */ }
+  }
+  return {
+    additions,
+    deletions,
+    hasLineStats: additions + deletions > 0,
+  };
+}
 
 export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId, active = true, busy = false }: {
   items: TranscriptItem[];
@@ -304,12 +363,14 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     leadPatch: string | null;
     files: TurnReviewFile[];
     snapshotKind: string;
+    revertMode: string;
   }>(() => ({
     scopeKey: turnScopeKey,
     reviews: agentReviewCache.get(turnScopeKey) || [],
     leadPatch: leadReviewCache.get(turnScopeKey) ?? null,
     files: leadReviewFilesCache.get(turnScopeKey) || [],
     snapshotKind: leadReviewSnapshotKindCache.get(turnScopeKey) || "",
+    revertMode: leadReviewRevertModeCache.get(turnScopeKey) || "",
   }));
   // Keying the read as well as the write prevents a one-frame stale bar before
   // effects run when the user switches sessions or opens New task.
@@ -325,6 +386,9 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   const authoritativeSnapshotKind = agentReviewState.scopeKey === turnScopeKey
     ? agentReviewState.snapshotKind
     : (leadReviewSnapshotKindCache.get(turnScopeKey) || "");
+  const authoritativeRevertMode = agentReviewState.scopeKey === turnScopeKey
+    ? agentReviewState.revertMode
+    : (leadReviewRevertModeCache.get(turnScopeKey) || "");
   const authoritativeWorktreeSnapshot = authoritativeSnapshotKind === "worktree";
   const capabilityFailures = useRef(0);
   const capabilityRequestInFlight = useRef(false);
@@ -390,6 +454,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
         supported?: boolean;
         authoritative?: boolean;
         snapshotKind?: unknown;
+        revertMode?: unknown;
         patch?: unknown;
         files?: Array<{
           path?: unknown;
@@ -415,6 +480,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
         ? (typeof value.patch === "string" ? value.patch : "")
         : null;
       const snapshotKind = value.authoritative === true ? String(value.snapshotKind || "") : "";
+      const revertMode = value.authoritative === true ? String(value.revertMode || "") : "";
       const files = (value.authoritative === true && Array.isArray(value.files) ? value.files : []).flatMap((row) => {
         const path = String(row?.path || "");
         if (!path) return [];
@@ -438,8 +504,8 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
           patch,
         }];
       });
-      const signature = JSON.stringify([leadPatch, files, snapshotKind, reviews]);
-      rememberAgentReviews(requestedScope, reviews, leadPatch, files, snapshotKind);
+      const signature = JSON.stringify([leadPatch, files, snapshotKind, revertMode, reviews]);
+      rememberAgentReviews(requestedScope, reviews, leadPatch, files, snapshotKind, revertMode);
       if (lastAgentReviewSignature.current === signature) return;
       lastAgentReviewSignature.current = signature;
       if (activeScope.current === requestedScope) {
@@ -449,6 +515,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
           leadPatch,
           files,
           snapshotKind,
+          revertMode,
         });
       }
     } catch {
@@ -533,6 +600,11 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
       const count = Math.max(1, Number(item.count || 1));
       const failed = item.isError === true || Number(item.errorCount || 0) >= count;
       if (failed) continue;
+      // Shell/test output can legitimately contain `@@` or a printed unified
+      // diff. It is evidence to show inside that tool row, not evidence that
+      // the tool changed files. Shell mutations arrive through the
+      // authoritative worktree snapshot instead.
+      if (!toolPublishesPatch(item)) continue;
       const patch = findPatch(item);
       if (typeof patch !== "string" || !patch) continue;
       patches.push(patch);
@@ -576,6 +648,11 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
       : mergeTurnReviewSummaries([transcriptSummary, agentSummary]),
     [transcriptSummary, agentSummary, authoritativeWorktreeSnapshot],
   );
+  const operationSummary = useMemo(() => summarizeTurnReviewOperations(items), [items]);
+  // The file set and expanded rows remain the authoritative turn-start → current
+  // diff. The collapsed headline mirrors the activity cards' edit workload so
+  // replaced/deleted intermediate lines do not disappear into a net +N count.
+  const headlineStats = operationSummary.hasLineStats ? operationSummary : summary;
   const sources = useMemo(() => [
     ...(transcriptSummary.files.size > 0
       ? [{
@@ -587,47 +664,12 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     ...agentSources,
   ], [transcriptSummary, agentSources, authoritativeWorktreeSnapshot]);
   const reviewVisible = summary.files.size > 0;
-  const reviewResolved = agentReviewState.scopeKey === turnScopeKey;
-  const currentSessionKey = String(sessionId || "draft");
-  const previousReview = useRef({
-    scopeKey: turnScopeKey,
-    sessionKey: currentSessionKey,
-    visible: reviewVisible,
-  });
-  const [handoffScope, setHandoffScope] = useState("");
-  useLayoutEffect(() => {
-    const previous = previousReview.current;
-    if (previous.scopeKey !== turnScopeKey) {
-      // A submitted prompt publishes before the next turn's authoritative diff.
-      // Keep the prior collapsed row's geometry through that same-session
-      // handoff, but never carry it across an actual session switch.
-      setHandoffScope(previous.sessionKey === currentSessionKey && previous.visible
-        ? turnScopeKey
-        : "");
-    }
-    previousReview.current = {
-      scopeKey: turnScopeKey,
-      sessionKey: currentSessionKey,
-      visible: reviewVisible,
-    };
-  }, [currentSessionKey, reviewVisible, turnScopeKey]);
-  useLayoutEffect(() => {
-    if (handoffScope !== turnScopeKey) return;
-    // A real bar replaces the placeholder at the same height. An empty result
-    // releases it only after the turn settles (or a submission ends before any
-    // turn activity), so a late diff cannot push the transcript twice.
-    if (reviewVisible || (!busy && (!hasTurnActivity || reviewResolved))) {
-      setHandoffScope("");
-    }
-  }, [busy, handoffScope, hasTurnActivity, reviewResolved, reviewVisible, turnScopeKey]);
-  const holdHandoffGeometry = handoffScope === turnScopeKey
-    && !reviewVisible
-    && (busy || (hasTurnActivity && !reviewResolved));
-  if (!reviewVisible) {
-    return holdHandoffGeometry
-      ? <div className="turn-review-bar turn-review-placeholder" aria-hidden="true" />
-      : null;
-  }
+  const canRevertTurn = Boolean(cwd && authoritativeRevertMode);
+  // The prior turn's review must leave at the next user boundary. Conversation
+  // reserves geometry only after the CURRENT turn actually touches files, so
+  // carrying an empty review row through every busy turn creates a fixed black
+  // gap above the composer while new output streams above it.
+  if (!reviewVisible) return null;
   return (
     <section ref={barElement} className="turn-review-bar" aria-label={t("Files changed this turn")}
       data-expanded={expanded ? "true" : "false"}>
@@ -644,10 +686,10 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
           <strong>{summary.files.size === 1 ? t("1 file changed") : t("{{count}} files changed", { count: summary.files.size })}</strong>
           {/* The counters belong to the TITLE, not to the (now removed)
               expander side of the row. */}
-          {summary.hasLineStats && (
+          {headlineStats.hasLineStats && (
             <span className="diff-stats">
-              {summary.additions > 0 && <i>+{summary.additions}</i>}
-              {summary.deletions > 0 && <em>-{summary.deletions}</em>}
+              {headlineStats.additions > 0 && <i>+{headlineStats.additions}</i>}
+              {headlineStats.deletions > 0 && <em>-{headlineStats.deletions}</em>}
             </span>
           )}
           {agentSources.length > 0 && <span className="turn-review-attribution">
@@ -659,53 +701,58 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
               })}
           </span>}
         </button>
-        {Boolean(cwd) && authoritativeWorktreeSnapshot && !busy && (confirmAll ? (
-          <span className="turn-review-confirm turn-review-confirm-all" role="group"
-            aria-label={t("Confirm")}>
-            <button type="button" className="turn-review-revert"
-              aria-label={t("Cancel")} data-tooltip={t("Cancel")}
-              onClick={() => setConfirmAll(false)}>
-              <X size={12} />
-            </button>
-            <button type="button" className="turn-review-revert danger"
-              aria-label={t("Confirm")} data-tooltip={t("Confirm")}
-              onClick={() => {
-                setConfirmAll(false);
-                setRevertingAll(true);
-                void window.mixdogDesktop.invokeCapability?.({
-                  capability: "revertTurnReview",
-                  args: [],
-                  sessionId,
-                })
-                  .then(async () => {
-                    setOpenFile("");
-                    setConfirmFile("");
-                    setReverted([]);
-                    await refreshAgentReviews(true);
+        {(expanded || Boolean(cwd)) && <div className="turn-review-controls">
+          {expanded && <div className="review-style-toggle turn-review-style" role="radiogroup"
+            aria-label={t("Diff style")}>
+            <button type="button" aria-pressed={diffStyle === "unified"}
+              onClick={() => setDiffStyle("unified")}>{t("Unified")}</button>
+            <button type="button" aria-pressed={diffStyle === "split"}
+              onClick={() => setDiffStyle("split")}>{t("Split")}</button>
+          </div>}
+          {Boolean(cwd) && (confirmAll ? (
+            <span className="turn-review-confirm turn-review-confirm-all" role="group"
+              aria-label={t("Confirm")}>
+              <button type="button" className="turn-review-revert"
+                aria-label={t("Cancel")} data-tooltip={t("Cancel")}
+                onClick={() => setConfirmAll(false)}>
+                <X size={12} />
+              </button>
+              <button type="button" className="turn-review-revert danger"
+                aria-label={t("Confirm")} data-tooltip={t("Confirm")}
+                onClick={() => {
+                  setConfirmAll(false);
+                  setRevertingAll(true);
+                  void window.mixdogDesktop.invokeCapability?.({
+                    capability: "revertTurnReview",
+                    args: [],
+                    sessionId,
                   })
-                  .catch(() => setConfirmAll(true))
-                  .finally(() => setRevertingAll(false));
+                    .then(async () => {
+                      setOpenFile("");
+                      setConfirmFile("");
+                      setReverted([]);
+                      await refreshAgentReviews(true);
+                    })
+                    .catch(() => setConfirmAll(true))
+                    .finally(() => setRevertingAll(false));
+                }}>
+                <Check size={12} />
+              </button>
+            </span>
+          ) : (
+            <button type="button" className="turn-review-undo"
+              aria-label={t("Undo")} data-tooltip={canRevertTurn
+                ? t("Undo all files to the start of this turn")
+                : t("Undo is unavailable for this review")}
+              disabled={busy || revertingAll || !canRevertTurn}
+              onClick={() => {
+                setConfirmFile("");
+                setConfirmAll(true);
               }}>
-              <Check size={12} />
+              <RotateCcw size={12} aria-hidden="true" />
+              <span>{t("Undo")}</span>
             </button>
-          </span>
-        ) : (
-          <button type="button" className="turn-review-undo"
-            aria-label={t("Undo")} data-tooltip={t("Undo")} disabled={revertingAll}
-            onClick={() => {
-              setConfirmFile("");
-              setConfirmAll(true);
-            }}>
-            <RotateCcw size={12} aria-hidden="true" />
-            <span>{t("Undo")}</span>
-          </button>
-        ))}
-        {expanded && <div className="review-style-toggle turn-review-style" role="radiogroup"
-          aria-label={t("Diff style")}>
-          <button type="button" aria-pressed={diffStyle === "unified"}
-            onClick={() => setDiffStyle("unified")}>{t("Unified")}</button>
-          <button type="button" aria-pressed={diffStyle === "split"}
-            onClick={() => setDiffStyle("split")}>{t("Split")}</button>
+          ))}
         </div>}
       </div>
       <div className="turn-review-collapse" inert={!expanded} aria-hidden={!expanded}>
@@ -715,13 +762,10 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
           const sourceHeader = (
             <li key={`${source.key}:source`} className="turn-review-source">
               <strong>{t(source.label)}</strong>
-              <span>{source.summary.files.size === 1 ? t("1 file") : t("{{count}} files", { count: source.summary.files.size })}</span>
-              {source.summary.hasLineStats && (
-                <span className="diff-stats">
-                  {source.summary.additions > 0 && <i>+{source.summary.additions}</i>}
-                  {source.summary.deletions > 0 && <em>-{source.summary.deletions}</em>}
-                </span>
-              )}
+              <span className="diff-stats" aria-hidden={!source.summary.hasLineStats}>
+                <i>{source.summary.additions > 0 ? `+${source.summary.additions}` : ""}</i>
+                <em>{source.summary.deletions > 0 ? `-${source.summary.deletions}` : ""}</em>
+              </span>
             </li>
           );
           const rows = [...source.summary.files.entries()].map(([name, entry]) => {
@@ -735,22 +779,28 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
           const rowKey = `${source.key}:${name}`;
           const isReverted = reverted.includes(name);
           const confirming = confirmFile === name;
+          const ownFile = source.key === "turn" || source.key === "lead";
+          const canRevertFile = ownFile && canRevertTurn && !busy && !isReverted;
           return (
           <li key={rowKey} data-open={openFile === rowKey ? "true" : "false"}
             data-reverted={isReverted ? "true" : "false"}>
             <button type="button" className="turn-review-file" aria-expanded={openFile === rowKey}
               onClick={() => setOpenFile((current) => current === rowKey ? "" : rowKey)}>
+              <span className="turn-review-status" data-status={statusCode(entry)}
+                aria-label={statusLabel(entry)} data-tooltip={statusLabel(entry)}>
+                {statusCode(entry)}
+              </span>
               <code>{rel}</code>
-              {statusLabel(entry) && <span className="turn-review-status"
-                data-status={entry.status || (entry.lineStats ? "M" : "")}>{statusLabel(entry)}</span>}
               {entry.lineStats && (
                 <span className="diff-stats">
-                  {entry.additions > 0 && <i>+{entry.additions}</i>}
-                  {entry.deletions > 0 && <em>-{entry.deletions}</em>}
+                  <i>{entry.additions > 0 ? `+${entry.additions}` : ""}</i>
+                  <em>{entry.deletions > 0 ? `-${entry.deletions}` : ""}</em>
                 </span>
               )}
+              {!entry.lineStats && <span className="diff-stats" aria-hidden="true"><i /><em /></span>}
             </button>
-            {Boolean(cwd) && authoritativeWorktreeSnapshot && source.key === "turn" && !isReverted && (confirming ? (
+            <span className="turn-review-action-slot">
+            {ownFile && !isReverted && (confirming ? (
               <span className="turn-review-confirm" role="group"
                 aria-label={t("Confirm reverting {{file}} to the start of this turn", { file: rel })}>
                 <button type="button" className="turn-review-revert"
@@ -779,10 +829,12 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
             ) : (
               <button type="button" className="turn-review-revert"
                 aria-label={t("Revert {{file}}", { file: rel })} data-tooltip={t("Revert file to turn start")}
+                disabled={!canRevertFile}
                 onClick={() => { setConfirmAll(false); setConfirmFile(name); }}>
                 <RotateCcw size={12} />
               </button>
             ))}
+            </span>
             {openFile === rowKey && <div className="turn-review-diff">
               {entry.parts.length > 0
                 ? entry.parts.map((file, index) => (

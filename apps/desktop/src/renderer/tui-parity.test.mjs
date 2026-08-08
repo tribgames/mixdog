@@ -100,21 +100,14 @@ test('desktop settings items exactly match the TUI settings picker', async () =>
   );
 });
 
-// The desktop keeps a deliberate SUBSET of the TUI registry (user decision):
-// commands whose only job is opening a page the GUI already owns were dropped.
-// Every surviving command must still be field-identical to its TUI twin.
-test('desktop slash commands stay a field-identical subset of the TUI registry', () => {
+test('desktop slash commands stay field-identical to the complete TUI registry', () => {
   const commandFields = (command) => Object.fromEntries(
     ['name', 'usage', 'aliases', 'aliasUsage', 'showAliasUsage', 'params', 'description']
       .filter((field) => Object.hasOwn(command, field))
       .map((field) => [field, command[field]]),
   );
 
-  const tuiByName = new Map(tuiSlashCommands.map((command) => [command.name, commandFields(command)]));
-  for (const command of desktopSlashCommands) {
-    assert.ok(tuiByName.has(command.name), `/${command.name} must exist in the TUI registry`);
-    assert.deepEqual(commandFields(command), tuiByName.get(command.name));
-  }
+  assert.deepEqual(desktopSlashCommands.map(commandFields), tuiSlashCommands.map(commandFields));
 });
 
 test('every desktop slash command resolves to an implemented GUI target', async () => {

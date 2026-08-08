@@ -642,6 +642,7 @@ export const AgentSessionConversation = memo(function AgentSessionConversation({
       onClearProject={() => {}}
       onResumeSession={() => {}}
       onOpenSessions={() => {}}
+      onOpenProjects={() => {}}
       onOpenSettings={() => {}}
       projects={[]}
       showProjectSelector={false}

@@ -22,19 +22,21 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
-import { fileURLToPath } from 'url'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
 import { callAgentDispatch } from './agent-ipc.mjs'
 import { listCore, editCore, deleteCore, archiveCore } from './core-memory-store.mjs'
 import { reclassifyCore } from './core-memory-store.mjs'
 import { loadCurrentRulesDigest } from './memory-cycle2.mjs'
+import { resourceDir } from './memory-cycle2-shared.mjs'
 import { embedText } from './embedding-provider.mjs'
 import { searchRelevantHybrid } from './memory-recall-store.mjs'
 import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
 
-function resourceDir() {
-  return process.env.MIXDOG_ROOT || fileURLToPath(new URL('../../../..', import.meta.url))
-}
+// resourceDir comes from memory-cycle2-shared.mjs: prompts live under
+// <package>/src/defaults, and the local variant here resolved MIXDOG_ROOT
+// (the package root in standalone/desktop runs) WITHOUT the 'src' join, so
+// packaged installs looked for <pkg>/defaults/cycle3-review-prompt.md and
+// every cycle3 review failed with "prompt file missing".
 
 async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispatch, signal = null) {
   return await llmCall({

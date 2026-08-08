@@ -85,6 +85,7 @@ export function prepareAgentSession({
     agentTag,
     cacheKeyOverride,
     schemaAllowedTools,
+    sessionId,
 }) {
     const effectivePermission = resolveAgentSessionPermission(agent, permission);
     // No per-agent loop caps: sessions either pin maxLoopIterations explicitly
@@ -106,6 +107,7 @@ export function prepareAgentSession({
         }
     } catch { /* config is best-effort for agent compaction policy */ }
     const sessionOpts = {
+        ...(sessionId ? { id: sessionId } : {}),
         preset,
         owner,
         scopeKey: runtimeSpec.scopeKey,

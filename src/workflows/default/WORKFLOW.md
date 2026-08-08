@@ -20,7 +20,7 @@ file/module sets are independent; merge only on a true output dependency.
 Prefer parallel scopes over sequential slices in one agent. Brief each agent
 per the Lead Brief contract.
 
-Report the verified result against the approved plan. Build, deploy, commit,
+Report the result against the approved plan. Build, deploy, commit,
 and push happen only on an explicit user request.
 
 On direction change, pause and re-consult the user.

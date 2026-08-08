@@ -391,7 +391,7 @@ function messageFileAllowance(m) {
         Math.max(FILE_TOKEN_ALLOWANCE_FLOOR, Math.ceil((descriptor.sizeBytes || 0) / 16)),
     ), 0);
 }
-function estimateMessageTokens(m) {
+export function estimateMessageTokens(m) {
     return estimateTokens(messageEstimateText(m)) + messageImageAllowance(m) + messageFileAllowance(m) + 4;
 }
 export function estimateMessagesTokens(messages) {

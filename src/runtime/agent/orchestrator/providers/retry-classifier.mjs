@@ -119,14 +119,25 @@ export function classifyError(err) {
   if (chain.some((item) => TRANSIENT_ERROR_CODES.has(String(item?.code || '')))) return 'transient'
   // The Anthropic SDK uses APIConnectionError for transport failures which
   // may not carry a Node errno. Native fetch wraps its errno in cause.code,
-  // which the bounded chain check above already covers — a bare
-  // TypeError('fetch failed') with no errno stays 'unknown'.
+  // which the bounded chain check above already covers.
   if (String(err.name || '') === 'APIConnectionError') return 'transient'
+
+  // Bare fetch transport failures carry NO status and NO errno; their only
+  // signal is the runtime's message ('fetch failed' Node, 'Failed to fetch'
+  // Chromium, "Couldn't fetch" / 'Load failed' WebKit-family gateways —
+  // observed live: one such blip failed a turn whose retry succeeded 27s
+  // later). Replay PERMISSION is still owned by the exposure contract; this
+  // only lets the retry ladder treat the symptom as transport instead of
+  // failing the turn outright.
+  if (!status && chain.some((item) => BARE_FETCH_TRANSPORT_MESSAGE_RE.test(
+    String(item?.message || '').trim(),
+  ))) return 'transient'
 
   return 'unknown'
 }
 
 const MAX_CAUSE_CHAIN_DEPTH = 8
+const BARE_FETCH_TRANSPORT_MESSAGE_RE = /^(?:fetch failed|failed to fetch|couldn'?t fetch\.?|load failed|network error)$/i
 const TRANSIENT_ERROR_CODES = new Set([
   'ECONNRESET', 'ETIMEDOUT', 'ESOCKETTIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND',
   'EAI_NODATA', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE',

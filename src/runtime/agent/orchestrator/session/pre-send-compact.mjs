@@ -171,6 +171,10 @@ export async function runPreSendCompactPass(state) {
                                     `${recallErr?.message || recallErr}\n`,
                                 );
                             } catch { /* best-effort */ }
+                            // Main/user compaction stays recall-fasttrack-only.
+                            // If stored Memory is unavailable, preserve the live
+                            // head and surface the failure instead of silently
+                            // changing the compaction contract to semantic.
                             throw recallErr;
                         }
                     } else if (compactPolicy.semantic) {

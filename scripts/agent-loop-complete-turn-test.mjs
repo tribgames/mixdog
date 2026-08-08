@@ -325,6 +325,37 @@ test('a repeat-failure-guard skip is not a real failure: the terminal text ends 
     assert.equal(result.content, 'that tool cannot run here; stopping');
 });
 
+test('a successful different tool breaks the repeat-failure chain', async () => {
+    const failingArgs = { path: 'nowhere' };
+    const session = publicSession({
+        _repeatFailGuard: { sig: _intraTurnSig('definitely_missing_tool', failingArgs), count: 3 },
+    });
+    const provider = queuedProvider([
+        {
+            content: '',
+            stopReason: 'tool_use',
+            toolCalls: [{ id: 'call-progress', name: 'list', arguments: { path: process.cwd() } }],
+        },
+        {
+            content: '',
+            stopReason: 'tool_use',
+            toolCalls: [{ id: 'call-retry', name: 'definitely_missing_tool', arguments: failingArgs }],
+        },
+        { content: 'retry executed; wrapping up', stopReason: 'end_turn' },
+        { content: 'final handoff after the executed retry', stopReason: 'end_turn' },
+    ]);
+    const messages = [{ role: 'user', content: 'fix the inputs, then retry the same check' }];
+
+    const result = await run(provider, messages, { session });
+
+    assert.equal(provider.sent.length, 4);
+    const retry = messages.find((message) => message.toolCallId === 'call-retry');
+    assert.doesNotMatch(retry.content, /\[repeat-failure-guard\]/);
+    assert.equal(retry.guardSkip, undefined);
+    assert.equal(stopHookPrompts(messages).length, 1);
+    assert.equal(result.content, 'final handoff after the executed retry');
+});
+
 test('dedup/guard skips stay non-resolving: the hook still blocks once after them', async () => {
     const listArgs = { path: process.cwd() };
     const provider = queuedProvider([

@@ -445,6 +445,21 @@ test('media playback requires an active surface and a foreground app window', ()
   assert.equal(mediaPlaybackAllowed(true, 'visible', false), false);
 });
 
+test('composer containment preserves floating slash and mention palettes', async () => {
+  const [desktopCss, structuralCss] = await Promise.all([
+    readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
+    readFile(new URL('./styles.css', import.meta.url), 'utf8'),
+  ]);
+  const composerContain = /\.composer\s*\{[^}]*contain:\s*([^;]+);/s.exec(desktopCss)?.[1]?.trim();
+  const textareaContain = /\.composer textarea\s*\{[^}]*contain:\s*([^;]+);/s.exec(desktopCss)?.[1]?.trim();
+  assert.equal(composerContain, 'layout style',
+    'the composer may contain layout, but paint containment would clip its absolute palettes');
+  assert.equal(textareaContain, 'paint',
+    'typing paint stays contained at the textarea without clipping sibling palettes');
+  assert.match(structuralCss,
+    /\.slash-palette\s*\{[^}]*position:\s*absolute;[^}]*bottom:\s*calc\(100% \+ 8px\);/s);
+});
+
 test('active feedback keeps smooth motion and pauses while the window is hidden', async () => {
   const [spinner, main, desktopCss, structuralCss] = await Promise.all([
     readFile(new URL('./ProgressSpinner.tsx', import.meta.url), 'utf8'),
@@ -2527,9 +2542,8 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.match(styles,
     /\.turn-review-slot\[data-reserved="true"\]\s*\{[^}]*min-height:\s*28px;[^}]*margin-bottom:\s*8px;/s,
     'a live turn reserves the collapsed review row before a late diff arrives');
-  assert.match(styles,
-    /\.turn-review-placeholder\s*\{[^}]*min-height:\s*28px;[^}]*visibility:\s*hidden;/s,
-    'a same-session prompt handoff preserves review geometry without exposing stale diff content');
+  assert.doesNotMatch(styles, /\.turn-review-placeholder/,
+    'a new turn must not retain an empty review container above the composer');
   assert.match(styles, /\.turn-review-summary\s*\{[^}]*min-height:\s*28px;/s,
     'the collapsed review must retain a readable control row');
   assert.doesNotMatch(styles, /--mx-turn-review-slot/,
@@ -2715,6 +2729,54 @@ test('authenticated keychain providers are immediately selectable without a seco
     local: [{ id: 'ollama', detected: true, enabled: false }],
   });
   assert.deepEqual(filtered.map((model) => model.provider), ['openai']);
+});
+
+test('turn review keeps a compact hierarchy and fixed columns at narrow pane widths', async () => {
+  const css = await readFile(new URL('./desktop.css', import.meta.url), 'utf8');
+  assert.match(css,
+    /\.turn-review-summary strong\s*\{[^}]*color:\s*var\(--mx-text\);[^}]*font-size:\s*var\(--mx-font-minor\);/s,
+    'the card headline must remain the primary label');
+  assert.match(css, /\.turn-review-head\s*\{[^}]*min-height:\s*32px;/s);
+  assert.match(css,
+    /\.turn-review-files\s*\{[^}]*padding:\s*0 6px 4px;/s,
+    'the first source header should sit flush below the card divider');
+  assert.match(css, /\.turn-review-files li\s*\{[^}]*min-height:\s*24px;/s);
+  assert.match(css,
+    /\.turn-review-files li\.turn-review-source\s*\{[^}]*min-height:\s*24px;/s);
+  assert.match(css,
+    /\.turn-review-files li\.turn-review-source:not\(:first-child\)\s*\{\s*margin-top:\s*4px;\s*\}/);
+  assert.match(css,
+    /\.turn-review-source strong\s*\{[^}]*color:\s*var\(--mx-text-muted\);[^}]*font-size:\s*var\(--mx-font-meta\);/s,
+    'source labels must stay subordinate to the card headline');
+  assert.match(css,
+    /\.turn-review-files li\s*\{[^}]*grid-template-columns:\s*14px minmax\(0,\s*1fr\) 30px 30px 28px;/s,
+    'file rows must share a compact status prefix plus fixed additions, deletions, and undo columns');
+  assert.doesNotMatch(css, /\.turn-review-source-count\s*\{/,
+    'source labels must not repeat the headline file count');
+  assert.match(css, /\.turn-review-source \.diff-stats i\s*\{\s*grid-column:\s*3;\s*\}/);
+  assert.match(css, /\.turn-review-source \.diff-stats em\s*\{\s*grid-column:\s*4;\s*\}/);
+  assert.doesNotMatch(css,
+    /@container \(max-width:\s*440px\)[\s\S]*?\.turn-review-file \.turn-review-status\s*\{\s*display:\s*none;/,
+    'narrow panes must shrink only the path column instead of removing metadata columns');
+  assert.match(css,
+    /\.turn-review-bar \.turn-review-status,[\s\S]*?color:\s*var\(--mx-text-faint\);[^}]*background:\s*transparent;/s,
+    'file status letters must remain unboxed with a neutral fallback');
+  assert.match(css,
+    /\.turn-review-bar \.turn-review-status\[data-status="A"\],[\s\S]*?data-status="C"\]\s*\{\s*color:\s*var\(--mx-success\);/s);
+  assert.match(css,
+    /\.turn-review-bar \.turn-review-status\[data-status="D"\]\s*\{\s*color:\s*var\(--mx-danger\);/);
+  assert.match(css,
+    /\.turn-review-bar \.turn-review-status\[data-status="M"\],[\s\S]*?data-status="T"\]\s*\{\s*color:\s*var\(--mx-warning\);/s);
+  assert.match(css,
+    /\.turn-review-bar \.turn-review-status\[data-status="R"\]\s*\{\s*color:\s*var\(--mx-accent\);/);
+  assert.match(css, /\.turn-review-undo:hover\s*\{\s*color:\s*var\(--mx-text\);/);
+  assert.match(css,
+    /\.turn-review-undo\s*\{[^}]*background:\s*var\(--mx-alpha-light-6\);/s,
+    'the whole-turn undo action must retain a visible button surface');
+  assert.match(css,
+    /\.turn-review-undo:disabled\s*\{[^}]*color:\s*var\(--mx-text-faint\);[^}]*opacity:\s*1;/s,
+    'disabled undo must remain readable without appearing actionable');
+  assert.match(css, /\.turn-review-revert\.danger\s*\{\s*color:\s*var\(--mx-text\);\s*\}/);
 });
 
 test('desktop UI keeps every public TUI command and core capability represented', async () => {

@@ -138,10 +138,40 @@ test('concurrent sessions in one worktree expose only their session-owned mutati
     const left = await getTurnReviewDiff(dir, 'parallel-a');
     const right = await getTurnReviewDiff(dir, 'parallel-b');
     assert.equal(left.snapshotKind, 'tool');
+    assert.equal(left.revertMode, 'tracked');
     assert.match(left.patch, /changed by a/);
     assert.equal(right.snapshotKind, 'tool');
     assert.equal(right.patch, '',
       'another active session must not inherit a shared worktree mutation');
+    await completeTurnSnapshot('parallel-a');
+    const reverted = await revertTurnReviewFile(dir, 'parallel-a', 'tracked.txt');
+    assert.equal(readFileSync(file, 'utf8'), 'committed baseline\n');
+    assert.equal(reverted.patch, '');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('contended tracked revert refuses to overwrite a later external edit', async () => {
+  _resetTurnSnapshotForTest();
+  const dir = worktreeFixture();
+  try {
+    await beginTurnSnapshot(dir, 'parallel-safe-a');
+    await beginTurnSnapshot(dir, 'parallel-safe-b');
+    const file = join(dir, 'tracked.txt');
+    recordTurnDiffChanges('parallel-safe-a', [{
+      path: file,
+      displayPath: 'tracked.txt',
+      before: Buffer.from('committed baseline\n'),
+      after: Buffer.from('owned edit\n'),
+    }]);
+    writeFileSync(file, 'external edit\n');
+    await completeTurnSnapshot('parallel-safe-a');
+    await assert.rejects(
+      () => revertTurnReviewFile(dir, 'parallel-safe-a', 'tracked.txt'),
+      /file changed after this session edit/,
+    );
+    assert.equal(readFileSync(file, 'utf8'), 'external edit\n');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

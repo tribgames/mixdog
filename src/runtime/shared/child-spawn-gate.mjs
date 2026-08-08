@@ -3,6 +3,7 @@
 import { availableParallelism } from 'node:os';
 import { createOwnerFairGate } from './owner-fair-gate.mjs';
 import { currentToolExecutionOwner } from './tool-execution-owner.mjs';
+import { acquireRemoteSpawnLease, remoteSpawnLeasesEnabled } from './child-spawn-remote.mjs';
 
 // ── Module-global child-spawn semaphore ──────────────────────────────────
 //
@@ -149,6 +150,30 @@ export function acquire(signal = null, laneName = 'search', options = {}) {
   }
   const normalizedLaneName = _laneName(laneName);
   const lane = _lane(normalizedLaneName);
+  const ownerKey = options?.ownerKey || currentToolExecutionOwner();
+  const waitTimeoutMs = options?.waitTimeoutMs ?? lane.waitTimeoutMs;
+  // Session shards defer to the machine-wide budget owned by the daemon-side
+  // pool; the local lane remains the bounded fallback when the pool channel
+  // cannot answer. Real admission rejections (wait timeout, queue full)
+  // surface unchanged.
+  if (remoteSpawnLeasesEnabled()) {
+    return acquireRemoteSpawnLease({
+      lane: normalizedLaneName,
+      ownerKey,
+      signal,
+      waitTimeoutMs,
+    }).catch((error) => {
+      if (error?.code !== 'ELEASEFALLBACK') throw error;
+      return _acquireLocal(signal, normalizedLaneName, lane, ownerKey, waitTimeoutMs);
+    });
+  }
+  return _acquireLocal(signal, normalizedLaneName, lane, ownerKey, waitTimeoutMs);
+}
+
+function _acquireLocal(signal, normalizedLaneName, lane, ownerKey, waitTimeoutMs) {
+  if (signal && signal.aborted) {
+    return Promise.reject(signal.reason ?? _abortError());
+  }
   const admitted = Promise.withResolvers();
   const held = Promise.withResolvers();
   let released = false;
@@ -157,13 +182,12 @@ export function acquire(signal = null, laneName = 'search', options = {}) {
     released = true;
     held.resolve();
   };
-  const ownerKey = options?.ownerKey || currentToolExecutionOwner();
   const running = lane.gate.run(ownerKey, async () => {
     admitted.resolve(release);
     await held.promise;
   }, {
     signal,
-    waitTimeoutMs: options?.waitTimeoutMs ?? lane.waitTimeoutMs,
+    waitTimeoutMs,
     onAdmit: (waitedMs) => _maybeWarnSlow(waitedMs, normalizedLaneName, {
       limit: lane.limit,
       queue: { length: lane.gate.queued },
@@ -197,6 +221,7 @@ export function hasSpareCapacity(laneName = 'search') {
 
 export function snapshot() {
   return {
+    mode: remoteSpawnLeasesEnabled() ? 'remote-lease' : 'local',
     maxInflight: Number.isFinite(DEFAULT_MAX_INFLIGHT) ? DEFAULT_MAX_INFLIGHT : null,
     lanes: [..._lanes.entries()].map(([name, lane]) => {
       const state = lane.gate.snapshot();
