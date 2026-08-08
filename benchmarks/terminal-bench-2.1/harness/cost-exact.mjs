@@ -10,11 +10,15 @@
 //     design (uncachedInputTokensForProvider, usage-metrics.mjs). The true
 //     billing-uncached input is (totalUncachedInputTokens - cacheWrite).
 //   usage.json — driver-mirrored provider totals; inputTokens there IS the
-//     billing-uncached input. Preferred for `in`; fallback for the rest.
-// Rates: claude-opus-5 official — in $5/M, cache-read $0.5/M, out $25/M.
-// Cache write: $10/M for BOTH sides — mixdog runs 1h TTL, and CC does too
+//     billing-uncached input for Anthropic mirrors, but TOTAL input
+//     (uncached + cached) for OpenAI mirrors — subtract cacheTokens there
+//     (verified 2026-08-08: sol trial in 24,601 = unc 9,753 + cr 14,848).
+// Rates: official list prices per model (RATES below). Opus 5 cache write
+// $10/M (1h TTL) for BOTH sides — mixdog runs 1h TTL, and CC does too
 // (measured 2026-08-03: all 89 jobs-full-cc-n8 trajectories report writes
 // exclusively under ephemeral_1h_input_tokens; ephemeral_5m total is 0).
+// GPT-5.6+ bills cache writes at 1.25x input (sol $6.25/M), but the oauth
+// mirror does not report cache_write_tokens — OpenAI totals are lower bounds.
 // Usage: node harness/cost-exact.mjs <runDir> [ccBaseline.json]
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -23,6 +27,21 @@ const [runDir, ccPath] = process.argv.slice(2);
 if (!runDir) { console.error('usage: node cost-exact.mjs <runDir> [ccBaseline.json]'); process.exit(1); }
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 const cc = ccPath && existsSync(ccPath) ? readJson(ccPath) : null;
+
+// Official list prices ($/M): family drives usage.json inputTokens semantics.
+const RATES = [
+    [/luna/, { in: 0.2, cr: 0.02, cw: 0.25, out: 1.2, family: 'openai' }],
+    [/terra/, { in: 2, cr: 0.2, cw: 2.5, out: 12, family: 'openai' }],
+    [/sol|gpt/, { in: 5, cr: 0.5, cw: 6.25, out: 30, family: 'openai' }],
+    [/haiku/, { in: 1, cr: 0.1, cw: 1.25, out: 5, family: 'anthropic' }],
+    [/opus|fable|claude/, { in: 5, cr: 0.5, cw: 10, out: 25, family: 'anthropic' }],
+];
+const rateFor = (m) => {
+    m = String(m || '').toLowerCase();
+    for (const [re, r] of RATES) if (re.test(m)) return r;
+    return RATES[4][1];
+};
+const uncFor = (rate, input, cached) => rate.family === 'openai' ? Math.max(input - cached, 0) : input;
 
 const rows = [];
 const sum = { n: 0, t: 0, cost: 0, turns: 0, ctx: 0, win: 0, in: 0, cr: 0, cw: 0, out: 0 };
@@ -36,19 +55,29 @@ for (const entry of readdirSync(runDir, { withFileTypes: true })) {
     const reward = r?.verifier_result?.rewards?.reward;
     if (reward == null) continue;
     const s = readJson(join(dir, 'agent', 'session-transcript.json'));
-    const u = readJson(join(dir, 'agent', 'usage.json'))?.totals ?? null;
+    const ud = readJson(join(dir, 'agent', 'usage.json'));
+    const u = ud?.totals ?? null;
     if (!s && !u) continue;
     const num = (v) => Number(v) || 0;
+    const R = rateFor(s?.model || (ud?.sessions?.[0]?.models || [])[0]);
     const cw = s ? num(s.totalCacheWriteTokens) : num(u?.cacheWriteTokens);
     const cr = s ? num(s.totalCachedReadTokens) : num(u?.cacheTokens);
     const out = s ? num(s.totalOutputTokens) : num(u?.outputTokens);
-    // True billing-uncached input: provider-reported when mirrored, else
-    // transcript aggregate minus the writes it folds in.
+    // True billing-uncached input: provider-reported when mirrored (family
+    // semantics above), else transcript aggregate minus the writes it folds in.
     const inTok = u && u.inputTokens != null
-        ? num(u.inputTokens)
+        ? uncFor(R, num(u.inputTokens), num(u.cacheTokens))
         : Math.max(num(s?.totalUncachedInputTokens) - cw, 0);
     const flag = s ? '' : ' [usage-only]';
-    const cost = (inTok * 5 + cr * 0.5 + cw * 10 + out * 25) / 1e6;
+    // Per-session model-accurate sum when available (explorer lanes bill at
+    // their own list prices); trial-level fallback otherwise.
+    const cost = Array.isArray(ud?.sessions) && ud.sessions.length
+        ? ud.sessions.reduce((acc, x) => {
+            const r2 = rateFor((x.models || [])[0]);
+            const unc = uncFor(r2, num(x.inputTokens), num(x.cacheTokens));
+            return acc + (unc * r2.in + num(x.cacheTokens) * r2.cr + num(x.cacheWriteTokens) * r2.cw + num(x.outputTokens) * r2.out) / 1e6;
+        }, 0)
+        : (inTok * R.in + cr * R.cr + cw * R.cw + out * R.out) / 1e6;
     const agent = (Date.parse(r.agent_execution.finished_at) - Date.parse(r.agent_execution.started_at)) / 1e3;
     const name = entry.name.split('__')[0];
     let turns = 0;
