@@ -56,10 +56,11 @@ export function _resolvePwshPoolTarget({
     if (!Number.isFinite(free) || free < 0) {
         try { free = freemem(); } catch { free = 0; }
     }
-    const cpuTarget = Math.max(1, Math.min(4, Math.floor(cores) - 1 || 1));
+    const cpuTarget = Math.max(1, Math.min(8, Math.floor(cores) - 1 || 1));
     if (free < 768 * MB) return 0;
     if (free < 1536 * MB) return Math.min(1, cpuTarget);
     if (free < 3072 * MB) return Math.min(2, cpuTarget);
+    if (free < 6144 * MB) return Math.min(4, cpuTarget);
     return cpuTarget;
 }
 
@@ -71,6 +72,10 @@ const _envIdleMs = Math.floor(Number(process.env.MIXDOG_PWSH_STANDBY_IDLE_MS));
 const STANDBY_IDLE_MS = Number.isFinite(_envIdleMs) && _envIdleMs >= 0
     ? _envIdleMs
     : 60_000;
+const _envBurstWaitMs = Math.floor(Number(process.env.MIXDOG_PWSH_STANDBY_BURST_WAIT_MS));
+const STANDBY_BURST_WAIT_MS = Number.isFinite(_envBurstWaitMs) && _envBurstWaitMs >= 0
+    ? _envBurstWaitMs
+    : 2_000;
 const EXPECTED_ARGS = Object.freeze(['-NoLogo', '-NoProfile', '-NonInteractive', '-Command']);
 
 // Marker-loop bootstrap: the standby serves MANY commands over its lifetime.
@@ -120,6 +125,8 @@ function _standbyBootScript(nonce) {
         'Get-Module | ForEach-Object { $__baseMod[$_.Name] = $true }',
         '$__basePref = @{}',
         "foreach ($__p in @('ErrorActionPreference','ProgressPreference','VerbosePreference','WarningPreference','InformationPreference','DebugPreference','ConfirmPreference')) { $__basePref[$__p] = Get-Variable -Name $__p -ValueOnly -Scope Global -ErrorAction SilentlyContinue }",
+        `[Console]::Out.WriteLine('<<<MIXDOG_READY_${nonce}>>>')`,
+        '[Console]::Out.Flush()',
         '$__code = 0',
         'while ($true) {',
         '  $__buf = New-Object System.Text.StringBuilder',
@@ -166,8 +173,40 @@ function _standbyBootScript(nonce) {
 
 const _idle = [];
 const _taken = new Set();
+const _standbyWaiters = new Set();
 let _envSig = null;
 let _exitHookInstalled = false;
+
+function _signalStandbyChange() {
+    for (const resolve of _standbyWaiters) {
+        try { resolve(); } catch {}
+    }
+    _standbyWaiters.clear();
+}
+
+function _waitForStandbyChange(timeoutMs, signal = null) {
+    if (signal?.aborted) return Promise.reject(signal.reason || new Error('pwsh standby wait aborted'));
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        let timer = null;
+        const finish = (error = null) => {
+            if (settled) return;
+            settled = true;
+            _standbyWaiters.delete(onChange);
+            if (timer) clearTimeout(timer);
+            if (signal) {
+                try { signal.removeEventListener('abort', onAbort); } catch {}
+            }
+            if (error) reject(error);
+            else resolve();
+        };
+        const onChange = () => finish();
+        const onAbort = () => finish(signal.reason || new Error('pwsh standby wait aborted'));
+        _standbyWaiters.add(onChange);
+        if (signal) signal.addEventListener('abort', onAbort, { once: true });
+        timer = setTimeout(onChange, Math.max(1, timeoutMs));
+    });
+}
 
 function _envSignature(env) {
     const h = createHash('sha1');
@@ -183,6 +222,7 @@ function _killEntry(entry) {
         entry.idleTimer = null;
     }
     try { entry.child.kill(); } catch { /* already down */ }
+    _signalStandbyChange();
 }
 
 function _discardIdle(entry) {
@@ -224,9 +264,40 @@ function _spawnStandby(shell, env, sig) {
             detached: false,
         });
     } catch { return; }
-    const entry = { child, sig, nonce, taken: false, consumed: false, idleTimer: null };
-    child.on('error', () => { if (!entry.taken) { _discardIdle(entry); _killEntry(entry); } });
-    child.on('exit', () => { if (!entry.taken) _discardIdle(entry); });
+    const entry = {
+        child,
+        sig,
+        nonce,
+        ready: false,
+        taken: false,
+        consumed: false,
+        idleTimer: null,
+    };
+    const readyMarker = `<<<MIXDOG_READY_${nonce}>>>`;
+    let readyTail = '';
+    const onReadyData = (chunk) => {
+        readyTail += String(chunk || '');
+        if (!readyTail.includes(readyMarker)) {
+            if (readyTail.length > readyMarker.length * 2) readyTail = readyTail.slice(-readyMarker.length * 2);
+            return;
+        }
+        entry.ready = true;
+        try { child.stdout.removeListener('data', onReadyData); } catch {}
+        _signalStandbyChange();
+    };
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', onReadyData);
+    child.on('error', () => {
+        if (!entry.taken) {
+            _discardIdle(entry);
+            _killEntry(entry);
+        }
+        _signalStandbyChange();
+    });
+    child.on('exit', () => {
+        if (!entry.taken) _discardIdle(entry);
+        _signalStandbyChange();
+    });
     // A dead standby's pending stdin write must never crash the daemon.
     child.stdin?.on?.('error', () => { /* swallow — entry is discarded via exit */ });
     // Idle standbys must not hold the event loop open (process handle AND
@@ -284,6 +355,7 @@ export function takePwshStandby({ shell, shellArgs, env }) {
     let entry = null;
     for (let i = 0; i < _idle.length; i += 1) {
         const cand = _idle[i];
+        if (!cand.ready) continue;
         if (cand.child.exitCode !== null || cand.child.signalCode !== null) continue;
         if (!cand.child.stdin || cand.child.stdin.destroyed) continue;
         _idle.splice(i, 1);
@@ -342,6 +414,7 @@ export function takePwshStandby({ shell, shellArgs, env }) {
             entry.consumed = true;
             _releaseTaken(entry);
             try { entry.child.stdin.end(); } catch { /* already gone */ }
+            _signalStandbyChange();
         },
         // Post-command recycle: return the standby to the pool ONLY when the
         // command left no descendant processes attached to its stdio (a live
@@ -351,7 +424,6 @@ export function takePwshStandby({ shell, shellArgs, env }) {
         async recycle() {
             if (entry.consumed) return false;
             entry.consumed = true;
-            _releaseTaken(entry);
             const c = entry.child;
             const alive = () => c.exitCode === null && c.signalCode === null;
             let dirty = true;
@@ -360,6 +432,7 @@ export function takePwshStandby({ shell, shellArgs, env }) {
             }
             if (dirty || !alive() || !c.stdin || c.stdin.destroyed
                 || _idle.length >= POOL_TARGET || _envSig !== entry.sig) {
+                _releaseTaken(entry);
                 try { killProcessTree(c.pid, 'SIGKILL'); } catch { /* already down */ }
                 _killEntry(entry);
                 return false;
@@ -387,11 +460,37 @@ export function takePwshStandby({ shell, shellArgs, env }) {
                 c.stdout?.unref?.();
                 c.stderr?.unref?.();
             } catch { /* best-effort */ }
+            _releaseTaken(entry);
             _idle.push(entry);
             _armIdleExpiry(entry);
+            _signalStandbyChange();
             return true;
         },
     };
+}
+
+/**
+ * Burst-aware adoption for real shell calls. A saturated warm pool gets a
+ * short bounded chance to return a standby before the caller cold-spawns
+ * another pwsh. Long commands still fall back after the deadline, so this is
+ * not a fixed shell-concurrency cap.
+ */
+export async function takePwshStandbyBurst(spec, {
+    waitMs = STANDBY_BURST_WAIT_MS,
+    signal = null,
+} = {}) {
+    let standby = takePwshStandby(spec);
+    if (standby || !(waitMs > 0) || process.platform !== 'win32' || POOL_TARGET === 0) {
+        return standby;
+    }
+    const deadline = Date.now() + waitMs;
+    while (!standby) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) return null;
+        await _waitForStandbyChange(remaining, signal);
+        standby = takePwshStandby(spec);
+    }
+    return standby;
 }
 
 /**

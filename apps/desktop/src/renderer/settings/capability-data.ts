@@ -63,7 +63,7 @@ export const SECTION_READS: ReadonlyArray<readonly [string, DesktopCapability, u
   ['profile', 'getProfile'], ['theme', 'getTheme'], ['autoClear', 'getAutoClear'],
   ['compaction', 'getCompactionSettings'],
   ['outputStyles', 'listOutputStyles'], ['providerSetup', 'getProviderSetup'],
-  ['recap', 'getRecapSettings'], ['update', 'getUpdateSettings'],
+  ['recap', 'getRecapSettings'], ['toolModules', 'getToolModuleSettings'], ['update', 'getUpdateSettings'],
   ['updateStatus', 'getUpdateStatus'], ['mcp', 'mcpStatus'], ['plugins', 'pluginsStatus'],
   ['hooks', 'hooksStatus'],
   ['skills', 'skillsStatus'], ['disabledSkills', 'getDisabledSkills'],

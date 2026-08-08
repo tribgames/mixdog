@@ -36,6 +36,8 @@ export function createSettingsApi({
   localPackageVersion,
   // state getters / feature flags
   recapEnabledFn,
+  webSearchEnabled,
+  exploreEnabled,
   channelsEnabled,
   autoUpdateEnabled,
   getUpdateCheckState,
@@ -221,6 +223,26 @@ export function createSettingsApi({
       invalidatePreSessionToolSurface();
       invalidateContextStatusCache();
       return this.getRecapSettings();
+    },
+    getToolModuleSettings() {
+      return {
+        search: { enabled: webSearchEnabled() },
+        explore: { enabled: exploreEnabled() },
+      };
+    },
+    setWebSearchEnabled(enabled) {
+      const config = getConfig();
+      saveConfigAndAdopt(setModuleEnabledInConfig({ ...config }, 'search', enabled !== false));
+      // A live session keeps its frozen schema; stale calls are rejected by
+      // the executor immediately, and the next new session gets this surface.
+      invalidatePreSessionToolSurface();
+      return this.getToolModuleSettings();
+    },
+    setExploreEnabled(enabled) {
+      const config = getConfig();
+      saveConfigAndAdopt(setModuleEnabledInConfig({ ...config }, 'explore', enabled !== false));
+      invalidatePreSessionToolSurface();
+      return this.getToolModuleSettings();
     },
     getChannelSettings(options = {}) {
       return {

@@ -101,7 +101,7 @@ const MAX_STRUCTURED_STRING_TOTAL = 32_000_000;
 const CAPABILITY_SET = new Set<string>(DESKTOP_CAPABILITIES);
 const READ_CAPABILITY_SET = new Set<string>(DESKTOP_READ_CAPABILITIES);
 const BOOLEAN_FIRST_CAPABILITIES = new Set<DesktopCapability>([
-  'setAutoUpdate', 'setRecapEnabled', 'setChannelsEnabled',
+  'setAutoUpdate', 'setRecapEnabled', 'setWebSearchEnabled', 'setExploreEnabled', 'setChannelsEnabled',
 ]);
 const BOOLEAN_SECOND_CAPABILITIES = new Set<DesktopCapability>([
   'setMcpServerEnabled', 'setHookRuleEnabled', 'setScheduleEnabled', 'setWebhookEnabled',
@@ -125,7 +125,8 @@ const CAPABILITY_ARITY = {
   setAutoClear: [0, 1], getUpdateSettings: [0, 0], setAutoUpdate: [1, 1], checkForUpdate: [0, 1],
   runUpdateNow: [0, 0], getUpdateStatus: [0, 0], getProfile: [0, 0], setProfile: [0, 1],
   getCompactionSettings: [0, 0], setCompactionSettings: [0, 1], getRecapSettings: [0, 0],
-  setRecapEnabled: [1, 1], getChannelSettings: [0, 1], setChannelsEnabled: [1, 1],
+  setRecapEnabled: [1, 1], getToolModuleSettings: [0, 0], setWebSearchEnabled: [1, 1],
+  setExploreEnabled: [1, 1], getChannelSettings: [0, 1], setChannelsEnabled: [1, 1],
   getVoiceStatus: [0, 0], toggleVoice: [0, 0],
   // agentControl accepts (args, { silent }) — the dock agent viewer's read.
   agentControl: [0, 2], toolsStatus: [0, 1], selectTools: [1, 1], getSystemShell: [0, 0],

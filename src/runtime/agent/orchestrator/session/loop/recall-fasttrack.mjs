@@ -82,14 +82,19 @@ function isAbortLikeError(err, signal) {
     return /\babort(ed|ing)?\b|\bcancel(l?ed|ling)?\b/.test(msg);
 }
 
+export function isUsableRecallDigestText(value) {
+    const text = typeof value === 'string' ? value : String(value?.text ?? value ?? '');
+    const trimmed = text.trim();
+    return !!trimmed && !/^\((?:no results|no current session)\)$/i.test(trimmed);
+}
+
 export async function runRecallFastTrackCompact({ sessionRef, messages, compactBudgetTokens, compactPolicy, sessionId, signal }) {
     if (!sessionId) throw new Error('recall-fasttrack requires a session id');
     const startedAt = Date.now();
     const diagnostics = {
-        hydrateLimit: null,
-        ingestMs: null,
-        ingestSkipped: false,
-        ingestError: null,
+        memorySource: 'existing-session',
+        searchMs: null,
+        searchError: null,
         initialDumpMs: null,
         initialDumpBytes: null,
         initialDumpChars: null,
@@ -114,43 +119,13 @@ export async function runRecallFastTrackCompact({ sessionRef, messages, compactB
         clientHostPid: sessionRef?.clientHostPid,
         signal: signal || null,
     };
-    const hydrateLimit = positiveTokenInt(sessionRef?.compaction?.recallIngestLimit)
-        || Math.max(500, Math.min(5000, messages.length || 0));
-    diagnostics.hydrateLimit = hydrateLimit;
     let t0 = Date.now();
-    let ingestFailed = false;
     let searchFailed = false;
-    let ingestErr = null;
     let searchErr = null;
-    try {
-        await executeInternalTool('memory', {
-            action: 'ingest_session',
-            sessionId,
-            messages,
-            cwd: sessionRef?.cwd,
-            limit: hydrateLimit,
-            // Pre-send fast-track compaction: these rows are about to be
-            // summarized away, so skip the bounded synchronous embedding-flush
-            // wait — kick the flush fire-and-forget. Mirrors the manual/auto-clear
-            // runner (manager/compaction-runner.mjs) embedWait:false policy.
-            embedWait: false,
-        }, callerCtx);
-    } catch (err) {
-        ingestFailed = true;
-        ingestErr = err;
-        diagnostics.ingestSkipped = true;
-        diagnostics.ingestError = compactDiagnosticError(err);
-        try { process.stderr.write(`[loop] recall-fasttrack ingest skipped (sess=${sessionId || 'unknown'}): ${err?.message || err}\n`); } catch {}
-    } finally {
-        diagnostics.ingestMs = Date.now() - t0;
-    }
-    // ── Digest injection (the only mode) ──────────────────────────────────
-    // The old full-dump path (dump_session_roots + synchronous cycle1 drain)
-    // is gone: the drain ran memory-pipeline LLM chunking calls INSIDE the
-    // compaction (measured 11.9s of a 12.9s compact) and still often left
-    // rawRemaining>0. Instead inject a small newest-first digest plus a
-    // recall pointer; ingest_session above already put the full transcript
-    // in the memory DB, and background cycle1 chunks it on its own schedule.
+    // Build the compact handoff from the session rows the always-on transcript
+    // watcher already persisted. Do not retransmit the live transcript through
+    // the memory RPC: that duplicates canonical history and can exceed the
+    // bounded HTTP request body before compaction gets a chance to run.
     const digestMaxKb = positiveTokenInt(sessionRef?.compaction?.recallDigestMaxKb) || DIGEST_DEFAULT_MAX_KB;
     let digestBody = '';
     t0 = Date.now();
@@ -164,39 +139,37 @@ export async function runRecallFastTrackCompact({ sessionRef, messages, compactB
             compactDigest: true,
         }, callerCtx);
         digestBody = typeof browsed === 'string' ? browsed : String(browsed?.text ?? browsed ?? '');
+        if (!isUsableRecallDigestText(digestBody)) {
+            throw new Error('memory has no stored history for this session');
+        }
     } catch (err) {
         searchFailed = true;
         searchErr = err;
-        diagnostics.cycle1Error = compactDiagnosticError(err);
+        diagnostics.searchError = compactDiagnosticError(err);
         try { process.stderr.write(`[loop] recall-digest browse failed (sess=${sessionId || 'unknown'}): ${err?.message || err}\n`); } catch {}
     }
-    diagnostics.initialDumpMs = Date.now() - t0;
+    diagnostics.searchMs = Date.now() - t0;
+    diagnostics.initialDumpMs = diagnostics.searchMs;
     diagnostics.cycle1Skipped = true;
     diagnostics.cycle1SkipReason = 'digest mode';
     diagnostics.cycle1Passes = 0;
-    // Fail-safe: memory ingest or search failed, so the digest cannot honestly
-    // represent "full history is in memory". Do NOT drop head messages behind a
-    // false recall notice — abort the fast-track so no context is silently lost
-    // for this cycle. The failure is already on stderr above; surface it here
-    // too and record it in the diagnostics before throwing.
-    if (ingestFailed || searchFailed) {
+    // Fail-safe: an unavailable or empty stored session cannot support a
+    // truthful recall handoff. Preserve the live head and let the caller use
+    // the semantic fallback instead of silently dropping history.
+    if (searchFailed) {
         diagnostics.totalMs = Date.now() - startedAt;
         diagnostics.failSafeAbort = true;
         compactDebugLog('recall-digest pipeline', diagnostics);
         // Cancellation is not a memory failure: rethrow the original abort error
         // unchanged so the session is marked cancelled, not context-overflow.
-        const abortErr = isAbortLikeError(ingestErr, signal) ? ingestErr
-            : isAbortLikeError(searchErr, signal) ? searchErr
-            : (signal?.aborted ? (ingestErr || searchErr) : null);
+        const abortErr = isAbortLikeError(searchErr, signal) ? searchErr
+            : (signal?.aborted ? searchErr : null);
         if (abortErr) {
             try { process.stderr.write(`[loop] recall-fasttrack cancelled (sess=${sessionId || 'unknown'}): ${abortErr?.message || abortErr}\n`); } catch {}
             throw abortErr;
         }
-        const reason = ingestFailed
-            ? (searchFailed ? 'ingest+search failed' : 'ingest failed')
-            : 'search failed';
-        try { process.stderr.write(`[loop] recall-fasttrack fail-safe abort (sess=${sessionId || 'unknown'}): ${reason} — keeping full history, no recall notice injected\n`); } catch {}
-        throw new Error(`recall-fasttrack aborted: memory ${reason}; head preserved`);
+        try { process.stderr.write(`[loop] recall-fasttrack fail-safe abort (sess=${sessionId || 'unknown'}): stored session unavailable — keeping full history, no recall notice injected\n`); } catch {}
+        throw new Error(`recall-fasttrack aborted: stored session memory unavailable; head preserved`);
     }
     const digestText = buildRecallDigestText(sessionId, digestBody, digestMaxKb);
     diagnostics.finalRecallChars = digestText.length;
@@ -215,10 +188,9 @@ export async function runRecallFastTrackCompact({ sessionRef, messages, compactB
         query,
         querySha,
         cwd: sessionRef?.cwd,
-        // Ingest + search both succeeded above, so the memory DB genuinely holds
-        // this transcript and the recall notice is truthful even when the digest
-        // body is small. A failure would have aborted before reaching here.
-        allowEmptyRecall: true,
+        // Empty/sentinel browse output was rejected above, so the handoff always
+        // contains real stored session context.
+        allowEmptyRecall: false,
         tailTurns: compactPolicy.tailTurns,
         keepTokens: compactPolicy.keepTokens,
         preserveRecentTokens: compactPolicy.preserveRecentTokens,

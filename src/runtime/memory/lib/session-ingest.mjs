@@ -338,3 +338,35 @@ export function shouldExcludeIngestMessage(m) {
   }
   return false
 }
+
+// Project a live session transcript to the exact fields ingest_session can
+// consume before it crosses a process/HTTP boundary. Tool results, system
+// prefixes, media blocks, and full tool-call arguments can make a mature
+// transcript exceed the memory service's bounded request-body guard even
+// though ingest_session discards all of them after parsing. Keep genuine
+// conversation text plus only the durable identity fields used by
+// stableSessionSourceRef; the owner-side ingest pipeline still performs the
+// canonical shaping/cleaning exactly once.
+export function projectSessionMessagesForIngest(messages) {
+  if (!Array.isArray(messages)) return []
+  const projected = []
+  for (const m of messages) {
+    if (!m || typeof m !== 'object') continue
+    const role = normalizeIngestRole(m.role)
+    if (!role || shouldExcludeIngestMessage(m)) continue
+    const content = firstTextContent(m.content)
+    if (!content || !content.trim()) continue
+    const next = { role, content }
+    if (Object.prototype.hasOwnProperty.call(m, 'ts')) next.ts = m.ts
+    if (Object.prototype.hasOwnProperty.call(m, 'timestamp')) next.timestamp = m.timestamp
+    if (m.toolCallId) next.toolCallId = m.toolCallId
+    if (Array.isArray(m.toolCalls)) {
+      const ids = m.toolCalls
+        .filter(tc => tc?.id)
+        .map(tc => ({ id: tc.id }))
+      if (ids.length > 0) next.toolCalls = ids
+    }
+    projected.push(next)
+  }
+  return projected
+}

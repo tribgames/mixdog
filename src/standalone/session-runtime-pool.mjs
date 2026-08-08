@@ -9,6 +9,7 @@ import {
   SESSION_CONFIGURE_ACTIONS,
   SESSION_READ_ACTIONS,
 } from './session-protocol.mjs';
+import { applySessionStatePatch } from './session-state-patch.mjs';
 
 const RUNTIME_METHODS = new Set([
   ...SESSION_READ_ACTIONS,
@@ -45,15 +46,7 @@ export function applyShardStateFrame(previous, frame) {
   if (frame?.full && typeof frame.full === 'object') return frame.full;
   const patch = frame?.patch;
   if (!patch || typeof patch !== 'object') return previous || {};
-  const base = previous && typeof previous === 'object' ? previous : {};
-  const next = { ...base, ...(patch.set || {}) };
-  if (patch.itemsAppend) {
-    const items = Array.isArray(base.items) ? base.items : [];
-    const from = Math.max(0, Math.floor(Number(patch.itemsAppend.from) || 0));
-    next.items = items.slice(0, from).concat(patch.itemsAppend.values || []);
-  }
-  for (const key of patch.remove || []) delete next[key];
-  return next;
+  return applySessionStatePatch(previous, patch);
 }
 
 class SessionShard {

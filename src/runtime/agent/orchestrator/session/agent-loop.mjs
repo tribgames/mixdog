@@ -208,6 +208,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         }
     };
     const sessionRef = opts.session || null;
+    const isExplorerSession = sessionAgent === 'explorer' || sessionAgent === 'explore';
     const loopUsageMetricsEpoch = () => Number(sessionRef?.usageMetricsEpoch) || 0;
     const loopUsageMetricsTurnId = () => Number(sessionRef?.usageMetricsTurnId) || 0;
     // Sub-agent (worker/heavy-worker/reviewer/debugger/explore/…) sessions
@@ -430,12 +431,14 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // cut off early. Other runaway protection is behavior-based (steering
     // ladder hints, REPEAT_FAIL_LIMIT), never a lower iteration count.
     let _iterWarnStage = 0;
-    // Tiny-cap loops (e.g. explorer cap=3) can't afford staged 50/75/90%
+    // Tiny-cap loops (e.g. explorer cap=2) can't afford staged 50/75/90%
     // steers — the 50% stage lands on iteration 1 in every session, spamming
     // the normal batch→answer path. For caps < 10 emit ONE wrap-up warning at
     // the penultimate iteration instead; caps >= 10 keep staged behavior.
     const _singleWarn = maxLoopIterations < 10;
-    const _iterWarnAt = _singleWarn
+    const _iterWarnAt = isExplorerSession
+        ? [1, 2, 3, 4].filter((value) => value < maxLoopIterations)
+        : _singleWarn
         ? [Math.max(1, maxLoopIterations - 1)]
         : [
             Math.floor(maxLoopIterations * 0.5),
@@ -463,8 +466,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 // tool calls into refusal stubs, or thinking-only). Synthesize a
                 // non-empty final so callers never see an empty response.
                 if (response && !String(response.content || '').trim()) {
-                    response.content = sessionAgent === 'explorer'
-                        ? 'EXPLORATION_FAILED [iteration-cap] — explorer hit its tool-turn cap with zero anchors; retry once with changed tokens or a narrower root'
+                    response.content = isExplorerSession
+                        ? 'EXPLORATION_FAILED [iteration-cap] — explorer hit its tool-turn cap with zero anchors'
                         : '[iteration cap reached before final text]';
                     if (Array.isArray(response.toolCalls)) response.toolCalls = [];
                 }
@@ -472,14 +475,25 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             }
             _capFinalTurnUsed = true;
             _capFinalToolsDisabled = true;
-            messages.push({ role: 'user', content: '<system-reminder>\nIteration cap reached — tools disabled; answer with your best result from context.\n</system-reminder>', meta: 'hook' });
+            const finalTurnReminder = isExplorerSession
+                ? 'Explorer turn 6/6 — FINAL REPORT TURN. This is the last turn. Tools are disabled. Report the credible anchors currently held; if none were found, return `EXPLORATION_FAILED`.'
+                : 'Iteration cap reached — tools disabled; answer with your best result from context.';
+            messages.push({ role: 'user', content: `<system-reminder>\n${finalTurnReminder}\n</system-reminder>`, meta: 'hook' });
             process.stderr.write(`[loop] hard iteration cap ${maxLoopIterations} reached (sess=${sessionId || 'unknown'}); forcing final text turn.\n`);
         }
         if (_iterWarnStage < _iterWarnAt.length && iterations >= _iterWarnAt[_iterWarnStage]) {
             _iterWarnStage += 1;
             const warnAt = _iterWarnAt[_iterWarnStage - 1];
-            const stageMsg = _singleWarn
-                ? `Iteration budget nearly spent: ${warnAt} of ${maxLoopIterations} iterations used — answer NOW with the best anchors you already hold.`
+            const stageMsg = isExplorerSession
+                ? _iterWarnStage === 1
+                    ? 'Explorer turn 1/6 complete. If every requested facet already has a credible anchor, do not call another tool: report immediately. Otherwise continue only for facets with zero anchors; never reconfirm an existing anchor.'
+                    : _iterWarnStage === 2
+                        ? 'Explorer turn 2/6 complete. If every requested facet already has a credible anchor, do not call another tool: report immediately. Otherwise continue only for facets with zero anchors; never reconfirm an existing anchor.'
+                        : _iterWarnStage === 3
+                            ? 'Explorer turn 3/6 complete. If every requested facet already has a credible anchor, do not call another tool: report immediately. Otherwise continue only for facets with zero anchors; never reconfirm an existing anchor.'
+                            : 'Explorer turn 4/6 complete. If every requested facet already has a credible anchor, do not call another tool: report immediately. Otherwise use the final recovery tool turn only for facets with zero anchors; never reconfirm an existing anchor.'
+                : _singleWarn
+                    ? `Iteration budget nearly spent: ${warnAt} of ${maxLoopIterations} iterations used — answer NOW with the best anchors you already hold.`
                 : _iterWarnStage === 1
                     ? `Iteration budget notice: ${warnAt} of ${maxLoopIterations} iterations used. Converge on a conclusion: prefer finishing the current objective over opening new exploration.`
                     : `Iteration budget warning (stage ${_iterWarnStage}): ${warnAt} of ${maxLoopIterations} iterations used — the loop hard-stops at ${maxLoopIterations}. Wrap up now: summarize progress, state what remains, and finish with your best current result.`;

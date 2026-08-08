@@ -1,9 +1,7 @@
 /**
- * Agent loop ceiling — a single high runaway-guard shared by every session
- * (Lead and delegated sub-agents alike). There are intentionally NO low
- * per-agent caps: a worker/heavy-worker must be free to run as many tool +
- * synthesis turns as the task needs. This ceiling exists ONLY to stop a truly
- * runaway loop; it is not a task-length budget.
+ * Agent loop ceilings. Lead and general delegated agents share one high
+ * runaway guard. Explorer is the sole bounded exception: locator work gets at
+ * at most five tool-capable turns, followed by the loop's tool-less report turn.
  */
 
 function envPositiveInt(name, fallback) {
@@ -14,16 +12,32 @@ function envPositiveInt(name, fallback) {
 }
 
 // Single runaway guard for ALL sessions. High by design; env-overridable only
-// to raise/lower the safety ceiling, never used as a per-agent task budget.
+// to raise/lower the safety ceiling, never used as a general task-length budget.
 export const LEAD_MAX_LOOP_ITERATIONS = envPositiveInt('MIXDOG_AGENT_MAX_LOOP', 200);
+
+// Explorer's first turn is the whole maximum-fanout search; turns 2-5 are
+// bounded miss recovery. The override may shorten this but never add a sixth.
+export const EXPLORE_MAX_LOOP_ITERATIONS = Math.min(
+    5,
+    envPositiveInt('MIXDOG_EXPLORE_MAX_LOOP', 5),
+);
 
 /**
  * Resolve the hard cap used by agentLoop for this session.
  *
- * Order: explicit override → session-pinned value → shared runaway guard.
- * No per-agent low caps are applied.
+ * Explorer: the lowest positive explicit/session value, clamped to its
+ * dedicated five-turn ceiling. Others: explicit → session-pinned → shared guard.
  */
 export function resolveSessionMaxLoopIterations(sessionRef, explicit) {
+    const sessionAgent = String(sessionRef?.agent || '').trim().toLowerCase();
+    if (sessionAgent === 'explorer' || sessionAgent === 'explore') {
+        const requested = Number.isFinite(explicit) && explicit > 0
+            ? Math.floor(explicit)
+            : Number.isFinite(sessionRef?.maxLoopIterations) && sessionRef.maxLoopIterations > 0
+                ? Math.floor(sessionRef.maxLoopIterations)
+                : EXPLORE_MAX_LOOP_ITERATIONS;
+        return Math.min(EXPLORE_MAX_LOOP_ITERATIONS, requested);
+    }
     if (Number.isFinite(explicit) && explicit > 0) return Math.floor(explicit);
     if (Number.isFinite(sessionRef?.maxLoopIterations) && sessionRef.maxLoopIterations > 0) {
         return Math.floor(sessionRef.maxLoopIterations);

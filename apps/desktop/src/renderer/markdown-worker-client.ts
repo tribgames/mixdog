@@ -19,6 +19,7 @@ const astCache = new Map<string, MarkdownAstRoot>();
 let astCacheCharacters = 0;
 let markdownWorker: Worker | null = null;
 let markdownWorkerFailure: Error | null = null;
+let rendererParserPromise: Promise<typeof import("./markdown-ast")> | null = null;
 let requestSequence = 0;
 const pendingRequests = new Map<number, PendingMarkdownRequest>();
 
@@ -49,6 +50,15 @@ function rememberStreamingMarkdownAst(text: string, root: MarkdownAstRoot): void
     astCache.delete(oldest);
     astCacheCharacters -= oldest.length;
   }
+}
+
+function parseMarkdownOnRenderer(text: string): Promise<MarkdownAstRoot> {
+  rendererParserPromise ||= import("./markdown-ast");
+  return rendererParserPromise.then(({ parseMarkdownToHast }) => {
+    const root = parseMarkdownToHast(text);
+    rememberStreamingMarkdownAst(text, root);
+    return root;
+  });
 }
 
 function rejectPendingRequests(error: Error): void {
@@ -91,7 +101,8 @@ function getMarkdownWorker(): Worker {
   worker.addEventListener("error", (event) => {
     // A worker bootstrap error is also dispatched at window. Cancel that
     // duplicate global error and stop recreating the same broken worker on
-    // every streaming publication; source-shaped Markdown remains readable.
+    // every streaming publication. Pending and later requests recover through
+    // the renderer parser instead of leaving raw Markdown source on screen.
     event.preventDefault?.();
     resetWorker(new Error(event.message || "Markdown Worker failed"), true, worker);
   });
@@ -110,11 +121,11 @@ export function parseStreamingMarkdownAst(text: string): Promise<MarkdownAstRoot
   let worker: Worker;
   try {
     worker = getMarkdownWorker();
-  } catch (error) {
-    return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+  } catch {
+    return parseMarkdownOnRenderer(value);
   }
   const id = ++requestSequence;
-  return new Promise((resolve, reject) => {
+  return new Promise<MarkdownAstRoot>((resolve, reject) => {
     pendingRequests.set(id, { text: value, resolve, reject });
     try {
       worker.postMessage({ id, text: value });
@@ -122,7 +133,7 @@ export function parseStreamingMarkdownAst(text: string): Promise<MarkdownAstRoot
       pendingRequests.delete(id);
       reject(error instanceof Error ? error : new Error(String(error)));
     }
-  });
+  }).catch(() => parseMarkdownOnRenderer(value));
 }
 
 interface QueuedMarkdownAstRequest {

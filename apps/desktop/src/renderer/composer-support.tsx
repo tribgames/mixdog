@@ -20,6 +20,13 @@ export type ComposerAttachment = {
   metadataText?: string;
 };
 
+export type ComposerHistoryEntry = {
+  text: string;
+  /** Text payloads are safe to retain under the bounded history budget.
+   * Binary image/PDF data is deliberately never persisted. */
+  attachments?: ComposerAttachment[];
+};
+
 export const MAX_COMPOSER_ATTACHMENTS = 8;
 export const MAX_INLINE_FILE_BYTES = 750_000;
 export const MAX_INLINE_TEXT_TOTAL = 850_000;
@@ -28,7 +35,9 @@ export const MAX_INLINE_IMAGE_BASE64_TOTAL = 30_000_000;
 export const MAX_PDF_FILE_BYTES = 20 * 1024 * 1024;
 export const MAX_SUBMIT_TEXT_LENGTH = 950_000;
 export const MAX_PERSISTED_PROMPT_HISTORY = 100;
+export const COMPOSER_PROJECT_PATHS_MIME = 'application/x-mixdog-project-paths';
 const PROMPT_HISTORY_STORAGE_PREFIX = 'mixdog.desktop.prompt-history.v1:';
+const MAX_PERSISTED_PROMPT_HISTORY_CHARS = 2_000_000;
 // One quiet line (user decision): no rotating tips, no syntax lecture.
 export const COMPOSER_PLACEHOLDERS = ['Ask anything…'] as const;
 
@@ -39,15 +48,60 @@ export function promptHistoryStorageKey(scope: string) {
   return `${PROMPT_HISTORY_STORAGE_PREFIX}${encodeURIComponent(scope || 'new-task')}`;
 }
 
+function normalizedHistoryAttachment(value: unknown): ComposerAttachment | null {
+  const entry = asRecord(value);
+  if (!entry || entry.kind !== 'text' || typeof entry.data !== 'string' ||
+    typeof entry.token !== 'string' || !entry.token) return null;
+  return {
+    id: Number(entry.id) || 0,
+    name: String(entry.name || 'Pasted text'),
+    kind: 'text',
+    mimeType: String(entry.mimeType || 'text/plain'),
+    data: entry.data,
+    token: entry.token,
+    source: entry.source === 'file' ? 'file' : 'paste',
+  };
+}
+
+function normalizedHistoryEntry(value: unknown): ComposerHistoryEntry | null {
+  if (typeof value === 'string') {
+    const text = value.trim();
+    return text ? { text } : null;
+  }
+  const entry = asRecord(value);
+  const text = String(entry?.text || '').trim();
+  if (!text) return null;
+  const attachments = Array.isArray(entry?.attachments)
+    ? entry.attachments.map(normalizedHistoryAttachment).filter((item): item is ComposerAttachment => Boolean(item))
+    : [];
+  return { text, ...(attachments.length ? { attachments } : {}) };
+}
+
 export function readPromptHistory(scope: string) {
   try {
     const value = JSON.parse(window.localStorage.getItem(promptHistoryStorageKey(scope)) || '[]');
     if (!Array.isArray(value)) return [];
-    return value.flatMap((entry) => (typeof entry === 'string' && entry.trim() ? [entry] : []))
+    return value.map(normalizedHistoryEntry).filter((entry): entry is ComposerHistoryEntry => Boolean(entry))
       .slice(0, MAX_PERSISTED_PROMPT_HISTORY);
   } catch {
     return [];
   }
+}
+
+export function writePromptHistory(scope: string, entries: ComposerHistoryEntry[]) {
+  const stored: ComposerHistoryEntry[] = [];
+  let used = 2;
+  for (const raw of entries.slice(0, MAX_PERSISTED_PROMPT_HISTORY)) {
+    const entry = normalizedHistoryEntry(raw);
+    if (!entry) continue;
+    const full = JSON.stringify(entry);
+    const textOnly = JSON.stringify({ text: entry.text });
+    const value = used + full.length + 1 <= MAX_PERSISTED_PROMPT_HISTORY_CHARS ? full : textOnly;
+    if (used + value.length + 1 > MAX_PERSISTED_PROMPT_HISTORY_CHARS) break;
+    stored.push(JSON.parse(value));
+    used += value.length + 1;
+  }
+  window.localStorage.setItem(promptHistoryStorageKey(scope), JSON.stringify(stored));
 }
 
 export function queuedFollowupPreview(entry: unknown) {

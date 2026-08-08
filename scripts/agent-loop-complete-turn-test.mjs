@@ -78,6 +78,11 @@ async function run(provider, messages, { session = publicSession(), tools = TOOL
 
 const stopHookPrompts = (messages) => messages.filter((m) => m?.meta?.source === STOP_HOOK_SOURCE);
 const steeringMessages = (messages) => messages.filter((m) => m?.meta?.source === 'steering');
+const systemReminders = (messages) => messages.filter((m) => (
+    m?.role === 'user'
+    && m?.meta === 'hook'
+    && /<system-reminder>/i.test(String(m?.content || ''))
+));
 const failingPatchCall = (id = 'call-patch') => ({
     id,
     name: 'apply_patch',
@@ -372,6 +377,34 @@ test('hidden roles keep their text-only terminal contract', async () => {
     assert.equal(result.content, 'final answer');
     assert.equal(stopHookPrompts(messages).length, 0);
     assert.equal(result.terminationReason, undefined);
+});
+
+test('explorer gets three report gates and an explicit fifth-and-final report turn', async () => {
+    const provider = queuedProvider([
+        { content: '', stopReason: 'tool_use', toolCalls: [{ id: 'ex-1', name: 'definitely_missing_tool', arguments: { q: 1 } }] },
+        { content: '', stopReason: 'tool_use', toolCalls: [{ id: 'ex-2', name: 'definitely_missing_tool', arguments: { q: 2 } }] },
+        { content: '', stopReason: 'tool_use', toolCalls: [{ id: 'ex-3', name: 'definitely_missing_tool', arguments: { q: 3 } }] },
+        { content: '', stopReason: 'tool_use', toolCalls: [{ id: 'ex-4', name: 'definitely_missing_tool', arguments: { q: 4 } }] },
+        { content: 'src/example.mjs:7 — target — current anchor', stopReason: 'end_turn' },
+    ]);
+    const messages = [{ role: 'user', content: 'locate target' }];
+    const result = await run(provider, messages, {
+        session: { owner: 'agent', agent: 'explorer', maxLoopIterations: 200 },
+    });
+
+    assert.equal(provider.sent.length, 5);
+    assert.equal(result.maxLoopIterations, 4);
+    assert.equal(result.content, 'src/example.mjs:7 — target — current anchor');
+    const reminders = systemReminders(messages);
+    assert.equal(reminders.length, 4);
+    assert.match(reminders[0].content, /turn 1\/5 complete[\s\S]*already has a credible anchor[\s\S]*report immediately[\s\S]*zero anchors[\s\S]*never reconfirm/i);
+    assert.match(reminders[1].content, /turn 2\/5 complete[\s\S]*already has a credible anchor[\s\S]*report immediately[\s\S]*zero anchors[\s\S]*never reconfirm/i);
+    assert.match(reminders[2].content, /turn 3\/5 complete[\s\S]*already has a credible anchor[\s\S]*report immediately[\s\S]*final recovery tool turn[\s\S]*zero anchors[\s\S]*never reconfirm/i);
+    assert.match(reminders[3].content, /turn 5\/5[\s\S]*FINAL REPORT TURN[\s\S]*last turn[\s\S]*Tools are disabled[\s\S]*anchors currently held[\s\S]*EXPLORATION_FAILED/i);
+    assert.equal(provider.sent[1].some((m) => m === reminders[0] || m?.content === reminders[0].content), true);
+    assert.equal(provider.sent[2].some((m) => m === reminders[1] || m?.content === reminders[1].content), true);
+    assert.equal(provider.sent[3].some((m) => m === reminders[2] || m?.content === reminders[2].content), true);
+    assert.equal(provider.sent[4].some((m) => m === reminders[3] || m?.content === reminders[3].content), true);
 });
 
 test('structured provider continuation and output-limit recovery keep sampling alive', async () => {

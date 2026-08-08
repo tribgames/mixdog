@@ -12,12 +12,14 @@ import { safeIpcSend } from '../src/runtime/shared/safe-ipc-send.mjs';
 import { createParentBridge } from '../src/runtime/channels/lib/parent-bridge.mjs';
 import { presentErrorText } from '../src/runtime/shared/err-text.mjs';
 import { compactFailureNotice } from '../src/tui/app/slash-dispatch.mjs';
+import { MAX_HTTP_BODY_BYTES } from '../src/runtime/memory/lib/http-wire.mjs';
 import {
   applyShardStateFrame,
   createSessionRuntimePool,
   sessionShardIndex,
 } from '../src/standalone/session-runtime-pool.mjs';
 import { disposeSessionRuntimeRecord } from '../src/standalone/session-runtime-record.mjs';
+import { prepareMemoryToolArgumentsForWire } from '../src/standalone/memory-runtime-proxy.mjs';
 
 function waitFor(predicate, message, timeoutMs = 30_000) {
   return new Promise((resolve, reject) => {
@@ -145,6 +147,46 @@ test('daemon, sessions, channels, and trace sinks keep memory out of the control
   assert.doesNotMatch(trace, /import\(['"]\.\.\/\.\.\/\.\.\/memory\/index\.mjs['"]\)/);
 });
 
+test('memory proxy projects tool-heavy ingest payloads below the HTTP body guard', () => {
+  const hugeToolOutput = 'x'.repeat(MAX_HTTP_BODY_BYTES);
+  const args = {
+    action: 'ingest_session',
+    sessionId: 'large-compact-session',
+    cwd: 'C:/Project/mixdog',
+    messages: [
+      { role: 'system', content: 'protected prefix' },
+      { role: 'user', content: 'keep the human prompt', ts: 100 },
+      {
+        role: 'assistant',
+        content: 'keep the model reply',
+        timestamp: 200,
+        toolCalls: [{ id: 'call_large', name: 'read', arguments: { body: hugeToolOutput } }],
+      },
+      { role: 'tool', toolCallId: 'call_large', content: hugeToolOutput },
+    ],
+    limit: 500,
+    embedWait: false,
+  };
+  const originalBytes = Buffer.byteLength(JSON.stringify({ name: 'memory', arguments: args }));
+  assert.ok(originalBytes > MAX_HTTP_BODY_BYTES, 'fixture must exceed the memory HTTP request guard');
+
+  const prepared = prepareMemoryToolArgumentsForWire('memory', args);
+  assert.notEqual(prepared, args);
+  assert.deepEqual(prepared.messages, [
+    { role: 'user', content: 'keep the human prompt', ts: 100 },
+    {
+      role: 'assistant',
+      content: 'keep the model reply',
+      timestamp: 200,
+      toolCalls: [{ id: 'call_large' }],
+    },
+  ]);
+  const projectedBytes = Buffer.byteLength(JSON.stringify({ name: 'memory', arguments: prepared }));
+  assert.ok(projectedBytes < MAX_HTTP_BODY_BYTES, 'projected ingest request must stay below the HTTP guard');
+  assert.equal(prepareMemoryToolArgumentsForWire('recall', args), args,
+    'non-ingest tool calls must retain their original arguments');
+});
+
 test('session shards are stable by session id and preserve delta identities', () => {
   const shard = sessionShardIndex('sess-stable', 8);
   assert.equal(sessionShardIndex('sess-stable', 8), shard);
@@ -270,10 +312,22 @@ test('aborting memory HTTP request closes the in-flight socket promptly', async 
 });
 
 test('compact UI preserves the original memory failure reason', () => {
-  const error = 'recall-fasttrack compact failed: memory ingest_session timed out after 4000ms';
+  const error = 'recall-fasttrack compact failed: memory search timed out after 4000ms';
   assert.equal(presentErrorText(error), 'Compact failed.');
   assert.equal(presentErrorText(error, { surface: 'compact' }), error);
   assert.equal(compactFailureNotice(error), `Compact failed: ${error}`);
+});
+
+test('compact reads stored session memory without retransmitting the transcript', () => {
+  const files = [
+    '../src/runtime/agent/orchestrator/session/loop/recall-fasttrack.mjs',
+    '../src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs',
+  ];
+  for (const relative of files) {
+    const source = readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
+    assert.match(source, /action:\s*['"]search['"]/);
+    assert.doesNotMatch(source, /action:\s*['"]ingest_session['"]/);
+  }
 });
 
 test('memory internal-tool dispatch forwards the caller cancellation signal', () => {

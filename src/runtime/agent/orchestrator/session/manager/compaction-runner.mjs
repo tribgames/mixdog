@@ -18,7 +18,11 @@ import {
 } from '../compact.mjs';
 import { estimateMessagesTokens, estimateRequestReserveTokens, estimateTranscriptContextUsage, resolveCompactBufferRatio } from '../context-utils.mjs';
 import { executeInternalTool } from '../../internal-tools.mjs';
-import { truncateToKb, DIGEST_DEFAULT_MAX_KB } from '../loop/recall-fasttrack.mjs';
+import {
+    truncateToKb,
+    DIGEST_DEFAULT_MAX_KB,
+    isUsableRecallDigestText,
+} from '../loop/recall-fasttrack.mjs';
 import {
     positiveContextWindow,
     semanticCompactionEnabledForSession,
@@ -165,34 +169,10 @@ async function runRecallFastTrackForSession(session, messages, opts = {}) {
         clientHostPid: session?.clientHostPid,
         signal: opts.signal || null,
     };
-    const hydrateLimit = positiveContextWindow(session?.compaction?.recallIngestLimit)
-        || Math.max(500, Math.min(5000, messages.length || 0));
     const memoryTimeoutMs = recallMemoryTimeoutMs(session);
-    try {
-        await callMemoryColdStart({
-            action: 'ingest_session',
-            sessionId,
-            messages,
-            cwd: session?.cwd,
-            limit: hydrateLimit,
-            // Clear/manual-compact path: these rows are about to be summarized
-            // away, so skip the bounded 15s synchronous embedding-flush wait —
-            // kick the flush fire-and-forget (dense-search immediacy is moot here).
-            embedWait: false,
-        }, callerCtx, memoryTimeoutMs);
-    } catch (err) {
-        // Ingest failed (dead/timed-out memory runtime). The transcript is NOT
-        // in memory, so recall-fasttrack MUST NOT proceed with a false "history
-        // is in memory" digest — that would drop un-ingested head history.
-        // Throw so the caller falls back to the normal compaction path.
-        try { process.stderr.write(`[session] recall-fasttrack ingest failed — bailing (sess=${sessionId}): ${err?.message || err}\n`); } catch {}
-        throw new Error(`recall-fasttrack ingest failed: ${err?.message || err}`);
-    }
-    // Digest injection (mirrors loop/recall-fasttrack.mjs): no dump + cycle1
-    // drain — that ran memory-pipeline LLM chunking inside the compaction.
-    // ingest_session above stored the full transcript; background cycle1
-    // chunks it on its own schedule and recall serves anything beyond the
-    // digest.
+    // The transcript watcher already persists this session incrementally.
+    // Manual/clear compaction reads those rows directly instead of sending the
+    // entire live message array through the memory RPC again.
     let recallText = '';
     try {
         const browsed = await callMemoryColdStart({
@@ -204,10 +184,13 @@ async function runRecallFastTrackForSession(session, messages, opts = {}) {
             compactDigest: true,
         }, callerCtx, memoryTimeoutMs);
         recallText = typeof browsed === 'string' ? browsed : String(browsed?.text ?? browsed ?? '');
+        if (!isUsableRecallDigestText(recallText)) {
+            throw new Error('memory has no stored history for this session');
+        }
     } catch (err) {
-        // Search failed (dead/timed-out memory runtime). Same hazard as a failed
-        // ingest: without a real recall dump we can't safely replace head
-        // history — bail out to the normal compaction path.
+        // Without real stored context we cannot safely replace the live head.
+        // Bail to the semantic fallback rather than injecting a false recall
+        // handoff.
         try { process.stderr.write(`[session] recall-digest browse failed — bailing (sess=${sessionId}): ${err?.message || err}\n`); } catch {}
         throw new Error(`recall-fasttrack search failed: ${err?.message || err}`);
     }
@@ -326,10 +309,8 @@ export async function runSessionCompaction(session, opts = {}) {
                 query: recallPayload.query,
                 querySha: recallPayload.querySha,
                 cwd: session.cwd,
-                // Ingest just ran on the live transcript, so an empty recall dump
-                // means the memory pipeline is broken — do NOT erase history
-                // behind an empty summary shell. Empty recall now throws and is
-                // handled by the semantic fallback below (or recorded failure).
+                // The stored-memory browse above returned real session context;
+                // empty/sentinel output already threw into semantic fallback.
                 allowEmptyRecall: false,
                 tailTurns: positiveContextWindow(session.compaction?.tailTurns) || 2,
                 keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),

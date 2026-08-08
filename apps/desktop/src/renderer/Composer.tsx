@@ -20,6 +20,7 @@ import { mergeQueuedRestoreText } from "../../../../src/tui/components/prompt-in
 // Project-context pill, attachment budget, prompt history and the queued
 // follow-up list live in composer-support.tsx.
 import {
+  COMPOSER_PROJECT_PATHS_MIME,
   COMPOSER_PLACEHOLDERS,
   MAX_COMPOSER_ATTACHMENTS,
   MAX_PERSISTED_PROMPT_HISTORY,
@@ -32,6 +33,8 @@ import {
   queuedFollowupPreview,
   readPromptHistory,
   type ComposerAttachment,
+  type ComposerHistoryEntry,
+  writePromptHistory,
 } from "./composer-support";
 // Attachment budget policy and file -> attachment conversion.
 import { attachmentFromFile, attachmentPolicyError } from "./composer-attachments";
@@ -112,6 +115,7 @@ export const Composer = memo(function Composer({
 }) {
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState('');
   const [dictationState, setDictationState] = useState<'idle' | 'recording' | 'transcribing'>('idle');
@@ -152,9 +156,10 @@ export const Composer = memo(function Composer({
   const activeHistoryScope = useRef(historyScope);
   const textarea = useRef<HTMLTextAreaElement>(null);
   // Chromium does not report `KeyboardEvent.isComposing` consistently across
-  // every IME event ordering. Keep the explicit composition lifecycle too,
-  // matching OpenCode's desktop prompt.
+  // every IME event ordering, so keep the explicit composition lifecycle too.
   const composingRef = useRef(false);
+  const suppressImeLineBreakRef = useRef(false);
+  const imeLineBreakGuardTimerRef = useRef(0);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const escapeClearAtRef = useRef(0);
@@ -183,6 +188,7 @@ export const Composer = memo(function Composer({
   transitioningRef.current = transitioning;
   const wasTransitioning = useRef(transitioning);
   const historyNavigation = useRef({ index: -1, seed: '' });
+  const historySeedAttachments = useRef<ComposerAttachment[]>([]);
   useEffect(() => {
     const element = textarea.current;
     if (!element) return undefined;
@@ -191,10 +197,15 @@ export const Composer = memo(function Composer({
       composingRef.current = true;
     };
     const onCompositionEnd = () => {
+      // Match the reference composer: a keydown delivered after compositionend
+      // is the user's submit Enter, even when Chromium keeps both events in the
+      // same task. The separate beforeinput guard below still blocks the stray
+      // insertLineBreak emitted by engines that end composition after keydown.
       composingRef.current = false;
-      // OpenCode reconciles once composition has fully committed. Chromium can
-      // deliver compositionend before the final input mutation, so wait one
-      // frame and make the DOM value authoritative.
+      const committed = element.value;
+      draftRef.current = committed;
+      setDraft((current) => current === committed ? current : committed);
+      setCaretOffset(element.selectionStart);
       window.cancelAnimationFrame(reconcileFrame);
       reconcileFrame = window.requestAnimationFrame(() => {
         if (composingRef.current || textarea.current !== element) return;
@@ -208,13 +219,18 @@ export const Composer = memo(function Composer({
       // A composing Enter commits the IME candidate; it is not a request for a
       // line break. Let composition commit, but cancel Chromium's occasional
       // follow-up `insertLineBreak` default on <textarea>.
-      if ((composingRef.current || event.isComposing) &&
-        event.inputType === 'insertLineBreak') event.preventDefault();
+      if (event.inputType === 'insertLineBreak' &&
+        (composingRef.current || event.isComposing || suppressImeLineBreakRef.current)) {
+        event.preventDefault();
+        suppressImeLineBreakRef.current = false;
+        window.clearTimeout(imeLineBreakGuardTimerRef.current);
+      }
     };
     element.addEventListener('compositionstart', onCompositionStart);
     element.addEventListener('compositionend', onCompositionEnd);
     element.addEventListener('beforeinput', onBeforeInput);
     return () => {
+      window.clearTimeout(imeLineBreakGuardTimerRef.current);
       window.cancelAnimationFrame(reconcileFrame);
       element.removeEventListener('compositionstart', onCompositionStart);
       element.removeEventListener('compositionend', onCompositionEnd);
@@ -227,6 +243,8 @@ export const Composer = memo(function Composer({
     attachmentsRef.current = [];
     dragDepth.current = 0;
     composingRef.current = false;
+    suppressImeLineBreakRef.current = false;
+    window.clearTimeout(imeLineBreakGuardTimerRef.current);
     mentionSearchGeneration.current += 1;
     // Scope settles ASYNC after a session switch/promotion; when the user is
     // ALREADY typing in the composer, the in-flight text carries over instead
@@ -251,21 +269,35 @@ export const Composer = memo(function Composer({
     setPersistedHistory(readPromptHistory(historyScope));
     historyNavigation.current = { index: -1, seed: '' };
   }, [historyScope]);
-  const history = useMemo(() => {
-    const engineHistory = Array.isArray(promptHistoryList)
+  const history = useMemo<ComposerHistoryEntry[]>(() => {
+    const engineHistory: ComposerHistoryEntry[] = Array.isArray(promptHistoryList)
       ? promptHistoryList.map((entry) => typeof entry === 'string'
-        ? entry : String(asRecord(entry)?.text || asRecord(entry)?.displayText || '')).filter(Boolean)
+        ? { text: entry } : { text: String(asRecord(entry)?.text || asRecord(entry)?.displayText || '') })
+        .filter((entry) => entry.text.trim())
       : [];
-    return [...new Set([...persistedHistory, ...engineHistory])].slice(0, MAX_PERSISTED_PROMPT_HISTORY);
+    const seen = new Set<string>();
+    return [...persistedHistory, ...engineHistory].filter((entry) => {
+      const key = entry.text.trim();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, MAX_PERSISTED_PROMPT_HISTORY);
   }, [persistedHistory, promptHistoryList]);
-  const rememberPrompt = useCallback((value: string) => {
+  const rememberPrompt = useCallback((value: string, submittedAttachments: ComposerAttachment[] = []) => {
     const prompt = value.trim();
     if (!prompt) return;
+    const retained = submittedAttachments
+      .filter((attachment) => attachment.kind === 'text' && attachment.token && prompt.includes(attachment.token))
+      .map((attachment) => ({ ...attachment }));
+    const entry: ComposerHistoryEntry = {
+      text: prompt,
+      ...(retained.length ? { attachments: retained } : {}),
+    };
     setPersistedHistory((current) => {
-      const next = [prompt, ...current.filter((entry) => entry !== prompt)]
+      const next = [entry, ...current.filter((item) => item.text !== prompt)]
         .slice(0, MAX_PERSISTED_PROMPT_HISTORY);
       try {
-        window.localStorage.setItem(promptHistoryStorageKey(historyScope), JSON.stringify(next));
+        writePromptHistory(historyScope, next);
       } catch {
         // The engine-provided history remains available when browser storage is unavailable.
       }
@@ -402,7 +434,11 @@ export const Composer = memo(function Composer({
     const receiveDraft = (event: Event) => {
       const text = String((event as CustomEvent<unknown>).detail || '');
       if (!text) return;
-      setDraft((current) => `${current}${current && !/\s$/.test(current) ? ' ' : ''}${text}`);
+      setDraft((current) => {
+        const next = `${current}${current && !/\s$/.test(current) ? ' ' : ''}${text}`;
+        draftRef.current = next;
+        return next;
+      });
       historyNavigation.current = { index: -1, seed: '' };
       window.setTimeout(() => textarea.current?.focus(), 0);
     };
@@ -456,7 +492,9 @@ export const Composer = memo(function Composer({
         textarea.current?.focus();
         textarea.current?.setSelectionRange(caret, caret);
       }, 0);
-      return `${before}${inserted}${after}`;
+      const next = `${before}${inserted}${after}`;
+      draftRef.current = next;
+      return next;
     });
     historyNavigation.current = { index: -1, seed: '' };
     return true;
@@ -501,20 +539,52 @@ export const Composer = memo(function Composer({
     }
   }, [insertAttachment]);
 
+  const insertProjectMentions = useCallback((paths: string[]) => {
+    const mentions = paths
+      .map((path) => path.replace(/\\/g, '/').replace(/^\/+/, '').trim())
+      .filter((path) => path && !path.split('/').includes('..') && !/^[a-z]:/i.test(path))
+      .map((path) => `@${path}`);
+    if (!mentions.length) return;
+    const element = textarea.current;
+    setDraft((current) => {
+      const rawStart = element?.selectionStart ?? current.length;
+      const rawEnd = element?.selectionEnd ?? rawStart;
+      const start = Math.max(0, Math.min(rawStart, current.length));
+      const end = Math.max(start, Math.min(rawEnd, current.length));
+      const before = current.slice(0, start);
+      const after = current.slice(end);
+      const leading = before && !/\s$/.test(before) ? ' ' : '';
+      const trailing = after && !/^\s/.test(after) ? ' ' : ' ';
+      const inserted = `${leading}${mentions.join(' ')}${trailing}`;
+      const next = `${before}${inserted}${after}`;
+      const caret = before.length + inserted.length;
+      draftRef.current = next;
+      window.setTimeout(() => {
+        textarea.current?.focus();
+        textarea.current?.setSelectionRange(caret, caret);
+      }, 0);
+      return next;
+    });
+    historyNavigation.current = { index: -1, seed: '' };
+  }, []);
+
   useEffect(() => {
     const target = dropTargetRef.current;
     if (!target) return;
-    const containsFiles = (event: DragEvent) =>
-      Array.from(event.dataTransfer?.types ?? []).includes('Files');
+    const containsType = (event: DragEvent, type: string) =>
+      Array.from(event.dataTransfer?.types ?? []).includes(type);
+    const containsFiles = (event: DragEvent) => containsType(event, 'Files');
+    const containsProjectPaths = (event: DragEvent) => containsType(event, COMPOSER_PROJECT_PATHS_MIME);
+    const containsInput = (event: DragEvent) => containsFiles(event) || containsProjectPaths(event);
     const onDragEnter = (event: DragEvent) => {
-      if (!containsFiles(event)) return;
+      if (!containsInput(event)) return;
       event.preventDefault();
       if (transitioningRef.current) return;
       dragDepth.current += 1;
       setDraggingFiles(true);
     };
     const onDragOver = (event: DragEvent) => {
-      if (!containsFiles(event)) return;
+      if (!containsInput(event)) return;
       event.preventDefault();
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = transitioningRef.current ? 'none' : 'copy';
@@ -527,11 +597,24 @@ export const Composer = memo(function Composer({
       if (dragDepth.current === 0) setDraggingFiles(false);
     };
     const onDrop = (event: DragEvent) => {
-      if (!containsFiles(event)) return;
+      if (!containsInput(event)) return;
       event.preventDefault();
       dragDepth.current = 0;
       setDraggingFiles(false);
       if (transitioningRef.current || !event.dataTransfer) return;
+      if (containsProjectPaths(event)) {
+        try {
+          const value = JSON.parse(event.dataTransfer.getData(COMPOSER_PROJECT_PATHS_MIME) || '{}');
+          const source = String(value?.projectPath || '').replace(/[\\/]+/g, '/').toLocaleLowerCase();
+          const targetProject = projectScope.replace(/[\\/]+/g, '/').toLocaleLowerCase();
+          if (source && targetProject && source === targetProject && Array.isArray(value?.paths)) {
+            insertProjectMentions(value.paths.map(String));
+          }
+        } catch {
+          // Ignore malformed internal drag payloads.
+        }
+        return;
+      }
       const itemFiles = Array.from(event.dataTransfer.items)
         .filter((item) => item.kind === 'file')
         .map((item) => item.getAsFile())
@@ -549,7 +632,7 @@ export const Composer = memo(function Composer({
       target.removeEventListener('drop', onDrop);
       dragDepth.current = 0;
     };
-  }, [attachFiles, dropTargetRef]);
+  }, [attachFiles, dropTargetRef, insertProjectMentions, projectScope]);
 
   // Push-to-talk dictation: record locally, transcribe through the engine's
   // managed whisper.cpp runtime, and append the transcript to the draft.
@@ -926,11 +1009,14 @@ export const Composer = memo(function Composer({
   };
 
   const send = async (slashOverride = '') => {
-    const text = (slashOverride || draft).trim();
+    const submittedDraft = textarea.current?.value ?? draftRef.current;
+    const submittedAttachments = [...attachmentsRef.current];
+    const text = (slashOverride || submittedDraft).trim();
     // Chip-only image/PDF attachments carry no draft token, so an image-only
     // send legitimately has empty text.
-    const chipOnlyAttachments = attachmentsRef.current.some((attachment) => !attachment.token);
-    if ((!text && !chipOnlyAttachments) || submitting || transitioning) return;
+    const chipOnlyAttachments = submittedAttachments.some((attachment) => !attachment.token);
+    if ((!text && !chipOnlyAttachments) || submittingRef.current || transitioningRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       setComposerNotice('');
@@ -939,8 +1025,6 @@ export const Composer = memo(function Composer({
           setAttachmentError('Wait for the current command to finish. Your command is still in the editor.');
           return;
         }
-        const submittedDraft = draft;
-        const submittedAttachments = [...attachmentsRef.current];
         setDraft((current) => current === submittedDraft ? '' : current);
         removeAttachments(new Set(submittedAttachments.map((attachment) => attachment.id)));
         historyNavigation.current = { index: -1, seed: '' };
@@ -954,8 +1038,8 @@ export const Composer = memo(function Composer({
         return;
       }
       setAttachmentError('');
-      const used = attachments.filter((attachment) => draft.includes(attachment.token));
-      const expandedText = draft;
+      const used = submittedAttachments.filter((attachment) => submittedDraft.includes(attachment.token));
+      const expandedText = submittedDraft;
       const pastedImages: Record<string, DesktopPromptAttachment> = {};
       const pastedTexts: Record<string, DesktopPastedText> = {};
       for (const attachment of used) {
@@ -1019,13 +1103,12 @@ export const Composer = memo(function Composer({
       // (keychain/core-memory startup). Commit the editor state immediately so
       // Enter never looks ignored; a rejected submit restores the exact draft
       // and attachments without creating a session ahead of user intent.
-      const submittedDraft = draft;
-      const submittedAttachments = [...used];
+      const committedAttachments = [...used];
       setDraft((current) => current === submittedDraft ? '' : current);
-      removeAttachments(new Set(submittedAttachments.map((attachment) => attachment.id)));
+      removeAttachments(new Set(committedAttachments.map((attachment) => attachment.id)));
       historyNavigation.current = { index: -1, seed: '' };
       const restoreSubmitted = () => {
-        const restoredText = mergeRestoredAttachments(submittedAttachments, submittedDraft);
+        const restoredText = mergeRestoredAttachments(committedAttachments, submittedDraft);
         setDraft((current) => {
           if (!current || current === submittedDraft) return restoredText;
           return [restoredText, current].filter(Boolean).join('\n');
@@ -1043,9 +1126,10 @@ export const Composer = memo(function Composer({
         throw error;
       }
       if (accepted === true) {
-        rememberPrompt(text);
+        rememberPrompt(text, committedAttachments);
       } else restoreSubmitted();
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -1166,6 +1250,15 @@ export const Composer = memo(function Composer({
     if (event.key !== 'Escape') escapeClearAtRef.current = 0;
     const composing = event.nativeEvent.isComposing || composingRef.current ||
       event.nativeEvent.keyCode === 229;
+    if (composing && event.key === 'Enter') {
+      // Do not cancel keydown: the IME still owns candidate confirmation.
+      // Guard only the textarea line-break default that may follow it.
+      suppressImeLineBreakRef.current = true;
+      window.clearTimeout(imeLineBreakGuardTimerRef.current);
+      imeLineBreakGuardTimerRef.current = window.setTimeout(() => {
+        suppressImeLineBreakRef.current = false;
+      }, 0);
+    }
     // A newline chord pressed while an IME syllable is still composing is
     // swallowed by the commit: the composition ends and NOTHING breaks the
     // line (user: 개행이 안돼). Let the commit land, then insert the break the
@@ -1188,7 +1281,10 @@ export const Composer = memo(function Composer({
       event.stopPropagation();
       return;
     }
-    if (event.key === 'Enter' && event.repeat) return;
+    if (event.key === 'Enter' && event.repeat) {
+      event.preventDefault();
+      return;
+    }
     if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'u') {
       event.preventDefault();
       const element = event.currentTarget;
@@ -1286,18 +1382,39 @@ export const Composer = memo(function Composer({
     if (event.key === 'ArrowUp' && historyIntent && history.length) {
       event.preventDefault();
       const navigation = historyNavigation.current;
-      if (navigation.index < 0) navigation.seed = draft;
+      if (navigation.index < 0) {
+        navigation.seed = event.currentTarget.value;
+        historySeedAttachments.current = attachmentsRef.current.map((attachment) => ({ ...attachment }));
+      }
       navigation.index = Math.min(history.length - 1, navigation.index + 1);
-      const value = history[navigation.index] || '';
+      const entry = history[navigation.index];
+      const value = entry?.text || '';
+      const nextAttachments = (entry?.attachments || []).map((attachment) => ({ ...attachment }));
+      for (const attachment of nextAttachments) {
+        attachmentSequence.current = Math.max(attachmentSequence.current, attachment.id + 1);
+      }
+      attachmentsRef.current = nextAttachments;
+      setAttachments(nextAttachments);
+      draftRef.current = value;
       setDraft(value);
-      window.setTimeout(() => textarea.current?.setSelectionRange(value.length, value.length), 0);
+      window.setTimeout(() => textarea.current?.setSelectionRange(0, 0), 0);
       return;
     }
     if (event.key === 'ArrowDown' && historyIntent && historyNavigation.current.index >= 0) {
       event.preventDefault();
       const navigation = historyNavigation.current;
       navigation.index -= 1;
-      const value = navigation.index < 0 ? navigation.seed : history[navigation.index] || '';
+      const entry: ComposerHistoryEntry = navigation.index < 0
+        ? { text: navigation.seed, attachments: historySeedAttachments.current }
+        : history[navigation.index];
+      const value = entry?.text || '';
+      const nextAttachments = (entry?.attachments || []).map((attachment) => ({ ...attachment }));
+      for (const attachment of nextAttachments) {
+        attachmentSequence.current = Math.max(attachmentSequence.current, attachment.id + 1);
+      }
+      attachmentsRef.current = nextAttachments;
+      setAttachments(nextAttachments);
+      draftRef.current = value;
       setDraft(value);
       window.setTimeout(() => textarea.current?.setSelectionRange(value.length, value.length), 0);
       return;
@@ -1347,7 +1464,7 @@ export const Composer = memo(function Composer({
       </p>}
       {draggingFiles && !transitioning && dropTargetRef.current && createPortal(
         <div className="task-drop-overlay" role="status">
-          <MxIcon name="photo" size={16} /><span>{t("Drop images, PDFs, or text files")}</span>
+          <MxIcon name="photo" size={16} /><span>{t("Drop files or Project paths")}</span>
         </div>,
         dropTargetRef.current,
       )}
@@ -1449,6 +1566,8 @@ export const Composer = memo(function Composer({
         historyNavigation.current = { index: -1, seed: '' };
       }} onFocus={() => setComposerFocused(true)} onBlur={() => {
         composingRef.current = false;
+        suppressImeLineBreakRef.current = false;
+        window.clearTimeout(imeLineBreakGuardTimerRef.current);
         setComposerFocused(false);
       }}
         onPointerDown={() => { escapeClearAtRef.current = 0; }}
@@ -1464,10 +1583,10 @@ export const Composer = memo(function Composer({
             void attachFiles(files);
             return;
           }
-          const text = event.clipboardData.getData('text/plain');
+          const text = event.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
           if (text.length > 200 || text.split(/\r?\n/).length >= 3) {
             const id = attachmentSequence.current++;
-            const lines = text.replace(/\r\n?/g, '\n').split('\n').length;
+            const lines = text.split('\n').length;
             const inserted = insertAttachment({
               id, name: `Pasted text · ${lines} lines`, kind: 'text', mimeType: 'text/plain', data: text,
               token: `[Pasted text #${id} +${lines} lines]`, source: 'paste',

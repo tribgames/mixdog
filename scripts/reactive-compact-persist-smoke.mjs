@@ -106,7 +106,7 @@ try {
 }
 
 // Non-agent sessions hard-lock to recall-fasttrack (7/3 commit). This smoke has
-// no memory subsystem registered, so ingest_session + search both fail — the
+// no memory subsystem registered, so the stored-session search fails — the
 // exact "memory pipeline broken" condition the fail-safe must cover. Assert the
 // fail-safe: recall-fasttrack aborts rather than dropping head behind a false
 // "Full history is in memory" notice, so no context is silently lost and the

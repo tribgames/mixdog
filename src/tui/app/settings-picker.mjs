@@ -54,6 +54,9 @@ export function createSettingsPicker({
     const autoClear = snapshot.autoClear || {};
     const compaction = snapshot.compaction || {};
     const recap = snapshot.recap || { enabled: true };
+    const toolModules = snapshot.toolModules || {};
+    const webSearchOn = toolModules.search?.enabled !== false;
+    const exploreOn = toolModules.explore?.enabled !== false;
     const channels = snapshot.channels || { enabled: true };
     const systemShell = snapshot.systemShell || { source: 'auto', command: '', effective: '' };
     const outputStyle = snapshot.outputStyle || {};
@@ -122,6 +125,18 @@ export function createSettingsPicker({
         .catch((e) => store.pushNotice(`channel setting failed: ${e?.message || e}`, 'error'))
         .finally(() => openSettingsPicker({ light: true }));
     };
+    const applyToolModule = (label, setter, enabled) => {
+      void Promise.resolve(setter?.(enabled))
+        .then((next) => {
+          if (!next) store.pushNotice(`${label} setting is busy`, 'warn');
+          else store.pushNotice(`${label} ${enabled ? 'on' : 'off'} · new sessions`, 'info');
+        })
+        .catch((e) => store.pushNotice(`${label} setting failed: ${e?.message || e}`, 'error'))
+        .finally(() => openSettingsPicker({ light: true }));
+    };
+    const toggleWebSearch = () => applyToolModule('Web search', store.setWebSearchEnabled, !webSearchOn);
+    const toggleExplore = () => applyToolModule('Explorer', store.setExploreEnabled, !exploreOn);
+    const toggleMemory = () => applyToolModule('Memory', store.setRecapEnabled, !(recap.enabled !== false));
     const cycleOutputStyle = async (direction = 1) => {
       let status = null;
       try { status = (await store.listOutputStyles?.()) || null; } catch (e) {
@@ -277,6 +292,29 @@ export function createSettingsPicker({
         _action: 'theme',
       },
       {
+        value: 'web-search-enabled',
+        label: 'Web search',
+        meta: boolLabel(webSearchOn),
+        description: 'Expose web search and fetch tools to new sessions.',
+        _action: 'web-search-enabled',
+      },
+      {
+        value: 'explorer-enabled',
+        label: 'Explorer',
+        meta: boolLabel(exploreOn),
+        description: 'Expose the repository locator tool to new sessions.',
+        _action: 'explorer-enabled',
+      },
+      {
+        value: 'memory-enabled',
+        label: 'Memory',
+        meta: boolLabel(recap.enabled !== false),
+        description: recap.enabled === false
+          ? 'Background cycles off. Recall and manual core memory stay available.'
+          : 'Background cycles and model memory writes.',
+        _action: 'memory-enabled',
+      },
+      {
         value: 'autocompact',
         label: 'Auto-compact',
         meta: boolLabel(compaction.auto !== false),
@@ -301,11 +339,8 @@ export function createSettingsPicker({
       },
       {
         value: 'memory',
-        label: 'Memory',
-        meta: `Recap ${boolLabel(recap.enabled !== false)}`,
-        description: recap.enabled === false
-          ? 'Background recap off. Core memories and on-demand recall stay available.'
-          : 'Background recap and core memories.',
+        label: 'Core memories',
+        description: 'List and edit user-curated core memories.',
         _action: 'memory',
       },
       {
@@ -408,6 +443,9 @@ export function createSettingsPicker({
       onLeft: (item) => {
         if (item?._action === 'autoclear') toggleAutoClear();
         else if (item?._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
+        else if (item?._action === 'web-search-enabled') toggleWebSearch();
+        else if (item?._action === 'explorer-enabled') toggleExplore();
+        else if (item?._action === 'memory-enabled') toggleMemory();
         else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
         else if (item?._action === 'remote-runtime') applyRemoteRuntime();
         else if (item?._action === 'channel-provider') cycleChannelProvider(-1);
@@ -418,6 +456,9 @@ export function createSettingsPicker({
       onRight: (item) => {
         if (item?._action === 'autoclear') toggleAutoClear();
         else if (item?._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
+        else if (item?._action === 'web-search-enabled') toggleWebSearch();
+        else if (item?._action === 'explorer-enabled') toggleExplore();
+        else if (item?._action === 'memory-enabled') toggleMemory();
         else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
         else if (item?._action === 'remote-runtime') applyRemoteRuntime();
         else if (item?._action === 'channel-provider') cycleChannelProvider(1);
@@ -429,6 +470,9 @@ export function createSettingsPicker({
         if (item._action === 'autoclear') openAutoClearPicker({ returnTo: openSettingsPicker });
         else if (item._action === 'profile') openProfilePicker({ returnTo: openSettingsPicker });
         else if (item._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
+        else if (item._action === 'web-search-enabled') toggleWebSearch();
+        else if (item._action === 'explorer-enabled') toggleExplore();
+        else if (item._action === 'memory-enabled') toggleMemory();
         else if (item._action === 'channels') applyChannels(!(channels.enabled !== false));
         else if (item._action === 'remote-runtime') applyRemoteRuntime();
         else if (item._action === 'channel-provider') cycleChannelProvider(1);

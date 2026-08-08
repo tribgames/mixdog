@@ -56,7 +56,7 @@ test('agent config migrates legacy Fast preferences and stops persisting dead co
       runtime: { unused: true },
       search: { model: 'providerless-search' },
       capabilities: { unused: true },
-      modules: { memory: false, keep: { enabled: true } },
+      modules: { memory: false, search: false, explore: { enabled: false }, keep: { enabled: true } },
     },
   }), 'utf8');
 
@@ -73,7 +73,11 @@ test('agent config migrates legacy Fast preferences and stops persisting dead co
     assert.equal(loaded.agents.explore, undefined);
     assert.deepEqual(loaded.agents['custom-reader'], { provider: 'openai', model: 'custom-model' });
     assert.equal(loaded.recap.enabled, false);
-    assert.deepEqual(loaded.modules, { keep: { enabled: true } });
+    assert.deepEqual(loaded.modules, {
+      search: { enabled: false },
+      explore: { enabled: false },
+      keep: { enabled: true },
+    });
     assert.equal(Object.hasOwn(loaded, 'fastModels'), false);
     assert.equal(Object.hasOwn(loaded, 'agentMaintenance'), false);
     assert.equal(Object.hasOwn(loaded, 'runtime'), false);
@@ -124,6 +128,11 @@ test('agent config migrates legacy Fast preferences and stops persisting dead co
     assert.equal(savedAgent.defaultProvider, undefined);
     assert.equal(savedAgent.guide, undefined);
     assert.equal(savedAgent.skills, undefined);
+    assert.deepEqual(savedAgent.modules, {
+      search: { enabled: false },
+      explore: { enabled: false },
+      keep: { enabled: true },
+    });
     assert.equal(savedAgent.autoClear.custom, undefined);
     assert.equal(savedAgent.autoClear.thresholdMs, undefined);
     assert.equal(savedAgent.autoClear.providerDefaults, undefined);

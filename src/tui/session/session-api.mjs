@@ -25,6 +25,7 @@ export function createSessionApi(bag) {
       autoClear: await read(api.getAutoClear),
       compaction: await read(api.getCompactionSettings),
       recap: await read(api.getRecapSettings),
+      toolModules: await read(api.getToolModuleSettings),
       channels: await read(api.getChannelSettings, { includeStatus: false }),
       systemShell: await read(api.getSystemShell),
       outputStyle: (await read(api.getOutputStyle)) || (await read(api.listOutputStyles)),
@@ -278,6 +279,30 @@ export function createSessionApiA(bag) {
           set({ stats: { ...getState().stats } });
         }, 0);
         return next;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    getToolModuleSettings: () => {
+      return runtime.getToolModuleSettings?.() || {
+        search: { enabled: true },
+        explore: { enabled: true },
+      };
+    },
+    setWebSearchEnabled: async (enabled) => {
+      if (getState().commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        return await runtime.setWebSearchEnabled?.(enabled);
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    setExploreEnabled: async (enabled) => {
+      if (getState().commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        return await runtime.setExploreEnabled?.(enabled);
       } finally {
         set({ commandBusy: false });
       }

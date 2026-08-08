@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { claimSingletonOwner, handoffSingletonOwner, readSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
 import { readLiveServiceAdvert } from '../runtime/shared/service-discovery.mjs';
 import { scrubLoaderVars } from '../runtime/agent/orchestrator/tools/env-scrub.mjs';
+import { projectSessionMessagesForIngest } from '../runtime/memory/lib/session-ingest.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
 
 function logLine(path, line) {
@@ -101,6 +102,18 @@ function isMemoryReadOnlyToolCall(name, args = {}) {
     return op === 'list' || op === 'candidates';
   }
   return false;
+}
+
+export function prepareMemoryToolArgumentsForWire(name, args = {}) {
+  if (String(name || '').trim() !== 'memory'
+    || String(args?.action || '').trim() !== 'ingest_session'
+    || !Array.isArray(args?.messages)) {
+    return args;
+  }
+  return {
+    ...args,
+    messages: projectSessionMessagesForIngest(args.messages),
+  };
 }
 
 function memoryAbortError(reason) {
@@ -582,6 +595,7 @@ export function createStandaloneMemoryRuntime({
   async function handleToolCall(name, args = {}, signalOrOptions = null) {
     const signal = signalOrOptions?.signal || signalOrOptions || null;
     const readOnlyRpc = isMemoryReadOnlyToolCall(name, args);
+    const wireArgs = prepareMemoryToolArgumentsForWire(name, args);
     const callId = `mem_${process.pid}_${nextCallId++}`;
     let activePort = null;
     let rpcStarted = false;
@@ -618,7 +632,7 @@ export function createStandaloneMemoryRuntime({
           port,
           method: 'POST',
           path: '/api/tool',
-          body: { name, arguments: args || {} },
+          body: { name, arguments: wireArgs || {} },
           timeoutMs: Math.max(1000, Number(process.env.MIXDOG_MEMORY_TOOL_TIMEOUT_MS) || 180_000),
           headers: { 'X-Mixdog-Call-Id': callId },
           signal,

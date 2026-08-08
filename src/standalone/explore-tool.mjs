@@ -2,6 +2,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { makeAgentDispatch, resolveMaintenanceRoute } from '../runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs';
+import { EXPLORE_MAX_LOOP_ITERATIONS } from '../runtime/agent/orchestrator/agent-runtime/agent-loop-policy.mjs';
 import { loadConfig } from '../runtime/agent/orchestrator/config.mjs';
 import { initProviders } from '../runtime/agent/orchestrator/providers/registry.mjs';
 import { presentErrorText } from '../runtime/shared/err-text.mjs';
@@ -43,13 +44,9 @@ const EXPLORE_TRUNCATION_MARKER = '\n\n[explore: output capped; remainder omitte
 // Every requested facet/root starts immediately; output remains context-capped.
 export const MAX_FANOUT_QUERIES = Infinity;
 export const MAX_EXPLORE_ROOTS = Infinity;
-// Mechanical turn cap per explorer sub-session: 3 free turns (contract: tool
-// turn 1 = whole batched search, turns 2-3 = miss recovery), then the agent
-// loop forces one tool-less final-answer turn. Overridable for tuning.
-const EXPLORE_MAX_LOOP_ITERATIONS = (() => {
-  const raw = Number(process.env.MIXDOG_EXPLORE_MAX_LOOP);
-  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 3;
-})();
+// Compatibility export for callers/tests; the shared loop policy is the SSOT
+// so direct explore calls and headless explorer sessions receive the same cap.
+export { EXPLORE_MAX_LOOP_ITERATIONS };
 const EXPLORE_RESULT_CACHE_MAX_ENTRIES = 64;
 const EXPLORE_RESULT_CACHE_TTL_MS = (() => {
   const raw = Number(process.env.MIXDOG_EXPLORE_RESULT_CACHE_TTL_MS);
@@ -58,9 +55,8 @@ const EXPLORE_RESULT_CACHE_TTL_MS = (() => {
 // Hard ceiling for one explorer compute. The dispatch-level watchdog is the
 // primary abort; this race + its AbortController is the last line of defence so
 // a wedged compute can never hang the awaiting tool call (and its cache key)
-// forever. Default 60s (was 10min): a locator sub-session that has not produced
-// anchors within a minute is wedged, and holding the tool call open longer only
-// delays the caller and risks the compute outliving the turn. The
+// forever. Default 60s: this is an emergency guard, not the normal latency
+// budget; the five-turn maximum-fanout path should converge far earlier. The
 // MIXDOG_EXPLORE_HARD_TIMEOUT_MS override (including 0 = disabled) is preserved.
 export const EXPLORE_COMPUTE_HARD_TIMEOUT_MS = (() => {
   const raw = Number(process.env.MIXDOG_EXPLORE_HARD_TIMEOUT_MS);
@@ -281,6 +277,7 @@ export function settledExplorerResult(result, cwd = null, roots = []) {
   }
   const text = cleanExplorerText(typeof result.value === 'string' ? result.value : responseText(result.value), cwd, roots);
   if (!text) return { ok: false, text: '[explorer error] [empty-response] explorer returned no text' };
+  if (isExplorationFailure(text)) return { ok: false, text };
   return { ok: true, text };
 }
 
@@ -578,13 +575,13 @@ const TURN_COUNTER_LINE_RE = /^turn\s+\d+\s*\/\s*\d+\b/i;
 const EXPLORE_MAX_ANCHOR_LINES = 3;
 const FAILED_RE = /\b(?:EXPLORATION_FAILED|exploration failed|no credible (?:anchor|location)|no relevant (?:anchor|location)|not found|could(?: not|n't) find)\b/i;
 
-// Failure taxonomy: every miss carries a machine-stable tag plus the next
-// move, so a caller can tell "the explorer gave up" from "the post-filter
-// dropped an unverifiable answer" instead of reading one bare token.
+// Failure taxonomy: every miss carries a machine-stable tag and reason so a
+// caller can tell "the explorer gave up" from "the post-filter dropped an
+// unverifiable answer" without being steered into a duplicate retry.
 const EXPLORE_FAIL_HINT = {
-  reported: 'explorer spent its budget with zero anchors; retry once with changed tokens or an explicit roots[]',
-  'no-anchor': 'explorer answered without a path:line anchor; retry once with different code tokens',
-  'unverified-anchors': 'every cited path is missing on disk; retry with changed tokens or pass the real root via roots[]',
+  reported: 'explorer spent its budget with zero anchors',
+  'no-anchor': 'explorer answered without a path:line anchor',
+  'unverified-anchors': 'every cited path is missing on disk',
 };
 
 export function isExplorationFailure(text) {
@@ -735,14 +732,9 @@ async function runExploreSync(args = {}, ctx = {}) {
   const route = resolveExploreRoute(config);
   const parentSignal = ctx.signal instanceof AbortSignal ? ctx.signal : null;
   if (parentSignal?.aborted) return fail('explore canceled before dispatch');
-  // Turn budget is enforced BOTH ways: the prompt contract (rules/agent/
-  // 30-explorer.md, "hard max 3 tool turns, expected 1") steers the model,
-  // and maxLoopIterations mechanically backstops it — live traces showed
-  // explorers overshooting to 4+ tool turns on compound queries despite the
-  // prompt. At the cap the loop grants ONE tool-less final turn ("answer
-  // with your best result from context"), so a capped explorer still emits
-  // its anchors instead of an empty/failed result. The wall-clock hard
-  // timeout (EXPLORE_COMPUTE_HARD_TIMEOUT_MS) remains the runaway guard.
+  // Turn budget is enforced BOTH ways: turn 1 is the whole maximum-fanout
+  // search and turns 2-4 are bounded miss recovery. The shared explorer cap
+  // then grants one tool-less report send and blocks a fifth tool turn.
   const llm = makeAgentDispatch({
     agent: 'explorer',
     cwd: resolvedCwd,
