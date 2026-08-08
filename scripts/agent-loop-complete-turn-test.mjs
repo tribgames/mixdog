@@ -410,12 +410,13 @@ test('hidden roles keep their text-only terminal contract', async () => {
     assert.equal(result.terminationReason, undefined);
 });
 
-test('explorer gets three report gates and an explicit fifth-and-final report turn', async () => {
+test('explorer gets four report gates and an explicit sixth-and-final report turn', async () => {
     const provider = queuedProvider([
         { content: '', stopReason: 'tool_use', toolCalls: [{ id: 'ex-1', name: 'definitely_missing_tool', arguments: { q: 1 } }] },
         { content: '', stopReason: 'tool_use', toolCalls: [{ id: 'ex-2', name: 'definitely_missing_tool', arguments: { q: 2 } }] },
         { content: '', stopReason: 'tool_use', toolCalls: [{ id: 'ex-3', name: 'definitely_missing_tool', arguments: { q: 3 } }] },
         { content: '', stopReason: 'tool_use', toolCalls: [{ id: 'ex-4', name: 'definitely_missing_tool', arguments: { q: 4 } }] },
+        { content: '', stopReason: 'tool_use', toolCalls: [{ id: 'ex-5', name: 'definitely_missing_tool', arguments: { q: 5 } }] },
         { content: 'src/example.mjs:7 — target — current anchor', stopReason: 'end_turn' },
     ]);
     const messages = [{ role: 'user', content: 'locate target' }];
@@ -423,19 +424,21 @@ test('explorer gets three report gates and an explicit fifth-and-final report tu
         session: { owner: 'agent', agent: 'explorer', maxLoopIterations: 200 },
     });
 
-    assert.equal(provider.sent.length, 5);
-    assert.equal(result.maxLoopIterations, 4);
+    assert.equal(provider.sent.length, 6);
+    assert.equal(result.maxLoopIterations, 5);
     assert.equal(result.content, 'src/example.mjs:7 — target — current anchor');
     const reminders = systemReminders(messages);
-    assert.equal(reminders.length, 4);
-    assert.match(reminders[0].content, /turn 1\/5 complete[\s\S]*already has a credible anchor[\s\S]*report immediately[\s\S]*zero anchors[\s\S]*never reconfirm/i);
-    assert.match(reminders[1].content, /turn 2\/5 complete[\s\S]*already has a credible anchor[\s\S]*report immediately[\s\S]*zero anchors[\s\S]*never reconfirm/i);
-    assert.match(reminders[2].content, /turn 3\/5 complete[\s\S]*already has a credible anchor[\s\S]*report immediately[\s\S]*final recovery tool turn[\s\S]*zero anchors[\s\S]*never reconfirm/i);
-    assert.match(reminders[3].content, /turn 5\/5[\s\S]*FINAL REPORT TURN[\s\S]*last turn[\s\S]*Tools are disabled[\s\S]*anchors currently held[\s\S]*EXPLORATION_FAILED/i);
+    assert.equal(reminders.length, 5);
+    assert.match(reminders[0].content, /turn 1\/6 complete[\s\S]*already has a credible anchor[\s\S]*report immediately[\s\S]*zero anchors[\s\S]*never reconfirm/i);
+    assert.match(reminders[1].content, /turn 2\/6 complete[\s\S]*already has a credible anchor[\s\S]*report immediately[\s\S]*zero anchors[\s\S]*never reconfirm/i);
+    assert.match(reminders[2].content, /turn 3\/6 complete[\s\S]*already has a credible anchor[\s\S]*report immediately[\s\S]*zero anchors[\s\S]*never reconfirm/i);
+    assert.match(reminders[3].content, /turn 4\/6 complete[\s\S]*already has a credible anchor[\s\S]*report immediately[\s\S]*final recovery tool turn[\s\S]*zero anchors[\s\S]*never reconfirm/i);
+    assert.match(reminders[4].content, /turn 6\/6[\s\S]*FINAL REPORT TURN[\s\S]*last turn[\s\S]*Tools are disabled[\s\S]*anchors currently held[\s\S]*EXPLORATION_FAILED/i);
     assert.equal(provider.sent[1].some((m) => m === reminders[0] || m?.content === reminders[0].content), true);
     assert.equal(provider.sent[2].some((m) => m === reminders[1] || m?.content === reminders[1].content), true);
     assert.equal(provider.sent[3].some((m) => m === reminders[2] || m?.content === reminders[2].content), true);
     assert.equal(provider.sent[4].some((m) => m === reminders[3] || m?.content === reminders[3].content), true);
+    assert.equal(provider.sent[5].some((m) => m === reminders[4] || m?.content === reminders[4].content), true);
 });
 
 test('structured provider continuation and output-limit recovery keep sampling alive', async () => {
