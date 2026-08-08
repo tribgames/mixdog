@@ -9,6 +9,7 @@ import {
   upsertWorkflowPreset,
   workflowPresetId,
   WORKFLOW_ROUTE_SLOTS,
+  AGENT_DELETED_MARKER,
   FIXED_AGENT_SLOTS,
   normalizeAgentId,
   normalizeWorkflowId,
@@ -87,11 +88,16 @@ export function createWorkflowAgentsApi(deps) {
         : null;
       if (agentInput) {
         const nextAgents = { ...agentRoutes };
-        for (const agent of FIXED_AGENT_SLOTS) {
-          if (!hasOwn(agentInput, agent.id)) continue;
-          const routeToSave = normalizeWorkflowRoute(agentInput[agent.id]);
-          if (routeToSave) nextAgents[agent.id] = routeToSave;
-          else delete nextAgents[agent.id];
+        const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
+        const configurableIds = new Set([
+          ...FIXED_AGENT_SLOTS.map((agent) => agent.id),
+          ...(listCustomAgentIds?.(dataDir) || []),
+        ]);
+        for (const id of configurableIds) {
+          if (!hasOwn(agentInput, id)) continue;
+          const routeToSave = normalizeWorkflowRoute(agentInput[id]);
+          if (routeToSave) nextAgents[id] = routeToSave;
+          else delete nextAgents[id];
         }
         nextConfig.agents = nextAgents;
       }
@@ -128,8 +134,8 @@ export function createWorkflowAgentsApi(deps) {
         route: agentRouteFromConfig(config, agent.id, dataDir),
         definition: loadAgentDefinition(dataDir, agent.id),
       }));
-      // Custom agents (user-authored roles): discovered from agents/<id>/
-      // AGENT.md directories beyond the fixed slots.
+      // Starter and user-authored custom agents are discovered from
+      // agents/<id>/AGENT.md directories beyond the fixed services.
       const custom = (listCustomAgentIds?.(dataDir) || []).map((id) => {
         const definition = loadAgentDefinition(dataDir, id);
         return {
@@ -294,13 +300,12 @@ export function createWorkflowAgentsApi(deps) {
       }
       return { id, deleted: true, revertedToBuiltIn };
     },
-    // Agent editor surface (desktop Workflows page): the fixed roles stay
-    // built-in; custom agents are user-authored under <dataDir>/agents/<id>/.
+    // Agent editor surface: fixed services stay built-in; starter and
+    // user-authored agents are custom definitions.
     getAgentDefinition(agentId) {
       const id = normalizeAgentId(agentId) || normalizeWorkflowId(agentId);
       if (!id) throw new Error(`unknown agent "${agentId}"`);
-      // Internal hidden roles (scheduler-task, webhook-handler, …) are
-      // Mixdog-managed and never editable through the agent surface.
+      // Internal hidden roles are Mixdog-managed and never editable here.
       if (isHiddenAgent(id)) throw new Error(`agent "${id}" is internal and cannot be edited`);
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const definition = loadAgentDefinition(dataDir, id);
@@ -343,6 +348,7 @@ export function createWorkflowAgentsApi(deps) {
         name: name || id,
         ...(description ? { description } : {}),
       }, null, 2)}\n`);
+      rmSync(join(dir, AGENT_DELETED_MARKER), { force: true });
       clearAgentDefinitionCache(id);
       if (payload.route) {
         await this.setAgentRoute(id, payload.route);
@@ -356,21 +362,27 @@ export function createWorkflowAgentsApi(deps) {
       const builtIn = FIXED_AGENT_SLOTS.some((agent) => agent.id === id);
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const dir = join(dataDir, 'agents', id);
-      // Built-in roles are never removed: dropping their user override reverts
-      // the role to the shipped AGENT.md, mirroring workflow-pack deletes.
-      if (!existsSync(join(dir, 'AGENT.md'))) {
-        throw new Error(builtIn
-          ? `agent "${id}" has no user override to reset`
-          : `agent "${id}" not found`);
+      const hasUserDefinition = existsSync(join(dir, 'AGENT.md'));
+      const currentDefinition = loadAgentDefinition(dataDir, id);
+      if (!hasUserDefinition) {
+        if (builtIn) throw new Error(`agent "${id}" has no user override to reset`);
+        if (!currentDefinition) throw new Error(`agent "${id}" not found`);
       }
       // Agents are global (no workflow rosters): deleting a custom agent
       // removes it from every surface at once — catalog, editor, routes, and
       // spawn (the spawn path rejects unknown agent ids).
       rmSync(dir, { recursive: true, force: true });
       clearAgentDefinitionCache(id);
-      const revertedToBuiltIn = Boolean(loadAgentDefinition(dataDir, id));
-      // A fully-removed custom agent must not leave a dangling route/preset.
-      if (!revertedToBuiltIn) {
+      const sourceFallback = loadAgentDefinition(dataDir, id);
+      // Shipped starter agents are custom, not fixed. Persist an explicit
+      // tombstone so deleting one does not fall back to the packaged copy.
+      if (!builtIn && sourceFallback) {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, AGENT_DELETED_MARKER), 'deleted\n');
+        clearAgentDefinitionCache(id);
+      }
+      // A removed custom agent must not leave a dangling route/preset.
+      if (!builtIn) {
         const nextConfig = { ...getConfig() };
         if (nextConfig.agents && id in nextConfig.agents) {
           const agents = { ...nextConfig.agents };
@@ -379,7 +391,7 @@ export function createWorkflowAgentsApi(deps) {
         }
         saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
       }
-      return { id, deleted: true, revertedToBuiltIn };
+      return { id, deleted: true, revertedToBuiltIn: builtIn && Boolean(sourceFallback) };
     },
     async setAgentRoute(agentId, next) {
       // Custom agents keep their workflow-style id; routes persist in

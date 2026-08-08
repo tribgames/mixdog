@@ -110,7 +110,7 @@ export function agentCompactEventDetail(event = {}) {
 //      recursion break)
 // Hidden-agent exceptions are declarative: defaults/agents.json may set
 // toolSchemaProfile when first-turn routing quality is worth a separate tool
-// prefix. Standard profiles are none/read/full/read-write-search.
+// prefix. Standard profiles are none/read/full.
 // See manager.mjs resolveSessionTools for the single source of truth;
 // agent visibility is declared via annotations.agentHidden on each tool def.
 const HIDDEN_ROLE_TOOL_SCHEMA_PROFILES = Object.freeze({
@@ -123,17 +123,6 @@ const HIDDEN_ROLE_TOOL_SCHEMA_PROFILES = Object.freeze({
         'list',
         'grep',
         'read',
-    ]),
-    'read-write-search': Object.freeze([
-        'code_graph',
-        'find',
-        'glob',
-        'list',
-        'grep',
-        'read',
-        'apply_patch',
-        'search',
-        'web_fetch',
     ]),
 });
 
@@ -191,7 +180,7 @@ function maintenanceRouteToPreset(routeOrName, agent) {
  * Build an agent-backed dispatch callback.
  *
  * @param {object} opts
- * @param {string} opts.agent       — REQUIRED; canonical agent name (worker, cycle1-agent, scheduler-task, ...)
+ * @param {string} opts.agent       — REQUIRED; canonical agent name (worker, cycle1-agent, ...)
  * @param {string} [opts.taskType]  — optional internal classification stamped on the session
  * @param {string} [opts.preset]    — explicit preset override (bypasses agent → preset lookup)
  * @param {string} [opts.parentSessionId] — parent agent session for trace aggregation

@@ -346,7 +346,7 @@ test('background preload prepares every settings surface and opening reuses the 
   assert.equal(document.querySelector('input[name="title"]')?.value, 'Owner');
 });
 
-test('cold settings keep partial capability batches behind one spinner', async () => {
+test('cold settings hold the dialog behind the backplate spinner until the snapshot lands', async () => {
   mount();
   const { api } = capabilityApi();
   const read = api.readCapabilities;
@@ -361,16 +361,19 @@ test('cold settings keep partial capability batches behind one spinner', async (
     return read(requests);
   };
   await renderSettings({ api });
-  const gate = document.querySelector('.mixdog-settings__category-stage .pane-surface-gate');
-  assert.equal(gate?.dataset.ready, 'false');
-  assert.ok(gate?.querySelector('.desktop-loading-spinner'));
-  assert.equal(gate?.querySelector('.pane-surface-gate-content')?.getAttribute('aria-hidden'), 'true');
+  // No empty dialog frame during the cold sweep (user: 엉뚱한 검정 프레임이
+  // 이상하다): only the fixed backplate with its centered spinner paints.
+  assert.equal(document.querySelector('.mixdog-settings'), null);
+  const overlay = document.querySelector('.desktop-loading-surface--overlay');
+  assert.ok(overlay?.querySelector('.desktop-loading-spinner'));
 
   await act(async () => {
     releaseFirstBatch();
     await firstBatch;
   });
   await act(async () => new Promise((resolve) => window.setTimeout(resolve, 400)));
+  assert.equal(document.querySelector('.desktop-loading-surface--overlay'), null);
+  const gate = document.querySelector('.mixdog-settings__category-stage .pane-surface-gate');
   assert.equal(gate?.dataset.ready, 'true');
   assert.equal(document.querySelector('input[name="title"]')?.value, 'Owner');
 });

@@ -23,24 +23,24 @@ test('responsive panels suppress layout motion and keep click catchers undimmed'
     /data-motion=\{sidebarMotion\}/,
     'the frame must receive the close-motion reason');
   assert.match(styles,
-    /@media \(max-width:\s*760px\)[\s\S]*html:not\(\[data-mixdog-mobile\]\) \.sidebar-drawer-frame\s*\{[^}]*position:\s*fixed;[^}]*display:\s*flex;[^}]*transform:\s*translateX\(-100%\);[^}]*transition:\s*transform var\(--mx-sheet-motion\), visibility var\(--mx-sheet-motion\);/s,
+    /@media \(max-width:\s*760px\)[\s\S]*\.sidebar-drawer-frame\s*\{[^}]*position:\s*fixed;[^}]*display:\s*flex;[^}]*transform:\s*translateX\(-100%\);[^}]*transition:\s*transform var\(--mx-sheet-motion\), visibility var\(--mx-sheet-motion\);/s,
     'manual closes must slide the shared frame back out');
   assert.match(styles,
-    /html\.mx-open-sidebar:not\(\[data-mixdog-mobile\]\) \.sidebar-drawer-frame\[data-state="open"\]\s*\{[^}]*animation:\s*sidebar-slide-in var\(--mx-sheet-motion\);/s,
+    /html\.mx-open-sidebar \.sidebar-drawer-frame\[data-state="open"\]\s*\{[^}]*animation:\s*sidebar-slide-in var\(--mx-sheet-motion\);/s,
     'only an explicit open should slide the shared frame into view');
   assert.match(styles,
-    /html:not\(\[data-mixdog-mobile\]\) \.sidebar-drawer-frame\[data-motion="instant"\]\s*\{[^}]*transition:\s*none;/s,
+    /\.sidebar-drawer-frame\[data-motion="instant"\]\s*\{[^}]*transition:\s*none;/s,
     'responsive folds must bypass the manual close transition');
   assert.match(styles,
-    /html:not\(\[data-mixdog-mobile\]\) \.sidebar-drawer-frame::after\s*\{[^}]*inset:\s*0;[^}]*box-shadow:\s*inset 0 0 0 1px var\(--mx-border-muted\);/s,
+    /\.sidebar-drawer-frame::after\s*\{[^}]*inset:\s*0;[^}]*box-shadow:\s*inset 0 0 0 1px var\(--mx-border-muted\);/s,
     'the shared frame must paint its ring above both child surfaces');
   assert.match(styles,
-    /html:not\(\[data-mixdog-mobile\]\) \.sidebar-drawer-frame::before\s*\{[^}]*top:\s*0;[^}]*bottom:\s*0;[^}]*left:\s*47px;[^}]*width:\s*1px;[^}]*background:\s*var\(--mx-border-muted\);/s,
+    /\.sidebar-drawer-frame::before\s*\{[^}]*top:\s*0;[^}]*bottom:\s*0;[^}]*left:\s*47px;[^}]*width:\s*1px;[^}]*background:\s*var\(--mx-border-muted\);/s,
     'the shared frame must preserve the full-height divider between rail and list');
   assert.match(styles,
-    /html:not\(\[data-mixdog-mobile\]\) \.sidebar-drawer-frame\[data-state="open"\]\s*\{[^}]*transform:\s*none;[^}]*visibility:\s*visible;/s);
+    /\.sidebar-drawer-frame\[data-state="open"\]\s*\{[^}]*transform:\s*none;[^}]*visibility:\s*visible;/s);
   assert.match(styles,
-    /html:not\(\[data-mixdog-mobile\]\) \.sidebar-drawer-frame > \.sidebar\.session-sidebar,[\s\S]*?transition:\s*none;/s,
+    /\.sidebar-drawer-frame > \.sidebar\.session-sidebar,[\s\S]*?transition:\s*none;/s,
     'the nested panel must not run a second transition clock');
   assert.match(styles,
     /\.sidebar-backdrop\s*\{[^}]*background:\s*transparent;/s,

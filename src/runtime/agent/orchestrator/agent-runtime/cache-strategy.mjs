@@ -47,15 +47,10 @@ import { getHiddenAgent } from '../internal-agents.mjs';
  * premium for content read back 0 times. Identified by the declarative
  * (kind:'maintenance' + toolSchemaProfile:'none') pair rather than
  * hardcoded names, so new roles sharing the pattern are covered for free.
- * Multi-turn maintenance roles (scheduler-task / webhook-handler) are
- * read-write-search and therefore excluded — they run a tool loop whose tail
- * caches legitimately reuse across iterations.
  */
 function isOneShotMaintenanceAgent(agent) {
     const hidden = getHiddenAgent(agent);
-    // Shipped cycle1/2/3 declare toolSchemaProfile:'none' (no tool schema at
-    // all). Multi-turn maintenance roles (scheduler-task/webhook-handler) are
-    // 'read-write-search' and stay excluded.
+    // Shipped one-shot maintenance roles declare toolSchemaProfile:'none'.
     return Boolean(
         hidden
         && hidden.kind === 'maintenance'

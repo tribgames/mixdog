@@ -32,7 +32,6 @@ export function normalizeAgentName(value) {
   if (id === 'maint' || id === 'maintenance' || id === 'memory') return 'maintainer';
   if (id === 'heavy' || id === 'heavyworker') return 'heavy-worker';
   if (id === 'review') return 'reviewer';
-  if (id === 'debug') return 'debugger';
   return id;
 }
 
@@ -232,6 +231,7 @@ const FRONTMATTER_PERM_CACHE_TTL_MS = envTimeoutMs('MIXDOG_AGENT_FRONTMATTER_TTL
 export function readAgentFrontmatterPermission(agent, dataDir, standaloneSourceRoot) {
   const cleanAgent = clean(agent);
   if (!cleanAgent) return null;
+  if (dataDir && existsSync(join(dataDir, 'agents', cleanAgent, '.deleted'))) return null;
   const cacheKey = `${dataDir || ''}\u0000${cleanAgent}`;
   const cached = _frontmatterPermCache.get(cacheKey);
   if (cached && Date.now() - cached.atMs < FRONTMATTER_PERM_CACHE_TTL_MS) {
@@ -262,6 +262,7 @@ export function readAgentFrontmatterPermission(agent, dataDir, standaloneSourceR
 export function agentDefinitionExists(agent, dataDir, standaloneSourceRoot) {
   const cleanAgent = clean(agent);
   if (!cleanAgent) return false;
+  if (dataDir && existsSync(join(dataDir, 'agents', cleanAgent, '.deleted'))) return false;
   const candidates = [];
   if (dataDir) {
     candidates.push(join(dataDir, 'agents', cleanAgent, 'AGENT.md'));

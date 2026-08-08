@@ -89,6 +89,20 @@ interface MediaAssetPaging {
   total: number;
 }
 
+interface QueuedMediaRequest {
+  lane: string;
+  kind: MediaKind;
+  model: string;
+  prompt: string;
+  options: Record<string, unknown>;
+  references: Array<{ base64: string; mime: string; url: string }>;
+}
+
+type StudioMediaJob = MediaJob & {
+  /** Immutable composer state captured when this queue slot was submitted. */
+  request?: QueuedMediaRequest;
+};
+
 function initialMediaAssetPaging(): Record<MediaKind, MediaAssetPaging> {
   return {
     image: { initialized: false, loadingMore: false, nextOffset: 0, total: 0 },
@@ -218,7 +232,7 @@ export function StudioPane({
   const [prompt, setPrompt] = useState('');
   // Generation is a QUEUE (user): starting a run never blocks the composer, so
   // several jobs can be in flight and each keeps its own tile.
-  const [jobs, setJobs] = useState<MediaJob[]>([]);
+  const [jobs, setJobs] = useState<StudioMediaJob[]>([]);
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const visibleAssets = useMemo(
     () => assets.filter((asset) => asset.kind === kind),
@@ -232,15 +246,13 @@ export function StudioPane({
   // request: dropping that URL produced an empty frame until fallback landed.
   const [thumbFallbacks, setThumbFallbacks] = useState<Record<string, true>>({});
   const [copied, setCopied] = useState(false);
-  // Phone detail sheet: the prompt is clamped to two lines and expands on tap.
+  // Compact detail sheet: the prompt is clamped to two lines and expands on tap.
   const [promptOpen, setPromptOpen] = useState(false);
-  // The phone detail viewer is a different composition, not a squeezed card.
-  // A narrow viewport OR a coarse pointer opens it, so a WebView that
-  // misreports pointer coarseness still gets the stacked layout.
-  const [phoneViewer, setPhoneViewer] = useState(() => (
-    document.documentElement.dataset.mixdogMobile === '1'
-      || window.matchMedia?.('(max-width: 700px), (pointer: coarse)').matches === true
-  ));
+  // Device type never changes the composition: only available width may stack
+  // the detail surface, so VPS web and Electron stay identical at equal sizes.
+  const [phoneViewer, setPhoneViewer] = useState(
+    () => window.matchMedia?.('(max-width: 700px)').matches === true,
+  );
   // Split panes resize independently of the Electron window. Keep desktop
   // tile interactions, but stack the detail viewer when this Studio surface
   // itself becomes phone-width.
@@ -337,7 +349,7 @@ export function StudioPane({
   }, []);
   // Latest queue, readable from the re-entry reset without making that effect
   // depend on (and re-run for) every poll snapshot.
-  const jobsRef = useRef<MediaJob[]>([]);
+  const jobsRef = useRef<StudioMediaJob[]>([]);
   jobsRef.current = jobs;
   // Mirror of the thumbnail cache: the hydration loop reads it without taking
   // a state dependency, so a landed thumbnail never restarts the loop.
@@ -460,11 +472,9 @@ export function StudioPane({
   }, [api, refreshAssetKind]);
 
   useEffect(() => {
-    const query = window.matchMedia?.('(max-width: 700px), (pointer: coarse)');
+    const query = window.matchMedia?.('(max-width: 700px)');
     if (!query) return undefined;
-    const apply = () => setPhoneViewer(
-      document.documentElement.dataset.mixdogMobile === '1' || query.matches,
-    );
+    const apply = () => setPhoneViewer(query.matches);
     apply();
     query.addEventListener('change', apply);
     return () => query.removeEventListener('change', apply);
@@ -601,8 +611,13 @@ export function StudioPane({
             await Promise.all(landedKinds.map((assetKind) => refreshAssetKind(assetKind)));
             if (stopped) return;
           }
-          setJobs((current) => current.map((entry) =>
-            landed.find((next) => next.id === entry.id) || entry));
+          setJobs((current) => current.map((entry) => {
+            const next = landed.find((candidate) => candidate.id === entry.id);
+            // Runtime snapshots do not echo reference bytes or their local
+            // preview URLs. Merge them into the queue slot instead of replacing
+            // its captured request with the latest polled snapshot.
+            return next ? { ...entry, ...next } : entry;
+          }));
         } catch (reason) {
           if (!stopped) setError(errorText(reason));
         }
@@ -795,23 +810,43 @@ export function StudioPane({
     await addFiles(images);
   };
 
-  const generate = async () => {
-    // No busy guard: a second Generate queues another run behind the first.
-    if (!lane || !prompt.trim()) return;
+  const startQueuedRequest = async (request: QueuedMediaRequest): Promise<boolean> => {
     setError('');
     try {
       const started = await callCapability(api, 'startMediaJob', [{
-        lane: lane.id,
-        kind,
-        model: activeModel,
-        prompt: prompt.trim(),
-        options: requestOptions(modelControls(spec, activeModel), kind, options),
-        references: refs.map((ref) => ({ base64: ref.base64, mime: ref.mime })),
+        lane: request.lane,
+        kind: request.kind,
+        model: request.model,
+        prompt: request.prompt,
+        options: { ...request.options },
+        references: request.references.map((ref) => ({
+          base64: ref.base64,
+          mime: ref.mime,
+        })),
       }]) as MediaJob | undefined;
-      if (started) setJobs((current) => [started, ...current]);
+      if (started) {
+        setJobs((current) => [{ ...started, request }, ...current]);
+        return true;
+      }
     } catch (reason) {
       setError(errorText(reason));
     }
+    return false;
+  };
+
+  const generate = async () => {
+    // No busy guard: a second Generate queues another run behind the first.
+    if (!lane || !prompt.trim()) return;
+    // Capture every mutable composer field before crossing the async bridge.
+    // Later prompt/reference edits belong only to the next queue slot.
+    await startQueuedRequest({
+      lane: lane.id,
+      kind,
+      model: activeModel,
+      prompt: prompt.trim(),
+      options: { ...requestOptions(modelControls(spec, activeModel), kind, options) },
+      references: refs.map((ref) => ({ ...ref })),
+    });
   };
 
   const dismissJob = (id: string) => setJobs((current) => current.filter((entry) => entry.id !== id));
@@ -850,23 +885,17 @@ export function StudioPane({
   // viewer, or remove it from the gallery.
   const regenerate = async (asset: MediaAsset) => {
     if (!asset.prompt.trim()) return;
-    setError('');
-    try {
-      const started = await callCapability(api, 'startMediaJob', [{
-        lane: asset.lane,
-        kind: asset.kind,
-        model: asset.model,
-        prompt: asset.prompt.trim(),
-        options: { ...(asset.options || {}) },
-        references: [],
-      }]) as MediaJob | undefined;
-      if (started) {
-        setJobs((current) => [started, ...current]);
-        setKind(asset.kind);
-        setSelected(null);
-      }
-    } catch (reason) {
-      setError(errorText(reason));
+    const started = await startQueuedRequest({
+      lane: asset.lane,
+      kind: asset.kind,
+      model: asset.model,
+      prompt: asset.prompt.trim(),
+      options: { ...(asset.options || {}) },
+      references: [],
+    });
+    if (started) {
+      setKind(asset.kind);
+      setSelected(null);
     }
   };
 
@@ -1085,7 +1114,7 @@ export function StudioPane({
   // A pending tile is solved like any other, so it can end up ~70px wide at the
   // densest step. Its overlays (spinner, Cancel) share one header row and shed
   // labels as the slot narrows (user: 제너레이트와 캔슬이 겹침).
-  const pendingBox = (entry: MediaJob) => {
+  const pendingBox = (entry: StudioMediaJob) => {
     const width = Math.floor(layout.get(entry.id)?.width || rowHeight * mediaFrameRatio(entry));
     return {
       width,
@@ -1111,12 +1140,12 @@ export function StudioPane({
    * while the run was barely started (user: 퍼센테이지가 안 맞는다). Only a
    * lane-reported value is shown now; everything else runs indeterminate.
    */
-  const jobProgress = (entry: MediaJob): number => (entry.status === 'running'
+  const jobProgress = (entry: StudioMediaJob): number => (entry.status === 'running'
     ? Math.max(0, Math.min(100, Number(entry.progress) || 0))
     : 0);
   // Elapsed clock per tile. The heartbeat above already re-renders twice a
   // second, so this needs no timer of its own.
-  const jobElapsed = (entry: MediaJob): string => {
+  const jobElapsed = (entry: StudioMediaJob): string => {
     const seconds = Math.floor(Math.max(0, entry.startedAt ? Date.now() - entry.startedAt : 0) / 1_000);
     return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
   };
@@ -1241,9 +1270,12 @@ export function StudioPane({
             // Only a lane-reported number is printed; the rest run indeterminate.
             const determinate = progress > 0;
             const elapsed = jobElapsed(pending);
+            const queuedReference = pending.request?.references[0];
+            const queuedPrompt = pending.request?.prompt || '';
             return <figure key={pending.id} aria-live="polite"
               className={`studio-tile studio-tile--pending${pending.status === 'failed' ? ' studio-tile--failed' : ''}`}
               data-studio-asset-id={pending.id}
+              data-studio-prompt={queuedPrompt || undefined}
               data-size={box.size}
               style={style}>
               {pending.status === 'failed'
@@ -1257,7 +1289,7 @@ export function StudioPane({
                       {/* Retry replaces this slot with a fresh queued run. */}
                       <button type="button" onClick={() => {
                         dismissJob(pending.id);
-                        void generate();
+                        void (pending.request ? startQueuedRequest(pending.request) : generate());
                       }}>
                         <RotateCcw size={12} aria-hidden="true" />{t('Retry')}
                       </button>
@@ -1266,7 +1298,12 @@ export function StudioPane({
                   </div>
                 </div>
                 : <>
-                  <div className="studio-tile-open" role="img" aria-label={t('Generating')}>
+                  <div className="studio-tile-open" role="img"
+                    aria-label={queuedPrompt ? `${t('Generating')}: ${queuedPrompt}` : t('Generating')}>
+                    {queuedReference
+                      ? <img className="studio-pending-reference" src={queuedReference.url} alt="" />
+                      : null}
+                    {queuedPrompt ? <p className="studio-pending-prompt">{queuedPrompt}</p> : null}
                     {/* Status reads from the bottom of the tile: the elapsed clock
                         always, the percentage and a determinate rail only for a
                         lane that reports one. Everything else runs indeterminate

@@ -185,6 +185,10 @@ test('shared tool policy routes facets without duplicate content acquisition', (
     /explicit project change→`cwd`/i,
     /explicit user-requested conversation reset→\s*`session_manage`/i,
   ]) assert.match(policy, route, `routing table lost ${route}`);
+  // Funnel: retrieval narrows repository→path→content, entering at the
+  // deepest tier the held anchors support; shell sits outside the funnel.
+  assert.match(policy, /Retrieval narrows one way, repository→path→content[\s\S]*enter at the deepest anchored tier[\s\S]*never widen back/i);
+  assert.match(policy, /`shell` is never an exploration or editing tool/i);
   // 2. Negative shell steering lives on the shell tool description (reference
   // parity); the rule mentions shell only for batched final verification.
   assert.doesNotMatch(policy, /process\/env, git, build\/run\/test→`shell`|Call `shell` only when/i);
@@ -196,14 +200,13 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   // 3. One shared maximum-fanout contract governs every tool batch —
   // independence alone decides batching, tool identity never does.
   assert.match(policy, /route each anchored facet exactly once by the evidence required/i);
-  assert.match(policy, /Before each tool batch[\s\S]*extract every independent facet[\s\S]*deduplicate overlap[\s\S]*assign exactly ONE routed tool per facet[\s\S]*launch all independent calls, whatever the tool, together in one maximum-fanout turn — independence alone decides batching[\s\S]*Never send one facet to alternative tools[\s\S]*reserve known work[\s\S]*serialize independent calls[\s\S]*cap facet count/i);
-  assert.match(policy, /Once the edit is determined[\s\S]*one assistant turn[\s\S]*one `apply_patch` for all edits/i);
-  assert.match(policy, /never batch another[\s\S]*exploration tool onto a facet already sent to `explore` in the same turn/i);
-  assert.match(policy, /it is plain search over source trees and files/i);
+  assert.match(policy, /before every tool batch[\s\S]*extract every independent facet[\s\S]*deduplicate overlap[\s\S]*assign exactly ONE routed tool per facet[\s\S]*launch all independent calls, whatever the tool, together in one maximum-fanout turn — every turn, widest probe to last; independence alone decides batching[\s\S]*Never send one facet to alternative tools[\s\S]*reserve known work[\s\S]*serialize independent calls[\s\S]*cap facet count/i);
+  assert.match(policy, /Once the edit is determined[\s\S]*one assistant turn[\s\S]*one `apply_patch` envelope per file or cohesive unit[\s\S]*never one envelope for all edits[\s\S]*re-send only the failed envelope/i);
+  assert.match(policy, /plain search over source trees and files/i);
   assert.doesNotMatch(policy, /final verification|one `apply_patch` for all edits and one `shell` chain|otherwise finish without it|Prefer parallel calls when independent|risk-proportionate|rerun only failures|zero\/error or a newly revealed dependency|cross-scope verification/i);
   assert.match(policy, /Take the cheapest sufficient evidence per facet[\s\S]*symbol relations end at `code_graph`[\s\S]*values\/locations end at the context grep returns[\s\S]*`read` covers only what returned spans cannot[\s\S]*anchored offset\/limit window[\s\S]*never a full-file read when a window suffices/i);
-  assert.match(policy, /Adjacent context around an edit point counts as needed evidence[\s\S]*A batch carries only the evidence needed to determine the edit[\s\S]*the moment evidence determines it, stop retrieving and patch/i);
-  assert.match(policy, /Known state is never re-acquired — neither content already read nor the effect of your own successful call/i);
+  assert.match(policy, /adjacent context around an edit point counts as needed evidence[\s\S]*The moment evidence determines the edit, stop retrieving and patch/i);
+  assert.match(policy, /Known state is never re-acquired or reconfirmed — a credible result is final[\s\S]*never re-read, re-verify, or cross-check it/i);
   const leadToolPolicy = readFileSync(new URL('../src/rules/lead/lead-tool.md', import.meta.url), 'utf8');
   const leadGeneralPolicy = readFileSync(new URL('../src/rules/lead/01-general.md', import.meta.url), 'utf8');
   assert.doesNotMatch(leadToolPolicy, /cross-scope verification/i);
@@ -404,7 +407,7 @@ test('explore locates; location-freeze policy lives in shared rules', () => {
   const policy = rule.replace(/\s+/g, ' ');
   // explore handles repository-source coordinates alone.
   assert.match(policy, /Call `explore`, when exposed, only to locate unknown coordinates in repository source/i);
-  assert.match(policy, /returns locations, not analysis or solutions/i);
+  assert.match(policy, /it returns locations, not analysis or solutions/i);
   assert.match(policy, /route each anchored facet exactly once by the evidence required/i);
   assert.match(policy, /Known state is never re-acquired/i);
 });

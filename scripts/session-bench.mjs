@@ -134,7 +134,7 @@ function toolArgsHash(row) {
 
 const READONLY_TOOL_NAMES = new Set(['read', 'grep', 'glob', 'list', 'find', 'code_graph', 'recall', 'explore', 'search', 'web_fetch']);
 const READONLY_STALL_MIN_RUN = 8;
-const READONLY_ROLE_AGENTS = new Set(['reviewer', 'explore', 'explorer', 'debugger']);
+const READONLY_ROLE_AGENTS = new Set(['reviewer', 'explore', 'explorer']);
 const IDENTICAL_CALL_MIN_COUNT = 3;
 
 function fmtMs(ms) {

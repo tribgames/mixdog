@@ -19,6 +19,10 @@ export type ComposerAttachment = {
   token: string;
   source?: 'file' | 'paste';
   metadataText?: string;
+  /** Chip-only attachments keep their bracket token out of the editor text;
+   * the token is appended internally at send time so daemon expansion and
+   * transcript folding still work. */
+  chipOnly?: boolean;
 };
 
 export type ComposerHistoryEntry = {

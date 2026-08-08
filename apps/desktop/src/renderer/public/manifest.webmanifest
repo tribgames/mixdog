@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "Mixdog",
+  "short_name": "Mixdog",
+  "description": "Mixdog coding-agent web app",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#151518",
+  "theme_color": "#151518",
+  "icons": [
+    {
+      "src": "/mixdog.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

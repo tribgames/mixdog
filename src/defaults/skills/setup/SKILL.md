@@ -72,13 +72,13 @@ apply it, and verify the result.
 
 ### Workflow / agent definitions
 
-1. Workflows and agents are Markdown packs. Built-ins ship with mixdog
-   (workflows `default`, `solo`; agents worker, heavy-worker, reviewer,
-   debugger, maintainer); custom packs live at
+1. Workflows and agents are Markdown packs. Built-in services are Web Search,
+   Explore, and Maintainer. Mixdog ships editable starter agents `worker`,
+   `heavy-worker`, and `reviewer`; custom packs live at
    `<mixdogData>/workflows/<id>/WORKFLOW.md` and
    `<mixdogData>/agents/<id>/AGENT.md`.
-2. Saving a built-in id writes a user override; deleting the override
-   reverts to the built-in.
+2. Starter and user-authored agents can be edited or deleted. Built-in service
+   definitions stay protected while their model routes remain configurable.
 3. The desktop app (Workflows page) is the full editor. The TUI only
    switches the active workflow (`/workflow`) and per-agent model routes
    (`/agents`).

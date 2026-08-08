@@ -9,7 +9,6 @@ const HEADLESS_ROLE_ALIASES = new Map([
   ['worker', 'worker'],
   ['heavy', 'heavy-worker'], ['heavyworker', 'heavy-worker'], ['heavy-worker', 'heavy-worker'],
   ['review', 'reviewer'], ['reviewer', 'reviewer'],
-  ['debug', 'debugger'], ['debugger', 'debugger'],
   ['web', 'web-researcher'], ['web-researcher', 'web-researcher'],
 ]);
 const HEADLESS_WORKFLOW_ERROR = 'option --workflow is not supported for headless role commands';

@@ -18,7 +18,6 @@ import {
     _buildAgentRules,
     _buildLeadRules,
     _buildLeadMetaContext,
-    _buildAgentSpecific,
 } from './rules-cache.mjs';
 import {
     applyToolPermissionNarrowing,
@@ -202,9 +201,7 @@ export function createSession(opts) {
     const skills = (opts.skipSkills || hiddenAgent) ? [] : collectPromptSkillsCached(opts.cwd);
 
     // BP1 is shared tool policy (+ compact skill manifest in compose). BP2 is
-    // role/system rules. User-defined schedules/webhooks ride as normal user
-    // context below so event data does not rewrite BP3 memory/meta.
-    const agentRulesAgent = opts.agent || opts.role || profile?.taskType || null;
+    // role/system rules. Automation prompts ride as normal user context.
     const agentRulesProfile = isRetrievalAgent ? 'retrieval' : 'full';
     const skipAgentRules = opts.skipAgentRules === true;
     // BP1 shared tool policy ships to EVERY role (Lead, workers, retrieval,
@@ -215,7 +212,6 @@ export function createSession(opts) {
     const injectedRules = skipAgentRules ? '' : _buildSharedRules();
     const roleRules = skipAgentRules ? '' : (ownerIsAgent ? _buildAgentRules(agentRulesProfile) : _buildLeadRules());
     const metaContext = skipAgentRules ? '' : (ownerIsAgent ? '' : _buildLeadMetaContext());
-    const roleSpecific = ownerIsAgent && !skipAgentRules ? _buildAgentSpecific(agentRulesAgent) : '';
     // Prompt permission is metadata for the write bundle, but a read-only role
     // is stamped BEFORE the toolSpec decision so its schema ships the narrowed
     // bundle. Resolve toolPermission (with profile/preset fallbacks) first, and
@@ -231,7 +227,7 @@ export function createSession(opts) {
     // narrowing — that would shatter provider prefix reuse into one shard per
     // role. Instead they collapse onto exactly TWO stable, bit-identical
     // bundles, one cache group each:
-    //   - read-only roles (reviewer / debugger / hidden retrieval, i.e. any
+    //   - read-only roles (reviewer / hidden retrieval, i.e. any
     //     session resolving to permission 'read') -> 'readonly' bundle:
     //     read builtins (code_graph/find/glob/list/grep/read) + retrieval
     //     (explore/search/web_fetch/Skill) + shell/task for self-verification
@@ -258,7 +254,7 @@ export function createSession(opts) {
     if (ownerIsAgent) {
         // Pass the RESOLVED agent (opts.agent || opts.role): narrowing keys
         // retrieval/locator roles (explore etc.) off this name to strip
-        // shell/task; verifying read roles (reviewer/debugger) keep them.
+        // shell/task; verifying read roles (reviewer) keep them.
         toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, toolPermission, resolvedAgent);
     }
 
@@ -309,10 +305,6 @@ export function createSession(opts) {
     }
     if (volatileTail) {
         messages.push({ role: 'user', content: `<system-reminder>\n${volatileTail}\n</system-reminder>` });
-        messages.push({ role: 'assistant', content: '.' });
-    }
-    if (roleSpecific) {
-        messages.push({ role: 'user', content: `<system-reminder>\n${roleSpecific}\n</system-reminder>` });
         messages.push({ role: 'assistant', content: '.' });
     }
     if (opts.files?.length) {

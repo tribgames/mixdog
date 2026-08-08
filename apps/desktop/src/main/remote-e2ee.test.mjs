@@ -70,5 +70,6 @@ test('persists and rotates identity, keeping browser secret in the fragment', as
   const browser = new URL(info.relayBrowserUrl);
   assert.equal(browser.searchParams.has('e2eeSecret'), false);
   assert.equal(new URLSearchParams(browser.hash.slice(1)).get('e2eeSecret'), rotated.pairingSecret);
-  assert.match(info.relayAppLink, /e2eeSecret=/);
+  assert.equal(info.relayAppLink, undefined);
+  assert.equal(info.relayAppQrSvg, undefined);
 });

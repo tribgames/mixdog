@@ -4,6 +4,14 @@
 ![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
+**Mixdog Desktop:** [Download for Windows (x64)](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe)
+· [macOS / Linux preview builds](https://github.com/tribgames/mixdog/releases/latest)
+
+Windows is the primary manually tested desktop platform. macOS and Linux
+packages are built on native CI runners and pass packaged-runtime smoke tests,
+but remain preview builds. Desktop packages are currently unsigned, so Windows
+SmartScreen or macOS Gatekeeper may show a security warning.
+
 Standalone coding agent that runs an orchestrated, multi-provider agent
 workflow from one terminal — or from a full desktop workbench — built to
 get the same quality out of the same models with less time, cost, and
@@ -118,9 +126,9 @@ every number above live under `benchmarks/terminal-bench-2.1/`.
 
 - Skills, MCP servers, hooks, and plugins load through standard-compatible
   interfaces.
-- Workflow delegation through the `agent` tool and `/agents`: worker,
-  heavy-worker, reviewer, debugger, maintainer, explorer, and
-  web-researcher roles.
+- Built-in Web Search, Explorer, and Maintainer services, plus editable
+  starter agents (`worker`, `heavy-worker`, `reviewer`) and user-authored
+  custom roles.
 
 ## Run
 
@@ -160,8 +168,8 @@ mixdog --provider anthropic-oauth --model claude-opus-5 worker "fix the failing 
 mixdog --provider openai-oauth --model gpt-5.6-sol reviewer "review the current diff"
 ```
 
-Roles: `explore`, `worker`, `heavy-worker`, `reviewer`, `debugger`,
-`maintainer`, `web-researcher`.
+Roles: `explore`, `worker`, `heavy-worker`, `reviewer`, `maintainer`,
+`web-researcher`.
 
 ## TUI basics
 

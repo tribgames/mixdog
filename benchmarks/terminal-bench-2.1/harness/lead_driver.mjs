@@ -59,12 +59,10 @@ const AGENT_ROLE_ALIASES = new Map([
   ['heavy-worker', 'heavy-worker'],
   ['review', 'reviewer'],
   ['reviewer', 'reviewer'],
-  ['debug', 'debugger'],
-  ['debugger', 'debugger'],
   ['web', 'web-researcher'],
   ['web-researcher', 'web-researcher'],
 ]);
-const LEGACY_ROLE_TOKEN = '(?:lead|worker|heavy[- ]?worker|debug(?:ger)?|review(?:er)?|explor(?:e|er)|maint(?:ainer|enance)?|web(?:-researcher)?)';
+const LEGACY_ROLE_TOKEN = '(?:lead|worker|heavy[- ]?worker|review(?:er)?|explor(?:e|er)|maint(?:ainer|enance)?|web(?:-researcher)?)';
 const LEGACY_ROLE_LINEAGE_RE = new RegExp(
   `\\b${LEGACY_ROLE_TOKEN}\\b\\s*(?:→|->|=>|/|>)\\s*\\b${LEGACY_ROLE_TOKEN}\\b`,
   'i',

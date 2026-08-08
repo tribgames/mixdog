@@ -82,7 +82,7 @@ export function RowOverflowMenu({
   // out the whole workbench and made a tiny options menu feel conspicuously
   // late on dense panels.
   const bounds = menuOpen ? anchorBounds.current : null;
-  const itemHeight = window.matchMedia?.('(pointer: coarse)').matches ? 44 : 36;
+  const itemHeight = 36;
   const height = itemHeight * (menuItems.length + (path.length ? 1 : 0)) + 8;
   const left = Math.max(8, Math.min(
     (bounds?.right || width + 8) - width,

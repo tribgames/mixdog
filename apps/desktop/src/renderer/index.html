@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#151518" />
+    <meta name="application-name" content="Mixdog" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./mixdog.svg" type="image/svg+xml" />
     <title>Mixdog</title>
     <script>
       // First-paint theme: resolve the stored preference BEFORE any CSS
@@ -25,7 +30,7 @@
     </script>
     <script>
       // Field diagnostics: a boot failure used to leave a silent black screen
-      // on phones (no devtools there). If the bundle dies before React
+      // on remote browsers (where devtools may be unavailable). If the bundle dies before React
       // mounts, surface the error text instead of a blank window.
       (function () {
         var errors = [];

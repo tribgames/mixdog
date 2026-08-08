@@ -21,31 +21,18 @@
  *
  * Kind classification:
  *   - 'retrieval'   : short-lived hidden retrieval agents (explore).
- *   - 'maintenance' : background-trigger hidden agents (memory cycle, scheduler,
- *                     webhook). Receive only their own self section in BP2.
+ *   - 'maintenance' : background-trigger hidden agents (memory cycle and
+ *                     title generation). Receive only their own self section.
  *
  * Permission classification:
  *   - 'read'       : read-only — apply_patch/shell blocked at loop.mjs runtime
  *                    guard with the same error string public read-only agents see.
- *   - 'read-write' : full tool surface — used by hidden agents that legitimately
- *                    mutate state (scheduler-task launches commands,
- *                    webhook-handler persists payloads). agent-dispatch honors this
- *                    declaratively instead of forcing every hidden agent to 'read'.
+ *   - 'read-write' : full tool surface for any future mutating hidden role.
  *
  * Tool schema profile:
  *   - 'none' : no tools exposed; pure transform/classifier agents.
  *   - 'read' : read/search/code-navigation tools only.
  *   - 'full' : shared agent tool schema for provider cache reuse.
- *
- * Agent-specific instruction metadata (consumed by rules-builder.cjs
- * buildAgentRoleSpecificContent + collect.mjs):
- *   - inboundEvent   : agent reports results back to Lead and must carry the
- *                      skip-protocol rule (rules/agent/20-skip-protocol.md)
- *                      in its BP2 agent-rule block so no-op outputs opt out of the Lead
- *                      inject.
- *   - instructionDir : DATA_DIR subdir whose *.md tree is folded into the
- *                      agent's BP4-adjacent user/task data (webhook-handler →
- *                      webhooks, scheduler-task → schedules).
  */
 
 import { readFileSync, statSync } from 'fs'
@@ -97,15 +84,8 @@ function _mergeHiddenAgentFrontmatter(entry) {
   const merged = { ...entry }
   const permission = normalizeAgentPermissionOrNone(fm.permission)
   if (permission) merged.permission = permission
-  for (const key of ['toolSchemaProfile', 'kind', 'slot', 'maintKey', 'instructionDir']) {
+  for (const key of ['toolSchemaProfile', 'kind', 'slot', 'maintKey']) {
     if (typeof fm[key] === 'string' && fm[key].trim()) merged[key] = fm[key].trim()
-  }
-  for (const key of ['inboundEvent']) {
-    if (typeof fm[key] === 'string' && fm[key].trim()) {
-      const raw = fm[key].trim().toLowerCase()
-      if (raw === 'true') merged[key] = true
-      else if (raw === 'false') merged[key] = false
-    }
   }
   return merged
 }
@@ -212,25 +192,4 @@ export function getAgentCatalogShareAgents(name) {
   const hidden = getHiddenAgent(name)
   if (!hidden || !Array.isArray(hidden.catalogShareAgents)) return []
   return hidden.catalogShareAgents.map((n) => String(n || '').trim()).filter(Boolean)
-}
-
-/**
- * True when a hidden agent reports results back to Lead and must carry the
- * skip-protocol rule in its BP2 agent-rule block. Replaces the hard-coded
- * INBOUND_EVENT_ROLES set in collect.mjs.
- */
-export function isInboundEventAgent(name) {
-  const hidden = getHiddenAgent(name)
-  return !!(hidden && hidden.inboundEvent === true)
-}
-
-/**
- * Return the DATA_DIR subdir whose *.md tree rides as BP4-adjacent
- * user/task data, or null when the agent declares none. Replaces the
- * webhook/scheduler ternary in rules-builder.cjs buildAgentRoleSpecificContent.
- */
-export function getAgentInstructionDir(name) {
-  const hidden = getHiddenAgent(name)
-  const dir = hidden && typeof hidden.instructionDir === 'string' ? hidden.instructionDir.trim() : ''
-  return dir || null
 }

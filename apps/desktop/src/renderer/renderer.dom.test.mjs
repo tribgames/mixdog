@@ -40,6 +40,12 @@ const { OpenSelect } = await import("./OpenSelect.tsx");
 const { ProgressSpinner, progressSpinnerStrokeWidth } = await import("./ProgressSpinner.tsx");
 const { AgentActivityPane } = await import("./AgentActivityPane.tsx");
 const { StudioPane } = await import("./StudioView.tsx");
+const {
+  default: FolderPane,
+  FOLDER_ICON_CONCURRENCY,
+  folderIconRequest,
+  loadFolderEntryIcon,
+} = await import("./FolderPane.lazy.tsx");
 const { TooltipLayer } = await import("./TooltipLayer.tsx");
 const { TurnReviewBar } = await import("./TurnReview.tsx");
 const { ReviewPane } = await import("./ReviewPane.tsx");
@@ -2279,6 +2285,391 @@ test("studio mode switches preserve the picker and omit retired side-panel contr
     "Studio controls should keep their own focus instead of redirecting to the prompt");
 });
 
+test("studio accepts Explorer images as references across the full pane", async () => {
+  installDom();
+  const project = "C:\\workspace\\studio-drop";
+  const resolvedPaths = [];
+  window.mixdogDesktop = {
+    resolveLocalPaths: async (paths) => {
+      resolvedPaths.push([...paths]);
+      return paths.map((absolutePath) => ({
+        absolutePath,
+        name: "reference.png",
+        dir: false,
+        size: 8,
+        projectPath: project,
+        relPath: "assets/reference.png",
+      }));
+    },
+    readLocalFile: async () => ({
+      name: "reference.png",
+      mimeType: "image/png",
+      data: "iVBORw0KGgo=",
+    }),
+  };
+  const lanes = [{
+    id: "gemini",
+    label: "Gemini",
+    authType: "api",
+    authProvider: "gemini",
+    authenticated: true,
+    kinds: ["image"],
+    image: {
+      models: [{ id: "image-alpha", label: "Image Alpha" }],
+      defaultModel: "image-alpha",
+      controls: {},
+    },
+  }];
+  const api = {
+    async invokeCapability({ capability }) {
+      if (capability === "listMediaLanes") return { value: lanes };
+      if (capability === "listMediaAssets") return { value: { assets: [] } };
+      return { value: undefined };
+    },
+  };
+  await act(async () => {
+    root.render(React.createElement(StudioPane, { api }));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  const studio = document.querySelector(".studio-root");
+  const transfer = {
+    types: ["application/x-mixdog-project-paths"],
+    files: [],
+    getData: (type) => type === "application/x-mixdog-project-paths"
+      ? JSON.stringify({ projectPath: project, paths: ["assets/reference.png"] })
+      : "",
+    dropEffect: "none",
+  };
+  await act(async () => {
+    const enter = new window.Event("dragenter", { bubbles: true, cancelable: true });
+    Object.defineProperty(enter, "dataTransfer", { value: transfer });
+    studio.dispatchEvent(enter);
+  });
+  assert.equal(document.querySelector(".studio-composer")?.getAttribute("data-dropping"), "true");
+  await act(async () => {
+    const drop = new window.Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: transfer });
+    studio.dispatchEvent(drop);
+    const deadline = Date.now() + 1_000;
+    while (!document.querySelector(".studio-refs img") && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 10));
+    }
+  });
+  assert.deepEqual(resolvedPaths, [["C:\\workspace\\studio-drop\\assets\\reference.png"]]);
+  assert.ok(document.querySelector(".studio-refs img"),
+    "dropping an Explorer image anywhere in Studio must add a reference");
+  assert.equal(document.querySelector(".studio-composer")?.hasAttribute("data-dropping"), false);
+});
+
+test("studio queue snapshots keep their own reference and prompt across later composer edits and retry", async () => {
+  installDom();
+  const project = "C:\\workspace\\studio-queue";
+  window.mixdogDesktop = {
+    resolveLocalPaths: async (paths) => paths.map((absolutePath) => ({
+      absolutePath,
+      name: absolutePath.endsWith("first.png") ? "first.png" : "second.png",
+      dir: false,
+      size: 8,
+      projectPath: project,
+      relPath: absolutePath.endsWith("first.png") ? "first.png" : "second.png",
+    })),
+    readLocalFile: async (absolutePath) => ({
+      name: absolutePath.endsWith("first.png") ? "first.png" : "second.png",
+      mimeType: "image/png",
+      data: absolutePath.endsWith("first.png") ? "RklSU1Q=" : "U0VDT05E",
+    }),
+  };
+  const lane = {
+    id: "gemini",
+    label: "Gemini",
+    authType: "api",
+    authProvider: "gemini",
+    authenticated: true,
+    kinds: ["image"],
+    image: {
+      models: [{ id: "image-alpha", label: "Image Alpha" }],
+      defaultModel: "image-alpha",
+      controls: { maxReferences: 1 },
+    },
+  };
+  const startedRequests = [];
+  const api = {
+    async invokeCapability({ capability, args = [] }) {
+      if (capability === "listMediaLanes") return { value: [lane] };
+      if (capability === "listMediaAssets") return { value: { assets: [] } };
+      if (capability === "startMediaJob") {
+        startedRequests.push(args[0]);
+        const index = startedRequests.length;
+        return { value: {
+          id: `queue-job-${index}`,
+          status: index === 1 ? "failed" : "running",
+          kind: "image",
+          lane: "gemini",
+          model: "image-alpha",
+          options: args[0].options,
+          progress: 0,
+          assetId: null,
+          error: index === 1 ? "temporary failure" : null,
+          startedAt: Date.now(),
+        } };
+      }
+      if (capability === "getMediaJob") return { value: null };
+      return { value: undefined };
+    },
+  };
+  await act(async () => {
+    root.render(React.createElement(StudioPane, { api }));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+
+  const studio = document.querySelector(".studio-root");
+  const prompt = document.querySelector('[aria-label="Generation prompt"]');
+  const setTextareaValue =
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+  const promptProps = prompt[
+    Object.keys(prompt).find((key) => key.startsWith("__reactProps$"))
+  ];
+  const setPrompt = async (value) => {
+    await act(async () => {
+      setTextareaValue.call(prompt, value);
+      promptProps.onChange({ currentTarget: prompt });
+    });
+  };
+  const dropReference = async (name) => {
+    const transfer = {
+      types: ["application/x-mixdog-project-paths"],
+      files: [],
+      getData: (type) => type === "application/x-mixdog-project-paths"
+        ? JSON.stringify({ projectPath: project, paths: [name] })
+        : "",
+      dropEffect: "none",
+    };
+    await act(async () => {
+      const drop = new window.Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(drop, "dataTransfer", { value: transfer });
+      studio.dispatchEvent(drop);
+      const expected = name === "first.png" ? "RklSU1Q=" : "U0VDT05E";
+      const deadline = Date.now() + 1_000;
+      while (!document.querySelector(`.studio-refs img[src$="${expected}"]`)
+        && Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 5));
+      }
+    });
+  };
+  const waitForJob = async (id) => {
+    let slot = null;
+    await act(async () => {
+      const deadline = Date.now() + 1_000;
+      while (!(slot = document.querySelector(`[data-studio-asset-id="${id}"]`))
+        && Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 5));
+      }
+    });
+    return slot;
+  };
+
+  await dropReference("first.png");
+  await setPrompt("first queued prompt");
+  await act(async () => {
+    document.querySelector('[aria-label="Generate"]').click();
+    await Promise.resolve();
+  });
+  assert.equal(startedRequests.length, 1,
+    `first queue submission should start (prompt=${prompt.value}, disabled=${document.querySelector('[aria-label="Generate"]').disabled}, model=${document.querySelector('[aria-label="Generation model"]')?.textContent})`);
+  const firstQueuedSlot = await waitForJob("queue-job-1");
+  assert.equal(
+    firstQueuedSlot?.dataset.studioPrompt,
+    "first queued prompt",
+  );
+
+  await act(async () => document.querySelector('[aria-label="Remove reference"]').click());
+  await dropReference("second.png");
+  await setPrompt("second queued prompt");
+  await act(async () => {
+    document.querySelector('[aria-label="Generate"]').click();
+    await Promise.resolve();
+  });
+
+  const secondSlot = await waitForJob("queue-job-2");
+  const firstSlot = document.querySelector('[data-studio-asset-id="queue-job-1"]');
+  assert.equal(firstSlot?.dataset.studioPrompt, "first queued prompt");
+  assert.equal(secondSlot?.dataset.studioPrompt, "second queued prompt");
+  assert.equal(
+    secondSlot?.querySelector(".studio-pending-reference")?.getAttribute("src"),
+    "data:image/png;base64,U0VDT05E",
+  );
+  await act(async () => {
+    firstSlot.querySelector("button").click();
+    await Promise.resolve();
+  });
+
+  assert.deepEqual(startedRequests.map((request) => ({
+    prompt: request.prompt,
+    reference: request.references[0]?.base64,
+  })), [
+    { prompt: "first queued prompt", reference: "RklSU1Q=" },
+    { prompt: "second queued prompt", reference: "U0VDT05E" },
+    { prompt: "first queued prompt", reference: "RklSU1Q=" },
+  ]);
+});
+
+test("folder pane keeps file commands contextual and requests shell thumbnails for large tiles", async () => {
+  installDom();
+  Object.defineProperties(window.HTMLElement.prototype, {
+    clientWidth: { configurable: true, get: () => 400 },
+    clientHeight: { configurable: true, get: () => 600 },
+  });
+  class FolderPaneResizeObserver {
+    observe() {}
+    disconnect() {}
+  }
+  window.ResizeObserver = FolderPaneResizeObserver;
+  globalThis.ResizeObserver = FolderPaneResizeObserver;
+  const createdFiles = [];
+  window.mixdogDesktop = {
+    listFolderDir: async () => [],
+    folderPlaces: async () => [],
+    createFolderEntry: async (dir, name, isDir) => {
+      createdFiles.push([dir, name, isDir]);
+      return { name };
+    },
+  };
+  await act(async () => {
+    root.render(React.createElement(FolderPane, {
+      paneId: "shell-icons",
+      root: "C:\\workspace\\icons",
+      active: true,
+    }));
+    const deadline = Date.now() + 1_000;
+    while (!document.querySelector(".folder-pane-toolbar")
+      && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 10));
+    }
+  });
+
+  for (const label of ["Cut", "Copy", "Paste", "Rename", "Delete"]) {
+    assert.equal(document.querySelector(`.folder-pane-toolbar [aria-label="${label}"]`), null,
+      `${label} belongs in shortcuts and the context menu, not the top toolbar`);
+  }
+  assert.match(document.querySelector(".folder-pane-toolbar")?.textContent || "", /New.*Sort.*View/,
+    "the lean toolbar should keep its labels until the pane approaches its minimum width");
+  assert.ok(document.querySelector('[aria-label="Filter"]'),
+    "the current-folder name filter must not present itself as recursive search");
+  await act(async () => document.querySelector('[aria-label="Filter"]').click());
+  assert.match(document.querySelector(".folder-filter input")?.getAttribute("placeholder") || "", /^Filter /);
+  const beginNewFile = async () => {
+    await act(async () => {
+      document.querySelector(".folder-pane-list").dispatchEvent(new window.MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 20,
+        clientY: 20,
+      }));
+    });
+    await act(async () => {
+      const item = Array.from(document.querySelectorAll(".folder-pane-menu [role='menuitem']"))
+        .find((button) => button.textContent.trim() === "New file");
+      assert.ok(item, "the Files background menu must expose New file");
+      item.click();
+    });
+  };
+  await beginNewFile();
+  assert.ok(document.querySelector('[aria-label="New file name"]'),
+    "New File must begin as an empty inline draft");
+  assert.deepEqual(createdFiles, [], "opening the draft must not touch disk");
+  await act(async () => {
+    document.querySelector('[aria-label="New file name"]').dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+  });
+  assert.equal(document.querySelector('[aria-label="New file name"]'), null);
+  assert.deepEqual(createdFiles, [], "Escape must cancel without creating a placeholder file");
+  await beginNewFile();
+  const newFileName = document.querySelector('[aria-label="New file name"]');
+  await act(async () => {
+    newFileName.value = "main.ts";
+    newFileName.dispatchEvent(new window.InputEvent("input", { bubbles: true, data: "main.ts" }));
+    newFileName.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    await Promise.resolve();
+  });
+  assert.deepEqual(createdFiles, [["C:\\workspace\\icons", "main.ts", false]],
+    "Enter must create exactly the filename the user typed");
+  const entry = { name: "package.json", dir: false, size: 128, mtimeMs: 1234 };
+  assert.deepEqual(
+    folderIconRequest("C:\\workspace\\icons\\package.json", entry, 56),
+    {
+      key: "thumb96:C:\\workspace\\icons\\package.json:1234",
+      thumbnail: true,
+      size: 96,
+    },
+    "large tiles must ask every registered shell thumbnail provider before using an association icon",
+  );
+  assert.deepEqual(
+    folderIconRequest("C:\\workspace\\icons\\package.json", entry, 16),
+    { key: "ext:json", thumbnail: false, size: 96 },
+    "details rows should retain the inexpensive extension-level shell icon cache",
+  );
+
+  let activeIcons = 0;
+  let maxActiveIcons = 0;
+  let iconCalls = 0;
+  const releases = [];
+  window.mixdogDesktop.folderEntryIcon = () => {
+    iconCalls += 1;
+    activeIcons += 1;
+    maxActiveIcons = Math.max(maxActiveIcons, activeIcons);
+    return new Promise((resolve) => releases.push(() => {
+      activeIcons -= 1;
+      resolve("data:image/png;base64,icon");
+    }));
+  };
+  const concurrent = Array.from({ length: FOLDER_ICON_CONCURRENCY + 5 }, (_, index) =>
+    loadFolderEntryIcon(
+      `C:\\workspace\\icons\\concurrent-${index}.json`,
+      { ...entry, name: `concurrent-${index}.json`, mtimeMs: 2000 + index },
+      56,
+    ));
+  while (releases.length < FOLDER_ICON_CONCURRENCY) await Promise.resolve();
+  assert.equal(maxActiveIcons, FOLDER_ICON_CONCURRENCY,
+    "shell thumbnail work must stop at the renderer concurrency limit");
+  while (iconCalls < concurrent.length || releases.length) {
+    releases.splice(0).forEach((release) => release());
+    await Promise.resolve();
+  }
+  await Promise.all(concurrent);
+
+  let retryCalls = 0;
+  window.mixdogDesktop.folderEntryIcon = async () => {
+    retryCalls += 1;
+    if (retryCalls === 1) throw new Error("temporary shell failure");
+    return "data:image/png;base64,recovered";
+  };
+  const retryPath = "C:\\workspace\\icons\\retry.shell-test";
+  const retryEntry = { ...entry, name: "retry.shell-test", mtimeMs: 9876 };
+  assert.equal(await loadFolderEntryIcon(retryPath, retryEntry, 56), "");
+  assert.match(await loadFolderEntryIcon(retryPath, retryEntry, 56), /recovered/);
+  assert.equal(retryCalls, 2, "failed shell lookups must remain retryable");
+
+  let lruCalls = 0;
+  window.mixdogDesktop.folderEntryIcon = async () => {
+    lruCalls += 1;
+    return "data:image/png;base64,lru";
+  };
+  const lruEntries = Array.from({ length: 257 }, (_, index) => {
+    const path = `C:\\workspace\\icons\\lru-${index}.cache-test`;
+    return loadFolderEntryIcon(path, { ...entry, name: `lru-${index}.cache-test`, mtimeMs: index }, 56);
+  });
+  await Promise.all(lruEntries);
+  await loadFolderEntryIcon(
+    "C:\\workspace\\icons\\lru-0.cache-test",
+    { ...entry, name: "lru-0.cache-test", mtimeMs: 0 },
+    56,
+  );
+  assert.equal(lruCalls, 258, "the bounded LRU must evict the oldest path thumbnail");
+});
+
 test("studio reserves the media toggle before the lane catalog resolves", async () => {
   installDom();
   let resolveLanes;
@@ -2581,15 +2972,15 @@ test("studio video tiles derive and cache a still before hover", async () => {
   );
 });
 
-test("mobile studio tiles expose only the thumbnail detail action", async () => {
+test("web studio keeps desktop actions even if a stale mobile marker is present", async () => {
   installDom();
   document.documentElement.dataset.mixdogMobile = "1";
   const asset = {
-    id: "mobile-studio-asset",
+    id: "web-studio-asset",
     kind: "image",
     lane: "gemini",
     model: "image-alpha",
-    prompt: "mobile result",
+    prompt: "web result",
     options: {},
     mime: "image/png",
     bytes: 1024,
@@ -2620,14 +3011,14 @@ test("mobile studio tiles expose only the thumbnail detail action", async () => 
     root.render(React.createElement(StudioPane, { api }));
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
-  const tile = document.querySelector('[data-studio-asset-id="mobile-studio-asset"]');
+  const tile = document.querySelector('[data-studio-asset-id="web-studio-asset"]');
   const thumbnail = tile?.querySelector(".studio-tile-open");
   assert.ok(thumbnail);
-  assert.equal(tile?.querySelector(".studio-tile-actions"), null);
+  assert.ok(tile?.querySelector(".studio-tile-actions"));
   await act(async () => thumbnail.click());
   assert.equal(
     document.querySelector('[aria-label="Generated media detail"]')?.getAttribute("data-phone"),
-    "true",
+    null,
   );
 });
 
@@ -2899,7 +3290,9 @@ test("message metadata uses engine per-item fields and localized short timestamp
     },
   })));
   const footer = document.querySelector(".message.user .message-meta-line");
-  assert.equal(footer?.querySelector(".message-meta")?.textContent, `Build\u00A0·\u00A0MiMo V2.5 Free\u00A0·\u00A0${expected}`);
+  // Hover meta shows the send time ONLY (user): workflow/model labels are
+  // composer state, not per-message metadata worth repeating.
+  assert.equal(footer?.querySelector(".message-meta")?.textContent, expected);
   assert.equal(footer?.querySelector('[aria-label="Copy message"]') != null, true);
   assert.equal(footer?.parentElement === document.querySelector("article.message.user"), true,
     "the message footer should stay inside the user message");
@@ -13412,7 +13805,7 @@ test("Fast reflects the click before route persistence completes", async () => {
   let finishFast;
   const idle = {
     sessionId: "fast-pending-session", items: [], queued: [], provider: "openai", model: "gpt-real",
-    fastCapable: true, fast: false,
+    effort: "high", fastCapable: true, fast: false,
   };
   const row = seedActiveSession("fast-pending-session");
   window.mixdogDesktop = {
@@ -13420,7 +13813,12 @@ test("Fast reflects the click before route persistence completes", async () => {
     subscribeState: () => () => {},
     listSessions: async () => [row],
     listProviderModels: async () => [
-      { provider: "openai", model: "gpt-real", display: "GPT Real", effortOptions: [] },
+      {
+        provider: "openai",
+        model: "gpt-real",
+        display: "GPT Real",
+        effortOptions: [{ value: "high", label: "High" }],
+      },
     ],
     setFast: (enabled) => {
       calls.push(enabled);
@@ -13435,18 +13833,23 @@ test("Fast reflects the click before route persistence completes", async () => {
     await Promise.resolve();
   });
   const fast = document.querySelector('[aria-label="Fast mode"]');
+  const effort = document.querySelector('[aria-label="Reasoning effort"]');
+  assert.ok(effort);
   await act(async () => {
     fast.click();
     await Promise.resolve();
   });
   assert.deepEqual(calls, [true]);
   assert.equal(fast.textContent.trim(), "Fast On");
-  assert.equal(fast.disabled, true);
+  assert.equal(fast.disabled, false,
+    "Fast stays visually stable while its guarded persistence is pending");
+  assert.equal(effort.disabled, false,
+    "Fast persistence must not flash the neighboring Effort control disabled");
   await act(async () => {
     finishFast();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
-  await waitForDom(() => fast.textContent.trim() === "Fast On" && !fast.disabled,
+  await waitForDom(() => fast.textContent.trim() === "Fast On",
     "Fast should retain the applied snapshot after persistence completes");
   assert.equal(fast.disabled, false);
   assert.equal(fast.textContent.trim(), "Fast On");
@@ -13843,9 +14246,8 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
     /\.dock-terminal \.xterm-viewport::-webkit-scrollbar-button\s*\{[^}]*display:\s*none;[^}]*width:\s*0;[^}]*height:\s*0;/s);
   assert.match(themeCss,
     /\.workspace-tab\s*\{[^}]*height:\s*35px;[^}]*min-width:\s*var\(--workspace-tab-current-width,\s*30px\);[^}]*max-width:\s*var\(--workspace-tab-current-width,\s*160px\);[^}]*flex:\s*1 1 var\(--workspace-tab-current-width,\s*160px\);/s);
-  assert.match(themeCss,
-    /html\[data-mixdog-mobile\] \.workspace-tab\s*\{[^}]*min-width:\s*104px;[^}]*max-width:\s*144px;[^}]*flex:\s*0 0 auto;/s,
-    "phone-only tab sizing must not replace equal desktop pane labels at narrow window widths");
+  assert.doesNotMatch(themeCss, /data-mixdog-mobile/,
+    "device-specific mobile CSS must not replace the web/desktop layout");
   assert.doesNotMatch(themeCss,
     /@media \(max-width:\s*760px\)\s*\{[\s\S]*?\n\s{2}\.workspace-tab\s*\{\s*min-width:\s*104px;/s,
     "viewport width alone must never switch desktop pane labels to fixed unequal sizing");
@@ -16183,6 +16585,39 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
 
+  // Electron may defer the textarea default beyond the composition task, and
+  // Chromium variants report it as either line-break input type.
+  for (const inputType of ['insertLineBreak', 'insertParagraph']) {
+    let delayedImeBreak;
+    await act(async () => {
+      const textarea = getTextarea();
+      textarea.dispatchEvent(new window.CompositionEvent('compositionstart', {
+        bubbles: true,
+        data: '글',
+      }));
+      textarea.dispatchEvent(new window.KeyboardEvent('keydown', {
+        key: 'Enter',
+        bubbles: true,
+        cancelable: true,
+      }));
+      textarea.dispatchEvent(new window.CompositionEvent('compositionend', {
+        bubbles: true,
+        data: '글',
+      }));
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      delayedImeBreak = new window.InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType,
+        data: null,
+        isComposing: false,
+      });
+      textarea.dispatchEvent(delayedImeBreak);
+    });
+    assert.equal(delayedImeBreak.defaultPrevented, true,
+      `delayed post-composition ${inputType} cannot insert a stray newline`);
+  }
+
   await press('Escape');
   assert.equal(getTextarea().value, '/co', 'Escape closes the slash palette without changing its draft');
 
@@ -16368,7 +16803,8 @@ test("desktop composer folds large pasted text and submits the expanded attachme
     });
     textarea.dispatchEvent(event);
   });
-  assert.match(textarea.value, /\[Pasted text #1 \+4 lines\]/);
+  assert.equal(textarea.value, '',
+    'chip-only paste keeps the bracket token out of the editor');
   assert.match(document.querySelector('.composer-attachments').textContent, /Pasted text/);
   const textAttachment = document.querySelector('.attachment-chip.text');
   assert.ok(textAttachment);
@@ -16450,12 +16886,29 @@ test("desktop composer accepts clipboard images exposed through DataTransfer ite
 test("desktop task accepts file drops and Explorer mentions across the full conversation area", async () => {
   installDom();
   const project = 'C:\\workspace\\drop-project';
+  const resolvedPaths = [];
   const snapshot = { currentProject: project, items: [], queued: [], promptHistoryList: [] };
   window.mixdogDesktop = {
     getSnapshot: async () => snapshot,
     listProjects: async () => [{ path: project, alias: 'Drop project', pinned: false }],
     listSessions: async () => [],
     subscribeState: () => () => {},
+    resolveLocalPaths: async (paths) => {
+      resolvedPaths.push([...paths]);
+      return paths.map((absolutePath) => ({
+        absolutePath,
+        name: 'reference.png',
+        dir: false,
+        size: 8,
+        projectPath: project,
+        relPath: 'assets/reference.png',
+      }));
+    },
+    readLocalFile: async () => ({
+      name: 'reference.png',
+      mimeType: 'image/png',
+      data: 'iVBORw0KGgo=',
+    }),
   };
   await act(async () => {
     root.render(React.createElement(App));
@@ -16507,7 +16960,10 @@ test("desktop task accepts file drops and Explorer mentions across the full conv
   const projectTransfer = {
     types: ['application/x-mixdog-project-paths'],
     getData: (type) => type === 'application/x-mixdog-project-paths'
-      ? JSON.stringify({ projectPath: project, paths: ['src/dragged.ts', 'docs/guide.md'] })
+      ? JSON.stringify({
+        projectPath: project,
+        paths: ['src/dragged.ts', 'assets/reference.png', 'docs/guide.md'],
+      })
       : '',
     dropEffect: 'none',
   };
@@ -16515,11 +16971,19 @@ test("desktop task accepts file drops and Explorer mentions across the full conv
     const event = new window.Event('drop', { bubbles: true, cancelable: true });
     Object.defineProperty(event, 'dataTransfer', { value: projectTransfer });
     dropTarget.dispatchEvent(event);
-    await Promise.resolve();
+    const deadline = Date.now() + 1_000;
+    while (document.querySelectorAll('.composer-attachments img').length === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 10));
+    }
   });
   const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
   assert.match(textarea.value, /@src\/dragged\.ts @docs\/guide\.md/,
     'dropping Explorer rows inserts Project-relative mentions at the composer caret');
+  assert.doesNotMatch(textarea.value, /reference\.png/,
+    'supported Explorer images must become thumbnail attachments instead of path mentions');
+  assert.deepEqual(resolvedPaths, [['C:\\workspace\\drop-project\\assets\\reference.png']]);
+  assert.equal(document.querySelectorAll('.composer-attachments img').length, 1,
+    'dropping an Explorer image in Task must add a real image attachment');
 });
 
 test("desktop composer searches, cancels stale @ file mentions, selects by keyboard, and submits the path", async () => {

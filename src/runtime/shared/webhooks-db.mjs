@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS webhooks.endpoints (
   name         text PRIMARY KEY,
   description  text NOT NULL DEFAULT '',
   channel_id   text,
-  role         text NOT NULL DEFAULT 'webhook-handler',
+  role         text NOT NULL DEFAULT '',
   model        text,
   parser       text,
   secret       text,
@@ -44,6 +44,7 @@ ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS cwd text;
 ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS workflow text;
 ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS attachments jsonb;
 ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS delivery text;
+ALTER TABLE webhooks.endpoints ALTER COLUMN role SET DEFAULT '';
 CREATE TABLE IF NOT EXISTS webhooks.deliveries (
   endpoint        text NOT NULL,
   delivery_id     text NOT NULL,
@@ -81,7 +82,7 @@ async function getDb(dataDir = resolvePluginData()) {
 // Row <-> def mapping
 // ---------------------------------------------------------------------------
 
-const ENDPOINT_COLS = 'name, description, channel_id, role, model, parser, secret, cwd, workflow, attachments, delivery, instructions, enabled, created_at, updated_at';
+const ENDPOINT_COLS = 'name, description, channel_id, model, parser, secret, cwd, workflow, attachments, delivery, instructions, enabled, created_at, updated_at';
 
 function rowToEndpoint(row) {
   if (!row) return null;
@@ -89,7 +90,6 @@ function rowToEndpoint(row) {
     name:         row.name,
     description:  row.description,
     channelId:    row.channel_id,
-    role:         row.role,
     model:        row.model,
     parser:       row.parser,
     cwd:          row.cwd,
@@ -169,7 +169,7 @@ export async function upsertEndpoint(def, { dataDir } = {}) {
     def.name,
     def.description ?? '',
     def.channelId ?? null,
-    def.role ?? 'webhook-handler',
+    '',
     def.model ?? null,
     def.parser ?? null,
     def.secret ?? null,

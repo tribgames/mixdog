@@ -16,6 +16,10 @@ import {
  * pane-width or viewport observer adapter sits between those two owners.
  */
 const GESTURE_WINDOW_MS = 250;
+// Keep reader ownership alive between native wheel/touch/scrollbar frames.
+// Unlike virtual-core's isScrolling this excludes the timeline's own writes,
+// so late idle measurements can still compensate in a continuous burst.
+const READER_SCROLL_IDLE_MS = 180;
 export const BOTTOM_THRESHOLD_PX = 10;
 // Re-attaching tolerates more slack than releasing does: while a turn streams,
 // the tail keeps moving away between the reader's last scroll frame and this
@@ -186,6 +190,7 @@ export function useTranscriptFollow({
   const [showJump, setShowJump] = useState(false);
   const followingRef = useRef(true);
   const gestureAt = useRef(0);
+  const readerMotionAt = useRef(0);
   const touchGesture = useRef<number | undefined>(undefined);
   const auto = useRef<{ top: number; time: number } | undefined>(undefined);
   const autoTimer = useRef(0);
@@ -215,11 +220,20 @@ export function useTranscriptFollow({
   }, [setAnchorBottomRef]);
 
   const markGesture = useCallback(() => {
-    gestureAt.current = Date.now();
+    const now = Date.now();
+    gestureAt.current = now;
+    readerMotionAt.current = now;
   }, []);
   const hasGesture = useCallback(
     () => Date.now() - gestureAt.current < GESTURE_WINDOW_MS,
     [],
+  );
+  const markReaderMotion = useCallback(() => {
+    readerMotionAt.current = Date.now();
+  }, []);
+  const hasReaderScroll = useCallback(
+    () => hasGesture() || Date.now() - readerMotionAt.current < READER_SCROLL_IDLE_MS,
+    [hasGesture],
   );
 
   const markAuto = useCallback((element: HTMLElement) => {
@@ -354,6 +368,13 @@ export function useTranscriptFollow({
     scheduleScrollState(element);
     const previousTop = lastTop.current;
     lastTop.current = element.scrollTop;
+    const programmaticScroll = isProgrammatic(element);
+    // A native reader ramp may outlive the initial 250ms gesture window.
+    // Extend ownership only from real movement, never from a virtual-core
+    // correction, so compensation resumes once wheel/inertia actually stops.
+    if (element.scrollTop !== previousTop && !programmaticScroll && hasReaderScroll()) {
+      markReaderMotion();
+    }
     lastScrollHeight.current = element.scrollHeight;
     // A scroll event is the reader's (or the core's) position talking, not a
     // content mutation: it is exactly the snapshot the content observer needs.
@@ -367,7 +388,7 @@ export function useTranscriptFollow({
     // attribution; a detached viewport cannot release again.
     if (!followingRef.current) {
       // The timeline's own corrective writes are not the reader coming back.
-      if (isProgrammatic(element)) return;
+      if (programmaticScroll) return;
       // Re-attaching only flips the flag — it never writes scrollTop, so the
       // reader's offset is never rolled back; the tail is regained by the next
       // append instead of a jump.
@@ -390,8 +411,10 @@ export function useTranscriptFollow({
   }, [
     handleAutoScroll,
     hasGesture,
+    hasReaderScroll,
     isProgrammatic,
     markGesture,
+    markReaderMotion,
     publish,
     scheduleScrollState,
     viewport,
@@ -596,7 +619,7 @@ export function useTranscriptFollow({
     following,
     followingRef,
     showJump,
-    hasScrollGesture: hasGesture,
+    hasScrollGesture: hasReaderScroll,
     handleScroll,
     handleWheel,
     handlePointerDown,

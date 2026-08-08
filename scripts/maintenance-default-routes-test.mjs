@@ -26,14 +26,13 @@ const normalizedRoute = (route, provider = route.provider || 'anthropic-oauth') 
 test('empty Explore and Maintainer routes inherit Main in hidden and public dispatch', () => {
   assert.equal(DEFAULT_MAINTENANCE.explore, undefined);
   assert.equal(DEFAULT_MAINTENANCE.memory, undefined);
-  assert.deepEqual(DEFAULT_MAINTENANCE.scheduler, DEFAULT_MAINTENANCE.webhook);
-  assert.equal(DEFAULT_MAINTENANCE.scheduler.provider, 'anthropic-oauth');
-  assert.match(DEFAULT_MAINTENANCE.scheduler.model, /haiku/i);
+  assert.equal(DEFAULT_MAINTENANCE.scheduler, undefined);
+  assert.equal(DEFAULT_MAINTENANCE.webhook.provider, 'anthropic-oauth');
+  assert.match(DEFAULT_MAINTENANCE.webhook.model, /haiku/i);
 
   const config = configWithMain();
   assert.equal(resolveMaintenanceRoute({ agent: 'explorer', config }), 'main');
   assert.equal(resolveMaintenanceRoute({ agent: 'cycle1-agent', config }), 'main');
-  assert.equal(resolveMaintenanceRoute({ agent: 'scheduler-task', config }), DEFAULT_MAINTENANCE.scheduler);
   assert.equal(resolveAgentSpawnPreset(config, { agent: 'explore' }).preset, main);
   assert.equal(resolveAgentSpawnPreset(config, { agent: 'maintainer' }).preset, main);
   assert.equal(resolveAgentSpawnPreset(config, { agent: 'worker' }).preset, main);

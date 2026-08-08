@@ -26,9 +26,7 @@ export function getPluginData() {
 // Main route. Their explicit routes live canonically in `agents.explore` and
 // `agents.maintainer`; load-time migration still accepts the older workflow /
 // maintenance aliases.
-// scheduler/webhook still let a per-entry config.json model win first (the
-// caller passes it explicitly via opts.preset); the haiku default below only
-// applies when an entry omits its own model.
+// Webhook endpoints may omit a model and use the fallback route below.
 // Legacy route slots accepted only at config ingress for migration.
 const MAINTENANCE_SLOTS = Object.freeze(['explore', 'memory']);
 
@@ -124,7 +122,6 @@ const _HAIKU_ROUTE = Object.freeze({
     model: resolveAnthropicFamilyModel('haiku'),
 });
 export const DEFAULT_MAINTENANCE = Object.freeze({
-    scheduler: { ..._HAIKU_ROUTE },
     webhook: { ..._HAIKU_ROUTE },
 });
 
@@ -484,8 +481,8 @@ export function loadConfig(options = {}) {
                 }
             }
             // Drop unknown maintenance keys (e.g. truly legacy slot names from
-            // pre-removal installs). Every valid slot — incl. scheduler/webhook —
-            // lives in DEFAULT_MAINTENANCE, so the allow-list below is the single
+            // pre-removal installs). Every valid fallback slot lives in
+            // DEFAULT_MAINTENANCE, so the allow-list below is the single
             // ingress gate and unknown keys are dropped here.
             const allowedMaintKeys = new Set([...Object.keys(DEFAULT_MAINTENANCE), ...MAINTENANCE_SLOTS]);
             const rawMaint = {};

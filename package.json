@@ -112,7 +112,7 @@
     "test:workflow-editor": "node --test scripts/workflow-id-test.mjs scripts/workflow-pack-editor-test.mjs",
     "test:route-scope": "node --test scripts/route-scope-isolation-test.mjs",
     "test:schedule-reload": "node --test scripts/schedule-reload-arm-test.mjs",
-    "test:media": "node --test src/runtime/media/store.test.mjs src/runtime/media/renditions.test.mjs",
+    "test:media": "node --test src/runtime/media/store.test.mjs src/runtime/media/renditions.test.mjs src/runtime/media/adapters/codex-image.test.mjs",
     "test:shell-harness": "node --test scripts/shell-harness-regression-test.mjs",
     "failures": "node scripts/tool-failures.mjs",
     "trace:llm": "node scripts/llm-trace-summary.mjs",

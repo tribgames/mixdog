@@ -21,7 +21,7 @@ export const HELP_LINES = [
   '',
   'Headless role commands require an explicit provider/model pair and run with',
   'ephemeral config/data; host behavioral config and personal state are not loaded.',
-  'Roles: explore, worker, heavy-worker, reviewer, debugger, maintainer, web-researcher.',
+  'Roles: explore, worker, heavy-worker, reviewer, maintainer, web-researcher.',
   '',
   'Slash commands (inside mixdog):',
   '  /clear                        start a fresh chat (alias: /new)',

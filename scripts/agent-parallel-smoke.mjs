@@ -84,7 +84,7 @@ const cfgMod = {
       agents: {
         worker: { provider: 'openai-oauth', model: 'gpt-5.5', effort: 'low', fast: true },
         reviewer: { provider: 'openai-oauth', model: 'gpt-5.5', effort: 'low' },
-        debugger: { provider: 'openai-oauth', model: 'gpt-5.5', effort: 'low' },
+        'heavy-worker': { provider: 'openai-oauth', model: 'gpt-5.5', effort: 'low' },
       },
       presets: [
         { id: 'fake-worker', name: 'Fake Worker', provider: 'openai-oauth', model: 'gpt-5.5', tools: 'full', effort: 'low', fast: true },

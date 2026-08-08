@@ -50,6 +50,9 @@ export default defineConfig({
     },
   },
   renderer: {
+    // The relay/VPS serves this renderer as an installable web app. Keep the
+    // manifest, icon and network-only service worker at stable root paths.
+    publicDir: resolve(__dirname, 'src/renderer/public'),
     resolve: {
       alias: [
         {

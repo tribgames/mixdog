@@ -5,8 +5,8 @@
 //   and "file sections below folders" ordering.
 // - Discrete details-row heights and grid tile sizes.
 // - Fixed context-menu composition order.
-// Navigation (back/forward/up/breadcrumb+path box), toolbar (New/clipboard/
-// sort/group/view), places+drives rail, virtualized grouped grid/details
+// Navigation (back/forward/up/breadcrumb+path box), toolbar (New/sort/group/
+// view), places+drives rail, virtualized grouped grid/details
 // views, drag-and-drop move (Ctrl copies), and real shell icons/thumbnails
 // from the main process.
 import {
@@ -18,8 +18,6 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  ClipboardPaste,
-  Copy,
   Download,
   File,
   FilePlus,
@@ -35,17 +33,16 @@ import {
   Music,
   PanelRight,
   PanelLeft,
-  PenLine,
   Plus,
   RotateCw,
-  Scissors,
   Search,
-  Trash2,
 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { DesktopFolderEntry, DesktopFolderPlace } from "../shared/contract";
+import { isLocalTextFilePath } from "../shared/local-files";
+import { validateExplorerName, wellFormedExplorerName } from "./explorer-logic";
 import {
   MIXDOG_ABSOLUTE_PATHS_MIME,
   MIXDOG_PROJECT_PATHS_MIME,
@@ -59,6 +56,8 @@ interface FolderPaneProps {
   active?: boolean;
   /** Reports the current folder name so the pane TAB can follow navigation. */
   onTitleChange?(title: string): void;
+  /** Opens an editable local text/code file in the focused Mixdog pane. */
+  onOpenTextFile?(path: string): Promise<void> | void;
 }
 
 // Discrete size ladder: details-row heights and grid tile/icon steps stay
@@ -304,41 +303,120 @@ type RenderRow =
   | { kind: "entries"; entries: DesktopFolderEntry[] };
 
 // ── Shell icon / thumbnail cache ─────────────────────────────────────────
-// One icon per file extension; per-path only where Windows differentiates
-// (exe/lnk) or for image thumbnails (keyed by mtime and icon size step).
+// Details rows share one shell association icon per extension. Grid tiles ask
+// Windows for a path-specific thumbnail first, allowing every registered shell
+// thumbnail provider (documents, archives, media, shortcuts, and more) to
+// participate instead of limiting previews to a hand-written extension list.
 const IMAGE_THUMB_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
 const UNIQUE_ICON_EXTS = new Set(["exe", "lnk", "ico", "url", "appref-ms"]);
+export const FOLDER_ICON_CONCURRENCY = 6;
+const MAX_FOLDER_ICON_CACHE_ENTRIES = 256;
+const MAX_FOLDER_ICON_CACHE_CHARS = 24_000_000;
 const folderIconCache = new Map<string, string>();
 const folderIconPending = new Map<string, Promise<string>>();
+const folderIconQueue: Array<{
+  run: () => Promise<string>;
+  resolve: (value: string) => void;
+  reject: (reason: unknown) => void;
+}> = [];
+let folderIconActive = 0;
+let folderIconCacheChars = 0;
 
-function iconCacheKey(path: string, entry: DesktopFolderEntry, edge = 32): string {
-  const ext = entryExt(entry.name);
-  if (IMAGE_THUMB_EXTS.has(ext)) {
-    // Two thumbnail buckets: crisp small icons and crisp LARGE tiles.
-    const bucket = edge > 56 ? 384 : 96;
-    return `thumb${bucket}:${path}:${entry.mtimeMs}`;
+function runFolderIconQueue(): void {
+  while (folderIconActive < FOLDER_ICON_CONCURRENCY && folderIconQueue.length) {
+    const next = folderIconQueue.shift();
+    if (!next) return;
+    folderIconActive += 1;
+    void Promise.resolve()
+      .then(next.run)
+      .then(next.resolve, next.reject)
+      .finally(() => {
+        folderIconActive -= 1;
+        runFolderIconQueue();
+      });
   }
-  if (!ext || UNIQUE_ICON_EXTS.has(ext)) return `path:${path}`;
-  return `ext:${ext}`;
 }
 
-function loadEntryIcon(path: string, entry: DesktopFolderEntry, edge = 32): Promise<string> {
-  const key = iconCacheKey(path, entry, edge);
-  const cached = folderIconCache.get(key);
+function scheduleFolderIcon(run: () => Promise<string>): Promise<string> {
+  return new Promise((resolve, reject) => {
+    folderIconQueue.push({ run, resolve, reject });
+    runFolderIconQueue();
+  });
+}
+
+function cachedFolderIcon(key: string): string | undefined {
+  const value = folderIconCache.get(key);
+  if (value === undefined) return undefined;
+  // Map insertion order is the LRU order; touching an entry moves it newest.
+  folderIconCache.delete(key);
+  folderIconCache.set(key, value);
+  return value;
+}
+
+function cacheFolderIcon(key: string, value: string): void {
+  if (!value) return;
+  const previous = folderIconCache.get(key);
+  if (previous !== undefined) {
+    folderIconCacheChars -= previous.length;
+    folderIconCache.delete(key);
+  }
+  folderIconCache.set(key, value);
+  folderIconCacheChars += value.length;
+  while (folderIconCache.size > MAX_FOLDER_ICON_CACHE_ENTRIES
+    || folderIconCacheChars > MAX_FOLDER_ICON_CACHE_CHARS) {
+    const oldest = folderIconCache.keys().next().value;
+    if (typeof oldest !== "string") break;
+    folderIconCacheChars -= folderIconCache.get(oldest)?.length ?? 0;
+    folderIconCache.delete(oldest);
+  }
+}
+
+export function folderIconRequest(path: string, entry: DesktopFolderEntry, edge = 32): {
+  key: string;
+  thumbnail: boolean;
+  size: number;
+} {
+  const ext = entryExt(entry.name);
+  if (IMAGE_THUMB_EXTS.has(ext) || edge > 36) {
+    // Two thumbnail buckets: crisp small icons and crisp LARGE tiles.
+    const bucket = edge > 56 ? 384 : 96;
+    return {
+      key: `thumb${bucket}:${path}:${entry.mtimeMs}`,
+      thumbnail: true,
+      size: bucket,
+    };
+  }
+  return {
+    key: !ext || UNIQUE_ICON_EXTS.has(ext) ? `path:${path}` : `ext:${ext}`,
+    thumbnail: false,
+    size: 96,
+  };
+}
+
+function iconCacheKey(path: string, entry: DesktopFolderEntry, edge = 32): string {
+  return folderIconRequest(path, entry, edge).key;
+}
+
+export function loadFolderEntryIcon(
+  path: string,
+  entry: DesktopFolderEntry,
+  edge = 32,
+): Promise<string> {
+  const request = folderIconRequest(path, entry, edge);
+  const key = request.key;
+  const cached = cachedFolderIcon(key);
   if (cached !== undefined) return Promise.resolve(cached);
   let pending = folderIconPending.get(key);
   if (!pending) {
-    const thumbnail = key.startsWith("thumb");
-    const bucket = key.startsWith("thumb384") ? 384 : 96;
-    pending = Promise.resolve(
-      window.mixdogDesktop?.folderEntryIcon?.(path, thumbnail, bucket) ?? "",
-    )
+    pending = scheduleFolderIcon(() => Promise.resolve(
+      window.mixdogDesktop?.folderEntryIcon?.(path, request.thumbnail, request.size) ?? "",
+    ))
       .catch(() => "")
       .then((data) => {
-        folderIconCache.set(key, data || "");
-        folderIconPending.delete(key);
+        cacheFolderIcon(key, data);
         return data || "";
-      });
+      })
+      .finally(() => folderIconPending.delete(key));
     folderIconPending.set(key, pending);
   }
   return pending;
@@ -353,18 +431,6 @@ function FolderGlyph({ size }: { size: number }) {
       fill="#e8b64c" />
     <path d="M3 11.5h26v12.9c0 1.4-1.1 2.6-2.5 2.6h-21A2.55 2.55 0 0 1 3 24.4V11.5Z"
       fill="#f7d372" />
-  </svg>;
-}
-
-/** Crisp large-tile document card (Files/Explorer grammar): the native shell
- *  icon only exists at ≤32px, so big tiles draw a vector sheet with the
- *  extension label and ride the real icon as a small badge. */
-function DocGlyph({ size }: { size: number }) {
-  return <svg className="folder-doc-paper" width={Math.round(size * 0.78)} height={size}
-    viewBox="0 0 25 32" aria-hidden="true">
-    <path d="M2 2.5C2 1.7 2.7 1 3.5 1H16l7 7v21.5c0 .8-.7 1.5-1.5 1.5h-18C2.7 31 2 30.3 2 29.5v-27Z"
-      fill="#eef0f4" stroke="#c3c8d2" strokeWidth="1" />
-    <path d="M16 1l7 7h-6.2c-.44 0-.8-.36-.8-.8V1Z" fill="#d3d7e0" />
   </svg>;
 }
 
@@ -383,45 +449,28 @@ function FileEntryIcon({ path, entry, size }: {
   size: number;
 }) {
   const key = iconCacheKey(path, entry, size);
-  const [icon, setIcon] = useState(() => folderIconCache.get(key) ?? "");
+  const [icon, setIcon] = useState(() => cachedFolderIcon(key) ?? "");
   useEffect(() => {
-    const cached = folderIconCache.get(key);
+    const cached = cachedFolderIcon(key);
     if (cached !== undefined) {
       setIcon(cached);
       return undefined;
     }
     let live = true;
     setIcon("");
-    void loadEntryIcon(path, entry, size).then((data) => {
+    void loadFolderEntryIcon(path, entry, size).then((data) => {
       if (live) setIcon(data);
     });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  const isImage = IMAGE_THUMB_EXTS.has(entryExt(entry.name));
-  if (icon && (isImage || size <= 36)) {
+  if (icon) {
     return <img className="folder-entry-icon" src={icon} alt="" draggable={false}
-      style={{ width: size, height: size }} />;
+      style={size <= 36
+        ? { width: size, height: size }
+        : { maxWidth: size, maxHeight: size }} />;
   }
-  if (size <= 36) {
-    return <File size={Math.round(size * 0.7)} className="folder-entry-glyph" aria-hidden="true" />;
-  }
-  // Large non-image tile: never upscale the 32px shell icon (it pixelates).
-  // Identity icons (exe/lnk) sit CENTERED at their native size; everything
-  // else is a clean sheet with the extension label — no stuck-on badges.
-  const extension = entryExt(entry.name);
-  const identityIcon = icon && (UNIQUE_ICON_EXTS.has(extension) || !extension);
-  return <span className="folder-doc-card" style={{ width: Math.round(size * 0.78), height: size }}>
-    <DocGlyph size={size} />
-    {identityIcon
-      ? <img className="folder-doc-center" src={icon} alt="" draggable={false} />
-      : extension
-        ? <span className="folder-doc-ext"
-            style={{ fontSize: Math.max(8, Math.round(size * 0.13)) }}>
-            {extension.toUpperCase().slice(0, 4)}
-          </span>
-        : null}
-  </span>;
+  return <File size={Math.round(size * 0.7)} className="folder-entry-glyph" aria-hidden="true" />;
 }
 
 /** Preview-pane visual: large image thumbnail for pictures, shell icon
@@ -435,7 +484,7 @@ function PreviewVisual({ path, entry }: { path: string; entry: DesktopFolderEntr
     // Folders keep the drawn Explorer glyph — the native icon for
     // directories is the generic drive-like glyph.
     if (entry.dir) return undefined;
-    const wantThumb = !entry.dir && IMAGE_THUMB_EXTS.has(entryExt(entry.name));
+    const wantThumb = !entry.dir;
     void Promise.resolve(
       window.mixdogDesktop?.folderEntryIcon?.(path, wantThumb, wantThumb ? 384 : 96) ?? "",
     )
@@ -504,7 +553,13 @@ interface CrumbMenuState {
   entries: DesktopFolderEntry[] | null;
 }
 
-export default function FolderPane({ paneId, root, active, onTitleChange }: FolderPaneProps) {
+export default function FolderPane({
+  paneId,
+  root,
+  active,
+  onTitleChange,
+  onOpenTextFile,
+}: FolderPaneProps) {
   const storageKey = `mixdog.folder-pane.path.${paneId}`;
   const [nav, setNav] = useState(() => {
     let initial = root;
@@ -544,6 +599,8 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
    *  from the anchor. */
   const [caretName, setCaretName] = useState("");
   const [renaming, setRenaming] = useState("");
+  const [newFileDraft, setNewFileDraft] = useState(false);
+  const newFileDraftRef = useRef(false);
   const [pathEdit, setPathEdit] = useState<string | null>(null);
   const [menu, setMenu] = useState<FolderMenuState | null>(null);
   const [toolMenu, setToolMenu] = useState<ToolMenuState | null>(null);
@@ -561,7 +618,7 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
     catch { return true; }
   });
   const [paneWidth, setPaneWidth] = useState(0);
-  /** Collapsed-search expansion (narrow panes show a lone Search icon). */
+  /** Collapsed-filter expansion (narrow panes show a lone filter icon). */
   const [searchExpanded, setSearchExpanded] = useState(false);
   const [propsEntry, setPropsEntry] = useState<DesktopFolderEntry | null>(null);
   /** Move-conflict dialog (Explorer Replace/Keep both/Skip). */
@@ -663,6 +720,8 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
     setCaretName("");
     setFilter("");
     setRenaming("");
+    newFileDraftRef.current = false;
+    setNewFileDraft(false);
     setPathEdit(null);
     setMenu(null);
     setCrumbMenu(null);
@@ -835,10 +894,12 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
   // strand focus on a detached node and kill the keyboard (user-flagged).
   const hadOverlayRef = useRef(false);
   useEffect(() => {
-    const hasOverlay = Boolean(menu || toolMenu || crumbMenu || propsEntry || renaming || conflictAsk);
+    const hasOverlay = Boolean(
+      menu || toolMenu || crumbMenu || propsEntry || renaming || newFileDraft || conflictAsk,
+    );
     if (hadOverlayRef.current && !hasOverlay && activeStateRef.current) focusSurface();
     hadOverlayRef.current = hasOverlay;
-  }, [menu, toolMenu, crumbMenu, propsEntry, renaming, conflictAsk, focusSurface]);
+  }, [menu, toolMenu, crumbMenu, propsEntry, renaming, newFileDraft, conflictAsk, focusSurface]);
 
   useEffect(() => {
     if (placesCache) return;
@@ -1098,11 +1159,20 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
       .then(() => setReloadTick((tick) => tick + 1));
   }, []);
 
+  const openInDefaultApp = useCallback((path: string) => {
+    void Promise.resolve(window.mixdogDesktop?.openFolderEntry?.(path))
+      .catch((cause) => setError(errorText(cause)));
+  }, []);
   const openEntry = useCallback((entry: DesktopFolderEntry) => {
     const path = joinFolderPath(currentPath, entry.name);
     if (entry.dir) navigate(path);
-    else void Promise.resolve(window.mixdogDesktop?.openFolderEntry?.(path)).catch(() => {});
-  }, [currentPath, navigate]);
+    else if (onOpenTextFile && isLocalTextFilePath(path)) {
+      void Promise.resolve(onOpenTextFile(path))
+        .catch((cause) => setError(errorText(cause)));
+    } else {
+      openInDefaultApp(path);
+    }
+  }, [currentPath, navigate, onOpenTextFile, openInDefaultApp]);
 
   const selectEntry = (entry: DesktopFolderEntry, event: React.MouseEvent) => {
     const name = entry.name;
@@ -1250,10 +1320,17 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
     });
   }, [currentPath, transferInto]);
 
-  /** Explorer grammar: New folder/file creates IMMEDIATELY with a unique
-   *  default name, then opens inline rename on the fresh entry. */
+  /** Folders retain Explorer's immediate unique-name creation. Files follow
+   *  VS Code: show an empty inline input and touch disk only after Enter. */
   const createNew = useCallback((dir: boolean) => {
-    const requested = dir ? "New folder" : "New Text Document.txt";
+    if (!dir) {
+      newFileDraftRef.current = true;
+      setNewFileDraft(true);
+      setSelected(new Set());
+      setError("");
+      return;
+    }
+    const requested = "New folder";
     // The main process picks the collision-free FINAL name (the local listing
     // can be stale right after navigating, which used to swallow the create).
     runOp(Promise.resolve(
@@ -1268,6 +1345,38 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
       });
     }));
   }, [currentPath, runOp]);
+  const cancelNewFile = useCallback(() => {
+    newFileDraftRef.current = false;
+    setNewFileDraft(false);
+    window.setTimeout(focusSurface, 0);
+  }, [focusSurface]);
+  const commitNewFile = useCallback((value: string): boolean => {
+    if (!newFileDraftRef.current) return false;
+    const name = wellFormedExplorerName(value).trim();
+    const problem = validateExplorerName({
+      name,
+      siblings: (entries ?? []).map((entry) => entry.name),
+    });
+    if (problem?.severity === "error") {
+      setError(problem.content);
+      return false;
+    }
+    newFileDraftRef.current = false;
+    setNewFileDraft(false);
+    pendingSelectRef.current = name;
+    setSelected(new Set([name]));
+    runOp(Promise.resolve(
+      window.mixdogDesktop?.createFolderEntry?.(currentPath, name, false),
+    ).then((result) => {
+      const created = result?.name || name;
+      pendingSelectRef.current = created;
+      undoStackRef.current.push({
+        kind: "remove",
+        paths: [joinFolderPath(currentPath, created)],
+      });
+    }));
+    return true;
+  }, [currentPath, entries, runOp]);
   const commitRename = (from: string, value: string) => {
     setRenaming("");
     const name = value.trim();
@@ -1338,11 +1447,7 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
       if (chosen.length === 1) openEntry(chosen[0]);
       else {
         for (const entry of chosen) {
-          if (!entry.dir) {
-            void Promise.resolve(window.mixdogDesktop?.openFolderEntry?.(
-              joinFolderPath(currentPath, entry.name),
-            )).catch(() => {});
-          }
+          if (!entry.dir) openEntry(entry);
         }
       }
       event.preventDefault();
@@ -1685,6 +1790,23 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
           commitRename(entry.name, (event.target as HTMLInputElement).value);
         } else if (event.key === "Escape") setRenaming("");
       }} />;
+  const newFileInput = <input autoFocus defaultValue="" spellCheck={false}
+    aria-label="New file name"
+    onClick={(event) => event.stopPropagation()}
+    onDoubleClick={(event) => event.stopPropagation()}
+    onBlur={() => {
+      if (newFileDraftRef.current) cancelNewFile();
+    }}
+    onKeyDown={(event) => {
+      event.stopPropagation();
+      if (event.key === "Enter") {
+        event.preventDefault();
+        commitNewFile(event.currentTarget.value);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        cancelNewFile();
+      }
+    }} />;
 
   const pasteEnabled = Boolean(folderClipboard?.paths.length) || clipboardTick < 0;
   const crumbs = breadcrumbSegments(currentPath);
@@ -1707,7 +1829,7 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
   const sidebarVisible = sidebarOpen && paneWidth >= (previewVisible ? 560 : 480);
   const narrowRails = paneWidth < 640;
   const searchCollapsed = paneWidth < 620;
-  const compactToolbar = paneWidth < 500;
+  const compactToolbar = paneWidth < 380;
   // Details view scrolls HORIZONTALLY when the columns outgrow the pane
   // (Explorer): rows, the virtual space and the header share one min-width,
   // and the header run translates with the list's scrollLeft.
@@ -1773,13 +1895,13 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
               } else if (event.key === "Escape") setPathEdit(null);
             }} />}
       {searchCollapsed && !searchExpanded
-        ? <button type="button" className="folder-nav-button" data-tooltip="Search"
-            aria-label="Search" onClick={() => setSearchExpanded(true)}>
+        ? <button type="button" className="folder-nav-button" data-tooltip="Filter"
+            aria-label="Filter" onClick={() => setSearchExpanded(true)}>
             <Search size={16} />
           </button>
         : <div className="folder-filter" data-compact={searchCollapsed ? "true" : undefined}>
             <Search size={14} aria-hidden="true" />
-            <input value={filter} placeholder={`Search ${folderLabel}`} spellCheck={false}
+            <input value={filter} placeholder={`Filter ${folderLabel}`} spellCheck={false}
               autoFocus={searchCollapsed && searchExpanded}
               onChange={(event) => setFilter(event.target.value)}
               onBlur={() => {
@@ -1800,27 +1922,6 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
         onClick={(event) => openToolMenu(event, "new")}>
         <Plus size={16} />{!compactToolbar && <span>New</span>}
         <ChevronDown size={14} aria-hidden="true" />
-      </button>
-      <i className="folder-tool-divider" aria-hidden="true" />
-      <button type="button" className="folder-tool-button" data-tooltip="Cut"
-        disabled={!selected.size} onClick={() => cutOrCopy("cut")} aria-label="Cut">
-        <Scissors size={16} />
-      </button>
-      <button type="button" className="folder-tool-button" data-tooltip="Copy"
-        disabled={!selected.size} onClick={() => cutOrCopy("copy")} aria-label="Copy">
-        <Copy size={16} />
-      </button>
-      <button type="button" className="folder-tool-button" data-tooltip="Paste"
-        disabled={!pasteEnabled} onClick={paste} aria-label="Paste">
-        <ClipboardPaste size={16} />
-      </button>
-      <button type="button" className="folder-tool-button" data-tooltip="Rename"
-        disabled={selected.size !== 1} onClick={startRename} aria-label="Rename">
-        <PenLine size={16} />
-      </button>
-      <button type="button" className="folder-tool-button" data-tooltip="Delete"
-        disabled={!selected.size} onClick={deleteSelected} aria-label="Delete">
-        <Trash2 size={16} />
       </button>
       <span className="folder-toolbar-spring" />
       <button type="button" className="folder-tool-button folder-tool-labeled"
@@ -1955,8 +2056,37 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
           onPointerUp={onListPointerEnd}
           onPointerCancel={onListPointerEnd}>
           {entries === null && <div className="folder-pane-empty">Loading…</div>}
-          {entries !== null && visible.length === 0 &&
+          {entries !== null && visible.length === 0 && !newFileDraft &&
             <div className="folder-pane-empty">{filter ? "No matches." : "This folder is empty."}</div>}
+          {newFileDraft && (viewMode === "details"
+            ? <div role="row" className="folder-details-row folder-new-file-row"
+                style={{
+                  position: "relative",
+                  transform: "none",
+                  height: detailsRowHeight,
+                  minWidth: detailsMinWidth,
+                }}>
+                <span className="folder-cell-name">
+                  <File size={16} className="folder-entry-glyph" aria-hidden="true" />
+                  {newFileInput}
+                </span>
+              </div>
+            : <div className="folder-grid-row folder-new-file-row"
+                style={{ position: "relative", transform: "none", minHeight: gridMetrics.height }}>
+                <div role="button" className="folder-grid-tile"
+                  style={{
+                    width: gridMetrics.tile,
+                    flex: `0 0 ${gridMetrics.tile}px`,
+                    minHeight: gridMetrics.height - 4,
+                  }}>
+                  <span className="folder-tile-icon"
+                    style={{ width: gridMetrics.icon + 8, height: gridMetrics.icon + 4 }}>
+                    <File size={Math.round(gridMetrics.icon * 0.7)}
+                      className="folder-entry-glyph" aria-hidden="true" />
+                  </span>
+                  {newFileInput}
+                </div>
+              </div>)}
           <div ref={spaceRef} className="folder-virtual-space"
             style={{
               height: virtualizer.getTotalSize(),
@@ -2093,17 +2223,28 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
         </aside>;
       })()}
     </div>
-    {menu && createPortal(
+    {menu && (() => {
+      const contextEntry = menu.name
+        ? visible.find((entry) => entry.name === menu.name)
+        : undefined;
+      const opensInMixdog = Boolean(
+        contextEntry && !contextEntry.dir && onOpenTextFile
+        && isLocalTextFilePath(contextEntry.name),
+      );
+      return createPortal(
       <div className="folder-pane-menu" role="menu"
         style={{ left: Math.min(menu.x, window.innerWidth - 210), top: Math.min(menu.y, window.innerHeight - 320) }}>
         {menu.name ? <>
-          {/* ContentPageContextFlyoutFactory order: open, shell reveal,
-              clipboard pair, copy path, rename, delete. */}
+          {/* Open choices lead, followed by shell reveal, clipboard/path
+              commands, rename/delete, then the local details dialog. */}
           <button type="button" role="menuitem" onClick={() => {
             setMenu(null);
-            const entry = visible.find((row) => row.name === menu.name);
-            if (entry) openEntry(entry);
-          }}>Open</button>
+            if (contextEntry) openEntry(contextEntry);
+          }}>{contextEntry?.dir ? "Open" : opensInMixdog ? "Open in Mixdog" : "Open in default app"}</button>
+          {opensInMixdog && <button type="button" role="menuitem" onClick={() => {
+            setMenu(null);
+            openInDefaultApp(joinFolderPath(currentPath, menu.name));
+          }}>Open in default app</button>}
           <button type="button" role="menuitem" onClick={() => {
             setMenu(null);
             void Promise.resolve(window.mixdogDesktop?.revealFolderEntry?.(
@@ -2164,7 +2305,8 @@ export default function FolderPane({ paneId, root, active, onTitleChange }: Fold
         </>}
       </div>,
       document.body,
-    )}
+      );
+    })()}
     {toolMenu && createPortal(
       <div className="folder-pane-menu" role="menu"
         style={{ left: Math.min(toolMenu.x, window.innerWidth - 230), top: toolMenu.y }}>
