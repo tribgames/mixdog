@@ -3249,11 +3249,39 @@ export function App() {
     // Native file selection gives Monaco useful preload time without charging
     // every chat-only window its permanent module heap.
     void prefetchEditorPane().catch(() => {});
-    const picked = await window.mixdogDesktop?.chooseFile?.(activeProjectPath || null);
-    if (!picked) return;
+    const picked = window.mixdogDesktop?.chooseFiles
+      ? await window.mixdogDesktop.chooseFiles(activeProjectPath || null)
+      : await window.mixdogDesktop?.chooseFile?.(activeProjectPath || null)
+        .then((entry) => entry ? [{
+          absolutePath: "",
+          name: entry.relPath.split("/").at(-1) || entry.relPath,
+          dir: false,
+          size: 0,
+          ...entry,
+        }] : null);
+    if (!picked?.length) return;
     paneWorkspace.focusLeaf(leafId);
-    openFileTab(picked.projectPath, picked.relPath, undefined, picked.accessToken);
+    for (const entry of picked) {
+      if (entry.dir || !entry.projectPath || !entry.relPath) continue;
+      openFileTab(entry.projectPath, entry.relPath, undefined, entry.accessToken);
+    }
   };
+  const openDroppedPaths = useStableEvent(async (leafId: string, paths: string[]) => {
+    const entries = await window.mixdogDesktop?.resolveLocalPaths?.(paths);
+    if (!entries?.length) return;
+    paneWorkspace.focusLeaf(leafId);
+    for (const entry of entries) {
+      if (entry.dir) {
+        openUtilityTab(
+          newFolderSelection(entry.absolutePath),
+          displayProject(entry.absolutePath).name || "Files",
+          leafId,
+        );
+      } else if (entry.projectPath && entry.relPath) {
+        openFileTab(entry.projectPath, entry.relPath, undefined, entry.accessToken);
+      }
+    }
+  });
   const navigateTab = (tab: WorkspaceTab) => {
     if (tab.selection.kind === "file") {
       // The focused group owns the visible editor tab (add-or-activate).
@@ -5026,6 +5054,7 @@ export function App() {
                   renderFileEditors={paneFileEditors}
                   renderUtilityTabs={paneUtilityTabs}
                   onFocusSelection={activatePaneSurface}
+                  onOpenDroppedPaths={openDroppedPaths}
                   // An empty focused group renders the guidance screen — no
                   // composer, no chat chrome — until a task pane exists.
                   renderActive={(leaf) => leaf.tabs.length === 0

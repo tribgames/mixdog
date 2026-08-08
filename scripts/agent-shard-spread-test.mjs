@@ -125,7 +125,13 @@ function createWorkerStubRuntime(options, log = []) {
           items: [
             ...state.items,
             { id: String(opts?.id || messages.length), kind: 'assistant' },
-            { id: `${String(opts?.id || messages.length)}-done`, kind: 'turndone' },
+            {
+              id: `${String(opts?.id || messages.length)}-done`,
+              kind: 'turndone',
+              ...(String(text).includes('__CAP__')
+                ? { terminationReason: 'iteration_cap', iterations: 6, toolCallsTotal: 9, maxLoopIterations: 6 }
+                : {}),
+            },
           ],
         };
         publish();
@@ -298,6 +304,15 @@ test('the spread mgr runs a remote worker turn end to end', async () => {
       assert.match(String(runtimes[0].messages[0]?.content || ''), /caller context block/,
         'the ask context folds into the remote prompt');
       assert.equal(mgr.getSession(sessionId).status, 'idle');
+      assert.equal(result.terminationReason, undefined, 'a normal finish carries no abnormal tag');
+
+      // Abnormal finish parity: terminal metadata rides the turndone marker so
+      // the Lead-side classifier sees the same terminationReason in-process
+      // asks return.
+      const capped = await mgr.askSession(sessionId, 'retry __CAP__ case', null, null, null, null, {});
+      assert.equal(capped.terminationReason, 'iteration_cap');
+      assert.equal(capped.maxLoopIterations, 6);
+      assert.equal(capped.toolCallsTotal, 9);
 
       mgr.closeSession(sessionId, 'test close');
       assert.equal(handle.facade.closed, true);

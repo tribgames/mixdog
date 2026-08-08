@@ -188,6 +188,11 @@ function pillLabel(value: string): string {
 // Media studio page (sidebar -> Studio): pick image or video, pick one of the
 // authenticated provider lanes, generate, and keep the result in a local
 // gallery. Generation runs as a runtime job; this pane only polls snapshots.
+import {
+  dataTransferHasLocalFiles,
+  materializeDroppedFiles,
+} from "./file-drag";
+
 export function StudioPane({
   api = window.mixdogDesktop,
   active = true,
@@ -775,6 +780,20 @@ export function StudioPane({
     })));
     setRefs((current) => [...current, ...loaded.filter((entry) => entry.base64)].slice(0, maxRefs));
   };
+  const addDroppedFiles = async (transfer: DataTransfer) => {
+    const loaded = await materializeDroppedFiles(
+      window.mixdogDesktop,
+      transfer,
+      Math.max(0, maxRefs - refs.length),
+    );
+    const images = loaded.files.filter((file) => file.type.startsWith("image/"));
+    if (!images.length) {
+      setError(loaded.errors[0] || t("Drop an image file to add a reference."));
+      return;
+    }
+    setError(loaded.errors[0] || "");
+    await addFiles(images);
+  };
 
   const generate = async () => {
     // No busy guard: a second Generate queues another run behind the first.
@@ -1343,9 +1362,16 @@ export function StudioPane({
         <div className="studio-composer"
           // Drag & drop was declared but never wired: the composer now accepts
           // dropped image files anywhere on the card.
-          onDragOver={(event) => {
-            if (![...event.dataTransfer.types].includes('Files')) return;
+          onDragEnter={(event) => {
+            if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
             event.preventDefault();
+            event.stopPropagation();
+            setDropping(true);
+          }}
+          onDragOver={(event) => {
+            if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+            event.preventDefault();
+            event.stopPropagation();
             event.dataTransfer.dropEffect = 'copy';
             setDropping(true);
           }}
@@ -1354,11 +1380,11 @@ export function StudioPane({
             setDropping(false);
           }}
           onDrop={(event) => {
-            const files = [...event.dataTransfer.files].filter((file) => file.type.startsWith('image/'));
-            if (!files.length) return;
+            if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
             event.preventDefault();
+            event.stopPropagation();
             setDropping(false);
-            void addFiles(files);
+            void addDroppedFiles(event.dataTransfer);
           }}
           data-dropping={dropping ? 'true' : undefined}>
           {refs.length > 0 && <div className="studio-refs" aria-label={t('Reference images')}>

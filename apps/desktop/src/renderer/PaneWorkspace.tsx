@@ -9,6 +9,10 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { t } from "./i18n";
+import {
+  dataTransferHasLocalFiles,
+  droppedLocalPaths,
+} from "./file-drag";
 import { PaneSplitLayout } from "./PaneSplitLayout";
 import { PersistentPanePortal } from "./PaneSurfaceGate";
 import type { NavigationSelection, WorkspaceSelection } from "./nav-types";
@@ -160,6 +164,7 @@ export function PaneWorkspace({
   renderFileEditors,
   renderUtilityTabs,
   onFocusSelection,
+  onOpenDroppedPaths,
 }: {
   workspace: ReturnType<typeof usePaneWorkspace>;
   /** Additional live lanes required by non-editor surfaces such as Agents. */
@@ -199,7 +204,19 @@ export function PaneWorkspace({
   ) => React.ReactNode;
   /** Navigate App's interactive surface when another pane takes focus. */
   onFocusSelection: (selection: WorkspaceSelection) => void;
+  /** Opens native/internal file drops in the pane they were dropped onto. */
+  onOpenDroppedPaths?: (leafId: string, paths: string[]) => void | Promise<void>;
 }): React.JSX.Element {
+  const [fileDropLeafId, setFileDropLeafId] = useState("");
+  useEffect(() => {
+    const clear = () => setFileDropLeafId("");
+    window.addEventListener("drop", clear, true);
+    window.addEventListener("dragend", clear, true);
+    return () => {
+      window.removeEventListener("drop", clear, true);
+      window.removeEventListener("dragend", clear, true);
+    };
+  }, []);
   // Subscribe before the browser can paint the restored pane tree. main.tsx
   // starts this even earlier on a normal boot; this layout effect preserves
   // the same contract for tests, remote shells, and hot remounts.
@@ -629,6 +646,35 @@ export function PaneWorkspace({
     )
     : null;
   const { focusedLeafId } = workspace;
+  const fileDropPropsFor = (leafId: string) => (
+    !onOpenDroppedPaths ? {} : {
+      "data-file-dropping": fileDropLeafId === leafId ? "true" : undefined,
+      onDragEnter: (event: React.DragEvent<HTMLDivElement>) => {
+        if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        setFileDropLeafId(leafId);
+      },
+      onDragOver: (event: React.DragEvent<HTMLDivElement>) => {
+        if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        setFileDropLeafId(leafId);
+      },
+      onDragLeave: (event: React.DragEvent<HTMLDivElement>) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+        setFileDropLeafId((current) => current === leafId ? "" : current);
+      },
+      onDrop: (event: React.DragEvent<HTMLDivElement>) => {
+        if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+        const paths = droppedLocalPaths(event.dataTransfer);
+        if (!paths.length) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setFileDropLeafId("");
+        void onOpenDroppedPaths(leafId, paths);
+      },
+    }
+  );
   const multi = workspace.leaves.length > 1;
   const currentPaneSurfaces = new Map<string, PaneSurfaceSnapshot>();
   const liveLeafIds = new Set(workspace.leaves.map((leaf) => leaf.id));
@@ -864,7 +910,8 @@ export function PaneWorkspace({
     // A single pane still owns its tab strip (VS Code single editor group);
     // the cell stacks the strip above the classic interactive markup.
     return (<>
-      <div className="pane-cell is-focused" data-pane-id={leaf.id}>
+      <div className="pane-cell is-focused" data-pane-id={leaf.id}
+        {...fileDropPropsFor(leaf.id)}>
         {renderStrip?.(leaf)}
         {renderPaneSurfaceStack(leaf, true)}
         {overlay}
@@ -883,6 +930,7 @@ export function PaneWorkspace({
             <div key={leaf.id}
               className={`pane-cell pane-carousel-item${focused ? " is-focused has-siblings" : ""}`}
               data-pane-id={leaf.id}
+              {...fileDropPropsFor(leaf.id)}
               data-carousel-active={focused ? "true" : "false"}
               inert={focused ? undefined : true}
               aria-hidden={focused ? undefined : true}>
@@ -904,7 +952,8 @@ export function PaneWorkspace({
       renderLeaf={(leaf) => {
         const focused = leaf.id === focusedLeafId;
         return (
-          <div className={`pane-cell${focused ? ` is-focused${multi ? " has-siblings" : ""}` : ""}`}>
+          <div className={`pane-cell${focused ? ` is-focused${multi ? " has-siblings" : ""}` : ""}`}
+            {...fileDropPropsFor(leaf.id)}>
             {renderStrip?.(leaf)}
             {renderPaneSurfaceStack(leaf, focused)}
           </div>

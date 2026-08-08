@@ -1,6 +1,7 @@
 export const DESKTOP_IPC = {
   chooseProject: 'mixdog:choose-project',
   chooseFile: 'mixdog:choose-file',
+  chooseFiles: 'mixdog:choose-files',
   chooseWorkspace: 'mixdog:choose-workspace',
   saveWorkspace: 'mixdog:save-workspace',
   readEditorSettings: 'mixdog:read-editor-settings',
@@ -39,6 +40,8 @@ export const DESKTOP_IPC = {
   revealFolderEntry: 'mixdog:reveal-folder-entry',
   folderPlaces: 'mixdog:folder-places',
   folderEntryIcon: 'mixdog:folder-entry-icon',
+  resolveLocalPaths: 'mixdog:resolve-local-paths',
+  readLocalFile: 'mixdog:read-local-file',
   folderWatch: 'mixdog:folder-watch',
   folderUnwatch: 'mixdog:folder-unwatch',
   folderChanged: 'mixdog:folder-changed',
@@ -1264,6 +1267,23 @@ export interface DesktopWorkspaceTextReplaceResult {
   paths: string[];
 }
 
+export interface DesktopLocalPathEntry {
+  absolutePath: string;
+  name: string;
+  dir: boolean;
+  size: number;
+  projectPath?: string;
+  relPath?: string;
+  accessToken?: string;
+}
+
+export interface DesktopLocalFileData {
+  name: string;
+  size: number;
+  mimeType: string;
+  data: string;
+}
+
 export interface DesktopApi {
   /** Immutable process timeline identity injected before renderer modules run. */
   readonly bootContext?: DesktopBootContext;
@@ -1273,6 +1293,7 @@ export interface DesktopApi {
     relPath: string;
     accessToken?: string;
   } | null>;
+  chooseFiles?(defaultPath?: string | null): Promise<DesktopLocalPathEntry[] | null>;
   chooseWorkspace?(): Promise<DesktopWorkspace | null>;
   saveWorkspace?(
     workspaceFile: string | null,
@@ -1391,6 +1412,10 @@ export interface DesktopApi {
   folderEntryIcon?(path: string, thumbnail?: boolean, size?: number): Promise<string>;
   /** Absolute path of an OS-native dropped File (webUtils.getPathForFile). */
   folderPathForFile?(file: File): string;
+  /** Resolve trusted local paths for file-tab opening and internal drag/drop. */
+  resolveLocalPaths?(paths: string[]): Promise<DesktopLocalPathEntry[]>;
+  /** Read one local file for an existing attachment flow; capped in main. */
+  readLocalFile?(path: string): Promise<DesktopLocalFileData>;
   /** Live refresh: watch a directory (refcounted) and stream change pings. */
   folderWatch?(dir: string): Promise<void>;
   folderUnwatch?(dir: string): Promise<void>;

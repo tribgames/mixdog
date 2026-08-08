@@ -41,6 +41,7 @@ const api: DesktopApi = {
     : {}),
   chooseProject: () => ipcRenderer.invoke(DESKTOP_IPC.chooseProject),
   chooseFile: (defaultPath) => ipcRenderer.invoke(DESKTOP_IPC.chooseFile, defaultPath),
+  chooseFiles: (defaultPath) => ipcRenderer.invoke(DESKTOP_IPC.chooseFiles, defaultPath),
   chooseWorkspace: () => ipcRenderer.invoke(DESKTOP_IPC.chooseWorkspace),
   saveWorkspace: (workspaceFile, folders) =>
     ipcRenderer.invoke(DESKTOP_IPC.saveWorkspace, workspaceFile, folders),
@@ -103,6 +104,8 @@ const api: DesktopApi = {
   folderPathForFile: (file) => {
     try { return webUtils.getPathForFile(file); } catch { return ''; }
   },
+  resolveLocalPaths: (paths) => ipcRenderer.invoke(DESKTOP_IPC.resolveLocalPaths, paths),
+  readLocalFile: (path) => ipcRenderer.invoke(DESKTOP_IPC.readLocalFile, path),
   folderWatch: (dir) => ipcRenderer.invoke(DESKTOP_IPC.folderWatch, dir),
   folderUnwatch: (dir) => ipcRenderer.invoke(DESKTOP_IPC.folderUnwatch, dir),
   subscribeFolderChanges: (listener) => {

@@ -765,6 +765,7 @@ const E2EE_SECRET_STORAGE_KEY = 'mixdog.remote-e2ee-secret';
     // equivalents; everything else forwards over the bridge socket.
     chooseProject: () => Promise.resolve(null),
     chooseFile: () => Promise.resolve(null),
+    chooseFiles: () => Promise.resolve(null),
     startProject: (projectPath) => call('startProject', [projectPath]),
     startProjectTask: (projectPath) => call('startProjectTask', [projectPath]),
     startTask: () => call('startTask'),

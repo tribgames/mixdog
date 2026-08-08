@@ -5,6 +5,7 @@
 import { Folder, X } from "lucide-react";
 
 import type { DesktopProjectSummary } from "../shared/contract";
+import { MIXDOG_PROJECT_PATHS_MIME } from "./file-drag";
 import { MxIcon } from "./MxIcon";
 import { OpenSelect } from "./OpenSelect";
 import { asRecord, displayProject, queueText } from "./text-format";
@@ -35,7 +36,7 @@ export const MAX_INLINE_IMAGE_BASE64_TOTAL = 30_000_000;
 export const MAX_PDF_FILE_BYTES = 20 * 1024 * 1024;
 export const MAX_SUBMIT_TEXT_LENGTH = 950_000;
 export const MAX_PERSISTED_PROMPT_HISTORY = 100;
-export const COMPOSER_PROJECT_PATHS_MIME = 'application/x-mixdog-project-paths';
+export const COMPOSER_PROJECT_PATHS_MIME = MIXDOG_PROJECT_PATHS_MIME;
 const PROMPT_HISTORY_STORAGE_PREFIX = 'mixdog.desktop.prompt-history.v1:';
 const MAX_PERSISTED_PROMPT_HISTORY_CHARS = 2_000_000;
 // One quiet line (user decision): no rotating tips, no syntax lecture.

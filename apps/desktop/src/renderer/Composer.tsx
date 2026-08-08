@@ -3,6 +3,12 @@ import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, 
 import { createPortal } from "react-dom";
 import type { DesktopAbortOptions, DesktopCapability, DesktopModelSelection, DesktopPastedText, DesktopPromptAttachment, DesktopPromptContent, DesktopSubmitOptions, SessionSnapshot } from "../shared/contract";
 import { type RecordValue } from "./desktop-types";
+import {
+  absolutePathsForDragPayload,
+  dataTransferHasPathPayload,
+  localFilesFromPaths,
+  readFileDragPayload,
+} from "./file-drag";
 import { t } from "./i18n";
 import { ModelSelector } from "./model-controls";
 import { MxIcon } from "./MxIcon";
@@ -20,7 +26,6 @@ import { mergeQueuedRestoreText } from "../../../../src/tui/components/prompt-in
 // Project-context pill, attachment budget, prompt history and the queued
 // follow-up list live in composer-support.tsx.
 import {
-  COMPOSER_PROJECT_PATHS_MIME,
   COMPOSER_PLACEHOLDERS,
   MAX_COMPOSER_ATTACHMENTS,
   MAX_PERSISTED_PROMPT_HISTORY,
@@ -569,6 +574,42 @@ export const Composer = memo(function Composer({
     });
     historyNavigation.current = { index: -1, seed: '' };
   }, []);
+  const insertAbsolutePaths = useCallback((paths: string[]) => {
+    const tokens = paths
+      .map((path) => String(path || "").trim())
+      .filter(Boolean)
+      .map((path) => /\s/.test(path) ? `"${path}"` : path);
+    if (!tokens.length) return;
+    const element = textarea.current;
+    setDraft((current) => {
+      const rawStart = element?.selectionStart ?? current.length;
+      const rawEnd = element?.selectionEnd ?? rawStart;
+      const start = Math.max(0, Math.min(rawStart, current.length));
+      const end = Math.max(start, Math.min(rawEnd, current.length));
+      const before = current.slice(0, start);
+      const after = current.slice(end);
+      const leading = before && !/\s$/.test(before) ? ' ' : '';
+      const trailing = after && !/^\s/.test(after) ? ' ' : ' ';
+      const inserted = `${leading}${tokens.join(' ')}${trailing}`;
+      const next = `${before}${inserted}${after}`;
+      const caret = before.length + inserted.length;
+      draftRef.current = next;
+      window.setTimeout(() => {
+        textarea.current?.focus();
+        textarea.current?.setSelectionRange(caret, caret);
+      }, 0);
+      return next;
+    });
+    historyNavigation.current = { index: -1, seed: '' };
+  }, []);
+  const attachLocalPaths = useCallback(async (paths: string[]) => {
+    const loaded = await localFilesFromPaths(window.mixdogDesktop, paths);
+    if (loaded.directories.length) {
+      insertAbsolutePaths(loaded.directories.map((entry) => entry.absolutePath));
+    }
+    if (loaded.errors.length) setAttachmentError(loaded.errors[0]);
+    if (loaded.files.length) await attachFiles(loaded.files);
+  }, [attachFiles, insertAbsolutePaths]);
 
   useEffect(() => {
     const target = dropTargetRef.current;
@@ -576,11 +617,14 @@ export const Composer = memo(function Composer({
     const containsType = (event: DragEvent, type: string) =>
       Array.from(event.dataTransfer?.types ?? []).includes(type);
     const containsFiles = (event: DragEvent) => containsType(event, 'Files');
-    const containsProjectPaths = (event: DragEvent) => containsType(event, COMPOSER_PROJECT_PATHS_MIME);
-    const containsInput = (event: DragEvent) => containsFiles(event) || containsProjectPaths(event);
+    const containsPaths = (event: DragEvent) => Boolean(
+      event.dataTransfer && dataTransferHasPathPayload(event.dataTransfer),
+    );
+    const containsInput = (event: DragEvent) => containsFiles(event) || containsPaths(event);
     const onDragEnter = (event: DragEvent) => {
       if (!containsInput(event)) return;
       event.preventDefault();
+      event.stopPropagation();
       if (transitioningRef.current) return;
       dragDepth.current += 1;
       setDraggingFiles(true);
@@ -588,6 +632,7 @@ export const Composer = memo(function Composer({
     const onDragOver = (event: DragEvent) => {
       if (!containsInput(event)) return;
       event.preventDefault();
+      event.stopPropagation();
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = transitioningRef.current ? 'none' : 'copy';
       }
@@ -601,20 +646,21 @@ export const Composer = memo(function Composer({
     const onDrop = (event: DragEvent) => {
       if (!containsInput(event)) return;
       event.preventDefault();
+      event.stopPropagation();
       dragDepth.current = 0;
       setDraggingFiles(false);
       if (transitioningRef.current || !event.dataTransfer) return;
-      if (containsProjectPaths(event)) {
-        try {
-          const value = JSON.parse(event.dataTransfer.getData(COMPOSER_PROJECT_PATHS_MIME) || '{}');
-          const source = String(value?.projectPath || '').replace(/[\\/]+/g, '/').toLocaleLowerCase();
+      const payload = readFileDragPayload(event.dataTransfer);
+      if (payload) {
+        if (payload.kind === "project") {
+          const source = payload.projectPath.replace(/[\\/]+/g, '/').toLocaleLowerCase();
           const targetProject = projectScope.replace(/[\\/]+/g, '/').toLocaleLowerCase();
-          if (source && targetProject && source === targetProject && Array.isArray(value?.paths)) {
-            insertProjectMentions(value.paths.map(String));
+          if (source && targetProject && source === targetProject) {
+            insertProjectMentions(payload.paths);
+            return;
           }
-        } catch {
-          // Ignore malformed internal drag payloads.
         }
+        void attachLocalPaths(absolutePathsForDragPayload(payload));
         return;
       }
       const itemFiles = Array.from(event.dataTransfer.items)
@@ -634,7 +680,7 @@ export const Composer = memo(function Composer({
       target.removeEventListener('drop', onDrop);
       dragDepth.current = 0;
     };
-  }, [attachFiles, dropTargetRef, insertProjectMentions, projectScope]);
+  }, [attachFiles, attachLocalPaths, dropTargetRef, insertProjectMentions, projectScope]);
 
   // Push-to-talk dictation: record locally, transcribe through the engine's
   // managed whisper.cpp runtime, and append the transcript to the draft.
@@ -1529,7 +1575,7 @@ export const Composer = memo(function Composer({
       </p>}
       {draggingFiles && !transitioning && dropTargetRef.current && createPortal(
         <div className="task-drop-overlay" role="status">
-          <MxIcon name="photo" size={16} /><span>{t("Drop files or Project paths")}</span>
+          <MxIcon name="photo" size={16} /><span>{t("Drop files or paths")}</span>
         </div>,
         dropTargetRef.current,
       )}
