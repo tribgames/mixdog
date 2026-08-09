@@ -38,14 +38,14 @@ const APPLY_PATCH_FREEFORM_DESCRIPTION =
 // exactly what these rules preempt. The grammar is restated below for the
 // JSON `patch` argument.
 const APPLY_PATCH_JSON_DESCRIPTION = [
-  'Edit files with this V4A envelope:',
+  'Edit files with this V4A patch:',
   '*** Begin Patch',
   '[file sections]',
   '*** End Patch',
-  'Every section starts with exactly one header: *** Add File: <path> (+content lines), *** Delete File: <path> (nothing after), *** Update File: <path> (optional *** Move to: <new path>).',
-  'Hunks open with @@ or @@ <symbol>; prefix lines with space, -, or +; an end-of-file hunk may close with *** End of File.',
-  'Copy 3 context lines above/below verbatim from the newest tool output — after your own patch use its post-patch body, never memory. No duplicate overlapping context; if still ambiguous, stack @@ headers: @@ class Foo then @@ def bar.',
-  'Relative or explicit absolute paths; every added line needs +. Never submit a compacted-history marker — re-read and send a fresh patch.',
+  'Each section starts with exactly one: *** Add File: <path> (+ lines), *** Delete File: <path> (header only), or *** Update File: <path> (optional *** Move to: <new path>).',
+  'Hunks start with @@ or @@ <symbol>; lines start space, -, or +; optional *** End of File.',
+  'Use 3 verbatim context lines from newest output (post-patch body after edits); avoid overlap; stack @@ only if ambiguous.',
+  'Relative or explicit absolute paths; + every added line. Never send compacted-history markers; re-read first.',
 ].join('\n');
 
 export const PATCH_TOOL_DEFS = [
@@ -63,10 +63,10 @@ export const PATCH_TOOL_DEFS = [
     inputSchema: {
       type: 'object',
       properties: {
-        patch: { type: 'string', description: 'V4A patch text to apply; rules above.' },
+        patch: { type: 'string', description: 'V4A patch; format above.' },
         root: {
           type: 'string',
-          description: 'Write root; required only for targets outside the session directory.',
+          description: 'Write root only outside the session directory.',
         },
       },
       required: ['patch'],

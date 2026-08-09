@@ -16346,6 +16346,7 @@ test("desktop composer restores queued work, recalls engine history, and execute
     textarea.dispatchEvent(new window.InputEvent('input', {
       bubbles: true, inputType: 'insertText', data: 'typed during restore',
     }));
+    textarea.setSelectionRange(5, 5);
   });
   await act(async () => {
     releaseRestore();
@@ -16354,6 +16355,8 @@ test("desktop composer restores queued work, recalls engine history, and execute
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
   assert.equal(textarea.value, 'Restored request\ntyped during restore');
+  assert.equal(textarea.selectionStart, 'Restored request\n'.length + 5,
+    'queued restore preserves the caret inside text typed while the daemon settles');
   assert.ok(capabilities.some(([capability, args]) =>
     capability === 'restoreQueued' && args[0] === '' && args[1] === 'queued-1'));
 
@@ -16746,10 +16749,17 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   assert.equal(aborts, 0, 'the first Escape dismisses the slash palette before the prompt handler');
   assert.equal(document.querySelector('.slash-palette'), null);
   assert.equal(getTextarea().value, '/compact', 'palette dismissal preserves the steering draft');
+  await act(async () => publish({
+    ...idle,
+    busy: true,
+    queued: [{ id: 'steer-1', displayText: 'Queued steering' }],
+  }));
   await press('Escape');
   assert.equal(aborts, 1);
   assert.deepEqual(abortOptions[0], { restorePrompt: false });
   assert.equal(getTextarea().value, '/compact', 'busy Escape cancels before touching the steering draft');
+  assert.equal(capabilities.filter(([capability]) => capability === 'restoreQueued').length, 0,
+    'busy Escape leaves queued work reserved instead of reclaiming it');
   await replaceDraft('');
   await press('Escape');
   assert.equal(aborts, 2);

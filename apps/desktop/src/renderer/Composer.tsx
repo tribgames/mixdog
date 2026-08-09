@@ -18,9 +18,9 @@ import { SLASH_COMMANDS, type CommandSurface as CommandSurfaceName, type Setting
 import { TURN_LOCKED_SLASH_COMMANDS, asRecord, oneLine } from "./text-format";
 import { registerImagePreview } from "./transcript-metrics";
 // @ts-expect-error Shared prompt policies are plain ESM modules.
-import { classifyPromptEscape, PROMPT_ESCAPE_CLEAR_WINDOW_MS } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
+import { classifyPromptEscape, PROMPT_ESCAPE_HINT_TIMEOUT_MS } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
 // @ts-expect-error Shared prompt policies are plain ESM modules.
-import { mergeQueuedRestoreText } from "../../../../src/tui/components/prompt-input/restore-policy.mjs";
+import { mergeQueuedRestoreDraft } from "../../../../src/tui/components/prompt-input/restore-policy.mjs";
 
 
 // Project-context pill, attachment budget, prompt history and the queued
@@ -177,6 +177,7 @@ export const Composer = memo(function Composer({
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const escapeClearAtRef = useRef(0);
+  const queueRestoreInFlightRef = useRef(false);
   // A daemon response can settle one render before its queue projection does.
   // Snapshot shaping may clone the queue array, so remember its stable entry
   // signature rather than its identity. New queue ids re-arm Esc/Up normally.
@@ -274,6 +275,7 @@ export const Composer = memo(function Composer({
     setMentionResults([]);
     setMentionLoading(false);
     setMentionDismissed('');
+    queueRestoreInFlightRef.current = false;
     setRestoring(false);
     setDraggingFiles(false);
     setSelectorOpen(false);
@@ -873,7 +875,7 @@ export const Composer = memo(function Composer({
   }, [attachmentPolicyError]);
 
   const restoreQueue = async (queuedId = '') => {
-    if (restoring) return undefined;
+    if (restoring || queueRestoreInFlightRef.current) return undefined;
     // Capture the projection before the daemon round trip. A newly queued
     // prompt that arrives while restore settles must not be retired with the
     // older entries the user actually reclaimed.
@@ -882,6 +884,7 @@ export const Composer = memo(function Composer({
       .filter((id) => id !== undefined && id !== null)
       .map(String)
       .filter((id) => !queuedId || id === queuedId);
+    queueRestoreInFlightRef.current = true;
     setRestoring(true);
     try {
       const args = queuedId ? ['', queuedId] : [''];
@@ -910,16 +913,22 @@ export const Composer = memo(function Composer({
         // after a successful pop so it cannot resurrect the reserved row.
         onQueuedRestored?.(restoredIds);
         setDraft((current) => {
-          const next = mergeQueuedRestoreText(queuedText, current);
+          const currentCursor = textarea.current?.selectionStart ?? current.length;
+          const next = mergeQueuedRestoreDraft(queuedText, {
+            value: current,
+            cursor: currentCursor,
+            selectionAnchor: null,
+          });
           window.setTimeout(() => {
             textarea.current?.focus();
-            textarea.current?.setSelectionRange(next.length, next.length);
+            textarea.current?.setSelectionRange(next.cursor, next.cursor);
           }, 0);
-          return next;
+          return next.value;
         });
       }
       return value;
     } finally {
+      queueRestoreInFlightRef.current = false;
       setRestoring(false);
     }
   };
@@ -928,11 +937,13 @@ export const Composer = memo(function Composer({
   // removes the entry from the engine queue; the merged text it returns is
   // intentionally ignored so the current draft is untouched.
   const discardQueued = async (queuedId: string) => {
-    if (restoring || !queuedId) return;
+    if (restoring || queueRestoreInFlightRef.current || !queuedId) return;
+    queueRestoreInFlightRef.current = true;
     setRestoring(true);
     try {
       await invokeCapability<RecordValue>('restoreQueued', ['', queuedId]);
     } finally {
+      queueRestoreInFlightRef.current = false;
       setRestoring(false);
     }
   };
@@ -1026,7 +1037,10 @@ export const Composer = memo(function Composer({
     else if (name === 'doctor') onOpenCommandSurface('doctor');
     else if (name === 'remote') await commandCapability('claimRemote');
     else if (name === 'settings') onOpenSettings();
-    else if (name === 'quit') await invokeResult(() => window.mixdogDesktop.quit());
+    // Desktop /quit leaves THIS task, not the app (user): it rides the same
+    // close path as Ctrl+W, so unsaved-close guards and group collapse apply.
+    // Explicit app quit stays in the File menu.
+    else if (name === 'quit') window.dispatchEvent(new CustomEvent('mixdog:close-active-tab'));
     else if (name === 'autoclear' && argument) {
       const value = argument.toLowerCase();
       const next = await commandCapability<unknown>(
@@ -1486,7 +1500,7 @@ export const Composer = memo(function Composer({
         void restoreQueue();
       } else if (escape.action === 'arm-clear') {
         event.preventDefault();
-        showComposerNotice('Esc again to clear', PROMPT_ESCAPE_CLEAR_WINDOW_MS);
+        showComposerNotice('Esc again to clear', PROMPT_ESCAPE_HINT_TIMEOUT_MS);
       } else if (escape.action === 'clear') {
         event.preventDefault();
         setDraft('');
@@ -1495,7 +1509,7 @@ export const Composer = memo(function Composer({
         historyNavigation.current = { index: -1, seed: '' };
       } else if (escape.action === 'arm-select') {
         event.preventDefault();
-        showComposerNotice(t("Esc again to pick a message"), PROMPT_ESCAPE_CLEAR_WINDOW_MS);
+        showComposerNotice(t("Esc again to pick a message"), PROMPT_ESCAPE_HINT_TIMEOUT_MS);
       } else if (escape.action === 'message-selector') {
         event.preventDefault();
         showComposerNotice('');

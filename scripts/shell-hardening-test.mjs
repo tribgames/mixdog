@@ -120,8 +120,9 @@ test('B: POSIX host is a strict no-op', () => {
 test('C: shell surface keeps execution contract separate from the platform command cheat', (t) => {
     const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
     assert.ok(shellTool, 'shell tool must exist');
-    assert.match(shellTool.description, /^Run a shell command\. Runs sync inline by default; async returns a background task_id and delivers a completion notification\. Never a substitute for the file-discovery\/content-retrieval tools: NOT ls\/find\/cat\/head\/tail\/grep\/rg\/sed — use the dedicated file tools\. Chain dependent commands with &&\.$/);
+    assert.match(shellTool.description, /^Run a shell command\. Sync inline by default; async returns task_id and sends a completion notification\. Executable\/runtime\/state evidence only — never file exploration in any command segment: NOT ls\/find\/cat\/head\/tail\/grep\/rg\/sed; dedicated file tools cover those\. Chain dependent commands with &&\.$/);
     assert.doesNotMatch(shellTool.description, /PowerShell:/);
+    assert.equal(shellTool.inputSchema?.properties?.shell?.description, 'Force shell.');
     const commandDescription = shellTool.inputSchema?.properties?.command?.description || '';
     if (process.platform !== 'win32') {
         assert.equal(/Select-String/.test(commandDescription), false,

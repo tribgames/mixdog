@@ -98,13 +98,14 @@ export function shouldNavigatePromptHistory({
   historyActive = false,
 } = {}) {
   if (key !== 'ArrowUp' && key !== 'ArrowDown') return false;
-  if (shiftKey || ctrlKey || metaKey || selectionStart !== selectionEnd) return false;
+  if (shiftKey || ctrlKey || metaKey || altKey || selectionStart !== selectionEnd) return false;
   const text = String(value || '');
   const start = Math.max(0, Number(selectionStart) || 0);
   const end = Math.max(start, Number(selectionEnd) || start);
-  if (altKey) return true;
-  if (key === 'ArrowUp') return !text.trim() || start === 0;
-  return historyActive && end === text.length;
+  if (key === 'ArrowUp') {
+    return text.lastIndexOf('\n', Math.max(0, start - 1)) === -1;
+  }
+  return historyActive && text.indexOf('\n', end) === -1;
 }
 
 export function mergeModelCatalog(current, incoming) {

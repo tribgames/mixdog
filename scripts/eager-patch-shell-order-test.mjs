@@ -360,7 +360,7 @@ test('shells and patch share one immediate parallel wave', async () => {
     assert.equal(maxActive, 3);
 });
 
-test('failed patch settles before later shells execute', async () => {
+test('failed patch blocks later shells after it settles', async () => {
     const events = [];
     const calls = [
         { id: 'p1', name: 'apply_patch', arguments: { patch: 'patch' } },
@@ -372,8 +372,10 @@ test('failed patch settles before later shells execute', async () => {
         return name === 'apply_patch' ? 'Error: patch failed' : 'ok';
     });
 
-    assert.deepEqual(events, ['apply_patch', 'shell', 'shell']);
-    assert.deepEqual(results.map((result) => result.toolKind), ['error', 'normal', 'normal']);
+    assert.deepEqual(events, ['apply_patch']);
+    assert.deepEqual(results.map((result) => result.toolKind), ['error', 'skipped', 'skipped']);
+    assert.match(results[1].content, /\[patch-dependency-guard\].*p1/);
+    assert.match(results[2].content, /\[patch-dependency-guard\].*p1/);
 });
 
 test('shell-only batch retains parallel execution', async () => {
@@ -436,7 +438,7 @@ test('shell before patch stays independent while shell after patch waits', async
     assert.deepEqual(results.map((result) => result.toolKind), ['normal', 'normal', 'normal']);
 });
 
-test('a failed patch after an earlier shell settles before the later shell', async () => {
+test('a thrown patch failure after an earlier shell blocks the later shell', async () => {
     const executed = [];
     const calls = [
         { id: 's1', name: 'shell', arguments: { command: 'prepatch' } },
@@ -445,9 +447,11 @@ test('a failed patch after an earlier shell settles before the later shell', asy
     ];
     const results = await runBatch(calls, async (name, args) => {
         executed.push(name === 'shell' ? args.command : name);
-        return name === 'apply_patch' ? 'Error: patch failed' : 'ok';
+        if (name === 'apply_patch') throw new Error('patch exploded');
+        return 'ok';
     });
-    assert.deepEqual(new Set(executed), new Set(['prepatch', 'apply_patch', 'postpatch']));
-    assert.ok(executed.indexOf('postpatch') > executed.indexOf('apply_patch'));
-    assert.deepEqual(results.map((result) => result.toolKind), ['normal', 'error', 'normal']);
+    assert.deepEqual(new Set(executed), new Set(['prepatch', 'apply_patch']));
+    assert.equal(executed.includes('postpatch'), false);
+    assert.deepEqual(results.map((result) => result.toolKind), ['normal', 'error', 'skipped']);
+    assert.match(results[2].content, /\[patch-dependency-guard\].*p1/);
 });

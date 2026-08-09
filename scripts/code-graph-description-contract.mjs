@@ -69,7 +69,7 @@ const CODE_GRAPH_DESCRIPTION_MUTATION_CORPUS = [
     name: 'contracted negated file assignment',
     mutate: (parts) => ({
       ...parts,
-      description: parts.description.replace(/file modes take files\[\]/i, "file modes aren't assigned files[]"),
+      description: parts.description.replace(/file modes (?:take|use) files\[\]/i, "file modes aren't assigned files[]"),
     }),
   },
   {

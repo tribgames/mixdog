@@ -1387,7 +1387,7 @@ const exploreProps = EXPLORE_TOOL.inputSchema?.properties || {};
 if (!/repo- or machine-wide coordinate locator/i.test(EXPLORE_TOOL.description || '') || /broad\/uncertain/i.test(EXPLORE_TOOL.description || '') || (EXPLORE_TOOL.description || '').length > 600) {
   throw new Error('explore description must stay a compact coordinate-locator contract');
 }
-if (!/One concrete target .* per query/i.test(exploreProps.query?.description || '') || !/never a topic list/i.test(exploreProps.query?.description || '') || !/independent facets/i.test(exploreProps.query?.description || '') || !/Project\/root/i.test(exploreProps.cwd?.description || '') || !/multiple roots/i.test(exploreProps.roots?.description || '')) {
+if (!/One concrete (?:unknown )?target per query/i.test(exploreProps.query?.description || '') || !/never a topic list/i.test(exploreProps.query?.description || '') || !/independent (?:facets|targets)/i.test(exploreProps.query?.description || '') || !/Project\/root/i.test(exploreProps.cwd?.description || '') || !/multiple roots/i.test(exploreProps.roots?.description || '')) {
   throw new Error('explore schema must stay compact and preserve query/cwd/roots shape');
 }
 const normalizedExplore = normalizeExploreQueries('["where is model selection?","  ","which file owns agent async?"]');
@@ -1507,7 +1507,7 @@ setInternalToolsProvider({
     if (!/Read-only retrieval role/i.test(visible) || /# environment/i.test(visible) || /git operations deferred to Lead/i.test(visible)) {
       throw new Error(`explorer hidden retrieval context should stay slim: ${visible.slice(0, 1200)}`);
     }
-    if (!/# Role: explorer/i.test(systemVisible) || /# Role: explorer/i.test(userReminderVisible) || !/only WHERE/i.test(systemVisible)) {
+    if (!/# Role: explorer/i.test(systemVisible) || /# Role: explorer/i.test(userReminderVisible) || !/minimal complete WHERE/i.test(systemVisible)) {
       throw new Error(`explorer role md must ride BP2 system, not BP3 user reminder: system=${systemVisible.slice(0, 600)} user=${userReminderVisible.slice(0, 600)}`);
     }
     // System layers (BP1 tool policy + BP2 role md) are shared/frozen and sized
@@ -1797,8 +1797,8 @@ const patchRootDescription = patchTool?.inputSchema?.properties?.root?.descripti
 if (!/outside the session directory/i.test(patchRootDescription)) {
   throw new Error(`apply_patch root must state the out-of-session write contract: ${patchRootDescription}`);
 }
-if (!/Every section starts with exactly one header:[\s\S]*Add File[\s\S]*Delete File[\s\S]*Update File/i.test(patchTool?.description || '')
-    || !/V4A patch text to apply/i.test(patchDescription)) {
+if (!/Each section starts with exactly one:[\s\S]*Add File[\s\S]*Delete File[\s\S]*Update File/i.test(patchTool?.description || '')
+    || !/V4A patch/i.test(patchDescription)) {
   throw new Error(`apply_patch JSON fallback must expose its multi-file/hunk shape: ${JSON.stringify(patchTool)}`);
 }
 if (/followed by a shell|post-patch verification|same response/i.test(patchTool?.description || '')) {
@@ -2015,7 +2015,7 @@ if (!/Source-file structure/i.test(codeGraphDescription)
   || !['find_symbol', 'symbol_search', 'references', 'callers', 'callees'].every((mode) => codeGraphDescription.includes(mode))) {
   throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
 }
-if (!/File modes take files\[\]/i.test(codeGraphDescription) || !/symbol modes take symbols\[\]/i.test(codeGraphDescription)) {
+if (!/File modes use files\[\]/i.test(codeGraphDescription) || !/symbol modes use symbols\[\]/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must keep its per-mode files[]/symbols[] target contract');
 }
 if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/Source file path/i.test(codeGraphProps.files?.description || '')) {

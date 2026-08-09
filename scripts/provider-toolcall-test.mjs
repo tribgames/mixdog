@@ -795,7 +795,7 @@ test('openai-oauth request allows one mixed custom-patch/function-shell batch', 
     assert.equal(body.parallel_tool_calls, true);
     assert.equal(patch.type, 'custom');
     assert.equal(shell.type, 'function');
-    assert.match(shell.description, /^Run a shell command\. Runs sync inline by default/);
+    assert.match(shell.description, /^Run a shell command\. Sync inline by default/);
     assert.doesNotMatch(shell.description, /apply_patch|verification|PowerShell:/i);
 });
 
@@ -834,7 +834,7 @@ test('openai-compat/xai Responses: freeform apply_patch downgrades to function s
     assert.equal(patch.parameters?.properties?.patch?.type, 'string');
     assert.deepEqual(patch.parameters?.required, ['patch']);
     assert.deepEqual(Object.keys(patch.parameters?.properties || {}), ['patch', 'root']);
-    assert.match(patch.description, /Edit files with this V4A envelope.*Every section starts with exactly one header/is);
+    assert.match(patch.description, /Edit files with this V4A patch.*Each section starts with exactly one/is);
     assert.doesNotMatch(JSON.stringify(patch), /exact current context|roll ?back/i);
 });
 

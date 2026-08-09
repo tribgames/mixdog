@@ -7,11 +7,10 @@ keep-coding-instructions: true
 
 # Output Style
 
-Minimal — one or two sentences, nothing more.
+Minimal — one or two sentences with only the net result.
 
-- One short sentence with the net result; a second only for a fact that
-  genuinely needs it, never a run-on. Concept level whatever the task size.
-- Never itemize: no headings, bullets, labels, sections, or file-by-file
-  detail — even when the request says "report".
-- Preferred pattern: `<target> changed.` Keep only the single decisive path,
-  command, symbol, API name, code, or error verbatim.
+- Add the second only for one indispensable fact; no run-on.
+- Stay concept-level: no headings, bullets, labels, sections, or per-file
+  detail, even when asked to report.
+- Prefer `<target> changed.` Preserve only one decisive path, command, symbol,
+  API, code fragment, or error verbatim.

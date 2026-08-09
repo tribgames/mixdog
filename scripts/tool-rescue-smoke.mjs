@@ -237,6 +237,22 @@ check('the default Windows shell prefers pwsh 7 over the bundled 5.1', () => {
   return null;
 });
 
+check('the default POSIX shell prefers Bash and supports Bash parameter expansion', async () => {
+  if (isWindows) return 'skipped (Windows host)';
+  const spec = resolveShellFor('default');
+  assert.equal(spec.shellType, 'posix');
+  const knownBash = ['/bin/bash', '/usr/bin/bash', '/usr/local/bin/bash', '/opt/homebrew/bin/bash']
+    .find((candidate) => existsSync(candidate));
+  if (knownBash) assert.equal(spec.shell, knownBash);
+  else if (spec.shell !== '/bin/sh') assert.match(spec.shell, /bash$/);
+  const out = String(await executeBuiltinTool('shell', {
+    command: 'value=abcdef; printf \'%s\\n\' "${value:0:3}"',
+  }, workspace, {}));
+  assert.ok(!isError(out), out);
+  assert.match(out, /^abc\s*$/);
+  return null;
+});
+
 check('a `&&` chain runs on the default shell (no 5.1 bashism block)', async () => {
   if (!isWindows) return 'skipped (POSIX host)';
   const out = String(await executeBuiltinTool('shell', { command: 'echo one && echo two' }, workspace, {}));

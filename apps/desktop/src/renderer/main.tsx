@@ -37,6 +37,7 @@ import { preloadMarkdownBody } from "./TranscriptView";
 import { defaultSessionLaneStore } from "./session-lane-store";
 import { readStoredPaneLayout } from "./pane-workspace-state";
 import { paneActiveSelection, paneLeaves } from "./pane-layout";
+import { installAutoDomI18n } from "./auto-dom-i18n";
 
 // VPS/LAN browser surfaces are installable PWAs. Electron and the retired
 // Capacitor shell never register this worker; the worker is deliberately
@@ -57,6 +58,8 @@ markBootStage("renderer-entry");
 if (import.meta.env?.DEV) performance.mark("mixdog:startup:renderer-entry");
 const removeGlobalRendererDiagnostics = installGlobalRendererDiagnostics();
 window.addEventListener("beforeunload", removeGlobalRendererDiagnostics, { once: true });
+const removeAutoDomI18n = installAutoDomI18n();
+window.addEventListener("beforeunload", removeAutoDomI18n, { once: true });
 const syncMotionVisibility = () => {
   document.documentElement.dataset.mixdogMotion =
     document.visibilityState === "visible" ? "running" : "paused";

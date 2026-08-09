@@ -279,12 +279,17 @@ export async function processToolBatch(ctx) {
                     if (!settled.ok) throw settled.error;
                     result = settled.value;
                     toolEndedAt = eager.endedAt ?? Date.now();
-                    const _eagerKind = classifyToolReturn(result);
-                    if (_eagerKind === 'error') {
-                        _resultKind = 'error';
+                    if (settled.skipped) {
+                        _resultKind = 'skipped';
                         _executeOk = false;
                     } else {
-                        _executeOk = true;
+                        const _eagerKind = classifyToolReturn(result);
+                        if (_eagerKind === 'error') {
+                            _resultKind = 'error';
+                            _executeOk = false;
+                        } else {
+                            _executeOk = true;
+                        }
                     }
                 } else {
                     toolStartedAt = Date.now();
@@ -325,7 +330,7 @@ export async function processToolBatch(ctx) {
                 result = `Error: ${err instanceof Error ? err.message : String(err)}`;
                 _resultKind = 'error';
             }
-            if (_isShellTool(call.name)) {
+            if (_isShellTool(call.name) && _resultKind !== 'skipped') {
                 commitSessionCwdProbe(sessionId, call.id);
             }
             // CENTRAL ENVELOPE NORMALIZE (general newMessages channel).
@@ -353,7 +358,7 @@ export async function processToolBatch(ctx) {
             // 'error') fires the optional session failure hook. Same shape as
             // afterToolHook; `result` carries the error text. Best-effort — a
             // hook error must never wedge the tool loop.
-            if (!_executeOk || _resultKind === 'error') {
+            if (_resultKind !== 'skipped' && (!_executeOk || _resultKind === 'error')) {
                 const _afterToolFailureHook = typeof opts.afterToolFailureHook === 'function'
                     ? opts.afterToolFailureHook
                     : sessionRef?.afterToolFailureHook;
@@ -377,7 +382,7 @@ export async function processToolBatch(ctx) {
             // mutated the inputs/environment (apply_patch → verification is
             // the common case), so retaining the old failure count would no
             // longer describe consecutive failures.
-            if (sessionRef) {
+            if (sessionRef && _resultKind !== 'skipped') {
                 const _failed = !_executeOk || _resultKind === 'error';
                 if (_failed) {
                     sessionRef._repeatFailGuard = (sessionRef._repeatFailGuard?.sig === _repeatFailSig)
@@ -395,7 +400,7 @@ export async function processToolBatch(ctx) {
             // leave a failed patch compacted. Cache-safe: assistantTurnMsg is not
             // transmitted until the next provider.send. Early-continue paths (dedup /
             // repeat-failure-guard) never reach here and stay compacted.
-            if ((!_executeOk || _resultKind === 'error') && call?.id) {
+            if (_resultKind !== 'skipped' && (!_executeOk || _resultKind === 'error') && call?.id) {
                 restoreToolCallBodyForId(assistantTurnMsg, calls, call.id);
             }
             // Cross-turn cache maintenance — gate on both _executeOk and _resultKind==='normal'.
@@ -499,7 +504,7 @@ export async function processToolBatch(ctx) {
             // Bash always clears scoped cache UNCONDITIONALLY — a mutating bash
             // that throws or fails partway can still leave stale find_symbol / grep entries.
             // Must not be gated on _executeOk or _resultKind.
-            if (sessionId && _isShellTool(call.name)) {
+            if (sessionId && _isShellTool(call.name) && _resultKind !== 'skipped') {
                 clearScopedToolsForSession(sessionId);
             }
             _batchCompleted.push({

@@ -2,9 +2,10 @@
 // per-turn pending promise map, the intra-turn in-flight signature set, and
 // the mutation epoch. Every valid call dispatches while the provider is still
 // streaming. Calls execute in parallel except that shell after apply_patch
-// waits for every earlier patch in the turn; results are collected later in
-// call order.
+// waits for every earlier patch in the turn and runs only if all succeeded;
+// results are collected later in call order.
 import { normalizeToolEnvelope } from './tool-envelope.mjs';
+import { classifyResultKind } from './result-classification.mjs';
 import { isInvalidToolArgsMarker } from '../providers/openai-compat-stream.mjs';
 import {
     _intraTurnSig,
@@ -20,16 +21,26 @@ import { executeTool } from './loop/tool-exec.mjs';
 import { crossTurnSignature } from './loop/completion-guards.mjs';
 import { getToolKind, isEagerDispatchable, isParallelDispatchable, isToolCallDedupEligible } from './loop/tool-helpers.mjs';
 
+function eagerSettlementFailed(settled) {
+    if (!settled?.ok) return true;
+    try {
+        const normalized = normalizeToolEnvelope(settled.value);
+        return classifyResultKind(normalized.result, normalized.explicitSuccess) === 'error';
+    } catch {
+        return true;
+    }
+}
+
 export function createEagerDispatcher({
     tools, cwd, sessionId, sessionRef, signal, opts,
     crossTurnCalls, getIterations, getNextIteration, repeatFailLimit,
     executeToolFn = executeTool,
 }) {
         const pending = new Map();
-        // Cumulative settlement barrier for patches already emitted in this
-        // assistant turn. Patches remain path-parallel with each other; only a
-        // later shell waits, so validation cannot observe pre-patch files.
-        let patchBarrier = Promise.resolve();
+        // Cumulative success barrier for patches already emitted in this
+        // assistant turn. Patches remain path-parallel with each other; a later
+        // shell waits for all of them and is skipped if any patch failed.
+        let patchBarrier = Promise.resolve({ failedPatchIds: [] });
         // Streaming-time intra-turn dedup. When the LLM emits two
         // tool_use blocks with identical (name, args) signatures in
         // sequence, the provider's onToolCall fires for both BEFORE
@@ -106,7 +117,16 @@ export function createEagerDispatcher({
             if (_dedupEligible) _eagerInFlightSigs.set(_sig, call.id);
             entry.promise = (async () => {
                 try {
-                    if (precedingPatches) await precedingPatches;
+                    if (precedingPatches) {
+                        const patchState = await precedingPatches;
+                        if (patchState.failedPatchIds.length > 0) {
+                            return {
+                                ok: true,
+                                skipped: true,
+                                value: `[patch-dependency-guard] \`${call.name}\` was not executed because earlier apply_patch call(s) failed in this assistant turn: ${patchState.failedPatchIds.join(', ')}. Fix the failed patch before verification.`,
+                            };
+                        }
+                    }
                     await opts.beforeToolExecution?.();
                     return { ok: true, value: await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: getNextIteration(), deferShellCwdCommit: true }) };
                 } catch (error) {
@@ -167,8 +187,13 @@ export function createEagerDispatcher({
                 });
             pending.set(call.id, entry);
             if (_isMutationTool(call.name)) {
+                const precedingPatchState = patchBarrier;
                 const currentPatch = entry.promise;
-                patchBarrier = Promise.allSettled([patchBarrier, currentPatch]).then(() => undefined);
+                patchBarrier = Promise.all([precedingPatchState, currentPatch]).then(([state, settled]) => ({
+                    failedPatchIds: eagerSettlementFailed(settled)
+                        ? [...state.failedPatchIds, call.id]
+                        : state.failedPatchIds,
+                }));
             }
             return entry;
         };

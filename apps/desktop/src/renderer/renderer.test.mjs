@@ -3210,13 +3210,15 @@ test('session sidebar restores its cache while persisted pane sessions wait for 
 
 test('prompt history navigation respects caret, selection, and modifier intent', () => {
   assert.equal(shouldNavigatePromptHistory({ key: 'ArrowUp', value: '', selectionStart: 0 }), true);
-  assert.equal(shouldNavigatePromptHistory({ key: 'ArrowUp', value: '   ', selectionStart: 3 }), true);
+  assert.equal(shouldNavigatePromptHistory({ key: 'ArrowUp', value: 'line one', selectionStart: 3 }), true);
+  assert.equal(shouldNavigatePromptHistory({ key: 'ArrowUp', value: 'line one\nline two', selectionStart: 4 }), true);
   assert.equal(shouldNavigatePromptHistory({ key: 'ArrowUp', value: 'line one\nline two', selectionStart: 9 }), false);
   assert.equal(shouldNavigatePromptHistory({ key: 'ArrowUp', value: 'line one', selectionStart: 0 }), true);
   assert.equal(shouldNavigatePromptHistory({ key: 'ArrowDown', value: 'line one', selectionStart: 8, historyActive: true }), true);
+  assert.equal(shouldNavigatePromptHistory({ key: 'ArrowDown', value: 'line one\nline two', selectionStart: 12, historyActive: true }), true);
   assert.equal(shouldNavigatePromptHistory({ key: 'ArrowDown', value: 'line one', selectionStart: 8, historyActive: false }), false);
-  assert.equal(shouldNavigatePromptHistory({ key: 'ArrowDown', value: 'line one', selectionStart: 2, historyActive: true }), false);
-  assert.equal(shouldNavigatePromptHistory({ key: 'ArrowUp', value: 'line one', selectionStart: 2, altKey: true }), true);
+  assert.equal(shouldNavigatePromptHistory({ key: 'ArrowDown', value: 'line one', selectionStart: 2, historyActive: true }), true);
+  assert.equal(shouldNavigatePromptHistory({ key: 'ArrowUp', value: 'line one', selectionStart: 2, altKey: true }), false);
   assert.equal(shouldNavigatePromptHistory({ key: 'ArrowUp', value: 'line one', selectionStart: 0, selectionEnd: 4 }), false);
   assert.equal(shouldNavigatePromptHistory({ key: 'ArrowUp', value: '', selectionStart: 0, shiftKey: true }), false);
   assert.equal(shouldNavigatePromptHistory({ key: 'Enter', value: '', selectionStart: 0 }), false);

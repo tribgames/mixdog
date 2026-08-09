@@ -203,13 +203,14 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   // Classified facets use baseline routes directly; shell stays outside.
   assert.match(policy, /Baseline routing assigns each facet directly by the evidence needed/i);
   assert.match(policy, /evidence no file tool returns — an independent facet, batched with the rest/i);
+  assert.match(policy, /stay focused on the requested outcome[\s\S]*Avoid investigation, implementation, or verification not required to satisfy it[\s\S]*once the requirements are met and proven, stop/i);
   // 2. Negative shell steering lives on the shell tool description (reference
   // parity); the rule mentions shell only for batched final verification.
   assert.doesNotMatch(policy, /process\/env, git, build\/run\/test→`shell`|Call `shell` only when/i);
   assert.doesNotMatch(policy, /Never use shell equivalents/i);
   const shellDescription = BUILTIN_TOOLS.find((tool) => tool.name === 'shell')?.description || '';
-  assert.match(shellDescription, /Executable\/runtime\/state evidence only — never a file-exploration segment anywhere in a command/i);
-  assert.match(shellDescription, /NOT ls\/find\/cat\/head\/tail\/grep\/rg\/sed — the dedicated file tools cover those/i);
+  assert.match(shellDescription, /Executable\/runtime\/state evidence only — never file exploration in any command segment/i);
+  assert.match(shellDescription, /NOT ls\/find\/cat\/head\/tail\/grep\/rg\/sed; dedicated file tools cover those/i);
   assert.match(shellDescription, /Chain dependent commands with &&/i);
   const descOf = (name) => BUILTIN_TOOLS.find((tool) => tool.name === name)?.description || '';
   assert.match(descOf('list'), /Replaces ls; meta:true adds size\/mtime\/mode\./);
@@ -221,14 +222,14 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   // their own phase boundary.
   assert.match(policy, /`explore`, when exposed, is a fast path only[\s\S]*call it first once for all such independent facets in one query array[\s\S]*minimal complete direct `path:line` anchors[\s\S]*resume baseline routing from those anchors/i);
   assert.match(policy, /Baseline routing assigns each facet directly by the evidence needed/i);
-  assert.match(policy, /before each retrieval batch[\s\S]*extract every independent evidence facet[\s\S]*deduplicate overlap[\s\S]*assign exactly ONE routed tool per facet[\s\S]*launch all independent retrieval calls together in one maximum-fanout turn — independence alone decides batching[\s\S]*Never add `shell`, `apply_patch`, or another mutation call merely to widen a retrieval batch[\s\S]*Never duplicate a retrieval facet through another tool[\s\S]*reserve known work[\s\S]*serialize independent retrieval calls[\s\S]*cap facet count/i);
-  assert.match(policy, /Once the edit is determined[\s\S]*one assistant turn[\s\S]*one `apply_patch` per file or cohesive unit[\s\S]*all patches first[\s\S]*one batched verification `shell` when needed — it runs after the patches apply[\s\S]*Retry only failed envelopes[\s\S]*Create or edit text only with `apply_patch`, never `shell`[\s\S]*A passing check is final[\s\S]*Earlier `shell` is only for[\s\S]*executable\/runtime\/state evidence[\s\S]*Never expand or repeat a conclusive state result/i);
+  assert.match(policy, /batch calls iff neither needs another's output nor can change another's inputs\/state; otherwise serialize[\s\S]*before each retrieval batch[\s\S]*extract every independent evidence facet[\s\S]*deduplicate overlap[\s\S]*assign exactly ONE routed tool per facet[\s\S]*launch all independent retrieval calls together in one maximum-fanout turn[\s\S]*Never add `shell`, `apply_patch`, or another mutation call merely to widen a retrieval batch[\s\S]*Never split one decision into overlapping facets[\s\S]*route it once through the cheapest tool whose output subsumes the needed evidence[\s\S]*reserve known work[\s\S]*serialize independent retrieval calls[\s\S]*cap facet count/i);
+  assert.match(policy, /Once the edit is determined[\s\S]*one assistant turn[\s\S]*one `apply_patch` per file or cohesive unit[\s\S]*all patches first[\s\S]*one batched verification `shell` when needed[\s\S]*runtime waits for every patch and skips the shell if any fails[\s\S]*Retry only failed envelopes[\s\S]*Create or edit text only with `apply_patch`, never `shell`[\s\S]*Earlier `shell` is only for[\s\S]*executable\/runtime\/state evidence/i);
   assert.doesNotMatch(policy, /before every tool batch|whatever the tool|every turn, widest probe to last|one `apply_patch` for all edits and one `shell` chain|otherwise finish without it|Prefer parallel calls when independent|risk-proportionate|rerun only failures|zero\/error or a newly revealed dependency|cross-scope verification/i);
   assert.match(policy, /Take the cheapest sufficient evidence per facet[\s\S]*symbol relations end at `code_graph`[\s\S]*values\/locations end at the context grep returns[\s\S]*`read` covers only what returned spans cannot[\s\S]*anchored offset\/limit window[\s\S]*never a full-file read when a window suffices/i);
   assert.match(policy, /adjacent context around an edit point counts as needed evidence[\s\S]*The moment evidence determines the edit, stop retrieving and patch/i);
-  assert.match(policy, /Never duplicate a retrieval facet through another tool or `shell` segment, or re-issue it broadened[\s\S]*one call per facet carries every credible pattern variant and scope/i);
-  assert.match(policy, /A passing check is final — finish without re-reading edits/i);
-  assert.match(policy, /Never expand or repeat a conclusive state result[\s\S]*output is required to form the next call/i);
+  assert.match(policy, /Never split one decision into overlapping facets[\s\S]*cheapest tool whose output subsumes the needed evidence[\s\S]*every credible pattern variant and scope[\s\S]*never duplicate or broaden it through another tool or `shell` segment/i);
+  assert.match(policy, /once the requirements are met and proven, stop/i);
+  assert.match(policy, /prior output is required[\s\S]*to form the next call/i);
   const leadToolPolicy = readFileSync(new URL('../src/rules/lead/lead-tool.md', import.meta.url), 'utf8');
   const leadGeneralPolicy = readFileSync(new URL('../src/rules/lead/01-general.md', import.meta.url), 'utf8');
   assert.doesNotMatch(leadToolPolicy, /cross-scope verification/i);
@@ -380,9 +381,9 @@ test('code graph descriptions partition file and symbol targets', () => {
   const modeProperty = CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties?.mode || {};
   const mode = modeProperty.description || '';
   assert.deepEqual(modeProperty.enum, ['overview', 'imports', 'dependents', 'related', 'impact', 'symbols', 'find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees']);
-  assert.match(mode, /file modes=\{overview,imports,dependents,related,impact\}.*symbols with files\[\]=file outline.*rest are symbol modes/i);
-  assert.match(description, /exact identifiers via find_symbol\/references\/callers\/callees.*keywords via symbol_search\/search \(symbol-index terms\)/i);
-  assert.match(description, /unsupported target arrays are omitted, never mixed/i);
+  assert.match(mode, /file modes: overview\/imports\/dependents\/related\/impact.*symbols with files\[\] gives a file outline.*others are symbol modes/i);
+  assert.match(description, /exact identifiers use find_symbol\/references\/callers\/callees.*keywords use symbol_search\/search \(symbol-index terms\)/i);
+  assert.match(description, /omit unsupported target arrays; never mix them/i);
   assert.match(CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties?.files?.description || '', /supported targets only/i);
   assert.match(CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties?.symbols?.description || '', /exact identifiers.*keywords.*symbol-index terms/i);
   const grep = Object.fromEntries(BUILTIN_TOOLS.map((tool) => [tool.name, tool])).grep;
