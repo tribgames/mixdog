@@ -5,6 +5,13 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Tool routing now locates unknown repository coordinates once, assigns each
+  evidence facet to one dedicated tool, batches only independent calls, and
+  keeps text edits and verification behind the patch execution barrier.
+- Directory inspection exposes dotfiles and file metadata without Shell
+  exploration, while delegation-free workflows omit the unused Lead brief and
+  use a smaller, capability-aligned tool surface.
+
 ## v0.9.103 - 2026-08-08
 
 - Desktop navigation, composer, Studio, settings, and transcript surfaces now
