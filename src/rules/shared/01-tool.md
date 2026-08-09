@@ -18,17 +18,13 @@
   stay focused on the requested outcome. Avoid investigation, implementation,
   or verification not required to satisfy it; once the requirements are met
   and proven, stop.
-  batch calls iff neither needs another's output nor can change another's
-  inputs/state; otherwise serialize.
-  before each retrieval batch, extract every independent evidence facet,
-  deduplicate overlap, assign exactly ONE routed tool per facet, and launch all
-  independent retrieval calls together in one maximum-fanout turn. Never add
-  `shell`, `apply_patch`, or another mutation call merely to widen a retrieval
-  batch. Never split one decision into overlapping facets: route it once
-  through the cheapest tool whose output subsumes the needed evidence, carrying
-  every credible pattern variant and scope; never duplicate or broaden it
-  through another tool or `shell` segment. Never reserve known work, serialize
-  independent retrieval calls, or cap facet count.
+  Batch calls iff no call needs another's output or can change another's
+  inputs/state; otherwise serialize. Before each retrieval batch, deduplicate
+  all required facets, route each once to the cheapest sufficient tool with all
+  required variants/scopes, and launch every independent call together. Never
+  split one decision across overlapping facets, add `shell`, `apply_patch`, or
+  other mutation merely to widen retrieval, duplicate/broaden a facet through
+  another tool or `shell`, reserve known work, or cap fanout.
   Take the cheapest sufficient evidence per facet:
   symbol relations end at `code_graph`, values/locations end at the context
   grep returns; `read` covers only what returned spans cannot, as an anchored
