@@ -1,3 +1,3 @@
 # Lead Tools
 
-- Use the current project/workspace unless the request or tool requires another.
+- Use the current project unless the request/tool requires another.

@@ -13,7 +13,7 @@ import { createRequire } from 'node:module';
 const SRC_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'src');
 const DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-workflow-editor-'));
 const require = createRequire(import.meta.url);
-const { buildLeadRoleContent } = require('../src/lib/rules-builder.cjs');
+const { buildLeadMetaContent, buildLeadRoleContent } = require('../src/lib/rules-builder.cjs');
 // Both roots are env-resolved at call time; point the data dir at a scratch
 // tree so the test never reads or writes the real ~/.mixdog install.
 process.env.MIXDOG_ROOT = SRC_ROOT;
@@ -110,6 +110,9 @@ test('lead brief surface follows delegation capability, not workflow id', () => 
   assert.match(delegating, /# Lead Brief/);
   assert.doesNotMatch(delegationFree, /# Lead Brief/);
   assert.match(delegationFree, /# General/);
+  const meta = buildLeadMetaContent({ PLUGIN_ROOT: SRC_ROOT, DATA_DIR });
+  const shell = process.platform === 'win32' ? 'PowerShell' : 'Bash';
+  assert.match(meta, new RegExp(`Shell: ${shell}\\. Use ${shell} syntax`));
 });
 
 test('hidden solo-bench loads explicitly without exposing an approval gate', () => {

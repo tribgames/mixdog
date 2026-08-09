@@ -114,10 +114,13 @@ export function resolveShell() {
     if (_resolvedShell) return _resolvedShell;
     // Gate on the actual platform, NOT WINDIR/SystemRoot env presence: under
     // WSL those vars can be inherited via interop while process.platform is
-    // 'linux', and WSL must resolve /bin/sh — not Windows PowerShell.
+    // 'linux', and WSL must resolve a POSIX shell — not Windows PowerShell.
     const isWindows = process.platform === 'win32';
     if (!isWindows) {
-        _resolvedShell = shellSpec('/bin/sh', 'posix');
+        // Models routinely emit Bash parameter expansion, arrays, and
+        // `[[ ... ]]`. Prefer a real Bash wherever the host/container provides
+        // one; retain /bin/sh as the capability fallback for minimal images.
+        _resolvedShell = resolvePosixBash();
         return _resolvedShell;
     }
     const explicit = _configuredShell || process.env.MIXDOG_SHELL;
@@ -218,7 +221,8 @@ function resolvePosixBash() {
 }
 
 // Kind-aware shell resolution. kind:
-//  'default'    → identical to resolveShell() (PowerShell on Windows, /bin/sh elsewhere).
+//  'default'    → identical to resolveShell() (PowerShell on Windows, Bash on
+//                 POSIX when available, otherwise /bin/sh).
 //  'bash'       → on Windows, Git Bash (or null if not installed); elsewhere a real bash
 //                 binary (/bin/bash, /usr/bin/bash, or `bash` on PATH), falling back to
 //                 /bin/sh only when no bash exists (dash/ash distros break on bash syntax).

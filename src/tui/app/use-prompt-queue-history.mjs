@@ -2,10 +2,10 @@
 // two-phase exit (final frame flush, store dispose race, hard-exit timer),
 // queued-message restore into the draft, the engine-published prompt
 // history with its local-scan fallback, and history-nav reset.
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { PROMPT_HISTORY_LIMIT } from './transcript-window.mjs';
 import { promptHistoryKey } from './app-format.mjs';
-import { mergeQueuedRestoreText } from '../components/prompt-input/restore-policy.mjs';
+import { mergeQueuedRestoreDraft } from '../components/prompt-input/restore-policy.mjs';
 
 export function usePromptQueueHistory({
   store,
@@ -23,6 +23,8 @@ export function usePromptQueueHistory({
   setPromptDraftOverride,
   promptHistoryNavRef,
 }) {
+  const queuedRestoreInFlightRef = useRef(false);
+
   // `exiting` removes the inline caret (PromptInput draws none when disabled) and
   // freezes input for the teardown frame, so the final frame is clean before ink
   // unmounts. Exit just past the render throttle window so that frame flushes.
@@ -53,6 +55,8 @@ export function usePromptQueueHistory({
     const restoreDraft = options.restoreDraft !== false;
     const showHint = options.showHint !== false;
     const currentText = options.currentText ?? promptValueRef.current ?? promptDraft;
+    const queuedCount = Array.isArray(state?.queued) ? state.queued.length : 0;
+    if (queuedRestoreInFlightRef.current) return queuedCount > 0;
     const apply = (restored) => {
       if (!restored || restored.count === 0) {
         if (showHint) showPromptHint('No queued messages to restore.', 'info');
@@ -61,12 +65,17 @@ export function usePromptQueueHistory({
       if (restoreDraft) {
         if (restored.pastedImages) installPastedImages(restored.pastedImages, { merge: true });
         if (restored.pastedTexts) installPastedTexts(restored.pastedTexts, { merge: true });
-        const restoredText = mergeQueuedRestoreText(
-          restored.text,
-          promptValueRef.current ?? currentText,
-        );
-        syncPromptLayoutRows(restoredText);
-        setPromptDraftOverride({ id: Date.now(), value: restoredText });
+        const latestDraft = options.getCurrentDraft?.();
+        const currentDraft = latestDraft && typeof latestDraft === 'object'
+          ? latestDraft
+          : {
+              value: promptValueRef.current ?? currentText,
+              cursor: String(promptValueRef.current ?? currentText ?? '').length,
+              selectionAnchor: null,
+            };
+        const restoredDraft = mergeQueuedRestoreDraft(restored.text, currentDraft);
+        syncPromptLayoutRows(restoredDraft.value);
+        setPromptDraftOverride({ id: Date.now(), ...restoredDraft });
       }
       if (showHint) {
         showPromptHint(`restored ${restored.count} queued message${restored.count === 1 ? '' : 's'}`, 'info');
@@ -84,10 +93,15 @@ export function usePromptQueueHistory({
     // the queued message vanished instead of returning to the draft. Decide the
     // synchronous verdict from the published queue and fill the draft on settle.
     if (restored && typeof restored.then === 'function') {
-      const queuedCount = Array.isArray(state?.queued) ? state.queued.length : 0;
-      void Promise.resolve(restored).then(apply).catch(() => {
-        if (showHint) showPromptHint('Could not restore queued messages.', 'error');
-      });
+      queuedRestoreInFlightRef.current = true;
+      void Promise.resolve(restored)
+        .then(apply)
+        .catch(() => {
+          if (showHint) showPromptHint('Could not restore queued messages.', 'error');
+        })
+        .finally(() => {
+          queuedRestoreInFlightRef.current = false;
+        });
       return queuedCount > 0;
     }
     return apply(restored);

@@ -235,6 +235,19 @@ test('relays rpc calls and pushes between phone and desktop', async () => {
     ]);
     assert.equal(blocked.ok, false);
     assert.match(blocked.error, /not available over the remote bridge/);
+
+    const legacyRejected = await new Promise((resolve, reject) => {
+      const legacy = new WebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${desktop.token}`);
+      legacy.once('open', () => {
+        legacy.send(JSON.stringify({ id: 3, method: 'listProjects', params: [] }));
+      });
+      legacy.once('close', (code, reason) => resolve({ code, reason: reason.toString() }));
+      legacy.once('error', reject);
+    });
+    assert.deepEqual(legacyRejected, {
+      code: 4004,
+      reason: 'relay encryption handshake required',
+    });
     phone.close();
   } finally {
     await desktop.close();

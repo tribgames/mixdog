@@ -456,6 +456,7 @@ export function PromptInput({
       restoreDraft: true,
       showHint,
       currentText: draftRef.current.value,
+      getCurrentDraft: () => draftRef.current,
     }) === true;
   };
 
@@ -503,7 +504,14 @@ export function PromptInput({
   useEffect(() => {
     if (!draftOverride || typeof draftOverride.value !== 'string') return;
     pasteGenerationRef.current += 1;
-    commitDraft({ value: draftOverride.value, cursor: draftOverride.value.length, selectionAnchor: null }, { skipHistory: true });
+    const nextValue = draftOverride.value;
+    const nextCursor = Number.isFinite(draftOverride.cursor)
+      ? Math.max(0, Math.min(nextValue.length, draftOverride.cursor))
+      : nextValue.length;
+    const nextAnchor = Number.isFinite(draftOverride.selectionAnchor)
+      ? Math.max(0, Math.min(nextValue.length, draftOverride.selectionAnchor))
+      : null;
+    commitDraft({ value: nextValue, cursor: nextCursor, selectionAnchor: nextAnchor }, { skipHistory: true });
     resetUndo();
   }, [draftOverride?.id]);
 

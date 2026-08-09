@@ -4,7 +4,6 @@
 // readOnlyHint, destructiveHint, etc.). Descriptions carry the tool CONTRACT
 // only (behavior + argument shapes); usage policy lives in rules/shared/01-tool.md.
 import {
-    TOOL_ASYNC_EXECUTION_CONTRACT,
     executionModeSchemaDescription,
 } from '../../../../shared/background-tasks.mjs';
 
@@ -74,21 +73,21 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Mixdog Shell',
         annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run a shell command. ${TOOL_ASYNC_EXECUTION_CONTRACT} Executable/runtime/state evidence only — never a file-exploration segment anywhere in a command: NOT ls/find/cat/head/tail/grep/rg/sed — the dedicated file tools cover those. Chain dependent commands with &&.`,
+        description: 'Run a shell command. Sync inline by default; async returns task_id and sends a completion notification. Executable/runtime/state evidence only — never file exploration in any command segment: NOT ls/find/cat/head/tail/grep/rg/sed; dedicated file tools cover those. Chain dependent commands with &&.',
         inputSchema: {
             type: 'object',
             properties: {
                 command: { type: 'string', description: `Command.${_shellSyntaxCheat}` },
-                cwd: { type: 'string', description: 'Working directory; persists across calls. Omit to reuse; absolute path changes it.' },
+                cwd: { type: 'string', description: 'Working directory; persists. Omit to reuse; an absolute path changes it.' },
                 timeout: {
                     type: 'number',
                     description: `Timeout ms; default ${_shellDefaultTimeoutMs()}. `
-                        + 'Sync timeout may return task_id; explicit timeout becomes its deadline. '
+                        + 'Sync timeout may return task_id; an explicit value is its deadline. '
                         + 'Sleeps are killed, not promoted.',
                 },
                 merge_stderr: { type: 'boolean', description: 'Merge stderr.' },
                 mode: { type: 'string', enum: ['sync', 'async'], description: executionModeSchemaDescription('sync') },
-                shell: { type: 'string', enum: ['bash', 'powershell'], description: 'Force shell. Windows defaults to PowerShell; bash = Git Bash/POSIX.' },
+                shell: { type: 'string', enum: ['bash', 'powershell'], description: 'Force shell.' },
             },
             required: ['command'],
             additionalProperties: false,

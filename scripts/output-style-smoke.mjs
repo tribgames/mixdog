@@ -67,10 +67,17 @@ assert(/~5\u20137\s*\n?\s*lines/.test(simpleStyle), 'simple.md must state its li
 assert(/one or two sentences/i.test(styles.get('minimal')), 'minimal.md must state its sentence budget');
 assert(/under 100 characters/.test(styles.get('extreme-minimal')), 'extreme-minimal.md must state its character cap');
 assert(/~10\u201315\s*lines/.test(styles.get('detailed')), 'detailed.md must state its report budget');
+assert(/material fact/i.test(simpleStyle), 'simple.md must prioritize information density');
+assert(/only the net result/i.test(styles.get('minimal')), 'minimal.md must prioritize the net result');
+assert(/only the net result/i.test(styles.get('extreme-minimal')), 'extreme-minimal.md must prioritize the net result');
+assert(/each line unique/i.test(styles.get('detailed')), 'detailed.md must prioritize information density');
 for (const name of ['simple', 'detailed']) {
-  assert(styles.get(name).includes('never\n  dump raw tool output') || styles.get(name).includes('never dump raw tool output'), `${name}.md must forbid raw tool output`);
+  assert(/never(?:\s+|\n\s*)dump raw tool output/i.test(styles.get(name)), `${name}.md must forbid raw tool output`);
   assert(/blockers and failures/.test(styles.get(name)), `${name}.md must keep the blocker disclosure rule`);
+  assert(/compact[\s\S]{0,40}tables/i.test(styles.get(name)), `${name}.md must allow compact factual tables`);
+  assert(/explanations outside/i.test(styles.get(name)), `${name}.md must keep explanations outside tables`);
 }
+assert(/Fence[\s\S]{0,30}essential[\s\S]{0,30}multiline code/i.test(styles.get('detailed')), 'detailed.md must limit fenced code to essential snippets');
 
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-output-style-smoke-'));
 try {
@@ -92,7 +99,7 @@ try {
   const profileMeta = rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT: join(root, 'src'), DATA_DIR: dataDir });
   assert(profileMeta.includes('Use "\uD64D\uAE38\uB3D9\uB2D8" when directly addressing the user'), 'profile title must inject into Lead BP3 meta');
   assert(profileMeta.includes('do not repeat it in routine progress updates or pre-tool preambles'), 'profile title must not encourage title in preambles');
-  assert(/Default user-facing response language from system locale/.test(profileMeta), 'system profile language must resolve from system locale');
+  assert(/Default user-facing language from system locale/.test(profileMeta), 'system profile language must resolve from system locale');
   assert(/preambles/.test(profileMeta), 'profile language must cover preambles');
 } finally {
   rmSync(dataDir, { recursive: true, force: true });

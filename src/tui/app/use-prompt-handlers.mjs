@@ -21,7 +21,7 @@ import {
 } from '../paste-attachments.mjs';
 import { promptHistoryKey } from '../prompt-history-store.mjs';
 import { promptInterruptRestoreText } from '../components/prompt-input/interrupt-policy.mjs';
-import { PROMPT_ESCAPE_CLEAR_WINDOW_MS } from '../components/prompt-input/escape-policy.mjs';
+import { PROMPT_ESCAPE_HINT_TIMEOUT_MS } from '../components/prompt-input/escape-policy.mjs';
 
 export function usePromptHandlers({
   store,
@@ -215,11 +215,11 @@ export function usePromptHandlers({
     if (contextPanel) { setContextPanel(null); return true; }
 
     if (meta.phase === 'clear-arm') {
-      showPromptHint('Esc again to clear', 'plain', PROMPT_ESCAPE_CLEAR_WINDOW_MS);
+      showPromptHint('Esc again to clear', 'plain', PROMPT_ESCAPE_HINT_TIMEOUT_MS);
       return true;
     }
     if (meta.phase === 'select-arm') {
-      showPromptHint('Esc again to pick a message', 'plain', PROMPT_ESCAPE_CLEAR_WINDOW_MS);
+      showPromptHint('Esc again to pick a message', 'plain', PROMPT_ESCAPE_HINT_TIMEOUT_MS);
       return true;
     }
     if (meta.phase === 'select') {

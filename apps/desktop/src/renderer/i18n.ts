@@ -16,6 +16,7 @@ import ru from "./locales/ru.json";
 import vi from "./locales/vi.json";
 import zhCN from "./locales/zh-CN.json";
 import zhTW from "./locales/zh-TW.json";
+import { supplementalUiTranslations } from "./auto-i18n";
 
 /** Selectable UI languages with their native display names (settings picker).
  *  RTL locales stay out until the chrome grows mirrored-layout support. */
@@ -103,17 +104,17 @@ void i18next.init({
   lng: resolveUiLanguage(),
   fallbackLng: false,
   resources: {
-    de: { translation: de },
-    es: { translation: es },
-    fr: { translation: fr },
-    it: { translation: it },
-    ja: { translation: ja },
-    ko: { translation: ko },
-    "pt-BR": { translation: ptBR },
-    ru: { translation: ru },
-    vi: { translation: vi },
-    "zh-CN": { translation: zhCN },
-    "zh-TW": { translation: zhTW },
+    de: { translation: { ...de, ...supplementalUiTranslations("de") } },
+    es: { translation: { ...es, ...supplementalUiTranslations("es") } },
+    fr: { translation: { ...fr, ...supplementalUiTranslations("fr") } },
+    it: { translation: { ...it, ...supplementalUiTranslations("it") } },
+    ja: { translation: { ...ja, ...supplementalUiTranslations("ja") } },
+    ko: { translation: { ...ko, ...supplementalUiTranslations("ko") } },
+    "pt-BR": { translation: { ...ptBR, ...supplementalUiTranslations("pt-BR") } },
+    ru: { translation: { ...ru, ...supplementalUiTranslations("ru") } },
+    vi: { translation: { ...vi, ...supplementalUiTranslations("vi") } },
+    "zh-CN": { translation: { ...zhCN, ...supplementalUiTranslations("zh-CN") } },
+    "zh-TW": { translation: { ...zhTW, ...supplementalUiTranslations("zh-TW") } },
   },
   nsSeparator: false,
   keySeparator: false,
@@ -128,5 +129,10 @@ void i18next.init({
 export function t(key: string, options?: Record<string, unknown>): string {
   return String(i18next.t(key, options));
 }
+
+// Used only by the legacy DOM compatibility localizer for interpolated
+// hardcoded strings. Keeping the list on the function avoids another catalog
+// import in the renderer entry.
+(t as unknown as { autoKeys: string[] }).autoKeys = Object.keys(supplementalUiTranslations("ko"));
 
 export default i18next;

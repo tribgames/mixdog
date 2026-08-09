@@ -19,16 +19,21 @@ import {
   type RelayE2EEChannel,
   type RelayE2EEPairingMaterial,
 } from '../shared/remote-e2ee';
+import {
+  REMOTE_PAIRING_STORAGE_KEYS,
+  clearStoredRemotePairing,
+  isInvalidRemotePairingClose,
+} from './remote-pairing-recovery';
 
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
-const TOKEN_STORAGE_KEY = 'mixdog.remote-token';
-const SERVER_STORAGE_KEY = 'mixdog.remote-server';
+const TOKEN_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.token;
+const SERVER_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.server;
 // Sticky proof that this pairing has worked at least once. Without it a shell
 // reopened while the desktop sleeps counts three quick retries and throws the
 // pairing screen over a perfectly valid pairing.
-const PAIRED_STORAGE_KEY = 'mixdog.remote-paired';
-const E2EE_PUBLIC_KEY_STORAGE_KEY = 'mixdog.remote-e2ee-public-key';
-const E2EE_SECRET_STORAGE_KEY = 'mixdog.remote-e2ee-secret';
+const PAIRED_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.paired;
+const E2EE_PUBLIC_KEY_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eePublicKey;
+const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
 
 (() => {
   const w = window as Window & { mixdogDesktop?: DesktopApi };
@@ -77,7 +82,7 @@ const E2EE_SECRET_STORAGE_KEY = 'mixdog.remote-e2ee-secret';
       e2eeSecret = localStorage.getItem(E2EE_SECRET_STORAGE_KEY) || '';
     }
   } catch { /* token stays empty; the bridge refuses the socket */ }
-  const e2eePairing: RelayE2EEPairingMaterial | null =
+  let e2eePairing: RelayE2EEPairingMaterial | null =
     e2eePublicKey && e2eeSecret
       ? { version: 1, serverPublicKey: e2eePublicKey, pairingSecret: e2eeSecret }
       : null;
@@ -693,7 +698,7 @@ const E2EE_SECRET_STORAGE_KEY = 'mixdog.remote-e2ee-secret';
           try { ws.close(); } catch { /* reconnect loop handles it */ }
         });
       };
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
         if (socket === ws) socket = null;
         openPromise = null;
@@ -706,6 +711,17 @@ const E2EE_SECRET_STORAGE_KEY = 'mixdog.remote-e2ee-secret';
         for (const entry of [...pending.values()]) entry.reject(failure);
         pending.clear();
         if (!opened) reject(failure);
+        if (isInvalidRemotePairingClose(event)) {
+          try { clearStoredRemotePairing(localStorage); } catch { /* private storage */ }
+          serverBase = '';
+          token = '';
+          e2eePairing = null;
+          everPaired = false;
+          showPairingScreen(
+            'This pairing is no longer valid. Scan the current QR from Settings → Connection.',
+          );
+          return;
+        }
         scheduleReconnect();
       };
     });

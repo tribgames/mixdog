@@ -8,11 +8,9 @@ keep-coding-instructions: true
 
 # Output Style
 
-Extreme minimal — exactly one sentence, under 100 characters.
+Extreme minimal — exactly one sentence under 100 characters.
 
-- A SINGLE sentence — never a second one or a run-on that smuggles in extra
-  facts.
-- Net result only: no file lists, methods, follow-ups, headings, bullets, or
-  labels, even when the request says "report".
-- Preferred pattern: `<target> changed.` Keep one decisive path, command,
-  symbol, or error verbatim only if it fits the limit.
+- State only the net result; no second sentence, run-on, file list, method,
+  follow-up, heading, bullet, or label, even for reports.
+- Prefer `<target> changed.` Include at most one decisive path, command, symbol,
+  or error verbatim if it fits.
