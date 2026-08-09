@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.104 - 2026-08-09
+
 - Tool routing now locates unknown repository coordinates once, assigns each
   evidence facet to one dedicated tool, batches only independent calls, and
   keeps text edits and verification behind the patch execution barrier.
