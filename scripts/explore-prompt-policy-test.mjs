@@ -184,7 +184,7 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   const policy = rule.replace(/\s+/g, ' ');
   // 1. Baseline routing is canonical; explore is only the unknown-coordinate
   // fast path and never owns analysis or solutions.
-  assert.match(policy, /Baseline routing assigns each facet directly by the evidence needed[\s\S]*`explore`, when exposed, is a fast path only for facets whose repository coordinates remain unknown[\s\S]*returns the minimal complete direct `path:line` anchors, not analysis or solutions[\s\S]*resume baseline routing from those anchors/i);
+  assert.match(policy, /Baseline routing assigns each facet directly by the evidence needed[\s\S]*`explore`, when exposed, is a fast path only for facets whose repository coordinates remain unknown[\s\S]*returns direct `path:line` anchors, not analysis or solutions[\s\S]*resume baseline routing from them/i);
   assert.doesNotMatch(policy, /Git state|executable availability/i);
   for (const route of [
     /path\/name only→`find`/i,
@@ -203,12 +203,12 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   // Classified facets use baseline routes directly; shell stays outside.
   assert.match(policy, /Baseline routing assigns each facet directly by the evidence needed/i);
   assert.match(policy, /evidence unavailable to file tools—an independent facet, batched with the rest/i);
-  assert.match(policy, /conclusive result ends its facet[\s\S]*never broaden, repeat, or reconfirm[\s\S]*prior output is needed to form the next call[\s\S]*on failure rerun only the failed check/i);
-  // Shortest-turn batching without speculative re-reads: dependency includes
-  // need/scope decisions, satisfied dependents are dropped, and returned
-  // content is never re-acquired.
-  assert.match(policy, /known state — task\/brief-supplied facts, returned content, and the effects of your own successful calls — is never re-acquired/i);
-  assert.match(policy, /\(as input or to decide its need\/scope\)[\s\S]*drop a call whose deciding evidence already suffices/i);
+  assert.match(policy, /conclusive result ends its facet[\s\S]*never re-acquired, broadened, or reconfirmed/i);
+  // Shortest-route batching without speculative re-reads: only argument
+  // construction creates a dependency, and returned content is not reacquired.
+  assert.match(policy, /Plan the fewest dependent rounds, then the fewest calls/i);
+  assert.match(policy, /known state — task\/brief-supplied facts, returned content, your own successful calls' effects — is never re-acquired/i);
+  assert.match(policy, /Batch calls iff none needs another's output or can change another's inputs\/state; otherwise serialize/i);
   // 2. Negative shell steering lives on the shell tool description (reference
   // parity); the rule mentions shell only for batched final verification.
   assert.doesNotMatch(policy, /process\/env, git, build\/run\/test→`shell`|Call `shell` only when/i);
@@ -224,21 +224,20 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   assert.match(descOf('glob'), /Replaces find -name\./);
   assert.match(policy, /explicit paths may be outside cwd/i);
   assert.match(policy, /project-relative paths[\s\S]*omit optional scopes equal to its root/i);
-  // Guessed identities (paths, module specifiers, record shapes) are facets:
-  // verified before anything depends on them, never acted on as known.
-  assert.match(policy, /Act only on verified identities[\s\S]*guessed identity is itself a facet[\s\S]*cheapest batched probe \(one lookup or sample record\)[\s\S]*before anything depends on it/i);
+  // Guessed identities are verified only when the next concrete action uses
+  // them, never speculatively.
+  assert.match(policy, /Act only on verified identities[\s\S]*guessed identity is verified by one lookup or sample only when the next call or edit references it/i);
   // 3. Retrieval fans out maximally, while execution and mutation retain
   // their own phase boundary.
-  assert.match(policy, /`explore`, when exposed, is a fast path only[\s\S]*call it first once for all such independent facets in one query array[\s\S]*minimal complete direct `path:line` anchors[\s\S]*resume baseline routing from those anchors/i);
+  assert.match(policy, /`explore`, when exposed, is a fast path only[\s\S]*call it first once for all such independent facets in one query array[\s\S]*direct `path:line` anchors[\s\S]*anchors are tool-verified coordinates that END their location facets[\s\S]*resume baseline routing from them/i);
   assert.match(policy, /Baseline routing assigns each facet directly by the evidence needed/i);
-  assert.match(policy, /Batch calls iff no call needs another's output \(as input or to decide its need\/scope\) or can change another's inputs\/state; otherwise serialize[\s\S]*Before each retrieval batch[\s\S]*deduplicate every facet the task still requires[\s\S]*route each once to the cheapest sufficient tool[\s\S]*all required variants\/scopes[\s\S]*launch every independent call together[\s\S]*Never split one decision across overlapping facets[\s\S]*duplicate\/broaden a facet through another tool[\s\S]*add `shell`\/`apply_patch` mutation merely to widen retrieval[\s\S]*reserve known work[\s\S]*cap fanout/i);
-  assert.match(policy, /Once the edit is determined[\s\S]*one assistant turn[\s\S]*one `apply_patch` per file or cohesive unit[\s\S]*all patches first[\s\S]*one batched verification `shell` for required postconditions only[\s\S]*runtime waits for every patch and skips the shell if any fails[\s\S]*Retry only failed envelopes[\s\S]*Create or edit text only with `apply_patch`, never `shell`[\s\S]*Earlier `shell` is only for[\s\S]*executable\/runtime\/state evidence/i);
-  assert.doesNotMatch(policy, /before every tool batch|whatever the tool|every turn, widest probe to last|one `apply_patch` for all edits and one `shell` chain|otherwise finish without it|Prefer parallel calls when independent|risk-proportionate|rerun only failures|zero\/error or a newly revealed dependency|cross-scope verification/i);
-  assert.match(policy, /Take the cheapest sufficient evidence per facet[\s\S]*symbol relations end at `code_graph`[\s\S]*values\/locations end at the context grep returns[\s\S]*`read` covers only what returned spans cannot[\s\S]*anchored offset\/limit window[\s\S]*never a full-file read when a window suffices/i);
-  assert.match(policy, /adjacent context around an edit point counts as needed evidence[\s\S]*The moment evidence determines the edit, stop retrieving and patch/i);
-  assert.match(policy, /cheapest sufficient tool[\s\S]*required variants\/scopes[\s\S]*Never split one decision across overlapping facets[\s\S]*duplicate\/broaden a facet through another tool/i);
-  assert.match(policy, /never broaden, repeat, or reconfirm\. Follow up only/i);
-  assert.match(policy, /prior output is needed to form the next call/i);
+  assert.match(policy, /Before each batch[\s\S]*deduplicate the facets still required[\s\S]*cheapest sufficient tool with all required variants\/scopes[\s\S]*launch every independent call together[\s\S]*never split or duplicate a facet across tools[\s\S]*reserve known work, or cap fanout/i);
+  assert.match(policy, /Once the edit or deliverable is determined, finish in one assistant turn[\s\S]*one `apply_patch` per file or cohesive unit, all patches first[\s\S]*one batched verification `shell` that runs the real required postconditions on every changed file and produced artifact, never echoes a claim[\s\S]*Retry only failed envelopes[\s\S]*rerun a failed check only after a fix that can change its result, else report it unresolved[\s\S]*computed artifacts \(data\/reports\/derived values\) come from `shell` computation, never hand-transcribed numbers/i);
+  assert.doesNotMatch(policy, /before every tool batch|whatever the tool|every turn, widest probe to last|otherwise finish without it|Prefer parallel calls when independent|risk-proportionate|rerun only failures|zero\/error or a newly revealed dependency|cross-scope verification/i);
+  assert.match(policy, /Symbol relations end at `code_graph`[\s\S]*values\/locations end at the context grep returns[\s\S]*`read` covers only what returned spans cannot[\s\S]*anchored offset\/limit window/i);
+  assert.match(policy, /known-root[\s\S]*unknown descendants/i);
+  assert.match(policy, /The moment evidence determines the edit, stop retrieving and patch/i);
+  assert.match(policy, /never re-acquired, broadened, or reconfirmed/i);
   const leadToolPolicy = readFileSync(new URL('../src/rules/lead/lead-tool.md', import.meta.url), 'utf8');
   const leadGeneralPolicy = readFileSync(new URL('../src/rules/lead/01-general.md', import.meta.url), 'utf8');
   assert.doesNotMatch(leadToolPolicy, /cross-scope verification/i);
@@ -443,6 +442,8 @@ test('explore locates; location-freeze policy lives in shared rules', () => {
   // Baseline routing is canonical; explore only accelerates unknown coordinates.
   assert.match(policy, /Baseline routing assigns each facet directly by the evidence needed/i);
   assert.match(policy, /`explore`, when exposed, is a fast path only for facets whose repository coordinates remain unknown/i);
-  assert.match(policy, /minimal complete direct `path:line` anchors, not analysis or solutions/i);
-  assert.match(policy, /resume baseline routing from those anchors/i);
+  assert.match(policy, /direct `path:line` anchors, not analysis or solutions/i);
+  // Anchors are conclusive: the location facet ends at explore's answer.
+  assert.match(policy, /anchors are tool-verified coordinates that END their location facets/i);
+  assert.match(policy, /resume baseline routing from them/i);
 });

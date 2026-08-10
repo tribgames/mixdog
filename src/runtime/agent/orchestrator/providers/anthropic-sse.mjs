@@ -47,7 +47,13 @@ function _captureMidstreamAbort(state, reason) {
     const reasonName = reason?.name || '';
     if (reasonName === 'AgentStallAbortError' || reasonName === 'StreamStalledAbortError') {
         state.watchdogAbort = reasonName;
-    } else {
+    } else if (reasonName !== 'ProviderTimeoutError' && reasonName !== 'StreamStalledError') {
+        // Internal timeout/stall abort reasons are transport symptoms, not a
+        // caller decision. Recording them as userAbort silently vetoed the
+        // mid-stream retry ladder (_classifyMidstreamSse returns null on
+        // userAbort → the turn surfaced as an instant unlogged failure).
+        // Leaving state untouched keeps them classifiable by the thrown error
+        // itself (EPROVIDERTIMEOUT/ESTREAMSTALL → transient/stall retry).
         state.userAbort = true;
     }
 }

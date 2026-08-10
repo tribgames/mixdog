@@ -6,6 +6,7 @@
 import { createHash, randomUUID } from 'crypto';
 import { getProvider } from '../../providers/registry.mjs';
 import { readStreamOutcome } from '../../providers/lib/stream-outcome.mjs';
+import { classifyError } from '../../providers/retry-classifier.mjs';
 import { normalizeCompactType, DEFAULT_COMPACT_TYPE } from '../compact.mjs';
 import { loadSession, saveSession, saveSessionAsync, saveSessionAsyncDeferred, readSessionLifecycleFromDisk } from '../store.mjs';
 import { createAbortController } from '../../../../shared/abort-controller.mjs';
@@ -1145,6 +1146,29 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 } catch { /* retain checkpoint when canonical persistence fails */ }
             }
             if (_errorStateDurable) clearTurnCheckpoint(sessionId, _turnCheckpointToken);
+            // Durable failure identity: every surfaced (non-cancel) turn error
+            // logs ONE structured line to stderr — the shard host mirrors it
+            // into daemon.log — so post-hoc diagnosis never depends on the
+            // renderer's ephemeral failure toast.
+            try {
+                const _status = Number(err?.httpStatus || err?.status || err?.response?.status || 0) || 0;
+                const _parts = [
+                    `session=${sessionId}`,
+                    `name=${err?.name || 'Error'}`,
+                    _status ? `status=${_status}` : null,
+                    err?.code ? `code=${err.code}` : null,
+                    err?.providerErrorType ? `type=${err.providerErrorType}` : null,
+                    `kind=${classifyError(err)}`,
+                    Number.isFinite(Number(err?.attempts)) ? `attempts=${err.attempts}` : null,
+                    Number.isFinite(Number(err?.midstreamRetries)) ? `midstreamRetries=${err.midstreamRetries}` : null,
+                    err?.midstreamClassifier ? `midstream=${err.midstreamClassifier}` : null,
+                    err?.requestId ? `requestId=${err.requestId}` : null,
+                    _providerOutcome.observedOutput === true ? 'observedOutput=1' : null,
+                    _providerOutcome.replayUnsafe === true ? 'replayUnsafe=1' : null,
+                    `msg=${JSON.stringify(String(err?.message || err).slice(0, 300))}`,
+                ].filter(Boolean);
+                process.stderr.write(`[ask-error] ${_parts.join(' ')}\n`);
+            } catch { /* diagnostics must never mask the original failure */ }
             markSessionError(sessionId, err && err.message ? err.message : String(err));
             throw err;
         }

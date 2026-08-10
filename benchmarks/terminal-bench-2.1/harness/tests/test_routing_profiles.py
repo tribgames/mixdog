@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -2338,6 +2339,83 @@ export async function createMixdogSessionRuntime() {
             )
         self.assertEqual(result.returncode, 86, result.stderr)
         self.assertNotIn("refusal fallback", result.stderr)
+
+    def test_periodic_mirror_snapshots_lazy_lead_session_before_external_kill(self) -> None:
+        if shutil.which("node") is None:
+            self.skipTest("Node.js is not installed")
+        # Lazy session creation: rt.sessionId stays empty until the first ask,
+        # and that ask never settles — a Harbor-style external kill is the only
+        # exit, so no driver finalization path runs. The periodic mirror must
+        # still capture the live Lead transcript.
+        runtime_stub = """
+export async function createMixdogSessionRuntime() {
+  const session = { id: '', tools: [], messages: [] };
+  let activeSessionId = '';
+  return {
+    get sessionId() { return activeSessionId; },
+    get session() { return activeSessionId ? session : undefined; },
+    onNotification() {},
+    async setWorkflow() {},
+    async setEffort() {},
+    async setFast() {},
+    agentStatus() { return { agentJobs: [] }; },
+    abort() {},
+    async close() {},
+    async ask() {
+      activeSessionId = 'lazy-lead-session';
+      session.id = activeSessionId;
+      session.messages.push({ role: 'user', content: 'stub task' });
+      await new Promise(() => {});
+    },
+  };
+}
+"""
+        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
+        with tempfile.TemporaryDirectory(prefix="mixdog-lazy-mirror-") as temp:
+            root = Path(temp)
+            src = root / "src"
+            data = root / "data"
+            logs = root / "logs"
+            (src / "session-runtime").mkdir(parents=True)
+            data.mkdir()
+            logs.mkdir()
+            (src / "mixdog-session-runtime.mjs").write_text(
+                runtime_stub, encoding="utf-8"
+            )
+            (src / "session-runtime" / "workflow.mjs").write_text(
+                workflow_stub, encoding="utf-8"
+            )
+            transcript = logs / "session-transcript.json"
+            proc = subprocess.Popen(
+                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
+                cwd=BENCH_ROOT,
+                env={
+                    **os.environ,
+                    "MIXDOG_SRC": str(src),
+                    "MIXDOG_DATA_DIR": str(data),
+                    "MIXDOG_PROMPT": "lazy mirror",
+                    "MIXDOG_BOOT_JITTER_MS": "0",
+                    "MIXDOG_USAGE_MIRROR_MS": "50",
+                    "MIXDOG_USAGE_LOG": str(logs / "usage.json"),
+                    "MIXDOG_SESSION_TRANSCRIPT_LOG": str(transcript),
+                },
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                deadline = time.monotonic() + 10.0
+                while time.monotonic() < deadline and not transcript.exists():
+                    time.sleep(0.05)
+            finally:
+                proc.kill()
+                proc.wait(timeout=5)
+            self.assertTrue(
+                transcript.exists(),
+                "periodic mirror never captured the lazily created Lead session",
+            )
+            document = json.loads(transcript.read_text(encoding="utf-8"))
+        self.assertEqual(document["id"], "lazy-lead-session")
+        self.assertEqual(document["messages"][0]["content"], "stub task")
 
     def test_driver_exits_86_for_lead_refusal_with_streamed_narration(self) -> None:
         if shutil.which("node") is None:

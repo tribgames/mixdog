@@ -69,7 +69,7 @@ const APPLY_PATCH_JSON_DESCRIPTION = [
   '[file sections]',
   '*** End Patch',
   'Each section starts with exactly one: *** Add File: <path> (+ lines), *** Delete File: <path> (header only), or *** Update File: <path> (optional *** Move to: <new path>).',
-  'Hunks start with @@ or @@ <symbol>; lines start space, -, or +; optional *** End of File.',
+  'Hunks start with @@ or @@ <symbol|1-based line>; lines start space, -, or +; optional *** End of File.',
   'Use 3 verbatim context lines from newest output (post-patch body after edits); avoid overlap; stack @@ only if ambiguous.',
   'Project-relative paths; explicit absolute paths only outside the project; + every added line. Never send compacted-history markers; re-read first.',
 ].join('\n');
@@ -77,7 +77,7 @@ const APPLY_PATCH_JSON_DESCRIPTION = [
 const COMPACT_PATCH_JSON_DESCRIPTION = [
   'Edit with a compact patch.',
   'Sections: A <path> (+ lines), D <path>, or U <path> (optional M <new path>).',
-  'Optional first line R <root>. Update hunks start @ or @ <symbol>; lines start space, -, or +; optional *** End of File.',
+  'Optional first line R <root>. Update hunks start @ or @ <symbol|1-based line>; lines start space, -, or +; optional *** End of File.',
   'Use 3 verbatim context lines. Project-relative paths; absolute only outside the project.',
 ].join('\n');
 

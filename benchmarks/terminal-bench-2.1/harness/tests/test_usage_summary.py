@@ -50,27 +50,17 @@ class UsageSummaryTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            # The driver writes its fixed container path; map that path through
-            # a tiny source rewrite so this unit test remains host-safe.
-            test_driver = data_dir / "lead_driver.mjs"
-            test_driver.write_text(
-                LEAD_DRIVER.read_text(encoding="utf-8").replace(
-                    "const USAGE_LOG = '/logs/agent/usage.json';",
-                    f"const USAGE_LOG = {json.dumps(str(data_dir / 'usage.json'))};",
-                ).replace(
-                    "mkdirSync('/logs/agent', { recursive: true });",
-                    f"mkdirSync({json.dumps(str(data_dir))}, {{ recursive: true }});",
-                ),
-                encoding="utf-8",
-            )
+            # The driver's container log paths are env-overridable, so this
+            # unit test stays host-safe without rewriting the source.
             transcript_path = data_dir / "session-transcript.json"
             result = subprocess.run(
-                ["node", str(test_driver)],
+                ["node", str(LEAD_DRIVER)],
                 env={
                     **os.environ,
                     "MIXDOG_DATA_DIR": str(data_dir),
                     "MIXDOG_USAGE_SUMMARY_ONLY": "1",
                     "MIXDOG_LEAD_SESSION_ID": "sess-lead",
+                    "MIXDOG_USAGE_LOG": str(data_dir / "usage.json"),
                     "MIXDOG_SESSION_TRANSCRIPT_LOG": str(transcript_path),
                 },
                 capture_output=True,

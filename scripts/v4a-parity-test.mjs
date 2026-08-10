@@ -131,11 +131,11 @@ test('a mid-file hunk marked *** End of File still applies, with a notice', asyn
   });
 });
 
-test('a target outside the write root is refused until a root is named', async () => {
+test('relative and absolute targets outside the session cwd apply without a root', async () => {
   await withWorkspace(async ({ base, outside }) => {
     const target = join(outside, 'f.txt');
     writeFileSync(target, 'one\n', 'utf8');
-    const patch = [
+    const relativePatch = [
       '*** Begin Patch',
       '*** Update File: ../outside/f.txt',
       '@@',
@@ -144,15 +144,23 @@ test('a target outside the write root is refused until a root is named', async (
       '*** End Patch',
       '',
     ].join('\n');
-    const refused = assertRejected(await applyPatch(base, patch, { root: null }));
-    assert.match(refused, /outside the write root/i);
-    assert.equal(read(target), 'one\n', 'a refused patch must not write');
-    assertApplied(await applyPatch(base, patch, { root: resolve(base, '..') }));
+    assertApplied(await applyPatch(base, relativePatch, { root: null }));
     assert.equal(read(target), 'ONE\n');
+    const absolutePatch = [
+      '*** Begin Patch',
+      `*** Update File: ${target}`,
+      '@@',
+      '-ONE',
+      '+TWO',
+      '*** End Patch',
+      '',
+    ].join('\n');
+    assertApplied(await applyPatch(base, absolutePatch, { root: null }));
+    assert.equal(read(target), 'TWO\n');
   });
 });
 
-test('a freeform Root directive deliberately permits an outside target', async () => {
+test('a freeform Root directive sets the coordinate frame for an outside target', async () => {
   await withWorkspace(async ({ root, base, outside }) => {
     const target = join(outside, 'f.txt');
     writeFileSync(target, 'one\n', 'utf8');
@@ -363,6 +371,74 @@ test('stacked @@ headers narrow one hunk to the right occurrence', async () => {
       'class B:\n    def run():\n        value = 1\n        return value',
       'class B:\n    def run():\n        value = 1\n        return value * 2',
     ));
+  });
+});
+
+test('a bare numeric anchor is absorbed as a 1-based line hint when no line contains it', async () => {
+  await withWorkspace(async ({ base }) => {
+    const target = join(base, 'plus_comm.v');
+    const source = [
+      'Require Import Arith.',
+      '',
+      'Theorem plus_comm : forall n m : nat,',
+      '  n + m = m + n.',
+      'Proof.',
+      '  intros n m.',
+      "  induction n as [|n' IHn'].",
+      '  - simpl.',
+      '    admit.',
+      'Qed.',
+      '',
+    ].join('\n');
+    writeFileSync(target, source, 'utf8');
+    // `@@ 7` names the 1-based line of the first context line below. The
+    // digits appear in no file line, so every content pass misses and the
+    // number resolves as a position hint; the body seek then validates the
+    // real context from that line instead of failing the whole section.
+    assertApplied(await applyPatch(base, [
+      '*** Begin Patch',
+      '*** Update File: plus_comm.v',
+      '@@ 7',
+      "   induction n as [|n' IHn'].",
+      '   - simpl.',
+      '-    admit.',
+      '+    apply Nat.add_0_r.',
+      '*** End Patch',
+      '',
+    ].join('\n')));
+    assert.equal(read(target), source.replace('    admit.', '    apply Nat.add_0_r.'));
+  });
+});
+
+test('a numeric anchor still resolves when its digits appear elsewhere as text', async () => {
+  await withWorkspace(async ({ base }) => {
+    const target = join(base, 'g.txt');
+    const source = [
+      'alpha',
+      'beta',
+      'target_old',
+      'gamma',
+      'delta',
+      'value = 3',
+      'omega',
+      '',
+    ].join('\n');
+    writeFileSync(target, source, 'utf8');
+    // `@@ 3` names the first changed line, but the digit also occurs in
+    // `value = 3` further down; the content pass anchors there and the
+    // forward body seek misses. The declared line number must still win as a
+    // positional claim, backed off by the hunk's leading context line.
+    assertApplied(await applyPatch(base, [
+      '*** Begin Patch',
+      '*** Update File: g.txt',
+      '@@ 3',
+      ' beta',
+      '-target_old',
+      '+target_new',
+      '*** End Patch',
+      '',
+    ].join('\n')));
+    assert.equal(read(target), source.replace('target_old', 'target_new'));
   });
 });
 
