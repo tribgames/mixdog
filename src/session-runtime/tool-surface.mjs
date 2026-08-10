@@ -17,6 +17,7 @@ export function createToolSurface({
   getSession,
   getRoute,
   getConfig,
+  getMcpScopeId = () => null,
   cfgMod,
   loadWorkflowPack,
   activeWorkflowId,
@@ -62,13 +63,13 @@ export function createToolSurface({
 
   function buildPreSessionSurface() {
     const previewTools = typeof mgr.previewSessionTools === 'function'
-      ? mgr.previewSessionTools(toolSpecForMode(mode), [])
+      ? mgr.previewSessionTools(toolSpecForMode(mode), [], { mcpScopeId: getMcpScopeId() })
       : [];
     const tools = filterDisallowedTools(previewTools, [
       ...LEAD_DISALLOWED_TOOLS,
       ...getFeatureDisallowedTools(),
     ]);
-    const surface = { tools: Array.isArray(tools) ? tools.slice() : [] };
+    const surface = { tools: Array.isArray(tools) ? tools.slice() : [], mcpScopeId: getMcpScopeId() };
     applyDeferredToolSurface(surface, deferredSurfaceModeForLead(mode), modelStandaloneTools(), {
       provider: getRoute().provider,
     });

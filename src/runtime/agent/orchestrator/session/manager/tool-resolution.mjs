@@ -18,8 +18,8 @@ import { getHiddenAgent, listHiddenAgentNames } from '../../internal-agents.mjs'
 // tools array verbatim, so any reorder rewrites the prefix.
 // No cache: getMcpTools() and getInternalTools() are O(n) in-memory reads;
 // the sort overhead on ~30 tools is negligible.
-function _getMcpTools() {
-    const mcp = getMcpTools() || [];
+function _getMcpTools(mcpScopeId = null) {
+    const mcp = getMcpTools(mcpScopeId) || [];
     // `public:false` tools stay registered in internal-tools for runtime
     // rewrites/dispatch, but must never enter any model-visible schema (Lead
     // full/mcp included). Filter before mapping because the projection below
@@ -229,8 +229,8 @@ const ALL_BUILTIN_SESSION_TOOLS = orderSessionTools(_dedupByName([
     ...CODE_GRAPH_TOOL_DEFS,
 ]));
 
-export function resolveSessionTools(toolSpec, skills, { ownerIsAgentSession = false } = {}) {
-    const mcp = _getMcpTools();
+export function resolveSessionTools(toolSpec, skills, { ownerIsAgentSession = false, mcpScopeId = null } = {}) {
+    const mcp = _getMcpTools(mcpScopeId);
     // Agent sessions freeze the skill meta-tool into the schema
     // unconditionally — concrete skill resolution is cwd-scoped at tool-call
     // time (loop.mjs), so the schema bytes stay bit-identical across roles /

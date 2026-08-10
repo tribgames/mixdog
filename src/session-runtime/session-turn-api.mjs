@@ -246,7 +246,7 @@ export function createSessionTurnApi(deps) {
           // Slower servers remain available through the late-tool path.
           try { await awaitTurn(() => awaitMcpGrace()); }
           catch { /* gate must never break the turn */ }
-          try { refreshInitialDeferredMcpSurface(session0, getMcpTools()); }
+          try { refreshInitialDeferredMcpSurface(session0, getMcpTools(session0.mcpScopeId)); }
           catch { /* first-turn MCP fold must never break the turn */ }
         } else {
           // AFTER FIRST TURN: fold in MCP tools whose servers finished their
@@ -263,7 +263,7 @@ export function createSessionTurnApi(deps) {
           try { await awaitTurn(() => awaitMcpGrace()); }
           catch { /* gate must never break the turn */ }
           try {
-            reconcileDeferredMcpToolCatalog(session0, getMcpTools(), {
+            reconcileDeferredMcpToolCatalog(session0, getMcpTools(session0.mcpScopeId), {
               // Deliver the late-tool announcement through the pending-message
               // queue so it rides inside the next real user turn as a persisted
               // system-reminder (no synthetic user + '.' assistant pair).

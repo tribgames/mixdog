@@ -25,6 +25,7 @@ export function createSpawnFlow({
   upsertWorkerSessionDeferred,
   refreshTagsFromSessions,
   defaultCwd,
+  mcpScopeId = null,
   nextTag,
   cancelReap,
   bindTag,
@@ -228,6 +229,7 @@ export function createSpawnFlow({
       maxLoopIterations: positiveInt(args.maxLoopIterations) || undefined,
       permission: agentPerm || undefined,
       cacheKeyOverride: args.cacheKey || undefined,
+      mcpScopeId,
     };
   }
 

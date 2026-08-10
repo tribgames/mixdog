@@ -178,7 +178,8 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
         return viewSkill(cwd, args?.name);
     }
     if (isMcpTool(name)) {
-        if (!isOnDeferredToolSurface(sessionRef, name) && !isRegisteredMcpTool(name)) {
+        const mcpScopeId = sessionRef?.mcpScopeId || null;
+        if (!isOnDeferredToolSurface(sessionRef, name) && !isRegisteredMcpTool(name, mcpScopeId)) {
             return formatUnknownBuiltinToolMessage(name, args, 'tool');
         }
         // 24h trace data shows ~24% of external MCP calls are cwd-sensitive
@@ -187,12 +188,13 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
         // inputSchema declares the field — schemas without it would reject
         // an unknown argument.
         const needsCwdInjection = cwd
-            && mcpToolHasField(name, 'cwd')
+            && mcpToolHasField(name, 'cwd', mcpScopeId)
             && (args == null || args.cwd == null);
         const finalArgs = needsCwdInjection ? { ...(args || {}), cwd } : args;
         return executeMcpTool(name, finalArgs, {
             signal: executeOpts.signal || null,
             ownerKey: callerSessionId,
+            scopeId: mcpScopeId,
         });
     }
     if (name === 'code_graph') {

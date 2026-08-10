@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import keychain from '../lib/keychain-cjs.cjs';
 import './hitch-profile.mjs';
 import { ensureStandaloneEnvironment } from '../standalone/seeds.mjs';
@@ -335,6 +336,7 @@ export async function createMixdogSessionRuntime({
   // Shared mutable runtime state, promoted from closure `let`s so extracted
   // modules can read/write live values through one reference.
   const rt = {};
+  rt.mcpScopeId = randomUUID();
   rt.desktopSession = initialDesktopSession;
   // Agent shard spread: a daemon-hosted worker runtime carries the resolved
   // agent session spec; session creation routes through prepareAgentSession
@@ -656,6 +658,7 @@ export async function createMixdogSessionRuntime({
     mcpClient,
     getConfig: () => rt.config,
     getCurrentCwd: () => rt.currentCwd,
+    getMcpScopeId: () => rt.mcpScopeId,
     getDesktopSession: () => rt.desktopSession,
     setDesktopSession: (v) => { rt.desktopSession = v; },
     state: mcpState,
@@ -750,6 +753,7 @@ export async function createMixdogSessionRuntime({
     mgr,
     dataDir: cfgMod.getPluginData(),
     cwd,
+    mcpScopeId: rt.mcpScopeId,
     awaitKeychainPrewarm,
     isKeychainPrewarmReady: () => rt.keychainPrewarmWaitDone,
     // SubagentStart/SubagentStop: bridge internal worker spawn/finish to the
@@ -843,6 +847,7 @@ export async function createMixdogSessionRuntime({
     getSession: () => rt.session,
     getRoute: () => rt.route,
     getConfig: () => rt.config,
+    getMcpScopeId: () => rt.mcpScopeId,
     cfgMod,
     loadWorkflowPack,
     activeWorkflowId,
@@ -854,6 +859,7 @@ export async function createMixdogSessionRuntime({
     getSession: () => rt.session,
     getRoute: () => rt.route,
     getCurrentCwd: () => rt.currentCwd,
+    getMcpScopeId: () => rt.mcpScopeId,
     getMode: () => rt.mode,
   });
   const computeContextStatusForSession = (session) => {

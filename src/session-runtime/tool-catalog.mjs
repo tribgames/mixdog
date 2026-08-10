@@ -311,7 +311,7 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   }
   if (!session.deferredToolBp1Applied && session.messages?.some((m) => m?.role === 'system')) {
     if (!session.mcpServerInstructions || typeof session.mcpServerInstructions !== 'object') {
-      session.mcpServerInstructions = getMcpServerInstructionsMap();
+      session.mcpServerInstructions = getMcpServerInstructionsMap(session.mcpScopeId);
     }
     applyInitialDeferredToolManifestToBp1(session, deferredPoolToolNames(session));
   }
@@ -352,7 +352,7 @@ export function rebuildDeferredToolSurfaceForProvider(session, provider) {
   }
   if (previousMode && previousMode !== session.deferredProviderMode) {
     if (session.deferredProviderMode === 'native') {
-      session.mcpServerInstructions = getMcpServerInstructionsMap();
+      session.mcpServerInstructions = getMcpServerInstructionsMap(session.mcpScopeId);
       applyInitialDeferredToolManifestToBp1(session, deferredPoolToolNames(session), { rebuild: true });
       const rendered = session.messages?.find((message) => message?.role === 'system')?.content;
       session.deferredAnnouncedTools = deferredPoolToolNames(session)
@@ -409,7 +409,7 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
   }
   // Refresh MCP server instructions so a newly-connected server's block is
   // included when BP1 is re-rendered below.
-  session.mcpServerInstructions = getMcpServerInstructionsMap();
+  session.mcpServerInstructions = getMcpServerInstructionsMap(session.mcpScopeId);
   const applied = applyInitialDeferredToolManifestToBp1(session, deferredPoolToolNames(session), { rebuild: true });
   if (!applied) return false;
   // Pre-mark ONLY the names that ACTUALLY landed in the rebuilt BP1 manifest as

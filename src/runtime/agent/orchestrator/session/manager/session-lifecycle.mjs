@@ -249,7 +249,10 @@ export function createSession(opts) {
     const toolSpec = ownerIsAgent
         ? (isReadOnlyAgentBundle ? 'readonly' : 'full')
         : (Array.isArray(profile?.tools) ? profile.tools : toolPreset);
-    let toolsForRouting = resolveSessionTools(toolSpec, skills, { ownerIsAgentSession: ownerIsAgent });
+    let toolsForRouting = resolveSessionTools(toolSpec, skills, {
+        ownerIsAgentSession: ownerIsAgent,
+        mcpScopeId: opts.mcpScopeId || null,
+    });
     // Fail-closed permission intersection: when a session declares an explicit
     // object-form permission, intersect the
     // resolved tool list with the permission's allow/deny lists. If the
@@ -371,6 +374,7 @@ export function createSession(opts) {
         agent: opts.agent,
         owner: opts.owner || 'user',
         mcpPid: process.pid,
+        mcpScopeId: opts.mcpScopeId || null,
         scopeKey: opts.scopeKey || null,
         lane: opts.lane || 'agent',
         cwd: opts.cwd,
@@ -530,7 +534,10 @@ function _prepareResumeTools(session, preset) {
             if (!ownerIsAgent && Array.isArray(profile?.tools)) toolSpec = profile.tools;
         } catch { /* ignore lookup failures, keep preset fallback */ }
     }
-    let toolsForRouting = resolveSessionTools(toolSpec, skills, { ownerIsAgentSession: ownerIsAgent });
+    let toolsForRouting = resolveSessionTools(toolSpec, skills, {
+        ownerIsAgentSession: ownerIsAgent,
+        mcpScopeId: session.mcpScopeId || null,
+    });
     if (ownerIsAgent) {
         toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, session.toolPermission, session.agent || null);
     }
@@ -563,8 +570,10 @@ function _rememberPreparedResume(sessionId, prepared) {
 
 function _preparedResumeForSession(session, preset) {
     const cached = _preparedResumes.get(session.id);
-    if (cached?.session === session && cached?.preset === preset) return cached;
+    if (cached?.session === session && cached?.preset === preset
+        && cached?.mcpScopeId === (session.mcpScopeId || null)) return cached;
     const prepared = _prepareResumeTools(session, preset);
+    prepared.mcpScopeId = session.mcpScopeId || null;
     _rememberPreparedResume(session.id, prepared);
     return prepared;
 }
@@ -745,6 +754,9 @@ export async function resumeSession(sessionId, preset, options = {}) {
         session.desktopSession = expectedDesktop;
     }
     if (!session.owner) session.owner = 'user';
+    if (Object.prototype.hasOwnProperty.call(options, 'mcpScopeId')) {
+        session.mcpScopeId = String(options.mcpScopeId || '').trim() || null;
+    }
     if (_isActivelyOwnedElsewhere(session, sessionId)) {
         // ATTACH (viewer mode, zero ownership): hand back the live transcript
         // under the SAME id, flagged remoteAttached. No tool refresh, no save,
@@ -764,6 +776,7 @@ export async function resumeSession(sessionId, preset, options = {}) {
     const cached = _preparedResumes.get(sessionId);
     _preparedResumes.delete(sessionId);
     const prepared = cached?.session === session && cached?.preset === preset
+        && cached?.mcpScopeId === (session.mcpScopeId || null)
         ? cached
         : _prepareResumeTools(session, preset);
     // Keep the persisted tool mode in sync on resume (see createSession note).

@@ -28,6 +28,10 @@ const DEFAULT_MCP_STARTUP_TIMEOUT_MS = 10000;
 const servers = new Map();
 const reconnects = createKeyedSingleflight();
 const callAdmissions = new Map();
+const DEFAULT_MCP_SCOPE_ID = 'global';
+const _knownMcpScopes = new Set([DEFAULT_MCP_SCOPE_ID]);
+const _connectAbortGenerations = new Map();
+const _pendingConnects = new Set();
 let mcpSdkPromise = null;
 // Memo for mcpToolHasField(name, field) — keyed by `${toolName}|${field}`.
 // The lookup (regex parse + servers Map get + tools.find + schema property
@@ -38,6 +42,30 @@ let mcpSdkPromise = null;
 const _mcpToolFieldMemo = new Map();
 function _invalidateMcpToolFieldMemo() {
     _mcpToolFieldMemo.clear();
+}
+function normalizeMcpScopeId(value) {
+    const raw = value && typeof value === 'object' ? value.scopeId : value;
+    const scopeId = String(raw || '').trim();
+    return scopeId || DEFAULT_MCP_SCOPE_ID;
+}
+function mcpServerRegistryKey(scopeId, name) {
+    return `${normalizeMcpScopeId(scopeId)}\u0000${String(name || '')}`;
+}
+function scopedServer(scopeId, name) {
+    return servers.get(mcpServerRegistryKey(scopeId, name));
+}
+function scopedServerEntries(scopeId) {
+    const normalized = normalizeMcpScopeId(scopeId);
+    return [...servers.entries()].filter(([, server]) => server?.scopeId === normalized);
+}
+function currentConnectAbortGeneration(scopeId) {
+    return _connectAbortGenerations.get(normalizeMcpScopeId(scopeId)) || 0;
+}
+function bumpConnectAbortGeneration(scopeId) {
+    const normalized = normalizeMcpScopeId(scopeId);
+    const next = currentConnectAbortGeneration(normalized) + 1;
+    _connectAbortGenerations.set(normalized, next);
+    return next;
 }
 function mcpLog(line) {
     if (process.env.MIXDOG_QUIET_MCP_LOG) return;
@@ -106,12 +134,14 @@ export function resolveMcpTransportKind(cfg) {
  * Connect to MCP servers defined in config.
  * Supports stdio (child process) and http (Streamable HTTP) transports.
  */
-export async function connectMcpServers(config) {
+export async function connectMcpServers(config, options = {}) {
+    const scopeId = normalizeMcpScopeId(options);
+    _knownMcpScopes.add(scopeId);
     // Capture the abort generation SYNCHRONOUSLY at entry: the boot path fires
     // this un-awaited, so a runtime close can land while connectServer is still
     // loading the SDK. A capture taken any later would already see the bumped
     // generation and register the server anyway (leaking its stdio child).
-    const genAtStart = _connectAbortGeneration;
+    const genAtStart = currentConnectAbortGeneration(scopeId);
     const failures = [];
     const entries = Object.entries(config).filter(([name, cfg]) => {
         if (cfg?.enabled === false) {
@@ -123,7 +153,7 @@ export async function connectMcpServers(config) {
     // Connect all servers in PARALLEL: a slow/hung server (bounded by its
     // per-server startup timeout) must never delay the others' handshakes.
     const settled = await Promise.allSettled(
-        entries.map(([name, cfg]) => connectServer(name, cfg, genAtStart)),
+        entries.map(([name, cfg]) => connectServer(name, cfg, scopeId, genAtStart)),
     );
     settled.forEach((res, i) => {
         if (res.status !== 'rejected') return;
@@ -143,15 +173,15 @@ export async function connectMcpServers(config) {
  * Get all tool definitions from connected MCP servers.
  * Tool names are prefixed: `mcp__{serverName}__{toolName}`
  */
-export function getMcpTools() {
+export function getMcpTools(scopeId = DEFAULT_MCP_SCOPE_ID) {
     const tools = [];
-    for (const server of servers.values()) {
+    for (const [, server] of scopedServerEntries(scopeId)) {
         tools.push(...server.tools);
     }
     return tools;
 }
-export function getMcpServerStatus() {
-    return [...servers.values()].map((server) => ({
+export function getMcpServerStatus(scopeId = DEFAULT_MCP_SCOPE_ID) {
+    return scopedServerEntries(scopeId).map(([, server]) => ({
         name: server.name,
         connected: true,
         toolCount: Array.isArray(server.tools) ? server.tools.length : 0,
@@ -173,7 +203,8 @@ function positiveInt(value, fallback) {
     return Number.isFinite(parsed) && parsed >= 1 ? parsed : fallback;
 }
 function callAdmissionFor(server) {
-    let gate = callAdmissions.get(server.name);
+    const registryKey = server.registryKey || mcpServerRegistryKey(server.scopeId, server.name);
+    let gate = callAdmissions.get(registryKey);
     if (gate) return gate;
     const cfg = server?.cfg || {};
     gate = createOwnerFairGate({
@@ -192,44 +223,53 @@ function callAdmissionFor(server) {
             30_000,
         ),
     });
-    callAdmissions.set(server.name, gate);
+    gate.mcpServerName = server.name;
+    gate.mcpScopeId = server.scopeId;
+    callAdmissions.set(registryKey, gate);
     return gate;
 }
-function closeCallAdmission(name, reason) {
-    const gate = callAdmissions.get(name);
+function closeCallAdmission(scopeId, name, reason) {
+    const registryKey = mcpServerRegistryKey(scopeId, name);
+    const gate = callAdmissions.get(registryKey);
     if (!gate) return;
-    callAdmissions.delete(name);
+    callAdmissions.delete(registryKey);
     gate.close(reason || `MCP ${name} disconnected`);
 }
-export function getMcpAdmissionSnapshot() {
-    return [...callAdmissions.entries()].map(([name, gate]) => ({
-        name,
+export function getMcpAdmissionSnapshot(options = undefined) {
+    const scoped = options !== undefined;
+    const scopeId = scoped ? normalizeMcpScopeId(options) : null;
+    return [...callAdmissions.values()]
+      .filter((gate) => !scoped || gate.mcpScopeId === scopeId)
+      .map((gate) => ({
+        name: gate.mcpServerName,
+        scopeId: gate.mcpScopeId,
         ...gate.snapshot(),
     }));
 }
 
 /** Snapshot of MCP initialize `instructions` per connected server (handshake time). */
-export function getMcpServerInstructionsMap() {
+export function getMcpServerInstructionsMap(scopeId = DEFAULT_MCP_SCOPE_ID) {
     const out = {};
-    for (const server of servers.values()) {
+    for (const [, server] of scopedServerEntries(scopeId)) {
         const text = typeof server.instructions === 'string' ? server.instructions.trim() : '';
         if (text) out[server.name] = text;
     }
     return out;
 }
 
-async function reconnectMcpServer(serverName, failedServer) {
-    return reconnects.run(serverName, async () => {
-        const current = servers.get(serverName);
+async function reconnectMcpServer(scopeId, serverName, failedServer) {
+    const registryKey = mcpServerRegistryKey(scopeId, serverName);
+    return reconnects.run(registryKey, async () => {
+        const current = servers.get(registryKey);
         // A peer already completed the replacement while this failed call was
         // unwinding. Reuse it immediately instead of closing a fresh transport.
         if (current && current !== failedServer) return current;
         if (current) {
             await _closeServer(current);
-            if (servers.get(serverName) === current) servers.delete(serverName);
+            if (servers.get(registryKey) === current) servers.delete(registryKey);
         }
-        await connectServer(serverName, failedServer.cfg);
-        const replacement = servers.get(serverName);
+        await connectServer(serverName, failedServer.cfg, scopeId);
+        const replacement = servers.get(registryKey);
         if (!replacement) {
             throw new Error(`reconnect succeeded but server "${serverName}" entry is missing from registry`);
         }
@@ -247,7 +287,8 @@ export async function executeMcpTool(name, args, options = {}) {
     if (!match)
         throw new Error(`Not an MCP tool name: ${name}`);
     const [, serverName, toolName] = match;
-    const server = servers.get(serverName);
+    const scopeId = normalizeMcpScopeId(options);
+    const server = scopedServer(scopeId, serverName);
     if (!server)
         throw new Error(`MCP server "${serverName}" not connected`);
     const gate = callAdmissionFor(server);
@@ -264,7 +305,7 @@ export async function executeMcpTool(name, args, options = {}) {
             mcpLog(`[mcp-client] Tool call failed, attempting shared reconnect...\n`);
             let retryServer;
             try {
-                retryServer = await reconnectMcpServer(serverName, server);
+                retryServer = await reconnectMcpServer(scopeId, serverName, server);
             } catch (reconnectErr) {
                 const reconnectMsg = reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr);
                 throw new Error(`Tool call failed: ${firstMsg}; reconnect also failed: ${reconnectMsg}`);
@@ -415,12 +456,12 @@ export function isMcpTool(name) {
     return name.startsWith('mcp__');
 }
 /** True when the prefixed name exists on a connected MCP server. */
-export function isRegisteredMcpTool(name) {
+export function isRegisteredMcpTool(name, scopeId = DEFAULT_MCP_SCOPE_ID) {
     if (!isMcpTool(name)) return false;
     const match = name.match(/^mcp__(.+?)__(.+)$/);
     if (!match) return false;
     const [, serverName] = match;
-    const server = servers.get(serverName);
+    const server = scopedServer(scopeId, serverName);
     if (!server || !Array.isArray(server.tools)) return false;
     return server.tools.some((t) => t?.name === name);
 }
@@ -430,14 +471,15 @@ export function isRegisteredMcpTool(name) {
  * (e.g. cwd) into the args before dispatch — schemas that don't declare the
  * field would reject the unknown argument.
  */
-export function mcpToolHasField(name, field) {
-    const memoKey = `${name}|${field}`;
+export function mcpToolHasField(name, field, scopeId = DEFAULT_MCP_SCOPE_ID) {
+    const normalizedScopeId = normalizeMcpScopeId(scopeId);
+    const memoKey = `${normalizedScopeId}|${name}|${field}`;
     const memoized = _mcpToolFieldMemo.get(memoKey);
     if (memoized !== undefined) return memoized;
     const match = name.match(/^mcp__(.+?)__(.+)$/);
     if (!match) { _mcpToolFieldMemo.set(memoKey, false); return false; }
     const [, serverName] = match;
-    const server = servers.get(serverName);
+    const server = scopedServer(normalizedScopeId, serverName);
     if (!server) { _mcpToolFieldMemo.set(memoKey, false); return false; }
     const tool = server.tools.find((t) => t.name === name);
     if (!tool) { _mcpToolFieldMemo.set(memoKey, false); return false; }
@@ -449,14 +491,24 @@ export function mcpToolHasField(name, field) {
 /**
  * Disconnect all MCP servers.
  */
-export async function disconnectAll() {
+export async function disconnectAll(options = undefined) {
+    const hasExplicitScope = options && typeof options === 'object'
+        && Object.prototype.hasOwnProperty.call(options, 'scopeId');
+    const scopes = hasExplicitScope
+        ? new Set([normalizeMcpScopeId(options)])
+        : new Set([
+            ..._knownMcpScopes,
+            ...[...servers.values()].map((server) => server.scopeId),
+            ...[..._pendingConnects].map((entry) => entry.scopeId),
+        ]);
     // Abort handshakes still in flight: bump the generation so a connect that
     // completes after this point tears itself down instead of registering, and
     // reap any already-spawned stdio child now so its ref'd ChildProcess handle
     // can't keep the event loop alive (close-during-connect previously leaked
     // the uvx/npx wrapper tree and hung process exit).
-    _connectAbortGeneration++;
+    for (const scopeId of scopes) bumpConnectAbortGeneration(scopeId);
     for (const entry of [..._pendingConnects]) {
+        if (!scopes.has(entry.scopeId)) continue;
         _pendingConnects.delete(entry);
         // Mid-handshake child: nothing to shut down gracefully — hard-kill the
         // tree without holding the event loop (this path runs during process
@@ -466,13 +518,14 @@ export async function disconnectAll() {
         try { void entry.client.close().catch(() => { /* ignore */ }); }
         catch { /* ignore */ }
     }
-    for (const [name, server] of servers) {
+    for (const [registryKey, server] of [...servers]) {
+        if (!scopes.has(server.scopeId)) continue;
         try {
             await _closeServer(server);
         }
         catch { /* ignore */ }
-        servers.delete(name);
-        closeCallAdmission(name, `MCP ${name} disconnected`);
+        servers.delete(registryKey);
+        closeCallAdmission(server.scopeId, server.name, `MCP ${server.name} disconnected`);
     }
     _invalidateMcpToolFieldMemo();
 }
@@ -482,15 +535,17 @@ export async function disconnectAll() {
  * it, and invalidates the tool-field memo. Lets callers toggle one server
  * without a full disconnectAll()/reconnect cycle.
  */
-export async function disconnectMcpServer(name) {
-    const server = servers.get(name);
+export async function disconnectMcpServer(name, options = {}) {
+    const scopeId = normalizeMcpScopeId(options);
+    const registryKey = mcpServerRegistryKey(scopeId, name);
+    const server = servers.get(registryKey);
     if (!server) return false;
     try {
         await _closeServer(server);
     }
     catch { /* ignore */ }
-    servers.delete(name);
-    closeCallAdmission(name, `MCP ${name} disconnected`);
+    servers.delete(registryKey);
+    closeCallAdmission(scopeId, name, `MCP ${name} disconnected`);
     _invalidateMcpToolFieldMemo();
     return true;
 }
@@ -515,9 +570,9 @@ async function _closeServer(server) {
 // to see (and tear down) their transports, because `servers` only lists fully
 // handshaken entries. Generation token aborts a connect that outlives a
 // disconnectAll() issued mid-handshake (runtime close during boot connect).
-let _connectAbortGeneration = 0;
-const _pendingConnects = new Set();
-async function connectServer(name, cfg, genAtStart = _connectAbortGeneration) {
+async function connectServer(name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID, genAtStart = currentConnectAbortGeneration(scopeId)) {
+    scopeId = normalizeMcpScopeId(scopeId);
+    _knownMcpScopes.add(scopeId);
     const {
         Client,
         StdioClientTransport,
@@ -525,7 +580,7 @@ async function connectServer(name, cfg, genAtStart = _connectAbortGeneration) {
         SSEClientTransport,
         WebSocketClientTransport,
     } = await loadMcpSdk();
-    if (genAtStart !== _connectAbortGeneration) {
+    if (genAtStart !== currentConnectAbortGeneration(scopeId)) {
         // disconnectAll() ran while the SDK was loading: nothing spawned yet —
         // abort before creating a transport/child at all.
         throw new Error(`MCP server "${name}" connect aborted by shutdown`);
@@ -623,7 +678,7 @@ async function connectServer(name, cfg, genAtStart = _connectAbortGeneration) {
     else {
         throw new Error(`Invalid config for "${name}": need autoDetect, type (stdio/http/sse/ws), url (http), or command (stdio)`);
     }
-    const pending = { name, client, transport };
+    const pending = { scopeId, name, client, transport };
     _pendingConnects.add(pending);
     try {
         // Bound the connect + listTools handshake so a slow/hung server can't
@@ -682,7 +737,7 @@ async function connectServer(name, cfg, genAtStart = _connectAbortGeneration) {
         if (!toolsResult || !Array.isArray(toolsResult.tools)) {
             throw new Error(`[mcp-client] ListTools returned invalid shape for "${name}": missing or non-array tools field`);
         }
-        if (genAtStart !== _connectAbortGeneration) {
+        if (genAtStart !== currentConnectAbortGeneration(scopeId)) {
             // disconnectAll() ran mid-handshake: never register — tear down.
             try { await _closeServer({ client, transport }); }
             catch { /* ignore */ }
@@ -695,11 +750,55 @@ async function connectServer(name, cfg, genAtStart = _connectAbortGeneration) {
             ...(t.annotations && typeof t.annotations === 'object' ? { annotations: t.annotations } : {}),
         }));
         const toolNames = tools.map(t => t.name);
-        servers.set(name, { name, client, transport, tools, cfg, instructions, generation: genAtStart });
+        const registryKey = mcpServerRegistryKey(scopeId, name);
+        servers.set(registryKey, {
+            scopeId,
+            registryKey,
+            name,
+            client,
+            transport,
+            tools,
+            cfg,
+            instructions,
+            generation: genAtStart,
+        });
         _invalidateMcpToolFieldMemo();
         mcpLog(`[mcp] connected: ${tools.length} tools — ${toolNames.join(', ')}\n`);
     }
     finally {
         _pendingConnects.delete(pending);
     }
+}
+
+// Test seam for registry scoping without launching an MCP transport.
+export function _registerMcpServerForTest(scopeId, name, rawTools = [], options = {}) {
+    const normalizedScopeId = normalizeMcpScopeId(scopeId);
+    const registryKey = mcpServerRegistryKey(normalizedScopeId, name);
+    const tools = rawTools.map((tool) => ({
+        ...tool,
+        name: String(tool?.name || '').startsWith('mcp__')
+            ? String(tool.name)
+            : `mcp__${name}__${String(tool?.name || '')}`,
+        inputSchema: tool?.inputSchema || { type: 'object', properties: {} },
+    }));
+    const server = {
+        scopeId: normalizedScopeId,
+        registryKey,
+        name,
+        tools,
+        cfg: options.cfg || {},
+        instructions: options.instructions || '',
+        transport: null,
+        client: {
+            callTool: typeof options.callTool === 'function'
+                ? options.callTool
+                : async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+            close: async () => {},
+        },
+        generation: currentConnectAbortGeneration(normalizedScopeId),
+    };
+    _knownMcpScopes.add(normalizedScopeId);
+    servers.set(registryKey, server);
+    _invalidateMcpToolFieldMemo();
+    return server;
 }

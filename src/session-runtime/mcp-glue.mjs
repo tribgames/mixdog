@@ -33,8 +33,10 @@ export function createMcpGlue({
   mcpClient,
   getConfig,
   getCurrentCwd,
+  getMcpScopeId = () => null,
   state,
 }) {
+  const scopeOptions = () => ({ scopeId: getMcpScopeId() });
   function mcpTransportLabel(cfg = {}) {
     if (cfg.autoDetect) return `autoDetect:${cfg.autoDetect}`;
     try {
@@ -77,7 +79,7 @@ export function createMcpGlue({
       return { servers: [], configuredCount: 0, connectedCount: 0, failedCount: 0 };
     }
     const { servers: configured, sources } = resolveEffectiveMcpServers();
-    const connected = new Map((mcpClient.getMcpServerStatus?.() || []).map((row) => [row.name, row]));
+    const connected = new Map((mcpClient.getMcpServerStatus?.(getMcpScopeId()) || []).map((row) => [row.name, row]));
     const failures = new Map((state.mcpFailures || []).map((row) => [row.name, row]));
     const servers = [];
     for (const [name, cfg] of Object.entries(configured)) {
@@ -125,16 +127,16 @@ export function createMcpGlue({
       state.mcpFailures = state.mcpFailures.filter((row) => row.name !== target);
     }
     if (enabled === false) {
-      await mcpClient.disconnectMcpServer?.(target);
+      await mcpClient.disconnectMcpServer?.(target, scopeOptions());
       return;
     }
     const cfg = servers[target];
     if (!cfg) return;
     // Drop any existing live entry first so connectMcpServers doesn't overwrite
     // the registry Map entry and leak the old transport/process.
-    await mcpClient.disconnectMcpServer?.(target);
+    await mcpClient.disconnectMcpServer?.(target, scopeOptions());
     try {
-      await mcpClient.connectMcpServers({ [target]: cfg });
+      await mcpClient.connectMcpServers({ [target]: cfg }, scopeOptions());
     } catch (error) {
       const failures = Array.isArray(error?.failures)
         ? error.failures
@@ -147,8 +149,8 @@ export function createMcpGlue({
     if (envFlag('MIXDOG_DISABLE_MCP')) {
       ++state.mcpConnectGeneration;
       state.mcpFailures = [];
-      if (only) await mcpClient.disconnectMcpServer?.(only);
-      else await mcpClient.disconnectAll?.();
+      if (only) await mcpClient.disconnectMcpServer?.(only, scopeOptions());
+      else await mcpClient.disconnectAll?.(scopeOptions());
       return mcpStatus();
     }
     // Scoped single-server toggle: non-superseding. It must NEVER cancel a
@@ -192,12 +194,12 @@ export function createMcpGlue({
     }
     if (gen !== state.mcpConnectGeneration) return mcpStatus();
     const run = (async () => {
-      if (reset) await mcpClient.disconnectAll?.();
+      if (reset) await mcpClient.disconnectAll?.(scopeOptions());
       state.mcpFailures = [];
       const { servers } = resolveEffectiveMcpServers();
       if (Object.keys(servers).length === 0) return;
       try {
-        await mcpClient.connectMcpServers(servers);
+        await mcpClient.connectMcpServers(servers, scopeOptions());
       } catch (error) {
         state.mcpFailures = Array.isArray(error?.failures)
           ? error.failures

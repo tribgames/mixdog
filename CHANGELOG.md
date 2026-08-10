@@ -5,6 +5,10 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- MCP clients, tool discovery, instructions, execution, deferred refresh, and
+  teardown are isolated by runtime scope so same-named servers cannot leak
+  across concurrent sessions or standalone agents.
+
 ## v0.9.105 - 2026-08-10
 
 - Remote access is web-app only: the retired Capacitor/Android package,
