@@ -92,7 +92,6 @@ check('a pure-bash command blocked by the PowerShell preflight now runs in bash'
   const out = await executeBuiltinTool('shell', { command: 'echo rescue-ok | head -1' }, workspace, {});
   assert.ok(!isError(out), out);
   assert.match(String(out), /rescue-ok/);
-  assert.match(String(out), /Git Bash/);
   return null;
 });
 
@@ -158,17 +157,17 @@ check('a drive path that lost its separators names the cause (logged 2x)', () =>
   assert.doesNotMatch(String(buildNotFoundHint(workspace, 'C:/tmp/smp', 'Read') || ''), /lost in escaping/i);
 });
 
-// ── 6. Legitimate non-zero exits are labelled, not classified as failures ───
-check('a report-style exit 1 (output, no stderr) is not a failure', () => {
+// ── 6. Completed non-zero commands are results, not tool failures ───────────
+check('every completed non-zero process exit is a command result', () => {
   assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, stdout: '[probe] {"frames":121}\n', stderr: '' }), true);
-  // Every failure shape stays a failure.
-  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, stdout: 'ok\n', stderr: 'boom' }), false);
-  assert.equal(isLegitimateShellExit({ exitCode: 2, signal: null, stdout: 'ok\n', stderr: '' }), false);
+  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, stdout: 'ok\n', stderr: 'boom' }), true);
+  assert.equal(isLegitimateShellExit({ exitCode: 2, signal: null, stdout: 'ok\n', stderr: '' }), true);
+  assert.equal(isLegitimateShellExit({ exitCode: 127, signal: null, stdout: '', stderr: 'command not found' }), true);
+  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, stdout: '(no output)', stderr: '' }), true);
+  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, stdout: 'TAP version 13\nnot ok 1 - broken\n', stderr: '' }), true);
   assert.equal(isLegitimateShellExit({ exitCode: 1, signal: 'SIGKILL', stdout: 'ok\n', stderr: '' }), false);
-  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, stdout: '(no output)', stderr: '' }), false);
-  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, stdout: 'TAP version 13\nnot ok 1 - broken\n', stderr: '' }), false);
-  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, stdout: 'AssertionError: nope\n', stderr: '' }), false);
-  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, stdout: 'npm ERR! code 1\n', stderr: '' }), false);
+  assert.equal(isLegitimateShellExit({ exitCode: 1, signal: null, timedOut: true }), false);
+  assert.equal(classifyResultKind('[exit code: 7]\n\n(no output)'), 'normal');
 });
 
 check('live shell: a report-style exit 1 carries its code without an error banner', async () => {
@@ -181,20 +180,24 @@ check('live shell: a report-style exit 1 carries its code without an error banne
   const text = String(result);
   assert.ok(!isError(text), `report-style exit must not be framed as an error: ${text}`);
   assert.match(text, /\[exit code: 1\]/);
-  assert.match(text, /\[completed: the command finished/);
+  assert.match(text, /\[completed: shell executed the command/);
   assert.match(text, /frames/);
   assert.equal(explicitSuccess, true, 'a legitimate exit must classify as normal');
   assert.equal(classifyResultKind(text, explicitSuccess), 'normal');
 });
 
-check('live shell: a failing test-style exit 1 stays an error', async () => {
+check('live shell: a test failure is returned as command data', async () => {
   const script = "console.log('TAP version 13'); console.log('not ok 1 - broken'); process.exit(1);";
   const raw = await executeBuiltinTool('shell', {
     command: `node -e "${script}"`,
     ...(isWindows ? { shell: 'bash' } : {}),
   }, workspace, {});
-  const { result } = normalizeToolEnvelope(raw);
-  assert.ok(isError(String(result)), `a reported test failure must stay an error: ${result}`);
+  const { result, explicitSuccess } = normalizeToolEnvelope(raw);
+  const text = String(result);
+  assert.ok(!isError(text), `a completed command must not be a tool error: ${text}`);
+  assert.match(text, /\[exit code: 1\]/);
+  assert.match(text, /not ok 1 - broken/);
+  assert.equal(explicitSuccess, true);
 });
 
 // ── 7. Inline scripts run as files, so shell quoting cannot break them ──────

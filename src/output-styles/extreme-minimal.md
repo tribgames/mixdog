@@ -10,7 +10,5 @@ keep-coding-instructions: true
 
 Extreme minimal — exactly one sentence under 100 characters.
 
-- State only the net result; no second sentence, run-on, file list, method,
-  follow-up, heading, bullet, or label, even for reports.
-- Prefer `<target> changed.` Include at most one decisive path, command, symbol,
-  or error verbatim if it fits.
+- Net result only; no second sentence, list, heading, label, or follow-up.
+- At most one decisive path, command, symbol, or error verbatim if it fits.

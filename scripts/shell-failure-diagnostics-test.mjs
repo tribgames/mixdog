@@ -8,16 +8,29 @@ import { classifyToolFailure } from '../src/runtime/agent/orchestrator/agent-tra
 import { ExecResult, execShellCommand } from '../src/runtime/agent/orchestrator/tools/shell-command.mjs';
 import { _composeShellFailure, _shellFailureStatus } from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
 import { isShellFailureResult } from '../src/runtime/agent/orchestrator/session/result-classification.mjs';
+import { shellCommandExitCode } from '../src/tui/session/tool-result-status.mjs';
+import { stripShellExitHeader } from '../src/tui/session/tool-result-text.mjs';
 
 test('shell outcome is read from status markers, never a leading Error: line', () => {
-  // Real failures, including a warning-prefixed shell failure.
-  assert.equal(isShellFailureResult('Error: [shell-run-failed] [exit code: 2]\n\nboom'), true);
+  // Completed process exits are results; control-plane/interruption is failure.
+  assert.equal(isShellFailureResult('Error: [shell-run-failed] [exit code: 2]\n\nboom'), false);
   assert.equal(isShellFailureResult('Error: [shell-tool-failed] PowerShell preflight blocked this command'), true);
   assert.equal(isShellFailureResult('⚠️ destructive command warning\nError: [shell-run-failed] [signal: SIGKILL]'), true);
-  assert.equal(isShellFailureResult('[exit code: 7]\n\n(no output)'), true);
+  assert.equal(isShellFailureResult('[exit code: 7]\n\n(no output)'), false);
   // Command stdout that merely starts with "Error:" is NOT a shell failure.
   assert.equal(isShellFailureResult('Error: not really — this is stdout\n'), false);
   assert.equal(isShellFailureResult('ok\n'), false);
+});
+
+test('TUI renders new and legacy completed command exits as Exit N', () => {
+  assert.equal(shellCommandExitCode('[exit code: 7]\n[completed: command result]\n\nboom'), 7);
+  assert.equal(shellCommandExitCode('Error: [shell-run-failed] [exit code: 2]\n\nboom'), 2);
+  assert.equal(shellCommandExitCode('[session: s1]\n[exit code: 3]\n[closed]\n\nboom'), 3);
+  assert.equal(shellCommandExitCode('[signal: SIGKILL]\n\nboom'), null);
+  assert.equal(
+    stripShellExitHeader('[exit code: 7]\n[completed: command result]\n\nboom'),
+    'boom',
+  );
 });
 
 test('shell trace classification uses only the leading status marker', () => {

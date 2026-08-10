@@ -5,6 +5,14 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Shell commands that complete with a non-zero exit are treated as command
+  results rather than tool failures, with consistent runtime and TUI status.
+- Tool routing, explorer limits, output-style contracts, and their regression
+  suites are tightened to avoid redundant work while preserving concise
+  user-facing reports.
+- Compact patch roots now establish both the write boundary and relative path
+  coordinate frame, including clearer recovery guidance.
+
 ## v0.9.108 - 2026-08-10
 
 - Compact patch parsing accepts legacy Begin/End wrappers around compact

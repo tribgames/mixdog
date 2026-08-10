@@ -1,16 +1,15 @@
 ---
 name: minimal
 title: Minimal
-description: One- or two-sentence summary
+description: Net result within 400 characters
 keep-coding-instructions: true
 ---
 
 # Output Style
 
-Minimal — one or two sentences with only the net result.
+Minimal — net result in plain sentences; hard cap 400 characters.
 
-- Add the second only for one indispensable fact; no run-on.
-- Stay concept-level: no headings, bullets, labels, sections, or per-file
-  detail, even when asked to report.
-- Prefer `<target> changed.` Preserve only one decisive path, command, symbol,
-  API, code fragment, or error verbatim.
+- Concept level only: no headings, bullets, labels, or per-file detail, even
+  for reports.
+- Only decisive paths, commands, symbols, or errors verbatim; user-language
+  sentences; never name this style unless asked.
