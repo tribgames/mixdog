@@ -1,4 +1,4 @@
-// Relay client (stage 2 of the mobile companion): the desktop dials OUT to
+// Relay client for the installable web app: the desktop dials OUT to
 // the relay server (apps/relay/server.mjs) and answers the same RPC frames
 // the LAN bridge answers, so a phone anywhere on the internet reaches this
 // machine without port forwarding. The phone-leg wire protocol is identical

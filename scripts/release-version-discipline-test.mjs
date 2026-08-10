@@ -21,8 +21,6 @@ test('workspace versions stay synchronized and the development protocol stays at
     'package-lock.json',
     'apps/desktop/package.json',
     'apps/desktop/package-lock.json',
-    'apps/mobile/package.json',
-    'apps/mobile/package-lock.json',
     'apps/relay/package.json',
   ].map((relativePath) => ({
     relativePath,

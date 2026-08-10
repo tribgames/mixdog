@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Mixdog remote relay (stage 2 of the mobile companion).
+// Mixdog remote relay for the installable web app.
 //
 // Topology: the desktop keeps ONE outbound WebSocket to this relay (so no
 // port-forwarding/NAT work on the user side), phones connect here with the
@@ -574,9 +574,9 @@ function serveStatic(rendererDir, store, unauthorizedLimiter, request, response)
     response.writeHead(200, { 'Content-Type': 'application/json' }).end('{"status":"ok"}');
     return;
   }
-  // Token gate: the web app and APK are for paired phones only. The pairing
-  // QR carries ?token= on the entry URL; a cookie forwards it to asset/APK
-  // requests. Bots probing GET / see 401, never the app shell.
+  // Token gate: the web app is for paired browsers only. The pairing QR
+  // carries ?token= on the entry URL; a cookie forwards it to asset requests.
+  // Bots probing GET / see 401, never the app shell.
   const queryToken = url.searchParams.get('token') || '';
   const token = queryToken || parseCookieToken(request.headers.cookie);
   if (!token || !store.deviceIdForClientToken(token)) {

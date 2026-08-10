@@ -265,13 +265,8 @@ test('Connection keeps a QR-sized loading shell until the pairing code is ready'
       port: 4317,
       urls: ['http://127.0.0.1:4317'],
       browserUrl: 'http://127.0.0.1:4317',
-      appLink: 'mixdog://pair',
-      apkUrl: 'http://127.0.0.1:4317/mixdog.apk',
       browserQrSvg: '<svg data-qr="lan-browser"></svg>',
-      appQrSvg: '<svg data-qr="lan-app"></svg>',
       relayBrowserQrSvg: '<svg data-qr="relay-browser"></svg>',
-      relayAppQrSvg: '<svg data-qr="relay-app"></svg>',
-      apkQrSvg: '<svg data-qr="apk"></svg>',
     });
     await pendingInfo;
     await Promise.resolve();
@@ -290,13 +285,8 @@ test('Connection paints a preloaded QR immediately and reuses the cached request
       port: 4317,
       urls: ['http://127.0.0.1:4317'],
       browserUrl: 'http://127.0.0.1:4317',
-      appLink: 'mixdog://pair',
-      apkUrl: 'http://127.0.0.1:4317/mixdog.apk',
       browserQrSvg: '<svg data-qr="lan-browser"></svg>',
-      appQrSvg: '<svg data-qr="lan-app"></svg>',
       relayBrowserQrSvg: '<svg data-qr="relay-browser"></svg>',
-      relayAppQrSvg: '<svg data-qr="relay-app"></svg>',
-      apkQrSvg: '<svg data-qr="apk"></svg>',
     };
   };
   await preloadConnectionInfo(api);

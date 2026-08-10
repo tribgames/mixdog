@@ -46,10 +46,7 @@ export async function buildRemoteAccessInfo(
     port: bridge?.port ?? 0,
     urls: bridge?.urls ?? [],
     browserUrl,
-    appLink: '',
-    apkUrl: '',
     browserQrSvg: '',
-    appQrSvg: '',
   };
   if (bridge) {
     info.browserQrSvg = await qrSvg(browserUrl);

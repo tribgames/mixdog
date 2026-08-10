@@ -24,10 +24,9 @@ export const EXPLORE_TOOL = {
     type: 'object',
     properties: {
         query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'One concrete unknown target per query; return its minimal complete direct path:line set. Never a topic list; array = independent targets fanned out.' },
-      cwd: { type: 'string', description: 'Project/root directory.' },
       roots: {
         anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }],
-        description: 'Search root(s); defaults to cwd. Use multiple roots for cross-project or machine lookup.',
+        description: 'Project-relative or absolute external search root(s); omit for the caller project; use multiple roots for cross-project or machine lookup.',
       },
     },
     required: [],

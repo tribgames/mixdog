@@ -108,21 +108,19 @@ test('serves the renderer shell to a paired token', async () => {
     const response = await fetch(`http://127.0.0.1:${bridge.port}/?token=${bridge.token}`);
     assert.equal(response.status, 200);
     assert.match(await response.text(), /bridge-shell/);
-    // The entry response hands back the cookie that authorizes asset/APK
-    // requests, which carry no query string.
+    // The entry response hands back the cookie that authorizes asset requests,
+    // which carry no query string.
     assert.match(String(response.headers.get('set-cookie')), /mixdog_token=/);
   } finally {
     await bridge.close();
   }
 });
 
-test('rejects unpaired http requests for the shell and the apk', async () => {
+test('rejects unpaired http requests for the shell', async () => {
   const { bridge } = await startTestBridge();
   try {
     const shell = await fetch(`http://127.0.0.1:${bridge.port}/`);
     assert.equal(shell.status, 401);
-    const apk = await fetch(`http://127.0.0.1:${bridge.port}/mixdog.apk`);
-    assert.equal(apk.status, 401);
     const wrong = await fetch(`http://127.0.0.1:${bridge.port}/?token=not-the-token`);
     assert.equal(wrong.status, 401);
   } finally {

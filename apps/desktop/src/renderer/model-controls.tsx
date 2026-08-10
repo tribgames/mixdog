@@ -194,7 +194,8 @@ export const WorkflowSelect = memo(function WorkflowSelect({
 
 export const ModelSelector = memo(function ModelSelector({
   provider, model, effort, fast, fastCapable, modelDisabled, tuningDisabled,
-  invokeResult, applySnapshot, onOpenSettings, onDraftSelection, sessionId,
+  invokeResult, applySnapshot, onOpenSettings, onDraftSelection,
+  onFastPreferenceApplied, sessionId,
 }: {
   provider: string;
   model: string;
@@ -210,6 +211,7 @@ export const ModelSelector = memo(function ModelSelector({
   applySnapshot: (snapshot: SessionSnapshot | null) => void;
   onOpenSettings: (section?: SettingsSection | null) => void;
   onDraftSelection?: (selection: DesktopModelSelection) => void;
+  onFastPreferenceApplied?: (selection: DesktopModelSelection) => void;
 }) {
   const [cachedCatalog] = useState(readCachedModelCatalog);
   const [models, setModels] = useState<DesktopModelOption[]>(cachedCatalog.models);
@@ -455,7 +457,17 @@ export const ModelSelector = memo(function ModelSelector({
     routingGuard.current = true;
     try {
       const next = await invokeResult(() => window.mixdogDesktop.setFast(enabled, sessionId));
-      if (next !== undefined) applySnapshot(next);
+      if (next !== undefined) {
+        applySnapshot(next);
+        if (provider && model) {
+          onFastPreferenceApplied?.({
+            provider,
+            model,
+            ...(effort ? { effort } : {}),
+            fast: enabled,
+          });
+        }
+      }
     } finally {
       setOptimisticFast(null);
       routingGuard.current = false;

@@ -498,7 +498,10 @@ export async function executeBashTool(args, workDir, options = {}) {
     const promotedTimeoutMs = hasExplicitTimeout && backgroundOnTimeout
         ? Math.max(0, totalTimeout - timeout)
         : 0;
-    const mergeStderr = args.merge_stderr === true;
+    // Provider schema intentionally omits this low-value toggle; all observed
+    // live calls requested merged output, which is also the useful default for
+    // in-turn diagnostics. Internal callers may still opt out explicitly.
+    const mergeStderr = args.merge_stderr !== false;
     const longForegroundHint = foregroundLongCommandHint(
         command,
         timeout,

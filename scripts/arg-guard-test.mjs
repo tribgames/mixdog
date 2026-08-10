@@ -20,6 +20,21 @@ test('read line/context as numeric strings coerce and window', () => {
     assert.equal(a.limit, 11);
 });
 
+test('read compact range tuples canonicalize without flattening', () => {
+    const a = { path: [['a.mjs', 4, 6], ['b.mjs', 0, 2]] };
+    assert.equal(validateBuiltinArgs('read', a), null);
+    assert.deepEqual(a.path, [
+        { path: 'a.mjs', offset: 4, limit: 6 },
+        { path: 'b.mjs', offset: 0, limit: 2 },
+    ]);
+});
+
+test('read scalar range tuple canonicalizes to one region', () => {
+    const a = { path: ['a.mjs', 4, 6] };
+    assert.equal(validateBuiltinArgs('read', a), null);
+    assert.deepEqual(a.path, [{ path: 'a.mjs', offset: 4, limit: 6 }]);
+});
+
 test('grep head_limit/offset/-C as numeric strings coerce', () => {
     const a = { pattern: 'x', head_limit: '3', offset: '10', '-C': '2' };
     assert.equal(validateBuiltinArgs('grep', a), null);
@@ -50,6 +65,24 @@ test('list/find/glob head_limit as numeric string coerces', () => {
     const g = { pattern: '*.mjs', head_limit: '5' };
     assert.equal(validateBuiltinArgs('glob', g), null);
     assert.equal(g.head_limit, 5);
+});
+
+test('compact provider aliases canonicalize before validation', () => {
+    const grep = { pattern: 'x', mode: 'files', limit: '5' };
+    assert.equal(validateBuiltinArgs('grep', grep), null);
+    assert.equal(grep.output_mode, 'files_with_matches');
+    assert.equal(grep.head_limit, 5);
+    assert.equal(Object.hasOwn(grep, 'mode'), false);
+    assert.equal(Object.hasOwn(grep, 'limit'), false);
+    for (const [tool, args] of [
+        ['list', { path: '.', limit: '4' }],
+        ['find', { query: 'x', limit: '4' }],
+        ['glob', { pattern: '*.mjs', limit: '4' }],
+    ]) {
+        assert.equal(validateBuiltinArgs(tool, args), null);
+        assert.equal(args.head_limit, 4);
+        assert.equal(Object.hasOwn(args, 'limit'), false);
+    }
 });
 
 test('over-max integer clamps to the cap instead of erroring', () => {

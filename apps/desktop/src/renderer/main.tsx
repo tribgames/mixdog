@@ -39,10 +39,9 @@ import { readStoredPaneLayout } from "./pane-workspace-state";
 import { paneActiveSelection, paneLeaves } from "./pane-layout";
 import { installAutoDomI18n } from "./auto-dom-i18n";
 
-// VPS/LAN browser surfaces are installable PWAs. Electron and the retired
-// Capacitor shell never register this worker; the worker is deliberately
-// network-only so a newly deployed renderer cannot be stranded behind an
-// application-shell cache.
+// VPS/LAN browser surfaces are installable PWAs. Electron never registers this
+// worker; it is deliberately network-only so a newly deployed renderer cannot
+// be stranded behind an application-shell cache.
 const remoteWebSurface = Boolean(
   (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer,
 );

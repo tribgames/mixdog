@@ -292,20 +292,13 @@ export function applyAnthropicEffortToBody(
         // Adaptive-thinking models (4.6+) require `thinking:{type:"adaptive"}`
         // rather than the legacy budget_tokens shape — sending
         // `thinking:{type:"enabled"}` here 400s on sonnet-5/opus-4-7/4-8.
-        // display:"summarized" keeps reasoning blocks populated (4.7+ defaults
-        // to "omitted", silently hiding reasoning text). Gated on the same
-        // modelSupportsEffort() allowlist so older models never receive it.
-        // Set unconditionally (independent of `normalized`) so effort-capable
-        // turns always carry adaptive thinking + round-trip signatures.
-        // MIXDOG_ANTHROPIC_THINKING_DISPLAY=omitted (operator/bench knob):
-        // thinking blocks are omitted entirely, so nothing is
-        // replayed into later requests (saves the 1h cache-write + re-read on
-        // accumulated thinking) at the cost of losing visible reasoning and
-        // cross-iteration thinking continuity. Default stays summarized.
-        const display = (process.env.MIXDOG_ANTHROPIC_THINKING_DISPLAY || '').trim() === 'omitted'
-            ? 'omitted'
-            : 'summarized';
-        body.thinking = { type: 'adaptive', display };
+        // Match Claude Code's default wire shape: omit `display` and let the
+        // model/API choose its default. Operators and benchmarks can explicitly
+        // request either supported display mode.
+        const display = (process.env.MIXDOG_ANTHROPIC_THINKING_DISPLAY || '').trim();
+        body.thinking = display === 'summarized' || display === 'omitted'
+            ? { type: 'adaptive', display }
+            : { type: 'adaptive' };
         // Adaptive/4.7+ models reject any non-default sampling param with a 400.
         delete body.temperature;
         delete body.top_p;

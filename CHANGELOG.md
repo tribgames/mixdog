@@ -5,6 +5,19 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Remote access is web-app only: the retired Capacitor/Android package,
+  APK download routes, native-shell hooks, and mobile release version wiring
+  are removed, while relay deployment gains an explicit renderer staging step.
+- Tool calls now normalize current-project inputs to compact relative paths,
+  reject mismatched or redundant scopes consistently, and preserve parity
+  across shell, patch, graph, explore, and built-in tool contracts.
+- Context reporting separates provider-visible usage from compaction pressure
+  and configured reserve, while Anthropic adaptive thinking leaves its display
+  mode to the API unless an operator explicitly overrides it.
+- New-task drafts keep their own project tab when selecting or registering a
+  project, and successful session Fast changes seed the next matching draft
+  without replacing a different model choice.
+
 ## v0.9.104 - 2026-08-09
 
 - Tool routing now locates unknown repository coordinates once, assigns each

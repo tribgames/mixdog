@@ -218,6 +218,7 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   assert.match(descOf('grep'), /Replaces grep\/rg\./);
   assert.match(descOf('glob'), /Replaces find -name\./);
   assert.match(policy, /explicit paths may be outside cwd/i);
+  assert.match(policy, /project-relative paths[\s\S]*omit optional scopes equal to its root/i);
   // 3. Retrieval fans out maximally, while execution and mutation retain
   // their own phase boundary.
   assert.match(policy, /`explore`, when exposed, is a fast path only[\s\S]*call it first once for all such independent facets in one query array[\s\S]*minimal complete direct `path:line` anchors[\s\S]*resume baseline routing from those anchors/i);
@@ -405,10 +406,15 @@ test('retrieval schemas require their primary arguments and preserve region path
   const byName = Object.fromEntries(BUILTIN_TOOLS.map((tool) => [tool.name, tool]));
   const read = byName.read.inputSchema;
   assert.deepEqual(read.required, ['path']);
-  const region = read.properties.path.anyOf[1].items.anyOf[1];
-  assert.deepEqual(region.required, ['path']);
+  const region = read.properties.path.anyOf[1].items.anyOf.find((entry) => entry.type === 'array');
+  assert.equal(region.type, 'array');
+  assert.equal(region.minItems, 2);
+  assert.equal(region.maxItems, 3);
   assert.deepEqual(byName.grep.inputSchema.anyOf, [{ required: ['pattern'] }, { required: ['glob'] }]);
-  assert.deepEqual(byName.grep.inputSchema.properties.output_mode.enum, ['content_with_context', 'files_with_matches', 'count']);
+  assert.deepEqual(byName.grep.inputSchema.properties.mode.enum, ['content', 'files', 'count']);
+  assert.equal(byName.grep.inputSchema.properties.output_mode, undefined);
+  assert.equal(byName.grep.inputSchema.properties.head_limit, undefined);
+  assert.equal(byName.grep.inputSchema.properties.limit.minimum, 0);
   assert.equal(byName.grep.inputSchema.properties['-C'], undefined);
   assert.match(byName.grep.inputSchema.properties.context.description, /omit for automatic context.*0 for matches only/i);
   const grepSchema = byName.grep.inputSchema;
