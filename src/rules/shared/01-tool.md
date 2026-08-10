@@ -14,7 +14,9 @@
   facets in one query array. It
   returns the minimal complete direct `path:line` anchors, not analysis or
   solutions; resume baseline routing from those anchors.
-- Use verified paths (cwd/project/user/tool); explicit paths may be outside cwd;
+- Use verified paths (cwd/project/user/tool). Within the current project, pass
+  project-relative paths and omit optional scopes equal to its root; explicit
+  paths may be outside cwd only for targets outside the project;
   stay focused on the requested outcome. Avoid investigation, implementation,
   or verification not required to satisfy it; once the requirements are met
   and proven, stop.

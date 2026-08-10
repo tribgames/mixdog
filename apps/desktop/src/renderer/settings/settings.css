@@ -658,9 +658,9 @@
 
 /* Phone: full-screen settings — a THIN icon-only rail on the LEFT (user
    decision, replacing the chip row) with the category title + X living in
-   the panel header. Keyed off html[data-mixdog-mobile] (mobile-shell.ts:
-   coarse pointer OR Capacitor) rather than a pointer media query — some
-   WebViews misreport coarseness. */
+   the panel header. Keyed off html[data-mixdog-mobile], which the responsive
+   web surface sets from its viewport contract rather than duplicating this
+   layout behind another media query. */
 html[data-mixdog-mobile] .mixdog-settings-layer {
   --settings-layer-safe-top: 0px;
   --settings-layer-safe-bottom: 0px;

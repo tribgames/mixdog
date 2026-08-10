@@ -157,6 +157,8 @@ export function createUsageContextPanels({
     const compactDescription = compactDuration
       ? `${compactState} · ${compactDuration}`
       : compactState;
+    const compactPressure = Number(compaction.pressureTokens || compaction.currentEstimatedTokens || 0);
+    const compactReserve = Number(compaction.reserveTokens || 0);
     const contextRows = [
       {
         value: 'summary',
@@ -167,7 +169,7 @@ export function createUsageContextPanels({
       {
         value: 'compaction',
         label: 'Compaction',
-        description: compactDescription,
+        description: `${compactDescription} · ${fmt(compactPressure)} pressure · ${fmt(compactReserve)} reserve`,
         _action: 'compaction',
       },
       {
@@ -249,7 +251,8 @@ export function createUsageContextPanels({
             if (compactBoundary && compactTrigger) return Math.max(0, compactBoundary - compactTrigger);
             return null;
           })(),
-          pressureTokens: Number(compaction.lastPressureTokens || compaction.currentEstimatedTokens || 0) || null,
+          pressureTokens: Number(compaction.lastPressureTokens || compaction.pressureTokens || compaction.currentEstimatedTokens || 0) || null,
+          reserveTokens: Number(compaction.reserveTokens || 0) || null,
           lastChanged: compaction.lastChanged === true,
         },
         messages: {

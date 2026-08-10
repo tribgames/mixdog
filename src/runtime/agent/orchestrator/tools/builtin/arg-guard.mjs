@@ -856,6 +856,32 @@ function dropUndefinedArgs(args) {
     }
 }
 
+// Provider-facing built-ins use short keys/enum values to reduce repeated
+// tool-call output. Canonicalize them before validation so executors, traces,
+// saved calls, and legacy long-form callers keep one stable internal contract.
+function normalizeCompactSurfaceArgs(toolName, args) {
+    if (['grep', 'glob', 'find', 'list'].includes(toolName)
+        && !hasOwn(args, 'head_limit')
+        && hasOwn(args, 'limit')) {
+        args.head_limit = args.limit;
+        delete args.limit;
+    }
+    if (toolName === 'grep'
+        && !hasOwn(args, 'output_mode')
+        && typeof args.mode === 'string') {
+        const mode = args.mode.trim();
+        const canonical = {
+            content: 'content_with_context',
+            files: 'files_with_matches',
+            count: 'count',
+        }[mode];
+        if (canonical) {
+            args.output_mode = canonical;
+            delete args.mode;
+        }
+    }
+}
+
 // string | string[] arguments arrive nested ([["a","b"]] from a batching
 // wrapper), padded with null/empty entries, or empty. The intent is
 // unambiguous, so flatten one level, drop the blanks, and remove a key that
@@ -866,9 +892,13 @@ const STRING_LIST_ARG_KEYS = [
     'pattern', 'patterns', 'query', 'regex', 'needle',
     'glob', 'file_pattern', 'include', 'type', 'symbols',
 ];
-function normalizeStringListArgs(args) {
+function normalizeStringListArgs(args, toolName) {
     for (const key of STRING_LIST_ARG_KEYS) {
         if (!hasOwn(args, key) || !Array.isArray(args[key])) continue;
+        // read.path may contain compact [path,offset,limit] tuples. Flattening
+        // here would destroy their boundaries before guardRead canonicalizes
+        // them through coerceReadFamilyPathArg().
+        if (toolName === 'read' && key === 'path' && args[key].some(Array.isArray)) continue;
         const source = args[key];
         // Flatten ONE nesting level and drop blank entries; every other entry
         // type is left untouched so the per-tool guards still see (and coerce
@@ -896,7 +926,8 @@ export function validateBuiltinArgs(toolName, args) {
         return `Error: ${toolName} arguments must be an object (got ${describeType(args)})`;
     }
     dropUndefinedArgs(args);
-    normalizeStringListArgs(args);
+    normalizeCompactSurfaceArgs(toolName, args);
+    normalizeStringListArgs(args, toolName);
     if (toolName === 'grep') applyGrepContextLeadPolicy(args);
     try {
         return guard(args) || null;

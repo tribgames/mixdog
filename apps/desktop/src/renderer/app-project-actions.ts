@@ -106,7 +106,11 @@ export function createProjectActions(deps: ProjectActionDeps) {
         const refreshed = await refreshProjects();
         const canonical = refreshed.find((project) =>
           projectPathKey(project.path) === projectPathKey(selected))?.path || selected;
-        activateNewProjectContext(canonical);
+        // The composer picker edits the draft that opened it. Activating the
+        // singleton `new` selection here would mint/switch to another New task
+        // tab when the focused draft has its own draftId.
+        stageNewTaskProject(canonical);
+        focusComposer();
       });
     },
     openProjectInExplorer(project: Project) {

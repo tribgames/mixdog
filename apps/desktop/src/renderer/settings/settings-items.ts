@@ -134,7 +134,7 @@ export const SETTINGS_CATEGORIES = [
     group: 'Support',
     items: [],
   },
-  // Desktop-only surface: phone pairing (QRs, APK, bridge status).
+  // Desktop-only surface: web-app pairing (QR and bridge status).
   {
     value: 'connection',
     label: 'Connection',

@@ -28,7 +28,7 @@ import {
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
 const TOKEN_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.token;
 const SERVER_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.server;
-// Sticky proof that this pairing has worked at least once. Without it a shell
+// Sticky proof that this pairing has worked at least once. Without it a browser
 // reopened while the desktop sleeps counts three quick retries and throws the
 // pairing screen over a perfectly valid pairing.
 const PAIRED_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.paired;
@@ -39,12 +39,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   const w = window as Window & { mixdogDesktop?: DesktopApi };
   if (w.mixdogDesktop || typeof WebSocket === 'undefined') return;
 
-  // Native shells (Capacitor) serve the page from a local origin, so the
-  // desktop address cannot come from location.host: it is pasted once on the
-  // pairing screen and persisted alongside the token.
-  const isNativeShell = Boolean((window as unknown as {
-    Capacitor?: { isNativePlatform?: () => boolean };
-  }).Capacitor?.isNativePlatform?.());
+  // A pairing recovery can redirect this browser to another relay origin, so
+  // retain that origin alongside the token until a new QR link replaces it.
   let serverBase = '';
   try { serverBase = localStorage.getItem(SERVER_STORAGE_KEY) || ''; } catch { /* pairing screen */ }
 
@@ -98,7 +94,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let everPaired = false;
   try { everPaired = localStorage.getItem(PAIRED_STORAGE_KEY) === '1'; } catch { /* no storage */ }
   let retryMs = 500;
-  let failedAttempts = 0;
   let nextId = 1;
   let secureChannel: RelayE2EEChannel | null = null;
   let connectionReady = false;
@@ -113,12 +108,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     return `${scheme}://${location.host}/ws?token=${encodeURIComponent(token)}`;
   };
 
-  // Pairing screen (native shell): scanner-first — the in-app camera reads
-  // either QR from the desktop's Remote Access window / Settings →
-  // Connection (mixdog://pair?server=&token= or the browser URL with
-  // ?token=). Manual address entry hides behind a toggle so the default
-  // screen is just the viewfinder. Vanilla DOM so it works before React
-  // mounts and even when the socket cannot open.
+  // Pairing recovery is scanner-first: the browser camera reads the secure URL
+  // from Settings → Connection. Manual entry hides behind a toggle so the
+  // default screen is just the viewfinder. Vanilla DOM keeps recovery working
+  // before React mounts and even when the socket cannot open.
   let stopPairingCamera: (() => void) | null = null;
 
   const persistPairing = (raw: string): boolean => {
@@ -128,16 +121,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       const fragment = new URLSearchParams(link.hash.replace(/^#/u, ''));
       const pairPublicKey = fragment.get('e2eeKey') || link.searchParams.get('e2eeKey');
       const pairSecret = fragment.get('e2eeSecret') || link.searchParams.get('e2eeSecret');
-      let origin = '';
-      if (link.protocol === 'mixdog:') {
-        const server = link.searchParams.get('server');
-        if (!server) return false;
-        origin = new URL(server).origin;
-      } else if (link.protocol === 'http:' || link.protocol === 'https:') {
-        origin = link.origin;
-      } else {
-        return false;
-      }
+      if (link.protocol !== 'http:' && link.protocol !== 'https:') return false;
+      const origin = link.origin;
       localStorage.setItem(SERVER_STORAGE_KEY, origin);
       if (pairToken) localStorage.setItem(TOKEN_STORAGE_KEY, pairToken);
       if (pairPublicKey && pairSecret) {
@@ -191,9 +176,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     };
     video.srcObject = stream;
     await video.play().catch(() => {});
-    // Only reveal the element once frames actually flow — before that the
-    // WebView paints its own oversized (and stretched) play glyph over the
-    // empty video surface.
+    // Only reveal the element once frames actually flow, avoiding the
+    // browser's oversized play glyph over the empty video surface.
     video.classList.add('live');
     const { default: jsQR } = await import('jsqr');
     const canvas = document.createElement('canvas');
@@ -219,8 +203,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     tick();
   };
 
-  // Full-screen scanner in the system-camera grammar (WhatsApp/Discord/the
-  // Android system scanner): edge-to-edge preview, a dimmed mask with a clear
+  // Full-screen scanner in the mobile camera grammar: edge-to-edge preview,
+  // a dimmed mask with a clear
   // center aperture marked by four corner brackets, instructions in a top
   // scrim, and manual entry demoted to a bottom-sheet behind a pill button.
   const showPairingScreen = (message: string): void => {
@@ -609,14 +593,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   window.addEventListener('focus', wakeProbe);
 
   const scheduleReconnect = (): void => {
-    failedAttempts += 1;
-    // A native shell that has NEVER reached this desktop is mis-paired, not
-    // offline: resurface the pairing screen instead of retrying forever. A
-    // pairing that worked before only means the desktop is asleep, so it
-    // keeps retrying quietly.
-    if (isNativeShell && !everConnected && !everPaired && failedAttempts >= 3) {
-      showPairingScreen('Could not reach the desktop. Check the address from its startup log and try again.');
-    }
     const delay = retryMs;
     retryMs = Math.min(10_000, retryMs * 2);
     window.setTimeout(() => { void connect().catch(() => {}); }, delay);
@@ -636,7 +612,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         connectionReady = true;
         if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
         retryMs = 500;
-        failedAttempts = 0;
         stopPairingCamera?.();
         document.getElementById('mixdog-remote-pairing')?.remove();
         if (!everPaired) {
@@ -916,41 +891,5 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // connected so the panel shows live status instead of desktop-only pairing.
   (w as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer =
     serverBase || location.origin;
-  // Android hardware back: close the topmost mobile layer (drawer/dock —
-  // App.tsx consumes the event via preventDefault); with nothing open the
-  // app minimizes instead of quitting mid-session.
-  if (isNativeShell) {
-    const appPlugin = (window as unknown as {
-      Capacitor?: { Plugins?: { App?: {
-        addListener?: (event: string, handler: (payload?: { url?: string }) => void) => unknown;
-        minimizeApp?: () => void;
-      } } };
-    }).Capacitor?.Plugins?.App;
-    appPlugin?.addListener?.('backButton', () => {
-      const consumed = !window.dispatchEvent(
-        new CustomEvent('mixdog:hardware-back', { cancelable: true }),
-      );
-      if (!consumed) appPlugin.minimizeApp?.();
-    });
-    // Pairing deep link (QR on the desktop's Remote Access window):
-    // mixdog://pair?server=<origin>&token=<hex> — persist and reload so the
-    // socket dials the new desktop without any typing.
-    appPlugin?.addListener?.('appUrlOpen', (payload) => {
-      try {
-        const link = new URL(String(payload?.url || ''));
-        if (link.protocol !== 'mixdog:') return;
-        const server = link.searchParams.get('server');
-        const pairToken = link.searchParams.get('token');
-        if (!server) return;
-        localStorage.setItem(SERVER_STORAGE_KEY, new URL(server).origin);
-        if (pairToken) localStorage.setItem(TOKEN_STORAGE_KEY, pairToken);
-        location.reload();
-      } catch { /* malformed link — keep the current pairing */ }
-    });
-  }
-  if (isNativeShell && !serverBase) {
-    showPairingScreen('Point the camera at the pairing QR — Settings → Connection on your desktop.');
-  } else {
-    void connect().catch(() => { /* the retry loop keeps running */ });
-  }
+  void connect().catch(() => { /* the retry loop keeps running */ });
 })();

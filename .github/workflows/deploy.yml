@@ -354,7 +354,6 @@ jobs:
           if [[ "$CURRENT" != "$VERSION" ]]; then
             npm version "$VERSION" --no-git-tag-version --ignore-scripts
             npm --prefix apps/desktop version "$VERSION" --no-git-tag-version --ignore-scripts
-            npm --prefix apps/mobile version "$VERSION" --no-git-tag-version --ignore-scripts
             npm --prefix apps/relay version "$VERSION" --no-git-tag-version --ignore-scripts
           fi
           node --input-type=module <<'NODE'
@@ -382,7 +381,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json CHANGELOG.md \
             apps/desktop/package.json apps/desktop/package-lock.json \
-            apps/mobile/package.json apps/mobile/package-lock.json \
             apps/relay/package.json
           if ! git diff --cached --quiet; then
             git commit -m "mixdog ${TAG}"

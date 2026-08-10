@@ -11,6 +11,7 @@ import {
 import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
 import { hasUserConversationMessage } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import {
+  resolveCurrentContextTokens,
   resolveCompactionPressureTokens,
   resolveWorkerCompactPolicy,
 } from '../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
@@ -268,15 +269,18 @@ export function createContextStatus({
         ...resolveSessionCompactPolicy(session || {}, compactBoundaryTokens),
         tokenCalibration: providerTokenCalibration(session?.provider || route.provider),
       };
-    // Match the pre-provider-send auto-compact check exactly: the gauge uses
-    // the same provider-baseline-or-estimate pressure, including request and
-    // configured reserves, rather than a separate transcript-only estimate.
+    // Keep the user-facing gauge aligned to provider-visible context. The
+    // compaction branch retains its stricter pressure numerator separately.
     const compactionPressureTokens = resolveCompactionPressureTokens(
       messageSummary.estimatedTokens,
       compactPolicy,
       { messages, sessionRef: session },
     );
-    const usedTokens = compactionPressureTokens;
+    const usedTokens = resolveCurrentContextTokens(
+      messageSummary.estimatedTokens,
+      compactPolicy,
+      { messages, sessionRef: session },
+    );
     const freeTokens = displayWindow ? Math.max(0, displayWindow - usedTokens) : 0;
     const compactTriggerTokens = compactPolicy.triggerTokens || 0;
     const compactBufferTokens = Number.isFinite(Number(compactPolicy.bufferTokens))
@@ -297,7 +301,7 @@ export function createContextStatus({
       effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
       usedTokens,
       usedSource: 'estimated',
-      currentEstimatedTokens: compactionPressureTokens,
+      currentEstimatedTokens: usedTokens,
       lastApiRequestTokens: lastContextTokens || 0,
       lastApiRequestStale: lastUsageStale,
       freeTokens,
@@ -308,6 +312,8 @@ export function createContextStatus({
         bufferTokens: Number.isFinite(compactBufferTokens) ? compactBufferTokens : null,
         bufferRatio: compactBufferRatio,
         currentEstimatedTokens: compactionPressureTokens,
+        pressureTokens: compactionPressureTokens,
+        reserveTokens: Math.max(0, Number(compactPolicy.configuredReserveTokens) || 0),
         lastApiRequestTokens: lastContextTokens || 0,
         lastApiRequestStale: lastUsageStale,
       },

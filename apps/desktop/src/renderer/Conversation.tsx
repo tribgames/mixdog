@@ -220,6 +220,7 @@ export function Conversation({
   draftModelSelection,
   draftWorkflow,
   onDraftModelSelection,
+  onFastPreferenceApplied,
   onDraftWorkflow,
   onOpenCommandSurface,
   liveWork,
@@ -259,6 +260,7 @@ export function Conversation({
   draftModelSelection?: DesktopModelSelection | null;
   draftWorkflow?: DesktopWorkflowState | null;
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
+  onFastPreferenceApplied?: (selection: DesktopModelSelection) => void;
   onDraftWorkflow?: (workflow: DesktopWorkflowState) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
   /** Background-activity chip rendered right above the composer (own
@@ -1064,6 +1066,7 @@ export function Conversation({
           fastCapable={Boolean(routeSnapshot.fastCapable)}
           draftMode={draftMode}
           onDraftModelSelection={onDraftModelSelection}
+          onFastPreferenceApplied={onFastPreferenceApplied}
           queued={composerQueued}
           hiddenQueueIds={pendingPromptIds}
           onQueuedRestored={composerQueuedRestored}

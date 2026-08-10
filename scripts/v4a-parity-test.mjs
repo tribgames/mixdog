@@ -171,6 +171,22 @@ test('a freeform Root directive deliberately permits an outside target', async (
   });
 });
 
+test('compact patch headers expand through the public tool entry point', async () => {
+  await withWorkspace(async ({ base }) => {
+    const target = join(base, 'f.txt');
+    writeFileSync(target, 'one\n', 'utf8');
+    const patch = [
+      'U f.txt',
+      '@',
+      '-one',
+      '+ONE',
+      '',
+    ].join('\n');
+    assertApplied(await applyPatch(base, patch));
+    assert.equal(read(target), 'ONE\n');
+  });
+});
+
 test('an explicit filesystem root is refused before any write', async () => {
   await withWorkspace(async ({ base }) => {
     const target = join(base, 'f.txt');

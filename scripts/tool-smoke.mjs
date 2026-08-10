@@ -1387,8 +1387,13 @@ const exploreProps = EXPLORE_TOOL.inputSchema?.properties || {};
 if (!/repo- or machine-wide coordinate locator/i.test(EXPLORE_TOOL.description || '') || /broad\/uncertain/i.test(EXPLORE_TOOL.description || '') || (EXPLORE_TOOL.description || '').length > 600) {
   throw new Error('explore description must stay a compact coordinate-locator contract');
 }
-if (!/One concrete (?:unknown )?target per query/i.test(exploreProps.query?.description || '') || !/never a topic list/i.test(exploreProps.query?.description || '') || !/independent (?:facets|targets)/i.test(exploreProps.query?.description || '') || !/Project\/root/i.test(exploreProps.cwd?.description || '') || !/multiple roots/i.test(exploreProps.roots?.description || '')) {
-  throw new Error('explore schema must stay compact and preserve query/cwd/roots shape');
+if (!/One concrete (?:unknown )?target per query/i.test(exploreProps.query?.description || '')
+    || !/never a topic list/i.test(exploreProps.query?.description || '')
+    || !/independent (?:facets|targets)/i.test(exploreProps.query?.description || '')
+    || exploreProps.cwd
+    || !/caller project/i.test(exploreProps.roots?.description || '')
+    || !/multiple roots/i.test(exploreProps.roots?.description || '')) {
+  throw new Error('explore schema must stay compact and preserve query/roots shape');
 }
 const normalizedExplore = normalizeExploreQueries('["where is model selection?","  ","which file owns agent async?"]');
 if (normalizedExplore.length !== 2 || normalizedExplore[0] !== 'where is model selection?') {
@@ -1785,20 +1790,20 @@ setInternalToolsProvider({
 const patchTool = PATCH_TOOL_DEFS[0];
 const patchDescription = patchTool?.inputSchema?.properties?.patch?.description || '';
 // The JSON schema is the fallback for providers that cannot carry a custom
-// freeform tool. It exposes only the patch and out-of-session root contracts.
-if (!/V4A/i.test(patchDescription)) {
-  throw new Error('apply_patch JSON fallback must describe the patch string as V4A');
+// freeform tool. It exposes the patch plus an explicit base for callers whose
+// provider cannot carry the grammar's inline Root directive.
+if (!/Compact patch/i.test(patchDescription)) {
+  throw new Error('apply_patch JSON fallback must describe the compact patch string');
 }
 if (Object.keys(patchTool?.inputSchema?.properties || {}).join(',') !== 'patch,root'
     || JSON.stringify(patchTool?.inputSchema?.required || []) !== '["patch"]') {
-  throw new Error(`apply_patch JSON fallback must expose patch + optional root: ${JSON.stringify(patchTool?.inputSchema)}`);
+  throw new Error(`apply_patch JSON fallback must expose patch and optional root: ${JSON.stringify(patchTool?.inputSchema)}`);
 }
-const patchRootDescription = patchTool?.inputSchema?.properties?.root?.description || '';
-if (!/outside the session directory/i.test(patchRootDescription)) {
-  throw new Error(`apply_patch root must state the out-of-session write contract: ${patchRootDescription}`);
+if (!/Optional first line R <root>/i.test(patchTool?.description || '')) {
+  throw new Error(`apply_patch must expose the inline out-of-session Root contract: ${patchTool?.description}`);
 }
-if (!/Each section starts with exactly one:[\s\S]*Add File[\s\S]*Delete File[\s\S]*Update File/i.test(patchTool?.description || '')
-    || !/V4A patch/i.test(patchDescription)) {
+if (!/Sections: A <path>.*D <path>.*U <path>/s.test(patchTool?.description || '')
+    || !/Compact patch/i.test(patchDescription)) {
   throw new Error(`apply_patch JSON fallback must expose its multi-file/hunk shape: ${JSON.stringify(patchTool)}`);
 }
 if (/followed by a shell|post-patch verification|same response/i.test(patchTool?.description || '')) {
@@ -1808,21 +1813,35 @@ if (/exact current context|roll ?back/i.test(JSON.stringify(patchTool))) {
   throw new Error(`apply_patch contract must not carry context/rollback model guidance: ${JSON.stringify(patchTool)}`);
 }
 const COMPACT_APPLY_PATCH_FREEFORM_DESCRIPTION =
-  'Edit files with `apply_patch`. FREEFORM input; do not wrap the patch in JSON.';
+  'Compact patch: U/A/D path, optional M rename or R root, @ hunks, then space/-/+ lines.';
 if (patchTool?.freeformDescription !== COMPACT_APPLY_PATCH_FREEFORM_DESCRIPTION
     || patchTool?.freeform?.type !== 'grammar'
     || patchTool?.freeform?.syntax !== 'lark') {
   throw new Error(`apply_patch must expose freeform grammar metadata: ${JSON.stringify(patchTool)}`);
 }
 for (const requiredGrammarLine of [
-  'start: begin_patch root_line? hunk+ end_patch',
-  'root_line: "*** Root: " filename LF',
-  'add_hunk: "*** Add File: " filename LF add_line+',
-  'change_move: "*** Move to: " filename LF',
+  'start: root_line? hunk+',
+  'root_line: "R " filename LF',
+  'add_hunk: "A " filename LF add_line+',
+  'change_move: "M " filename LF',
   '%import common.LF',
 ]) {
   if (!patchTool.freeform.definition.includes(requiredGrammarLine)) {
     throw new Error(`apply_patch freeform grammar missing required line: ${requiredGrammarLine}`);
+  }
+}
+{
+  const previous = process.env.MIXDOG_COMPACT_PATCH_GRAMMAR;
+  process.env.MIXDOG_COMPACT_PATCH_GRAMMAR = '0';
+  const legacyUrl = new URL('../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs', import.meta.url);
+  legacyUrl.searchParams.set('legacy-smoke', '1');
+  const legacyPatchTool = (await import(legacyUrl.href)).PATCH_TOOL_DEFS[0];
+  if (previous === undefined) delete process.env.MIXDOG_COMPACT_PATCH_GRAMMAR;
+  else process.env.MIXDOG_COMPACT_PATCH_GRAMMAR = previous;
+  if (!/Each section starts with exactly one:.*Add File.*Delete File.*Update File/s.test(legacyPatchTool.description || '')
+      || !legacyPatchTool.freeform.definition.includes('start: begin_patch root_line? hunk+ end_patch')
+      || !legacyPatchTool.freeform.definition.includes('update_hunk: "*** Update File: " filename LF change_move? change?')) {
+    throw new Error(`legacy apply_patch rollback surface is incomplete: ${JSON.stringify(legacyPatchTool)}`);
   }
 }
 {
@@ -1896,7 +1915,7 @@ for (const requiredGrammarLine of [
 }
 const readPathSchema = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.inputSchema?.properties?.path || {};
 const readPathDescription = readPathSchema.description || '';
-if (!/\{path,offset,limit\}\[\]/i.test(readPathDescription) || !/real arrays/i.test(readPathDescription)) {
+if (!/\[path,offset,limit\?\].*range/i.test(readPathDescription) || !/absolute only outside/i.test(readPathDescription)) {
   throw new Error('read schema must keep directory-vs-file guidance');
 }
 if (!/not director/i.test((BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.description) || '')) {
@@ -1907,8 +1926,8 @@ const readDescription = readTool?.description || '';
 const readProps = readTool?.inputSchema?.properties || {};
 const readArraySchema = readPathSchema.anyOf?.find((entry) => entry?.type === 'array');
 const readArrayItemAnyOf = readArraySchema?.items?.anyOf || [];
-if (!readArrayItemAnyOf.some((entry) => entry?.type === 'object' && entry?.properties?.offset && entry?.properties?.limit)) {
-  throw new Error('read schema must expose array-of-region objects for batched spans');
+if (!readArrayItemAnyOf.some((entry) => entry?.type === 'array' && entry?.minItems === 2 && entry?.maxItems === 3)) {
+  throw new Error('read schema must expose compact range tuples for batched spans');
 }
 if (/line\+context/i.test(readDescription) || !/Known-file contents or line ranges/i.test(readDescription)) {
   throw new Error('read description must stay compact and file-oriented');
@@ -2018,10 +2037,10 @@ if (!/Source-file structure/i.test(codeGraphDescription)
 if (!/File modes use files\[\]/i.test(codeGraphDescription) || !/symbol modes use symbols\[\]/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must keep its per-mode files[]/symbols[] target contract');
 }
-if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/Source file path/i.test(codeGraphProps.files?.description || '')) {
+if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/project-relative source file path/i.test(codeGraphProps.files?.description || '')) {
   throw new Error('code_graph schema must keep compact, repo-local field descriptions');
 }
-if (!/Explicit root/i.test(codeGraphProps.cwd?.description || '')) {
+if (!/Explicit root outside the project/i.test(codeGraphProps.cwd?.description || '') || !/omit for project root/i.test(codeGraphProps.cwd?.description || '')) {
   throw new Error('code_graph schema must expose its explicit outside-cwd root');
 }
 const recallTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'recall');
@@ -2459,8 +2478,8 @@ const grepTool = BUILTIN_TOOLS.find((tool) => tool.name === 'grep');
 const grepPatternDescription = grepTool?.inputSchema?.properties?.pattern?.description || '';
 const grepPathDescription = grepTool?.inputSchema?.properties?.path?.description || '';
 const grepGlobDescription = grepTool?.inputSchema?.properties?.glob?.description || '';
-const grepOutputModeDescription = grepTool?.inputSchema?.properties?.output_mode?.description || '';
-const grepHeadLimitDescription = grepTool?.inputSchema?.properties?.head_limit?.description || '';
+const grepModeDescription = grepTool?.inputSchema?.properties?.mode?.description || '';
+const grepLimitDescription = grepTool?.inputSchema?.properties?.limit?.description || '';
 const grepContextDescription = grepTool?.inputSchema?.properties?.context?.description || '';
 if (!/pattern\[\] batches exact query literals and identifier variants/i.test(grepPatternDescription) || !/File\/dir scope/i.test(grepPathDescription)) {
   throw new Error('grep schema must keep compact pattern/path guidance');
@@ -2473,11 +2492,11 @@ if (!/\bFile-content literal\/regex\b/i.test(grepTool?.description || '')) {
 if (!/Glob filter/i.test(grepGlobDescription)) {
   throw new Error('grep glob schema must describe scope narrowing');
 }
-if (!/files_with_matches\/count/i.test(grepOutputModeDescription) || !/content_with_context/i.test(grepOutputModeDescription)) {
-  throw new Error('grep output_mode schema must name its output shapes');
+if (!/files\/count/i.test(grepModeDescription) || !/content/i.test(grepModeDescription)) {
+  throw new Error('grep mode schema must name its compact output shapes');
 }
-if (grepTool?.inputSchema?.properties?.head_limit?.minimum !== 0 || !/Max results/i.test(grepHeadLimitDescription)) {
-  throw new Error('grep head_limit schema must keep locator caps explicit');
+if (grepTool?.inputSchema?.properties?.limit?.minimum !== 0 || !/Max results/i.test(grepLimitDescription)) {
+  throw new Error('grep limit schema must keep locator caps explicit');
 }
 if (grepTool?.inputSchema?.properties?.['-C'] || !/automatic context/i.test(grepContextDescription) || !/0 for matches only/i.test(grepContextDescription)) {
   throw new Error('grep schema must expose one context field and keep ripgrep aliases internal');
@@ -2488,7 +2507,7 @@ if (grepTool?.inputSchema?.properties?.type) {
 const globTool = BUILTIN_TOOLS.find((tool) => tool.name === 'glob');
 const findTool = BUILTIN_TOOLS.find((tool) => tool.name === 'find');
 const listTool = BUILTIN_TOOLS.find((tool) => tool.name === 'list');
-const findHeadLimitDescription = findTool?.inputSchema?.properties?.head_limit?.description || '';
+const findLimitDescription = findTool?.inputSchema?.properties?.limit?.description || '';
 if (!/Known-base wildcard paths/i.test(globTool?.description || '')
     || !/returns paths only/i.test(globTool?.description || '')) {
   throw new Error('glob description must state its known-base wildcard path contract');
@@ -2498,8 +2517,8 @@ if (!/Known-base wildcard paths/i.test(globTool?.description || '')
 if (!/Fuzzy filename\/directory path-string lookup/i.test(findTool?.description || '') || !/returns paths only/i.test(findTool?.description || '')) {
   throw new Error('find description must state its fuzzy path-lookup contract');
 }
-if (!/across the call/i.test(findHeadLimitDescription) || !/Defaults to 25/i.test(findHeadLimitDescription)) {
-  throw new Error('find head_limit must be one call-level result budget');
+if (!/across the call/i.test(findLimitDescription) || !/Defaults to 25/i.test(findLimitDescription)) {
+  throw new Error('find limit must be one call-level result budget');
 }
 if (!/Known-directory immediate entries/i.test(listTool?.description || '')
     || !/no wildcard/i.test(listTool?.description || '')

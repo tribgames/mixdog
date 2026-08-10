@@ -103,7 +103,7 @@ every number above live under `benchmarks/terminal-bench-2.1/`.
   role mode for scripting.
 - Mixdog Desktop: a full agent workbench for Windows/macOS/Linux (see
   below).
-- Web/mobile companion over relay pairing — scan a QR code to open your
+- Installable web app over relay pairing — scan a QR code to open your
   running sessions in a phone browser and keep going from any network.
 - Optional Discord/Telegram channels, webhook endpoints, and cron schedules
   with quiet hours for remote/event-driven workflows; channel voice messages
@@ -246,7 +246,7 @@ wizard covers first-run setup. For development run `npm run dev` inside
 - **Automation** — visual editors for workflow and agent packs, cron
   schedules, webhooks, and channel integrations.
 - **Settings hub** — provider auth, capability sweep, git identity, and
-  QR device pairing for the web/mobile companion, preloaded so every
+  QR device pairing for the installable web app, preloaded so every
   category opens instantly.
 
 ## Scripts
@@ -302,8 +302,7 @@ src/
   rules/         # Lead and agent instructions
 apps/
   desktop/       # Mixdog Desktop — Electron workbench (main/preload/renderer)
-  mobile/        # mobile companion shell
-  relay/         # relay server for remote/web/mobile access
+  relay/         # relay server for remote web-app access
 scripts/
   smoke*.mjs     # smoke checks
   *test.mjs      # focused node:test checks

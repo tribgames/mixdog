@@ -6,6 +6,7 @@
   "type": "module",
   "main": "server.mjs",
   "scripts": {
+    "stage:web": "node scripts/stage-web.mjs",
     "start": "node server.mjs"
   },
   "engines": {

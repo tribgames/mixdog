@@ -19,10 +19,3 @@ export declare function sendStaticFile(
   target: string,
   extraHeaders?: Record<string, string>,
 ): void;
-export declare function apkHeaders(): Record<string, string>;
-export declare function sendApkFile(
-  request: IncomingMessage,
-  response: ServerResponse,
-  apkPath: string,
-  extraHeaders?: Record<string, string>,
-): boolean;

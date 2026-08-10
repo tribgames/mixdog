@@ -680,6 +680,26 @@ function extractInlinePatchRoot(patchText) {
   };
 }
 
+export function expandCompactPatchInput(patchText) {
+  const text = String(patchText || '').replace(/^\uFEFF/, '');
+  if (/^\s*\*\*\* Begin Patch(?:\r?\n|$)/.test(text)) return text;
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  while (lines.length && lines[0] === '') lines.shift();
+  while (lines.length && lines[lines.length - 1] === '') lines.pop();
+  if (!lines.length || !/^[RADU] /.test(lines[0])) return text;
+  const mapped = lines.map((line) => {
+    if (line.startsWith('R ')) return `*** Root: ${line.slice(2)}`;
+    if (line.startsWith('A ')) return `*** Add File: ${line.slice(2)}`;
+    if (line.startsWith('D ')) return `*** Delete File: ${line.slice(2)}`;
+    if (line.startsWith('U ')) return `*** Update File: ${line.slice(2)}`;
+    if (line.startsWith('M ')) return `*** Move to: ${line.slice(2)}`;
+    if (line === '@') return '@@';
+    if (line.startsWith('@ ')) return `@@ ${line.slice(2)}`;
+    return line;
+  });
+  return ['*** Begin Patch', ...mapped, '*** End Patch', ''].join('\n');
+}
+
 function isFilesystemRootSpecifier(value, cwd) {
   const raw = String(value || '').trim();
   if (!raw) return false;
@@ -692,7 +712,8 @@ function isFilesystemRootSpecifier(value, cwd) {
 
 async function apply_patch(args, cwd, options = {}) {
   args = salvageShatteredV4APatchArgs(args);
-  let patchStr = salvageV4AOpening((typeof args?.patch === 'string' ? args.patch : '').replace(/^\uFEFF/, ''));
+  let patchStr = expandCompactPatchInput(typeof args?.patch === 'string' ? args.patch : '');
+  patchStr = salvageV4AOpening(patchStr);
   const inlineRoot = extractInlinePatchRoot(patchStr);
   patchStr = inlineRoot.patch;
   if (inlineRoot.root) {

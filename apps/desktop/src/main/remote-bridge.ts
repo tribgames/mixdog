@@ -1,4 +1,4 @@
-// LAN remote bridge (stage 1 of the mobile companion): a plain HTTP server
+// LAN remote bridge for the installable web app: a plain HTTP server
 // that serves the built renderer to a phone browser, plus a token-gated
 // WebSocket that carries DesktopApi RPC frames and state/terminal pushes.
 // The relay-server stage reuses this exact message protocol.
@@ -13,7 +13,6 @@ import {
   pairingCookieHeaders,
   parseCookieToken,
   resolveStaticTarget,
-  sendApkFile,
   sendStaticFile,
 } from '../../../relay/lib/static-http.mjs';
 import { parseMediaRequest, sendMediaFile } from '../../../relay/lib/media-http.mjs';
@@ -43,7 +42,7 @@ export interface RemoteBridgeHandle {
   close(): Promise<void>;
 }
 
-/** Default ON (the phone app must survive however the desktop was launched):
+/** Default ON (the web app must survive however the desktop was launched):
  *  MIXDOG_REMOTE_BRIDGE_PORT=<port> overrides, MIXDOG_REMOTE_BRIDGE=0/false/off
  *  disables. The socket stays token-gated either way. */
 export function resolveRemoteBridgePort(env: NodeJS.ProcessEnv): number | null {
@@ -69,7 +68,7 @@ async function writeToken(tokenPath: string): Promise<string> {
   return token;
 }
 
-/** Revocation: mint a new pairing token so every QR/deep link handed out so
+/** Revocation: mint a new pairing token so every QR link handed out so
  *  far stops working. Callers must restart the bridge/relay legs to load it. */
 export async function rotateRemoteToken(userDataPath: string): Promise<string> {
   return writeToken(join(userDataPath, 'remote-bridge.token'));
@@ -95,7 +94,6 @@ function lanUrls(port: number): string[] {
 
 function serveStatic(
   rendererDir: string,
-  userDataPath: string,
   token: string,
   request: IncomingMessage,
   response: ServerResponse,
@@ -114,25 +112,13 @@ function serveStatic(
     response.writeHead(400).end();
     return;
   }
-  // The app shell and the staged APK are for paired phones only: the LAN leg
-  // now gates them exactly like the relay, so a random host on the network
-  // cannot pull the installer or fingerprint the build.
+  // The web app is for paired browsers only: the LAN leg gates it exactly like
+  // the relay, so a random host on the network cannot fingerprint the build.
   if (!tokenMatches(token, queryToken || parseCookieToken(request.headers.cookie))) {
     response.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Unauthorized.');
     return;
   }
   const authCookie = pairingCookieHeaders(queryToken, request);
-  // The Android package downloads from a STABLE home (userData survives
-  // renderer rebuilds; out/renderer is wiped by every build, and the SPA
-  // fallback then served index.html as "mixdog.apk" — the web app opened
-  // instead of the installer).
-  if (pathname === '/mixdog.apk') {
-    if (!sendApkFile(request, response, join(userDataPath, 'mixdog.apk'), authCookie)) {
-      response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
-        .end('Mixdog remote bridge: no Android package staged.');
-    }
-    return;
-  }
   const resolved = resolveStaticTarget(rendererDir, pathname);
   if (resolved.status === 403) {
     response.writeHead(403).end();
@@ -215,7 +201,7 @@ export async function startRemoteBridge(options: RemoteBridgeOptions): Promise<R
     // Media is a byte lane, not an RPC payload: it answers before the app
     // shell so a tile or a video seek never touches the socket.
     if (handleMediaRequest(options.host, token, request, response)) return;
-    serveStatic(options.rendererDir, options.userDataPath, token, request, response);
+    serveStatic(options.rendererDir, token, request, response);
   });
   const wss = new WebSocketServer({
     noServer: true,

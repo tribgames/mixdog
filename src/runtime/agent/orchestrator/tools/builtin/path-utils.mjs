@@ -110,6 +110,10 @@ export const GREP_AUTO_CONTEXT_LINES = 25;
 
 export function normalizeGrepArgs(args) {
     if (!args || typeof args !== 'object') return args;
+    if ((args.head_limit === undefined || args.head_limit === null) && args.limit !== undefined) {
+        args.head_limit = args.limit;
+        delete args.limit;
+    }
     if (args.pattern === undefined || args.pattern === null || args.pattern === '') {
         const alias = firstPresentArg(args, ['query', 'regex', 'regexp', 'needle', 'search', 'literal']);
         if (alias !== undefined) args.pattern = alias;
@@ -124,13 +128,24 @@ export function normalizeGrepArgs(args) {
     }
     if ((args.output_mode === undefined || args.output_mode === null || args.output_mode === '') && typeof args.mode === 'string') {
         const mode = args.mode.trim();
-        if (['files_with_matches', 'content', 'content_with_context', 'count'].includes(mode)) args.output_mode = mode;
+        const canonical = {
+            content: 'content_with_context',
+            files: 'files_with_matches',
+            count: 'count',
+            content_with_context: 'content_with_context',
+            files_with_matches: 'files_with_matches',
+        }[mode];
+        if (canonical) args.output_mode = canonical;
     }
     return args;
 }
 
 export function normalizeGlobArgs(args) {
     if (!args || typeof args !== 'object') return args;
+    if ((args.head_limit === undefined || args.head_limit === null) && args.limit !== undefined) {
+        args.head_limit = args.limit;
+        delete args.limit;
+    }
     if (args.pattern === undefined || args.pattern === null || args.pattern === '') {
         const alias = firstPresentArg(args, ['glob', 'file_pattern', 'filePattern', 'name', 'include', 'includes', 'files']);
         if (alias !== undefined) args.pattern = alias;
@@ -247,6 +262,20 @@ export function coerceShapeFlex(value) {
 // JSON-stringified path arrays (path:"[]") and empty arrays mean "search cwd".
 // Bracket-shaped strings that exist on disk (e.g. a literal `[x]` directory) are
 // left untouched — JSON reinterpretation only runs after a stat miss.
+function compactReadRangeTuple(value) {
+    if (!Array.isArray(value) || value.length < 2 || value.length > 3 || typeof value[0] !== 'string') return null;
+    const numeric = value.slice(1).every((part) => (
+        typeof part === 'number'
+        || (typeof part === 'string' && /^-?\d+(?:\.\d+)?$/.test(part.trim()))
+    ));
+    if (!numeric) return null;
+    return {
+        path: value[0],
+        offset: value[1],
+        ...(value.length === 3 ? { limit: value[2] } : {}),
+    };
+}
+
 export function coerceReadFamilyPathArg(path, workDir = null) {
     if (path === undefined || path === null || path === '') return path;
     if (typeof path === 'string' && typeof workDir === 'string' && workDir) {
@@ -305,10 +334,13 @@ export function coerceReadFamilyPathArg(path, workDir = null) {
     }
     const coerced = coerceShapeFlex(path);
     if (!Array.isArray(coerced)) return coerced;
+    const directRange = compactReadRangeTuple(coerced);
+    if (directRange) return [directRange];
     const list = coerced
-        // Region objects ({path,offset,limit}) must pass through untouched —
-        // read's batch dispatcher consumes them. Only strings are trimmed.
-        .map((p) => (typeof p === 'string' ? p.trim() : p))
+        // Provider-facing range tuples are compact; canonicalize them to the
+        // legacy region objects consumed by read's batch dispatcher. Existing
+        // object callers remain valid and pass through untouched.
+        .map((p) => compactReadRangeTuple(p) ?? (typeof p === 'string' ? p.trim() : p))
         .filter((p) => (typeof p === 'string' ? p.length > 0 : (p && typeof p === 'object')));
     if (list.length === 0) return '.';
     // Collapse to scalar only for a lone string; a lone region object must

@@ -17,6 +17,7 @@ import { createContextStatus } from '../src/session-runtime/context-status.mjs';
 import {
     compactionTelemetryPressureTokens,
     recordProviderContextBaseline,
+    resolveCurrentContextTokens,
     resolveCompactionPressureTokens,
     rememberCompactTelemetry,
     compactTargetBudget,
@@ -512,7 +513,7 @@ test('provider baseline pressure includes only the configured extra reserve', ()
     assert.equal(resolveCompactionPressureTokens(1, policy, { messages, sessionRef: session }), 87_000);
 });
 
-test('context status uses the automatic compaction pressure numerator and trigger', () => {
+test('context status separates provider context usage from compaction pressure and reserve', () => {
     const session = {
         id: 'status-pressure',
         provider: 'openai',
@@ -520,7 +521,7 @@ test('context status uses the automatic compaction pressure numerator and trigge
         tools: [],
         contextWindow: 100_000,
         messages: [{ role: 'user', content: 'small local estimate' }],
-        compaction: {},
+        compaction: { reservedTokens: 7_000 },
     };
     recordProviderContextBaseline(session, session.messages, {
         inputTokens: 80_000,
@@ -528,6 +529,11 @@ test('context status uses the automatic compaction pressure numerator and trigge
     });
     const policy = policyFor(session);
     const expectedPressure = resolveCompactionPressureTokens(
+        estimateMessagesTokens(session.messages),
+        policy,
+        { messages: session.messages, sessionRef: session },
+    );
+    const expectedContext = resolveCurrentContextTokens(
         estimateMessagesTokens(session.messages),
         policy,
         { messages: session.messages, sessionRef: session },
@@ -540,15 +546,19 @@ test('context status uses the automatic compaction pressure numerator and trigge
     });
 
     const status = contextStatus();
-    assert.equal(status.usedTokens, expectedPressure);
-    assert.equal(status.currentEstimatedTokens, expectedPressure);
+    assert.equal(status.usedTokens, expectedContext);
+    assert.equal(status.currentEstimatedTokens, expectedContext);
+    assert.equal(status.compaction.currentEstimatedTokens, expectedPressure);
+    assert.equal(status.compaction.pressureTokens, expectedPressure);
+    assert.equal(status.compaction.reserveTokens, policy.configuredReserveTokens);
+    assert.equal(expectedPressure - expectedContext, policy.configuredReserveTokens);
     assert.equal(status.compaction.triggerTokens, policy.triggerTokens);
     assert.equal(
         shouldCompactForSession(estimateMessagesTokens(session.messages), policy, {
             messages: session.messages,
             sessionRef: session,
         }),
-        status.usedTokens >= status.compaction.triggerTokens,
+        status.compaction.currentEstimatedTokens >= status.compaction.triggerTokens,
     );
 });
 

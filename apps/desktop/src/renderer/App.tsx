@@ -1228,6 +1228,32 @@ export function App() {
     setNewTaskModelSelection(selection);
     rememberDraftPanePrefs({ modelSelection: selection });
   }, [rememberDraftPanePrefs]);
+  const rememberSessionFastForNextTask = useCallback((selection: DesktopModelSelection) => {
+    const cached = lastNewTaskPrefs.current ?? inheritedDraftPrefs();
+    const previous = cached.modelSelection;
+    // Fast is model-specific. A session tuning change may refresh the cached
+    // route only when the next draft already inherits that model (or has no
+    // model yet); it must not silently replace another draft model.
+    if (previous && (previous.provider !== selection.provider || previous.model !== selection.model)) {
+      return;
+    }
+    const modelSelection = {
+      ...(previous || selection),
+      ...selection,
+      fast: selection.fast === true,
+    };
+    lastNewTaskPrefs.current = {
+      ...cached,
+      modelSelection,
+    };
+    // The working singleton can still contain the last focused draft's stale
+    // route while a session owns focus. Refresh it as the seed for a genuinely
+    // new draft; parked draft panes keep their own entries unchanged.
+    if (selectionRef.current.kind !== "new") {
+      newTaskModelSelectionRef.current = modelSelection;
+    }
+    persistDraftPanePrefs();
+  }, [inheritedDraftPrefs, persistDraftPanePrefs]);
   const stageNewTaskWorkflow = useCallback((workflow: DesktopWorkflowState) => {
     newTaskWorkflowRef.current = workflow;
     setNewTaskWorkflow(workflow);
@@ -2580,7 +2606,9 @@ export function App() {
     void refreshProjects();
   });
   const conversationSelectProject = useStableEvent((path: string) => {
-    selectNewTaskProject(path);
+    // The composer selector edits the focused draft in place. Project-panel
+    // navigation still uses selectNewTaskProject() to open a fresh draft.
+    stageNewTaskProject(path);
   });
   const conversationChooseProject = useStableEvent(() => {
     chooseNewTaskProject();
@@ -4537,6 +4565,7 @@ export function App() {
             draftModelSelection={draftKey ? prefs.modelSelection : undefined}
             draftWorkflow={draftKey ? prefs.workflow : undefined}
             onDraftModelSelection={focusedDraft ? stageNewTaskModelSelection : undefined}
+            onFastPreferenceApplied={rememberSessionFastForNextTask}
             onDraftWorkflow={focusedDraft ? stageNewTaskWorkflow : undefined}
             activeProjectPath={paneProjectPath}
             activeProjectLabel={paneProjectLabel}
@@ -5018,6 +5047,7 @@ export function App() {
               onDraftModelSelection={selection.kind === "new"
                 ? stageNewTaskModelSelection
                 : undefined}
+              onFastPreferenceApplied={rememberSessionFastForNextTask}
               onDraftWorkflow={selection.kind === "new"
                 ? stageNewTaskWorkflow
                 : undefined}

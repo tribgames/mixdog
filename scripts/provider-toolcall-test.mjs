@@ -834,7 +834,7 @@ test('openai-compat/xai Responses: freeform apply_patch downgrades to function s
     assert.equal(patch.parameters?.properties?.patch?.type, 'string');
     assert.deepEqual(patch.parameters?.required, ['patch']);
     assert.deepEqual(Object.keys(patch.parameters?.properties || {}), ['patch', 'root']);
-    assert.match(patch.description, /Edit files with this V4A patch.*Each section starts with exactly one/is);
+    assert.match(patch.description, /Edit with a compact patch.*Sections: A <path>.*Optional first line R <root>/is);
     assert.doesNotMatch(JSON.stringify(patch), /exact current context|roll ?back/i);
 });
 
@@ -2053,7 +2053,7 @@ test('anthropic effort: sonnet-4-6 uses output_config + effort beta, not thinkin
     assert.deepEqual(body.output_config, { effort: 'high' });
     // Adaptive-thinking models also carry thinking:{type:'adaptive'} — the
     // legacy budget_tokens shape 400s on these models.
-    assert.deepEqual(body.thinking, { type: 'adaptive', display: 'summarized' });
+    assert.deepEqual(body.thinking, { type: 'adaptive' });
     assert.equal(shouldIncludeEffortBeta(model, { effort: 'high' }), true);
     const beta = buildAnthropicBetaHeaders({ effort: true });
     assert.ok(beta.includes(EFFORT_BETA_HEADER));
@@ -2116,7 +2116,7 @@ test('anthropic effort: xhigh on opus-4-8 is a first-class level (not downgraded
         { effort: 'xhigh' },
     );
     assert.deepEqual(body.output_config, { effort: 'xhigh' });
-    assert.deepEqual(body.thinking, { type: 'adaptive', display: 'summarized' });
+    assert.deepEqual(body.thinking, { type: 'adaptive' });
 });
 
 test('anthropic effort: explicit thinkingBudgetTokens wins over effort', () => {
@@ -2147,7 +2147,7 @@ test('anthropic effort: bare version id claude-opus-5 gets effort + adaptive thi
         { effort: 'high' },
     );
     assert.deepEqual(body.output_config, { effort: 'high' });
-    assert.deepEqual(body.thinking, { type: 'adaptive', display: 'summarized' });
+    assert.deepEqual(body.thinking, { type: 'adaptive' });
     assert.equal(body.temperature, undefined);
 });
 

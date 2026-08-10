@@ -587,7 +587,7 @@ test('gates static http behind the pairing token', async () => {
     assert.equal(entry.status, 200);
     const setCookie = entry.headers.get('set-cookie') || '';
     assert.match(setCookie, /^mixdog_token=/);
-    // Asset/APK follow-ups carry no query token; the cookie must pass the gate.
+    // Asset follow-ups carry no query token; the cookie must pass the gate.
     const viaCookie = await fetch(`${base}/index.html`, {
       headers: { cookie: setCookie.split(';')[0] },
     });

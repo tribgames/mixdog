@@ -73,6 +73,7 @@ export const Composer = memo(function Composer({
   fastCapable,
   draftMode,
   onDraftModelSelection,
+  onFastPreferenceApplied,
   queued,
   hiddenQueueIds,
   onQueuedRestored,
@@ -108,6 +109,7 @@ export const Composer = memo(function Composer({
   fastCapable: boolean;
   draftMode?: boolean;
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
+  onFastPreferenceApplied?: (selection: DesktopModelSelection) => void;
   queued?: unknown[];
   hiddenQueueIds?: Array<string | number>;
   onQueuedRestored?: (ids: string[]) => void;
@@ -1099,6 +1101,9 @@ export const Composer = memo(function Composer({
         const next = await invokeResult(() => window.mixdogDesktop.setFast(nextFast, sessionId || undefined));
         if (next === undefined) return false;
         applySnapshot(next);
+        if (provider && model) {
+          onFastPreferenceApplied?.({ provider, model, effort, fast: nextFast });
+        }
       }
       showComposerNotice(`Fast mode ${nextFast ? 'on' : 'off'}`);
     } else if (name === 'model' && argument) {
@@ -1774,7 +1779,8 @@ export const Composer = memo(function Composer({
           // churn still disables the controls.
           tuningDisabled={commandBusy || transitioning}
           invokeResult={invokeResult} applySnapshot={applySnapshot}
-          onOpenSettings={onOpenSettings} onDraftSelection={onDraftModelSelection} />
+          onOpenSettings={onOpenSettings} onDraftSelection={onDraftModelSelection}
+          onFastPreferenceApplied={onFastPreferenceApplied} />
         <button type="button"
           className={`composer-tool composer-mic ${dictationState !== 'idle' ? `is-${dictationState}` : ''}`.trim()}
           disabled={transitioning || dictationState === 'transcribing'}

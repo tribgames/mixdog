@@ -22,8 +22,8 @@ cp "$SRC_DIR/server.mjs" "$SRC_DIR/package.json" /opt/mixdog-relay/
 # Shared HTTP helpers the server imports (also used by the desktop LAN bridge).
 rm -rf /opt/mixdog-relay/lib
 cp -r "$SRC_DIR/lib" /opt/mixdog-relay/lib
-# Optional web app + APK: stage a renderer build (plus mixdog.apk) next to
-# server.mjs before running this script and the relay serves it over https.
+# Optional web app: run `npm run stage:web` before copying this directory and
+# the relay serves the staged renderer over https.
 if [[ -d "$SRC_DIR/renderer" ]]; then
   rm -rf /opt/mixdog-relay/renderer
   cp -r "$SRC_DIR/renderer" /opt/mixdog-relay/renderer

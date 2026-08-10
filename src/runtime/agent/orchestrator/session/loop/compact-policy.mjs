@@ -199,6 +199,22 @@ function compactPressureTokens(messageTokensEst, policy) {
     return Math.max(0, Math.round((messageTokensEst + requestReserve) * calibration) + otherReserve);
 }
 
+// Provider-visible context estimate without operator-only compaction reserve.
+// Request/schema reserve remains included because those bytes are sent to the
+// model; configured reserve is merely local headroom and must not inflate the
+// user-facing context gauge.
+function currentContextEstimateTokens(messageTokensEst, policy) {
+    if (messageTokensEst === null) return 0;
+    const calibration = Number(policy?.tokenCalibration) > 0 ? Number(policy.tokenCalibration) : 1;
+    const configured = Math.max(0, Number(policy?.configuredReserveTokens) || 0);
+    const totalReserve = Math.max(0, Number(policy?.reserveTokens) || 0);
+    const requestReserve = Math.min(
+        totalReserve,
+        Math.max(0, Number(policy?.requestReserveTokens ?? (totalReserve - configured)) || 0),
+    );
+    return Math.max(0, Math.round((messageTokensEst + requestReserve) * calibration));
+}
+
 function providerPressureTokens(sessionRef, usage) {
     if (!usage || typeof usage !== 'object') return 0;
     const input = Math.max(0, Number(usage.mainInputTokens ?? usage.inputTokens) || 0);
@@ -268,7 +284,9 @@ export function invalidateProviderContextBaseline(sessionRef) {
 // transcript did NOT grow keeps its baseline regardless of age.
 const BASELINE_MAX_STALE_GROWTH_MS = 30 * 60 * 1000;
 
-function providerBaselinePressureTokens(messages, sessionRef, policy) {
+function providerBaselinePressureTokens(messages, sessionRef, policy, {
+    includeConfiguredReserve = true,
+} = {}) {
     if (!Array.isArray(messages) || !sessionRef
         || sessionRef.lastContextTokensStaleAfterCompact === true) return null;
     let tokens = positiveTokenInt(sessionRef.contextPressureBaselineTokens);
@@ -303,16 +321,31 @@ function providerBaselinePressureTokens(messages, sessionRef, policy) {
         const growth = count < messages.length
             ? Math.round(estimateMessagesTokens(messages.slice(count)) * calibration)
             : 0;
-        return Math.max(0, tokens + growth + Math.max(0, Number(policy?.configuredReserveTokens) || 0));
+        const configuredReserve = includeConfiguredReserve
+            ? Math.max(0, Number(policy?.configuredReserveTokens) || 0)
+            : 0;
+        return Math.max(0, tokens + growth + configuredReserve);
     } catch {
         return null;
     }
 }
 
+function preferAlignedBaseline(baseline, estimate) {
+    if (baseline == null) return estimate;
+    if (Number.isFinite(estimate) && estimate > 0 && baseline * 2 < estimate) return estimate;
+    return baseline;
+}
+
+export function resolveCurrentContextTokens(messageTokensEst, policy, { messages, sessionRef } = {}) {
+    const baseline = providerBaselinePressureTokens(messages, sessionRef, policy, {
+        includeConfiguredReserve: false,
+    });
+    return preferAlignedBaseline(baseline, currentContextEstimateTokens(messageTokensEst, policy));
+}
+
 export function resolveCompactionPressureTokens(messageTokensEst, policy, { messages, sessionRef } = {}) {
     const baseline = providerBaselinePressureTokens(messages, sessionRef, policy);
     const estimate = compactPressureTokens(messageTokensEst, policy);
-    if (baseline == null) return estimate;
     // Sanity band: the baseline exists to correct OVER-counting estimates
     // (dense-data floors can inflate the estimate up to ~2x real usage), so a
     // lower baseline is normally preferred. But a corrupt/stale baseline below
@@ -322,8 +355,7 @@ export function resolveCompactionPressureTokens(messageTokensEst, policy, { mess
     // both the gauge and the compaction decision. Erring toward the estimate
     // may compact somewhat early; erring toward a rotten baseline blows past
     // the context window at full token cost.
-    if (Number.isFinite(estimate) && estimate > 0 && baseline * 2 < estimate) return estimate;
-    return baseline;
+    return preferAlignedBaseline(baseline, estimate);
 }
 
 /** Telemetry pressure when a reactive overflow retry forces the next compact. */

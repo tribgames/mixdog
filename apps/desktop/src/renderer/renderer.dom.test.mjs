@@ -9580,14 +9580,17 @@ test("new tasks choose a registered project or open a folder from the composer c
   installDom();
   const starts = [];
   const added = [];
+  const sourceSessionId = "project-picker-source";
   const projectPath = "C:\\work\\sample";
   const openedPath = "C:\\work\\opened";
   const registered = [{ path: projectPath, alias: "Sample", pinned: false }];
+  const sourceRow = seedActiveSession(sourceSessionId);
+  const sourceSnapshot = { sessionId: sourceSessionId, items: [], queued: [] };
   window.mixdogDesktop = {
-    getSnapshot: async () => ({ items: [], queued: [] }),
+    getSnapshot: async () => sourceSnapshot,
     subscribeState: () => () => {},
     listProjects: async () => registered.slice(),
-    listSessions: async () => [],
+    listSessions: async () => [sourceRow],
     chooseProject: async () => openedPath,
     addProject: async (path) => {
       added.push(path);
@@ -9610,8 +9613,13 @@ test("new tasks choose a registered project or open a folder from the composer c
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
 
+  await act(async () => {
+    document.querySelector(".session-new-task").click();
+    await Promise.resolve();
+  });
+  const draftTabCount = document.querySelectorAll(".workspace-tab").length;
   let selector = document.querySelector('button[aria-label="Project context"]');
-  assert.match(selector.textContent, /Project/);
+  assert.match(selector.textContent, /Sample/);
   await act(async () => {
     selector.click();
     await Promise.resolve();
@@ -9623,6 +9631,8 @@ test("new tasks choose a registered project or open a folder from the composer c
     await Promise.resolve();
   });
   assert.deepEqual(starts, [], "selecting project context must remain renderer-only");
+  assert.equal(document.querySelectorAll(".workspace-tab").length, draftTabCount,
+    "selecting a registered project must edit the current draft without creating another tab");
   selector = document.querySelector('button[aria-label="Project context"]');
   assert.match(selector.textContent, /Sample/);
   assert.equal(document.querySelector(".session-header h1")?.textContent.trim(), "New task");
@@ -9641,6 +9651,8 @@ test("new tasks choose a registered project or open a folder from the composer c
   });
   assert.deepEqual(starts, [], "opening a folder must not initialize an engine before submit");
   assert.deepEqual(added, [openedPath], "a chosen folder must enter the shared project registry");
+  assert.equal(document.querySelectorAll(".workspace-tab").length, draftTabCount,
+    "opening a project folder must edit the current draft without creating another tab");
   assert.match(document.querySelector('button[aria-label="Project context"]').textContent, /Opened/i);
   const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
   const setValue = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
@@ -13742,6 +13754,79 @@ test("Fast follows core capability, stays live during a turn, and disables only 
     await new Promise((resolve) => window.requestAnimationFrame(resolve));
   });
   assert.equal(document.querySelector('.fast-control') === null, true, "selector .fast-control should be absent");
+});
+
+test("a successful session Fast toggle is cached for the next New task", async () => {
+  installDom();
+  const sessionId = "fast-next-task-session";
+  const route = {
+    provider: "openai",
+    model: "gpt-fast-cache",
+    effort: "high",
+    fast: false,
+  };
+  window.localStorage.setItem("mixdog.desktop-last-new-task-prefs.v1", JSON.stringify({
+    projectPath: "",
+    modelSelection: route,
+    workflow: null,
+  }));
+  const idle = {
+    sessionId,
+    items: [],
+    queued: [],
+    ...route,
+    fastCapable: true,
+  };
+  const row = seedActiveSession(sessionId);
+  window.mixdogDesktop = {
+    getSnapshot: async () => idle,
+    subscribeState: () => () => {},
+    listProjects: async () => [],
+    listSessions: async () => [row],
+    listProviderModels: async () => [{
+      provider: route.provider,
+      model: route.model,
+      display: "GPT Fast Cache",
+      effortOptions: [{ value: "high", label: "High" }],
+      fastCapable: true,
+      fastPreferred: false,
+      savedFast: false,
+    }],
+    setFast: async (enabled) => ({ ...idle, fast: enabled }),
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+
+  const sessionFast = document.querySelector('[aria-label="Fast mode"]');
+  assert.equal(sessionFast?.textContent.trim(), "Fast Off");
+  await act(async () => {
+    sessionFast.click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await waitForDom(() => sessionFast.textContent.trim() === "Fast On",
+    "the session Fast toggle should apply before opening the next task");
+  assert.equal(
+    JSON.parse(window.localStorage.getItem("mixdog.desktop-last-new-task-prefs.v1"))
+      .modelSelection.fast,
+    true,
+    "the successful session toggle must refresh the next-task preference cache",
+  );
+
+  await act(async () => {
+    document.querySelector(".session-new-task").click();
+    await Promise.resolve();
+  });
+  await waitForDom(() => {
+    const draft = document.querySelector(
+      '.transcript[data-session-key="new-task"]',
+    )?.closest(".conversation");
+    return draft?.querySelector('[aria-label="Fast mode"]')?.textContent.trim() === "Fast On";
+  }, "the next New task should inherit Fast On from the refreshed cache");
 });
 
 test("Fast recovers from a rejected toggle and can be retried", async () => {
