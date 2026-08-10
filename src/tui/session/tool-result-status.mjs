@@ -17,22 +17,15 @@ const CANCELLED_RESULT_STATUS_LINE = '[status: cancelled]';
 
 // Detect a shell command that RAN but exited non-zero (a process exit code)
 // as opposed to a real tool-call failure (`[shell-tool-failed]`) or a
-// timeout/abort. bash-tool.mjs emits `Error: [shell-run-failed] [exit code: N]`
-// for a plain non-zero exit; timeout/signal cases carry `[timeout: …]`/
-// `[signal: …]` instead of an `[exit code: …]` marker. Returns the numeric
-// exit code (>= 0) for a command-exit, or null otherwise.
+// timeout/abort. New results use bare `[exit code: N]`; legacy transcripts may
+// use `Error: [shell-run-failed] [exit code: N]`. Persistent shell results can
+// prefix `[session: …]`. Returns the numeric exit code, or null otherwise.
 export function shellCommandExitCode(text) {
   const body = String(text || '');
-  // Anchor to the START of the result so a success/non-shell body that merely
-  // QUOTES the marker mid-output is never misclassified. bash-tool emits
-  // `Error: [shell-run-failed] [exit code: N]` as the leading marker header.
-  if (!/^\s*(?:Error:\s*)?\[shell-run-failed\]/i.test(body)) return null;
-  // Restrict marker parsing to the header region (first line) so only the
-  // session runtime-emitted status header — not quoted command output below — counts.
-  const header = body.split('\n', 1)[0] || '';
+  const header = body.split('\n').slice(0, 3).join('\n');
   // Timeout / signal / abort are NOT a plain command exit — keep them "Failed".
   if (/\[timeout:|\[signal:|timed out|aborted|interrupted/i.test(header)) return null;
-  const m = header.match(/\[exit code:\s*(\d+)\]/i);
+  const m = header.match(/^\s*(?:\[session:[^\n]*\]\s*\n)?(?:Error:\s*)?(?:\[shell-run-failed\]\s*)?\[exit code:\s*(\d+)\]/i);
   if (!m) return null;
   const code = Number(m[1]);
   return Number.isFinite(code) ? code : null;

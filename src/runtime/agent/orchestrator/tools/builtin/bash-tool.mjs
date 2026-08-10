@@ -219,10 +219,9 @@ export function formatShellToolFailure(message) {
     return `Error: [shell-tool-failed] ${text}`;
 }
 
-// A legitimate non-zero exit keeps its `[exit code: N]` marker but must not be
-// CLASSIFIED as a failure downstream — the marker alone would read as an error
-// to classifyResultKind. The explicit-success envelope is the documented
-// channel for output that looks like an error and is not one.
+// A completed non-zero process exit keeps its `[exit code: N]` marker but is
+// not a TOOL failure. The explicit-success envelope preserves that structural
+// distinction even when command output itself looks like an error.
 function _finalizeShellResult(legitExit, text) {
     return legitExit ? makeToolEnvelope(text, [], { explicitSuccess: true }) : text;
 }
@@ -774,18 +773,19 @@ export async function executeBashTool(args, workDir, options = {}) {
         const stderr = stripAnsi(result.stderr || '');
         const failureStatus = _shellFailureStatus(result, timeout);
         const { signal, exitCode, shellToolFailed } = failureStatus;
-        const benignExitOne = _isBenignSearchExitOne(command, exitCode, signal, stderr);
-        // Legitimate non-zero exit: the command printed its result and ended
-        // with 1 without writing a single byte to stderr (probes, reports,
-        // `git diff --exit-code`-shaped checks). It keeps its `[exit code: 1]`
-        // marker so the caller sees the code, but it is NOT framed as a tool
-        // error and NOT classified as a failure — measured as the dominant
-        // shape among non-zero exits.
+        // The shell tool succeeded once it spawned and observed the process to
+        // completion. A non-zero process exit is command data — regardless of
+        // stderr or failure banners — and never a tool/control-plane failure.
         const legitExit = !shellToolFailed
-            && !benignExitOne
-            && isLegitimateShellExit({ exitCode, signal, stdout, stderr });
+            && isLegitimateShellExit({
+                exitCode,
+                signal,
+                timedOut: result.timedOut,
+                stdout,
+                stderr,
+            });
         const shellRunFailed = !shellToolFailed
-            && (!!signal || (exitCode !== 0 && exitCode !== null && !benignExitOne && !legitExit));
+            && (!!signal || result.timedOut);
         const isReallyErrored = shellToolFailed || shellRunFailed;
         // Filter-swallow rescue: the tee file is ALWAYS consumed (deleted)
         // here; its tail is attached only when the run failed with an empty
@@ -812,13 +812,11 @@ export async function executeBashTool(args, workDir, options = {}) {
             ? `[shell-tool-failed] ${statusDetail}`
             : (shellRunFailed ? `[shell-run-failed] ${statusDetail}` : (legitExit ? statusDetail : ''));
         const errorPrefix = isReallyErrored ? 'Error: ' : '';
-        // Three outcomes, three labels: a TOOL error (`[shell-tool-failed]`),
-        // a command that RAN AND FAILED (`Error: [shell-run-failed]`), and a
-        // command that RAN TO COMPLETION and merely ended non-zero. The last
-        // one keeps its exit code but says so in words, so neither the model
-        // nor the failure log treats a finished report as a failure.
+        // Three outcomes: TOOL/control-plane failure, interrupted execution,
+        // and a process that completed (zero or non-zero). Completed non-zero
+        // exits keep their code but never carry Error:/shell-run-failed.
         const completionNote = legitExit
-            ? '\n[completed: the command finished and wrote nothing to stderr; the exit code is its own report, not a tool failure]'
+            ? '\n[completed: shell executed the command; its non-zero exit code and output are command results, not a tool failure]'
             : '';
         if (mergeStderr) {
             // Post-exit concatenation. True chunk-level interleaving would

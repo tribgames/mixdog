@@ -9,10 +9,10 @@
  * Matches documented tool-return error conventions:
  *   "Error: ..."      — Node/MCP tool errors (grep, find_symbol, read, code_graph, etc.)
  *   "Error: [shell-tool-failed] ..." — shell tool/control-plane failure
- *   "Error: [shell-run-failed] ..."  — shell command process failure
+ *   "Error: [shell-run-failed] ..."  — interrupted shell execution
  *   "Error [code N]:" — structured builtin tool errors
  *   "[error ..."      — bracketed error format
- *   "[exit code: ..." — bash non-zero exit
+ *   "[exit code: ..." — normal completed shell command result
  *
  * Leading whitespace is stripped before testing (trimStart). Mid-body
  * occurrences of these patterns are NOT treated as errors — only the very
@@ -62,7 +62,7 @@ export function classifyResultKind(result, explicitSuccess = false) {
     if (explicitSuccess === true) return 'normal';
     if (typeof result !== 'string') return 'normal';
     const trimmed = result.trimStart();
-    if (/^error(?:\s+\[code\b|\s*:)/i.test(trimmed) || /^\[error/i.test(trimmed) || /^\[exit code:/i.test(trimmed)) return 'error';
+    if (/^error(?:\s+\[code\b|\s*:)/i.test(trimmed) || /^\[error/i.test(trimmed)) return 'error';
     for (const prefix of ZERO_MATCH_PREFIXES) {
         if (trimmed.startsWith(prefix)) return 'zero-match';
     }
@@ -98,14 +98,9 @@ export function isInformationalShellExitOne(result) {
 }
 
 /**
- * Shell-result outcome test. The shell tool reports failure through its OWN
- * status markers (bash-tool.mjs `_shellFailureStatus`): `Error:
- * [shell-run-failed] …`, `Error: [shell-tool-failed] …`, or a bare
- * `[exit code: N]` / `[timeout: …]` / `[signal: …]` marker — optionally behind
- * ⚠️ destructive-warning lines, which are prepended AFTER the error prefix is
- * composed. A generic leading `Error:` is NOT a shell failure: it is just as
- * likely the command's own stdout, which is why classifyResultKind (correct
- * for tools that own the `Error:` convention) over-reports on shell output.
+ * Shell TOOL/control-plane failure test. A completed process exit is not a
+ * tool failure regardless of its exit code or output. Only tool markers and
+ * interrupted execution (timeout/signal/abort) count.
  *
  * @param {unknown} result
  * @returns {boolean}
@@ -113,8 +108,14 @@ export function isInformationalShellExitOne(result) {
 export function isShellFailureResult(result) {
     if (typeof result !== 'string') return false;
     const body = result.replace(/^(?:\s*⚠️[^\n]*\n)+/, '').trimStart();
-    if (/^error:\s*\[shell-(?:run|tool)-failed\]/i.test(body)) return true;
-    return /^\[(?:exit code:|timeout:|signal:)/i.test(body);
+    if (/^error:\s*\[shell-tool-failed\]/i.test(body)) return true;
+    if (/^error:\s*\[shell-run-failed\]/i.test(body)) {
+        const header = body.split('\n', 1)[0] || '';
+        if (/\[exit code:/i.test(header)
+            && !/\[timeout:|\[signal:|timed out|aborted|interrupted/i.test(header)) return false;
+        return true;
+    }
+    return /^\[(?:timeout:|signal:)/i.test(body);
 }
 
 // Evidence that a command's OUTPUT reports a real failure. Used to separate a
@@ -147,17 +148,11 @@ export function shellOutputReportsFailure(text) {
 }
 
 /**
- * Classify a non-zero shell exit as a real failure or a legitimate report.
- * Legitimate: exit code 1 exactly, no signal, NOTHING on stderr, real output
- * on stdout, and no failure banner in that output. Everything else — any other
- * exit code, a signal, any stderr, an empty capture, or a failure banner —
- * stays a failure.
+ * A process that started and completed produced a command result. Any non-zero
+ * exit code is legitimate tool output; timeout/signal remains an interrupted
+ * execution and tool/control-plane failures are filtered by the caller.
  */
-export function isLegitimateShellExit({ exitCode, signal, stdout, stderr } = {}) {
-    if (signal) return false;
-    if (exitCode !== 1) return false;
-    if (String(stderr ?? '').trim()) return false;
-    const out = String(stdout ?? '').trim();
-    if (!out || out === '(no output)') return false;
-    return !shellOutputReportsFailure(out);
+export function isLegitimateShellExit({ exitCode, signal, timedOut } = {}) {
+    if (signal || timedOut === true) return false;
+    return Number.isInteger(exitCode) && exitCode !== 0;
 }

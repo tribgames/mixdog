@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Lead output-style verbosity bench (default >= simple >= minimal >= extreme-minimal).
+// Lead output-style verbosity bench (detailed >= simple >= minimal >= extreme-minimal).
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import {
@@ -19,7 +19,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dir = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dir, '..');
 const PLUGIN_ROOT = join(REPO_ROOT, 'src');
-const STYLES = ['default', 'simple', 'minimal', 'extreme-minimal'];
+const STYLES = ['detailed', 'simple', 'minimal', 'extreme-minimal'];
 const DEFAULT_PROMPT =
   'Reply in plain English only. What is 2+2? Give a short summary suitable for a status report (no tools, no file reads).';
 const MODEL_ALIASES = {
@@ -85,9 +85,9 @@ function runInjectionScaffold() {
     ? JSON.parse(readFileSync(templatePath, 'utf8'))
     : { outputStyle: 'default' };
   const markers = {
-    default: 'most detailed style',
-    simple: 'Practical concise',
-    minimal: 'a very short summary',
+    detailed: 'clarity outranks terseness',
+    simple: 'hard cap 800 characters',
+    minimal: 'hard cap 400 characters',
     'extreme-minimal': 'exactly one sentence',
   };
   const snippets = {};
@@ -216,7 +216,7 @@ function evaluateVerbosityOrdering(results) {
   return { orderingOk, verdict, counts: styleCharCountsFromResults(results) };
 }
 function printUsage() {
-  process.stdout.write(`output-style-bench — Lead verbosity ladder (default >= simple >= minimal >= extreme-minimal).
+  process.stdout.write(`output-style-bench — Lead verbosity ladder (detailed >= simple >= minimal >= extreme-minimal).
 
 Output style is Lead-only (buildLeadMetaContent when owner is not agent).
 runHeadlessRole worker paths (owner=agent) do NOT inject outputStyle.

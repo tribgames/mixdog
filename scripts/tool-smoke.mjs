@@ -58,6 +58,7 @@ import { prepareAgentSession } from '../src/runtime/agent/orchestrator/agent-run
 import { resolveHiddenRoleSchemaAllowedTools } from '../src/runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs';
 import { assertCodeGraphDescriptionContract } from './code-graph-description-contract.mjs';
 import { getHiddenAgent, resolveAgentSessionPermission } from '../src/runtime/agent/orchestrator/internal-agents.mjs';
+import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -932,8 +933,16 @@ const shellOut = await shellOutPromise;
 assertOk('bash explicit shell/cwd', shellOut, /v\d+\.\d+\.\d+/);
 
 const shellFailOut = await shellFailOutPromise;
-if (!/^Error[\s:[]/.test(String(shellFailOut)) || !/\[shell-run-failed\]/.test(String(shellFailOut)) || !/\[exit code: 7\]/.test(String(shellFailOut))) {
-  throw new Error(`bash non-zero exit must be classified as shell-run-failed Error:\n${shellFailOut}`);
+const normalizedShellFailOut = normalizeToolEnvelope(shellFailOut);
+const shellFailText = String(normalizedShellFailOut.result);
+if (
+  normalizedShellFailOut.explicitSuccess !== true
+  || /^Error[\s:[]/.test(shellFailText)
+  || /\[shell-run-failed\]/.test(shellFailText)
+  || !/\[exit code: 7\]/.test(shellFailText)
+  || !/\[completed: shell executed the command\b/.test(shellFailText)
+) {
+  throw new Error(`bash non-zero exit must be a completed command-result envelope:\n${shellFailText}`);
 }
 
 const shellTimeoutOut = await shellTimeoutOutPromise;

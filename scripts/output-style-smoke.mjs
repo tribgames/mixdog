@@ -63,21 +63,21 @@ for (const [name, style] of styles) {
   assert(!/\b(?:HALF|TWICE)\b/.test(style), `${name} output style must not size itself against another preset`);
 }
 const simpleStyle = styles.get('simple');
-assert(/~5\u20137\s*\n?\s*lines/.test(simpleStyle), 'simple.md must state its line budget');
-assert(/one or two sentences/i.test(styles.get('minimal')), 'minimal.md must state its sentence budget');
+assert(/800 characters/.test(simpleStyle), 'simple.md must state its character cap');
+assert(/400 characters/.test(styles.get('minimal')), 'minimal.md must state its character cap');
 assert(/under 100 characters/.test(styles.get('extreme-minimal')), 'extreme-minimal.md must state its character cap');
-assert(/~10\u201315\s*lines/.test(styles.get('detailed')), 'detailed.md must state its report budget');
+assert(/No hard cap/i.test(styles.get('detailed')), 'detailed.md must pair its uncapped budget with default brevity');
 assert(/material fact/i.test(simpleStyle), 'simple.md must prioritize information density');
-assert(/only the net result/i.test(styles.get('minimal')), 'minimal.md must prioritize the net result');
-assert(/only the net result/i.test(styles.get('extreme-minimal')), 'extreme-minimal.md must prioritize the net result');
-assert(/each line unique/i.test(styles.get('detailed')), 'detailed.md must prioritize information density');
+assert(/net result/i.test(styles.get('minimal')), 'minimal.md must prioritize the net result');
+assert(/net result/i.test(styles.get('extreme-minimal')), 'extreme-minimal.md must prioritize the net result');
+assert(/without\s+rereads/i.test(styles.get('detailed')), 'detailed.md must prioritize understanding over terseness');
 for (const name of ['simple', 'detailed']) {
   assert(/never(?:\s+|\n\s*)dump raw tool output/i.test(styles.get(name)), `${name}.md must forbid raw tool output`);
   assert(/blockers and failures/.test(styles.get(name)), `${name}.md must keep the blocker disclosure rule`);
-  assert(/compact[\s\S]{0,40}tables/i.test(styles.get(name)), `${name}.md must allow compact factual tables`);
-  assert(/explanations outside/i.test(styles.get(name)), `${name}.md must keep explanations outside tables`);
 }
-assert(/Fence[\s\S]{0,30}essential[\s\S]{0,30}multiline code/i.test(styles.get('detailed')), 'detailed.md must limit fenced code to essential snippets');
+assert(/compact\s+tables/i.test(simpleStyle), 'simple.md must allow compact factual tables');
+assert(/enumerable facts/i.test(styles.get('detailed')), 'detailed.md must limit tables to enumerable facts');
+assert(/load-bearing/i.test(styles.get('detailed')), 'detailed.md must limit snippets to load-bearing code');
 
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-output-style-smoke-'));
 try {
@@ -95,7 +95,7 @@ try {
   writeFileSync(join(dataDir, 'output-styles', 'custom-smoke.md'), '---\nname: custom-smoke\n---\n\n# Custom Output Style\n\ncustom smoke style\n');
   const customRules = rulesBuilder.buildInjectionContent({ PLUGIN_ROOT: join(root, 'src'), DATA_DIR: dataDir });
   assert(customRules.includes('# Custom Output Style'), 'configured outputStyle must select custom style');
-  assert(!customRules.includes('Practical concise'), 'custom outputStyle should not append a shipped preset');
+  assert(!customRules.includes('hard cap 800 characters'), 'custom outputStyle should not append a shipped preset');
   const profileMeta = rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT: join(root, 'src'), DATA_DIR: dataDir });
   assert(profileMeta.includes('Use "\uD64D\uAE38\uB3D9\uB2D8" when directly addressing the user'), 'profile title must inject into Lead BP3 meta');
   assert(profileMeta.includes('do not repeat it in routine progress updates or pre-tool preambles'), 'profile title must not encourage title in preambles');

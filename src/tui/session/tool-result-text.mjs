@@ -126,11 +126,13 @@ export function toolErrorDisplay(value, surface = 'tool') {
 }
 
 // Display-only: a command-exit card already renders `Exit N` as its state, so
-// the machine header (`Error: [shell-run-failed] [exit code: N]`) is redundant
-// in the body — and the bare word "Error" reads as a tool failure even though
-// the tool ran fine and the command merely exited non-zero. The model-facing
-// result keeps the header untouched; only the rendered body drops it.
+// the machine header (`[exit code: N]`, or its legacy shell-run-failed form) is
+// redundant in the body. The model-facing result keeps it; only display drops
+// the header and explanatory completion note.
 export function stripShellExitHeader(text) {
   const body = String(text ?? '');
-  return body.replace(/(^|\n)(?:Error:\s*)?\[shell-run-failed\][^\n]*\n{0,2}/i, '$1');
+  return body.replace(
+    /(^|\n)(?:(?:Error:\s*)?\[shell-run-failed\]\s*)?\[exit code:\s*\d+\][^\n]*\n{0,2}(?:\[completed:[^\n]*\]\n{0,2})?/i,
+    '$1',
+  );
 }
