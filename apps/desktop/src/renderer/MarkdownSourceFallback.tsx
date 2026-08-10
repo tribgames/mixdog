@@ -73,8 +73,101 @@ function sourceTextNodes(text: string, key: string): ReactNode[] {
     .map((paragraph) => paragraph.replace(/^\r?\n+|\r?\n+$/g, ""))
     .filter((paragraph) => paragraph.trim())
     .map((paragraph, index) => (
-      <p className="markdown-plain" key={`${key}-paragraph-${index}`}>{paragraph}</p>
+      <p className="markdown-plain" key={`${key}-paragraph-${index}`}>
+        {sourceInlineNodes(paragraph, `${key}-paragraph-${index}`)}
+      </p>
     ));
+}
+
+function isEscaped(text: string, index: number): boolean {
+  let slashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && text[cursor] === "\\"; cursor -= 1) {
+    slashes += 1;
+  }
+  return slashes % 2 === 1;
+}
+
+function markerAt(text: string, index: number): "**" | "__" | null {
+  if (text.startsWith("**", index)) return "**";
+  if (text.startsWith("__", index)) return "__";
+  return null;
+}
+
+function inlineCodeEnd(text: string, index: number): number {
+  let runEnd = index + 1;
+  while (text[runEnd] === "`") runEnd += 1;
+  const marker = text.slice(index, runEnd);
+  const closing = text.indexOf(marker, runEnd);
+  return closing < 0 ? -1 : closing + marker.length;
+}
+
+function strongMarkerEnd(text: string, marker: "**" | "__", from: number): number {
+  for (let index = from; index < text.length; index += 1) {
+    if (text[index] === "`" && !isEscaped(text, index)) {
+      const codeEnd = inlineCodeEnd(text, index);
+      if (codeEnd >= 0) {
+        index = codeEnd - 1;
+        continue;
+      }
+    }
+    if (!text.startsWith(marker, index) || isEscaped(text, index)) continue;
+    if (!text[index - 1] || /\s/.test(text[index - 1])) continue;
+    if (marker === "__" && /[\p{L}\p{N}_]/u.test(text[index + marker.length] || "")) continue;
+    return index;
+  }
+  return -1;
+}
+
+function sourceInlineNodes(text: string, key: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let plainStart = 0;
+  let index = 0;
+  const pushPlain = (end: number) => {
+    if (end > plainStart) nodes.push(text.slice(plainStart, end));
+  };
+  while (index < text.length) {
+    if (text[index] === "`" && !isEscaped(text, index)) {
+      const end = inlineCodeEnd(text, index);
+      if (end >= 0) {
+        pushPlain(index);
+        let markerLength = 1;
+        while (text[index + markerLength] === "`") markerLength += 1;
+        nodes.push(
+          <code key={`${key}-code-${index}`}>
+            {text.slice(index + markerLength, end - markerLength)}
+          </code>,
+        );
+        index = end;
+        plainStart = end;
+        continue;
+      }
+    }
+    const marker = markerAt(text, index);
+    const before = text[index - 1] || "";
+    const after = text[index + 2] || "";
+    const canOpen = marker
+      && !isEscaped(text, index)
+      && Boolean(after)
+      && !/\s/.test(after)
+      && (marker === "**" || !/[\p{L}\p{N}_]/u.test(before));
+    if (canOpen && marker) {
+      const closing = strongMarkerEnd(text, marker, index + marker.length);
+      if (closing >= 0) {
+        pushPlain(index);
+        nodes.push(
+          <strong key={`${key}-strong-${index}`}>
+            {sourceInlineNodes(text.slice(index + marker.length, closing), `${key}-strong-${index}`)}
+          </strong>,
+        );
+        index = closing + marker.length;
+        plainStart = index;
+        continue;
+      }
+    }
+    index += 1;
+  }
+  pushPlain(text.length);
+  return nodes;
 }
 
 /**

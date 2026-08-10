@@ -457,6 +457,21 @@ test("markdown fallback renders fenced scripts in final mono block grammar", asy
   assert.equal(document.querySelector("code")?.textContent, "const value = 1;",
     "a partial closing fence must never appear as a temporary code row");
   assert.equal(document.querySelector(".markdown-plain")?.tagName, undefined);
+
+  await act(async () => root.render(React.createElement(
+    "div",
+    { className: "markdown" },
+    React.createElement(MarkdownSourceFallback, {
+      text: "완성된 **굵게**와 `**코드**`, \\**리터럴**",
+    }),
+  )));
+  const fallbackProse = document.querySelector(".markdown-plain");
+  assert.equal(fallbackProse?.querySelectorAll("strong").length, 1);
+  assert.equal(fallbackProse?.querySelector("strong")?.textContent, "굵게");
+  assert.equal(fallbackProse?.querySelector("code")?.textContent, "**코드**",
+    "inline code markers must remain literal in the source fallback");
+  assert.match(fallbackProse?.textContent || "", /\\\*\*리터럴\*\*/,
+    "escaped bold markers must remain literal in the source fallback");
 });
 
 test("streamed fenced scripts retain one code wrapper through promotion and settlement", async () => {
@@ -514,8 +529,8 @@ test("the live markdown tail keeps its styling while the parser trails the strea
     terminate() {}
   }
   globalThis.Worker = TrailingMarkdownWorker;
-  const renderResponse = async (text) => act(async () => {
-    root.render(React.createElement(MarkdownResponse, { text, streaming: true }));
+  const renderResponse = async (text, streaming = true) => act(async () => {
+    root.render(React.createElement(MarkdownResponse, { text, streaming }));
     await Promise.resolve();
   });
   const deliverParses = async () => {
@@ -548,6 +563,14 @@ test("the live markdown tail keeps its styling while the parser trails the strea
     assert.match(markdown.textContent, /bold tail keeps growing/,
       "the caught-up parse must show the newest text");
     assert.doesNotMatch(markdown.textContent, /\*\*/);
+
+    const completed = "완성된 전문의 **핵심 내용**입니다.";
+    await renderResponse(completed);
+    await renderResponse(completed, false);
+    assert.equal(markdown.querySelector("strong")?.textContent, "핵심 내용",
+      "a completed response must style bold source before its final worker AST lands");
+    assert.doesNotMatch(markdown.textContent, /\*\*/,
+      "a completed response must never expose raw bold markers");
   } finally {
     // Restore the worker-less default for every later suite: the client caches
     // its worker instance, so it must be told this one died.
