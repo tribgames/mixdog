@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.107 - 2026-08-10
+
 - Non-interactive automation and benchmark sessions explicitly use implicit
   approval context, while interactive workflows keep their user approval gate.
 
