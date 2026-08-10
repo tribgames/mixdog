@@ -171,6 +171,45 @@ test('a freeform Root directive deliberately permits an outside target', async (
   });
 });
 
+test('relative section paths resolve against an explicit root', async () => {
+  await withWorkspace(async ({ base, outside }) => {
+    // Regression: the model surface passes only `patch` + `root` (no
+    // base_path). The declared root is the coordinate frame, so root-relative
+    // targets must apply even when the session cwd is another tree.
+    const target = join(outside, 'nested', 'f.txt');
+    mkdirSync(join(outside, 'nested'), { recursive: true });
+    writeFileSync(target, 'one\n', 'utf8');
+    const viaArg = String(await executePatchTool('apply_patch', {
+      patch: [
+        '*** Begin Patch',
+        '*** Update File: nested/f.txt',
+        '@@',
+        '-one',
+        '+ONE',
+        '*** End Patch',
+        '',
+      ].join('\n'),
+      root: outside,
+    }, base, {}));
+    assert.ok(!/^Error/.test(viaArg), `root-relative patch failed:\n${viaArg}`);
+    assert.equal(read(target), 'ONE\n');
+    const viaDirective = String(await executePatchTool('apply_patch', {
+      patch: [
+        '*** Begin Patch',
+        `*** Root: ${outside}`,
+        '*** Update File: nested/f.txt',
+        '@@',
+        '-ONE',
+        '+one',
+        '*** End Patch',
+        '',
+      ].join('\n'),
+    }, base, {}));
+    assert.ok(!/^Error/.test(viaDirective), `Root-directive-relative patch failed:\n${viaDirective}`);
+    assert.equal(read(target), 'one\n');
+  });
+});
+
 test('compact patch headers expand through the public tool entry point', async () => {
   await withWorkspace(async ({ base }) => {
     const target = join(base, 'f.txt');

@@ -41,5 +41,4 @@ Use only input IDs; never invent IDs. `update` supplies fresh `element` and a
 uses only one `project_id`. Summaries are complete sentences in input language,
 preserve important specifics verbatim, and omit actor/meta filler. Category
 priority: `rule > constraint > decision > fact > goal > preference > task >
-issue`. Replace literal `|` with `/`; fields contain no newlines. Start every
-verdict with a digit.
+issue`. Replace literal `|` with `/`; fields contain no newlines.

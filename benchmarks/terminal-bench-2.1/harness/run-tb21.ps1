@@ -121,10 +121,11 @@ function Expand-Tasks([string[]]$names) {
 }
 foreach ($t in (Expand-Tasks $Include)) { $harborArgs += @("-i", $t) }
 foreach ($t in (Expand-Tasks $Exclude)) { $harborArgs += @("-x", $t) }
-# Anti-429 boot-spread window scales with actual concurrency instead of a
-# fixed 30s worst case; a single trial has no herd to spread, so jitter is 0.
-# Explicit -AgentEnv entries appended later still win.
-$harborArgs += @("--ae", "MIXDOG_BOOT_JITTER_MS=$([Math]::Min(30000, ($Concurrent - 1) * 2500))")
+# Boot jitter defaults to 0 so every run measures the same agent-execution
+# window and stays comparable run-to-run (the driver itself would default to
+# 30s if this env were omitted). Opt back into an anti-429 boot spread with
+# an explicit -AgentEnv MIXDOG_BOOT_JITTER_MS=<ms>; entries appended later win.
+$harborArgs += @("--ae", "MIXDOG_BOOT_JITTER_MS=0")
 if ($hasModel) { $harborArgs += @("-m", $Model) }
 if ($hasProvider) { $harborArgs += @("--ak", "provider=$Provider") }
 if ($Effort) { $harborArgs += @("--ak", "effort=$Effort") }

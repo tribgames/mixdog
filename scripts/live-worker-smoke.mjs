@@ -107,8 +107,8 @@ async function main() {
     ['Review is not unnecessary', false],
   ]) assert(reviewSkipViolation(phrase) === expected, `review-skip detector case failed: ${phrase}`);
   const skipsReview = reviewSkipViolation(workflow);
-  assert(hasAll(lead, 'current project/workspace'), 'lead tool rules must preserve workspace ownership');
-  assert(hasAll(shared, 'one `apply_patch` for all edits'), 'shared tool rules must keep the single apply_patch turn contract');
+  assert(hasAll(lead, 'use the current project'), 'lead tool rules must preserve Project ownership');
+  assert(hasAll(shared, 'one `apply_patch` per file or cohesive unit'), 'shared tool rules must keep the single apply_patch turn contract');
   assert(!/final verification/i.test(shared), 'shared tool rules must not presume a verification round');
   assert(!hasAll(shared, 'process/env, git, build/run/test→`shell`') && !/call `shell` only when/i.test(shared), 'shared tool rules must not prompt routine shell use');
   assert(!/write-role agents self-verify|benches|cross-scope verification/.test(lead), 'lead tool rules must not encourage routine shell verification');

@@ -130,7 +130,7 @@ test('tool descriptions stay mechanical while routing stays in shared policy', (
   assert.match(EXPLORE_TOOL.inputSchema?.properties?.query?.description || '', /one concrete unknown target[\s\S]*minimal complete direct path:line set/i);
   assert.match(CODE_GRAPH_TOOL_DEFS[0]?.description || '', /structure, symbol relations, and flow/i);
   assert.match(CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties?.symbols?.description || '', /batch multiple in one symbols\[\]/i);
-  assert.match(PATCH_TOOL_DEFS[0]?.freeformDescription || '', /Edit files with `apply_patch`.*FREEFORM input/i);
+  assert.match(PATCH_TOOL_DEFS[0]?.freeformDescription || '', /Compact patch: U\/A\/D path[\s\S]*M rename or R root[\s\S]*@ hunks/i);
   const webByName = Object.fromEntries(WEB_TOOL_DEFS.map((tool) => [tool.name, tool]));
   const memoryByName = Object.fromEntries(MEMORY_TOOL_DEFS.map((tool) => [tool.name, tool]));
   assert.match(webByName.web_fetch.description, /Fetch page\/docs body from URL/i);
@@ -189,7 +189,7 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   for (const route of [
     /path\/name only→`find`/i,
     /exact directory entries→`list`/i,
-    /wildcard paths→\s*`glob`/i,
+    /wildcard\/recursive paths→\s*`glob`/i,
     /source content\/value\/`path:line`→`grep`/i,
     /known file\/range→\s*`read`/i,
     /exact symbol\/relation→`code_graph`/i,
@@ -202,8 +202,13 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   ]) assert.match(policy, route, `routing table lost ${route}`);
   // Classified facets use baseline routes directly; shell stays outside.
   assert.match(policy, /Baseline routing assigns each facet directly by the evidence needed/i);
-  assert.match(policy, /evidence no file tool returns — an independent facet, batched with the rest/i);
-  assert.match(policy, /stay focused on the requested outcome[\s\S]*Avoid investigation, implementation, or verification not required to satisfy it[\s\S]*once the requirements are met and proven, stop/i);
+  assert.match(policy, /evidence unavailable to file tools—an independent facet, batched with the rest/i);
+  assert.match(policy, /conclusive result ends its facet[\s\S]*never broaden, repeat, or reconfirm[\s\S]*prior output is needed to form the next call[\s\S]*on failure rerun only the failed check/i);
+  // Shortest-turn batching without speculative re-reads: dependency includes
+  // need/scope decisions, satisfied dependents are dropped, and returned
+  // content is never re-acquired.
+  assert.match(policy, /known state — task\/brief-supplied facts, returned content, and the effects of your own successful calls — is never re-acquired/i);
+  assert.match(policy, /\(as input or to decide its need\/scope\)[\s\S]*drop a call whose deciding evidence already suffices/i);
   // 2. Negative shell steering lives on the shell tool description (reference
   // parity); the rule mentions shell only for batched final verification.
   assert.doesNotMatch(policy, /process\/env, git, build\/run\/test→`shell`|Call `shell` only when/i);
@@ -219,18 +224,21 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   assert.match(descOf('glob'), /Replaces find -name\./);
   assert.match(policy, /explicit paths may be outside cwd/i);
   assert.match(policy, /project-relative paths[\s\S]*omit optional scopes equal to its root/i);
+  // Guessed identities (paths, module specifiers, record shapes) are facets:
+  // verified before anything depends on them, never acted on as known.
+  assert.match(policy, /Act only on verified identities[\s\S]*guessed identity is itself a facet[\s\S]*cheapest batched probe \(one lookup or sample record\)[\s\S]*before anything depends on it/i);
   // 3. Retrieval fans out maximally, while execution and mutation retain
   // their own phase boundary.
   assert.match(policy, /`explore`, when exposed, is a fast path only[\s\S]*call it first once for all such independent facets in one query array[\s\S]*minimal complete direct `path:line` anchors[\s\S]*resume baseline routing from those anchors/i);
   assert.match(policy, /Baseline routing assigns each facet directly by the evidence needed/i);
-  assert.match(policy, /Batch calls iff no call needs another's output or can change another's inputs\/state; otherwise serialize[\s\S]*Before each retrieval batch[\s\S]*deduplicate all required facets[\s\S]*route each once to the cheapest sufficient tool[\s\S]*all required variants\/scopes[\s\S]*launch every independent call together[\s\S]*Never split one decision across overlapping facets[\s\S]*add `shell`, `apply_patch`, or other mutation merely to widen retrieval[\s\S]*duplicate\/broaden a facet through another tool or `shell`[\s\S]*reserve known work[\s\S]*cap fanout/i);
-  assert.match(policy, /Once the edit is determined[\s\S]*one assistant turn[\s\S]*one `apply_patch` per file or cohesive unit[\s\S]*all patches first[\s\S]*one batched verification `shell` when needed[\s\S]*runtime waits for every patch and skips the shell if any fails[\s\S]*Retry only failed envelopes[\s\S]*Create or edit text only with `apply_patch`, never `shell`[\s\S]*Earlier `shell` is only for[\s\S]*executable\/runtime\/state evidence/i);
+  assert.match(policy, /Batch calls iff no call needs another's output \(as input or to decide its need\/scope\) or can change another's inputs\/state; otherwise serialize[\s\S]*Before each retrieval batch[\s\S]*deduplicate every facet the task still requires[\s\S]*route each once to the cheapest sufficient tool[\s\S]*all required variants\/scopes[\s\S]*launch every independent call together[\s\S]*Never split one decision across overlapping facets[\s\S]*duplicate\/broaden a facet through another tool[\s\S]*add `shell`\/`apply_patch` mutation merely to widen retrieval[\s\S]*reserve known work[\s\S]*cap fanout/i);
+  assert.match(policy, /Once the edit is determined[\s\S]*one assistant turn[\s\S]*one `apply_patch` per file or cohesive unit[\s\S]*all patches first[\s\S]*one batched verification `shell` for required postconditions only[\s\S]*runtime waits for every patch and skips the shell if any fails[\s\S]*Retry only failed envelopes[\s\S]*Create or edit text only with `apply_patch`, never `shell`[\s\S]*Earlier `shell` is only for[\s\S]*executable\/runtime\/state evidence/i);
   assert.doesNotMatch(policy, /before every tool batch|whatever the tool|every turn, widest probe to last|one `apply_patch` for all edits and one `shell` chain|otherwise finish without it|Prefer parallel calls when independent|risk-proportionate|rerun only failures|zero\/error or a newly revealed dependency|cross-scope verification/i);
   assert.match(policy, /Take the cheapest sufficient evidence per facet[\s\S]*symbol relations end at `code_graph`[\s\S]*values\/locations end at the context grep returns[\s\S]*`read` covers only what returned spans cannot[\s\S]*anchored offset\/limit window[\s\S]*never a full-file read when a window suffices/i);
   assert.match(policy, /adjacent context around an edit point counts as needed evidence[\s\S]*The moment evidence determines the edit, stop retrieving and patch/i);
-  assert.match(policy, /cheapest sufficient tool[\s\S]*required variants\/scopes[\s\S]*Never split one decision across overlapping facets[\s\S]*duplicate\/broaden a facet through another tool or `shell`/i);
-  assert.match(policy, /once the requirements are met and proven, stop/i);
-  assert.match(policy, /prior output is required[\s\S]*to form the next call/i);
+  assert.match(policy, /cheapest sufficient tool[\s\S]*required variants\/scopes[\s\S]*Never split one decision across overlapping facets[\s\S]*duplicate\/broaden a facet through another tool/i);
+  assert.match(policy, /never broaden, repeat, or reconfirm\. Follow up only/i);
+  assert.match(policy, /prior output is needed to form the next call/i);
   const leadToolPolicy = readFileSync(new URL('../src/rules/lead/lead-tool.md', import.meta.url), 'utf8');
   const leadGeneralPolicy = readFileSync(new URL('../src/rules/lead/01-general.md', import.meta.url), 'utf8');
   assert.doesNotMatch(leadToolPolicy, /cross-scope verification/i);
@@ -244,16 +252,12 @@ test('explorer locator policy retains its compact behavioral contract', () => {
   const policy = rule.replace(/\s+/g, ' ');
   const required = [
     /Locate and return exact coordinates only[\s\S]*minimal complete WHERE set \(`path:line`\)[\s\S]*never analysis, evaluation, explanation, recommendation, or a solution[\s\S]*You ARE `explore`; never call it[\s\S]*Follow the shared routing rules[\s\S]*add no rules or exceptions/i,
-    /Before EVERY tool call[\s\S]*targets still lack a complete direct anchor set[\s\S]*add a distinct matching coordinate rather than reconfirm one/i,
-    /target is complete only when every distinct coordinate directly satisfying its query is held[\s\S]*one anchor suffices only when the target is singular by construction[\s\S]*all targets are complete[\s\S]*call only reconfirms, re-reads, verifies, quotes, strengthens, or adds context[\s\S]*answer now/i,
-    /Target: ONE tool turn[\s\S]*within 10 seconds[\s\S]*Hard limit: FIVE tool turns plus ONE tool-less final-report turn[\s\S]*`turn 1\/6`[\s\S]*`turn 5\/6`[\s\S]*`turn 6\/6`[\s\S]*FINAL TURN/i,
-    /After turns 1-4, report immediately if every requested target is complete[\s\S]*Do not spend another turn merely because budget remains/i,
-    /Turns 2-5 are ONLY for incomplete targets[\s\S]*changed concrete tokens or a new exact scope in maximum fanout[\s\S]*Page only when output explicitly reports truncation or incompleteness[\s\S]*never repeat tokens and scope/i,
-    /next turn lacks a concrete anchor-producing move[\s\S]*stop early with `EXPLORATION_FAILED`/i,
-    /After turn 5, stop tools unconditionally[\s\S]*Turn 6 \(`turn 6\/6`\)[\s\S]*FINAL REPORT TURN[\s\S]*last turn[\s\S]*credible anchors currently held[\s\S]*none exist[\s\S]*`EXPLORATION_FAILED`[\s\S]*no sixth tool turn/i,
-    /credible tool-returned coordinate is FINAL[\s\S]*Never re-locate, re-read, reconfirm, verify, upgrade, cross-check[\s\S]*through another tool or turn/i,
+    /Target: ONE tool turn[\s\S]*within 10 seconds[\s\S]*Hard limit: FIVE tool turns plus ONE tool-less final-report turn[\s\S]*`turn 1\/6`[\s\S]*`turn 5\/6`[\s\S]*`turn 6\/6`[\s\S]*FINAL REPORT TURN[\s\S]*no tools[\s\S]*credible anchors currently held[\s\S]*`EXPLORATION_FAILED` if none exist/i,
+    /target is complete only when every distinct coordinate directly satisfying its query is held[\s\S]*one anchor suffices only when the target is singular by construction[\s\S]*Before EVERY tool call[\s\S]*still lack a complete direct anchor set[\s\S]*adds a distinct matching coordinate[\s\S]*answer immediately[\s\S]*never spend a turn merely because budget remains/i,
+    /Turns 2-5 are ONLY for incomplete targets[\s\S]*changed concrete tokens or a new exact scope in maximum fanout[\s\S]*Page only when output explicitly reports truncation or incompleteness[\s\S]*never repeat tokens and scope[\s\S]*lacks a concrete anchor-producing move[\s\S]*stop early with `EXPLORATION_FAILED`/i,
+    /credible tool-returned coordinate is FINAL[\s\S]*Never re-locate, re-read, reconfirm, verify, upgrade, cross-check, quote, or strengthen it through another tool or turn[\s\S]*Copy paths and coordinates exactly[\s\S]*never repair, normalize, estimate, or recall them/i,
     /code anchor requires a tool-returned `path:line`[\s\S]*bare path is valid only for a file\/dir-location query[\s\S]*Generic matches and guessed coordinates are zero anchors[\s\S]*Search every supplied `<root>`[\s\S]*otherwise search session cwd/i,
-    /one compact line per distinct direct match[\s\S]*`path:line — symbol — short reason`[\s\S]*no fixed item-count cap[\s\S]*omit incidental matches and prose[\s\S]*completeness\/list\/count query[\s\S]*copy EVERY returned matching `path:line` once[\s\S]*preserve the tool-reported total[\s\S]*Never omit a direct match[\s\S]*budget cannot produce a credible anchor[\s\S]*Never fabricate, soften, or return vague prose/i,
+    /one compact line per distinct direct match[\s\S]*`path:line — symbol — short reason`[\s\S]*no fixed item-count cap[\s\S]*omit incidental matches and prose[\s\S]*completeness\/list\/count query[\s\S]*copy EVERY returned matching `path:line` once[\s\S]*preserve the tool-reported total[\s\S]*never omit a direct match or page after a complete result[\s\S]*budget cannot produce a credible anchor[\s\S]*never fabricate, soften, or return vague prose/i,
   ];
   for (const behavior of required) assert.match(policy, behavior);
   assert.doesNotMatch(policy, /## Maximum fan-out|Extract every independent locator facet|Never reserve known work, serialize independent calls, or cap facet count/i);

@@ -28,7 +28,6 @@ Verbose durable is always `update`, never `keep`.
 `<id>|merge|<target_id>|<source_ids_csv>`
 `<id>|delete`
 
-IDs match input rows; never invent them. An `update` summary is one short
-clause and its `element` is compact. A `merge` retains `target_id`, absorbs
-sources, and stays within one `project_id`. Replace literal `|` with `/`;
-fields contain no newlines. Emit a digit-starting verdict for every input row.
+IDs match input rows; never invent them. An `update` supplies a compact
+`element`. A `merge` retains `target_id`, absorbs sources, and stays within
+one `project_id`. Replace literal `|` with `/`; fields contain no newlines.
