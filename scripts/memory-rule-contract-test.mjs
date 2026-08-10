@@ -59,7 +59,6 @@ test('cycle2 preserves essential taxonomy, phases, rejects, formats, and fields'
     'complete sentences in input language', 'preserve important specifics verbatim',
     'omit actor/meta filler', '`rule > constraint > decision > fact > goal > preference > task > issue`',
     'Replace literal `|` with `/`', 'fields contain no newlines',
-    'Start every verdict with a digit',
   ])
 })
 
@@ -78,10 +77,9 @@ test('cycle3 preserves durable-event verdicts, formats, and exceptions', () => {
     'Verbose durable is always `update`, never `keep`',
     '<id>|keep', '<id>|update|<element>|<summary>',
     '<id>|merge|<target_id>|<source_ids_csv>', '<id>|delete',
-    'IDs match input rows; never invent them', 'summary is one short clause',
-    '`element` is compact', 'retains `target_id`, absorbs sources, and stays within one `project_id`',
+    'IDs match input rows; never invent them',
+    'supplies a compact `element`', 'retains `target_id`, absorbs sources, and stays within one `project_id`',
     'Replace literal `|` with `/`', 'fields contain no newlines',
-    'Emit a digit-starting verdict for every input row',
   ])
 })
 

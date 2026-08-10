@@ -754,12 +754,6 @@ async function apply_patch(args, cwd, options = {}) {
   if (abortSignal?.aborted) {
     throw new Error(abortSignal.reason?.message || abortSignal.reason || 'apply_patch aborted');
   }
-  const basePath = resolveBasePath(cwd, args?.base_path);
-  try {
-    await assertPathReachable(basePath);
-  } catch (err) {
-    return `Error: ${err?.message || String(err)}`;
-  }
   // Write-root gate: a patch may only touch paths inside a DECLARED root —
   // the session directory by default, or `root`/`base_path` when the caller
   // names one. Anything outside is refused before a single byte is written, so
@@ -769,6 +763,15 @@ async function apply_patch(args, cwd, options = {}) {
   const explicitRoot = typeof args?.root === 'string' && args.root.trim() ? args.root.trim() : null;
   if (explicitRoot && isFilesystemRootSpecifier(explicitRoot, cwd)) {
     throw new Error(`apply_patch: refusing filesystem root as write root: ${normalizeOutputPath(explicitRoot)}`);
+  }
+  // A declared root is the coordinate frame as well as the boundary: relative
+  // section paths resolve against it (an internal `base_path` overrides the
+  // frame), so the refusal advice "set root" is sufficient on its own.
+  const basePath = resolveBasePath(cwd, args?.base_path || explicitRoot);
+  try {
+    await assertPathReachable(basePath);
+  } catch (err) {
+    return `Error: ${err?.message || String(err)}`;
   }
   const writeRoot = resolveBasePath(cwd, explicitRoot ?? args?.base_path ?? null);
   if (explicitRoot) {
@@ -792,7 +795,8 @@ async function apply_patch(args, cwd, options = {}) {
     const more = shown.length > 3 ? ` (+${shown.length - 3} more)` : '';
     throw new Error(
       `apply_patch: ${shown.length} target(s) fall outside the write root ${normalizeOutputPath(writeRoot)}: ${head}${more}. `
-      + 'Check the paths first; if intended, set root (JSON) or add "*** Root: <containing directory>" after "*** Begin Patch" (freeform).',
+      + 'Check the paths first; if intended, set root (JSON) or add "*** Root: <containing directory>" after "*** Begin Patch" (freeform); '
+      + 'relative section paths then resolve against that root.',
     );
   }
   const rejectPartial = args?.reject_partial !== false;
