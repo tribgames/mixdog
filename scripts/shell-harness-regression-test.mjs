@@ -38,7 +38,10 @@ import {
 import { parseV4APatch } from '../src/runtime/agent/orchestrator/tools/patch/parsing.mjs';
 import { splitTextLinesForPatch } from '../src/runtime/agent/orchestrator/tools/patch/matcher.mjs';
 import { applyV4AHunksToLines } from '../src/runtime/agent/orchestrator/tools/patch/v4a-convert.mjs';
-import { appendPostPatchExcerpts } from '../src/runtime/agent/orchestrator/tools/patch/orchestrator.mjs';
+import {
+    appendPostPatchExcerpts,
+    expandCompactPatchInput,
+} from '../src/runtime/agent/orchestrator/tools/patch/orchestrator.mjs';
 
 // Product default is zero warm pwsh processes. This file explicitly opts in so
 // the reusable standby protocol still has full behavioral coverage.
@@ -52,6 +55,38 @@ function v4aHunksFor(patchLines) {
     const [section] = parseV4APatch(['*** Begin Patch', ...patchLines, '*** End Patch'].join('\n'));
     return section.hunks;
 }
+
+test('compact patch normalization absorbs legacy wrappers without changing the model surface', () => {
+    const hybrid = [
+        '*** Begin Patch',
+        'U /app/bottle.py',
+        '@ def _hkey',
+        ' def _hkey(key):',
+        '-    return old',
+        '+    return new',
+        'A /app/report.jsonl',
+        '+{"cwe_id":["cwe-93"]}',
+        '*** End Patch',
+    ].join('\n');
+    const expanded = expandCompactPatchInput(hybrid);
+    assert.deepEqual(
+        parseV4APatch(expanded).map(({ kind, path }) => ({ kind, path })),
+        [
+            { kind: 'update', path: '/app/bottle.py' },
+            { kind: 'add', path: '/app/report.jsonl' },
+        ],
+    );
+
+    const legacy = [
+        '*** Begin Patch',
+        '*** Update File: plus_comm.v',
+        '@@',
+        '-admit.',
+        '+reflexivity.',
+        '*** End Patch',
+    ].join('\n');
+    assert.equal(expandCompactPatchInput(legacy), legacy);
+});
 
 test('V4A context tolerance applies a unique window with one drifted context line', () => {
     const src = splitTextLinesForPatch('alpha line one\nfunction helperOne(arg, extra) {\n  remove me\nbeta line two\ntail line\n');
@@ -70,7 +105,7 @@ test('V4A context tolerance applies a unique window with one drifted context lin
     );
 });
 
-test('V4A context tolerance rejects a drifted deletion line', () => {
+test('V4A edit-distance recovery remaps one drifted deletion line in a uniquely anchored window', () => {
     const src = splitTextLinesForPatch('function helperOne(arg, extra) {\n  remove me\nbeta line two\n');
     const hunks = v4aHunksFor([
         '*** Update File: t.txt',
@@ -79,7 +114,8 @@ test('V4A context tolerance rejects a drifted deletion line', () => {
         '+  replaced line',
         ' beta line two',
     ]);
-    assert.throws(() => applyV4AHunksToLines(src, hunks, { fuzzy: true }), /context not found/);
+    const out = applyV4AHunksToLines(src, hunks, { fuzzy: true });
+    assert.equal(out.join('\n'), 'function helperOne(arg, extra) {\n  replaced line\nbeta line two');
 });
 
 test('V4A context tolerance rejects ambiguous duplicate windows', () => {
