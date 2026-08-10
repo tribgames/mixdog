@@ -232,6 +232,7 @@ export function createSessionLifecycle({
         lane: 'cli',
         sourceType: 'lead',
         sourceName: 'main',
+        ...(rt.approvalMode ? { approvalMode: rt.approvalMode } : {}),
         clientHostPid: process.pid,
         mcpScopeId: rt.mcpScopeId,
         disallowedTools: [...LEAD_DISALLOWED_TOOLS, ...featureDisallowedTools()],

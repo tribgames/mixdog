@@ -502,7 +502,11 @@ const driveSession = async (route) => {
   let lifecycleCompleted = false;
   try {
     const bootT1 = Date.now();
-    rt = await createMixdogSessionRuntime({ provider: route.provider, model: route.model });
+    rt = await createMixdogSessionRuntime({
+      provider: route.provider,
+      model: route.model,
+      approvalMode: 'implicit',
+    });
     activeLeadSessionId = String(rt.sessionId || rt.session?.id || '');
     void mirrorUsageAsync();
     process.stderr.write(`[boot-timing] createRuntime=${Date.now() - bootT1}ms\n`);

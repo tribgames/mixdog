@@ -23,6 +23,11 @@ const { loadScopedRoleInstructions } = await import('../src/runtime/agent/orches
 const { createWorkflowHelpers } = await import('../src/session-runtime/workflow.mjs');
 const { createWorkflowAgentsApi } = await import('../src/session-runtime/workflow-agents-api.mjs');
 const { agentDefinitionExists } = await import('../src/standalone/agent-tool/helpers.mjs');
+const { automationWorkflowOpts } = await import('../src/runtime/shared/automation-workflow.mjs');
+const {
+  IMPLICIT_APPROVAL_CONTEXT,
+  workflowContextForApprovalMode,
+} = await import('../src/runtime/agent/orchestrator/session/approval-mode.mjs');
 const { readMarkdownDocument, normalizeAgentPermissionOrNone, serializeFrontmatterDoc } =
   await import('../src/runtime/shared/markdown-frontmatter.mjs');
 
@@ -126,6 +131,20 @@ test('hidden solo-bench loads explicitly without exposing an approval gate', () 
   assert.match(pack.body, /complete in-scope fixes without reapproval/i);
   assert.match(pack.body, /build, deploy, commit, and push happen only on an explicit\s+user request/i);
   assert.match(pack.body, /on direction change, pause and re-consult the user/i);
+});
+
+test('implicit approval appends one non-interactive exception without changing interactive workflow context', () => {
+  const workflow = helpers.workflowContextBlock({ workflow: { active: 'default' } }, DATA_DIR);
+  assert.match(workflow, /Before the user explicitly approves the latest plan/);
+  assert.equal(workflowContextForApprovalMode(workflow, null), workflow);
+  assert.equal(workflowContextForApprovalMode(null, null), null);
+  const implicit = workflowContextForApprovalMode(workflow, 'implicit');
+  assert.ok(implicit.indexOf(IMPLICIT_APPROVAL_CONTEXT) > implicit.indexOf('Before the user explicitly approves'));
+  assert.equal(implicit.match(/Non-interactive execution:/g)?.length, 1);
+});
+
+test('automation sessions declare implicit approval even without a workflow id', () => {
+  assert.deepEqual(automationWorkflowOpts(null), { approvalMode: 'implicit' });
 });
 
 test('a delegating pack lists every active starter and custom agent', () => {

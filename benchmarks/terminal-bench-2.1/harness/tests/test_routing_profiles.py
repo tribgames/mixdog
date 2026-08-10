@@ -1949,7 +1949,8 @@ class LeadDriverBehaviorTests(unittest.TestCase):
         runtime_stub = """
 import { writeFileSync } from 'node:fs';
 let rejectAsk = null;
-export async function createMixdogSessionRuntime() {
+export async function createMixdogSessionRuntime(options) {
+  writeFileSync(process.env.MIXDOG_DATA_DIR + '/runtime-options.json', JSON.stringify(options));
   return {
     sessionId: 'deadline-session',
     session: { id: 'deadline-session', tools: [] },
@@ -2002,6 +2003,10 @@ export async function createMixdogSessionRuntime() {
                 timeout=5,
             )
             self.assertEqual((data / "deadline-closed").read_text(), "closed")
+            runtime_options = json.loads(
+                (data / "runtime-options.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(runtime_options["approvalMode"], "implicit")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(
             "run deadline exceeded during model ask after 50ms", result.stderr

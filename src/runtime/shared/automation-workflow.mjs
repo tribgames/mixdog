@@ -9,6 +9,7 @@
 import { createWorkflowHelpers } from '../../session-runtime/workflow.mjs';
 import { STANDALONE_ROOT, STANDALONE_DATA_DIR } from '../../session-runtime/runtime-paths.mjs';
 import { readMarkdownDocument, normalizeAgentPermissionOrNone } from './markdown-frontmatter.mjs';
+import { IMPLICIT_APPROVAL_MODE } from '../agent/orchestrator/session/approval-mode.mjs';
 
 let _helpers = null;
 function helpers() {
@@ -23,19 +24,21 @@ function helpers() {
   return _helpers;
 }
 
-/** { workflow, workflowContext } createSession opts for a workflow id, or {} when unset/unresolvable. */
+/** Non-interactive createSession opts, plus workflow context when the id resolves. */
 export function automationWorkflowOpts(workflowId) {
+  const approvalOpts = { approvalMode: IMPLICIT_APPROVAL_MODE };
   const id = String(workflowId || '').trim();
-  if (!id) return {};
+  if (!id) return approvalOpts;
   try {
     const h = helpers();
     const pack = h.loadWorkflowPack(undefined, id);
-    if (!pack) return {};
+    if (!pack) return approvalOpts;
     return {
+      ...approvalOpts,
       workflow: h.workflowSummary(pack),
       workflowContext: h.workflowContextBlock({ workflow: { active: id } }, undefined),
     };
   } catch {
-    return {};
+    return approvalOpts;
   }
 }
