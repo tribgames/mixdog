@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.109 - 2026-08-10
+
 - Shell commands that complete with a non-zero exit are treated as command
   results rather than tool failures, with consistent runtime and TUI status.
 - Tool routing, explorer limits, output-style contracts, and their regression
