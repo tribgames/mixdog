@@ -5,6 +5,9 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Non-interactive automation and benchmark sessions explicitly use implicit
+  approval context, while interactive workflows keep their user approval gate.
+
 ## v0.9.106 - 2026-08-10
 
 - MCP clients, tool discovery, instructions, execution, deferred refresh, and

@@ -34,6 +34,10 @@ import { getAgentRuntimeSync, warnAgentRuntimeResolveFailureOnce } from './agent
 import { mintSessionId } from './session-id.mjs';
 import { providerCacheKey } from './provider-cache-key.mjs';
 import { clearTurnCheckpoint, recoverTurnCheckpoint } from './turn-checkpoint.mjs';
+import {
+    IMPLICIT_APPROVAL_MODE,
+    workflowContextForApprovalMode,
+} from '../approval-mode.mjs';
 
 function buildSessionProviderCacheOpts(providerName, sessionId, agent = null) {
     // Keep this in sync with createSession's provider-cache policy: only
@@ -274,7 +278,7 @@ export function createSession(opts) {
         skipRoleCatalog: !ownerIsAgent,
         profile: profile || undefined,
         agent: resolvedAgent,
-        workflowContext: opts.workflowContext || null,
+        workflowContext: workflowContextForApprovalMode(opts.workflowContext, opts.approvalMode),
         workspaceContext: opts.workspaceContext || null,
         coreMemoryContext: opts.coreMemoryContext || null,
         skillManifest: buildSkillManifest(skills),
@@ -373,6 +377,9 @@ export function createSession(opts) {
         fast,
         agent: opts.agent,
         owner: opts.owner || 'user',
+        ...(opts.approvalMode === IMPLICIT_APPROVAL_MODE
+            ? { approvalMode: IMPLICIT_APPROVAL_MODE }
+            : {}),
         mcpPid: process.pid,
         mcpScopeId: opts.mcpScopeId || null,
         scopeKey: opts.scopeKey || null,

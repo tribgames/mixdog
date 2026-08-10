@@ -329,6 +329,7 @@ export async function createMixdogSessionRuntime({
   model,
   cwd = process.cwd(),
   toolMode = 'full',
+  approvalMode = null,
   remote = false,
   desktopSession: initialDesktopSession = null,
   agentSession = null,
@@ -336,6 +337,7 @@ export async function createMixdogSessionRuntime({
   // Shared mutable runtime state, promoted from closure `let`s so extracted
   // modules can read/write live values through one reference.
   const rt = {};
+  rt.approvalMode = approvalMode === 'implicit' ? 'implicit' : null;
   rt.mcpScopeId = randomUUID();
   rt.desktopSession = initialDesktopSession;
   // Agent shard spread: a daemon-hosted worker runtime carries the resolved
