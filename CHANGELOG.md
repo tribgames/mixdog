@@ -5,6 +5,9 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Compact patch parsing accepts legacy Begin/End wrappers around compact
+  sections while leaving canonical V4A input unchanged.
+
 ## v0.9.107 - 2026-08-10
 
 - Non-interactive automation and benchmark sessions explicitly use implicit

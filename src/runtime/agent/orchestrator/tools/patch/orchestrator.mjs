@@ -682,11 +682,18 @@ function extractInlinePatchRoot(patchText) {
 
 export function expandCompactPatchInput(patchText) {
   const text = String(patchText || '').replace(/^\uFEFF/, '');
-  if (/^\s*\*\*\* Begin Patch(?:\r?\n|$)/.test(text)) return text;
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   while (lines.length && lines[0] === '') lines.shift();
   while (lines.length && lines[lines.length - 1] === '') lines.pop();
-  if (!lines.length || !/^[RADU] /.test(lines[0])) return text;
+  const wrapped = /^\*\*\* Begin Patch\b/i.test(lines[0] || '');
+  if (wrapped) {
+    lines.shift();
+    while (lines.length && lines[0] === '') lines.shift();
+    if (/^\*\*\* End Patch\b/i.test(lines[lines.length - 1] || '')) lines.pop();
+    while (lines.length && lines[lines.length - 1] === '') lines.pop();
+  }
+  const sectionIndex = /^(?:R |\*\*\* Root: )/.test(lines[0] || '') ? 1 : 0;
+  if (!/^[ADU] /.test(lines[sectionIndex] || '')) return text;
   const mapped = lines.map((line) => {
     if (line.startsWith('R ')) return `*** Root: ${line.slice(2)}`;
     if (line.startsWith('A ')) return `*** Add File: ${line.slice(2)}`;
