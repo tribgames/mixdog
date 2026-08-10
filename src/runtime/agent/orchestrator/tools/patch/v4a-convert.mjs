@@ -118,6 +118,16 @@ function countAnchorHits(lines, anchor, cap = 2) {
   return hits;
 }
 
+// A single anchor of pure digits is a 1-based line-number claim — models copy
+// the number straight from `read`'s `N→…` gutter. Returns the line number
+// when it names a real line of the file, else null.
+function numericAnchorLineHint(anchors, lineCount) {
+  const list = (anchors || []).map((anchor) => String(anchor || '').trim()).filter(Boolean);
+  if (list.length !== 1 || !/^\d{1,7}$/.test(list[0])) return null;
+  const lineNo = Number.parseInt(list[0], 10);
+  return lineNo >= 1 && lineNo <= lineCount ? lineNo : null;
+}
+
 function findAnchorLine(lines, anchors, fromLine) {
   const list = (anchors || []).map((anchor) => String(anchor || '').trim()).filter(Boolean);
   if (list.length === 0) return Math.max(0, fromLine || 0);
@@ -129,8 +139,15 @@ function findAnchorLine(lines, anchors, fromLine) {
   // safe when every anchor occurs exactly once in the file — the position is
   // then unambiguous, so no other occurrence can be selected instead.
   if ((fromLine || 0) > 0 && list.every((anchor) => countAnchorHits(lines, anchor) === 1)) {
-    return seekAnchorChain(lines, list, 0);
+    const fromTop = seekAnchorChain(lines, list, 0);
+    if (fromTop >= 0) return fromTop;
   }
+  // Line-number absorption: every content pass above ran first, so this fires
+  // only when the digits appear in NO line of the file; the number is then
+  // trusted as a 1-based position hint and the body seek still validates the
+  // hunk's real context from that line.
+  const hint = numericAnchorLineHint(list, lines.length);
+  if (hint !== null) return hint;
   return -1;
 }
 
@@ -488,6 +505,29 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
     if (relaxed >= 0) {
       oldStartIdx = relaxed;
       eofSignalIgnored = true;
+    }
+  }
+  // Numeric-anchor position retry: a bare line-number anchor whose digits
+  // also occur as TEXT in some line content-matches that line instead, and a
+  // cursor set past the hunk's real position makes the forward-only body seek
+  // miss byte-perfect context. The declared 1-based line is a positional
+  // claim, so retry the exact body seek from it (backed off by the hunk's
+  // leading context, for anchors naming the first changed line) before any
+  // fuzzy tier can resolve elsewhere.
+  if (oldStartIdx < 0 && oldLinesPattern.length > 0) {
+    const lineHint = numericAnchorLineHint(hunk.anchors, sourceLines.length);
+    if (lineHint !== null) {
+      let leading = 0;
+      for (const tag of stats.oldTags || []) {
+        if (tag !== ' ') break;
+        leading += 1;
+      }
+      const from = Math.max(0, lineHint - 1 - leading);
+      const at = findLineSequence(sourceLines, oldLinesPattern, from, from, { fuzzy, eof: false });
+      if (at >= 0) {
+        oldStartIdx = at;
+        if (eof) eofSignalIgnored = true;
+      }
     }
   }
   if (oldStartIdx < 0 && fuzzy && oldLinesPattern.length > 0) {

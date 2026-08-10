@@ -35,7 +35,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 
-const USAGE_LOG = '/logs/agent/usage.json';
+const USAGE_LOG = process.env.MIXDOG_USAGE_LOG || '/logs/agent/usage.json';
 const SESSION_TRANSCRIPT_LOG = process.env.MIXDOG_SESSION_TRANSCRIPT_LOG
   || '/logs/agent/session-transcript.json';
 const BRIEF_AUDIT_LOG = process.env.MIXDOG_BRIEF_AUDIT_LOG || '/logs/agent/brief-audit.json';
@@ -71,8 +71,16 @@ const toolCallHighWater = new Map();
 let usageMirrorInFlight = false;
 let usageMirrorStopped = false;
 let usageMirrorTimer = null;
-let activeLeadSessionId = process.env.MIXDOG_LEAD_SESSION_ID || '';
+// Lead provenance: the runtime this driver creates IS the Lead session, so
+// periodic mirrors snapshot it live (rt.session) instead of id-matching disk
+// files — lazy session creation leaves rt.sessionId empty until the first
+// ask, which is exactly how the old one-shot id capture lost transcripts on
+// external (Harbor) kills. The env-pinned id survives only for the
+// runtime-less summary-only diagnostic entry point.
+const ENV_LEAD_SESSION_ID = process.env.MIXDOG_LEAD_SESSION_ID || '';
+let activeRuntime = null;
 let transcriptFinalized = false;
+let lastMirrorErrorMessage = '';
 
 const briefText = (value) => String(value ?? '').replace(/\r\n?/g, '\n').trim();
 const briefHash = (value) => createHash('sha256').update(String(value ?? '')).digest('hex');
@@ -251,7 +259,17 @@ const usageDocument = (sessions) => {
   return { schemaVersion: 1, sessions, totals };
 };
 
+// Mirror failures were silent for a full bench generation; log each distinct
+// failure once so a lost transcript is diagnosable from the trial log.
+const reportMirrorError = (stage, error) => {
+  const message = `${stage}: ${error?.message || error}`;
+  if (message === lastMirrorErrorMessage) return;
+  lastMirrorErrorMessage = message;
+  process.stderr.write(`lead_driver: usage mirror failed (${message})\n`);
+};
+
 const writeSessionTranscriptSync = (value, { final = false } = {}) => {
+  if (!value) return;
   let tmp = '';
   try {
     const raw = typeof value === 'string' ? value : JSON.stringify(value);
@@ -261,17 +279,19 @@ const writeSessionTranscriptSync = (value, { final = false } = {}) => {
     writeFileSync(tmp, raw.endsWith('\n') ? raw : `${raw}\n`);
     renameSync(tmp, SESSION_TRANSCRIPT_LOG);
     if (final) transcriptFinalized = true;
-  } catch {
+  } catch (error) {
+    reportMirrorError('transcript-sync', error);
     if (tmp) {
       try { unlinkSync(tmp); } catch { /* best-effort cleanup */ }
     }
   }
 };
 
-const writeSessionTranscriptAsync = async (raw) => {
-  if (transcriptFinalized || !raw) return;
+const writeSessionTranscriptAsync = async (value) => {
+  if (transcriptFinalized || !value) return;
   let tmp = '';
   try {
+    const raw = typeof value === 'string' ? value : JSON.stringify(value);
     JSON.parse(raw);
     await mkdir(dirname(SESSION_TRANSCRIPT_LOG), { recursive: true });
     tmp = `${SESSION_TRANSCRIPT_LOG}.tmp-${process.pid}-async`;
@@ -281,7 +301,8 @@ const writeSessionTranscriptAsync = async (raw) => {
       return;
     }
     await rename(tmp, SESSION_TRANSCRIPT_LOG);
-  } catch {
+  } catch (error) {
+    reportMirrorError('transcript-async', error);
     if (tmp) {
       try { await unlink(tmp); } catch { /* best-effort cleanup */ }
     }
@@ -291,17 +312,17 @@ const writeSessionTranscriptAsync = async (raw) => {
 // Synchronous I/O is reserved for explicit/final snapshots, where the write
 // must complete before process.exit().
 const mirrorUsageSync = () => {
+  let leadTranscript = '';
   let tmp = '';
   try {
     const sessionsDir = (process.env.MIXDOG_DATA_DIR || '') + '/sessions';
     const sessions = [];
-    let leadTranscript = '';
     for (const file of readdirSync(sessionsDir).filter((name) => name.endsWith('.json')).sort()) {
       try {
         const raw = readFileSync(sessionsDir + '/' + file, 'utf8');
         const doc = JSON.parse(raw);
         sessions.push(sessionUsageRecord(doc, file));
-        if (activeLeadSessionId && String(doc?.id || file.slice(0, -5)) === activeLeadSessionId) {
+        if (ENV_LEAD_SESSION_ID && String(doc?.id || file.slice(0, -5)) === ENV_LEAD_SESSION_ID) {
           leadTranscript = raw;
         }
       } catch { /* partial/corrupt session write: skip until the next snapshot */ }
@@ -310,13 +331,17 @@ const mirrorUsageSync = () => {
     tmp = `${USAGE_LOG}.tmp-${process.pid}-sync`;
     writeFileSync(tmp, JSON.stringify(usageDocument(sessions), null, 2) + '\n');
     renameSync(tmp, USAGE_LOG);
-    if (leadTranscript && !transcriptFinalized) {
-      writeSessionTranscriptSync(leadTranscript);
-    }
-  } catch {
+  } catch (error) {
+    reportMirrorError('usage-sync', error);
     if (tmp) {
       try { unlinkSync(tmp); } catch { /* best-effort cleanup */ }
     }
+  }
+  // The live Lead session is independent evidence; a usage-scan failure (for
+  // example a sessions dir that has not been created yet) never discards it.
+  const leadSnapshot = activeRuntime?.session || leadTranscript;
+  if (leadSnapshot && !transcriptFinalized) {
+    writeSessionTranscriptSync(leadSnapshot);
   }
 };
 
@@ -325,36 +350,43 @@ const mirrorUsageSync = () => {
 const mirrorUsageAsync = async () => {
   if (usageMirrorStopped || usageMirrorInFlight) return;
   usageMirrorInFlight = true;
-  let tmp = '';
   try {
-    const sessionsDir = (process.env.MIXDOG_DATA_DIR || '') + '/sessions';
-    const files = (await readdir(sessionsDir)).filter((name) => name.endsWith('.json')).sort();
-    const sessions = [];
     let leadTranscript = '';
-    for (const file of files) {
-      try {
-        const raw = await readFile(sessionsDir + '/' + file, 'utf8');
-        const doc = JSON.parse(raw);
-        sessions.push(sessionUsageRecord(doc, file));
-        if (activeLeadSessionId && String(doc?.id || file.slice(0, -5)) === activeLeadSessionId) {
-          leadTranscript = raw;
-        }
-      } catch { /* partial/corrupt session write: skip until the next snapshot */ }
+    let tmp = '';
+    try {
+      const sessionsDir = (process.env.MIXDOG_DATA_DIR || '') + '/sessions';
+      const files = (await readdir(sessionsDir)).filter((name) => name.endsWith('.json')).sort();
+      const sessions = [];
+      for (const file of files) {
+        try {
+          const raw = await readFile(sessionsDir + '/' + file, 'utf8');
+          const doc = JSON.parse(raw);
+          sessions.push(sessionUsageRecord(doc, file));
+          if (ENV_LEAD_SESSION_ID && String(doc?.id || file.slice(0, -5)) === ENV_LEAD_SESSION_ID) {
+            leadTranscript = raw;
+          }
+        } catch { /* partial/corrupt session write: skip until the next snapshot */ }
+      }
+      await mkdir(dirname(USAGE_LOG), { recursive: true });
+      tmp = `${USAGE_LOG}.tmp-${process.pid}-async`;
+      await writeFile(tmp, JSON.stringify(usageDocument(sessions), null, 2) + '\n');
+      if (usageMirrorStopped) {
+        await unlink(tmp).catch(() => {});
+        return;
+      }
+      // An already-issued rename may still land after the final sync write; that
+      // accepted race yields only a valid snapshot at most one interval stale.
+      await rename(tmp, USAGE_LOG);
+    } catch (error) {
+      reportMirrorError('usage-async', error);
+      if (tmp) {
+        try { await unlink(tmp); } catch { /* best-effort cleanup */ }
+      }
     }
-    await mkdir(dirname(USAGE_LOG), { recursive: true });
-    tmp = `${USAGE_LOG}.tmp-${process.pid}-async`;
-    await writeFile(tmp, JSON.stringify(usageDocument(sessions), null, 2) + '\n');
-    if (usageMirrorStopped) {
-      await unlink(tmp).catch(() => {});
-      return;
-    }
-    // An already-issued rename may still land after the final sync write; that
-    // accepted race yields only a valid snapshot at most one interval stale.
-    await rename(tmp, USAGE_LOG);
-    await writeSessionTranscriptAsync(leadTranscript);
-  } catch {
-    if (tmp) {
-      try { await unlink(tmp); } catch { /* best-effort cleanup */ }
+    // The live Lead session is independent evidence; a usage-scan failure (for
+    // example a sessions dir that has not been created yet) never discards it.
+    if (!usageMirrorStopped) {
+      await writeSessionTranscriptAsync(activeRuntime?.session || leadTranscript);
     }
   } finally {
     usageMirrorInFlight = false;
@@ -440,7 +472,9 @@ const CLOSE_GRACE_MS = Number(
   ?? process.env.MIXDOG_STALL_CLOSE_GRACE_MS
   ?? 1_000,
 );
-usageMirrorTimer = setInterval(() => { void mirrorUsageAsync(); }, 30_000);
+// Interval is env-tunable for tests only; bench runs keep the 30s default.
+const USAGE_MIRROR_MS = Number(process.env.MIXDOG_USAGE_MIRROR_MS || 30_000);
+usageMirrorTimer = setInterval(() => { void mirrorUsageAsync(); }, USAGE_MIRROR_MS);
 usageMirrorTimer.unref?.();
 void mirrorUsageAsync();
 
@@ -507,7 +541,7 @@ const driveSession = async (route) => {
       model: route.model,
       approvalMode: 'implicit',
     });
-    activeLeadSessionId = String(rt.sessionId || rt.session?.id || '');
+    activeRuntime = rt;
     void mirrorUsageAsync();
     process.stderr.write(`[boot-timing] createRuntime=${Date.now() - bootT1}ms\n`);
     if (workflow) {

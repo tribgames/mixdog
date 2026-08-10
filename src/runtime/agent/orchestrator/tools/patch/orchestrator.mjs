@@ -754,50 +754,30 @@ async function apply_patch(args, cwd, options = {}) {
   if (abortSignal?.aborted) {
     throw new Error(abortSignal.reason?.message || abortSignal.reason || 'apply_patch aborted');
   }
-  // Write-root gate: a patch may only touch paths inside a DECLARED root —
-  // the session directory by default, or `root`/`base_path` when the caller
-  // names one. Anything outside is refused before a single byte is written, so
-  // a mis-scoped working directory can never silently rewrite another tree.
-  // Editing outside stays possible, but only as a deliberate act: name the
-  // root that contains those targets in the same call.
+  // `root` is an optional coordinate frame for relative section paths, not a
+  // write boundary. Absolute paths and parent traversal are allowed so a
+  // session cwd mismatch cannot block an explicitly targeted patch.
   const explicitRoot = typeof args?.root === 'string' && args.root.trim() ? args.root.trim() : null;
   if (explicitRoot && isFilesystemRootSpecifier(explicitRoot, cwd)) {
     throw new Error(`apply_patch: refusing filesystem root as write root: ${normalizeOutputPath(explicitRoot)}`);
   }
-  // A declared root is the coordinate frame as well as the boundary: relative
-  // section paths resolve against it (an internal `base_path` overrides the
-  // frame), so the refusal advice "set root" is sufficient on its own.
+  // An internal `base_path` overrides the root coordinate frame.
   const basePath = resolveBasePath(cwd, args?.base_path || explicitRoot);
   try {
     await assertPathReachable(basePath);
   } catch (err) {
     return `Error: ${err?.message || String(err)}`;
   }
-  const writeRoot = resolveBasePath(cwd, explicitRoot ?? args?.base_path ?? null);
   if (explicitRoot) {
+    const explicitRootPath = resolveBasePath(cwd, explicitRoot);
     try {
-      await assertPathReachable(writeRoot);
-      if (!statSync(writeRoot).isDirectory()) {
-        throw new Error(`not a directory — ${normalizeOutputPath(writeRoot)}`);
+      await assertPathReachable(explicitRootPath);
+      if (!statSync(explicitRootPath).isDirectory()) {
+        throw new Error(`not a directory — ${normalizeOutputPath(explicitRootPath)}`);
       }
     } catch (err) {
-      throw new Error(`apply_patch: invalid write root ${normalizeOutputPath(writeRoot)}: ${err?.message || String(err)}`);
+      throw new Error(`apply_patch: invalid root ${normalizeOutputPath(explicitRootPath)}: ${err?.message || String(err)}`);
     }
-  }
-  const outsideTargets = [];
-  for (const rel of patchTargetPaths(patchStr, basePath)) {
-    const abs = isAbsolute(rel) ? pathResolve(rel) : pathResolve(basePath, rel);
-    if (isResolvedPathOutsideBase(abs, writeRoot)) outsideTargets.push(normalizeOutputPath(abs));
-  }
-  if (outsideTargets.length > 0) {
-    const shown = [...new Set(outsideTargets)];
-    const head = shown.slice(0, 3).join(', ');
-    const more = shown.length > 3 ? ` (+${shown.length - 3} more)` : '';
-    throw new Error(
-      `apply_patch: ${shown.length} target(s) fall outside the write root ${normalizeOutputPath(writeRoot)}: ${head}${more}. `
-      + 'Check the paths first; if intended, set root (JSON) or add "*** Root: <containing directory>" after "*** Begin Patch" (freeform); '
-      + 'relative section paths then resolve against that root.',
-    );
   }
   const rejectPartial = args?.reject_partial !== false;
   const dryRun = args?.dry_run === true;
