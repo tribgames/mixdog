@@ -183,6 +183,7 @@ export function createSessionLifecycle({
         if (rt.closeRequested) throw new Error('runtime is closing');
         const { session } = prepareAgentSession({
           ...rt.agentSessionSpec,
+          mcpScopeId: rt.mcpScopeId,
           ...(rt.reservedSessionId ? { sessionId: rt.reservedSessionId } : {}),
         });
         rt.session = session;
@@ -232,6 +233,7 @@ export function createSessionLifecycle({
         sourceType: 'lead',
         sourceName: 'main',
         clientHostPid: process.pid,
+        mcpScopeId: rt.mcpScopeId,
         disallowedTools: [...LEAD_DISALLOWED_TOOLS, ...featureDisallowedTools()],
         cwd: rt.currentCwd,
         ...(rt.desktopSession && typeof rt.desktopSession === 'object' ? { desktopSession: rt.desktopSession } : {}),
@@ -258,7 +260,7 @@ export function createSessionLifecycle({
       // prompt renders. This fold keeps recreate paths (cwd change with MCP
       // already connected) seeding their manifest instead of re-announcing late.
       let connectedMcpTools = [];
-      try { connectedMcpTools = mcpClient.getMcpTools?.() || []; }
+      try { connectedMcpTools = mcpClient.getMcpTools?.(rt.mcpScopeId) || []; }
       catch { connectedMcpTools = []; }
       applyDeferredToolSurface(
         rt.session,

@@ -64,6 +64,7 @@ function normalizeAgentCompactionConfig(value = {}, { memoryEnabled = true } = {
  * @param {number}  [opts.maxLoopIterations]
  * @param {string}  [opts.parentSessionId]
  * @param {string|null} [opts.ownerSessionId] - owning Mixdog MCP instance id for statusline isolation
+ * @param {string|null} [opts.mcpScopeId] - owning session-runtime MCP registry scope
  * @returns {{ session: object, effectiveCwd: string|null }}
  */
 export function prepareAgentSession({
@@ -86,6 +87,7 @@ export function prepareAgentSession({
     cacheKeyOverride,
     schemaAllowedTools,
     sessionId,
+    mcpScopeId,
 }) {
     const effectivePermission = resolveAgentSessionPermission(agent, permission);
     // No per-agent loop caps: sessions either pin maxLoopIterations explicitly
@@ -121,6 +123,7 @@ export function prepareAgentSession({
         ownerSessionId: effectiveOwnerSessionId || null,
         clientHostPid: clientHostPid || null,
         compaction: compaction || undefined,
+        mcpScopeId: mcpScopeId || null,
     };
     if (agentTag) sessionOpts.agentTag = agentTag;
     if (effectivePermission) sessionOpts.permission = effectivePermission;

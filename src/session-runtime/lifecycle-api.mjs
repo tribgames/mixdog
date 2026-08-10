@@ -40,6 +40,7 @@ export function createLifecycleApi(deps) {
   const cancelBackgroundTasksForLifecycle = deps.cancelBackgroundTasks || cancelBackgroundTasks;
   const {
     getSession, setSession, getRoute, setRoute, getConfig, getMode, getCurrentCwd,
+    getMcpScopeId,
     getDesktopSession, setDesktopSession,
     setCloseRequested, getMemoryModPromise, setMemoryModPromise,
     setSessionNeedsCwdRefresh,
@@ -263,7 +264,7 @@ export function createLifecycleApi(deps) {
       const channelStop = channels.stop(reason, detach ? { waitForExit: false } : undefined);
       try { agentTool.closeAll(reason); } catch {}
       let mcpStop = null;
-      try { mcpStop = mcpClient.disconnectAll?.(); } catch {}
+      try { mcpStop = mcpClient.disconnectAll?.({ scopeId: getMcpScopeId?.() }); } catch {}
       const openaiWsStop = isProcessExit && globalThis.__mixdogOpenaiWsRuntimeLoaded === true
         ? import('../runtime/agent/orchestrator/providers/openai-oauth-ws.mjs')
           .then((mod) => mod?.drainOpenaiWsPool?.(reason))
@@ -520,9 +521,12 @@ export function createLifecycleApi(deps) {
       const activeDesktopSession = typeof getDesktopSession === 'function'
         ? getDesktopSession()
         : desktopSession;
-      const resumeOptions = activeDesktopSession && typeof activeDesktopSession === 'object'
-        ? { desktopSession: activeDesktopSession }
-        : undefined;
+      const resumeOptions = {
+        ...(activeDesktopSession && typeof activeDesktopSession === 'object'
+          ? { desktopSession: activeDesktopSession }
+          : {}),
+        mcpScopeId: getMcpScopeId?.() || null,
+      };
       const resumed = await mgr.resumeSession(id, toolSpecForMode(getMode()), resumeOptions);
       if (!resumed) return null;
       if (previousId && previousId !== resumed.id) {

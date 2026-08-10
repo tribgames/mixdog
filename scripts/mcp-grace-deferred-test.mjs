@@ -15,6 +15,11 @@ import {
     refreshInitialDeferredMcpSurface,
     reconcileDeferredMcpToolCatalog,
 } from '../src/session-runtime/tool-catalog.mjs';
+import {
+    _registerMcpServerForTest,
+    disconnectAll,
+    getMcpTools,
+} from '../src/runtime/agent/orchestrator/mcp/client.mjs';
 
 function baseSession(provider = 'anthropic-oauth') {
     return {
@@ -222,4 +227,25 @@ test('canonical MCP arriving after the first-turn grace keeps the fixed snapshot
     assert.equal(session.deferredToolCatalog.some((tool) => tool.name === mcpTool2.name), false);
     assert.equal(enqueued, null, 'canonical provider emits no native late reminder');
     assert.equal(systemContent(session).includes('<available-deferred-tools>'), false);
+});
+
+test('late MCP tools from another runtime scope never enter this session or enqueue a reminder', async (t) => {
+    const ownerScope = 'runtime-owner';
+    const foreignScope = 'runtime-foreign';
+    t.after(async () => {
+        await disconnectAll({ scopeId: ownerScope });
+        await disconnectAll({ scopeId: foreignScope });
+    });
+    _registerMcpServerForTest(ownerScope, 'unity', [
+        { name: 'get_scene', description: 'scene', inputSchema: { type: 'object', properties: {} } },
+    ]);
+    const session = createdSession();
+    session.mcpScopeId = foreignScope;
+    let enqueued = null;
+    const result = reconcileDeferredMcpToolCatalog(session, getMcpTools(session.mcpScopeId), {
+        enqueue: (text) => { enqueued = text; return true; },
+    });
+    assert.equal(result, null);
+    assert.equal(enqueued, null);
+    assert.equal(JSON.stringify(session).includes('mcp__unity__get_scene'), false);
 });
