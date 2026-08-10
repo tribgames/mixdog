@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.105 - 2026-08-10
+
 - Remote access is web-app only: the retired Capacitor/Android package,
   APK download routes, native-shell hooks, and mobile release version wiring
   are removed, while relay deployment gains an explicit renderer staging step.
