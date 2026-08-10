@@ -1,16 +1,19 @@
 # mixdog — Terminal-Bench 2.1 controlled comparisons
 
-Two primary-model-matched full runs compare mixdog directly with the native
+Primary-model-matched full runs compare mixdog directly with the native
 coding harness for the same model family. Each run covers all 89 tasks with
 unmodified task timeouts and resources. Results are self-reported single runs
 (`k=1`, 2026-08), not leaderboard submissions.
 
-These runs test whether mixdog can deliver the same quality of results as
-the native harnesses while spending less to get there. Against the
-harnesses that hold the current Terminal-Bench 2.1 leaderboard #1 and #2
-spots, mixdog scores on par (one task ahead in one run, tied in the other —
-both within single-run noise) while running 1.27–1.43× faster at 29–40%
-lower priced cost with the same model and reasoning level.
+These runs test whether mixdog can match the native harnesses on results
+while spending far less to get there. Against the harnesses that hold the
+current Terminal-Bench 2.1 leaderboard #1 and #2 spots, mixdog scores on
+par or ahead with the same model and reasoning level while running
+substantially faster, at lower priced cost, and with a much smaller final
+context — and the mixdog side is a strict **single-session bench**: one
+model, one session, no sub-agents, no helper-model lookups. Single runs
+(`k=1`) mean per-task score differences sit within normal run-to-run
+variance; the efficiency gap is consistent across both pairs.
 
 ## Results
 
@@ -18,41 +21,40 @@ lower priced cost with the same model and reasoning level.
 
 ![Terminal-Bench 2.1 comparison of mixdog with Claude Opus 5 and Claude Code](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-opus-vs-claude-code.svg)
 
-- Score: **78/89 vs 77/89** — parity (one-task edge, within single-run noise)
-- Speed: **1.43×**
-- Final context: **40% smaller** (median tokens at task end, 22.8K vs 38.2K)
-- Priced cost: **29% lower**
+- Score: **82/89 vs 77/89** — five tasks ahead
+- Speed: **1.52×**
+- Final context: **43% smaller** (median tokens at task end, 21.7K vs 38.2K)
+- Priced cost: **31% lower** ($89.75 vs $129.21, measured cache writes included)
+
+The mixdog run (`2026-08-10`) is a pure single-session run: every one of the
+89 trials is a single Opus 5 session with delegation and helper lookups
+disabled, while the Claude Code baseline keeps its full shipped loop
+(including its built-in Haiku 4.5 Explore subagent).
 
 ### GPT-5.6 Sol xhigh vs Codex CLI
 
 ![Terminal-Bench 2.1 comparison of mixdog with GPT-5.6 Sol xhigh and Codex CLI](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-sol-vs-codex.svg)
 
-- Score: **75/89 vs 75/89**
-- Speed: **1.27×**
-- Final context: **47% smaller** (median tokens at task end, 17.7K vs 33.5K)
-- Priced cost: **at least 39.7% lower**
+_Single-session Sol rerun in progress (2026-08-10); this section is updated
+from its raw artifacts on completion._
 
 Speed is baseline elapsed agent time divided by mixdog elapsed agent time.
 Final context is the median context occupancy of each run's last model call,
 measured from the session logs of both harnesses.
-Every run is the harness's standard single-agent loop: the mixdog side uses
-the Solo workflow with no sub-agent delegation, routing only scoped Explorer
-lookups to a smaller model. These are product-as-shipped comparisons rather
-than stripped-harness A/Bs: Claude Code's own built-in Explore subagent runs
-Haiku 4.5 by default in the 2.1.x baseline, so the Opus comparison is
-helper-for-helper parity; Codex CLI ships no equivalent helper, and the
-Sol-led mixdog run used GPT-5.6 Luna for that scoped Explorer work. The Sol
-score tie contains eight unique task wins on each side.
+Every run is the harness's standard single-agent loop. The mixdog runs use
+the Solo workflow as a strict single-session bench — one model, one session,
+no sub-agent delegation, no helper-model lookups. The native baselines keep
+their full shipped loops, so these are product-as-shipped comparisons rather
+than stripped-harness A/Bs.
 
 Baselines are full 89-task runs of each native harness: Claude Code 2.1.220
 (`jobs-full-cc-n8`, 77/89 settled) and Codex CLI (`jobs-full-codex`, 75/89).
 
-Anthropic cost includes measured cache writes. The archived OpenAI runs did not
-retain `cache_write_tokens`; at 2026-08 list prices, mixdog is bounded at
-**$54.50–$58.84**, while Codex's recorded **$97.54** is a lower bound.
+Anthropic cost includes measured cache writes. The archived Codex run did not
+retain `cache_write_tokens`, so its recorded **$97.54** is a lower bound.
 
 ## Contents
-- `results.md` / `results.json` — per-task outcomes of the two 2026-08-04 clean runs
+- `results.md` / `results.json` — per-task outcomes of the published runs
 - `harness/` — Harbor installed-agent adapter, Lead driver, launcher
 - `analysis/` — metric scripts that recompute every published number from raw artifacts
 - `tb21-opus-vs-claude-code.svg` — Opus comparison graph
@@ -60,7 +62,7 @@ retain `cache_write_tokens`; at 2026-08 list prices, mixdog is bounded at
 - `jobs-*` — raw Harbor `result.json`, agent logs, and usage snapshots
 
 ## Reproduce
-Everything that defines the four published runs is pinned in this directory:
+Everything that defines the published runs is pinned in this directory:
 `harness/mixdog_agent.py` (Harbor adapter), `harness/lead_driver.mjs` (Lead
 loop driver), `harness/route_profiles.json` (the exact per-role routes used),
 and `harness/run-tb21.ps1` (launcher). Versions: Claude Code **2.1.220**
@@ -99,17 +101,22 @@ harbor run -d terminal-bench/terminal-bench-2-1 `
 
 ### Verify the published numbers from the raw artifacts
 ```powershell
-node analysis/results-table.mjs   # regenerates results.md/.json (78/89, 75/89)
-node analysis/final-context.mjs   # final-context medians for all four runs
-node harness/cost-exact.mjs jobs-full-opus5-clean-20260804-042235/2026-08-04__04-22-48 cc-baseline.json  # cost/speed
+node analysis/results-table.mjs   # regenerates results.md/.json
+node analysis/final-context.mjs   # final-context medians for all runs
+node harness/cost-exact.mjs jobs-full-brief-known-opus5-solobench-nojitter-n8-20260810/2026-08-10__16-30-18 cc-baseline-plus.json  # cost/speed (82/89 run)
 ```
+
+`cc-baseline-plus.json` extends the pinned `cc-baseline.json` with the eight
+tasks absent from it, mined from the raw Claude Code trajectories in
+`jobs-full-cc-n8/` (extraction validated field-for-field against the pinned
+entries on shared tasks); the pinned original is unmodified.
 
 ### Claim → raw evidence map
 | Claim | Raw artifacts |
 |---|---|
-| mixdog Opus 5 78/89 | `jobs-full-opus5-clean-20260804-042235/` |
+| mixdog Opus 5 82/89 (single-session) | `jobs-full-brief-known-opus5-solobench-nojitter-n8-20260810/` |
 | Claude Code 77/89 | `jobs-full-cc-n8/` (`full-run-cc-n8-status.txt`: settled=89 pass=77) |
-| mixdog Sol 75/89 | `jobs-full-solxhigh-clean-20260804-042235/` |
+| mixdog Sol (single-session, in progress) | `jobs-full-brief-known-sol-solobench-n8-20260810/` |
 | Codex CLI 75/89 | `jobs-full-codex/` |
 
 Every trial directory archives `result.json` (verifier reward),

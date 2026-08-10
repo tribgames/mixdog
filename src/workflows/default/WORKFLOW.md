@@ -17,7 +17,8 @@ situation, all spawned in one turn; only a scope that depends on another's
 output waits. Split the plan into as many scopes as possible: disjoint
 file/module sets are independent; merge only on a true output dependency.
 Prefer parallel scopes over sequential slices in one agent. Brief each agent
-per the Lead Brief contract.
+per the Lead Brief contract. A plan that yields only one scope buys no
+parallelism: Lead executes it itself instead of wrapping a single agent.
 
 Report the result against the approved plan. Build, deploy, commit,
 and push happen only on an explicit user request.
