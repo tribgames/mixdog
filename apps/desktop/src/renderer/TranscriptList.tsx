@@ -114,6 +114,40 @@ export function TranscriptList({
   // frames: a rewrap must never unmount the rows the reader is looking at.
   const resizePinned = useRef<number[]>([]);
   const resizePinFrame = useRef(0);
+  // Native text selection keeps DOM boundary points. If virtualization
+  // unmounts either endpoint while Chromium auto-scrolls a drag, Chromium
+  // reconnects the range to an unrelated surviving node and the highlight
+  // appears to flip back up the transcript. Keep the selected row span
+  // mounted until the browser selection collapses.
+  type SelectionEndpoint = { key: unknown; index: number };
+  type SelectionPin = { anchor: SelectionEndpoint; focus: SelectionEndpoint };
+  const selectionPinned = useRef<SelectionPin | null>(null);
+  const [, invalidateSelectionPin] = useState(0);
+  const setSelectionPin = useCallback((next: SelectionPin | null) => {
+    const current = selectionPinned.current;
+    if (current === next
+      || (current && next
+        && Object.is(current.anchor.key, next.anchor.key)
+        && Object.is(current.focus.key, next.focus.key))) return;
+    selectionPinned.current = next;
+    invalidateSelectionPin((version) => version + 1);
+  }, []);
+  const selectionPinnedIndexes = () => {
+    const pin = selectionPinned.current;
+    if (!pin) return [];
+    const resolve = (endpoint: SelectionEndpoint) => {
+      if (Object.is(rowsRef.current[endpoint.index]?.key, endpoint.key)) {
+        return endpoint.index;
+      }
+      return rowsRef.current.findIndex((row) => Object.is(row.key, endpoint.key));
+    };
+    const anchor = resolve(pin.anchor);
+    const focus = resolve(pin.focus);
+    if (anchor < 0 || focus < 0) return [];
+    const start = Math.min(anchor, focus);
+    const end = Math.max(anchor, focus);
+    return Array.from({ length: end - start + 1 }, (_, offset) => start + offset);
+  };
   const activeIndexesRef = useRef<number[]>([]);
   let activeIndex = -1;
   rows.forEach((row, index) => {
@@ -142,6 +176,7 @@ export function TranscriptList({
       const indexes = defaultRangeExtractor({ ...range, overscan: renderOverscan });
       return [...new Set([
         ...resizePinned.current,
+        ...selectionPinnedIndexes(),
         ...indexes,
         ...activeIndexesRef.current,
       ])].filter((index) => index >= 0 && index < rows.length)
@@ -494,6 +529,71 @@ export function TranscriptList({
     root.addEventListener("scroll", capture, { passive: true });
     return () => root.removeEventListener("scroll", capture);
   }, [shouldAnchorBottom, sessionKey, viewport]);
+
+  useEffect(() => {
+    const root = viewport.current;
+    if (!root) return undefined;
+    let selecting = false;
+    let seed: SelectionEndpoint | null = null;
+    const endpointForNode = (node: Node | null): SelectionEndpoint | null => {
+      const element = node instanceof Element ? node : node?.parentElement;
+      const row = element?.closest<HTMLElement>(".transcript-virtual-row");
+      if (!row || !root.contains(row)) return null;
+      const index = Number(row.dataset.index);
+      const key = rowsRef.current[index]?.key;
+      return Number.isInteger(index) && key !== undefined ? { key, index } : null;
+    };
+    const syncSelectionPin = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        if (!selecting) setSelectionPin(null);
+        return;
+      }
+      const anchor = endpointForNode(selection.anchorNode);
+      const focus = endpointForNode(selection.focusNode);
+      if (anchor && focus) {
+        setSelectionPin({ anchor, focus });
+        return;
+      }
+      // Pointer autoscroll can temporarily place the focus just outside the
+      // viewport. Preserve the last in-transcript boundary until it re-enters.
+      const inside = anchor ?? focus;
+      if (selecting && seed && inside) setSelectionPin({ anchor: seed, focus: inside });
+      else if (!anchor && !focus) setSelectionPin(null);
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      const endpoint = endpointForNode(event.target as Node | null);
+      if (!endpoint) {
+        selecting = false;
+        seed = null;
+        return;
+      }
+      selecting = true;
+      seed = endpoint;
+      // Seed synchronously, before native autoscroll can move the first row
+      // outside the virtual range.
+      setSelectionPin({ anchor: endpoint, focus: endpoint });
+    };
+    const finishSelection = () => {
+      if (!selecting) return;
+      syncSelectionPin();
+      selecting = false;
+      seed = null;
+      if (window.getSelection()?.isCollapsed !== false) setSelectionPin(null);
+    };
+    root.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("selectionchange", syncSelectionPin);
+    document.addEventListener("pointerup", finishSelection, true);
+    document.addEventListener("pointercancel", finishSelection, true);
+    return () => {
+      root.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("selectionchange", syncSelectionPin);
+      document.removeEventListener("pointerup", finishSelection, true);
+      document.removeEventListener("pointercancel", finishSelection, true);
+      selectionPinned.current = null;
+    };
+  }, [sessionKey, setSelectionPin, viewport]);
 
   useEffect(() => () => {
     if (resizePinFrame.current) window.cancelAnimationFrame(resizePinFrame.current);

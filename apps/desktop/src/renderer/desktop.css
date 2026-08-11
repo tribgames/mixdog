@@ -1588,33 +1588,30 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .session-sidebar-panels .schedules-row.utilities-row {
   width: 100%;
-  height: 76px;
-  padding: 9px var(--mx-rail-gutter);
+  align-items: flex-start;
+  padding: 11px var(--mx-rail-gutter);
   color: inherit;
   text-align: left;
   cursor: pointer;
 }
-/* Utility launchers keep a fixed frame: identity sits above two lines of
-   description while the trailing chevron stays centered on the whole row. */
+/* Icon, stacked copy, then the trailing chevron. Copy is top-aligned and the
+   card grows with its 1–2 line description instead of centering inside a
+   fixed 76px box; the icon box matches the 18px title line so glyph and
+   title share one optical baseline (user: 상하 정렬이 마음에 들지 않는다). */
 .session-sidebar-panels .utilities-row { gap: 10px; }
-.session-sidebar-panels .utilities-row-copy { gap: 3px; }
-.session-sidebar-panels .utilities-row-title {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+.session-sidebar-panels .utilities-row-copy { gap: 4px; }
+.session-sidebar-panels .utilities-row .schedules-row-copy b { line-height: 18px; }
 .session-sidebar-panels .utilities-row-icon {
   flex: 0 0 auto;
   width: 20px;
-  height: 20px;
+  height: 18px;
   display: grid;
   place-items: center;
   color: var(--mx-text-soft);
 }
 .session-sidebar-panels .utilities-row .schedules-row-copy small {
   display: -webkit-box;
-  line-height: 15px;
+  line-height: 16px;
   overflow: hidden;
   color: var(--mx-text-soft);
   white-space: normal;
@@ -1623,6 +1620,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .session-sidebar-panels .utilities-row-chevron {
   flex: 0 0 auto;
+  align-self: center;
   color: var(--mx-text-faint);
 }
 .session-sidebar-panels .utilities-row:hover .utilities-row-chevron { color: var(--mx-text-soft); }
