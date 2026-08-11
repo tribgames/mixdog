@@ -24,7 +24,7 @@ $script = @'
 set -eu
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y curl ca-certificates ripgrep
+apt-get install -y curl ca-certificates ripgrep zstd
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
 apt-get install -y nodejs
 npm install -g --ignore-scripts mixdog@__VERSION__
@@ -70,6 +70,16 @@ tar -C / -czf /out/mixdog-node-prebake.tar.gz \
   usr/bin/node usr/bin/npm usr/bin/npx usr/bin/mixdog usr/bin/rg usr/lib/node_modules \
   root/.local/bin opt/mixdog-v8-cache opt/static-curl
 echo "prebake tar written"
+# zstd variant: ~same upload size at -19 but decompresses multi-threaded in
+# ~1s where gunzip takes 5-10s under 8-way concurrent trial setup. The zstd
+# BINARY ships alongside (apt/glibc task images all carry libzstd via dpkg,
+# but not necessarily the CLI); install() prefers this pair and falls back
+# to the .tar.gz when either file is missing or the binary refuses to run.
+tar -C / -I 'zstd -T0 -19' -cf /out/mixdog-node-prebake.tar.zst \
+  usr/bin/node usr/bin/npm usr/bin/npx usr/bin/mixdog usr/bin/rg usr/lib/node_modules \
+  root/.local/bin opt/mixdog-v8-cache opt/static-curl
+cp /usr/bin/zstd /out/zstd-amd64
+echo "prebake zst written"
 '@ -replace '__VERSION__', $MixdogVersion
 # The here-string inherits this file's CRLF endings; bash -lc treats a
 # trailing \r as part of the command (exit 127), so normalize to LF.
