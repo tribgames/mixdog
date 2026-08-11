@@ -20,7 +20,7 @@ import {
 
 const BOTTOM_PANEL_KEY = "mixdog.desktop.bottom-panel.v1";
 export const BOTTOM_PANEL_MIN_HEIGHT = 120;
-export const BOTTOM_PANEL_DEFAULT_HEIGHT = 240;
+export const BOTTOM_PANEL_DEFAULT_HEIGHT = 380;
 
 interface BottomPanelTab {
   id: string;

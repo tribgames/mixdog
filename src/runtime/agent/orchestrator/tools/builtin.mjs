@@ -302,7 +302,6 @@ const EXTERNAL_TOOL_REDIRECTS = new Map([
     ['codebase_search', 'use the `grep` or `code_graph` tool'],
     ['semanticsearch', 'use the `grep` or `code_graph` tool'],
     ['semantic_search', 'use the `grep` or `code_graph` tool'],
-    ['explore', 'not available in this role — use `grep` or `code_graph` for repo search'],
 ]);
 
 export function canonicalizeBuiltinToolName(name) {

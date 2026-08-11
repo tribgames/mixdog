@@ -102,7 +102,7 @@ test('keyed reconnect singleflight collapses peers without coupling servers', as
 });
 
 test('every valid tool is parallel-dispatchable, including path-scoped patches', () => {
-  for (const name of ['read', 'grep', 'shell', 'code_graph', 'explore', 'apply_patch']) {
+  for (const name of ['read', 'grep', 'shell', 'code_graph', 'apply_patch']) {
     assert.equal(isParallelDispatchable(name), true, name);
   }
 });

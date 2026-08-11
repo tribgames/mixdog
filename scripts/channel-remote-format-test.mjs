@@ -55,7 +55,7 @@ test('transcript drain leaves one blank line between preambles and tool cards', 
     assert.match(text, /^Inspect first\.\n\n● \*\*Run\*\*/);
     assert.match(text, /● \*\*Run\*\*[^\n]*\n\n● \*\*Update\*\*/);
     assert.ok(text.includes(
-      '● **Update**\n```\nsrc/example.mjs\n```\n\nInline preamble.\n\n● **Explorer**',
+      '● **Update**\n```\nsrc/example.mjs\n```\n\nInline preamble.\n\n● **Read**',
     ), 'a tool card may keep its body while the next semantic block gets one blank line');
     assert.doesNotMatch(text, /\n{3,}/, 'semantic blocks use exactly one blank line');
   } finally {

@@ -652,5 +652,5 @@ test("clampBottomPanelHeight bounds the drag range", () => {
   assert.equal(clampBottomPanelHeight(10, 1000), BOTTOM_PANEL_MIN_HEIGHT);
   assert.equal(clampBottomPanelHeight(400, 1000), 400);
   assert.equal(clampBottomPanelHeight(900, 1000), 700);
-  assert.equal(clampBottomPanelHeight(Number.NaN, 1000), 240);
+  assert.equal(clampBottomPanelHeight(Number.NaN, 1000), 380);
 });

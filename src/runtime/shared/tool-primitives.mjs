@@ -198,7 +198,6 @@ export function titleizeToolName(name) {
 }
 
 const AGENT_DISPLAY_NAMES = new Map([
-  ['explore', 'Explore'],
   ['maintainer', 'Maintainer'],
   ['worker', 'Worker'],
   ['heavy-worker', 'Heavy Worker'],

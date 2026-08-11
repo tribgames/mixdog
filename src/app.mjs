@@ -87,7 +87,6 @@ export async function run(argv = [], classifiedInvocation = null) {
       model: opts.model,
       effort: opts.effort,
       fast: opts.fast,
-      explore: opts.explore,
       webSearch: opts.webSearch,
       memory: opts.memory,
       cwd: process.cwd(),

@@ -124,7 +124,7 @@ export function fmt(n) {
 // sub-1s like formatElapsed there. Output shape: '' (<1s), `Xs`, `Xm Ys`,
 // `Xh Ym Zs`, `Xd Yh Zm`. statusline.mjs is a standalone UI module that should
 // not depend on the React/ink TUI tree, so the algorithm is replicated rather
-// than imported. Used for ALL L2 elapsed (Agents/Explore/Search/Shell).
+// than imported. Used for ALL L2 elapsed (Agents/Search/Shell).
 export function formatElapsed(ms) {
   if (!Number.isFinite(Number(ms))) return '';
   const value = Math.max(0, Number(ms) || 0);

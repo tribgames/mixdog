@@ -68,7 +68,6 @@ function argsSummary(tool, args) {
       const values = args.symbols || args.files || args.symbol || args.file || '';
       return clip(`${args.mode || '?'}:${Array.isArray(values) ? `[${values.length}]${values[0] || ''}` : values}`);
     }
-    case 'explore': return arr(args.query);
     case 'find': return clip(args.query);
     case 'glob': return clip(Array.isArray(args.pattern) ? args.pattern[0] : args.pattern);
     case 'list': return clip(basename(String(args.path || '')));
@@ -95,7 +94,7 @@ function targetValues(tool, args) {
       ? (args.files != null ? 'files' : 'file')
       : symbolMode || args.mode === 'symbols' ? (args.symbols != null ? 'symbols' : 'symbol') : 'file';
   } else if (tool === 'grep' || tool === 'glob') key = 'pattern';
-  else if (tool === 'find' || tool === 'explore') key = 'query';
+  else if (tool === 'find') key = 'query';
   const value = args[key];
   return Array.isArray(value) ? value : value == null ? [] : [value];
 }
@@ -110,7 +109,7 @@ function batchFields(tool, args) {
       ? (args?.files != null ? 'files' : args?.file != null ? 'file' : args?.symbols != null ? 'symbols' : 'symbol')
       : null].filter(Boolean);
   }
-  return [tool === 'read' || tool === 'list' ? 'path' : tool === 'find' || tool === 'explore' ? 'query' : null].filter(Boolean);
+  return [tool === 'read' || tool === 'list' ? 'path' : tool === 'find' ? 'query' : null].filter(Boolean);
 }
 function compatibleBatchCalls(tool, left, right) {
   if (tool === 'read') {
@@ -149,7 +148,7 @@ function batchSpec(tool, args, forcedField = null) {
       : (args.symbols != null ? 'symbols' : 'symbol');
     return { field, values: targetValues(tool, args) };
   }
-  const fieldName = forcedField || (tool === 'read' || tool === 'list' ? 'path' : tool === 'grep' || tool === 'glob' ? 'pattern' : tool === 'find' || tool === 'explore' ? 'query' : null);
+  const fieldName = forcedField || (tool === 'read' || tool === 'list' ? 'path' : tool === 'grep' || tool === 'glob' ? 'pattern' : tool === 'find' ? 'query' : null);
   if (!fieldName) return null;
   const value = args[fieldName];
   return { field: fieldName, values: Array.isArray(value) ? value : value == null ? [] : [value] };
@@ -166,7 +165,7 @@ function sameIterationBatchObservations(sequence) {
       if (isMutation(next.tool)) break;
       group.push(next);
     }
-    for (const candidate of ['read', 'grep', 'find', 'glob', 'list', 'explore', 'code_graph']) {
+    for (const candidate of ['read', 'grep', 'find', 'glob', 'list', 'code_graph']) {
       if (candidate === 'read') {
         const calls = group.filter((entry) => entry.tool === 'read' && !entry.failed).map((entry) => ({ entry, targets: readTargets(entry.rawArgs) })).filter(({ targets }) => targets?.length);
         if (calls.some(({ entry, targets }, index) => calls.some(({ entry: other, targets: otherTargets }, otherIndex) => (
@@ -238,7 +237,7 @@ function buildCase(sid, toolRows) {
   const observations = [];
   if (sequence.some((s) => s.tool === 'code_graph' && s.rawArgs?.mode === 'find_symbol' && !s.rawArgs?.file && !s.rawArgs?.files)) flags.push('find_symbol_noscope');
   // Exact duplicate requests are the only relookup signal available in tool
-  // traces. Do not infer waste from counts, roles, turns, or explore→inspection:
+  // traces. Do not infer waste from counts, roles, turns, or locator→inspection:
   // exploration followed by inspection can be the intended route.
   const seenRequests = new Set();
   const readWindows = [];

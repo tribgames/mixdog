@@ -12,7 +12,7 @@ import { compactIso, elapsedFromStamps, stripFinalAnswerWrapper } from './helper
 // (carried through manager.mjs terminalResultPreview). We key purely off that
 // here. iteration_cap / truncated are real problems for EVERY agent (hidden
 // too). The plain `empty` case is tagged by the loop ONLY for public agents;
-// hidden agents (explorer/cycle/…) legitimately emit empty terminal turns and
+// hidden agents (cycle/…) legitimately emit empty terminal turns and
 // are left untagged, so they stay benign.
 export function abnormalEmptyFinishError(result, agent) {
   // The loop (loop.mjs) is the single classifier: it tags terminationReason

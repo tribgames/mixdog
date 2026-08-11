@@ -365,7 +365,7 @@ function renderNativeStatusline({
   const sp = l2SpinnerFrame(spinnerNow);
   const spin = `${GRN}${sp}${R}`;
   const elapsedSuffix = (label) => (label ? ` ${D}·${R} ${label}` : '');
-  // Segment order: Running Agents → Exploring → Web Searching → Running Shells.
+  // Segment order: Running Agents → Web Searching → Running Shells.
   // (activeTools.search counts WEB searches — category 'Web Research' — not
   // local file search, which is intentionally not surfaced.)
   if (runningWorkers.length) {
@@ -379,12 +379,7 @@ function renderNativeStatusline({
     addL2(`${spin} ${B}${label}${R}${elapsedSuffix(elapsed)}`);
   }
   const tools = activeTools && typeof activeTools === 'object' ? activeTools : {};
-  const exploreInfo = tools.explore || null;
   const searchInfo = tools.search || null;
-  if (exploreInfo && num(exploreInfo.count) > 0) {
-    const elapsed = num(exploreInfo.startedAt) > 0 ? formatElapsed(Date.now() - num(exploreInfo.startedAt)) : '';
-    addL2(`${spin} ${B}Exploring${R}${elapsedSuffix(elapsed)}`);
-  }
   // Web Searching = lead's own web searches (activeTools.search) PLUS any
   // spawned agent sub-session whose current tool call is a web search
   // (agentWebSearchStatus reads the live session-runtime map). Earliest start

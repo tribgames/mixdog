@@ -72,9 +72,6 @@ export function createWorkflowAgentsApi(deps) {
         } else if (slot === 'agent') {
           if (normalized) agentRoutes.worker = normalized;
           else delete agentRoutes.worker;
-        } else if (slot === 'explorer') {
-          if (normalized) agentRoutes.explore = normalized;
-          else delete agentRoutes.explore;
         } else if (slot === 'memory') {
           if (normalized) agentRoutes.maintainer = normalized;
           else delete agentRoutes.maintainer;

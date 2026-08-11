@@ -386,9 +386,6 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       }
       return trimmed ? firstAgentResultLine(text) || null : null;
     }
-    case 'explore': {
-      return trimmed ? firstAgentResultLine(text) || null : null;
-    }
     case 'recall':
     case 'search_memories':
     case 'memory': {
@@ -477,10 +474,6 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     default:
       return null;
   }
-}
-
-export function isExplorerSurface(label) {
-  return label === 'Read' || label === 'Search';
 }
 
 function truncateAgentSurfaceBrief(value, max = AGENT_SURFACE_BRIEF_MAX) {

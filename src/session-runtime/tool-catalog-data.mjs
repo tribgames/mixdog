@@ -1,7 +1,7 @@
 // Canonical route order — the single surface order wherever tools serialize:
 // locator → path → content → symbol → read → edit → execute.
 export const ROUTE_TOOL_ORDER = Object.freeze([
-  'explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read',
+  'find', 'glob', 'list', 'grep', 'code_graph', 'read',
   'apply_patch', 'shell', 'task',
 ]);
 
@@ -15,7 +15,6 @@ export const MEASURED_TOOL_USAGE = Object.freeze({
   glob: 460,
   list: 430,
   apply_patch: 400,
-  explore: 360,
   agent: 330,
   shell: 81,
   cwd: 2,
@@ -25,15 +24,15 @@ export const MEASURED_TOOL_USAGE = Object.freeze({
 });
 
 export const DEFERRED_DEFAULT_FULL_TOOLS = Object.freeze([
-  'explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read',
+  'find', 'glob', 'list', 'grep', 'code_graph', 'read',
   'apply_patch', 'Skill', 'load_tool',
 ]);
 export const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
-  'explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read',
+  'find', 'glob', 'list', 'grep', 'code_graph', 'read',
   'Skill', 'load_tool',
 ]);
 export const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
-  'explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read',
+  'find', 'glob', 'list', 'grep', 'code_graph', 'read',
   // cwd / session_manage / web_fetch demoted to the deferred manifest 2026-08:
   // 0 / 0 / 10 calls in a 3-day 7.6k-call trace window; they auto-load on
   // first direct call.
@@ -53,8 +52,6 @@ export const DEFERRED_SELECT_ALIASES = {
   memory: ['memory', 'recall'],
   channels: ['reply', 'fetch'],
   discord: ['reply', 'fetch'],
-  explore: ['explore'],
-  discovery: ['explore'],
   agent: ['agent'],
   graph: ['code_graph'],
   code: ['code_graph'],

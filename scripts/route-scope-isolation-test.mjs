@@ -144,16 +144,6 @@ test('agent route keeps its own effort when only the effort changes', async () =
   assert.equal(getConfig().agents.worker.effort, 'medium');
 });
 
-test('Explore route writes only the canonical agents slot', async () => {
-  const { workflowApi, getConfig } = harness();
-  await workflowApi.setAgentRoute('explore', { provider: PROVIDER, model: 'claude-sonnet-4-5' });
-  const config = getConfig();
-  assert.equal(config.agents.explore.model, 'claude-sonnet-4-5');
-  assert.equal(config.workflowRoutes, undefined);
-  assert.equal(config.maintenance?.explore, undefined);
-  assert.equal(config.presets.some((preset) => String(preset.id).includes('explore')), false);
-});
-
 test('providerless agent selection removes the override and inherits Main', async () => {
   const { workflowApi, getConfig } = harness();
   const inherited = await workflowApi.setAgentRoute('worker', { model: 'providerless-model' });
@@ -166,11 +156,10 @@ test('providerless agent selection removes the override and inherits Main', asyn
 test('onboarding model-only routes do not create overrides', async () => {
   const { workflowApi, getConfig } = harness();
   workflowApi.getOnboardingStatus = () => ({});
-  await workflowApi.setAgentRoute('explore', { provider: PROVIDER, model: 'old-explore-model' });
   await workflowApi.completeOnboarding({
     defaultProvider: PROVIDER,
     workflowRoutes: {
-      explorer: { model: 'claude-sonnet-4-5' },
+      agent: { model: 'claude-sonnet-4-5' },
     },
     searchRoute: { model: MAIN_MODEL },
   });

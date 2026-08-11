@@ -1322,11 +1322,11 @@ button:focus-visible { outline-offset: 1.5px; }
 /* Session-only sidebar, using compact list density and states. */
 .sidebar.session-sidebar {
   position: relative;
-  width: var(--session-sidebar-width, 260px);
+  width: var(--session-sidebar-width, 300px);
   min-width: var(--session-sidebar-min-width, 232px);
   max-width: var(--session-sidebar-max-width, 420px);
   height: 100%;
-  flex: 0 0 var(--session-sidebar-width, 260px);
+  flex: 0 0 var(--session-sidebar-width, 300px);
   margin: 0;
   /* Keep the footer one rail inset above the physical window floor. The
      scroll region absorbs this space, so Settings never sinks into the
@@ -10196,8 +10196,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .utility-dock > .utility-dock-header,
 .utility-dock > .utility-dock-body {
   align-self: flex-end;
-  width: var(--utility-dock-width, 380px);
-  min-width: var(--utility-dock-width, 380px);
+  width: var(--utility-dock-width, 320px);
+  min-width: var(--utility-dock-width, 320px);
 }
 .utility-dock--persistent > .utility-dock-tabs-header,
 .utility-dock--persistent > .utility-dock-header,
@@ -13836,9 +13836,10 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
   overflow-x: hidden;
 }
 .folder-pane-empty {
+  position: absolute;
+  inset: 0;
   display: grid;
   place-items: center;
-  padding: 48px 0;
   color: var(--mx-text-faint);
   font-size: var(--mx-font-ui);
 }

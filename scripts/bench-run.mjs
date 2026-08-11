@@ -61,7 +61,7 @@ function extractSessionId(text) {
 const RUNNERS = {
   // Full Lead session (workflow routing + agent tool fan-out). This is the
   // same path the REPL drives: createMixdogSessionRuntime().ask(). Use it to
-  // measure the delegation/cost-routing design (explorer/worker on cheap
+  // measure the delegation/cost-routing design (worker on cheap
   // models, lead/reviewer on frontier) instead of a single-role headless run.
   async lead(task, opts) {
     const RUNTIME_URL = pathToFileURL(resolve(__dir, '../src/mixdog-session-runtime.mjs')).href;

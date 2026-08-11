@@ -64,7 +64,8 @@ CONTAINER_DATA_DIR = "/opt/mixdog"
 CONTAINER_CREDS_PATH = f"{CONTAINER_DATA_DIR}/anthropic-oauth-credentials.json"
 # Full-Lead-session driver, uploaded next to the creds and run with node.
 CONTAINER_LEAD_DRIVER = f"{CONTAINER_DATA_DIR}/lead_driver.mjs"
-HOST_LEAD_DRIVER = Path(__file__).with_name("lead_driver.mjs")
+HARNESS_SNAPSHOT_ENV = "MIXDOG_TB_HARNESS_SNAPSHOT"
+HARNESS_SNAPSHOT_MANIFEST_ENV = "MIXDOG_TB_HARNESS_SNAPSHOT_MANIFEST"
 REFUSAL_FALLBACK_EXIT_CODE = 86
 TRANSPORT_RETRY_EXIT_CODE = 87
 FALLBACK_STATE_ENV = "MIXDOG_TB_FALLBACK_STATE_DIR"
@@ -88,7 +89,6 @@ DEFAULT_PREBAKE_TAR = (
     Path(__file__).resolve().parents[1] / "mixdog-prebake" / "mixdog-node-prebake.tar.gz"
 )
 CONTAINER_PREBAKE_TAR = "/opt/mixdog-node-prebake.tar.gz"
-HOST_ANTHROPIC_PREFLIGHT = Path(__file__).with_name("anthropic_oauth_preflight.mjs")
 BENCH_DRIVER_DEADLINE_MS = 180 * 60 * 1000
 ANTHROPIC_REFRESH_SKEW_MS = 5 * 60 * 1000
 PROCESS_KILL_GRACE_S = 30
@@ -174,8 +174,35 @@ def _collect_provider_files(providers: set[str]) -> dict[str, Path]:
     return files
 
 
+def _harness_snapshot_file(name: str) -> Path:
+    """Return one launch-frozen harness file after checking its pinned digest."""
+    root_value = os.environ.get(HARNESS_SNAPSHOT_ENV)
+    manifest_value = os.environ.get(HARNESS_SNAPSHOT_MANIFEST_ENV)
+    if not root_value or not manifest_value:
+        raise RuntimeError(
+            f"{HARNESS_SNAPSHOT_ENV} and {HARNESS_SNAPSHOT_MANIFEST_ENV} are required; "
+            "run Terminal-Bench through run-tb21.ps1"
+        )
+    try:
+        manifest = json.loads(manifest_value)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("invalid harness snapshot manifest") from exc
+    expected = manifest.get(name) if isinstance(manifest, dict) else None
+    if not isinstance(expected, str) or len(expected) != 64:
+        raise RuntimeError(f"harness snapshot manifest is missing {name}")
+    root = Path(root_value)
+    path = root / name
+    if root.is_symlink() or path.is_symlink() or not path.is_file():
+        raise RuntimeError(f"harness snapshot file is unsafe or missing: {path}")
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != expected.lower():
+        raise RuntimeError(f"harness snapshot digest mismatch: {name}")
+    return path
+
+
 def _run_anthropic_preflight(host_creds: Path, snapshot_path: Path) -> None:
     """Refresh only on the host, under the provider's cross-process lease lock."""
+    preflight_path = _harness_snapshot_file("anthropic_oauth_preflight.mjs")
     env = {
         **os.environ,
         "ANTHROPIC_OAUTH_CREDENTIALS_PATH": str(host_creds),
@@ -183,7 +210,7 @@ def _run_anthropic_preflight(host_creds: Path, snapshot_path: Path) -> None:
     result = subprocess.run(
         [
             "node",
-            str(HOST_ANTHROPIC_PREFLIGHT),
+            str(preflight_path),
             "--output",
             str(snapshot_path),
             "--minimum-validity-ms",
@@ -938,13 +965,14 @@ class MixdogAgent(BaseInstalledAgent):
     async def _run_lead(
         self, environment, instruction, model, base_env, *, lead_route=None
     ):
-        # Upload the Lead-session driver, then run it against the globally
+        # Upload the launch-frozen Lead-session driver, then run it against the globally
         # installed package (src under `npm root -g`/mixdog). Prompt/provider/
         # model/workflow travel via env so the instruction needs no quoting.
+        lead_driver = _harness_snapshot_file("lead_driver.mjs")
         await self.exec_as_root(
             environment, command=f"mkdir -p {CONTAINER_DATA_DIR}"
         )
-        await environment.upload_file(HOST_LEAD_DRIVER, CONTAINER_LEAD_DRIVER)
+        await environment.upload_file(lead_driver, CONTAINER_LEAD_DRIVER)
         user = getattr(environment, "default_user", None)
         if user is not None:
             await self.exec_as_root(

@@ -418,7 +418,7 @@ class RemoteWorkerHandle {
 
 // ── Shared per-process transport ─────────────────────────────────────────────
 // ONE daemon attachment + handle registry per process, shared by every
-// agent-tool instance AND by hidden-role dispatches (explore etc.), so a shard
+// agent-tool instance AND by hidden-role dispatches, so a shard
 // hosting several Lead sessions never multiplies SSE streams.
 const sharedHandles = new Map(); // sessionId -> RemoteWorkerHandle
 let sharedLog = () => {};
@@ -499,7 +499,7 @@ export async function createRemoteAgentSession({ spec, provider, model, cwd }) {
 }
 
 /**
- * Ephemeral hidden-role dispatch on a peer shard (explore and the other
+ * Ephemeral hidden-role dispatch on a peer shard (maintenance and other
  * makeAgentDispatch roles running inside a shard child). Mirrors the
  * in-process dispatch contract: parent-signal cascade, idle watchdog,
  * watchdog/salvage partial handoff, ephemeral close. The handle is removed

@@ -205,7 +205,7 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
     if (isInternalTool(name)) {
         // callerSessionId propagates into server.mjs dispatchTool so that
         // dispatchAiWrapped can detect and reject recursive calls from a
-        // hidden-role session (recall/search/explore → self).
+        // hidden-role session (recall/search → self).
         return executeInternalTool(name, args, {
             callerSessionId,
             callerCwd: cwd,

@@ -835,10 +835,10 @@ export function createRunTurn(bag) {
             const callKey = callId || `__tool_${toolCards.length}_${i}`;
             // The old App scan counted multi-pattern calls via category work
             // units, not a flat 1. Derive the same
-            // count here so the incremental Explore/Search summary matches.
+            // count here so the incremental web-search summary matches.
             const categoryEntries = aggregateToolCategoryEntries(name, args, category);
             const activeCount = categoryEntries.reduce((total, entry) => total + Number(entry.count || 1), 0);
-            // Track Explore/Search calls as active for the incremental prompt-
+            // Track web-search calls as active for the incremental prompt-
             // line summary; cleared when their result lands or the turn ends.
             markToolCallActive(callKey, category, activeCount, Date.now());
 

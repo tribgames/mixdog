@@ -79,7 +79,7 @@ export function classifyTerminationReason(response, {
     }
     if (!_finalHasContent && !_finalIsHidden) {
         // Empty terminal turn. Only public agents violate their contract by
-        // finishing empty — hidden agents (explorer/cycle/…) legitimately emit
+        // finishing empty — hidden agents (cycle/…) legitimately emit
         // text-only/empty terminal turns per their own role contract, so leave
         // terminationReason undefined for them.
         return 'empty';

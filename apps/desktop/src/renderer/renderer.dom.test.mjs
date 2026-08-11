@@ -1795,14 +1795,13 @@ test("live-work strip renders ordered snapshot segments and filters terminal age
       shellJobs: { count: 2, elapsedLabel: "9s" },
     },
   })));
-  assert.equal(document.querySelector(".live-work-count")?.textContent, "10",
-    "the aggregate chip totals agents + explore + search + shells");
+  assert.equal(document.querySelector(".live-work-count")?.textContent, "8",
+    "the aggregate chip totals agents + search + shells and ignores retired explore activity");
   const rows = Array.from(document.querySelectorAll(".live-work-row"))
     .map((element) => Array.from(element.children)
       .map((child) => child.textContent.trim()).filter(Boolean).join(" "));
   assert.deepEqual(rows, [
     "Agents 5 1h 1m 5s",
-    "Explore 4s",
     "Web search 3s",
     "Shell 2 9s",
   ]);
@@ -14101,13 +14100,13 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
     /(?:^|\n)\.sidebar-collapsed \.sidebar\s*\{[^}]*opacity(?:\s*:| var\(--mx-side-panel-motion\))/s);
   assert.match(themeCss,
     /--mx-side-panel-duration:\s*180ms;[^}]*--mx-side-panel-easing:\s*cubic-bezier\(\.2,\s*\.8,\s*\.2,\s*1\);[^}]*--mx-sheet-motion:\s*var\(--mx-side-panel-motion\);/s);
-  assert.match(themeCss, /\.sidebar\.session-sidebar\s*\{[^}]*width:\s*var\(--session-sidebar-width,\s*260px\);[^}]*min-width:\s*var\(--session-sidebar-min-width,\s*232px\);[^}]*max-width:\s*var\(--session-sidebar-max-width,\s*420px\);[^}]*flex:\s*0 0 var\(--session-sidebar-width,\s*260px\);[^}]*margin:\s*0;[^}]*padding:\s*0 8px 8px;/s);
+  assert.match(themeCss, /\.sidebar\.session-sidebar\s*\{[^}]*width:\s*var\(--session-sidebar-width,\s*300px\);[^}]*min-width:\s*var\(--session-sidebar-min-width,\s*232px\);[^}]*max-width:\s*var\(--session-sidebar-max-width,\s*420px\);[^}]*flex:\s*0 0 var\(--session-sidebar-width,\s*300px\);[^}]*margin:\s*0;[^}]*padding:\s*0 8px 8px;/s);
   assert.match(themeCss,
     /\.sidebar-collapsed \.sidebar\.session-sidebar\s*\{[^}]*width:\s*0;[^}]*min-width:\s*0;[^}]*flex:\s*0 0 0px;[^}]*flex-basis:\s*0px;/s);
   assert.match(themeCss,
     /\.sidebar\.session-sidebar > \.session-panel-header,[\s\S]*?\.sidebar\.session-sidebar > \.session-sidebar-scroll\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*calc\(var\(--session-sidebar-min-width,\s*232px\) - 16px\);/s);
   assert.match(themeCss,
-    /\.utility-dock > \.utility-dock-header,[\s\S]*?\.utility-dock > \.utility-dock-body\s*\{[^}]*width:\s*var\(--utility-dock-width,\s*380px\);[^}]*min-width:\s*var\(--utility-dock-width,\s*380px\);/s);
+    /\.utility-dock > \.utility-dock-header,[\s\S]*?\.utility-dock > \.utility-dock-body\s*\{[^}]*width:\s*var\(--utility-dock-width,\s*320px\);[^}]*min-width:\s*var\(--utility-dock-width,\s*320px\);/s);
   assert.match(themeCss,
     /\.utility-dock--persistent > \.utility-dock-header,[\s\S]*?\.utility-dock--persistent > \.utility-dock-body\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*var\(--utility-dock-min-width,\s*300px\);/s);
   assert.match(themeCss,
@@ -14827,6 +14826,8 @@ test("an empty Agents dock does not schedule an elapsed clock", async () => {
 
 test("Agents replaces the visible Tasks surface while preserving Dock state", async () => {
   installDom();
+  assert.deepEqual(readDockState(), { open: false, tab: "tasks", width: 320 },
+    "a fresh Dock must use the compact default width");
   window.localStorage.setItem("mixdog.desktop-utility-dock.v1", JSON.stringify({
     open: true,
     tab: "agents",

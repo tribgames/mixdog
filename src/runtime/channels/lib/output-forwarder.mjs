@@ -4,7 +4,6 @@ import { safeCodeBlock } from "./format.mjs";
 import { dropTrace, _dtPreview } from "./drop-trace.mjs";
 import {
   formatToolSurface,
-  isExplorerSurface,
   isMemorySurface,
   stripToolPrefix,
 } from "../../shared/tool-surface.mjs";
@@ -83,7 +82,6 @@ class OutputForwarder {
   watcher = null;
   idleTimer = null;
   onIdleCallback = null;
-  inExplorerSequence = false;
   inRecallSequence = false;
   hasSeenAssistant = false;
   sending = false;
@@ -222,7 +220,6 @@ class OutputForwarder {
   reset() {
     this.sentCount = 0;
     this.lastHash = "";
-    this.inExplorerSequence = false;
     this.inRecallSequence = false;
     this.hasSeenAssistant = false;
     this.turnTextBuffer = "";
@@ -338,7 +335,6 @@ class OutputForwarder {
           const parts = [];
           for (const c of entry.message.content) {
             if (c.type === "text" && c.text?.trim()) {
-              this.inExplorerSequence = false;
               this.inRecallSequence = false;
               let cleaned = OutputForwarder.stripForeignWorkerChannels(c.text.trim());
               cleaned = cleaned.replace(/<(memory-context|system-reminder|event)\b[^>]*>[\s\S]*?<\/\1>/gi, "").trim();
@@ -348,14 +344,6 @@ class OutputForwarder {
               this.lastToolFilePath = c.input?.file_path || "";
               if (OutputForwarder.isHidden(c.name)) continue;
               const surface = formatToolSurface(c.name, c.input, { max: 50 });
-              if (isExplorerSurface(surface.label)) {
-                if (!this.inExplorerSequence) {
-                  this.inExplorerSequence = true;
-                  if (parts.length > 0) parts.push("");
-                  parts.push("\u25CF **Explorer** (" + (surface.summary || surface.label) + ")");
-                }
-                continue;
-              }
               if (isMemorySurface(surface.label)) {
                 if (!this.inRecallSequence) {
                   this.inRecallSequence = true;
@@ -364,7 +352,6 @@ class OutputForwarder {
                 }
                 continue;
               }
-              this.inExplorerSequence = false;
               this.inRecallSequence = false;
               const toolLine = OutputForwarder.buildToolLine(c.name, c.input);
               if (toolLine) {

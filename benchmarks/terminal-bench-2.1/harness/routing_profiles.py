@@ -15,7 +15,6 @@ PROFILE_ROLES = (
     "heavy-worker",
     "reviewer",
     "debugger",
-    "explorer",
 )
 EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 ROUTE_FIELDS = {"provider", "model", "effort", "fast"}
@@ -26,7 +25,6 @@ AGENT_CONFIG_KEYS = {
     "heavy-worker": "heavy-worker",
     "reviewer": "reviewer",
     "debugger": "debugger",
-    "explorer": "explore",
 }
 PROFILE_LEAD_PRESET_ID = "terminal-bench-route-profile-lead"
 

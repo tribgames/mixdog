@@ -156,7 +156,7 @@ test('a delegating pack lists every active starter and custom agent', () => {
   assert.match(block, /\(worker\)/);
   assert.match(block, /\(zz-release-scribe\)/);
   // Slot-backed built-ins stay out of the catalog.
-  assert.doesNotMatch(block, /\(explore\)|\(maintainer\)/);
+  assert.doesNotMatch(block, /\(maintainer\)/);
 });
 
 test('starter agents are custom while fixed services stay protected', () => {

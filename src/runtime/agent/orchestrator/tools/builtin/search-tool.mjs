@@ -125,18 +125,6 @@ function _grepContextCharBudget(options = {}) {
 
 export async function executeGrepTool(args, workDir, executeChildBuiltinTool, readStateScope = null, options = {}) {
     args = normalizeGrepArgs(args);
-    const explorerFlatOutput = ['explore', 'explorer'].includes(String(options?.agent || '').trim().toLowerCase());
-    const requestedOutputMode = String(args.output_mode || '').trim();
-    if (explorerFlatOutput && ['', 'content', 'content_with_context'].includes(requestedOutputMode)) {
-        // Explorer returns coordinates, not patch context. Keep every match in
-        // one uniform path:line stream so completeness queries cannot lose the
-        // compact "Additional matches" tail of adaptive context rendering.
-        args.output_mode = 'content_with_context';
-        args.context = 0;
-        delete args['-A'];
-        delete args['-B'];
-        delete args['-C'];
-    }
     args.path = coerceReadFamilyPathArg(args.path, workDir);
     const callContextCharBudget = _grepContextCharBudget(options);
     // Batch multiple string paths concurrently. Recursive calls pass a single
@@ -926,7 +914,6 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         pcre2: pcre2Mode,
         withFilename: forceGrepFilename,
         contextCharBudget: callContextCharBudget,
-        flatOutput: explorerFlatOutput,
         // Capped requests carry the "[capped at N of M]" notice; key on the
         // original count so they never collide with an exact N-pattern request
         // (or a differently-capped one) in the internal result cache.
@@ -1226,8 +1213,8 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             globPatterns: normalizedGlobPatterns,
             fileType,
             filenameOmitted,
-            disableContentGrouping: explorerFlatOutput || !!options._grepChunkMerge || !!options._grepPatternFanout,
-            includeMatchCount: explorerFlatOutput,
+            disableContentGrouping: !!options._grepChunkMerge || !!options._grepPatternFanout,
+            includeMatchCount: false,
         });
         if (!body) {
             const pathInfo = grepStat.isDirectory() ? 'path exists (dir)' : 'path exists (file)';

@@ -34,7 +34,7 @@ const execFileAsync = promisify(execFile);
 // ── rg --threads cap ─────────────────────────────────────────────────────
 // Each rg process otherwise fans out across EVERY core. Keep every independent
 // tool call fully parallel, but bound the threads INSIDE each rg process so a
-// broad explorer wave does not multiply half-machine thread pools (8 calls on
+// broad batched search does not multiply half-machine thread pools (8 calls on
 // a 20-core host previously created ~80 rg workers and made every call slower).
 // This does not queue or limit calls; it only prevents per-process
 // oversubscription. Env override remains available for operator tuning.
@@ -199,7 +199,7 @@ export async function _resolveRgExecutable() {
     }
     // Vendored fallback: the optional @vscode/ripgrep dependency ships a
     // platform rg binary with the package, so a machine without system
-    // ripgrep still gets a working search family (grep/find/explore). System
+    // ripgrep still gets a working search family (grep/find). System
     // rg on PATH always wins above; this only fills the gap.
     try {
         const { rgPath } = createRequire(import.meta.url)('@vscode/ripgrep');

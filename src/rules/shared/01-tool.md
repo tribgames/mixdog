@@ -11,12 +11,6 @@
   durable compact English memory→`memory`; explicit project change→`cwd`;
   explicit user-requested conversation reset→`session_manage`.
   Use only named tools present in the current tool surface.
-  `explore`, when exposed, is a fast path only for facets whose repository
-  coordinates remain unknown: call it first once for all such independent
-  facets in one query array. It returns direct `path:line` anchors, not
-  analysis or solutions; anchors are tool-verified coordinates that END
-  their location facets — never re-locate or second-guess them; resume
-  baseline routing from them.
 - Act only on verified identities (cwd/project/user/tool-returned) — paths,
   module specifiers, symbols, data/record shapes alike; a guessed identity is
   verified by one lookup or sample only when the next call or edit references
@@ -38,7 +32,8 @@
   window. The moment evidence determines the answer, edit, or deliverable,
   stop retrieving; patch if needed.
 - Once the edit or deliverable is determined, finish in one assistant turn:
-  one `apply_patch` per file or cohesive unit, all patches first, then one
+  issue `apply_patch` calls serially, never in parallel; use one cohesive call
+  with one file section per target, all patches first, then one
   batched verification `shell` that runs the real required postconditions
   on every changed file and produced artifact, never echoes a claim;
   runtime waits for every patch and skips the shell

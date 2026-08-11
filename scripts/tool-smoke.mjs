@@ -6,7 +6,6 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { __applyStandaloneToolDefaultsForTest, __renderToolSearchForTest, compactToolSearchDescription, defaultDeferredToolNames, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../src/mixdog-session-runtime.mjs';
 import { applyInitialDeferredToolManifestToBp1, buildDeferredToolManifest } from '../src/runtime/agent/orchestrator/context/collect.mjs';
-import { buildExplorerPrompt, EXPLORE_TOOL, MAX_FANOUT_QUERIES, normalizeExploreQueries } from '../src/standalone/explore-tool.mjs';
 import { AGENT_TOOL, createStandaloneAgent } from '../src/standalone/agent-tool.mjs';
 import { parseHeadlessRoleCommand } from '../src/app.mjs';
 import { buildHeadlessSpawnArgs } from '../src/headless-role.mjs';
@@ -46,7 +45,6 @@ import { TOOL_DEFS as SEARCH_TOOL_DEFS } from '../src/runtime/search/tool-defs.m
 import { TOOL_DEFS as CHANNEL_TOOL_DEFS } from '../src/runtime/channels/tool-defs.mjs';
 import { createProviderDispatch } from '../src/runtime/channels/lib/provider-dispatch.mjs';
 import { AGENT_OWNER } from '../src/runtime/agent/orchestrator/agent-owner.mjs';
-import { recursiveWrapperToolNameForPublicAgent } from '../src/runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
 import {
   applyDeferredToolSurface,
   reconcileDeferredMcpToolCatalog,
@@ -1105,17 +1103,16 @@ const smokeCatalog = [
   ...MEMORY_TOOL_DEFS,
   ...SEARCH_TOOL_DEFS,
   ...CHANNEL_TOOL_DEFS,
-  EXPLORE_TOOL,
   AGENT_TOOL,
   SKILL_TOOL,
   TOOL_SEARCH_TOOL,
 ].filter(Boolean);
 
 const fullDefaults = defaultDeferredToolNames(smokeCatalog, 'full');
-if (fullDefaults.size !== 10) {
-  throw new Error(`full default surface should stay 10 tools, got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`);
+if (fullDefaults.size !== 9) {
+  throw new Error(`full default surface should stay 9 tools, got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'apply_patch', 'explore', 'Skill', 'load_tool']) {
+for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'apply_patch', 'Skill', 'load_tool']) {
   assertHas(fullDefaults, name);
 }
 for (const name of ['shell', 'task', 'agent', 'recall', 'search', 'web_fetch', 'cwd']) {
@@ -1123,10 +1120,10 @@ for (const name of ['shell', 'task', 'agent', 'recall', 'search', 'web_fetch', '
 }
 
 const leadDefaults = defaultDeferredToolNames(smokeCatalog, 'lead');
-if (leadDefaults.size !== 15) {
-  throw new Error(`lead default surface should stay 15 tools for this static catalog, got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
+if (leadDefaults.size !== 14) {
+  throw new Error(`lead default surface should stay 14 tools for this static catalog, got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'shell', 'task', 'apply_patch', 'explore', 'agent', 'recall', 'search', 'Skill', 'load_tool']) {
+for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'shell', 'task', 'apply_patch', 'agent', 'recall', 'search', 'Skill', 'load_tool']) {
   assertHas(leadDefaults, name);
 }
 for (const name of ['web_fetch', 'cwd', 'session_manage']) {
@@ -1163,10 +1160,10 @@ for (const [name, cap] of [
 }
 
 const readonlyDefaults = defaultDeferredToolNames(smokeCatalog, 'readonly');
-if (readonlyDefaults.size !== 9) {
-  throw new Error(`readonly default surface should stay 9 tools, got ${readonlyDefaults.size}: ${[...readonlyDefaults].join(', ')}`);
+if (readonlyDefaults.size !== 8) {
+  throw new Error(`readonly default surface should stay 8 tools, got ${readonlyDefaults.size}: ${[...readonlyDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'explore', 'Skill', 'load_tool']) {
+for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'Skill', 'load_tool']) {
   assertHas(readonlyDefaults, name);
 }
 for (const name of ['apply_patch', 'agent', 'shell']) {
@@ -1377,12 +1374,6 @@ try {
 } finally {
   rmSync(agentNotifyTmp, { recursive: true, force: true });
 }
-if (EXPLORE_TOOL.annotations?.readOnlyHint !== true || EXPLORE_TOOL.annotations?.destructiveHint === true) {
-  throw new Error('explore must stay read-only so readonly surfaces can use it');
-}
-if (EXPLORE_TOOL.annotations?.agentHidden === true) {
-  throw new Error('explore must stay visible to agent sessions');
-}
 {
   const runtimeSearchTool = __applyStandaloneToolDefaultsForTest(SEARCH_TOOL_DEFS.find((tool) => tool?.name === 'search'));
   if (runtimeSearchTool?.annotations?.agentHidden === true) {
@@ -1392,36 +1383,9 @@ if (EXPLORE_TOOL.annotations?.agentHidden === true) {
     throw new Error('deferred tool_search wrapper must stay hidden from agent sessions');
   }
 }
-const exploreProps = EXPLORE_TOOL.inputSchema?.properties || {};
-// Contract-only description: broad/uncertain routing policy lives in
-// src/rules/shared/01-tool.md (see explore-prompt-policy-test.mjs).
-if (!/repo- or machine-wide coordinate locator/i.test(EXPLORE_TOOL.description || '') || /broad\/uncertain/i.test(EXPLORE_TOOL.description || '') || (EXPLORE_TOOL.description || '').length > 600) {
-  throw new Error('explore description must stay a compact coordinate-locator contract');
-}
-if (!/One concrete (?:unknown )?target per query/i.test(exploreProps.query?.description || '')
-    || !/never a topic list/i.test(exploreProps.query?.description || '')
-    || !/independent (?:facets|targets)/i.test(exploreProps.query?.description || '')
-    || exploreProps.cwd
-    || !/caller project/i.test(exploreProps.roots?.description || '')
-    || !/multiple roots/i.test(exploreProps.roots?.description || '')) {
-  throw new Error('explore schema must stay compact and preserve query/roots shape');
-}
-const normalizedExplore = normalizeExploreQueries('["where is model selection?","  ","which file owns agent async?"]');
-if (normalizedExplore.length !== 2 || normalizedExplore[0] !== 'where is model selection?') {
-  throw new Error(`explore query normalization failed: ${JSON.stringify(normalizedExplore)}`);
-}
-if (MAX_FANOUT_QUERIES !== Infinity) throw new Error(`explore fanout must stay unbounded: ${MAX_FANOUT_QUERIES}`);
-const explorerPrompt = buildExplorerPrompt('where is <agent> & status?');
-if (explorerPrompt !== '<query>where is &lt;agent&gt; &amp; status?</query>') {
-  throw new Error(`explorer prompt contract failed: ${explorerPrompt}`);
-}
-if (/Reminder:|BUDGET|STOP and answer|verdicts|ratings|recommendations|grep|code_graph|find|glob/i.test(explorerPrompt)) {
-  throw new Error(`explorer prompt must not duplicate the system routing/fan-out contract: ${explorerPrompt}`);
-}
 setInternalToolsProvider({
   executor: async () => 'tool-smoke internal tool',
   tools: [
-    EXPLORE_TOOL,
     { name: 'memory', description: 'Destructive memory surface.', inputSchema: { type: 'object', properties: {} }, annotations: { destructiveHint: true } },
     { name: 'recall', description: 'Memory recall surface.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },
     { name: 'search', description: 'Web search surface.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true, openWorldHint: true } },
@@ -1500,46 +1464,6 @@ setInternalToolsProvider({
   } finally {
     rmSync(skillManifestTmp, { recursive: true, force: true });
   }
-  const explorerSession = createSession({
-    provider: 'openai-oauth',
-    model: 'tool-smoke-model',
-    owner: AGENT_OWNER,
-    agent: 'explorer',
-    cwd: root,
-    permission: 'read',
-    skipSkills: true,
-    schemaAllowedTools: ['code_graph', 'find', 'glob', 'list', 'grep', 'read'],
-  });
-  try {
-    const visible = (explorerSession.messages || []).map((m) => String(m.content || '')).join('\n');
-    const systemVisible = (explorerSession.messages || [])
-      .filter((m) => m?.role === 'system')
-      .map((m) => String(m.content || ''))
-      .join('\n');
-    const userReminderVisible = (explorerSession.messages || [])
-      .filter((m) => m?.role === 'user')
-      .map((m) => String(m.content || ''))
-      .join('\n');
-    if (!/Read-only retrieval role/i.test(visible) || /# environment/i.test(visible) || /git operations deferred to Lead/i.test(visible)) {
-      throw new Error(`explorer hidden retrieval context should stay slim: ${visible.slice(0, 1200)}`);
-    }
-    if (!/# Role: explorer/i.test(systemVisible) || /# Role: explorer/i.test(userReminderVisible) || !/minimal complete WHERE/i.test(systemVisible)) {
-      throw new Error(`explorer role md must ride BP2 system, not BP3 user reminder: system=${systemVisible.slice(0, 600)} user=${userReminderVisible.slice(0, 600)}`);
-    }
-    // System layers (BP1 tool policy + BP2 role md) are shared/frozen and sized
-    // elsewhere; the slimness cap guards only the per-session injected layers
-    // (BP3 user reminder etc.), so measure non-system messages only.
-    const injectedVisible = (explorerSession.messages || [])
-      .filter((m) => m?.role !== 'system')
-      .map((m) => String(m.content || ''))
-      .join('\n');
-    const injectedBytes = Buffer.byteLength(injectedVisible, 'utf8');
-    if (injectedBytes > 1800) {
-      throw new Error(`explorer hidden retrieval context too large: ${injectedBytes} bytes (injected layers only)`);
-    }
-  } finally {
-    closeSession(explorerSession.id, 'tool-smoke');
-  }
   const workerSession = createSession({
     provider: 'openai-oauth',
     model: 'tool-smoke-model',
@@ -1611,27 +1535,16 @@ setInternalToolsProvider({
     cwd: root,
     permission: 'full',
   });
-  const publicExploreSession = createSession({
-    provider: 'openai-oauth',
-    model: 'tool-smoke-model',
-    owner: AGENT_OWNER,
-    role: 'explore',
-    cwd: root,
-    permission: 'read',
-  });
   try {
     const readTools = (readAgentSession.tools || []).map((tool) => tool?.name).filter(Boolean);
     const writeTools = (writeAgentSession.tools || []).map((tool) => tool?.name).filter(Boolean);
     const fullTools = (fullAgentSession.tools || []).map((tool) => tool?.name).filter(Boolean);
-    const publicExploreTools = (publicExploreSession.tools || []).map((tool) => tool?.name).filter(Boolean);
     // Read-role AGENT sessions carry shell/task so review/debug agents can run
-    // their own verification (build/test); the plain readonly preset (public
-    // explore role) still omits them.
+    // their own verification (build/test).
     // No terminal-action tool is registered: a no-tool assistant message ends
     // the turn, so the schema carries capabilities only.
-    const expectedReadTools = ['explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
-    const expectedPublicReadTools = ['explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read', 'search', 'web_fetch', 'Skill'];
-    const expectedWriteTools = ['explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read', 'apply_patch', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
+    const expectedReadTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
+    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'apply_patch', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
     if (JSON.stringify(readTools) !== JSON.stringify(expectedReadTools)) {
       throw new Error(`read agent schema must be fixed allow-list: expected=${expectedReadTools.join(', ')} actual=${readTools.join(', ')}`);
     }
@@ -1648,9 +1561,6 @@ setInternalToolsProvider({
       if (!readTools.includes(name)) {
         throw new Error(`read agent schema must carry verification tool ${name}: read=${readTools.join(', ')}`);
       }
-      if (publicExploreTools.includes(name)) {
-        throw new Error(`public explore role must omit ${name}: explore=${publicExploreTools.join(', ')}`);
-      }
     }
     for (const name of ['apply_patch', 'shell', 'task']) {
       if (!writeTools.includes(name)) {
@@ -1662,31 +1572,13 @@ setInternalToolsProvider({
         throw new Error(`read/read-write agent schema must not expose full-runtime internal tool ${name}: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
       }
     }
-    if (!readTools.includes('explore') || !writeTools.includes('explore')) {
-      throw new Error(`read/read-write agent schemas must expose explore: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
-    }
     if (!fullTools.includes('shell')) {
       throw new Error(`full agent schema must retain shell: full=${fullTools.join(', ')}`);
-    }
-    if (!fullTools.includes('explore')) {
-      throw new Error(`full agent schema must expose explore: full=${fullTools.join(', ')}`);
-    }
-    // The explore wrapper stays IN the schema for every read role — including
-    // the explore agent itself. Recursion is broken at call time in
-    // pre-dispatch-deny.mjs via recursiveWrapperToolNameForPublicAgent, not by
-    // schema stripping. (Read AGENT sessions add shell/task on top, so the
-    // public explore bundle is its own cache group now.)
-    if (JSON.stringify(publicExploreTools) !== JSON.stringify(expectedPublicReadTools)) {
-      throw new Error(`public explore role must ship the readonly bundle (incl. explore): expected=${expectedPublicReadTools.join(', ')} actual=${publicExploreTools.join(', ')}`);
-    }
-    if (recursiveWrapperToolNameForPublicAgent('explore') !== 'explore') {
-      throw new Error('call-time anti-recursion must map public explore agent to its own wrapper tool');
     }
   } finally {
     closeSession(readAgentSession.id, 'tool-smoke');
     closeSession(writeAgentSession.id, 'tool-smoke');
     closeSession(fullAgentSession.id, 'tool-smoke');
-    closeSession(publicExploreSession.id, 'tool-smoke');
   }
   const resumeAgentSession = createSession({
     provider: 'openai-oauth',
@@ -1699,7 +1591,7 @@ setInternalToolsProvider({
   try {
     const resumed = await resumeSession(resumeAgentSession.id, 'full');
     const resumedTools = (resumed?.tools || []).map((tool) => tool?.name).filter(Boolean);
-    const expectedWriteTools = ['explore', 'find', 'glob', 'list', 'grep', 'code_graph', 'read', 'apply_patch', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
+    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'apply_patch', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
     if (JSON.stringify(resumedTools) !== JSON.stringify(expectedWriteTools)) {
       throw new Error(`resumed read-write agent schema must keep fixed allow-list: expected=${expectedWriteTools.join(', ')} actual=${resumedTools.join(', ')}`);
     }
@@ -1747,8 +1639,8 @@ setInternalToolsProvider({
   const expectedForHiddenAgent = (permission, schemaAllowedTools) => {
     if (Array.isArray(schemaAllowedTools)) return schemaAllowedTools.slice();
     if (permission === 'none') return [];
-    if (permission === 'read') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'explore', 'search', 'web_fetch'];
-    if (permission === 'read-write') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'explore', 'search', 'web_fetch'];
+    if (permission === 'read') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'search', 'web_fetch'];
+    if (permission === 'read-write') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'search', 'web_fetch'];
     return null;
   };
   for (const entry of hiddenAgents) {
@@ -2117,7 +2009,13 @@ if (memoryProps.category || /category/i.test(memoryTool?.description || '')) {
 }
 const searchTool = SEARCH_TOOL_DEFS.find((tool) => tool.name === 'search');
 const searchProps = searchTool?.inputSchema?.properties || {};
-if (!/Runs synchronously/i.test(searchTool?.description || '') || searchProps.mode || searchProps.action || searchProps.task_id || !searchProps.query?.anyOf || !/array for fan-out/i.test(searchProps.query?.description || '')) {
+if (!/Runs synchronously/i.test(searchTool?.description || '')
+  || searchProps.mode
+  || searchProps.action
+  || searchProps.task_id
+  || !searchProps.query?.anyOf
+  || !/array for lossless fan-out/i.test(searchProps.query?.description || '')
+  || !searchTool?.inputSchema?.required?.includes('query')) {
   throw new Error('search schema must preserve sync execution guidance and string/array query shape');
 }
 if (!/Default web/i.test(searchProps.type?.description || '') || !/locale hint/i.test(searchProps.locale?.description || '') || !/Default low/i.test(searchProps.contextSize?.description || '')) {
@@ -2483,7 +2381,7 @@ if (!/pattern\[\] batches exact query literals and identifier variants/i.test(gr
   throw new Error('grep schema must keep compact pattern/path guidance');
 }
 // Contract-only description: routing/verification policy lives in
-// src/rules/shared/01-tool.md (see explore-prompt-policy-test.mjs).
+// src/rules/shared/01-tool.md.
 if (!/\bFile-content literal\/regex\b/i.test(grepTool?.description || '')) {
   throw new Error('grep description must state its literal/regex content-search contract');
 }

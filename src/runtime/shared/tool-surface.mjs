@@ -46,7 +46,6 @@ import {
   parseUpdateSummary,
   extractErrorCause,
   summarizeToolResult,
-  isExplorerSurface,
   summarizeAgentSurfaceBrief,
   isMemorySurface,
 } from './tool-result-summary.mjs';
@@ -66,7 +65,6 @@ export {
   parseLineDelta,
   extractErrorCause,
   summarizeToolResult,
-  isExplorerSurface,
   summarizeAgentSurfaceBrief,
   isMemorySurface,
 };
@@ -147,8 +145,6 @@ export function displayToolName(name, args = {}) {
     case 'web_search':
     case 'web_search_call':
       return 'Web Search';
-    case 'explore':
-      return 'Explore';
     case 'web_fetch':
     case 'fetch':
       return 'Fetch';
@@ -265,11 +261,6 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         return formatCountedUnit(collectionCount(a.query, a.keywords), 'query', 'queries');
       }
       return quoted(a.query || a.keywords || '', max);
-    case 'explore':
-      if (Array.isArray(a.query) || Array.isArray(a.prompt) || Array.isArray(a.task) || Array.isArray(a.goal)) {
-        return formatCountedUnit(collectionCount(a.query, a.prompt, a.task, a.goal), 'query', 'queries');
-      }
-      return truncateSingleLine(firstText(a.query, a.prompt, a.task, a.goal, a.path), Math.min(max, 80));
     case 'load_tool':
       {
         const selected = [...splitToolSearchSelection(a.names), ...splitToolSearchSelection(a.select)];
@@ -357,7 +348,7 @@ export function formatToolSurface(name, args, opts = {}) {
 // ── Aggregate tool-card classification & formatting ──────────────
 
 const CATEGORY_ORDER = [
-  'Read', 'Search', 'Load', 'MCP', 'Skill', 'Web Research', 'Memory', 'Explore',
+  'Read', 'Search', 'Load', 'MCP', 'Skill', 'Web Research', 'Memory',
   'Patch', 'Shell', 'Agent', 'Task', 'Schedule', 'Channel', 'Setup', 'Other',
 ];
 
@@ -385,7 +376,6 @@ const TOOL_CATEGORY = new Map([
   ['save_memory', 'Memory'],
   ['update_memory', 'Memory'],
   ['memory', 'Memory'],
-  ['explore', 'Explore'],
   ['apply_patch', 'Patch'],
   ['bash', 'Shell'],
   ['shell', 'Shell'],
@@ -427,7 +417,6 @@ const CATEGORY_COPY = new Map([
   ['Skill', { active: 'Loading', done: 'Loaded', noun: 'skill' }],
   ['Web Research', { active: 'Researching', done: 'Researched', noun: 'query', pluralNoun: 'queries' }],
   ['Memory', { active: 'Checking', done: 'Checked', noun: 'memory item' }],
-  ['Explore', { active: 'Exploring', done: 'Explored', noun: 'query', pluralNoun: 'queries' }],
   ['Patch', { active: 'Editing', done: 'Edited', noun: 'file' }],
   ['Shell', { active: 'Running', done: 'Ran', noun: 'command' }],
   ['Agent', { active: 'Calling', done: 'Called', noun: 'agent' }],
@@ -567,8 +556,6 @@ export function toolWorkUnit(name, args = {}, category = '') {
       if (isMutation) return unitDescriptor('Memory', { count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1, active: 'Writing', done: 'Wrote', noun: 'memory item' });
       return unitDescriptor('Memory', { count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1, active: 'Checking', done: 'Checked', noun: 'memory item' });
     }
-    case 'explore':
-      return unitDescriptor('Explore', { count: queryCount(a, 'query', 'queries', 'prompt', 'task', 'goal') || 1, noun: 'query', pluralNoun: 'queries' });
     case 'shell':
     case 'bash':
     case 'bash_session':

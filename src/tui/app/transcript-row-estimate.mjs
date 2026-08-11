@@ -60,7 +60,7 @@ function isAgentResponseResultText(text) {
   return true;
 }
 
-const BACKGROUND_TASK_TOOL_NAMES = new Set(['explore', 'search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']);
+const BACKGROUND_TASK_TOOL_NAMES = new Set(['search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']);
 
 function isBackgroundTaskToolName(normalizedName) {
   return BACKGROUND_TASK_TOOL_NAMES.has(String(normalizedName || '').toLowerCase());

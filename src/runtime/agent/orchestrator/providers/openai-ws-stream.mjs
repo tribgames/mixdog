@@ -33,7 +33,7 @@ import {
     streamStalledError,
 } from '../stall-policy.mjs';
 import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
-import { _wsErrLabel } from './openai-ws-pool.mjs';
+import { _wsErrLabel, WS_MAX_INCOMING_FRAME_BYTES } from './openai-ws-pool.mjs';
 import {
     _sansInput,
     _stableStringify,
@@ -100,10 +100,9 @@ export const WS_PRE_RESPONSE_CREATED_MS = (() => {
 // including metadata/keepalive, proves the socket is live.
 export const WS_INTER_CHUNK_MS = PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS;
 // Bound the second allocation performed when ws RawData is decoded to UTF-8.
-// The ws library has already assembled the Buffer by this point, so this check
-// must stay before data.toString() below. xAI shares this stream implementation
-// but retains its existing unbounded behavior.
-const OPENAI_WS_MAX_INCOMING_FRAME_BYTES = 16 * 1024 * 1024;
+// The pool also applies this bound as `maxPayload` before assembly; this
+// defense-in-depth check must stay before data.toString() for injected sockets
+// and test seams.
 const X_CODEX_TURN_STATE_HEADER = 'x-codex-turn-state';
 const WS_TRACE_ENABLED = process.env.MIXDOG_WS_TRACE === '1';
 
@@ -288,9 +287,10 @@ export async function _streamResponse({
     }
     const preResponseCreatedMs = _positiveInt(_timeouts?.preResponseCreatedMs, WS_PRE_RESPONSE_CREATED_MS);
     const interChunkMs = _positiveInt(_timeouts?.interChunkMs, WS_INTER_CHUNK_MS);
-    const maxIncomingFrameBytes = traceProvider === 'xai'
-        ? 0
-        : _positiveInt(_timeouts?.maxIncomingFrameBytes, OPENAI_WS_MAX_INCOMING_FRAME_BYTES);
+    const maxIncomingFrameBytes = _positiveInt(
+        _timeouts?.maxIncomingFrameBytes,
+        WS_MAX_INCOMING_FRAME_BYTES,
+    );
     // First-MEANINGFUL-frame deadline. Distinct from preResponseCreatedMs (a
     // short pre-created byte-silence window that resetIdle clears on the FIRST
     // frame of any kind): this timer is cleared only by a meaningful response
@@ -804,7 +804,7 @@ export async function _streamResponse({
             const frameBytes = _incomingFrameByteLength(data);
             if (maxIncomingFrameBytes > 0 && frameBytes != null && frameBytes > maxIncomingFrameBytes) {
                 const err = new Error(
-                    `OpenAI WebSocket response frame is too large (${frameBytes} bytes; limit ${maxIncomingFrameBytes} bytes); request is retryable`,
+                    `${errLabel} response frame is too large (${frameBytes} bytes; limit ${maxIncomingFrameBytes} bytes); request is retryable`,
                 );
                 err.code = 'EOPENAIWSFRAMETOOLARGE';
                 err.wsFrameTooLarge = true;
@@ -1375,6 +1375,16 @@ export async function _streamResponse({
             if (WS_TRACE_ENABLED) _writeWsLifecycleTrace('error');
             if (done) return;
             const wrapped = err instanceof Error ? err : new Error(String(err));
+            // `ws` rejects an over-limit fragmented message before assembly
+            // with this typed code. Preserve the same retry classification as
+            // the defense-in-depth complete-frame check above.
+            if (wrapped.code === 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH') {
+                try {
+                    wrapped.wsFrameTooLarge = true;
+                    wrapped.retryable = true;
+                    midState.wsFrameTooLarge = true;
+                } catch {}
+            }
             if (terminalError) {
                 // Preserve the first terminalError; chain the later socket
                 // error in via `cause` (or `suppressed` if cause already set)

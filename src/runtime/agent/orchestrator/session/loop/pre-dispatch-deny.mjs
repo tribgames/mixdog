@@ -13,7 +13,6 @@
 // command injection), or host input injection. Explicit name list (no imports)
 // keeps this hot-path gate dependency-free; add new owner/channel tools here.
 import { isAgentOwner } from '../../agent-owner.mjs';
-import { recursiveWrapperToolNameForPublicAgent } from '../manager/tool-resolution.mjs';
 
 const WORKER_DENIED_TOOLS = new Set([
     // session control-plane — unified into the single `agent` tool
@@ -102,17 +101,6 @@ function _preDispatchDeny(call, toolKind, sessionRef) {
     const _controlPlaneTool = WORKER_DENIED_TOOLS.has(name);
     if (_agentOwned && _controlPlaneTool) {
         return `Error: control-plane tool "${name}" is Lead-only and not available to agent workers.`;
-    }
-    // Anti-recursion break, moved OFF the schema so the read-only tool bundle
-    // stays bit-identical across every read role (explore ships in the schema
-    // for all of them, incl. the explore agent itself — one cache group).
-    // A public agent that IS a recursive wrapper (e.g. explore) must not call
-    // its own wrapper tool; reject it here at call time instead.
-    if (_agentOwned) {
-        const selfWrapper = recursiveWrapperToolNameForPublicAgent(sessionRef?.agent || null);
-        if (selfWrapper && name.toLowerCase() === selfWrapper.toLowerCase()) {
-            return `Error: tool "${name}" is not available inside agent "${sessionRef.agent}" (would recurse into its own wrapper). Return the answer directly.`;
-        }
     }
     const noToolAgent = sessionRef?.agent === 'cycle1-agent' || sessionRef?.agent === 'cycle2-agent';
     if (noToolAgent) {

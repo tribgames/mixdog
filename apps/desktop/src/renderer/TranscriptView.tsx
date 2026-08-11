@@ -137,10 +137,9 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
   });
   const runningCount = taggedRunningKeys.size + untaggedRunningCount;
   const tools = snapshot.activeTools || {};
-  const exploreCount = Math.max(0, Number(tools.explore?.count) || 0);
   const searchCount = Math.max(0, Number(tools.search?.count) || 0);
   const shellCount = Math.max(0, Number(snapshot.shellJobs?.count) || 0);
-  const active = runningCount > 0 || exploreCount > 0 || searchCount > 0 || shellCount > 0;
+  const active = runningCount > 0 || searchCount > 0 || shellCount > 0;
   useEffect(() => {
     if (fixedNow !== undefined || !active) return undefined;
     setClock(Date.now());
@@ -150,7 +149,7 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
   if (!active) return null;
   // Aggregate chip (user decision): ONE quiet spinner+count left of the
   // context gauge; the per-activity breakdown lives in a hover popover.
-  const total = runningCount + exploreCount + searchCount + shellCount;
+  const total = runningCount + searchCount + shellCount;
   const row = (key: string, label: string, elapsed: string) => <div className="live-work-row" key={key}>
     <span>{label}</span>
     {elapsed && <small>{elapsed}</small>}
@@ -164,8 +163,6 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
     <div className="live-work-popover" role="tooltip">
       {runningCount > 0 && row("agents", `${runningCount === 1 ? t("Agent") : t("Agents")} ${runningCount}`,
         Number.isFinite(oldestAgentStart) ? formatWorkElapsed(clock - oldestAgentStart) : "")}
-      {exploreCount > 0 && row("explore", t("Explore"),
-        tools.explore?.startedAt ? formatWorkElapsed(clock - Number(tools.explore.startedAt)) : "")}
       {searchCount > 0 && row("search", t("Web search"),
         tools.search?.startedAt ? formatWorkElapsed(clock - Number(tools.search.startedAt)) : "")}
       {shellCount > 0 && row("shells", `${t("Shell")} ${shellCount}`,

@@ -4,6 +4,9 @@
 #   .\run-tb21.ps1 -JobsDir jobs-retry -Include qemu-startup,raman-fitting
 param(
     [Parameter(Mandatory)][string]$JobsDir,
+    # Resume an interrupted Harbor job by excluding only trials already
+    # completed (reward 0 or 1). Pending/running/errored tasks are rerun.
+    [string]$ResumeFrom = "",
     [string[]]$Include = @(),
     [string[]]$Exclude = @(),
     [int]$Concurrent = 4,
@@ -33,6 +36,38 @@ $hasModel = -not [string]::IsNullOrWhiteSpace($Model)
 $hasEffort = -not [string]::IsNullOrWhiteSpace($Effort)
 $hasRouteProfile = -not [string]::IsNullOrWhiteSpace($RouteProfile)
 $hasWorkflow = -not [string]::IsNullOrWhiteSpace($Workflow)
+$resumeCompletedTasks = @()
+if (-not [string]::IsNullOrWhiteSpace($ResumeFrom)) {
+    $resumeRoot = (Resolve-Path -LiteralPath $ResumeFrom -ErrorAction Stop).Path
+    $resumeResultPath = if ((Get-Item -LiteralPath $resumeRoot).PSIsContainer) {
+        Join-Path $resumeRoot "result.json"
+    } else {
+        $resumeRoot
+    }
+    if (-not (Test-Path -LiteralPath $resumeResultPath -PathType Leaf)) {
+        throw "ResumeFrom result.json not found: $resumeResultPath"
+    }
+    $resumeResult = Get-Content -Raw -LiteralPath $resumeResultPath | ConvertFrom-Json
+    $completed = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::Ordinal
+    )
+    foreach ($evalProperty in @($resumeResult.stats.evals.PSObject.Properties)) {
+        foreach ($metric in @($evalProperty.Value.reward_stats.PSObject.Properties)) {
+            foreach ($bucket in @($metric.Value.PSObject.Properties)) {
+                foreach ($trialId in @($bucket.Value)) {
+                    $task = ([string]$trialId -split "__", 2)[0]
+                    if (-not [string]::IsNullOrWhiteSpace($task)) {
+                        [void]$completed.Add("terminal-bench/$task")
+                    }
+                }
+            }
+        }
+    }
+    $resumeCompletedTasks = @($completed | Sort-Object)
+    if ($resumeCompletedTasks.Count -eq 0 -and [int]$resumeResult.stats.n_completed_trials -gt 0) {
+        throw "ResumeFrom contains completed trials but no task ids could be recovered: $resumeResultPath"
+    }
+}
 if ($hasRouteProfile -and ($hasProvider -or $hasModel -or $hasEffort)) {
     throw "RouteProfile cannot be combined with Provider, Model, or Effort."
 }
@@ -79,6 +114,7 @@ $env:PYTHONPATH = $benchRoot
 # Freeze the complete source union before Harbor starts. Every trial uploads
 # only this immutable snapshot; the adapter verifies it again before apply.
 $snapshotRoot = Join-Path ([IO.Path]::GetTempPath()) ("mixdog-tb-src-" + [guid]::NewGuid().ToString("N"))
+$harnessSnapshotRoot = Join-Path ([IO.Path]::GetTempPath()) ("mixdog-tb-harness-" + [guid]::NewGuid().ToString("N"))
 $fallbackStateRoot = Join-Path ([IO.Path]::GetTempPath()) ("mixdog-tb-fallback-" + [guid]::NewGuid().ToString("N"))
 $harborExitCode = 0
 try {
@@ -86,7 +122,44 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Terminal-Bench src overlay preflight failed: $($overlayPreflight -join [Environment]::NewLine)"
     }
+    New-Item -ItemType Directory -Path $harnessSnapshotRoot -ErrorAction Stop | Out-Null
+    $harnessManifest = [ordered]@{}
+    foreach ($name in @("lead_driver.mjs", "anthropic_oauth_preflight.mjs")) {
+        $source = Join-Path $PSScriptRoot $name
+        $target = Join-Path $harnessSnapshotRoot $name
+        Copy-Item -LiteralPath $source -Destination $target -ErrorAction Stop
+        (Get-Item -LiteralPath $target).IsReadOnly = $true
+        $harnessManifest[$name] = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    $driverSyntax = @(& node --check (Join-Path $harnessSnapshotRoot "lead_driver.mjs") 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Terminal-Bench lead driver syntax preflight failed: $($driverSyntax -join [Environment]::NewLine)"
+    }
+    $preflightEnv = @("MIXDOG_USAGE_SUMMARY_ONLY", "MIXDOG_DATA_DIR", "MIXDOG_USAGE_LOG")
+    $priorPreflightEnv = @{}
+    foreach ($name in $preflightEnv) {
+        $priorPreflightEnv[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+    }
+    try {
+        $env:MIXDOG_USAGE_SUMMARY_ONLY = "1"
+        $env:MIXDOG_DATA_DIR = Join-Path $harnessSnapshotRoot "preflight-data"
+        $env:MIXDOG_USAGE_LOG = Join-Path $harnessSnapshotRoot "preflight-usage.json"
+        $driverImport = @(& node (Join-Path $harnessSnapshotRoot "lead_driver.mjs") 2>&1)
+        $driverImportExit = $LASTEXITCODE
+    }
+    finally {
+        foreach ($name in $preflightEnv) {
+            $prior = $priorPreflightEnv[$name]
+            if ($null -eq $prior) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
+            else { [Environment]::SetEnvironmentVariable($name, $prior, "Process") }
+        }
+    }
+    if ($driverImportExit -ne 0) {
+        throw "Terminal-Bench lead driver import preflight failed: $($driverImport -join [Environment]::NewLine)"
+    }
     $env:MIXDOG_TB_SRC_SNAPSHOT = $snapshotRoot
+    $env:MIXDOG_TB_HARNESS_SNAPSHOT = $harnessSnapshotRoot
+    $env:MIXDOG_TB_HARNESS_SNAPSHOT_MANIFEST = ($harnessManifest | ConvertTo-Json -Compress)
     $env:MIXDOG_TB_FALLBACK_STATE_DIR = $fallbackStateRoot
 
 $harborArgs = @(
@@ -99,17 +172,7 @@ $harborArgs = @(
     "-r", $MaxRetries,
     "--retry-exclude", "AgentTimeoutError",
     "--retry-exclude", "VerifierOutputParseError",
-    # VerifierTimeoutError intentionally NOT excluded: a verifier (grader)
-    # timeout is a load/infra artifact, not an agent failure — observed under
-    # 8-way concurrency (torch-pipeline-parallelism: agent finished + verified,
-    # grader exceeded its fixed 900s budget). Retrying is fair game.
     "--retry-exclude", "RewardFileEmptyError",
-    # Verifier env-build resilience: grader uv installs of large wheel stacks
-    # (CUDA torch ~2GB) hit the default 30s per-download timeout under 8-way
-    # concurrency on this link (torch-pipeline-parallelism: agent PASSed, the
-    # grader died downloading nvidia-cudnn). Longer waits only; grading
-    # conditions themselves are unchanged.
-    "--verifier-env", "UV_HTTP_TIMEOUT=300",
     "-q", "-y"
 )
 # Accept both array and comma-joined string; task names need the
@@ -121,6 +184,10 @@ function Expand-Tasks([string[]]$names) {
 }
 foreach ($t in (Expand-Tasks $Include)) { $harborArgs += @("-i", $t) }
 foreach ($t in (Expand-Tasks $Exclude)) { $harborArgs += @("-x", $t) }
+foreach ($t in $resumeCompletedTasks) { $harborArgs += @("-x", $t) }
+if ($resumeCompletedTasks.Count -gt 0) {
+    "resume: excluding $($resumeCompletedTasks.Count) completed task(s) from $resumeResultPath"
+}
 # Boot jitter defaults to 0 so every run measures the same agent-execution
 # window and stays comparable run-to-run (the driver itself would default to
 # 30s if this env were omitted). Opt back into an anti-429 boot spread with
@@ -147,7 +214,7 @@ foreach ($item in $AgentEnv) {
 if ($hasRouteProfile) {
     $harborArgs += @("--ak", "route_profile=$RouteProfile")
     $routeParts = @()
-    foreach ($role in @("lead", "worker", "heavy-worker", "reviewer", "debugger", "explorer")) {
+    foreach ($role in @("lead", "worker", "heavy-worker", "reviewer", "debugger")) {
         $route = $resolvedProfile.routes.$role
         $fast = if ($route.fast -eq $true) { "true" } else { "false" }
         $routeParts += "${role}=$($route.provider)/$($route.model) effort=$($route.effort) fast=$fast"
@@ -171,9 +238,14 @@ if (-not $DryRun) {
 }
 finally {
     Remove-Item Env:MIXDOG_TB_SRC_SNAPSHOT -ErrorAction SilentlyContinue
+    Remove-Item Env:MIXDOG_TB_HARNESS_SNAPSHOT -ErrorAction SilentlyContinue
+    Remove-Item Env:MIXDOG_TB_HARNESS_SNAPSHOT_MANIFEST -ErrorAction SilentlyContinue
     Remove-Item Env:MIXDOG_TB_FALLBACK_STATE_DIR -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $snapshotRoot) {
         Remove-Item -LiteralPath $snapshotRoot -Recurse -Force
+    }
+    if (Test-Path -LiteralPath $harnessSnapshotRoot) {
+        Remove-Item -LiteralPath $harnessSnapshotRoot -Recurse -Force
     }
     if (Test-Path -LiteralPath $fallbackStateRoot) {
         Remove-Item -LiteralPath $fallbackStateRoot -Recurse -Force

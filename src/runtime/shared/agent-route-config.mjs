@@ -1,5 +1,4 @@
 const LEGACY_AGENT_ROUTE_SLOTS = Object.freeze({
-  explore: Object.freeze({ workflow: 'explorer', maintenance: 'explore' }),
   maintainer: Object.freeze({ alias: 'maintenance', workflow: 'memory', maintenance: 'memory' }),
   worker: Object.freeze({ workflow: 'agent' }),
 });
@@ -25,11 +24,9 @@ export function isCompleteAgentRoute(value) {
 function generatedPresetAgentId(preset) {
   const id = String(preset?.id || '').trim().toLowerCase();
   if (id === 'workflow-agent') return 'worker';
-  if (id === 'workflow-explorer') return 'explore';
   if (id === 'workflow-memory') return 'maintainer';
   if (!id.startsWith('workflow-agent-')) return '';
   const suffix = id.slice('workflow-agent-'.length);
-  if (suffix === 'explorer' || suffix === 'explore') return 'explore';
   if (suffix === 'maintenance' || suffix === 'memory' || suffix === 'maintainer') return 'maintainer';
   return suffix;
 }
@@ -68,6 +65,8 @@ export function canonicalizeAgentRoutes(config = {}) {
       .find((route) => isCompleteAgentRoute(route));
     if (candidate) agents[id] = candidate;
   }
+  delete agents.explore;
+  delete agents.explorer;
   delete agents.maintenance;
   // Older settings saves generated one preset per fixed/custom agent. Promote
   // a preset only when no higher-priority canonical/legacy route exists, then

@@ -492,12 +492,18 @@ async function handleToolCall(name, rawArgs, options = {}) {
       }
       const runSearchNow = async () => {
         if (Array.isArray(args.keywords) && args.keywords.length > 1) {
-          const SEARCH_FANOUT_CAP = Math.max(1, Number(process.env.SEARCH_FANOUT_CAP) || 10)
-          const keywords = [...new Set(args.keywords.map(kw => String(kw || '').trim()).filter(Boolean))].slice(0, SEARCH_FANOUT_CAP)
-          const sections = await Promise.all(keywords.map(async (kw) => {
-            const sub = await handleToolCall('search', { ...rawArgs, keywords: kw }, { signal, nativeSearch })
-            const text = (sub.content || []).filter(p => p.type === 'text').map(p => p.text).join('\n')
-            return `### Query: ${kw}\n\n${text}`
+          const concurrency = Math.max(1, Number(process.env.SEARCH_FANOUT_CONCURRENCY) || 10)
+          const keywords = [...new Set(args.keywords.map(kw => String(kw || '').trim()).filter(Boolean))]
+          const sections = new Array(keywords.length)
+          let cursor = 0
+          await Promise.all(Array.from({ length: Math.min(concurrency, keywords.length) }, async () => {
+            while (cursor < keywords.length) {
+              const index = cursor++
+              const kw = keywords[index]
+              const sub = await handleToolCall('search', { ...rawArgs, keywords: kw }, { signal, nativeSearch })
+              const text = (sub.content || []).filter(p => p.type === 'text').map(p => p.text).join('\n')
+              sections[index] = `### Query: ${kw}\n\n${text}`
+            }
           }))
           return { content: [{ type: 'text', text: sections.join('\n\n---\n\n') }] }
         }

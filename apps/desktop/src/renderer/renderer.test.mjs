@@ -1968,6 +1968,10 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
   assert.match(list, /paddingEnd:\s*TRANSCRIPT_BOTTOM_SPACER,/);
   assert.match(list, /directDomUpdates:\s*true,/,
     'React must mirror Solid commit timing: transforms land in the core transaction, pre-paint');
+  assert.match(list, /directDomUpdatesMode:\s*"position",/,
+    'virtual rows must share one paint layer so the final wheel frame cannot tear across compositor surfaces');
+  assert.doesNotMatch(list, /style=\{\{ transform: `translateY\(\$\{virtualRow\.start\}px\)` \}\}/,
+    'row position belongs to the direct top writer, never a persistent per-row transform layer');
   assert.match(list, /virtualizerRef\.current\.containerRef\(element\);/,
     'the spacer height must stay current between React commits');
   assert.match(list, /overscan:\s*50,/);
@@ -2313,7 +2317,7 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
     /\.workspace-tab\s*\{[^}]*height:\s*35px;[^}]*min-width:\s*var\(--workspace-tab-current-width,\s*30px\);[^}]*max-width:\s*var\(--workspace-tab-current-width,\s*160px\);[^}]*flex:\s*1 1 var\(--workspace-tab-current-width,\s*160px\);/s);
   // Flat Orca layout (user): flush panels, hairline separators, square edges.
   assert.match(styles, /\.desktop-body\s*\{[^}]*padding:\s*0;[^}]*border-top:\s*1px solid var\(--mx-border-muted\);[^}]*background:\s*var\(--mx-window-band\);/s);
-  assert.match(styles, /\.sidebar\.session-sidebar\s*\{[^}]*width:\s*var\(--session-sidebar-width,\s*260px\);[^}]*min-width:\s*var\(--session-sidebar-min-width,\s*232px\);[^}]*flex:\s*0 0 var\(--session-sidebar-width,\s*260px\);[^}]*border-radius:\s*0;/s);
+  assert.match(styles, /\.sidebar\.session-sidebar\s*\{[^}]*width:\s*var\(--session-sidebar-width,\s*300px\);[^}]*min-width:\s*var\(--session-sidebar-min-width,\s*232px\);[^}]*flex:\s*0 0 var\(--session-sidebar-width,\s*300px\);[^}]*border-radius:\s*0;/s);
   assert.match(styles, /\.sidebar\.session-sidebar\s*\{[^}]*padding:\s*0 8px 8px;/s,
     "the sidebar keeps its side/floor insets but lets the header band reach the tab strip line");
   assert.match(styles, /\.session-sidebar \.task-link,[\s\S]*?\.session-sidebar \.session-row\s*\{[^}]*height:\s*36px;[^}]*min-height:\s*36px;/s);

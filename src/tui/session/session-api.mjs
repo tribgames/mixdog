@@ -286,7 +286,6 @@ export function createSessionApiA(bag) {
     getToolModuleSettings: () => {
       return runtime.getToolModuleSettings?.() || {
         search: { enabled: true },
-        explore: { enabled: true },
         memory: { enabled: true },
       };
     },
@@ -295,15 +294,6 @@ export function createSessionApiA(bag) {
       set({ commandBusy: true });
       try {
         return await runtime.setWebSearchEnabled?.(enabled);
-      } finally {
-        set({ commandBusy: false });
-      }
-    },
-    setExploreEnabled: async (enabled) => {
-      if (getState().commandBusy) return null;
-      set({ commandBusy: true });
-      try {
-        return await runtime.setExploreEnabled?.(enabled);
       } finally {
         set({ commandBusy: false });
       }

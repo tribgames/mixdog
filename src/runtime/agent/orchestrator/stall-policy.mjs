@@ -290,7 +290,6 @@ const WORKFLOW_AGENT_STALL_ABORT_S = {
     'reviewer': 300,
     'heavy-worker': 420,
     'maintainer': 300,
-    'explore': 240,
     'web-researcher': 300,
 };
 

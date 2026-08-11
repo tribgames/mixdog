@@ -133,10 +133,6 @@ function workflowsApi() {
         return {
           value: [
             {
-              id: 'explore', label: 'Explore', description: 'Maps unfamiliar code and references.',
-              custom: false, route: { provider: 'openai', model: 'gpt-test', effort: 'high', fast: true },
-            },
-            {
               id: 'maintainer', label: 'Maintainer', description: 'Keeps the project healthy over time.',
               custom: false, route: { provider: 'openai', model: 'gpt-test', effort: 'high', fast: true },
             },

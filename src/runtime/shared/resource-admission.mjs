@@ -84,7 +84,7 @@ class ResourceAdmissionQueueFullError extends ResourcePressureError {
 }
 
 /**
- * Process-wide admission for memory-heavy agent/explorer work and child shells.
+ * Process-wide admission for memory-heavy agent work and child shells.
  * Running work is never revoked: pressure only rejects a new request or keeps a
  * concurrency-blocked request in the bounded FIFO queue.
  */

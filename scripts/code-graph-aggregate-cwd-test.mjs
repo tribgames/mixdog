@@ -129,10 +129,11 @@ serialTest('aggregate cwd recovery rejects missing and multi-root anchors', asyn
   }
 });
 
-serialTest('aggregate cwd recovery rejects capped, comma-delimited, and wildcard anchors', async () => {
-  const project = await makeProject();
+serialTest('aggregate cwd recovery accepts large unique batches but rejects comma-delimited and wildcard anchors', async () => {
+  const project = primaryProject;
   const invalidCwd = parse(project).root;
-  const cappedFiles = await Promise.all(Array.from({ length: 21 }, async (_, index) => {
+  const untrustedProject = await makeProject();
+  const manyFiles = await Promise.all(Array.from({ length: 21 }, async (_, index) => {
     const file = join(project, 'src', `anchor-${index}.mjs`);
     await writeFile(file, `export const anchor${index} = ${index};\n`);
     return file;
@@ -140,12 +141,11 @@ serialTest('aggregate cwd recovery rejects capped, comma-delimited, and wildcard
   const literalWildcard = join(project, 'src', 'literal[glob].mjs');
   await writeFile(literalWildcard, 'export const wildcard = true;\n');
   try {
+    const many = await executeCodeGraphTool('code_graph', { mode: 'overview', files: manyFiles }, invalidCwd);
+    assert.doesNotMatch(many, /^Error:/);
+    assert.match(many, /# overview .*anchor-20\.mjs/);
     assert.match(
-      await executeCodeGraphTool('code_graph', { mode: 'overview', files: cappedFiles }, invalidCwd),
-      /file list exceeds cap/,
-    );
-    assert.match(
-      await executeCodeGraphTool('code_graph', { mode: 'overview', files: `${join(project, 'src', 'one.mjs')},${join(project, 'src', 'two.mjs')}` }, invalidCwd),
+      await executeCodeGraphTool('code_graph', { mode: 'overview', files: `${join(untrustedProject, 'src', 'one.mjs')},${join(untrustedProject, 'src', 'two.mjs')}` }, invalidCwd),
       /^Error: code_graph: file anchor is not owned by a trusted project:/,
     );
     assert.match(
@@ -153,6 +153,10 @@ serialTest('aggregate cwd recovery rejects capped, comma-delimited, and wildcard
       /wildcard-shaped file anchors/,
     );
   } finally {
-    await rm(project, { recursive: true, force: true });
+    await Promise.all([
+      ...manyFiles.map((file) => rm(file, { force: true })),
+      rm(literalWildcard, { force: true }),
+      rm(untrustedProject, { recursive: true, force: true }),
+    ]);
   }
 });

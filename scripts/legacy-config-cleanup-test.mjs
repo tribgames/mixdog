@@ -75,7 +75,6 @@ test('agent config migrates legacy Fast preferences and stops persisting dead co
     assert.equal(loaded.recap.enabled, false);
     assert.deepEqual(loaded.modules, {
       search: { enabled: false },
-      explore: { enabled: false },
       keep: { enabled: true },
     });
     assert.equal(Object.hasOwn(loaded, 'fastModels'), false);
@@ -130,7 +129,6 @@ test('agent config migrates legacy Fast preferences and stops persisting dead co
     assert.equal(savedAgent.skills, undefined);
     assert.deepEqual(savedAgent.modules, {
       search: { enabled: false },
-      explore: { enabled: false },
       keep: { enabled: true },
     });
     assert.equal(savedAgent.autoClear.custom, undefined);

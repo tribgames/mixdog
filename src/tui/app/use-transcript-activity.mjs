@@ -1,5 +1,5 @@
 // Transcript-activity signatures, extracted from App.jsx: the agent-state
-// revision key, the L2 statusline explore/search pending-tool signature
+// revision key, the L2 statusline web-search pending-tool signature
 // (engine-published fast path + local transcript fallback), and the
 // primitive statusline stats snapshot.
 import { useMemo } from 'react';
@@ -16,7 +16,7 @@ export function useTranscriptActivity({ state }) {
     jobs: (state.agentJobs || []).map((j) => [j.task_id, j.status, j.tag, j.sessionId, j.startedAt, j.finishedAt, j.error]).slice(0, 20),
   }), [state.agentWorkers, state.agentJobs]);
 
-  // L2 statusline explore/search segments are the MAIN session's own running
+  // The L2 web-search segment is the MAIN session's own running
   // tool cards (NOT agentWorkers/agentJobs). Derive pending counts + oldest
   // start time straight from the live transcript tool cards. A card is pending
   // until completedCount >= count. (Do NOT use completedAt as the terminal
@@ -36,8 +36,6 @@ export function useTranscriptActivity({ state }) {
     // only when the engine did not publish it (older snapshot).
     if (state.activeToolSummary !== undefined) return state.activeToolSummary || '';
     const items = state.items || [];
-    let exploreCount = 0;
-    let exploreStart = 0;
     let searchCount = 0;
     let searchStart = 0;
     for (const it of items) {
@@ -55,38 +53,30 @@ export function useTranscriptActivity({ state }) {
         : Math.max(0, Math.min(count, Number(it.completedCount || (it.result == null ? 0 : count))));
       if (done >= count) continue; // resolved card (matches toolItemPendingForRows)
       const started = Number(it.startedAt || 0);
-      let exploreHits = 0;
       let searchHits = 0;
       if (it.aggregate && it.categories && typeof it.categories === 'object') {
         for (const v of Object.values(it.categories)) {
           const cat = v && typeof v === 'object' ? v.category : null;
           const c = Math.max(1, Number(v && typeof v === 'object' ? v.count : 1) || 1);
-          if (cat === 'Explore') exploreHits += c;
-          else if (cat === 'Web Research') searchHits += c;
+          if (cat === 'Web Research') searchHits += c;
         }
       } else if (it.name) {
         const cat = classifyToolCategory(it.name, it.args || {});
-        if (cat === 'Explore') exploreHits = count;
-        else if (cat === 'Web Research') searchHits = count;
-      }
-      if (exploreHits > 0) {
-        exploreCount += exploreHits;
-        if (started > 0 && (exploreStart === 0 || started < exploreStart)) exploreStart = started;
+        if (cat === 'Web Research') searchHits = count;
       }
       if (searchHits > 0) {
         searchCount += searchHits;
         if (started > 0 && (searchStart === 0 || started < searchStart)) searchStart = started;
       }
     }
-    if (!exploreCount && !searchCount) return '';
-    return `${exploreCount}:${exploreStart}:${searchCount}:${searchStart}`;
+    if (!searchCount) return '';
+    return `0:0:${searchCount}:${searchStart}`;
   }, [state.activeToolSummary, state.items]);
 
   const activeTools = useMemo(() => {
     if (!activeToolsSignature) return null;
-    const [ec, es, sc, ss] = activeToolsSignature.split(':').map((n) => Number(n) || 0);
+    const [, , sc, ss] = activeToolsSignature.split(':').map((n) => Number(n) || 0);
     return {
-      explore: { count: ec, startedAt: es },
       search: { count: sc, startedAt: ss },
     };
   }, [activeToolsSignature]);

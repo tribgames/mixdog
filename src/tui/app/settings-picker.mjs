@@ -56,7 +56,6 @@ export function createSettingsPicker({
     const recap = snapshot.recap || { enabled: true };
     const toolModules = snapshot.toolModules || {};
     const webSearchOn = toolModules.search?.enabled !== false;
-    const exploreOn = toolModules.explore?.enabled !== false;
     const memoryToolsOn = toolModules.memory?.enabled !== false;
     const channels = snapshot.channels || { enabled: true };
     const systemShell = snapshot.systemShell || { source: 'auto', command: '', effective: '' };
@@ -136,7 +135,6 @@ export function createSettingsPicker({
         .finally(() => openSettingsPicker({ light: true }));
     };
     const toggleWebSearch = () => applyToolModule('Web search', store.setWebSearchEnabled, !webSearchOn);
-    const toggleExplore = () => applyToolModule('Explorer', store.setExploreEnabled, !exploreOn);
     const toggleMemory = () => applyToolModule('Memory', store.setMemoryToolsEnabled, !memoryToolsOn);
     const toggleMemoryCycles = () => {
       const enabled = !(recap.enabled !== false);
@@ -310,13 +308,6 @@ export function createSettingsPicker({
         _action: 'web-search-enabled',
       },
       {
-        value: 'explorer-enabled',
-        label: 'Explorer',
-        meta: boolLabel(exploreOn),
-        description: 'Expose the repository locator tool to new sessions.',
-        _action: 'explorer-enabled',
-      },
-      {
         value: 'memory-enabled',
         label: 'Memory',
         meta: boolLabel(memoryToolsOn),
@@ -462,7 +453,6 @@ export function createSettingsPicker({
         if (item?._action === 'autoclear') toggleAutoClear();
         else if (item?._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
         else if (item?._action === 'web-search-enabled') toggleWebSearch();
-        else if (item?._action === 'explorer-enabled') toggleExplore();
         else if (item?._action === 'memory-enabled') toggleMemory();
         else if (item?._action === 'memory-cycles') toggleMemoryCycles();
         else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
@@ -476,7 +466,6 @@ export function createSettingsPicker({
         if (item?._action === 'autoclear') toggleAutoClear();
         else if (item?._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
         else if (item?._action === 'web-search-enabled') toggleWebSearch();
-        else if (item?._action === 'explorer-enabled') toggleExplore();
         else if (item?._action === 'memory-enabled') toggleMemory();
         else if (item?._action === 'memory-cycles') toggleMemoryCycles();
         else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
@@ -491,7 +480,6 @@ export function createSettingsPicker({
         else if (item._action === 'profile') openProfilePicker({ returnTo: openSettingsPicker });
         else if (item._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
         else if (item._action === 'web-search-enabled') toggleWebSearch();
-        else if (item._action === 'explorer-enabled') toggleExplore();
         else if (item._action === 'memory-enabled') toggleMemory();
         else if (item._action === 'memory-cycles') toggleMemoryCycles();
         else if (item._action === 'channels') applyChannels(!(channels.enabled !== false));

@@ -18,7 +18,6 @@ export const SETTINGS_ITEMS = [
   { value: 'profile', label: 'Profile', description: 'Your title and response language.', kind: 'open' },
   { value: 'theme', label: 'Theme', description: 'TUI color theme.', kind: 'open' },
   { value: 'web-search-enabled', label: 'Web search', description: 'Expose web search and fetch tools to new sessions.', kind: 'toggle' },
-  { value: 'explorer-enabled', label: 'Explorer', description: 'Expose the repository locator tool to new sessions.', kind: 'toggle' },
   { value: 'memory-enabled', label: 'Memory', description: 'Memory and recall tools plus core-memory injection for new sessions.', kind: 'toggle' },
   { value: 'autocompact', label: 'Auto-compact', description: 'Compact when context is high.', kind: 'toggle' },
   { value: 'compact-type', label: 'Compact type', description: 'Uses Memory recall to rebuild context faster on large histories.', kind: 'static' },
@@ -59,7 +58,7 @@ export const SETTINGS_CATEGORIES = [
     value: 'general',
     label: 'General',
     group: 'Mixdog',
-    items: ['profile', 'theme', 'web-search-enabled', 'explorer-enabled', 'memory-enabled'],
+    items: ['profile', 'theme', 'web-search-enabled', 'memory-enabled'],
   },
   // Context management (user decision): auto-compact, auto-clear, and memory
   // merged into ONE category — everything about how a session's context

@@ -132,9 +132,9 @@ function toolArgsHash(row) {
   return field(row, 'tool_args_hash') || hashValue(args);
 }
 
-const READONLY_TOOL_NAMES = new Set(['read', 'grep', 'glob', 'list', 'find', 'code_graph', 'recall', 'explore', 'search', 'web_fetch']);
+const READONLY_TOOL_NAMES = new Set(['read', 'grep', 'glob', 'list', 'find', 'code_graph', 'recall', 'search', 'web_fetch']);
 const READONLY_STALL_MIN_RUN = 8;
-const READONLY_ROLE_AGENTS = new Set(['reviewer', 'explore', 'explorer']);
+const READONLY_ROLE_AGENTS = new Set(['reviewer']);
 const IDENTICAL_CALL_MIN_COUNT = 3;
 
 function fmtMs(ms) {
@@ -1248,7 +1248,7 @@ function buildIssues(routeGroups, cache, tools) {
     } else if (g.ws_full > 0) {
       issues.push({ severity: 'medium', type: 'cache', message: `${g.agent || shortId(g.session_id)} had ${g.ws_full} full WS turn(s) before delta`, session_id: g.session_id });
     }
-    // Sessions with <=2 turns (explorer-style ephemeral one-shots) have no
+    // Sessions with <=2 turns (ephemeral one-shots) have no
     // prior turn to cache against; low ratio is structural, not actionable.
     if (g.cache_ratio != null && g.prompt_tokens > 5000 && g.cache_ratio < 0.25 && (g.turns ?? 0) > 2) {
       issues.push({ severity: 'high', type: 'cache', message: `${g.agent || shortId(g.session_id)} low cache ratio ${fmtPct(g.cache_ratio * 100)}`, session_id: g.session_id });

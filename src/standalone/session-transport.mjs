@@ -200,7 +200,13 @@ export function createSessionTransport({
     'session.subscribe',
     'session.unsubscribe',
   ]);
-  const CALL_CACHE_TTL_MS = 60_000;
+  // A client may wait up to 300s before recovering a lost /call response.
+  // Retain the authoritative result beyond that horizon so a retry cannot
+  // re-run a completed mutation. Default to the transport reconnect budget.
+  const CALL_CACHE_TTL_MS = Math.max(
+    300_000,
+    Number(process.env.MIXDOG_SESSION_CALL_CACHE_TTL_MS) || 10 * 60_000,
+  );
   // Bound the dedup table: a call that never settles would otherwise pin its
   // entry for the daemon's whole life.
   const CALL_CACHE_MAX = Math.max(512, Number(process.env.MIXDOG_SESSION_CALL_CACHE) || 4096);
@@ -730,8 +736,18 @@ export function createSessionTransport({
         const signature = callId ? callSignature(name, body.args) : null;
         const cached = cacheKey ? callCache.get(cacheKey) : null;
         let dispatch;
-        if (cached && (!cached.signature || !signature || cached.signature === signature)) {
-          dispatch = cached.promise;
+        if (cached) {
+          if (!signature || cached.signature !== signature) {
+            // callId is an idempotency key, not a caller-selected overwrite
+            // slot. Fail closed while the original keeps its cache identity;
+            // dispatching here could execute two side-effecting mutations.
+            dispatch = Promise.reject(Object.assign(
+              new Error(`callId '${callId}' was reused with a different payload`),
+              { code: 'ECALLIDCONFLICT' },
+            ));
+          } else {
+            dispatch = cached.promise;
+          }
         } else {
           dispatch = dispatchCall(
             ownerKey,

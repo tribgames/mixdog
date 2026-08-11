@@ -32,10 +32,10 @@ const FAST_TIMEOUTS = { interChunkMs: 40, preResponseCreatedMs: 5000, firstMeani
 
 const TOOL_CALL_EVENTS = [
     { type: 'response.created', response: { id: 'resp_1', model: 'gpt-5.5' } },
-    { type: 'response.output_item.added', item: { type: 'function_call', id: 'fc_1', name: 'explore', call_id: 'call_1' } },
+    { type: 'response.output_item.added', item: { type: 'function_call', id: 'fc_1', name: 'read', call_id: 'call_1' } },
     { type: 'response.function_call_arguments.delta', item_id: 'fc_1', delta: '{"query"' },
-    { type: 'response.function_call_arguments.done', item_id: 'fc_1', arguments: '{"query":"x"}', call_id: 'call_1', name: 'explore' },
-    { type: 'response.output_item.done', item: { type: 'function_call', id: 'fc_1', name: 'explore', call_id: 'call_1', arguments: '{"query":"x"}' } },
+    { type: 'response.function_call_arguments.done', item_id: 'fc_1', arguments: '{"path":"x"}', call_id: 'call_1', name: 'read' },
+    { type: 'response.output_item.done', item: { type: 'function_call', id: 'fc_1', name: 'read', call_id: 'call_1', arguments: '{"path":"x"}' } },
 ];
 
 test('ws terminal frame: a complete tool call without response.completed never completes the turn', async () => {
@@ -58,8 +58,8 @@ test('ws terminal frame: a complete tool call without response.completed never c
     // explicit tool-call turn (send-with-recovery), not as a provider success.
     assert.equal(error.partialToolCalls?.length, 1);
     assert.equal(error.partialToolCalls[0].id, 'call_1');
-    assert.equal(error.partialToolCalls[0].name, 'explore');
-    assert.deepEqual(error.partialToolCalls[0].arguments, { query: 'x' });
+    assert.equal(error.partialToolCalls[0].name, 'read');
+    assert.deepEqual(error.partialToolCalls[0].arguments, { path: 'x' });
     assert.equal(error.pendingToolUse, false, 'the tool input finished streaming');
     const outcome = readStreamOutcome(error);
     assert.equal(outcome.terminalObserved, false);
@@ -80,7 +80,7 @@ test('ws terminal frame: the real response.completed path still succeeds', async
             response: {
                 id: 'resp_1',
                 model: 'gpt-5.5',
-                output: [{ type: 'function_call', id: 'fc_1', name: 'explore', call_id: 'call_1', arguments: '{"query":"x"}' }],
+                output: [{ type: 'function_call', id: 'fc_1', name: 'read', call_id: 'call_1', arguments: '{"path":"x"}' }],
             },
         },
     ]);
@@ -155,12 +155,12 @@ test('ws terminal frame: output_item.done salvages a deferred function_call into
         { type: 'response.created', response: { id: 'resp_1', model: 'gpt-5.5' } },
         { type: 'response.function_call_arguments.delta', item_id: 'fc_salvage', delta: '{"query"' },
         { type: 'response.function_call_arguments.done', item_id: 'fc_salvage', arguments: '{"query":"x"}' },
-        { type: 'response.output_item.done', item: { type: 'function_call', id: 'fc_salvage', name: 'explore', call_id: 'call_salvage', arguments: '{"query":"x"}' } },
+        { type: 'response.output_item.done', item: { type: 'function_call', id: 'fc_salvage', name: 'read', call_id: 'call_salvage', arguments: '{"path":"x"}' } },
     ]);
     const error = await p.then(() => null, (e) => e);
     assert.ok(error);
     assert.equal(error.partialToolCalls[0].id, 'call_salvage');
-    assert.equal(error.partialToolCalls[0].name, 'explore');
+    assert.equal(error.partialToolCalls[0].name, 'read');
     assert.deepEqual(error.partialToolCalls[0].arguments, { query: 'x' });
 });
 
@@ -183,8 +183,8 @@ test('ws terminal frame: function args.done without item.done stays pending', as
     const p = _streamResponse({ entry: { socket }, state: {}, _timeouts: FAST_TIMEOUTS });
     socket.feed([
         { type: 'response.created', response: { id: 'resp_1', model: 'gpt-5.5' } },
-        { type: 'response.output_item.added', item: { type: 'function_call', id: 'fc_empty', name: 'explore', call_id: 'call_empty' } },
-        { type: 'response.function_call_arguments.done', item_id: 'fc_empty', arguments: '{}', call_id: 'call_empty', name: 'explore' },
+        { type: 'response.output_item.added', item: { type: 'function_call', id: 'fc_empty', name: 'read', call_id: 'call_empty' } },
+        { type: 'response.function_call_arguments.done', item_id: 'fc_empty', arguments: '{}', call_id: 'call_empty', name: 'read' },
     ]);
     const error = await p.then(() => null, (e) => e);
     assert.match(error.message, /inter-chunk inactivity/);
@@ -229,4 +229,43 @@ test('OpenAI WS preserves normal-size Buffer handling', async () => {
     })));
     const result = await p;
     assert.equal(result.responseId, 'resp_normal');
+});
+test('xAI WS uses the same pre-decode receive limit', async () => {
+    const socket = new FakeSocket();
+    const state = { attemptIndex: 0 };
+    const p = _streamResponse({
+        entry: { socket },
+        state,
+        traceProvider: 'xai',
+        _timeouts: { ...FAST_TIMEOUTS, maxIncomingFrameBytes: 32 },
+    });
+    socket.emit('message', Buffer.alloc(33));
+    await assert.rejects(p, (error) => {
+        assert.equal(error.code, 'EOPENAIWSFRAMETOOLARGE');
+        assert.equal(error.wsFrameTooLarge, true);
+        return true;
+    });
+});
+
+test('ws maxPayload typed errors preserve frame-too-large retry classification', async () => {
+    const socket = new FakeSocket();
+    const state = { attemptIndex: 0 };
+    const p = _streamResponse({
+        entry: { socket },
+        state,
+        _timeouts: FAST_TIMEOUTS,
+    });
+    socket.emit('error', Object.assign(
+        new RangeError('Max payload size exceeded'),
+        { code: 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH' },
+    ));
+    await assert.rejects(p, (error) => {
+        assert.equal(error.wsFrameTooLarge, true);
+        assert.equal(error.retryable, true);
+        assert.equal(
+            classifyMidstreamError(error, state, MIDSTREAM_RETRY_POLICY.ws),
+            'ws_frame_too_large',
+        );
+        return true;
+    });
 });

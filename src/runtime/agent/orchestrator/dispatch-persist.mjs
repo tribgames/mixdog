@@ -8,7 +8,7 @@
  *
  * This module persists the minimum needed to recover:
  *   - handle   (`dispatch_<tool>_...`)
- *   - tool     (`recall` / `search` / `explore`)
+ *   - tool     (`recall` / `search`)
  *   - queries  (for the abort message)
  *   - createdAt
  *

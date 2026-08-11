@@ -11,17 +11,15 @@ import { readTextSafe, readJsonSafe } from './fs-utils.mjs';
 import { isHiddenAgent } from '../runtime/agent/orchestrator/internal-agents.mjs';
 import { configuredAgentRouteCandidates } from '../runtime/shared/agent-route-config.mjs';
 
-export const WORKFLOW_ROUTE_SLOTS = ['lead', 'agent', 'explorer', 'memory'];
+export const WORKFLOW_ROUTE_SLOTS = ['lead', 'agent', 'memory'];
 export const AGENT_DELETED_MARKER = '.deleted';
 export const FIXED_AGENT_SLOTS = Object.freeze([
   // Short one-liners on purpose: these render inside the 260px sidebar rail
   // (user: 창이 크지 않으니 설명은 짧게).
-  { id: 'explore', label: 'Explore', description: 'Repository exploration', workflowSlot: 'explorer' },
   { id: 'maintainer', label: 'Maintainer', description: 'Memory and upkeep', workflowSlot: 'memory' },
 ]);
 const AGENT_ROLE_IDS = new Set(FIXED_AGENT_SLOTS.map((agent) => agent.id));
-// Slot-backed built-ins (explore/maintainer) run through their own dedicated
-// channels — the explore tool and the memory cycle — so they are never
+// Slot-backed built-ins run through dedicated maintenance channels, so they are never
 // Lead-delegation targets and stay out of the Available Agents catalog.
 const BUILTIN_SLOT_AGENT_IDS = new Set(
   FIXED_AGENT_SLOTS.filter((agent) => agent.workflowSlot).map((agent) => agent.id),
@@ -76,7 +74,6 @@ export function agentPresetSlot(agentId) {
 
 export function normalizeAgentId(value) {
   const id = clean(value).toLowerCase().replace(/[\s_]+/g, '-');
-  if (id === 'explorer') return 'explore';
   if (id === 'maint' || id === 'maintenance' || id === 'memory') return 'maintainer';
   return AGENT_ROLE_IDS.has(id) ? id : '';
 }
@@ -297,7 +294,7 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
       : rawBody;
     const lines = [`# Active Workflow: ${pack.name}${pack.description ? ` — ${pack.description}` : ''}`, body];
     // Agents are global: a delegating pack sees every active custom agent.
-    // Slot-backed built-ins (explore/maintainer) ride their own channels and
+    // Slot-backed built-ins (maintainer) ride their own channels and
     // hidden roles stay Mixdog-internal.
     const agentIds = pack.delegatesAgents === false
       ? []
@@ -422,7 +419,6 @@ export function createWorkflowRouteHelpers({ resolveDefaultProvider, findPreset 
     if (lead) out.lead = lead;
     for (const [slot, agentId] of [
       ['agent', 'worker'],
-      ['explorer', 'explore'],
       ['memory', 'maintainer'],
     ]) {
       const route = agentRouteFromConfig(config, agentId);

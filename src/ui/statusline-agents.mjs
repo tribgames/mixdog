@@ -11,7 +11,7 @@ import { listHiddenAgentNames } from '../runtime/agent/orchestrator/internal-age
 import { classifyToolCategory } from '../runtime/shared/tool-surface.mjs';
 import { num, GRN, R, B } from './statusline-format.mjs';
 
-const DEFAULT_HIDDEN_STATUSLINE_AGENTS = Object.freeze(['explorer', 'cycle1-agent', 'cycle2-agent', 'cycle3-agent']);
+const DEFAULT_HIDDEN_STATUSLINE_AGENTS = Object.freeze(['cycle1-agent', 'cycle2-agent', 'cycle3-agent']);
 const TERMINAL_AGENT_STATUS = /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
 const ACTIVE_AGENT_STATUS = /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting)$/i;
 const QUEUED_AGENT_STATUS = /^(?:queued|pending|starting)$/i;
@@ -261,7 +261,6 @@ function maintenanceLabel(tag) {
     case 'cycle1-agent': return 'cycle1';
     case 'cycle2-agent': return 'cycle2';
     case 'cycle3-agent': return 'cycle3';
-    case 'explorer': return 'explorer';
     default: return '';
   }
 }

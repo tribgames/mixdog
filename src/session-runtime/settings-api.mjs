@@ -39,7 +39,6 @@ export function createSettingsApi({
   recapEnabledFn,
   memoryToolsEnabledFn,
   webSearchEnabled,
-  exploreEnabled,
   channelsEnabled,
   autoUpdateEnabled,
   getUpdateCheckState,
@@ -229,7 +228,6 @@ export function createSettingsApi({
     getToolModuleSettings() {
       return {
         search: { enabled: webSearchEnabled() },
-        explore: { enabled: exploreEnabled() },
         memory: { enabled: memoryToolsEnabledFn() },
       };
     },
@@ -238,12 +236,6 @@ export function createSettingsApi({
       saveConfigAndAdopt(setModuleEnabledInConfig({ ...config }, 'search', enabled !== false));
       // A live session keeps its frozen schema; stale calls are rejected by
       // the executor immediately, and the next new session gets this surface.
-      invalidatePreSessionToolSurface();
-      return this.getToolModuleSettings();
-    },
-    setExploreEnabled(enabled) {
-      const config = getConfig();
-      saveConfigAndAdopt(setModuleEnabledInConfig({ ...config }, 'explore', enabled !== false));
       invalidatePreSessionToolSurface();
       return this.getToolModuleSettings();
     },
