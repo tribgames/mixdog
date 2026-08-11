@@ -306,7 +306,9 @@ test('Deploy is the one-click release entry with incremental native workers', as
   assert.match(deploy, /needs\.runtime\.result == 'success' \|\| needs\.runtime\.result == 'skipped'/);
   assert.match(deploy,
     /always\(\) && needs\.plan\.result == 'success' && needs\.prepare-app\.result == 'success'/);
-  assert.match(deploy, /if gh release view "\$TAG"[\s\S]*Published tag \$\{TAG\} is immutable/);
+  assert.match(deploy,
+    /IS_DRAFT=\$\(gh release view "\$TAG" --json isDraft --jq '\.isDraft' 2>\/dev\/null \|\| true\)[\s\S]*if \[\[ "\$IS_DRAFT" == "false" \]\][\s\S]*Published tag \$\{TAG\} is immutable/,
+    'only a published release may make its tag immutable; a hidden draft must remain recoverable');
   assert.match(deploy,
     /'isDraft', '--jq', '\.isDraft'[\s\S]*result\.stdout\.trim\(\) === 'false'/,
     'a hidden draft must remain resumable instead of consuming a release version');
