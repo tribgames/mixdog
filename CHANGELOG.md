@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.115 - 2026-08-11
+
 - Terminal-Bench H4 round analysis records successful high-effort task probes
   and their retrieval, patch, and verification cadence.
 - Tool execution guidance now treats task facts and proven checks as durable
