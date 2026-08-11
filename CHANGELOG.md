@@ -5,6 +5,12 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Desktop utility, activity, transcript, settings, and repository surfaces are
+  simplified around focused feature configuration and compact regressions.
+- Provider recovery, shell/list diagnostics, and release verification are
+  consolidated into smaller ship-critical suites without weakening their
+  transport, asset, or packaging contracts.
+
 ## v0.9.111 - 2026-08-11
 
 - Repository navigation now uses the direct built-in tool surface without a
