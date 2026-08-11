@@ -5,6 +5,10 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Tool guidance now batches distinct evidence samples and avoids redundant
+  deferred-tool or project activation, with Terminal-Bench round analysis
+  capturing remaining serial-probe patterns.
+
 ## v0.9.112 - 2026-08-11
 
 - Desktop utility, activity, transcript, settings, and repository surfaces are

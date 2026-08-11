@@ -13,7 +13,7 @@ export const TOOL_SEARCH_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Deferred-tool activation status; direct calls auto-load.',
+  description: 'Deferred-tool activation status; direct calls auto-load — no pre-call needed.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -34,7 +34,7 @@ export const CWD_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Show or set the session work project for tool execution.',
+  description: 'Show or set the session work project for tool execution. Session Cwd is already active; set only to change it.',
   inputSchema: {
     type: 'object',
     properties: {
