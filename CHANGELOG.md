@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.111 - 2026-08-11
+
 - Repository navigation now uses the direct built-in tool surface without a
   separate explorer agent, reducing routing overhead and legacy configuration.
 - OpenAI WebSocket retry decisions preserve current auth, throttling, and
