@@ -202,7 +202,11 @@ export function TranscriptList({
     resizeFlushFrame.current = 0;
     const pending = pendingResizes.current;
     if (pending.size === 0) return;
-    if (!hasScrollGestureRef.current()) {
+    // Full flush waits for the gesture window AND the native ramp: the ramp
+    // outlives the window, and sizes applied mid-ramp shift content before
+    // the (deferred) compensation can land — flushing at true scroll idle
+    // keeps size and compensation in one pre-paint transaction.
+    if (!hasScrollGestureRef.current() && !virtualizerRef.current.isScrolling) {
       flushDeferredResizes();
       return;
     }
@@ -281,12 +285,16 @@ export function TranscriptList({
   // history boundary. The follow hook tracks only non-programmatic reader
   // motion, so virtual-core's own corrective scroll does not block the next
   // idle measurement in a settling burst.
-  // At the end, anchorTo:"end" wasAtEnd applies the total-size delta before
-  // this predicate, so the bottom pin still has one writer during a rewrap.
+  // The end-anchor (wasAtEnd) total-size delta bypasses this predicate by
+  // design; shouldDeferScrollAdjustment below plus the core's own
+  // isScrolling deferral hold that write too until motion is idle, so the
+  // bottom pin can no longer cancel a live wheel ramp (the "tears and snaps
+  // back at the bottom" writer confirmed via CDP scrollTop-setter traces).
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
     if (hasScrollGestureRef.current()) return false;
     return item.end <= logicalScrollOffset(instance);
   };
+  virtualizer.shouldDeferScrollAdjustment = () => hasScrollGestureRef.current();
   const virtualizerRef = useRef(virtualizer);
   virtualizerRef.current = virtualizer;
   const overscanFrame = useRef(0);
