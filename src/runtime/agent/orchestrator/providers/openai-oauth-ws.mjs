@@ -313,6 +313,57 @@ function _warmupContinuityTrace({
  *   err.attempts         — 1..HANDSHAKE_MAX_ATTEMPTS
  *   err.retryClassifier  — final classifier string, or null for permanent
  */
+/**
+ * Recovery-only encrypted-reasoning replay policy (codex full-frame parity).
+ *
+ * The request body may carry retained `reasoning` items
+ * (opts.replayEncryptedReasoning; default ON for openai-oauth, kill switch
+ * MIXDOG_OAI_DISABLE_REASONING_REPLAY=1).
+ * Whether they actually go on the wire is decided PER SOCKET ENTRY, once, at
+ * the first frame that entry sends, and stays sticky for its lifetime so the
+ * append-only prefix bookkeeping (entry.lastRequestInput) never mixes
+ * conventions:
+ *
+ *  - fresh entry + reasoning items present  → mid-session reconnect/recovery:
+ *    KEEP them. This is the codex behavior on a broken delta chain — the full
+ *    frame replays retained reasoning so the model does not re-reason the
+ *    whole transcript (client.rs full-request path).
+ *  - fresh entry + no reasoning items       → virgin session: nothing to
+ *    replay; the chain locks to today's wire (subsequent frames strip).
+ *  - entry with prior chain state (pooled reuse / completed warmup) → STRIP:
+ *    re-sending an rs_* item a live server chain already saw is rejected as a
+ *    duplicate.
+ *
+ * `suppress` (rejection safety net) forces the strip convention for the rest
+ * of the send. Returns the body unchanged when nothing needs stripping.
+ */
+export function _applyReasoningReplayPolicy(entry, body, { suppress = false } = {}) {
+    const input = Array.isArray(body?.input) ? body.input : null;
+    if (!entry || !input) return body;
+    const hasReasoning = input.some((item) => item?.type === 'reasoning');
+    if (suppress) {
+        entry.replayReasoning = false;
+    } else if (entry.replayReasoning == null) {
+        entry.replayReasoning = hasReasoning
+            && entry.lastResponseId == null
+            && entry.lastRequestInput == null;
+    }
+    if (!hasReasoning || entry.replayReasoning === true) return body;
+    return { ...body, input: input.filter((item) => item?.type !== 'reasoning') };
+}
+
+/**
+ * Server rejection of a replayed reasoning item (duplicate rs_* inside a
+ * stateful chain). Deliberately narrow: generic transport/5xx errors must not
+ * trip the replay-suppression retry.
+ */
+export function _isReasoningReplayRejection(err) {
+    const msg = String(err?.payload?.message || err?.message || '');
+    if (!msg) return false;
+    if (/\brs_[A-Za-z0-9]/i.test(msg) && /duplicate|already|exists|repeated/i.test(msg)) return true;
+    return /reasoning/i.test(msg) && /duplicate|already exists|repeated|invalid item/i.test(msg);
+}
+
 export async function _acquireWithRetry({
     auth,
     poolKey,
@@ -577,6 +628,10 @@ export async function sendViaWebSocket({
     // backs xAI, whose existing 429 handshake retry behavior must remain.
     const retry429 = traceProvider !== 'openai-oauth';
 
+    // Armed by the rejection safety net below: once a server rejects a
+    // replayed reasoning item, every later attempt of THIS send strips them.
+    let suppressReasoningReplay = false;
+
     for (let attemptIndex = 0; attemptIndex <= MAX_MIDSTREAM_RETRIES; attemptIndex++) {
         const handshakeStart = performance.now();
         let acquired;
@@ -739,6 +794,11 @@ export async function sendViaWebSocket({
         if (carryForwardCache && auth?.type === 'xai' && attemptIndex > 0 && !body.previous_response_id) {
             requestBody = { ...body, previous_response_id: carryForwardCache.lastResponseId };
         }
+        // Recovery-only reasoning replay: decide per entry whether retained
+        // reasoning items ride this chain (see _applyReasoningReplayPolicy).
+        // Must run BEFORE _computeDelta and the post-send bookkeeping so
+        // entry.lastRequestInput always records the post-policy input.
+        requestBody = _applyReasoningReplayPolicy(entry, requestBody, { suppress: suppressReasoningReplay });
         let warmupResult = null;
         // midState is shared between warmup and the main stream so warmup
         // failures (first-byte timeout, send-failure, ws_4000) flow through
@@ -1008,6 +1068,27 @@ export async function sendViaWebSocket({
                     continuation: midState.sawCompleted !== true,
                 });
             } catch { /* stamping is best-effort */ }
+            // Reasoning-replay rejection safety net: a duplicate-rs_ rejection
+            // on a frame that carried replayed reasoning gets ONE strip-and-
+            // retry within the existing attempt budget instead of failing the
+            // recovery turn outright. Unsafe outcomes (live text/tool output)
+            // keep their normal no-replay handling.
+            if (!suppressReasoningReplay
+                && entry.replayReasoning === true
+                && err?.unsafeToRetry !== true
+                && attemptIndex < MAX_MIDSTREAM_RETRIES
+                && _isReasoningReplayRejection(err)) {
+                suppressReasoningReplay = true;
+                firstAttemptError = err;
+                firstAttemptClassifier = 'reasoning_replay_rejected';
+                try { err.midstreamClassifier = 'reasoning_replay_rejected'; } catch {}
+                emitReconnectProgress({
+                    attempt: attemptIndex + 1,
+                    max: MAX_MIDSTREAM_RETRIES,
+                    classifier: 'reasoning_replay_rejected',
+                });
+                continue;
+            }
             const classifier = err?.unsafeToRetry === true
                 ? null
                 : _classifyMidstreamError(err, midState);

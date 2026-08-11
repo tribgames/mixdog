@@ -118,6 +118,11 @@ export function createSessionTitleController(deps = {}) {
     ? Math.max(1, Number(deps.timeoutMs))
     : SESSION_TITLE_TIMEOUT_MS;
   let disposed = false;
+  // No maintainer/default route configured (MAINTENANCE_ROUTE_UNRESOLVED):
+  // LLM titling is impossible in this process, so disable it after logging a
+  // single "disabled" line instead of a stack trace per session. Deterministic
+  // greeting titles keep working — they never dispatch a provider.
+  let routeUnavailable = false;
 
   const rememberAttempt = (attempts, sessionId) => {
     attempts.delete(sessionId);
@@ -184,8 +189,16 @@ export function createSessionTitleController(deps = {}) {
   };
 
   const run = (sessionId, source, stage, attempts) => {
+    if (routeUnavailable) return;
     log(`start id=${sessionId} stage=${stage} chars=${source.length}`);
     void generate(sessionId, source, stage).catch((error) => {
+      if (error?.code === 'MAINTENANCE_ROUTE_UNRESOLVED') {
+        if (!routeUnavailable) {
+          routeUnavailable = true;
+          log(`disabled stage=${stage} (maintenance route unresolved; llm titling off)`);
+        }
+        return;
+      }
       // Release the one-shot marker: a timed-out/failed generation may retry
       // on the next trigger (next completed turn for stage three).
       attempts?.delete(sessionId);
@@ -219,7 +232,7 @@ export function createSessionTitleController(deps = {}) {
 
   function observeThird(session) {
     const sessionId = String(session?.id || '');
-    if (disposed || !sessionId || thirdAttempts.has(sessionId)
+    if (disposed || routeUnavailable || !sessionId || thirdAttempts.has(sessionId)
       || session?.titleLocked === true
       || session?.generatedTitleStage === 'third') return false;
     const source = thirdTurnTitleSource(session?.messages);

@@ -19,6 +19,8 @@ import { makeModelCache } from './model-cache.mjs';
 
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
 import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
+import { acquireWebSocket, releaseWebSocket, hasPooledWebSocket } from './openai-ws-pool.mjs';
+import { _codexWsCompatibilityHeaders } from './openai-codex-metadata.mjs';
 import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
 import {
     buildStableProviderPromptCacheKey,
@@ -767,6 +769,68 @@ export class OpenAIOAuthProvider {
                 }
             }
             throw err;
+        }
+    }
+    /**
+     * Spawn-time transport prewarm (codex prewarm_websocket parity): open the
+     * session's WS socket while the caller is still assembling the session /
+     * first prompt, so the first real request reuses an already-open pooled
+     * socket instead of paying TLS + upgrade on its critical path.
+     *
+     * Best-effort by contract: every failure returns false and leaves the
+     * lazy per-send handshake untouched. Only runs when the thread-scoped
+     * prompt_cache_key derivation is active — with it disabled the real
+     * cacheKey depends on the built request body (instructions/tools hash),
+     * which does not exist yet at spawn prep, and a mismatched socket would
+     * just be evicted as incompatible on first acquire.
+     */
+    async prewarmWsTransportForSession(opts = {}, seams = {}) {
+        const _acquire = seams._acquire || acquireWebSocket;
+        const _release = seams._release || releaseWebSocket;
+        const _hasPooled = seams._hasPooled || hasPooledWebSocket;
+        const _warmVersion = seams._warmVersion || warmCodexClientVersion;
+        const poolKey = opts.sessionId || null;
+        if (!poolKey) return false;
+        try {
+            const transportPolicy = resolveOpenAiTransportPolicy();
+            if (transportPolicy.transport === 'http'
+                || _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)) return false;
+            const threadKeyGate = String(process.env.MIXDOG_OAI_CODEX_THREAD_CACHE_KEY || '').toLowerCase();
+            if (threadKeyGate === '0' || threadKeyGate === 'false') return false;
+            if (_hasPooled(poolKey)) return true;
+            // Identical derivation to buildRequestBody's prompt_cache_key
+            // (thread-scoped branch), so the prewarmed socket's handshake
+            // session_id and pool-compatibility key match the first real send.
+            const cacheKey = buildStableProviderPromptCacheKey('openai-oauth', opts);
+            const [auth] = await Promise.all([this.ensureAuth(), _warmVersion()]);
+            const codexHeaders = _codexWsCompatibilityHeaders({ poolKey, cacheKey, sendOpts: opts, handshake: true });
+            const _t0 = Date.now();
+            const acquired = await _acquire({
+                auth,
+                poolKey,
+                cacheKey,
+                codexHeaders,
+                externalSignal: opts.signal || null,
+            });
+            _release({ entry: acquired.entry, poolKey, keep: true });
+            try {
+                appendAgentTrace({
+                    sessionId: poolKey,
+                    kind: 'spawn_ws_prewarm',
+                    provider: 'openai-oauth',
+                    transport: 'websocket',
+                    payload: { elapsed_ms: Date.now() - _t0, reused: acquired.reused === true },
+                });
+            } catch {}
+            if (process.env.MIXDOG_DEBUG_AGENT) {
+                process.stderr.write(`[agent-trace] spawn-ws-prewarm ok poolKey=${createHash('sha256').update(String(poolKey)).digest('hex').slice(0, 8)} elapsed=${Date.now() - _t0}ms\n`);
+            }
+            return true;
+        } catch (err) {
+            if (process.env.MIXDOG_DEBUG_AGENT) {
+                process.stderr.write(`[agent-trace] spawn-ws-prewarm failed err=${String(err?.message || err).slice(0, 160)}\n`);
+            }
+            return false;
         }
     }
     async listModels() {

@@ -4734,6 +4734,8 @@ test("Agents groups live workers without a working heartbeat and shows role, mod
       agent: "reviewer",
       provider: "openai",
       model: "gpt-5.6-codex",
+      effort: "high",
+      fast: true,
       status: "running",
       createdAt: String(startedAt),
     }],
@@ -4744,6 +4746,8 @@ test("Agents groups live workers without a working heartbeat and shows role, mod
       agent: "reviewer",
       provider: "openai",
       model: "gpt-5.6-codex",
+      effort: "high",
+      fast: true,
       status: "running",
       startedAt,
     }],
@@ -4805,9 +4809,10 @@ test("Agents groups live workers without a working heartbeat and shows role, mod
     assert.equal(rows.length, 1, "worker/job projections with one tag must deduplicate");
     const row = rows[0];
     assert.equal(row.querySelector(".agent-activity-primary b")?.textContent, "Reviewer");
-    assert.equal(row.querySelector(".agent-activity-primary > span")?.textContent, "· GPT-5.6-Codex",
-      "Agents must use the same canonical model label as the chat picker");
-    assert.equal(row.querySelector(".agent-activity-copy small")?.textContent, "review-ui");
+    assert.equal(row.querySelector(".agent-activity-copy small")?.textContent, "GPT-5.6-Codex · High",
+      "Agents must show model and effort below the agent name");
+    assert.ok(row.querySelector(".fast-mode-indicator"),
+      "Fast agents must use the shared lightning indicator");
     assert.match(row.querySelector(".agent-activity-elapsed")?.textContent || "", /^1m \d+s$/);
     assert.equal(row.querySelector(".agent-activity-state svg")?.classList.contains("spin"), true,
       "running agent status should use the rotating progress spinner");
@@ -4947,7 +4952,7 @@ test("Agents does not resurrect idle workers from stale jobs and preserves a que
       sessions: [session],
     })));
     assert.equal(document.querySelectorAll('[data-agent-tag="reused"]').length, 1);
-    assert.equal(document.querySelector(".agent-activity-primary > span")?.textContent, "· Claude Opus 5");
+    assert.equal(document.querySelector(".agent-route-summary > span")?.textContent, "Claude Opus 5");
 
     await act(async () => apply({
       agentWorkers: [{
@@ -5062,6 +5067,7 @@ test("Agents keeps one bounded item per agent and collapses sessions independent
     );
     const headings = groups.map((group) => group.querySelector(".agent-session-heading"));
     assert.deepEqual(headings.map((heading) => heading?.getAttribute("aria-expanded")), ["true", "true"]);
+    assert.deepEqual(headings.map((heading) => heading?.querySelector(".agent-session-count")?.textContent?.trim()), ["2", "1"]);
 
     await act(async () => headings[0]?.click());
     assert.equal(headings[0]?.getAttribute("aria-expanded"), "false");
@@ -5076,11 +5082,11 @@ test("Agents keeps one bounded item per agent and collapses sessions independent
 
     const css = await readFile(new URL("./desktop.css", import.meta.url), "utf8");
     assert.match(css,
-      /\.utility-dock \.agent-activity-page\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*100%;[^}]*overflow-x:\s*clip;[^}]*overflow-y:\s*auto;/s,
+      /\.utility-dock \.agent-activity-page\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*100%;[^}]*overflow-x:\s*clip;[^}]*overflow-y:\s*auto;[^}]*padding:\s*4px 12px 8px;/s,
       "the Agents scroller must stay within the panel without horizontal scroll");
     assert.match(css,
-      /\.utility-dock \.agent-activity-row\s*\{[^}]*max-width:\s*100%;[^}]*box-sizing:\s*border-box;[^}]*overflow:\s*hidden;[^}]*border:\s*0;[^}]*background:\s*var\(--mx-rail-item-surface\);[^}]*box-shadow:\s*inset 0 0 0 \.5px var\(--mx-rail-item-outline\);/s,
-      "each agent item must share the restrained rail chrome");
+      /\.utility-dock \.agent-activity-row\s*\{[^}]*max-width:\s*100%;[^}]*box-sizing:\s*border-box;[^}]*padding:\s*12px 14px;[^}]*overflow:\s*hidden;[^}]*border:\s*0;[^}]*background:\s*var\(--mx-rail-item-surface\);[^}]*box-shadow:\s*inset 0 0 0 \.5px var\(--mx-rail-item-outline\);/s,
+      "each agent item must share the workflow card geometry and restrained rail chrome");
   } finally {
     defaultSessionLaneStore.clear();
   }

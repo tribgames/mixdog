@@ -130,7 +130,7 @@ test('tool descriptions stay mechanical while routing stays in shared policy', (
   assert.match(EXPLORE_TOOL.inputSchema?.properties?.query?.description || '', /one concrete unknown target[\s\S]*minimal complete direct path:line set/i);
   assert.match(CODE_GRAPH_TOOL_DEFS[0]?.description || '', /structure, symbol relations, and flow/i);
   assert.match(CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties?.symbols?.description || '', /batch multiple in one symbols\[\]/i);
-  assert.match(PATCH_TOOL_DEFS[0]?.freeformDescription || '', /Compact patch: U\/A\/D path[\s\S]*M rename or R root[\s\S]*@ hunks/i);
+  assert.match(PATCH_TOOL_DEFS[0]?.freeformDescription || '', /OAI V4A patch[\s\S]*Begin Patch[\s\S]*Add\/Delete\/Update File[\s\S]*End Patch/i);
   const webByName = Object.fromEntries(WEB_TOOL_DEFS.map((tool) => [tool.name, tool]));
   const memoryByName = Object.fromEntries(MEMORY_TOOL_DEFS.map((tool) => [tool.name, tool]));
   assert.match(webByName.web_fetch.description, /Fetch page\/docs body from URL/i);
@@ -204,6 +204,7 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   assert.match(policy, /Baseline routing assigns each facet directly by the evidence needed/i);
   assert.match(policy, /evidence unavailable to file tools—an independent facet, batched with the rest/i);
   assert.match(policy, /conclusive result ends its facet[\s\S]*never re-acquired, broadened, or reconfirmed/i);
+  assert.match(policy, /prior work→`recall` \(history only, never current local state\)/i);
   // Shortest-route batching without speculative re-reads: only argument
   // construction creates a dependency, and returned content is not reacquired.
   assert.match(policy, /Plan the fewest dependent rounds, then the fewest calls/i);
@@ -231,12 +232,12 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   // their own phase boundary.
   assert.match(policy, /`explore`, when exposed, is a fast path only[\s\S]*call it first once for all such independent facets in one query array[\s\S]*direct `path:line` anchors[\s\S]*anchors are tool-verified coordinates that END their location facets[\s\S]*resume baseline routing from them/i);
   assert.match(policy, /Baseline routing assigns each facet directly by the evidence needed/i);
-  assert.match(policy, /Before each batch[\s\S]*deduplicate the facets still required[\s\S]*cheapest sufficient tool with all required variants\/scopes[\s\S]*launch every independent call together[\s\S]*never split or duplicate a facet across tools[\s\S]*reserve known work, or cap fanout/i);
+  assert.match(policy, /Before each batch[\s\S]*deduplicate the facets still required by the request[\s\S]*cheapest sufficient tool with all required variants\/scopes[\s\S]*launch every independent call together[\s\S]*never split or duplicate a facet across tools[\s\S]*reserve known work, or cap fanout/i);
   assert.match(policy, /Once the edit or deliverable is determined, finish in one assistant turn[\s\S]*one `apply_patch` per file or cohesive unit, all patches first[\s\S]*one batched verification `shell` that runs the real required postconditions on every changed file and produced artifact, never echoes a claim[\s\S]*Retry only failed envelopes[\s\S]*rerun a failed check only after a fix that can change its result, else report it unresolved[\s\S]*computed artifacts \(data\/reports\/derived values\) come from `shell` computation, never hand-transcribed numbers/i);
   assert.doesNotMatch(policy, /before every tool batch|whatever the tool|every turn, widest probe to last|otherwise finish without it|Prefer parallel calls when independent|risk-proportionate|rerun only failures|zero\/error or a newly revealed dependency|cross-scope verification/i);
   assert.match(policy, /Symbol relations end at `code_graph`[\s\S]*values\/locations end at the context grep returns[\s\S]*`read` covers only what returned spans cannot[\s\S]*anchored offset\/limit window/i);
   assert.match(policy, /known-root[\s\S]*unknown descendants/i);
-  assert.match(policy, /The moment evidence determines the edit, stop retrieving and patch/i);
+  assert.match(policy, /The moment evidence determines the answer, edit, or deliverable, stop retrieving; patch if needed/i);
   assert.match(policy, /never re-acquired, broadened, or reconfirmed/i);
   const leadToolPolicy = readFileSync(new URL('../src/rules/lead/lead-tool.md', import.meta.url), 'utf8');
   const leadGeneralPolicy = readFileSync(new URL('../src/rules/lead/01-general.md', import.meta.url), 'utf8');

@@ -222,3 +222,54 @@ test('completed title one-shot markers remain bounded under session churn', asyn
   controller.disposeAll();
   assert.deepEqual(controller.attemptStatsForTest(), { first: 0, third: 0, limit: 32 });
 });
+
+test('unresolved maintenance route disables llm titling after one quiet log line', async () => {
+  const logs = [];
+  let calls = 0;
+  const controller = createSessionTitleController({
+    log: (line) => logs.push(line),
+    generateSessionTitle: async () => {
+      calls += 1;
+      const error = new Error('Session title maintenance route is unresolved.');
+      error.code = 'MAINTENANCE_ROUTE_UNRESOLVED';
+      throw error;
+    },
+    promoteGeneratedTitle: async () => assert.fail('nothing to promote without a route'),
+  });
+  assert.equal(controller.scheduleFirst({ id: 'no_route_a', messages: [] }, 'first question'), true);
+  await waitFor(() => logs.some((line) => line.includes('disabled')));
+  assert.equal(calls, 1);
+  assert.equal(logs.filter((line) => line.includes('failed')).length, 0);
+  // Subsequent sessions skip generation entirely — no start/disabled spam.
+  const before = logs.length;
+  controller.scheduleFirst({ id: 'no_route_b', messages: [] }, 'second question');
+  controller.observeThird({
+    id: 'no_route_c',
+    messages: [
+      { role: 'user', content: 'One' },
+      { role: 'assistant', content: 'Answer one' },
+      { role: 'user', content: 'Two' },
+      { role: 'assistant', content: 'Answer two' },
+      { role: 'user', content: 'Three' },
+      { role: 'assistant', content: 'Answer three' },
+    ],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(calls, 1);
+  assert.equal(logs.length, before);
+  // Deterministic greeting titles still work without a route.
+  const promotions = [];
+  const greetingController = createSessionTitleController({
+    log: () => {},
+    generateSessionTitle: async () => assert.fail('greetings must not dispatch a provider'),
+    promoteGeneratedTitle: async (_id, title, stage) => {
+      promotions.push([title, stage]);
+      return true;
+    },
+  });
+  assert.equal(greetingController.scheduleFirst({ id: 'greet', messages: [] }, '안녕'), true);
+  await waitFor(() => promotions.length === 1);
+  assert.deepEqual(promotions, [['인사', 'first']]);
+  greetingController.disposeAll();
+  controller.disposeAll();
+});

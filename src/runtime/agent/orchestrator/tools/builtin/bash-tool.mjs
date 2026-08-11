@@ -432,10 +432,11 @@ export async function executeBashTool(args, workDir, options = {}) {
         // anywhere in the chain) used to hard-fail via foregroundLongCommandHint
         // (~22 wasted turns/14d measured). Promote them to a background task —
         // the exact remedy the deny message pointed at — same as sleep chains.
-        // Short (2-29s) leading sleep chains stay SYNC: a 5s settle before a
-        // verification probe must not detach produce→verify into an async
-        // notification round-trip — blocking a few seconds is strictly cheaper.
-        const _blockedSleep = detectBlockedSleepPattern(command, 30) || detectLongForegroundReason(command);
+        // Every explicit leading sleep chain covered by the blocking policy is
+        // detached instead of first failing preflight. This preserves the live
+        // process and returns a task_id in the original call; callers that need
+        // an inline pacing delay can keep it below the policy's two-second floor.
+        const _blockedSleep = detectBlockedSleepPattern(command) || detectLongForegroundReason(command);
         if (_blockedSleep) {
             runInBackground = true;
             autoAsyncReason = _blockedSleep;
@@ -497,6 +498,11 @@ export async function executeBashTool(args, workDir, options = {}) {
     const promotedTimeoutMs = hasExplicitTimeout && backgroundOnTimeout
         ? Math.max(0, totalTimeout - timeout)
         : 0;
+    // A caller deadline at or below the foreground window has no remaining
+    // budget to transfer. Let execShellCommand enforce that timeout instead of
+    // adopting the child with timeoutMs=0, which means unlimited to shell-jobs.
+    const promoteAtTimeout = backgroundOnTimeout
+        && (!hasExplicitTimeout || promotedTimeoutMs > 0);
     // Provider schema intentionally omits this low-value toggle; all observed
     // live calls requested merged output, which is also the useful default for
     // in-turn diagnostics. Internal callers may still opt out explicitly.
@@ -697,8 +703,9 @@ export async function executeBashTool(args, workDir, options = {}) {
             abortSignal: combinedBashAbort.signal,
             autoBackgroundMs,
             // On a foreground timeout, promote the still-running child to a
-            // tracked background job (unlimited) instead of killing it.
-            backgroundOnTimeout,
+            // tracked background job only when an explicit deadline has
+            // remaining budget; omitted deadlines may stay unlimited.
+            backgroundOnTimeout: promoteAtTimeout,
             promotedTimeoutMs,
             // Soft/interrupt promotion happens before the foreground cap.
             // Preserve an explicit total deadline by passing it separately;

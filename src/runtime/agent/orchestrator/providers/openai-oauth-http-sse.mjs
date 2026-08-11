@@ -167,7 +167,7 @@ function _pushOutputTextAnnotations(part, citations, citationKeys) {
     }
 }
 
-function _buildOpenAIHttpFallbackHeaders({ auth, cacheKey }) {
+function _buildOpenAIHttpFallbackHeaders({ auth, cacheKey, statelessConversation = false }) {
     if (auth?.type === 'openai-direct') {
         // Public API-key auth: Bearer <OPENAI_API_KEY>, no chatgpt-account-id /
         // originator (mirrors openai-ws-pool _buildHandshakeHeaders' direct
@@ -189,7 +189,7 @@ function _buildOpenAIHttpFallbackHeaders({ auth, cacheKey }) {
         'chatgpt-account-id': auth.account_id || '',
         'x-client-request-id': randomBytes(16).toString('hex'),
     };
-    if (cacheKey) {
+    if (cacheKey && !statelessConversation) {
         const sid = String(cacheKey);
         // Backend-native anchors (see openai-ws-pool _buildHandshakeHeaders):
         // the hyphenated `session-id`/`thread-id` pair; legacy underscore
@@ -252,7 +252,9 @@ export async function sendViaHttpSse({
     //       one still aborts, and
     //   (c) externalSignal (client disconnect / replaced-by-newer-request).
     const totalTimeout = createPassthroughSignal(externalSignal);
-    const headers = _buildOpenAIHttpFallbackHeaders({ auth, cacheKey });
+    const statelessConversation = opts?.statelessConversation === true
+        || _envFlag('MIXDOG_OAI_STATELESS_HTTP', false);
+    const headers = _buildOpenAIHttpFallbackHeaders({ auth, cacheKey, statelessConversation });
     const fetchStartedAt = Date.now();
     const responsesUrl = auth?.type === 'openai-direct'
         ? OPENAI_DIRECT_RESPONSES_URL

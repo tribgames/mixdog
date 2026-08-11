@@ -9,6 +9,7 @@ import {
   isQueuedDesktopAgentEntry,
 } from '../shared/agent-activity';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
+import { FastModeIndicator } from './FastModeToggle';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 import { modelDisplayName } from './provider-display';
@@ -23,6 +24,8 @@ interface LiveAgentSummary {
   roleId: string;
   model: string;
   provider: string;
+  effort: string;
+  fast: boolean;
   tag: string;
   status: string;
   queued: boolean;
@@ -74,6 +77,8 @@ export function liveAgentRows(snapshot: unknown, fallbackOwnerSessionId = ''): L
     const roleId = roleValue.toLowerCase();
     const model = String(entry.model || '').trim();
     const provider = String(entry.provider || '').trim();
+    const effort = String(entry.effort || '').trim();
+    const fast = entry.fast === true;
     const startedAt = timeMs(entry.startedAt || entry.startTime || entry.createdAt);
     const turnStartedAt = timeMs(entry.turnStartedAt);
     const sessionId = String(entry.sessionId || '').trim();
@@ -88,6 +93,8 @@ export function liveAgentRows(snapshot: unknown, fallbackOwnerSessionId = ''): L
         roleId,
         model,
         provider,
+        effort,
+        fast,
         tag: tag || taskId,
         status,
         queued,
@@ -104,6 +111,8 @@ export function liveAgentRows(snapshot: unknown, fallbackOwnerSessionId = ''): L
       roleId: current.roleId || roleId,
       model: current.model || model,
       provider: current.provider || provider,
+      effort: current.effort || effort,
+      fast: current.fast || fast,
       tag: current.tag || tag || taskId,
       status: current.queued && !queued ? status : current.status,
       queued: current.queued && queued,
@@ -214,15 +223,23 @@ export function AgentActivityPane({
               {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
             </span>
             <span className="agent-session-title" title={title}>{title}</span>
-            <small>{agents.length}</small>
+            <small className="agent-session-count" aria-label={t('{{count}} agents', { count: agents.length })}>
+              {agents.length}
+            </small>
           </button>
           <div className="agent-activity-rows" hidden={collapsed}>
             {agents.map((agent) => {
               // Current turn's elapsed; session lifetime only when a reused
               // worker has no turn stamp yet.
               const elapsedBase = agent.turnStartedAt || agent.startedAt;
-              const elapsed = elapsedBase ? formatWorkElapsed(clock - elapsedBase) || '0s' : agent.status;
+              const elapsed = agent.queued
+                ? t('Queued')
+                : elapsedBase ? formatWorkElapsed(clock - elapsedBase) || '0s' : agent.status;
               const modelLabel = modelDisplayName(agent.model, agent.provider);
+              const effortLabel = agent.effort
+                ? `${agent.effort.slice(0, 1).toLocaleUpperCase()}${agent.effort.slice(1)}`
+                : '';
+              const routeLabel = [modelLabel, effortLabel].filter(Boolean).join(' · ');
               return <button key={agent.key} type="button" className="agent-activity-row"
                 data-agent-tag={agent.tag || undefined}
                 data-agent-session-id={agent.sessionId || undefined}
@@ -241,9 +258,11 @@ export function AgentActivityPane({
                 <span className="agent-activity-copy">
                   <span className="agent-activity-primary">
                     <b>{agent.role}</b>
-                    {modelLabel && <span title={agent.model}>· {modelLabel}</span>}
                   </span>
-                  <small>{agent.queued ? `Queued${agent.tag ? ` · ${agent.tag}` : ''}` : agent.tag}</small>
+                  <small className="agent-route-summary" title={agent.model || undefined}>
+                    <span>{routeLabel}</span>
+                    {agent.fast && <FastModeIndicator />}
+                  </small>
                 </span>
                 <time className="agent-activity-elapsed">{elapsed}</time>
               </button>;

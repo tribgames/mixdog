@@ -734,6 +734,15 @@ export function closeOpenaiWsPoolForSession(poolKey, reason = 'session_closed') 
     }
 }
 
+// True when the pool already holds a live socket for this key — used by the
+// spawn-time prewarm to skip a redundant handshake without reserving (and
+// ping-probing) an entry the way acquireWebSocket would.
+export function hasPooledWebSocket(poolKey) {
+    const entries = poolKey ? _wsPool.get(poolKey) : null;
+    if (!entries) return false;
+    return entries.some((entry) => _isOpen(entry) && !entry.closing);
+}
+
 // Focused pool lifecycle test seam. Entries still pass through the production
 // release/acquire code; this only avoids a live provider handshake.
 export function _seedWebSocketEntryForTest({ poolKey, auth, cacheKey, entry }) {

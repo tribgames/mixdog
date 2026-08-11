@@ -24,6 +24,7 @@ import {
   countHunkChanges,
 } from './paths.mjs';
 import {
+  NATIVE_PATCH_TRANSPORT_DEAD,
   runServerApply,
   scheduleNativePatchIdleClose,
   nativePatchTraceEnabled,
@@ -102,6 +103,27 @@ export async function dispatchNativePatch({ entries, basePath, nativePatchStr, f
     stats = await runServerApply(basePath, nativePatchStr, { fuzz, rejectPartial, dryRun, signal });
   } catch (err) {
     scheduleNativePatchIdleClose();
+    // A create-only patch is idempotent as a full-content declaration. If two
+    // native server attempts die during transport (for example under host
+    // pressure), the JS engine can safely finish the same requested bytes:
+    // absent targets are created and a target written by the uncertain first
+    // attempt is replaced with identical desired content. Updates/deletes stay
+    // fail-closed because replay after an uncertain write is not idempotent.
+    if (err?.code === NATIVE_PATCH_TRANSPORT_DEAD
+      && entries.length > 0
+      && entries.every((entry) => entry.kind === 'create')) {
+      const recovered = await dispatchJsPatchEntries({
+        rows: entries,
+        parsed,
+        basePath,
+        dryRun,
+        fuzzy: fuzz > 0,
+        readStateScope,
+      });
+      if (!/^Error:/i.test(String(recovered || '').trimStart())) {
+        return `${recovered}\n[native transport unavailable; create-only patch completed with the JS engine]`;
+      }
+    }
     const msg = err?.message || String(err);
     const failedPath = extractNativeFailurePath(msg, parsed);
     return `Error: native patch failed — ${msg}${formatNativeFailureContext(parsed, basePath, failedPath, { fuzz })}`;
@@ -306,16 +328,18 @@ function lstatRegularPatchFile(fullPath, displayPath) {
   return st;
 }
 
-// Existence probe for an Add File target: every existing path shape is
-// refused, matching the native in-base guard (`create target already exists`).
-function assertCreateTargetAbsent(fullPath, displayPath) {
+function existingRegularAddTarget(fullPath, displayPath) {
   try {
-    lstatSync(fullPath);
+    const st = lstatSync(fullPath);
+    if (!st.isFile() || st.isSymbolicLink()) {
+      throw new Error(`apply_patch: Add File target is not a regular file: ${normalizeOutputPath(displayPath)}`);
+    }
+    return st;
   } catch (err) {
-    if (err?.code === 'ENOENT') return;
+    if (err?.code === 'ENOENT') return null;
+    if (/^apply_patch:/.test(err?.message || '')) throw err;
     throw new Error(`apply_patch: create target unreadable: ${normalizeOutputPath(displayPath)} (${err?.code || err?.message || String(err)})`);
   }
-  throw new Error(`apply_patch: create target already exists: ${normalizeOutputPath(displayPath)}`);
 }
 
 function findParsedForRow(row, parsed, basePath) {
@@ -331,14 +355,12 @@ async function applyJsParsedEntry(entry, basePath, { dryRun, fuzzy, readStateSco
   const headerName = kind === 'create' ? entry.newFileName : entry.oldFileName;
   const fullPath = resolveEntryPath(basePath, headerName);
   const displayPath = normalizeOutputPath(stripDiffPrefix(headerName));
-  if (!isResolvedPathOutsideBase(fullPath, basePath)) {
-    throw new Error(`apply_patch: internal JS dispatch invoked for in-base path ${displayPath}`);
-  }
-
   if (kind === 'create') {
-    // Refuse before any write, in dry runs too, so an Add File section can
-    // never clobber (or follow) an existing out-of-base path.
-    assertCreateTargetAbsent(fullPath, displayPath);
+    // Add File is a full-content declaration: create an absent target or
+    // atomically replace an existing regular file. Directories, devices and
+    // symlinks remain hard failures so the declaration cannot change target
+    // identity by following an occupied non-file path.
+    const existing = existingRegularAddTarget(fullPath, displayPath);
     const addedLines = [];
     for (const hunk of entry.hunks || []) {
       for (const line of hunk.lines || []) {
@@ -348,7 +370,8 @@ async function applyJsParsedEntry(entry, basePath, { dryRun, fuzzy, readStateSco
     const content = joinTextLinesForPatch(addedLines);
     if (!dryRun) {
       mkdirSync(pathDirname(fullPath), { recursive: true });
-      writeFileSync(fullPath, content);
+      if (existing) await atomicWrite(fullPath, content, { sessionId: readStateScope });
+      else writeFileSync(fullPath, content);
       invalidateBuiltinResultCache([fullPath]);
       markCodeGraphDirtyPaths([fullPath]);
       recordReadSnapshotForPath(fullPath, readStateScope, { source: 'apply_patch_js', isPartialView: false });

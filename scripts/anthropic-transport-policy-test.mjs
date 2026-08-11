@@ -25,6 +25,10 @@ import { _midstreamSleepWithAbort, parseSSEStream } from '../src/runtime/agent/o
 import { AnthropicProvider } from '../src/runtime/agent/orchestrator/providers/anthropic.mjs';
 import { AnthropicOAuthProvider } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 import {
+    PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS,
+    streamStalledError,
+} from '../src/runtime/agent/orchestrator/stall-policy.mjs';
+import {
     ANTHROPIC_CACHE_TTL_STABLE,
     ANTHROPIC_CACHE_TTL_VOLATILE,
     resolveAnthropicCacheTtls,
@@ -554,6 +558,125 @@ test('OAuth and API-key providers switch to the opt-in fallback after three 529s
     }
 });
 
+test('OAuth stalled-stream fallback bounds the whole non-streaming body', async () => {
+    const oauth = Object.create(AnthropicOAuthProvider.prototype);
+    oauth.credentials = { accessToken: 'fixture', expiresAt: Date.now() + 60_000 };
+    oauth.config = {};
+    oauth.fastModeBetaHeaderLatched = false;
+    oauth.ensureAuth = async () => oauth.credentials;
+    const requestModes = [];
+    const keepAlive = setInterval(() => {}, 1_000);
+    try {
+        await assert.rejects(
+            oauth.send([], 'claude-opus-primary', [], {
+                _nonStreamingTimeoutMs: 25,
+                _doRequestFn: async (_token, _signal, requestBody) => {
+                    requestModes.push(requestBody.stream);
+                    if (requestBody.stream !== false) {
+                        return {
+                            response: { status: 200, ok: true, headers: new Map() },
+                            controller: { abort() {} },
+                            cancelHandler: null,
+                        };
+                    }
+                    let rejectBody;
+                    const body = new Promise((_resolve, reject) => { rejectBody = reject; });
+                    return {
+                        response: {
+                            status: 200,
+                            ok: true,
+                            headers: new Map(),
+                            json: () => body,
+                        },
+                        controller: {
+                            abort(reason) {
+                                rejectBody(reason instanceof Error ? reason : new Error(String(reason)));
+                            },
+                        },
+                        cancelHandler: null,
+                    };
+                },
+                _parseSSEFn: async (_response, _signal, _abort, _delta, _tool, state) => {
+                    state.sawMessageStart = true;
+                    throw streamStalledError('fixture stream', 1);
+                },
+            }),
+            (error) => error?.code === 'EPROVIDERTIMEOUT'
+                && /non-streaming fallback timed out/.test(error.message),
+        );
+    } finally {
+        clearInterval(keepAlive);
+    }
+    assert.deepEqual(requestModes, [true, false]);
+});
+
+test('API-key stalled-stream fallback bounds the whole non-streaming body', async () => {
+    const direct = Object.create(AnthropicProvider.prototype);
+    direct.name = 'anthropic';
+    direct.config = {};
+    direct.fastModeBetaHeaderLatched = false;
+    const requestModes = [];
+    direct.client = {
+        messages: {
+            create(params, { signal } = {}) {
+                requestModes.push(params.stream);
+                if (params.stream !== false) {
+                    return {
+                        async asResponse() {
+                            return {
+                                ok: true,
+                                status: 200,
+                                headers: new Map(),
+                                body: {
+                                    getReader() {
+                                        let reads = 0;
+                                        const messageStart = new TextEncoder().encode(
+                                            'event: message_start\n'
+                                            + 'data: {"type":"message_start","message":{"id":"msg_fixture","type":"message","role":"assistant","model":"claude-opus-primary","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":0}}}\n\n',
+                                        );
+                                        return {
+                                            async read() {
+                                                if (reads++ === 0) {
+                                                    return { done: false, value: messageStart };
+                                                }
+                                                throw streamStalledError('fixture stream', 1);
+                                            },
+                                            async cancel() {},
+                                            releaseLock() {},
+                                        };
+                                    },
+                                },
+                            };
+                        },
+                    };
+                }
+                return new Promise((_resolve, reject) => {
+                    const rejectFromAbort = () => reject(
+                        signal?.reason instanceof Error
+                            ? signal.reason
+                            : new Error('non-streaming fallback canceled'),
+                    );
+                    if (signal?.aborted) rejectFromAbort();
+                    else signal?.addEventListener('abort', rejectFromAbort, { once: true });
+                });
+            },
+        },
+    };
+    const keepAlive = setInterval(() => {}, 1_000);
+    try {
+        await assert.rejects(
+            direct._doSend([], 'claude-opus-primary', [], {
+                _nonStreamingTimeoutMs: 25,
+            }),
+            (error) => error?.code === 'EPROVIDERTIMEOUT'
+                && /non-streaming fallback timed out/.test(error.message),
+        );
+    } finally {
+        clearInterval(keepAlive);
+    }
+    assert.deepEqual(requestModes, [true, false]);
+});
+
 test('Anthropic retry budget defaults to ten retries and is configurable/bounded', () => {
     const prior = process.env.CLAUDE_CODE_MAX_RETRIES;
     try {
@@ -575,6 +698,7 @@ test('Anthropic request timeout and exponential backoff match Claude Code defaul
     try {
         delete process.env.API_TIMEOUT_MS;
         assert.equal(anthropicRequestTimeoutMs(), 600_000);
+        assert.equal(PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS, 300_000);
         process.env.API_TIMEOUT_MS = '123456';
         assert.equal(anthropicRequestTimeoutMs(), 123456);
 

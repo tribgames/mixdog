@@ -147,6 +147,40 @@ try {
   assert(!existsSync(join(tmp, 'wrong', 'nested', 'redirected.txt')),
     'apply_patch created or modified the original missing guessed path');
 
+  const uniqueTargetDir = join(tmp, 'actual', 'unique');
+  mkdirSync(uniqueTargetDir, { recursive: true });
+  const uniqueTarget = join(uniqueTargetDir, 'unique-target.txt');
+  writeFileSync(uniqueTarget, 'before unique redirect\n', 'utf8');
+  const uniqueRedirectPatch = await executePatchTool('apply_patch', {
+    base_path: tmp,
+    patch: `*** Begin Patch
+*** Update File: guessed/unique-target.txt
+@@
+-before unique redirect
++after unique redirect
+*** End Patch
+`,
+  }, tmp, {});
+  assertOk('apply_patch unique missing-path redirect', uniqueRedirectPatch);
+  assert(readFileSync(uniqueTarget, 'utf8') === 'after unique redirect\n',
+    'apply_patch did not relocate a missing target with one unique basename');
+  assert(!existsSync(join(tmp, 'guessed', 'unique-target.txt')),
+    'apply_patch wrote the original missing guessed path');
+
+  const overwriteTarget = join(tmp, 'add-overwrite.txt');
+  writeFileSync(overwriteTarget, 'old add content\n', 'utf8');
+  const overwriteAdd = await executePatchTool('apply_patch', {
+    base_path: tmp,
+    patch: `*** Begin Patch
+*** Add File: add-overwrite.txt
++new add content
+*** End Patch
+`,
+  }, tmp, {});
+  assertOk('apply_patch Add File overwrite', overwriteAdd);
+  assert(readFileSync(overwriteTarget, 'utf8') === 'new add content\n',
+    'Add File did not atomically replace an existing regular file');
+
   // A native server that died between requests (idle watchdog, panic, external
   // kill) must never take THIS process down: an unhandled EPIPE on the child's
   // stdin crashed the release validate job. The dead instance has to reject,
