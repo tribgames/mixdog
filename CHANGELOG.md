@@ -5,6 +5,10 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Background shell tasks now retain their owner session and daemon after every
+  view detaches, matching CC notification lifetime semantics so idle eviction
+  cannot cancel the task before its completion is delivered.
+
 ## v0.9.119 - 2026-08-11
 
 - Native Graph and Token reproducibility builds now run on independent runners

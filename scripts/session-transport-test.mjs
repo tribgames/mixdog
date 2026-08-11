@@ -24,6 +24,12 @@ const { createSessionTransport } = await import('../src/standalone/session-trans
 const { createSessionService } = await import('../src/standalone/session-service.mjs');
 const { createChannelTransport } = await import('../src/standalone/channel-transport.mjs');
 const {
+  cleanupBackgroundTasks,
+  completeBackgroundTask,
+  getBackgroundTask,
+  registerBackgroundTask,
+} = await import('../src/runtime/shared/background-tasks.mjs');
+const {
   attachSession, createSession, probeSessionHealth,
   sessionDaemonCompatibility,
 } =
@@ -1694,6 +1700,59 @@ test('a working runtime outlives its last view and the next one rejoins it', asy
 
     await after.dispose('test');
   }, { sessionFactory: async () => createStubSessionRuntime('') });
+});
+
+test('an unwatched runtime retains its CC-style background task until completion', async () => {
+  const taskId = `session-retention-shell-${Date.now()}`;
+  let ownerSessionId = '';
+  let cancelled = 0;
+  try {
+    await withDaemon(async ({ discovery, service }) => {
+      const client = await attachSession({ discovery, cwd: process.cwd() });
+      try {
+        const created = await client.call('session.create', { cwd: process.cwd() });
+        ownerSessionId = created.sessionId;
+        registerBackgroundTask({
+          taskId,
+          surface: 'shell',
+          operation: 'shell',
+          label: 'retained shell task',
+          context: { callerSessionId: ownerSessionId },
+          cancel: () => { cancelled += 1; },
+        });
+        await client.call('session.unsubscribe', { sessionId: ownerSessionId });
+
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        assert.equal(service.size, 1, 'idle eviction must not cancel owner background work');
+        assert.equal(service.busyCount, 1, 'daemon shutdown guard sees background work');
+        assert.equal(service.status.busy, 1, 'session status reports background work');
+        assert.equal(getBackgroundTask(taskId)?.status, 'running');
+
+        completeBackgroundTask(taskId, {
+          status: 'completed',
+          resultText: 'retained completion',
+          notify: false,
+        });
+        await waitFor(
+          () => service.size === 0,
+          'the runtime is reclaimed only after its background task completes',
+        );
+        assert.equal(cancelled, 0, 'idle eviction never owns task cancellation');
+      } finally {
+        await client.close('background retention test');
+      }
+    }, {
+      idleEvictMs: 15,
+      evictSweepMs: 5,
+      sessionFactory: async () => createStubSessionRuntime(''),
+    });
+  } finally {
+    cleanupBackgroundTasks({
+      force: true,
+      callerSessionId: ownerSessionId,
+      surface: 'shell',
+    });
+  }
 });
 
 test('session retention exposes no RSS growth ceiling', async () => {

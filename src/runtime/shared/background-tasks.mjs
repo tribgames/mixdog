@@ -241,6 +241,17 @@ export function getBackgroundTask(taskId, options = {}) {
   return task;
 }
 
+/** CC-parity lifetime signal: a session-owned background task remains live
+ * work even while the interactive turn is idle and every view is detached. */
+export function hasActiveBackgroundTasks(options = {}) {
+  pruneTasks(options);
+  const wanted = clean(options.surface);
+  return [...tasks.values()].some((task) =>
+    task.status === 'running'
+    && (!wanted || task.surface === wanted)
+    && taskMatchesScope(task, options, { includeUnattributed: false }));
+}
+
 export function listBackgroundTasks(options = {}) {
   const { surface } = options;
   pruneTasks(options);
@@ -457,6 +468,7 @@ export function taskSummary(task) {
     operation: task.operation,
     label: task.label,
     status: task.status,
+    notified: task.notified === true,
     startedAt: task.startedAt,
     finishedAt: task.finishedAt,
     error: task.error,
