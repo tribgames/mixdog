@@ -1,0 +1,64 @@
+== code-from-image__hWiqHXU reward=1 rounds=12
+   1 [2] shell(file code.png && identify code.png) | shell(tesseract code.png stdout --psm 6)
+   2 [1] shell(python - <<'PY' from PIL import Image import impor)
+   3 [1] shell(command -v apt-get || true; command -v apk || true)
+   4 [1] shell(apt-get update -qq && apt-get install -y -qq tesse)
+   5 [1] FINAL
+   6 [3] shell(tesseract code.png stdout --psm 6 2>/dev/null) | shell(tesseract code.png stdout --psm 11 2>/dev/null) | shell(tesseract code.png stdout --psm 3 2>/dev/null)
+   7 [1] shell(python - <<'PY' from hashlib import sha256 img=ope)
+   8 [1] shell(python - <<'PY' from hashlib import sha256 img=ope)
+   9 [1] find(solution.py,output.txt)
+  10 [1] apply_patch(*** Begin Patch *** Add File: /app/solution.py +fr)
+  11 [1] shell(python -m py_compile solution.py && python solutio)
+  12 [1] FINAL
+== db-wal-recovery__r3TJcH9 reward=1 rounds=6
+   1 [1] list(/app)
+   2 [3] read(/app/main.db) | read(/app/main.db-wal) | shell(python3 - <<'PY' import sqlite3 p='/app/main.db' c)
+   3 [1] list(/app)
+   4 [1] shell(python3 - <<'PY' import json, os, shutil, sqlite3,)
+   5 [1] shell(python3 - <<'PY' import json, sqlite3 from pathlib)
+   6 [1] FINAL
+== fix-code-vulnerability__riL3X9P reward=1 rounds=6
+   1 [4] list() | code_graph() | grep(invalid,Invalid,ValueError,TypeError,except Except) | grep(except Exception,except:,ValueError,TypeError)
+   2 [1] shell(git status --short && git diff -- bottle.py)
+   3 [3] read(bottle.py) | read(test/test_environ.py) | grep(_hkey(,_hval()
+   4 [1] apply_patch(*** Begin Patch *** Update File: bottle.py @@ def )
+   5 [1] shell(python - <<'PY' import json import bottle with ope)
+   6 [1] FINAL
+== git-leak-recovery__foK755j reward=1 rounds=7
+   1 [1] shell(python3 - <<'PY' import os, re, stat, subprocess, )
+   2 [1] shell(for cmd in python node ruby perl php; do if comman)
+   3 [1] shell(node <<'JS' const fs = require('fs'); const cp = r)
+   4 [1] shell(node <<'JS' const cp = require('child_process'); c)
+   5 [1] shell(node <<'JS' const fs = require('fs'); const cp = r)
+   6 [1] grep(secret\[[^]\r\n]*\])
+   7 [1] FINAL
+== log-summary-date-ranges__oKCV5bz reward=1 rounds=4
+   1 [1] glob(logs/*.log)
+   2 [1] grep(\bERROR\b,\bWARNING\b,\bINFO\b)
+   3 [1] shell(python3 - <<'PY' import csv import re from collect)
+   4 [1] FINAL
+== multi-source-data-merger__tKQAzS7 reward=1 rounds=3
+   1 [3] read(/data/source_a/users.json) | read(/data/source_b/users.csv) | shell(python - <<'PY' import pandas as pd p='/data/sourc)
+   2 [1] shell(python - <<'PY' import json import os import re fr)
+   3 [1] FINAL
+== polyglot-c-py__RnxkXfv reward=1 rounds=9
+   1 [1] list(/app/polyglot)
+   2 [1] apply_patch(*** Begin Patch *** Add File: polyglot/main.py.c +)
+   3 [1] apply_patch(*** Begin Patch *** Update File: polyglot/main.py.)
+   4 [1] shell(gcc /app/polyglot/main.py.c -o /app/polyglot/cmain)
+   5 [1] shell(for candidate in python3 python3.12 /usr/bin/pytho)
+   6 [1] glob(**/python3,**/python3.12)
+   7 [1] apply_patch(*** Begin Patch *** Update File: polyglot/main.py.)
+   8 [1] shell(gcc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror )
+   9 [1] FINAL
+== prove-plus-comm__82RPTgE reward=1 rounds=8
+   1 [1] read(plus_comm.v)
+   2 [1] apply_patch(*** Begin Patch *** Update File: plus_comm.v @@ in)
+   3 [1] shell(coqc plus_comm.v && test -f plus_comm.vo)
+   4 [1] apply_patch(*** Begin Patch *** Update File: plus_comm.v @@ in)
+   5 [1] shell(coqc plus_comm.v && test -f plus_comm.vo)
+   6 [1] apply_patch(*** Begin Patch *** Update File: plus_comm.v @@ - )
+   7 [1] shell(coqc plus_comm.v && test -f plus_comm.vo)
+   8 [1] FINAL
+TOTAL rounds=55
