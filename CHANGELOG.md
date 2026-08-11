@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.117 - 2026-08-11
+
 - Desktop prompt submission now supports immediate Enter queueing and precise
   Esc restoration of pending text and attachments, while transcript scrolling
   defers virtualizer corrections during active reader motion.
