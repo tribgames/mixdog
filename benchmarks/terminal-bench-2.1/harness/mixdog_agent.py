@@ -212,6 +212,9 @@ def _run_anthropic_preflight(host_creds: Path, snapshot_path: Path) -> None:
     env = {
         **os.environ,
         "ANTHROPIC_OAUTH_CREDENTIALS_PATH": str(host_creds),
+        # The snapshot copy runs from TEMP; point its provider import at the
+        # real repo src (harness/ -> terminal-bench-2.1 -> benchmarks -> repo).
+        "MIXDOG_TB_REPO_SRC": str(Path(__file__).resolve().parents[3] / "src"),
     }
     result = subprocess.run(
         [

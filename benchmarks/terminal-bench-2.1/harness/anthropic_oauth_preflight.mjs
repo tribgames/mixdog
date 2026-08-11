@@ -1,9 +1,21 @@
 #!/usr/bin/env node
 import { resolve } from 'node:path';
-import {
-    _scrubTokens,
-    preflightAnthropicOAuthCredentials,
-} from '../../../src/runtime/agent/orchestrator/providers/anthropic-oauth-credentials.mjs';
+import { pathToFileURL } from 'node:url';
+
+// run-tb21.ps1 copies this file into a TEMP harness snapshot, where the old
+// static ../../../src import resolved against TEMP and crashed every trial.
+// The agent passes the real repo src root; direct in-repo runs fall back to
+// the relative layout.
+const providersModule = process.env.MIXDOG_TB_REPO_SRC
+    ? pathToFileURL(resolve(
+        process.env.MIXDOG_TB_REPO_SRC,
+        'runtime/agent/orchestrator/providers/anthropic-oauth-credentials.mjs',
+    )).href
+    : new URL(
+        '../../../src/runtime/agent/orchestrator/providers/anthropic-oauth-credentials.mjs',
+        import.meta.url,
+    ).href;
+const { _scrubTokens, preflightAnthropicOAuthCredentials } = await import(providersModule);
 
 function valueAfter(flag) {
     const index = process.argv.indexOf(flag);
