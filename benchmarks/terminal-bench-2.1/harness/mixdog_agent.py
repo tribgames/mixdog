@@ -89,6 +89,12 @@ DEFAULT_PREBAKE_TAR = (
     Path(__file__).resolve().parents[1] / "mixdog-prebake" / "mixdog-node-prebake.tar.gz"
 )
 CONTAINER_PREBAKE_TAR = "/opt/mixdog-node-prebake.tar.gz"
+# zstd prebake pair (see prebake.ps1): multi-threaded decompress cuts the
+# per-trial extract leg from gunzip's 5-10s to ~1s. Both files must exist
+# AND the shipped binary must run in-container, else the .tar.gz path is
+# used unchanged.
+CONTAINER_PREBAKE_TAR_ZST = "/opt/mixdog-node-prebake.tar.zst"
+CONTAINER_PREBAKE_ZSTD = "/opt/mixdog-zstd"
 BENCH_DRIVER_DEADLINE_MS = 180 * 60 * 1000
 ANTHROPIC_REFRESH_SKEW_MS = 5 * 60 * 1000
 PROCESS_KILL_GRACE_S = 30
@@ -414,6 +420,8 @@ class MixdogAgent(BaseInstalledAgent):
         prebake_tar = Path(
             os.environ.get(PREBAKE_TAR_ENV, "") or DEFAULT_PREBAKE_TAR
         )
+        prebake_tar_zst = prebake_tar.with_name("mixdog-node-prebake.tar.zst")
+        prebake_zstd_bin = prebake_tar.with_name("zstd-amd64")
         if prebake_tar.is_file():
             # apt (glibc) images take the fast path; apk/yum fall through to
             # the stock installer below (the tar targets debian layout).
@@ -421,14 +429,10 @@ class MixdogAgent(BaseInstalledAgent):
                 environment, command="command -v apt-get >/dev/null 2>&1 && echo apt || true"
             )
             if "apt" in (getattr(probe, "stdout", "") or ""):
-                async def _stage_leg():
-                    await environment.upload_file(prebake_tar, CONTAINER_PREBAKE_TAR)
-                    return await self.exec_as_root(
-                        environment,
-                        command=(
+                def _stage_command(extract):
+                    return (
                             "set -eu; "
-                            f"tar -C / -xzf {CONTAINER_PREBAKE_TAR}; "
-                            f"rm -f {CONTAINER_PREBAKE_TAR}; "
+                            f"{extract} "
                             # Prebaked dep-layer compile cache lives OUTSIDE
                             # /opt/mixdog (which _inject_credentials recreates);
                             # agent-user warmup/driver must be able to append.
@@ -450,10 +454,41 @@ class MixdogAgent(BaseInstalledAgent):
                             "done; echo 'tool-dep preflight ok: rg node timeout tar grep'; "
                             "if command -v curl >/dev/null 2>&1 && [ -s /etc/ssl/certs/ca-certificates.crt ]; then "
                             "echo CURL_READY; else echo CURL_MISSING; fi"
+                    )
+
+                async def _stage_leg_zst():
+                    await environment.upload_file(prebake_tar_zst, CONTAINER_PREBAKE_TAR_ZST)
+                    await environment.upload_file(prebake_zstd_bin, CONTAINER_PREBAKE_ZSTD)
+                    return await self.exec_as_root(
+                        environment,
+                        command=_stage_command(
+                            f"chmod 0755 {CONTAINER_PREBAKE_ZSTD}; "
+                            f"{CONTAINER_PREBAKE_ZSTD} --version >/dev/null 2>&1 || {{ echo PREBAKE_ZSTD_UNUSABLE; exit 42; }}; "
+                            f"tar -C / -I {CONTAINER_PREBAKE_ZSTD} -xf {CONTAINER_PREBAKE_TAR_ZST}; "
+                            f"rm -f {CONTAINER_PREBAKE_TAR_ZST} {CONTAINER_PREBAKE_ZSTD};"
                         ),
                     )
 
-                stage_result = await _timed("stage", _stage_leg())
+                async def _stage_leg():
+                    await environment.upload_file(prebake_tar, CONTAINER_PREBAKE_TAR)
+                    return await self.exec_as_root(
+                        environment,
+                        command=_stage_command(
+                            f"tar -C / -xzf {CONTAINER_PREBAKE_TAR}; "
+                            f"rm -f {CONTAINER_PREBAKE_TAR};"
+                        ),
+                    )
+
+                stage_result = None
+                if prebake_tar_zst.is_file() and prebake_zstd_bin.is_file():
+                    try:
+                        stage_result = await _timed("stage-zst", _stage_leg_zst())
+                        if "PREBAKE_ZSTD_UNUSABLE" in (getattr(stage_result, "stdout", "") or ""):
+                            stage_result = None
+                    except Exception:
+                        stage_result = None
+                if stage_result is None:
+                    stage_result = await _timed("stage", _stage_leg())
                 if "CURL_MISSING" in (getattr(stage_result, "stdout", "") or ""):
                     # Old tar without the static bundle: uniform network
                     # fallback (no task conditionals).
