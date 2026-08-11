@@ -5,7 +5,6 @@ const LEGACY_AGENT_ROUTE_SLOTS = Object.freeze({
 
 const REDUNDANT_WORKFLOW_PRESET_IDS = new Set([
   'workflow-agent',
-  'workflow-explorer',
   'workflow-memory',
 ]);
 
@@ -65,8 +64,6 @@ export function canonicalizeAgentRoutes(config = {}) {
       .find((route) => isCompleteAgentRoute(route));
     if (candidate) agents[id] = candidate;
   }
-  delete agents.explore;
-  delete agents.explorer;
   delete agents.maintenance;
   // Older settings saves generated one preset per fixed/custom agent. Promote
   // a preset only when no higher-priority canonical/legacy route exists, then
@@ -92,7 +89,6 @@ export function canonicalizeAgentRouteStorage(config = {}) {
     ...rest
   } = config || {};
   const maintenance = { ...record(config?.maintenance) };
-  delete maintenance.explore;
   delete maintenance.memory;
   const presets = Array.isArray(config?.presets)
     ? config.presets.filter((preset) => !isRedundantGeneratedRoutePreset(preset, config?.default))
@@ -110,7 +106,6 @@ export function agentRouteStorageNeedsMigration(config = {}) {
   const maintenance = record(config?.maintenance);
   return Object.prototype.hasOwnProperty.call(config || {}, 'workflowRoutes')
     || Object.prototype.hasOwnProperty.call(agents, 'maintenance')
-    || Object.prototype.hasOwnProperty.call(maintenance, 'explore')
     || Object.prototype.hasOwnProperty.call(maintenance, 'memory')
     || Object.values(agents).some((route) => !isCompleteAgentRoute(route))
     || (Array.isArray(config?.presets)

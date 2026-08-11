@@ -8987,7 +8987,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 
 /* Chat interaction audit additions. */
-.conversation { position: relative; }
+.conversation {
+  position: relative;
+  /* Height-queryable pane container: panels inside the pane (turn-review
+     diff) cap themselves against the PANE via cqh, not the window via vh —
+     in a split layout 60vh can exceed the pane and swallow it whole. */
+  container: conversation-pane / size;
+}
 .jump-to-latest {
   position: absolute;
   z-index: 9;
@@ -12863,8 +12869,11 @@ html.mx-window-resizing .panel-backdrop {
 .turn-review-files {
   /* Tall upward expansion (user request): the open panel claims up to ~60%
      of the viewport instead of a 132px sliver, and stays the ONLY scroller
-     (the inline diff below has no height cap of its own). */
-  max-height: min(60vh, 720px);
+     (the inline diff below has no height cap of its own). The pane-height
+     term (85cqh minus head/composer chrome) keeps ~10%+ of the pane visible
+     above the open panel in split layouts, where 60vh of the WINDOW used to
+     fill the whole pane (user: 디프창이 가득 안 차게, 위 10%는 남겨줘). */
+  max-height: min(60vh, 720px, max(160px, 85cqh - 160px));
   margin: 0;
   padding: 0 6px 4px;
   overflow-y: auto;

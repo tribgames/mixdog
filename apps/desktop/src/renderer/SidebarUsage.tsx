@@ -105,7 +105,9 @@ function usedPercent(window: UsageRecord): number | null {
 }
 
 /** Rail pin mode (user: 핀모드): one entry per brand that has quota data —
- *  its icon plus the WORST window's usage, the number that blocks first. */
+ *  its icon plus one window's usage, picked by display priority
+ *  5H → weekly (7D/W) → monthly (M); anything else (EXTRA…) is a fallback
+ *  shown only when none of those windows exist (user: 우선순위 5H > 주 > 월). */
 export interface UsagePinEntry {
   key: string;
   label: string;
@@ -113,17 +115,34 @@ export interface UsagePinEntry {
   percent: number;
 }
 
+const PIN_WINDOW_PRIORITY = [
+  /^5H$/i,
+  /^(?:7D|W|WK|WEEK|WEEKLY)$/i,
+  /^(?:M|MO|MON|MONTH|MONTHLY)$/i,
+];
+
+function pinPercent(windows: UsageRecord[]): number | null {
+  const candidates = windows.flatMap((window) => {
+    const percent = usedPercent(window);
+    return percent === null ? [] : [{ label: String(window.label || "").trim(), percent }];
+  });
+  if (!candidates.length) return null;
+  for (const pattern of PIN_WINDOW_PRIORITY) {
+    const hit = candidates.find((candidate) => pattern.test(candidate.label));
+    if (hit) return hit.percent;
+  }
+  return Math.max(...candidates.map((candidate) => candidate.percent));
+}
+
 export function usagePinEntries(dashboard: unknown): UsagePinEntry[] {
   return SUBSCRIPTIONS.flatMap((subscription) => {
-    const percents = quotaWindows(subscriptionRow(dashboard, subscription))
-      .map(usedPercent)
-      .filter((value): value is number => value !== null);
-    if (!percents.length) return [];
+    const percent = pinPercent(quotaWindows(subscriptionRow(dashboard, subscription)));
+    if (percent === null) return [];
     return [{
       key: subscription.key,
       label: subscription.label,
       provider: subscription.provider,
-      percent: Math.max(...percents),
+      percent,
     }];
   });
 }
