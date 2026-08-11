@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'child_process';
+import { tryNativeProcessSnapshot } from './native-search-client.mjs';
 
 // Process/pid lifecycle helpers for background shell jobs: liveness probing,
 // tree-kill, the module-level live-job pid registry, and the CLI-shutdown exit
@@ -31,75 +32,25 @@ function isProcessTreeAlive(pid) {
     }
 }
 
-const windowsSnapshotCaches = new WeakMap();
-function windowsProcessSnapshot({ fresh = false, spawnFn = spawn } = {}) {
-    let windowsSnapshotCache = windowsSnapshotCaches.get(spawnFn);
-    if (!windowsSnapshotCache) {
-        windowsSnapshotCache = { at: 0, rows: null, inFlight: null };
-        windowsSnapshotCaches.set(spawnFn, windowsSnapshotCache);
-    }
+const windowsSnapshotCache = { at: 0, rows: null, inFlight: null };
+function windowsProcessSnapshot({ fresh = false } = {}) {
     const now = Date.now();
     if (!fresh && windowsSnapshotCache.rows && now - windowsSnapshotCache.at < 750) {
         return Promise.resolve(windowsSnapshotCache.rows);
     }
     if (windowsSnapshotCache.inFlight) return windowsSnapshotCache.inFlight;
-    const command = [
-        "$ErrorActionPreference='Stop'",
-        'Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,CreationDate | ForEach-Object {',
-        '  [Console]::Out.WriteLine(("{0}`t{1}`t{2}" -f $_.ProcessId,$_.ParentProcessId,$_.CreationDate))',
-        '}',
-    ].join('; ');
-    windowsSnapshotCache.inFlight = new Promise((resolve) => {
-        let child;
-        let stdout = '';
-        let settled = false;
-        let timeout = null;
-        const finish = (rows) => {
-            if (settled) return;
-            settled = true;
-            if (timeout) clearTimeout(timeout);
-            windowsSnapshotCache.inFlight = null;
+    windowsSnapshotCache.inFlight = Promise.resolve(tryNativeProcessSnapshot()).then(
+        (snapshot) => {
+            const rows = normalizeWindowsSnapshot(snapshot);
             if (rows) {
                 windowsSnapshotCache.at = Date.now();
                 windowsSnapshotCache.rows = rows;
             }
-            resolve(rows);
-        };
-        try {
-            child = spawnFn('powershell.exe', [
-            '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command,
-            ], {
-                windowsHide: true,
-                stdio: ['ignore', 'pipe', 'ignore'],
-            });
-            child.stdout.setEncoding('utf8');
-            child.stdout.on('data', (chunk) => {
-                if (stdout.length <= 4 * 1024 * 1024) stdout += chunk;
-            });
-            child.once('error', () => finish(null));
-            child.once('close', (code) => {
-                if (code !== 0 || !stdout) {
-                    finish(null);
-                    return;
-                }
-                const rows = new Map();
-                for (const line of stdout.split(/\r?\n/)) {
-                    const [pidText, parentText, identity = ''] = line.split('\t');
-                    const rowPid = Number(pidText);
-                    const parentPid = Number(parentText);
-                    if (!Number.isFinite(rowPid) || rowPid <= 0 || !Number.isFinite(parentPid)) continue;
-                    rows.set(rowPid, { pid: rowPid, parentPid, identity });
-                }
-                finish(rows);
-            });
-            timeout = setTimeout(() => {
-                try { child.kill(); } catch {}
-                finish(null);
-            }, 2000);
-            if (typeof timeout.unref === 'function') timeout.unref();
-        } catch {
-            finish(null);
-        }
+            return rows;
+        },
+        () => null,
+    ).finally(() => {
+        windowsSnapshotCache.inFlight = null;
     });
     return windowsSnapshotCache.inFlight;
 }
@@ -117,28 +68,39 @@ function normalizeWindowsSnapshot(snapshot) {
     return rows;
 }
 
-// Standby-pool support: does `pid` currently own live descendant processes?
-// FRESH snapshot on purpose — the 750ms cache could miss a just-spawned
-// grandchild and wrongly certify a polluted standby shell as clean. Unknown
-// snapshots answer true (conservative: the pool discards instead of reusing).
-export async function windowsPidHasDescendants(pid, { spawnFn = spawn } = {}) {
-    if (!Number.isFinite(pid) || pid <= 0) return false;
-    if (process.platform !== 'win32') return false;
+// Standby-pool support: capture every current descendant with a creation-time
+// identity so a PID reused after the baseline snapshot cannot be allowlisted.
+// Unknown snapshots stay conservative: callers discard instead of reusing.
+export async function windowsPidDescendants(pid) {
+    if (!Number.isFinite(pid) || pid <= 0) return new Map();
+    if (process.platform !== 'win32') return new Map();
     let rows = null;
-    try { rows = await windowsProcessSnapshot({ fresh: true, spawnFn }); } catch { rows = null; }
-    if (!rows) return true;
+    try { rows = await windowsProcessSnapshot({ fresh: true }); } catch { rows = null; }
+    if (!rows) return null;
     const owned = new Set([pid]);
+    const descendants = new Map();
     let discovered = true;
     while (discovered) {
         discovered = false;
         for (const row of rows.values()) {
             if (!owned.has(row.pid) && owned.has(row.parentPid)) {
                 owned.add(row.pid);
+                descendants.set(row.pid, row.identity);
                 discovered = true;
             }
         }
     }
-    return owned.size > 1;
+    return descendants;
+}
+
+export async function windowsPidHasDescendants(pid, { allowedDescendants = null } = {}) {
+    const descendants = await windowsPidDescendants(pid);
+    if (!descendants) return true;
+    if (!(allowedDescendants instanceof Map)) return descendants.size > 0;
+    for (const [descendantPid, identity] of descendants) {
+        if (allowedDescendants.get(descendantPid) !== identity) return true;
+    }
+    return false;
 }
 
 // Invoke onQuiescent exactly once, synchronously when already quiescent or
@@ -165,7 +127,7 @@ export function trackProcessTreeQuiescence(
         // The PID returned by spawn is durable pre-exit ownership evidence.
         // Seed it before the first asynchronous snapshot so a child whose
         // parent is this PID remains attributable even if the root is already
-        // absent when CIM returns.
+        // absent when the native snapshot returns.
         ownedWindowsProcesses.set(pid, null);
     }
     const finish = () => {

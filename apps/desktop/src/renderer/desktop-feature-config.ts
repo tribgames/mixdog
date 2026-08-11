@@ -43,21 +43,21 @@ export type DesktopSidebarDestination =
   | "webhooks";
 
 export type DesktopUtilityDockTab =
-  | "tasks"
-  | "files"
+  | "agents"
+  | "search"
   | "source-control"
   | "pull-requests";
 
 const UTILITY_DOCK_FEATURES: Readonly<Record<DesktopUtilityDockTab, DesktopFeatureId>> = {
-  tasks: "agents",
-  files: "explorer",
+  agents: "agents",
+  search: "explorer",
   "source-control": "sourceControl",
   "pull-requests": "pullRequests",
 };
 
 const UTILITY_DOCK_TABS: readonly DesktopUtilityDockTab[] = [
-  "tasks",
-  "files",
+  "agents",
+  "search",
   "source-control",
   "pull-requests",
 ];

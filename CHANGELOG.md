@@ -5,6 +5,15 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Desktop consolidates Agents, Search, and Source Control in the utility dock,
+  keeps Utilities selected while launching tools, and aligns warning versus
+  failure treatment across restored and live tool cards.
+- File listing and native search now coalesce concurrent enumeration, support
+  cancellable persistent requests and process snapshots, and preserve bounded
+  fallback behavior under heavy filesystem fan-out.
+- Code-graph batching, PowerShell standby reuse, shell process-tree tracking,
+  and cache invalidation are hardened against concurrent work and stale state.
+
 ## v0.9.117 - 2026-08-11
 
 - Desktop prompt submission now supports immediate Enter queueing and precise

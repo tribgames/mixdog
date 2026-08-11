@@ -6,7 +6,7 @@
  * existing TUI imports and keeps only the theme-dependent dot color.
  */
 import { theme } from '../../theme.mjs';
-import { normalizeTerminalStatus } from '../../../runtime/shared/tool-card-model.mjs';
+import { deriveToolOutcomeTone } from '../../../runtime/shared/tool-card-model.mjs';
 
 export {
   isShellTool,
@@ -35,29 +35,12 @@ export {
   clampFailureCount,
 } from '../../../runtime/shared/tool-card-model.mjs';
 
-// Single source of truth for the tool-card dot (●) color. Both the aggregate
-// and normal (single-tool) render paths must call this with a resolved
-// `terminalStatus` — do not recompute color inline elsewhere.
-//   running/pending  -> theme.text (white; blink handled by caller)
-//   success          -> theme.success
-//   partial failure  -> mixdogOrange || warning (some, not all, of the group failed)
-//   all failed       -> theme.error
-//   cancelled        -> theme.warning
-// The RED/orange failure color is driven ONLY by real tool-call errors
-// (`callFailedCount` — provider isError / error toolKind), NOT by command/result
-// failures like a `[status: failed]` result. A shell command-exit
-// (`exitFailedCount`) is its own distinct neutral state: warning color, never
-// red. `terminalStatus` is still consulted so a cancelled card stays warning.
-export function toolStatusColor({ pending, groupCount, callFailedCount = 0, exitFailedCount = 0, terminalStatus = '' }) {
-  if (pending) return theme.text;
-  const status = normalizeTerminalStatus(terminalStatus);
-  if (status === 'cancelled') return theme.warning;
-  if (status === 'denied') return theme.warning;
-  if (callFailedCount > 0) {
-    if (groupCount > 1 && callFailedCount < groupCount) return theme.mixdogOrange || theme.warning;
-    return theme.error;
-  }
-  // Command-exit(s) with no real tool-call failure: distinct warning state.
-  if (exitFailedCount > 0) return theme.warning;
+// Theme binding only; semantic outcome lives in the shared card model so the
+// TUI and desktop cannot disagree about success, warning, and failure.
+export function toolStatusColor(input) {
+  const tone = deriveToolOutcomeTone(input);
+  if (tone === 'running') return theme.text;
+  if (tone === 'warning') return theme.warning;
+  if (tone === 'error') return theme.error;
   return theme.success;
 }

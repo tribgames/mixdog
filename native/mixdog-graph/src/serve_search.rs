@@ -40,7 +40,14 @@ struct ServeRequest {
 #[serde(untagged)]
 enum WireRequest {
     Search(ServeRequest),
-    Cancel { cancel: u64 },
+    Cancel {
+        cancel: u64,
+    },
+    ProcessSnapshot {
+        id: u64,
+        #[serde(rename = "processSnapshot")]
+        process_snapshot: bool,
+    },
 }
 
 struct ParsedArgs {
@@ -85,6 +92,7 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
     };
     let mut i = 0usize;
     let mut options = true;
+    let mut saw_glob = false;
     let take = |i: &mut usize, args: &[String]| -> Result<String, String> {
         *i += 1;
         args.get(*i)
@@ -117,8 +125,16 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
             "--files-with-matches" | "-l" => p.files_with_matches = true,
             "--files" => p.files_list = true,
             "-e" => p.patterns.push(take(&mut i, args)?),
-            "--glob" => p.globs.push(take(&mut i, args)?),
-            "--iglob" => p.iglobs.push(take(&mut i, args)?),
+            "--glob" => {
+                saw_glob = true;
+                p.globs.push(take(&mut i, args)?);
+            }
+            "--iglob" => {
+                if saw_glob {
+                    return Err("--iglob after --glob".to_string());
+                }
+                p.iglobs.push(take(&mut i, args)?);
+            }
             "--max-depth" => {
                 p.max_depth = Some(take(&mut i, args)?.parse().map_err(|_| "bad --max-depth")?);
             }
@@ -145,9 +161,6 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
     }
     if p.targets.is_empty() {
         return Err("no target path".to_string());
-    }
-    if !p.iglobs.is_empty() && !p.globs.is_empty() {
-        return Err("mixed --glob/--iglob ordering".to_string());
     }
     Ok(p)
 }
@@ -177,6 +190,7 @@ fn collect_files(
     operand: &Path,
     parsed: &ParsedArgs,
     cancelled: &AtomicBool,
+    max_files: Option<usize>,
 ) -> Result<Vec<PathBuf>, String> {
     if cancelled.load(Ordering::Relaxed) {
         return Err(CANCELLED.to_string());
@@ -188,19 +202,22 @@ fn collect_files(
         return Err(format!("no such path {}", operand.display()));
     }
     let mut over = OverrideBuilder::new(operand);
-    if !parsed.iglobs.is_empty() {
-        over.case_insensitive(true)
-            .map_err(|e| format!("iglob: {e}"))?;
-    }
-    let globs = if parsed.iglobs.is_empty() {
-        &parsed.globs
-    } else {
-        &parsed.iglobs
-    };
-    for g in globs {
+    for g in &parsed.globs {
         over.add(g).map_err(|e| format!("glob: {e}"))?;
     }
     let over = over.build().map_err(|e| format!("glob: {e}"))?;
+    let iglob_over = if parsed.iglobs.is_empty() {
+        None
+    } else {
+        let mut builder = OverrideBuilder::new(operand);
+        builder
+            .case_insensitive(true)
+            .map_err(|e| format!("iglob: {e}"))?;
+        for g in &parsed.iglobs {
+            builder.add(g).map_err(|e| format!("iglob: {e}"))?;
+        }
+        Some(builder.build().map_err(|e| format!("iglob: {e}"))?)
+    };
     let mut files = Vec::new();
     let mut walk = WalkBuilder::new(operand);
     walk.hidden(!parsed.hidden).overrides(over);
@@ -215,13 +232,67 @@ fn collect_files(
     if let Some(max_depth) = parsed.max_depth {
         walk.max_depth(Some(max_depth));
     }
+    if max_files.is_none() {
+        let threads = std::thread::available_parallelism()
+            .map(|count| count.get())
+            .unwrap_or(2)
+            .clamp(2, 4);
+        walk.threads(threads);
+        let collected = Mutex::new(Vec::new());
+        walk.build_parallel().run(|| {
+            let collected = &collected;
+            let iglob_over = iglob_over.as_ref();
+            Box::new(move |entry| {
+                if cancelled.load(Ordering::Relaxed) {
+                    return ignore::WalkState::Quit;
+                }
+                let Ok(entry) = entry else {
+                    return ignore::WalkState::Continue;
+                };
+                if !entry
+                    .file_type()
+                    .map(|kind| kind.is_file())
+                    .unwrap_or(false)
+                {
+                    return ignore::WalkState::Continue;
+                }
+                if iglob_over
+                    .is_some_and(|matcher| !matcher.matched(entry.path(), false).is_whitelist())
+                {
+                    return ignore::WalkState::Continue;
+                }
+                if let Ok(mut files) = collected.lock() {
+                    files.push(entry.into_path());
+                }
+                ignore::WalkState::Continue
+            })
+        });
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(CANCELLED.to_string());
+        }
+        files = collected
+            .into_inner()
+            .map_err(|_| "parallel file collector poisoned".to_string())?;
+        files.sort();
+        return Ok(files);
+    }
+    walk.sort_by_file_name(|left, right| left.cmp(right));
     for entry in walk.build() {
         if cancelled.load(Ordering::Relaxed) {
             return Err(CANCELLED.to_string());
         }
         let Ok(entry) = entry else { continue };
         if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+            if iglob_over
+                .as_ref()
+                .is_some_and(|matcher| !matcher.matched(entry.path(), false).is_whitelist())
+            {
+                continue;
+            }
             files.push(entry.into_path());
+            if max_files.is_some_and(|limit| files.len() >= limit) {
+                break;
+            }
         }
     }
     files.sort();
@@ -348,7 +419,9 @@ fn handle(req: &ServeRequest, cancelled: &AtomicBool) -> Result<serde_json::Valu
             } else {
                 cwd.join(operand)
             };
-            for file in collect_files(&operand_path, &parsed, cancelled)? {
+            let remaining = collect_until.saturating_sub(all_lines.len());
+            let max_files = (collect_until != usize::MAX).then_some(remaining);
+            for file in collect_files(&operand_path, &parsed, cancelled, max_files)? {
                 all_lines.push(display_path(operand, &operand_path, &file));
                 if all_lines.len() >= collect_until {
                     break;
@@ -388,7 +461,7 @@ fn handle(req: &ServeRequest, cancelled: &AtomicBool) -> Result<serde_json::Valu
         } else {
             cwd.join(operand)
         };
-        let files = collect_files(&operand_path, &parsed, cancelled)?;
+        let files = collect_files(&operand_path, &parsed, cancelled, None)?;
         let use_prefix = parsed.with_filename || multi_target || operand_path.is_dir();
         for file_chunk in files.chunks(chunk_size) {
             if cancelled.load(Ordering::Relaxed) {
@@ -463,9 +536,136 @@ fn search_pool() -> ThreadPool {
         .expect("mixdog search worker pool")
 }
 
+fn bulk_search_pool() -> ThreadPool {
+    let threads = std::env::var("MIXDOG_SEARCH_SERVER_MAX_BULK_INFLIGHT")
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(2)
+        .min(server_parallelism());
+    ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .thread_name(|index| format!("mixdog-search-bulk-{index}"))
+        .build()
+        .expect("mixdog bulk search worker pool")
+}
+
+fn is_bulk_file_enumeration(req: &ServeRequest) -> bool {
+    req.limit == 0 && req.args.iter().any(|arg| arg == "--files")
+}
+
+#[cfg(target_os = "windows")]
+fn process_snapshot(id: u64) -> serde_json::Value {
+    use std::ffi::c_void;
+    use std::mem;
+
+    type Handle = *mut c_void;
+    const INVALID_HANDLE_VALUE: Handle = -1isize as Handle;
+    const TH32CS_SNAPPROCESS: u32 = 0x0000_0002;
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+
+    #[repr(C)]
+    #[allow(non_snake_case)]
+    struct ProcessEntry32W {
+        dwSize: u32,
+        cntUsage: u32,
+        th32ProcessID: u32,
+        th32DefaultHeapID: usize,
+        th32ModuleID: u32,
+        cntThreads: u32,
+        th32ParentProcessID: u32,
+        pcPriClassBase: i32,
+        dwFlags: u32,
+        szExeFile: [u16; 260],
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CreateToolhelp32Snapshot(flags: u32, process_id: u32) -> Handle;
+        fn Process32FirstW(snapshot: Handle, entry: *mut ProcessEntry32W) -> i32;
+        fn Process32NextW(snapshot: Handle, entry: *mut ProcessEntry32W) -> i32;
+        fn OpenProcess(access: u32, inherit: i32, process_id: u32) -> Handle;
+        fn GetProcessTimes(
+            process: Handle,
+            creation: *mut FileTime,
+            exit: *mut FileTime,
+            kernel: *mut FileTime,
+            user: *mut FileTime,
+        ) -> i32;
+        fn CloseHandle(handle: Handle) -> i32;
+    }
+
+    fn creation_identity(pid: u32) -> String {
+        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if process.is_null() {
+            return String::new();
+        }
+        let mut creation = FileTime::default();
+        let mut exit = FileTime::default();
+        let mut kernel = FileTime::default();
+        let mut user = FileTime::default();
+        let ok =
+            unsafe { GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user) };
+        unsafe {
+            CloseHandle(process);
+        }
+        if ok == 0 {
+            String::new()
+        } else {
+            ((u64::from(creation.high) << 32) | u64::from(creation.low)).to_string()
+        }
+    }
+
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return serde_json::json!({ "id": id, "error": "process snapshot failed" });
+    }
+    let mut entry = ProcessEntry32W {
+        dwSize: mem::size_of::<ProcessEntry32W>() as u32,
+        cntUsage: 0,
+        th32ProcessID: 0,
+        th32DefaultHeapID: 0,
+        th32ModuleID: 0,
+        cntThreads: 0,
+        th32ParentProcessID: 0,
+        pcPriClassBase: 0,
+        dwFlags: 0,
+        szExeFile: [0; 260],
+    };
+    let mut rows = Vec::new();
+    let mut ok = unsafe { Process32FirstW(snapshot, &mut entry) };
+    while ok != 0 {
+        if entry.th32ProcessID > 0 {
+            rows.push(serde_json::json!({
+                "pid": entry.th32ProcessID,
+                "parentPid": entry.th32ParentProcessID,
+                "identity": creation_identity(entry.th32ProcessID),
+            }));
+        }
+        ok = unsafe { Process32NextW(snapshot, &mut entry) };
+    }
+    unsafe {
+        CloseHandle(snapshot);
+    }
+    serde_json::json!({ "id": id, "rows": rows })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn process_snapshot(id: u64) -> serde_json::Value {
+    serde_json::json!({ "id": id, "error": "process snapshot is only available on Windows" })
+}
+
 pub fn run() {
     write_response(&serde_json::json!({ "ready": true }));
     let pool = search_pool();
+    let bulk_pool = bulk_search_pool();
     let cancellations: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>> =
         Arc::new(Mutex::new(HashMap::new()));
     let stdin = std::io::stdin();
@@ -484,6 +684,13 @@ pub fn run() {
                     flag.store(true, Ordering::Relaxed);
                 }
             }
+            Ok(WireRequest::ProcessSnapshot {
+                id,
+                process_snapshot: true,
+            }) => write_response(&process_snapshot(id)),
+            Ok(WireRequest::ProcessSnapshot { id, .. }) => write_response(
+                &serde_json::json!({ "id": id, "error": "invalid process snapshot request" }),
+            ),
             Ok(WireRequest::Search(req)) => {
                 let id = req.id;
                 let cancelled = Arc::new(AtomicBool::new(false));
@@ -491,7 +698,12 @@ pub fn run() {
                     map.insert(id, Arc::clone(&cancelled));
                 }
                 let request_cancellations = Arc::clone(&cancellations);
-                pool.spawn(move || {
+                let worker_pool = if is_bulk_file_enumeration(&req) {
+                    &bulk_pool
+                } else {
+                    &pool
+                };
+                worker_pool.spawn(move || {
                     let response = match handle(&req, &cancelled) {
                         Ok(value) => Some(value),
                         Err(reason) if reason == CANCELLED || cancelled.load(Ordering::Relaxed) => {
