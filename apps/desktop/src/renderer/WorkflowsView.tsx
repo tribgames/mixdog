@@ -673,7 +673,7 @@ export function WorkflowsPane({
               disabled: busy,
               onSelect: () => setRouteEditor({
                 id: 'web-search',
-                label: t('Web search'),
+                label: 'Web Search',
                 route: searchRoute,
                 capability: 'setSearchRoute',
                 modelKind: 'search',

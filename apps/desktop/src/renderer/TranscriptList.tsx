@@ -505,8 +505,10 @@ export function TranscriptList({
 
   const virtualRows = virtualizer.getVirtualItems();
   return (
-    <div className="transcript-virtual-space" ref={bindSpacer}
-      style={{ height: `${virtualizer.getTotalSize()}px` }}>
+    // directDomUpdates owns this height synchronously through containerRef.
+    // A React height prop can commit an older render after a native wheel
+    // reaches the bottom and temporarily clip one pane at stale geometry.
+    <div className="transcript-virtual-space" ref={bindSpacer}>
       {virtualRows.map((virtualRow) => {
         const row = rows[virtualRow.index];
         if (!row) return null;
@@ -531,11 +533,6 @@ export function TranscriptList({
           </div>
         );
       })}
-      {rows.length > 0 && <div className="transcript-bottom-spacer" aria-hidden="true"
-        style={{
-          height: `${TRANSCRIPT_BOTTOM_SPACER}px`,
-          transform: `translateY(${virtualizer.getTotalSize() - TRANSCRIPT_BOTTOM_SPACER}px)`,
-        }} />}
     </div>
   );
 }

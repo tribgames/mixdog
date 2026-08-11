@@ -29,7 +29,8 @@ remote_asset_is_complete() {
     && "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
 }
 
-for asset in "$@"; do
+upload_asset() {
+  local asset="$1" name existing uploaded response attempt
   test -f "$asset"
   name="$(basename "$asset")"
   existing="$(remote_asset "$name")"
@@ -41,6 +42,7 @@ for asset in "$@"; do
     echo "Uploading ${name} over bounded HTTP/1.1 (attempt ${attempt}/2)"
     if curl --fail-with-body --silent --show-error --http1.1 \
       --connect-timeout 20 --max-time 150 \
+      --speed-limit 1024 --speed-time 20 \
       --request POST \
       --header "Accept: application/vnd.github+json" \
       --header "Authorization: Bearer ${GH_TOKEN}" \
@@ -74,6 +76,18 @@ NODE
 
   if [[ "$uploaded" != true ]]; then
     echo "Failed to upload ${name} after two bounded attempts" >&2
-    exit 1
+    return 1
   fi
+}
+
+pids=()
+for asset in "$@"; do
+  upload_asset "$asset" &
+  pids+=("$!")
 done
+
+failed=false
+for pid in "${pids[@]}"; do
+  if ! wait "$pid"; then failed=true; fi
+done
+if [[ "$failed" == true ]]; then exit 1; fi

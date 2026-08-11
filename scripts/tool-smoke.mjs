@@ -561,7 +561,7 @@ const findBatchOut = await executeBuiltinTool('find', {
   try {
     const singleFlightOut = await executeFuzzyFindTool({
       query: [firstQuery, secondQuery],
-      path: '.',
+      path: 'scripts/fixtures',
       head_limit: 5,
     }, root, {
       __runRg: async () => {

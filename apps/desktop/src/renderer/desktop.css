@@ -2868,7 +2868,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   position: relative;
   width: 100%;
   flex: 0 0 auto;
-  transform: translate3d(0, 0, 0);
+  /* The scrolling viewport already owns compositing. Promoting each pane's
+     inner sizer creates independent layers that can present different scroll
+     phases when a fast wheel ramp collides with the bottom boundary. */
   contain: strict;
   overflow: hidden;
 }
@@ -2907,13 +2909,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .transcript-virtual-row-content[data-tag="UserMessage"] { padding-bottom: 24px; }
 .transcript-virtual-row-content[data-turn-end="true"] { padding-bottom: 0; }
 .transcript-turn-gap { height: 20px; }
-.transcript-bottom-spacer {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  pointer-events: none;
-}
 .thread-welcome {
   width: min(100%, 440px);
   display: grid;
@@ -7589,17 +7584,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* Projects page (sidebar → Projects): Schedules-page grammar replacing the
    popup switcher — rows reuse the schedules list skin. */
 .projects-row-icon { flex: 0 0 auto; display: grid; place-items: center; color: var(--mx-icon-muted); }
-.projects-row-copy-slot { position: relative; min-width: 0; flex: 1; display: grid; }
-.projects-row-copy-slot > .projects-row-open,
-.projects-row-copy-slot > .projects-rename { grid-area: 1 / 1; }
-.projects-row-copy-slot[data-editing="false"] > .projects-rename,
-.projects-row-copy-slot[data-editing="true"] > .projects-row-open {
-  visibility: hidden;
-  pointer-events: none;
-}
 .projects-row-open { padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
-.projects-rename { min-width: 0; display: flex; }
 .schedules-dialog.projects-add-dialog { width: min(520px, calc(100vw - 32px)); }
+/* Per-project edit dialog (rename + instructions + remove): the destructive
+   action sits alone on the footer's left edge, away from Cancel/Save. */
+.schedules-dialog.projects-edit-dialog { width: min(520px, calc(100vw - 32px)); }
+.projects-edit-dialog footer button.danger { margin-right: auto; }
 .projects-folder-row { display: flex; align-items: center; gap: 8px; }
 .projects-folder-row code {
   min-width: 0;
@@ -7613,18 +7603,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: var(--mx-font-minor);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.projects-rename input {
-  box-sizing: border-box;
-  width: 100%;
-  height: 30px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 6px;
-  color: var(--mx-text);
-  background: var(--mx-bg-deep);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-strong);
-  font-size: var(--mx-font-ui);
 }
 .settings-metric-grid > div, .settings-action-result {
   border: 0;

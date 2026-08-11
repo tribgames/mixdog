@@ -60,7 +60,7 @@ export function _resolvePwshPoolTarget({
     if (!Number.isFinite(free) || free < 0) {
         try { free = freemem(); } catch { free = 0; }
     }
-    const cpuTarget = Math.max(1, Math.min(8, Math.floor(cores) - 1 || 1));
+    const cpuTarget = Math.max(1, Math.min(4, Math.floor(cores) - 1 || 1));
     if (free < 768 * MB) return 0;
     if (free < 1536 * MB) return Math.min(1, cpuTarget);
     if (free < 3072 * MB) return Math.min(2, cpuTarget);
@@ -111,6 +111,12 @@ function _standbyBootScript(nonce) {
         '$null = & {0}',
         "[Console]::Out.Write('')",
         "[Console]::Error.Write('')",
+        // Prime the exact per-command parser/render pipeline before READY.
+        // Every standby pays this once in the background instead of making
+        // its first adopted command absorb ScriptBlock/Out-String JIT.
+        "$__warmSc = [ScriptBlock]::Create(\"'__mixdog_warm__'\")",
+        "$null = (& $__warmSc | Microsoft.PowerShell.Utility\\Out-String -Stream | Microsoft.PowerShell.Core\\ForEach-Object { [Console]::Out.Write('') })",
+        'Remove-Variable -Name __warmSc -Force -ErrorAction SilentlyContinue',
         '$__sr = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), (New-Object System.Text.UTF8Encoding($false)))',
         '$__baseEnv = @{}',
         'Get-ChildItem env: | ForEach-Object { $__baseEnv[$_.Name] = $_.Value }',

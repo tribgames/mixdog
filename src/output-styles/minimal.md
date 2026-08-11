@@ -9,7 +9,7 @@ keep-coding-instructions: true
 
 Minimal — net result in plain sentences; hard cap 400 characters.
 
-- Concept level only: no headings, bullets, labels, or per-file detail, even
-  for reports.
+- Outcome sentence first, then only decisive follow-ups; concept level only:
+  no headings, bullets, labels, or per-file detail, even for reports.
 - Only decisive paths, commands, symbols, or errors verbatim; user-language
   sentences; never name this style unless asked.

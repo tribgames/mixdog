@@ -374,9 +374,12 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.match(release, /RELEASE_ID:\s*\$\{\{ needs\.prepare-github-release\.outputs\.release_id \}\}/);
   assert.match(uploadScript, /--http1\.1/);
   assert.match(uploadScript, /--max-time 150/);
+  assert.match(uploadScript, /--speed-limit 1024 --speed-time 20/);
   assert.match(uploadScript, /--header "Expect:"/);
   assert.match(uploadScript, /for attempt in 1 2/);
   assert.match(uploadScript, /remote_asset_is_complete/);
+  assert.match(uploadScript, /upload_asset "\$asset" &/);
+  assert.match(uploadScript, /if ! wait "\$pid"/);
   assert.match(release, /name:\s*Verify complete hidden release/);
   assert.match(release, /Hidden release asset set is not exact/);
   assert.ok(
@@ -413,12 +416,13 @@ test('desktop production dependencies contain only main-process runtime external
 });
 
 test('native release workflows are reusable and unchanged runtime platforms stay skipped', async () => {
-  const [runtime, patch, graph] = await Promise.all([
+  const [runtime, patch, graph, token] = await Promise.all([
     workflow('build-runtime.yml'),
     workflow('patch-release.yml'),
     workflow('graph-release.yml'),
+    workflow('token-release.yml'),
   ]);
-  for (const worker of [runtime, patch, graph]) assert.match(worker, /workflow_call:/);
+  for (const worker of [runtime, patch, graph, token]) assert.match(worker, /workflow_call:/);
   assert.match(runtime, /needs\.build\.result == 'skipped' && inputs\.refresh_manifest/);
   assert.doesNotMatch(runtime,
     /needs\.build\.result == 'success' \|\| needs\.build\.result == 'skipped'\)\s*\}\}/);
@@ -430,7 +434,13 @@ test('native release workflows are reusable and unchanged runtime platforms stay
   assert.match(patch, /pattern:\s*patch-\*-\$\{\{ github\.run_attempt \}\}/);
   assert.match(graph, /workflow_dispatch\|workflow_call/);
   assert.equal((graph.match(/cargo test --locked --manifest-path native\/mixdog-graph\/Cargo\.toml/g) || []).length, 1);
-  assert.match(graph, /prepare:[\s\S]*needs:\s*\[gate,\s*test,\s*build\]/);
+  for (const [name, worker] of [['graph', graph], ['token', token]]) {
+    assert.match(worker, /rebuild:[\s\S]*name:\s*build-\$\{\{ matrix\.pkey \}\}-comparison/);
+    assert.match(worker, /prepare:[\s\S]*needs:\s*\[gate,\s*test,\s*build,\s*rebuild\]/);
+    assert.match(worker,
+      new RegExp(`pattern:\\s*rebuild-${name}-\\*-\\$\\{\\{ github\\.run_attempt \\}\\}`));
+    assert.match(worker, /cmp "_release\/\$asset" "_repro\/\$asset"/);
+  }
   assert.match(graph, /^concurrency:\s*\n\s*group:\s*graph-release-\$\{\{ inputs\.tag \|\| github\.ref_name \}\}/m);
   assert.match(graph, /sync:[\s\S]*group:\s*graph-release-finalize/);
   assert.doesNotMatch(graph, /^  publish:/m);

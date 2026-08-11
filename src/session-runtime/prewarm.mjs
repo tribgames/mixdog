@@ -100,6 +100,14 @@ export function createPrewarmSchedulers({
       } catch (error) {
         bootProfile('tool-runtime:token-estimator-failed', { error: error?.message || String(error) });
       }
+      try {
+        const { prewarmFindEnumeration } = await import('../runtime/agent/orchestrator/tools/builtin/list-tool.mjs');
+        const startedAt = performance.now();
+        await prewarmFindEnumeration(getCurrentCwd());
+        bootProfile('tool-runtime:path-index', { warmed: true, ms: (performance.now() - startedAt).toFixed(1) });
+      } catch (error) {
+        bootProfile('tool-runtime:path-index-failed', { error: error?.message || String(error) });
+      }
     })(), delayMs);
     timer.unref?.();
   }

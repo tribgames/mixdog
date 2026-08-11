@@ -5,7 +5,11 @@ import { join, sep } from "path";
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
-async function downloadSingleAttachment(att, inboxDir, { timeoutMs = 180_000 } = {}) {
+async function downloadSingleAttachment(
+  att,
+  inboxDir,
+  { timeoutMs = 180_000, providerName = "discord" } = {},
+) {
   if (att.size > MAX_ATTACHMENT_BYTES) {
     throw new Error(
       `attachment too large: ${(att.size / 1024 / 1024).toFixed(1)}MB, max ${MAX_ATTACHMENT_BYTES / 1024 / 1024}MB`
@@ -46,7 +50,7 @@ async function downloadSingleAttachment(att, inboxDir, { timeoutMs = 180_000 } =
   }
   const buf = Buffer.concat(chunks.map((c) => Buffer.from(c.buffer, c.byteOffset, c.byteLength)), received);
   if (att.size > 0 && buf.length !== att.size) {
-    process.stderr.write(`mixdog discord: attachment size mismatch: expected ${att.size} got ${buf.length} (${att.name ?? att.id})\n`);
+    process.stderr.write(`mixdog ${providerName}: attachment size mismatch: expected ${att.size} got ${buf.length} (${att.name ?? att.id})\n`);
   }
   const name = att.name ?? `${att.id}`;
   const rawExt = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : "bin";

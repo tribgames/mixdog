@@ -5,6 +5,15 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Native Graph and Token reproducibility builds now run on independent runners
+  in parallel, while macOS Intel DMG and ZIP uploads overlap and abandon
+  stalled transfers promptly.
+- Desktop project navigation, utility surfaces, transcript focus, and vendored
+  virtualization behavior are refined alongside tighter tool execution styles
+  and filesystem process reuse.
+- Discord and Telegram attachment handling preserves bounded media delivery
+  and validates Telegram upload behavior directly.
+
 ## v0.9.118 - 2026-08-11
 
 - Desktop consolidates Agents, Search, and Source Control in the utility dock,

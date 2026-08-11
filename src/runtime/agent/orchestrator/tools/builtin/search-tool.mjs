@@ -1563,7 +1563,11 @@ export async function executeGlobTool(args, workDir, options = {}) {
     let accumTruncated = false;
     let rgStdoutTruncated = false;
     let rgStdoutPartial = false;
+    let rgWindowIncomplete = false;
     const accumCap = 50000;
+    const canWindowNatural = globGroups.length === 1
+        && sortMode === 'natural'
+        && headLimit !== Infinity;
     const groupRuns = await Promise.all(globGroups.map(async ([root, rels]) => {
         const rgArgs = ['--files', '--hidden'];
         for (const ex of DEFAULT_IGNORE_GLOBS) rgArgs.push('--glob', ex);
@@ -1602,6 +1606,21 @@ export async function executeGlobTool(args, workDir, options = {}) {
             };
         }
         try {
+            if (canWindowNatural) {
+                const served = await runRgWindowedLines(
+                    rgArgs,
+                    { cwd: rgCwd, timeout: 10000, signal: options.signal },
+                    { offset: 0, limit: offset + headLimit + 1 },
+                );
+                return {
+                    error: null,
+                    paths: served.lines.map((line) =>
+                        isAbsolute(line) ? line : resolveAgainstCwd(line, rgCwd)),
+                    stdoutTruncated: false,
+                    stdoutPartial: false,
+                    windowIncomplete: served.complete !== true,
+                };
+            }
             const stdout = await runRg(rgArgs, { cwd: rgCwd, timeout: 10000, signal: options.signal });
             const stdoutTruncated = Boolean(stdout && typeof stdout === 'object' && stdout.truncated);
             const stdoutPartial = Boolean(stdout && typeof stdout === 'object' && stdout.partial);
@@ -1631,6 +1650,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
         }
         if (run.stdoutTruncated) rgStdoutTruncated = true;
         if (run.stdoutPartial) rgStdoutPartial = true;
+        if (run.windowIncomplete) rgWindowIncomplete = true;
         for (const p of run.paths) {
             allFiles.push(p);
             if (allFiles.length >= accumCap) {
@@ -1680,14 +1700,17 @@ export async function executeGlobTool(args, workDir, options = {}) {
             emptyDiag = `(no files found) pattern=${patternStr} path=${baseLabel}; ${basePathDiagnostic(baseEntries.map((e) => e.root), workDir, statCache)}`;
         }
     }
+    const moreSuffix = rgWindowIncomplete
+        ? `\n... [more entries available — pass offset:${offset + capped.length} to continue]`
+        : (remaining > 0 ? `\n... [${remaining} more entries of ${totalBeforeOffset} total — pass offset:${offset + capped.length} to continue]` : '');
     const body = capped.length > 0
-        ? `${capped.join('\n')}${remaining > 0 ? `\n... [${remaining} more entries of ${totalBeforeOffset} total — pass offset:${offset + capped.length} to continue]` : ''}${errSuffix}`
+        ? `${capped.join('\n')}${moreSuffix}${errSuffix}`
         : '';
     const out = globPatternCapNote + (body || emptyDiag || '(no files found)');
-    if (options?.scopedCacheOutcome && (accumTruncated || rgStdoutTruncated || rgStdoutPartial || remaining > 0)) {
+    if (options?.scopedCacheOutcome && (accumTruncated || rgStdoutTruncated || rgStdoutPartial || rgWindowIncomplete || remaining > 0)) {
         markScopedCacheIncomplete(options.scopedCacheOutcome);
     }
-    const globIncomplete = accumTruncated || rgStdoutTruncated || rgStdoutPartial || remaining > 0;
+    const globIncomplete = accumTruncated || rgStdoutTruncated || rgStdoutPartial || rgWindowIncomplete || remaining > 0;
     if (!globIncomplete) {
         cacheSet(cacheKey, out, { scopes: [...groups.keys()].map((root) => resolvedForSearchRoot(root)) });
     }
