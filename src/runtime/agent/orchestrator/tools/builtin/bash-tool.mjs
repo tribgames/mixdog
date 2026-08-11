@@ -290,13 +290,17 @@ function _pathPrefixExecutables(cmd, limit = 5) {
     return hits;
 }
 export function _exitClassDiagnostic(exitCode, stderr) {
-    if (exitCode === 127) {
+    // Not gated on 127: compound chains (`a && b; c`) and pipelines mask the
+    // 127 into the chain's final code (observed as exit 1 in 6/28 bench
+    // cases), so the stderr fact decides, not the exit code.
+    {
         const cmd = _missingCommandFrom(stderr);
-        if (!cmd) return '';
-        const hits = _pathPrefixExecutables(cmd);
-        return hits.length
-            ? ` — '${cmd}' is not on PATH; PATH does have: ${hits.join(', ')}`
-            : ` — '${cmd}' is not on PATH and no '${cmd}*' executable exists on PATH`;
+        if (cmd) {
+            const hits = _pathPrefixExecutables(cmd);
+            return hits.length
+                ? ` — '${cmd}' is not on PATH; PATH does have: ${hits.join(', ')}`
+                : ` — '${cmd}' is not on PATH and no '${cmd}*' executable exists on PATH`;
+        }
     }
     if (exitCode === 126) return ' — 126: command found but not executable (permission or format)';
     if (exitCode > 128 && exitCode < 165) {
