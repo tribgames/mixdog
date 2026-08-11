@@ -5,6 +5,13 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Tool execution rules and shell diagnostics now distinguish conclusive path
+  misses, trust verified envelopes, keep same-turn value checks, and surface
+  command-not-found facts from stderr.
+- Desktop transcript virtualization now pins native text-selection endpoints
+  during drag autoscroll, while utility launchers align their icon and copy in
+  content-sized rows.
+
 ## v0.9.120 - 2026-08-11
 
 - Background shell tasks now retain their owner session and daemon after every
