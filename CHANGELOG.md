@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.122 - 2026-08-11
+
 - Tool routing rules now centralize path conventions, remove duplicate batching
   guidance, and require read-only inspection only when evidence is at risk.
 - Anthropic benchmark preflight now resolves provider imports correctly from
