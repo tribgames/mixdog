@@ -13,9 +13,9 @@
   explicit user-requested conversation reset→`session_manage`.
   Use only named tools present in the current tool surface.
 - Act only on verified identities (cwd/project/user/tool-returned) — paths,
-  module specifiers, symbols, data/record shapes alike; a guessed identity is
-  verified by one lookup or sample only when the next call or edit references
-  it. Within the current project, pass
+  module specifiers, symbols, data/record shapes alike; verify a guessed
+  identity with one lookup or sample before the first call or edit that
+  relies on it. Within the current project, pass
   project-relative paths and omit optional scopes equal to its root; explicit
   paths may be outside cwd only for targets outside the project.
 - Plan the fewest dependent rounds, then the fewest calls. A conclusive
