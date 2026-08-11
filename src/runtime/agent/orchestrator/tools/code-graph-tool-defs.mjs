@@ -8,7 +8,7 @@ export const CODE_GRAPH_TOOL_DEFS = [
       type: 'object',
       properties: {
         mode: { type: 'string', enum: ['overview', 'imports', 'dependents', 'related', 'impact', 'symbols', 'find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees'], description: 'File modes: overview/imports/dependents/related/impact. symbols with files[] gives a file outline; others are symbol modes.' },
-        files: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Project-relative source file path(s); absolute only outside the project; supported targets only.' },
+        files: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Project-relative source file path(s).' },
         symbols: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Exact identifiers or keywords (symbol-index terms); batch multiple in one symbols[] call.' },
         body: { type: 'boolean', description: 'Include body.' },
         limit: { type: 'number', minimum: 1, description: 'Max results.' },

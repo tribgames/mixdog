@@ -1830,7 +1830,9 @@ for (const requiredGrammarLine of [
 }
 const readPathSchema = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.inputSchema?.properties?.path || {};
 const readPathDescription = readPathSchema.description || '';
-if (!/\[path,offset,limit\?\].*range/i.test(readPathDescription) || !/absolute only outside/i.test(readPathDescription)) {
+// Path-convention prose (project-relative / absolute-outside) now lives only
+// in the shared BP1 rules; schemas carry tool-unique semantics.
+if (!/\[path,offset,limit\?\].*range/i.test(readPathDescription) || /absolute only outside/i.test(readPathDescription)) {
   throw new Error('read schema must keep directory-vs-file guidance');
 }
 if (!/not director/i.test((BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.description) || '')) {
