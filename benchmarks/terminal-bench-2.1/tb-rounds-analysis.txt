@@ -1,0 +1,66 @@
+== code-from-image__rSCjUjo rounds=11
+   1 [2] shell(file code.png && python3 - <<'PY' from PIL import ) | list()
+   2 [1] shell(python3 - <<'PY' from PIL import Image import shut)
+   3 [1] shell(python3 - <<'PY' import importlib.util, shutil for)
+   4 [1] shell(apt-get update -qq && apt-get install -y -qq tesse)
+   5 [1] FINAL
+   6 [1] shell(set -e echo '--- psm6 ---' tesseract code.png stdo)
+   7 [1] shell(/usr/bin/python3 - <<'PY' from PIL import Image, I)
+   8 [1] shell(python3 - <<'PY' from hashlib import sha256 p='cod)
+   9 [1] apply_patch(*** Begin Patch *** Add File: solution.py +from ha)
+  10 [1] shell(set -e python3 -m py_compile solution.py printed=$)
+  11 [1] FINAL
+== db-wal-recovery__tWsadCE rounds=7
+   1 [1] list(/app)
+   2 [2] read(/app/main.db) | read(/app/main.db-wal)
+   3 [1] shell(python3 - <<'PY' from pathlib import Path import o)
+   4 [1] shell(python3 - <<'PY' import sqlite3 con = sqlite3.conn)
+   5 [1] shell(python3 - <<'PY' import json, os, sqlite3 from pat)
+   6 [1] shell(python3 - <<'PY' import json, sqlite3 from pathlib)
+   7 [1] FINAL
+== fix-code-vulnerability__oSGQaro rounds=6
+   1 [4] list() | glob(test*.py,test/**/*.py,tests/**/*.py) | grep(raise ValueError,raise TypeError,except ValueError) | shell(git status --short && git log -1 --oneline)
+   2 [4] grep(except .*:\s*$,except .*: pass,raise Exception,ass) | grep(assertRaises,pytest.raises,raises() | read([object Object],[object Object],[object Object]) | grep(parse_r
+   3 [4] grep(def _hkey,def _hval,def path_shift,def static_file) | read([object Object],[object Object]) | grep(except Exception,except ValueError,except TypeErro) | shell(pytest
+   4 [1] apply_patch(*** Begin Patch *** Update File: bottle.py @@ def )
+   5 [1] shell(python -m py_compile bottle.py && python -c 'impor)
+   6 [1] FINAL
+== git-leak-recovery__Doz39ZH rounds=6
+   1 [1] shell(python3 - <<'PY' import hashlib, json, os, re, sta)
+   2 [1] shell(for cmd in perl ruby node php; do if command -v "$)
+   3 [1] shell(node <<'NODE' const cp = require('child_process');)
+   4 [1] shell(set -euo pipefail repo=/app/repo root=$(git -C "$r)
+   5 [2] shell(node <<'NODE' const cp = require('child_process');) | grep(secret\[[^\]\r\n]*\])
+   6 [1] FINAL
+== log-summary-date-ranges__qaz2jVz rounds=6
+   1 [1] list(/app/logs)
+   2 [1] read(/app/logs/2025-08-12_api.log)
+   3 [1] shell(python3 - <<'PY' from collections import Counter f)
+   4 [1] read(/app/logs/2025-07-03_api.log)
+   5 [1] shell(python3 - <<'PY' from collections import Counter f)
+   6 [1] FINAL
+== multi-source-data-merger__FoDbhJp rounds=4
+   1 [3] read(/data/source_a/users.json) | read(/data/source_b/users.csv) | shell(python - <<'PY' import pandas as pd p='/data/sourc)
+   2 [1] shell(python - <<'PY' import csv import json from dateti)
+   3 [1] shell(python - <<'PY' import csv import json import re f)
+   4 [1] FINAL
+== polyglot-c-py__Wrf6hAK rounds=10
+   1 [1] list(polyglot)
+   2 [1] shell(mkdir -p polyglot)
+   3 [1] apply_patch(*** Begin Patch *** Add File: polyglot/main.py.c +)
+   4 [1] shell(set -euo pipefail trap 'rm -f /tmp/polyglot-cmain-)
+   5 [1] apply_patch(*** Begin Patch *** Update File: polyglot/main.py.)
+   6 [1] read([object Object],[object Object])
+   7 [1] shell(set -euo pipefail trap 'rm -f /tmp/polyglot-cmain-)
+   8 [1] shell(for candidate in python3 python3.12 python; do com)
+   9 [1] shell(set -euo pipefail trap 'rm -f /tmp/polyglot-cmain-)
+  10 [1] FINAL
+== prove-plus-comm__htAoXun rounds=8
+   1 [1] load_tool()
+   2 [1] cwd(/workspace)
+   3 [1] read(plus_comm.v)
+   4 [1] apply_patch(*** Begin Patch *** Update File: plus_comm.v @@ in)
+   5 [1] shell(coqc plus_comm.v && test -s plus_comm.vo)
+   6 [1] apply_patch(*** Begin Patch *** Update File: plus_comm.v @@ in)
+   7 [1] shell(coqc plus_comm.v && test -s plus_comm.vo)
+   8 [1] FINAL
