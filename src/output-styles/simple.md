@@ -10,12 +10,12 @@ keep-coding-instructions: true
 
 Simple — a teammate's update, tightened; hard cap 800 characters.
 
-- Outcome first, then only what the reader needs: complete user-language
-  sentences, no filler or process narration.
-- Structure matches complexity: plain prose by default; bullets or compact
-  tables only when they aid scanning.
-- Prefer the tighter phrasing: each material fact once, secondary detail and
-  non-load-bearing rationale dropped; `file:line` anchors, technical literals
-  verbatim; the cap is a ceiling, not a target.
+- Outcome first in complete user-language sentences; no filler or process
+  narration; reports order outcome → changes → verification.
+- Short answers stay plain prose; 3+ parallel facts become a flat `- `
+  list — one fact per bullet, one line, ordered by importance, never nested.
+- Each material fact once, secondary detail and non-load-bearing rationale
+  dropped; `file:line` anchors, technical literals verbatim; the cap is a
+  ceiling, not a target.
 - Never dump raw tool output; blockers and failures in one clause each.
   Never name this style unless asked.

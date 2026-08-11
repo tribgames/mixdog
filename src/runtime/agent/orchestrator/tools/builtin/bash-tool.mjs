@@ -254,6 +254,31 @@ export function _composeShellFailure(statusMarker, errorPrefix, warningBlock, pa
     return `${errorPrefix}${statusMarker}${warningBlock ? `\n${warningBlock}` : ''}\n\n${payload}`;
 }
 
+const INLINE_HOIST_CLEANUP_PATHS = new Set();
+let inlineHoistExitHookInstalled = false;
+function scheduleInlineHoistCleanup(file) {
+    if (!file) return;
+    INLINE_HOIST_CLEANUP_PATHS.add(file);
+    if (!inlineHoistExitHookInstalled) {
+        inlineHoistExitHookInstalled = true;
+        process.once('exit', () => {
+            for (const pending of INLINE_HOIST_CLEANUP_PATHS) {
+                try { unlinkSync(pending); } catch {}
+            }
+            INLINE_HOIST_CLEANUP_PATHS.clear();
+        });
+    }
+    // A long-lived pwsh standby can emit its completion marker just before a
+    // nested native process has opened the hoisted script. Keep the transport
+    // file briefly past marker settlement; normal daemon lifetime cleans it
+    // here, while the exit hook prevents one-shot CLI/test leftovers.
+    const timer = setTimeout(() => {
+        INLINE_HOIST_CLEANUP_PATHS.delete(file);
+        try { unlinkSync(file); } catch {}
+    }, 10_000);
+    timer.unref?.();
+}
+
 export async function executeBashTool(args, workDir, options = {}) {
     const requestedCwd = args.cwd ?? args.workdir;
     const cwdResult = resolveOptionalCwd(requestedCwd, workDir);
@@ -848,7 +873,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     finally {
         combinedBashAbort?.cleanup?.();
         if (_inlineHoistPath) {
-            try { unlinkSync(_inlineHoistPath); } catch { /* best-effort cleanup */ }
+            scheduleInlineHoistCleanup(_inlineHoistPath);
         }
         if (shellEffects.mutationMode === 'paths') {
             invalidateBuiltinResultCache(shellEffects.paths);

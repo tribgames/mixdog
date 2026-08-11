@@ -1,4 +1,4 @@
-import { readdirSync } from 'fs';
+import { readdirSync, watch } from 'fs';
 import { basename, isAbsolute, relative } from 'path';
 import {
     coerceReadFamilyPathArg,
@@ -22,6 +22,7 @@ import {
     statCacheSet,
     statPathsForMtime,
     registerCacheInvalidationListener,
+    invalidateBuiltinResultCache,
 } from './cache-layers.mjs';
 import { formatListSize, formatMtime } from './list-formatting.mjs';
 import {
@@ -417,6 +418,7 @@ const FIND_ENUM_CACHE = new Map(); // key -> { files, expiresAt, gen }
 const FIND_ENUM_INFLIGHT = new Map(); // key -> { promise, controller, subscribers }
 const FIND_TARGETED_BATCHES_BY_RUNNER = new WeakMap();
 const FIND_ENUM_ROOT_GEN = new Map();
+const FIND_ENUM_WATCHERS = new Map();
 let FIND_ENUM_GEN = 0;
 
 // The broad enumeration is a DERIVED cache the scope/path invalidation layer
@@ -436,12 +438,71 @@ function findEnumerationRootFromKey(key) {
 function findEnumerationRootGeneration(root) {
     return FIND_ENUM_ROOT_GEN.get(root) || 0;
 }
+function invalidateFindEnumerationRoot(root) {
+    FIND_ENUM_ROOT_GEN.set(root, findEnumerationRootGeneration(root) + 1);
+    for (const key of [...FIND_ENUM_CACHE.keys()]) {
+        if (findEnumerationRootFromKey(key) === root) FIND_ENUM_CACHE.delete(key);
+    }
+    for (const key of [...FIND_ENUM_INFLIGHT.keys()]) {
+        if (findEnumerationRootFromKey(key) === root) FIND_ENUM_INFLIGHT.delete(key);
+    }
+}
+function ensureFindEnumerationWatcher(root) {
+    const existing = FIND_ENUM_WATCHERS.get(root);
+    if (existing) {
+        existing.touchedAt = Date.now();
+        return true;
+    }
+    try {
+        const pending = new Set();
+        const record = { watcher: null, timer: null, touchedAt: Date.now() };
+        const flush = () => {
+            record.timer = null;
+            const paths = [...pending];
+            pending.clear();
+            invalidateBuiltinResultCache(paths.length ? paths : [root]);
+            const warm = setTimeout(() => void prewarmFindEnumeration(root), 100);
+            warm.unref?.();
+        };
+        record.watcher = watch(root, { recursive: true, persistent: false }, (_event, filename) => {
+            const rel = filename == null ? '' : String(filename);
+            pending.add(rel ? resolveAgainstCwd(rel, root) : root);
+            if (record.timer) clearTimeout(record.timer);
+            record.timer = setTimeout(flush, 40);
+            record.timer.unref?.();
+        });
+        record.watcher.on('error', () => {
+            if (record.timer) clearTimeout(record.timer);
+            FIND_ENUM_WATCHERS.delete(root);
+            invalidateFindEnumerationRoot(root);
+            try { record.watcher.close(); } catch {}
+        });
+        record.watcher.unref?.();
+        FIND_ENUM_WATCHERS.set(root, record);
+        if (FIND_ENUM_WATCHERS.size > 8) {
+            const oldest = [...FIND_ENUM_WATCHERS.entries()]
+                .filter(([candidate]) => candidate !== root)
+                .sort((a, b) => a[1].touchedAt - b[1].touchedAt)[0];
+            if (oldest) {
+                FIND_ENUM_WATCHERS.delete(oldest[0]);
+                try { oldest[1].watcher.close(); } catch {}
+                invalidateFindEnumerationRoot(oldest[0]);
+            }
+        }
+        return true;
+    } catch {
+        return false;
+    }
+}
 registerCacheInvalidationListener((affectedPaths) => {
     if (!Array.isArray(affectedPaths) || affectedPaths.length === 0) {
-        FIND_ENUM_GEN += 1;
-        FIND_ENUM_ROOT_GEN.clear();
-        FIND_ENUM_CACHE.clear();
-        FIND_ENUM_INFLIGHT.clear();
+        const roots = new Set([
+            ...FIND_ENUM_CACHE.keys(),
+            ...FIND_ENUM_INFLIGHT.keys(),
+        ].map(findEnumerationRootFromKey));
+        for (const root of roots) {
+            if (!FIND_ENUM_WATCHERS.has(root)) invalidateFindEnumerationRoot(root);
+        }
         return;
     }
     const keys = new Set([...FIND_ENUM_CACHE.keys(), ...FIND_ENUM_INFLIGHT.keys()]);
@@ -453,13 +514,7 @@ registerCacheInvalidationListener((affectedPaths) => {
         }
     }
     for (const root of affectedRoots) {
-        FIND_ENUM_ROOT_GEN.set(root, findEnumerationRootGeneration(root) + 1);
-        for (const key of [...FIND_ENUM_CACHE.keys()]) {
-            if (findEnumerationRootFromKey(key) === root) FIND_ENUM_CACHE.delete(key);
-        }
-        for (const key of [...FIND_ENUM_INFLIGHT.keys()]) {
-            if (findEnumerationRootFromKey(key) === root) FIND_ENUM_INFLIGHT.delete(key);
-        }
+        invalidateFindEnumerationRoot(root);
     }
 });
 
@@ -576,9 +631,10 @@ async function getBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMo
         if (ttl > 0 && !truncated && !partial
             && FIND_ENUM_GEN === genAtStart
             && findEnumerationRootGeneration(root) === rootGenAtStart) {
+            const watched = ensureFindEnumerationWatcher(root);
             FIND_ENUM_CACHE.set(key, {
                 files,
-                expiresAt: Date.now() + ttl,
+                expiresAt: watched ? Number.MAX_SAFE_INTEGER : Date.now() + ttl,
                 gen: genAtStart,
                 rootGen: rootGenAtStart,
             });
@@ -600,13 +656,23 @@ export async function prewarmFindEnumeration(root) {
     try {
         if (!root || typeof root !== 'string') return;
         const hidden = true, includeNoise = false, depth = null;
-        const rgArgs = ['--files', '--no-require-git', '--hidden'];
-        for (const ex of DEFAULT_IGNORE_GLOBS) rgArgs.push('--glob', ex);
-        rgArgs.push('.');
+        const common = ['--files', '--no-require-git', '--hidden'];
+        const all = ['--files', '--no-ignore', '--hidden'];
+        for (const ex of DEFAULT_IGNORE_GLOBS) {
+            common.push('--glob', ex);
+            all.push('--glob', ex);
+        }
+        common.push('.');
+        all.push('.');
         await getBroadEnumeration({
             root: normalizeOutputPath(root),
             hidden, depth, includeNoise, ignoreMode: 'git',
-            rgArgs, cwd: root, bestEffort: true,
+            rgArgs: common, cwd: root, bestEffort: true,
+        });
+        await getBroadEnumeration({
+            root: normalizeOutputPath(root),
+            hidden, depth, includeNoise, ignoreMode: 'targeted-all',
+            rgArgs: all, cwd: root, bestEffort: true,
         });
     } catch { /* best-effort warm; never surface */ }
 }
@@ -629,6 +695,39 @@ async function getTargetedFindEnumeration({
     const key = JSON.stringify([root, hidden, depth ?? '', includeNoise, terms]);
     const runs = context?.targetedRuns;
     if (runs?.has(key)) return runs.get(key);
+    try {
+        const inventoryArgs = ['--files', '--no-ignore'];
+        if (hidden) inventoryArgs.push('--hidden');
+        if (depth != null) inventoryArgs.push('--max-depth', String(depth));
+        if (!includeNoise) {
+            for (const ex of DEFAULT_IGNORE_GLOBS) inventoryArgs.push('--glob', ex);
+        }
+        inventoryArgs.push('.');
+        const inventory = await getBroadEnumeration({
+            root: normalizeOutputPath(root),
+            hidden,
+            depth,
+            includeNoise,
+            ignoreMode: 'targeted-all',
+            rgArgs: inventoryArgs,
+            cwd: root,
+            runRgImpl,
+            signal,
+        });
+        if (!inventory.truncated && !inventory.partial) {
+            const lowerTerms = terms.map((term) => term.toLowerCase());
+            return {
+                files: inventory.files.filter((path) => {
+                    const lower = path.toLowerCase();
+                    return lowerTerms.some((term) => lower.includes(term));
+                }),
+                truncated: false,
+                partial: false,
+            };
+        }
+    } catch {
+        if (signal?.aborted) throw findEnumerationAbortError(signal);
+    }
     let batches = FIND_TARGETED_BATCHES_BY_RUNNER.get(runRgImpl);
     if (!batches) {
         batches = new Map();

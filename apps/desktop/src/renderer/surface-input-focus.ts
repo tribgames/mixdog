@@ -35,10 +35,17 @@ const SURFACE_KEYBOARD_OWNER_SELECTOR = [
   "[role='option']",
 ].join(",");
 
-export function shouldFocusSurfaceInput(event: ReactMouseEvent<HTMLElement>): boolean {
+export function shouldFocusSurfaceInput(
+  event: ReactMouseEvent<HTMLElement>,
+  ignoredNearestInteractiveSelector = "",
+): boolean {
   if (event.button !== 0 || event.defaultPrevented) return false;
   const target = event.target;
-  if (!(target instanceof Element) || target.closest(SURFACE_INTERACTIVE_SELECTOR)) return false;
+  if (!(target instanceof Element)) return false;
+  const interactive = target.closest(SURFACE_INTERACTIVE_SELECTOR);
+  if (interactive
+    && (!ignoredNearestInteractiveSelector
+      || !interactive.matches(ignoredNearestInteractiveSelector))) return false;
   const selection = window.getSelection?.();
   return !selection || selection.isCollapsed;
 }

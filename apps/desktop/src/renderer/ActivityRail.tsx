@@ -92,10 +92,6 @@ export function ActivityRail({
     onOpen(): void;
     onPrefetch?(): void;
   }> = ([
-    // Utilities lead with the creative wand rather than a repair wrench
-    // (user: 렌치 말고 마법봉처럼 크리에이티브한 걸로).
-    { id: "utilities", label: "Utilities", tooltip: "Utilities", icon: WandSparkles,
-      onOpen: onOpenUtilities, onPrefetch: onPrefetchUtilities },
     { id: "projects", label: "Open projects", tooltip: "Projects", icon: PanelsTopLeft,
       onOpen: onOpenProjects, onPrefetch: onPrefetchProjects },
     { id: "workflows", label: "Open workflows", tooltip: "Workflows", icon: Layers3,
@@ -104,6 +100,10 @@ export function ActivityRail({
       onOpen: onOpenSchedules, onPrefetch: onPrefetchSchedules },
     { id: "webhooks", label: "Open webhooks", tooltip: "Webhooks", icon: Webhook,
       onOpen: onOpenWebhooks, onPrefetch: onPrefetchWebhooks },
+    // Utilities sit last in the rail (user: 사이드탭 순서 중 가장 아래로),
+    // keeping the creative wand icon (user: 렌치 말고 마법봉처럼).
+    { id: "utilities", label: "Utilities", tooltip: "Utilities", icon: WandSparkles,
+      onOpen: onOpenUtilities, onPrefetch: onPrefetchUtilities },
   ] as const).filter((surface) => desktopSidebarDestinationEnabled(surface.id));
   // Subscription usage moved off the session panel (user decision): the rail
   // hosts a VS Code account-style toggle and the panel stays a pure session

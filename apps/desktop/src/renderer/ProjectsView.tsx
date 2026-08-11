@@ -1,10 +1,9 @@
 import { Folder, NotebookPen, Pencil, Plus, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
-import { RowOverflowMenu } from './RowOverflowMenu';
 import { projectIdentity, SidebarPanelAction } from './session-sidebar';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { publishSidebarProjects } from './sidebar-reference-cache';
@@ -25,8 +24,6 @@ export function ProjectsPane({
   onChooseFolder,
   onCreateProject,
   onOpenProject,
-  onStartProjectTask,
-  onOpenExplorer,
   onRename,
   onRemove,
   instructionsSupported = false,
@@ -39,8 +36,6 @@ export function ProjectsPane({
   onChooseFolder(): Promise<string | null>;
   onCreateProject(path: string, name: string): Promise<void>;
   onOpenProject(path: string): void;
-  onStartProjectTask(path: string): void;
-  onOpenExplorer(path: string): void;
   onRename(path: string, alias: string): void;
   onRemove(path: string): void;
   /** Instructions editing needs the desktop bridge; the remote shim omits it. */
@@ -48,9 +43,6 @@ export function ProjectsPane({
   onReadInstructions?(projectPath: string | null): Promise<string>;
   onSaveInstructions?(projectPath: string | null, content: string): Promise<void>;
 }) {
-  const [renaming, setRenaming] = useState('');
-  const [renameDraft, setRenameDraft] = useState('');
-  const [confirmingRemove, setConfirmingRemove] = useState('');
   const [addOpen, setAddOpen] = useState(false);
   const [addPath, setAddPath] = useState('');
   const [addName, setAddName] = useState('');
@@ -64,7 +56,16 @@ export function ProjectsPane({
   const [insLoading, setInsLoading] = useState(false);
   const [insBusy, setInsBusy] = useState(false);
   const [insError, setInsError] = useState('');
-  const renameInputs = useRef(new Map<string, HTMLInputElement>());
+  // Per-project edit dialog (user: 공통지침과 동일하게 연필 버튼 하나 —
+  // 이름 변경/삭제/지침 수정을 그 안에서). editIns === null means the
+  // instructions never loaded (unsupported or failed) and stays untouched.
+  const [editTarget, setEditTarget] = useState<{ path: string; title: string } | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editIns, setEditIns] = useState<string | null>(null);
+  const [editInsLoading, setEditInsLoading] = useState(false);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState('');
+  const [editConfirmRemove, setEditConfirmRemove] = useState(false);
   // The dialog scrims cannot dim the NATIVE caption band — hold the titlebar
   // claim while either portal is open (user: - ㅁ x 딤드 안 먹음).
   useEffect(() => {
@@ -75,12 +76,10 @@ export function ProjectsPane({
     if (!(active && insTarget)) return;
     return acquireTitleBarDim();
   }, [active, insTarget]);
-  useLayoutEffect(() => {
-    if (!renaming) return;
-    const input = renameInputs.current.get(renaming);
-    input?.focus({ preventScroll: true });
-    input?.select();
-  }, [renaming]);
+  useEffect(() => {
+    if (!(active && editTarget)) return;
+    return acquireTitleBarDim();
+  }, [active, editTarget]);
   const canEditInstructions = instructionsSupported && !!onReadInstructions && !!onSaveInstructions;
   // The app shell owns project add/rename/remove and refetches its catalog
   // once a mutation actually succeeded. Mirroring THAT list into the shared
@@ -106,6 +105,31 @@ export function ProjectsPane({
     setInsDraft('');
     setInsError('');
   };
+  const openEdit = (path: string, title: string) => {
+    setEditTarget({ path, title });
+    setEditName(title);
+    setEditIns(null);
+    setEditError('');
+    setEditConfirmRemove(false);
+    if (canEditInstructions && onReadInstructions) {
+      setEditInsLoading(true);
+      void onReadInstructions(path)
+        .then((text) => setEditIns(String(text ?? '')))
+        .catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
+        .finally(() => setEditInsLoading(false));
+    }
+  };
+  const resetEdit = () => {
+    setEditTarget(null);
+    setEditName('');
+    setEditIns(null);
+    setEditError('');
+    setEditConfirmRemove(false);
+  };
+  const closeEdit = () => {
+    if (editBusy) return;
+    resetEdit();
+  };
   const closeAdd = () => {
     setAddOpen(false);
     setAddPath('');
@@ -123,7 +147,7 @@ export function ProjectsPane({
     setInsTarget(null);
     setInsDraft('');
     setInsError('');
-    setConfirmingRemove('');
+    resetEdit();
   });
   // No search field (user: 프로젝트 목록은 짧다 — 서치창 제거).
   const visible = projects;
@@ -236,6 +260,74 @@ export function ProjectsPane({
           </form>
         </section>
       </div>, document.body)}
+      {active && editTarget && createPortal(<div className="schedules-dialog-layer"
+        onMouseDown={(event) => { if (event.target === event.currentTarget) closeEdit(); }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            closeEdit();
+          }
+        }}>
+        <section className="schedules-dialog projects-edit-dialog" role="dialog" aria-modal="true"
+          aria-labelledby="projects-edit-title">
+          <header>
+            <h2 id="projects-edit-title">{t('Edit {{name}}', { name: editTarget.title })}</h2>
+            <button type="button" aria-label={t('Close')} onClick={closeEdit}>
+              <X size={16} aria-hidden="true" /></button>
+          </header>
+          <form onSubmit={(event) => {
+            event.preventDefault();
+            if (!editTarget || editBusy || editInsLoading) return;
+            const { path, title } = editTarget;
+            const alias = editName.trim();
+            setEditBusy(true);
+            setEditError('');
+            // Instructions save only when the file actually loaded; the alias
+            // applies after so a failed write never half-commits the dialog.
+            const save = canEditInstructions && editIns !== null
+              ? onSaveInstructions(path, editIns)
+              : Promise.resolve();
+            void save.then(() => {
+              if (alias && alias !== title) onRename(path, alias);
+              setEditBusy(false);
+              resetEdit();
+            }).catch((reason) => {
+              setEditBusy(false);
+              setEditError(reason instanceof Error ? reason.message : String(reason));
+            });
+          }}>
+            <label className="schedules-field">{t('Name')}
+              <input name="project-alias" value={editName} maxLength={120} autoFocus
+                disabled={editBusy} aria-label={t('Project display name')}
+                onChange={(event) => setEditName(event.currentTarget.value)} />
+            </label>
+            {canEditInstructions && <label className="schedules-field workflows-md-field">{t('Instructions')}
+              <textarea aria-label={t('Instructions markdown')}
+                value={editInsLoading ? t('Loading…') : (editIns ?? '')}
+                disabled={editInsLoading || editBusy || editIns === null}
+                spellCheck={false}
+                placeholder={t('Markdown instructions for the model…')}
+                onChange={(event) => setEditIns(event.currentTarget.value)} />
+            </label>}
+            <footer>
+              {editError && <p className="schedules-form-error" role="alert">{editError}</p>}
+              <button type="button" className="danger" disabled={editBusy}
+                onClick={() => {
+                  if (!editConfirmRemove) {
+                    setEditConfirmRemove(true);
+                    return;
+                  }
+                  const path = editTarget.path;
+                  resetEdit();
+                  onRemove(path);
+                }}>{editConfirmRemove ? t('Confirm remove') : t('Remove')}</button>
+              <button type="button" disabled={editBusy} onClick={closeEdit}>{t('Cancel')}</button>
+              <button type="submit" disabled={editBusy || editInsLoading}>{t('Save')}</button>
+            </footer>
+          </form>
+        </section>
+      </div>, document.body)}
       {canEditInstructions && <div className="schedules-list projects-list projects-common-instructions">
         <div className="schedules-row projects-row">
           <span className="projects-row-icon" aria-hidden="true"><NotebookPen size={16} /></span>
@@ -254,81 +346,21 @@ export function ProjectsPane({
       {visible.length ? <div className="schedules-list projects-list">{visible.map((project) => {
         const title = project.alias?.trim() || project.name?.trim() || displayProjectFolder(project.path);
         const selected = projectIdentity(selectedProjectPath) === projectIdentity(project.path);
-        const editing = renaming === project.path;
         return <div key={project.path} className={`schedules-row projects-row${selected ? ' selected' : ''}`}>
           <span className="projects-row-icon" aria-hidden="true"><Folder size={16} /></span>
-          <div className="projects-row-copy-slot" data-editing={editing ? "true" : "false"}>
-            <button type="button" className="schedules-row-copy projects-row-open"
-              aria-current={selected ? 'page' : undefined}
-              aria-hidden={editing ? true : undefined} tabIndex={editing ? -1 : undefined}
-              onClick={() => onOpenProject(project.path)}>
-              <b>{title}</b>
-              <small>{project.path}</small>
-            </button>
-            <form className="projects-rename" aria-hidden={editing ? undefined : true}
-              onSubmit={(event) => {
-              event.preventDefault();
-              const alias = renameDraft.trim();
-              setRenaming('');
-              if (alias && alias !== title) onRename(project.path, alias);
-            }}>
-              <input ref={(node) => {
-                  if (node) renameInputs.current.set(project.path, node);
-                  else renameInputs.current.delete(project.path);
-                }}
-                value={renameDraft} maxLength={120} disabled={!editing}
-                tabIndex={editing ? undefined : -1} aria-label={t('Project display name')}
-                onChange={(event) => setRenameDraft(event.currentTarget.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Escape') return;
-                  event.preventDefault();
-                  setRenaming('');
-                }}
-                onBlur={() => {
-                  if (editing) setRenaming('');
-                }} />
-            </form>
-          </div>
-          <RowOverflowMenu label={`Actions for ${title}`} items={[
-            {
-              id: 'new-task',
-              label: 'New task',
-              onSelect: () => onStartProjectTask(project.path),
-            },
-            {
-              id: 'explorer',
-              label: 'Explorer',
-              onSelect: () => onOpenExplorer(project.path),
-            },
-            {
-              id: 'rename',
-              label: 'Rename',
-              onSelect: () => {
-                setConfirmingRemove('');
-                setRenameDraft(title);
-                setRenaming(project.path);
-              },
-            },
-            ...(canEditInstructions ? [{
-              id: 'instructions',
-              label: 'Instructions',
-              onSelect: () => openInstructions(project.path, `${title} Instructions`),
-            }] : []),
-            {
-              id: 'remove',
-              label: confirmingRemove === project.path ? 'Confirm remove' : 'Remove',
-              danger: true,
-              closeOnSelect: confirmingRemove === project.path,
-              onSelect: () => {
-                if (confirmingRemove !== project.path) {
-                  setConfirmingRemove(project.path);
-                  return;
-                }
-                setConfirmingRemove('');
-                onRemove(project.path);
-              },
-            },
-          ]} />
+          <button type="button" className="schedules-row-copy projects-row-open"
+            aria-current={selected ? 'page' : undefined}
+            onClick={() => onOpenProject(project.path)}>
+            <b>{title}</b>
+            <small>{project.path}</small>
+          </button>
+          {/* Same pencil grammar as the Common Instructions row (user: 공통
+              지침과 동일하게) — every mutation lives in the edit dialog. */}
+          <button type="button" className="session-panel-action projects-instructions-edit"
+            aria-label={t('Edit {{name}}', { name: title })} data-tooltip={t('Edit')}
+            onClick={() => openEdit(project.path, title)}>
+            <Pencil size={14} aria-hidden="true" />
+          </button>
         </div>;
       })}</div>
         : <div className="schedules-empty">

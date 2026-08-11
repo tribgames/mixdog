@@ -990,6 +990,9 @@ class Virtualizer {
         lastTargetOffset: offset,
         stableFrames: 0
       };
+      // An absolute programmatic target supersedes relative compensation
+      // accumulated for the previous geometry.
+      this._iosDeferredAdjustment = 0;
       this._scrollToOffset(offset, { adjustments: void 0, behavior });
       this.scheduleScrollReconcile();
     };
@@ -1012,6 +1015,9 @@ class Virtualizer {
         lastTargetOffset: offset,
         stableFrames: 0
       };
+      // See scrollToOffset: pending deferred deltas are stale once an
+      // absolute target is written.
+      this._iosDeferredAdjustment = 0;
       this._scrollToOffset(offset, { adjustments: void 0, behavior });
       this.scheduleScrollReconcile();
     };
@@ -1026,6 +1032,9 @@ class Virtualizer {
         lastTargetOffset: offset,
         stableFrames: 0
       };
+      // See scrollToOffset: pending deferred deltas are stale once an
+      // absolute target is written.
+      this._iosDeferredAdjustment = 0;
       this._scrollToOffset(offset, { adjustments: void 0, behavior });
       this.scheduleScrollReconcile();
     };
@@ -1121,6 +1130,13 @@ class Virtualizer {
     // first scroll event of a ramp arrives.
     if (this.isScrolling || this._iosTouching || this._iosJustTouchEnded
       || this.shouldDeferScrollAdjustment?.() === true) {
+      // An index-anchored programmatic scroll (scrollToIndex/scrollToEnd)
+      // re-derives its absolute target from LIVE measurements on every
+      // reconcile frame, so this geometry change is already absorbed there.
+      // Accumulating it too double-counts: the deferred flush later
+      // re-applied the delta on top of the reconciled end offset and dragged
+      // a bottom-anchored viewport off the fold.
+      if (this.scrollState?.index != null) return;
       this._iosDeferredAdjustment += delta;
       this._scheduleDeferredAdjustmentFlush();
     } else {

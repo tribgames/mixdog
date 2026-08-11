@@ -541,7 +541,7 @@ fn bulk_search_pool() -> ThreadPool {
         .ok()
         .and_then(|raw| raw.parse::<usize>().ok())
         .filter(|n| *n > 0)
-        .unwrap_or(2)
+        .unwrap_or(1)
         .min(server_parallelism());
     ThreadPoolBuilder::new()
         .num_threads(threads)

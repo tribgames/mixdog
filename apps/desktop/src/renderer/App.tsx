@@ -1458,20 +1458,23 @@ export function App() {
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   useEffect(() => {
     const focusComposerForTyping = (event: globalThis.KeyboardEvent) => {
-      if (focusedPaneSelection?.kind !== "session" && focusedPaneSelection?.kind !== "new") return;
+      const typingSurfaceSelector = focusedPaneSelection?.kind === "studio"
+        ? ".studio-root[data-surface-active='true'] textarea"
+        : focusedPaneSelection?.kind === "session" || focusedPaneSelection?.kind === "new"
+          ? "form.composer textarea"
+          : "";
+      if (!typingSurfaceSelector) return;
       if (!shouldFocusComposerFromWindowKey(event)) return;
       const pane = document.querySelector<HTMLElement>(
         `[data-pane-id="${paneWorkspace.focusedLeafId}"]`,
       );
-      const composer = pane?.querySelector<HTMLTextAreaElement>(
-        'textarea[aria-label="Message Mixdog"]',
-      );
-      if (!composer || composer.closest("[inert]")) return;
+      const typingSurface = pane?.querySelector<HTMLTextAreaElement>(typingSurfaceSelector);
+      if (!typingSurface || typingSurface.closest("[inert]")) return;
       // Focus during keydown capture, before Chromium commits the printable
       // character or starts IME composition. This gives the desktop shell the
-      // same type-anywhere grammar as Codex/OpenCode while real editors,
+      // same type-anywhere grammar across Task and Studio while real editors,
       // terminals, menus, dialogs, and form fields keep their own keyboard.
-      composer.focus({ preventScroll: true });
+      typingSurface.focus({ preventScroll: true });
     };
     window.addEventListener("keydown", focusComposerForTyping, true);
     return () => window.removeEventListener("keydown", focusComposerForTyping, true);
@@ -2073,10 +2076,8 @@ export function App() {
   // Project navigation and registry edits: app-project-actions.ts.
   const {
     startProject,
-    startProjectTask,
     selectNewTaskProject,
     chooseNewTaskProject,
-    openProjectInExplorer,
     renameProject,
     removeProject,
   } = createProjectActions({
@@ -3993,11 +3994,6 @@ export function App() {
     // workflow cluster, so it is no longer minted from the panel.
     selectNewTaskProject(path);
   });
-  const projectsStartTask = useStableEvent((path: string) => {
-    setProjectsOpen(false);
-    startProjectTask(path);
-  });
-  const projectsOpenExplorer = useStableEvent((path: string) => void openProjectInExplorer(path));
   const projectsRename = useStableEvent((path: string, alias: string) => void renameProject(path, alias));
   const projectsRemove = useStableEvent((path: string) => void removeProject(path));
   const projectsSaveInstructions = useStableEvent(async (path: string, content: string) => {
@@ -4060,8 +4056,6 @@ export function App() {
         onChooseFolder={async () => (await window.mixdogDesktop?.chooseProject()) ?? null}
         onCreateProject={projectsCreate}
         onOpenProject={projectsOpenProject}
-        onStartProjectTask={projectsStartTask}
-        onOpenExplorer={projectsOpenExplorer}
         onRename={projectsRename}
         onRemove={projectsRemove}
         instructionsSupported={!!window.mixdogDesktop?.readInstructions}
@@ -4081,12 +4075,10 @@ export function App() {
     mountedSidebarPanels,
     projects,
     projectsCreate,
-    projectsOpenExplorer,
     projectsOpenProject,
     projectsRemove,
     projectsRename,
     projectsSaveInstructions,
-    projectsStartTask,
     retrySidebarPanel,
     runningAutomationNames,
     selectedProjectPath,
@@ -4256,6 +4248,16 @@ export function App() {
         aria-hidden={activeHandoff ? true : undefined}
         onPointerDownCapture={focused ? undefined : (event) => {
           if (event.button === 0) focusPane();
+        }}
+        onClick={(event) => {
+          // The transcript is keyboard-focusable for reading, but a plain
+          // collapsed click is still a type-anywhere gesture. Real controls
+          // inside it and drag-selected text keep their own interaction.
+          if (!shouldFocusSurfaceInput(event, ".transcript")) return;
+          if (!focused) focusPane();
+          event.currentTarget
+            .querySelector<HTMLTextAreaElement>("form.composer textarea")
+            ?.focus({ preventScroll: true });
         }}>
         <header className="session-header" aria-label="Current task">
           <div className="session-header-content">
@@ -4292,13 +4294,7 @@ export function App() {
           </div>
         </header>
         <div className="pane-surface-body">
-          <div className="pane-chat-surface" onClick={(event) => {
-            if (!shouldFocusSurfaceInput(event)) return;
-            if (!focused) focusPane();
-            event.currentTarget
-              .querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Mixdog"]')
-              ?.focus({ preventScroll: true });
-          }}>
+          <div className="pane-chat-surface">
             <PaneConversation focused={focused}
             sessionId={paneSessionId} fallback={paneFallback}
             snapshotStore={snapshotStore}

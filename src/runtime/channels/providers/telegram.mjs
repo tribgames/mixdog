@@ -1,11 +1,46 @@
-import { mkdirSync } from "fs";
+import { mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
 import { createHash } from "crypto";
+import { join } from "path";
 import { chunk } from "../lib/format.mjs";
 import { readSection } from "../../shared/config.mjs";
 import { toMarkdownV2, stripMdV2, isParseEntitiesError } from "../lib/telegram-format.mjs";
+import { safeAttName } from "./discord-access.mjs";
+import { downloadSingleAttachment } from "./discord-attachments.mjs";
 
 const MAX_TELEGRAM_MESSAGE = 4096;
 const API_BASE = "https://api.telegram.org";
+const TELEGRAM_ATTACHMENT_CACHE_CAP = 1000;
+const ATTACHMENT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+function attachmentCacheKey(chatId, messageId) {
+  return `${String(chatId)}:${String(messageId)}`;
+}
+
+function telegramVoiceAttachments(msg) {
+  const attachments = [];
+  const add = (file, fallbackName, fallbackType) => {
+    if (!file?.file_id) return;
+    const id = String(file.file_unique_id || file.file_id);
+    attachments.push({
+      id,
+      fileId: String(file.file_id),
+      name: safeAttName({ id, name: file.file_name || fallbackName }),
+      contentType: String(file.mime_type || fallbackType),
+      size: Math.max(0, Number(file.file_size) || 0),
+    });
+  };
+  add(msg?.voice, `voice-${msg?.message_id ?? "message"}.ogg`, "audio/ogg");
+  add(msg?.audio, `audio-${msg?.message_id ?? "message"}.mp3`, "audio/mpeg");
+  return attachments;
+}
+
+function telegramFileUrl(token, filePath) {
+  const encodedPath = String(filePath || "")
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  return `${API_BASE}/file/bot${token}/${encodedPath}`;
+}
 
 // Chunk raw text so that EACH chunk still fits Telegram's limit AFTER
 // MarkdownV2 escaping. We first chunk normally (code-fence aware), then for any
@@ -85,6 +120,7 @@ class TelegramProvider {
   mainChannelId;
   stateDir;
   configFile;
+  inboxDir;
   isStatic;
   initialAccess;
   // Long-poll state.
@@ -94,11 +130,13 @@ class TelegramProvider {
   _pollGen = 0;
   _offset = 0;
   _typingIntervals = /* @__PURE__ */ new Map();
+  _attachmentMessages = /* @__PURE__ */ new Map();
   constructor(config, stateDir) {
     this.token = config.token;
     this.mainChannelId = config.mainChannelId ?? "";
     this.stateDir = stateDir;
     this.configFile = config.configPath ?? "";
+    this.inboxDir = join(stateDir, "inbox");
     this.isStatic = config.accessMode === "static";
     this.initialAccess = normalizeAccess(config.access);
     try { mkdirSync(this.stateDir, { recursive: true }); } catch {}
@@ -201,6 +239,7 @@ class TelegramProvider {
     // Re-entry guard mirrors DiscordProvider.connect(): a second connect() while
     // one is in flight/settled returns the same promise (no duplicate loops).
     if (this._connectPromise) return this._connectPromise;
+    this._sweepInboxOnce();
     this._connectPromise = (async () => {
       // Validate the token once (also surfaces a bad token early). getMe is
       // cheap and non-mutating; a failure here throws so startup can react.
@@ -220,6 +259,31 @@ class TelegramProvider {
       void this._pollLoop(gen);
     })();
     return this._connectPromise;
+  }
+  _sweepInboxOnce() {
+    if (this._inboxSweepDone) return;
+    this._inboxSweepDone = true;
+    try {
+      const cutoff = Date.now() - ATTACHMENT_RETENTION_MS;
+      for (const name of readdirSync(this.inboxDir)) {
+        const path = join(this.inboxDir, name);
+        try {
+          const info = statSync(path);
+          if (info.isFile() && info.mtimeMs < cutoff) unlinkSync(path);
+        } catch { /* per-file best-effort */ }
+      }
+    } catch { /* inbox may not exist yet */ }
+  }
+  _rememberAttachments(chatId, messageId, attachments) {
+    if (!attachments.length) return;
+    const key = attachmentCacheKey(chatId, messageId);
+    this._attachmentMessages.delete(key);
+    this._attachmentMessages.set(key, attachments);
+    while (this._attachmentMessages.size > TELEGRAM_ATTACHMENT_CACHE_CAP) {
+      const oldest = this._attachmentMessages.keys().next().value;
+      if (oldest == null) break;
+      this._attachmentMessages.delete(oldest);
+    }
   }
   async _pollLoop(gen) {
     while (this._polling && gen === this._pollGen) {
@@ -271,11 +335,12 @@ class TelegramProvider {
     if (!this._isAllowedChat(chatId, from.id)) return;
     if (from.is_bot) return; // ignore bot echoes / other bots.
     const text = msg.text ?? msg.caption ?? "";
+    const attachments = telegramVoiceAttachments(msg);
+    this._rememberAttachments(chatId, msg.message_id, attachments);
     const receivedAtMs = Date.now();
     // Mirror discord.mjs handleInbound's onMessage object shape so downstream
     // routing (resolveInboundRoute etc.) is provider-agnostic. Telegram has no
-    // thread/parent concept here → parentChatId null; attachments unsupported
-    // in scope 1 → [].
+    // thread/parent concept here → parentChatId null.
     if (this.onMessage) {
       this.onMessage({
         chatId: String(chatId),
@@ -287,7 +352,7 @@ class TelegramProvider {
         userId: String(from.id ?? ""),
         text,
         ts: new Date((typeof msg.date === "number" ? msg.date * 1000 : receivedAtMs)).toISOString(),
-        attachments: []
+        attachments: attachments.map(({ fileId: _fileId, ...attachment }) => attachment)
       });
     }
   }
@@ -474,10 +539,31 @@ class TelegramProvider {
       await this._api("deleteMessage", { chat_id: chatId, message_id: Number(messageId) });
     } catch { /* best-effort */ }
   }
-  // Attachment download is unsupported in scope 1. getFile + a download step
-  // can be added later; returning [] keeps the call site safe meanwhile.
-  async downloadAttachment() {
-    return [];
+  async downloadAttachment(chatId, messageId, opts = {}) {
+    const attachments = this._attachmentMessages.get(
+      attachmentCacheKey(chatId, messageId),
+    ) ?? [];
+    const filter = typeof opts.filter === "function" ? opts.filter : null;
+    const results = [];
+    for (const attachment of attachments) {
+      const { fileId, ...meta } = attachment;
+      if (filter && !filter(meta)) continue;
+      const file = await this._api("getFile", { file_id: fileId }, {
+        signal: AbortSignal.timeout(opts.timeoutMs ?? 180_000),
+      });
+      if (!file?.file_path) {
+        throw new Error(`telegram getFile returned no file path: ${meta.name}`);
+      }
+      const path = await downloadSingleAttachment({
+        ...meta,
+        url: telegramFileUrl(this.token, file.file_path),
+      }, this.inboxDir, {
+        ...opts,
+        providerName: "telegram",
+      });
+      results.push({ ...meta, path });
+    }
+    return results;
   }
   async validateChannel(chatId) {
     // getChat confirms the bot can see the chat; throws (like Discord's

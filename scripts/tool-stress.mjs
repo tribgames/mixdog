@@ -24,8 +24,8 @@ function record(tool, ms, result, expectRe) {
   if (!s) { s = { n: 0, errs: [], lat: [] }; stats.set(tool, s); }
   s.n += 1; s.lat.push(ms);
   const text = String(result ?? '');
-  if (/^Error:|resource pressure|ERESOURCEPRESSURE|EAGAIN/i.test(text)) s.errs.push(text.slice(0, 160));
-  else if (expectRe && !expectRe.test(text)) s.errs.push(`unexpected output: ${text.slice(0, 120)}`);
+  if (/^Error:|resource pressure|ERESOURCEPRESSURE|EAGAIN/i.test(text)) s.errs.push(text.slice(0, 1000));
+  else if (expectRe && !expectRe.test(text)) s.errs.push(`unexpected output: ${text.slice(0, 1000)}`);
 }
 
 async function timed(tool, expectRe, fn) {

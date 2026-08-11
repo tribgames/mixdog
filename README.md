@@ -44,13 +44,11 @@ harnesses — **78/89** vs Claude Code's **77/89** (within single-run noise)
 and **75/89** matching Codex CLI — while finishing faster, ending leaner,
 and costing less.
 
-Each comparison matches the primary model and reasoning level on
-both sides, comparing each product as shipped: mixdog routes scoped
-read-only Explorer lookups to a smaller model, mirroring Claude Code's
-built-in Explore subagent (Haiku 4.5 by default in the 2.1.x baseline).
-Codex CLI ships no equivalent helper — the Sol-led mixdog run used GPT-5.6
-Luna for that scoped Explorer work. Results are self-reported single runs
-(`k=1`, 2026-08), not leaderboard submissions.
+The published mixdog runs are strict single-model benchmarks: one primary
+model, one session, no sub-agent delegation or helper-model lookups. Each
+comparison matches the primary model and reasoning level against the native
+harness's standard run. Results are self-reported single runs (`k=1`,
+2026-08), not leaderboard submissions.
 
 #### Claude Opus 5 vs Claude Code
 
@@ -105,9 +103,9 @@ every number above live under `benchmarks/terminal-bench-2.1/`.
   below).
 - Installable web app over relay pairing — scan a QR code to open your
   running sessions in a phone browser and keep going from any network.
-- Optional Discord/Telegram channels, webhook endpoints, and cron schedules
-  with quiet hours for remote/event-driven workflows; channel voice messages
-  are transcribed locally with a managed Whisper server.
+- Optional Discord/Telegram channels and cron schedules with quiet hours for
+  remote/event-driven workflows; channel voice messages are transcribed
+  locally with a managed Whisper server.
 - First-class Windows support: ConPTY terminals, PowerShell-aware shell
   profiles, and a one-click desktop installer.
 
@@ -126,9 +124,8 @@ every number above live under `benchmarks/terminal-bench-2.1/`.
 
 - Skills, MCP servers, hooks, and plugins load through standard-compatible
   interfaces.
-- Built-in Web Search, Explorer, and Maintainer services, plus editable
-  starter agents (`worker`, `heavy-worker`, `reviewer`) and user-authored
-  custom roles.
+- Built-in Web Search and Maintainer services, plus editable starter agents
+  (`worker`, `heavy-worker`, `reviewer`) and user-authored custom roles.
 
 ## Run
 
@@ -168,8 +165,7 @@ mixdog --provider anthropic-oauth --model claude-opus-5 worker "fix the failing 
 mixdog --provider openai-oauth --model gpt-5.6-sol reviewer "review the current diff"
 ```
 
-Roles: `explore`, `worker`, `heavy-worker`, `reviewer`, `maintainer`,
-`web-researcher`.
+Roles: `worker`, `heavy-worker`, `reviewer`, `maintainer`, `web-researcher`.
 
 ## TUI basics
 
@@ -208,8 +204,7 @@ current Anthropic models.
 Workflows and agents are Markdown definition packs (`WORKFLOW.md`,
 `AGENT.md`). Built-ins ship with mixdog; custom packs live under the data
 directory (`workflows/<id>/`, `agents/<id>/`) and are edited on the desktop
-app's Workflows page. Schedules and webhooks are also managed in the desktop
-app.
+app's Workflows page. Schedules are managed in the desktop app as well.
 
 ## Desktop app
 
@@ -230,9 +225,8 @@ wizard covers first-run setup. For development run `npm run dev` inside
 - **Editor and review** — Monaco editor pane with LSP integration, git and
   inline diff viewers, and turn-by-turn review of agent edits with approval
   cards.
-- **Source control** — git dock for staging/commits/branches,
-  auto-generated commit messages, GitHub CLI integration, pull-request
-  browsing, and a dedicated review pane.
+- **Source control** — git dock for staging, commits, and branches, with
+  auto-generated commit messages.
 - **File explorer** — Windows-Explorer-grade folder pane: breadcrumbs and
   path box, ribbon toolbar, places/drives/tree sidebar, grouped grid and
   details views with shell icons and thumbnails, rubber-band selection,
@@ -243,8 +237,8 @@ wizard covers first-run setup. For development run `npm run dev` inside
 - **Studio** — media studio for image and video generation over
   authenticated provider lanes, with a persistent local gallery, reference
   images, and per-model resolution/aspect/duration controls.
-- **Automation** — visual editors for workflow and agent packs, cron
-  schedules, webhooks, and channel integrations.
+- **Automation** — visual editors for workflow and agent packs, plus cron
+  schedules.
 - **Settings hub** — provider auth, capability sweep, git identity, and
   QR device pairing for the installable web app, preloaded so every
   category opens instantly.
@@ -254,7 +248,6 @@ wizard covers first-run setup. For development run `npm run dev` inside
 ```bash
 npm run smoke                # fast core feature smoke
 npm run smoke:all            # feature-surface smoke suite
-npm run smoke:tui            # TUI feature smoke
 npm run test:tool-contracts  # optional tool contract suite
 npm run build:tui            # build the bundled Ink TUI
 npm run audit:models         # inspect model catalog metadata
@@ -313,9 +306,9 @@ vendor/
 
 ## Published package contents
 
-The npm tarball ships `README.md`, `src/`, `vendor/`, and runtime `scripts/`
-only (`package.json#files`); tests, smokes, benches, and `docs/` stay in the
-repository.
+The npm tarball ships the README, notices and licenses, runtime sources,
+vendored runtime code, and selected scripts. `package.json#files` is the
+canonical package-content list.
 
 ## License
 

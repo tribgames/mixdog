@@ -454,11 +454,16 @@ export function execShellCommand({
       child = spawned.child;
       spawned.adoptErrorHandler(_onChildError);
       }
-      childGuardian = startChildGuardian({
-        childPid: child.pid,
-        childGroupPid: child.pid,
-        label: 'shell-command',
-      });
+      // A standby is daemon-owned, timeout-killed by this command, and checked
+      // for new descendants before recycle. Spawning another detached guardian
+      // for every short reuse duplicates those guarantees and dominates latency.
+      if (!_standby) {
+        childGuardian = startChildGuardian({
+          childPid: child.pid,
+          childGroupPid: child.pid,
+          label: 'shell-command',
+        });
+      }
     } catch (err) {
       const cleanupError = await releaseResourceLease();
       const spawnText = String((err && err.message) || err);
