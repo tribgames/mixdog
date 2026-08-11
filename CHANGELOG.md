@@ -5,6 +5,9 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Terminal-Bench H5 round analysis adds rewarded task traces and aggregate
+  round counts for the final high-effort comparison.
+
 ## v0.9.115 - 2026-08-11
 
 - Terminal-Bench H4 round analysis records successful high-effort task probes
