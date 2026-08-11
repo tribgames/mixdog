@@ -175,8 +175,6 @@ export function displayToolName(name, args = {}) {
       return 'Agent';
     case 'code_graph':
       return codeGraphLabel(parseToolArgs(args));
-    case 'reply':
-      return 'Channel';
     default:
       return titleizeToolName(name);
   }
@@ -308,8 +306,6 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     }
     case 'code_graph':
       return codeGraphSummary(a, max);
-    case 'reply':
-      return truncateToolText(a.channel || a.channelId || a.messageId || a.emoji || '', max);
     case 'skill':
     case 'skill_execute':
     case 'skill_view':
@@ -384,7 +380,6 @@ const TOOL_CATEGORY = new Map([
   ['job_wait', 'Shell'],
   ['task', 'Task'],
   ['agent', 'Agent'],
-  ['reply', 'Channel'],
   ['list_mcp_resources', 'Setup'],
   ['list_mcp_resource_templates', 'Setup'],
   ['cwd', 'Setup'],
@@ -576,8 +571,6 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'skills_list':
     case 'use_skill':
       return unitDescriptor('Skill', { count: queryCount(a, 'name', 'skill', 'skill_name', 'query', 'q') || 1, noun: 'skill' });
-    case 'reply':
-      return unitDescriptor('Channel', { count: queryCount(a, 'messages', 'messageId', 'text') || 1, noun: 'message' });
     case 'code_graph': {
       const mode = String(a.mode || a.action || '').toLowerCase();
       const searching = mode === 'search' || mode === 'find_symbol' || mode === 'references' || mode === 'callers' || mode === 'callees';

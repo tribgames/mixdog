@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import './runtime/shared/uv-threadpool-boot.mjs';
 import { fileURLToPath } from 'node:url';
 import { classifyCliInvocation } from './headless-command.mjs';
 import {

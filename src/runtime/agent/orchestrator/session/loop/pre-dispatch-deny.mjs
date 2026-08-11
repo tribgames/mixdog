@@ -19,8 +19,6 @@ const WORKER_DENIED_TOOLS = new Set([
     // (type=spawn|send|close|list). Denying the one name blocks all worker
     // session control.
     'agent',
-    // channels module (owner/Discord-facing)
-    'reply', 'fetch',
     // host input injection
     'inject_input',
 ]);

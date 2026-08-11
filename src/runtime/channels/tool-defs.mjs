@@ -1,49 +1,7 @@
 export const TOOL_DEFS = [
-  {
-    name: "reply",
-    title: "Discord Reply",
-    annotations: { title: "Discord Reply", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
-    description: "Send message to configured channel. files are local paths.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        message: { type: "string", description: "Message text for the configured channel." },
-        reply_to: { type: "string", description: "Reply message id." },
-        files: {
-          type: "array",
-          items: { type: "string" },
-          description: "Local file paths."
-        },
-        embeds: {
-          type: "array",
-          items: { type: "object", additionalProperties: true },
-          description: "Discord embeds."
-        },
-        components: {
-          type: "array",
-          items: { type: "object", additionalProperties: true },
-          description: "Discord components."
-        }
-      },
-      required: ["message"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "fetch",
-    title: "Fetch",
-    annotations: { title: "Fetch", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
-    description: "Discord-only: read recent messages from a channel.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        channel: { type: "string", description: "Discord channel id." },
-        limit: { type: "number", description: "Max messages." }
-      },
-      required: ["channel"],
-      additionalProperties: false
-    }
-  },
+  // reply/fetch model-facing tools removed 2026-08: the output forwarder
+  // delivers session output to the channel and the inbound bridge injects
+  // incoming messages, so the model never needed to call them directly.
   // memory and recall_memory tools are now provided by memory-service.mjs via MCP
   // react/edit_message/download_attachment tools removed (no remaining
   // callers); provider editMessage/downloadAttachment/react methods stay for

@@ -43,10 +43,11 @@ export function resolveDefaultChildSpawnLaneMaxInflight(
   if (platform !== 'win32') return Infinity;
   if (lane !== 'search') return 1;
   // Multiple rg processes beat one under multi-session load, but each process
-  // is itself threaded and Defender amplifies excess fan-out. Scale slowly and
-  // cap at four: 4 cores→1, 8→2, 12→3, 16+→4.
+  // is itself threaded and Defender amplifies excess fan-out. Burst stress
+  // measured cap-4 starvation (find p50 15s at 8 concurrent sessions), so
+  // scale with cores and cap at eight: 4→2, 8→3, 12→4, 18→6, 24+→8.
   const cpus = Math.max(1, Math.floor(Number(parallelism) || 1));
-  return Math.max(1, Math.min(4, Math.floor(cpus / 4)));
+  return Math.max(2, Math.min(8, Math.ceil(cpus / 3)));
 }
 
 const DEFAULT_MAX_INFLIGHT = resolveDefaultChildSpawnMaxInflight();

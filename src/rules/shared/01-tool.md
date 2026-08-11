@@ -1,7 +1,7 @@
 # Tool Use
 
 - Baseline routing assigns each facet directly by the evidence needed to
-  determine the complete edit:
+  determine the complete answer or edit:
   path/name only→`find`; wildcard/recursive paths→`glob` (including known-root
   unknown descendants); exact directory entries→`list`;
   source content/value/`path:line`→`grep`; exact symbol/relation→`code_graph`;
@@ -18,41 +18,45 @@
   relies on it. Within the current project, pass
   project-relative paths and omit optional scopes equal to its root; explicit
   paths may be outside cwd only for targets outside the project.
-- Plan the fewest dependent rounds, then the fewest calls. A conclusive
-  result ends its facet, and known state — anything the task supplied, a
-  tool returned, or a check already proved — is never re-found,
-  re-derived, or re-verified. Batch calls iff none needs
+- Plan the fewest dependent rounds, then the fewest calls. Known state —
+  anything the task supplied, a tool returned, or a check already proved —
+  is never re-found, re-derived, or re-verified; a change to its subject
+  re-opens it. Batch calls iff none needs
   another's output or can change another's inputs/state; otherwise
   serialize. Before each batch, deduplicate the facets still required by the request,
   route each once to the cheapest sufficient tool with all required
   variants/scopes — every distinct sample/format in the same batch —
   and launch every independent call together — never
   split or duplicate a facet across tools, mutate merely to widen
-  retrieval, reserve known work, or cap fanout. Guessed terms go wide
-  with batched fan-out; narrow a scope only on verified cues — returned
-  siblings/conventions or known literals. Mine each returned output for
-  every remaining facet before the next round. Symbol relations end at
+  retrieval, reserve known work, or cap fanout. Each round asks everything
+  it can and keeps everything it gets: guesses go wide in one batch, scopes
+  narrow only on verified cues — returned siblings/conventions or known
+  literals — and returned output is fully mined before the next round.
+  Symbol relations end at
   `code_graph`; values/locations end at the context grep returns; `read`
   covers only what returned spans cannot, as an anchored offset/limit
-  window. The moment evidence determines the answer, edit, or deliverable,
-  stop retrieving; patch if needed.
+  window. A conclusive result ends its facet; evidence that determines the
+  answer, edit, or deliverable ends retrieval — patch if needed.
 - Once the edit or deliverable is determined, finish in one assistant turn:
   before `apply_patch`, obtain every target hunk's exact current content and
   anchor from `grep`, `code_graph`, or `read`; never infer patch context from
   another file, a sample, or expected text. Then issue `apply_patch` calls
   serially, never in parallel; use one cohesive call with one file section per
-  target, all patches first, and their one
-  batched verification `shell` in the same turn, running the real required
-  postconditions on every changed file and produced artifact, never echoing
-  a claim;
-  runtime waits for every patch and skips the shell
-  if any fails. Retry only failed envelopes; rerun a failed check only
-  after a fix that can change its result, else report it unresolved.
+  target, all patches first, then their one batched verification `shell` in
+  the same turn — the runtime runs it after every patch and only if all
+  succeeded, so verification never needs its own turn. It runs the real
+  required postconditions on every changed file and produced artifact,
+  never echoing a claim; a postcondition that did not actually run is
+  unresolved, not passed. Retry only failed envelopes; rerun a failed check only
+  after a change that can alter its outcome — commands alike; else switch
+  route or report it unresolved.
   Hand-authored text is edited only with `apply_patch`; computed artifacts
   (data/reports/derived values) come from `shell` computation, never
   hand-transcribed numbers. Earlier `shell` is only for runtime/state
   evidence unavailable to file tools—an independent facet, batched with
   the rest; independent probes are parallel shell calls, never one
   serial script per round.
-- A background `task_id` ends the turn; completion resumes work. Never poll;
-  use task control only for recovery or a required blocking result.
+- A long or uncertain command runs async — never nohup — and its
+  `task_id` ends the turn; completion resumes work. Never poll in any
+  form — sleep/status probes included; task control is for recovery or a
+  required blocking result only.

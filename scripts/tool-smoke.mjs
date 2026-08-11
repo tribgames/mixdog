@@ -43,7 +43,6 @@ import { TOOL_DEFS as MEMORY_TOOL_DEFS } from '../src/runtime/memory/tool-defs.m
 import { mergeSessionRowsIntoGlobal } from '../src/runtime/memory/lib/memory-session-merge.mjs';
 import { TOOL_DEFS as SEARCH_TOOL_DEFS } from '../src/runtime/search/tool-defs.mjs';
 import { TOOL_DEFS as CHANNEL_TOOL_DEFS } from '../src/runtime/channels/tool-defs.mjs';
-import { createProviderDispatch } from '../src/runtime/channels/lib/provider-dispatch.mjs';
 import { AGENT_OWNER } from '../src/runtime/agent/orchestrator/agent-owner.mjs';
 import {
   applyDeferredToolSurface,
@@ -2359,42 +2358,8 @@ if (!/- shell: Run commands\./.test(bp1ManifestText) || !/- recall: Recall prior
 if (bp1ManifestSession.deferredToolBp1Applied !== true) {
   throw new Error('BP1 deferred manifest injection must mark deferredToolBp1Applied');
 }
-const replyTool = CHANNEL_TOOL_DEFS.find((tool) => tool.name === 'reply');
-if (!/configured channel/i.test(replyTool?.description || '') || !/local .*paths/i.test(replyTool?.inputSchema?.properties?.files?.description || '')) {
-  throw new Error('channel reply schema must describe target channel and attachment paths');
-}
-if (!replyTool?.inputSchema?.required?.includes('message') || replyTool?.inputSchema?.required?.includes('chat_id')) {
-  throw new Error('channel reply schema must accept message for the configured channel without requiring chat_id');
-}
-{
-  const sent = [];
-  let activity = 0;
-  const { dispatchReply } = createProviderDispatch({
-    getConfig: () => ({ channelId: 'configured-channel' }),
-    getProvider: () => ({
-      sendMessage: async (...args) => {
-        sent.push(args);
-        return { sentIds: ['sent-1'] };
-      },
-    }),
-    scheduler: { noteActivity: () => { activity += 1; } },
-  });
-  const replyResult = await dispatchReply({
-    message: 'hello',
-    files: ['C:\\tmp\\attachment.txt'],
-  });
-  if (sent.length !== 1
-      || sent[0][0] !== 'configured-channel'
-      || sent[0][1] !== 'hello'
-      || sent[0][2]?.files?.[0] !== 'C:\\tmp\\attachment.txt'
-      || activity !== 2
-      || !/sent \(id: sent-1\)/.test(replyResult?.content?.[0]?.text || '')) {
-    throw new Error(`channel reply public args must normalize into provider dispatch: ${JSON.stringify({ sent, activity, replyResult })}`);
-  }
-}
-const fetchTool = CHANNEL_TOOL_DEFS.find((tool) => tool.name === 'fetch');
-if (!/Discord-only/i.test(fetchTool?.description || '') || /\burl\b/i.test(fetchTool?.description || '')) {
-  throw new Error('channel fetch schema must distinguish Discord fetch from web_fetch');
+if (CHANNEL_TOOL_DEFS.some((tool) => tool.name === 'reply' || tool.name === 'fetch')) {
+  throw new Error('channel reply/fetch must stay removed from the model-facing surface');
 }
 const grepTool = BUILTIN_TOOLS.find((tool) => tool.name === 'grep');
 const grepPatternDescription = grepTool?.inputSchema?.properties?.pattern?.description || '';
@@ -2439,8 +2404,8 @@ if (!/Known-base wildcard paths/i.test(globTool?.description || '')
 if (!/Fuzzy filename\/directory path-string lookup/i.test(findTool?.description || '') || !/returns paths only/i.test(findTool?.description || '')) {
   throw new Error('find description must state its fuzzy path-lookup contract');
 }
-if (!/across the call/i.test(findLimitDescription) || !/Defaults to 25/i.test(findLimitDescription)) {
-  throw new Error('find limit must be one call-level result budget');
+if (!/default 25/i.test(findLimitDescription) || !/0 unlimited/i.test(findLimitDescription)) {
+  throw new Error('find limit must state default 25 and the 0-unlimited sentinel');
 }
 if (!/Known-directory immediate entries/i.test(listTool?.description || '')
     || !/no wildcard/i.test(listTool?.description || '')

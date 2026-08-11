@@ -72,12 +72,6 @@ export function formatToolStartProgress(name, args = {}) {
         case 'memory':
             return 'managing memory';
 
-        // ── channels module ──────────────────────────────────────────────
-        case 'reply':
-            return 'replying';
-        case 'fetch':
-            return 'fetching messages';
-
         // ── host_input / cwd ─────────────────────────────────────────────
         case 'inject_input':
             return 'injecting input';

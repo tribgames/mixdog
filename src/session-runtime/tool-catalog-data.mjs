@@ -42,7 +42,7 @@ export const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
 
 export const READONLY_TOOL_NAMES = new Set([
   'read', 'list', 'grep', 'find', 'glob', 'code_graph', 'search',
-  'web_fetch', 'recall', 'memory', 'fetch', 'Skill',
+  'web_fetch', 'recall', 'memory', 'Skill',
 ]);
 
 export const DEFERRED_SELECT_ALIASES = {
@@ -50,8 +50,6 @@ export const DEFERRED_SELECT_ALIASES = {
   search: ['search', 'web_fetch'],
   web: ['web_fetch', 'search'],
   memory: ['memory', 'recall'],
-  channels: ['reply', 'fetch'],
-  discord: ['reply', 'fetch'],
   agent: ['agent'],
   graph: ['code_graph'],
   code: ['code_graph'],

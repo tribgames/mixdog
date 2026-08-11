@@ -33,6 +33,13 @@ function _graphBinaryPath() {
   try { return findCachedGraphBinary(getPluginData()); } catch { return null; }
 }
 
+// Public resolver for consumers outside the graph build (the resident
+// native-search-client duck-types this exact name). Returns an absolute
+// path or null; never throws.
+export function graphBinaryPath() {
+  try { return _graphBinaryPath() || null; } catch { return null; }
+}
+
 async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null, signal = null) {
   let binPath = _graphBinaryPath();
   if (!binPath) {

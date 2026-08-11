@@ -400,7 +400,6 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     case 'remember':
     case 'save_memory':
     case 'update_memory':
-    case 'reply':
     case 'request_user_input':
     case 'update_plan':
     case 'cwd':

@@ -11,8 +11,6 @@ import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '.
 import { attachChannel, readChannelDiscovery, probeChannelHealth } from './channel-client.mjs';
 
 const CHANNEL_TOOLS = new Set([
-  'reply',
-  'fetch',
   'activate_channel_bridge',
   'reload_config',
   'rebind_current_transcript',

@@ -1,3 +1,4 @@
+import '../runtime/shared/uv-threadpool-boot.mjs';
 import { createSessionLifecycle } from './session-lifecycle.mjs';
 import { createSessionTitleController } from './session-title.mjs';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';

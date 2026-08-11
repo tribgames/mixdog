@@ -13,6 +13,12 @@
 import { stat } from 'node:fs/promises';
 
 const FS_REACHABILITY_DEADLINE_MS = 5000;
+// Under burst load the libuv threadpool can queue a healthy local stat past
+// the base deadline (slow ≠ dead). Before declaring the path unreachable,
+// keep waiting for the SAME pending probe up to this extended ceiling: a
+// loaded-but-alive filesystem answers within it, a dead mount stays silent.
+const FS_REACHABILITY_EXTENDED_MS = 15_000;
+let _lastSlowStatWarnAt = 0;
 
 // Resolve true when the path is reachable (exists OR cleanly absent — ENOENT,
 // EACCES, etc. are "the FS answered", let the real sync logic produce its own
@@ -34,8 +40,25 @@ export async function assertPathReachable(path, deadlineMs = FS_REACHABILITY_DEA
         deadline,
     ]);
     if (result === 'TIMEOUT') {
+        // Grace window: distinguish threadpool queueing from a dead mount by
+        // waiting longer for the probe that is still in flight.
+        let extTimer = null;
+        const extended = await Promise.race([
+            probe.finally(() => { if (extTimer) clearTimeout(extTimer); }),
+            new Promise((resolve) => {
+                extTimer = setTimeout(() => resolve('TIMEOUT'), Math.max(ms, FS_REACHABILITY_EXTENDED_MS - ms));
+            }),
+        ]);
+        if (extended !== 'TIMEOUT') {
+            const now = Date.now();
+            if (now - _lastSlowStatWarnAt > 30_000) {
+                _lastSlowStatWarnAt = now;
+                process.stderr.write(`[fs-reachability] slow stat >${ms}ms under load (resolved in grace window): ${path}\n`);
+            }
+            return extended;
+        }
         const err = new Error(
-            `path unreachable: stat exceeded ${ms}ms (possible dead mount / hung filesystem): ${path}`,
+            `path unreachable: stat exceeded ${FS_REACHABILITY_EXTENDED_MS}ms (possible dead mount / hung filesystem): ${path}`,
         );
         err.code = 'EFSUNREACHABLE';
         throw err;
