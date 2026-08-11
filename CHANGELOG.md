@@ -5,6 +5,9 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Guessed tool identities are now verified before dependent calls, with an H3
+  Terminal-Bench round analysis recording the resulting retrieval patterns.
+
 ## v0.9.113 - 2026-08-11
 
 - Tool guidance now batches distinct evidence samples and avoids redundant
