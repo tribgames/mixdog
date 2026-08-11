@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.112 - 2026-08-11
+
 - Desktop utility, activity, transcript, settings, and repository surfaces are
   simplified around focused feature configuration and compact regressions.
 - Provider recovery, shell/list diagnostics, and release verification are
