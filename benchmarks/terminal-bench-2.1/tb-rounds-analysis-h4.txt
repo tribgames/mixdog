@@ -1,0 +1,52 @@
+== code-from-image__B3Xom9Q reward=1 rounds=4
+   1 [1] read(code.png)
+   2 [1] shell(python3 - <<'PY' from hashlib import sha256 from p)
+   3 [1] shell(python3 - <<'PY' from hashlib import sha256 from p)
+   4 [1] FINAL
+== db-wal-recovery__aScGtfQ reward=1 rounds=5
+   1 [1] list(.)
+   2 [1] shell(python3 - <<'PY' from pathlib import Path import s)
+   3 [1] shell(python3 - <<'PY' from pathlib import Path import j)
+   4 [1] shell(python3 - <<'PY' from pathlib import Path import j)
+   5 [1] FINAL
+== fix-code-vulnerability__somv4dC reward=1 rounds=7
+   1 [3] list() | grep(\r|,Invalid,ValueError,Header,header,cookie,path) | glob(test/**/*.py,tests/**/*.py,**/*test*.py)
+   2 [4] read([object Object],[object Object],[object Object],[o) | grep(control chars,\x00,\r,,CRLF,newline,header name,he) | grep(assertRaises\((ValueError|TypeError|KeyError|Co
+   3 [1] shell(git diff -- bottle.py)
+   4 [2] read([object Object],[object Object]) | grep(_hkey(,_hval()
+   5 [1] apply_patch(*** Begin Patch *** Update File: bottle.py @@ def )
+   6 [1] shell(python - <<'PY' import json from pathlib import Pa)
+   7 [1] FINAL
+== git-leak-recovery__SF6tg6a reward=1 rounds=6
+   1 [3] shell(git rev-parse --show-toplevel && git status --porc) | shell(python3 - <<'PY' import re, subprocess rx = re.com) | grep(secret\[[^]\r\n]*\])
+   2 [1] shell(git cat-file --batch-all-objects --batch-check='%()
+   3 [3] shell(printf 'COMMIT\n' && git cat-file commit 6b4c75caa) | shell(obj=$(git rev-parse --git-path objects/52/d18a091c) | grep(secret\[[^]\r\n]*\])
+   4 [1] shell(set -eu secret_oid=52d18a091cd9755bacb8eaccab2882a)
+   5 [2] shell(set -eu test "$(git rev-parse HEAD)" = c6d99979c3e) | grep(secret\[[^]\r\n]*\])
+   6 [1] FINAL
+== log-summary-date-ranges__knDuY4w reward=1 rounds=4
+   1 [1] glob(*.log)
+   2 [1] read(logs/2025-08-12_app.log)
+   3 [1] shell(python - <<'PY' from collections import Counter fr)
+   4 [1] FINAL
+== multi-source-data-merger__RvsQMBL reward=1 rounds=4
+   1 [1] shell(python - <<'PY' import json, csv from pathlib impo)
+   2 [1] shell(python - <<'PY' import csv import json from dateti)
+   3 [1] shell(python - <<'PY' import csv import json import re f)
+   4 [1] FINAL
+== polyglot-c-py__5vSDZzZ reward=1 rounds=9
+   1 [1] list(polyglot)
+   2 [1] apply_patch(*** Begin Patch *** Add File: polyglot/main.py.c +)
+   3 [1] shell(set -euo pipefail gcc /app/polyglot/main.py.c -o /)
+   4 [1] apply_patch(*** Begin Patch *** Update File: polyglot/main.py.)
+   5 [1] shell(set -euo pipefail gcc /app/polyglot/main.py.c -o /)
+   6 [1] shell(command -v python3.12 || true command -v python ||)
+   7 [1] apply_patch(*** Begin Patch *** Update File: polyglot/main.py.)
+   8 [1] shell(set -euo pipefail gcc /app/polyglot/main.py.c -o /)
+   9 [1] FINAL
+== prove-plus-comm__ARpE5Z9 reward=1 rounds=5
+   1 [1] find(plus_comm.v)
+   2 [1] read(plus_comm.v)
+   3 [1] apply_patch(*** Begin Patch *** Update File: plus_comm.v @@ in)
+   4 [1] shell(coqc plus_comm.v && test -f plus_comm.vo)
+   5 [1] FINAL

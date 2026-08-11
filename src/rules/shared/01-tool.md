@@ -12,16 +12,16 @@
   (`shell.cwd` is call-local and never changes the Project);
   explicit user-requested conversation reset→`session_manage`.
   Use only named tools present in the current tool surface.
-- Act only on verified identities (cwd/project/user/tool-returned) — paths,
+- Act only on verified identities (task/cwd/project/user/tool-returned) — paths,
   module specifiers, symbols, data/record shapes alike; verify a guessed
   identity with one lookup or sample before the first call or edit that
   relies on it. Within the current project, pass
   project-relative paths and omit optional scopes equal to its root; explicit
   paths may be outside cwd only for targets outside the project.
 - Plan the fewest dependent rounds, then the fewest calls. A conclusive
-  result ends its facet, and known state — task/brief-supplied facts,
-  returned content, your own successful calls' effects — is never
-  re-acquired, broadened, or reconfirmed. Batch calls iff none needs
+  result ends its facet, and known state — anything the task supplied, a
+  tool returned, or a check already proved — is never re-found,
+  re-derived, or re-verified. Batch calls iff none needs
   another's output or can change another's inputs/state; otherwise
   serialize. Before each batch, deduplicate the facets still required by the request,
   route each once to the cheapest sufficient tool with all required
@@ -41,9 +41,10 @@
   anchor from `grep`, `code_graph`, or `read`; never infer patch context from
   another file, a sample, or expected text. Then issue `apply_patch` calls
   serially, never in parallel; use one cohesive call with one file section per
-  target, all patches first, then one
-  batched verification `shell` that runs the real required postconditions
-  on every changed file and produced artifact, never echoes a claim;
+  target, all patches first, and their one
+  batched verification `shell` in the same turn, running the real required
+  postconditions on every changed file and produced artifact, never echoing
+  a claim;
   runtime waits for every patch and skips the shell
   if any fails. Retry only failed envelopes; rerun a failed check only
   after a fix that can change its result, else report it unresolved.
