@@ -1,0 +1,69 @@
+== code-from-image__VbEjspb rounds=21
+   1 [2] shell(file code.png && identify code.png && tesseract co) | list()
+   2 [1] shell(python - <<'PY' from PIL import Image im=Image.ope)
+   3 [1] shell(for x in tesseract magick convert identify chafa v)
+   4 [1] shell(python - <<'PY' mods=['cv2','numpy','imageio','mat)
+   5 [1] shell(python - <<'PY' import struct p=open('code.png','r)
+   6 [1] shell(python - <<'PY' import struct,zlib p=open('code.pn)
+   7 [1] shell(python - <<'PY' import struct,zlib,collections p=o)
+   8 [1] shell(python - <<'PY' # Decode PNG and print dark-pixel )
+   9 [1] shell(python - <<'PY' # Tiny dependency-free PNG decoder)
+  10 [1] shell(python -m pip install --quiet pillow)
+  11 [1] shell(python -m pip install --quiet rapidocr_onnxruntime)
+  12 [1] shell(python -m pip uninstall -y opencv-python >/dev/nul)
+  13 [1] FINAL
+  14 [1] shell(python - <<'PY' import hashlib b=open('code.png',')
+  15 [1] shell(apt-get update -qq && apt-get install -y -qq tesse)
+  16 [1] FINAL
+  17 [1] shell(python - <<'PY' from PIL import Image,ImageEnhance)
+  18 [1] shell(python - <<'PY' import hashlib b=open('code.png',')
+  19 [1] apply_patch(*** Begin Patch *** Add File: solution.py +from ha)
+  20 [1] shell(set -euo pipefail printed=$(python solution.py) py)
+  21 [1] FINAL
+== db-wal-recovery__Brbu3kF rounds=5
+   1 [1] list(/app)
+   2 [3] read([object Object]) | read([object Object]) | shell(python3 - <<'PY' import sqlite3 p='/app/main.db' c)
+   3 [1] shell(python3 - <<'PY' from pathlib import Path import j)
+   4 [1] shell(python3 - <<'PY' from pathlib import Path import j)
+   5 [1] FINAL
+== fix-code-vulnerability__Gy5vJSB rounds=7
+   1 [4] list() | grep(except (ValueError, TypeError),except ValueError,e) | glob(test*.py,test/**/*.py,tests/**/*.py,README*,pyproj) | code_graph()
+   2 [4] grep(parse_range_header,parse_auth,parse_date,parse_qsl) | grep(raise Exception,raise BottleException,except Value) | read([object Object],[object Object],[object Object]
+   3 [4] code_graph() | grep(raise ,return HTTPError,HTTPError(,os.path.abspath) | read([object Object],[object Object],[object Object],[o) | shell(git status --short && git log -
+   4 [1] shell(git diff -- bottle.py)
+   5 [1] apply_patch(*** Begin Patch *** Update File: bottle.py @@ def )
+   6 [1] shell(python - <<'PY' import json from pathlib import Pa)
+   7 [1] FINAL
+== git-leak-recovery__rwicDcb rounds=8
+   1 [2] shell(git rev-parse --show-toplevel --git-dir --is-bare-) | list(/app)
+   2 [1] shell(python3 - <<'PY' import re, subprocess objects = s)
+   3 [1] shell(for tool in python perl ruby node; do command -v ")
+   4 [1] shell(node <<'JS' const {execFileSync} = require('child_)
+   5 [1] shell(set -euo pipefail bad_commit='6b4c75caa9a2aa9a630e)
+   6 [1] shell(printf '%s\n' 'STATUS' && git status --porcelain=v)
+   7 [1] shell(set -euo pipefail test "$(git rev-parse --show-top)
+   8 [1] FINAL
+== log-summary-date-ranges__925yKvb rounds=3
+   1 [1] shell(python3 - <<'PY' from collections import Counter f)
+   2 [1] shell(python3 - <<'PY' from collections import Counter f)
+   3 [1] FINAL
+== multi-source-data-merger__fVaSrNs rounds=3
+   1 [1] shell(python - <<'PY' import json from pathlib import Pa)
+   2 [1] shell(python - <<'PY' import json, re from pathlib impor)
+   3 [1] FINAL
+== polyglot-c-py__h8pyXW3 rounds=9
+   1 [1] list(/app/polyglot)
+   2 [1] shell(mkdir -p /app/polyglot)
+   3 [1] apply_patch(*** Begin Patch *** Add File: /app/polyglot/main.p)
+   4 [1] shell(gcc /app/polyglot/main.py.c -o /app/polyglot/cmain)
+   5 [1] shell(for candidate in python3.12 python3 python /usr/bi)
+   6 [1] apply_patch(*** Begin Patch *** Update File: /app/polyglot/mai)
+   7 [1] grep(^"{3,5}.*$)
+   8 [1] shell(gcc -std=c11 -Wall -Wextra -Werror -pedantic /app/)
+   9 [1] FINAL
+== prove-plus-comm__6z7QqrL rounds=5
+   1 [1] find(plus_comm.v)
+   2 [1] read(plus_comm.v)
+   3 [1] apply_patch(*** Begin Patch *** Update File: plus_comm.v @@ in)
+   4 [1] shell(coqc plus_comm.v && test -f plus_comm.vo)
+   5 [1] FINAL
