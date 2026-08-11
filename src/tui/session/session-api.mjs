@@ -50,6 +50,10 @@ export function createSessionApiA(bag) {
   const {
     runtime, nextId, flags, pending, listeners, getState, getPublishedState = getState, set, flushEmitImmediate, pushItem, patchItem, replaceItems, restoreOlderTranscript, restoreNewerTranscript, settleStreamingTail, clearStreamingTail, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, prioritizeQueued, resetStatsAndSyncContext, drain, flushDeferredExecutionPendingResumeKick, discardExecutionPendingResume,
   } = bag;
+  // submitAsync may be awaiting auto-clear while the renderer already owns an
+  // optimistic user row. Keep that intake addressable so Esc can reclaim it
+  // before enqueue()/busy publication without racing a delayed snapshot.
+  const acceptingSubmissions = new Map();
   const submission = (text, options = {}) => {
     const t = promptDisplayText(text, options).trim();
     if (!t) return null;
@@ -58,7 +62,7 @@ export function createSessionApiA(bag) {
     // priority, so it is injected at the next tool/model boundary. Explicit
     // options.priority still wins.
    const priority = options.priority;
-    return {
+    const intake = {
       text,
       queueOptions: {
         ...options,
@@ -70,6 +74,14 @@ export function createSessionApiA(bag) {
         priority,
       },
     };
+    acceptingSubmissions.set(intake.queueOptions.id, intake);
+    return intake;
+  };
+  const enqueueSubmission = (intake) => {
+    const submissionId = String(intake?.queueOptions?.id || '').trim();
+    if (submissionId) acceptingSubmissions.delete(submissionId);
+    if (intake?.cancelled === true) return false;
+    return enqueue(intake.text, intake.queueOptions);
   };
   const submit = (text, options = {}) => {
     const intake = submission(text, options);
@@ -77,7 +89,7 @@ export function createSessionApiA(bag) {
     // A running clear (idle auto-clear or session_manage) sets commandBusy;
     // queue the prompt instead of dropping it — it drains after the clear.
     if (flags.autoClearRunning) {
-      return enqueue(intake.text, intake.queueOptions) !== false;
+      return enqueueSubmission(intake) !== false;
     }
     // Any in-flight session command (clear/setModel/newSession/resume/...)
     // holds commandBusy. Previously the prompt was dropped here and only the
@@ -85,16 +97,16 @@ export function createSessionApiA(bag) {
     // commandBusy, and the central release hook re-kicks drain once the
     // command settles, so the prompt runs afterwards rather than vanishing.
     if (getState().commandBusy) {
-      return enqueue(intake.text, intake.queueOptions) !== false;
+      return enqueueSubmission(intake) !== false;
     }
     if (getState().busy) {
-      return enqueue(intake.text, intake.queueOptions) !== false;
+      return enqueueSubmission(intake) !== false;
     }
     // If autoClearBeforeSubmit rejects (e.g. compaction timeout throws), the
     // prompt must still be queued — swallow the rejection so enqueue always
     // runs and the submit is never silently lost.
     void autoClearBeforeSubmit().catch(() => {}).then(
-      () => enqueue(intake.text, intake.queueOptions),
+      () => enqueueSubmission(intake),
     );
     return true;
   };
@@ -108,7 +120,7 @@ export function createSessionApiA(bag) {
     if (!flags.autoClearRunning && !getState().commandBusy && !getState().busy) {
       await autoClearBeforeSubmit().catch(() => {});
     }
-    return enqueue(intake.text, intake.queueOptions) !== false;
+    return enqueueSubmission(intake) !== false;
   };
   return {
     getState: () => getPublishedState(),
@@ -634,11 +646,33 @@ export function createSessionApiA(bag) {
         set({ commandBusy: false, commandStatus: null });
       }
     },
-    compact: async () => {
+    compact: async function compactCommand() {
       if (getState().commandBusy) return null;
       if (getState().busy) {
-        pushNotice('Compact skipped: turn in progress', 'info');
-        return { changed: false, reason: 'compact skipped: turn in progress' };
+        // Schedule instead of dropping: /compact mid-turn runs once the turn
+        // AND the queued follow-ups finish (compacting between queued turns
+        // would interleave a summary pass into the user's planned sequence).
+        // One pending schedule at a time; the timer is unref'd so it never
+        // holds the process open, and any error path clears it.
+        if (bag._scheduledCompactTimer) {
+          pushNotice('Compact already scheduled for turn end', 'info');
+          return { changed: false, scheduled: true };
+        }
+        pushNotice('Compact scheduled: runs when the current turn finishes', 'info');
+        bag._scheduledCompactTimer = setInterval(() => {
+          try {
+            const s = getState();
+            if (s.busy || s.commandBusy || (s.queued || []).length > 0) return;
+            clearInterval(bag._scheduledCompactTimer);
+            bag._scheduledCompactTimer = null;
+            void compactCommand();
+          } catch {
+            try { clearInterval(bag._scheduledCompactTimer); } catch { /* gone */ }
+            bag._scheduledCompactTimer = null;
+          }
+        }, 750);
+        bag._scheduledCompactTimer.unref?.();
+        return { changed: false, scheduled: true };
       }
       const startedAt = Date.now();
       set({ commandBusy: true, commandStatus: { active: true, verb: 'Compacting conversation', startedAt, mode: 'compacting' } });
@@ -690,7 +724,34 @@ export function createSessionApiA(bag) {
       }
     },
     abort: (options = {}) => {
-      if (!getState().busy) return false;
+      const submissionId = String(options?.submissionId || '').trim();
+      if (!getState().busy) {
+        if (!submissionId) return false;
+        const restored = restoreQueued('', submissionId);
+        if (!restored || Number(restored.count) < 1) {
+          const intake = acceptingSubmissions.get(submissionId);
+          if (!intake) return false;
+          intake.cancelled = true;
+          const attachments = hydratePastedAttachments(
+            intake.queueOptions.pastedImages,
+            intake.queueOptions.pastedTexts,
+          );
+          return {
+            aborted: false,
+            restoreText: String(intake.queueOptions.displayText || '').trim(),
+            pastedImages: attachments.pastedImages,
+            pastedTexts: attachments.pastedTexts,
+            restoredSubmissionIds: [submissionId],
+          };
+        }
+        return {
+          aborted: false,
+          restoreText: restored.text,
+          pastedImages: restored.pastedImages,
+          pastedTexts: restored.pastedTexts,
+          restoredSubmissionIds: restored.ids,
+        };
+      }
       denyAllToolApprovals('interrupted by user');
       const restoreState = flags.activePromptRestore;
       // A queued steering prompt means the user already redirected the turn:
@@ -771,6 +832,9 @@ export function createSessionApiA(bag) {
         discardPastedImages,
         pastedTexts: restored.pastedTexts,
         discardPastedTexts,
+        restoredSubmissionIds: restoreText
+          ? (restoreState?.submittedIds || []).map(String).filter(Boolean)
+          : [],
       };
     },
   };

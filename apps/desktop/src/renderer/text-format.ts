@@ -117,7 +117,6 @@ export function formatIdleDuration(value: unknown): string {
 
 export const TURN_LOCKED_SLASH_COMMANDS = new Set([
   "clear",
-  "compact",
   "resume",
   "outputstyle",
   "effort",
