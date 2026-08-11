@@ -52,7 +52,9 @@
   the same turn — the runtime runs it after every patch and only if all
   succeeded, so verification never needs its own turn. It runs the real
   required postconditions on every changed file and produced artifact,
-  never echoing a claim; a postcondition that did not actually run is
+  never echoing a claim; changes made through `shell` verify under the same
+  one-batch contract — one script proving every postcondition, value-level
+  included, never one check per round; a postcondition that did not actually run is
   unresolved, not passed. Retry only failed envelopes; rerun a failed check only
   after a change that can alter its outcome — commands alike; else switch
   route or report it unresolved.
