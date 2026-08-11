@@ -76,6 +76,9 @@ export function findFileByBasename(searchRoot, fullPath, { limit = 3, maxDirs = 
                 }
             }
         }
+        // Queue drained without hitting maxDirs/limit → the walk covered the
+        // whole (non-vendor, non-hidden) tree; a miss is conclusive.
+        matches.exhaustive = queue.length === 0;
         return matches;
     } catch { return []; }
 }
@@ -153,6 +156,7 @@ export function findDirectoryByBasename(searchRoot, fullPath, { limit = 3, maxDi
                 }
             }
         }
+        matches.exhaustive = queue.length === 0;
         return matches;
     } catch { return []; }
 }

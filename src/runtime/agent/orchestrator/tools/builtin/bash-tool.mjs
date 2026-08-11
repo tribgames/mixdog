@@ -1,6 +1,7 @@
 import { getAbortSignalForSession } from '../../session/abort-lookup.mjs';
-import { unlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { accessSync, constants as fsConstants, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { constants as osConstants, tmpdir } from 'node:os';
+import { delimiter as pathDelimiter } from 'node:path';
 import { join as pathJoin } from 'node:path';
 import { isLegitimateShellExit } from '../../session/result-classification.mjs';
 import { makeToolEnvelope } from '../../session/tool-envelope.mjs';
@@ -246,8 +247,63 @@ export function _shellFailureStatus(result, timeout) {
             ? `[timeout: ${timeout}ms${signalDetail || ' signal: unknown'}${causeDetail}]${timeoutHint}`
             : (signal
                 ? `[signal: ${signal}${causeDetail}]`
-                : (exitCode !== 0 && exitCode !== null ? `[exit code: ${exitCode}]` : '')));
+                : (exitCode !== 0 && exitCode !== null ? `[exit code: ${exitCode}]${_exitClassDiagnostic(exitCode, result.stderr)}` : '')));
     return { signal, exitCode, shellToolFailed, statusDetail };
+}
+
+// Deterministic POSIX exit-class facts only (127 not-found, 126 not
+// executable, 128+N signal). Per-command meanings (grep 1 = no match, test
+// runner 1 = failures) stay uninterpreted — that would need a per-command
+// dictionary, which is banned steering. 127 additionally names verified
+// same-prefix executables actually present on PATH (fact statement, no
+// substitution suggestion) so the model skips the "then what exists?" probe.
+const _SIGNAL_NAME_BY_NUMBER = new Map(
+    Object.entries(osConstants.signals || {}).map(([name, num]) => [num, name]).reverse(),
+);
+function _missingCommandFrom(stderr) {
+    const text = String(stderr || '');
+    const m = /(?:^|\n)[^\n]*?(?:line \d+:\s*)?([A-Za-z0-9._+-]+):\s*(?:command )?not found/.exec(text)
+        || /The term '([^']+)' is not recognized/.exec(text);
+    return m ? m[1] : null;
+}
+function _pathPrefixExecutables(cmd, limit = 5) {
+    const needle = String(cmd || '').toLowerCase();
+    const hits = [];
+    if (!needle) return hits;
+    const seenDirs = new Set();
+    for (const dir of String(process.env.PATH || '').split(pathDelimiter)) {
+        if (!dir || seenDirs.has(dir)) continue;
+        seenDirs.add(dir);
+        if (seenDirs.size > 64) break;
+        let entries;
+        try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+        for (const ent of entries) {
+            if (ent.isDirectory()) continue;
+            if (!ent.name.toLowerCase().startsWith(needle)) continue;
+            if (process.platform !== 'win32') {
+                try { accessSync(pathJoin(dir, ent.name), fsConstants.X_OK); } catch { continue; }
+            }
+            hits.push(`${ent.name} (${dir.replace(/\\/g, '/')})`);
+            if (hits.length >= limit) return hits;
+        }
+    }
+    return hits;
+}
+export function _exitClassDiagnostic(exitCode, stderr) {
+    if (exitCode === 127) {
+        const cmd = _missingCommandFrom(stderr);
+        if (!cmd) return '';
+        const hits = _pathPrefixExecutables(cmd);
+        return hits.length
+            ? ` — '${cmd}' is not on PATH; PATH does have: ${hits.join(', ')}`
+            : ` — '${cmd}' is not on PATH and no '${cmd}*' executable exists on PATH`;
+    }
+    if (exitCode === 126) return ' — 126: command found but not executable (permission or format)';
+    if (exitCode > 128 && exitCode < 165) {
+        const name = _SIGNAL_NAME_BY_NUMBER.get(exitCode - 128);
+        if (name) return ` — 128+${exitCode - 128}: terminated by ${name}`;
+    }
+    return '';
 }
 
 export function _composeShellFailure(statusMarker, errorPrefix, warningBlock, payload) {
