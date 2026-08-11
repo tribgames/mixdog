@@ -35,10 +35,10 @@
   covers only what returned spans cannot, as an anchored offset/limit
   window. A conclusive result ends its facet; evidence that determines the
   answer, edit, or deliverable ends retrieval — patch if needed.
-- Inspect read-only; writable handles, repair, or cleanup only when the
-  deliverable requires them, copying what they could destroy. Never clear
-  an obstacle or unexpected state by mutating it; unrecoverably lost
-  evidence ends its search — report best effort.
+- If inspection can change evidence or durable state, use read-only means;
+  mutate only when the deliverable requires it, first preserving evidence
+  at risk. Never mutate merely to clear an obstacle or unexpected state;
+  unrecoverably lost evidence ends its search — report best effort.
 - Once the edit or deliverable is determined, finish in one assistant turn:
   before `apply_patch`, obtain every target hunk's exact current content
   and anchor from `grep`, `code_graph`, `read`, or a prior successful patch
