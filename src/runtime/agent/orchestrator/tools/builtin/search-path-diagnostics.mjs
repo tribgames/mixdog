@@ -67,6 +67,11 @@ const NOT_FOUND_CODES = new Set(['ENOENT', 'ENOTDIR']);
 
 const ENOENT_FIND_NUDGE = 'Locate with find on the basename before retrying.';
 
+// Exhaustive-scan miss: the basename BFS drained its queue (whole non-vendor,
+// non-hidden tree walked) with zero hits, so a follow-up find/list re-probe
+// cannot succeed. Declare the miss conclusive instead of nudging one.
+const ENOENT_ABSENT = ' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires).';
+
 // Per-invocation memo for the ENOENT recovery fs scans. A single grep/glob
 // ENOENT surfaces the SAME missing path through tryReadFamilyEnoentRedirect
 // (resolveUniqueEnoentRedirect) AND buildNotFoundHint (which re-runs
@@ -120,7 +125,7 @@ function spaceJoinedPathHint(requestedPath) {
 
 function appendEnoentFindNudge(text = '') {
     const base = String(text || '');
-    if (base.includes(ENOENT_FIND_NUDGE)) return base;
+    if (base.includes(ENOENT_FIND_NUDGE) || base.includes(ENOENT_ABSENT)) return base;
     const sep = base.length && !/\s$/.test(base) ? ' ' : '';
     return `${base}${sep}${ENOENT_FIND_NUDGE}`;
 }
@@ -191,6 +196,7 @@ export function buildNotFoundHint(workDir, missingPath, actionVerb, errCode = 'E
         if (dirHits.length === 1) {
             return ` Not found at this path; the same directory name exists at: "${normalizeOutputPath(dirHits[0])}". ${actionVerb} that path directly.`;
         }
+        const absent = elsewhere.exhaustive === true && dirHits.exhaustive === true ? ENOENT_ABSENT : '';
         const parentRel = nearestExistingParentRel(workDir, missingPath);
         if (parentRel) {
             const resolvedParent = parentRel === '.' ? workDir : resolveAgainstCwd(parentRel, workDir);
@@ -200,11 +206,12 @@ export function buildNotFoundHint(workDir, missingPath, actionVerb, errCode = 'E
                 .slice(0, 3);
             if (siblings.length) {
                 const shown = parentRel === '.' ? '.' : normalizeOutputPath(parentRel);
-                return ` Not found; under "${shown}" try: ${siblings.map((n) => `"${n}"`).join(', ')}.`;
+                return ` Not found; under "${shown}" try: ${siblings.map((n) => `"${n}"`).join(', ')}.${absent}`;
             }
         }
+        return absent;
     }
-    return '';
+    return elsewhere.exhaustive === true ? ENOENT_ABSENT : '';
 }
 
 export function relativePathPrefix(pathPrefix, workDir) {

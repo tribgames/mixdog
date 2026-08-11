@@ -19,7 +19,8 @@
   project-relative paths and omit optional scopes equal to its root; explicit
   paths may be outside cwd only for targets outside the project.
 - Plan the fewest dependent rounds, then the fewest calls. Known state —
-  anything the task supplied, a tool returned, or a check already proved —
+  anything the task supplied, a tool returned (applied patches and envelope
+  hints included), or a check already proved —
   is never re-found, re-derived, or re-verified; a change to its subject
   re-opens it. Batch calls iff none needs
   another's output or can change another's inputs/state; otherwise
@@ -37,9 +38,14 @@
   covers only what returned spans cannot, as an anchored offset/limit
   window. A conclusive result ends its facet; evidence that determines the
   answer, edit, or deliverable ends retrieval — patch if needed.
+- Inspect read-only; writable handles, repair, or cleanup only when the
+  deliverable requires them, copying what they could destroy. Never clear
+  an obstacle or unexpected state by mutating it; unrecoverably lost
+  evidence ends its search — report best effort.
 - Once the edit or deliverable is determined, finish in one assistant turn:
   before `apply_patch`, obtain every target hunk's exact current content and
-  anchor from `grep`, `code_graph`, or `read`; never infer patch context from
+  anchor from `grep`, `code_graph`, `read`, or a prior successful patch
+  envelope; never infer patch context from
   another file, a sample, or expected text. Then issue `apply_patch` calls
   serially, never in parallel; use one cohesive call with one file section per
   target, all patches first, then their one batched verification `shell` in
