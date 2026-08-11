@@ -73,7 +73,7 @@ apply it, and verify the result.
 ### Workflow / agent definitions
 
 1. Workflows and agents are Markdown packs. Built-in services are Web Search,
-   Explore, and Maintainer. Mixdog ships editable starter agents `worker`,
+   and Maintainer. Mixdog ships editable starter agents `worker`,
    `heavy-worker`, and `reviewer`; custom packs live at
    `<mixdogData>/workflows/<id>/WORKFLOW.md` and
    `<mixdogData>/agents/<id>/AGENT.md`.

@@ -137,7 +137,6 @@ const TOOL_ARG_KEYS = {
     list: ['path', 'head_limit', 'offset'],
     recall: ['query', 'limit', 'session_id', 'cwd'],
     search: ['query', 'limit', 'cwd'],
-    explore: ['query', 'queries', 'limit', 'cwd'],
     code_graph: ['mode', 'file', 'files', 'symbol', 'symbols', 'body', 'language', 'limit', 'depth', 'page', 'cwd'],
     shell: ['command', 'cwd', 'timeout', 'mode', 'run_in_background', 'persistent', 'session_id'],
     task: ['task_id', 'action', 'timeout_ms', 'poll_ms'],

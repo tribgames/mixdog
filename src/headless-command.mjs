@@ -1,10 +1,9 @@
 const VALUE_OPTIONS = new Set(['--provider', '--model', '--effort', '--workflow']);
 const FLAG_OPTIONS = new Set([
   '--readonly', '--help', '-h', '--plain', '--react', '--remote', '--onboarding', '--fast',
-  '--explore', '--web-search', '--memory',
+  '--web-search', '--memory',
 ]);
 const HEADLESS_ROLE_ALIASES = new Map([
-  ['explorer', 'explore'], ['explore', 'explore'],
   ['maint', 'maintainer'], ['maintenance', 'maintainer'], ['maintainer', 'maintainer'],
   ['worker', 'worker'],
   ['heavy', 'heavy-worker'], ['heavyworker', 'heavy-worker'], ['heavy-worker', 'heavy-worker'],
@@ -108,7 +107,6 @@ export function classifyCliInvocation(argv = []) {
     model: parsed.values['--model'],
     effort: parsed.values['--effort'],
     fast: argv.includes('--fast'),
-    explore: argv.includes('--explore'),
     webSearch: argv.includes('--web-search'),
     memory: argv.includes('--memory'),
     toolMode: argv.includes('--readonly') ? 'readonly' : 'full',

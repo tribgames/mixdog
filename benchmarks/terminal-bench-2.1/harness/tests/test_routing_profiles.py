@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import copy
+import hashlib
 import importlib
 import json
 import os
@@ -47,8 +48,7 @@ EXPECTED_AUDIT_LINE = (
     "worker=openai-oauth/gpt-5.6-terra effort=high fast=true; "
     "heavy-worker=openai-oauth/gpt-5.6-sol effort=xhigh fast=true; "
     "reviewer=openai-oauth/gpt-5.6-sol effort=xhigh fast=true; "
-    "debugger=openai-oauth/gpt-5.6-sol effort=xhigh fast=true; "
-    "explorer=openai-oauth/gpt-5.6-luna effort=low fast=false"
+    "debugger=openai-oauth/gpt-5.6-sol effort=xhigh fast=true"
 )
 def resolve_with_real_runtime(config: dict) -> dict:
     repo_root = BENCH_ROOT.parents[1]
@@ -82,7 +82,6 @@ const agentKeys = {{
   'heavy-worker': 'heavy-worker',
   reviewer: 'reviewer',
   debugger: 'debugger',
-  explorer: 'explore',
 }};
 const agents = Object.fromEntries(Object.entries(agentKeys).map(
   ([role, key]) => [role, cleanRoute(normalizeAgentRoute(config.agents?.[key]))]
@@ -182,12 +181,6 @@ class RoutingProfileTests(unittest.TestCase):
                     "model": "gpt-5.6-sol",
                     "effort": "xhigh",
                     "fast": True,
-                },
-                "explorer": {
-                    "provider": "openai-oauth",
-                    "model": "gpt-5.6-luna",
-                    "effort": "low",
-                    "fast": False,
                 },
             },
         )
@@ -290,12 +283,6 @@ class RoutingProfileTests(unittest.TestCase):
                         "effort": "xhigh",
                         "fast": True,
                     },
-                    "explorer": {
-                        "provider": "openai-oauth",
-                        "model": "gpt-5.6-luna",
-                        "effort": "low",
-                        "fast": False,
-                    },
                 },
             },
         )
@@ -339,12 +326,6 @@ class RoutingProfileTests(unittest.TestCase):
                         "model": "gpt-5.6-sol",
                         "effort": "xhigh",
                         "fast": True,
-                    },
-                    "explorer": {
-                        "provider": "openai-oauth",
-                        "model": "gpt-5.6-luna",
-                        "effort": "low",
-                        "fast": False,
                     },
                 },
             },
@@ -526,7 +507,6 @@ class RoutingProfileTests(unittest.TestCase):
             "heavy-worker": "heavy-worker",
             "reviewer": "reviewer",
             "debugger": "debugger",
-            "explorer": "explore",
         }
         for role, key in role_keys.items():
             self.assertEqual(merged["agent"]["agents"][key], profile["routes"][role])
@@ -631,7 +611,7 @@ class RoutingProfileTests(unittest.TestCase):
                 },
                 "agents": {
                     role: {"provider": "host", "model": "host"}
-                    for role in ("explore", "worker", "heavy-worker", "reviewer", "debugger")
+                    for role in ("worker", "heavy-worker", "reviewer", "debugger")
                 },
                 "modelSettings": {
                     "anthropic-oauth/claude-fable-5": {
@@ -651,7 +631,7 @@ class RoutingProfileTests(unittest.TestCase):
         self.assertEqual(resolved["workflowLead"], profile["routes"]["lead"])
         self.assertEqual(resolved["agents"], {
             role: profile["routes"][role]
-            for role in ("worker", "heavy-worker", "reviewer", "debugger", "explorer")
+            for role in ("worker", "heavy-worker", "reviewer", "debugger")
         })
 
     def test_case_variant_id_name_collision_uses_runtime_first_match(self) -> None:
@@ -1042,7 +1022,22 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
 
         agent.exec_as_root = exec_as_root
         agent.exec_as_agent = exec_as_agent
-        await agent._run_lead(Environment(), "adapter task", None, base_env)
+        with tempfile.TemporaryDirectory(prefix="mixdog-harness-snapshot-test-") as temp:
+            root = Path(temp)
+            driver = root / "lead_driver.mjs"
+            shutil.copy2(HARNESS_ROOT / driver.name, driver)
+            manifest = {
+                driver.name: hashlib.sha256(driver.read_bytes()).hexdigest()
+            }
+            with mock.patch.dict(
+                os.environ,
+                {
+                    module.HARNESS_SNAPSHOT_ENV: str(root),
+                    module.HARNESS_SNAPSHOT_MANIFEST_ENV: json.dumps(manifest),
+                },
+                clear=False,
+            ):
+                await agent._run_lead(Environment(), "adapter task", None, base_env)
         return captured[0]
 
     def test_default_workflow_preserves_headless_mandate(self) -> None:
@@ -1836,9 +1831,24 @@ INSTALLER
 
         agent.exec_as_root = exec_as_root
         agent.exec_as_agent = exec_as_agent
-        asyncio.run(
-            agent._run_lead(Environment(), "fixture", None, {"BASE": "value"})
-        )
+        with tempfile.TemporaryDirectory(prefix="mixdog-harness-snapshot-test-") as temp:
+            root = Path(temp)
+            driver = root / "lead_driver.mjs"
+            shutil.copy2(HARNESS_ROOT / driver.name, driver)
+            manifest = {
+                driver.name: hashlib.sha256(driver.read_bytes()).hexdigest()
+            }
+            with mock.patch.dict(
+                os.environ,
+                {
+                    module.HARNESS_SNAPSHOT_ENV: str(root),
+                    module.HARNESS_SNAPSHOT_MANIFEST_ENV: json.dumps(manifest),
+                },
+                clear=False,
+            ):
+                asyncio.run(
+                    agent._run_lead(Environment(), "fixture", None, {"BASE": "value"})
+                )
 
         command, run_env = captured[0]
         self.assertIn(
@@ -1938,6 +1948,28 @@ INSTALLER
         self.assertNotIn('rm -rf "$PACKAGE/src"', commands[0])
         self.assertNotIn("manifest", commands[0])
         self.assertNotIn("src_overlay_apply", commands[0])
+
+    def test_harness_snapshot_file_is_digest_pinned(self) -> None:
+        module = self.load_adapter_module()
+        with tempfile.TemporaryDirectory(prefix="mixdog-harness-snapshot-") as temp:
+            root = Path(temp)
+            driver = root / "lead_driver.mjs"
+            driver.write_bytes(b"const frozen = true;\n")
+            manifest = {
+                driver.name: hashlib.sha256(driver.read_bytes()).hexdigest()
+            }
+            with mock.patch.dict(
+                os.environ,
+                {
+                    module.HARNESS_SNAPSHOT_ENV: str(root),
+                    module.HARNESS_SNAPSHOT_MANIFEST_ENV: json.dumps(manifest),
+                },
+                clear=False,
+            ):
+                self.assertEqual(module._harness_snapshot_file(driver.name), driver)
+                driver.write_bytes(b"const mutated = true;\n")
+                with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
+                    module._harness_snapshot_file(driver.name)
 
 
 class LeadDriverBehaviorTests(unittest.TestCase):
@@ -2887,7 +2919,7 @@ const dirtyCalls = [
   { agent: 'review', tag: 'review', prompt: '', message: 'Task: shared-secret-task\nDeliver: secret-review' },
   { agent: 'debugger', tag: 'debug', prompt: 'Anchors: secret-debug' },
   { agent: 'heavy', tag: 'heavy', cwd: 'worker', file: 'briefs/heavy.txt' },
-  { agent: 'explorer', tag: 'scan', prompt: 'Task: secret-scan\nAnchors: Worker→Debugger→Reviewer' },
+  { agent: 'worker', tag: 'scan', prompt: 'Task: secret-scan\nAnchors: Worker→Debugger→Reviewer' },
   { agent: 'worker', tag: 'no-brief' },
 ];
 const cleanCalls = [
@@ -3074,6 +3106,7 @@ class LauncherDryRunTests(unittest.TestCase):
         self.assertEqual(result.stdout.splitlines()[0], EXPECTED_AUDIT_LINE)
         self.assertIn("--ak route_profile=fable-xhigh", result.stdout)
         self.assertNotIn("workflow=", result.stdout)
+        self.assertNotIn("--verifier-env", result.stdout)
 
     def test_launcher_rejects_unknown_profile_and_conflicts(self) -> None:
         unknown = self.run_launcher("-RouteProfile", "unknown")
@@ -3127,6 +3160,7 @@ class LauncherDryRunTests(unittest.TestCase):
                     "@mkdir \"%MIXDOG_TB_SRC_SNAPSHOT%\"\n"
                     "@mkdir \"%MIXDOG_TB_FALLBACK_STATE_DIR%\"\n"
                     f"@echo %MIXDOG_TB_SRC_SNAPSHOT%>\"{capture}\"\n"
+                    f"@echo %MIXDOG_TB_HARNESS_SNAPSHOT%>>\"{capture}\"\n"
                     f"@echo %MIXDOG_TB_FALLBACK_STATE_DIR%>>\"{capture}\"\n"
                     "@exit /b 37\n",
                     encoding="utf-8",
@@ -3138,8 +3172,10 @@ class LauncherDryRunTests(unittest.TestCase):
                 (bin_dir / "harbor").write_text(
                     "#!/bin/sh\n"
                     'mkdir -p "$MIXDOG_TB_SRC_SNAPSHOT" '
+                    '"$MIXDOG_TB_HARNESS_SNAPSHOT" '
                     '"$MIXDOG_TB_FALLBACK_STATE_DIR"\n'
-                    f'printf "%s\\n%s\\n" "$MIXDOG_TB_SRC_SNAPSHOT" '
+                    f'printf "%s\\n%s\\n%s\\n" "$MIXDOG_TB_SRC_SNAPSHOT" '
+                    '"$MIXDOG_TB_HARNESS_SNAPSHOT" '
                     f'"$MIXDOG_TB_FALLBACK_STATE_DIR" > "{capture}"\n'
                     "exit 37\n",
                     encoding="utf-8",
@@ -3173,7 +3209,7 @@ class LauncherDryRunTests(unittest.TestCase):
             ]
 
         self.assertEqual(result.returncode, 37, result.stderr)
-        self.assertEqual(len(state_paths), 2)
+        self.assertEqual(len(state_paths), 3)
         self.assertTrue(all(not path.exists() for path in state_paths))
 
 

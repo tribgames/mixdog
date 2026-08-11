@@ -21,13 +21,11 @@ function _shellMaxTimeoutMs() {
     return Math.max(parsed > 0 ? parsed : 600_000, _shellDefaultTimeoutMs());
 }
 
-// PowerShell-only syntax cheat, kept next to the command argument when the host
-// default shell is PowerShell (win32). process.platform is fixed for the
-// process lifetime, so this is evaluated once at module load.
+// Platform-specific command syntax belongs next to the command argument.
 const _shellSyntaxCheat =
     process.platform === 'win32'
-        ? ' PowerShell: use ; between commands, /c/→C:\\, and note that $PID is reserved.'
-        : '';
+        ? ' PowerShell: use ; between independent commands; use if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent commands; /c/→C:\\; $PID is reserved.'
+        : ' Bash: use && between dependent commands.';
 
 export const BUILTIN_TOOLS = [
     {
@@ -77,7 +75,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Mixdog Shell',
         annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: 'Run a shell command. Sync inline by default; async returns task_id and sends a completion notification. Executable/runtime/state evidence only — never file exploration in any command segment: NOT ls/find/cat/head/tail/grep/rg/sed; dedicated file tools cover those. Chain dependent commands with &&.',
+        description: 'Run a shell command. Sync inline by default; async returns task_id and sends a completion notification. Executable/runtime/state evidence only — never file exploration in any command segment: NOT ls/find/cat/head/tail/grep/rg/sed; dedicated file tools cover those.',
         inputSchema: {
             type: 'object',
             properties: {

@@ -711,8 +711,7 @@ export function loadScopedRoleInstructions(agent, provider = null) {
             agentRuleSectionsToEmit = hiddenPairs.map(p => `## ${p.name}\n\n${p.body}`);
             agentSectionsToEmit = agentSections;
         } else if (agent && classification.retrieval.has(agent)) {
-            // Retrieval agents (explorer) get their own contract section
-            // (rules/agent/30-explorer.md) in BP2.
+            // Retrieval agents get their own contract section in BP2.
             const self = hiddenPairs.find(p => p.name === agent);
             agentRuleSectionsToEmit = self ? [`## ${self.name}\n\n${self.body}`] : [];
             agentSectionsToEmit = agentSections.filter(s =>

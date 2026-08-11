@@ -47,7 +47,7 @@ import { resourceAdmission } from '../../../shared/resource-admission.mjs';
 export { resolveMaintenanceRoute } from './maintenance-route.mjs';
 
 // Cap agent role synthesis to ~3000 tokens (~12 KB at the 4 B/tok
-// working average). Pool B explore/recall/search answers occasionally land
+// working average). Pool B recall/search answers occasionally land
 // 8-10k-token walls that then ride in the Lead context for the rest of the
 // turn; the cap keeps those outliers bounded without touching the 95%+ of
 // answers already under the threshold.
@@ -68,7 +68,7 @@ function formatCompactElapsedSeconds(ms) {
 
 // True when an abort explicitly opted into partial salvage — the error object
 // or the abort reason carries `salvagePartial: true`. A DEADLINE-driven caller
-// (explore hard timeout) sets it so the anchors the sub-agent already produced
+// A hard timeout sets it so partial output the sub-agent already produced
 // are returned instead of discarded; user cancellation (ESC) never sets it and
 // keeps the throw-everything behaviour.
 function salvagePartialRequested(error, signal) {
@@ -151,7 +151,7 @@ export function resolveHiddenRoleSchemaAllowedTools(hidden) {
  *     against config.presets.
  *   - null — unresolved.
  *
- * Explore and memory hidden roles mirror public spawning precedence:
+ * Hidden maintenance roles mirror public spawning precedence:
  * `agents.<role>` (including the `agents.maintenance` alias) → workflow route →
  * maintenance route → Main. The cycle1/2/3 agents share the memory knob via
  * their `maintKey: 'memory'` override. Scheduler and webhook are unchanged.
@@ -293,7 +293,7 @@ export function makeAgentDispatch(opts = {}) {
             agentId: agent,
         });
 
-        // Callers (e.g. aiWrapped explore dispatch) may pass an explicit
+        // Callers may pass an explicit
         // `cwd` to scope the agent's filesystem view. Absolute path expected
         // (aiWrapped already expands `~` and resolves relatives). When unset
         // we pass `null` through instead of falling back to `process.cwd()`
@@ -418,7 +418,7 @@ export function makeAgentDispatch(opts = {}) {
         const _idleController = (agentWatchdogPolicyActive(_watchdogPolicy) && _linkSignal)
             ? new AbortController()
             : null;
-        // Do not link factory parent, per-call explore cancellation, and the
+        // Do not link factory parent, per-call cancellation, and the
         // watchdog one at a time: each link replaces the previous listener in
         // runtime-liveness.  One composite survives askSession's controller
         // swap and makes every source reach the provider call.
@@ -497,7 +497,7 @@ export function makeAgentDispatch(opts = {}) {
             });
             process.stderr.write(`[agent-dispatch] agent=${agent} session=${session.id} elapsed=${Date.now() - _agentDispatchT0}ms\n`);
             const raw = result?.content || '';
-            // Brief cap. Agent role answers (explore/recall/search)
+            // Brief cap. Agent role answers (recall/search)
             // occasionally balloon to 8-10k token walls that then ride in the
             // parent Lead's context for the rest of the turn. A 3000-token
             // (~12 KB) ceiling trims the long tail while leaving the vast

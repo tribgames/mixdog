@@ -153,7 +153,7 @@ test('ws end_turn: tool-call salvage + dispatch semantics unchanged with end_tur
                 id: 'resp_1',
                 model: 'gpt-5.5',
                 end_turn: false,
-                output: [{ type: 'function_call', id: 'fc_1', name: 'explore', call_id: 'call_1', arguments: '{"query":"x"}' }],
+                output: [{ type: 'function_call', id: 'fc_1', name: 'read', call_id: 'call_1', arguments: '{"path":"x"}' }],
             },
         },
     ]);
@@ -162,7 +162,7 @@ test('ws end_turn: tool-call salvage + dispatch semantics unchanged with end_tur
     assert.equal(result.closeSocket, undefined, 'normal completion must not mark closeSocket');
     assert.equal(emitted.length, 1, 'tool call dispatched exactly once');
     assert.equal(result.toolCalls[0].id, 'call_1');
-    assert.equal(result.toolCalls[0].name, 'explore');
+    assert.equal(result.toolCalls[0].name, 'read');
 });
 
 test('ws end_turn: failed salvage still errors (end_turn must not mask it)', async () => {

@@ -105,6 +105,16 @@ const WS_MIDSTREAM_POLICY = {
 const HANDSHAKE_MAX_ATTEMPTS = MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT + 1;
 const HANDSHAKE_BACKOFF_BASE_MS = 200;
 const HANDSHAKE_BACKOFF_CAP_MS = 3200;
+// These statuses are decisions made by the CURRENT attempt. They must never
+// be replaced by a stale transient from an earlier retry: auth recovery,
+// transport fallback, and Retry-After handling all depend on the live error.
+const CURRENT_ATTEMPT_DECISION_STATUSES = new Set([401, 403, 426, 429]);
+
+function _mustSurfaceCurrentAttempt(err, externalSignal) {
+    return CURRENT_ATTEMPT_DECISION_STATUSES.has(Number(err?.httpStatus || 0))
+        || externalSignal?.aborted
+        || err?.unsafeToRetry === true;
+}
 
 function _classifyHandshakeError(err, { retry429 = true } = {}) {
     return classifyHandshakeError(err, { retry429 });
@@ -738,12 +748,12 @@ export async function sendViaWebSocket({
             // A later auth/upgrade decision must win over an earlier transient
             // failure so the caller can refresh or switch transport. Likewise,
             // never replace a current cancellation with stale retry history.
-            const currentStatus = Number(err?.httpStatus || 0);
-            const surfaceCurrent = currentStatus === 401
-                || currentStatus === 426
-                || externalSignal?.aborted
-                || err?.unsafeToRetry === true;
-            if (surfaceCurrent) {
+            if (_mustSurfaceCurrentAttempt(err, externalSignal)) {
+                if (retryable && attemptIndex >= MAX_MIDSTREAM_RETRIES) {
+                    try { err.midstreamRetries = attemptIndex; } catch {}
+                    try { err.midstreamClassifier = classifier; } catch {}
+                    try { err.wsRetriesExhausted = true; } catch {}
+                }
                 emitSendSpan('error');
                 throw _stampTool(_stampLiveText(err));
             }
@@ -1126,12 +1136,7 @@ export async function sendViaWebSocket({
             // Not retryable, OR we've already exhausted the retry budget.
             // Do not let stale retry history mask a current auth/upgrade
             // decision, cancellation, or newly unsafe-to-replay outcome.
-            const currentStatus = Number(err?.httpStatus || 0);
-            const surfaceCurrent = currentStatus === 401
-                || currentStatus === 426
-                || externalSignal?.aborted
-                || err?.unsafeToRetry === true;
-            if (surfaceCurrent) {
+            if (_mustSurfaceCurrentAttempt(err, externalSignal)) {
                 emitSendSpan('error');
                 throw _stampTool(_stampLiveText(err));
             }

@@ -158,7 +158,7 @@ test('dispatch partitions every file and symbol mode by its supported target arr
   }
 });
 
-test('find_symbol stays structural and code_graph enforces symbol/output budgets', async () => {
+test('find_symbol stays structural, preserves symbol batches, and enforces output budgets', async () => {
   const alpha = await executeCodeGraphTool('code_graph', {
     mode: 'find_symbol',
     symbols: ['alpha'],
@@ -172,8 +172,9 @@ test('find_symbol stays structural and code_graph enforces symbol/output budgets
     symbols: many,
     body: false,
   }, project);
-  assert.match(batched, /symbol list capped at 20/);
-  assert.doesNotMatch(batched, /# find_symbol missing20\b/);
+  assert.doesNotMatch(batched, /symbol list capped/);
+  assert.match(batched, /# find_symbol missing20\b/);
+  assert.match(batched, /# find_symbol missing24\b/);
 
   const huge = await executeCodeGraphTool('code_graph', {
     mode: 'find_symbol',

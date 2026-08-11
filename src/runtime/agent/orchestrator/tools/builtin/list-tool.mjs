@@ -409,7 +409,7 @@ export async function executeTreeTool(args, workDir, options = {}) {
 // includeNoise, ignoreMode) — NOT on the per-query narrowing. Yet both the fuzzy-find
 // broad pass and the find_files broad fast path re-run that full sweep for
 // every query item AND for every concurrent caller (measured 1-4s each when
-// 8 explorer sub-sessions hit the same root). Cache the PARSED file list per
+// several locator calls hit the same root). Cache the PARSED file list per
 // key with in-flight promise dedup (N concurrent callers share ONE sweep)
 // plus a short TTL for serial reuse. Truncated/partial sweeps are
 // known-incomplete and are NEVER cached.

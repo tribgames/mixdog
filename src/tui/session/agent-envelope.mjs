@@ -102,7 +102,7 @@ export function parseBackgroundTaskEnvelope(text) {
     if (match) fields[match[1].toLowerCase()] = match[2].trim();
   }
   const surface = String(fields.surface || fields.operation || 'task').toLowerCase();
-  const name = surface === 'explore' || surface === 'search' || surface === 'shell' || surface === 'agent' ? surface : 'task';
+  const name = surface === 'search' || surface === 'shell' || surface === 'agent' ? surface : 'task';
   const status = String(fields.status || '').toLowerCase();
   const taskId = fields.task_id || fields.taskid || '';
   const errorText = fields.error || '';

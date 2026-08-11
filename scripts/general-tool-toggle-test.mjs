@@ -27,35 +27,30 @@ test('General tool toggles default on and persist canonical module entries', () 
     setModuleEnabledInConfig,
     setMemoryToolsEnabledInConfig,
     webSearchEnabled: () => moduleEnabled(config, 'search', true),
-    exploreEnabled: () => moduleEnabled(config, 'explore', true),
     memoryToolsEnabledFn: () => memoryToolsEnabled(config, true),
     invalidatePreSessionToolSurface: () => { invalidations += 1; },
   });
 
   assert.deepEqual(api.getToolModuleSettings(), {
     search: { enabled: true },
-    explore: { enabled: true },
     memory: { enabled: true },
   });
   api.setWebSearchEnabled(false);
-  api.setExploreEnabled(false);
   api.setMemoryToolsEnabled(false);
   assert.deepEqual(config.modules, {
     search: { enabled: false },
-    explore: { enabled: false },
   });
   assert.deepEqual(config.memoryTools, { enabled: false });
   assert.deepEqual(api.getToolModuleSettings(), {
     search: { enabled: false },
-    explore: { enabled: false },
     memory: { enabled: false },
   });
-  assert.equal(invalidations, 3);
+  assert.equal(invalidations, 2);
 });
 
 test('new session previews and standalone catalogs omit disabled feature tools', () => {
-  const tools = ['read', 'search', 'web_fetch', 'explore', 'memory', 'recall'].map(tool);
-  let disabled = ['search', 'web_fetch', 'explore', 'memory', 'recall'];
+  const tools = ['read', 'search', 'web_fetch', 'memory', 'recall'].map(tool);
+  let disabled = ['search', 'web_fetch', 'memory', 'recall'];
   const surface = createToolSurface({
     mgr: { previewSessionTools: () => tools },
     mode: 'lead',
@@ -81,7 +76,7 @@ test('new session previews and standalone catalogs omit disabled feature tools',
   surface.invalidatePreSessionToolSurface();
   assert.deepEqual(
     surface.activeToolSurface().deferredToolCatalog.map(({ name }) => name).sort(),
-    ['explore', 'memory', 'read', 'recall', 'search', 'web_fetch'],
+    ['memory', 'read', 'recall', 'search', 'web_fetch'],
   );
 });
 

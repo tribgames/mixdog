@@ -46,13 +46,13 @@ afterEach(async () => {
 
 const VALUES = [
   'model', 'search', 'workflow', 'output-style', 'profile', 'theme', 'web-search-enabled',
-  'explorer-enabled', 'memory-enabled', 'autocompact', 'compact-type', 'autoclear',
+  'memory-enabled', 'autocompact', 'compact-type', 'autoclear',
   'memory-cycles', 'memory', 'providers', 'mcp', 'plugins', 'hooks', 'skills',
   'channels', 'channel-provider', 'channel-setting', 'remote-runtime', 'update',
 ];
 const LABELS = [
   'Model', 'Search model', 'Workflow', 'Output style', 'Profile', 'Theme', 'Web search',
-  'Explorer', 'Memory', 'Auto-compact', 'Compact type', 'Auto-clear', 'Memory cycles', 'Core memories',
+  'Memory', 'Auto-compact', 'Compact type', 'Auto-clear', 'Memory cycles', 'Core memories',
   'Providers', 'MCP servers', 'Plugins', 'Hooks',
   'Skills', 'Channels enabled', 'Channel', 'Setting', 'Remote Runtime', 'Update',
 ];
@@ -64,7 +64,6 @@ const DESCRIPTIONS = [
   'Your title and response language.',
   'TUI color theme.',
   'Expose web search and fetch tools to new sessions.',
-  'Expose the repository locator tool to new sessions.',
   'Memory and recall tools plus core-memory injection for new sessions.',
   'Compact when context is high.',
   'Uses Memory recall to rebuild context faster on large histories.',
@@ -89,7 +88,7 @@ function capabilityApi(overrides = {}) {
     getAutoClear: { enabled: true, idleMs: 3_600_000, provider: 'default', providerDefaults: [] },
     getCompactionSettings: { auto: false },
     getRecapSettings: { enabled: true },
-    getToolModuleSettings: { search: { enabled: true }, explore: { enabled: true }, memory: { enabled: true } },
+    getToolModuleSettings: { search: { enabled: true }, memory: { enabled: true } },
     getChannelSettings: { enabled: true },
     isRemoteEnabled: false,
     getChannelWorkerStatus: { running: false },
@@ -306,7 +305,7 @@ test('SETTINGS_ITEMS is the exact TUI row registry and order', () => {
   assert.deepEqual(SETTINGS_ITEMS.map((item) => item.label), LABELS);
   assert.deepEqual(SETTINGS_ITEMS.map((item) => item.description), DESCRIPTIONS);
   assert.deepEqual(SETTINGS_ITEMS.map((item) => item.kind), [
-    'open', 'open', 'open', 'open', 'open', 'open', 'toggle', 'toggle', 'toggle', 'toggle',
+    'open', 'open', 'open', 'open', 'open', 'open', 'toggle', 'toggle', 'toggle',
     'static', 'toggle', 'toggle', 'open',
     'open', 'open', 'open', 'open', 'open', 'toggle', 'cycle', 'open', 'toggle', 'open',
   ]);
@@ -441,7 +440,6 @@ test('settings renders the flat settings-v2 rail and inline General groups', asy
   assert.ok(document.querySelector('input[name="title"]'));
   assert.match(document.querySelector('[aria-label="Theme"]')?.textContent || '', /Dark/);
   assert.ok(document.querySelector('input[aria-label="Web search"]'));
-  assert.ok(document.querySelector('input[aria-label="Explorer"]'));
   assert.ok(document.querySelector('input[aria-label="Memory"]'));
   const generalRowTitles = Array.from(
     document.querySelectorAll('.mixdog-settings__row-title'),
@@ -787,12 +785,7 @@ test('selected output styles use Active status badges without internal metadata 
       styles: [{ id: 'default', label: 'Default' }, { id: 'simple', label: 'Simple' }],
     },
     listWorkflows: [{ id: 'solo', name: 'Solo', active: true, source: 'internal-workflow' }],
-    listAgents: [{
-      id: 'explore',
-      name: 'Explore',
-      workflowSlot: 'explorer',
-      route: { provider: 'default', model: 'default' },
-    }],
+    listAgents: [],
   });
   await renderSettings({ api });
   const open = async (label) => {

@@ -22,13 +22,12 @@ export function getPluginData() {
 // Canonical maintenance defaults. Single source of truth — imported by
 // llm/index.mjs and setup-server.mjs so UI/runtime cannot drift from config.
 //
-// Explore and Maintainer start without a route so they dynamically inherit the
-// Main route. Their explicit routes live canonically in `agents.explore` and
-// `agents.maintainer`; load-time migration still accepts the older workflow /
-// maintenance aliases.
+// Maintainer starts without a route so it dynamically inherits the Main route.
+// Its explicit route lives canonically in `agents.maintainer`; load-time
+// migration still accepts the older workflow / maintenance aliases.
 // Webhook endpoints may omit a model and use the fallback route below.
 // Legacy route slots accepted only at config ingress for migration.
-const MAINTENANCE_SLOTS = Object.freeze(['explore', 'memory']);
+const MAINTENANCE_SLOTS = Object.freeze(['memory']);
 
 // --- User profile (statusline /profile) -------------------------------------
 // Supported response languages for the /profile picker. `system` is the default
@@ -340,7 +339,8 @@ function canonicalizeShellStorage(value) {
 function canonicalizeModulesStorage(value) {
     const modules = configObject(value);
     delete modules.memory;
-    for (const name of ['search', 'explore']) {
+    delete modules.explore;
+    for (const name of ['search']) {
         if (!Object.prototype.hasOwnProperty.call(modules, name)) continue;
         const raw = modules[name];
         modules[name] = {

@@ -320,9 +320,9 @@ export const modelScore = (model, slot) => {
   } else if (slot === 'memory') {
     if (/haiku|mini|nano|flash|fast/.test(text)) score += 20;
     if (/opus|max/.test(text)) score -= 4;
-  } else if (slot === 'explorer' || slot === 'agent') {
+  } else if (slot === 'agent') {
     if (/sonnet|gpt-5|mini|haiku|flash/.test(text)) score += 12;
-    if (/opus/.test(text)) score += slot === 'agent' ? 3 : -2;
+    if (/opus/.test(text)) score += 3;
   }
   if (model.supportsFunctionCalling) score += 2;
   return score;
@@ -337,6 +337,5 @@ export const chooseRecommendedModel = (models, slot, fallbackRoute) => {
 export const buildWorkflowDefaults = (models, defaultRoute) => ({
   lead: defaultRoute,
   agent: chooseRecommendedModel(models, 'agent', defaultRoute),
-  explorer: chooseRecommendedModel(models, 'explorer', defaultRoute),
   memory: chooseRecommendedModel(models, 'memory', defaultRoute),
 });

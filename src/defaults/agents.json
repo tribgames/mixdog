@@ -1,18 +1,6 @@
 {
   "agents": [
     {
-      "agent": "explorer",
-      "slot": "explore",
-      "systemFile": "rules/agent/30-explorer.md",
-      "description": "Filesystem navigation agent invoked by the `explore` MCP tool",
-      "invokedBy": "explore",
-      "toolSchemaProfile": "read",
-      "schemaAllowedTools": ["grep", "find", "glob", "code_graph"],
-      "kind": "retrieval",
-      "permission": "read",
-      "stallCap": { "idleSeconds": 240, "toolRunningSeconds": 180 }
-    },
-    {
       "agent": "cycle1-agent",
       "slot": "cycle1",
       "systemFile": "rules/agent/40-cycle1-agent.md",

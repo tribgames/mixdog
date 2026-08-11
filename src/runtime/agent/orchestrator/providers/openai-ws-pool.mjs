@@ -44,6 +44,10 @@ export const WS_IDLE_MS = resolveTimeoutMs(
 );
 const WS_HANDSHAKE_TIMEOUT_MS = PROVIDER_WS_HANDSHAKE_TIMEOUT_MS;
 const WS_ACQUIRE_TIMEOUT_MS = PROVIDER_WS_ACQUIRE_TIMEOUT_MS;
+// Enforced by `ws` while fragments are assembled, before a complete payload
+// reaches the stream consumer or is decoded. Shared by Codex, direct OpenAI,
+// and xAI so no provider can opt into an unbounded receive allocation.
+export const WS_MAX_INCOMING_FRAME_BYTES = 16 * 1024 * 1024;
 // A write that never reaches the ws callback is indistinguishable from a
 // wedged transport. Keep it under the same short bound as socket acquisition
 // so the caller can discard the entry and reconnect before arming stream
@@ -459,7 +463,11 @@ function _openSocket({ auth, sessionToken, turnState, externalSignal, cacheKey, 
             }
             (ok ? resolve : reject)(val);
         };
-        const socket = new WebSocket(url, { headers, handshakeTimeout: WS_HANDSHAKE_TIMEOUT_MS });
+        const socket = new WebSocket(url, {
+            headers,
+            handshakeTimeout: WS_HANDSHAKE_TIMEOUT_MS,
+            maxPayload: WS_MAX_INCOMING_FRAME_BYTES,
+        });
         acquireTimer = setTimeout(() => {
             if (settled) return;
             if (process.env.MIXDOG_DEBUG_AGENT) {

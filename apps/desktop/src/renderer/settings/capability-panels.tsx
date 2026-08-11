@@ -410,7 +410,6 @@ function GeneralPanel({ data, pending, run }: PanelContext) {
   const profile = record(data.profile);
   const toolModules = record(data.toolModules);
   const searchModule = record(toolModules.search);
-  const exploreModule = record(toolModules.explore);
   const memoryModule = record(toolModules.memory);
   const languageOptions = rows(profile.languages).map((entry) => ({ value: String(entry.id || entry.value || 'system'), label: label(entry) }));
   const busy = Boolean(pending);
@@ -426,9 +425,6 @@ function GeneralPanel({ data, pending, run }: PanelContext) {
       <ToggleRow title="Web search" description="Expose search and web fetch tools to new sessions."
         checked={searchModule.enabled !== false} disabled={busy}
         onChange={(enabled) => void run('setWebSearchEnabled', [enabled])} />
-      <ToggleRow title="Explorer" description="Expose the repository locator tool to new sessions."
-        checked={exploreModule.enabled !== false} disabled={busy}
-        onChange={(enabled) => void run('setExploreEnabled', [enabled])} />
       <ToggleRow title="Memory" description="Memory and recall tools plus core-memory injection for new sessions."
         checked={memoryModule.enabled !== false} disabled={busy}
         onChange={(enabled) => void run('setMemoryToolsEnabled', [enabled])} />

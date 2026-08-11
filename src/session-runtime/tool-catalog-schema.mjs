@@ -89,7 +89,7 @@ export function toolSchemaBucket(tool) {
   if (kind === 'skill') return 'skills';
   if (name === 'memory' || name === 'recall' || name.includes('memory')) return 'memory';
   if (name === 'search' || name === 'web_fetch') return 'web';
-  if (['read', 'grep', 'find', 'glob', 'list', 'code_graph', 'explore'].includes(name)) return 'code';
+  if (['read', 'grep', 'find', 'glob', 'list', 'code_graph'].includes(name)) return 'code';
   if (['shell', 'apply_patch'].includes(name)) return 'mutation';
   if (name === 'agent' || name === 'delegate') return 'agents';
   if (name === 'session_manage') return 'session';

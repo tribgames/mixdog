@@ -29,7 +29,7 @@ export function resolveMaintenanceRoute({ preset, optsPreset, agent, config: cfg
         try {
             const config = cfgIn || loadConfig({ secrets: false });
             const key = hidden.maintKey || hidden.slot;
-            const role = key === 'explore' ? 'explore' : (key === 'memory' ? 'maintainer' : '');
+            const role = key === 'memory' ? 'maintainer' : '';
             if (!role) return config?.maintenance?.[key] ?? null;
             const candidates = [
                 ...configuredAgentRouteCandidates(config, role),

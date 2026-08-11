@@ -7,7 +7,7 @@ import { BUILTIN_TOOLS } from '../../tools/builtin/builtin-tools.mjs';
 import { PATCH_TOOL_DEFS } from '../../tools/patch-tool-defs.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../../tools/code-graph-tool-defs.mjs';
 import { buildSkillToolDefs } from '../../context/collect.mjs';
-import { getHiddenAgent, listHiddenAgentNames } from '../../internal-agents.mjs';
+import { getHiddenAgent } from '../../internal-agents.mjs';
 
 // Merge externally-connected MCP tools with the plugin's in-process tools
 // (registered by agent's toolExecutor adapter). Internal tools are exposed
@@ -45,7 +45,6 @@ function _getMcpTools(mcpScopeId = null) {
 // catalog's ROUTE_TOOL_ORDER): locator → path → content → symbol → read →
 // edit → execute.
 const SESSION_ROUTE_TOOL_ORDER = [
-    'explore',
     'find',
     'glob',
     'list',
@@ -90,15 +89,14 @@ const AGENT_STRING_PERMISSION_READ_ALLOW = Object.freeze([
     // keep the no-edit contract.
     'shell',
     'task',
-    'explore',
     'search',
     'web_fetch',
     'Skill',
 ]);
 
-// Retrieval/locator roles never self-verify, so they keep the historical
-// no-shell read surface. Covers hidden retrieval agents (kind 'retrieval')
-// AND public wrapper roles (explore + any invokedBy wrapper) — the same set
+// Retrieval roles never self-verify, so they keep the historical no-shell
+// read surface. Covers hidden retrieval agents and invokedBy wrapper roles,
+// the same set
 // pre-dispatch-deny treats as recursive wrappers. Only verifying read roles
 // (reviewer) get shell/task.
 const AGENT_STRING_PERMISSION_READ_RETRIEVAL_ALLOW = Object.freeze(
@@ -107,8 +105,7 @@ const AGENT_STRING_PERMISSION_READ_RETRIEVAL_ALLOW = Object.freeze(
 
 function isRetrievalToolRole(agent) {
     if (!agent) return false;
-    if (getHiddenAgent(agent)?.kind === 'retrieval') return true;
-    return Boolean(recursiveWrapperToolNameForPublicAgent(agent));
+  return getHiddenAgent(agent)?.kind === 'retrieval';
 }
 
 function stringToolPermissionAllowList(toolPermission, { retrieval = false } = {}) {
@@ -134,7 +131,6 @@ const AGENT_STRING_PERMISSION_READ_WRITE_ALLOW = Object.freeze([
     'apply_patch',
     'shell',
     'task',
-    'explore',
     'search',
     'web_fetch',
     'Skill',
@@ -170,19 +166,6 @@ export function applyToolPermissionNarrowing(tools, toolPermission, warnRole = n
     return tools;
 }
 
-export function recursiveWrapperToolNameForPublicAgent(agent) {
-    if (!agent) return null;
-    const key = String(agent).trim();
-    if (key === 'explore') return 'explore';
-    for (const hiddenName of listHiddenAgentNames()) {
-        const def = getHiddenAgent(hiddenName);
-        const invokedBy = typeof def?.invokedBy === 'string' ? def.invokedBy.trim() : '';
-        if (hiddenName === key && invokedBy) return invokedBy;
-        if (invokedBy && invokedBy === key) return invokedBy;
-    }
-    return null;
-}
-
 export function finalizeSessionToolList(tools, {
     schemaAllowedTools = null,
     disallowedTools = null,
@@ -200,11 +183,6 @@ export function finalizeSessionToolList(tools, {
         const denySet = new Set(callerDeny.map(n => n.toLowerCase()));
         out = out.filter(t => !denySet.has(String(t?.name || '').toLowerCase()));
     }
-    // NOTE: the self-wrapper anti-recursion deny is intentionally NOT applied
-    // here. Stripping a role's own wrapper tool (e.g. explore) from the schema
-    // would fork the read-only cache group into one shard per wrapper role.
-    // The bundle stays bit-identical; recursion is broken at call time in
-    // pre-dispatch-deny.mjs (recursiveWrapperToolNameForPublicAgent) instead.
     if (ownerIsAgent) {
         out = out.filter(t => !t?.annotations?.agentHidden);
         out = orderSessionTools(out);
@@ -299,8 +277,8 @@ function _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession = fa
                     break;
                 case 'tools:search':
                     // Name-pattern match: picks up `search` and any future tool
-                    // whose name contains `search`. `recall` and `explore` deliberately do NOT match
-                    // — they need `tools:mcp` (full mcp surface) or their own
+                    // whose name contains `search`. `recall` deliberately does
+                    // NOT match — it needs `tools:mcp` (full mcp surface) or its own
                     // toolset id if a role wants targeted retrieval. Public agent
                     // roles never reach the wrapper bodies regardless: see the
                     // isBlockedPublicWrapperCall guard in session/loop.mjs.

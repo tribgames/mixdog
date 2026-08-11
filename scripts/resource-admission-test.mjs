@@ -866,7 +866,7 @@ test('hidden agent admission combines factory and call cancellation sources', as
   const factory = new AbortController();
   const call = new AbortController();
   const dispatch = makeAgentDispatch({
-    agent: 'explorer',
+    agent: 'cycle1-agent',
     config: {},
     parentSignal: factory.signal,
     resourceAdmission: admission,

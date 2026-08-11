@@ -12,14 +12,14 @@ export const TOOL_DEFS = [
     inputSchema: {
       type: 'object',
       properties: {
-        query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Query or array for fan-out.' },
+        query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Required query or array for lossless fan-out.' },
         site: { type: 'string', description: 'Site/domain filter.' },
         type: { type: 'string', enum: ['web', 'news', 'images'], description: 'Default web.' },
         maxResults: { type: 'number', minimum: 1, maximum: 20, description: 'Result count, 1-20.' },
         locale: { type: 'string', description: 'Optional locale hint, e.g. ko-KR or a city/region name.' },
         contextSize: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Default low.' },
       },
-      required: [],
+      required: ['query'],
       additionalProperties: false,
     },
     annotations: { title: 'Mixdog Web Search', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },

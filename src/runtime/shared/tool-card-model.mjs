@@ -180,11 +180,10 @@ export const SKILL_SURFACE_NAMES = new Set([
 ]);
 
 export function isBackgroundTaskTool(normalizedName) {
-  return new Set(['explore', 'search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']).has(String(normalizedName || '').toLowerCase());
+  return new Set(['search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']).has(String(normalizedName || '').toLowerCase());
 }
 
 const AGENT_DISPLAY_NAMES = new Map([
-  ['explore', 'Explore'],
   ['maintainer', 'Maintainer'],
   ['worker', 'Worker'],
   ['heavy-worker', 'Heavy Worker'],
@@ -399,12 +398,11 @@ export function mergeTerminalDetail(status, detail = '') {
 export function shouldPrefixSyncElapsed(normalizedName, label) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
-  return n === 'explore' || l === 'explore' || n === 'search' || l === 'search' || l === 'web search';
+  return n === 'search' || l === 'search' || l === 'web search';
 }
 
 function backgroundTaskDisplayName(normalizedName, meta = {}) {
   const surface = String(meta.surface || normalizedName || '').toLowerCase();
-  if (surface === 'explore') return 'Explore';
   if (surface === 'search') return 'Search';
   if (surface === 'shell' || surface === 'bash' || surface === 'bash_session' || surface === 'shell_command' || surface === 'task') return 'Shell';
   return titleizeAgentName(surface || normalizedName || 'Task');
@@ -455,7 +453,7 @@ function isOutputDetailTool(normalizedName, label) {
   return new Set([
     'shell', 'bash', 'bash_session', 'shell_command', 'job_wait',
     'read', 'view_image', 'read_mcp_resource',
-    'grep', 'glob', 'search', 'search_query', 'image_query', 'web_search', 'web_search_call', 'explore', 'web_fetch', 'fetch',
+    'grep', 'glob', 'search', 'search_query', 'image_query', 'web_search', 'web_search_call', 'web_fetch', 'fetch',
     'list', 'ls', 'code_graph',
     'recall', 'recall_memory', 'search_memories', 'remember', 'save_memory', 'update_memory',
   ]).has(n) || l === 'read' || l === 'search' || l === 'web search' || l === 'run';

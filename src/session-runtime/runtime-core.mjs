@@ -10,7 +10,6 @@ import './hitch-profile.mjs';
 import { ensureStandaloneEnvironment } from '../standalone/seeds.mjs';
 import { createStandaloneAgent } from '../standalone/agent-tool.mjs';
 import { isAgentOwner } from '../runtime/agent/orchestrator/agent-owner.mjs';
-import { EXPLORE_TOOL, runExplore } from '../standalone/explore-tool.mjs';
 import { createStandaloneChannelWorker } from '../standalone/channel-worker.mjs';
 import { createStandaloneHookBus } from '../standalone/hook-bus.mjs';
 import { getStandaloneMemoryRuntime } from '../standalone/memory-runtime-proxy.mjs';
@@ -441,12 +440,9 @@ export async function createMixdogSessionRuntime({
     ?? memoryToolsEnabled(rt.config, true);
   const webSearchEnabled = () => featureEnvOverride('MIXDOG_FEATURE_WEB_SEARCH')
     ?? moduleEnabled(rt.config, 'search', true);
-  const exploreEnabled = () => featureEnvOverride('MIXDOG_FEATURE_EXPLORE')
-    ?? moduleEnabled(rt.config, 'explore', true);
   const channelsEnabled = () => moduleEnabled(rt.config, 'channels', true);
   const featureDisallowedTools = () => [
     ...(webSearchEnabled() ? [] : ['search', 'web_fetch']),
-    ...(exploreEnabled() ? [] : ['explore']),
     ...(memoryToolsEnabledFn() ? [] : ['memory', 'recall']),
   ];
 
@@ -820,7 +816,6 @@ export async function createMixdogSessionRuntime({
     ...(envFlag('MIXDOG_DISABLE_SKILLS') ? [] : [SKILL_TOOL]),
     CWD_TOOL,
     SESSION_MANAGE_TOOL,
-    EXPLORE_TOOL,
     ...searchRuntimeTools.filter((tool) => tool?.public !== false),
     ...(memoryToolDefs?.TOOL_DEFS || []).filter((tool) => tool?.name === 'recall' || tool?.name === 'memory'),
     ...(channelToolDefs?.TOOL_DEFS || []).filter((tool) => channels.isChannelTool(tool?.name)),
@@ -886,9 +881,6 @@ export async function createMixdogSessionRuntime({
         if ((name === 'search' || name === 'web_fetch') && !webSearchEnabled()) {
           throw new Error('web search is disabled in settings; start a new session to refresh the tool list');
         }
-        if (name === 'explore' && !exploreEnabled()) {
-          throw new Error('explore is disabled in settings; start a new session to refresh the tool list');
-        }
         if ((name === 'memory' || name === 'recall') && !memoryToolsEnabledFn()) {
           throw new Error('memory tools are disabled in settings; background memory and manual core memory remain available');
         }
@@ -918,20 +910,6 @@ export async function createMixdogSessionRuntime({
       }
       if (name === 'tool_search' || name === 'load_tool') {
         return renderToolSearch(args, activeToolSurface(), rt.mode, { mcpStatus });
-      }
-      if (name === 'explore') {
-        const callerSessionId = callerCtx?.callerSessionId || rt.session?.id || null;
-        return await runExplore(args || {}, {
-          callerCwd: args?.cwd ? resolveCwdPath(args.cwd) : callerCwd,
-          callerSessionId,
-          routingSessionId: callerSessionId,
-          clientHostPid: callerCtx?.clientHostPid || rt.session?.clientHostPid || process.pid,
-          notifyFn: notifyFnForSession(callerSessionId),
-          // Cascade caller cancellation (ESC / owner abort) into the explore
-          // fan-out so every child dispatch tears down immediately — same
-          // signal the adjacent native search already forwards.
-          signal: callerCtx?.signal || rt.session?.controller?.signal,
-        });
       }
       if (name === 'cwd') {
         const action = clean(args?.action || (args?.path ? 'set' : 'get')).toLowerCase();
@@ -1431,7 +1409,6 @@ export async function createMixdogSessionRuntime({
     recapEnabledFn,
     memoryToolsEnabledFn,
     webSearchEnabled,
-    exploreEnabled,
     channelsEnabled,
     autoUpdateEnabled,
     getUpdateCheckState: () => selfUpdate.getCheckState(),
@@ -1691,7 +1668,7 @@ export async function createMixdogSessionRuntime({
     getReservedSessionId: () => rt.reservedSessionId,
     registerActiveTurnController,
     // Agent-hosted runtimes (shard spread) are ephemeral worker sessions: an
-    // LLM title per spawn/explore would be pure cost, and in-process agent
+    // LLM title per spawn would be pure cost, and in-process agent
     // sessions never titled either.
     sessionTitles: rt.agentSessionSpec ? null : sessionTitles,
   });

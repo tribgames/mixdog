@@ -211,8 +211,8 @@ export function createSession(opts) {
     // BP1 shared tool policy ships to EVERY role (Lead, workers, retrieval,
     // maintenance): its anti-spiral clauses (one anchor is enough, never
     // repeat equivalent patterns/scopes, plausible hit → stop) are exactly
-    // what narrow retrieval roles need. Role docs (e.g. 30-explorer.md)
-    // override role-inapplicable entries such as the explore routing row.
+    // what narrow retrieval roles need. Role docs
+    // override role-inapplicable entries.
     const injectedRules = skipAgentRules ? '' : _buildSharedRules();
     const delegationFree = !ownerIsAgent && workflowDisallowsAgentTool(opts.workflow);
     const roleRules = skipAgentRules
@@ -239,7 +239,7 @@ export function createSession(opts) {
     //   - read-only roles (reviewer / hidden retrieval, i.e. any
     //     session resolving to permission 'read') -> 'readonly' bundle:
     //     read builtins (code_graph/find/glob/list/grep/read) + retrieval
-    //     (explore/search/web_fetch/Skill) + shell/task for self-verification
+    //     (search/web_fetch/Skill) + shell/task for self-verification
     //     (agent-owned readonly bundle only), no apply_patch, no MCP-write.
     //     applyToolPermissionNarrowing('read') below trims the
     //     bundle to AGENT_STRING_PERMISSION_READ_ALLOW so the final surface is
@@ -265,7 +265,7 @@ export function createSession(opts) {
     // preset, which would grant the role more surface than declared.
     if (ownerIsAgent) {
         // Pass the RESOLVED agent (opts.agent || opts.role): narrowing keys
-        // retrieval/locator roles (explore etc.) off this name to strip
+        // retrieval/locator roles off this name to strip
         // shell/task; verifying read roles (reviewer) keep them.
         toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, toolPermission, resolvedAgent);
     }
@@ -284,7 +284,7 @@ export function createSession(opts) {
         skillManifest: buildSkillManifest(skills),
         tools: toolsForRouting,
         bashIsPersistent: ownerIsAgent && toolsForRouting.some(t => t?.name === 'shell'),
-        // Effective cwd rides in tier3Reminder so explore-like tools know
+        // Effective cwd rides in tier3Reminder so locator tools know
         // their search root without needing to shove "Override cwd:" into
         // the user message body (that used to fragment the shard prefix).
         cwd: opts.cwd || null,

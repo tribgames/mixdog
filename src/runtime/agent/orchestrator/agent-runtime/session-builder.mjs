@@ -49,7 +49,7 @@ function normalizeAgentCompactionConfig(value = {}, { memoryEnabled = true } = {
 
 /**
  * @param {object} opts
- * @param {string}  opts.agent         — canonical agent name ('worker', 'explorer', ...)
+ * @param {string}  opts.agent         — canonical agent name ('worker', 'reviewer', ...)
  * @param {string}  opts.presetName    — resolved preset identifier
  * @param {object}  opts.preset        — resolved preset object from agent-config
  * @param {object}  opts.runtimeSpec   — resolveRuntimeSpec output; must carry .scopeKey / .lane

@@ -3,19 +3,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { composeAgentDispatchAbortSignal } from '../src/runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs';
 
-test('explore cancellation survives an active idle watchdog composite link', () => {
+test('call cancellation survives an active idle watchdog composite link', () => {
     const factory = new AbortController();
-    const explore = new AbortController();
+    const call = new AbortController();
     const idleWatchdog = new AbortController();
     const linked = composeAgentDispatchAbortSignal([
         factory.signal,
-        explore.signal,
+        call.signal,
         idleWatchdog.signal,
     ]);
-    const reason = new Error('explore ESC');
-    explore.abort(reason);
+    const reason = new Error('call cancelled');
+    call.abort(reason);
     assert.equal(linked.signal.aborted, true);
-    assert.equal(linked.signal.reason, reason, 'per-call explore reason reaches the one session link');
+    assert.equal(linked.signal.reason, reason, 'per-call reason reaches the one session link');
     assert.equal(idleWatchdog.signal.aborted, false, 'watchdog remains independently active');
     linked.dispose();
 });

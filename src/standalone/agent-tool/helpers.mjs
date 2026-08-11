@@ -28,7 +28,6 @@ export function agentTagOf(session) {
 
 export function normalizeAgentName(value) {
   const id = clean(value).toLowerCase().replace(/[\s_]+/g, '-');
-  if (id === 'explorer') return 'explore';
   if (id === 'maint' || id === 'maintenance' || id === 'memory') return 'maintainer';
   if (id === 'heavy' || id === 'heavyworker') return 'heavy-worker';
   if (id === 'review') return 'reviewer';

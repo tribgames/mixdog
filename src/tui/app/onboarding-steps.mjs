@@ -312,7 +312,7 @@ export function createOnboardingSteps({
       return;
     }
     // Main Model stays unset until the user picks one; no auto-recommendation.
-    // Load the real agent roster once: fixed Explore/Maintainer services plus
+    // Load the real agent roster once: fixed Maintainer service plus
     // active starter/custom agents. Each defaults to Main unless overridden.
     if (!Array.isArray(onboardingRef.current.agents) || onboardingRef.current.agents.length === 0) {
       try {

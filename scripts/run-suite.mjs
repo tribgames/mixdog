@@ -25,7 +25,6 @@ export const SUITES = {
     'dead-owner-attach-test.mjs',
     'debounced-skills-async-save-test.mjs',
     'dispatch-persist-recovery-test.mjs',
-    'explore-prompt-policy-test.mjs',
     'find-fuzzy-hidden-test.mjs',
     'ingest-pure-conversation-smoke.mjs',
     'internal-tools-normalization-test.mjs',

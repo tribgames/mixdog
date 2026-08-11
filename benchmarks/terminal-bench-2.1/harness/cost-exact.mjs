@@ -69,7 +69,7 @@ for (const entry of readdirSync(runDir, { withFileTypes: true })) {
         ? uncFor(R, num(u.inputTokens), num(u.cacheTokens))
         : Math.max(num(s?.totalUncachedInputTokens) - cw, 0);
     const flag = s ? '' : ' [usage-only]';
-    // Per-session model-accurate sum when available (explorer lanes bill at
+    // Per-session model-accurate sum when available (agent lanes bill at
     // their own list prices); trial-level fallback otherwise.
     const cost = Array.isArray(ud?.sessions) && ud.sessions.length
         ? ud.sessions.reduce((acc, x) => {

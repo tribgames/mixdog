@@ -334,7 +334,7 @@ test('a hidden-role remote dispatch is ephemeral end to end', async () => {
     try {
       const raw = await dispatchHiddenAgentRemote({
         spec: {
-          agent: 'explorer',
+          agent: 'cycle1-agent',
           presetName: 'stub',
           preset: { provider: 'prov', model: 'mod', effort: 'low' },
           runtimeSpec: { scopeKey: 'scope', lane: 'agent' },
@@ -347,7 +347,7 @@ test('a hidden-role remote dispatch is ephemeral end to end', async () => {
         watchdogPolicy: { idleStaleMs: 60_000 },
       });
       assert.equal(raw, 'echo: locate the anchor');
-      assert.equal(runtimes[0].receivedOptions?.agentSession?.agent, 'explorer');
+      assert.equal(runtimes[0].receivedOptions?.agentSession?.agent, 'cycle1-agent');
       assert.equal(spread.handles.size, 0, 'ephemeral dispatch leaves no registered handle');
     } finally {
       await spread.close('test end');

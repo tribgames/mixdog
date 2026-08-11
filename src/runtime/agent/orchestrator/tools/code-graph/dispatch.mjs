@@ -53,8 +53,19 @@ import {
 
 const CODE_GRAPH_BATCHABLE_MODES = new Set(['symbol', 'find_symbol', 'symbol_search', 'callers', 'callees', 'references']);
 const CODE_GRAPH_FILE_BATCHABLE_MODES = new Set(['imports', 'dependents', 'related', 'impact', 'symbols', 'overview']);
-const CODE_GRAPH_MAX_BATCH_SYMBOLS = 20;
-const CODE_GRAPH_FILE_BATCH_CAP = 20;
+const CODE_GRAPH_BATCH_CONCURRENCY = 20;
+
+async function _mapWithConcurrency(values, mapper) {
+  const out = new Array(values.length);
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(CODE_GRAPH_BATCH_CONCURRENCY, values.length) }, async () => {
+    while (cursor < values.length) {
+      const index = cursor++;
+      out[index] = await mapper(values[index], index);
+    }
+  }));
+  return out;
+}
 
 function _collectGraphSymbolList(args) {
   const split = (s) => String(s || '').split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
@@ -118,19 +129,13 @@ function _normalizeGraphFileArgs(args) {
   return out;
 }
 
-function _collectGraphFileList(args, { cap = true } = {}) {
+function _collectGraphFileList(args) {
   const split = (s) => String(s || '').split(/,+/).map((t) => t.trim()).filter(Boolean);
-  const list = [...new Set([
+  return [...new Set([
     ...(Array.isArray(args?.files) ? args.files.map((f) => String(f || '').trim()).filter(Boolean) : []),
     ...(typeof args?.files === 'string' ? split(args.files) : []),
     ...(typeof args?.file === 'string' && args.file.trim() ? [args.file.trim()] : []),
   ])];
-  if (cap && list.length > CODE_GRAPH_FILE_BATCH_CAP) {
-    const capped = list.slice(0, CODE_GRAPH_FILE_BATCH_CAP);
-    capped._capped = true;
-    return capped;
-  }
-  return list;
 }
 
 function _hasAggregateFileArgs(args) {
@@ -166,9 +171,7 @@ function _resolveAggregateFileProjectRoot(args, baseCwd) {
   // unambiguous enough to select a project root. JSON array strings have
   // already been normalized to an actual array above.
   if (typeof args?.files === 'string' && args.files.includes(',')) return null;
-  const files = _collectGraphFileList(args, { cap: false });
-  // Recovery cannot silently discard anchors that normal batch dispatch caps.
-  if (files.length > CODE_GRAPH_FILE_BATCH_CAP) return null;
+  const files = _collectGraphFileList(args);
   const roots = new Set();
   for (const file of files) {
     // Never infer a root from a glob-shaped anchor, including a literal file
@@ -731,7 +734,7 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
   const explicitCwdArg = !!(args && typeof args.cwd === 'string' && args.cwd.trim());
   const baseProjectRoot = _findDirProjectRoot(baseCwd, { stopAtUserBoundary: !explicitCwdArg });
   const filesystemRootCwd = !baseProjectRoot && _isFilesystemRootPath(baseCwd);
-  const aggregateFilesAtBase = _collectGraphFileList(args, { cap: false });
+  const aggregateFilesAtBase = _collectGraphFileList(args);
   const rawModeAtBase = String(args?.mode || '').trim();
   const exactDotFederation = aggregateFilesAtBase.length === 1
     && aggregateFilesAtBase[0] === '.'
@@ -780,9 +783,6 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
     if (files.length) {
       if (files.some((file) => _AGGREGATE_FILE_WILDCARD_RE.test(file))) {
         return `Error: ${name}: wildcard-shaped file anchors are not allowed at a filesystem root`;
-      }
-      if (files.length > CODE_GRAPH_FILE_BATCH_CAP) {
-        return `Error: ${name}: file list exceeds cap of ${CODE_GRAPH_FILE_BATCH_CAP}`;
       }
       const routed = files.map((file) => {
         const abs = isAbsolute(file) ? pathResolve(file) : pathResolve(baseCwd, file);
@@ -933,26 +933,15 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
           ? findSymbolTool(_stripEmptyArgs(a), effectiveCwd, signal, options)
           : codeGraph(a, effectiveCwd, signal, options));
         if (CODE_GRAPH_BATCHABLE_MODES.has(batchMode)) {
-          const collectedSymbols = _collectGraphSymbolList(args);
-          const symbolList = collectedSymbols.slice(0, CODE_GRAPH_MAX_BATCH_SYMBOLS);
+          const symbolList = _collectGraphSymbolList(args);
           if (symbolList.length > 1) {
             return (async () => {
-              // Concurrent fan-out: the underlying graph build is single-flight
-              // and cached per cwd (buildCodeGraphAsync), so parallel sections
-              // share one build instead of serializing on it. Order and
-              // per-section error isolation are preserved by the indexed map.
-              const sections = await Promise.all(symbolList.map(async (sym) => {
+              const sections = await _mapWithConcurrency(symbolList, async (sym) => {
                 let body;
                 try { body = await dispatchOne({ ...args, symbol: sym, symbols: undefined }); }
                 catch (e) { body = `Error: ${e?.message || String(e)}`; }
                 return `# ${batchMode} ${sym}\n${body}`;
-              }));
-              if (collectedSymbols.length > symbolList.length) {
-                sections.push(
-                  `[arg-guard] notice: symbol list capped at ${CODE_GRAPH_MAX_BATCH_SYMBOLS} `
-                    + `(${collectedSymbols.length - symbolList.length} omitted)`,
-                );
-              }
+              });
               return sections.join('\n\n');
             })();
           }
@@ -964,14 +953,12 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
           const fileList = _collectGraphFileList(args);
           if (fileList.length > 1) {
             return (async () => {
-              const capped = fileList._capped;
-              const sections = await Promise.all(fileList.map(async (f) => {
+              const sections = await _mapWithConcurrency(fileList, async (f) => {
                 let body;
                 try { body = await dispatchOne({ ...args, file: f, files: undefined }); }
                 catch (e) { body = `Error: ${e?.message || String(e)}`; }
                 return `# ${batchMode} ${f}\n${body}`;
-              }));
-              if (capped) sections.push(`Note: file list capped at ${CODE_GRAPH_FILE_BATCH_CAP} entries.`);
+              });
               return sections.join('\n\n');
             })();
           }

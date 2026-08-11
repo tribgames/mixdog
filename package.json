@@ -125,7 +125,6 @@
     "bench:run": "node scripts/bench-run.mjs",
     "bench:recall": "node scripts/recall-bench.mjs",
     "bench:tui-load": "node scripts/tui-runtime-load-bench.mjs",
-    "bench:explore": "node scripts/explore-bench.mjs",
     "bench:output-style": "node scripts/output-style-bench.mjs",
     "bench:session-context": "node scripts/session-context-bench.mjs",
     "bench:session-transport": "node scripts/session-transport-bench.mjs",

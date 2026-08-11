@@ -2,7 +2,7 @@
  * Internal hidden agents — Mixdog-managed, user-untouchable.
  *
  * Unlike public workflow agents, these hidden agents are NEVER exposed to callers of the `agent` tool. They are
- * invoked only by internal handlers (explore / recall / search) and carry
+ * invoked only by internal handlers (recall / search) and carry
  * their own system prompt + tool-set policy.
  *
  * Lookup order (agent-dispatch.resolveMaintenanceRoute):
@@ -20,7 +20,7 @@
  * found" error rather than silently mis-dispatching.
  *
  * Kind classification:
- *   - 'retrieval'   : short-lived hidden retrieval agents (explore).
+ *   - 'retrieval'   : short-lived hidden retrieval agents.
  *   - 'maintenance' : background-trigger hidden agents (memory cycle and
  *                     title generation). Receive only their own self section.
  *
@@ -184,7 +184,7 @@ export function listHiddenAgentsByKind(kind) {
 
 /**
  * Return the agents/<name>.md sections a hidden agent shares in its BP2 catalog
- * (in addition to its own self section). Drives the explorer→worker cache
+ * (in addition to its own self section). Drives hidden-role cache
  * alignment declaratively instead of a hard-coded agent-name branch in
  * collect.mjs. Returns [] when the agent declares none.
  */

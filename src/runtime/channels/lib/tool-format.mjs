@@ -2,7 +2,6 @@ import { basename } from "path";
 import { safeCodeBlock } from "./format.mjs";
 import {
   formatToolSurface,
-  isExplorerSurface,
   isMemorySurface,
   normalizeToolName,
   stripToolPrefix,
@@ -106,7 +105,7 @@ function buildToolLine(name, input, hiddenCheck = isHidden) {
   }
   if (!displayName) return null;
   let toolLine = !summary || displayName === summary ? "\u25CF **" + displayName + "**" : "\u25CF **" + displayName + "** (" + summary + ")";
-  if (!isExplorerSurface(displayName) && !isMemorySurface(displayName) && detail && detail !== summary) {
+  if (!isMemorySurface(displayName) && detail && detail !== summary) {
     const lines = detail.substring(0, 500).split("\n");
     const shown = lines.slice(0, 5);
     let block = shown.join("\n");

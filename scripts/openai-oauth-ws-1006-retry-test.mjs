@@ -280,7 +280,6 @@ for (const failure of ['callback error', 'callback timeout']) {
         assert.notEqual(sockets[1], sockets[0]);
     });
 }
-
 test('pre-response 1006 opens a fresh WS and replays the same request', async () => {
     const acquires = [];
     const frames = [];
@@ -976,3 +975,53 @@ test('HTTP request transport retries match Codex count/backoff and exclude 429',
     );
     assert.equal(calls, 1);
 });
+for (const status of [403, 429]) {
+    test(`mid-stream retry surfaces the current ${status} with Retry-After metadata`, async () => {
+        let streams = 0;
+        const current = Object.assign(new Error(`current ${status}`), {
+            httpStatus: status,
+            headers: { 'retry-after': '7' },
+            retryAfterMs: 7_000,
+        });
+        await assert.rejects(
+            sendViaWebSocket(wsArgs({
+                _acquireWithRetryFn: async () => ({ entry: entry(), reused: false }),
+                _streamFn: async () => {
+                    streams += 1;
+                    if (streams === 1) throw close1006();
+                    throw current;
+                },
+            })),
+            (error) => error === current
+                && error.headers['retry-after'] === '7'
+                && error.retryAfterMs === 7_000,
+        );
+        assert.equal(streams, 2);
+    });
+}
+
+for (const status of [403, 429]) {
+    test(`handshake retry surfaces the current ${status} instead of the first transient`, async () => {
+        let acquires = 0;
+        const current = Object.assign(new Error(`current handshake ${status}`), {
+            httpStatus: status,
+            headers: { 'retry-after': '11' },
+            retryAfterMs: 11_000,
+        });
+        await assert.rejects(
+            sendViaWebSocket(wsArgs({
+                _acquireWithRetryFn: async () => {
+                    acquires += 1;
+                    if (acquires === 1) {
+                        throw Object.assign(new Error('temporary reset'), { code: 'ECONNRESET' });
+                    }
+                    throw current;
+                },
+            })),
+            (error) => error === current
+                && error.headers['retry-after'] === '11'
+                && error.retryAfterMs === 11_000,
+        );
+        assert.equal(acquires, 2);
+    });
+}

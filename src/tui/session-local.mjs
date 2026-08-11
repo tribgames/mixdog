@@ -333,7 +333,7 @@ export async function createLocalSessionRuntime({
     stats: createSessionStats(),
     // Incremental derivations published by the session runtime so App does not scan all
     // transcript items on every change:
-    //  - activeToolSummary: running Explore/Search active counts + earliest
+    //  - activeToolSummary: running web-search count + earliest
     //    startedAt for the prompt-line status (replaces App.jsx O(n) items scan).
     //  - promptHistoryList: newest-first deduped user-prompt history, rebuilt
     //    only when a user item is appended (replaces the per-change rescan).
@@ -513,23 +513,20 @@ export async function createLocalSessionRuntime({
   // state.promptHistoryList. Pure derivation now lives in
   // ./session/prompt-history.mjs (recomputePromptHistory); callers still pass the
   // NEW items array explicitly and publish via set().
-  // --- Active-tool summary (Explore/Search) maintained incrementally ---
+  // --- Active web-search summary maintained incrementally ---
   // App previously scanned every transcript item on every change to derive the
-  // prompt-line "Exploring N / Searching N" status. Instead the tool lifecycle
+  // prompt-line web-search status. Instead the tool lifecycle
   // below tracks per-callId category + started-at in activeToolCalls and derives
   // the small summary from it, publishing state.activeToolSummary only when the
   // aggregate (counts + earliest start) actually changes.
   const activeToolCalls = new Map(); // callKey -> { category, count, startedAt }
   const recomputeActiveToolSummary = () => {
-    let exploreCount = 0, exploreStart = 0, searchCount = 0, searchStart = 0;
+    let searchCount = 0, searchStart = 0;
     for (const rec of activeToolCalls.values()) {
       if (!rec) continue;
       const c = Math.max(1, Number(rec.count || 1));
       const started = Number(rec.startedAt || 0);
-      if (rec.category === 'Explore') {
-        exploreCount += c;
-        if (started > 0 && (exploreStart === 0 || started < exploreStart)) exploreStart = started;
-      } else if (rec.category === 'Web Research') {
+      if (rec.category === 'Web Research') {
         // L2 "Web Searching" segment tracks WEB searches (search/web_fetch —
         // category 'Web Research'), not local file search ('Search' =
         // grep/find/glob/list). Local search is routine transcript noise and
@@ -538,14 +535,14 @@ export async function createLocalSessionRuntime({
         if (started > 0 && (searchStart === 0 || started < searchStart)) searchStart = started;
       }
     }
-    const next = (exploreCount || searchCount)
-      ? `${exploreCount}:${exploreStart}:${searchCount}:${searchStart}`
+    const next = searchCount
+      ? `0:0:${searchCount}:${searchStart}`
       : '';
     const prev = state.activeToolSummary || '';
     if (next !== prev) set({ activeToolSummary: next || null });
   };
   const markToolCallActive = (callKey, category, count, startedAt) => {
-    if (!callKey || (category !== 'Explore' && category !== 'Web Research')) return;
+    if (!callKey || category !== 'Web Research') return;
     activeToolCalls.set(callKey, { category, count: Math.max(1, Number(count || 1)), startedAt: Number(startedAt || Date.now()) });
     recomputeActiveToolSummary();
   };

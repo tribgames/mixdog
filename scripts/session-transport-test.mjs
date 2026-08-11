@@ -1816,3 +1816,87 @@ test('a view told its session was unloaded comes back instead of stalling', asyn
     await view.dispose('test');
   }, { sessionFactory: async () => createStubSessionRuntime('') });
 });
+test('a silent SSE is reconnected and a continuous reconnect storm exhausts its budget', async () => {
+  const serverToken = 'server-token';
+  const clientToken = 'client-token';
+  const fatals = [];
+  const disconnects = [];
+  let eventRequests = 0;
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    const send = (value, status = 200) => {
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(value));
+    };
+    if (req.method === 'GET' && url.pathname === '/health') {
+      send({ status: 'ok', pid: process.pid });
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/events') {
+      eventRequests += 1;
+      if (eventRequests === 1) {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          Connection: 'keep-alive',
+        });
+        res.write(': attached\n\n');
+      } else {
+        send({ error: 'temporary stream failure' }, 503);
+      }
+      return;
+    }
+    req.resume();
+    req.on('end', () => {
+      if (req.method === 'POST' && url.pathname === '/client/register') {
+        send({ token: clientToken, pid: process.pid });
+      } else if (req.method === 'POST' && url.pathname === '/client/deregister') {
+        send({ ok: true });
+      } else {
+        send({ error: 'not found' }, 404);
+      }
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  let client = null;
+  try {
+    client = await attachSession({
+      discovery: { port: address.port, token: serverToken, pid: process.pid },
+      onFatal: (reason) => fatals.push(reason),
+      onStreamDisconnect: (details) => disconnects.push(details),
+      streamReconnectBaseMs: 5,
+      streamReconnectMaxMs: 10,
+      streamReconnectHealthGraceMs: 5,
+      streamLivenessTimeoutMs: 20,
+      streamReconnectBudgetMs: 60,
+    });
+    await waitForValue(() => fatals.length === 1);
+    assert.match(disconnects[0]?.reason || '', /sse liveness timeout after 20ms/);
+    assert.match(fatals[0], /reconnect budget exhausted/);
+    assert.ok(eventRequests >= 2, 'liveness timeout must open a replacement stream');
+  } finally {
+    await client?.close('test end');
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('reusing a mutation callId with a different payload fails closed', async () => {
+  await withDaemon(async ({ discovery }) => {
+    const client = await attachSession({ discovery, cwd: process.cwd() });
+    const { sessionId } = await client.call('session.create', { cwd: process.cwd() });
+    const callId = 'conflicting-call-id';
+    await client.call('session.submit', { sessionId, prompt: 'first' }, { callId });
+    await assert.rejects(
+      () => client.call('session.submit', { sessionId, prompt: 'second' }, { callId }),
+      /reused with a different payload/,
+    );
+    const read = await client.call('session.read', { sessionId });
+    assert.equal(read.full.items.length, 1);
+    assert.equal(read.full.items[0].text, 'first');
+    await client.close('call conflict verified');
+  });
+});

@@ -67,6 +67,7 @@ function DockPane({
 }
 
 export const DOCK_STATE_KEY = 'mixdog.desktop-utility-dock.v1';
+export const DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH = 320;
 export const DESKTOP_UTILITY_DOCK_MAX_WIDTH = 560;
 // Search stays folded INTO Explorer (user: 통합해서 간단하게 — Orca grammar);
 // the pane is named Explorer while the id stays 'files' for
@@ -76,7 +77,7 @@ export type UtilityDockTab = 'tasks' | 'files' | 'source-control' | 'pull-reques
 export function clampDockWidth(value: number): number {
   return Math.min(DESKTOP_UTILITY_DOCK_MAX_WIDTH, Math.max(
     DESKTOP_UTILITY_DOCK_MIN_WIDTH,
-    Math.round(Number.isFinite(value) ? value : 380),
+    Math.round(Number.isFinite(value) ? value : DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH),
   ));
 }
 export function readDockState(): { open: boolean; tab: UtilityDockTab; width: number } {
@@ -93,7 +94,7 @@ export function readDockState(): { open: boolean; tab: UtilityDockTab; width: nu
       width: clampDockWidth(Number(raw.width)),
     };
   } catch {
-    return { open: false, tab: 'tasks', width: 380 };
+    return { open: false, tab: 'tasks', width: DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH };
   }
 }
 

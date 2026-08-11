@@ -56,8 +56,6 @@ const BRIEF_ISSUE_CODES = Object.freeze([
   'cross_role_task_reuse',
 ]);
 const AGENT_ROLE_ALIASES = new Map([
-  ['explorer', 'explore'],
-  ['explore', 'explore'],
   ['maint', 'maintainer'],
   ['maintenance', 'maintainer'],
   ['memory', 'maintainer'],
@@ -440,9 +438,8 @@ process.stderr.write(`[boot-timing] import=${Date.now() - bootT0}ms\n`);
 // routing from the copied mixdog-config.json.
 const provider = process.env.MIXDOG_PROVIDER || undefined;
 const model = process.env.MIXDOG_MODEL || undefined;
-// Classic headless surface for bench runs: explorer, web search, and memory
-// tools all start OFF; a run opts back in via -AgentEnv MIXDOG_FEATURE_*=1.
-for (const key of ['MIXDOG_FEATURE_EXPLORE', 'MIXDOG_FEATURE_WEB_SEARCH', 'MIXDOG_FEATURE_MEMORY']) {
+// Optional web-search and memory tools start OFF in bench runs.
+for (const key of ['MIXDOG_FEATURE_WEB_SEARCH', 'MIXDOG_FEATURE_MEMORY']) {
   if (!String(process.env[key] ?? '').trim()) process.env[key] = '0';
 }
 const effort = process.env.MIXDOG_EFFORT || '';

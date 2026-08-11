@@ -158,7 +158,7 @@ test('bodyless failure preview does not suppress its later body', () => {
 });
 
 test('every background execution surface builds one visible completion card', () => {
-  for (const surface of ['shell', 'explore', 'search', 'task']) {
+  for (const surface of ['shell', 'search', 'task']) {
     const item = buildExecutionResponseToolItem([
       'background task',
       `task_id: job_${surface}`,

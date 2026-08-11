@@ -55,11 +55,7 @@ export function formatToolStartProgress(name, args = {}) {
         case 'web_fetch':
             return Array.isArray(a.url) ? `fetching ${_plural(a.url.length, 'URL')}` : `fetching ${_t(a.url)}`;
 
-        // ── agent module: explore / agent / models ───────────────────────
-        case 'explore': {
-            const n = Array.isArray(a.query) ? a.query.length : (a.query ? 1 : 0);
-            return `exploring ${_plural(n, 'query', 'queries')}`;
-        }
+        // ── agent module: agent / models ─────────────────────────────────
         case 'agent': {
             const route = [a.preset, [a.provider, a.model].filter(Boolean).join('/')].filter(Boolean).join(' ');
             const suffix = route ? ` (${_t(route, 32)})` : '';

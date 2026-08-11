@@ -117,7 +117,7 @@ export function createLiveShare({
 
   // Live-state mirror (attach parity): the transcript alone left an attached
   // viewer blind to the owner's activity — busy/stop state, the queued
-  // follow-up list, the Explore/Search summary, agent workers/jobs, and the
+  // follow-up list, the web-search summary, agent workers/jobs, and the
   // context gauge stats all live in owner process state. Mirror a compact
   // subset so viewer surfaces render them natively. queued entries are
   // projected to display fields only (content parts may carry images).
