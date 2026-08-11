@@ -40,13 +40,23 @@ export function resolveDefaultChildSpawnLaneMaxInflight(
   if (Number.isFinite(laneOverride) && laneOverride >= 1) return Math.floor(laneOverride);
   const sharedOverride = Number(env.MIXDOG_CHILD_SPAWN_MAX_INFLIGHT);
   if (Number.isFinite(sharedOverride) && sharedOverride >= 1) return Math.floor(sharedOverride);
-  if (platform !== 'win32') return Infinity;
+  const cpus = Math.max(1, Math.floor(Number(parallelism) || 1));
+  if (platform !== 'win32') {
+    // No AV amplification, but disk/CPU saturation is platform-neutral: an
+    // unbounded multi-agent burst still convoys. Bound search generously.
+    return lane === 'search' ? Math.max(4, Math.min(12, Math.ceil(cpus / 2))) : Infinity;
+  }
+  // Shell/child process creation window (CreateProcess + Defender scan).
+  // Slots are held only across the spawn itself, so a small cap smooths the
+  // AV convoy without limiting how many commands run concurrently.
+  if (lane === 'process-spawn') return Math.max(2, Math.min(4, Math.floor(cpus / 6) || 2));
+  // One cold graph build saturates memory/disk; allow a second only on big hosts.
+  if (lane === 'code-graph') return cpus >= 12 ? 2 : 1;
   if (lane !== 'search') return 1;
   // Multiple rg processes beat one under multi-session load, but each process
   // is itself threaded and Defender amplifies excess fan-out. Burst stress
   // measured cap-4 starvation (find p50 15s at 8 concurrent sessions), so
   // scale with cores and cap at eight: 4→2, 8→3, 12→4, 18→6, 24+→8.
-  const cpus = Math.max(1, Math.floor(Number(parallelism) || 1));
   return Math.max(2, Math.min(8, Math.ceil(cpus / 3)));
 }
 
