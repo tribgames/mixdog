@@ -1,6 +1,15 @@
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 
+export function FastModeIndicator({ ariaLabel = 'Fast On' }: {
+  ariaLabel?: string;
+}) {
+  return <span className="fast-mode-indicator" role="img"
+    aria-label={t(ariaLabel)} data-tooltip={t('Fast On')} data-tooltip-side="top">
+    <MxIcon name="zap" size={14} fill="currentColor" />
+  </span>;
+}
+
 export function FastModeToggle({ enabled, disabled = false, ariaLabel = 'Fast mode', onChange }: {
   enabled: boolean;
   disabled?: boolean;

@@ -431,15 +431,36 @@ function findOuterContextTrimmedWindow(sourceLines, hunk, stats) {
   return null;
 }
 
+function uniqueExactSequenceStart(sourceLines, pattern) {
+  if (!Array.isArray(pattern) || pattern.length === 0) return -1;
+  let found = -1;
+  outer: for (let i = 0; i + pattern.length <= sourceLines.length; i++) {
+    for (let k = 0; k < pattern.length; k++) {
+      if (sourceLines[i + k] !== pattern[k]) continue outer;
+    }
+    if (found >= 0) return -1;
+    found = i;
+  }
+  return found;
+}
+
 function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {}) {
   const stats = v4AHunkLineStats(hunk);
   if (stats.oldCount === 0 && stats.newCount === 0) return { skip: true };
   const fuzzy = options.fuzzy !== false;
   const eof = hunk?.isEndOfFile === true;
-  const anchorLine = findAnchorLine(sourceLines, hunk.anchors, nextSearchLine);
+  let anchorLine = findAnchorLine(sourceLines, hunk.anchors, nextSearchLine);
   if (anchorLine < 0) {
-    const msg = `V4A hunk anchor not found: ${formatV4AHunkLocator(hunk)};${formatV4AAnchorMissHint(sourceLines, hunk)}`;
-    return { error: msg };
+    // A semantic/synthetic @@ label (for example Class.method) can be absent
+    // even though the hunk's current old-side body is byte-exact. Rebase from
+    // that body only when it has exactly one whole-file location; duplicate or
+    // stale bodies retain the hard anchor miss instead of choosing a target.
+    const uniqueBody = fuzzy ? uniqueExactSequenceStart(sourceLines, stats.oldLines) : -1;
+    if (uniqueBody < 0) {
+      const msg = `V4A hunk anchor not found: ${formatV4AHunkLocator(hunk)};${formatV4AAnchorMissHint(sourceLines, hunk)}`;
+      return { error: msg };
+    }
+    anchorLine = uniqueBody + 1;
   }
   let oldLinesPattern = stats.oldLines;
   let newLinesPattern = stats.newLines;

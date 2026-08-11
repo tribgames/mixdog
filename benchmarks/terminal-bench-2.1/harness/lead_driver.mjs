@@ -35,6 +35,15 @@ import {
   writeFile,
 } from 'node:fs/promises';
 
+// Bench instrumentation: surface process warnings WITH their stack so the
+// tee'd mixdog.txt pinpoints the emitting site (e.g. which AbortSignal tripped
+// MaxListenersExceededWarning) instead of only Node's bare one-line message.
+process.on('warning', (warning) => {
+  try {
+    process.stderr.write(`[trace-warning] ${warning?.stack || warning}\n`);
+  } catch { /* diagnostics never break the run */ }
+});
+
 const USAGE_LOG = process.env.MIXDOG_USAGE_LOG || '/logs/agent/usage.json';
 const SESSION_TRANSCRIPT_LOG = process.env.MIXDOG_SESSION_TRANSCRIPT_LOG
   || '/logs/agent/session-transcript.json';
@@ -62,7 +71,7 @@ const AGENT_ROLE_ALIASES = new Map([
   ['web', 'web-researcher'],
   ['web-researcher', 'web-researcher'],
 ]);
-const LEGACY_ROLE_TOKEN = '(?:lead|worker|heavy[- ]?worker|review(?:er)?|explor(?:e|er)|maint(?:ainer|enance)?|web(?:-researcher)?)';
+const LEGACY_ROLE_TOKEN = '(?:lead|worker|heavy[- ]?worker|review(?:er)?|debugger|explor(?:e|er)|maint(?:ainer|enance)?|web(?:-researcher)?)';
 const LEGACY_ROLE_LINEAGE_RE = new RegExp(
   `\\b${LEGACY_ROLE_TOKEN}\\b\\s*(?:→|->|=>|/|>)\\s*\\b${LEGACY_ROLE_TOKEN}\\b`,
   'i',
@@ -484,10 +493,18 @@ void mirrorUsageAsync();
 // not surface stopReason through ask(), so retain the terminated session IDs
 // from the in-process stderr stream and match the returned lead session.
 const refusalSessionIds = new Set();
+const REFUSAL_RETRY_EXIT_CODE = 86;
+const TRANSPORT_RETRY_EXIT_CODE = 87;
 class RefusalEquivalentError extends Error {
   constructor(message) {
     super(message);
     this.name = 'RefusalEquivalentError';
+  }
+}
+class TransportStallError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'TransportStallError';
   }
 }
 const _origErrWrite = process.stderr.write.bind(process.stderr);
@@ -574,16 +591,17 @@ const driveSession = async (route) => {
     return false;
   });
 
-  // A driver-level stall invalidates this attempt. Harbor must recreate the
-  // trial so fallback gets a fresh runtime and full task budget.
+  // A driver-level transport stall invalidates this attempt. Harbor must
+  // recreate the trial on the SAME model with a fresh runtime and full task
+  // budget. Only an actual refusal/tiny final selects the bench fallback.
   stallTimer = setInterval(() => {
     if (!busy || STALL_MS <= 0) return;
     if (Date.now() - lastProgressAt <= STALL_MS) return;
     stallAborted = true;
     lastProgressAt = Date.now();
     process.stderr.write(`lead_driver: stall watchdog abort (no progress ${STALL_MS}ms)\n`);
-    rejectStalledAsk?.(new RefusalEquivalentError(
-      `lead_driver: stalled turn is refusal-equivalent (no progress ${STALL_MS}ms)`,
+    rejectStalledAsk?.(new TransportStallError(
+      `lead_driver: transport stall (no progress ${STALL_MS}ms)`,
     ));
     try { rt.abort?.('driver-stall'); } catch { /* abort is best-effort */ }
   }, STALL_POLL_MS);
@@ -658,8 +676,8 @@ const driveSession = async (route) => {
         );
       }
       if (stallAborted) {
-        throw new RefusalEquivalentError(
-          `lead_driver: stalled turn is refusal-equivalent (no progress ${STALL_MS}ms)`,
+        throw new TransportStallError(
+          `lead_driver: transport stall (no progress ${STALL_MS}ms)`,
         );
       }
       throw err;
@@ -816,12 +834,23 @@ try {
   // Runtime events already contain the complete audit evidence; no persistence
   // or close completion is required to emit the fallback artifact.
   writeBriefAudit();
-  if (error instanceof RefusalEquivalentError) {
-    process.stderr.write(`${error.message}; exiting 86 so Harbor retries a fresh trial\n`);
+  if (error instanceof TransportStallError) {
+    process.stderr.write(
+      `${error.message}; exiting ${TRANSPORT_RETRY_EXIT_CODE} so Harbor retries the same model in a fresh trial\n`,
+    );
     usageMirrorStopped = true;
     if (usageMirrorTimer) clearInterval(usageMirrorTimer);
     mirrorUsageSync();
-    process.exit(86);
+    process.exit(TRANSPORT_RETRY_EXIT_CODE);
+  }
+  if (error instanceof RefusalEquivalentError) {
+    process.stderr.write(
+      `${error.message}; exiting ${REFUSAL_RETRY_EXIT_CODE} so Harbor retries with the bench refusal fallback\n`,
+    );
+    usageMirrorStopped = true;
+    if (usageMirrorTimer) clearInterval(usageMirrorTimer);
+    mirrorUsageSync();
+    process.exit(REFUSAL_RETRY_EXIT_CODE);
   }
   throw error;
 }
@@ -841,12 +870,12 @@ process.stdout.write(
 if (refusalGateHit || tinyFinalGateHit) {
   const reason = refusalGateHit ? 'API refusal' : 'tiny final public response';
   process.stdout.write(
-    `refusal-restart: ${reason} (sess=${sid}); exiting 86 so Harbor retries a fresh trial\n`,
+    `refusal-restart: ${reason} (sess=${sid}); exiting ${REFUSAL_RETRY_EXIT_CODE} so Harbor retries with the bench refusal fallback\n`,
   );
   usageMirrorStopped = true;
   if (usageMirrorTimer) clearInterval(usageMirrorTimer);
   mirrorUsageSync();
-  process.exit(86);
+  process.exit(REFUSAL_RETRY_EXIT_CODE);
 }
 
 // Sanity: extract the model(s) the runtime actually used from the session

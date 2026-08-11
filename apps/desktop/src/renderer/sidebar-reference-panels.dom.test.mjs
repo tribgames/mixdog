@@ -571,7 +571,9 @@ test('workflows filters the search catalog to configured providers', async () =>
   assert.equal(counts.listSearchModels, 1);
 
   const row = document.querySelector('.workflows-default-agent-summary-row');
-  assert.equal(row?.querySelector('small')?.textContent, 'GPT-Search · High · Fast Off');
+  assert.equal(row?.querySelector('small')?.textContent, 'GPT-Search · High');
+  assert.equal(row?.querySelector('.fast-mode-indicator'), null,
+    'non-Fast route summaries must not render a lightning icon');
   assert.equal(row?.querySelector('.settings-model-trigger'), null);
   const menu = await openMenu('Web search');
   const edit = Array.from(menu.querySelectorAll('button')).find((button) => button.textContent === 'Edit');
@@ -664,7 +666,9 @@ test('editable agents show a quiet route summary and edit only from the overflow
 
   const row = document.querySelector('section[aria-label="Agents"] .workflows-agent-summary-row');
   assert.equal(row?.querySelector('.schedules-row-copy')?.tagName, 'DIV');
-  assert.equal(row?.querySelector('small')?.textContent, 'GPT-Test · High · Fast On');
+  assert.equal(row?.querySelector('small')?.textContent, 'GPT-Test · High');
+  assert.ok(row?.querySelector('.fast-mode-indicator'),
+    'Fast route summaries must use the shared lightning indicator');
   assert.equal(row?.querySelector('.settings-model-trigger'), null,
     'editable agent rows must not expose inline route controls');
   assert.equal(row?.querySelector('[aria-label="Edit agent Worker"]'), null,

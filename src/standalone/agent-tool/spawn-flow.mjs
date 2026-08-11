@@ -14,6 +14,7 @@ import { resolveAgentSpawnPreset } from './spawn-preset.mjs';
 import { resolveAgentWatchdogPolicy, resolveHandoffMessageStartIndex, watchdogPartialHandoffFromError } from '../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { prepareAgentSession } from '../../runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
 import { AGENT_OWNER } from '../../runtime/agent/orchestrator/agent-owner.mjs';
+import { getProvider } from '../../runtime/agent/orchestrator/providers/registry.mjs';
 export function createSpawnFlow({
   mgr,
   shardSpread = null,
@@ -299,12 +300,29 @@ export function createSpawnFlow({
     const spec = spawnSessionSpec(plan, args, context);
     const { session, effectiveCwd } = prepareAgentSession(spec);
     bindSpawnedSession(session, plan);
+    // Codex-parity spawn prewarm: open the worker's WS socket now, in
+    // parallel with the remaining prep / first-prompt build, so the first
+    // request skips the handshake. Fire-and-forget: failures fall back to the
+    // lazy per-send handshake. MIXDOG_AGENT_SPAWN_WS_PREWARM=0 disables.
+    maybePrewarmSpawnTransport(plan, session);
     return preparedSpawnResult(
       { ...plan, workerCwd: effectiveCwd || plan.workerCwd },
       args,
       session,
       spec,
     );
+  }
+
+  function maybePrewarmSpawnTransport(plan, session) {
+    if (process.env.MIXDOG_AGENT_SPAWN_WS_PREWARM === '0') return;
+    try {
+      const provider = getProvider(plan?.preset?.provider);
+      if (typeof provider?.prewarmWsTransportForSession !== 'function') return;
+      void Promise.resolve(provider.prewarmWsTransportForSession({
+        sessionId: session?.id || null,
+        session,
+      })).catch(() => {});
+    } catch { /* best-effort — the first send owns the lazy handshake */ }
   }
 
   async function runSpawn(prepared, notifyContext = null, job = null) {

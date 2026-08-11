@@ -188,7 +188,16 @@ export async function executeListTool(args, workDir, options = {}) {
     catch (err) {
         return await readFamilyPathEnoentOrError(workDir, fullPath, inputPath, args, options, err, executeListTool);
     }
-    if (!st.isDirectory()) return `Error: not a directory — ${normalizeOutputPath(fullPath)}`;
+    if (!st.isDirectory()) {
+        if (st.isFile()) {
+            const out = meta
+                ? `${normalizeOutputPath(fullPath)}\tfile\t${st.size}\t${_metaMtimeIso(st.mtimeMs)}\t${_metaModeOctal(st.mode)}`
+                : `${normalizeOutputPath(fullPath)}\tfile`;
+            cacheSet(cacheKey, out, { scopes: [fullPath] });
+            return out;
+        }
+        return `Error: not a directory — ${normalizeOutputPath(fullPath)}`;
+    }
 
     const rows = [];
     // Width guard: depth is capped above, but a single very wide directory

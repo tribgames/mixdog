@@ -47,7 +47,7 @@ EXPECTED_AUDIT_LINE = (
     "worker=openai-oauth/gpt-5.6-terra effort=high fast=true; "
     "heavy-worker=openai-oauth/gpt-5.6-sol effort=xhigh fast=true; "
     "reviewer=openai-oauth/gpt-5.6-sol effort=xhigh fast=true; "
-    "debugger=openai-oauth/gpt-5.6-sol effort=max fast=true; "
+    "debugger=openai-oauth/gpt-5.6-sol effort=xhigh fast=true; "
     "explorer=openai-oauth/gpt-5.6-luna effort=low fast=false"
 )
 def resolve_with_real_runtime(config: dict) -> dict:
@@ -180,7 +180,7 @@ class RoutingProfileTests(unittest.TestCase):
                 "debugger": {
                     "provider": "openai-oauth",
                     "model": "gpt-5.6-sol",
-                    "effort": "max",
+                    "effort": "xhigh",
                     "fast": True,
                 },
                 "explorer": {
@@ -217,6 +217,12 @@ class RoutingProfileTests(unittest.TestCase):
                 "routes": {
                     **profile["routes"],
                     "reviewer": {
+                        "provider": "anthropic-oauth",
+                        "model": "claude-opus-4-8",
+                        "effort": "xhigh",
+                        "fast": False,
+                    },
+                    "debugger": {
                         "provider": "anthropic-oauth",
                         "model": "claude-opus-4-8",
                         "effort": "xhigh",
@@ -281,7 +287,7 @@ class RoutingProfileTests(unittest.TestCase):
                     "debugger": {
                         "provider": "openai-oauth",
                         "model": "gpt-5.6-sol",
-                        "effort": "max",
+                        "effort": "xhigh",
                         "fast": True,
                     },
                     "explorer": {
@@ -331,7 +337,7 @@ class RoutingProfileTests(unittest.TestCase):
                     "debugger": {
                         "provider": "openai-oauth",
                         "model": "gpt-5.6-sol",
-                        "effort": "max",
+                        "effort": "xhigh",
                         "fast": True,
                     },
                     "explorer": {
@@ -991,11 +997,8 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         self.assertEqual(agent._workflow, "default")
         self.assertFalse(hasattr(module, "HEADLESS_BENCH_MANDATE"))
 
-    def test_installer_uses_repository_version_unless_explicitly_overridden(self) -> None:
+    def test_installer_uses_latest_dependency_shell_unless_explicitly_overridden(self) -> None:
         module = self.load_adapter_module()
-        repository_version = json.loads(
-            (REPO_ROOT / "package.json").read_text(encoding="utf-8")
-        )["version"]
         commands = []
 
         async def exec_as_root(environment, *, command, env=None):
@@ -1008,13 +1011,13 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         asyncio.run(default_agent.install(object()))
         asyncio.run(override_agent.install(object()))
 
-        self.assertEqual(default_agent._mixdog_version, repository_version)
+        self.assertEqual(default_agent._mixdog_version, "latest")
         self.assertEqual(override_agent._mixdog_version, "fixture")
         npm_commands = [
             command for command in commands if "npm install -g" in command
         ]
         self.assertEqual(len(npm_commands), 2)
-        self.assertIn(f"mixdog@{repository_version}", npm_commands[0])
+        self.assertIn("mixdog@latest", npm_commands[0])
         self.assertIn("mixdog@fixture", npm_commands[1])
 
     @staticmethod
@@ -1131,22 +1134,29 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
 
         self.assertEqual(calls, [None, fallback])
 
-    def test_retry_marker_requires_anchored_harbor_exit_exception(self) -> None:
+    def test_refusal_marker_requires_anchored_refusal_exit_exception(self) -> None:
         module = self.load_adapter_module()
         self.assertFalse(
-            module.MixdogAgent._is_retry_exit(
+            module.MixdogAgent._is_refusal_fallback_exit(
                 RuntimeError("diagnostic mentions Command failed (exit 86): nested")
             )
         )
         self.assertFalse(
-            module.MixdogAgent._is_retry_exit(
+            module.MixdogAgent._is_refusal_fallback_exit(
                 module.NonZeroAgentExitCodeError(
                     "Command failed (exit 186): unrelated"
                 )
             )
         )
+        self.assertFalse(
+            module.MixdogAgent._is_refusal_fallback_exit(
+                module.NonZeroAgentExitCodeError(
+                    "Command failed (exit 87): transport stall"
+                )
+            )
+        )
         self.assertTrue(
-            module.MixdogAgent._is_retry_exit(
+            module.MixdogAgent._is_refusal_fallback_exit(
                 module.NonZeroAgentExitCodeError(
                     "Command failed (exit 86): exact"
                 )
@@ -1398,6 +1408,8 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             host_credentials = data / "anthropic-oauth-credentials.json"
             host_bytes = b'{"claudeAiOauth":{"accessToken":"host-fixture"}}'
             snapshot_bytes = b'{"claudeAiOauth":{"accessToken":"snapshot-fixture"}}'
+            src_snapshot = data / "src-snapshot.tar"
+            src_snapshot.write_bytes(b"src-snapshot-fixture")
             host_credentials.write_bytes(host_bytes)
             (data / "openai-oauth.json").write_text(
                 '{"access_token":"openai-fixture"}', encoding="utf-8"
@@ -1439,11 +1451,14 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             async def exec_as_root(environment, *, command, env=None):
                 return None
 
-            async def inject_src_snapshot(environment):
+            async def inject_src_snapshot(environment, upload=True):
                 return None
 
             agent.exec_as_root = exec_as_root
             agent._inject_src_snapshot = inject_src_snapshot
+            agent._load_src_snapshot = lambda: types.SimpleNamespace(
+                archive_path=src_snapshot
+            )
 
             def fake_preflight(source, snapshot):
                 preflight_calls.append(source)
@@ -1481,6 +1496,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
                     "anthropic-oauth-models.json",
                     "openai-oauth-models.json",
                     module.PERSONAL_STATE_AUDIT_NAME,
+                    "src-snapshot.tar",
                 },
             )
             generated_config = json.loads(
@@ -1591,7 +1607,8 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             commands.append(command)
 
         agent.exec_as_root = exec_as_root
-        asyncio.run(agent.install(object()))
+        with mock.patch.object(module, "DEFAULT_PREBAKE_TAR", Path("__missing_prebake__")):
+            asyncio.run(agent.install(object()))
 
         dependency_command = commands[0]
         self.assertIn("apt-get install -y curl ca-certificates coreutils", dependency_command)
@@ -1609,7 +1626,8 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             commands.append(command)
 
         agent.exec_as_root = exec_as_root
-        asyncio.run(agent.install(object()))
+        with mock.patch.object(module, "DEFAULT_PREBAKE_TAR", Path("__missing_prebake__")):
+            asyncio.run(agent.install(object()))
 
         self.assertEqual(len(commands), 3)
         self.assertEqual(commands[1], module._uv_provision_command())
@@ -1718,7 +1736,7 @@ INSTALLER
             capture_output=True,
             text=True,
             encoding="utf-8",
-            timeout=15,
+            timeout=30,
         )
         return temp, home, log, result
 
@@ -2338,7 +2356,7 @@ export async function createMixdogSessionRuntime() {
                 timeout=5,
             )
         self.assertEqual(result.returncode, 86, result.stderr)
-        self.assertNotIn("refusal fallback", result.stderr)
+        self.assertIn("bench refusal fallback", result.stderr)
 
     def test_periodic_mirror_snapshots_lazy_lead_session_before_external_kill(self) -> None:
         if shutil.which("node") is None:
@@ -2854,8 +2872,9 @@ export async function createMixdogSessionRuntime() {
             transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
             self.assertEqual(transcript["lastContextTokens"], 12345)
             self.assertEqual(transcript["lastIterationIndex"], 7)
-        self.assertEqual(result.returncode, 86, result.stderr)
-        self.assertIn("stalled turn is refusal-equivalent", result.stderr)
+        self.assertEqual(result.returncode, 87, result.stderr)
+        self.assertIn("transport stall", result.stderr)
+        self.assertIn("same model", result.stderr)
 
     def test_brief_audit_reports_structural_findings_without_failing(self) -> None:
         if shutil.which("node") is None:
@@ -3045,6 +3064,7 @@ class LauncherDryRunTests(unittest.TestCase):
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
 

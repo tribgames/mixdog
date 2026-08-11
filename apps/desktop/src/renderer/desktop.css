@@ -1601,7 +1601,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex-direction: column;
   overflow-x: clip;
   overflow-y: auto;
-  padding: 4px 8px 8px;
+  padding: 4px 12px 8px;
   gap: 10px;
 }
 .utility-dock .agent-activity-empty {
@@ -1637,7 +1637,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 6px;
+  padding: 0;
   border: 0;
   border-radius: 6px;
   color: var(--mx-text);
@@ -1664,9 +1664,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .utility-dock .agent-session-heading > small {
   flex: 0 0 auto;
-  color: var(--mx-text-faint);
+  min-width: 20px;
+  height: 18px;
+  box-sizing: border-box;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: var(--mx-text-soft);
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
   font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-regular);
+  font-weight: var(--mx-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 .utility-dock .agent-activity-row {
   width: 100%;
@@ -1679,7 +1690,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   column-gap: 7px;
   row-gap: 1px;
   align-items: center;
-  padding: 6px;
+  padding: 12px 14px;
   overflow: hidden;
   border: 0;
   border-radius: 8px;
@@ -1717,7 +1728,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .utility-dock .agent-activity-primary b {
   min-width: 0;
-  max-width: 45%;
+  max-width: 100%;
   flex: 0 1 auto;
   overflow: hidden;
   color: var(--mx-text);
@@ -1726,14 +1737,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.utility-dock .agent-activity-primary > span {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-regular);
-  text-overflow: ellipsis;
-}
 .utility-dock .agent-activity-copy small {
   overflow: hidden;
   color: var(--mx-text-faint);
@@ -1741,9 +1744,30 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.agent-route-summary {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.agent-route-summary > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fast-mode-indicator {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--mx-text-accent);
+}
+.fast-mode-indicator svg { width: 14px; height: 14px; }
 .utility-dock .agent-activity-elapsed {
   grid-column: 3;
-  grid-row: 1 / 3;
+  grid-row: 1;
   max-width: 56px;
   overflow: hidden;
   color: var(--mx-text-faint);
@@ -12762,26 +12786,31 @@ html.mx-window-resizing .panel-backdrop {
   padding: 0 7px;
   border: 0;
   border-radius: 5px;
-  color: var(--mx-text-soft);
-  background: var(--mx-alpha-light-10);
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+  box-shadow: var(--mx-button);
   font: inherit;
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-medium);
   cursor: pointer;
   justify-content: center;
 }
-.turn-review-undo:hover { color: var(--mx-text); background: var(--mx-hover); }
+.turn-review-undo:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: color-mix(in srgb, var(--mx-text) 14%, transparent);
+}
 .turn-review-undo:disabled {
   /* Busy/unavailable still needs to read as a labeled action at 12px; the
      quieter plate and lack of hover carry the disabled state. */
-  color: var(--mx-text-muted);
-  background: var(--mx-alpha-light-6);
+  color: var(--mx-text-soft);
+  background: var(--mx-hover);
+  box-shadow: 0 0 0 .5px var(--mx-border-muted);
   opacity: 1;
   cursor: default;
 }
 .turn-review-undo:disabled:hover {
-  color: var(--mx-text-muted);
-  background: var(--mx-alpha-light-6);
+  color: var(--mx-text-soft);
+  background: var(--mx-hover);
 }
 .turn-review-confirm-all { flex: 0 0 auto; }
 .turn-review-style {

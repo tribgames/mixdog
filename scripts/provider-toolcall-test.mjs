@@ -799,6 +799,73 @@ test('openai-oauth request allows one mixed custom-patch/function-shell batch', 
     assert.doesNotMatch(shell.description, /apply_patch|verification|PowerShell:/i);
 });
 
+test('openai-oauth reasoning replay defaults on, honors kill switch, declares all-turn context', () => {
+    const encrypted = {
+        type: 'reasoning',
+        id: 'rs_replay_1',
+        encrypted_content: 'opaque-reasoning',
+        summary: [],
+    };
+    const history = [
+        { role: 'user', content: 'inspect it' },
+        {
+            role: 'assistant',
+            content: '',
+            reasoningItems: [encrypted],
+            toolCalls: [{ id: 'call_1', name: 'read', arguments: { path: 'a' } }],
+        },
+        { role: 'tool', toolCallId: 'call_1', content: 'contents' },
+    ];
+    const defaultInput = _convertMessagesToResponsesInputForTest(history);
+    assert.equal(defaultInput.some((item) => item.type === 'reasoning'), false);
+
+    const replayInput = _convertMessagesToResponsesInputForTest(history, {
+        replayEncryptedReasoning: true,
+    });
+    assert.deepEqual(replayInput.map((item) => item.type), [
+        undefined,
+        'reasoning',
+        'function_call',
+        'function_call_output',
+    ]);
+    assert.deepEqual(replayInput[1], encrypted);
+
+    const defaultBody = buildOpenAIOAuthRequestBody(history, 'gpt-5.6-sol', [], {});
+    assert.equal(defaultBody.reasoning.context, 'all_turns');
+    assert.deepEqual(defaultBody.input[1], encrypted);
+    process.env.MIXDOG_OAI_DISABLE_REASONING_REPLAY = '1';
+    try {
+        const killedBody = buildOpenAIOAuthRequestBody(history, 'gpt-5.6-sol', [], {
+            replayEncryptedReasoning: true,
+        });
+        assert.equal(killedBody.reasoning.context, undefined);
+        assert.equal(killedBody.input.some((item) => item.type === 'reasoning'), false);
+    } finally {
+        delete process.env.MIXDOG_OAI_DISABLE_REASONING_REPLAY;
+    }
+});
+
+test('openai-oauth HTTP/SSE stateless experiment omits conversation anchor headers', async () => {
+    let capturedHeaders = null;
+    await sendViaHttpSse({
+        auth: { access_token: 'token', account_id: 'account' },
+        body: { model: 'gpt-5.6-sol', tools: [] },
+        opts: { statelessConversation: true },
+        cacheKey: 'stable-cache-key',
+        useModel: 'gpt-5.6-sol',
+        fetchFn: async (_url, init) => {
+            capturedHeaders = init.headers;
+            return httpSseResponse([
+                { type: 'response.created', response: { id: 'r', model: 'gpt-5.6-sol' } },
+                { type: 'response.completed', response: { id: 'r', model: 'gpt-5.6-sol', output: [] } },
+            ]);
+        },
+    });
+    assert.equal(capturedHeaders.session_id, undefined);
+    assert.equal(capturedHeaders['session-id'], undefined);
+    assert.equal(capturedHeaders['thread-id'], undefined);
+});
+
 test('openai-oauth HTTP/SSE preserves mixed custom-patch/function-shell call order', async () => {
     const rawPatch = '*** Begin Patch\n*** Add File: mixed.txt\n+ok\n*** End Patch\n';
     const emitted = [];
@@ -834,7 +901,9 @@ test('openai-compat/xai Responses: freeform apply_patch downgrades to function s
     assert.equal(patch.parameters?.properties?.patch?.type, 'string');
     assert.deepEqual(patch.parameters?.required, ['patch']);
     assert.deepEqual(Object.keys(patch.parameters?.properties || {}), ['patch', 'root']);
-    assert.match(patch.description, /Edit with a compact patch.*Sections: A <path>.*Optional first line R <root>/is);
+    for (const requiredText of ['Edit files with this V4A patch', 'Begin Patch', 'Add File', 'Delete File', 'Update File', 'End Patch']) {
+        assert.match(patch.description, new RegExp(requiredText, 'i'));
+    }
     assert.doesNotMatch(JSON.stringify(patch), /exact current context|roll ?back/i);
 });
 

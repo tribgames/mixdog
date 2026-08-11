@@ -5,6 +5,16 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Provider transports now bound Anthropic non-stream stalls, distinguish
+  retryable transport failures from model refusals, preserve OpenAI reasoning
+  continuity on recovery, and prewarm compatible WebSocket sessions.
+- Patch, list, and shell tools recover unique path or context mismatches in one
+  call while retaining ambiguity, symlink, and destructive-command safeguards.
+- Session-title completion and Markdown source fallback handling are more
+  resilient, with focused provider, renderer, tool, and routing regressions.
+- Terminal-Bench 2.1 diagnostics, fair native baselines, usage accounting, and
+  reproducible reasoning-replay experiments are expanded.
+
 ## v0.9.109 - 2026-08-10
 
 - Shell commands that complete with a non-zero exit are treated as command

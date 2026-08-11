@@ -363,6 +363,8 @@ assertOk('list', listOut, /smoke\.mjs/);
 // the `ls -la` metadata gap while the default contract stays path + type.
 const listMetaOut = await executeBuiltinTool('list', { path: 'scripts', head_limit: 0, meta: true }, root);
 assertOk('list meta', listMetaOut, /smoke\.mjs\tfile\t\d+\t\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\t[0-7]{3,4}/);
+const listFileMetaOut = await executeBuiltinTool('list', { path: 'package.json', meta: true }, root);
+assertOk('list file meta', listFileMetaOut, /package\.json\tfile\t\d+\t\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\t[0-7]{3,4}/);
 
 // list hidden: dotfiles are opt-in via the exposed `hidden` flag (`ls -a`
 // parity); default listings keep them filtered.
@@ -915,13 +917,6 @@ const shellFailOutPromise = executeBuiltinTool('shell', {
   shell: 'powershell',
 }, root);
 
-const shellTimeoutOutPromise = executeBuiltinTool('shell', {
-  command: 'Start-Sleep -Milliseconds 1500; Write-Output tool-smoke-timeout-missed',
-  cwd: root,
-  timeout: 500,
-  shell: 'powershell',
-}, root);
-
 const shellWorkdirOutPromise = executeBuiltinTool('shell', {
   command: 'Get-Location | Select-Object -ExpandProperty Path',
   workdir: resolve(root, 'scripts'),
@@ -945,7 +940,14 @@ if (
   throw new Error(`bash non-zero exit must be a completed command-result envelope:\n${shellFailText}`);
 }
 
-const shellTimeoutOut = await shellTimeoutOutPromise;
+// Keep the deadline probe isolated from the concurrent shell-pool smoke above:
+// it verifies timeout semantics, not admission/pool scheduling under fan-out.
+const shellTimeoutOut = await executeBuiltinTool('shell', {
+  command: 'node -e "setTimeout(() => console.log(\'tool-smoke-timeout-missed\'), 1500)"',
+  cwd: root,
+  timeout: 500,
+  shell: 'powershell',
+}, root);
 if (!/^Error[\s:[]/.test(String(shellTimeoutOut)) || !/\[shell-run-failed\]/.test(String(shellTimeoutOut)) || !/\[timeout: 500ms\b/.test(String(shellTimeoutOut))) {
   throw new Error(`bash timeout must be milliseconds and classified as shell-run-failed Error:\n${shellTimeoutOut}`);
 }
@@ -1801,18 +1803,18 @@ const patchDescription = patchTool?.inputSchema?.properties?.patch?.description 
 // The JSON schema is the fallback for providers that cannot carry a custom
 // freeform tool. It exposes the patch plus an explicit base for callers whose
 // provider cannot carry the grammar's inline Root directive.
-if (!/Compact patch/i.test(patchDescription)) {
-  throw new Error('apply_patch JSON fallback must describe the compact patch string');
+if (!/V4A patch/i.test(patchDescription)) {
+  throw new Error('apply_patch JSON fallback must describe the OAI V4A patch string');
 }
 if (Object.keys(patchTool?.inputSchema?.properties || {}).join(',') !== 'patch,root'
     || JSON.stringify(patchTool?.inputSchema?.required || []) !== '["patch"]') {
   throw new Error(`apply_patch JSON fallback must expose patch and optional root: ${JSON.stringify(patchTool?.inputSchema)}`);
 }
-if (!/Optional first line R <root>/i.test(patchTool?.description || '')) {
+if (!/optional \*\*\* Root: <path>/i.test(patchTool?.description || '')) {
   throw new Error(`apply_patch must expose the inline out-of-session Root contract: ${patchTool?.description}`);
 }
-if (!/Sections: A <path>.*D <path>.*U <path>/s.test(patchTool?.description || '')
-    || !/Compact patch/i.test(patchDescription)) {
+if (!/Each section starts with exactly one:.*Add File.*Delete File.*Update File/s.test(patchTool?.description || '')
+    || !/V4A patch/i.test(patchDescription)) {
   throw new Error(`apply_patch JSON fallback must expose its multi-file/hunk shape: ${JSON.stringify(patchTool)}`);
 }
 if (/followed by a shell|post-patch verification|same response/i.test(patchTool?.description || '')) {
@@ -1821,36 +1823,23 @@ if (/followed by a shell|post-patch verification|same response/i.test(patchTool?
 if (/exact current context|roll ?back/i.test(JSON.stringify(patchTool))) {
   throw new Error(`apply_patch contract must not carry context/rollback model guidance: ${JSON.stringify(patchTool)}`);
 }
-const COMPACT_APPLY_PATCH_FREEFORM_DESCRIPTION =
-  'Compact patch: U/A/D path, optional M rename or R root, @ hunks, then space/-/+ lines.';
-if (patchTool?.freeformDescription !== COMPACT_APPLY_PATCH_FREEFORM_DESCRIPTION
+const OAI_V4A_APPLY_PATCH_FREEFORM_DESCRIPTION =
+  'OAI V4A patch: *** Begin Patch, Add/Delete/Update File sections, *** End Patch. FREEFORM input; no JSON.';
+if (patchTool?.freeformDescription !== OAI_V4A_APPLY_PATCH_FREEFORM_DESCRIPTION
     || patchTool?.freeform?.type !== 'grammar'
     || patchTool?.freeform?.syntax !== 'lark') {
   throw new Error(`apply_patch must expose freeform grammar metadata: ${JSON.stringify(patchTool)}`);
 }
 for (const requiredGrammarLine of [
-  'start: root_line? hunk+',
-  'root_line: "R " filename LF',
-  'add_hunk: "A " filename LF add_line+',
-  'change_move: "M " filename LF',
+  'start: begin_patch root_line? hunk+ end_patch',
+  'begin_patch: "*** Begin Patch" LF',
+  'add_hunk: "*** Add File: " filename LF add_line+',
+  'change_move: "*** Move to: " filename LF',
+  'end_patch: "*** End Patch" LF?',
   '%import common.LF',
 ]) {
   if (!patchTool.freeform.definition.includes(requiredGrammarLine)) {
     throw new Error(`apply_patch freeform grammar missing required line: ${requiredGrammarLine}`);
-  }
-}
-{
-  const previous = process.env.MIXDOG_COMPACT_PATCH_GRAMMAR;
-  process.env.MIXDOG_COMPACT_PATCH_GRAMMAR = '0';
-  const legacyUrl = new URL('../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs', import.meta.url);
-  legacyUrl.searchParams.set('legacy-smoke', '1');
-  const legacyPatchTool = (await import(legacyUrl.href)).PATCH_TOOL_DEFS[0];
-  if (previous === undefined) delete process.env.MIXDOG_COMPACT_PATCH_GRAMMAR;
-  else process.env.MIXDOG_COMPACT_PATCH_GRAMMAR = previous;
-  if (!/Each section starts with exactly one:.*Add File.*Delete File.*Update File/s.test(legacyPatchTool.description || '')
-      || !legacyPatchTool.freeform.definition.includes('start: begin_patch root_line? hunk+ end_patch')
-      || !legacyPatchTool.freeform.definition.includes('update_hunk: "*** Update File: " filename LF change_move? change?')) {
-    throw new Error(`legacy apply_patch rollback surface is incomplete: ${JSON.stringify(legacyPatchTool)}`);
   }
 }
 {
@@ -1874,7 +1863,7 @@ for (const requiredGrammarLine of [
   if (wirePatchTool?.type !== 'custom' || wirePatchTool?.format?.syntax !== 'lark') {
     throw new Error(`OpenAI Responses apply_patch must serialize as a custom grammar tool: ${JSON.stringify(wirePatchTool)}`);
   }
-  if (wirePatchTool.description !== COMPACT_APPLY_PATCH_FREEFORM_DESCRIPTION) {
+  if (wirePatchTool.description !== OAI_V4A_APPLY_PATCH_FREEFORM_DESCRIPTION) {
     throw new Error(`OpenAI Responses apply_patch must use freeform description: ${JSON.stringify(wirePatchTool)}`);
   }
   const customCall = body.input?.find((item) => item.type === 'custom_tool_call');

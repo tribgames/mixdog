@@ -2,10 +2,10 @@ use std::env;
 use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use memchr::memchr;
 use memchr::memrchr;
@@ -584,12 +584,39 @@ fn plan_entry(
         }
         EntryKind::Create => {
             let path = resolve_entry_path(base, &entry.new_file)?;
-            if create_target_occupied(&path) {
-                return Err(format!("create target already exists: {}", path.display()));
-            }
             let t = Instant::now();
             let bytes = build_create_bytes(&entry)?;
             let content_hash = sha256_hex(&bytes);
+            let occupied = match fs::symlink_metadata(&path) {
+                Ok(metadata) => Some(metadata),
+                Err(err) if err.kind() == io::ErrorKind::NotFound => None,
+                Err(err) => return Err(format!("stat Add File target {}: {err}", path.display())),
+            };
+            if let Some(metadata) = occupied {
+                if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+                    return Err(format!(
+                        "Add File target is not a regular file: {}",
+                        path.display()
+                    ));
+                }
+                let snapshot = snapshot_from_metadata(&metadata);
+                let source = fs::read(&path)
+                    .map_err(|e| format!("read Add File target {}: {e}", path.display()))?;
+                let elapsed_ms = t.elapsed().as_secs_f64() * 1000.0;
+                return Ok(PlannedEntry {
+                    plan: PlannedWrite {
+                        kind: EntryKind::Modify,
+                        path,
+                        original: Some(source),
+                        next: Some(bytes),
+                        snapshot: Some(snapshot),
+                        content_hash: Some(content_hash),
+                    },
+                    read_ms: elapsed_ms,
+                    apply_ms: 0.0,
+                    descriptor,
+                });
+            }
             let apply_ms = t.elapsed().as_secs_f64() * 1000.0;
             Ok(PlannedEntry {
                 plan: PlannedWrite {
@@ -2591,15 +2618,6 @@ fn source_ends_with_newline(source: &[u8]) -> bool {
     source.last() == Some(&b'\n')
 }
 
-/// Add File guard: `Path::exists()` follows symlinks, so a DANGLING symlink
-/// reads as "free" and the create would replace/follow it. `symlink_metadata`
-/// looks at the link itself, so every occupied path shape — regular file,
-/// directory, live or dangling symlink — is refused, matching the JS
-/// dispatcher's lstat-based `assertCreateTargetAbsent`.
-fn create_target_occupied(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok()
-}
-
 /// The file's own line terminator, taken from its LAST terminator so a CRLF
 /// file keeps CRLF when a separator has to be synthesised at EOF.
 fn source_trailing_eol(source: &[u8]) -> &'static str {
@@ -2694,6 +2712,29 @@ mod tests {
         };
         rollback_plan(&plan).expect("created file is removed");
         assert!(!path.exists());
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn add_file_plans_an_existing_regular_target_as_atomic_replace() {
+        let dir = temp_dir("add-overwrite");
+        let path = dir.join("f.txt");
+        fs::write(&path, b"old\n").unwrap();
+        let planned = plan_entry(
+            &fs::canonicalize(&dir).unwrap(),
+            Entry {
+                old_file: "/dev/null".to_string(),
+                new_file: "f.txt".to_string(),
+                hunks: vec![hunk(0, &["+new"])],
+            },
+            2,
+            "f.txt".to_string(),
+        )
+        .expect("existing regular Add File target should be replaceable");
+        assert_eq!(planned.plan.kind, EntryKind::Modify);
+        assert_eq!(planned.plan.original.as_deref(), Some(b"old\n".as_slice()));
+        persist_plan(&planned.plan, &fs::canonicalize(&dir).unwrap()).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"new\n");
         fs::remove_dir_all(&dir).ok();
     }
 

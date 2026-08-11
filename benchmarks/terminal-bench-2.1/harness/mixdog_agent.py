@@ -65,7 +65,8 @@ CONTAINER_CREDS_PATH = f"{CONTAINER_DATA_DIR}/anthropic-oauth-credentials.json"
 # Full-Lead-session driver, uploaded next to the creds and run with node.
 CONTAINER_LEAD_DRIVER = f"{CONTAINER_DATA_DIR}/lead_driver.mjs"
 HOST_LEAD_DRIVER = Path(__file__).with_name("lead_driver.mjs")
-FALLBACK_RETRY_EXIT_CODE = 86
+REFUSAL_FALLBACK_EXIT_CODE = 86
+TRANSPORT_RETRY_EXIT_CODE = 87
 FALLBACK_STATE_ENV = "MIXDOG_TB_FALLBACK_STATE_DIR"
 # Every trial receives the same full local src archive captured before Harbor.
 _REPO_SRC = _REPO_ROOT / "src"
@@ -348,7 +349,10 @@ class MixdogAgent(BaseInstalledAgent):
 
     def _start_anthropic_preflight(self) -> None:
         """Kick the host-side lease refresh so it overlaps container install."""
-        if self._route_profile is None or self._anthropic_preflight_task is not None:
+        if (
+            getattr(self, "_route_profile", None) is None
+            or getattr(self, "_anthropic_preflight_task", None) is not None
+        ):
             return
         if "anthropic-oauth" not in self._required_providers():
             return
@@ -695,17 +699,20 @@ class MixdogAgent(BaseInstalledAgent):
         # paid once before the driver boots. The driver run exports the same
         # NODE_COMPILE_CACHE and reuses the cache. Import only — no runtime is
         # created, no credentials are touched.
-        await self.exec_as_agent(
-            environment,
-            command=(
-                "set -u; export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; "
-                'export MIXDOG_SRC="$(npm root -g)/mixdog/src"; '
-                "timeout 120s node --input-type=module -e "
-                "'const { pathToFileURL } = await import(\"node:url\"); "
-                'await import(pathToFileURL(process.env.MIXDOG_SRC + "/mixdog-session-runtime.mjs"));\' '
-                ">/dev/null 2>&1 && echo 'v8 cache warmed' || echo 'v8 cache warmup skipped'"
-            ),
-        )
+        # Minimal unit fixtures may intentionally expose only the root runner;
+        # real Harbor agents always inherit exec_as_agent from the base class.
+        if hasattr(self, "exec_as_agent"):
+            await self.exec_as_agent(
+                environment,
+                command=(
+                    "set -u; export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; "
+                    'export MIXDOG_SRC="$(npm root -g)/mixdog/src"; '
+                    "timeout 120s node --input-type=module -e "
+                    "'const { pathToFileURL } = await import(\"node:url\"); "
+                    'await import(pathToFileURL(process.env.MIXDOG_SRC + "/mixdog-session-runtime.mjs"));\' '
+                    ">/dev/null 2>&1 && echo 'v8 cache warmed' || echo 'v8 cache warmup skipped'"
+                ),
+            )
 
     @with_prompt_template
     async def run(
@@ -751,12 +758,12 @@ class MixdogAgent(BaseInstalledAgent):
             # 120s, semantic idle fixed at 300s (silent effort-mode thinking
             # is live generation, not a wedge), and a stall that exposed
             # nothing is re-issued NON-STREAMING (waits for the full body, up
-            # to 420s below). Agent and driver watchdogs are pure backstops
+            # to Claude Code's 300s parity ceiling below). Agent and driver watchdogs are pure backstops
             # and must sit ABOVE the compound provider window
-            # (300s stream + 420s non-stream = 720s):
-            #   provider 120/300+420 < agent abort 780 < driver 840 < Harbor.
+            # (300s stream + 300s non-stream = 600s):
+            #   provider 120/300+300 < agent abort 780 < driver 840 < Harbor.
             "STALL_TIMEOUT_S": "780",
-            "MIXDOG_NONSTREAM_TOTAL_TIMEOUT_MS": "420000",
+            "MIXDOG_NONSTREAM_TOTAL_TIMEOUT_MS": "300000",
             # Wedged-socket first byte: provider aborts at 120s and retries.
             # The agent-level requesting-stage backstop must exceed the 420s
             # non-streaming wait so a slow silent body surfaces as a
@@ -806,7 +813,7 @@ class MixdogAgent(BaseInstalledAgent):
                 except Exception as exc:
                     if (
                         fallback_marker is not None
-                        and self._is_retry_exit(exc)
+                        and self._is_refusal_fallback_exit(exc)
                         and not use_fallback
                     ):
                         self._create_fallback_marker(fallback_marker)
@@ -829,9 +836,9 @@ class MixdogAgent(BaseInstalledAgent):
                 pass
 
     @staticmethod
-    def _is_retry_exit(exc: Exception) -> bool:
+    def _is_refusal_fallback_exit(exc: Exception) -> bool:
         return isinstance(exc, NonZeroAgentExitCodeError) and str(exc).startswith(
-            f"Command failed (exit {FALLBACK_RETRY_EXIT_CODE}):"
+            f"Command failed (exit {REFUSAL_FALLBACK_EXIT_CODE}):"
         )
 
     @staticmethod
@@ -865,7 +872,7 @@ class MixdogAgent(BaseInstalledAgent):
         except FileExistsError:
             return
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            stream.write("fallback\n")
+            stream.write("refusal\n")
 
     async def _populate_usage_context(self, environment, context) -> None:
         """Best-effort copy of the driver's aggregate usage into Harbor."""

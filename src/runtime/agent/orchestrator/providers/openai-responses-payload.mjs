@@ -103,10 +103,30 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
     const out = [];
     const pendingToolMedia = [];
     const customToolCallNameById = new Map();
+    const replayEncryptedReasoning = opts.replayEncryptedReasoning === true;
     const wireParity = process.env.MIXDOG_OAI_CODEX_WIRE_PARITY === '1';
     const wireMessage = (role, content) => (wireParity
         ? { type: 'message', role, content, internal_chat_message_metadata_passthrough: {} }
         : { role, content });
+    const pushReasoningItems = (message) => {
+        if (!replayEncryptedReasoning || message?.role !== 'assistant' || !Array.isArray(message.reasoningItems)) return;
+        for (const item of message.reasoningItems) {
+            // Collector shape contract: the WS/HTTP stream collectors store
+            // retained items as {id, encrypted_content, summary} WITHOUT a
+            // type tag (openai-ws-stream pushReasoningItem). Requiring
+            // type:'reasoning' here silently dropped every retained item, so
+            // replay never actually fired. Accept untagged items; only an
+            // explicit non-reasoning tag is rejected.
+            if (!item || (item.type != null && item.type !== 'reasoning')) continue;
+            if (typeof item.encrypted_content !== 'string' || !item.encrypted_content) continue;
+            out.push({
+                type: 'reasoning',
+                ...(typeof item.id === 'string' && item.id ? { id: item.id } : {}),
+                encrypted_content: item.encrypted_content,
+                summary: Array.isArray(item.summary) ? item.summary : [],
+            });
+        }
+    };
     const flushToolMedia = () => {
         if (!pendingToolMedia.length) return;
         out.push(wireMessage('user', pendingToolMedia.splice(0)));
@@ -143,13 +163,13 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
             continue;
         }
         flushToolMedia();
+        pushReasoningItems(m);
         if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length) {
-            // Reasoning replay deliberately omitted: openai-oauth rejects an
-            // `rs_*` reasoning item with the same id across the same
-            // handshake session_id (in-memory conversation state lives
-            // for the WS_IDLE_MS window even after a socket close).
-            // Server-side state already preserves the prefix; sending
-            // reasoning in `input` triggers "Duplicate item".
+            // Default path deliberately omits reasoning replay: openai-oauth
+            // rejects an `rs_*` item repeated inside the same stateful
+            // handshake session_id. The explicit replay experiment pairs this
+            // converter option with stateless HTTP headers, where the complete
+            // retained conversation is the only continuation source.
             if (m.content) out.push(wireMessage('assistant', normalizeContentForOpenAIResponses(m.content, { role: 'assistant' })));
             for (const tc of m.toolCalls) {
                 const nativeSearchCall = nativeToolSearchCallInput(tc);
@@ -236,10 +256,23 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     const systemMsgs = messages.filter(m => m.role === 'system');
     const instructions = systemMsgs.map(m => m.content).join('\n\n') || 'You are a helpful assistant.';
     const opts = sendOpts || {};
+    const promptCacheProvider = opts.promptCacheProvider || 'openai-oauth';
+    // Recovery-only encrypted-reasoning replay is DEFAULT ON for the OAuth
+    // backend (validated 2026-08-11: smoke wire parity on normal chains +
+    // live full-frame acceptance + full-run A/B). The per-socket policy in
+    // _applyReasoningReplayPolicy strips rs_* on live chains, so this only
+    // changes recovery frames. MIXDOG_OAI_DISABLE_REASONING_REPLAY=1 is the
+    // kill switch (wins over everything); explicit opts.replayEncryptedReasoning
+    // still forces either direction for probes.
+    const replayEncryptedReasoning = !_envFlag('MIXDOG_OAI_DISABLE_REASONING_REPLAY', false)
+        && (opts.replayEncryptedReasoning === true
+            || (opts.replayEncryptedReasoning !== false
+                && promptCacheProvider === 'openai-oauth'));
     const input = convertMessagesToResponsesInput(messages, {
         providerState: opts.providerState,
         model,
-        nativeToolSearchProvider: opts.promptCacheProvider || 'openai-oauth',
+        nativeToolSearchProvider: promptCacheProvider,
+        replayEncryptedReasoning,
     });
     // Match the request body shape the OAuth backend expects so the
     // server-side auto-cache routes correctly. text.verbosity / include /
@@ -273,7 +306,10 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         // WIRE-VERIFIED (40 response.create captures, 2026-07-03): the wire
         // carries reasoning as {"effort":"..."} with NO summary field on
         // gpt-5.5. Match the observed bytes.
-        reasoning: { effort: _normalizeReasoningEffort(opts.effort) },
+        reasoning: {
+            effort: _normalizeReasoningEffort(opts.effort),
+            ...(replayEncryptedReasoning ? { context: 'all_turns' } : {}),
+        },
         store: process.env.MIXDOG_OAI_STORE === 'true' ? true : false,
         stream: true,
         include,
@@ -305,7 +341,6 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     const toolsList = (functionTools.length || nativeTools.length)
         ? [...nativeTools, ...functionTools]
         : null;
-    const promptCacheProvider = opts.promptCacheProvider || 'openai-oauth';
     const promptCacheLane = opts.promptCacheLane || resolveProviderPromptCacheLane(promptCacheProvider, opts);
     const promptCacheKey = buildStableProviderPromptCacheKey(promptCacheProvider, opts, {
         model,

@@ -336,13 +336,12 @@ export async function _streamResponse({
     // Reasoning items collected from response.output_item.done (or salvaged
     // from response.completed.response.output). The request still includes
     // `reasoning.encrypted_content` so the server keeps emitting the blobs,
-    // but explicit input-side replay is INTENTIONALLY OMITTED in
-    // convertMessagesToResponsesInput (openai-oauth.mjs:233-238) — openai-oauth
-    // rejects the same `rs_*` id twice in one handshake session_id with a
-    // "Duplicate item" error. Server-side conversation state already carries
-    // the prefix forward across the WS_IDLE_MS window. The collected
-    // reasoningItems below are surfaced for trace/debugging only; they do
-    // not feed back into the next request body.
+    // but explicit input-side replay is omitted by default in
+    // convertMessagesToResponsesInput — openai-oauth rejects the same `rs_*`
+    // id twice in one stateful handshake session_id. Server-side conversation
+    // state carries the prefix across the WS_IDLE_MS window. An isolated
+    // stateless-HTTP experiment may opt into replay; the default WS path does
+    // not feed these items back into the next request body.
     const reasoningItems = [];
     let reasoningTextDeltaCount = 0;
     let reasoningSummaryTextDeltaCount = 0;

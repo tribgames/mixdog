@@ -202,6 +202,8 @@ export interface DesktopAgentWorker extends Readonly<Record<string, unknown>> {
   name?: string;
   provider?: string;
   model?: string;
+  effort?: string;
+  fast?: boolean;
   status?: string;
   stage?: string;
   startedAt?: number | string;
@@ -215,6 +217,8 @@ export interface DesktopAgentJob extends Readonly<Record<string, unknown>> {
   type?: string;
   provider?: string;
   model?: string;
+  effort?: string;
+  fast?: boolean;
   task_id?: string;
   taskId?: string;
   status?: string;
@@ -230,6 +234,8 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   agent: string | null;
   provider: string | null;
   model: string | null;
+  effort?: string | null;
+  fast?: boolean | null;
   status: string;
   stage: string;
   startedAt: number | string | null;

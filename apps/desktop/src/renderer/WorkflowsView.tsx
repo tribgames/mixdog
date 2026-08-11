@@ -16,6 +16,7 @@ import type {
   DesktopModelSelection,
 } from '../shared/contract';
 import { agentIcon } from './agent-icons';
+import { FastModeIndicator } from './FastModeToggle';
 import { t } from './i18n';
 import { filterConfiguredModels } from './ModelPicker';
 import { dismissDesktopToast, showDesktopToast } from './notifications';
@@ -49,7 +50,12 @@ function record(value: unknown): RecordValue {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
 }
 
-function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): string {
+type AgentRouteSummary = {
+  label: string;
+  fast: boolean;
+};
+
+function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): AgentRouteSummary {
   const provider = String(route.provider || '');
   const model = String(route.model || '');
   const selected = models.find((entry) => entry.provider === provider && entry.model === model);
@@ -64,8 +70,17 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): st
     : '';
   const fastCapable = selected?.fastCapable === true || typeof route.fast === 'boolean';
   const fast = typeof route.fast === 'boolean' ? route.fast : selected?.fastPreferred === true;
-  const fastLabel = fastCapable ? `Fast ${fast ? 'On' : 'Off'}` : '';
-  return [modelLabel, effortLabel, fastLabel].filter(Boolean).join(' · ');
+  return {
+    label: [modelLabel, effortLabel].filter(Boolean).join(' · '),
+    fast: fastCapable && fast,
+  };
+}
+
+function AgentRouteSummaryView({ summary }: { summary: AgentRouteSummary }) {
+  return <small className="agent-route-summary">
+    <span>{summary.label}</span>
+    {summary.fast && <FastModeIndicator />}
+  </small>;
 }
 
 // Shared services, not delegation targets: they run behind a tool (search,
@@ -537,7 +552,7 @@ export function WorkflowsPane({
       <span className="projects-row-icon"><Icon size={16} aria-hidden="true" /></span>
       <div className="schedules-row-copy" title={agent.description || agent.label}>
         <b>{agent.label}</b>
-        <small>{agentRouteSummary(route, models)}</small>
+        <AgentRouteSummaryView summary={agentRouteSummary(route, models)} />
       </div>
       <RowOverflowMenu label={`Actions for ${agent.label}`} items={[
         { id: 'edit', label: 'Edit', disabled: busy, onSelect: () => void openAgentEditor(agent.id) },
@@ -647,7 +662,8 @@ export function WorkflowsPane({
           <div className="schedules-row workflows-agent-summary-row workflows-default-agent-summary-row">
             <span className="projects-row-icon"><Globe size={16} aria-hidden="true" /></span>
             <div className="schedules-row-copy" title="Search-tool requests">
-              <b>{t('Web search')}</b><small>{agentRouteSummary(searchRoute, searchModels)}</small>
+              <b>{t('Web search')}</b>
+              <AgentRouteSummaryView summary={agentRouteSummary(searchRoute, searchModels)} />
             </div>
             <RowOverflowMenu label="Actions for Web search" items={[{
               id: 'edit',
@@ -668,7 +684,7 @@ export function WorkflowsPane({
             <span className="projects-row-icon"><Compass size={16} aria-hidden="true" /></span>
             <div className="schedules-row-copy" title={exploreAgent.description || exploreAgent.label}>
               <b>{exploreAgent.label}</b>
-              <small>{agentRouteSummary(record(exploreRow?.route), models)}</small>
+              <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models)} />
             </div>
             <RowOverflowMenu label={`Actions for ${exploreAgent.label}`} items={[{
               id: 'edit',
@@ -689,7 +705,7 @@ export function WorkflowsPane({
             <span className="projects-row-icon"><Wrench size={16} aria-hidden="true" /></span>
             <div className="schedules-row-copy" title={maintainerAgent.description || maintainerAgent.label}>
               <b>{maintainerAgent.label}</b>
-              <small>{agentRouteSummary(record(maintainerRow?.route), models)}</small>
+              <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models)} />
             </div>
             <RowOverflowMenu label={`Actions for ${maintainerAgent.label}`} items={[{
               id: 'edit',

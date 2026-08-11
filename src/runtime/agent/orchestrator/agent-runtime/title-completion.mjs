@@ -39,7 +39,13 @@ export function createTitleCompletion(deps = {}) {
             config,
         });
         if (!route || typeof route !== 'object') {
-            throw new Error('Session title maintenance route is unresolved.');
+            const error = new Error('Session title maintenance route is unresolved.');
+            // Machine-readable marker: callers (session-title controller)
+            // downgrade this to a one-shot "titling disabled" skip instead of
+            // logging a stack per session (e.g. bench profiles without a
+            // maintainer/default route).
+            error.code = 'MAINTENANCE_ROUTE_UNRESOLVED';
+            throw error;
         }
         const providerName = String(route.provider || '').trim();
         const model = String(route.model || '').trim();

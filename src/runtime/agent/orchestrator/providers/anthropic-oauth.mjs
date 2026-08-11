@@ -41,6 +41,8 @@ import {
 } from './anthropic-oauth-credentials.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
+    PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS,
+    createTimeoutSignal,
     createPassthroughSignal,
 } from '../stall-policy.mjs';
 import {
@@ -740,7 +742,11 @@ export class AnthropicOAuthProvider {
         // Test seam: injectable request factory for retry-path tests.
         const doRequestImpl = typeof opts._doRequestFn === 'function' ? opts._doRequestFn : doRequest;
 
-        const requestWithRetry = async (accessToken, requestBody = body) => withRetry(async ({ signal: attemptSignal }) => {
+        const requestWithRetry = async (
+            accessToken,
+            requestBody = body,
+            retrySignal = totalSignal,
+        ) => withRetry(async ({ signal: attemptSignal }) => {
             const result = await doRequestImpl(accessToken, attemptSignal, requestBody);
             const status = Number(result?.response?.status || 0);
             const transientStatus = classifyError({ httpStatus: status }) === 'transient';
@@ -772,7 +778,7 @@ export class AnthropicOAuthProvider {
             }
             return result;
         }, {
-            signal: totalSignal,
+            signal: retrySignal,
             maxAttempts: anthropicMaxAttempts(),
             backoffMs: ANTHROPIC_RETRY_BACKOFF_MS,
             retryJitterRatio: ANTHROPIC_RETRY_JITTER_RATIO,
@@ -816,28 +822,69 @@ export class AnthropicOAuthProvider {
         const issueNonStreamingFallback = async (controller, abortReason) => {
             try { controller?.abort?.(abortReason); } catch {}
             try { onStageChange?.('requesting', { transport: 'non-streaming-fallback' }); } catch {}
-            let fallback = await requestWithRetry(creds.accessToken, { ...body, stream: false });
-            if (fallback.response.status === 401) {
-                cleanupCancelHandler(fallback.cancelHandler);
-                try { fallback.controller?.abort?.(); } catch {}
-                creds = await this.ensureAuth({ forceRefresh: true, reason: '401' });
-                fallback = await requestWithRetry(creds.accessToken, { ...body, stream: false });
-            }
-            if (!fallback.response.ok) {
-                const text = await fallback.response.text().catch(() => '');
-                cleanupCancelHandler(fallback.cancelHandler);
-                try { fallback.controller?.abort?.(); } catch {}
-                const fallbackError = new Error(`Anthropic OAuth API ${fallback.response.status}: ${this.scrubTokens(text).slice(0, 200)}`);
-                fallbackError.status = fallback.response.status;
-                fallbackError.httpStatus = fallback.response.status;
-                throw fallbackError;
-            }
+            const timeoutMs = Number(opts._nonStreamingTimeoutMs) > 0
+                ? Number(opts._nonStreamingTimeoutMs)
+                : PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS;
+            const lifetime = createTimeoutSignal(
+                totalSignal,
+                timeoutMs,
+                'Anthropic OAuth non-streaming fallback',
+            );
+            let fallback = null;
+            let lifetimeAbortHandler = null;
+            const releaseFallback = (reason) => {
+                if (lifetimeAbortHandler) {
+                    try { lifetime.signal.removeEventListener('abort', lifetimeAbortHandler); } catch {}
+                    lifetimeAbortHandler = null;
+                }
+                cleanupCancelHandler(fallback?.cancelHandler);
+                try { fallback?.controller?.abort?.(reason); } catch {}
+                fallback = null;
+            };
+            const requestFallback = async (accessToken) => {
+                const result = await requestWithRetry(
+                    accessToken,
+                    { ...body, stream: false },
+                    lifetime.signal,
+                );
+                fallback = result;
+                lifetimeAbortHandler = () => {
+                    try { result.controller?.abort?.(lifetime.signal.reason); } catch {}
+                };
+                if (lifetime.signal.aborted) {
+                    lifetimeAbortHandler();
+                    const reason = lifetime.signal.reason;
+                    throw reason instanceof Error
+                        ? reason
+                        : new Error('Anthropic OAuth non-streaming fallback aborted');
+                }
+                lifetime.signal.addEventListener('abort', lifetimeAbortHandler, { once: true });
+                return result;
+            };
             try {
+                fallback = await requestFallback(creds.accessToken);
+                if (fallback.response.status === 401) {
+                    releaseFallback('Anthropic OAuth non-streaming fallback refreshing auth');
+                    creds = await this.ensureAuth({ forceRefresh: true, reason: '401' });
+                    fallback = await requestFallback(creds.accessToken);
+                }
+                if (!fallback.response.ok) {
+                    const text = await fallback.response.text().catch(() => '');
+                    const fallbackError = new Error(`Anthropic OAuth API ${fallback.response.status}: ${this.scrubTokens(text).slice(0, 200)}`);
+                    fallbackError.status = fallback.response.status;
+                    fallbackError.httpStatus = fallback.response.status;
+                    throw fallbackError;
+                }
                 const message = await fallback.response.json();
                 return normalizeAnthropicNonStreamingResponse(message, useModel);
+            } catch (err) {
+                if (lifetime.signal.aborted && lifetime.signal.reason instanceof Error) {
+                    throw lifetime.signal.reason;
+                }
+                throw err;
             } finally {
-                cleanupCancelHandler(fallback.cancelHandler);
-                try { fallback.controller?.abort?.('Anthropic non-streaming fallback complete'); } catch {}
+                releaseFallback('Anthropic non-streaming fallback complete');
+                lifetime.cleanup();
             }
         };
 

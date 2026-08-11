@@ -2834,12 +2834,12 @@ test('turn review keeps a compact hierarchy and fixed columns at narrow pane wid
     /\.turn-review-bar \.turn-review-status\[data-status="M"\],[\s\S]*?data-status="T"\]\s*\{\s*color:\s*var\(--mx-warning\);/s);
   assert.match(css,
     /\.turn-review-bar \.turn-review-status\[data-status="R"\]\s*\{\s*color:\s*var\(--mx-accent\);/);
-  assert.match(css, /\.turn-review-undo:hover\s*\{\s*color:\s*var\(--mx-text\);/);
+  assert.match(css, /\.turn-review-undo:hover:not\(:disabled\)\s*\{\s*color:\s*var\(--mx-text\);/);
   assert.match(css,
-    /\.turn-review-undo\s*\{[^}]*color:\s*var\(--mx-text-soft\);[^}]*background:\s*var\(--mx-alpha-light-10\);[^}]*font-weight:\s*var\(--mx-weight-medium\);/s,
+    /\.turn-review-undo\s*\{[^}]*color:\s*var\(--mx-text\);[^}]*background:\s*var\(--mx-pressed\);[^}]*box-shadow:\s*var\(--mx-button\);[^}]*font-weight:\s*var\(--mx-weight-medium\);/s,
     'enabled undo must keep a readable medium-weight label and visible button surface');
   assert.match(css,
-    /\.turn-review-undo:disabled\s*\{[^}]*color:\s*var\(--mx-text-muted\);[^}]*background:\s*var\(--mx-alpha-light-6\);[^}]*opacity:\s*1;/s,
+    /\.turn-review-undo:disabled\s*\{[^}]*color:\s*var\(--mx-text-soft\);[^}]*background:\s*var\(--mx-hover\);[^}]*box-shadow:\s*0 0 0 \.5px var\(--mx-border-muted\);[^}]*opacity:\s*1;/s,
     'disabled undo must remain readable while its quieter plate keeps it non-actionable');
   assert.match(css, /\.turn-review-revert\.danger\s*\{\s*color:\s*var\(--mx-text\);\s*\}/);
 });

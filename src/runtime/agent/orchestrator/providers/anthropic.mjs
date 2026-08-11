@@ -19,6 +19,7 @@ import { readStreamOutcome } from './lib/stream-outcome.mjs';
 import { traceAgentUsage } from '../agent-trace.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
+    PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS,
     createTimeoutSignal,
     createPassthroughSignal,
 } from '../stall-policy.mjs';
@@ -327,25 +328,37 @@ export class AnthropicProvider {
             try { streamController.abort?.(abortReason); } catch {}
             try { onStageChange?.('requesting', { transport: 'non-streaming-fallback' }); } catch {}
             const nonStreamingParams = { ...params, stream: false };
-            const message = await withRetry(
-                async ({ signal: attemptSignal }) => this.client.messages.create(nonStreamingParams, {
-                    signal: attemptSignal,
-                    ...(betaHeaders ? { headers: betaHeaders } : {}),
-                }),
-                {
-                    signal: totalSignal,
-                    maxAttempts: anthropicMaxAttempts(),
-                    backoffMs: ANTHROPIC_RETRY_BACKOFF_MS,
-                    retryJitterRatio: ANTHROPIC_RETRY_JITTER_RATIO,
-                    retryJitterMode: 'positive',
-                    perAttemptTimeoutMs: anthropicRequestTimeoutMs(),
-                    perAttemptLabel: `${this.name} Anthropic non-streaming fallback`,
-                    provider: 'anthropic',
-                    model: useModel,
-                    fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
-                },
+            const timeoutMs = Number(opts._nonStreamingTimeoutMs) > 0
+                ? Number(opts._nonStreamingTimeoutMs)
+                : PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS;
+            const lifetime = createTimeoutSignal(
+                totalSignal,
+                timeoutMs,
+                `${this.name} Anthropic non-streaming fallback`,
             );
-            return buildReturnFromParse(normalizeAnthropicNonStreamingResponse(message, useModel));
+            try {
+                const message = await withRetry(
+                    async ({ signal: attemptSignal }) => this.client.messages.create(nonStreamingParams, {
+                        signal: attemptSignal,
+                        ...(betaHeaders ? { headers: betaHeaders } : {}),
+                    }),
+                    {
+                        signal: lifetime.signal,
+                        maxAttempts: anthropicMaxAttempts(),
+                        backoffMs: ANTHROPIC_RETRY_BACKOFF_MS,
+                        retryJitterRatio: ANTHROPIC_RETRY_JITTER_RATIO,
+                        retryJitterMode: 'positive',
+                        perAttemptTimeoutMs: anthropicRequestTimeoutMs(),
+                        perAttemptLabel: `${this.name} Anthropic non-streaming fallback`,
+                        provider: 'anthropic',
+                        model: useModel,
+                        fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
+                    },
+                );
+                return buildReturnFromParse(normalizeAnthropicNonStreamingResponse(message, useModel));
+            } finally {
+                lifetime.cleanup();
+            }
         };
 
         const recoverNonStreaming = async (midState, streamingError, streamController) => {

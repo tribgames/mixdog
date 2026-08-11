@@ -33,6 +33,7 @@ import {
 } from './paths.mjs';
 import { ensureNativePatchBinaryAvailable } from './native-server.mjs';
 import { assertPathReachable } from '../builtin/fs-reachability.mjs';
+import { findBySuffixStrip, findFileByBasename } from '../builtin/path-diagnostics.mjs';
 import { resolveReadPathRedirect } from '../builtin/snapshot-store.mjs';
 import { dispatchNativePatch, dispatchJsPatchEntries } from './dispatch.mjs';
 import {
@@ -53,11 +54,29 @@ function patchPathKey(fullPath) {
   return process.platform === 'win32' ? value.toLowerCase() : value;
 }
 
-function redirectedPatchPath(requestedFullPath, readStateScope) {
+function uniqueExistingPatchTarget(basePath, requestedFullPath) {
+  // Auto-relocation is only valid for a missing target lexically inside the
+  // patch root. An explicit outside-root path must never be pulled back into
+  // the project merely because a basename happens to match.
+  const rel = pathRelative(pathResolve(basePath), pathResolve(requestedFullPath));
+  if (isAbsolute(rel) || rel.split(/[\\/]+/).some((part) => part === '..')) return null;
+  const asFile = (candidate) => {
+    if (!candidate) return null;
+    const fullPath = isAbsolute(candidate) ? pathResolve(candidate) : pathResolve(basePath, candidate);
+    try { return statSync(fullPath).isFile() ? fullPath : null; } catch { return null; }
+  };
+  const suffix = asFile(findBySuffixStrip(basePath, requestedFullPath));
+  if (suffix) return suffix;
+  const basenameHits = findFileByBasename(basePath, requestedFullPath, { limit: 2 });
+  return basenameHits.length === 1 ? asFile(basenameHits[0]) : null;
+}
+
+function redirectedPatchPath(requestedFullPath, readStateScope, basePath) {
   // A newly-created exact requested path always wins over an older redirect.
   if (!requestedFullPath || existsSync(requestedFullPath)) return requestedFullPath;
   const redirected = resolveReadPathRedirect(requestedFullPath, readStateScope);
-  return redirected && existsSync(redirected) ? redirected : requestedFullPath;
+  if (redirected && existsSync(redirected)) return redirected;
+  return uniqueExistingPatchTarget(basePath, requestedFullPath) || requestedFullPath;
 }
 
 function patchHeaderPathForResolved(basePath, fullPath) {
@@ -72,7 +91,7 @@ function rewriteV4AReadRedirects(sections, basePath, readStateScope) {
   return (sections || []).map((section) => {
     if (!section || section.kind === 'add' || !section.path) return section;
     const requested = resolveV4AEntryPath(basePath, section.path);
-    const redirected = redirectedPatchPath(requested, readStateScope);
+    const redirected = redirectedPatchPath(requested, readStateScope, basePath);
     if (patchPathKey(redirected) === patchPathKey(requested)) return section;
     return { ...section, path: patchHeaderPathForResolved(basePath, redirected) };
   });
@@ -83,7 +102,7 @@ function rewriteParsedReadRedirects(parsed, basePath, readStateScope) {
     const kind = classifyEntry(entry);
     if (kind === 'create' || !entry?.oldFileName) return entry;
     const requested = resolveEntryPath(basePath, entry.oldFileName);
-    const redirected = redirectedPatchPath(requested, readStateScope);
+    const redirected = redirectedPatchPath(requested, readStateScope, basePath);
     if (patchPathKey(redirected) === patchPathKey(requested)) return entry;
     const rewritten = {
       ...entry,
@@ -680,33 +699,6 @@ function extractInlinePatchRoot(patchText) {
   };
 }
 
-export function expandCompactPatchInput(patchText) {
-  const text = String(patchText || '').replace(/^\uFEFF/, '');
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
-  while (lines.length && lines[0] === '') lines.shift();
-  while (lines.length && lines[lines.length - 1] === '') lines.pop();
-  const wrapped = /^\*\*\* Begin Patch\b/i.test(lines[0] || '');
-  if (wrapped) {
-    lines.shift();
-    while (lines.length && lines[0] === '') lines.shift();
-    if (/^\*\*\* End Patch\b/i.test(lines[lines.length - 1] || '')) lines.pop();
-    while (lines.length && lines[lines.length - 1] === '') lines.pop();
-  }
-  const sectionIndex = /^(?:R |\*\*\* Root: )/.test(lines[0] || '') ? 1 : 0;
-  if (!/^[ADU] /.test(lines[sectionIndex] || '')) return text;
-  const mapped = lines.map((line) => {
-    if (line.startsWith('R ')) return `*** Root: ${line.slice(2)}`;
-    if (line.startsWith('A ')) return `*** Add File: ${line.slice(2)}`;
-    if (line.startsWith('D ')) return `*** Delete File: ${line.slice(2)}`;
-    if (line.startsWith('U ')) return `*** Update File: ${line.slice(2)}`;
-    if (line.startsWith('M ')) return `*** Move to: ${line.slice(2)}`;
-    if (line === '@') return '@@';
-    if (line.startsWith('@ ')) return `@@ ${line.slice(2)}`;
-    return line;
-  });
-  return ['*** Begin Patch', ...mapped, '*** End Patch', ''].join('\n');
-}
-
 function isFilesystemRootSpecifier(value, cwd) {
   const raw = String(value || '').trim();
   if (!raw) return false;
@@ -719,7 +711,7 @@ function isFilesystemRootSpecifier(value, cwd) {
 
 async function apply_patch(args, cwd, options = {}) {
   args = salvageShatteredV4APatchArgs(args);
-  let patchStr = expandCompactPatchInput(typeof args?.patch === 'string' ? args.patch : '');
+  let patchStr = typeof args?.patch === 'string' ? args.patch : '';
   patchStr = salvageV4AOpening(patchStr);
   const inlineRoot = extractInlinePatchRoot(patchStr);
   patchStr = inlineRoot.patch;
