@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.121 - 2026-08-11
+
 - Tool execution rules and shell diagnostics now distinguish conclusive path
   misses, trust verified envelopes, keep same-turn value checks, and surface
   command-not-found facts from stderr.
