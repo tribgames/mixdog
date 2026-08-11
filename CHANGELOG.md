@@ -5,6 +5,11 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Terminal-Bench H4 round analysis records successful high-effort task probes
+  and their retrieval, patch, and verification cadence.
+- Tool execution guidance now treats task facts and proven checks as durable
+  known state and keeps patch verification in the same execution turn.
+
 ## v0.9.114 - 2026-08-11
 
 - Guessed tool identities are now verified before dependent calls, with an H3
