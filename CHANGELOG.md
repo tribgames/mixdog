@@ -5,6 +5,18 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Desktop prompt submission now supports immediate Enter queueing and precise
+  Esc restoration of pending text and attachments, while transcript scrolling
+  defers virtualizer corrections during active reader motion.
+- Desktop Utilities now presents direct Studio, Terminal, and Explorer
+  launchers with localized descriptions, while the activity rail uses the
+  creative Utilities identity and refreshed usage presentation.
+- Obsolete model-facing channel actions and their provider-dispatch plumbing
+  are removed so the advertised tool catalog matches the runtime surface.
+- Tool execution guidance tightens batched evidence and same-turn verification,
+  while concurrent filesystem, graph, patch, and shell bursts gain bounded
+  threadpool, spawn-lane, and reachability-pressure handling.
+
 ## v0.9.116 - 2026-08-11
 
 - Terminal-Bench H5 round analysis adds rewarded task traces and aggregate

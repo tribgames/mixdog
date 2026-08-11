@@ -19,6 +19,13 @@ let _server = null; // { child, pending: Map, sequence }
 let _binaryPath = undefined; // undefined = unresolved, null = unavailable
 let _lastFailureAt = 0;
 
+function _setServerReferenced(server, referenced) {
+  const method = referenced ? 'ref' : 'unref';
+  try { server?.child?.[method]?.(); } catch {}
+  try { server?.child?.stdin?.[method]?.(); } catch {}
+  try { server?.child?.stdout?.[method]?.(); } catch {}
+}
+
 function _resolveBinary() {
   if (_binaryPath !== undefined) return _binaryPath;
   const explicit = String(process.env.MIXDOG_SEARCH_SERVER_BIN || '').trim();
@@ -77,7 +84,10 @@ function _ensureServer() {
   });
   child.on('error', (error) => { if (_server === server) _teardown(error); });
   child.on('exit', () => { if (_server === server) _teardown(); });
-  child.unref?.();
+  // A detached child can still pin a one-shot CLI/test through its pipe
+  // handles. Keep the resident server idle-unreferenced, then ref all handles
+  // only while a request is awaiting a response.
+  _setServerReferenced(server, false);
   _server = server;
   return server;
 }
@@ -108,6 +118,7 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
   const server = _ensureServer();
   if (!server) return null;
   const id = ++server.sequence;
+  _setServerReferenced(server, true);
   const request = {
     id,
     cwd: String(execOptions.cwd || process.cwd()),
@@ -118,17 +129,37 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
       : 0,
   };
   const response = await new Promise((resolve) => {
+    let settled = false;
+    let onAbort = null;
+    const cancelServerWork = () => {
+      try { server.child.stdin.write(`${JSON.stringify({ cancel: id })}\n`); } catch {}
+    };
+    const settle = (value, cancel = false) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (onAbort) {
+        try { execOptions.signal?.removeEventListener?.('abort', onAbort); } catch {}
+        onAbort = null;
+      }
+      if (cancel) cancelServerWork();
+      resolve(value);
+      if (server.pending.size === 0) _setServerReferenced(server, false);
+    };
     const timer = setTimeout(() => {
       server.pending.delete(id);
-      resolve(null);
+      settle(null, true);
     }, REQUEST_TIMEOUT_MS);
     timer.unref?.();
-    const settle = (value) => { clearTimeout(timer); resolve(value); };
     server.pending.set(id, { resolve: settle, reject: () => settle(null) });
-    const onAbort = () => {
+    onAbort = () => {
       server.pending.delete(id);
-      settle(null);
+      settle(null, true);
     };
+    if (execOptions.signal?.aborted) {
+      onAbort();
+      return;
+    }
     execOptions.signal?.addEventListener?.('abort', onAbort, { once: true });
     try {
       server.child.stdin.write(`${JSON.stringify(request)}\n`);

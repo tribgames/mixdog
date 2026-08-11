@@ -6,7 +6,11 @@ import { act } from "react";
 import { JSDOM } from "jsdom";
 
 import { QueueList } from "./composer-support.tsx";
-import { shouldRestoreInterruptedPrompt } from "./renderer-logic.mjs";
+import {
+  shouldBlockPromptSubmit,
+  shouldInterruptPrompt,
+  shouldRestoreInterruptedPrompt,
+} from "./renderer-logic.mjs";
 import { classifyPromptEscape } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
 import { mergeQueuedRestoreDraft } from "../../../../src/tui/components/prompt-input/restore-policy.mjs";
 
@@ -102,4 +106,32 @@ test("queued follow-up Escape behavior matches Claude Code priority and handoff"
     hasDraft: false,
     hasQueuedMessages: false,
   }), true, "an unsteered interrupt may restore its prompt");
+
+  assert.equal(shouldInterruptPrompt({
+    turnBusy: false,
+    pendingSubmissionId: "submitted-before-busy-paint",
+  }), true, "an accepted prompt interrupts before the busy snapshot paints");
+  assert.equal(shouldInterruptPrompt({
+    turnBusy: false,
+    pendingSubmissionId: "draft-submit",
+    draftMode: true,
+  }), false, "New task materialization keeps its separate submit ownership");
+});
+
+test("existing-session Enter does not wait for the previous host acknowledgement", () => {
+  assert.equal(shouldBlockPromptSubmit({
+    submitting: true,
+    draftMode: false,
+    slashCommand: false,
+  }), false);
+  assert.equal(shouldBlockPromptSubmit({
+    submitting: true,
+    draftMode: true,
+    slashCommand: false,
+  }), true);
+  assert.equal(shouldBlockPromptSubmit({
+    submitting: true,
+    draftMode: false,
+    slashCommand: true,
+  }), true);
 });

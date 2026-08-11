@@ -52,6 +52,16 @@ export function shouldRestoreInterruptedPrompt(input?: {
   hasDraft?: boolean;
   hasQueuedMessages?: boolean;
 }): boolean;
+export function shouldInterruptPrompt(input?: {
+  turnBusy?: boolean;
+  pendingSubmissionId?: string;
+  draftMode?: boolean;
+}): boolean;
+export function shouldBlockPromptSubmit(input?: {
+  submitting?: boolean;
+  draftMode?: boolean;
+  slashCommand?: boolean;
+}): boolean;
 export function mergeModelCatalog<T extends { provider?: string; model?: string }>(
   current: T[] | undefined,
   incoming: T[] | undefined,

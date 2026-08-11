@@ -667,13 +667,13 @@ export function WorkflowsPane({
               <b>{t('Web search')}</b>
               <AgentRouteSummaryView summary={agentRouteSummary(searchRoute, searchModels)} />
             </div>
-            <RowOverflowMenu label="Actions for Web search" items={[{
+            <RowOverflowMenu label={t('Actions for Web search')} items={[{
               id: 'edit',
               label: 'Edit',
               disabled: busy,
               onSelect: () => setRouteEditor({
                 id: 'web-search',
-                label: 'Web search',
+                label: t('Web search'),
                 route: searchRoute,
                 capability: 'setSearchRoute',
                 modelKind: 'search',

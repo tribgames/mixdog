@@ -117,7 +117,7 @@ const BOOLEAN_SECOND_CAPABILITIES = new Set<DesktopCapability>([
 const SUBMIT_OPTION_KEYS = new Set([
   'id', 'submittedAt', 'displayText', 'priority', 'pastedImages', 'pastedTexts',
 ]);
-const ABORT_OPTION_KEYS = new Set(['restorePrompt']);
+const ABORT_OPTION_KEYS = new Set(['restorePrompt', 'submissionId']);
 const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId', 'remote']);
 const CAPABILITY_REQUEST_KEYS = new Set(['capability', 'args', 'sessionId']);
 const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast']);
@@ -371,6 +371,9 @@ export function requiredAbortOptions(value: unknown): DesktopAbortOptions {
   requireAllowedKeys(input, ABORT_OPTION_KEYS, 'abort options');
   if (input.restorePrompt !== undefined && typeof input.restorePrompt !== 'boolean') {
     throw new TypeError('abort restorePrompt is invalid.');
+  }
+  if (input.submissionId !== undefined) {
+    requiredString(input.submissionId, 'abort submission id', 1_024);
   }
   return value as DesktopAbortOptions;
 }

@@ -14,6 +14,8 @@ import { ModelSelector } from "./model-controls";
 import { MxIcon } from "./MxIcon";
 import { ProgressSpinner } from "./ProgressSpinner";
 import {
+  shouldBlockPromptSubmit,
+  shouldInterruptPrompt,
   shouldNavigatePromptHistory,
   shouldRestoreInterruptedPrompt,
 } from "./renderer-logic.mjs";
@@ -85,6 +87,7 @@ export const Composer = memo(function Composer({
   onFastPreferenceApplied,
   queued,
   hiddenQueueIds,
+  pendingSubmissionIds,
   onQueuedRestored,
   userMessages,
   submit,
@@ -121,6 +124,7 @@ export const Composer = memo(function Composer({
   onFastPreferenceApplied?: (selection: DesktopModelSelection) => void;
   queued?: unknown[];
   hiddenQueueIds?: Array<string | number>;
+  pendingSubmissionIds?: Array<string | number>;
   onQueuedRestored?: (ids: string[]) => void;
   /** Rewindable user prompts (oldest → newest) for the Esc-Esc selector. */
   userMessages?: Array<{ id: string; text: string }>;
@@ -212,6 +216,9 @@ export const Composer = memo(function Composer({
   const restoredQueueProjectionRef = useRef('');
   const hasRestorableQueuedMessages = () => Boolean(queuedProjectionKey)
     && restoredQueueProjectionRef.current !== queuedProjectionKey;
+  const pendingSubmissionId = !draftMode && Array.isArray(pendingSubmissionIds)
+    ? String(pendingSubmissionIds[pendingSubmissionIds.length - 1] || '').trim()
+    : '';
   const slashPalette = useRef<HTMLDivElement>(null);
   const messagePalette = useRef<HTMLDivElement>(null);
   const mentionPalette = useRef<HTMLDivElement>(null);
@@ -1226,9 +1233,16 @@ export const Composer = memo(function Composer({
     // draft, so an attachment-only send legitimately has empty text.
     const chipOnlyAttachments = submittedAttachments
       .some((attachment) => !attachment.token || attachment.chipOnly === true);
-    if ((!text && !chipOnlyAttachments) || submittingRef.current || transitioningRef.current) return;
-    submittingRef.current = true;
-    setSubmitting(true);
+    const serializedSubmit = Boolean(draftMode || text.startsWith('/'));
+    if ((!text && !chipOnlyAttachments) || transitioningRef.current || shouldBlockPromptSubmit({
+      submitting: submittingRef.current,
+      draftMode,
+      slashCommand: text.startsWith('/'),
+    })) return;
+    if (serializedSubmit) {
+      submittingRef.current = true;
+      setSubmitting(true);
+    }
     try {
       setComposerNotice('');
       if (text.startsWith('/')) {
@@ -1354,8 +1368,10 @@ export const Composer = memo(function Composer({
         rememberPrompt(expandedText, committedAttachments);
       } else restoreSubmitted();
     } finally {
-      submittingRef.current = false;
-      setSubmitting(false);
+      if (serializedSubmit) {
+        submittingRef.current = false;
+        setSubmitting(false);
+      }
     }
   };
   const onSubmit = (event: FormEvent) => { event.preventDefault(); void send(); };
@@ -1551,7 +1567,11 @@ export const Composer = memo(function Composer({
         return;
       }
       const escape = classifyPromptEscape({
-        interruptActive: turnBusy,
+        interruptActive: shouldInterruptPrompt({
+          turnBusy,
+          pendingSubmissionId,
+          draftMode,
+        }),
         hasQueuedMessages: hasRestorableQueuedMessages(),
         hasMessages: selectableMessages.length > 0,
         value: draft || (attachments.length ? 'attachment' : ''),
@@ -1560,7 +1580,7 @@ export const Composer = memo(function Composer({
       escapeClearAtRef.current = escape.nextClearPressAt;
       if (escape.action === 'interrupt') {
         event.preventDefault();
-        void stop(Boolean(draft || attachments.length));
+        void stop(Boolean(draft || attachments.length), pendingSubmissionId);
       } else if (escape.action === 'restore-queue') {
         event.preventDefault();
         void restoreQueue();
@@ -1652,16 +1672,27 @@ export const Composer = memo(function Composer({
       }
     }
   };
-  const stop = async (preserveDraft = false) => {
-    const restorePrompt = shouldRestoreInterruptedPrompt({
-      hasDraft: preserveDraft,
-      // Use the raw editable queue projection, not the post-restore latch.
-      // A just-submitted optimistic follow-up may not have reached the daemon
-      // yet, but it still owns the next turn after this interrupt.
-      hasQueuedMessages: Boolean(queuedProjectionKey),
-    });
-    const result = asRecord(await abort({ restorePrompt }));
-    if (result?.restoreText && restorePrompt) {
+  const stop = async (preserveDraft = false, submissionId = '') => {
+    const restorePrompt = submissionId
+      ? !preserveDraft
+      : shouldRestoreInterruptedPrompt({
+        hasDraft: preserveDraft,
+        // Use the raw editable queue projection, not the post-restore latch.
+        // A just-submitted optimistic follow-up may not have reached the daemon
+        // yet, but it still owns the next turn after this interrupt.
+        hasQueuedMessages: Boolean(queuedProjectionKey),
+      });
+    const result = asRecord(await abort({
+      restorePrompt,
+      ...(submissionId ? { submissionId } : {}),
+    }));
+    if (submissionId && (result?.aborted === true || result?.restoreText)) {
+      const restoredIds = Array.isArray(result.restoredSubmissionIds)
+        ? result.restoredSubmissionIds.map(String).filter(Boolean)
+        : [submissionId];
+      onQueuedRestored?.(restoredIds.length ? restoredIds : [submissionId]);
+    }
+    if (result?.restoreText) {
       const restoredText = String(result.restoreText);
       const restored = restoredAttachments(result, restoredText);
       const acceptedText = mergeRestoredAttachments(restored.attachments, restored.text);
@@ -1873,7 +1904,7 @@ export const Composer = memo(function Composer({
           onClick={turnBusy && !draft.trim() ? () => void stop() : undefined}
           disabled={turnBusy && !draft.trim() ? false
             : (!draft.trim() && !attachments.some((attachment) => !attachment.token || attachment.chipOnly === true))
-              || submitting || transitioning}
+              || (submitting && Boolean(draftMode)) || transitioning}
           aria-label={turnBusy && !draft.trim() ? t("Stop generation")
             : submitting ? (hasConversation ? t("Sending message") : t("Starting session"))
               : turnBusy ? t("Queue or steer active turn")

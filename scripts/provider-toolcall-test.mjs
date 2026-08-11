@@ -795,7 +795,7 @@ test('openai-oauth request allows one mixed custom-patch/function-shell batch', 
     assert.equal(body.parallel_tool_calls, true);
     assert.equal(patch.type, 'custom');
     assert.equal(shell.type, 'function');
-    assert.match(shell.description, /^Run a shell command\. Sync inline by default/);
+    assert.match(shell.description, /^Run a shell command; async returns task_id/);
     assert.doesNotMatch(shell.description, /apply_patch|verification|PowerShell:/i);
 });
 

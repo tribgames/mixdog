@@ -118,6 +118,25 @@ export function shouldRestoreInterruptedPrompt({
   return !hasDraft && !hasQueuedMessages;
 }
 
+export function shouldInterruptPrompt({
+  turnBusy = false,
+  pendingSubmissionId = '',
+  draftMode = false,
+} = {}) {
+  return Boolean(turnBusy || (!draftMode && String(pendingSubmissionId || '').trim()));
+}
+
+export function shouldBlockPromptSubmit({
+  submitting = false,
+  draftMode = false,
+  slashCommand = false,
+} = {}) {
+  // An existing session accepts another prompt into the same engine queue
+  // immediately. Only draft materialization and slash commands need a single
+  // acknowledgement owner.
+  return Boolean(submitting && (draftMode || slashCommand));
+}
+
 export function mergeModelCatalog(current, incoming) {
   const models = new Map();
   for (const option of [...(Array.isArray(current) ? current : []), ...(Array.isArray(incoming) ? incoming : [])]) {

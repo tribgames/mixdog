@@ -24,6 +24,11 @@ const AGENT_ROLE_IDS = new Set(FIXED_AGENT_SLOTS.map((agent) => agent.id));
 const BUILTIN_SLOT_AGENT_IDS = new Set(
   FIXED_AGENT_SLOTS.filter((agent) => agent.workflowSlot).map((agent) => agent.id),
 );
+const STARTER_AGENT_ORDER = new Map([
+  ['worker', 0],
+  ['heavy-worker', 1],
+  ['reviewer', 2],
+]);
 export const DEFAULT_WORKFLOW_ID = 'default';
 
 const SEARCH_CAPABLE_PROVIDERS = new Set([
@@ -157,7 +162,14 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
         ids.add(id);
       }
     }
-    return [...ids].sort();
+    return [...ids].sort((left, right) => {
+      const leftRank = STARTER_AGENT_ORDER.get(left);
+      const rightRank = STARTER_AGENT_ORDER.get(right);
+      if (leftRank !== undefined || rightRank !== undefined) {
+        return (leftRank ?? Number.MAX_SAFE_INTEGER) - (rightRank ?? Number.MAX_SAFE_INTEGER);
+      }
+      return left.localeCompare(right);
+    });
   }
 
   function readWorkflowPackFromDir(dir, source = 'built-in', dirName = '') {

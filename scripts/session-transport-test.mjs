@@ -29,6 +29,7 @@ const {
 } =
   await import('../src/standalone/session-client.mjs');
 const { createProjectPicker } = await import('../src/tui/app/project-picker.mjs');
+const { createSessionApiA } = await import('../src/tui/session/session-api.mjs');
 const { createSessionOAuthFlowRegistry } =
   await import('../src/tui/session/oauth-flows.mjs');
 const {
@@ -1005,6 +1006,47 @@ test('health and registration bypass a burst of synchronous session call starts'
   });
 });
 
+test('targeted abort reclaims an actual-session submit before its busy projection', async () => {
+  const clearGate = Promise.withResolvers();
+  let enqueued = 0;
+  let state = { busy: false, commandBusy: false };
+  const api = createSessionApiA({
+    runtime: { abort: () => true },
+    nextId: () => 'generated-id',
+    flags: {},
+    pending: [],
+    listeners: new Set(),
+    getState: () => state,
+    getPublishedState: () => state,
+    set: (patch) => { state = { ...state, ...patch }; },
+    routeState: () => ({}),
+    autoClearBeforeSubmit: () => clearGate.promise,
+    enqueue: () => { enqueued += 1; return true; },
+    restoreQueued: () => ({
+      count: 0,
+      ids: [],
+      text: '',
+      pastedImages: null,
+      pastedTexts: null,
+    }),
+  });
+
+  const submitting = api.submitAsync('recover before busy', {
+    id: 'actual-session-idle-1',
+  });
+  const restored = api.abort({
+    restorePrompt: true,
+    submissionId: 'actual-session-idle-1',
+  });
+  assert.equal(restored.aborted, false);
+  assert.equal(restored.restoreText, 'recover before busy');
+  assert.deepEqual(restored.restoredSubmissionIds, ['actual-session-idle-1']);
+
+  clearGate.resolve();
+  assert.equal(await submitting, false);
+  assert.equal(enqueued, 0, 'a reclaimed intake never reaches the engine queue');
+});
+
 test('abort starts immediately while ordinary session calls remain in flight', async () => {
   let releaseWork;
   let startedWork = 0;
@@ -1028,7 +1070,7 @@ test('abort starts immediately while ordinary session calls remain in flight', a
       const started = performance.now();
       const result = await client.call('session.abort', {
         sessionId,
-        options: { restorePrompt: false },
+        options: { restorePrompt: false, submissionId: 'desktop-submit-1' },
       }, {
         callId: 'reserved-capacity-abort',
       });
@@ -1036,7 +1078,10 @@ test('abort starts immediately while ordinary session calls remain in flight', a
       assert.equal(result.aborted, true);
       assert.equal(result.restoreText, 'queued prompt');
       assert.deepEqual(result.pastedTexts, { text_1: { text: 'restored text' } });
-      assert.deepEqual(abortOptions, { restorePrompt: false });
+      assert.deepEqual(abortOptions, {
+        restorePrompt: false,
+        submissionId: 'desktop-submit-1',
+      });
       assert.equal(abortCalls, 1);
       assert.ok(elapsed < 100, `abort waited ${elapsed.toFixed(1)}ms behind ordinary calls`);
     } finally {
