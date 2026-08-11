@@ -85,6 +85,24 @@ function _ensureServer() {
 /** rg-runner seam: returns a runRgWindowedLines-shaped result, or null when
  *  the server is unavailable / the request shape is unsupported (caller then
  *  spawns rg exactly as before). */
+// Boot-time prewarm: binary resolution is async (dynamic import), so the
+// first search of a cold session otherwise races it and falls back to a
+// spawn. Long-lived hosts call this fire-and-forget to have the resident
+// server up before the first tool call. Honors the same kill switch.
+export async function warmNativeSearchServer() {
+  try {
+    if (process.env.MIXDOG_SEARCH_SERVER === '0') return false;
+    if (_resolveBinary() === null) {
+      const mod = await import('../code-graph/graph-binary.mjs');
+      const candidate = mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
+      if (candidate && existsSync(candidate)) _binaryPath = candidate;
+    }
+    return Boolean(_ensureServer());
+  } catch {
+    return false;
+  }
+}
+
 export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
   if (process.env.MIXDOG_SEARCH_SERVER === '0') return null;
   const server = _ensureServer();
