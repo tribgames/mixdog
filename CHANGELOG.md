@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.119 - 2026-08-11
+
 - Native Graph and Token reproducibility builds now run on independent runners
   in parallel, while macOS Intel DMG and ZIP uploads overlap and abandon
   stalled transfers promptly.
