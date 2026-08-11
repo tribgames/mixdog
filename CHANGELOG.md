@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.110 - 2026-08-11
+
 - Provider transports now bound Anthropic non-stream stalls, distinguish
   retryable transport failures from model refusals, preserve OpenAI reasoning
   continuity on recovery, and prewarm compatible WebSocket sessions.
