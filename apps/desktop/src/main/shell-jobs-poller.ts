@@ -1,15 +1,21 @@
 // Background shell-job strip for the status bar. The runtime has no push event
 // for job counts, so the service polls with an adaptive delay.
+import type { DesktopShellJobRow } from '../shared/contract';
 import type { StatuslineSegmentsModule } from './desktop-support';
 import { shellJobsPollDelay } from './desktop-support';
 
 export interface ShellJobsStatus {
   count: number;
   elapsedLabel: string;
+  jobs: readonly DesktopShellJobRow[];
 }
 
 /** Nothing running — shared so an unowned scope never allocates. */
-const EMPTY_STATUS: ShellJobsStatus = Object.freeze({ count: 0, elapsedLabel: '' });
+const EMPTY_STATUS: ShellJobsStatus = Object.freeze({
+  count: 0,
+  elapsedLabel: '',
+  jobs: Object.freeze([]),
+});
 
 export interface ShellJobsPollerOptions {
   /** Live engine state, or null once the engine is gone (polling stops). */
@@ -24,10 +30,33 @@ export interface ShellJobsPollerOptions {
   onChange(changedSessionIds: readonly string[]): void;
 }
 
-function normalizedStatus(value: { count?: unknown; elapsedLabel?: unknown } | null | undefined): ShellJobsStatus {
+function normalizedJobs(value: unknown): DesktopShellJobRow[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const row = entry as Record<string, unknown>;
+    const taskId = String(row.taskId || row.task_id || '').trim();
+    if (!taskId) return [];
+    return [{
+      taskId,
+      command: String(row.command || '').trim(),
+      cwd: String(row.cwd || '').trim(),
+      startedAt: typeof row.startedAt === 'number' || typeof row.startedAt === 'string'
+        ? row.startedAt
+        : null,
+    }];
+  });
+}
+
+function normalizedStatus(value: {
+  count?: unknown;
+  elapsedLabel?: unknown;
+  jobs?: unknown;
+} | null | undefined): ShellJobsStatus {
   return {
     count: Math.max(0, Number(value?.count) || 0),
     elapsedLabel: String(value?.elapsedLabel || ''),
+    jobs: normalizedJobs(value?.jobs),
   };
 }
 
@@ -37,7 +66,11 @@ function normalizedSessions(value: unknown): Map<string, ShellJobsStatus> {
   for (const [sessionId, bucket] of Object.entries(value as Record<string, unknown>)) {
     const id = String(sessionId || '').trim();
     if (!id) continue;
-    const status = normalizedStatus(bucket as { count?: unknown; elapsedLabel?: unknown });
+    const status = normalizedStatus(bucket as {
+      count?: unknown;
+      elapsedLabel?: unknown;
+      jobs?: unknown;
+    });
     if (status.count > 0) sessions.set(id, status);
   }
   return sessions;
@@ -50,7 +83,10 @@ function movedSessionIds(
   const moved: string[] = [];
   for (const [sessionId, status] of next) {
     const before = previous.get(sessionId);
-    if (!before || before.count !== status.count || before.elapsedLabel !== status.elapsedLabel) {
+    const beforeJobs = before?.jobs.map((job) => job.taskId).join('\0') || '';
+    const nextJobs = status.jobs.map((job) => job.taskId).join('\0');
+    if (!before || before.count !== status.count || before.elapsedLabel !== status.elapsedLabel
+      || beforeJobs !== nextJobs) {
       moved.push(sessionId);
     }
   }

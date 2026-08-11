@@ -1,4 +1,5 @@
 {
+  "0s": "0秒",
   "{{connected}} connected · {{failed}} failed": "{{connected}}件接続 · {{failed}}件失敗",
   "{{count}} available": "{{count}}個利用可能",
   "{{count}} changed lines exceed the 500-line render limit.": "{{count}}行の変更が500行の描画上限を超えています。",
@@ -961,6 +962,7 @@
   "Stop dictation": "音声入力を停止",
   "Stop generation": "生成を停止",
   "Stopped": "停止中",
+  "Studio": "Studio",
   "Studio navigation": "Studioナビゲーション",
   "Sublimating": "昇華する",
   "Subscription": "サブスクリプション",
@@ -1055,6 +1057,7 @@
   "utility panel": "ユーティリティパネル",
   "Utility panel": "ユーティリティパネル",
   "Utility panel tabs": "ユーティリティパネルのタブ",
+  "Utilities": "ユーティリティ",
   "Vibing": "ヴァイビング",
   "Video": "動画",
   "View as table": "表として表示",
@@ -1108,5 +1111,11 @@
   "Your changes will be lost if you don’t save them.": "保存しない場合、変更は失われます。",
   "Your name or role": "あなたの名前や役割",
   "Zesting": "ゼスティング",
-  "Zigzagging": "ジグザグ"
+  "Zigzagging": "ジグザグ",
+  "{{agentCount}} agents": "エージェント数: {{agentCount}}",
+  "Choose how Mixdog manages long-running and idle sessions.": "長時間実行されるセッションやアイドル状態のセッションを Mixdog がどのように管理するか選択します。",
+  "Interrupt and steer now": "中断して今すぐ誘導",
+  "Memory and recall tools, core-memory injection, and background memory upkeep.": "メモリと呼び出しツール、コアメモリの注入、バックグラウンドでのメモリ保守。",
+  "Steer now": "今すぐ誘導",
+  "Steer queued follow-up now: {{text}}": "キュー内のフォローアップを今すぐ誘導: {{text}}"
 }

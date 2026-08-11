@@ -90,6 +90,14 @@ import {
 } from "./boot-metrics";
 import { BottomPanel, useBottomPanelState } from "./BottomPanel";
 import { EMPTY_SNAPSHOT, hasActiveSnapshotWork, workingSessionIdsForSnapshot, type RecordValue, type Snapshot } from "./desktop-types";
+import {
+  desktopFeatureEnabled,
+  desktopSidebarDestinationEnabled,
+  desktopUtilityDockTabEnabled,
+  firstEnabledDesktopUtilityDockTab,
+  hasDesktopUtilityDockFeature,
+  resolveDesktopUtilityDockTab,
+} from "./desktop-feature-config";
 import { primeEditorFileLoad } from "./editor-file-loader";
 import {
   getEditorCommandCapabilities,
@@ -105,7 +113,6 @@ import {
   prefetchDiffView,
   prefetchEditorPane,
   prefetchFolderPane,
-  prefetchLazyWidgets,
   prefetchTerminalPane,
   TerminalPane
 } from "./lazy-widgets";
@@ -279,7 +286,8 @@ const loadSchedulesViewModule = () => import("./SchedulesView");
 const loadWebhooksViewModule = () => import("./WebhooksView");
 const loadProjectsViewModule = () => import("./ProjectsView");
 const loadWorkflowsViewModule = () => import("./WorkflowsView");
-type SidebarPanelKey = "schedules" | "webhooks" | "projects" | "workflows";
+const loadUtilitiesViewModule = () => import("./UtilitiesView");
+type SidebarPanelKey = "utilities" | "schedules" | "webhooks" | "projects" | "workflows";
 /** Bounded loader gate: when present it runs before the real chunk import, so
  *  a slow or rejected sidebar chunk can be exercised (tests/diagnostics)
  *  without stubbing the module system. Production never sets it. */
@@ -291,6 +299,7 @@ function gateSidebarPanelModule<T>(panel: SidebarPanelKey, load: () => Promise<T
   return gate ? Promise.resolve(gate(panel)).then(load) : load();
 }
 const loadSidebarPanelModule = {
+  utilities: () => gateSidebarPanelModule("utilities", loadUtilitiesViewModule),
   schedules: () => gateSidebarPanelModule("schedules", loadSchedulesViewModule),
   webhooks: () => gateSidebarPanelModule("webhooks", loadWebhooksViewModule),
   projects: () => gateSidebarPanelModule("projects", loadProjectsViewModule),
@@ -301,6 +310,8 @@ const loadSidebarPanelModule = {
 // module-level constant.
 const createSchedulesPane = () => lazy(() => loadSidebarPanelModule.schedules()
   .then((module) => ({ default: module.SchedulesPane })));
+const createUtilitiesPane = () => lazy(() => loadSidebarPanelModule.utilities()
+  .then((module) => ({ default: module.UtilitiesPane })));
 const createWebhooksPane = () => lazy(() => loadSidebarPanelModule.webhooks()
   .then((module) => ({ default: module.WebhooksPane })));
 const createProjectsPane = () => lazy(() => loadSidebarPanelModule.projects()
@@ -447,7 +458,6 @@ export function App() {
     error,
     setError,
     applySnapshot,
-    applySessionResult,
   } = useDesktopState();
   const snapshot = useDesktopSnapshotSelector(
     snapshotStore,
@@ -511,6 +521,7 @@ export function App() {
     };
   }, []);
   const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (!desktopFeatureEnabled("sessions")) return false;
     if (activeSidePanelLayout.sidebarLockedOpen) return true;
     try {
       if (responsiveSidePanels) return false;
@@ -543,14 +554,19 @@ export function App() {
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [commandSurface, setCommandSurface] = useState<CommandSurfaceName | null>(null);
   const openConversationCommandSurface = useCallback((surface: CommandSurfaceName) => {
+    if (surface === "usage" && !desktopFeatureEnabled("usage")) return;
     setSettingsOpen(false);
     setCommandSurface(surface);
   }, []);
   // Right utility dock (Cursor-style side panel): tab/width persist; the
   // General side-panel policy owns whether either edge starts open.
   const [dockOpen, setDockOpen] = useState<boolean>(() =>
-    activeSidePanelLayout.dockLockedOpen ? true : readDockState().open);
-  const [dockTab, setDockTab] = useState<UtilityDockTab>(() => readDockState().tab);
+    hasDesktopUtilityDockFeature
+      && (activeSidePanelLayout.dockLockedOpen ? true : readDockState().open));
+  const [dockTab, setDockTab] = useState<UtilityDockTab>(() =>
+    resolveDesktopUtilityDockTab(readDockState().tab)
+      ?? firstEnabledDesktopUtilityDockTab()
+      ?? "tasks");
   const [dockWidth, setDockWidth] = useState<number>(() => readDockState().width);
   const desktopDockOpen = useRef(dockOpen);
   const bottomPanel = useBottomPanelState("terminal");
@@ -598,6 +614,7 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [dockOpen]);
   const openDockTab = useCallback((tab: UtilityDockTab) => {
+    if (!desktopUtilityDockTabEnabled(tab)) return;
     setDockTab(tab);
     // Narrow shells keep ONE sheet: the last-pressed side wins (user).
     if (narrowShellRef.current && sidebarOpenIntent.current) applySidebarOpen(false);
@@ -613,8 +630,8 @@ export function App() {
     // CHANGE applies immediately; navigation applies the same exact policy.
     if (appliedSidePanelMode.current === activeSidePanelMode) return;
     appliedSidePanelMode.current = activeSidePanelMode;
-    applySidebarOpen(activeSidePanelLayout.sidebarOpen);
-    applyDockOpen(activeSidePanelLayout.dockOpen);
+    applySidebarOpen(activeSidePanelLayout.sidebarOpen && desktopFeatureEnabled("sessions"));
+    applyDockOpen(activeSidePanelLayout.dockOpen && hasDesktopUtilityDockFeature);
   }, [activeSidePanelMode]);
   // Manual toggles ALWAYS win (user: a dead open/close button reads as a
   // bug). The keep-open policy re-applies on the next navigation instead of
@@ -650,6 +667,7 @@ export function App() {
     return true;
   }, []);
   const toggleSidebar = useCallback((event?: { timeStamp?: number }) => {
+    if (!sidebarOpenIntent.current && !desktopFeatureEnabled("sessions")) return;
     if (!sidePanelToggleReady(event?.timeStamp)) return;
     const nextOpen = !sidebarOpenIntent.current;
     sidebarOpenIntent.current = nextOpen;
@@ -662,6 +680,7 @@ export function App() {
     }
   }, [applyDockOpen, applySidebarOpen, beginSidePanelClose, beginSidePanelOpen, dismissBottomPanelForSheet, sidePanelToggleReady]);
   const toggleDock = useCallback((event?: { timeStamp?: number }) => {
+    if (!dockOpenIntent.current && !hasDesktopUtilityDockFeature) return;
     if (!sidePanelToggleReady(event?.timeStamp)) return;
     const nextOpen = !dockOpenIntent.current;
     dockOpenIntent.current = nextOpen;
@@ -777,6 +796,7 @@ export function App() {
     () => new Set(),
   );
   const [sidebarPanes, setSidebarPanes] = useState(() => ({
+    utilities: createUtilitiesPane(),
     schedules: createSchedulesPane(),
     webhooks: createWebhooksPane(),
     projects: createProjectsPane(),
@@ -796,7 +816,9 @@ export function App() {
         ? { ...current, webhooks: createWebhooksPane() }
         : panel === "projects"
           ? { ...current, projects: createProjectsPane() }
-          : { ...current, workflows: createWorkflowsPane() });
+          : panel === "utilities"
+            ? { ...current, utilities: createUtilitiesPane() }
+            : { ...current, workflows: createWorkflowsPane() });
     setFailedSidebarPanels((current) => {
       if (!current.has(panel)) return current;
       const next = new Set(current);
@@ -805,46 +827,66 @@ export function App() {
     });
     trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
   }, [trackSidebarPanelModule]);
+  const [utilitiesOpen, setUtilitiesOpen] = useState(false);
+  const openUtilities = useCallback(() => {
+    if (!desktopFeatureEnabled("utilities")) return;
+    mountSidebarPanel("utilities");
+    trackSidebarPanelModule("utilities", loadSidebarPanelModule.utilities());
+    setUtilitiesOpen(true);
+    setSchedulesOpen(false);
+    setWebhooksOpen(false);
+    setProjectsOpen(false);
+    setWorkflowsOpen(false);
+    openSidebar();
+  }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
   // Scheduled-tasks panel (rail → Schedules): lives in the session-panel
   // area, so navigation leaves it alone (user decision).
   const [schedulesOpen, setSchedulesOpen] = useState(false);
   const openSchedules = useCallback(() => {
+    if (!desktopFeatureEnabled("schedules")) return;
     mountSidebarPanel("schedules");
     trackSidebarPanelModule("schedules", loadSidebarPanelModule.schedules());
     setSchedulesOpen(true);
     setWebhooksOpen(false);
     setProjectsOpen(false);
     setWorkflowsOpen(false);
+    setUtilitiesOpen(false);
     openSidebar();
   }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
   // Inbound-webhooks panel: same session-panel concept as Schedules
   // (user decision — moved out of the settings dialog).
   const [webhooksOpen, setWebhooksOpen] = useState(false);
   const openWebhooks = useCallback(() => {
+    if (!desktopFeatureEnabled("webhooks")) return;
     mountSidebarPanel("webhooks");
     trackSidebarPanelModule("webhooks", loadSidebarPanelModule.webhooks());
     setWebhooksOpen(true);
     setSchedulesOpen(false);
     setProjectsOpen(false);
     setWorkflowsOpen(false);
+    setUtilitiesOpen(false);
     openSidebar();
   }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
   const openProjects = useCallback(() => {
+    if (!desktopFeatureEnabled("projects")) return;
     mountSidebarPanel("projects");
     trackSidebarPanelModule("projects", loadSidebarPanelModule.projects());
     setProjectsOpen(true);
     setSchedulesOpen(false);
     setWebhooksOpen(false);
     setWorkflowsOpen(false);
+    setUtilitiesOpen(false);
     openSidebar();
   }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
   const openWorkflows = useCallback(() => {
+    if (!desktopFeatureEnabled("workflows")) return;
     mountSidebarPanel("workflows");
     trackSidebarPanelModule("workflows", loadSidebarPanelModule.workflows());
     setWorkflowsOpen(true);
     setSchedulesOpen(false);
     setWebhooksOpen(false);
     setProjectsOpen(false);
+    setUtilitiesOpen(false);
     openSidebar();
   }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
   // Returns the rail panel area to the Sessions list.
@@ -853,6 +895,7 @@ export function App() {
     setWebhooksOpen(false);
     setProjectsOpen(false);
     setWorkflowsOpen(false);
+    setUtilitiesOpen(false);
   }, []);
   // A collapsed drawer forgets its rail destination on EVERY close path
   // (toggle, backdrop, exclusivity, band crossing): the next open always
@@ -1011,6 +1054,19 @@ export function App() {
   const focusedPaneSelection = paneWorkspace.focusedLeaf
     ? paneActiveSelection(paneWorkspace.focusedLeaf)
     : null;
+  const focusedPaneSessionId = focusedPaneSelection?.kind === "session"
+    ? focusedPaneSelection.id
+    : "";
+  const focusedPaneSnapshot = useSessionLane(
+    focusedPaneSessionId,
+    defaultSessionLaneStore,
+  );
+  useEffect(() => {
+    if (!focusedPaneSnapshot || focusedPaneSnapshot === snapshotRef.current) return;
+    // The daemon has no active session. Renderer chrome follows the lane of
+    // the focused pane, while every pane continues painting its own lane.
+    applySnapshot(focusedPaneSnapshot as SessionSnapshot);
+  }, [applySnapshot, focusedPaneSnapshot, snapshotRef]);
   const paneLeavesRef = useRef(paneWorkspace.leaves);
   paneLeavesRef.current = paneWorkspace.leaves;
   const focusedLeafIdRef = useRef(paneWorkspace.focusedLeafId);
@@ -1377,23 +1433,10 @@ export function App() {
   // the final host response can replace that whole surface in one render.
   const [requestedSessionId, setRequestedSessionId] = useState("");
   const [markdownBodyReadyForTranscript, setMarkdownBodyReadyForTranscript] = useState(isMarkdownBodyReady);
-  // Latest session clicked while another switch was still in flight.
-  const pendingResumeTarget = useRef("");
-  const activeResumeTarget = useRef("");
   type ConversationHandoff = {
     kind: "close";
     leafId: string;
     selection: Extract<NavigationSelection, { kind: "session" | "new" }>;
-  };
-  type OptimisticSessionOpen = {
-    leafId: string;
-    previousSelection: WorkspaceSelection | null;
-    targets: Map<string, {
-      key: string;
-      leafId: string;
-      paneCreated: boolean;
-      registryCreated: boolean;
-    }>;
   };
   // Closing a conversation removes its tab model immediately. The existing
   // Conversation owner remains visible but inert until the fallback session
@@ -1401,12 +1444,7 @@ export function App() {
   const pendingConversationHandoff = useRef<ConversationHandoff | null>(null);
   const [conversationHandoff, setConversationHandoff] =
     useState<ConversationHandoff | null>(null);
-  // The focused resume already performs checkpoint recovery and returns the
-  // target's authoritative frame. Its first pane mount must not immediately
-  // start a second stored-session peek and repaint the same script rows.
-  const [resumeAuthoritativeSessionId, setResumeAuthoritativeSessionId] = useState("");
-  const optimisticSessionOpen = useRef<OptimisticSessionOpen | null>(null);
-  const resumeSessionRef = useRef<(sessionId: string, force?: boolean) => Promise<void>>(async () => {});
+  const openSessionRef = useRef<(sessionId: string, force?: boolean) => Promise<void>>(async () => {});
   // Monotonic navigation stamp: an async switch completion may only activate
   // its target while no NEWER navigation happened in flight (user: + during a
   // settling session switch resurrected the old transcript in the new draft).
@@ -1453,7 +1491,6 @@ export function App() {
   }, [startupSettled]);
   // Per-session snapshot cache (bounded LRU) lives in app-session-snapshots.ts.
   const {
-    rememberSessionSnapshot,
     cachedSessionSnapshot,
     forgetSessionSnapshot,
   } = useSessionSnapshotCache(snapshotStore);
@@ -1514,9 +1551,11 @@ export function App() {
     console.info(`[perf] desktop startup first commit: ${duration?.toFixed(1) ?? "?"}ms`);
   }, []);
   const warmSettingsView = useCallback(() => {
+    if (!desktopFeatureEnabled("settings")) return;
     void loadSettingsViewModule().catch(() => {});
   }, []);
   useEffect(() => {
+    if (!desktopFeatureEnabled("settings")) return undefined;
     // Stage 1 warms the settings chunk on idle. Stage 2 (separate idle slot,
     // 1.5s quiet window): hydrate the
     // capability/git/connection caches after the chunk exists, so the first
@@ -1662,20 +1701,9 @@ export function App() {
     try {
       window.mixdogDesktop?.perfLog?.(
         `selection-commit kind=${nextSelection.kind}`
-        + ` target=${nextSelection.kind === "session" ? nextSelection.id : "(none)"}`
-        + ` queued=${pendingResumeTarget.current || "(none)"}`,
+        + ` target=${nextSelection.kind === "session" ? nextSelection.id : "(none)"}`,
       );
     } catch { /* diagnostics only */ }
-    // A queued session switch outlives the click that made it: it is armed
-    // while another resume owns the host transition and fires afterwards.
-    // Any OTHER committed navigation (tab click, draft promotion, delete
-    // fallback, startup restore) must disarm it, or that stale target later
-    // yanks the pane onto a session the user never chose (user: 세션 변경
-    // 중 어느 순간 이상한 세션으로 강제로 바뀐다).
-    if (pendingResumeTarget.current
-      && !(nextSelection.kind === "session" && nextSelection.id === pendingResumeTarget.current)) {
-      pendingResumeTarget.current = "";
-    }
     try {
       if (nextSelection.kind === "session") {
         window.localStorage.setItem(LAST_SESSION_KEY, nextSelection.id);
@@ -1943,7 +1971,7 @@ export function App() {
       return;
     }
     if (plan.action === "resume") {
-      void resumeSessionRef.current(plan.sessionId, true).finally(settleStartup);
+      void openSessionRef.current(plan.sessionId, true).finally(settleStartup);
       return;
     }
     let storedProject = "";
@@ -1972,32 +2000,9 @@ export function App() {
     startupFocusedPaneSelection,
     startupNavigationSelection,
   ]);
-  const refreshSessionsBestEffort = useCallback((
-    selectCurrent = false,
-  ) => {
-    const refreshEpoch = navigationEpoch.current;
-    const refreshSelection = selectionRef.current;
-    void refreshSessions().then((rows) => {
-      if (!selectCurrent) return;
-      // Catalog refreshes may settle after the user has moved to another tab.
-      // They are allowed to update Recent, but only the SAME still-visible
-      // draft may be promoted into the session it just materialized.
-      const active = selectionRef.current;
-      if (navigationEpoch.current !== refreshEpoch
-        || refreshSelection.kind !== "new"
-        || active.kind !== "new"
-        || navigationKey(active) !== navigationKey(refreshSelection)) return;
-      const current = rows.find((session) => session.currentSession);
-      // A draft tab that just materialized its session PROMOTES in place
-      // (promote-in-place): the session tab replaces the draft tab at the
-      // same position instead of appending a duplicate.
-      if (current) activateSelection(
-        { kind: "session", id: current.id },
-        sessionSummaryTitle(current),
-        navigationKey(active),
-      );
-    }).catch(() => undefined);
-  }, [activateSelection, refreshSessions]);
+  const refreshSessionsBestEffort = useCallback(() => {
+    void refreshSessions().catch(() => undefined);
+  }, [refreshSessions]);
   const refreshSettledSession = useCallback(() => {
     const pending = sessionRefresh.current;
     if (!pending.accepted || !pending.sawSettlement) return;
@@ -2013,7 +2018,7 @@ export function App() {
     // immediately after turn completion waits behind that scan. Remote/legacy
     // bridges without catalog push retain the explicit fallback refresh.
     if (typeof window.mixdogDesktop?.subscribeSessions !== "function") {
-      refreshSessionsBestEffort(true);
+      refreshSessionsBestEffort();
     }
   }, [refreshSessionsBestEffort]);
   useEffect(() => {
@@ -2158,8 +2163,7 @@ export function App() {
   const deleteSession = useCallback(async (sessionId: string) => {
     const previousSession = sessions.find((session) => session.id === sessionId);
     if (!previousSession || pendingSessionDeletes.current.has(sessionId)) return;
-    const deletingCurrent = previousSession.currentSession
-      || (selection.kind === "session" && selection.id === sessionId)
+    const deletingCurrent = (selection.kind === "session" && selection.id === sessionId)
       || String(snapshot.sessionId || "") === sessionId;
     pendingSessionDeletes.current.add(sessionId);
     setError("");
@@ -2181,8 +2185,6 @@ export function App() {
       navigationEpoch.current += 1;
       activateSelection({ kind: "new" }, "New task");
       setRequestedSessionId("");
-      activeResumeTarget.current = "";
-      pendingResumeTarget.current = "";
       forgetSessionSnapshot(sessionId);
     }
     try {
@@ -2198,83 +2200,10 @@ export function App() {
     pendingConversationHandoff.current = null;
     setConversationHandoff(null);
   };
-  const stageRequestedSessionTab = (sessionId: string) => {
-    const leaf = paneWorkspace.focusedLeaf;
-    if (!leaf) return;
-    const nextSelection = { kind: "session", id: sessionId } as const;
-    const key = navigationKey(nextSelection);
-    const previousSelection = paneActiveSelection(leaf);
-    const paneCreated = !leaf.tabs.some((tab) => navigationKey(tab) === key);
-    const registryCreated = !tabs.some((tab) => tab.key === key);
-    const sequence = optimisticSessionOpen.current ?? {
-      leafId: leaf.id,
-      previousSelection,
-      targets: new Map(),
-    };
-    const existingTarget = sequence.targets.get(sessionId);
-    sequence.targets.set(sessionId, {
-      key,
-      leafId: leaf.id,
-      paneCreated: existingTarget?.paneCreated === true || paneCreated,
-      registryCreated: existingTarget?.registryCreated === true || registryCreated,
-    });
-    optimisticSessionOpen.current = sequence;
-    // Tab strip/pane ownership is renderer-local and must never wait for host
-    // resume. The target conversation identity also commits now: its own
-    // lane/cache paints immediately, while a cold target gets the opaque
-    // conversation cover instead of leaking the outgoing transcript.
-    openSelectionInFocusedPane(nextSelection);
-    const row = sessions.find((item) => item.id === sessionId);
-    const title = row ? sessionSummaryTitle(row) : "Untitled session";
-    setTabs((current) => {
-      const existing = current.findIndex((tab) => tab.key === key);
-      if (existing >= 0) {
-        if (current[existing].title === title) return current;
-        const next = [...current];
-        next[existing] = { key, title, selection: nextSelection };
-        return next;
-      }
-      return [...current, { key, title, selection: nextSelection }];
-    });
-  };
-  const rollbackRequestedSessionTab = (sessionId: string) => {
-    const sequence = optimisticSessionOpen.current;
-    optimisticSessionOpen.current = null;
-    if (!sequence) return;
-    const target = sequence.targets.get(sessionId);
-    if (target?.paneCreated) paneWorkspace.closeTab(target.leafId, target.key);
-    if (target?.registryCreated) {
-      setTabs((current) => current.filter((tab) => tab.key !== target.key));
-    }
-    const previous = sequence.previousSelection;
-    if (previous) {
-      paneWorkspace.activateTab(sequence.leafId, navigationKey(previous));
-    }
-  };
-  const drainPendingResume = (completedSessionId: string) => {
-    const pending = pendingResumeTarget.current;
-    pendingResumeTarget.current = "";
-    if (pending && pending !== completedSessionId) {
-      // The queued click may be superseded within this same tick (a draft, a
-      // tab navigation, another session). Only the navigation that is still
-      // current may be resumed.
-      const queuedEpoch = navigationEpoch.current;
-      window.setTimeout(() => {
-        if (navigationEpoch.current !== queuedEpoch) return;
-        if (pendingResumeTarget.current && pendingResumeTarget.current !== pending) return;
-        void resumeSessionRef.current(pending, true);
-      }, 0);
-    } else {
-      setRequestedSessionId("");
-    }
-  };
   const startTask = (draft?: NavigationSelection, requestComposerFocus = true) => {
     closeSidebarForNavigation();
     navigationEpoch.current += 1;
-    // A renderer-only draft must win immediately over any slow host resume.
-    pendingResumeTarget.current = "";
     setRequestedSessionId("");
-    optimisticSessionOpen.current = null;
     finishPendingConversationHandoff();
     const alreadyActive = selectionRef.current.kind === "new";
     // Clicking an existing draft tab revisits THAT draft; a plain Ctrl+N /
@@ -2298,220 +2227,22 @@ export function App() {
       ? effectiveDraftProjectPath(cached.projectPath)
       : preferredDraftProjectPath);
   };
-  const resumeSession = async (
+  const openSession = async (
     sessionId: string,
-    force = false,
-    openTabImmediately = false,
+    _force = false,
   ): Promise<void> => {
-    if (openTabImmediately) stageRequestedSessionTab(sessionId);
-    setRequestedSessionId(sessionId);
-    const inFlight = activeResumeTarget.current;
-    if (inFlight) {
-      // Last target wins while the unavoidable host transition finishes.
-      // Only the sidebar highlight moves; the current Conversation subtree
-      // remains mounted, so intermediate targets never restore scroll or ask
-      // the virtualizer to measure a transcript that will not be viewed.
-      if (sessionId === inFlight) {
-        // A→B→A means A is the true latest target. Cancel B instead of leaving
-        // it queued merely because A already owns the host transition.
-        pendingResumeTarget.current = "";
-      } else {
-        pendingResumeTarget.current = sessionId;
-        // QUEUED cold target: its own resume starts only after the in-flight
-        // transition settles, so fire the one-shot disk peek now. Its lane
-        // frame lets the transition surface swap to the TARGET's rows instead
-        // of holding the previous transcript for the whole serialized wait
-        // (user: consecutive clicks left the old script on screen). A direct
-        // resume never peeks — its authoritative answer already suppresses
-        // the redundant repaint.
-        if (!availableFrozenSeedFor(sessionId)) requestSessionPeek(sessionId);
-      }
-      return;
-    }
-    if (!force && String(snapshot.sessionId || "") === sessionId) {
-      // Even when the focused pane already shows this session, the selection
-      // COMMIT below must still run: skipping activateSelection here left the
-      // committed selection elsewhere, so the row's unread dot was never
-      // consumed (user report: clicking an unread session kept its red dot).
-      const currentSession = sessions.find((item) => item.id === sessionId);
-      applySessionResult(snapshotRef.current);
-      setResumeAuthoritativeSessionId(sessionId);
-      optimisticSessionOpen.current = null;
-      finishPendingConversationHandoff();
-      activateSelection(
-        { kind: "session", id: sessionId },
-        currentSession ? sessionSummaryTitle(currentSession) : "Untitled session",
-      );
-      setRequestedSessionId("");
-      return;
-    }
-    const epoch = ++navigationEpoch.current;
-    // Start the shared Markdown chunk before the cached target is mounted.
-    // Keep the transcript on its neutral shell until the rich renderer is
-    // ready. Painting the plain fallback first made fenced scripts change
-    // height under the virtualizer and visibly shake during session entry.
-    const markdownReady = preloadMarkdownBody()
-      .then(() => true)
-      .catch(() => false);
-    void markdownReady.finally(() => setMarkdownBodyReadyForTranscript(true));
-    // Diff/code surfaces belong to historical sessions, not the empty boot
-    // window. Warm them concurrently with resume so no 1.7MB eval lands a
-    // fixed 2.5s after first reveal.
-    prefetchLazyWidgets();
+    navigationEpoch.current += 1;
     closeSidebarForNavigation();
-    const switchStartedAt = performance.now();
+    setRequestedSessionId("");
+    if (!availableFrozenSeedFor(sessionId)) requestSessionPeek(sessionId);
     const session = sessions.find((item) => item.id === sessionId);
-    activeResumeTarget.current = sessionId;
-    const timingStart = `mixdog:session-switch:${sessionId}:start`;
-    if (import.meta.env?.DEV) performance.mark(timingStart);
-    await invoke(async () => {
-      try {
-        // Publication identity at DISPATCH: only a frame observed after this
-        // point can be this resume's answer.
-        const publicationAtDispatch = snapshotRef.current;
-        const response = await window.mixdogDesktop?.resumeSession(sessionId);
-        const resumedSessionId = String(asRecord(response)?.sessionId || "");
-        const resumedForkedFrom = String(asRecord(response)?.sessionForkedFrom || "");
-        // A fork-on-resume (live session opened as a copy) legitimately comes
-        // back under a fresh id whose sessionForkedFrom names the clicked row.
-        if (resumedSessionId && resumedSessionId !== sessionId && resumedForkedFrom !== sessionId) {
-          throw new Error("Session switch returned an unexpected session.");
-        }
-        const effectiveSessionId = resumedSessionId || sessionId;
-        // Every await is a suspension point: this resume may already be
-        // superseded by a newer target or navigation, and NOTHING
-        // response-driven (cache, snapshot, catalog, selection) may run then.
-        const stillOwnsRoute = (): boolean => navigationEpoch.current === epoch
-          && !(pendingResumeTarget.current && pendingResumeTarget.current !== effectiveSessionId);
-        // A publication for THIS target that arrived after dispatch is the
-        // host's own answer and outranks the RPC echo, which may be a
-        // complete but older frame.
-        const publishedAnswer = (): Snapshot | null => (
-          snapshotRef.current !== publicationAtDispatch
-            && String(snapshotRef.current.sessionId || "") === effectiveSessionId
-            ? snapshotRef.current
-            : null);
-        // A COMPLETE response for this target only. Older/remote bridges may
-        // answer without echoing the session id; pane routing is
-        // session-scoped, so that form is normalized here. A complete
-        // response naming a DIFFERENT session is a stale echo and is dropped.
-        const responseRecord = asRecord(response);
-        const responseSessionId = String(responseRecord?.sessionId || "");
-        const completeResponse: Snapshot | null = Array.isArray(responseRecord?.items)
-          ? responseSessionId === effectiveSessionId
-            ? response as Snapshot
-            : !responseSessionId
-              ? { ...(response as Snapshot), sessionId: effectiveSessionId }
-              : null
-          : null;
-        let next: Snapshot | null = publishedAnswer() ?? completeResponse;
-        if (!next) {
-          // Remote/older hosts may acknowledge before their state event.
-          // Normal local resumes never take this fallback.
-          const fallback = await window.mixdogDesktop?.getSnapshot();
-          if (!stillOwnsRoute()) return;
-          next = String(asRecord(fallback)?.sessionId || "") === effectiveSessionId
-            ? fallback as Snapshot
-            : publishedAnswer();
-        }
-        const resumedTitle = session
-          ? sessionSummaryTitle(session)
-          : String(asRecord(response)?.desktopSessionTitle || asRecord(next)?.desktopSessionTitle || "").trim()
-            || "Untitled session";
-        // The final atomic swap includes its renderer chunk. Keeping the old
-        // conversation mounted a little longer is preferable to revealing a
-        // spinner/plain-markdown frame and changing geometry after selection.
-        await markdownReady;
-        setMarkdownBodyReadyForTranscript(true);
-        // A superseded resume must not write ANY response-driven state — a
-        // late complete echo used to land in the per-session LRU and resurface
-        // as the cached seed for the pane that had already moved on.
-        if (stillOwnsRoute()) {
-          // One no-await block: the frame that is cached is exactly the frame
-          // that is published/re-asserted for this session.
-          const selected = publishedAnswer() ?? next;
-          if (selected) {
-            rememberSessionSnapshot(selected);
-            // Commit the target lane before releasing the visual handoff. A
-            // native desktop lane may publish after the resume RPC, so waiting
-            // for that replay exposed a cached Markdown tree and then replaced
-            // it a second time seconds later.
-            applySessionResult(selected);
-            if (String(snapshotRef.current.sessionId || "") !== effectiveSessionId) {
-              applySnapshot(selected as SessionSnapshot);
-            }
-            setResumeAuthoritativeSessionId(effectiveSessionId);
-          }
-          optimisticSessionOpen.current = null;
-          // End an immediate-close visual handoff only after the target lane
-          // and focused store are authoritative. The closed tab model is
-          // already gone, so this remains one visible commit.
-          finishPendingConversationHandoff();
-          setSessions((current) => {
-            let changed = false;
-            const updated = current.map((item) => {
-              const currentSession = item.id === effectiveSessionId;
-              if (item.currentSession === currentSession) return item;
-              changed = true;
-              return { ...item, currentSession };
-            });
-            return changed ? updated : current;
-          });
-          activateSelection(
-            { kind: "session", id: effectiveSessionId },
-            resumedTitle,
-            effectiveSessionId !== sessionId
-              ? navigationKey({ kind: "session", id: sessionId })
-              : "",
-          );
-          setRequestedSessionId("");
-          // Leaving the draft parks its renderer-only tab in the strip.
-          if (resumedSessionId && resumedSessionId !== sessionId) refreshSessionsBestEffort();
-        }
-        if (import.meta.env?.DEV) {
-          window.requestAnimationFrame(() => {
-            const timingEnd = `mixdog:session-switch:${sessionId}:painted`;
-            const timingMeasure = `mixdog:session-switch:${sessionId}`;
-            performance.mark(timingEnd);
-            performance.measure(timingMeasure, timingStart, timingEnd);
-            const duration = performance.getEntriesByName(timingMeasure).at(-1)?.duration;
-            console.info(`[perf] session switch ${sessionId}: ${duration?.toFixed(1) ?? "?"}ms`);
-          });
-        }
-      } catch (reason) {
-        if (!pendingResumeTarget.current && navigationEpoch.current === epoch) {
-          const handoffKind = pendingConversationHandoff.current?.kind;
-          const openedOptimistically = Boolean(optimisticSessionOpen.current);
-          if (openedOptimistically) rollbackRequestedSessionTab(sessionId);
-          finishPendingConversationHandoff();
-          setRequestedSessionId("");
-          if (handoffKind === "close") {
-            // The user already closed the host's still-current session. A
-            // failed fallback must never resurrect that tab during recovery;
-            // move to a safe draft whose first submit establishes a fresh
-            // route, while the original error remains visible.
-            startTask(undefined, false);
-          } else {
-            // Rollback restores renderer-local tab ownership, but the host
-            // may have cleared or replaced its session before reporting the
-            // failure. Reconcile that authoritative state as well instead of
-            // leaving a visually restored tab bound to an empty host.
-            await synchronizeActualHost();
-          }
-        }
-        throw reason;
-      } finally {
-        activeResumeTarget.current = "";
-        drainPendingResume(sessionId);
-        window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-          window.mixdogDesktop?.perfLog?.(
-            `session-switch-render id=${sessionId} paint=${(performance.now() - switchStartedAt).toFixed(0)}ms`,
-          );
-        }));
-      }
-    });
+    finishPendingConversationHandoff();
+    activateSelection(
+      { kind: "session", id: sessionId },
+      session ? sessionSummaryTitle(session) : "Untitled session",
+    );
   };
-  resumeSessionRef.current = resumeSession;
+  openSessionRef.current = openSession;
   const prefetchSession = useCallback((sessionId: string) => (
     window.mixdogDesktop?.prefetchSession?.(sessionId) ?? Promise.resolve(false)
   ), []);
@@ -2523,6 +2254,7 @@ export function App() {
       openWorkflows();
       return;
     }
+    if (!desktopFeatureEnabled("settings")) return;
     // Perf diagnostics: SettingsView's mount effect reports the request→paint
     // delta through the perf-log channel (no-op unless MIXDOG_DESKTOP_PERF=1).
     (window as unknown as Record<string, unknown>).__mixdogSettingsOpenAt = performance.now();
@@ -2569,9 +2301,7 @@ export function App() {
     persistDraftPanePrefs();
     setDraftPrefsVersion((value) => value + 1);
     navigationEpoch.current += 1;
-    pendingResumeTarget.current = "";
     setRequestedSessionId("");
-    optimisticSessionOpen.current = null;
     finishPendingConversationHandoff();
     if (ownerLeaf && ownerLeaf.id !== focusedLeafIdRef.current) {
       // Addressed replacement in a background pane: swap the tab in place
@@ -2599,9 +2329,10 @@ export function App() {
   const conversationClearToNewTask = useStableEvent(clearSessionToNewTask);
   const conversationClearProject = useStableEvent(() => stageNewTaskProject(""));
   const conversationResumeSession = useStableEvent((sessionId: string) => {
-    void resumeSession(sessionId);
+    void openSession(sessionId);
   });
   const conversationOpenProjects = useStableEvent(() => {
+    if (!desktopFeatureEnabled("projects")) return;
     openProjects();
     void refreshProjects();
   });
@@ -3243,6 +2974,7 @@ export function App() {
     mode,
     toSide = false,
   ) => {
+    if (!desktopFeatureEnabled("pullRequests")) return;
     const cleanProject = String(project || "").trim();
     if (!cleanProject || !Number.isInteger(pullRequest.number) || pullRequest.number <= 0) return;
     const instanceId = toSide
@@ -3372,7 +3104,7 @@ export function App() {
     if (tab.key === activeTabKey) return;
     if (tab.selection.kind === "new") startTask(tab.selection);
     else if (tab.selection.kind === "project") startProject(tab.selection.path);
-    else resumeSession(tab.selection.id);
+    else openSession(tab.selection.id);
   };
   /** Land the caret in the pane's typing surface after EVERY tab/pane
    *  navigation (user: 커서는 자동으로 다 잡아주되, 터미널에 들어가서도
@@ -3521,7 +3253,7 @@ export function App() {
         setConversationHandoff(handoff);
       }
       commitClose();
-      void resumeSession(fallback.selection.id);
+      void openSession(fallback.selection.id);
       return;
     }
     commitClose();
@@ -4089,14 +3821,33 @@ export function App() {
       shortcut: "Ctrl+,",
       run: () => openSettings(),
     },
-  ] : [];
+  ].filter((command) => {
+    if (command.id === "workbench.action.showExplorer"
+      || command.id === "workbench.action.findInFiles") {
+      return desktopFeatureEnabled("explorer");
+    }
+    if (command.id === "workbench.action.showSourceControl") {
+      return desktopFeatureEnabled("sourceControl");
+    }
+    if (command.id === "workbench.action.openSettings") {
+      return desktopFeatureEnabled("settings");
+    }
+    if (command.id === "workbench.action.toggleSidebar") {
+      return desktopFeatureEnabled("sessions");
+    }
+    if (command.id === "workbench.action.toggleUtilityPanel") {
+      return hasDesktopUtilityDockFeature;
+    }
+    return true;
+  }) : [];
 
   // Rail destinations (Projects/Workflows/Schedules/Webhooks) swap the
   // session panel instead of owning the main pane (user decision): the
   // workspace, tab strips, and utility dock stay mounted and interactive
   // while their editors float as popup dialogs.
-  type SidebarSurface = "sessions" | "schedules" | "webhooks" | "projects" | "workflows";
-  const requestedSidebarSurface: SidebarSurface = schedulesOpen ? "schedules"
+  type SidebarSurface = "sessions" | "utilities" | "schedules" | "webhooks" | "projects" | "workflows";
+  const requestedSidebarSurface: SidebarSurface = utilitiesOpen ? "utilities"
+    : schedulesOpen ? "schedules"
     : webhooksOpen ? "webhooks"
     : projectsOpen ? "projects"
     : workflowsOpen ? "workflows"
@@ -4202,7 +3953,9 @@ export function App() {
   const WebhooksPane = sidebarPanes.webhooks;
   const ProjectsPane = sidebarPanes.projects;
   const WorkflowsPane = sidebarPanes.workflows;
-  const sidebarPanelTitle = presentedSidebarSurface === "schedules" ? "Schedules"
+  const UtilitiesPane = sidebarPanes.utilities;
+  const sidebarPanelTitle = presentedSidebarSurface === "utilities" ? "Utilities"
+    : presentedSidebarSurface === "schedules" ? "Schedules"
     : presentedSidebarSurface === "webhooks" ? "Webhooks"
     : presentedSidebarSurface === "projects" ? "Projects"
     : presentedSidebarSurface === "workflows" ? "Workflows"
@@ -4219,7 +3972,19 @@ export function App() {
   });
   const sidebarResumeSession = useStableEvent((sessionId: string) => {
     closeSidebarForNavigation();
-    resumeSession(sessionId, false, true);
+    openSession(sessionId);
+  });
+  const utilitiesOpenStudio = useStableEvent(() => {
+    closeSidebarPanels();
+    openStudioTab();
+  });
+  const utilitiesOpenTerminal = useStableEvent(() => {
+    closeSidebarPanels();
+    openTerminalTab();
+  });
+  const utilitiesOpenExplorer = useStableEvent(() => {
+    closeSidebarPanels();
+    openFolderTab();
   });
   const projectsCreate = useStableEvent(async (path: string, name?: string) => {
     const host = window.mixdogDesktop;
@@ -4252,6 +4017,18 @@ export function App() {
     {/* One bounded boundary per destination: a rejected chunk becomes a
         compact panel-local unavailable state instead of escaping to the
         root and replacing the whole app. */}
+    {mountedSidebarPanels.has("utilities") && (
+    <SidebarPanelBoundary label="Utilities" active={activeSidebarPanel === "utilities"}
+      onFailure={() => markSidebarPanelFailed("utilities")}
+      onRetry={() => retrySidebarPanel("utilities")}>
+    <Suspense fallback={null}>
+      <UtilitiesPane active={activeSidebarPanel === "utilities"}
+        onOpenStudio={utilitiesOpenStudio}
+        onOpenTerminal={utilitiesOpenTerminal}
+        onOpenExplorer={utilitiesOpenExplorer} />
+    </Suspense>
+    </SidebarPanelBoundary>
+    )}
     {mountedSidebarPanels.has("schedules") && (
     <SidebarPanelBoundary label="Schedules" active={activeSidebarPanel === "schedules"}
       onFailure={() => markSidebarPanelFailed("schedules")}
@@ -4304,6 +4081,7 @@ export function App() {
   </>, [
     ProjectsPane,
     SchedulesPane,
+    UtilitiesPane,
     WebhooksPane,
     WorkflowsPane,
     activeSidebarPanel,
@@ -4320,6 +4098,9 @@ export function App() {
     retrySidebarPanel,
     runningAutomationNames,
     selectedProjectPath,
+    utilitiesOpenExplorer,
+    utilitiesOpenStudio,
+    utilitiesOpenTerminal,
   ]);
   /** One workspace tab strip per pane group. Titles come from the registry
    *  (renames, dirty dots) with catalog/selection fallbacks for restored
@@ -4359,7 +4140,13 @@ export function App() {
       || paneSelection.kind === "terminal"
       || paneSelection.kind === "folder"
       || paneSelection.kind === "diff" || paneSelection.kind === "pull-request") return;
-    if (paneSelection.kind === "session") resumeSession(paneSelection.id);
+    if (paneSelection.kind === "session") {
+      try { window.localStorage.setItem(LAST_SESSION_KEY, paneSelection.id); } catch {}
+      selectionRef.current = paneSelection;
+      viewedSessionRef.current = paneSelection.id;
+      unreadViewedSessionRef.current = paneSelection.id;
+      setSelection(paneSelection);
+    }
     // A draft reopens ITS draft; the plain New task pane must reuse the
     // singleton draft tab instead of minting a new one per click.
     else if (paneSelection.kind === "new") {
@@ -4417,10 +4204,6 @@ export function App() {
           paneWorkspace.focusLeaf(leaf.id);
           startTask();
         }}
-        onNewStudio={() => openStudioTab(leaf.id)}
-        onOpenFile={() => { void chooseFileTab(leaf.id); }}
-        onNewTerminal={() => openTerminalTab(leaf.id)}
-        onOpenFolder={() => openFolderTab(leaf.id)}
       />
     );
   };
@@ -4505,12 +4288,13 @@ export function App() {
                 snapshotStore={snapshotStore}
                 frozenSnapshot={null}
                 hidden={!paneSessionId && focused && hideLiveSnapshot}
-                reconcileOnMount={paneSessionId !== resumeAuthoritativeSessionId
-                  && paneSessionId !== requestedSessionId}
+                reconcileOnMount={paneSessionId !== requestedSessionId}
                 sessionScope={focused ? conversationSessionScope : undefined}
                 draftRemoteEnabled={focused && draftKey ? newTaskRemoteMode === "on" : undefined}
                 onOpen={() => setCommandSurface("context")}
-                onOpenAgents={() => openDockTab("tasks")}
+                onOpenAgents={desktopFeatureEnabled("agents")
+                  ? () => openDockTab("tasks")
+                  : undefined}
                 onRemoteChange={draftKey ? setNewTaskRemoteEnabled : setRemoteEnabled} />
             </div>
           </div>
@@ -4535,8 +4319,7 @@ export function App() {
             // A focused session pane keeps its own lane painted.
             hidden={!paneSessionId && focused && hideLiveSnapshot}
             transcriptPending={Boolean(paneSessionId) && paneTranscriptRendererPending}
-            reconcileOnMount={paneSessionId !== resumeAuthoritativeSessionId
-              && paneSessionId !== requestedSessionId}
+            reconcileOnMount={paneSessionId !== requestedSessionId}
             sessionScope={focused ? conversationSessionScope : undefined}
             invokeResult={invokeResult}
             // Session panes always submit to THEIR session; only a draft pane
@@ -4857,12 +4640,14 @@ export function App() {
       // ready before first click.
       timer = window.setTimeout(() => {
       const warmPanel = (panel: SidebarPanelKey) => {
+        if (!desktopSidebarDestinationEnabled(panel)) return Promise.resolve();
         const module = loadSidebarPanelModule[panel]();
         trackSidebarPanelModule(panel, module);
         void module.then(() => mountSidebarPanel(panel)).catch(() => {});
         return module;
       };
       void Promise.all([
+        warmPanel("utilities"),
         warmPanel("schedules"),
         warmPanel("webhooks"),
         warmPanel("projects"),
@@ -4930,6 +4715,10 @@ export function App() {
           // Rail destinations share the Sessions toggle contract: the first
           // click opens that list, while re-selecting it collapses the whole
           // sidebar and resets the next expansion to Sessions.
+          onOpenUtilities={openUtilities}
+          onPrefetchUtilities={() => {
+            trackSidebarPanelModule("utilities", loadSidebarPanelModule.utilities());
+          }}
           onOpenProjects={() => {
             openProjects();
             void refreshProjects();
@@ -5030,7 +4819,7 @@ export function App() {
               onClearToNewTask={conversationClearToNewTask}
               onClearProject={conversationClearProject}
               onResumeSession={conversationResumeSession}
-              onOpenSessions={openSidebar}
+              onOpenSessions={desktopFeatureEnabled("sessions") ? openSidebar : () => {}}
               onOpenProjects={conversationOpenProjects}
               onOpenSettings={openSettings}
               projects={projects}
@@ -5143,13 +4932,14 @@ export function App() {
     {dockOpen && <SnapshotUtilityDock snapshotStore={snapshotStore}
           frozenSnapshot={null} hidden={hideLiveSnapshot}
       open={dockOpen} width={dockWidth} tab={dockTab}
-          agentSessions={sessions}
           projectPath={quickAccessProjectPath}
           workspaceFolders={workbenchWorkspace.workspace.folders as DesktopWorkspaceFolder[]}
           onSelectProject={selectToolProject}
           metricSurface="dock"
           entering={dockSettled || wasBottomSheetBand.current !== bottomSheetBand} contentReady
-          onTab={setDockTab} onResize={resizeDock}
+          onTab={(tab) => {
+            if (desktopUtilityDockTabEnabled(tab)) setDockTab(tab);
+          }} onResize={resizeDock}
           onClose={toggleDock}
           activeFileKey={activeFileKey}
           onOpenFile={dockOpenFile}

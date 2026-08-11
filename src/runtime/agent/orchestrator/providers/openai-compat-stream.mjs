@@ -841,7 +841,8 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
 // Copy the TYPED failure evidence a Responses `response.failed` / `error`
 // event carries (numeric HTTP status, provider error code/type) onto the
 // thrown error. Message text is never parsed, and nothing is synthesized when
-// the event declares no typed status.
+// the event declares no typed status. The wire-event marker routes the error
+// through the fatal-code deny-list / default-retry classification.
 function _applyTypedResponsesFailure(err, event) {
     const detail = event?.response?.error || event?.error || null;
     const typed = typedStatusFrom(detail, event);
@@ -849,6 +850,7 @@ function _applyTypedResponsesFailure(err, event) {
     const code = detail?.code ?? detail?.type ?? event?.code ?? null;
     if (code != null && code !== '') err.providerErrorCode = String(code);
     if (detail) err.providerError = detail;
+    err.providerWireError = true;
     return err;
 }
 

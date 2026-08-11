@@ -128,7 +128,7 @@ export function createEagerDispatcher({
                         }
                     }
                     await opts.beforeToolExecution?.();
-                    return { ok: true, value: await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: getNextIteration(), deferShellCwdCommit: true }) };
+                    return { ok: true, value: await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: getNextIteration() }) };
                 } catch (error) {
                     return { ok: false, error };
                 }

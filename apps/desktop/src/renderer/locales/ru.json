@@ -1,4 +1,5 @@
 {
+  "0s": "0 с",
   "{{connected}} connected · {{failed}} failed": "{{connected}} подключено · {{failed}} с ошибкой",
   "{{count}} available": "{{count}} доступно",
   "{{count}} changed lines exceed the 500-line render limit.": "{{count}} изменённых строк превышают лимит отрисовки в 500 строк.",
@@ -961,6 +962,7 @@
   "Stop dictation": "Остановить диктовку",
   "Stop generation": "Остановить генерацию",
   "Stopped": "Остановлено",
+  "Studio": "Studio",
   "Studio navigation": "Навигация Studio",
   "Sublimating": "Сублимация",
   "Subscription": "Подписка",
@@ -1055,6 +1057,7 @@
   "utility panel": "служебная панель",
   "Utility panel": "Служебная панель",
   "Utility panel tabs": "Вкладки служебной панели",
+  "Utilities": "Утилиты",
   "Vibing": "Вибрация",
   "Video": "Видео",
   "View as table": "В виде таблицы",
@@ -1108,5 +1111,11 @@
   "Your changes will be lost if you don’t save them.": "Изменения будут потеряны, если их не сохранить.",
   "Your name or role": "Ваше имя или роль",
   "Zesting": "Изюминка",
-  "Zigzagging": "Зигзагообразное движение"
+  "Zigzagging": "Зигзагообразное движение",
+  "{{agentCount}} agents": "Агенты: {{agentCount}}",
+  "Choose how Mixdog manages long-running and idle sessions.": "Выберите, как Mixdog управляет длительными и неактивными сессиями.",
+  "Interrupt and steer now": "Прервать и направить сейчас",
+  "Memory and recall tools, core-memory injection, and background memory upkeep.": "Инструменты памяти и вызова, внедрение основной памяти и фоновое обслуживание памяти.",
+  "Steer now": "Направить сейчас",
+  "Steer queued follow-up now: {{text}}": "Направить продолжение из очереди сейчас: {{text}}"
 }

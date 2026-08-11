@@ -49,9 +49,8 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
     cwd: text(row.cwd, 32_768),
     classification,
     projectPath: projectPath || null,
-    // These are live-process facts, never durable startup truth. A stale cache
-    // must not select a session or show a dead worker as still running.
-    currentSession: false,
+    // Live-process facts are never durable startup truth. A stale cache must
+    // not show a dead worker as still running.
     ...(row.archived === true ? { archived: true } : {}),
     ...(sourceType ? { sourceType } : {}),
     ...(sourceName ? { sourceName } : {}),

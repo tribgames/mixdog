@@ -9,6 +9,7 @@ import {
     classifyError,
     isContextOverflowError,
     isNonTerminalStreamClose,
+    isRetryableWireErrorEvent,
     jitterDelayMs,
 } from '../providers/retry-classifier.mjs';
 import { setTimeout as sleepMs } from 'timers/promises';
@@ -405,6 +406,10 @@ export async function sendWithRecovery(ctx) {
                             // gemini/compat EOF): classifyError calls it
                             // 'transient' only while nothing was exposed.
                             || outcome.truncatedStream === true
+                            // And for retryable wire error events
+                            // (response.failed server_error & co.): exposed
+                            // text is retracted, then the send is replayed.
+                            || isRetryableWireErrorEvent(sendErr)
                             || isNonTerminalStreamClose(sendErr))
                         && await retractExposedTextForReplay()
                     )

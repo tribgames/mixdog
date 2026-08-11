@@ -241,8 +241,16 @@ export function createSettingsApi({
     },
     setMemoryToolsEnabled(enabled) {
       const config = getConfig();
-      saveConfigAndAdopt(setMemoryToolsEnabledInConfig({ ...config }, enabled !== false));
+      const memoryEnabled = enabled !== false;
+      // General → Memory is the user-facing master: model tools, core-memory
+      // injection, and background recap cycles move together.
+      const nextConfig = setRecapEnabledInConfig(
+        setMemoryToolsEnabledInConfig({ ...config }, memoryEnabled),
+        memoryEnabled,
+      );
+      saveConfigAndAdopt(nextConfig);
       invalidatePreSessionToolSurface();
+      invalidateContextStatusCache();
       return this.getToolModuleSettings();
     },
     getChannelSettings(options = {}) {

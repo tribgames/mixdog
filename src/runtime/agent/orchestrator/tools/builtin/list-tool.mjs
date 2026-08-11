@@ -625,7 +625,7 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
             const notes = [];
             if (omittedByHeadLimit.length) {
                 notes.push(
-                    `... [head_limit ${totalHeadLimit} exhausted across query[]; `
+                    `... [limit ${totalHeadLimit} exhausted across query[]; `
                     + `retry query=${JSON.stringify(omittedByHeadLimit)}]`,
                 );
             }
@@ -704,7 +704,7 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     const capFindResult = (value) => capLineOrientedToolOutput(
         value,
         _findOutputBudgetBytes(options),
-        () => `... [find result budget reached for query=${JSON.stringify(query)}; narrow path/head_limit]`,
+        () => `... [find result budget reached for query=${JSON.stringify(query)}; narrow path/limit]`,
     );
     if (cached !== null) return capFindResult(cached);
     // Common discovery respects .gitignore even outside a Git repository.
@@ -825,7 +825,7 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     // report "(no fuzzy match …)" as if the tree were exhaustively searched.
     const noMatch = ranked.length === 0;
     const lines = noMatch ? [`(no fuzzy match for "${query}")`] : ranked.map((r) => r.item.path);
-    if (!noMatch && hasMore) lines.push(`... (top ${headLimit}; raise head_limit for more)`);
+    if (!noMatch && hasMore) lines.push(`... (top ${headLimit}; raise limit for more)`);
     if (rgTruncated) lines.push('... [warning] rg stdout truncated at 20MB cap; broad ranking incomplete (exact-name hits still merged)');
     if (rgPartial && !rgTruncated) lines.push('... [warning] rg exit 2 (partial results); broad ranking may be incomplete');
     if (!targetedProbeRan && headLimit > 0 && passOneRanked.length >= headLimit) {

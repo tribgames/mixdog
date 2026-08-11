@@ -102,6 +102,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'removePlugin',
   'renameSessionTitle',
   'resizeImage',
+  'prioritizeQueued',
   'restoreNewerTranscript',
   'restoreOlderTranscript',
   'restoreQueued',

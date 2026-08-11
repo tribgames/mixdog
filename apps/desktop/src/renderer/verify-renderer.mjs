@@ -1,5 +1,22 @@
+import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
+import {
+  desktopSlashCommandDescription,
+  resolveDesktopSlashCommand,
+} from './slash-commands.ts';
+import { SETTINGS_CATEGORIES } from './settings/settings-items.ts';
+
+const quitAlias = resolveDesktopSlashCommand('q');
+assert.equal(quitAlias?.action, 'close-task',
+  'Desktop /q must close only the active task.');
+assert.equal(desktopSlashCommandDescription(quitAlias), 'Close this task',
+  'Desktop /q must not present itself as an app quit command.');
+assert.equal(
+  SETTINGS_CATEGORIES.find((category) => category.value === 'context')?.items.includes('memory-cycles'),
+  false,
+  'Desktop settings must expose only the General memory master.',
+);
 
 await build({
   entryPoints: [fileURLToPath(new URL('./main.tsx', import.meta.url))],

@@ -37,9 +37,11 @@ import {
   normalizedProviderModels,
   type MixdogProjectsModule,
   type MixdogSessionStoreModule,
+  type StatuslineSegmentsModule,
 } from './desktop-support';
 import { DesktopProjectRegistry } from './desktop-project-registry';
 import { DesktopSessionMetadata } from './desktop-session-metadata';
+import { createShellJobsPoller } from './shell-jobs-poller';
 import { searchProjectDirectory } from './project-file-search';
 import {
   codeGraphQueryIn,
@@ -74,6 +76,7 @@ export interface SessionHostRuntime {
   }): Promise<SessionClient>;
   loadProjects(): Promise<MixdogProjectsModule>;
   loadSessionStore(): Promise<MixdogSessionStoreModule>;
+  loadStatuslineSegments(): Promise<StatuslineSegmentsModule>;
   executeCodeGraphTool(
     name: string,
     args: Record<string, unknown>,
@@ -142,9 +145,9 @@ export class SessionHost implements DesktopService {
   private readonly projects: DesktopProjectRegistry;
   private readonly sessionMetadata: DesktopSessionMetadata;
   private readonly sessionClient: SessionClient;
+  private readonly shellJobsPoller: ReturnType<typeof createShellJobsPoller>;
   private readonly taskWorkspacePath: string;
-  private activeSessionId = '';
-  private activeSnapshot: SessionSnapshot = null;
+  private shellSnapshot: SessionSnapshot = null;
   private controlSessionId = '';
   private rawSessionRows: Array<Record<string, unknown>> = [];
   private sessionCatalogLoaded = false;
@@ -159,6 +162,14 @@ export class SessionHost implements DesktopService {
     sessionClient: SessionClient,
   ) {
     this.sessionClient = sessionClient;
+    this.shellJobsPoller = createShellJobsPoller({
+      getEngineState: () => this.shellSnapshot && typeof this.shellSnapshot === 'object'
+        ? this.shellSnapshot as Record<string, unknown>
+        : null,
+      moduleUrl: () => '',
+      loadModule: runtime.loadStatuslineSegments,
+      onChange: (sessionIds) => this.publishShellJobChanges(sessionIds),
+    });
     this.taskWorkspacePath = join(options.userDataPath, 'workspace', 'unclassified');
     this.projects = new DesktopProjectRegistry({
       loadProjectsModule: runtime.loadProjects,
@@ -181,11 +192,12 @@ export class SessionHost implements DesktopService {
       },
     });
     host = new SessionHost(options, runtime, sessionClient);
+    host.shellJobsPoller.start();
     return host;
   }
 
   getSnapshot(): SessionSnapshot {
-    return this.activeSnapshot;
+    return this.shellSnapshot;
   }
 
   subscribe(listener: (snapshot: SessionSnapshot) => void): () => void {
@@ -210,28 +222,48 @@ export class SessionHost implements DesktopService {
     return () => this.sessionStateListeners.delete(listener);
   }
 
-  private publishActive(snapshot: SessionSnapshot): void {
-    this.activeSnapshot = snapshot;
+  private publishShell(snapshot: SessionSnapshot): void {
+    this.shellSnapshot = snapshot;
     for (const listener of [...this.listeners]) {
       try { listener(snapshot); } catch { /* a presentation listener owns its failure */ }
+    }
+    this.shellJobsPoller.onEngineEvent();
+  }
+
+  private snapshotWithShellJobs(sessionId: string, snapshot: SessionSnapshot): SessionSnapshot {
+    if (!snapshot || typeof snapshot !== 'object') return snapshot;
+    const shellJobs = this.shellJobsPoller.statusFor(sessionId);
+    const hostShellJobs = this.shellJobsPoller.status;
+    return {
+      ...snapshot,
+      shellJobs: { ...shellJobs, jobs: [...shellJobs.jobs] },
+      hostShellJobs: { ...hostShellJobs, jobs: [...hostShellJobs.jobs] },
+    };
+  }
+
+  private publishShellJobChanges(sessionIds: readonly string[]): void {
+    for (const sessionId of sessionIds) {
+      const projection = this.sessionProjections.get(sessionId);
+      if (projection) this.publishSession(sessionId, projection.snapshot);
     }
   }
 
   private publishSession(sessionId: string, snapshot: SessionSnapshot): void {
+    const visibleSnapshot = this.snapshotWithShellJobs(sessionId, snapshot);
     for (const listener of [...this.sessionStateListeners]) {
       try {
-        listener({ sessionId, snapshot, frameSource: 'live' });
+        listener({ sessionId, snapshot: visibleSnapshot, frameSource: 'live' });
       } catch {
         // A visual client cannot affect service execution.
       }
     }
-    if (this.activeSessionId === sessionId) this.publishActive(snapshot);
   }
 
   private publishSessionReplay(sessionId: string, snapshot: SessionSnapshot): void {
+    const visibleSnapshot = this.snapshotWithShellJobs(sessionId, snapshot);
     for (const listener of [...this.sessionStateListeners]) {
       try {
-        listener({ sessionId, snapshot, frameSource: 'replay' });
+        listener({ sessionId, snapshot: visibleSnapshot, frameSource: 'replay' });
       } catch {
         // A visual client cannot affect service execution.
       }
@@ -271,10 +303,6 @@ export class SessionHost implements DesktopService {
       this.sessionProjections.delete(sessionId);
       for (const listener of [...this.sessionStateListeners]) {
         try { listener({ sessionId, snapshot: null, frameSource: 'live' }); } catch {}
-      }
-      if (this.activeSessionId === sessionId) {
-        this.activeSessionId = '';
-        this.publishActive(null);
       }
       return;
     }
@@ -422,9 +450,8 @@ export class SessionHost implements DesktopService {
   async startProject(projectPath: string): Promise<SessionSnapshot> {
     const canonical = await this.canonicalDirectory(projectPath);
     await this.projects.enter(canonical);
-    this.activeSessionId = '';
     const snapshot = this.blankSnapshot(canonical, canonical);
-    this.publishActive(snapshot);
+    this.publishShell(snapshot);
     return snapshot;
   }
 
@@ -432,16 +459,14 @@ export class SessionHost implements DesktopService {
     const registered = await this.projects.knownPath(projectPath);
     const canonical = await this.canonicalDirectory(registered);
     await this.projects.touchSelected(registered);
-    this.activeSessionId = '';
     const snapshot = this.blankSnapshot(canonical, canonical);
-    this.publishActive(snapshot);
+    this.publishShell(snapshot);
     return snapshot;
   }
 
   async startTask(): Promise<SessionSnapshot> {
-    this.activeSessionId = '';
     const snapshot = this.blankSnapshot(await this.taskWorkspace(), null);
-    this.publishActive(snapshot);
+    this.publishShell(snapshot);
     return snapshot;
   }
 
@@ -551,7 +576,7 @@ export class SessionHost implements DesktopService {
         : [];
       this.sessionCatalogLoaded = true;
       this.ensureStoreWatcher();
-      return this.currentSessionCatalog();
+      return this.sessionCatalog();
     })();
     this.sessionCatalogPromise = pending;
     try {
@@ -585,7 +610,7 @@ export class SessionHost implements DesktopService {
     // Archive metadata does not alter daemon sessions or the process-global
     // agent pool. Re-project the resident rows instead of paying for both
     // catalogs and a full session-store identity/stat scan before replying.
-    if (this.sessionCatalogLoaded) this.publishSessionCatalog(this.currentSessionCatalog());
+    if (this.sessionCatalogLoaded) this.publishSessionCatalog(this.sessionCatalog());
     else await this.publishCatalogs();
   }
 
@@ -601,10 +626,6 @@ export class SessionHost implements DesktopService {
     this.visibleSessionIds.delete(id);
     this.sessionProjections.delete(id);
     await this.sessionMetadata.forget(id);
-    if (this.activeSessionId === id) {
-      this.activeSessionId = '';
-      this.publishActive(null);
-    }
     await this.publishCatalogs();
     return null;
   }
@@ -672,20 +693,6 @@ export class SessionHost implements DesktopService {
     return true;
   }
 
-  async resumeSession(sessionId: string): Promise<SessionSnapshot> {
-    const id = sessionIdOf(sessionId);
-    const prior = this.sessionProjections.get(id);
-    const result = await this.sessionClient.subscribe({
-      sessionId: id,
-      open: this.openHints(id),
-      baseRevision: prior?.revision ?? null,
-    }, this.callOptions());
-    this.activeSessionId = id;
-    const snapshot = this.applySessionResult(id, result);
-    this.publishActive(snapshot);
-    return snapshot;
-  }
-
   async searchProjectFiles(
     projectIdOrWorkspaceId: string,
     query: string,
@@ -693,16 +700,6 @@ export class SessionHost implements DesktopService {
   ): Promise<string[]> {
     const root = await this.projectDirectory(projectIdOrWorkspaceId);
     return searchProjectDirectory(root, query, limit);
-  }
-
-  async submit(
-    prompt: DesktopPromptContent,
-    options: DesktopSubmitOptions = {},
-  ): Promise<boolean> {
-    if (!this.activeSessionId) {
-      throw new Error('sessionId is required for submission.');
-    }
-    return this.submitToSession(this.activeSessionId, prompt, options);
   }
 
   async submitNewTask(
@@ -766,8 +763,6 @@ export class SessionHost implements DesktopService {
         ).catch(() => ({}));
         return { accepted: false, sessionId: '', snapshot: null };
       }
-      this.activeSessionId = sessionId;
-      this.publishActive(snapshot);
       if (registeredProject) await this.projects.touchSelected(registeredProject);
       await this.sessionMetadata.load();
       this.sessionMetadata.rememberGeneratedTitle(
@@ -807,11 +802,6 @@ export class SessionHost implements DesktopService {
     return result.accepted === true;
   }
 
-  async abort(options: DesktopAbortOptions = {}): Promise<unknown> {
-    if (!this.activeSessionId) return { aborted: false };
-    return this.abortSession(this.activeSessionId, options);
-  }
-
   async abortSession(sessionId: string, options: DesktopAbortOptions = {}): Promise<unknown> {
     const id = sessionIdOf(sessionId);
     const result = await this.sessionClient.abort({
@@ -822,14 +812,6 @@ export class SessionHost implements DesktopService {
     }, this.callOptions());
     this.applySessionResult(id, result);
     return { aborted: result.aborted === true };
-  }
-
-  async resolveToolApproval(
-    id: string,
-    decision: ToolApprovalDecision,
-  ): Promise<boolean> {
-    if (!this.activeSessionId) return false;
-    return this.resolveToolApprovalForSession(this.activeSessionId, id, decision);
   }
 
   async resolveToolApprovalForSession(
@@ -861,8 +843,7 @@ export class SessionHost implements DesktopService {
     selection: DesktopModelSelection,
     sessionId?: string,
   ): Promise<SessionSnapshot> {
-    const target = sessionId || this.activeSessionId;
-    if (!target) throw new Error('sessionId is required for a model route.');
+    const target = sessionId || await this.ensureControlSession();
     const { snapshot } = await this.invokeSession(target, 'setRoute', [{
       ...selection,
       applyToCurrentSession: true,
@@ -871,8 +852,7 @@ export class SessionHost implements DesktopService {
   }
 
   async setFast(enabled: boolean, sessionId?: string): Promise<SessionSnapshot> {
-    const target = sessionId || this.activeSessionId;
-    if (!target) throw new Error('sessionId is required for Fast mode.');
+    const target = sessionId || await this.ensureControlSession();
     return (await this.invokeSession(target, 'setFast', [enabled])).snapshot;
   }
 
@@ -881,7 +861,7 @@ export class SessionHost implements DesktopService {
     args: unknown[] = [],
     sessionId?: string,
   ): Promise<DesktopCapabilityResult<T>> {
-    const target = sessionId || this.activeSessionId || await this.ensureControlSession();
+    const target = sessionId || await this.ensureControlSession();
     const result = await this.invokeSession(target, capability, args);
     return {
       value: copyCapabilityValue(result.value) as T,
@@ -945,10 +925,9 @@ export class SessionHost implements DesktopService {
     }
   }
 
-  private currentSessionCatalog(): DesktopSessionSummary[] {
+  private sessionCatalog(): DesktopSessionSummary[] {
     return this.sessionMetadata.withArchiveFlags(desktopSessionSummaries(
       this.rawSessionRows,
-      this.activeSessionId,
       this.sessionMetadata.titles,
       this.sessionMetadata.names,
     ));
@@ -976,6 +955,7 @@ export class SessionHost implements DesktopService {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    this.shellJobsPoller.stop();
     if (this.storeRefreshTimer) clearTimeout(this.storeRefreshTimer);
     this.storeRefreshTimer = null;
     try { this.storeWatcher?.close(); } catch {}

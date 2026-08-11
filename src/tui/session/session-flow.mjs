@@ -571,6 +571,30 @@ export function createSessionFlow(bag) {
     };
   }
 
+  // Claude Code `now` parity: promote one visible queued prompt ahead of its
+  // siblings. The desktop follows this configure call with the normal abort
+  // lane, so interruption keeps the existing recovery/requeue guarantees.
+  function prioritizeQueued(selectedId = '') {
+    const targetId = String(selectedId || '').trim();
+    if (!targetId) return { count: 0, ids: [], priority: 'now' };
+    const index = pending.findIndex((entry) =>
+      isQueuedEntryEditable(entry)
+      && !isSlashQueuedEntry(entry)
+      && String(entry.id || '') === targetId);
+    if (index < 0) return { count: 0, ids: [], priority: 'now' };
+    const [entry] = pending.splice(index, 1);
+    entry.priority = 'now';
+    pending.unshift(entry);
+    const visible = getState().queued.map((queuedEntry) =>
+      String(queuedEntry?.id || '') === targetId
+        ? { ...queuedEntry, priority: 'now' }
+        : queuedEntry);
+    set({ queued: visible });
+    flushEmitImmediate?.();
+    void drain();
+    return { count: 1, ids: [targetId], priority: 'now' };
+  }
+
   const resetStats = () => {
     const stats = createSessionStats();
     set({ stats });
@@ -695,5 +719,5 @@ export function createSessionFlow(bag) {
     return getState().stats;
   };
 
-  return { leadSessionId, shouldMirrorSteeringEntry, commitSteeringQueueEntries, makeQueueEntry, removeQueuedEntries, requeueEntriesFront, dequeueQueueBatch, drain, enqueue, drainPendingSteering, restoreLeadSteeringFromDisk, autoClearBeforeSubmit, performSessionClear, restoreQueued, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext };
+  return { leadSessionId, shouldMirrorSteeringEntry, commitSteeringQueueEntries, makeQueueEntry, removeQueuedEntries, requeueEntriesFront, dequeueQueueBatch, drain, enqueue, drainPendingSteering, restoreLeadSteeringFromDisk, autoClearBeforeSubmit, performSessionClear, restoreQueued, prioritizeQueued, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext };
 }

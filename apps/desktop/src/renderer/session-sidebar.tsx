@@ -436,9 +436,9 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         <span className="session-panel-title">{panelActive ? t(panelTitle) : t("Sessions")}</span>
         {/* Creation belongs to Sessions rather than the Activity Rail: this
             button creates an ordinary task tab and never owns a selected
-            navigation state. + IS New Task (user decision) — Studio/File/
-            Terminal stay on the tab strip's create menu. Other panels portal
-            their own primary action into the same title-row slot. */}
+            navigation state. + IS New Task; Studio, Terminal, and Explorer
+            live in Utilities. Other panels portal their own primary action
+            into the same title-row slot. */}
         <div className="session-panel-header-actions" ref={setPanelActionSlot}>
           {!panelActive && (
             <button type="button"

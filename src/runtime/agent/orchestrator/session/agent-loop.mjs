@@ -394,7 +394,15 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     const EMPTY_NUDGE_MAX = 3;
     let _refusalRetryUsed = false;
     let _maxOutputRecoveryCount = 0;
-    const _maxOutputContentParts = [];
+    // Committed-but-unsealed text segments for the caller-facing aggregate:
+    // max-output recovery parts plus (Lead/TUI only) text-only continuation
+    // segments (provider pause_turn / terminal steering / stop hook). The
+    // terminal response returns content = parts + terminal so the UI row that
+    // accumulated every streamed segment is not overwritten down to only the
+    // last segment; historyContent keeps persistence single-copy. Reset after
+    // each executed tool batch — the UI seals its row at tool boundaries, so a
+    // pre-tool part re-prepended at terminal would duplicate a sealed row.
+    const _committedTextParts = [];
     // Count of structured provider continuation signals honored this turn
     // (endTurn === false / stopReason === 'pause_turn'). Diagnostic only; the
     // hard iteration cap remains the sole bound on how long a provider may
@@ -799,7 +807,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             const isIncompleteStop = stopReason && INCOMPLETE_STOP_REASONS.has(stopReason);
             const isOutputLimitStop = isOutputLimitStopReason(stopReason);
             if (hasContent && isOutputLimitStop) {
-                _maxOutputContentParts.push(response.content);
+                _committedTextParts.push(response.content);
                 if (_maxOutputRecoveryCount < MAX_OUTPUT_RECOVERY_LIMIT) {
                     // The partial assistant turn must be visible to the model so
                     // it can resume at the exact cutoff instead of reconstructing
@@ -818,7 +826,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 const terminalSegment = `${response.content}\n\n${MAX_OUTPUT_EXHAUSTED_NOTICE}`;
                 response = {
                     ...response,
-                    content: `${_maxOutputContentParts.slice(0, -1).join('')}${terminalSegment}`,
+                    content: `${_committedTextParts.slice(0, -1).join('')}${terminalSegment}`,
                     historyContent: terminalSegment,
                     maxOutputRecoveryAttempts: _maxOutputRecoveryCount,
                 };
@@ -864,6 +872,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 } catch { /* best-effort */ }
             } else if (continuationSignal && pushIntermediateAssistantResponse(response)) {
                 if (hasContent && !suppressMidTurnText) {
+                    _committedTextParts.push(response.content);
                     try { opts.onAssistantText?.(response.content); } catch { /* best-effort */ }
                 }
                 _providerContinuationCount += 1;
@@ -913,7 +922,11 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // Commit the terminal text first (beforeAppend), then resume.
             if (!_capFinalToolsDisabled && drainSteeringIntoMessages('terminal', {
                 maxPriority: 'next',
-                beforeAppend: () => { pushIntermediateAssistantResponse(response); },
+                beforeAppend: () => {
+                    if (pushIntermediateAssistantResponse(response) && hasContent && !suppressMidTurnText) {
+                        _committedTextParts.push(response.content);
+                    }
+                },
             })) {
                 _emptyNudgeStreak = 0;
                 continue;
@@ -928,6 +941,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 const _hookPrompt = _toolFailureStopHook.takeContinuationPrompt();
                 if (_hookPrompt) {
                     pushIntermediateAssistantResponse(response);
+                    if (hasContent && !suppressMidTurnText) _committedTextParts.push(response.content);
                     messages.push({
                         role: 'user',
                         content: _hookPrompt,
@@ -945,13 +959,15 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     continue;
                 }
             }
-            if (_maxOutputContentParts.length > 0) {
+            if (_committedTextParts.length > 0) {
                 const terminalSegment = typeof response.content === 'string' ? response.content : '';
                 response = {
                     ...response,
-                    content: `${_maxOutputContentParts.join('')}${terminalSegment}`,
+                    content: `${_committedTextParts.join('')}${terminalSegment}`,
                     historyContent: terminalSegment,
-                    maxOutputRecoveryAttempts: _maxOutputRecoveryCount,
+                    ...(_maxOutputRecoveryCount > 0
+                        ? { maxOutputRecoveryAttempts: _maxOutputRecoveryCount }
+                        : {}),
                 };
             }
             break;
@@ -1082,6 +1098,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         _lastToolBatchEndedAt = _toolsEndedAt;
         _toolBatchJustCompleted = true;
         _continuationsSinceToolBatch = 0;
+        // The UI sealed its streaming row at this tool boundary; earlier
+        // committed parts must not re-prepend at terminal (duplicate rows).
+        _committedTextParts.length = 0;
         _lastToolBatchHadSleep = _callsToExecute.some(isSleepLikeToolCall);
     }
     // Classify WHY the loop ended so agent-tool can promote an empty/abnormal

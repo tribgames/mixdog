@@ -1586,6 +1586,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--mx-pressed);
   box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
 }
+.session-sidebar-panels .utilities-row {
+  width: 100%;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
 .session-sidebar-panels .row-overflow-trigger { width: 28px; height: 28px; border-radius: 6px; }
 /* Empty panel: one quiet glyph over one line of copy, centered top-to-bottom */
 .session-sidebar-panels .schedules-empty { gap: 10px; padding: 12px; text-align: center; }
@@ -1704,6 +1710,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .utility-dock .agent-activity-row:hover {
   background: var(--mx-hover);
 }
+.utility-dock .agent-activity-row--static { cursor: default; }
+.utility-dock .agent-activity-row--static:hover {
+  background: var(--mx-rail-item-surface);
+}
 .utility-dock .agent-activity-state {
   grid-column: 1;
   grid-row: 1 / 3;
@@ -1756,15 +1766,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Inline route-summary bolt sits BESIDE 12px meta text, unlike the 28px
+   composer toggle: 14px overflowed the line box and the zap glyph's built-in
+   side bearing widened the 4px gap (user: 상하정렬/좌우간격이 안맞는다).
+   12px matches the text; -1px eats the glyph's left padding. */
 .fast-mode-indicator {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 14px;
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
   display: inline-grid;
   place-items: center;
+  margin-left: -1px;
   color: var(--mx-text-accent);
 }
-.fast-mode-indicator svg { width: 14px; height: 14px; }
+.fast-mode-indicator svg { width: 12px; height: 12px; }
 .utility-dock .agent-activity-elapsed {
   grid-column: 3;
   grid-row: 1;
@@ -3065,7 +3080,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   pointer-events: auto;
   transition-delay: 0s;
 }
-.message-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-meta { flex: 0 0 auto; white-space: nowrap; }
 .message.user .message-meta-line .message-actions {
   position: static;
   width: 24px;
@@ -3160,12 +3175,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .message.user .message-body p { margin: 0; }
 .message.user .message-meta-line {
   /* Overlay below the bubble: the hidden hover row must not reserve layout
-     space, or user→assistant spacing runs 28px against the 20px grid. */
+     space, or user→assistant spacing runs 28px against the 20px grid. Its
+     right edge stays on the bubble while short prompts let the full clock and
+     copy control grow leftward instead of truncating the clock. */
   position: absolute;
   top: 100%;
   right: 0;
-  left: 0;
-  width: 100%;
+  left: auto;
+  width: max-content;
+  min-width: 100%;
   min-height: 24px;
   margin-top: 0;
   padding-inline: 0;
@@ -4778,7 +4796,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-.queue-edit {
+.queue-edit,
+.queue-steer {
   height: 24px;
   flex: 0 0 auto;
   padding: 0 8px;
@@ -4789,9 +4808,18 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-regular);
 }
+.queue-steer {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--mx-accent);
+}
 .queue-edit:hover:not(:disabled),
-.queue-edit:focus-visible { background: var(--mx-hover); outline: 0; }
-.queue-edit:disabled { opacity: var(--mx-op-disabled); }
+.queue-edit:focus-visible,
+.queue-steer:hover:not(:disabled),
+.queue-steer:focus-visible { background: var(--mx-hover); outline: 0; }
+.queue-edit:disabled,
+.queue-steer:disabled { opacity: var(--mx-op-disabled); }
 .composer { z-index: 1; }
 
 /* Shared menu/select primitive used by settings and composer controls. */
@@ -9936,9 +9964,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .session-dock-toggle:hover, .session-dock-toggle:focus-visible {
   background: var(--mx-hover);
 }
-/* Active-agent chip: the side tab's role icon rides left of the context
-   gauge while agents run; a soft opacity breath signals liveness and the
-   click jumps to the dock's Tasks pane. */
+/* Session task chip: one spinner/count left of the context gauge opens the
+   current session's attached agents/background shells. */
 .session-agents-indicator {
   position: relative;
   height: 28px;
@@ -9960,19 +9987,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .session-agents-indicator > button:hover,
 .session-agents-indicator > button:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: none; }
-.session-agents-icon { animation: agent-presence-breathe 2.6s ease-in-out infinite; }
 .session-agents-count {
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
   font-variant-numeric: tabular-nums;
   line-height: 1;
-}
-@keyframes agent-presence-breathe {
-  0%, 100% { opacity: 1; }
-  50% { opacity: var(--mx-op-disabled); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .session-agents-icon { animation: none; }
 }
 .session-agents-indicator:hover .live-work-popover,
 .session-agents-indicator:focus-within .live-work-popover { opacity: 1; visibility: visible; }

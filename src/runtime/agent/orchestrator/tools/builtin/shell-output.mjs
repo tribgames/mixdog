@@ -7,6 +7,46 @@ export const SMART_BASH_MAX_LINES = 400;
 export const SMART_BASH_MAX_BYTES = TOOL_OUTPUT_MAX_BYTES;
 export const SMART_BASH_HEAD_LINES = 80;
 export const SMART_BASH_TAIL_LINES = 80;
+export const BACKGROUND_PARTIAL_OUTPUT_MAX_BYTES = 10 * 1024;
+export const BACKGROUND_PARTIAL_OUTPUT_HEAD_BYTES = 2 * 1024;
+
+const BACKGROUND_PARTIAL_TRUNCATION_MARKER =
+    '\n\n... [partial output truncated; head and tail shown] ...\n\n';
+
+function utf8Prefix(value, maxBytes) {
+    const buffer = Buffer.from(String(value ?? ''), 'utf8');
+    if (buffer.length <= maxBytes) return buffer.toString('utf8');
+    let end = maxBytes;
+    while (end > 0 && end < buffer.length && (buffer[end] & 0xC0) === 0x80) end -= 1;
+    return buffer.subarray(0, end).toString('utf8');
+}
+
+function utf8Suffix(value, maxBytes) {
+    const buffer = Buffer.from(String(value ?? ''), 'utf8');
+    if (buffer.length <= maxBytes) return buffer.toString('utf8');
+    let start = buffer.length - maxBytes;
+    while (start < buffer.length && (buffer[start] & 0xC0) === 0x80) start += 1;
+    return buffer.subarray(start).toString('utf8');
+}
+
+export function renderBackgroundPartialOutput(stdout, stderr) {
+    const sections = [];
+    const out = String(stdout ?? '');
+    const err = String(stderr ?? '');
+    if (out) sections.push(`[partial stdout]\n${out}`);
+    if (err) sections.push(`[partial stderr]\n${err}`);
+    const merged = sections.join('\n\n');
+    if (!merged) return '';
+    if (Buffer.byteLength(merged, 'utf8') <= BACKGROUND_PARTIAL_OUTPUT_MAX_BYTES) return merged;
+
+    const markerBytes = Buffer.byteLength(BACKGROUND_PARTIAL_TRUNCATION_MARKER, 'utf8');
+    const tailBytes = BACKGROUND_PARTIAL_OUTPUT_MAX_BYTES
+        - BACKGROUND_PARTIAL_OUTPUT_HEAD_BYTES
+        - markerBytes;
+    return utf8Prefix(merged, BACKGROUND_PARTIAL_OUTPUT_HEAD_BYTES)
+        + BACKGROUND_PARTIAL_TRUNCATION_MARKER
+        + utf8Suffix(merged, tailBytes);
+}
 
 export function smartMiddleTruncate(content) {
     const s = typeof content === 'string' ? content : String(content ?? '');

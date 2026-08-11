@@ -5,7 +5,7 @@
 import { Unplug } from "lucide-react";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import { ActiveAgentsIndicator } from "./ActiveAgentsIndicator";
+import { ActiveTasksIndicator } from "./ActiveAgentsIndicator";
 import {
   beginBootSurface,
   reportBootSurfaceReady,
@@ -420,7 +420,7 @@ export function SnapshotHeaderStatus({
   );
   const visibleSnapshot = hidden ? EMPTY_SNAPSHOT : selectedSnapshot;
   return <>
-    {onOpenAgents && <ActiveAgentsIndicator snapshot={visibleSnapshot} onOpen={onOpenAgents} />}
+    {onOpenAgents && <ActiveTasksIndicator snapshot={visibleSnapshot} onOpen={onOpenAgents} />}
     <ContextUsageIndicator snapshot={visibleSnapshot} onOpen={onOpen} />
     <RemoteToggleButton snapshot={visibleSnapshot} draftEnabled={draftRemoteEnabled}
       onChange={onRemoteChange} />
@@ -525,7 +525,7 @@ export function PaneHeaderStatus({
     ? laneSnapshot
     : focused && !hidden && selectedOwnsPane ? selectedSnapshot : laneSnapshot;
   return <>
-    {onOpenAgents && <ActiveAgentsIndicator snapshot={visibleSnapshot} onOpen={onOpenAgents} />}
+    {onOpenAgents && <ActiveTasksIndicator snapshot={visibleSnapshot} onOpen={onOpenAgents} />}
     <ContextUsageIndicator snapshot={visibleSnapshot} onOpen={onOpen} />
     <RemoteToggleButton snapshot={visibleSnapshot}
       draftEnabled={focused ? draftRemoteEnabled : undefined}

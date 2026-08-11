@@ -202,7 +202,6 @@ const api: DesktopApi = {
   peekSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.peekSession, sessionId),
   setVisibleSessions: (sessionIds) =>
     ipcRenderer.invoke(DESKTOP_IPC.setVisibleSessions, sessionIds),
-  resumeSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.resumeSession, sessionId),
   searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>
     ipcRenderer.invoke(DESKTOP_IPC.searchProjectFiles, projectIdOrWorkspaceId, query, limit),
   searchWorkspaceText: (projectPath, options) =>
@@ -440,12 +439,8 @@ const api: DesktopApi = {
   },
   checkForDesktopUpdate: () => ipcRenderer.invoke(DESKTOP_IPC.checkForDesktopUpdate),
   showDesktopUpdate: () => ipcRenderer.invoke(DESKTOP_IPC.showDesktopUpdate),
-  submit: (prompt, options) => ipcRenderer.invoke(DESKTOP_IPC.submit, prompt, options),
   submitNewTask: (prompt, options, draft) =>
     ipcRenderer.invoke(DESKTOP_IPC.submitNewTask, prompt, options, draft),
-  abort: (options) => ipcRenderer.invoke(DESKTOP_IPC.abort, options),
-  resolveToolApproval: (id, decision) =>
-    ipcRenderer.invoke(DESKTOP_IPC.resolveToolApproval, id, decision),
   submitToSession: (sessionId, prompt, options) =>
     ipcRenderer.invoke(DESKTOP_IPC.submitToSession, sessionId, prompt, options),
   abortSession: (sessionId, options) =>

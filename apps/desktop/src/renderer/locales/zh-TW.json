@@ -1,4 +1,5 @@
 {
+  "0s": "0秒",
   "{{connected}} connected · {{failed}} failed": "{{connected}} 個已連線 · {{failed}} 個失敗",
   "{{count}} available": "{{count}} 個可用",
   "{{count}} changed lines exceed the 500-line render limit.": "{{count}} 行變更超過 500 行轉譯上限。",
@@ -961,6 +962,7 @@
   "Stop dictation": "停止語音輸入",
   "Stop generation": "停止產生",
   "Stopped": "已停止",
+  "Studio": "Studio",
   "Studio navigation": "Studio 導覽",
   "Sublimating": "昇華",
   "Subscription": "訂閱",
@@ -1055,6 +1057,7 @@
   "utility panel": "公用程式面板",
   "Utility panel": "公用程式面板",
   "Utility panel tabs": "公用程式面板分頁",
+  "Utilities": "公用程式",
   "Vibing": "維賓",
   "Video": "影片",
   "View as table": "表格檢視",
@@ -1108,5 +1111,11 @@
   "Your changes will be lost if you don’t save them.": "若不儲存，變更將會遺失。",
   "Your name or role": "你的名字或角色",
   "Zesting": "熱情",
-  "Zigzagging": "之字形"
+  "Zigzagging": "之字形",
+  "{{agentCount}} agents": "{{agentCount}} 個代理",
+  "Choose how Mixdog manages long-running and idle sessions.": "選擇 Mixdog 管理長時間執行及閒置工作階段的方式。",
+  "Interrupt and steer now": "立即中斷並引導",
+  "Memory and recall tools, core-memory injection, and background memory upkeep.": "記憶與回想工具、核心記憶注入及背景記憶維護。",
+  "Steer now": "立即引導",
+  "Steer queued follow-up now: {{text}}": "立即引導佇列中的後續訊息：{{text}}"
 }

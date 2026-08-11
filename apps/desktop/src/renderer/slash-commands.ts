@@ -14,9 +14,10 @@ export interface DesktopSlashCommand {
   showAliasUsage?: boolean;
   params?: string;
   description: string;
+  desktopDescription?: string;
   settingsRow?: SettingsSection;
   surface?: CommandSurface;
-  action?: 'clear' | 'compact' | 'resume' | 'remote' | 'project' | 'fast' | 'settings' | 'quit';
+  action?: 'clear' | 'compact' | 'resume' | 'remote' | 'project' | 'fast' | 'settings' | 'close-task';
 }
 
 // Public fields mirror src/tui/app/slash-commands.mjs exactly. Desktop routing
@@ -49,5 +50,22 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   { name: 'profile', usage: '/profile', description: 'Set your title and response language', settingsRow: 'profile' },
   { name: 'update', usage: '/update', description: 'Check version and update mixdog', settingsRow: 'update' },
   { name: 'doctor', usage: '/doctor', description: 'Diagnose installation health', surface: 'doctor' },
-  { name: 'quit', usage: '/quit', aliases: ['exit', 'q'], aliasUsage: ['exit', 'q'], description: 'Quit the TUI', action: 'quit' },
+  {
+    name: 'quit',
+    usage: '/quit',
+    aliases: ['exit', 'q'],
+    aliasUsage: ['exit', 'q'],
+    description: 'Quit the TUI',
+    desktopDescription: 'Close this task',
+    action: 'close-task',
+  },
 ];
+
+export function resolveDesktopSlashCommand(rawName: string): DesktopSlashCommand | undefined {
+  const token = rawName.toLowerCase();
+  return SLASH_COMMANDS.find((entry) => entry.name === token || entry.aliases?.includes(token));
+}
+
+export function desktopSlashCommandDescription(command: DesktopSlashCommand): string {
+  return command.desktopDescription ?? command.description;
+}

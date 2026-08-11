@@ -461,7 +461,7 @@ function guardGrep(a) {
         const hl = Number(a.head_limit);
         if (grepContextKeyPresent(a, 'head_limit') && Number.isFinite(hl) && hl > GREP_CTX_HEAD_LIMIT_MAX) {
             a.head_limit = GREP_CTX_HEAD_LIMIT_MAX;
-            pushClampNotice(a, `notice: grep head_limit clamped to ${GREP_CTX_HEAD_LIMIT_MAX} match blocks (context mode)`);
+            pushClampNotice(a, `notice: grep limit clamped to ${GREP_CTX_HEAD_LIMIT_MAX} match blocks (context mode)`);
         }
     }
     return null;
@@ -706,12 +706,12 @@ function guardList(a) {
         const coerced = coerceIntegerString(a.head_limit);
         if (coerced !== null) a.head_limit = coerced;
         if (!isFiniteInt(a.head_limit)) {
-            return `Error: list arg "head_limit" must be a finite integer (got ${describeType(a.head_limit)})`;
+            return `Error: list arg "limit" must be a finite integer (got ${describeType(a.head_limit)})`;
         }
         // 0 is the valid "no cap" sentinel; a negative value is nonsensical
         // and downstream produces a degenerate window (clamps to 0 → empty).
         if (a.head_limit < 0) {
-            return `Error: list arg "head_limit" must be >= 0 (0 means no cap); got ${a.head_limit}`;
+            return `Error: list arg "limit" must be >= 0 (0 means no cap); got ${a.head_limit}`;
         }
     }
     return null;
@@ -745,10 +745,10 @@ function guardFind(a) {
         const coerced = coerceIntegerString(a.head_limit);
         if (coerced !== null) a.head_limit = coerced;
         if (!isFiniteInt(a.head_limit)) {
-            return `Error: find arg "head_limit" must be a finite integer (got ${describeType(a.head_limit)})`;
+            return `Error: find arg "limit" must be a finite integer (got ${describeType(a.head_limit)})`;
         }
         if (a.head_limit < 0) {
-            return `Error: find arg "head_limit" must be >= 0 (0 means no cap); got ${a.head_limit}`;
+            return `Error: find arg "limit" must be >= 0 (0 means no cap); got ${a.head_limit}`;
         }
     }
     return null;
@@ -787,12 +787,12 @@ function guardGlob(a) {
         const coerced = coerceIntegerString(a.head_limit);
         if (coerced !== null) a.head_limit = coerced;
         if (!isFiniteInt(a.head_limit)) {
-            return `Error: glob arg "head_limit" must be a finite integer (got ${describeType(a.head_limit)})`;
+            return `Error: glob arg "limit" must be a finite integer (got ${describeType(a.head_limit)})`;
         }
         // 0 is the valid "no cap" sentinel; a negative value is nonsensical
         // and downstream produces a degenerate window (clamps to 0 → empty).
         if (a.head_limit < 0) {
-            return `Error: glob arg "head_limit" must be >= 0 (0 means no cap); got ${a.head_limit}`;
+            return `Error: glob arg "limit" must be >= 0 (0 means no cap); got ${a.head_limit}`;
         }
     }
     return null;

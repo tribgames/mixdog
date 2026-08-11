@@ -7,6 +7,7 @@ import {
   DESKTOP_READ_CAPABILITIES,
 } from '../src/shared/contract.ts';
 import {
+  desktopSlashCommandDescription,
   SLASH_COMMANDS as desktopSlashCommands,
 } from '../src/renderer/slash-commands.ts';
 import {
@@ -602,7 +603,7 @@ try {
   const palette = [];
   for (const command of desktopSlashCommands) {
     palette.push(await client.evaluate(
-      `window.__mixdogE2e.palette(${JSON.stringify(command.name)}, ${JSON.stringify(command.usage)}, ${JSON.stringify(command.description)})`,
+      `window.__mixdogE2e.palette(${JSON.stringify(command.name)}, ${JSON.stringify(command.usage)}, ${JSON.stringify(desktopSlashCommandDescription(command))})`,
     ));
   }
 

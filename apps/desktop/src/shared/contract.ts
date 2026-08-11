@@ -61,15 +61,11 @@ export const DESKTOP_IPC = {
   peekSession: 'mixdog:peek-session',
   setVisibleSessions: 'mixdog:set-visible-sessions',
   listAgentPool: 'mixdog:list-agent-pool',
-  resumeSession: 'mixdog:resume-session',
   searchProjectFiles: 'mixdog:search-project-files',
   searchWorkspaceText: 'mixdog:search-workspace-text',
   replaceWorkspaceText: 'mixdog:replace-workspace-text',
   getSnapshot: 'mixdog:get-snapshot',
-  submit: 'mixdog:submit',
   submitNewTask: 'mixdog:submit-new-task',
-  abort: 'mixdog:abort',
-  resolveToolApproval: 'mixdog:resolve-tool-approval',
   submitToSession: 'mixdog:submit-to-session',
   abortSession: 'mixdog:abort-session',
   resolveToolApprovalForSession: 'mixdog:resolve-tool-approval-for-session',
@@ -255,6 +251,14 @@ export interface DesktopActiveToolState {
 export interface DesktopShellJobsState {
   count: number;
   elapsedLabel: string;
+  jobs?: DesktopShellJobRow[];
+}
+
+export interface DesktopShellJobRow extends Readonly<Record<string, unknown>> {
+  taskId: string;
+  command: string;
+  cwd: string;
+  startedAt: number | string | null;
 }
 
 export interface DesktopWorkflowState extends Readonly<Record<string, unknown>> {
@@ -475,6 +479,7 @@ export interface DesktopNewTaskSubmitResult {
 // execution while still making the TUI's existing session capabilities
 // available to the GUI.
 export const DESKTOP_CAPABILITIES = [
+  'prioritizeQueued',
   'restoreQueued',
   'rewindToItem',
   'setEffort',
@@ -786,9 +791,10 @@ export interface DesktopSessionSummary {
   cwd: string;
   classification: DesktopSessionClassification;
   projectPath: string | null;
-  currentSession: boolean;
   /** Fresh cross-process turn heartbeat; independent of which session is selected. */
   working?: boolean;
+  /** Fresh heartbeat from this session's Lead, excluding child-agent work. */
+  leadWorking?: boolean;
   /** Fresh heartbeat from a running child agent owned by this lead session. */
   agentWorking?: boolean;
   /** Archive: hidden from Recent, restorable; file stays on disk. */
@@ -1452,10 +1458,8 @@ export interface DesktopApi {
   /** Pane peek: ask the host to publish a read-only lane frame for an idle
    *  session so its pane paints as foreground without a resume. */
   peekSession?(sessionId: string): Promise<boolean>;
-  /** Register the active session in every visible pane for focus-independent
-   *  owner-pipe mirroring. */
+  /** Register every visible session for owner-pipe mirroring. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;
-  resumeSession(sessionId: string): Promise<SessionSnapshot>;
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;
   searchWorkspaceText?(
     projectPath: string,
@@ -1577,15 +1581,12 @@ export interface DesktopApi {
   subscribeUpdaterState(listener: (state: DesktopUpdaterState) => void): () => void;
   checkForDesktopUpdate(): Promise<DesktopUpdaterState>;
   showDesktopUpdate(): Promise<DesktopUpdaterState>;
-  submit(prompt: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<boolean>;
   /** Atomically materialize a renderer-only draft and accept its first prompt. */
   submitNewTask(
     prompt: DesktopPromptContent,
     options?: DesktopSubmitOptions,
     draft?: DesktopNewTaskDraft,
   ): Promise<DesktopNewTaskSubmitResult>;
-  abort(options?: DesktopAbortOptions): Promise<unknown>;
-  resolveToolApproval(id: string, decision: ToolApprovalDecision): Promise<boolean>;
   /** Split panes: prompt/abort/approvals addressed to any pooled live
    *  session (active or parked), keyed by sessionId. */
   submitToSession(
@@ -1602,9 +1603,8 @@ export interface DesktopApi {
   /** Per-session live snapshot lane covering every pooled session runtime. */
   subscribeSessionState(listener: (update: DesktopSessionStateUpdate) => void): () => void;
   listProviderModels(options?: DesktopModelCatalogOptions): Promise<DesktopModelOption[]>;
-  /** sessionId addresses a PANE's session. Focus decides nothing here: each
-   *  pane owns its own model/effort/fast. Omitted = the window's current
-   *  surface (draft panes, settings). */
+  /** sessionId addresses a pane. Omitted routes through the control session
+   *  for settings that are not owned by a conversation. */
   setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<SessionSnapshot>;
   setFast(enabled: boolean, sessionId?: string): Promise<SessionSnapshot>;
   readSettings(): Promise<DesktopSettings>;

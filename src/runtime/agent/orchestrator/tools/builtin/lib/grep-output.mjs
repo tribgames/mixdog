@@ -210,7 +210,7 @@ export function formatGrepOutput({ windowed, totalWindowed, totalKnown, headLimi
     const truncated = (remaining > 0 || !totalKnown)
         ? (totalKnown
             ? `\n[Showing ${shown} of ${total} results; pass offset:${offset + shown} for more]`
-            : `\n[Showing ${shown} (more matches exist — use output_mode:'count' for the exact total on ${scopePath}); pass offset:${offset + shown} for more]`)
+            : `\n[Showing ${shown} (more matches exist — use mode:'count' for the exact total on ${scopePath}); pass offset:${offset + shown} for more]`)
         : '';
 
     let countSummary = '';

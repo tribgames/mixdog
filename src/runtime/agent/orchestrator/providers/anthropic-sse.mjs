@@ -107,6 +107,12 @@ function _anthropicSseError(event) {
         err.httpStatus = status;
         err.status = status;
     }
+    // Wire-error marker: an error type OUTSIDE the documented enumeration
+    // (no status resolved above) default-retries under the shared wire-error
+    // contract instead of failing the turn as 'unknown'. Typed statuses and
+    // the fatal-code deny-list still take precedence in classifyError().
+    err.providerWireError = true;
+    if (typeof type === 'string' && type && type !== 'error') err.providerErrorCode = type;
     return err;
 }
 

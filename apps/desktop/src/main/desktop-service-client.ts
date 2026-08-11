@@ -106,7 +106,6 @@ export class DesktopServiceClient implements DesktopService {
   private bootstrapSnapshot: SessionSnapshot;
   private cachedSessions: DesktopSessionSummary[] | null = null;
   private cachedAgentPool: DesktopAgentPoolRow[] | null = null;
-  private activeSessionId = '';
   private sessionCacheFresh = false;
   private agentPoolCacheFresh = false;
   private visibleSessionIds: string[] = [];
@@ -287,11 +286,7 @@ export class DesktopServiceClient implements DesktopService {
       const sessions = Array.isArray(message.sessions) ? message.sessions.slice() : [];
       this.cachedSessions = sessions;
       this.sessionCacheFresh = true;
-      const projected = sessions.map((session) => ({
-        ...session,
-        currentSession: session.id === this.activeSessionId,
-      }));
-      for (const listener of this.sessionListeners) listener(projected);
+      for (const listener of this.sessionListeners) listener(sessions.slice());
       return;
     }
     if (message.kind === 'agent-pool') {
@@ -330,7 +325,6 @@ export class DesktopServiceClient implements DesktopService {
           : {}),
       };
       for (const listener of this.sessionStateListeners) listener(update);
-      if (sessionId === this.activeSessionId) this.publish(update.snapshot);
       return;
     }
     if (message.kind !== 'response') return;
@@ -543,19 +537,16 @@ export class DesktopServiceClient implements DesktopService {
 
   async startProject(projectPath: string): Promise<SessionSnapshot> {
     const snapshot = await this.invoke<SessionSnapshot>('startProject', [projectPath]);
-    this.activeSessionId = '';
     this.publish(snapshot);
     return snapshot;
   }
   async startProjectTask(projectPath: string): Promise<SessionSnapshot> {
     const snapshot = await this.invoke<SessionSnapshot>('startProjectTask', [projectPath]);
-    this.activeSessionId = '';
     this.publish(snapshot);
     return snapshot;
   }
   async startTask(): Promise<SessionSnapshot> {
     const snapshot = await this.invoke<SessionSnapshot>('startTask');
-    this.activeSessionId = '';
     this.publish(snapshot);
     return snapshot;
   }
@@ -629,17 +620,11 @@ export class DesktopServiceClient implements DesktopService {
     await this.start();
     if (this.sessionCacheFresh && this.cachedSessions) {
       this.sessionCacheFresh = false;
-      return this.cachedSessions.map((session) => ({
-        ...session,
-        currentSession: session.id === this.activeSessionId,
-      }));
+      return this.cachedSessions.slice();
     }
     const sessions = await this.invokeRead<DesktopSessionSummary[]>('listSessions');
     this.cachedSessions = Array.isArray(sessions) ? sessions.slice() : [];
-    return this.cachedSessions.map((session) => ({
-      ...session,
-      currentSession: session.id === this.activeSessionId,
-    }));
+    return this.cachedSessions.slice();
   }
   async listAgentPool(): Promise<DesktopAgentPoolRow[]> {
     await this.start();
@@ -678,22 +663,12 @@ export class DesktopServiceClient implements DesktopService {
     );
     return this.invokeRead('setVisibleSessions', [this.visibleSessionIds]);
   }
-  async resumeSession(sessionId: string): Promise<SessionSnapshot> {
-    const snapshot = await this.invoke<SessionSnapshot>('resumeSession', [sessionId]);
-    this.activeSessionId = String(snapshot?.sessionId || sessionId);
-    this.publish(snapshot);
-    return snapshot;
-  }
   searchProjectFiles(
     projectIdOrWorkspaceId: string,
     query: string,
     limit = 50,
   ): Promise<string[]> {
     return this.invokeRead('searchProjectFiles', [projectIdOrWorkspaceId, query, limit]);
-  }
-  submit(prompt: DesktopPromptContent, options: DesktopSubmitOptions = {}): Promise<boolean> {
-    if (!this.activeSessionId) return Promise.resolve(false);
-    return this.submitToSession(this.activeSessionId, prompt, options);
   }
   async submitNewTask(
     prompt: DesktopPromptContent,
@@ -704,19 +679,7 @@ export class DesktopServiceClient implements DesktopService {
       'submitNewTask',
       [prompt, options, draft],
     );
-    if (result.accepted && result.sessionId) {
-      this.activeSessionId = result.sessionId;
-      if (result.snapshot) this.publish(result.snapshot);
-    }
     return result;
-  }
-  abort(options: DesktopAbortOptions = {}): Promise<unknown> {
-    if (!this.activeSessionId) return Promise.resolve({ aborted: false });
-    return this.abortSession(this.activeSessionId, options);
-  }
-  resolveToolApproval(id: string, decision: ToolApprovalDecision): Promise<boolean> {
-    if (!this.activeSessionId) return Promise.resolve(false);
-    return this.resolveToolApprovalForSession(this.activeSessionId, id, decision);
   }
   submitToSession(
     sessionId: string,
@@ -739,12 +702,10 @@ export class DesktopServiceClient implements DesktopService {
     return this.invokeRead('listProviderModels', [options]);
   }
   setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<SessionSnapshot> {
-    const target = sessionId || this.activeSessionId;
-    return this.invoke('setModelRoute', [selection, target || undefined]);
+    return this.invoke('setModelRoute', [selection, sessionId]);
   }
   setFast(enabled: boolean, sessionId?: string): Promise<SessionSnapshot> {
-    const target = sessionId || this.activeSessionId;
-    return this.invoke('setFast', [enabled, target || undefined]);
+    return this.invoke('setFast', [enabled, sessionId]);
   }
   invokeCapability<T = unknown>(
     capability: DesktopCapability,
@@ -754,7 +715,7 @@ export class DesktopServiceClient implements DesktopService {
     return this.invoke('invokeCapability', [
       capability,
       args,
-      sessionId || this.activeSessionId || undefined,
+      sessionId,
     ]);
   }
   readCapabilities(

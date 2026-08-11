@@ -58,16 +58,12 @@ export interface DesktopService {
   peekSession?(sessionId: string): Promise<boolean>;
   /** Keep every currently visible pane attached to its external live owner. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;
-  resumeSession(sessionId: string): Promise<SessionSnapshot>;
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;
-  submit(prompt: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<boolean>;
   submitNewTask(
     prompt: DesktopPromptContent,
     options?: DesktopSubmitOptions,
     draft?: DesktopNewTaskDraft,
   ): Promise<DesktopNewTaskSubmitResult>;
-  abort(options?: DesktopAbortOptions): unknown;
-  resolveToolApproval(id: string, decision: ToolApprovalDecision): boolean | Promise<boolean>;
   /** Split panes use daemon-owned session addresses directly. Pane actions
    *  never fall back to whichever session happens to be focused. */
   subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void;
@@ -83,14 +79,14 @@ export interface DesktopService {
     decision: ToolApprovalDecision,
   ): boolean | Promise<boolean>;
   listProviderModels(options?: DesktopModelCatalogOptions): Promise<DesktopModelOption[]>;
-  /** Optional sessionId targets a PANE's session instead of the window's
-   *  current surface — focus never decides which session a route change hits. */
+  /** Optional sessionId targets a pane; omitted routes through the control
+   *  session for settings that are not owned by a conversation. */
   setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<SessionSnapshot>;
   setFast(enabled: boolean, sessionId?: string): Promise<SessionSnapshot>;
   invokeCapability<T = unknown>(
     capability: DesktopCapability,
     args?: unknown[],
-    /** Session the issuing surface paints; omitted = the window's surface. */
+    /** Session the issuing surface paints; omitted = control session. */
     sessionId?: string,
   ): Promise<DesktopCapabilityResult<T>>;
   readCapabilities(
@@ -133,12 +129,8 @@ export const DESKTOP_SERVICE_METHODS = [
   'prefetchSession',
   'peekSession',
   'setVisibleSessions',
-  'resumeSession',
   'searchProjectFiles',
-  'submit',
   'submitNewTask',
-  'abort',
-  'resolveToolApproval',
   'submitToSession',
   'abortSession',
   'resolveToolApprovalForSession',

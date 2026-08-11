@@ -46,7 +46,6 @@ import { normalizeErrorMessage } from './path-diagnostics.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { resolveOptionalCwd } from './cwd-utils.mjs';
 import { scrubLoaderVars, scrubProviderSecrets } from '../env-scrub.mjs';
-import { resolveSessionCwd, stateFilePath, wrapPowerShellWithCwdProbe, wrapBashWithCwdProbe } from '../shell-state.mjs';
 import { resourceAdmission } from '../../../../shared/resource-admission.mjs';
 
 // Post-exec drift detection. After a foreground shell command, compare the

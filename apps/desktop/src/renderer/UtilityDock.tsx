@@ -1,5 +1,4 @@
 import {
-  Bot,
   Files,
   GitBranch,
   GitCompare,
@@ -12,13 +11,12 @@ import type {
   DesktopGitBranch,
   DesktopGitStatus,
   DesktopProjectSummary,
-  DesktopSessionSummary,
   DesktopWorkspaceFolder,
   DesktopWorkspaceTextFileResult,
   DesktopWorkspaceTextSearchOptions,
 } from "../shared/contract";
 import { DESKTOP_UTILITY_DOCK_MIN_WIDTH } from "../shared/window-layout";
-import { AgentActivityPane } from "./AgentActivityPane";
+import { AgentActivityPane, liveTaskCount } from "./AgentActivityPane";
 import { OpenSelect } from "./OpenSelect";
 import { DesktopLoadingSurface } from "./RendererRecovery";
 import type { PullRequestOpenHandler } from "./PullRequestsPane";
@@ -31,6 +29,7 @@ import {
   reportBootSurfaceStage,
 } from "./boot-metrics";
 import { EMPTY_TRANSCRIPT_ITEMS, type Snapshot, type TranscriptItem } from "./desktop-types";
+import { desktopUtilityDockTabEnabled } from "./desktop-feature-config";
 import { FilesRootPane, SetiFileIcon } from "./ExplorerTree";
 import { t } from "./i18n";
 import {
@@ -387,8 +386,8 @@ export const UtilityDock = memo(function UtilityDock({
   tab,
   onTab,
   onResize,
+  onClose,
   snapshot,
-  agentSessions = [],
   projectPath = "",
   workspaceFolders,
   onSelectProject,
@@ -412,7 +411,6 @@ export const UtilityDock = memo(function UtilityDock({
   onResize(width: number): void;
   onClose?(): void;
   snapshot: Snapshot;
-  agentSessions?: readonly DesktopSessionSummary[];
   projectPath?: string;
   workspaceFolders?: readonly DesktopWorkspaceFolder[];
   /** Main App owns the shared Explorer / Source Control / Pull Requests
@@ -725,6 +723,10 @@ export const UtilityDock = memo(function UtilityDock({
       : tab === "pull-requests" ? t("Preparing Pull Requests…")
         : t("Preparing Agents…");
   const presentedTab = tab;
+  const taskCount = liveTaskCount(snapshot);
+  useEffect(() => {
+    if (open && presentedTab === "tasks" && taskCount === 0) onClose?.();
+  }, [onClose, open, presentedTab, taskCount]);
   // Instant switching (user: 탭 전환이 즉시 되어야 한다): a tab the user has
   // actually opened keeps its layer mounted for the life of the dock, so a
   // round trip re-presents the SAME DOM with its tree/SCM/PR expansion,
@@ -859,11 +861,11 @@ export const UtilityDock = memo(function UtilityDock({
     resizeCleanup.current = dispose;
   };
   const displayedWidth = resizeActive.current ? resizeWidth.current : width;
-  const dockTitle = title || (presentedTab === "tasks" ? "Agents"
+  const dockTitle = title || (presentedTab === "tasks" ? "Tasks"
     : presentedTab === "files" ? "Explorer"
     : presentedTab === "pull-requests" ? "Pull Requests"
         : "Source Control");
-  if (!open) return null;
+  if (!open || !desktopUtilityDockTabEnabled(tab)) return null;
   return <aside ref={dockNode}
     className="utility-dock utility-dock--persistent"
     data-state="open" data-entering={entering ? "true" : undefined}
@@ -886,38 +888,35 @@ export const UtilityDock = memo(function UtilityDock({
       aria-label={t("Resize utility panel")} onPointerDown={startResize} />
     {showTabs && <header className="utility-dock-tabs-header" data-active-tab={presentedTab}>
       <nav className="utility-dock-tabs" aria-label={t("Utility panel tabs")}>
-        <button type="button" className={presentedTab === "tasks" ? "active" : ""}
-          aria-label={t("Agents")} aria-current={presentedTab === "tasks" ? "page" : undefined}
-          data-tooltip={t("Agents")}
-          onClick={() => onTab("tasks")}><Bot size={18} aria-hidden="true" /></button>
-        <button type="button" className={presentedTab === "files" ? "active" : ""}
+        {desktopUtilityDockTabEnabled("files") && <button type="button" className={presentedTab === "files" ? "active" : ""}
           aria-label={t("Explorer")} aria-current={presentedTab === "files" ? "page" : undefined}
           data-tooltip={t("Explorer")}
-          onClick={() => onTab("files")}><Files size={18} aria-hidden="true" /></button>
-        <button type="button" className={presentedTab === "source-control" ? "active" : ""}
+          onClick={() => onTab("files")}><Files size={18} aria-hidden="true" /></button>}
+        {desktopUtilityDockTabEnabled("source-control") && <button type="button" className={presentedTab === "source-control" ? "active" : ""}
           aria-label={t("Source Control")}
           aria-current={presentedTab === "source-control" ? "page" : undefined}
           data-tooltip={t("Source Control")}
-          onClick={() => onTab("source-control")}><GitCompare size={18} aria-hidden="true" /></button>
-        <button type="button" className={presentedTab === "pull-requests" ? "active" : ""}
+          onClick={() => onTab("source-control")}><GitCompare size={18} aria-hidden="true" /></button>}
+        {desktopUtilityDockTabEnabled("pull-requests") && <button type="button" className={presentedTab === "pull-requests" ? "active" : ""}
           aria-label={t("GitHub Pull Requests")}
           aria-current={presentedTab === "pull-requests" ? "page" : undefined}
           data-tooltip={t("GitHub Pull Requests")}
-          onClick={() => onTab("pull-requests")}><Github size={18} aria-hidden="true" /></button>
+          onClick={() => onTab("pull-requests")}><Github size={18} aria-hidden="true" /></button>}
       </nav>
     </header>}
     {!showTabs && <header className="utility-dock-header"><b>{dockTitle}</b></header>}
     <div className="stable-surface-switch utility-dock-body"
       data-ready={selectedSurfaceVisible ? "true" : "false"}
       data-transitioning="false">
-      {paneMounted("tasks") && <DockPane tab="tasks" active={paneActive("tasks")}>
+      {desktopUtilityDockTabEnabled("tasks") && paneMounted("tasks") && <DockPane tab="tasks" active={paneActive("tasks")}>
       {showTabs && <header className="utility-dock-header" data-panel-header="tasks">
-        <div className="utility-dock-title"><b>{t(title || "Agents")}</b></div>
+        <div className="utility-dock-title"><b>{t(title || "Tasks")}</b></div>
       </header>}
       <AgentActivityPane active={paneActive("tasks")}
-        sessions={agentSessions} onOpenSession={onOpenAgentSession} />
+        snapshot={snapshot}
+        onOpenSession={onOpenAgentSession} />
       </DockPane>}
-      {paneMounted("files") && <DockPane tab="files" active={paneActive("files")}>
+      {desktopUtilityDockTabEnabled("files") && paneMounted("files") && <DockPane tab="files" active={paneActive("files")}>
       {showTabs && <header className="utility-dock-header" data-panel-header="files">
         <div className="utility-dock-title"><b>{t(title || "Explorer")}</b></div>
         <span className="utility-dock-header-actions utility-dock-file-actions"
@@ -938,7 +937,7 @@ export const UtilityDock = memo(function UtilityDock({
         readinessKey={surfaceKeys.files} onReadyChange={setFilesReady}
         onOpenFile={onOpenFile} onOpenFileAt={resolvedOpenFileAt} />
       </DockPane>}
-      {paneMounted("source-control")
+      {desktopUtilityDockTabEnabled("source-control") && paneMounted("source-control")
         && <DockPane tab="source-control" active={paneActive("source-control")}>
       {showTabs && <header className="utility-dock-header" data-panel-header="source-control">
         <div className="utility-dock-title"><b>{t(title || "Source Control")}</b></div>
@@ -963,7 +962,7 @@ export const UtilityDock = memo(function UtilityDock({
         onOpenFile={onOpenFile}
         onOpenDiff={onOpenDiff} />
       </DockPane>}
-      {paneMounted("pull-requests")
+      {desktopUtilityDockTabEnabled("pull-requests") && paneMounted("pull-requests")
         && <DockPane tab="pull-requests" active={paneActive("pull-requests")}>
       {showTabs && <header className="utility-dock-header" data-panel-header="pull-requests">
         <div className="utility-dock-title"><b>{t(title || "Pull Requests")}</b></div>
