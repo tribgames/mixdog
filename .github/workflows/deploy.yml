@@ -389,7 +389,8 @@ jobs:
           if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
             REMOTE=$(git ls-remote --tags origin "refs/tags/${TAG}" | awk 'NR == 1 { print $1 }')
             if [[ "$REMOTE" != "$(git rev-parse HEAD)" ]]; then
-              if gh release view "$TAG" >/dev/null 2>&1; then
+              IS_DRAFT=$(gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null || true)
+              if [[ "$IS_DRAFT" == "false" ]]; then
                 echo "::error::Published tag ${TAG} is immutable and does not match main."
                 exit 1
               fi
