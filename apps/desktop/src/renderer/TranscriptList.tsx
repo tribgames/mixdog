@@ -164,6 +164,13 @@ export function TranscriptList({
     // written inside the core transaction, and React reconciles on range
     // changes only.
     directDomUpdates: true,
+    // Keep every row in the transcript's ONE paint layer. Transform mode
+    // promotes each row independently; when a deferred measurement and the
+    // final native wheel frame land together at the bottom, Chromium can
+    // present those compositor layers from different scroll phases and draw
+    // the visible horizontal tear. Top-position writes still land in the same
+    // direct pre-paint transaction, without per-row compositor surfaces.
+    directDomUpdatesMode: "position",
     // Grow the spacer before a programmatic write so Chrome cannot clamp the
     // requested offset against the previous total height.
     scrollToFn: (offset, options, instance) => {
@@ -507,8 +514,7 @@ export function TranscriptList({
           <div className="transcript-virtual-row" key={virtualRow.key}
             data-index={virtualRow.index}
             data-timeline-key={String(virtualRow.key)}
-            ref={measureRow}
-            style={{ transform: `translateY(${virtualRow.start}px)` }}>
+            ref={measureRow}>
             <div className="transcript-virtual-row-content"
               data-slot="session-turn-message-container" data-index={virtualRow.index}
               data-tag={row._tag} data-turn-end={turnEnd ? "true" : undefined}>

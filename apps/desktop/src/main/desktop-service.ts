@@ -5,6 +5,7 @@ import type {
 import type {
   MixdogProjectsModule,
   MixdogSessionStoreModule,
+  StatuslineSegmentsModule,
 } from './desktop-support';
 import {
   SessionHost,
@@ -56,6 +57,7 @@ interface DesktopServiceRuntime {
   }): Promise<SessionClient>;
   loadProjects(): Promise<MixdogProjectsModule>;
   loadSessionStore(): Promise<MixdogSessionStoreModule>;
+  loadStatuslineSegments(): Promise<StatuslineSegmentsModule>;
   loadConfig(): Promise<import('./settings-store').MixdogConfigModule>;
   loadCommitCompletion(): Promise<import('./commit-message').CommitCompletionModule>;
   executeCodeGraphTool(

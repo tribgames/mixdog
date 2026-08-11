@@ -48,7 +48,7 @@ export function createSessionApi(bag) {
 
 export function createSessionApiA(bag) {
   const {
-    runtime, nextId, flags, pending, listeners, getState, getPublishedState = getState, set, flushEmitImmediate, pushItem, patchItem, replaceItems, restoreOlderTranscript, restoreNewerTranscript, settleStreamingTail, clearStreamingTail, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, resetStatsAndSyncContext, drain, flushDeferredExecutionPendingResumeKick, discardExecutionPendingResume,
+    runtime, nextId, flags, pending, listeners, getState, getPublishedState = getState, set, flushEmitImmediate, pushItem, patchItem, replaceItems, restoreOlderTranscript, restoreNewerTranscript, settleStreamingTail, clearStreamingTail, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, prioritizeQueued, resetStatsAndSyncContext, drain, flushDeferredExecutionPendingResumeKick, discardExecutionPendingResume,
   } = bag;
   const submission = (text, options = {}) => {
     const t = promptDisplayText(text, options).trim();
@@ -129,6 +129,7 @@ export function createSessionApiA(bag) {
       return String(getState().sessionId || '') === String(id);
     },
     restoreQueued,
+    prioritizeQueued,
     // Claude Code's message selector ("jump back to a previous message"):
     // rewind the conversation to just before a user prompt and hand its text
     // back for editing. Idle-only — a live turn must be interrupted first.

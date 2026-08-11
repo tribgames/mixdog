@@ -6,7 +6,7 @@ export function FastModeIndicator({ ariaLabel = 'Fast On' }: {
 }) {
   return <span className="fast-mode-indicator" role="img"
     aria-label={t(ariaLabel)} data-tooltip={t('Fast On')} data-tooltip-side="top">
-    <MxIcon name="zap" size={14} fill="currentColor" />
+    <MxIcon name="zap" size={12} fill="currentColor" />
   </span>;
 }
 

@@ -1310,11 +1310,15 @@ export async function _streamResponse({
                         responseFailed: event,
                     });
                     // TYPED status only (event/error payload). A failure whose
-                    // only evidence is message text is 'unknown' to the retry
-                    // classifiers and is surfaced instead of replayed.
+                    // only evidence is message text synthesizes no status; the
+                    // typed code/type string is preserved for the wire-error
+                    // default-retry classification (fatal codes stay terminal).
                     {
                         const typed = typedStatusFrom(event.response?.error, event.error, event);
                         if (typed) terminalError.httpStatus = typed;
+                        const detail = event.response?.error || event.error || null;
+                        const code = detail?.code ?? detail?.type ?? null;
+                        if (typeof code === 'string' && code) terminalError.providerErrorCode = code;
                     }
                     finish();
                     break;
@@ -1322,9 +1326,16 @@ export async function _streamResponse({
                 case 'error': {
                     const errMsg = String(event.message || event.error?.message || 'unknown');
                     terminalError = new Error(`${errLabel} error: ${errMsg}`);
+                    // Same wire-error contract as response.failed: stash the
+                    // frame so the mid-stream classifier and classifyError()
+                    // apply the typed fatal-code deny-list / default-retry.
+                    midState.responseFailedPayload = event;
+                    terminalError.responseFailed = event;
                     {
                         const typed = typedStatusFrom(event.error, event);
                         if (typed) terminalError.httpStatus = typed;
+                        const code = event.error?.code ?? event.error?.type ?? event.code ?? null;
+                        if (typeof code === 'string' && code) terminalError.providerErrorCode = code;
                     }
                     finish();
                     break;

@@ -1010,8 +1010,15 @@ for (const label of ['xai:responses', 'other-compat']) {
         ]) {
             const err = await consume(untyped);
             assert.equal(err.httpStatus, undefined, `${untyped.type}: no status may be synthesized`);
-            assert.equal(classifyError(err), 'unknown', 'an untyped failure is surfaced, never retried');
+            assert.equal(classifyError(err), 'transient', 'an uncoded wire failure default-retries (codex parity)');
         }
+
+        // Deterministic refusal codes on the wire event stay terminal.
+        const fatal = await consume({
+            type: 'response.failed',
+            response: { error: { message: 'quota', code: 'insufficient_quota' } },
+        });
+        assert.equal(classifyError(fatal), 'permanent');
     });
 }
 

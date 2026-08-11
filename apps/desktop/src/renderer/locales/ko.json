@@ -1,4 +1,5 @@
 {
+  "0s": "0초",
   "{{connected}} connected · {{failed}} failed": "{{connected}}개 연결됨 · {{failed}}개 실패",
   "{{count}} available": "{{count}}개 사용 가능",
   "{{count}} changed lines exceed the 500-line render limit.": "변경된 {{count}}줄이 500줄 렌더 한도를 초과합니다.",
@@ -961,6 +962,7 @@
   "Stop dictation": "받아쓰기 중지",
   "Stop generation": "생성 중지",
   "Stopped": "중지됨",
+  "Studio": "스튜디오",
   "Studio navigation": "스튜디오 내비게이션",
   "Sublimating": "승화하는 중",
   "Subscription": "구독",
@@ -1055,6 +1057,7 @@
   "utility panel": "유틸리티 패널",
   "Utility panel": "유틸리티 패널",
   "Utility panel tabs": "유틸리티 패널 탭",
+  "Utilities": "유틸리티",
   "Vibing": "느낌 타는 중",
   "Video": "영상",
   "View as table": "표로 보기",
@@ -1108,5 +1111,11 @@
   "Your changes will be lost if you don’t save them.": "저장하지 않으면 변경 사항이 사라집니다.",
   "Your name or role": "이름 또는 역할",
   "Zesting": "벗기는 중",
-  "Zigzagging": "갈지자 중"
+  "Zigzagging": "갈지자 중",
+  "{{agentCount}} agents": "에이전트 {{agentCount}}명",
+  "Choose how Mixdog manages long-running and idle sessions.": "장시간 실행 및 유휴 세션을 Mixdog이 관리하는 방식을 선택하세요.",
+  "Interrupt and steer now": "중단하고 지금 조정",
+  "Memory and recall tools, core-memory injection, and background memory upkeep.": "메모리 및 회상 도구, 핵심 메모리 주입과 백그라운드 메모리 유지 관리.",
+  "Steer now": "지금 조정",
+  "Steer queued follow-up now: {{text}}": "대기 중인 후속 요청을 지금 조정: {{text}}"
 }

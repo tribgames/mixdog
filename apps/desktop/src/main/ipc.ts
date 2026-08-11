@@ -129,7 +129,7 @@ const isDesktopLspRequestMethod = (method: string): method is DesktopLspRequestM
   LSP_REQUEST_METHODS.has(method);
 
 const CAPABILITY_ARITY = {
-  restoreQueued: [0, 2], rewindToItem: [1, 1], setEffort: [1, 1], setToolMode: [1, 1], getAutoClear: [0, 0],
+  prioritizeQueued: [1, 1], restoreQueued: [0, 2], rewindToItem: [1, 1], setEffort: [1, 1], setToolMode: [1, 1], getAutoClear: [0, 0],
   setAutoClear: [0, 1], getUpdateSettings: [0, 0], setAutoUpdate: [1, 1], checkForUpdate: [0, 1],
   runUpdateNow: [0, 0], getUpdateStatus: [0, 0], getProfile: [0, 0], setProfile: [0, 1],
   getCompactionSettings: [0, 0], setCompactionSettings: [0, 1], getRecapSettings: [0, 0],
@@ -1508,18 +1508,6 @@ export function registerDesktopIpc(
     );
     return (await host.setVisibleSessions?.(normalized)) === true;
   });
-  handle(DESKTOP_IPC.resumeSession, async (_event, sessionId) => {
-    const snapshot = await host.resumeSession(requiredSessionId(sessionId));
-    if (!snapshot) return null;
-    // The complete snapshot already travels over mixdog:state. Returning the
-    // same 512-row transcript from invoke() makes Electron structured-clone it
-    // a second time; the renderer only needs this correlated acknowledgement.
-    return {
-      sessionId: snapshot.sessionId,
-      sessionForkedFrom: snapshot.sessionForkedFrom,
-      desktopSessionTitle: snapshot.desktopSessionTitle,
-    };
-  });
   handle(DESKTOP_IPC.searchProjectFiles, (_event, projectIdOrWorkspaceId, query, limit) => {
     if (typeof query !== 'string' || query.length > 1_024) {
       throw new TypeError('query is invalid.');
@@ -1588,19 +1576,11 @@ export function registerDesktopIpc(
     await updater.install();
     return updater.getState();
   });
-  handle(DESKTOP_IPC.submit, (_event, prompt, options) =>
-    host.submit(requiredPromptContent(prompt), requiredSubmitOptions(options)));
   handle(DESKTOP_IPC.submitNewTask, (_event, prompt, options, draft) =>
     host.submitNewTask(
       requiredPromptContent(prompt),
       requiredSubmitOptions(options),
       requiredNewTaskDraft(draft),
-    ));
-  handle(DESKTOP_IPC.abort, (_event, options) => host.abort(requiredAbortOptions(options)));
-  handle(DESKTOP_IPC.resolveToolApproval, (_event, id, input) =>
-    host.resolveToolApproval(
-      requiredString(id, 'approval id', 1_024),
-      requiredToolApprovalDecision(input),
     ));
   // Split panes: prompt/abort/approval addressed to any pooled live session
   // (active or parked). The host contract requires every addressed route.

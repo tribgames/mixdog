@@ -777,7 +777,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     setSessionArchived: (sessionId: string, archived: boolean) =>
       call('setSessionArchived', [sessionId, archived]),
     deleteSession: (sessionId) => call('deleteSession', [sessionId]),
-    resumeSession: (sessionId) => call('resumeSession', [sessionId]),
     searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>
       call('searchProjectFiles', [projectIdOrWorkspaceId, query, limit]),
     getSnapshot: () => call('getSnapshot'),
@@ -848,13 +847,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     subscribeUpdaterState: () => () => {},
     checkForDesktopUpdate: () => Promise.resolve(DISABLED_UPDATER),
     showDesktopUpdate: () => Promise.resolve(DISABLED_UPDATER),
-    submit: (prompt, options) => call('submit', [prompt, options]),
     submitNewTask: (prompt, options, draft) => call('submitNewTask', [prompt, options, draft]),
     submitToSession: (sessionId, prompt, options) =>
       call('submitToSession', [sessionId, prompt, options]),
-    abort: (options = {}) => call('abort', [options]),
     abortSession: (sessionId, options = {}) => call('abortSession', [sessionId, options]),
-    resolveToolApproval: (id, decision) => call('resolveToolApproval', [id, decision]),
     resolveToolApprovalForSession: (sessionId, id, decision) =>
       call('resolveToolApprovalForSession', [sessionId, id, decision]),
     subscribeSessionState: (listener) => {

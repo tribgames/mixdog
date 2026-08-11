@@ -108,6 +108,16 @@ export function shouldNavigatePromptHistory({
   return historyActive && text.indexOf('\n', end) === -1;
 }
 
+export function shouldRestoreInterruptedPrompt({
+  hasDraft = false,
+  hasQueuedMessages = false,
+} = {}) {
+  // Claude Code parity: Esc while active cancels the current response. A
+  // queued follow-up owns the next turn, so the interrupted prompt must not be
+  // resurrected into the editor ahead of it.
+  return !hasDraft && !hasQueuedMessages;
+}
+
 export function mergeModelCatalog(current, incoming) {
   const models = new Map();
   for (const option of [...(Array.isArray(current) ? current : []), ...(Array.isArray(incoming) ? incoming : [])]) {

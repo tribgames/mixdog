@@ -12,9 +12,14 @@ import {
   PanelsTopLeft,
   Settings,
   Webhook,
+  Wrench,
 } from "lucide-react";
 
 import { schedulePostInteractionIdle } from "./app-idle-warmup";
+import {
+  desktopFeatureEnabled,
+  desktopSidebarDestinationEnabled,
+} from "./desktop-feature-config";
 import { t } from "./i18n";
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from "./immediate-overlay";
 import { ProviderIcon } from "./provider-display";
@@ -32,7 +37,7 @@ import {
 const USAGE_RAIL_PIN_KEY = "mixdog.desktop.usage-rail-pin.v1";
 
 export type ActivityRailSurface =
-  "projects" | "workflows" | "schedules" | "webhooks" | "settings";
+  "utilities" | "projects" | "workflows" | "schedules" | "webhooks" | "settings";
 export type ActivityRailWorkbenchSurface =
   "files" | "source-control";
 
@@ -40,6 +45,8 @@ export function ActivityRail({
   activeSurface,
   sidebarOpen,
   onToggleSessions,
+  onOpenUtilities,
+  onPrefetchUtilities,
   onOpenProjects,
   onPrefetchProjects,
   onOpenWorkflows,
@@ -60,6 +67,8 @@ export function ActivityRail({
   activeWorkbenchSurface?: ActivityRailWorkbenchSurface | null;
   sidebarOpen: boolean;
   onToggleSessions(): void;
+  onOpenUtilities(): void;
+  onPrefetchUtilities?(): void;
   onOpenProjects(): void;
   onPrefetchProjects?(): void;
   onOpenWorkflows(): void;
@@ -82,7 +91,9 @@ export function ActivityRail({
     icon: typeof PanelsTopLeft;
     onOpen(): void;
     onPrefetch?(): void;
-  }> = [
+  }> = ([
+    { id: "utilities", label: "Utilities", tooltip: "Utilities", icon: Wrench,
+      onOpen: onOpenUtilities, onPrefetch: onPrefetchUtilities },
     { id: "projects", label: "Open projects", tooltip: "Projects", icon: PanelsTopLeft,
       onOpen: onOpenProjects, onPrefetch: onPrefetchProjects },
     { id: "workflows", label: "Open workflows", tooltip: "Workflows", icon: Layers3,
@@ -91,7 +102,7 @@ export function ActivityRail({
       onOpen: onOpenSchedules, onPrefetch: onPrefetchSchedules },
     { id: "webhooks", label: "Open webhooks", tooltip: "Webhooks", icon: Webhook,
       onOpen: onOpenWebhooks, onPrefetch: onPrefetchWebhooks },
-  ];
+  ] as const).filter((surface) => desktopSidebarDestinationEnabled(surface.id));
   // Subscription usage moved off the session panel (user decision): the rail
   // hosts a VS Code account-style toggle and the panel stays a pure session
   // list. Only the dashboard MARKUP is flyout-scoped; its data lives in the
@@ -141,6 +152,7 @@ export function ActivityRail({
   // shared store before the first click, and one cadence holder keeps the
   // refresh timer independent of flyout mounts.
   useEffect(() => {
+    if (!desktopFeatureEnabled("usage")) return undefined;
     const api = usageApi ?? window.mixdogDesktop;
     const release = holdUsageDashboardCadence(api);
     const cancelPrewarm = schedulePostInteractionIdle(
@@ -180,11 +192,11 @@ export function ActivityRail({
         {/* The Sessions toggle mirrors VS Code's Explorer button: pressing it
             expands/collapses the session panel. is-active (not selected)
             tracks the OPEN panel so surface selection stays separate. */}
-        <button type="button" className={`sessions-link ${sidebarOpen ? "is-active" : ""}`}
+        {desktopFeatureEnabled("sessions") && <button type="button" className={`sessions-link ${sidebarOpen ? "is-active" : ""}`}
           aria-label={t("Sessions")} aria-expanded={sidebarOpen} aria-controls="session-sidebar"
           data-tooltip={t("Sessions")} onClick={onToggleSessions}>
           <MessageSquare size={20} aria-hidden="true" />
-        </button>
+        </button>}
         {/* Workbench tools (Explorer/Search/SCM/Debug/Tests) live ONLY on the
             right utility dock (user: 원래 의도 — 좌측은 앱 목적지, 우측은
             코드 도구). Duplicating them here split one destination across
@@ -205,7 +217,7 @@ export function ActivityRail({
         })}
       </nav>
       <div className="activity-rail-spacer" />
-      <button type="button"
+      {desktopFeatureEnabled("usage") && <button type="button"
         className={`sidebar-usage-toggle ${usageOpen ? "is-active" : ""}${
           usagePinRows.length ? " is-pinned" : ""}`}
         aria-label={t("Usage")} aria-expanded={usageOpen} aria-haspopup="dialog"
@@ -244,16 +256,16 @@ export function ActivityRail({
             })}
           </span>
           : <ChartPie size={20} aria-hidden="true" />}
-      </button>
-      <button type="button"
+      </button>}
+      {desktopFeatureEnabled("settings") && <button type="button"
         className={`sidebar-settings-button ${activeSurface === "settings" ? "selected" : ""}`}
         aria-label={t("Open settings")} aria-current={activeSurface === "settings" ? "page" : undefined}
         data-tooltip={t("Settings")} onPointerEnter={onPrefetchSettings}
         onFocus={onPrefetchSettings} onClick={onOpenSettings}>
         <Settings size={20} aria-hidden="true" />
-      </button>
+      </button>}
       {/* The flyout's bottom edge tracks the Usage button itself (user). */}
-      {usageOpen && <div className="rail-usage-popup" role="dialog" aria-label={t("Subscription usage")}
+      {desktopFeatureEnabled("usage") && usageOpen && <div className="rail-usage-popup" role="dialog" aria-label={t("Subscription usage")}
         style={{ "--rail-usage-popup-bottom": `${usageAnchorBottom}px` } as React.CSSProperties}
         data-state="open">
         {/* The popup shares the rail's host API so its open-time revalidation

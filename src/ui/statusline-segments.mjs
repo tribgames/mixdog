@@ -21,8 +21,13 @@ const SHELL_JOBS_SEGMENT_CACHE_MS = 1000;
 // Session buckets ride along with the owner-wide totals: one host process can
 // own many sessions (the desktop pools every pane's engine), so a pane must be
 // able to ask for ITS OWN jobs instead of the process aggregate.
-const EMPTY_SHELL_JOBS_SESSION = Object.freeze({ count: 0, elapsedLabel: '' });
-const EMPTY_SHELL_JOBS = Object.freeze({ count: 0, elapsedLabel: '', sessions: Object.freeze({}) });
+const EMPTY_SHELL_JOBS_SESSION = Object.freeze({ count: 0, elapsedLabel: '', jobs: Object.freeze([]) });
+const EMPTY_SHELL_JOBS = Object.freeze({
+  count: 0,
+  elapsedLabel: '',
+  jobs: Object.freeze([]),
+  sessions: Object.freeze({}),
+});
 
 let _shellJobsSegmentCache = { ownerPid: 0, at: 0, value: EMPTY_SHELL_JOBS };
 let _shellJobsRefreshInFlight = false;
@@ -136,7 +141,8 @@ async function refreshShellJobsStatus(ownerPid) {
       .slice(0, 30);
     let count = 0;
     let oldestMs = Infinity;
-    // sessionId -> { count, oldestMs }. Jobs with no session stamp (legacy
+    const jobs = [];
+    // sessionId -> { count, oldestMs, jobs }. Jobs with no session stamp (legacy
     // records, plain CLI runs) still count toward the owner total but belong to
     // no pane, so they never light up a session's indicator.
     const bySession = new Map();
@@ -153,10 +159,18 @@ async function refreshShellJobsStatus(ownerPid) {
         if (st.mtimeMs < oldestMs) oldestMs = st.mtimeMs;
       } catch {}
       const owner = String(detail?.ownerSessionId ?? '').trim();
+      const job = {
+        taskId: id,
+        command: String(detail?.command || '').trim(),
+        cwd: String(detail?.cwd || '').trim(),
+        startedAt: detail?.startedAt || (Number.isFinite(jobMs) ? jobMs : null),
+      };
+      jobs.push(job);
       if (!owner) continue;
-      const bucket = bySession.get(owner) || { count: 0, oldestMs: Infinity };
+      const bucket = bySession.get(owner) || { count: 0, oldestMs: Infinity, jobs: [] };
       bucket.count += 1;
       if (jobMs < bucket.oldestMs) bucket.oldestMs = jobMs;
+      bucket.jobs.push(job);
       bySession.set(owner, bucket);
     }
     if (count) {
@@ -167,9 +181,10 @@ async function refreshShellJobsStatus(ownerPid) {
         sessions[owner] = {
           count: bucket.count,
           elapsedLabel: Number.isFinite(bucket.oldestMs) ? formatElapsed(now - bucket.oldestMs) : '',
+          jobs: bucket.jobs,
         };
       }
-      value = { count, elapsedLabel, sessions };
+      value = { count, elapsedLabel, jobs, sessions };
     }
   } catch {
     value = EMPTY_SHELL_JOBS;

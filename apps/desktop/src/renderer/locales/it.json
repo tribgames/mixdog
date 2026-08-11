@@ -1,4 +1,5 @@
 {
+  "0s": "0 s",
   "{{connected}} connected · {{failed}} failed": "{{connected}} connessi · {{failed}} non riusciti",
   "{{count}} available": "{{count}} disponibili",
   "{{count}} changed lines exceed the 500-line render limit.": "{{count}} righe modificate superano il limite di rendering di 500 righe.",
@@ -961,6 +962,7 @@
   "Stop dictation": "Ferma dettatura",
   "Stop generation": "Ferma generazione",
   "Stopped": "Fermato",
+  "Studio": "Studio",
   "Studio navigation": "Navigazione Studio",
   "Sublimating": "Sublimare",
   "Subscription": "Abbonamento",
@@ -1055,6 +1057,7 @@
   "utility panel": "pannello utilità",
   "Utility panel": "Pannello utilità",
   "Utility panel tabs": "Schede del pannello utilità",
+  "Utilities": "Utilità",
   "Vibing": "Vibrante",
   "Video": "Video",
   "View as table": "Vista tabella",
@@ -1108,5 +1111,11 @@
   "Your changes will be lost if you don’t save them.": "Le modifiche andranno perse se non le salvi.",
   "Your name or role": "Il tuo nome o ruolo",
   "Zesting": "Scorza",
-  "Zigzagging": "Zigzagando"
+  "Zigzagging": "Zigzagando",
+  "{{agentCount}} agents": "{{agentCount}} agent",
+  "Choose how Mixdog manages long-running and idle sessions.": "Scegli come Mixdog gestisce le sessioni di lunga durata e inattive.",
+  "Interrupt and steer now": "Interrompi e guida ora",
+  "Memory and recall tools, core-memory injection, and background memory upkeep.": "Strumenti di memoria e richiamo, inserimento della memoria principale e manutenzione della memoria in background.",
+  "Steer now": "Guida ora",
+  "Steer queued follow-up now: {{text}}": "Guida ora il seguito in coda: {{text}}"
 }

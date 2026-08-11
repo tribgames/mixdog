@@ -1422,9 +1422,9 @@ test('http/sse: an untyped pre-response failure throws immediately; a typed one 
     assert.equal(typedFetches, 2, 'a typed transient errno may re-issue the POST');
 });
 
-// ── response.failed: structured code/status only, never a payload text scan ──
+// ── response.failed: typed buckets + codex-parity default-retry ─────────────
 
-test('midstream WS: response.failed retries on a typed code, never on matching text', () => {
+test('midstream WS: response.failed picks buckets from typed codes and default-retries the rest', () => {
     const state = () => ({ attemptIndex: 0, sawResponseCreated: true });
     const failedWith = (payload) => err('WS response.failed', { responseFailed: payload });
 
@@ -1447,8 +1447,9 @@ test('midstream WS: response.failed retries on a typed code, never on matching t
         'http_503',
     );
 
-    // The SAME words in free text (message / body / nested prose) are not
-    // evidence: the payload is never stringified and searched.
+    // Free text never selects a SPECIFIC bucket — but an unrecognized (or
+    // absent) code is a server-side fault and takes the bounded default
+    // retry, exactly like codex's catch-all ApiError::Retryable.
     for (const payload of [
         { response: { error: { message: 'stream_disconnected while reading the response' } } },
         { error: { message: 'upstream network_error after 3s' } },
@@ -1456,10 +1457,28 @@ test('midstream WS: response.failed retries on a typed code, never on matching t
         { body: 'network_error', detail: { note: 'stream_disconnected' } },
     ]) {
         assert.equal(
-            classifyMidstreamError(failedWith(payload), state(), WS_POLICY), null,
-            'text that merely contains a bucket name stays terminal',
+            classifyMidstreamError(failedWith(payload), state(), WS_POLICY), 'response_failed_retryable',
+            'an unrecognized wire failure is retried under the bounded budget',
         );
     }
+
+    // Deterministic refusals stay terminal: fatal codes and typed 4xx.
+    for (const payload of [
+        { response: { error: { code: 'insufficient_quota' } } },
+        { response: { error: { code: 'invalid_prompt' } } },
+        { error: { type: 'cyber_policy' } },
+        { response: { error: { status: 400, message: 'bad request' } } },
+    ]) {
+        assert.equal(
+            classifyMidstreamError(failedWith(payload), state(), WS_POLICY), null,
+            'fatal refusal codes / typed 4xx are never replayed',
+        );
+    }
+
+    // classifyError follows the same contract for the loop-level ladder.
+    assert.equal(classifyError(failedWith({ response: { error: { code: 'server_error' } } })), 'transient');
+    assert.equal(classifyError(failedWith({ response: { error: { message: 'no code at all' } } })), 'transient');
+    assert.equal(classifyError(failedWith({ response: { error: { code: 'insufficient_quota' } } })), 'permanent');
 });
 
 // ── Anthropic SSE error events: typed type/status only ──────────────────────
@@ -1488,7 +1507,10 @@ test('anthropic SSE: error events take their status from the typed error type on
     assert.equal(numeric.error.httpStatus, 502);
     assert.equal(classifyError(numeric.error), 'transient');
 
-    // Message text is never mined for a status: these stay unknown/terminal.
+    // Message text is never mined for a status — no status is synthesized.
+    // As provider wire error events, unmapped types now DEFAULT-RETRY
+    // (transient) under the shared wire-error contract instead of failing
+    // the turn as 'unknown'.
     for (const message of [
         'Overloaded, please try again later',
         'rate limit exceeded; quota will reset',
@@ -1499,6 +1521,6 @@ test('anthropic SSE: error events take their status from the typed error type on
         const { error } = await parseFrames([{ type: 'error', error: { type: 'error', message } }]);
         assert.equal(error.httpStatus, undefined, `"${message}" must not synthesize a status`);
         assert.equal(error.status, undefined);
-        assert.equal(classifyError(error), 'unknown');
+        assert.equal(classifyError(error), 'transient');
     }
 });

@@ -3,6 +3,7 @@
 // the same trust level as the built-in terminal (the full user filesystem),
 // so paths are validated for SHAPE (absolute, bounded, no NUL) instead of
 // being sandboxed to a root; mutations still refuse self-nesting/overwrites.
+import { execFile } from 'node:child_process';
 import { cp, mkdir, readdir, rename, stat, statfs, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
@@ -24,6 +25,43 @@ export interface FolderPlace {
 }
 
 const INVALID_FOLDER_ENTRY_NAME = /[\\/:*?"<>|\u0000-\u001f]/;
+const WINDOWS_ATTRIB_MAX_BUFFER = 32 * 1024 * 1024;
+
+/** Parse `attrib.exe` output without applying path-specific exceptions.
+ *  Explorer hides either Hidden or System entries in its default view. */
+export function windowsExplorerHiddenNames(output: string): Set<string> {
+  const hidden = new Set<string>();
+  for (const line of output.split(/\r?\n/)) {
+    const pathIndex = line.search(/(?:[A-Za-z]:\\|\\\\)/);
+    if (pathIndex < 0 || !/[HS]/.test(line.slice(0, pathIndex))) continue;
+    const path = line.slice(pathIndex).trimEnd();
+    if (path) hidden.add(basename(path).toLowerCase());
+  }
+  return hidden;
+}
+
+function windowsHiddenSystemNames(dir: string): Promise<Set<string>> {
+  if (process.platform !== 'win32') return Promise.resolve(new Set());
+  return new Promise((resolveHidden) => {
+    // The command is fixed and the browsed path is supplied only as cwd:
+    // no user path reaches cmd parsing. UTF-8 keeps non-ASCII entry names
+    // comparable with Node's readdir results.
+    execFile(
+      'cmd.exe',
+      ['/d', '/s', '/c', 'chcp 65001>nul & attrib.exe /L /D *'],
+      {
+        cwd: dir,
+        encoding: 'utf8',
+        maxBuffer: WINDOWS_ATTRIB_MAX_BUFFER,
+        timeout: 15_000,
+        windowsHide: true,
+      },
+      (error, stdout) => {
+        resolveHidden(error ? new Set() : windowsExplorerHiddenNames(stdout));
+      },
+    );
+  });
+}
 
 /** Shape-validated absolute path for every explorer-pane IPC argument. */
 export function browsableFolderPath(value: unknown): string {
@@ -51,7 +89,11 @@ function folderEntryName(value: unknown): string {
  *  UNCAPPED like Explorer — the pane virtualizes rendering, so the only cost
  *  is the stat pass, which runs with bounded concurrency. */
 export async function listFolderDirAbs(dir: string): Promise<FolderDirEntry[]> {
-  const entries = await readdir(dir, { withFileTypes: true });
+  const [allEntries, hiddenNames] = await Promise.all([
+    readdir(dir, { withFileTypes: true }),
+    windowsHiddenSystemNames(dir),
+  ]);
+  const entries = allEntries.filter((entry) => !hiddenNames.has(entry.name.toLowerCase()));
   const rows: FolderDirEntry[] = new Array(entries.length);
   let cursor = 0;
   const worker = async () => {

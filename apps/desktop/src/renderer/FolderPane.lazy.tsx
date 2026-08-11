@@ -179,6 +179,13 @@ function errorText(cause: unknown): string {
   return message.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, "");
 }
 
+export function folderListingErrorText(cause: unknown): string {
+  const message = errorText(cause);
+  if (/\b(?:EPERM|EACCES)\b|access (?:is )?denied/i.test(message)) return "Access denied.";
+  if (/\b(?:ENOENT|ENODEV|ENXIO)\b/i.test(message)) return "This location is unavailable.";
+  return "Couldn't open this folder.";
+}
+
 // ── Date-span labels ─────────────────────────────────────────────────────
 // Same buckets and fixed indexes; week boundaries use locale-free
 // start-of-week (Sunday) instead of culture week-of-year.
@@ -685,6 +692,7 @@ export default function FolderPane({
    *  atomic (data + scroll reset land in one commit), so entering a folder
    *  never paints an intermediate empty/staggered frame. */
   const loadedPathRef = useRef("");
+  const pendingNavigationErrorRef = useRef<{ path: string; message: string } | null>(null);
 
   const navigate = useCallback((path: string) => {
     const target = path.trim();
@@ -707,6 +715,23 @@ export default function FolderPane({
     state.index > 0 ? { ...state, index: state.index - 1 } : state);
   const goForward = () => setNav((state) =>
     state.index < state.stack.length - 1 ? { ...state, index: state.index + 1 } : state);
+  const restoreLoadedPath = useCallback((path: string) => {
+    setNav((state) => {
+      let nearest = -1;
+      let distance = Number.POSITIVE_INFINITY;
+      state.stack.forEach((candidate, index) => {
+        if (candidate.toLowerCase() !== path.toLowerCase()) return;
+        const candidateDistance = Math.abs(index - state.index);
+        if (candidateDistance < distance) {
+          nearest = index;
+          distance = candidateDistance;
+        }
+      });
+      if (nearest >= 0) return { ...state, index: nearest };
+      const stack = [...state.stack.slice(0, state.index + 1), path];
+      return { stack, index: stack.length - 1 };
+    });
+  }, []);
   const goUp = () => {
     const parent = parentFolderPath(currentPath);
     if (parent !== currentPath) navigate(parent);
@@ -789,6 +814,9 @@ export default function FolderPane({
       .then((rows) => {
         if (!live) return;
         setEntries(rows);
+        const pending = pendingNavigationErrorRef.current;
+        pendingNavigationErrorRef.current = null;
+        setError(pending?.path.toLowerCase() === target.toLowerCase() ? pending.message : "");
         if (loadedPathRef.current !== target) {
           loadedPathRef.current = target;
           scrollRef.current?.scrollTo({ top: 0 });
@@ -797,16 +825,25 @@ export default function FolderPane({
       .catch((cause) => {
         if (live) {
           const message = errorText(cause);
+          const loadedPath = loadedPathRef.current;
           if (/ENOTDIR/i.test(message)) {
             // The address box landed on a FILE: open it like Explorer and
             // fall back to the previous folder instead of an error state.
             void Promise.resolve(window.mixdogDesktop?.openFolderEntry?.(target))
               .catch(() => {});
-            goBack();
+            if (loadedPath) restoreLoadedPath(loadedPath);
+            else goBack();
+          } else if (loadedPath && loadedPath.toLowerCase() !== target.toLowerCase()) {
+            pendingNavigationErrorRef.current = {
+              path: loadedPath,
+              message: folderListingErrorText(cause),
+            };
+            restoreLoadedPath(loadedPath);
           } else {
-            setEntries([]);
-            setError(message);
-            loadedPathRef.current = target;
+            // Refresh failures keep the last valid listing. An invalid initial
+            // path has no prior listing, so it receives a normal empty state.
+            if (!loadedPath) setEntries([]);
+            setError(folderListingErrorText(cause));
           }
         }
       });

@@ -491,7 +491,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     const headLimitRaw = args.head_limit;
     const headLimitCoerced = coerceNonNegInt(headLimitRaw);
     if (Number.isNaN(headLimitCoerced)) {
-        return `Error: invalid head_limit ${JSON.stringify(headLimitRaw)}; expected a non-negative integer (0 = unlimited)`;
+        return `Error: invalid limit ${JSON.stringify(headLimitRaw)}; expected a non-negative integer (0 = unlimited)`;
     }
     const headLimit = headLimitCoerced === null
         ? _grepDefaultHeadLimit()
@@ -1514,7 +1514,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
     const headLimitRaw = args.head_limit;
     const headLimitCoerced = coerceNonNegInt(headLimitRaw);
     if (Number.isNaN(headLimitCoerced)) {
-        return `Error: invalid head_limit ${JSON.stringify(headLimitRaw)}; expected a non-negative integer (0 = unlimited)`;
+        return `Error: invalid limit ${JSON.stringify(headLimitRaw)}; expected a non-negative integer (0 = unlimited)`;
     }
     const headLimit = headLimitCoerced === null
         ? _globDefaultHeadLimit()

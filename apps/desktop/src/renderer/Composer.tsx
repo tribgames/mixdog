@@ -13,8 +13,17 @@ import { t } from "./i18n";
 import { ModelSelector } from "./model-controls";
 import { MxIcon } from "./MxIcon";
 import { ProgressSpinner } from "./ProgressSpinner";
-import { shouldNavigatePromptHistory } from "./renderer-logic.mjs";
-import { SLASH_COMMANDS, type CommandSurface as CommandSurfaceName, type SettingsSection } from "./slash-commands";
+import {
+  shouldNavigatePromptHistory,
+  shouldRestoreInterruptedPrompt,
+} from "./renderer-logic.mjs";
+import {
+  desktopSlashCommandDescription,
+  resolveDesktopSlashCommand,
+  SLASH_COMMANDS,
+  type CommandSurface as CommandSurfaceName,
+  type SettingsSection,
+} from "./slash-commands";
 import { TURN_LOCKED_SLASH_COMMANDS, asRecord, oneLine } from "./text-format";
 import { registerImagePreview } from "./transcript-metrics";
 // @ts-expect-error Shared prompt policies are plain ESM modules.
@@ -164,6 +173,7 @@ export const Composer = memo(function Composer({
   const [mentionLoading, setMentionLoading] = useState(false);
   const [mentionDismissed, setMentionDismissed] = useState('');
   const [restoring, setRestoring] = useState(false);
+  const [locallyHiddenQueueIds, setLocallyHiddenQueueIds] = useState<string[]>([]);
   // Esc-Esc message selector (TUI/Claude Code parity): pick a previous prompt,
   // rewind the conversation to it, and edit it in the composer.
   const [selectorOpen, setSelectorOpen] = useState(false);
@@ -189,6 +199,16 @@ export const Composer = memo(function Composer({
       return String(item?.id ?? `${index}:${item?.text ?? item?.displayText ?? ''}`);
     }).join('\n')
     : '';
+  useEffect(() => {
+    const liveIds = new Set((Array.isArray(queued) ? queued : [])
+      .map((entry) => asRecord(entry)?.id)
+      .filter((id) => id !== undefined && id !== null)
+      .map(String));
+    setLocallyHiddenQueueIds((current) => {
+      const next = current.filter((id) => liveIds.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [queuedProjectionKey]);
   const restoredQueueProjectionRef = useRef('');
   const hasRestorableQueuedMessages = () => Boolean(queuedProjectionKey)
     && restoredQueueProjectionRef.current !== queuedProjectionKey;
@@ -906,27 +926,32 @@ export const Composer = memo(function Composer({
           showComposerNotice('No queued messages to restore');
           return value;
         }
-        restoredQueueProjectionRef.current = queuedProjectionKey;
         const restoredIds = Array.isArray(value.ids)
           ? value.ids.map(String).filter(Boolean)
           : requestedIds;
+        restoredQueueProjectionRef.current = queuedProjectionKey;
+        const current = draftRef.current;
+        const currentCursor = textarea.current?.selectionStart ?? current.length;
+        const next = mergeQueuedRestoreDraft(queuedText, {
+          value: current,
+          cursor: currentCursor,
+          selectionAnchor: null,
+        });
+        // Commit the editor side of the handoff before retiring either the
+        // daemon row or its optimistic twin. Parent reconciliation can unmount
+        // the queue row immediately; the reclaimed text must already have a
+        // local owner when that happens.
+        draftRef.current = next.value;
+        setDraft(next.value);
+        historyNavigation.current = { index: -1, seed: '' };
+        window.setTimeout(() => {
+          textarea.current?.focus();
+          textarea.current?.setSelectionRange(next.cursor, next.cursor);
+        }, 0);
         // The engine queue is authoritative, but Conversation also holds a
         // local optimistic twin until durable settlement. Retire that twin
         // after a successful pop so it cannot resurrect the reserved row.
         onQueuedRestored?.(restoredIds);
-        setDraft((current) => {
-          const currentCursor = textarea.current?.selectionStart ?? current.length;
-          const next = mergeQueuedRestoreDraft(queuedText, {
-            value: current,
-            cursor: currentCursor,
-            selectionAnchor: null,
-          });
-          window.setTimeout(() => {
-            textarea.current?.focus();
-            textarea.current?.setSelectionRange(next.cursor, next.cursor);
-          }, 0);
-          return next.value;
-        });
       }
       return value;
     } finally {
@@ -940,10 +965,43 @@ export const Composer = memo(function Composer({
   // intentionally ignored so the current draft is untouched.
   const discardQueued = async (queuedId: string) => {
     if (restoring || queueRestoreInFlightRef.current || !queuedId) return;
+    setLocallyHiddenQueueIds((current) =>
+      current.includes(queuedId) ? current : [...current, queuedId]);
     queueRestoreInFlightRef.current = true;
     setRestoring(true);
     try {
-      await invokeCapability<RecordValue>('restoreQueued', ['', queuedId]);
+      const value = await invokeCapability<RecordValue>('restoreQueued', ['', queuedId]);
+      if (value === undefined) {
+        setLocallyHiddenQueueIds((current) => current.filter((id) => id !== queuedId));
+        return;
+      }
+      const removedIds = Array.isArray(value.ids)
+        ? value.ids.map(String).filter(Boolean)
+        : [queuedId];
+      onQueuedRestored?.(removedIds.length ? removedIds : [queuedId]);
+    } finally {
+      queueRestoreInFlightRef.current = false;
+      setRestoring(false);
+    }
+  };
+
+  const steerQueuedNow = async (queuedId: string) => {
+    if (restoring || queueRestoreInFlightRef.current || !queuedId) return;
+    setLocallyHiddenQueueIds((current) =>
+      current.includes(queuedId) ? current : [...current, queuedId]);
+    queueRestoreInFlightRef.current = true;
+    setRestoring(true);
+    try {
+      const value = await invokeCapability<RecordValue>('prioritizeQueued', [queuedId]);
+      if (!value || Number(value.count) < 1) {
+        setLocallyHiddenQueueIds((current) => current.filter((id) => id !== queuedId));
+        return;
+      }
+      const promotedIds = Array.isArray(value.ids)
+        ? value.ids.map(String).filter(Boolean)
+        : [queuedId];
+      onQueuedRestored?.(promotedIds.length ? promotedIds : [queuedId]);
+      if (turnBusy) await abort({ restorePrompt: false });
     } finally {
       queueRestoreInFlightRef.current = false;
       setRestoring(false);
@@ -1013,7 +1071,7 @@ export const Composer = memo(function Composer({
     const [token, ...tail] = raw.trim().slice(1).split(/\s+/);
     const rawName = token.toLowerCase();
     const argument = tail.join(' ').trim();
-    const command = SLASH_COMMANDS.find((entry) => entry.name === rawName || entry.aliases?.includes(rawName));
+    const command = resolveDesktopSlashCommand(rawName);
     if (!command) {
       setAttachmentError(`Unknown command: /${rawName}`);
       return false;
@@ -1042,7 +1100,9 @@ export const Composer = memo(function Composer({
     // Desktop /quit leaves THIS task, not the app (user): it rides the same
     // close path as Ctrl+W, so unsaved-close guards and group collapse apply.
     // Explicit app quit stays in the File menu.
-    else if (name === 'quit') window.dispatchEvent(new CustomEvent('mixdog:close-active-tab'));
+    else if (command.action === 'close-task') {
+      window.dispatchEvent(new CustomEvent('mixdog:close-active-tab'));
+    }
     else if (name === 'autoclear' && argument) {
       const value = argument.toLowerCase();
       const next = await commandCapability<unknown>(
@@ -1141,7 +1201,8 @@ export const Composer = memo(function Composer({
         onDraftModelSelection(selection);
         return true;
       }
-      const next = await invokeResult(() => window.mixdogDesktop.setModelRoute(selection));
+      if (!sessionId) return false;
+      const next = await invokeResult(() => window.mixdogDesktop.setModelRoute(selection, sessionId));
       if (next === undefined) return false;
       applySnapshot(next);
     } else if (name === 'model') {
@@ -1592,16 +1653,30 @@ export const Composer = memo(function Composer({
     }
   };
   const stop = async (preserveDraft = false) => {
-    const result = asRecord(await abort({ restorePrompt: !preserveDraft }));
-    if (result?.restoreText && !preserveDraft) {
+    const restorePrompt = shouldRestoreInterruptedPrompt({
+      hasDraft: preserveDraft,
+      // Use the raw editable queue projection, not the post-restore latch.
+      // A just-submitted optimistic follow-up may not have reached the daemon
+      // yet, but it still owns the next turn after this interrupt.
+      hasQueuedMessages: Boolean(queuedProjectionKey),
+    });
+    const result = asRecord(await abort({ restorePrompt }));
+    if (result?.restoreText && restorePrompt) {
       const restoredText = String(result.restoreText);
       const restored = restoredAttachments(result, restoredText);
       const acceptedText = mergeRestoredAttachments(restored.attachments, restored.text);
-      setDraft((current) => [acceptedText, current].filter(Boolean).join('\n'));
+      setDraft((current) => {
+        const next = [acceptedText, current].filter(Boolean).join('\n');
+        draftRef.current = next;
+        return next;
+      });
       window.setTimeout(() => textarea.current?.focus(), 0);
     }
   };
-  const hiddenQueueIdSet = new Set((hiddenQueueIds || []).map(String));
+  const hiddenQueueIdSet = new Set([
+    ...(hiddenQueueIds || []).map(String),
+    ...locallyHiddenQueueIds,
+  ]);
   const visibleQueued = Array.isArray(queued)
     ? queued.filter((item) => {
       const id = asRecord(item)?.id;
@@ -1612,6 +1687,7 @@ export const Composer = memo(function Composer({
     <>
       <QueueList queued={visibleQueued} restoring={restoring}
         onEdit={(id) => void restoreQueue(id)}
+        onSteer={(id) => void steerQueuedNow(id)}
         onRemove={(id) => void discardQueued(id)} />
       {/* Error/notice banners float ABOVE the input card (user-flagged: they
           previously rendered inside the pill and read as composer content). */}
@@ -1661,7 +1737,7 @@ export const Composer = memo(function Composer({
               onMouseEnter={() => setSlashIndex(index)}
               onClick={() => { void send(`/${paletteCommandToken(command)}`); }}>
               <code>{command.usage || `/${command.name}`}{command.params ? ` ${command.params}` : ''}</code>
-              <span>{command.description}</span>
+              <span>{desktopSlashCommandDescription(command)}</span>
             </button>
           )) : <p>{t("No matching command.")}</p>}
         </div>

@@ -28,7 +28,6 @@ import {
 
 import type { WorkspaceTab } from "./nav-types";
 import { t } from "./i18n";
-import { commitImmediateOverlay, useImmediateOverlayClickGuard } from "./immediate-overlay";
 import { ProgressSpinner } from "./ProgressSpinner";
 import {
   cancelLayoutFrame,
@@ -55,10 +54,6 @@ export interface WorkspaceTabStripProps {
   onReorderTab(sourceKey: string, target: string | number): void;
   onPinTab?(tab: WorkspaceTab): void;
   onNewTask(): void;
-  onNewStudio?(): void;
-  onOpenFile?(): void;
-  onNewTerminal?(): void;
-  onOpenFolder?(): void;
 }
 
 function tabIsWorking(
@@ -156,10 +151,6 @@ export function WorkspaceTabStrip({
   onReorderTab,
   onPinTab,
   onNewTask,
-  onNewStudio,
-  onOpenFile,
-  onNewTerminal,
-  onOpenFolder,
 }: WorkspaceTabStripProps) {
   // Drag frames carry the source pane so a drop can MOVE the tab between
   // groups instead of copying it.
@@ -191,7 +182,6 @@ export function WorkspaceTabStrip({
   const [draggingKey, setDraggingKey] = useState("");
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [draggingGroup, setDraggingGroup] = useState(false);
-  const [newMenu, setNewMenu] = useState<{ left: number; top: number } | null>(null);
   const [tabMenu, setTabMenu] = useState<{ key: string; left: number; top: number } | null>(null);
   const tabMenuNode = useRef<HTMLDivElement>(null);
   // Chrome parity: every renderer follows Chromium's tab_strip_layout —
@@ -228,42 +218,8 @@ export function WorkspaceTabStrip({
     const rect = element.getBoundingClientRect();
     setTabSwitcher((current) => current ? null : { left: rect.left, top: rect.bottom + 4 });
   };
-  const newButton = useRef<HTMLButtonElement>(null);
-  const newMenuNode = useRef<HTMLDivElement>(null);
-  const newMenuAnchor = useRef<{ left: number; top: number } | null>(null);
-  const newMenuClickGuard = useImmediateOverlayClickGuard();
-  const rememberNewMenuAnchor = (element: HTMLButtonElement) => {
-    const rect = element.getBoundingClientRect();
-    newMenuAnchor.current = { left: rect.left, top: rect.bottom + 4 };
-  };
-  const toggleNewMenu = (element: HTMLButtonElement) => {
-    const next = newMenu ? null : (newMenuAnchor.current
-      ?? (rememberNewMenuAnchor(element), newMenuAnchor.current));
-    commitImmediateOverlay(() => setNewMenu(next));
-  };
-  useEffect(() => {
-    if (!newMenu) {
-      newMenuAnchor.current = null;
-      return undefined;
-    }
-    const closeOutside = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (target && (newButton.current?.contains(target)
-        || newMenuNode.current?.contains(target))) return;
-      setNewMenu(null);
-    };
-    const closeMenu = () => setNewMenu(null);
-    document.addEventListener("pointerdown", closeOutside);
-    window.addEventListener("resize", closeMenu);
-    window.addEventListener("scroll", closeMenu, true);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      window.removeEventListener("resize", closeMenu);
-      window.removeEventListener("scroll", closeMenu, true);
-    };
-  }, [newMenu]);
   // VS Code-parity tab context menu (Close / Close Others / Close to the
-  // Right / Keep Open) with the same dismissal rules as the new-tab menu.
+  // Right / Keep Open) with standard outside-click dismissal.
   useEffect(() => {
     if (!tabMenu) return undefined;
     const closeOutside = (event: PointerEvent) => {
@@ -318,9 +274,8 @@ export function WorkspaceTabStrip({
     };
   }, [tabSwitcher]);
   useLayoutEffect(() => { clampOverlayIntoView(switcherNode.current); }, [tabSwitcher]);
-  // Both menus anchor to a trigger that can sit hard against the window's
-  // right edge; the measured box is what keeps them on screen.
-  useLayoutEffect(() => { clampOverlayIntoView(newMenuNode.current); }, [newMenu]);
+  // Menus can anchor hard against the window's right edge; the measured box
+  // is what keeps them on screen.
   useLayoutEffect(() => { clampOverlayIntoView(tabMenuNode.current); }, [tabMenu]);
   // VS Code fixed sizing mode freezes each tab's current width while the
   // pointer remains over the strip, allowing rapid repeated closes without
@@ -860,22 +815,10 @@ export function WorkspaceTabStrip({
         {/* The fixed add slot is OUTSIDE the horizontal viewport. At a pane's
             320px floor, tabs may scroll but can never paint beneath this
             control or make it disappear. */}
-        <button ref={newButton} type="button" className="workspace-tab-new"
-          aria-label={t("New tab")} aria-haspopup="menu" aria-expanded={Boolean(newMenu)}
-          data-tooltip={t("New tab")}
-          onPointerEnter={(event) => rememberNewMenuAnchor(event.currentTarget)}
-          onFocus={(event) => rememberNewMenuAnchor(event.currentTarget)}
-          onPointerDown={(event) => {
-            if (event.button !== 0) return;
-            newMenuClickGuard.markPointerActivation();
-            toggleNewMenu(event.currentTarget);
-          }}
-          onClick={(event) => {
-            if (newMenuClickGuard.consumePointerClick()) return;
-            if (event.detail !== 0) return;
-            toggleNewMenu(event.currentTarget);
-          }}
-          onPointerCancel={newMenuClickGuard.clearPointerActivation}>
+        <button type="button" className="workspace-tab-new"
+          aria-label={t("New task")}
+          data-tooltip={t("New task")}
+          onClick={onNewTask}>
           <Plus size={16} aria-hidden="true" />
         </button>
         {/* VS Code drag image: a text-only ghost label whose top-left corner
@@ -890,27 +833,6 @@ export function WorkspaceTabStrip({
               }
             }}>
             <span>{tabs.find((tab) => tab.key === draggingKey)?.title ?? ""}</span>
-          </div>,
-          document.body,
-        ) : null}
-        {newMenu ? createPortal(
-          <div ref={newMenuNode} className="workspace-tab-new-menu" role="menu"
-            aria-label={t("Create tab")}
-            style={{ left: newMenu.left, top: newMenu.top }}>
-            {[
-              { label: "New Task", icon: <MessageCircle size={16} />, run: onNewTask },
-              { label: "New Studio", icon: <Sparkles size={16} />, run: onNewStudio },
-              { label: "New File", icon: <FileText size={16} />, run: onOpenFile },
-              { label: "New Terminal", icon: <Terminal size={16} />, run: onNewTerminal },
-              { label: "Open Folder", icon: <Folder size={16} />, run: onOpenFolder },
-            ].map((item) => <button type="button" role="menuitem" key={item.label}
-              disabled={!item.run}
-              onClick={() => {
-                setNewMenu(null);
-                item.run?.();
-              }}>
-              {item.icon}<span>{t(item.label)}</span>
-            </button>)}
           </div>,
           document.body,
         ) : null}

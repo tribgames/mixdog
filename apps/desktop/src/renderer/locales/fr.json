@@ -1,4 +1,5 @@
 {
+  "0s": "0 s",
   "{{connected}} connected · {{failed}} failed": "{{connected}} connectés · {{failed}} en échec",
   "{{count}} available": "{{count}} disponibles",
   "{{count}} changed lines exceed the 500-line render limit.": "{{count}} lignes modifiées dépassent la limite de rendu de 500 lignes.",
@@ -961,6 +962,7 @@
   "Stop dictation": "Arrêter la dictée",
   "Stop generation": "Arrêter la génération",
   "Stopped": "Arrêté",
+  "Studio": "Studio",
   "Studio navigation": "Navigation Studio",
   "Sublimating": "Sublimer",
   "Subscription": "Abonnement",
@@ -1055,6 +1057,7 @@
   "utility panel": "panneau utilitaire",
   "Utility panel": "Panneau utilitaire",
   "Utility panel tabs": "Onglets du panneau utilitaire",
+  "Utilities": "Utilitaires",
   "Vibing": "Vibrer",
   "Video": "Vidéo",
   "View as table": "Vue en tableau",
@@ -1108,5 +1111,11 @@
   "Your changes will be lost if you don’t save them.": "Vos modifications seront perdues si vous ne les enregistrez pas.",
   "Your name or role": "Votre nom ou rôle",
   "Zesting": "Zeste",
-  "Zigzagging": "Zigzag"
+  "Zigzagging": "Zigzag",
+  "{{agentCount}} agents": "{{agentCount}} agents",
+  "Choose how Mixdog manages long-running and idle sessions.": "Choisissez comment Mixdog gère les sessions longues et inactives.",
+  "Interrupt and steer now": "Interrompre et orienter maintenant",
+  "Memory and recall tools, core-memory injection, and background memory upkeep.": "Outils de mémoire et de rappel, injection de mémoire centrale et entretien de la mémoire en arrière-plan.",
+  "Steer now": "Orienter maintenant",
+  "Steer queued follow-up now: {{text}}": "Orienter maintenant le suivi en file d’attente : {{text}}"
 }

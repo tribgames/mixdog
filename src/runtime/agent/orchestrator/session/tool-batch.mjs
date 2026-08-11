@@ -37,7 +37,6 @@ import {
     parseNativeToolSearchPayload,
 } from './loop/tool-helpers.mjs';
 import { restoreToolCallBodyForId } from './loop/stored-tool-args.mjs';
-import { commitSessionCwdProbe } from '../tools/shell-state.mjs';
 
 function classifyToolReturn(value) {
     const normalized = normalizeToolEnvelope(value);
@@ -308,7 +307,7 @@ export async function processToolBatch(ctx) {
                         _resultKind = 'error';
                     } else {
                         await opts.beforeToolExecution?.();
-                        result = await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: iterations, deferShellCwdCommit: true });
+                        result = await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: iterations });
                         toolEndedAt = Date.now();
                         // Boundary: tool-return string convention → structural kind.
                         // The only prefix check in this codebase; downstream layers
@@ -329,9 +328,6 @@ export async function processToolBatch(ctx) {
                 toolEndedAt = Date.now();
                 result = `Error: ${err instanceof Error ? err.message : String(err)}`;
                 _resultKind = 'error';
-            }
-            if (_isShellTool(call.name) && _resultKind !== 'skipped') {
-                commitSessionCwdProbe(sessionId, call.id);
             }
             // CENTRAL ENVELOPE NORMALIZE (general newMessages channel).
             // executeTool (serial + eager) and cache/error paths above all

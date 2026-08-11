@@ -2,6 +2,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import type {
+  DesktopShellJobRow,
   DesktopAgentPoolRow,
   DesktopModelOption,
 } from '../shared/contract';
@@ -42,8 +43,13 @@ export interface StatuslineSegmentsModule {
   shellJobsStatus(options?: { clientHostPid?: number; sessionId?: string }): {
     count?: number;
     elapsedLabel?: string;
+    jobs?: DesktopShellJobRow[];
     /** Per-session buckets (omitted by older runtimes). */
-    sessions?: Record<string, { count?: number; elapsedLabel?: string }>;
+    sessions?: Record<string, {
+      count?: number;
+      elapsedLabel?: string;
+      jobs?: DesktopShellJobRow[];
+    }>;
   };
 }
 

@@ -60,7 +60,7 @@ jobs:
           test "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH"
           git fetch --tags --force origin
           test "$(git rev-parse HEAD)" = "$(git rev-parse "origin/${DEFAULT_BRANCH}")"
-          node --test scripts/release-version-discipline-test.mjs
+          node --test scripts/release-gate-test.mjs
 
       - name: Resolve app version and changed native components
         id: plan

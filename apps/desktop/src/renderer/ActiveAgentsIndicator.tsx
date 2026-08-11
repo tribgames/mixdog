@@ -1,20 +1,21 @@
 import { useEffect, useState } from 'react';
 
-import { agentIcon } from './agent-icons';
-import { liveAgentRows } from './AgentActivityPane';
+import { liveAgentRows, liveShellCount } from './AgentActivityPane';
 import type { Snapshot } from './desktop-types';
 import { t } from './i18n';
+import { ProgressSpinner } from './ProgressSpinner';
 import { formatWorkElapsed } from './TranscriptView';
 
-// Active-agent chip left of the context gauge (user request): the side tab's
-// role icon breathes while agents run in this session; clicking jumps to the
-// Tasks pane of the utility dock. Hidden entirely when no agent is active.
-export function ActiveAgentsIndicator({ snapshot, onOpen }: {
+// Session-owned task chip left of the context gauge. It is the only Tasks
+// entry point and disappears with the last attached agent/background shell.
+export function ActiveTasksIndicator({ snapshot, onOpen }: {
   snapshot: Snapshot;
   onOpen(): void;
 }) {
   const agents = liveAgentRows(snapshot);
-  const active = agents.length > 0;
+  const shellCount = liveShellCount(snapshot);
+  const count = agents.length + shellCount;
+  const active = count > 0;
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return undefined;
@@ -23,12 +24,11 @@ export function ActiveAgentsIndicator({ snapshot, onOpen }: {
     return () => window.clearInterval(timer);
   }, [active]);
   if (!active) return null;
-  const Icon = agentIcon(agents[0].roleId);
   return <div className="session-agents-indicator">
     <button type="button" onClick={onOpen}
-      aria-label={t('Open agent activity: {{count}} running', { count: agents.length })}>
-      <Icon className="session-agents-icon" size={16} aria-hidden="true" />
-      {agents.length > 1 && <span className="session-agents-count">{agents.length}</span>}
+      aria-label={t('Background activity: {{count}} running', { count })}>
+      <ProgressSpinner className="session-agents-icon" size={16} aria-hidden="true" />
+      <span className="session-agents-count">{count}</span>
     </button>
     <div className="live-work-popover" role="tooltip">
       {agents.map((agent) => {
@@ -41,6 +41,10 @@ export function ActiveAgentsIndicator({ snapshot, onOpen }: {
           {elapsed && <small>{elapsed}</small>}
         </div>;
       })}
+      {shellCount > 0 && <div className="live-work-row" key="shells">
+        <span>{t('Shell')} {shellCount}</span>
+        {snapshot.shellJobs?.elapsedLabel && <small>{snapshot.shellJobs.elapsedLabel}</small>}
+      </div>}
     </div>
   </div>;
 }

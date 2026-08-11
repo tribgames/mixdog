@@ -1,4 +1,5 @@
 {
+  "0s": "0 giây",
   "{{connected}} connected · {{failed}} failed": "{{connected}} đã kết nối · {{failed}} lỗi",
   "{{count}} available": "{{count}} khả dụng",
   "{{count}} changed lines exceed the 500-line render limit.": "{{count}} dòng thay đổi vượt giới hạn hiển thị 500 dòng.",
@@ -961,6 +962,7 @@
   "Stop dictation": "Dừng đọc chính tả",
   "Stop generation": "Dừng tạo",
   "Stopped": "Đã dừng",
+  "Studio": "Studio",
   "Studio navigation": "Điều hướng Studio",
   "Sublimating": "thăng hoa",
   "Subscription": "Gói đăng ký",
@@ -1055,6 +1057,7 @@
   "utility panel": "bảng tiện ích",
   "Utility panel": "Bảng tiện ích",
   "Utility panel tabs": "Tab của bảng tiện ích",
+  "Utilities": "Tiện ích",
   "Vibing": "Rung cảm",
   "Video": "Video",
   "View as table": "Xem dạng bảng",
@@ -1108,5 +1111,11 @@
   "Your changes will be lost if you don’t save them.": "Thay đổi sẽ mất nếu bạn không lưu.",
   "Your name or role": "Tên hoặc vai trò của bạn",
   "Zesting": "Zesting",
-  "Zigzagging": "ngoằn ngoèo"
+  "Zigzagging": "ngoằn ngoèo",
+  "{{agentCount}} agents": "{{agentCount}} agent",
+  "Choose how Mixdog manages long-running and idle sessions.": "Chọn cách Mixdog quản lý các phiên chạy dài và không hoạt động.",
+  "Interrupt and steer now": "Gián đoạn và điều hướng ngay",
+  "Memory and recall tools, core-memory injection, and background memory upkeep.": "Công cụ ghi nhớ và truy xuất, chèn bộ nhớ cốt lõi và duy trì bộ nhớ nền.",
+  "Steer now": "Điều hướng ngay",
+  "Steer queued follow-up now: {{text}}": "Điều hướng nội dung tiếp theo trong hàng đợi ngay: {{text}}"
 }

@@ -6,6 +6,7 @@ import { Folder, X } from "lucide-react";
 
 import type { DesktopProjectSummary } from "../shared/contract";
 import { MIXDOG_PROJECT_PATHS_MIME } from "./file-drag";
+import { t } from "./i18n";
 import { MxIcon } from "./MxIcon";
 import { OpenSelect } from "./OpenSelect";
 import { asRecord, displayProject, queueText } from "./text-format";
@@ -175,10 +176,11 @@ export function ProjectContextSelector({ projects, activePath, activeLabel, disa
   </div>;
 }
 
-export function QueueList({ queued, restoring, onEdit, onRemove }: {
+export function QueueList({ queued, restoring, onEdit, onSteer, onRemove }: {
   queued?: unknown[];
   restoring: boolean;
   onEdit: (id: string) => void;
+  onSteer: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
   if (!Array.isArray(queued) || queued.length === 0) return null;
@@ -200,6 +202,13 @@ export function QueueList({ queued, restoring, onEdit, onRemove }: {
             <button type="button" className="queue-edit" disabled={restoring || !id}
               onClick={() => onEdit(id)} aria-label={`Edit queued follow-up: ${text}`}>
               {restoring ? "Editing…" : "Edit"}
+            </button>
+            <button type="button" className="queue-steer"
+              disabled={restoring || !id || text.trim().startsWith("/")}
+              onClick={() => onSteer(id)} aria-label={t('Steer queued follow-up now: {{text}}', { text })}
+              data-tooltip={t('Interrupt and steer now')}>
+              <MxIcon name="zap" size={13} />
+              <span>{t('Steer now')}</span>
             </button>
             <button type="button" className="queue-remove" disabled={restoring || !id}
               onClick={() => onRemove(id)} aria-label={`Remove queued follow-up: ${text}`}

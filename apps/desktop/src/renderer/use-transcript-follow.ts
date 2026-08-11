@@ -91,6 +91,8 @@ type PointerLike = {
   target: EventTarget | null;
   currentTarget: HTMLDivElement;
   buttons?: number;
+  clientX?: number;
+  clientY?: number;
 };
 type TouchLike = {
   target: EventTarget | null;
@@ -192,6 +194,7 @@ export function useTranscriptFollow({
   const gestureAt = useRef(0);
   const readerMotionAt = useRef(0);
   const touchGesture = useRef<number | undefined>(undefined);
+  const pointerGesture = useRef<{ x: number; y: number } | undefined>(undefined);
   const auto = useRef<{ top: number; time: number } | undefined>(undefined);
   const autoTimer = useRef(0);
   const scrollStateFrame = useRef(0);
@@ -440,6 +443,11 @@ export function useTranscriptFollow({
   const handlePointerDown = useCallback((event: PointerLike) => {
     if (boundaryTarget(event.currentTarget, event.target) === event.currentTarget) {
       markGesture();
+      pointerGesture.current = event.clientX === undefined || event.clientY === undefined
+        ? undefined
+        : { x: event.clientX, y: event.clientY };
+    } else {
+      pointerGesture.current = undefined;
     }
   }, [markGesture]);
 
@@ -447,8 +455,16 @@ export function useTranscriptFollow({
     if (event.buttons !== 1) return;
     if (boundaryTarget(event.currentTarget, event.target) === event.currentTarget) {
       markGesture();
+      const start = pointerGesture.current;
+      if (start && event.clientX !== undefined && event.clientY !== undefined
+        && Math.hypot(event.clientX - start.x, event.clientY - start.y) >= 4) {
+        pointerGesture.current = undefined;
+        // A live append must not scroll the transcript underneath Chromium's
+        // native text range while the reader is extending it.
+        stop("selection", lastTop.current);
+      }
     }
-  }, [markGesture]);
+  }, [markGesture, stop]);
 
   const handleTouchStart = useCallback((event: TouchLike) => {
     touchGesture.current = event.touches[0]?.clientY;

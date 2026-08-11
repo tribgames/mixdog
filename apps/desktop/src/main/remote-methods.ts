@@ -170,7 +170,6 @@ export function createRemoteMethods(
       return host.setSessionArchived(requiredSessionId(sessionId), archived);
     },
     deleteSession: ([sessionId]) => host.deleteSession(requiredSessionId(sessionId)),
-    resumeSession: ([sessionId]) => host.resumeSession(requiredSessionId(sessionId)),
     searchProjectFiles: ([projectIdOrWorkspaceId, query, limit]) => {
       if (typeof query !== 'string' || query.length > 1_024) {
         throw new TypeError('query is invalid.');
@@ -182,8 +181,6 @@ export function createRemoteMethods(
       );
     },
     getSnapshot: () => host.getSnapshot(),
-    submit: ([prompt, options]) =>
-      host.submit(requiredPromptContent(prompt), requiredSubmitOptions(options)),
     submitNewTask: ([prompt, options, draft]) => host.submitNewTask(
       requiredPromptContent(prompt),
       requiredSubmitOptions(options),
@@ -194,13 +191,8 @@ export function createRemoteMethods(
       requiredPromptContent(prompt),
       requiredSubmitOptions(options),
     ),
-    abort: ([options]) => host.abort(requiredAbortOptions(options)),
     abortSession: ([sessionId, options]) =>
       host.abortSession(requiredSessionId(sessionId), requiredAbortOptions(options)),
-    resolveToolApproval: ([id, decision]) => host.resolveToolApproval(
-      requiredString(id, 'approval id', 1_024),
-      requiredToolApprovalDecision(decision),
-    ),
     resolveToolApprovalForSession: ([sessionId, id, decision]) =>
       host.resolveToolApprovalForSession(
         requiredSessionId(sessionId),

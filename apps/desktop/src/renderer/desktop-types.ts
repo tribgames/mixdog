@@ -84,7 +84,17 @@ export type Snapshot = RecordValue & {
     explore?: { count?: number; startedAt?: number };
     search?: { count?: number; startedAt?: number };
   } | null;
-  shellJobs?: { count?: number; elapsedLabel?: string };
+  shellJobs?: {
+    count?: number;
+    elapsedLabel?: string;
+    jobs?: Array<{
+      taskId?: string;
+      task_id?: string;
+      command?: string;
+      cwd?: string;
+      startedAt?: number | string | null;
+    }>;
+  };
   workflow?: RecordValue | null;
   remoteEnabled?: boolean;
 };

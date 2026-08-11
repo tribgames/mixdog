@@ -48,6 +48,10 @@ export function shouldNavigatePromptHistory(input?: {
   altKey?: boolean;
   historyActive?: boolean;
 }): boolean;
+export function shouldRestoreInterruptedPrompt(input?: {
+  hasDraft?: boolean;
+  hasQueuedMessages?: boolean;
+}): boolean;
 export function mergeModelCatalog<T extends { provider?: string; model?: string }>(
   current: T[] | undefined,
   incoming: T[] | undefined,

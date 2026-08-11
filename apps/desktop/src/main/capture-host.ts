@@ -227,18 +227,13 @@ export class CaptureService implements DesktopService {
   async peekSession(): Promise<boolean> { return true; }
   async setVisibleSessions(): Promise<boolean> { return true; }
   async searchProjectFiles(): Promise<string[]> { return []; }
-  async submit(): Promise<boolean> { return true; }
   async submitToSession(): Promise<boolean> { return true; }
-  async abort(_options: DesktopAbortOptions = {}): Promise<{ aborted: boolean }> {
-    return { aborted: true };
-  }
   async abortSession(
     _sessionId: string,
     _options: DesktopAbortOptions = {},
   ): Promise<{ aborted: boolean }> {
     return { aborted: true };
   }
-  resolveToolApproval(_id: string, _decision: ToolApprovalDecision): boolean { return true; }
   resolveToolApprovalForSession(
     _sessionId: string,
     _id: string,
@@ -299,7 +294,6 @@ export class CaptureService implements DesktopService {
           cwd: process.cwd(),
           classification: 'task',
           projectPath: null,
-          currentSession: false,
           working: false,
         }));
       }
@@ -312,7 +306,6 @@ export class CaptureService implements DesktopService {
         cwd: process.cwd(),
         classification: 'task',
         projectPath: null,
-        currentSession: false,
         working: true,
       }];
       // The cold-history row belongs to the passes that resume it (entry,
@@ -329,7 +322,6 @@ export class CaptureService implements DesktopService {
         cwd: process.cwd(),
         classification: 'task',
         projectPath: null,
-        currentSession: false,
         working: true,
         });
       }

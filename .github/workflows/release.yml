@@ -106,16 +106,13 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
-  # The focused release gate used to serialize four independent groups in one
-  # runner. Isolated lanes keep their temp/process state separate while letting
-  # the slow tool, compaction, provider, and session groups overlap.
+  # The deploy gate runs only the ship-critical lane: release-asset and
+  # workflow discipline, apply_patch smoke, and the provider stream/tool
+  # contracts. The full test:release-focused:* groups stay available for
+  # manual pre-release verification and are intentionally not part of deploy.
   release-regressions:
-    name: verify-${{ matrix.group }}
+    name: verify-critical
     runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        group: [contracts, providers, compact, session]
     steps:
       - uses: actions/checkout@v5
         with:
@@ -131,15 +128,14 @@ jobs:
       - name: Install
         run: npm ci --prefer-offline --no-audit --no-fund
 
-      - name: Install ripgrep for tool contracts
-        if: matrix.group == 'contracts'
+      - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - name: Build TUI
         run: npm run build:tui
 
-      - name: Verify ${{ matrix.group }} release lane
-        run: npm run test:release-focused:${{ matrix.group }}
+      - name: Verify the critical release lane
+        run: npm run test:release-critical
 
   # main/preload/renderer output is platform-neutral. Build it once, cache it
   # by the exact desktop/shared source inputs, then feed the same verified

@@ -52,13 +52,15 @@ import {
 } from '../../../../shared/background-tasks.mjs';
 import { resolveShellFor } from './shell-runtime.mjs';
 import { prewarmPwshStandbyPool } from '../lib/pwsh-standby-pool.mjs';
-import { smartMiddleTruncate } from './shell-output.mjs';
+import {
+    renderBackgroundPartialOutput,
+    smartMiddleTruncate,
+} from './shell-output.mjs';
 import { normalizeOutputPath } from './path-utils.mjs';
 import { normalizeErrorMessage } from './path-diagnostics.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { resolveOptionalCwd } from './cwd-utils.mjs';
 import { scrubLoaderVars, scrubProviderSecrets, scrubRuntimeRootVars } from '../env-scrub.mjs';
-import { resolveSessionCwd, stateFilePath, wrapPowerShellWithCwdProbe, wrapBashWithCwdProbe } from '../shell-state.mjs';
 import { resourceAdmission } from '../../../../shared/resource-admission.mjs';
 
 // Post-exec drift detection. After a foreground shell command, compare the
@@ -256,12 +258,10 @@ export async function executeBashTool(args, workDir, options = {}) {
     const requestedCwd = args.cwd ?? args.workdir;
     const cwdResult = resolveOptionalCwd(requestedCwd, workDir);
     if (cwdResult.error) return formatShellToolFailure(cwdResult.error);
-    // Session cwd carry-over (no live shell): when the model
-    // passes an explicit cwd it wins and updates the store on the next probe;
-    // otherwise reuse the last stored cwd for this session if it still exists.
-    const _hasExplicitCwd = typeof requestedCwd === 'string' && requestedCwd.trim() !== '';
-    const _sessionCwdKey = options?.sessionId ?? options?.readStateScope ?? options?.callerSessionId ?? null;
-    const bashWorkDir = resolveSessionCwd(_sessionCwdKey, _hasExplicitCwd ? cwdResult.cwd : null, cwdResult.cwd);
+    // One-shot shell calls always start from the current Project root unless
+    // this call supplies cwd/workdir. A command-local `cd` must not create a
+    // second session cwd authority beside the dedicated cwd tool.
+    const bashWorkDir = cwdResult.cwd;
     const _readStateScope = options?.readStateScope ?? options?.sessionId ?? null;
     const executionMode = resolveExecutionMode(args || {}, args?.run_in_background === true ? 'async' : 'sync');
     let runInBackground = executionMode === 'async';
@@ -671,23 +671,6 @@ export async function executeBashTool(args, workDir, options = {}) {
         try { bashAbortSignal = (await getAbortSignalForSession(options?.sessionId)) || null; }
         catch { bashAbortSignal = null; }
         combinedBashAbort = _combineAbortSignals(bashAbortSignal, options?.abortSignal || null);
-        // Sync path only: chain a trailing cwd probe so the session's final
-        // working directory persists to the next shell call. Async jobs run
-        // detached and are intentionally excluded (they never reach here). The
-        // probe captures the command's exit status first and re-exits with it,
-        // so the exit code the model sees is unchanged.
-        let syncCommand = wrappedCommand;
-        try {
-            const _stateFile = stateFilePath(
-                _sessionCwdKey,
-                options?.deferShellCwdCommit === true ? options?.toolCallId : null,
-            );
-            if (_stateFile) {
-                syncCommand = (process.platform === 'win32' && shellType === 'powershell')
-                    ? wrapPowerShellWithCwdProbe(wrappedCommand, _stateFile)
-                    : wrapBashWithCwdProbe(wrappedCommand, _stateFile);
-            }
-        } catch { syncCommand = wrappedCommand; }
         // Promote-at-timeout (CC shouldAutoBackground parity). When a
         // foreground one-shot hits its timeout and is still running, adopt it
         // as a background job (task_id + notify) instead of tree-killing it.
@@ -696,7 +679,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         // MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS env. Never applies to
         // run_in_background (already detached, handled above).
         const result = await execShellCommand({
-            shell, shellArg, shellArgs, command: syncCommand,
+            shell, shellArg, shellArgs, command: wrappedCommand,
             env: spawnEnv,
             cwd: bashWorkDir,
             timeoutMs: timeout,
@@ -765,14 +748,15 @@ export async function executeBashTool(args, workDir, options = {}) {
                     });
                 } catch { /* best effort */ }
             }
-            const partialStdout = smartMiddleTruncate(stripAnsi(result.stdout || ''));
-            const partialStderr = stripAnsi(result.stderr || '');
+            const partialOutput = renderBackgroundPartialOutput(
+                stripAnsi(result.stdout || ''),
+                stripAnsi(result.stderr || ''),
+            );
             const lines = [
                 task ? renderBackgroundTask(task) : (result.jobId ? `[task_id: ${result.jobId}]` : null),
                 '',
                 result.backgroundMessage || 'auto-backgrounded; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.',
-                partialStdout ? `\n[partial stdout]\n${partialStdout}` : '',
-                (!mergeStderr && partialStderr) ? `\n[partial stderr]\n${partialStderr}` : '',
+                partialOutput ? `\n${partialOutput}` : '',
             ].filter((l) => l !== null && l !== '');
             return _prependDestructiveWarning(command, lines.join('\n'));
         }

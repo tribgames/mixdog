@@ -922,6 +922,32 @@ const shellWorkdirOutPromise = executeBuiltinTool('shell', {
   shell: 'powershell',
 }, root);
 
+const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
+const shellCwdDescription = shellTool?.inputSchema?.properties?.cwd?.description || '';
+if (!/current Project root/i.test(shellCwdDescription) || !/for this call only/i.test(shellCwdDescription)) {
+  throw new Error(`shell cwd contract must distinguish the Project root from call-local cwd: ${shellCwdDescription}`);
+}
+
+const shellProjectCwdSession = `tool-smoke-project-cwd-${process.pid}`;
+const shellLocalCdOut = await executeBuiltinTool('shell', {
+  command: 'Set-Location scripts; Get-Location | Select-Object -ExpandProperty Path',
+  timeout: 30_000,
+  shell: 'powershell',
+}, root, { sessionId: shellProjectCwdSession });
+const shellLocalCdPath = String(normalizeToolEnvelope(shellLocalCdOut).result).trim();
+if (resolve(shellLocalCdPath) !== resolve(root, 'scripts')) {
+  throw new Error(`shell command-local cd did not enter scripts: ${shellLocalCdOut}`);
+}
+const shellProjectResetOut = await executeBuiltinTool('shell', {
+  command: 'Get-Location | Select-Object -ExpandProperty Path',
+  timeout: 30_000,
+  shell: 'powershell',
+}, root, { sessionId: shellProjectCwdSession });
+const shellProjectResetPath = String(normalizeToolEnvelope(shellProjectResetOut).result).trim();
+if (resolve(shellProjectResetPath) !== root) {
+  throw new Error(`one-shot shell leaked command-local cwd instead of returning to the Project root: ${shellProjectResetOut}`);
+}
+
 const shellOut = await shellOutPromise;
 assertOk('bash explicit shell/cwd', shellOut, /v\d+\.\d+\.\d+/);
 

@@ -959,9 +959,15 @@ export async function sendViaHttpSse({
             case 'response.failed': {
                 const msg = event.response?.error?.message || event.error?.message || event.message || 'response.failed';
                 const err = new Error(`OpenAI OAuth HTTP fallback response.failed: ${msg}`);
-                // Typed status only — a text-only failure stays unclassified.
+                // Typed status only — nothing is synthesized from text. The
+                // frame itself is preserved so the wire-error default-retry
+                // classification applies (fatal codes stay terminal).
+                err.responseFailed = event;
                 const typed = typedStatusFrom(event.response?.error, event.error, event);
                 if (typed) err.httpStatus = typed;
+                const detail = event.response?.error || event.error || null;
+                const code = detail?.code ?? detail?.type ?? null;
+                if (typeof code === 'string' && code) err.providerErrorCode = code;
                 throw err;
             }
             case 'response.incomplete': {
@@ -987,8 +993,12 @@ export async function sendViaHttpSse({
             case 'error': {
                 const msg = event.message || event.error?.message || 'unknown';
                 const err = new Error(`OpenAI OAuth HTTP fallback error: ${msg}`);
+                // Same wire-error contract as response.failed.
+                err.responseFailed = event;
                 const typed = typedStatusFrom(event.error, event);
                 if (typed) err.httpStatus = typed;
+                const code = event.error?.code ?? event.error?.type ?? event.code ?? null;
+                if (typeof code === 'string' && code) err.providerErrorCode = code;
                 throw err;
             }
             default:

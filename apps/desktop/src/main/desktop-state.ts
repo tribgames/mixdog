@@ -36,7 +36,6 @@ export function desktopSnapshot(
 
 export function desktopSessionSummaries(
   rows: Array<Record<string, unknown>>,
-  currentId: string,
   titles: Readonly<Record<string, string>> = {},
   names: Readonly<Record<string, string>> = {},
   now = Date.now(),
@@ -92,8 +91,8 @@ export function desktopSessionSummaries(
     // Empty and synthetic runtime previews both normalize to no usable title.
     // Keep compacted handoffs when their earliest real user prompt can be
     // recovered, but hide abandoned/interrupted/internal rows instead of
-    // stacking "Untitled session" placeholders. The active blank remains.
-    if (!previewTitle && !manualTitle && !sharedTitle && !legacyDesktopTitle && id !== currentId) return [];
+    // stacking "Untitled session" placeholders.
+    if (!previewTitle && !manualTitle && !sharedTitle && !legacyDesktopTitle) return [];
     return [{
       id,
       preview,
@@ -104,8 +103,8 @@ export function desktopSessionSummaries(
       cwd,
       classification,
       projectPath: classification === 'project' ? projectPath : null,
-      currentSession: String(row.id || '') === currentId,
       ...(working ? { working: true } : {}),
+      ...(ownWorking ? { leadWorking: true } : {}),
       ...(agentWorking ? { agentWorking: true } : {}),
       ...(automationType ? {
         sourceType: automationType,

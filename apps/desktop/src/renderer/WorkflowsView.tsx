@@ -325,13 +325,15 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
             <div className="workflows-readonly-label">
               <span>{t('Name')}</span><small>{t('Read-only')}</small>
             </div>
-            <p className="workflows-readonly-value">{target.label}</p>
+            <p className="workflows-readonly-value"
+              data-i18n-skip={target.id === 'web-search' ? '' : undefined}>{target.label}</p>
           </div>
           <div className="schedules-field workflows-readonly-field">
             <div className="workflows-readonly-label">
               <span>{t('Description')}</span><small>{t('Read-only')}</small>
             </div>
-            <p className="workflows-readonly-value">{target.description}</p>
+            <p className="workflows-readonly-value"
+              data-i18n-skip={target.id === 'web-search' ? '' : undefined}>{target.description}</p>
           </div>
         </>}
         <div className="schedules-field">

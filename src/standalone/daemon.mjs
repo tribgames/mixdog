@@ -512,6 +512,7 @@ async function main() {
     },
     loadProjects: () => import('./projects.mjs'),
     loadSessionStore: () => import('../runtime/agent/orchestrator/session/store-summary-reader.mjs'),
+    loadStatuslineSegments: () => import('../ui/statusline-segments.mjs'),
     loadConfig: () => import('../runtime/shared/config.mjs'),
     loadCommitCompletion: () => import(
       '../runtime/agent/orchestrator/agent-runtime/commit-message-completion.mjs'

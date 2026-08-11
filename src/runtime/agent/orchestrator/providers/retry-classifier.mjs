@@ -133,6 +133,20 @@ export function classifyError(err) {
     String(item?.message || '').trim(),
   ))) return 'transient'
 
+  // Provider wire error event (`response.failed` / terminal `error` frame):
+  // default-retry, codex parity. codex maps every response.failed whose typed
+  // code is not a deterministic refusal to ApiError::Retryable (fatal codes
+  // are an explicit allow-list); cc retries all 5xx/overloaded 10×; opencode
+  // marks server_error/server_is_overloaded isRetryable. Evidence stays
+  // structural — the event's own typed code/type field — message text is
+  // never parsed. Exposure precedence is preserved: the replayUnsafe gate at
+  // the top of this function already returned 'permanent' for any stream
+  // that relayed output or dispatched a tool call.
+  {
+    const wireKind = classifyWireErrorEvent(err)
+    if (wireKind) return wireKind
+  }
+
   return 'unknown'
 }
 
@@ -303,6 +317,54 @@ function isPermanentQuotaError(err) {
     if (codes.some((code) => permanentCodes.has(String(code || '').toLowerCase()))) return true
   }
   return false
+}
+
+// ── Wire error events: default-retry with a fatal-code deny-list ────────────
+// Deterministic refusal codes a `response.failed` / `error` wire event may
+// carry: retrying the identical request can never succeed. Mirrors codex's
+// fatal set (context/quota/policy) plus the auth/billing refusals the
+// Responses and Anthropic wire formats use. Everything OUTSIDE this set —
+// server_error, server_is_overloaded, slow_down, or an event with no code at
+// all — is a server-side fault and is retried under the bounded budgets
+// (observed live 2026-08-11: two turns failed on typed `server_error`
+// response.failed events that every reference implementation retries).
+const WIRE_ERROR_FATAL_CODES = new Set([
+  'context_length_exceeded', 'context_window_exceeded',
+  'insufficient_quota', 'quota_exceeded', 'resource_exhausted',
+  'usage_not_included', 'usage_limit_reached',
+  'invalid_prompt', 'bio_policy', 'cyber_policy',
+  'invalid_request', 'invalid_request_error',
+  'invalid_api_key', 'authentication_error', 'permission_error',
+  'permission_denied', 'billing_not_active',
+])
+
+function wireErrorCode(err) {
+  const failed = err?.responseFailed
+  const detail = failed?.response?.error || failed?.error || err?.providerError || failed || null
+  for (const field of [detail?.code, detail?.type, err?.providerErrorCode]) {
+    if (typeof field === 'string' && field.trim()) return field.trim().toLowerCase()
+  }
+  return ''
+}
+
+// 'transient' | 'permanent' for errors born from a provider wire error event;
+// null for everything else (no blanket retry for untyped local failures).
+function classifyWireErrorEvent(err) {
+  if (!err || (err.responseFailed == null && err.providerWireError !== true)) return null
+  const code = wireErrorCode(err)
+  if (code && WIRE_ERROR_FATAL_CODES.has(code)) return 'permanent'
+  return 'transient'
+}
+
+/**
+ * True when `err` came from a provider wire error event whose typed code is
+ * not a deterministic refusal — i.e. the send-with-recovery loop may replay
+ * it (after text retraction when something was exposed). classifyError()
+ * reports 'permanent' the moment output was exposed, so the loop names this
+ * symptom directly, exactly like stall/truncated/non-terminal-close.
+ */
+export function isRetryableWireErrorEvent(err) {
+  return classifyWireErrorEvent(err) === 'transient'
 }
 
 /**
@@ -541,9 +603,10 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
   if (failed) {
     // STRUCTURED evidence only: the failure's own numeric status and its
     // explicit error code/type field. The payload is never stringified and
-    // searched — a message/body that merely CONTAINS "network_error",
-    // "stream_disconnected" or "auth context expired" is not a typed retry
-    // signal and leaves the turn terminal.
+    // searched — a message/body that merely CONTAINS "network_error" or
+    // "stream_disconnected" never selects a SPECIFIC bucket. Buckets need
+    // typed codes; the DEFAULT for an unrecognized (or absent) code is the
+    // bounded retry below, with fatal refusal codes staying terminal.
     const detail = failed?.response?.error || failed?.error || failed
     const failedStatus = typedStatusFrom(detail, failed?.response, failed)
     if (failedStatus >= 500 && failedStatus < 600) {
@@ -553,7 +616,15 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
       const key = typeof field === 'string' ? field.trim().toLowerCase() : ''
       const classifier = RESPONSE_FAILED_CODE_CLASSIFIERS.get(key)
       if (classifier) return _allowMidstream(classifier, attemptIndex, policy)
+      if (key && WIRE_ERROR_FATAL_CODES.has(key)) return null
     }
+    // A typed non-transient 4xx on the failure payload is a deterministic
+    // refusal even without a recognized code string.
+    if (failedStatus >= 400 && failedStatus < 500 && !TRANSIENT_STATUSES.has(failedStatus)) return null
+    // Default-retry (codex parity): a wire failure that is neither a fatal
+    // refusal nor a typed 4xx is a server-side fault — re-issue it under the
+    // bounded mid-stream budget instead of failing the turn.
+    return _allowMidstream('response_failed_retryable', attemptIndex, policy)
   }
 
   return null

@@ -80,7 +80,7 @@ export const BUILTIN_TOOLS = [
             type: 'object',
             properties: {
                 command: { type: 'string', description: `Command.${_shellSyntaxCheat}` },
-                cwd: { type: 'string', description: 'Omit for current directory; use a project-relative subdir or explicit external path.' },
+                cwd: { type: 'string', description: 'Omit to use the current Project root; use a project-relative subdir or explicit external path for this call only.' },
                 timeout: {
                     type: 'number',
                     description: `Timeout ms; default ${_shellDefaultTimeoutMs()}. Explicit values are deadlines; sync may return task_id.`,
@@ -172,6 +172,7 @@ export const BUILTIN_TOOLS = [
                     description: 'Project-relative base dir(s); omit for project root; path[] batches; absolute only outside.',
                 },
                 limit: { type: 'number', description: 'Max entries; default 100; 0 unlimited.' },
+                offset: { type: 'number', minimum: 0, description: 'Entry offset.' },
             },
             required: ['pattern'],
             additionalProperties: false,
@@ -194,6 +195,7 @@ export const BUILTIN_TOOLS = [
                 },
                 path: { type: 'string', description: 'Project-relative base; omit for project root; absolute only outside.' },
                 limit: { type: 'number', description: 'Max paths across the call. Defaults to 25.' },
+                include_noise: { type: 'boolean', description: 'Also search gitignored/dependency trees.' },
             },
             required: ['query'],
             additionalProperties: false,

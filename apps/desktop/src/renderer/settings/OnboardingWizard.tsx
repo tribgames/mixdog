@@ -196,7 +196,6 @@ export function OnboardingWizard({ api, onDone }: {
   const [styles, setStyles] = useState<RecordValue[]>([]);
   const [profile, setProfile] = useState<RecordValue>({});
   const [workflows, setWorkflows] = useState<RecordValue[]>([]);
-  const [recapEnabled, setRecapEnabled] = useState(true);
   const [autoClearOn, setAutoClearOn] = useState(true);
   const [compactAuto, setCompactAuto] = useState(true);
   const [channelSetup, setChannelSetup] = useState<RecordValue>({});
@@ -277,7 +276,6 @@ export function OnboardingWizard({ api, onDone }: {
         { capability: 'getSearchRoute' },
         { capability: 'getProfile' },
         { capability: 'listWorkflows' },
-        { capability: 'getRecapSettings' },
         { capability: 'getChannelSetup' },
         { capability: 'getAutoClear' },
         { capability: 'getCompactionSettings' },
@@ -303,10 +301,9 @@ export function OnboardingWizard({ api, onDone }: {
       setStyle(String(record(output.current).id || output.configured || 'default'));
       setProfile(record(values[5]));
       setWorkflows(rows(values[6]));
-      setRecapEnabled(record(values[7]).enabled !== false);
-      setChannelSetup(record(values[8]));
-      setAutoClearOn(record(values[9]).enabled !== false);
-      setCompactAuto(record(values[10]).auto !== false);
+      setChannelSetup(record(values[7]));
+      setAutoClearOn(record(values[8]).enabled !== false);
+      setCompactAuto(record(values[9]).auto !== false);
       const snapshot = record(snapshotResult);
       if (snapshot.provider && snapshot.model) {
         setMainRoute({
@@ -533,9 +530,8 @@ export function OnboardingWizard({ api, onDone }: {
             onChange={(id) => setWorkflows((list) => list.map((workflow) =>
               ({ ...workflow, active: String(workflow.id) === id })))} />}
           {meta.id === 'git' && <GitStep api={api} />}
-          {meta.id === 'memory' && <ContextStep recapEnabled={recapEnabled} autoClearOn={autoClearOn}
-            compactAuto={compactAuto} pending={pending} run={run}
-            onRecap={setRecapEnabled} onAutoClear={setAutoClearOn} onCompact={setCompactAuto} />}
+          {meta.id === 'memory' && <ContextStep autoClearOn={autoClearOn} compactAuto={compactAuto}
+            pending={pending} run={run} onAutoClear={setAutoClearOn} onCompact={setCompactAuto} />}
           {meta.id === 'channels' && <ChannelsStep setup={channelSetup} pending={pending} run={run}
             onReload={() => void load(true)} />}
           {meta.id === 'theme' && <ThemeStep mode={themeMode} onSelect={(next) => {
@@ -1173,23 +1169,16 @@ function WorkflowStep({ workflows, pending, run, onChange }: {
   })}</div>;
 }
 
-// Context step: the memory choice plus the session-lifecycle toggles
-// (auto-compact / auto-clear) — the onboarding face of Settings → Context.
-function ContextStep({ recapEnabled, autoClearOn, compactAuto, pending, run, onRecap, onAutoClear, onCompact }: {
-  recapEnabled: boolean;
+// Context step: session-lifecycle toggles (auto-compact / auto-clear) — the
+// onboarding face of Settings → Context. Memory has one master in General.
+function ContextStep({ autoClearOn, compactAuto, pending, run, onAutoClear, onCompact }: {
   autoClearOn: boolean;
   compactAuto: boolean;
   pending: string;
   run: RunCapability;
-  onRecap(next: boolean): void;
   onAutoClear(next: boolean): void;
   onCompact(next: boolean): void;
 }) {
-  // On/Off as two radio cards (user request) instead of a state pill + toggle.
-  const recapOptions = [
-    { value: true, label: t('Recap on'), hint: t('Summarize recent sessions in background memory cycles.') },
-    { value: false, label: t('Recap off'), hint: t('Pause background recaps; core memories and on-demand recall stay available.') },
-  ];
   const lifecycle = [
     { key: 'compact', label: t('Auto-compact'), hint: t('Compact automatically as the context reaches its limit'),
       value: compactAuto, apply: onCompact,
@@ -1200,22 +1189,8 @@ function ContextStep({ recapEnabled, autoClearOn, compactAuto, pending, run, onR
   ];
   return <div className="onboarding-star-card onboarding-connect-card onboarding-context-card">
     <div>
-      <span className="onboarding-connect-title">{t('Memory recap')}</span>
-      <p>{t('Choose whether Mixdog summarizes recent sessions in the background. Core memory remains available either way.')}</p>
-    </div>
-    <div className="onboarding-memory-options" role="radiogroup" aria-label={t('Memory recap')}>
-      {recapOptions.map(({ value, label, hint }) => <button type="button" key={label} role="radio"
-        aria-checked={recapEnabled === value} className={recapEnabled === value ? 'selected' : ''}
-        disabled={Boolean(pending)}
-        onClick={() => {
-          if (recapEnabled === value) return;
-          void run('setRecapEnabled', [value], 'onboarding-recap').then((result) => {
-            if (result !== undefined) onRecap(value);
-          });
-        }}>
-        <i aria-hidden="true" />
-        <span><b>{label}</b><small>{hint}</small></span>
-      </button>)}
+      <span className="onboarding-connect-title">{t('Session lifecycle')}</span>
+      <p>{t('Choose how Mixdog manages long-running and idle sessions.')}</p>
     </div>
     {/* Lifecycle toggles live inside the card: a separate section overflowed
         the fixed-height dialog into a scrollbar (user: 스크롤 안 나오게). */}
