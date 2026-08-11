@@ -20,6 +20,7 @@ import {
   materializePromptSubmission,
   preparePromptSubmissionForProvider,
 } from '../runtime/attachments/store.mjs';
+import { hasActiveBackgroundTasks } from '../runtime/shared/background-tasks.mjs';
 
 const MAX_CLONE_DEPTH = 24;
 const requireDesktopService = createRequire(import.meta.url);
@@ -246,6 +247,12 @@ export function createSessionService({
   }
 
   function sessionBusy(entry) {
+    const sessionId = currentSessionId(entry);
+    // CC parity: detached views do not make their background commands
+    // disposable. Keep the owner runtime (and daemon self-shutdown guard) live
+    // until the task reaches a terminal state and its completion can be
+    // delivered back into this session.
+    if (sessionId && hasActiveBackgroundTasks({ callerSessionId: sessionId })) return true;
     if (typeof entry?.busy === 'boolean') return entry.busy;
     try {
       return updateEntryBusy(entry, entry.runtime.getState?.() || {});
@@ -254,6 +261,14 @@ export function createSessionService({
       // far worse than holding an extra process for one sweep.
       return true;
     }
+  }
+
+  function liveBusyCount() {
+    let count = 0;
+    for (const entry of sessions) {
+      if (sessionBusy(entry)) count += 1;
+    }
+    return count;
   }
 
   function startEvictionSweep() {
@@ -1241,8 +1256,9 @@ export function createSessionService({
     configureSession, stop, releaseClient,
     get size() { return sessions.size; },
     /** Live work the daemon must not abandon (self-shutdown guard). */
-    get busyCount() { return busyEntries; },
+    get busyCount() { return liveBusyCount(); },
     get status() {
+      const busy = liveBusyCount();
       let watched = 0;
       let retained = 0;
       let projected = 0;
@@ -1253,7 +1269,7 @@ export function createSessionService({
       }
       return {
         live: sessions.size,
-        busy: busyEntries,
+        busy,
         watched,
         retained,
         projected,
