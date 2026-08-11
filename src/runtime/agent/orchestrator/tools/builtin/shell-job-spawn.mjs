@@ -63,6 +63,17 @@ import {
     psSingleQuote,
     isPowerShellShell,
 } from './lib/shell-spawn-helpers.mjs';
+import os from 'node:os';
+
+// Background work yields CPU to interactive tool calls: demote the job's
+// process priority best-effort (below-normal). Children inherit it. Purely a
+// scheduling hint — failures (permissions, dead pid) are ignored.
+// MIXDOG_BG_PRIORITY=0 disables.
+export function demoteBackgroundShellPriority(pid) {
+    if (process.env.MIXDOG_BG_PRIORITY === '0') return;
+    if (!Number.isFinite(pid) || pid <= 0) return;
+    try { os.setPriority(pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch { /* best-effort */ }
+}
 
 // Facade re-exports: path/detail helpers and the job-not-found message moved
 // to sibling modules; keep existing importers of shell-jobs.mjs resolving.
@@ -186,6 +197,7 @@ export async function _startBackgroundShellJobImpl({
         try { unlinkSync(wrappedTempPath); } catch {}
         return { jobId, kind: 'bash', status: 'failed', error: `failed to spawn shell background task: ${e?.message || e}` };
     }
+    demoteBackgroundShellPriority(child.pid);
     const detail = {
         jobId,
         kind: 'bash',
@@ -429,6 +441,7 @@ async function startBackgroundPowerShellJob({
     if (!Number.isFinite(childPid) || childPid <= 0) {
         return { jobId, kind: 'bash', status: 'failed', error: 'PowerShell background task spawn returned no pid' };
     }
+    demoteBackgroundShellPriority(childPid);
     const detail = {
         jobId,
         kind: 'bash',

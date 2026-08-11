@@ -18,7 +18,7 @@ import {
     getBackgroundTask,
 } from '../../../../shared/background-tasks.mjs';
 import { startChildGuardian } from '../../../../shared/child-guardian.mjs';
-import { _startBackgroundShellJobImpl } from './shell-job-spawn.mjs';
+import { _startBackgroundShellJobImpl, demoteBackgroundShellPriority } from './shell-job-spawn.mjs';
 import { detachedSpawnOpts } from '../../../../shared/spawn-flags.mjs';
 import {
     getShellJobsDir,
@@ -804,6 +804,9 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
 // 'running' detail.
 export function adoptForegroundShellJob({ command, cwd, pid, timeoutMs, mergeStderr, stdoutPath, stderrPath, clientHostPid, ownerSessionId }) {
     const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    // Auto-backgrounded work is by definition long-running: yield CPU to
+    // interactive tool calls from here on (children inherit the class).
+    demoteBackgroundShellPriority(pid);
     const exitPath = shellJobExitPath(jobId);
     const donePath = shellJobDonePath(jobId);
     const detail = {

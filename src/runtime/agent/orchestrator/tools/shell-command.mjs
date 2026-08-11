@@ -35,6 +35,7 @@ import * as nodeUtil from 'node:util';
 import { getPluginData } from '../config.mjs';
 import { startChildGuardian } from '../../../shared/child-guardian.mjs';
 import { resourceAdmission } from '../../../shared/resource-admission.mjs';
+import { acquire as acquireChildSpawnSlot } from '../../../shared/child-spawn-gate.mjs';
 // Runtime-only import (used inside execShellCommand's auto-background
 // transition). shell-jobs.mjs imports stripAnsi from this module, so this is
 // a static cycle — safe because neither binding is touched at module-eval
@@ -415,7 +416,17 @@ export function execShellCommand({
       // 'close' fires with 'exit' and grandchildren cannot hold the capture
       // open. Falls back to pipe capture if the files cannot be opened.
       const _directCapture = SHELL_DIRECT_CAPTURE ? taskOutput.openDirectCapture() : null;
-      const spawned = await _spawnShellWithRetry({
+      // Spawn-burst gate: hold a 'process-spawn' slot only across process
+      // creation (CreateProcess + AV scan + EPERM retries), released the
+      // moment the child exists. Bounds the Defender convoy a shell burst
+      // creates without limiting how many commands RUN concurrently — the
+      // full-lifetime gating concern in the note below stays true.
+      const _releaseSpawnSlot = await acquireChildSpawnSlot(abortSignal || null, 'process-spawn', {
+        ownerKey: ownerSessionId,
+      });
+      let spawned;
+      try {
+        spawned = await _spawnShellWithRetry({
         shell,
         argv,
         shellArg,
@@ -427,20 +438,19 @@ export function execShellCommand({
         stdio: _directCapture
           ? ['ignore', _directCapture.stdoutFd, _directCapture.stderrFd]
           : ['ignore', 'pipe', 'pipe'],
-        // NOTE (child-spawn-gate): intentionally NOT routed through
-        // src/runtime/shared/child-spawn-gate.mjs. bash/pwsh commands can run
-        // for minutes (or auto-background), so holding a finite gate slot for
-        // the whole lifetime would let a few long shells starve rg/code_graph —
-        // the opposite of the gate's intent. TODO: if shell saturation becomes
-        // a problem, gate only the brief spawn burst (release on first output /
-        // adoption), not the full run.
+        // NOTE (child-spawn-gate): the full command lifetime is intentionally
+        // NOT gated — bash/pwsh commands can run for minutes and would starve
+        // rg/code_graph. Only the spawn window above holds a slot.
         // POSIX: detached gives the child its own process group so treeKill can
         // signal the whole group. The child is still CLI-owned because we do
         // not unref it after adoption. Windows detached has different console
         // semantics, so it stays off there.
         detached: process.platform !== 'win32',
         },
-      });
+        });
+      } finally {
+        try { _releaseSpawnSlot(); } catch { /* idempotent */ }
+      }
       child = spawned.child;
       spawned.adoptErrorHandler(_onChildError);
       }
