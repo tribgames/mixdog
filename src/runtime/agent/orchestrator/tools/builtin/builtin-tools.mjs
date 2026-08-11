@@ -24,7 +24,7 @@ function _shellMaxTimeoutMs() {
 // Platform-specific command syntax belongs next to the command argument.
 const _shellSyntaxCheat =
     process.platform === 'win32'
-        ? ' PowerShell: use ; between independent commands; use if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent commands; /c/→C:\\; $PID is reserved.'
+        ? ' PowerShell: use ; between independent commands; use if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent commands; single-quote inline scripts, avoid nested double quotes; /c/→C:\\; $PID is reserved.'
         : ' Bash: use && between dependent commands.';
 
 export const BUILTIN_TOOLS = [

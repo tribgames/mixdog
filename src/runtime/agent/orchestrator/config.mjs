@@ -339,7 +339,6 @@ function canonicalizeShellStorage(value) {
 function canonicalizeModulesStorage(value) {
     const modules = configObject(value);
     delete modules.memory;
-    delete modules.explore;
     for (const name of ['search']) {
         if (!Object.prototype.hasOwnProperty.call(modules, name)) continue;
         const raw = modules[name];

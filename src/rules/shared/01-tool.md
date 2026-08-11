@@ -27,7 +27,10 @@
   route each once to the cheapest sufficient tool with all required
   variants/scopes, and launch every independent call together — never
   split or duplicate a facet across tools, mutate merely to widen
-  retrieval, reserve known work, or cap fanout. Symbol relations end at
+  retrieval, reserve known work, or cap fanout. Guessed terms go wide
+  with batched fan-out; narrow a scope only on verified cues — returned
+  siblings/conventions or known literals. Mine each returned output for
+  every remaining facet before the next round. Symbol relations end at
   `code_graph`; values/locations end at the context grep returns; `read`
   covers only what returned spans cannot, as an anchored offset/limit
   window. The moment evidence determines the answer, edit, or deliverable,
