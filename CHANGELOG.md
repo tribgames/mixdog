@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.114 - 2026-08-11
+
 - Guessed tool identities are now verified before dependent calls, with an H3
   Terminal-Bench round analysis recording the resulting retrieval patterns.
 
