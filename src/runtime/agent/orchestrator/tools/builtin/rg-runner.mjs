@@ -582,15 +582,14 @@ function spawnRg(argsList, execOptions) {
 }
 
 export async function runRg(argsList, execOptions = {}) {
-    // `rg --files` (glob tool) has the same spawn-dominated cost profile as
-    // content grep; the resident server answers it without a process. Only a
-    // COMPLETE served listing substitutes for the buffered-stdout contract.
-    if (argsList.includes('--files')) {
-        try {
-            const served = await tryServeSearch(argsList, execOptions, { offset: 0, limit: 0 });
-            if (served && served.complete) return served.lines.join('\n');
-        } catch { /* server is an accelerator only */ }
-    }
+    // Resident server first for BOTH profiles — `rg --files` (glob tool) and
+    // buffered content grep share the spawn-dominated cost. Unsupported args
+    // answer null and fall through to the real spawn. Only a COMPLETE served
+    // result substitutes for the buffered-stdout contract.
+    try {
+        const served = await tryServeSearch(argsList, execOptions, { offset: 0, limit: 0 });
+        if (served && served.complete) return served.lines.join('\n');
+    } catch { /* server is an accelerator only */ }
     await assertRgAvailable();
     try {
         return await spawnRg(argsList, execOptions);
