@@ -27,7 +27,11 @@ import { spawn } from 'node:child_process';
 import { basename } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { availableParallelism, freemem } from 'node:os';
-import { killProcessTree, windowsPidHasDescendants } from '../builtin/shell-job-process.mjs';
+import {
+    killProcessTree,
+    windowsPidDescendants,
+    windowsPidHasDescendants,
+} from '../builtin/shell-job-process.mjs';
 
 const MB = 1024 * 1024;
 
@@ -269,6 +273,8 @@ function _spawnStandby(shell, env, sig) {
         sig,
         nonce,
         ready: false,
+        baselinePending: false,
+        baselineDescendants: null,
         taken: false,
         consumed: false,
         idleTimer: null,
@@ -281,9 +287,27 @@ function _spawnStandby(shell, env, sig) {
             if (readyTail.length > readyMarker.length * 2) readyTail = readyTail.slice(-readyMarker.length * 2);
             return;
         }
-        entry.ready = true;
         try { child.stdout.removeListener('data', onReadyData); } catch {}
-        _signalStandbyChange();
+        if (entry.baselinePending) return;
+        entry.baselinePending = true;
+        // pwsh owns a persistent conhost child before it becomes READY. Record
+        // that clean baseline once; recycle rejects only NEW descendants, with
+        // creation identities preventing PID-reuse false negatives.
+        void windowsPidDescendants(child.pid).then((baseline) => {
+            entry.baselinePending = false;
+            if (!baseline || child.exitCode !== null || child.signalCode !== null) {
+                _discardIdle(entry);
+                _killEntry(entry);
+                return;
+            }
+            entry.baselineDescendants = baseline;
+            entry.ready = true;
+            _signalStandbyChange();
+        }, () => {
+            entry.baselinePending = false;
+            _discardIdle(entry);
+            _killEntry(entry);
+        });
     };
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', onReadyData);
@@ -428,7 +452,11 @@ export function takePwshStandby({ shell, shellArgs, env }) {
             const alive = () => c.exitCode === null && c.signalCode === null;
             let dirty = true;
             if (alive() && c.stdin && !c.stdin.destroyed) {
-                try { dirty = await windowsPidHasDescendants(c.pid); } catch { dirty = true; }
+                try {
+                    dirty = await windowsPidHasDescendants(c.pid, {
+                        allowedDescendants: entry.baselineDescendants,
+                    });
+                } catch { dirty = true; }
             }
             if (dirty || !alive() || !c.stdin || c.stdin.destroyed
                 || _idle.length >= POOL_TARGET || _envSig !== entry.sig) {

@@ -1586,28 +1586,40 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--mx-pressed);
   box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
 }
-.session-sidebar-panels .utilities-row {
+.session-sidebar-panels .schedules-row.utilities-row {
   width: 100%;
+  height: 76px;
+  padding: 9px var(--mx-rail-gutter);
   color: inherit;
   text-align: left;
   cursor: pointer;
 }
-/* Utilities are launchers, not state rows: each keeps its identity glyph in a
-   small item-surface tile (the blanket rail rule hides decorative row icons,
-   so the tile wears its own class), a one-line description under the title,
-   and a trailing chevron that reads as "opens a tab" (user: 아이콘도 넣고
-   설명도 한 줄, → 같은 버튼으로 인식할 만한 것도). */
+/* Utility launchers keep a fixed frame: identity sits above two lines of
+   description while the trailing chevron stays centered on the whole row. */
 .session-sidebar-panels .utilities-row { gap: 10px; }
+.session-sidebar-panels .utilities-row-copy { gap: 3px; }
+.session-sidebar-panels .utilities-row-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .session-sidebar-panels .utilities-row-icon {
   flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
+  width: 20px;
+  height: 20px;
   display: grid;
   place-items: center;
-  border-radius: 7px;
   color: var(--mx-text-soft);
-  background: var(--mx-rail-item-surface);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
+.session-sidebar-panels .utilities-row .schedules-row-copy small {
+  display: -webkit-box;
+  line-height: 15px;
+  overflow: hidden;
+  color: var(--mx-text-soft);
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .session-sidebar-panels .utilities-row-chevron {
   flex: 0 0 auto;
@@ -9578,6 +9590,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    history mounts already failed and must not replay the signal. */
 .tool-card.failed .tool-icon,
 .tool-state.failed { color: var(--mx-danger); }
+.tool-state.warning { color: var(--mx-warning); }
 .tool-card.failed.failure-arrived .tool-icon svg { animation: tool-failed-blink 700ms ease-in-out 2; }
 @keyframes tool-failed-blink { 50% { opacity: var(--mx-op-ghost); } }
 /* TUI toolStatusColor parity, and the user's stated palette: positive green,
@@ -9593,11 +9606,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .tool-card:not(.settled) .tool-icon {
   color: var(--mx-text-muted);
 }
-/* Re-assert failure red AFTER the settled green (equal specificity — source
-   order decides), then the amber states override red for their cases. */
+/* Re-assert outcome colors AFTER settled green (equal specificity — source
+   order decides). Warning means the invocation returned but its work failed
+   or only part of a mutation committed; red is total invocation failure. */
 .tool-card.failed .tool-icon { color: var(--mx-danger); }
-.tool-card.exited .tool-icon { color: var(--mx-warning); }
-.tool-card.failed.partial-failed .tool-icon { color: var(--mx-warning); }
+.tool-card.warning .tool-icon { color: var(--mx-warning); }
 @media (prefers-reduced-motion: reduce) {
   .tool-card.failed.failure-arrived .tool-icon svg { animation: none; }
 }
@@ -10538,9 +10551,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    min-width:auto, which lets one long unbreakable name inflate the column. */
 .utility-dock-pane > * { min-width: 0; }
 /* Panel-specific headers and their bodies stay in one stable layer, so a tab
-   commit can never pair a Files toolbar with Source Control content. */
-.utility-dock-pane[data-tab="tasks"],
-.utility-dock-pane[data-tab="files"],
+   commit can never pair a Search toolbar with Source Control content. */
+.utility-dock-pane[data-tab="agents"],
+.utility-dock-pane[data-tab="search"],
 .utility-dock-pane[data-tab="source-control"],
 .utility-dock-pane[data-tab="pull-requests"] { overflow: hidden; padding: 0; }
 .dock-change { border-bottom: .5px solid var(--mx-border-muted); }

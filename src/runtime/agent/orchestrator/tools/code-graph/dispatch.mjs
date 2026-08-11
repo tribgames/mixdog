@@ -2,9 +2,10 @@
 // resolveSymbolReadSpan, executeCodeGraphTool (entry with cwd re-rooting +
 // batch fan-out + abort race), isCodeGraphTool. Extracted verbatim from
 // code-graph.mjs.
-import { resolve as pathResolve, isAbsolute, relative as pathRelative, basename as pathBasename } from 'node:path';
+import { resolve as pathResolve, isAbsolute, relative as pathRelative, basename as pathBasename, extname } from 'node:path';
 import { homedir as osHomedir } from 'node:os';
 import { existsSync, statSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { normalizeInputPath, toDisplayPath } from '../builtin.mjs';
 import { findFileByBasename } from '../builtin/path-diagnostics.mjs';
 import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
@@ -54,6 +55,32 @@ import {
 const CODE_GRAPH_BATCHABLE_MODES = new Set(['symbol', 'find_symbol', 'symbol_search', 'callers', 'callees', 'references']);
 const CODE_GRAPH_FILE_BATCHABLE_MODES = new Set(['imports', 'dependents', 'related', 'impact', 'symbols', 'overview']);
 const CODE_GRAPH_BATCH_CONCURRENCY = 20;
+
+function _outlineLanguageForPath(file) {
+  const ext = extname(String(file || '')).slice(1);
+  if (['js', 'mjs', 'cjs', 'jsx'].includes(ext)) return 'javascript';
+  if (['ts', 'tsx', 'mts', 'cts'].includes(ext)) return 'typescript';
+  if (ext === 'py') return 'python';
+  if (ext === 'go') return 'go';
+  if (ext === 'rs') return 'rust';
+  if (ext === 'java') return 'java';
+  if (ext === 'kt' || ext === 'kts') return 'kotlin';
+  if (ext === 'cs') return 'csharp';
+  if (ext === 'rb') return 'ruby';
+  if (ext === 'php') return 'php';
+  if (ext === 'swift') return 'swift';
+  if (ext === 'c' || ext === 'h') return 'c';
+  if (['cpp', 'cc', 'cxx', 'hpp', 'hxx'].includes(ext)) return 'cpp';
+  if (ext === 'scala' || ext === 'sc') return 'scala';
+  if (ext === 'sh' || ext === 'bash' || ext === 'zsh') return 'bash';
+  if (ext === 'lua') return 'lua';
+  if (ext === 'dart') return 'dart';
+  if (ext === 'm' || ext === 'mm') return 'objc';
+  if (ext === 'ex' || ext === 'exs') return 'elixir';
+  if (ext === 'zig') return 'zig';
+  if (ext === 'r' || ext === 'R') return 'r';
+  return null;
+}
 
 async function _mapWithConcurrency(values, mapper) {
   const out = new Array(values.length);
@@ -263,6 +290,28 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     if (symbols.length > 0) prewarmCodeGraphSymbols(cwd, symbols);
     else prewarmCodeGraph(cwd);
     return `prewarm scheduled: cwd=${cwd} symbols=${symbols.length}${symbols.length ? ` (${symbols.slice(0, 5).join(',')}${symbols.length > 5 ? `,+${symbols.length - 5}` : ''})` : ''}`;
+  }
+
+  // A file outline is source-local: it needs neither imports nor reverse
+  // edges. Read the explicit file directly instead of waiting for a cold
+  // whole-project graph build. Relationship and name-search modes keep the
+  // full graph path below.
+  if (mode === 'symbols') {
+    const normFile = normalizeInputPath(args?.file);
+    const abs = normFile
+      ? (isAbsolute(normFile) ? pathResolve(normFile) : pathResolve(cwd, normFile))
+      : null;
+    const lang = abs ? _outlineLanguageForPath(abs) : null;
+    if (abs && lang) {
+      if (signal?.aborted) throw new Error('aborted');
+      try {
+        const text = await readFile(abs, { encoding: 'utf8', signal: signal || undefined });
+        return _extractSymbolsCheap(text, lang);
+      } catch (error) {
+        if (signal?.aborted) throw new Error('aborted');
+        if (error?.code !== 'ENOENT' && error?.code !== 'EISDIR') throw error;
+      }
+    }
   }
 
   const graph = await buildCodeGraphAsync(cwd, signal, {

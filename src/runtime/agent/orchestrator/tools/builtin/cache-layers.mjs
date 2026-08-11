@@ -357,19 +357,17 @@ export async function lstatPathsForMtime(paths, workDir, concurrency = Infinity,
     return out;
 }
 
-// Extra invalidation listeners: sibling modules with their own derived caches
-// (e.g. the broad find-enumeration cache in list-tool) register a clear
-// callback here so every write-invalidation event that drops the result/stat/
-// raw caches also drops theirs. Full clear is intentional — those entries are
-// cheap to rebuild and a path-scoped diff is not worth the coupling.
+// Extra invalidation listeners: sibling modules with derived caches receive
+// the normalized affected paths, or null for a full clear, so unrelated
+// project inventories survive writes in another temporary/project root.
 const EXTRA_INVALIDATION_LISTENERS = new Set();
 export function registerCacheInvalidationListener(fn) {
     if (typeof fn === 'function') EXTRA_INVALIDATION_LISTENERS.add(fn);
     return () => EXTRA_INVALIDATION_LISTENERS.delete(fn);
 }
-function runExtraInvalidationListeners() {
+function runExtraInvalidationListeners(affectedPaths = null) {
     for (const fn of EXTRA_INVALIDATION_LISTENERS) {
-        try { fn(); } catch { /* best-effort: one listener must not block others */ }
+        try { fn(affectedPaths); } catch { /* best-effort: one listener must not block others */ }
     }
 }
 
@@ -411,9 +409,7 @@ function cacheInvalidatePaths(paths) {
         deleteReadRangeIndexForPath(affected);
         bumpPathMutationGeneration(affected);
     }
-    // Broad enumeration entries are not path-scoped, so any partial
-    // invalidation still fully drops them (cheap to rebuild).
-    runExtraInvalidationListeners();
+    runExtraInvalidationListeners(affectedPaths);
 }
 
 export function invalidateBuiltinResultCache(paths = null) {

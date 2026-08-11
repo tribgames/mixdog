@@ -39,7 +39,7 @@ const USAGE_RAIL_PIN_KEY = "mixdog.desktop.usage-rail-pin.v1";
 export type ActivityRailSurface =
   "utilities" | "projects" | "workflows" | "schedules" | "webhooks" | "settings";
 export type ActivityRailWorkbenchSurface =
-  "files" | "source-control";
+  "search" | "source-control";
 
 export function ActivityRail({
   activeSurface,

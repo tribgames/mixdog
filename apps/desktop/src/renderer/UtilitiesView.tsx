@@ -42,9 +42,11 @@ export function UtilitiesPane({
         {items.map(({ label, description, icon: Icon, run }) => (
           <button type="button" className="schedules-row utilities-row"
             key={label} onClick={run}>
-            <span className="utilities-row-icon" aria-hidden="true"><Icon size={16} /></span>
-            <span className="schedules-row-copy">
-              <b>{t(label)}</b>
+            <span className="schedules-row-copy utilities-row-copy">
+              <span className="utilities-row-title">
+                <span className="utilities-row-icon" aria-hidden="true"><Icon size={20} /></span>
+                <b>{t(label)}</b>
+              </span>
               <small>{t(description)}</small>
             </span>
             <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />

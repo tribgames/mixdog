@@ -1,5 +1,5 @@
 import { readdirSync } from 'fs';
-import { basename, relative } from 'path';
+import { basename, isAbsolute, relative } from 'path';
 import {
     coerceReadFamilyPathArg,
     extractGlobBaseDirectory,
@@ -415,17 +415,52 @@ export async function executeTreeTool(args, workDir, options = {}) {
 // known-incomplete and are NEVER cached.
 const FIND_ENUM_CACHE = new Map(); // key -> { files, expiresAt, gen }
 const FIND_ENUM_INFLIGHT = new Map(); // key -> { promise, controller, subscribers }
+const FIND_TARGETED_BATCHES_BY_RUNNER = new WeakMap();
+const FIND_ENUM_ROOT_GEN = new Map();
 let FIND_ENUM_GEN = 0;
 
 // The broad enumeration is a DERIVED cache the scope/path invalidation layer
-// does not otherwise know about — a file created/renamed after a sweep would
-// stay invisible to broad find reuse for the whole TTL. Drop all entries on any
-// write-invalidation event (TTL remains the secondary bound). Full clear is
-// fine: entries are cheap to rebuild.
-registerCacheInvalidationListener(() => {
-    FIND_ENUM_GEN += 1;
-    FIND_ENUM_CACHE.clear();
-    FIND_ENUM_INFLIGHT.clear();
+// does not otherwise know about. Invalidate only inventories whose roots
+// overlap the written paths; a patch in an isolated temp root must not force
+// every active Project to rescan.
+function findEnumerationPathsOverlap(left, right) {
+    const contains = (base, target) => {
+        const rel = relative(base, target);
+        return rel === '' || (!isAbsolute(rel) && !/^\.\.(?:[\\/]|$)/.test(rel));
+    };
+    return contains(left, right) || contains(right, left);
+}
+function findEnumerationRootFromKey(key) {
+    return String(key).split('\u0000', 1)[0];
+}
+function findEnumerationRootGeneration(root) {
+    return FIND_ENUM_ROOT_GEN.get(root) || 0;
+}
+registerCacheInvalidationListener((affectedPaths) => {
+    if (!Array.isArray(affectedPaths) || affectedPaths.length === 0) {
+        FIND_ENUM_GEN += 1;
+        FIND_ENUM_ROOT_GEN.clear();
+        FIND_ENUM_CACHE.clear();
+        FIND_ENUM_INFLIGHT.clear();
+        return;
+    }
+    const keys = new Set([...FIND_ENUM_CACHE.keys(), ...FIND_ENUM_INFLIGHT.keys()]);
+    const affectedRoots = new Set();
+    for (const key of keys) {
+        const root = findEnumerationRootFromKey(key);
+        if (affectedPaths.some((affected) => findEnumerationPathsOverlap(root, affected))) {
+            affectedRoots.add(root);
+        }
+    }
+    for (const root of affectedRoots) {
+        FIND_ENUM_ROOT_GEN.set(root, findEnumerationRootGeneration(root) + 1);
+        for (const key of [...FIND_ENUM_CACHE.keys()]) {
+            if (findEnumerationRootFromKey(key) === root) FIND_ENUM_CACHE.delete(key);
+        }
+        for (const key of [...FIND_ENUM_INFLIGHT.keys()]) {
+            if (findEnumerationRootFromKey(key) === root) FIND_ENUM_INFLIGHT.delete(key);
+        }
+    }
 });
 
 function findEnumTtlMs() {
@@ -503,9 +538,10 @@ function subscribeToFindEnumeration(key, entry, signal = null) {
 async function getBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMode, rgArgs, cwd, runRgImpl = runRg, bestEffort = false, signal = null }) {
     const ttl = findEnumTtlMs();
     const key = findEnumKey({ root, hidden, depth, includeNoise, ignoreMode });
+    const rootGen = findEnumerationRootGeneration(root);
     if (ttl > 0) {
         const hit = FIND_ENUM_CACHE.get(key);
-        if (hit && hit.gen === FIND_ENUM_GEN && hit.expiresAt > Date.now()) {
+        if (hit && hit.gen === FIND_ENUM_GEN && hit.rootGen === rootGen && hit.expiresAt > Date.now()) {
             return { files: hit.files, truncated: false, partial: false };
         }
         if (hit) FIND_ENUM_CACHE.delete(key); // expired
@@ -525,6 +561,7 @@ async function getBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMo
         return { files: [], truncated: false, partial: true };
     }
     const genAtStart = FIND_ENUM_GEN;
+    const rootGenAtStart = rootGen;
     const controller = new AbortController();
     const entry = { promise: null, controller, subscribers: new Set() };
     entry.promise = (async () => {
@@ -536,8 +573,15 @@ async function getBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMo
         // later query with a larger head_limit must re-run the enumeration.
         // Also never let an in-flight prewarm/real sweep repopulate after a
         // write invalidation cleared the cache during the sweep.
-        if (ttl > 0 && !truncated && !partial && FIND_ENUM_GEN === genAtStart) {
-            FIND_ENUM_CACHE.set(key, { files, expiresAt: Date.now() + ttl, gen: genAtStart });
+        if (ttl > 0 && !truncated && !partial
+            && FIND_ENUM_GEN === genAtStart
+            && findEnumerationRootGeneration(root) === rootGenAtStart) {
+            FIND_ENUM_CACHE.set(key, {
+                files,
+                expiresAt: Date.now() + ttl,
+                gen: genAtStart,
+                rootGen: rootGenAtStart,
+            });
         }
         return { files, truncated, partial };
     })();
@@ -585,21 +629,82 @@ async function getTargetedFindEnumeration({
     const key = JSON.stringify([root, hidden, depth ?? '', includeNoise, terms]);
     const runs = context?.targetedRuns;
     if (runs?.has(key)) return runs.get(key);
-    const run = (async () => {
-        const rgArgs = ['--files', '--no-ignore'];
-        if (hidden) rgArgs.push('--hidden');
-        if (depth != null) rgArgs.push('--max-depth', String(depth));
-        for (const query of terms) rgArgs.push('--iglob', `*${escapeFindGlobLiteral(query)}*`);
-        rgArgs.push('.');
-        const stdout = await runRgImpl(rgArgs, { cwd: root, signal });
-        const paths = parseRgFileList(stdout).filter((path) =>
-            includeNoise || !path.split('/').some((segment) => NOISE_DIR_NAMES.has(segment)));
-        return {
-            files: paths,
-            truncated: Boolean(stdout && typeof stdout === 'object' && stdout.truncated),
-            partial: Boolean(stdout && typeof stdout === 'object' && stdout.partial),
+    let batches = FIND_TARGETED_BATCHES_BY_RUNNER.get(runRgImpl);
+    if (!batches) {
+        batches = new Map();
+        FIND_TARGETED_BATCHES_BY_RUNNER.set(runRgImpl, batches);
+    }
+    const batchKey = JSON.stringify([root, hidden, depth ?? '', includeNoise]);
+    let batch = batches.get(batchKey);
+    if (!batch) {
+        batch = {
+            terms: new Set(),
+            waiters: new Set(),
+            controller: new AbortController(),
         };
-    })();
+        batches.set(batchKey, batch);
+        setImmediate(async () => {
+            if (batches.get(batchKey) === batch) batches.delete(batchKey);
+            if (batch.waiters.size === 0) return;
+            const rgArgs = ['--files', '--no-ignore'];
+            if (hidden) rgArgs.push('--hidden');
+            if (depth != null) rgArgs.push('--max-depth', String(depth));
+            for (const query of batch.terms) {
+                rgArgs.push('--iglob', `*${escapeFindGlobLiteral(query)}*`);
+            }
+            if (!includeNoise) {
+                for (const ex of DEFAULT_IGNORE_GLOBS) rgArgs.push('--glob', ex);
+            }
+            rgArgs.push('.');
+            try {
+                const stdout = await runRgImpl(rgArgs, {
+                    cwd: root,
+                    signal: batch.controller.signal,
+                });
+                const paths = parseRgFileList(stdout).filter((path) =>
+                    includeNoise || !path.split('/').some((segment) => NOISE_DIR_NAMES.has(segment)));
+                const result = {
+                    files: paths,
+                    truncated: Boolean(stdout && typeof stdout === 'object' && stdout.truncated),
+                    partial: Boolean(stdout && typeof stdout === 'object' && stdout.partial),
+                };
+                for (const waiter of [...batch.waiters]) waiter.resolve(result);
+            } catch (error) {
+                for (const waiter of [...batch.waiters]) waiter.reject(error);
+            }
+        });
+    }
+    for (const term of terms) batch.terms.add(term);
+    const run = new Promise((resolve, reject) => {
+        let settled = false;
+        const waiter = {
+            resolve(value) {
+                if (settled) return;
+                settled = true;
+                batch.waiters.delete(waiter);
+                if (signal instanceof AbortSignal) signal.removeEventListener('abort', onAbort);
+                resolve(value);
+            },
+            reject(error) {
+                if (settled) return;
+                settled = true;
+                batch.waiters.delete(waiter);
+                if (signal instanceof AbortSignal) signal.removeEventListener('abort', onAbort);
+                reject(error);
+            },
+        };
+        const onAbort = () => {
+            waiter.reject(findEnumerationAbortError(signal));
+            if (batch.waiters.size === 0) {
+                try { batch.controller.abort(findEnumerationAbortError(signal)); } catch {}
+            }
+        };
+        batch.waiters.add(waiter);
+        if (signal instanceof AbortSignal) {
+            if (signal.aborted) onAbort();
+            else signal.addEventListener('abort', onAbort, { once: true });
+        }
+    });
     if (runs) runs.set(key, run);
     return run;
 }

@@ -852,7 +852,7 @@ type SnapshotUtilityDockProps =
   };
 
 // ONE dock element for every tab. The old per-tab alternation between a
-// snapshot-backed dock (Files) and a bare one (Tasks/Source Control) swapped
+// snapshot-backed dock (Search) and a bare one (Agents/Source Control) swapped
 // the component TYPE on a tab change, which unmounted the whole dock — every
 // retained pane, tree expansion and scroll went with it. The dock-scoped
 // comparator (desktopDockSnapshotsEqual) already limits re-renders to the

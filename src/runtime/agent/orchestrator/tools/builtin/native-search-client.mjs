@@ -113,6 +113,42 @@ export async function warmNativeSearchServer() {
   }
 }
 
+/** Fast Windows process table snapshot served by the resident native helper.
+ *  Returns [{pid,parentPid,identity}] or null; callers stay conservative when
+ *  the binary is unavailable or the request misses its short deadline. */
+export async function tryNativeProcessSnapshot({ timeoutMs = 750 } = {}) {
+  if (process.platform !== 'win32' || process.env.MIXDOG_SEARCH_SERVER === '0') return null;
+  let server = _ensureServer();
+  if (!server && await warmNativeSearchServer()) server = _ensureServer();
+  if (!server) return null;
+  const id = ++server.sequence;
+  _setServerReferenced(server, true);
+  const response = await new Promise((resolve) => {
+    let settled = false;
+    const settle = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+      if (server.pending.size === 0) _setServerReferenced(server, false);
+    };
+    const timer = setTimeout(() => {
+      server.pending.delete(id);
+      settle(null);
+    }, Math.max(1, Number(timeoutMs) || 750));
+    timer.unref?.();
+    server.pending.set(id, { resolve: settle, reject: () => settle(null) });
+    try {
+      server.child.stdin.write(`${JSON.stringify({ id, processSnapshot: true })}\n`);
+    } catch {
+      server.pending.delete(id);
+      settle(null);
+    }
+  });
+  if (!response || response.error || !Array.isArray(response.rows)) return null;
+  return response.rows;
+}
+
 export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
   if (process.env.MIXDOG_SEARCH_SERVER === '0') return null;
   const server = _ensureServer();

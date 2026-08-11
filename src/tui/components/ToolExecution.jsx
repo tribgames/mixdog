@@ -50,7 +50,7 @@ const TOOL_PENDING_SHOW_DELAY_MS = 1000;
 // One shared-tick cadence covers both the 500ms blink and per-second elapsed;
 // finer than either boundary so both stay crisp off a single timer.
 const TOOL_ANIM_TICK_MS = TOOL_BLINK_MS;
-export function ToolExecution({ name, args, result, rawResult, isError, errorCount, callErrorCount, exitErrorCount, expanded, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, doneCategories = null, headerFinalized = true, deferredDisplayReady = false, agentResponseAggregate = false }) {
+export function ToolExecution({ name, args, result, rawResult, uiDiff, isError, errorCount, callErrorCount, exitErrorCount, expanded, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, doneCategories = null, headerFinalized = true, deferredDisplayReady = false, agentResponseAggregate = false }) {
   const rowWidth = Math.max(1, Number(columns || 80));
   const groupCount = Math.max(1, Number(count || 1));
   const doneCount = Math.max(0, Math.min(groupCount, Number(completedCount || (result == null ? 0 : groupCount))));
@@ -105,6 +105,12 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // Shell command-exits (ran, non-zero exit). Counted separately so the dot
   // paints the neutral warning "Exit" color instead of red or green success.
   const exitFailedCount = clampFailureCount(exitErrorCount, groupCount, false);
+  // apply_patch can commit an ordered prefix before a later section fails.
+  // The runtime-provided uiDiff is authoritative evidence of that partial
+  // mutation; an empty/missing diff means the invocation failed completely.
+  const partialMutation = callFailedCount > 0
+    && typeof uiDiff === 'string'
+    && Boolean(uiDiff.trim());
   const displayGroupCount = groupCount;
   const displayCategories = normalizeCountMap(categories || {});
   // In the DONE state the engine-supplied doneCategories map counts ATTEMPTS
@@ -178,7 +184,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     const aggregateTerminalStatus = pending
       ? 'running'
       : (resultTerminalStatus(rt) || (isError || failedCount > 0 ? 'failed' : 'completed'));
-    const dotColor = toolStatusColor({ pending, groupCount, callFailedCount, exitFailedCount, terminalStatus: aggregateTerminalStatus });
+    const dotColor = toolStatusColor({ pending, groupCount, callFailedCount, exitFailedCount, terminalStatus: aggregateTerminalStatus, partialMutation });
     const dotText = pending && !blinkOn ? ' ' : TURN_MARKER;
     const gutter = 2;
     const showHeaderExpandHint = hasRawResult;
@@ -306,7 +312,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const detailColor = isPendingPlaceholderDetail ? theme.subtle : theme.text;
   // Skill/agent collapsed gating lives in the shared model (detailLine).
   const visibleDetailLines = detailLines;
-  const finalStatusColor = toolStatusColor({ pending, groupCount, callFailedCount, exitFailedCount, terminalStatus });
+  const finalStatusColor = toolStatusColor({ pending, groupCount, callFailedCount, exitFailedCount, terminalStatus, partialMutation });
   const dotColor = finalStatusColor;
   // Agent surface cards use directional markers: `←` for requests going OUT
   // (spawn/send/etc.) and `→` for the response coming back IN. Background

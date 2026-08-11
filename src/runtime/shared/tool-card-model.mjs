@@ -79,6 +79,31 @@ export function normalizeTerminalStatus(value) {
   return normalizeToolTerminalStatus(value);
 }
 
+// Semantic outcome shared by TUI and desktop. A returned command/task failure
+// means the tool transport worked, so it is warning-yellow; red is reserved
+// for a failed invocation. A failed mutation that still committed a diff is
+// likewise partial success, not a total failure.
+export function deriveToolOutcomeTone({
+  pending = false,
+  groupCount = 1,
+  callFailedCount = 0,
+  exitFailedCount = 0,
+  terminalStatus = '',
+  partialMutation = false,
+} = {}) {
+  if (pending) return 'running';
+  const status = normalizeTerminalStatus(terminalStatus);
+  if (status === 'cancelled' || status === 'denied') return 'warning';
+  const count = Math.max(1, Number(groupCount) || 1);
+  const callFailures = Math.max(0, Number(callFailedCount) || 0);
+  if (callFailures > 0) {
+    if (partialMutation || (count > 1 && callFailures < count)) return 'warning';
+    return 'error';
+  }
+  if (status === 'failed' || Number(exitFailedCount) > 0) return 'warning';
+  return 'success';
+}
+
 export function displayTerminalStatus(value) {
   // 'exit' is a shell-only pseudo-status (command RAN but exited non-zero); it
   // is intentionally NOT a normalized terminal status so it never colors red.

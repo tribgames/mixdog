@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
 import { executeCodeGraphTool } from '../src/runtime/agent/orchestrator/tools/code-graph.mjs';
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
+import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const SESSIONS = 8;
@@ -30,7 +31,8 @@ function record(tool, ms, result, expectRe) {
 async function timed(tool, expectRe, fn) {
   const t0 = Date.now();
   try {
-    const out = await fn();
+    const raw = await fn();
+    const out = normalizeToolEnvelope(raw).result;
     record(tool, Date.now() - t0, out, expectRe);
     return out;
   } catch (err) {

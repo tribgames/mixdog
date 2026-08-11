@@ -1,5 +1,5 @@
 import {
-  Files,
+  Bot,
   GitBranch,
   GitCompare,
   Github,
@@ -16,21 +16,20 @@ import type {
   DesktopWorkspaceTextSearchOptions,
 } from "../shared/contract";
 import { DESKTOP_UTILITY_DOCK_MIN_WIDTH } from "../shared/window-layout";
-import { AgentActivityPane, liveTaskCount } from "./AgentActivityPane";
+import { AgentActivityPane } from "./AgentActivityPane";
 import { OpenSelect } from "./OpenSelect";
 import { DesktopLoadingSurface } from "./RendererRecovery";
 import type { PullRequestOpenHandler } from "./PullRequestsPane";
 import { SourceControlDock, type SourceControlDiffRequest } from "./SourceControlDock";
 import { SurfaceActiveContext } from "./surface-activity";
-import { findPatch } from "./TranscriptView";
 import {
   beginBootSurface,
   reportBootSurfaceReady,
   reportBootSurfaceStage,
 } from "./boot-metrics";
-import { EMPTY_TRANSCRIPT_ITEMS, type Snapshot, type TranscriptItem } from "./desktop-types";
+import type { Snapshot } from "./desktop-types";
 import { desktopUtilityDockTabEnabled } from "./desktop-feature-config";
-import { FilesRootPane, SetiFileIcon } from "./ExplorerTree";
+import { SetiFileIcon } from "./ExplorerTree";
 import { t } from "./i18n";
 import {
   cancelLayoutFrame,
@@ -38,7 +37,6 @@ import {
   scheduleLayoutFrame,
 } from "./interaction-frame-scheduler";
 import { scheduleEditorPanePrefetch } from "./lazy-widgets";
-import { parseUnifiedDiff } from "./renderer-logic.mjs";
 
 const MemoSourceControlDock = memo(SourceControlDock);
 
@@ -68,11 +66,9 @@ function DockPane({
 export const DOCK_STATE_KEY = 'mixdog.desktop-utility-dock.v1';
 export const DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH = 320;
 export const DESKTOP_UTILITY_DOCK_MAX_WIDTH = 560;
-// Search stays folded INTO Explorer (user: 통합해서 간단하게 — Orca grammar);
-// the pane is named Explorer while the id stays 'files' for
-// persisted-state compatibility. 'pull-requests' is the PR-only surface split
-// out of Source Control (Orca grammar: Changes|History / Pull Requests).
-export type UtilityDockTab = 'tasks' | 'files' | 'source-control' | 'pull-requests';
+// The visible right-side order is Agents → Search → Source Control.
+// Pull Requests remains feature-locked as the optional fourth Git surface.
+export type UtilityDockTab = 'agents' | 'search' | 'source-control' | 'pull-requests';
 export function clampDockWidth(value: number): number {
   return Math.min(DESKTOP_UTILITY_DOCK_MAX_WIDTH, Math.max(
     DESKTOP_UTILITY_DOCK_MIN_WIDTH,
@@ -84,106 +80,39 @@ export function readDockState(): { open: boolean; tab: UtilityDockTab; width: nu
     const raw = JSON.parse(window.localStorage.getItem(DOCK_STATE_KEY) || '{}') as Record<string, unknown>;
     return {
       open: raw.open === true,
-      // `agents` is the legacy first-tab key; migrate it to the broader Tasks
-      // surface without invalidating the rest of the persisted dock state.
-      // `terminal` and `agents` are legacy Dock tabs. Standalone Terminal
-      // workspace tabs replace the former, while Agents folded into Tasks.
-      tab: raw.tab === 'files' || raw.tab === 'search' || raw.tab === 'source-control' || raw.tab === 'pull-requests'
-        ? (raw.tab === 'search' ? 'files' : raw.tab) : 'tasks',
+      // Migrate the retired Tasks/Files identities without discarding width
+      // and open-state preferences from existing installs.
+      tab: raw.tab === 'agents' || raw.tab === 'search'
+        || raw.tab === 'source-control' || raw.tab === 'pull-requests'
+        ? raw.tab
+        : raw.tab === 'tasks' ? 'agents'
+          : raw.tab === 'files' ? 'search'
+            : 'agents',
       width: clampDockWidth(Number(raw.width)),
     };
   } catch {
-    return { open: false, tab: 'tasks', width: DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH };
+    return { open: false, tab: 'agents', width: DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH };
   }
 }
 
 
 // ── Right utility dock (Cursor-style side panel) ─────────────────────────
-// Changes: session-wide file edits (every tool patch), expandable per file.
-// Context: the live context surface (same body as the modal), polled while
-// the tab is visible.
-interface SessionFileChange {
-  name: string;
-  additions: number;
-  deletions: number;
-  patches: string[];
-}
-function sessionFileChanges(items: TranscriptItem[]): SessionFileChange[] {
-  const files = new Map<string, SessionFileChange>();
-  for (const item of items) {
-    if (item?.kind !== "tool") continue;
-    const patch = findPatch(item);
-    if (!patch) continue;
-    try {
-      for (const file of parseUnifiedDiff(patch)) {
-        const name = file.newFile.fileName || file.oldFile?.fileName || "unknown file";
-        const entry = files.get(name) || { name, additions: 0, deletions: 0, patches: [] };
-        const body = file.hunks.join("\n").split("\n");
-        entry.additions += body.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
-        entry.deletions += body.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
-        if (!entry.patches.includes(patch)) entry.patches.push(patch);
-        files.set(name, entry);
-      }
-    } catch { /* non-diff payload — skip */ }
-  }
-  return [...files.values()];
-}
-
-const FilesPane = memo(function FilesPane({
+const SearchPane = memo(function SearchPane({
   projectPath,
-  gitStatus,
-  gitStatusReady,
-  changed,
-  activeFileKey,
   active,
-  readinessKey,
-  onReadyChange,
   onOpenFile,
   onOpenFileAt,
-  showRootHeader = false,
-  headerSlot,
 }: {
   projectPath: string;
-  gitStatus: DesktopGitStatus | null;
-  gitStatusReady: boolean;
-  changed: Set<string>;
-  activeFileKey: string;
   active: boolean;
-  readinessKey: string;
-  onReadyChange(key: string, ready: boolean): void;
   onOpenFile?(project: string, rel: string, mode?: "preview" | "pinned"): void;
   onOpenFileAt?(project: string, rel: string, line?: number): void;
-  showRootHeader?: boolean;
-  headerSlot?: HTMLElement | null;
 }) {
   const folders = useMemo<DesktopWorkspaceFolder[]>(
     () => projectPath ? [{ path: projectPath }] : [],
     [projectPath],
   );
-  const rootKeys = useMemo(
-    () => folders.map((folder) => `${readinessKey}:${folder.path}`),
-    [folders, readinessKey],
-  );
-  const [readyRoots, setReadyRoots] = useState<ReadonlySet<string>>(() => new Set());
-  useEffect(() => setReadyRoots(new Set()), [readinessKey]);
-  useEffect(() => {
-    onReadyChange(
-      readinessKey,
-      gitStatusReady && (rootKeys.length === 0 || rootKeys.every((key) => readyRoots.has(key))),
-    );
-  }, [gitStatusReady, onReadyChange, readinessKey, readyRoots, rootKeys]);
-  const onRootReady = useCallback((key: string, ready: boolean) => {
-    setReadyRoots((current) => {
-      if (current.has(key) === ready) return current;
-      const next = new Set(current);
-      if (ready) next.add(key);
-      else next.delete(key);
-      return next;
-    });
-  }, []);
-  // Orca explorer grammar (user: 통합해서 간단하게): search lives INSIDE the
-  // file tree — Names filters paths, Contents runs full-text search with
-  // the same plain query field. An empty query keeps the plain tree.
+  // Names filters paths; Contents runs full-text search with the same field.
   const [query, setQuery] = useState("");
   const [searchMode, setSearchMode] = useState<"names" | "contents">("names");
   const [nameResults, setNameResults] = useState<Array<{ project: string; paths: string[] }>>([]);
@@ -215,8 +144,8 @@ const FilesPane = memo(function FilesPane({
         }
       });
     };
-    window.addEventListener("mixdog:focus-explorer-search", focusSearch);
-    return () => window.removeEventListener("mixdog:focus-explorer-search", focusSearch);
+    window.addEventListener("mixdog:focus-dock-search", focusSearch);
+    return () => window.removeEventListener("mixdog:focus-dock-search", focusSearch);
   }, []);
   useEffect(() => {
     const current = ++searchGeneration.current;
@@ -297,7 +226,7 @@ const FilesPane = memo(function FilesPane({
         {query && <button type="button" aria-label={t("Clear search")}
           onClick={() => setQuery("")}><X size={14} aria-hidden="true" /></button>}
       </label>
-      <div className="workbench-search-mode" role="tablist" aria-label={t("Explorer search mode")}>
+      <div className="workbench-search-mode" role="tablist" aria-label={t("Search mode")}>
         <button type="button" role="tab" aria-selected={!contentsMode}
           onClick={() => setSearchMode("names")}>{t("Names")}</button>
         <button type="button" role="tab" aria-selected={contentsMode}
@@ -356,26 +285,11 @@ const FilesPane = memo(function FilesPane({
                   </details>;
                 }))}
               </div>)
-    ) : <>
-    {folders.length === 0
-      ? <p className="utility-dock-empty">{t("Open a project to browse files.")}</p>
-      : folders.map((folder) => {
-        const key = `${readinessKey}:${folder.path}`;
-        return <FilesRootPane key={folder.path}
-          projectPath={folder.path}
-          gitStatus={gitStatus}
-          changed={changed}
-          activeFileKey={activeFileKey}
-          active={active}
-          showRootHeader={showRootHeader || folders.length > 1}
-          rootLabel={folder.name}
-          headerSlot={headerSlot}
-          readinessKey={key}
-          onReadyChange={onRootReady}
-          onOpenFile={onOpenFile}
- />;
-      })}
-    </>}
+    ) : <p className="utility-dock-empty">
+      {folders.length === 0
+        ? t("Open a project to search files.")
+        : t("Search project files by name or contents.")}
+    </p>}
   </div>;
 });
 
@@ -386,12 +300,10 @@ export const UtilityDock = memo(function UtilityDock({
   tab,
   onTab,
   onResize,
-  onClose,
   snapshot,
   projectPath = "",
   workspaceFolders,
   onSelectProject,
-  activeFileKey = "",
   onOpenFile,
   onOpenDiff,
   onOpenPullRequest,
@@ -413,10 +325,9 @@ export const UtilityDock = memo(function UtilityDock({
   snapshot: Snapshot;
   projectPath?: string;
   workspaceFolders?: readonly DesktopWorkspaceFolder[];
-  /** Main App owns the shared Explorer / Source Control / Pull Requests
+  /** Main App owns the shared Search / Source Control / Pull Requests
    *  project cache. Standalone hosts omit this and keep a local override. */
   onSelectProject?(projectPath: string): void;
-  activeFileKey?: string;
   onOpenFile?(project: string, rel: string, mode?: "preview" | "pinned"): void;
   onOpenDiff?(project: string, rel: string, request: SourceControlDiffRequest): void;
   onOpenPullRequest?: PullRequestOpenHandler;
@@ -435,11 +346,10 @@ export const UtilityDock = memo(function UtilityDock({
 }) {
   const resolvedOpenFileAt = onOpenFileAt
     ?? onOpenFile as ((project: string, rel: string, line?: number) => void) | undefined;
-  // A controlled App shares one selection across Explorer / Source Control /
+  // A controlled App shares one selection across Search / Source Control /
   // Pull Requests. Standalone mounts retain the historical local override.
   const [localProjectOverride, setLocalProjectOverride] = useState("");
   const [knownProjects, setKnownProjects] = useState<DesktopProjectSummary[]>([]);
-  const [filesHeaderActionsSlot, setFilesHeaderActionsSlot] = useState<HTMLSpanElement | null>(null);
   const [headerActionsSlot, setHeaderActionsSlot] = useState<HTMLSpanElement | null>(null);
   const [reviewHeaderActionsSlot, setReviewHeaderActionsSlot] = useState<HTMLSpanElement | null>(null);
   useEffect(() => {
@@ -462,7 +372,7 @@ export const UtilityDock = memo(function UtilityDock({
     if (onSelectProject) onSelectProject(path);
     else setLocalProjectOverride(path);
   }, [onSelectProject]);
-  // Files owns its project toolbar inside the stable Files layer, but the
+  // Search owns its project toolbar inside the stable Search layer, but the
   // project options remain dock-scoped so switching surfaces preserves them.
   const dockRootName =
     dockProjectPath.replace(/[\\/]+$/, "").split(/[\\/]/).at(-1) || "";
@@ -500,8 +410,8 @@ export const UtilityDock = memo(function UtilityDock({
     : null, [dockProjectOptions.length, dockProjectPath, dockProjectSelectOptions, selectDockProject]);
   const projectKey = dockProjectPath;
   const surfaceKeys: Record<UtilityDockTab, string> = {
-    tasks: `tasks:${String(snapshot.sessionId || "draft")}`,
-    files: `files:${projectKey}`,
+    agents: `agents:${String(snapshot.sessionId || "draft")}`,
+    search: `search:${projectKey}`,
     "source-control": `source-control:${dockProjectPath}`,
     "pull-requests": `pull-requests:${dockProjectPath}`,
   };
@@ -581,8 +491,7 @@ export const UtilityDock = memo(function UtilityDock({
   // The first Git tab selection loads it, and the silent 2s poll runs only
   // while a Git surface is the presented one. The cached snapshot survives in
   // dockGitState, so re-entry stays instant without background traffic.
-  const gitSurfaceSelected = tab === "files" || tab === "source-control"
-    || tab === "pull-requests";
+  const gitSurfaceSelected = tab === "source-control" || tab === "pull-requests";
   useEffect(() => {
     if (!open || !contentReady || !dockProjectPath || !gitSurfaceSelected) return undefined;
     void refreshDockGitStatus(true);
@@ -598,10 +507,9 @@ export const UtilityDock = memo(function UtilityDock({
   }, [contentReady, dockProjectPath, gitSurfaceSelected, open, refreshDockGitStatus]);
   // Boot preload (user: 호버 말고 부트 프리로드는 백그라운드에서): the intent
   // rule above still owns live polling, but ONE idle-time gitStatus per
-  // project warms dockGitState before the first Git tab entry, so Search /
-  // Source Control / Pull Requests reveal without the Preparing… cover. The
-  // root listing rides along to heat the Search tree's first listProjectDir;
-  // no interval, and nothing runs while a Git surface is already selected.
+  // project warms dockGitState before the first Git tab entry, so Source
+  // Control / Pull Requests reveal without the Preparing… cover. No interval
+  // runs while a Git surface is not selected.
   const warmedGitProject = useRef("");
   useEffect(() => {
     if (!dockProjectPath || gitSurfaceSelected) return undefined;
@@ -617,8 +525,6 @@ export const UtilityDock = memo(function UtilityDock({
       timer = 0;
       warmedGitProject.current = dockProjectPath;
       void refreshDockGitStatus();
-      void window.mixdogDesktop?.listProjectDir?.(dockProjectPath, "")
-        .catch(() => undefined);
     };
     if (typeof host.requestIdleCallback === "function") {
       idle = host.requestIdleCallback(warm, { timeout: 2_000 });
@@ -659,7 +565,7 @@ export const UtilityDock = memo(function UtilityDock({
       .catch(() => undefined)
       .then(() => refreshDockGitStatus(true));
   }, [dockProjectPath, dockGitStatus?.branch, refreshDockGitStatus]);
-  const [readyPaneKeys, setReadyPaneKeys] = useState<Partial<Record<UtilityDockTab, string>>>({});
+  const [, setReadyPaneKeys] = useState<Partial<Record<UtilityDockTab, string>>>({});
   const setPaneReady = useCallback((
     pane: UtilityDockTab,
     key: string,
@@ -676,10 +582,6 @@ export const UtilityDock = memo(function UtilityDock({
       return next;
     });
   }, []);
-  const setFilesReady = useCallback(
-    (key: string, ready: boolean) => setPaneReady("files", key, ready),
-    [setPaneReady],
-  );
   const setSourceControlReady = useCallback(
     (key: string, ready: boolean) => setPaneReady("source-control", key, ready),
     [setPaneReady],
@@ -688,13 +590,8 @@ export const UtilityDock = memo(function UtilityDock({
     (key: string, ready: boolean) => setPaneReady("pull-requests", key, ready),
     [setPaneReady],
   );
-  const selectedSurfaceKey = surfaceKeys[tab];
-  // Source Control is synchronous once the shared Git snapshot is ready.
-  // Waiting for its post-commit child effect manufactured a cold transition
-  // even when Files had already populated that exact project snapshot.
-  const selectedSurfaceReady = contentReady && (tab === "files"
-    ? readyPaneKeys.files === selectedSurfaceKey
-    : tab === "source-control" || tab === "pull-requests" ? dockGitStatusReady : true);
+  const selectedSurfaceReady = contentReady
+    && (tab === "source-control" || tab === "pull-requests" ? dockGitStatusReady : true);
   // Visited/revealed state is DERIVED during render and committed in an
   // effect: a render that React throws away (interrupted concurrent work,
   // StrictMode double invoke) must not poison the set, while the selected tab
@@ -718,15 +615,11 @@ export const UtilityDock = memo(function UtilityDock({
     reportBootSurfaceStage(metricSurface, tab, "data");
     reportBootSurfaceReady(metricSurface, tab);
   }, [contentReady, metricSurface, open, selectedSurfaceReady, tab]);
-  const loadingLabel = tab === "files" ? t("Preparing Search…")
+  const loadingLabel = tab === "search" ? t("Preparing Search…")
     : tab === "source-control" ? t("Preparing Source Control…")
       : tab === "pull-requests" ? t("Preparing Pull Requests…")
         : t("Preparing Agents…");
   const presentedTab = tab;
-  const taskCount = liveTaskCount(snapshot);
-  useEffect(() => {
-    if (open && presentedTab === "tasks" && taskCount === 0) onClose?.();
-  }, [onClose, open, presentedTab, taskCount]);
   // Instant switching (user: 탭 전환이 즉시 되어야 한다): a tab the user has
   // actually opened keeps its layer mounted for the life of the dock, so a
   // round trip re-presents the SAME DOM with its tree/SCM/PR expansion,
@@ -746,12 +639,6 @@ export const UtilityDock = memo(function UtilityDock({
   }, [committedTabs, mountedTabs]);
   const paneMounted = (pane: UtilityDockTab) => contentReady && mountedTabs.has(pane);
   const paneActive = (pane: UtilityDockTab) => open && presentedTab === pane;
-  // Files tab: session-changed files marked with a dot (A/M markers reduced
-  // to one changed indicator).
-  const changedFileNames = useMemo(() => contentReady ? new Set(
-    sessionFileChanges((snapshot.items as TranscriptItem[]) || EMPTY_TRANSCRIPT_ITEMS)
-      .map((file) => file.name.replace(/^[ab]\//, "").replace(/\\/g, "/")),
-  ) : new Set<string>(), [contentReady, snapshot.items]);
   const dockNode = useRef<HTMLElement | null>(null);
   const resizeWidth = useRef(width);
   const resizeActive = useRef(false);
@@ -861,8 +748,8 @@ export const UtilityDock = memo(function UtilityDock({
     resizeCleanup.current = dispose;
   };
   const displayedWidth = resizeActive.current ? resizeWidth.current : width;
-  const dockTitle = title || (presentedTab === "tasks" ? "Tasks"
-    : presentedTab === "files" ? "Explorer"
+  const dockTitle = title || (presentedTab === "agents" ? "Agents"
+    : presentedTab === "search" ? "Search"
     : presentedTab === "pull-requests" ? "Pull Requests"
         : "Source Control");
   if (!open || !desktopUtilityDockTabEnabled(tab)) return null;
@@ -888,10 +775,14 @@ export const UtilityDock = memo(function UtilityDock({
       aria-label={t("Resize utility panel")} onPointerDown={startResize} />
     {showTabs && <header className="utility-dock-tabs-header" data-active-tab={presentedTab}>
       <nav className="utility-dock-tabs" aria-label={t("Utility panel tabs")}>
-        {desktopUtilityDockTabEnabled("files") && <button type="button" className={presentedTab === "files" ? "active" : ""}
-          aria-label={t("Explorer")} aria-current={presentedTab === "files" ? "page" : undefined}
-          data-tooltip={t("Explorer")}
-          onClick={() => onTab("files")}><Files size={18} aria-hidden="true" /></button>}
+        {desktopUtilityDockTabEnabled("agents") && <button type="button" className={presentedTab === "agents" ? "active" : ""}
+          aria-label={t("Agents")} aria-current={presentedTab === "agents" ? "page" : undefined}
+          data-tooltip={t("Agents")}
+          onClick={() => onTab("agents")}><Bot size={18} aria-hidden="true" /></button>}
+        {desktopUtilityDockTabEnabled("search") && <button type="button" className={presentedTab === "search" ? "active" : ""}
+          aria-label={t("Search")} aria-current={presentedTab === "search" ? "page" : undefined}
+          data-tooltip={t("Search")}
+          onClick={() => onTab("search")}><Search size={18} aria-hidden="true" /></button>}
         {desktopUtilityDockTabEnabled("source-control") && <button type="button" className={presentedTab === "source-control" ? "active" : ""}
           aria-label={t("Source Control")}
           aria-current={presentedTab === "source-control" ? "page" : undefined}
@@ -908,33 +799,25 @@ export const UtilityDock = memo(function UtilityDock({
     <div className="stable-surface-switch utility-dock-body"
       data-ready={selectedSurfaceVisible ? "true" : "false"}
       data-transitioning="false">
-      {desktopUtilityDockTabEnabled("tasks") && paneMounted("tasks") && <DockPane tab="tasks" active={paneActive("tasks")}>
-      {showTabs && <header className="utility-dock-header" data-panel-header="tasks">
-        <div className="utility-dock-title"><b>{t(title || "Tasks")}</b></div>
+      {desktopUtilityDockTabEnabled("agents") && paneMounted("agents") && <DockPane tab="agents" active={paneActive("agents")}>
+      {showTabs && <header className="utility-dock-header" data-panel-header="agents">
+        <div className="utility-dock-title"><b>{t(title || "Agents")}</b></div>
       </header>}
-      <AgentActivityPane active={paneActive("tasks")}
+      <AgentActivityPane active={paneActive("agents")}
         snapshot={snapshot}
         onOpenSession={onOpenAgentSession} />
       </DockPane>}
-      {desktopUtilityDockTabEnabled("files") && paneMounted("files") && <DockPane tab="files" active={paneActive("files")}>
-      {showTabs && <header className="utility-dock-header" data-panel-header="files">
-        <div className="utility-dock-title"><b>{t(title || "Explorer")}</b></div>
-        <span className="utility-dock-header-actions utility-dock-file-actions"
-          ref={setFilesHeaderActionsSlot} />
+      {desktopUtilityDockTabEnabled("search") && paneMounted("search") && <DockPane tab="search" active={paneActive("search")}>
+      {showTabs && <header className="utility-dock-header" data-panel-header="search">
+        <div className="utility-dock-title"><b>{t(title || "Search")}</b></div>
       </header>}
       {showTabs && dockProjectOptions.length > 0 && <div className="utility-dock-project-row"
         title={dockProjectPath || t("Select project")}>
         {projectSelectControl}
       </div>}
-      <FilesPane
+      <SearchPane
         projectPath={dockProjectPath}
-        gitStatus={dockGitStatus}
-        gitStatusReady={dockGitStatusReady}
-        changed={changedFileNames} activeFileKey={activeFileKey}
-        active={paneActive("files")}
-        showRootHeader={!showTabs}
-        headerSlot={showTabs ? filesHeaderActionsSlot : null}
-        readinessKey={surfaceKeys.files} onReadyChange={setFilesReady}
+        active={paneActive("search")}
         onOpenFile={onOpenFile} onOpenFileAt={resolvedOpenFileAt} />
       </DockPane>}
       {desktopUtilityDockTabEnabled("source-control") && paneMounted("source-control")

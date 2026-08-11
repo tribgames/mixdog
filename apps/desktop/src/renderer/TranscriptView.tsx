@@ -23,7 +23,7 @@ import { imagePreviewCache, imagePreviewKey } from "./transcript-metrics";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { classifyToolCategory, formatToolSurface } from "../../../../src/runtime/shared/tool-surface.mjs";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { deriveToolCardModel, splitLineDeltaTokens } from "../../../../src/runtime/shared/tool-card-model.mjs";
+import { deriveToolCardModel, deriveToolOutcomeTone, splitLineDeltaTokens } from "../../../../src/runtime/shared/tool-card-model.mjs";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { isInternalTranscriptDisplayText } from "../../../../src/runtime/shared/tool-execution-contract.mjs";
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
@@ -968,20 +968,9 @@ export function ToolCard({
     const timer = window.setInterval(() => setNowTick(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [done, startedAt]);
-  const failedCount = Math.max(0, Number(item.errorCount || 0));
   const callFailedCount = Math.max(0, Number(item.callErrorCount || 0));
   const exitFailedCount = Math.max(0, Number(item.exitErrorCount || 0));
   const denied = isHookApprovalDenialToolItem(item);
-  const failed = Boolean(item.isError || failedCount > 0 || callFailedCount > 0);
-  const failure = failed || denied;
-  // Restored/virtualized history mounts in its final state and must stay still.
-  // Blink only when this retained live card actually crosses into failure.
-  const previousFailure = useRef(failure);
-  const failureArrived = failure && !previousFailure.current;
-  useEffect(() => {
-    previousFailure.current = failure;
-  }, [failure]);
-  const exited = !failed && exitFailedCount > 0;
   const surface = formatToolSurface(item.name, item.args);
   const category = classifyToolCategory(item.name, surface.args);
   const rawResult = item.result ?? item.rawResult;
@@ -1011,17 +1000,33 @@ export function ToolCard({
   // Expansion reveals exactly one thing now: the summary row.
   const hasDetails = Boolean(model.detailLine);
   const count = Math.max(1, Math.round(Number(item.count || 1)));
-  // TUI parity (toolStatusColor): some-but-not-all of a group failing is the
-  // amber partial state, not the red full-failure state.
-  const partialFailed = failed && count > 1
-    && (callFailedCount > 0 ? callFailedCount < count : failedCount > 0 && failedCount < count);
-  const errorCard = failure && hasResult;
+  const partialMutation = callFailedCount > 0
+    && typeof item.uiDiff === "string"
+    && Boolean(item.uiDiff.trim());
+  const outcomeTone = deriveToolOutcomeTone({
+    pending: model.pending,
+    groupCount: count,
+    callFailedCount,
+    exitFailedCount,
+    terminalStatus: denied ? "denied" : model.terminalStatus,
+    partialMutation,
+  });
+  const failure = outcomeTone === "error";
+  const warning = outcomeTone === "warning";
+  // Restored/virtualized history mounts in its final state and must stay still.
+  // Blink only when this retained live card crosses into a total failure.
+  const previousFailure = useRef(failure);
+  const failureArrived = failure && !previousFailure.current;
+  useEffect(() => {
+    previousFailure.current = failure;
+  }, [failure]);
+  const errorCard = (failure || warning) && hasResult;
   // User contract: every collapsed tool is exactly one header row, whether it
   // is running or settled. Expanding adds exactly one summary row; live shell
   // tails never auto-grow the transcript.
   const detailRowVisible = Boolean(model.detailLine) && open;
   return (
-    <article className={`tool-card ${failure ? "failed" : ""} ${failureArrived ? "failure-arrived" : ""} ${partialFailed ? "partial-failed" : ""} ${exited ? "exited" : ""} ${done ? "settled" : ""}`}
+    <article className={`tool-card ${failure ? "failed" : ""} ${warning ? "warning" : ""} ${failureArrived ? "failure-arrived" : ""} ${done ? "settled" : ""}`}
       data-category={category} data-kind={errorCard ? "tool-error-card" : undefined}
       data-open={open ? "true" : "false"}>
       <button className="tool-header" disabled={!hasDetails}
@@ -1047,7 +1052,7 @@ export function ToolCard({
               full summary stays on the hover title and in the expanded
               detail. */}
         </span>
-        {model.headerFailureText && <span className="tool-state failed" role="status">
+        {model.headerFailureText && <span className={`tool-state ${warning ? "warning" : "failed"}`} role="status">
           {model.headerFailureText}
         </span>}
         {!done && <span className="sr-only" role="status">{t("Running")}</span>}

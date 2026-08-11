@@ -541,12 +541,22 @@ test('execShellCommand carries cancellation cause alongside process signal', asy
 });
 
 test('cancellation racing with auto-background adoption is returned as cancelled', async () => {
-  let abortReads = 0;
-  const racingSignal = {
-    get aborted() { abortReads += 1; return abortReads >= 2; },
-    addEventListener() {},
-    removeEventListener() {},
-  };
+  const controller = new AbortController();
+  // Abort synchronously at the promotion re-check. Earlier preflight reads
+  // remain false, so unrelated admission/spawn probes cannot consume the race.
+  const racingSignal = new Proxy(controller.signal, {
+    get(target, property) {
+      if (
+        property === 'aborted'
+        && String(new Error().stack || '').includes('_autoBackground')
+        && !target.aborted
+      ) {
+        controller.abort();
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
   const isWindows = process.platform === 'win32';
   const result = await execShellCommand({
     shell: isWindows ? (process.env.ComSpec || 'cmd.exe') : '/bin/sh',

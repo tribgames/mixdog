@@ -566,7 +566,7 @@ export function App() {
   const [dockTab, setDockTab] = useState<UtilityDockTab>(() =>
     resolveDesktopUtilityDockTab(readDockState().tab)
       ?? firstEnabledDesktopUtilityDockTab()
-      ?? "tasks");
+      ?? "agents");
   const [dockWidth, setDockWidth] = useState<number>(() => readDockState().width);
   const desktopDockOpen = useRef(dockOpen);
   const bottomPanel = useBottomPanelState("terminal");
@@ -3468,9 +3468,8 @@ export function App() {
     openQuickAccess: () => setQuickAccessMode("files"),
     openCommandPalette: () => setQuickAccessMode("commands"),
     openFindInFiles: () => {
-      // Same route as the palette command: search lives in the Files explorer.
-      openDockTab("files");
-      window.dispatchEvent(new CustomEvent("mixdog:focus-explorer-search"));
+      openDockTab("search");
+      window.dispatchEvent(new CustomEvent("mixdog:focus-dock-search"));
     },
     openTabSwitcher,
     navigateBack: () => navigateEditorHistory(-1),
@@ -3562,10 +3561,10 @@ export function App() {
       run: () => { window.dispatchEvent(new CustomEvent("mixdog:editor-action", { detail: "editor.action.toggleWordWrap" })); },
     },
     {
-      id: "workbench.action.showExplorer",
+      id: "workbench.action.showSearch",
       category: "View",
-      label: "Show Explorer",
-      run: () => openDockTab("files"),
+      label: "Show Search",
+      run: () => openDockTab("search"),
     },
     {
       id: "workbench.action.findInFiles",
@@ -3573,9 +3572,8 @@ export function App() {
       label: "Find in Files…",
       shortcut: "Ctrl+Shift+F",
       run: () => {
-        // Search lives inside the Files explorer now (Orca grammar).
-        openDockTab("files");
-        window.dispatchEvent(new CustomEvent("mixdog:focus-explorer-search"));
+        openDockTab("search");
+        window.dispatchEvent(new CustomEvent("mixdog:focus-dock-search"));
       },
     },
     {
@@ -3822,7 +3820,7 @@ export function App() {
       run: () => openSettings(),
     },
   ].filter((command) => {
-    if (command.id === "workbench.action.showExplorer"
+    if (command.id === "workbench.action.showSearch"
       || command.id === "workbench.action.findInFiles") {
       return desktopFeatureEnabled("explorer");
     }
@@ -3974,18 +3972,12 @@ export function App() {
     closeSidebarForNavigation();
     openSession(sessionId);
   });
-  const utilitiesOpenStudio = useStableEvent(() => {
-    closeSidebarPanels();
-    openStudioTab();
-  });
-  const utilitiesOpenTerminal = useStableEvent(() => {
-    closeSidebarPanels();
-    openTerminalTab();
-  });
-  const utilitiesOpenExplorer = useStableEvent(() => {
-    closeSidebarPanels();
-    openFolderTab();
-  });
+  // Utilities rows launch tabs WITHOUT resetting the rail to Sessions: the
+  // panel stays selected so repeated launches need no re-entry (user: 한번
+  // 누르면 세션창으로 이동되는데 그냥 유지되도록).
+  const utilitiesOpenStudio = useStableEvent(() => openStudioTab());
+  const utilitiesOpenTerminal = useStableEvent(() => openTerminalTab());
+  const utilitiesOpenExplorer = useStableEvent(() => openFolderTab());
   const projectsCreate = useStableEvent(async (path: string, name?: string) => {
     const host = window.mixdogDesktop;
     if (!host) throw new Error("Desktop bridge is unavailable.");
@@ -4293,7 +4285,7 @@ export function App() {
                 draftRemoteEnabled={focused && draftKey ? newTaskRemoteMode === "on" : undefined}
                 onOpen={() => setCommandSurface("context")}
                 onOpenAgents={desktopFeatureEnabled("agents")
-                  ? () => openDockTab("tasks")
+                  ? () => openDockTab("agents")
                   : undefined}
                 onRemoteChange={draftKey ? setNewTaskRemoteEnabled : setRemoteEnabled} />
             </div>
@@ -4693,7 +4685,7 @@ export function App() {
           <ActivityRail
           sidebarOpen={sidebarOpen && !sidebarPanel}
           activeWorkbenchSurface={dockOpen
-            && (["files", "source-control"] as string[]).includes(dockTab)
+            && (["search", "source-control"] as string[]).includes(dockTab)
             ? dockTab as ActivityRailWorkbenchSurface
             : null}
           onToggleSessions={() => {
@@ -4941,7 +4933,6 @@ export function App() {
             if (desktopUtilityDockTabEnabled(tab)) setDockTab(tab);
           }} onResize={resizeDock}
           onClose={toggleDock}
-          activeFileKey={activeFileKey}
           onOpenFile={dockOpenFile}
           onOpenFileAt={dockOpenFileAt}
           onOpenDiff={dockOpenDiff}
