@@ -48,6 +48,7 @@ const APPLY_PATCH_JSON_DESCRIPTION = [
   'Hunks start with @@ or @@ <symbol|1-based line>; lines start space, -, or +; every Update hunk needs >=1 +/- line; optional *** End of File.',
   'Use 3 verbatim context lines from newest output (post-patch body after edits); avoid overlap; stack @@ only if ambiguous.',
   'Project-relative paths; explicit absolute paths only outside the project; + every added line. Never send compacted-history markers; re-read first.',
+  'A same-turn shell runs after all patches succeed.',
 ].join('\n');
 
 export const PATCH_TOOL_DEFS = [

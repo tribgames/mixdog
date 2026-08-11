@@ -32,7 +32,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Known-file contents or line ranges; not directories. Replaces cat/head/tail.',
+        description: 'Known-file contents or line ranges; images render for viewing; not directories. Replaces cat/head/tail.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -75,7 +75,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Mixdog Shell',
         annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: 'Run a shell command. Sync inline by default; async returns task_id and sends a completion notification. Executable/runtime/state evidence only — never file exploration in any command segment: NOT ls/find/cat/head/tail/grep/rg/sed; dedicated file tools cover those.',
+        description: 'Run a shell command; async returns task_id and sends a completion notification. Executable/runtime/state evidence only — never file exploration in any command segment: NOT ls/find/cat/head/tail/grep/rg/sed; dedicated file tools cover those.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -194,7 +194,7 @@ export const BUILTIN_TOOLS = [
                     description: 'Filename or directory path fragments matched against path strings; query[] batches.',
                 },
                 path: { type: 'string', description: 'Project-relative base; omit for project root; absolute only outside.' },
-                limit: { type: 'number', description: 'Max paths across the call. Defaults to 25.' },
+                limit: { type: 'number', description: 'Max paths; default 25; 0 unlimited.' },
                 include_noise: { type: 'boolean', description: 'Also search gitignored/dependency trees.' },
             },
             required: ['query'],

@@ -17,6 +17,9 @@
 process.env.MIXDOG_WORKER_MODE = process.env.MIXDOG_WORKER_MODE || '1';
 // This process owns session runtimes and must never proxy back into itself.
 process.env.MIXDOG_DAEMON_HOST = '1';
+// Size the libuv threadpool before any async fs work spins it up (see
+// uv-threadpool-boot.mjs) — imports below already touch fs.
+await import('../runtime/shared/uv-threadpool-boot.mjs');
 
 // V8 compile cache: the daemon is a standalone child entry (not via cli.mjs);
 // caching compiled bytecode across restarts removes the channels+memory

@@ -10,10 +10,7 @@ import { OutputForwarder } from "./output-forwarder.mjs";
 // call time — matching the original in-file closure semantics.
 function createToolDispatch({
   getForwarder,
-  PROVIDER_TOOLS,
   isChannelsDegraded,
-  dispatchReply,
-  dispatchFetch,
   lifecycle,
 }) {
   const {
@@ -39,12 +36,6 @@ function createToolDispatch({
     let result;
     try {
       switch (name) {
-        case "reply":
-          result = await dispatchReply(args);
-          break;
-        case "fetch":
-          result = await dispatchFetch(args);
-          break;
         case "activate_channel_bridge": {
             const active = args.active === true;
             const wasActive = getChannelBridgeActive();
@@ -151,23 +142,6 @@ function createToolDispatch({
     if (toolName !== 'rebind_current_transcript' && now - _lastForwardMs >= 250) {
       _lastForwardMs = now;
       await forwarder.forwardNewText();
-    }
-    if (PROVIDER_TOOLS.has(toolName) && !getBridgeRuntimeConnected()) {
-      // Remote-owner startup: ensure this owner's provider is connected.
-      for (let i = 0; i < 2 && !getBridgeRuntimeConnected(); i++) {
-        try {
-          // Auto-connect this owner's provider (daemon singleton — no seat claim).
-          await refreshBridgeOwnership();
-        } catch {
-        }
-        if (!getBridgeRuntimeConnected()) await new Promise((r) => setTimeout(r, 300));
-      }
-      if (!getBridgeRuntimeConnected()) {
-        return {
-          content: [{ type: "text", text: `Discord auto-connect failed after retries. Check token and network.` }],
-          isError: true
-        };
-      }
     }
     const result = await handleToolCall(toolName, args, signal);
     const toolLine = OutputForwarder.buildToolLine(toolName, args);

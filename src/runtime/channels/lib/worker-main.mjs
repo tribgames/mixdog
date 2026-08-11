@@ -61,7 +61,6 @@ import {
 } from "./crash-log.mjs";
 import { dropTrace, preview, _dtIdxFlush } from "./index-drop-trace.mjs";
 import { createVoiceTranscription } from "./voice-transcription.mjs";
-import { createProviderDispatch } from "./provider-dispatch.mjs";
 import { createParentBridge } from "./parent-bridge.mjs";
 import { createInboundRouting } from "./inbound-routing.mjs";
 import { createToolDispatch } from "./tool-dispatch.mjs";
@@ -500,7 +499,6 @@ import { TOOL_DEFS } from '../tool-defs.mjs';
 // bottom of this file (parent's `callWorker` → `handleToolCall`). There is no
 // orphan worker-level MCP Server: the parent (server.mjs) owns the single
 // connected transport and routes CallTool through the IPC `call` path.
-const PROVIDER_TOOLS = /* @__PURE__ */ new Set(["reply", "fetch"]);
 // ── Inbound routing / dedup / ownership helpers ─────────────────────────────
 // Extracted → lib/inbound-routing.mjs. Bound to live config/identity getters.
 const {
@@ -511,19 +509,6 @@ const {
   getConfig: () => config,
   getInstanceId: () => INSTANCE_ID,
   getChannelOwnerPath,
-});
-// ── Provider-tool dispatch helpers ───────────────────────────────────────────
-// Each helper dispatches through the local provider (this process is always the
-// owner in opt-in remote mode). Extracted → lib/provider-dispatch.mjs. Bound to
-// live config/provider getters so runtime reloads keep the original file-level
-// reference semantics.
-const {
-  dispatchReply,
-  dispatchFetch,
-} = createProviderDispatch({
-  getConfig: () => config,
-  getProvider: () => provider,
-  scheduler,
 });
 // ── Worker/HTTP tool-call dispatch ──────────────────────────────────────────
 // handleToolCall switch + bridge auto-connect retry wrapper. Extracted →
@@ -538,10 +523,7 @@ const {
   handleToolCallWithBridgeRetry,
 } = createToolDispatch({
   getForwarder: () => forwarder,
-  PROVIDER_TOOLS,
   isChannelsDegraded,
-  dispatchReply,
-  dispatchFetch,
   lifecycle: {
     getBridgeRuntimeConnected: () => bridgeRuntimeConnected,
     getChannelBridgeActive: () => channelBridgeActive,
