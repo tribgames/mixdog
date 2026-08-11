@@ -11,8 +11,8 @@ import {
   MessageSquare,
   PanelsTopLeft,
   Settings,
+  WandSparkles,
   Webhook,
-  Wrench,
 } from "lucide-react";
 
 import { schedulePostInteractionIdle } from "./app-idle-warmup";
@@ -92,7 +92,9 @@ export function ActivityRail({
     onOpen(): void;
     onPrefetch?(): void;
   }> = ([
-    { id: "utilities", label: "Utilities", tooltip: "Utilities", icon: Wrench,
+    // Utilities lead with the creative wand rather than a repair wrench
+    // (user: 렌치 말고 마법봉처럼 크리에이티브한 걸로).
+    { id: "utilities", label: "Utilities", tooltip: "Utilities", icon: WandSparkles,
       onOpen: onOpenUtilities, onPrefetch: onPrefetchUtilities },
     { id: "projects", label: "Open projects", tooltip: "Projects", icon: PanelsTopLeft,
       onOpen: onOpenProjects, onPrefetch: onPrefetchProjects },

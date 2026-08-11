@@ -1,4 +1,4 @@
-import { FolderSearch, Sparkles, Terminal } from "lucide-react";
+import { ChevronRight, FolderTree, ImagePlay, SquareTerminal } from "lucide-react";
 
 import { t } from "./i18n";
 
@@ -14,9 +14,24 @@ export function UtilitiesPane({
   onOpenExplorer(): void;
 }) {
   const items = [
-    { label: "Studio", icon: Sparkles, run: onOpenStudio },
-    { label: "Terminal", icon: Terminal, run: onOpenTerminal },
-    { label: "Explorer", icon: FolderSearch, run: onOpenExplorer },
+    {
+      label: "Studio",
+      description: "Generate images and videos with AI.",
+      icon: ImagePlay,
+      run: onOpenStudio,
+    },
+    {
+      label: "Terminal",
+      description: "Open a shell in the current project.",
+      icon: SquareTerminal,
+      run: onOpenTerminal,
+    },
+    {
+      label: "Explorer",
+      description: "Browse and edit project files.",
+      icon: FolderTree,
+      run: onOpenExplorer,
+    },
   ] as const;
 
   return <div className="schedules-pane utilities-pane stable-surface-preserved stable-takeover-surface"
@@ -24,11 +39,15 @@ export function UtilitiesPane({
     inert={active ? undefined : true} aria-hidden={active ? undefined : true}>
     <div className="schedules-page">
       <div className="schedules-list utilities-list">
-        {items.map(({ label, icon: Icon, run }) => (
+        {items.map(({ label, description, icon: Icon, run }) => (
           <button type="button" className="schedules-row utilities-row"
             key={label} onClick={run}>
-            <span className="projects-row-icon" aria-hidden="true"><Icon size={16} /></span>
-            <span className="schedules-row-copy"><b>{t(label)}</b></span>
+            <span className="utilities-row-icon" aria-hidden="true"><Icon size={16} /></span>
+            <span className="schedules-row-copy">
+              <b>{t(label)}</b>
+              <small>{t(description)}</small>
+            </span>
+            <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
           </button>
         ))}
       </div>

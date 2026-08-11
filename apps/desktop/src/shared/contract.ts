@@ -456,6 +456,9 @@ export interface DesktopSubmitOptions {
 export interface DesktopAbortOptions {
   /** Rewind a submitted prompt only when the composer was empty at cancel. */
   restorePrompt?: boolean;
+  /** Renderer submission identity used to reclaim an accepted prompt before
+   *  its busy projection reaches the pane. */
+  submissionId?: string;
 }
 
 export interface DesktopNewTaskDraft {

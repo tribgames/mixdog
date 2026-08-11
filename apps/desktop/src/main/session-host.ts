@@ -811,7 +811,17 @@ export class SessionHost implements DesktopService {
       baseRevision: this.sessionProjections.get(id)?.revision ?? null,
     }, this.callOptions());
     this.applySessionResult(id, result);
-    return { aborted: result.aborted === true };
+    return {
+      aborted: result.aborted === true,
+      restoreText: result.restoreText || '',
+      pastedImages: result.pastedImages ?? null,
+      pastedTexts: result.pastedTexts ?? null,
+      discardPastedImages: result.discardPastedImages ?? null,
+      discardPastedTexts: result.discardPastedTexts ?? null,
+      restoredSubmissionIds: Array.isArray(result.restoredSubmissionIds)
+        ? result.restoredSubmissionIds
+        : [],
+    };
   }
 
   async resolveToolApprovalForSession(

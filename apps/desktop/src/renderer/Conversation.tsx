@@ -1069,6 +1069,7 @@ export function Conversation({
           onFastPreferenceApplied={onFastPreferenceApplied}
           queued={composerQueued}
           hiddenQueueIds={pendingPromptIds}
+          pendingSubmissionIds={pendingPromptIds}
           onQueuedRestored={composerQueuedRestored}
           userMessages={composerUserMessages}
           submit={composerSubmit}
