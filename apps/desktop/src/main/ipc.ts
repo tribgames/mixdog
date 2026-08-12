@@ -1640,12 +1640,27 @@ export function registerDesktopIpc(
       : {};
     requireAllowedKeys(
       source,
-      new Set(['commitTemplate', 'commitPreset', 'autoCommitMessage']),
+      new Set([
+        'commitTemplate',
+        'commitExample',
+        'commitInstructions',
+        'commitPreset',
+        'autoCommitMessage',
+      ]),
       'preferences',
     );
     const template = source.commitTemplate;
     if (template !== undefined && (typeof template !== 'string' || template.length > 20_000)) {
       throw new TypeError('commitTemplate must be a string of at most 20,000 characters.');
+    }
+    const example = source.commitExample;
+    if (example !== undefined && (typeof example !== 'string' || example.length > 20_000)) {
+      throw new TypeError('commitExample must be a string of at most 20,000 characters.');
+    }
+    const instructions = source.commitInstructions;
+    if (instructions !== undefined
+        && (typeof instructions !== 'string' || instructions.length > 20_000)) {
+      throw new TypeError('commitInstructions must be a string of at most 20,000 characters.');
     }
     const preset = source.commitPreset;
     if (preset !== undefined
@@ -1658,6 +1673,8 @@ export function registerDesktopIpc(
     }
     const value = {
       ...(typeof template === 'string' ? { commitTemplate: template } : {}),
+      ...(typeof example === 'string' ? { commitExample: example } : {}),
+      ...(typeof instructions === 'string' ? { commitInstructions: instructions } : {}),
       ...(typeof preset === 'string'
         ? { commitPreset: preset as 'none' | 'conventional' | 'custom' }
         : {}),

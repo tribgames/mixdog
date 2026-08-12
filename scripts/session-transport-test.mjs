@@ -398,12 +398,12 @@ test('a live daemon SSE stream reconnects in place with the same client registra
   let registrations = 0;
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
-    const send = (value) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+    const send = (value, statusCode = 200) => {
+      res.writeHead(statusCode, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(value));
     };
     if (req.method === 'GET' && url.pathname === '/health') {
-      send({ status: 'ok', pid: process.pid });
+      send({ error: 'temporarily overloaded' }, 503);
       return;
     }
     if (req.method === 'GET' && url.pathname === '/events') {
@@ -447,7 +447,6 @@ test('a live daemon SSE stream reconnects in place with the same client registra
       onStreamReconnect: (details) => reconnects.push(details),
       streamReconnectBaseMs: 5,
       streamReconnectMaxMs: 10,
-      streamReconnectHealthGraceMs: 20,
     });
     await waitForValue(() => streamResponses.length === 1);
     streamResponses[0].end();
@@ -746,10 +745,17 @@ test('session catalog has one explicit route and never rides session responses',
       scans += 1;
       return [{ id: 'catalog-row', updatedAt: scans }];
     },
+    getRemoteOwnerState() {
+      return { enabled: true, sessionId: 'catalog-row' };
+    },
   });
   try {
     const firstCatalog = await service.handleCall('session.list', {});
     assert.ok(Array.isArray(firstCatalog.sessions));
+    assert.deepEqual(firstCatalog.remoteOwner, {
+      enabled: true,
+      sessionId: 'catalog-row',
+    });
     assert.equal(scans, 1);
     const created = await service.handleCall('session.create', {});
     assert.equal(Object.hasOwn(created, 'sync'), false);
@@ -1245,6 +1251,45 @@ test('disconnected channel remote-state churn keeps only the latest frame', asyn
     assert.equal(typeof client.pendingRemoteStateFrame, 'string');
     assert.equal(JSON.parse(client.pendingRemoteStateFrame).params.state, 'state-9999');
     assert.equal(Object.hasOwn(client, 'pending'), false);
+  } finally {
+    await transport.stop();
+  }
+});
+
+test('channel transport publishes remote ownership independently of state-file persistence', async () => {
+  const states = [];
+  let transport = null;
+  transport = createChannelTransport({
+    handleCall: async (name, args) => {
+      if (name === 'activate_channel_bridge' && args.active === true) {
+        transport.notify('notifications/mixdog/remote', { state: 'acquired' });
+      }
+      return { ok: true };
+    },
+    onRemoteOwnerStateChange: (state) => states.push(state),
+  });
+  const endpoint = await transport.start();
+  try {
+    const registered = await daemonPost(endpoint, '/client/register', {
+      leadPid: process.pid,
+      cwd: process.cwd(),
+      passive: true,
+    });
+    await daemonPost(endpoint, '/call', {
+      token: registered.token,
+      name: 'activate_channel_bridge',
+      args: { active: true, sessionId: 'session_remote' },
+    });
+    assert.equal(states.at(-1)?.enabled, true);
+    assert.equal(states.at(-1)?.sessionId, 'session_remote');
+
+    await daemonPost(endpoint, '/call', {
+      token: registered.token,
+      name: 'activate_channel_bridge',
+      args: { active: false, sessionId: 'session_remote' },
+    });
+    assert.equal(states.at(-1)?.enabled, false);
+    assert.equal(states.at(-1)?.sessionId, null);
   } finally {
     await transport.stop();
   }
@@ -1973,7 +2018,6 @@ test('a silent SSE is reconnected and a continuous reconnect storm exhausts its 
       onStreamDisconnect: (details) => disconnects.push(details),
       streamReconnectBaseMs: 5,
       streamReconnectMaxMs: 10,
-      streamReconnectHealthGraceMs: 5,
       streamLivenessTimeoutMs: 20,
       streamReconnectBudgetMs: 60,
     });

@@ -39,6 +39,7 @@ interface SessionClientModule {
 type SessionClientLoader = (
   options: Extract<DesktopServiceInbound, { kind: 'init' }>['options'],
 ) => Promise<SessionClientModule>;
+type DesktopInitOptions = Extract<DesktopServiceInbound, { kind: 'init' }>['options'];
 
 function isTransientConnectionReset(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
@@ -48,6 +49,16 @@ function isTransientConnectionReset(error: unknown): boolean {
   return code === 'ECONNRESET'
     || code === 'EPIPE'
     || /socket hang up|read ECONNRESET|write EPIPE/i.test(message);
+}
+
+function isDaemonTransportFailure(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const record = error as Record<string, unknown>;
+  const code = String(record.code || '').toUpperCase();
+  const message = error instanceof Error ? error.message : String(error);
+  return record.daemonTransportError === true
+    || ['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'ETIMEDOUT'].includes(code)
+    || /socket hang up|ECONNREFUSED|ECONNRESET|EPIPE|daemon (?:exited|replaced)/i.test(message);
 }
 
 function desktopSessionProtocolError(error: unknown): Error {
@@ -69,7 +80,10 @@ export class SessionTransport implements DesktopTransport {
   private readonly requestedDesktopId = `desktop_${process.pid}_${randomUUID().replaceAll('-', '')}`;
   private desktopId = this.requestedDesktopId;
   private client: AttachedDaemon | null = null;
+  private daemonModule: SessionClientModule | null = null;
+  private initOptions: DesktopInitOptions | null = null;
   private initializing: Promise<void> | null = null;
+  private recovering: Promise<void> | null = null;
   private closePromise: Promise<void> | null = null;
   private streamResync: Promise<void> | null = null;
   private closed = false;
@@ -130,16 +144,35 @@ export class SessionTransport implements DesktopTransport {
             message.options.appPath,
           )
         ) as SessionClientModule;
-      let discovery: Record<string, unknown>;
-      try {
-        discovery = await daemonModule.ensureDaemon({
-          cwd: this.cwd,
-          log: (line) => this.emit('error', 'daemon', line),
-        });
-      } catch (error) {
-        throw desktopSessionProtocolError(error);
-      }
-      const client = await daemonModule.attachSession({
+      this.daemonModule = daemonModule;
+      this.initOptions = message.options;
+      await this.connectDaemon(daemonModule, message.options);
+      this.emit('message', { kind: 'ready' } satisfies DesktopServiceOutbound);
+    })();
+    try {
+      await this.initializing;
+    } finally {
+      this.initializing = null;
+    }
+  }
+
+  private async connectDaemon(
+    daemonModule: SessionClientModule,
+    options: DesktopInitOptions,
+  ): Promise<AttachedDaemon> {
+    let discovery: Record<string, unknown>;
+    try {
+      discovery = await daemonModule.ensureDaemon({
+        cwd: this.cwd,
+        log: (line) => this.emit('error', 'daemon', line),
+      });
+    } catch (error) {
+      throw desktopSessionProtocolError(error);
+    }
+    let attached: AttachedDaemon | null = null;
+    let fatalDuringAttach = '';
+    try {
+      attached = await daemonModule.attachSession({
         discovery,
         cwd: this.cwd,
         onFrame: (frame) => {
@@ -148,7 +181,13 @@ export class SessionTransport implements DesktopTransport {
           const outbound = frame.message as DesktopServiceOutbound;
           if (outbound && typeof outbound === 'object') this.emit('message', outbound);
         },
-        onFatal: (reason) => this.fail(new Error(`Mixdog daemon disconnected: ${reason}`)),
+        onFatal: (reason) => {
+          if (!attached) {
+            fatalDuringAttach = reason;
+            return;
+          }
+          void this.recoverDaemon(attached, reason).catch(() => {});
+        },
         onStreamDisconnect: (details) => {
           this.emit('diagnostic', 'session-stream-reconnecting', details);
         },
@@ -157,28 +196,72 @@ export class SessionTransport implements DesktopTransport {
           void this.resyncAfterStreamReconnect(details);
         },
       });
-      if (this.closed) {
-        await client.close('desktop transport closed during init');
-        return;
+      if (fatalDuringAttach) {
+        throw new Error(`Mixdog daemon disconnected during attach: ${fatalDuringAttach}`);
       }
-      this.client = client;
-      const initialized = await client.call('desktop.init', {
+      if (this.closed) {
+        await attached.close('desktop transport closed during init');
+        throw new Error('Mixdog daemon transport is closed.');
+      }
+      const initialized = await attached.call('desktop.init', {
         desktopId: this.requestedDesktopId,
         moduleUrl: this.moduleUrl,
-        options: message.options,
+        options,
       }) as { desktopId?: unknown };
       this.desktopId = String(initialized?.desktopId || this.requestedDesktopId);
-      await client.call('desktop.control', {
+      await attached.call('desktop.control', {
         desktopId: this.desktopId,
         message: { kind: 'state-resync' },
       });
-      this.emit('message', { kind: 'ready' } satisfies DesktopServiceOutbound);
-    })();
-    try {
-      await this.initializing;
-    } finally {
-      this.initializing = null;
+      this.client = attached;
+      return attached;
+    } catch (error) {
+      await attached?.call('desktop.unsubscribe', {
+        desktopId: this.desktopId,
+      }, {
+        timeoutMs: 1_000,
+      }).catch(() => {});
+      await attached?.close('desktop daemon attach failed').catch(() => {});
+      throw error;
     }
+  }
+
+  private recoverDaemon(failedClient: AttachedDaemon, reason: string): Promise<void> {
+    if (this.recovering) return this.recovering;
+    if (this.closed || this.client !== failedClient) return Promise.resolve();
+    const daemonModule = this.daemonModule;
+    const options = this.initOptions;
+    if (!daemonModule || !options) {
+      return Promise.reject(new Error('Mixdog daemon recovery is not initialized.'));
+    }
+    this.client = null;
+    const previous = {
+      reason,
+      oldPid: Number((failedClient as AttachedDaemon & { pid?: number }).pid) || 0,
+      oldPort: Number((failedClient as AttachedDaemon & { port?: number }).port) || 0,
+    };
+    this.emit('diagnostic', 'session-daemon-reconnecting', previous);
+    const recovery = (async () => {
+      await failedClient.close('desktop daemon replaced').catch(() => {});
+      const next = await this.connectDaemon(daemonModule, options);
+      this.emit('diagnostic', 'session-daemon-reconnected', {
+        ...previous,
+        newPid: Number((next as AttachedDaemon & { pid?: number }).pid) || 0,
+        newPort: Number((next as AttachedDaemon & { port?: number }).port) || 0,
+      });
+    })();
+    this.recovering = recovery;
+    void recovery.catch((error) => this.fail(error)).finally(() => {
+      if (this.recovering === recovery) this.recovering = null;
+    });
+    return recovery;
+  }
+
+  private async activeClient(): Promise<AttachedDaemon> {
+    if (this.initializing) await this.initializing;
+    if (this.recovering) await this.recovering;
+    if (!this.client) throw new Error('Mixdog daemon is not initialized.');
+    return this.client;
   }
 
   private resyncAfterStreamReconnect(details: Record<string, unknown>): Promise<void> {
@@ -224,8 +307,7 @@ export class SessionTransport implements DesktopTransport {
     message: Extract<DesktopServiceInbound, { kind: 'request' }>,
   ): Promise<void> {
     try {
-      if (this.initializing) await this.initializing;
-      if (!this.client) throw new Error('Mixdog daemon is not initialized.');
+      let client = await this.activeClient();
       const args = {
         desktopId: this.desktopId,
         method: message.method,
@@ -234,14 +316,30 @@ export class SessionTransport implements DesktopTransport {
       const callId = `desktop-invoke:${this.requestedDesktopId}:${message.id}`;
       let value: unknown;
       try {
-        value = await this.client.call('desktop.invoke', args, { callId });
+        value = await client.call('desktop.invoke', args, { callId });
       } catch (error) {
         // A pooled loopback socket can be reset while the daemon itself stays
         // healthy (notably during adapter handoff). Retry the exact logical
         // request once under the same call id: the daemon's idempotency cache
         // returns the original result if it already committed.
-        if (!isTransientConnectionReset(error)) throw error;
-        value = await this.client.call('desktop.invoke', args, { callId });
+        let failure = error;
+        if (isTransientConnectionReset(error)) {
+          try {
+            value = await client.call('desktop.invoke', args, { callId });
+            failure = null;
+          } catch (retryError) {
+            failure = retryError;
+          }
+        }
+        if (failure) {
+          if (!isDaemonTransportFailure(failure)) throw failure;
+          await this.recoverDaemon(
+            client,
+            failure instanceof Error ? failure.message : String(failure),
+          );
+          client = await this.activeClient();
+          value = await client.call('desktop.invoke', args, { callId });
+        }
       }
       this.emit('message', {
         kind: 'response',
@@ -267,9 +365,8 @@ export class SessionTransport implements DesktopTransport {
   }
 
   private async control(message: DesktopServiceInbound): Promise<void> {
-    if (this.initializing) await this.initializing;
-    if (!this.client) return;
-    await this.client.call('desktop.control', {
+    const client = await this.activeClient();
+    await client.call('desktop.control', {
       desktopId: this.desktopId,
       message,
     });
@@ -279,9 +376,8 @@ export class SessionTransport implements DesktopTransport {
   private async notify(
     message: Extract<DesktopServiceInbound, { kind: 'notify' }>,
   ): Promise<void> {
-    if (this.initializing) await this.initializing;
-    if (!this.client) return;
-    await this.client.call('desktop.invoke', {
+    const client = await this.activeClient();
+    await client.call('desktop.invoke', {
       desktopId: this.desktopId,
       method: message.method,
       args: message.args,
@@ -299,9 +395,10 @@ export class SessionTransport implements DesktopTransport {
 
   private closeClient(reason: string): Promise<void> {
     if (this.closePromise) return this.closePromise;
-    const client = this.client;
-    this.client = null;
     this.closePromise = (async () => {
+      await this.recovering?.catch(() => {});
+      const client = this.client;
+      this.client = null;
       if (!client) return;
       await client.call('desktop.unsubscribe', { desktopId: this.desktopId }, {
         timeoutMs: 1_000,

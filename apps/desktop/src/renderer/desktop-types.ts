@@ -1,5 +1,4 @@
 import type { DesktopSessionSummary } from "../shared/contract";
-import { isActiveDesktopAgentEntry } from "../shared/agent-activity";
 
 export type RecordValue = Record<string, unknown>;
 export type Project = string;
@@ -97,48 +96,23 @@ export type Snapshot = RecordValue & {
   };
   workflow?: RecordValue | null;
   remoteEnabled?: boolean;
+  remoteSessionId?: string | null;
 };
 
 export const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };
 export const EMPTY_TRANSCRIPT_ITEMS: TranscriptItem[] = [];
 
-function hasActiveAgentEntries(entries: RecordValue[] | undefined): boolean {
-  return Array.isArray(entries) && entries.some(isActiveDesktopAgentEntry);
-}
-
-export function hasActiveSnapshotWork(snapshot: Snapshot): boolean {
-  const spinnerActive = Boolean(snapshot.spinner && snapshot.spinner.active !== false);
-  const commandActive = Boolean(snapshot.commandStatus && snapshot.commandStatus.active !== false);
-  return Boolean(
-    snapshot.busy
-    || snapshot.commandBusy
-    || snapshot.thinking
-    || spinnerActive
-    || commandActive
-    || hasActiveAgentEntries(snapshot.agentWorkers)
-    || hasActiveAgentEntries(snapshot.agentJobs)
-  );
-}
-
-export function workingSessionIdsForSnapshot(
+/** Session owners whose Lead or child-agent heartbeat is active. Unlike the
+ * sidebar selection helper below, this list is process-wide and must never be
+ * changed by whichever conversation currently has focus. */
+export function agentActivitySessionIds(
   sessions: readonly DesktopSessionSummary[],
-  activeSessionId: string,
-  activeBusy: boolean,
-  activeRemoteAttached = false,
-): Set<string> {
-  const ids = new Set(sessions
-    .filter((session) => session.working === true || session.agentWorking === true)
-    .map((session) => session.id));
-  if (activeSessionId) {
-    const activeAgentWorking = sessions.some((session) =>
-      session.id === activeSessionId && session.agentWorking === true);
-    // A local live snapshot is authoritative for its selected session and can
-    // release a stale own-turn heartbeat. Child-agent and remote-owner
-    // heartbeats remain authoritative while the selected lead itself is idle.
-    if (activeBusy || activeAgentWorking) ids.add(activeSessionId);
-    else if (!activeRemoteAttached) ids.delete(activeSessionId);
-  }
-  return ids;
+): string[] {
+  return sessions
+    .filter((session) =>
+      session.leadWorking === true
+      || session.agentWorking === true)
+    .map((session) => session.id);
 }
 
 

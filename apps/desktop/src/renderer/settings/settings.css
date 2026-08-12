@@ -916,6 +916,40 @@ html[data-mixdog-mobile] .core-memory-list {
 .settings-connection-card b { font-size: var(--mx-font-ui); }
 .settings-connection-card small { color: var(--settings-muted); font-size: var(--mx-font-meta); }
 .settings-connection-note { margin: 0; color: var(--settings-muted); font-size: var(--mx-font-code); line-height: var(--mx-line-minor); }
+.settings-git-inline-status {
+  margin: -6px 0 8px;
+  color: var(--settings-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.settings-commit-rule-card,
+.settings-commit-rule-grid article {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--mx-bg-layer-2);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.settings-commit-rule-card p,
+.settings-commit-rule-grid p { margin: 0; color: var(--settings-muted); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.settings-commit-rule-card code,
+.settings-commit-rule-grid code {
+  overflow-wrap: anywhere;
+  color: var(--mx-text);
+  font-size: var(--mx-font-code);
+  white-space: pre-wrap;
+}
+.settings-commit-rule-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.settings-commit-rule-preview { grid-column: 1 / -1; }
+.settings-commit-custom-fields { width: 100%; display: grid; gap: 10px; }
+.settings-commit-custom-fields label { display: grid; gap: 5px; color: var(--settings-muted); font-size: var(--mx-font-meta); }
+.settings-commit-custom-fields textarea { width: 100%; min-width: 0; resize: vertical; }
+.settings-commit-custom-fields button { justify-self: end; }
+@media (max-width: 720px) {
+  .settings-commit-rule-grid { grid-template-columns: 1fr; }
+}
 /* Settings row grammar: label left, value + copy right, divided rows. */
 .settings-connection-links { display: grid; }
 .settings-connection-links > div {

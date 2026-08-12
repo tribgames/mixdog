@@ -66,6 +66,7 @@ import { pruneOldEntries } from './lib/memory-maintenance-store.mjs'
 import { computeEntryScore } from './lib/memory-score.mjs'
 import { runFullBackfill } from './lib/memory-ops-policy.mjs'
 import { listCore, addCore, editCore, deleteCore, compactCoreIds, listCoreCandidates, promoteCoreCandidate, dismissCoreCandidate } from './lib/core-memory-store.mjs'
+import { refreshCoreMemoryFile } from './lib/core-memory-file.mjs'
 import { resolveProjectId, resolveProjectScope } from './lib/project-id-resolver.mjs'
 import { openTraceDatabase, closeTraceDatabase, insertTraceEvents, enqueueTraceEvents, insertAgentCalls, registerTraceExitDrain } from './lib/trace-store.mjs'
 import { updateJsonAtomicSync, writeJsonAtomicSync } from '../shared/atomic-file.mjs'
@@ -375,6 +376,17 @@ async function setCycleLastRun(kind, ts) {
   await mergeMetaValue(db, CYCLE_LAST_RUN_KEY, { [kind]: ts })
 }
 
+async function refreshCoreMemorySnapshot(reason = 'mutation') {
+  try {
+    const result = await refreshCoreMemoryFile(db, DATA_DIR)
+    memoryProfile('core-memory:file-refreshed', { reason, revision: result.revision, written: result.written })
+    return result
+  } catch (error) {
+    __mixdogMemoryLog(`[core-memory] file refresh failed (${reason}): ${error?.message || error}\n`)
+    return null
+  }
+}
+
 
 // ── Cycle scheduling cluster (extracted to lib/cycle-scheduler.mjs) ────────
 // The mutually-referential cycle machinery (health ledger, cycle1 outer
@@ -413,6 +425,7 @@ const _cycleScheduler = createCycleScheduler({
   scheduledCycle2Signature,
   scheduledCycle3Signature,
   cycleStateFile: CYCLE_STATE_FILE,
+  onCoreMemoryChanged: refreshCoreMemorySnapshot,
 })
 // Cycle1 run primitives + cycle2 finalize used by MCP action handlers below.
 const _startCycle1Run = _cycleScheduler.startCycle1Run
@@ -444,6 +457,10 @@ async function _initRuntime() {
   const compactStartedAt = performance.now()
   await compactCoreIds(DATA_DIR)
   memoryProfile('core-ids:compact:done', { ms: (performance.now() - compactStartedAt).toFixed(1) })
+  // First boot migrates existing PG core data; later boots reconcile any
+  // crash window between a committed PG mutation and its atomic file refresh.
+  // The snapshot is not part of memory readiness.
+  void refreshCoreMemorySnapshot('boot-migration')
   // Memory module is always-on: the transcript watcher/ingest runs
   // unconditionally except in secondary mode (secondary attaches to a primary's
   // PG and must not double-ingest). The recap toggle only gates whether the
@@ -517,6 +534,7 @@ const _actionHandlers = createMemoryActionHandlers({
   finalizeCycle2Run: _finalizeCycle2Run,
   finalizeCycle3Run: _finalizeCycle3Run,
   requestCycle3Review: _cycleScheduler.requestCycle3Review,
+  refreshCoreMemoryFile: refreshCoreMemorySnapshot,
   getSchedulerCycle1InFlight: () => _cycleScheduler.getCycle1InFlight(),
   getCycle2CallLlm,
   getCycle3CallLlm,

@@ -243,12 +243,34 @@ let sessionRuntimePool = null;
 let localSessionBridge = null;
 let memoryRuntime = null;
 let agentDispatchBroker = null;
+let remoteOwnerState = { enabled: false, sessionId: null };
 let shuttingDown = false;
 let shutdownRecheckTimer = null;
 let replacementRequested = null;
 const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelay.enable();
 let eventLoopLagTimer = null;
+
+function startMemoryRuntimeEarly() {
+  // Start the isolated memory process immediately after singleton ownership is
+  // established. Do not await it: daemon front-door readiness remains
+  // independent while PG/embedding cold-start overlaps all other boot work.
+  if (process.env.MIXDOG_DAEMON_SKIP_MEMORY === '1') {
+    log('memory runtime skipped (MIXDOG_DAEMON_SKIP_MEMORY=1)');
+    return;
+  }
+  if (memoryRuntime) return;
+  try {
+    memoryRuntime = getStandaloneMemoryRuntime({
+      entry: MEMORY_ENTRY,
+      dataDir: DATA_DIR,
+      cwd: CWD,
+    });
+    void memoryRuntime.init()
+      .then(() => log('memory runtime ready in isolated process'))
+      .catch((e) => log(`memory.start failed (non-fatal): ${e?.message || e}`));
+  } catch (e) { log(`memory.start setup failed (non-fatal): ${e?.message || e}`); }
+}
 
 function eventLoopStatus() {
   const milliseconds = (value) => Number.isFinite(value) ? Math.round(value / 1e6) : 0;
@@ -387,6 +409,7 @@ async function main() {
     process.exit(0);
   }
   process.on('exit', () => { try { releaseSingletonOwner(OWNER_PATH, process.pid); } catch {} });
+  startMemoryRuntimeEarly();
   agentDispatchBroker = createAgentDispatchBroker({
     loadConfig: loadAgentConfig,
     initProviders,
@@ -458,6 +481,17 @@ async function main() {
     onClientsEmpty: () => { maybeSelfShutdown('no live channel clients'); },
     // First channels client in: bring the channels runtime up (see startChannels).
     onClientRegistered: () => { startChannels(); },
+    onRemoteOwnerStateChange: (state) => {
+      remoteOwnerState = {
+        enabled: state?.enabled === true,
+        sessionId: state?.enabled === true && state?.sessionId
+          ? String(state.sessionId)
+          : null,
+      };
+      const frame = { type: 'remote-owner-state', ...remoteOwnerState };
+      localSessionBridge?.publish(frame);
+      sessionTransport?.broadcast(frame);
+    },
   });
   setChannelNotifySink((method, params) => transport.notify(method, params));
   const { port, token } = await transport.start();
@@ -571,6 +605,7 @@ async function main() {
         refreshFromStorage: options.refreshFromStorage === true,
       });
     },
+    getRemoteOwnerState: () => remoteOwnerState,
     desktopRuntime,
     onFrame: (frame, targetTokens) => {
       localSessionBridge?.publish(frame, targetTokens);
@@ -681,27 +716,6 @@ async function main() {
   // client — see the transport's onClientRegistered hook.
   if (process.env.MIXDOG_DAEMON_SPAWNED_FOR !== 'session') startChannels();
 
-  // Memory owns a separate process/event loop. Initialization stays
-  // asynchronous because DB/embedding startup must not delay the front-door
-  // ready handshake. The proxy retains it for this daemon pid and its
-  // client-grace lifecycle reaps it only after the daemon is gone.
-  // Isolated test roots opt out (MIXDOG_DAEMON_SKIP_MEMORY=1): spinning a
-  // throwaway Postgres cluster per test run is pure cost, and a hard-killed
-  // daemon would orphan it.
-  if (process.env.MIXDOG_DAEMON_SKIP_MEMORY === '1') {
-    log('memory runtime skipped (MIXDOG_DAEMON_SKIP_MEMORY=1)');
-    return;
-  }
-  try {
-    memoryRuntime = getStandaloneMemoryRuntime({
-      entry: MEMORY_ENTRY,
-      dataDir: DATA_DIR,
-      cwd: CWD,
-    });
-    void memoryRuntime.init()
-      .then(() => log('memory runtime ready in isolated process'))
-      .catch((e) => log(`memory.start failed (non-fatal): ${e?.message || e}`));
-  } catch (e) { log(`memory.start setup failed (non-fatal): ${e?.message || e}`); }
 }
 
 process.on('SIGTERM', () => { void shutdown('SIGTERM'); });

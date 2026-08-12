@@ -3,7 +3,7 @@
 // re-renders the conversation (and vice versa). Extracted from App.tsx, which
 // keeps composition and session flow.
 import { Unplug } from "lucide-react";
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { ActiveTasksIndicator } from "./ActiveAgentsIndicator";
 import {
@@ -29,65 +29,12 @@ import {
   type TranscriptItem,
 } from "./desktop-types";
 import { PaneSurfaceCover } from "./PaneSurfaceGate";
-import type { SessionScopedSnapshotGate } from "./renderer-logic.mjs";
-import { createSessionScopedSnapshotGate } from "./renderer-logic.mjs";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store";
 import { asRecord } from "./text-format";
 import { ContextUsageIndicator, LiveWorkStatus, TranscriptRow } from "./TranscriptView";
 import { UtilityDock } from "./UtilityDock";
 
 export const selectDesktopSnapshot = (snapshot: Snapshot) => snapshot;
-
-type StickySessionRoute = {
-  provider: string;
-  model: string;
-  effort: string;
-  fast: boolean;
-  fastCapable: boolean;
-};
-
-// A pane's lane can deliver a frame with no route: a disk projection, a
-// partial delta, or the gap right after focus moves and the lane republishes.
-// Rendering that frame verbatim emptied the model controls of every unfocused
-// pane back to "Choose model" (user report: 포커스를 옮길 때마다 모델 정보가
-// 날아간다). The route is SESSION state, not per-frame state, so a frame that
-// omits it keeps the last route this pane knew.
-function useStickySessionRoute(sessionId: string, snapshot: Snapshot): Snapshot {
-  const remembered = useRef<{ sessionId: string; route: StickySessionRoute | null }>({
-    sessionId,
-    route: null,
-  });
-  return useMemo(() => {
-    if (remembered.current.sessionId !== sessionId) {
-      remembered.current = { sessionId, route: null };
-    }
-    if (!sessionId) return snapshot;
-    const provider = String(snapshot?.provider || "");
-    const model = String(snapshot?.model || "");
-    if (provider && model) {
-      remembered.current.route = {
-        provider,
-        model,
-        effort: String(snapshot?.effort || ""),
-        fast: snapshot?.fast === true,
-        fastCapable: snapshot?.fastCapable === true,
-      };
-      return snapshot;
-    }
-    const route = remembered.current.route;
-    return route ? { ...snapshot, ...route } as Snapshot : snapshot;
-  }, [sessionId, snapshot]);
-}
-
-// The viewed tab scopes which LIVE frames may paint the conversation surface:
-// frames carrying another session's id (background engines publishing) are
-// suppressed, and only renderer-initiated host actions may adopt a fresh
-// session id (submit materialization, auto-clear, /clear).
-export interface SnapshotSessionScope {
-  /** Viewed session id; '' scopes the New task draft (blank frames only). */
-  sessionId: string;
-  onForeignFrameSuppressed?(liveSessionId: string): void;
-}
 
 export function useDesktopSnapshotSelector<T>(
   store: DesktopSnapshotStore,
@@ -111,82 +58,27 @@ export function useDesktopSnapshotSelector<T>(
   return useSyncExternalStore(subscribe, getSelection, getSelection);
 }
 
-function useSelectedDesktopSnapshot(
-  store: DesktopSnapshotStore,
-  frozenSnapshot: Snapshot | null,
-  isEqual: (left: Snapshot, right: Snapshot) => boolean = Object.is,
-  sessionScope?: SnapshotSessionScope,
-  enabled = true,
-): Snapshot {
-  const gateRef = useRef<{ id: string; gate: SessionScopedSnapshotGate<Snapshot> } | null>(null);
-  const scopeId = sessionScope?.sessionId ?? "";
-  const selector = useCallback(
-    (live: Snapshot) => {
-      if (frozenSnapshot) return frozenSnapshot;
-      if (!sessionScope) return live;
-      if (gateRef.current?.id !== scopeId) {
-        gateRef.current = { id: scopeId, gate: createSessionScopedSnapshotGate<Snapshot>(scopeId) };
-      }
-      const gated = gateRef.current.gate.select(live);
-      if (gated.suppressedSessionId) {
-        sessionScope.onForeignFrameSuppressed?.(gated.suppressedSessionId);
-      }
-      return gated.snapshot || EMPTY_SNAPSHOT;
-    },
-    [frozenSnapshot, scopeId, sessionScope],
-  );
-  return useDesktopSnapshotSelector(store, selector, isEqual, enabled);
-}
-
-type LiveConversationProps =
+type DraftConversationProps =
   Omit<React.ComponentProps<typeof Conversation>, "snapshot" | "routeSnapshot" | "transcriptPending"> & {
-  snapshotStore: DesktopSnapshotStore;
-  frozenSnapshot: Snapshot | null;
-  hidden: boolean;
   transcriptPending?: boolean;
-  sessionScope?: SnapshotSessionScope;
-};
+  };
 
 type PaneStreamingTailProps = {
-  focused: boolean;
   sessionId: string;
-  fallback?: Snapshot | null;
-  snapshotStore: DesktopSnapshotStore;
-  frozenSnapshot: Snapshot | null;
   hidden: boolean;
-  sessionScope?: SnapshotSessionScope;
 };
 
 const PaneRuntimeProgress = memo(function PaneRuntimeProgress({
-  focused,
   sessionId,
-  fallback,
-  snapshotStore,
-  frozenSnapshot,
   hidden,
-  sessionScope,
 }: PaneStreamingTailProps) {
-  const selectedSnapshot = useSelectedDesktopSnapshot(
-    snapshotStore,
-    sessionId ? null : frozenSnapshot,
-    desktopRuntimeProgressSnapshotsEqual,
-    sessionId ? undefined : sessionScope,
-    !hidden && !sessionId,
-  );
   const lane = useSessionLane(
     sessionId,
     defaultSessionLaneStore,
     desktopRuntimeProgressSnapshotsEqual,
-    !hidden,
+    !hidden && Boolean(sessionId),
   );
-  const laneSnapshot = lane ?? fallback ?? EMPTY_SNAPSHOT;
-  const selectedSessionId = String(selectedSnapshot.sessionId || "");
-  const selectedOwnsPane = sessionId
-    ? selectedSessionId === sessionId
-    : selectedSessionId === "";
-  const snapshot = sessionId
-    ? laneSnapshot
-    : focused && selectedOwnsPane ? selectedSnapshot : laneSnapshot;
+  const snapshot = lane ?? EMPTY_SNAPSHOT;
   const text = String(asRecord(snapshot.progressHint)?.text || "");
   return !hidden && text
     ? <div className="runtime-progress" role="status">{text}</div>
@@ -194,37 +86,16 @@ const PaneRuntimeProgress = memo(function PaneRuntimeProgress({
 });
 
 const PaneStreamingTail = memo(function PaneStreamingTail({
-  focused,
   sessionId,
-  fallback,
-  snapshotStore,
-  frozenSnapshot,
   hidden,
-  sessionScope,
 }: PaneStreamingTailProps) {
-  const selectedSnapshot = useSelectedDesktopSnapshot(
-    snapshotStore,
-    sessionId ? null : frozenSnapshot,
-    desktopStreamingTailSnapshotsEqual,
-    sessionId ? undefined : sessionScope,
-    !hidden && !sessionId,
-  );
   const lane = useSessionLane(
     sessionId,
     defaultSessionLaneStore,
     desktopStreamingTailSnapshotsEqual,
-    !hidden,
+    !hidden && Boolean(sessionId),
   );
-  const laneSnapshot = lane ?? fallback ?? EMPTY_SNAPSHOT;
-  const selectedSessionId = String(selectedSnapshot.sessionId || "");
-  const selectedOwnsPane = sessionId
-    ? selectedSessionId === sessionId
-    : selectedSessionId === "";
-  // Every session pane reads one source for its whole lifetime. Focus changes
-  // input routing only; it never swaps transcript/tail ownership.
-  const snapshot = sessionId
-    ? laneSnapshot
-    : focused && selectedOwnsPane ? selectedSnapshot : laneSnapshot;
+  const snapshot = lane ?? EMPTY_SNAPSHOT;
   const tail = snapshot.streamingTail as TranscriptItem | null | undefined;
   if (hidden) return null;
   if (!tail) return null;
@@ -240,65 +111,36 @@ const PaneStreamingTail = memo(function PaneStreamingTail({
   </div>;
 });
 
-export const LiveConversation = memo(function LiveConversation({
-  snapshotStore,
-  frozenSnapshot,
-  hidden,
+export const DraftConversation = memo(function DraftConversation({
   transcriptPending = false,
-  sessionScope,
   ...props
-}: LiveConversationProps) {
-  const selectedSnapshot = useSelectedDesktopSnapshot(
-    snapshotStore,
-    frozenSnapshot,
-    desktopConversationSnapshotsEqual,
-    sessionScope,
-  );
-  const visibleSnapshot = hidden ? EMPTY_SNAPSHOT : selectedSnapshot;
-  // Readiness gates the TIMELINE, never the snapshot: emptying items produced a
-  // 0 -> N row swap that resolved the entry anchor twice (the entry bounce).
-  return <Conversation snapshot={visibleSnapshot} routeSnapshot={selectedSnapshot}
-    transcriptPending={transcriptPending} {...props} reviewActive={!hidden} />;
+}: DraftConversationProps) {
+  return <Conversation snapshot={EMPTY_SNAPSHOT} routeSnapshot={EMPTY_SNAPSHOT}
+    transcriptPending={transcriptPending} {...props} reviewActive />;
 });
 
 // Every split-pane chat keeps ONE Conversation instance mounted for its whole
-// lifetime. Focus only changes which snapshot/callback route owns that same
-// tree; it must never swap LiveConversation <-> LaneConversation because that
-// remount consumes the first control click and resets open picker state.
+// lifetime. Focus changes input routing only; every established session reads
+// its own lane and a draft reads only its local draft props.
 type PaneConversationProps =
   Omit<React.ComponentProps<typeof Conversation>,
     "snapshot" | "routeSnapshot" | "streamingTailSlot" | "runtimeProgressSlot" | "transcriptPending"> & {
     focused: boolean;
     sessionId: string;
-    fallback?: Snapshot | null;
-    snapshotStore: DesktopSnapshotStore;
-    frozenSnapshot: Snapshot | null;
     hidden: boolean;
     transcriptPending?: boolean;
     reconcileOnMount?: boolean;
-    sessionScope?: SnapshotSessionScope;
   };
 
 export const PaneConversation = memo(function PaneConversation({
   focused,
   sessionId,
-  fallback,
-  snapshotStore,
-  frozenSnapshot,
   hidden,
   transcriptPending = false,
   reconcileOnMount = true,
-  sessionScope,
   draftMode = false,
   ...props
 }: PaneConversationProps) {
-  const selectedSnapshot = useSelectedDesktopSnapshot(
-    snapshotStore,
-    sessionId ? null : frozenSnapshot,
-    desktopConversationShellSnapshotsEqual,
-    sessionId ? undefined : sessionScope,
-    !sessionId,
-  );
   const lane = useSessionLane(
     sessionId,
     defaultSessionLaneStore,
@@ -313,16 +155,10 @@ export const PaneConversation = memo(function PaneConversation({
     // and placed its authoritative result in this lane before revealing it.
     if (sessionId && reconcileOnMount) requestSessionPeek(sessionId, { reconcile: true });
   }, [reconcileOnMount, sessionId]);
-  const laneSnapshot = lane ?? fallback ?? EMPTY_SNAPSHOT;
-  const selectedSessionId = String(selectedSnapshot.sessionId || "");
-  const selectedOwnsDraft = selectedSessionId === "";
-  const routeSnapshot = useStickySessionRoute(sessionId, sessionId
-    ? laneSnapshot
-    : focused && selectedOwnsDraft ? selectedSnapshot : EMPTY_SNAPSHOT);
+  const routeSnapshot = sessionId ? lane ?? EMPTY_SNAPSHOT : EMPTY_SNAPSHOT;
   const paneSnapshot = hidden ? EMPTY_SNAPSHOT : routeSnapshot;
-  const cachedTranscriptReady = Boolean(fallback?.items?.length);
   const surfaceReady = hidden || !sessionId
-    || (!transcriptPending && (lane !== null || cachedTranscriptReady));
+    || (!transcriptPending && lane !== null);
   const bootKey = sessionId || "new-task";
   // Chromium may discard the raster for a layout-retained Markdown subtree
   // while New Task is visible. Keep the New Task watermark over a warm session
@@ -363,69 +199,20 @@ export const PaneConversation = memo(function PaneConversation({
       reviewActive={focused && !hidden}
       warmPaintHandoff={warmDraftHandoff}
       liveWork={<PaneLiveWork
-        focused={focused}
         sessionId={sessionId}
-        fallback={fallback}
-        snapshotStore={snapshotStore}
-        frozenSnapshot={frozenSnapshot}
-        hidden={hidden}
-        sessionScope={sessionScope} />}
+        hidden={hidden} />}
       streamingTailSlot={<PaneStreamingTail
-        focused={focused}
         sessionId={sessionId}
-        fallback={fallback}
-        snapshotStore={snapshotStore}
-        frozenSnapshot={frozenSnapshot}
-        hidden={hidden}
-        sessionScope={sessionScope} />}
+        hidden={hidden} />}
       runtimeProgressSlot={<PaneRuntimeProgress
-        focused={focused}
         sessionId={sessionId}
-        fallback={fallback}
-        snapshotStore={snapshotStore}
-        frozenSnapshot={frozenSnapshot}
-        hidden={hidden}
-        sessionScope={sessionScope} />}
+        hidden={hidden} />}
       {...props}
     />
     <PaneSurfaceCover ready={surfaceReady} label="Loading conversation…"
       transitionKey={sessionId || "new-task"} />
   </>;
 });
-
-export function SnapshotHeaderStatus({
-  snapshotStore,
-  frozenSnapshot,
-  hidden,
-  sessionScope,
-  draftRemoteEnabled,
-  onOpen,
-  onOpenAgents,
-  onRemoteChange,
-}: {
-  snapshotStore: DesktopSnapshotStore;
-  frozenSnapshot: Snapshot | null;
-  hidden: boolean;
-  sessionScope?: SnapshotSessionScope;
-  draftRemoteEnabled?: boolean;
-  onOpen(): void;
-  onOpenAgents?(): void;
-  onRemoteChange(enabled: boolean): void | Promise<void>;
-}) {
-  const selectedSnapshot = useSelectedDesktopSnapshot(
-    snapshotStore,
-    frozenSnapshot,
-    desktopHeaderSnapshotsEqual,
-    sessionScope,
-  );
-  const visibleSnapshot = hidden ? EMPTY_SNAPSHOT : selectedSnapshot;
-  return <>
-    {onOpenAgents && <ActiveTasksIndicator snapshot={visibleSnapshot} onOpen={onOpenAgents} />}
-    <ContextUsageIndicator snapshot={visibleSnapshot} onOpen={onOpen} />
-    <RemoteToggleButton snapshot={visibleSnapshot} draftEnabled={draftRemoteEnabled}
-      onChange={onRemoteChange} />
-  </>;
-}
 
 // Pane peek: subscribe BEFORE asking the host. Modern visible-session hosts
 // retain their latest live frame, so this handshake is safe even when it races
@@ -469,46 +256,30 @@ export function requestSessionPeek(
   return request;
 }
 
-// Corner cluster for a NON-FOCUSED pane: context/remote read the pane's OWN
-// live lane snapshot (fallback: that session's cached snapshot), so every
-// pane keeps its own values instead of mirroring — and blinking with — the
-// focused engine's stream. Draft panes pass an empty sessionId and render
-// the neutral (empty-context, remote-off) cluster.
+// Every pane header reads its own lane. Focus never changes data ownership.
 export function PaneHeaderStatus({
-  focused,
   sessionId,
-  fallback,
-  snapshotStore,
-  frozenSnapshot,
   hidden,
   reconcileOnMount = true,
-  sessionScope,
   draftRemoteEnabled,
   onOpen,
   onOpenAgents,
   onRemoteChange,
 }: {
-  focused: boolean;
   sessionId: string;
-  fallback?: Snapshot | null;
-  snapshotStore: DesktopSnapshotStore;
-  frozenSnapshot: Snapshot | null;
   hidden: boolean;
   reconcileOnMount?: boolean;
-  sessionScope?: SnapshotSessionScope;
   draftRemoteEnabled?: boolean;
   onOpen(): void;
   onOpenAgents?(): void;
   onRemoteChange(enabled: boolean): void | Promise<void>;
 }) {
-  const selectedSnapshot = useSelectedDesktopSnapshot(
-    snapshotStore,
-    sessionId ? null : frozenSnapshot,
+  const lane = useSessionLane(
+    sessionId,
+    defaultSessionLaneStore,
     desktopHeaderSnapshotsEqual,
-    sessionId ? undefined : sessionScope,
-    !sessionId,
+    !hidden && Boolean(sessionId),
   );
-  const lane = useSessionLane(sessionId);
   useLayoutEffect(() => {
     // Header state is independently foreground-owned. Reconcile even when a
     // cached lane exists: a cold lane can predate the latest durable context
@@ -516,19 +287,14 @@ export function PaneHeaderStatus({
     // own current usage rather than waiting for Conversation or resume.
     if (sessionId && reconcileOnMount) requestSessionPeek(sessionId, { reconcile: true });
   }, [reconcileOnMount, sessionId]);
-  const laneSnapshot = (lane ?? fallback ?? EMPTY_SNAPSHOT) as Snapshot;
-  const selectedSessionId = String(selectedSnapshot.sessionId || "");
-  const selectedOwnsPane = sessionId
-    ? selectedSessionId === sessionId
-    : selectedSessionId === "";
-  const visibleSnapshot = sessionId
-    ? laneSnapshot
-    : focused && !hidden && selectedOwnsPane ? selectedSnapshot : laneSnapshot;
+  const visibleSnapshot = hidden
+    ? EMPTY_SNAPSHOT
+    : lane ?? EMPTY_SNAPSHOT;
   return <>
     {onOpenAgents && <ActiveTasksIndicator snapshot={visibleSnapshot} onOpen={onOpenAgents} />}
     <ContextUsageIndicator snapshot={visibleSnapshot} onOpen={onOpen} />
     <RemoteToggleButton snapshot={visibleSnapshot}
-      draftEnabled={focused ? draftRemoteEnabled : undefined}
+      draftEnabled={draftRemoteEnabled}
       onChange={onRemoteChange} />
   </>;
 }
@@ -536,73 +302,26 @@ export function PaneHeaderStatus({
 // The activity band follows the same pane-local source as the transcript.
 // Focus changes interaction routing only; it never adds/removes UI chrome.
 export function PaneLiveWork({
-  focused,
   sessionId,
-  fallback,
-  snapshotStore,
-  frozenSnapshot,
   hidden,
-  sessionScope,
 }: {
-  focused: boolean;
   sessionId: string;
-  fallback?: Snapshot | null;
-  snapshotStore: DesktopSnapshotStore;
-  frozenSnapshot: Snapshot | null;
   hidden: boolean;
-  sessionScope?: SnapshotSessionScope;
 }) {
-  const selectedSnapshot = useSelectedDesktopSnapshot(
-    snapshotStore,
-    sessionId ? null : frozenSnapshot,
-    desktopHeaderSnapshotsEqual,
-    sessionId ? undefined : sessionScope,
-    !sessionId,
-  );
   const lane = useSessionLane(
     sessionId,
     defaultSessionLaneStore,
     desktopHeaderSnapshotsEqual,
-    !hidden,
+    !hidden && Boolean(sessionId),
   ) as Snapshot | null;
   useEffect(() => {
     if (!hidden && sessionId && !lane) requestSessionPeek(sessionId);
   }, [hidden, lane, sessionId]);
-  const laneSnapshot = lane ?? fallback ?? EMPTY_SNAPSHOT;
-  const selectedSessionId = String(selectedSnapshot.sessionId || "");
-  const selectedOwnsPane = sessionId
-    ? selectedSessionId === sessionId
-    : selectedSessionId === "";
-  const visibleSnapshot = sessionId
-    ? laneSnapshot
-    : focused && !hidden && selectedOwnsPane ? selectedSnapshot : laneSnapshot;
+  const visibleSnapshot = lane ?? EMPTY_SNAPSHOT;
   return <div className="chat-live-work">
     <LiveWorkStatus snapshot={visibleSnapshot} />
   </div>;
 }
-
-// A NON-FOCUSED pane's conversation: the IDENTICAL Conversation component the
-// focused surface uses — no replica, no reduced variant (user requirement:
-// selected and unselected panes are the same live surface). Sessions stream
-// from their own lane; drafts pass an empty sessionId and render the draft
-// welcome/composer over the EMPTY snapshot.
-type LaneConversationProps =
-  Omit<React.ComponentProps<typeof Conversation>, "snapshot" | "routeSnapshot"> & {
-    sessionId: string;
-    fallback?: Snapshot | null;
-  };
-export const LaneConversation = memo(function LaneConversation({
-  sessionId,
-  fallback,
-  ...props
-}: LaneConversationProps) {
-  const lane = useSessionLane(sessionId) as Snapshot | null;
-  useEffect(() => {
-    if (sessionId && !lane) requestSessionPeek(sessionId);
-  }, [lane, sessionId]);
-  const snapshot = lane ?? fallback ?? EMPTY_SNAPSHOT;
-  return <Conversation snapshot={snapshot} routeSnapshot={snapshot} {...props} />;
-});
 
 /** Child-agent transcript viewer. The child lane is refreshed independently
  * from the focused parent engine and Conversation mounts no mutating controls. */
@@ -663,31 +382,6 @@ export const AgentSessionConversation = memo(function AgentSessionConversation({
         transitionKey={`agent-session:${sessionId}`} />}
   </>;
 });
-
-// Background activity overlays the right edge of the thinking/tool status
-// band; the breakdown still reveals on hover via the chip's own popover.
-export function SnapshotLiveWork({
-  snapshotStore,
-  frozenSnapshot,
-  hidden,
-  sessionScope,
-}: {
-  snapshotStore: DesktopSnapshotStore;
-  frozenSnapshot: Snapshot | null;
-  hidden: boolean;
-  sessionScope?: SnapshotSessionScope;
-}) {
-  const selectedSnapshot = useSelectedDesktopSnapshot(
-    snapshotStore,
-    frozenSnapshot,
-    desktopHeaderSnapshotsEqual,
-    sessionScope,
-  );
-  const visibleSnapshot = hidden ? EMPTY_SNAPSHOT : selectedSnapshot;
-  return <div className="chat-live-work">
-    <LiveWorkStatus snapshot={visibleSnapshot} />
-  </div>;
-}
 
 // Lucide's Wifi draws its base dot as a 0.01-length stroke ("M12 20h.01") —
 // invisible at the header's thin 1.25px stroke. Same waves, but the dot is a
@@ -847,7 +541,6 @@ function RemoteToggleButton({
 type SnapshotUtilityDockProps =
   Omit<React.ComponentProps<typeof UtilityDock>, "snapshot"> & {
     snapshotStore: DesktopSnapshotStore;
-    frozenSnapshot: Snapshot | null;
     hidden: boolean;
   };
 
@@ -860,14 +553,13 @@ type SnapshotUtilityDockProps =
 // keeps live agent/tool work flowing without rebuilding the surface.
 export const SnapshotUtilityDock = memo(function SnapshotUtilityDock({
   snapshotStore,
-  frozenSnapshot,
   hidden,
   ...props
 }: SnapshotUtilityDockProps) {
-  const selectedSnapshot = useSelectedDesktopSnapshot(
+  const hostSnapshot = useDesktopSnapshotSelector(
     snapshotStore,
-    frozenSnapshot,
+    selectDesktopSnapshot,
     desktopDockSnapshotsEqual,
   );
-  return <UtilityDock {...props} snapshot={hidden ? EMPTY_SNAPSHOT : selectedSnapshot} />;
+  return <UtilityDock {...props} snapshot={hidden ? EMPTY_SNAPSHOT : hostSnapshot} />;
 });

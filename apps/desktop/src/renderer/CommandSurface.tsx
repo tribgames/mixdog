@@ -37,9 +37,10 @@ const LOADERS: Record<CommandSurfaceName, DesktopCapability[]> = {
 // reopening /usage paints instantly while a silent refresh runs behind it.
 const surfaceDataCache = new Map<CommandSurfaceName, Record<string, unknown>>();
 
-export function CommandSurface({ surface, api = window.mixdogDesktop, onClose }: {
+export function CommandSurface({ surface, api = window.mixdogDesktop, snapshot, onClose }: {
   surface: CommandSurfaceName;
   api?: SurfaceApi;
+  snapshot?: unknown;
   onClose(): void;
 }) {
   const dialog = useRef<HTMLElement>(null);
@@ -48,34 +49,36 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose }:
   onCloseRef.current = onClose;
   const loadSequence = useRef(0);
   const loadingSurface = useRef<CommandSurfaceName | null>(null);
-  const [data, setData] = useState<Record<string, unknown>>(() => surfaceDataCache.get(surface) ?? {});
-  const [loading, setLoading] = useState(() => !surfaceDataCache.has(surface));
+  const cachedSurface = surface === 'usage' ? surfaceDataCache.get(surface) : undefined;
+  const [data, setData] = useState<Record<string, unknown>>(() => cachedSurface ?? {});
+  const [loading, setLoading] = useState(() => !cachedSurface);
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
+  const sessionId = surface === 'context' ? String(record(snapshot).sessionId || '').trim() : '';
+  const capabilityRequest = useCallback((capability: DesktopCapability, args: unknown[] = []) => ({
+    capability,
+    args,
+    ...(sessionId ? { sessionId } : {}),
+  }), [sessionId]);
   const load = useCallback(async () => {
     if (loadingSurface.current === surface) return;
     const request = ++loadSequence.current;
     loadingSurface.current = surface;
-    const cached = surfaceDataCache.get(surface);
+    const cached = surface === 'usage' ? surfaceDataCache.get(surface) : undefined;
     if (cached) setData(cached);
     setLoading(!cached);
     setError('');
     try {
       const capabilities = LOADERS[surface];
-      const [values, snapshot] = await Promise.all([
-        Promise.all(capabilities.map((capability) => (
-          api.invokeCapability({ capability, args: [] }).then((result) => result.value)
-        ))),
-        surface === 'context'
-          ? api.getSnapshot?.() ?? null
-          : Promise.resolve(null),
-      ]);
+      const results = await Promise.all(capabilities.map((capability) => (
+        api.invokeCapability(capabilityRequest(capability))
+      )));
       if (loadSequence.current === request) {
         const next = {
-          ...Object.fromEntries(capabilities.map((capability, index) => [capability, values[index]])),
-          snapshot,
+          ...Object.fromEntries(capabilities.map((capability, index) => [capability, results[index]?.value])),
+          ...(surface === 'context' ? { snapshot: results[0]?.snapshot ?? null } : {}),
         };
-        surfaceDataCache.set(surface, next);
+        if (surface === 'usage') surfaceDataCache.set(surface, next);
         setData(next);
       }
     } catch (reason) {
@@ -86,7 +89,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose }:
       if (loadSequence.current === request) setLoading(false);
       if (loadingSurface.current === surface) loadingSurface.current = null;
     }
-  }, [api, surface]);
+  }, [api, capabilityRequest, surface]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (error) showDesktopToast(error, 'error');
@@ -96,8 +99,6 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose }:
     let disposed = false;
     let refreshRunning = false;
     let refreshQueued = false;
-    let latestSnapshot: unknown = null;
-    let hasLatestSnapshot = false;
     const refreshContextStatus = async () => {
       if (refreshRunning) {
         refreshQueued = true;
@@ -107,7 +108,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose }:
       while (!disposed) {
         refreshQueued = false;
         try {
-          const result = await api.invokeCapability({ capability: 'contextStatus', args: [] });
+          const result = await api.invokeCapability(capabilityRequest('contextStatus'));
           if (disposed) break;
           // A newer state arrived while this request was in flight. Skip the
           // stale pair and immediately fetch once more for the latest snapshot.
@@ -115,7 +116,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose }:
           setData((current) => ({
             ...current,
             contextStatus: result.value,
-            ...(hasLatestSnapshot ? { snapshot: latestSnapshot } : {}),
+            snapshot: result.snapshot,
           }));
           setError('');
         } catch (reason) {
@@ -127,17 +128,14 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose }:
       }
       refreshRunning = false;
     };
-    const unsubscribe = api.subscribeState((snapshot) => {
-      latestSnapshot = snapshot;
-      hasLatestSnapshot = true;
-      setData((current) => ({ ...current, snapshot }));
+    const unsubscribe = api.subscribeState(() => {
       void refreshContextStatus();
     });
     return () => {
       disposed = true;
       unsubscribe();
     };
-  }, [api, loading, surface]);
+  }, [api, capabilityRequest, loading, surface]);
   useEffect(() => {
     const prior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const shell = document.querySelector<HTMLElement>('.app-shell');
@@ -187,7 +185,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose }:
     setPending(capability);
     setError('');
     try {
-      const result = await api.invokeCapability({ capability, args });
+      const result = await api.invokeCapability(capabilityRequest(capability, args));
       await load();
       return result.value;
     } catch (reason) {
@@ -221,7 +219,8 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose }:
             ? surface === 'usage'
               ? <UsageSkeleton />
               : <p className="settings-loading" role="status">{t('Loading…')}</p>
-            : <SurfaceBody surface={surface} data={data} pending={pending} run={run} />}
+            : <SurfaceBody surface={surface} data={data} snapshot={snapshot}
+                pending={pending} run={run} />}
           </div>
           </PaneSurfaceGate>
         </div>
@@ -232,14 +231,15 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose }:
 
 type SurfaceRun = (capability: DesktopCapability, args?: unknown[]) => Promise<unknown>;
 
-function SurfaceBody({ surface, data, pending, run }: {
+function SurfaceBody({ surface, data, snapshot, pending, run }: {
   surface: CommandSurfaceName;
   data: Record<string, unknown>;
+  snapshot?: unknown;
   pending: string;
   run: SurfaceRun;
 }) {
   const busy = Boolean(pending);
-  if (surface === 'context') return <ContextBody status={data.contextStatus} snapshot={data.snapshot} />;
+  if (surface === 'context') return <ContextBody status={data.contextStatus} snapshot={snapshot ?? data.snapshot} />;
   if (surface === 'usage') return <UsageBody data={data} />;
   if (surface === 'doctor') {
     return <Group title={t('Diagnostic result')}>

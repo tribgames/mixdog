@@ -29,6 +29,7 @@ import {
   paneLeafRelativeRect,
   paneLeavesInVisualOrder,
   paneNodeMinimumSize,
+  paneSessionTabIds,
   type PaneLeaf,
 } from "./pane-layout";
 import type { PaneDropZone, usePaneWorkspace } from "./pane-workspace-state";
@@ -221,12 +222,11 @@ export function PaneWorkspace({
   // starts this even earlier on a normal boot; this layout effect preserves
   // the same contract for tests, remote shells, and hot remounts.
   useLayoutEffect(() => defaultSessionLaneStore.start(), []);
-  const paneSessionIds = workspace.leaves.flatMap((leaf) => {
+  const paneSessionIds = paneSessionTabIds(workspace.leaves, workspace.focusedLeafId);
+  for (const leaf of workspace.leaves) {
     const active = paneActiveSelection(leaf);
-    return active?.kind === "session" || active?.kind === "agent-session"
-      ? [active.id]
-      : [];
-  });
+    if (active?.kind === "agent-session") paneSessionIds.push(active.id);
+  }
   // The Agents surface observes working background sessions even when none of
   // them owns an editor tab, so include those ids with every pane session.
   const visibleSessionIds = [...new Set([...observedSessionIds, ...paneSessionIds])];

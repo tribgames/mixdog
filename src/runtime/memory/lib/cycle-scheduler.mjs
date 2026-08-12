@@ -69,6 +69,7 @@ export function createCycleScheduler(deps) {
     scheduledCycle2Signature,
     scheduledCycle3Signature,
     cycleStateFile,
+    onCoreMemoryChanged = async () => {},
   } = deps
 
   // ── Cycle health state ────────────────────────────────────────────────────
@@ -342,6 +343,7 @@ export function createCycleScheduler(deps) {
             if (result?.error) { markCycleDone('cycle3', false, result.error); return }
             await setCycleLastRun('cycle3', Date.now())
             markCycleDone('cycle3', true)
+            await onCoreMemoryChanged('cycle3')
           },
         }
         if (typeof c3Options?.callLlm !== 'function') {
@@ -382,6 +384,7 @@ export function createCycleScheduler(deps) {
       await setCycleLastRun('cycle2_last_error', '')
       log('[cycle2] completed\n')
       markCycleDone('cycle2', true)
+      await onCoreMemoryChanged('cycle2')
     } else {
       const err = gateFailed ? 'gate_failed' : (result.error || 'unknown error')
       await setCycleLastRun('cycle2_last_error', err)
@@ -566,6 +569,7 @@ export function createCycleScheduler(deps) {
       if (result.error) { markCycleDone('cycle3', false, result.error); return }
       await setCycleLastRun('cycle3', Date.now())
       markCycleDone('cycle3', true)
+      await onCoreMemoryChanged('cycle3')
     },
     requestCycle3Review,
     periodicCycle1Config,

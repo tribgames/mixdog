@@ -125,6 +125,77 @@ test('a transient pooled-socket reset retries one desktop request with the same 
   await transport.close();
 });
 
+test('a dead daemon is reattached internally and replays an in-flight request once', async () => {
+  const invocations = [];
+  const diagnostics = [];
+  const attachments = [];
+  let ensureCount = 0;
+  const transport = new SessionTransport(
+    'file:///C:/tmp/daemon.cjs',
+    process.cwd(),
+    async () => ({
+      ensureDaemon: async () => ({
+        pid: process.pid + ensureCount++,
+        port: ensureCount,
+        token: `test-${ensureCount}`,
+      }),
+      attachSession: async (attachOptions) => {
+        const index = attachments.length;
+        const client = {
+          pid: process.pid + index,
+          port: index + 1,
+          async call(name, args, callOptions) {
+            if (name === 'desktop.init') return { desktopId: 'desktop_recovered' };
+            if (name === 'desktop.control') return { ok: true };
+            if (name === 'desktop.invoke') {
+              invocations.push({ index, args, callId: callOptions?.callId });
+              if (index === 0) {
+                attachOptions.onFatal?.('daemon exited pid=1 port=1');
+                throw Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:1'), {
+                  code: 'ECONNREFUSED',
+                  daemonTransportError: true,
+                });
+              }
+              return 'reattached';
+            }
+            return { ok: true };
+          },
+          async close() {},
+        };
+        attachments.push(client);
+        return client;
+      },
+    }),
+  );
+  const messages = [];
+  let exit = null;
+  transport.on('message', (message) => messages.push(message));
+  transport.on('diagnostic', (event, details) => diagnostics.push({ event, details }));
+  transport.on('exit', (code, cause) => { exit = { code, cause }; });
+  transport.postMessage({ kind: 'init', options });
+  await waitFor(() => messages.some((message) => message.kind === 'ready'));
+  transport.postMessage({
+    kind: 'request',
+    id: 43,
+    method: 'submit',
+    args: ['preserve me'],
+  });
+
+  const response = await waitFor(() => messages.find((message) =>
+    message.kind === 'response' && message.id === 43));
+  assert.equal(response.ok, true);
+  assert.equal(response.value, 'reattached');
+  assert.equal(exit, null);
+  assert.equal(attachments.length, 2);
+  assert.equal(invocations.length, 2);
+  assert.equal(invocations[0].callId, invocations[1].callId);
+  assert.deepEqual(
+    diagnostics.map((entry) => entry.event),
+    ['session-daemon-reconnecting', 'session-daemon-reconnected'],
+  );
+  await transport.close();
+});
+
 test('global capabilities recreate a stale service control session without exposing the failure', async () => {
   const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-session-host-'));
   let host = null;
@@ -259,4 +330,196 @@ test('an SSE reconnect resyncs in place without rejecting an in-flight desktop r
     ],
   );
   await transport.close();
+});
+
+test('remote session ownership stays global when another session publishes focus state', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-remote-owner-'));
+  let host = null;
+  let hooks = null;
+  const updates = [];
+  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const client = {
+    list: unsupported,
+    create: unsupported,
+    read: unsupported,
+    async subscribe({ sessionId }) {
+      return {
+        sessionId,
+        revision: 1,
+        full: {
+          sessionId,
+          items: [],
+          queued: [],
+          remoteEnabled: false,
+          remoteSessionId: null,
+        },
+      };
+    },
+    async unsubscribe() { return {}; },
+    submit: unsupported,
+    abort: unsupported,
+    approve: unsupported,
+    configure: unsupported,
+    async close() {},
+  };
+  const latest = (sessionId) =>
+    updates.filter((update) => update.sessionId === sessionId).at(-1)?.snapshot;
+  try {
+    host = await SessionHost.create({
+      userDataPath,
+      packaged: false,
+      resourcesPath: userDataPath,
+      appPath: userDataPath,
+    }, {
+      async attachSessionClient(nextHooks) {
+        hooks = nextHooks;
+        return client;
+      },
+      loadProjects: unsupported,
+      loadSessionStore: unsupported,
+      loadStatuslineSegments: unsupported,
+      executeCodeGraphTool: unsupported,
+    });
+    host.subscribeSessionStates((update) => updates.push(update));
+    await host.setVisibleSessions(['session_remote', 'session_focused']);
+
+    hooks.onFrame({
+      type: 'remote-owner-state',
+      enabled: true,
+      sessionId: 'session_remote',
+    });
+    assert.equal(latest('session_focused')?.remoteEnabled, true);
+    assert.equal(latest('session_focused')?.remoteSessionId, 'session_remote');
+
+    hooks.onFrame({
+      type: 'session-state',
+      sessionId: 'session_focused',
+      revision: 2,
+      full: {
+        sessionId: 'session_focused',
+        items: [],
+        queued: [],
+        remoteEnabled: false,
+        remoteSessionId: null,
+      },
+    });
+    assert.equal(latest('session_focused')?.remoteEnabled, true);
+    assert.equal(latest('session_focused')?.remoteSessionId, 'session_remote');
+
+    hooks.onFrame({
+      type: 'remote-owner-state',
+      enabled: false,
+      sessionId: null,
+    });
+    assert.equal(latest('session_focused')?.remoteEnabled, false);
+    assert.equal(latest('session_focused')?.remoteSessionId, null);
+  } finally {
+    await host?.dispose();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
+test('new-task route applies fast once and preserves unsupported-fast failure', async () => {
+  const run = async (fastCapable) => {
+    const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-new-task-route-'));
+    const sessionId = fastCapable ? 'session_fast' : 'session_no_fast';
+    const actions = [];
+    let host = null;
+    let submitCalls = 0;
+    let unsubscribeCalls = 0;
+    const unsupported = async () => { throw new Error('unexpected session client call'); };
+    const snapshot = (fast) => ({
+      sessionId,
+      items: [],
+      queued: [],
+      provider: 'openai-oauth',
+      model: 'gpt-test',
+      effort: 'high',
+      fast,
+    });
+    const client = {
+      async list() { return { sessions: [] }; },
+      async create() {
+        return { sessionId, revision: 0, full: snapshot(false) };
+      },
+      read: unsupported,
+      subscribe: unsupported,
+      async unsubscribe() {
+        unsubscribeCalls += 1;
+        return {};
+      },
+      async submit() {
+        submitCalls += 1;
+        return {
+          sessionId,
+          revision: 2,
+          accepted: true,
+          full: snapshot(true),
+        };
+      },
+      abort: unsupported,
+      approve: unsupported,
+      async configure({ action, args }) {
+        actions.push({ action, args });
+        assert.equal(action, 'setRoute');
+        const route = args[0];
+        return {
+          sessionId,
+          revision: 1,
+          value: route,
+          full: snapshot(route.fast === true && fastCapable),
+        };
+      },
+      async close() {},
+    };
+    try {
+      host = await SessionHost.create({
+        userDataPath,
+        packaged: false,
+        resourcesPath: userDataPath,
+        appPath: userDataPath,
+      }, {
+        async attachSessionClient() { return client; },
+        loadProjects: unsupported,
+        async loadSessionStore() {
+          return { listStoredAgentWorkers: () => [] };
+        },
+        loadStatuslineSegments: unsupported,
+        executeCodeGraphTool: unsupported,
+      });
+      const promise = host.submitNewTask('route test', {}, {
+        route: {
+          provider: 'openai-oauth',
+          model: 'gpt-test',
+          effort: 'high',
+          fast: true,
+        },
+      });
+      if (fastCapable) {
+        const result = await promise;
+        assert.equal(result.accepted, true);
+      } else {
+        await assert.rejects(
+          promise,
+          /fast mode is not available for openai-oauth\/gpt-test/,
+        );
+      }
+      await new Promise((resolve) => setImmediate(resolve));
+      return { actions, submitCalls, unsubscribeCalls };
+    } finally {
+      await host?.dispose();
+      await rm(userDataPath, { recursive: true, force: true });
+    }
+  };
+
+  const supported = await run(true);
+  assert.deepEqual(supported.actions.map(({ action }) => action), ['setRoute']);
+  assert.equal(supported.actions[0].args[0].fast, true);
+  assert.equal(supported.submitCalls, 1);
+  assert.equal(supported.unsubscribeCalls, 0);
+
+  const unsupported = await run(false);
+  assert.deepEqual(unsupported.actions.map(({ action }) => action), ['setRoute']);
+  assert.equal(unsupported.submitCalls, 0);
+  assert.equal(unsupported.unsubscribeCalls, 1);
 });

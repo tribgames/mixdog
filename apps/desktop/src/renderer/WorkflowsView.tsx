@@ -1,4 +1,5 @@
 import {
+  ChevronRight,
   Compass,
   Globe,
   Layers3,
@@ -20,7 +21,7 @@ import { FastModeIndicator } from './FastModeToggle';
 import { t } from './i18n';
 import { filterConfiguredModels } from './ModelPicker';
 import { dismissDesktopToast, showDesktopToast } from './notifications';
-import { RowOverflowMenu } from './RowOverflowMenu';
+import { OpenSelect } from './OpenSelect';
 import { modelDisplayName, normalizeModelOptions } from './provider-display';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import {
@@ -127,18 +128,21 @@ function RouteControls({ label, route, models, disabled, onChange }: {
 // Popup editor (schedules-dialog grammar): name/description, delegation
 // on/off, and the WORKFLOW.md body. `pack` null means create. Agents are
 // global — packs no longer carry a roster.
-function WorkflowEditorDialog({ pack, busy, error = '', onCancel, onSave }: {
+function WorkflowEditorDialog({ pack, deletable, busy, error = '', onCancel, onSave, onDelete }: {
   pack: RecordValue | null;
+  deletable: boolean;
   busy: boolean;
   error?: string;
   onCancel(): void;
   onSave(payload: RecordValue): void;
+  onDelete(): void;
 }) {
   const editing = Boolean(pack);
   // ONE agent-related setting per pack: delegates (every defined agent is
   // available) or not (Solo-style, `delegation: none`).
   const [delegates, setDelegates] = useState(() => !editing || pack?.delegatesAgents !== false);
   const [formError, setFormError] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   // The scrim cannot dim the NATIVE caption band — hold the titlebar claim
   // while this dialog is mounted (user: - ㅁ x 딤드 안 먹음).
   useEffect(() => acquireTitleBarDim(), []);
@@ -188,16 +192,16 @@ function WorkflowEditorDialog({ pack, busy, error = '', onCancel, onSave }: {
         </label>
         <div className="schedules-field">
           <span>{t('Agents')}</span>
-          <div className="workflows-agent-list">
-            <div className="workflows-agent-empty-row">
-              <p className="workflows-agent-empty">{delegates
-                ? t('Every defined agent is available to this workflow.')
-                : t('No agents — this workflow delegates to none.')}</p>
-              <button type="button" className="workflows-agent-mode" disabled={busy}
-                onClick={() => setDelegates((current) => !current)}>
-                {delegates ? t('Use no agents') : t('Allow agents')}
-              </button>
-            </div>
+          <div className="workflows-agent-mode-field">
+            <OpenSelect ariaLabel={t('Agents')} value={delegates ? 'allow' : 'none'} disabled={busy}
+              options={[
+                { value: 'allow', label: t('Allow agents') },
+                { value: 'none', label: t('Use no agents') },
+              ]}
+              onChange={(value) => setDelegates(value === 'allow')} />
+            <p className="workflows-agent-empty">{delegates
+              ? t('Every defined agent is available to this workflow.')
+              : t('No agents — this workflow delegates to none.')}</p>
           </div>
         </div>
         <label className="schedules-field workflows-md-field">WORKFLOW.md
@@ -206,6 +210,15 @@ function WorkflowEditorDialog({ pack, busy, error = '', onCancel, onSave }: {
         </label>
         <footer>
           {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
+          {deletable && <button type="button"
+            className={`danger${confirmDelete ? ' confirming' : ''}`} disabled={busy}
+            onClick={() => {
+              if (!confirmDelete) {
+                setConfirmDelete(true);
+                return;
+              }
+              onDelete();
+            }}>{confirmDelete ? t('Confirm delete') : t('Delete')}</button>}
           <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
           <button type="submit" disabled={busy}>{t('Save')}</button>
         </footer>
@@ -216,17 +229,20 @@ function WorkflowEditorDialog({ pack, busy, error = '', onCancel, onSave }: {
 
 // Agent editor dialog: custom agents are created from name, model, and
 // AGENT.md; the runtime derives the internal ID. Editing keeps the existing ID.
-function AgentEditorDialog({ agent, models, busy, error = '', onCancel, onSave }: {
+function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCancel, onSave, onDelete }: {
   agent: RecordValue | null;
+  deletable: boolean;
   models: DesktopModelOption[];
   busy: boolean;
   error?: string;
   onCancel(): void;
   onSave(payload: RecordValue): void;
+  onDelete(): void;
 }) {
   const editing = Boolean(agent);
   const [route, setRoute] = useState<RecordValue>(() => record(agent?.route));
   const [formError, setFormError] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   useEffect(() => acquireTitleBarDim(), []);
   return createPortal(<div className="schedules-dialog-layer"
     onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
@@ -281,6 +297,15 @@ function AgentEditorDialog({ agent, models, busy, error = '', onCancel, onSave }
         </label>
         <footer>
           {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
+          {deletable && <button type="button"
+            className={`danger${confirmDelete ? ' confirming' : ''}`} disabled={busy}
+            onClick={() => {
+              if (!confirmDelete) {
+                setConfirmDelete(true);
+                return;
+              }
+              onDelete();
+            }}>{confirmDelete ? t('Confirm delete') : t('Delete')}</button>}
           <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
           <button type="submit" disabled={busy}>{t('Save')}</button>
         </footer>
@@ -353,43 +378,6 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
   </div>, document.body);
 }
 
-function AgentDeleteDialog({ target, busy, error = '', onCancel, onDelete }: {
-  target: { id: string; label: string };
-  busy: boolean;
-  error?: string;
-  onCancel(): void;
-  onDelete(): void;
-}) {
-  useEffect(() => acquireTitleBarDim(), []);
-  return createPortal(<div className="schedules-dialog-layer"
-    onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
-    onKeyDown={(event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        onCancel();
-      }
-    }}>
-    <section className="schedules-dialog workflows-dialog workflows-delete-dialog"
-      role="dialog" aria-modal="true" aria-labelledby="agent-delete-dialog-title">
-      <header>
-        <h2 id="agent-delete-dialog-title">{t('Delete agent')}</h2>
-        <button type="button" aria-label={t("Close agent delete dialog")} onClick={onCancel}>
-          <X size={16} aria-hidden="true" />
-        </button>
-      </header>
-      <div className="workflows-delete-dialog-body">
-        <p>{t('Delete {{name}} permanently? This cannot be undone.', { name: target.label })}</p>
-      </div>
-      <footer>
-        {error && <p className="schedules-form-error" role="alert">{error}</p>}
-        <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
-        <button type="button" className="danger" disabled={busy} onClick={onDelete}>{t('Delete')}</button>
-      </footer>
-    </section>
-  </div>, document.body);
-}
-
 // listWorkflows/listAgents/quickProviderModels are the same shared snapshots
 // Schedules and Webhooks read, so entering this panel costs nothing extra.
 const WORKFLOW_REFERENCE_KEYS = [
@@ -427,12 +415,10 @@ export function WorkflowsPane({
   ), [values.searchModels, providerSetup]);
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
-  const [editor, setEditor] = useState<{ pack: RecordValue | null } | null>(null);
-  const [agentEditor, setAgentEditor] = useState<{ agent: RecordValue | null } | null>(null);
+  const [editor, setEditor] = useState<{ pack: RecordValue | null; deletable: boolean } | null>(null);
+  const [agentEditor, setAgentEditor] =
+    useState<{ agent: RecordValue | null; deletable: boolean } | null>(null);
   const [routeEditor, setRouteEditor] = useState<RouteEditorTarget | null>(null);
-  const [agentDeleteTarget, setAgentDeleteTarget] =
-    useState<{ id: string; label: string } | null>(null);
-  const [confirmingDelete, setConfirmingDelete] = useState('');
   // Both editors portal to document.body, outside the sidebar's inert box:
   // deactivating the panel closes them and disarms pending deletions, while
   // the workflow/agent lists keep their state.
@@ -440,8 +426,6 @@ export function WorkflowsPane({
     setEditor(null);
     setAgentEditor(null);
     setRouteEditor(null);
-    setAgentDeleteTarget(null);
-    setConfirmingDelete('');
   });
   const busy = Boolean(pending) || loading;
   useEffect(() => {
@@ -473,13 +457,12 @@ export function WorkflowsPane({
     }
   };
 
-  const openEditor = async (id: string) => {
+  const openEditor = async (id: string, deletable: boolean) => {
     if (!api?.invokeCapability) return;
-    setConfirmingDelete('');
     try {
       const result = await api.invokeCapability<RecordValue>({ capability: 'getWorkflowPack', args: [id] });
       setError('');
-      setEditor({ pack: record(result?.value) });
+      setEditor({ pack: record(result?.value), deletable });
     } catch (reason) {
       showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
     }
@@ -492,8 +475,9 @@ export function WorkflowsPane({
     }
   };
   const deleteWorkflowPack = async (id: string) => {
-    const result = await run('deleteWorkflow', [id], 'toast');
+    const result = await run('deleteWorkflow', [id]);
     if (result !== undefined) {
+      setEditor(null);
       showDesktopToast(record(result).revertedToBuiltIn === true
         ? `"${id}" reverted to the built-in pack.`
         : `Deleted "${id}".`, 'success');
@@ -511,12 +495,12 @@ export function WorkflowsPane({
   const exploreAgent = agentRoster.find((agent) => agent.id === 'explore');
   const exploreRow = agents.find((agent) => String(agent.id || '') === 'explore');
   const editableAgents = agentRoster.filter((agent) => !DEFAULT_AGENT_IDS.has(agent.id));
-  const openAgentEditor = async (id: string) => {
+  const openAgentEditor = async (id: string, deletable: boolean) => {
     if (!api?.invokeCapability) return;
     try {
       const result = await api.invokeCapability<RecordValue>({ capability: 'getAgentDefinition', args: [id] });
       setError('');
-      setAgentEditor({ agent: record(result?.value) });
+      setAgentEditor({ agent: record(result?.value), deletable });
     } catch (reason) {
       showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
     }
@@ -531,7 +515,7 @@ export function WorkflowsPane({
   const deleteAgent = async (id: string) => {
     const result = await run('deleteAgentDefinition', [id]);
     if (result !== undefined) {
-      setAgentDeleteTarget(null);
+      setAgentEditor(null);
       showDesktopToast(`Deleted agent "${id}".`, 'success');
     }
   };
@@ -552,25 +536,17 @@ export function WorkflowsPane({
     const route = record(row?.route);
     return <div key={agent.id} className="schedules-row workflows-agent-summary-row">
       <span className="projects-row-icon"><Icon size={16} aria-hidden="true" /></span>
-      <div className="schedules-row-copy" title={agent.description || agent.label}>
+      <button type="button" className="schedules-row-copy projects-row-open"
+        title={agent.description || agent.label}
+        onClick={() => void openAgentEditor(agent.id, agent.custom)}>
         <b>{agent.label}</b>
         <AgentRouteSummaryView summary={agentRouteSummary(route, models)} />
-      </div>
-      <RowOverflowMenu label={`Actions for ${agent.label}`} items={[
-        { id: 'edit', label: 'Edit', disabled: busy, onSelect: () => void openAgentEditor(agent.id) },
-        // Fixed services are protected. Starter and user-authored custom roles
-        // expose Delete; agents are global, so no workflow bookkeeping is needed.
-        ...(agent.custom ? [{
-          id: 'delete',
-          label: 'Delete',
-          disabled: busy,
-          danger: true,
-          onSelect: () => {
-            setError('');
-            setAgentDeleteTarget({ id: agent.id, label: agent.label });
-          },
-        }] : []),
-      ]} />
+      </button>
+      <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
+        aria-label={t('Edit {{name}}', { name: agent.label })}
+        onClick={() => void openAgentEditor(agent.id, agent.custom)}>
+        <ChevronRight size={16} aria-hidden="true" />
+      </button>
     </div>;
   };
 
@@ -579,17 +555,20 @@ export function WorkflowsPane({
     inert={active ? undefined : true} aria-hidden={active ? undefined : true}>
     <div className="schedules-page workflows-settings-page">
       {active && editor && <WorkflowEditorDialog key={String(record(editor.pack).id || '(new)')}
-        pack={editor.pack} busy={busy} error={error}
+        pack={editor.pack} deletable={editor.deletable} busy={busy} error={error}
         onCancel={() => {
           setError('');
           setEditor(null);
-        }} onSave={(payload) => void saveWorkflow(payload)} />}
+        }} onSave={(payload) => void saveWorkflow(payload)}
+        onDelete={() => void deleteWorkflowPack(String(record(editor.pack).id || ''))} />}
       {active && agentEditor && <AgentEditorDialog key={String(record(agentEditor.agent).id || '(new-agent)')}
-        agent={agentEditor.agent} models={models} busy={busy} error={error}
+        agent={agentEditor.agent} deletable={agentEditor.deletable}
+        models={models} busy={busy} error={error}
         onCancel={() => {
           setError('');
           setAgentEditor(null);
-        }} onSave={(payload) => void saveAgent(payload)} />}
+        }} onSave={(payload) => void saveAgent(payload)}
+        onDelete={() => void deleteAgent(String(record(agentEditor.agent).id || ''))} />}
       {active && routeEditor && <RouteEditorDialog key={`${routeEditor.capability}:${routeEditor.id}`}
         target={routeEditor}
         models={routeEditor.modelKind === 'search' ? searchModels : models}
@@ -599,13 +578,6 @@ export function WorkflowsPane({
           setRouteEditor(null);
         }}
         onSave={(route) => void saveRoute(route)} />}
-      {active && agentDeleteTarget && <AgentDeleteDialog target={agentDeleteTarget}
-        busy={busy} error={error}
-        onCancel={() => {
-          setError('');
-          setAgentDeleteTarget(null);
-        }}
-        onDelete={() => void deleteAgent(agentDeleteTarget.id)} />}
       <section className="workflows-models workflows-packs" aria-label={t("Workflows")}>
       <div className="workflows-section-head">
         <h2>{t('Workflows')}</h2>
@@ -613,7 +585,7 @@ export function WorkflowsPane({
           aria-label={t("New workflow")} data-tooltip={t("New workflow")}
           onClick={() => {
             setError('');
-            setEditor({ pack: null });
+            setEditor({ pack: null, deletable: false });
           }}>
           <Plus size={16} aria-hidden="true" />
         </button>
@@ -627,29 +599,16 @@ export function WorkflowsPane({
             <span className="projects-row-icon"><Layers3 size={16} aria-hidden="true" /></span>
             <button type="button" className="schedules-row-copy projects-row-open"
               aria-label={t("Edit workflow {{name}}", { name })}
-              onClick={() => void openEditor(id)}>
+              onClick={() => void openEditor(id, custom)}>
               <b>{name}</b>
               <small>{[String(workflow.description || ''), custom ? 'Custom' : '']
                 .filter(Boolean).join(' · ')}</small>
             </button>
-            <RowOverflowMenu label={`Actions for ${name}`} items={[
-              { id: 'edit', label: 'Edit', disabled: busy, onSelect: () => void openEditor(id) },
-              ...(custom ? [{
-                id: 'delete',
-                label: confirmingDelete === id ? 'Confirm delete' : 'Delete',
-                disabled: busy,
-                danger: true,
-                closeOnSelect: confirmingDelete === id,
-                onSelect: () => {
-                  if (confirmingDelete !== id) {
-                    setConfirmingDelete(id);
-                    return;
-                  }
-                  setConfirmingDelete('');
-                  void deleteWorkflowPack(id);
-                },
-              }] : []),
-            ]} />
+            <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
+              aria-label={t("Edit workflow {{name}}", { name })}
+              onClick={() => void openEditor(id, custom)}>
+              <ChevronRight size={16} aria-hidden="true" />
+            </button>
           </div>;
         })}</div>
         : <div className="schedules-empty">
@@ -663,15 +622,9 @@ export function WorkflowsPane({
         <div className="schedules-list">
           <div className="schedules-row workflows-agent-summary-row workflows-default-agent-summary-row">
             <span className="projects-row-icon"><Globe size={16} aria-hidden="true" /></span>
-            <div className="schedules-row-copy" title="Search-tool requests">
-              <b>{t('Web search')}</b>
-              <AgentRouteSummaryView summary={agentRouteSummary(searchRoute, searchModels)} />
-            </div>
-            <RowOverflowMenu label={t('Actions for Web search')} items={[{
-              id: 'edit',
-              label: 'Edit',
-              disabled: busy,
-              onSelect: () => setRouteEditor({
+            <button type="button" className="schedules-row-copy projects-row-open"
+              title="Search-tool requests"
+              onClick={() => setRouteEditor({
                 id: 'web-search',
                 label: 'Web Search',
                 route: searchRoute,
@@ -679,20 +632,29 @@ export function WorkflowsPane({
                 modelKind: 'search',
                 description: 'Search-tool requests',
                 readOnlyDefinition: true,
-              }),
-            }]} />
+              })}>
+              <b>{t('Web Search')}</b>
+              <AgentRouteSummaryView summary={agentRouteSummary(searchRoute, searchModels)} />
+            </button>
+            <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
+              aria-label={t('Edit Web Search')}
+              onClick={() => setRouteEditor({
+                id: 'web-search',
+                label: 'Web Search',
+                route: searchRoute,
+                capability: 'setSearchRoute',
+                modelKind: 'search',
+                description: 'Search-tool requests',
+                readOnlyDefinition: true,
+              })}>
+              <ChevronRight size={16} aria-hidden="true" />
+            </button>
           </div>
           {exploreAgent && <div className="schedules-row workflows-agent-summary-row workflows-default-agent-summary-row">
             <span className="projects-row-icon"><Compass size={16} aria-hidden="true" /></span>
-            <div className="schedules-row-copy" title={exploreAgent.description || exploreAgent.label}>
-              <b>{exploreAgent.label}</b>
-              <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models)} />
-            </div>
-            <RowOverflowMenu label={`Actions for ${exploreAgent.label}`} items={[{
-              id: 'edit',
-              label: 'Edit',
-              disabled: busy,
-              onSelect: () => setRouteEditor({
+            <button type="button" className="schedules-row-copy projects-row-open"
+              title={exploreAgent.description || exploreAgent.label}
+              onClick={() => setRouteEditor({
                 id: exploreAgent.id,
                 label: exploreAgent.label,
                 route: record(exploreRow?.route),
@@ -700,20 +662,29 @@ export function WorkflowsPane({
                 modelKind: 'agent',
                 description: exploreAgent.description,
                 readOnlyDefinition: true,
-              }),
-            }]} />
+              })}>
+              <b>{exploreAgent.label}</b>
+              <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models)} />
+            </button>
+            <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
+              aria-label={t('Edit {{name}}', { name: exploreAgent.label })}
+              onClick={() => setRouteEditor({
+                id: exploreAgent.id,
+                label: exploreAgent.label,
+                route: record(exploreRow?.route),
+                capability: 'setAgentRoute',
+                modelKind: 'agent',
+                description: exploreAgent.description,
+                readOnlyDefinition: true,
+              })}>
+              <ChevronRight size={16} aria-hidden="true" />
+            </button>
           </div>}
           {maintainerAgent && <div className="schedules-row workflows-agent-summary-row workflows-default-agent-summary-row">
             <span className="projects-row-icon"><Wrench size={16} aria-hidden="true" /></span>
-            <div className="schedules-row-copy" title={maintainerAgent.description || maintainerAgent.label}>
-              <b>{maintainerAgent.label}</b>
-              <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models)} />
-            </div>
-            <RowOverflowMenu label={`Actions for ${maintainerAgent.label}`} items={[{
-              id: 'edit',
-              label: 'Edit',
-              disabled: busy,
-              onSelect: () => setRouteEditor({
+            <button type="button" className="schedules-row-copy projects-row-open"
+              title={maintainerAgent.description || maintainerAgent.label}
+              onClick={() => setRouteEditor({
                 id: maintainerAgent.id,
                 label: maintainerAgent.label,
                 route: record(maintainerRow?.route),
@@ -721,8 +692,23 @@ export function WorkflowsPane({
                 modelKind: 'agent',
                 description: maintainerAgent.description,
                 readOnlyDefinition: true,
-              }),
-            }]} />
+              })}>
+              <b>{maintainerAgent.label}</b>
+              <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models)} />
+            </button>
+            <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
+              aria-label={t('Edit {{name}}', { name: maintainerAgent.label })}
+              onClick={() => setRouteEditor({
+                id: maintainerAgent.id,
+                label: maintainerAgent.label,
+                route: record(maintainerRow?.route),
+                capability: 'setAgentRoute',
+                modelKind: 'agent',
+                description: maintainerAgent.description,
+                readOnlyDefinition: true,
+              })}>
+              <ChevronRight size={16} aria-hidden="true" />
+            </button>
           </div>}
         </div>
       </section>
@@ -735,7 +721,7 @@ export function WorkflowsPane({
             aria-label={t("New agent")} data-tooltip={t("New agent")}
             onClick={() => {
               setError('');
-              setAgentEditor({ agent: null });
+              setAgentEditor({ agent: null, deletable: false });
             }}>
             <Plus size={16} aria-hidden="true" />
           </button>

@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import {
   DesktopSettingsStore,
   desktopSettingsFromConfig,
+  gitPreferencesFromConfig,
   settingsConfigModuleUrl,
 } from './settings-store.ts';
 import {
@@ -42,6 +43,42 @@ test('desktop settings read the canonical agent section and desktop defaults', (
     autoCompact: false,
     keepAwake: false,
   });
+});
+
+test('git preferences migrate the legacy pattern into separate example and AI instructions', () => {
+  assert.deepEqual(gitPreferencesFromConfig({
+    desktop: { git: { commitPreset: 'custom', commitTemplate: 'fix(ui): align cards\nUse a short body.' } },
+  }), {
+    commitPreset: 'custom',
+    commitTemplate: 'fix(ui): align cards\nUse a short body.',
+    commitExample: 'fix(ui): align cards',
+    commitInstructions: 'Use a short body.',
+    autoCommitMessage: true,
+  });
+});
+
+test('git preference writes preserve separate custom fields and a legacy projection', async () => {
+  let value = {};
+  const store = new DesktopSettingsStore({
+    loadConfig: async () => ({
+      readConfig: () => value,
+      updateConfigAsync: async (updater) => {
+        value = updater(value);
+        return value;
+      },
+    }),
+  });
+  const saved = await store.updateGitPreferences({
+    commitPreset: 'custom',
+    commitExample: 'desktop: explain recovery',
+    commitInstructions: 'Use the desktop type and mention user impact.',
+  });
+  assert.equal(saved.commitExample, 'desktop: explain recovery');
+  assert.equal(saved.commitInstructions, 'Use the desktop type and mention user impact.');
+  assert.equal(
+    value.desktop.git.commitTemplate,
+    'desktop: explain recovery\nUse the desktop type and mention user impact.',
+  );
 });
 
 test('writes are atomic core updates that retain unrelated config and nested fields', async () => {

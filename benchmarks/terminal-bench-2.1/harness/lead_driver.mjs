@@ -663,7 +663,15 @@ const driveSession = async (route) => {
       // t remains the last-resort fallback only.
       const finalText = String(result?.content ?? result?.text ?? '');
       const resolvedSid = rt.sessionId || rt.session?.id || '';
-      if (resolvedSid && finalText.trim()) refusalSessionIds.delete(resolvedSid);
+      // The runtime classifies refusal independently of whether the provider
+      // emitted partial narration. Prefer that structural result over the
+      // legacy empty-final stderr marker so content + refusal still reaches
+      // Harbor's Opus 4.8 fallback.
+      if (resolvedSid && result?.terminationReason === 'refusal') {
+        refusalSessionIds.add(resolvedSid);
+      } else if (resolvedSid && finalText.trim()) {
+        refusalSessionIds.delete(resolvedSid);
+      }
       return String(result?.content ?? result?.text ?? t ?? '');
     } catch (err) {
       if (deadlineAborted) {

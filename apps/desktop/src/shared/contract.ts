@@ -753,13 +753,15 @@ export interface DesktopGitGlobalConfig {
 
 export type DesktopGitCommitPreset = 'none' | 'conventional' | 'custom';
 
-/** Settings → Git: desktop-stored git preferences. The commit format is a
- *  GHOST-TEXT hint in the Source Control commit form (user decision:
- *  프리셋 + 미리보기) — nothing is ever inserted into the draft. */
+/** Settings → Git: desktop-stored commit-message preferences. */
 export interface DesktopGitPreferences {
   commitPreset: DesktopGitCommitPreset;
-  /** Custom pattern: first line → summary hint, remaining lines → description hint. */
+  /** Legacy combined field retained for older desktop/daemon build skew. */
   commitTemplate: string;
+  /** Custom commit shown as the Source Control ghost-text/preview. */
+  commitExample: string;
+  /** Custom natural-language instructions supplied to AI generation. */
+  commitInstructions: string;
   /** Commit with an empty summary generates the message from the included
    *  changes on the maintenance model, then commits with that exact text. */
   autoCommitMessage: boolean;

@@ -1,5 +1,6 @@
 import { discoverPluginMcp } from './plugin-mcp.mjs';
 import { featureEnvOverride, memoryToolsEnabled } from './config-helpers.mjs';
+import { readSessionCoreMemoryPayload } from '../runtime/memory/lib/core-memory-file.mjs';
 
 // cwd-plugins.mjs — cwd resolution/apply + plugins-status + core-memory context,
 // extracted from mixdog-session-runtime.mjs. Dependency-injected factory that
@@ -244,33 +245,27 @@ export function createCwdPlugins({
       bootProfile('core-memory:disabled');
       return '';
     }
-    // Explicit opt-out (MIXDOG_BOOT_CORE_MEMORY=0/false/no/off) skips the
-    // memory/PG startup cost; recall and memory tools still initialize the
-    // memory service on first use.
+    // Explicit opt-out (MIXDOG_BOOT_CORE_MEMORY=0/false/no/off) skips this
+    // file-backed prompt block. Recall and memory tools remain available.
     const bootFlag = String(process.env.MIXDOG_BOOT_CORE_MEMORY ?? '').trim().toLowerCase();
     if (bootFlag === '0' || bootFlag === 'false' || bootFlag === 'no' || bootFlag === 'off') {
       bootProfile('core-memory:skipped');
       return '';
     }
     const startedAt = performance.now();
-    let timer = null;
-    const timeout = new Promise((resolveTimeout) => {
-      timer = setTimeout(() => resolveTimeout(''), 2000);
-      timer.unref?.();
-    });
     try {
-      return await Promise.race([
-        (async () => {
-          const memoryMod = await getMemoryModule();
-          if (typeof memoryMod?.buildSessionCoreMemoryPayload !== 'function') return '';
-          return formatCoreMemoryLines(await memoryMod.buildSessionCoreMemoryPayload(getCurrentCwd()));
-        })(),
-        timeout,
-      ]);
+      // The prompt path never starts or waits for PG/embedding/IPC. Memory
+      // runtime maintains this atomic snapshot independently.
+      const dataDir = process.env.MIXDOG_DATA_DIR || cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
+      const payload = readSessionCoreMemoryPayload(dataDir, getCurrentCwd());
+      if (!payload) {
+        bootProfile('core-memory:file-missing');
+        return '';
+      }
+      return formatCoreMemoryLines(payload);
     } catch {
       return '';
     } finally {
-      if (timer) clearTimeout(timer);
       bootProfile('core-memory:done', { ms: (performance.now() - startedAt).toFixed(1) });
     }
   }

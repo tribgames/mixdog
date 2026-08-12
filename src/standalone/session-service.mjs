@@ -98,6 +98,7 @@ export function createSessionService({
   sessionExists = null,
   readStoredSession = null,
   listSessions = null,
+  getRemoteOwnerState = null,
   desktopRuntime = null,
   publishIntervalMs = 16,
   onFrame = () => {},
@@ -721,7 +722,13 @@ export function createSessionService({
       throw new Error('session catalog is unavailable');
     }
     const sessions = await listSessions(options || {});
-    return { sessions: sanitizeForWire(Array.isArray(sessions) ? sessions : []) };
+    const remoteOwner = typeof getRemoteOwnerState === 'function'
+      ? await getRemoteOwnerState()
+      : null;
+    return {
+      sessions: sanitizeForWire(Array.isArray(sessions) ? sessions : []),
+      remoteOwner: sanitizeForWire(remoteOwner) ?? null,
+    };
   }
 
   async function loadProjectStore() {

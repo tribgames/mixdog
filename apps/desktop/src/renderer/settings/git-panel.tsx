@@ -17,6 +17,10 @@ import { showDesktopToast } from '../notifications';
 
 import { ActionButton, FormRow, Group, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
 import {
+  createGitPreferenceSaveQueue,
+  type GitPreferenceField,
+} from './git-preference-save';
+import {
   getCachedGitPanelInfo,
   patchCachedGitPanelInfo,
   preloadGitPanelInfo,
@@ -26,6 +30,23 @@ import {
 const CLI_DOWNLOAD_URL = 'https://cli.github.com';
 // Mirrored by SourceControlDock's summary placeholder.
 const CONVENTIONAL_PATTERN = 'feat(scope): summary';
+
+function customExample(preferences: {
+  commitExample?: string;
+  commitTemplate?: string;
+} | null | undefined): string {
+  return String(preferences?.commitExample
+    || String(preferences?.commitTemplate || '').split(/\r?\n/)[0]
+    || '');
+}
+
+function customInstructions(preferences: {
+  commitInstructions?: string;
+  commitTemplate?: string;
+} | null | undefined): string {
+  if (preferences?.commitInstructions) return String(preferences.commitInstructions);
+  return String(preferences?.commitTemplate || '').split(/\r?\n/).slice(1).join('\n').trim();
+}
 
 export function GitPanel() {
   const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
@@ -40,14 +61,23 @@ export function GitPanel() {
     cachedInfo?.preferences?.commitPreset ?? 'none');
   const [autoCommit, setAutoCommit] = useState(
     cachedInfo?.preferences ? cachedInfo.preferences.autoCommitMessage === true : true);
-  const [customDraft, setCustomDraft] = useState(cachedInfo?.preferences?.commitTemplate ?? '');
-  const [customSaved, setCustomSaved] = useState(cachedInfo?.preferences?.commitTemplate ?? '');
-  const customSavedRef = useRef(customSaved);
-  useEffect(() => { customSavedRef.current = customSaved; }, [customSaved]);
+  const [exampleDraft, setExampleDraft] = useState(customExample(cachedInfo?.preferences));
+  const [exampleSaved, setExampleSaved] = useState(customExample(cachedInfo?.preferences));
+  const [instructionsDraft, setInstructionsDraft] = useState(
+    customInstructions(cachedInfo?.preferences));
+  const [instructionsSaved, setInstructionsSaved] = useState(
+    customInstructions(cachedInfo?.preferences));
+  const customSavedRef = useRef({ example: exampleSaved, instructions: instructionsSaved });
+  useEffect(() => {
+    customSavedRef.current = { example: exampleSaved, instructions: instructionsSaved };
+  }, [exampleSaved, instructionsSaved]);
   const appliedGithubIdentity = useRef(false);
   const loginAppliedFlow = useRef('');
   const [flow, setFlow] = useState<DesktopGithubCliLoginFlow | null>(null);
   const [busy, setBusy] = useState('');
+  const [preferenceBusy, setPreferenceBusy] = useState<
+    Partial<Record<GitPreferenceField, boolean>>
+  >({});
   const [error, setError] = useState('');
   useEffect(() => {
     if (error) showDesktopToast(error, 'error');
@@ -75,9 +105,14 @@ export function GitPanel() {
       setAccount(info.account);
       setPreset(info.preferences?.commitPreset ?? 'none');
       setAutoCommit(info.preferences ? info.preferences.autoCommitMessage === true : true);
-      const template = String(info.preferences?.commitTemplate ?? '');
-      setCustomDraft((current) => (current === customSavedRef.current ? template : current));
-      setCustomSaved(template);
+      const example = customExample(info.preferences);
+      const instructions = customInstructions(info.preferences);
+      setExampleDraft((current) =>
+        current === customSavedRef.current.example ? example : current);
+      setInstructionsDraft((current) =>
+        current === customSavedRef.current.instructions ? instructions : current);
+      setExampleSaved(example);
+      setInstructionsSaved(instructions);
     });
     void host?.gitGlobalConfig?.().then((next) => { if (live) setConfig(next); }).catch(() => {});
     return () => { live = false; };
@@ -147,6 +182,53 @@ export function GitPanel() {
       } catch { /* git config stays as it was */ }
     })();
   }, [flowState, flowId, account, host]);
+
+  const preferenceSaverRef = useRef<{
+    host: typeof host;
+    saver: ReturnType<typeof createGitPreferenceSaveQueue>;
+  } | null>(null);
+  if (!preferenceSaverRef.current || preferenceSaverRef.current.host !== host) {
+    preferenceSaverRef.current = {
+      host,
+      saver: createGitPreferenceSaveQueue({
+        update: async (patch) => {
+          if (!host?.updateGitPreferences) throw new Error('Git preferences are unavailable.');
+          return await host.updateGitPreferences(patch);
+        },
+        read: async () => {
+          if (!host?.readGitPreferences) throw new Error('Git preferences are unavailable.');
+          return await host.readGitPreferences();
+        },
+        onBusy: (field, saving) => setPreferenceBusy((current) => ({
+          ...current,
+          [field]: saving,
+        })),
+        onResult: (field, preferences, context) => {
+          if (field === 'preset' && context.recovered) {
+            setPreset(preferences.commitPreset);
+          } else if (field === 'auto' && context.recovered) {
+            setAutoCommit(preferences.autoCommitMessage);
+          } else if (field === 'custom') {
+            const example = customExample(preferences);
+            const instructions = customInstructions(preferences);
+            setExampleSaved(example);
+            setInstructionsSaved(instructions);
+            if (context.recovered) {
+              const submittedExample = String(context.patch.commitExample || '');
+              const submittedInstructions = String(context.patch.commitInstructions || '');
+              setExampleDraft((current) => current === submittedExample ? example : current);
+              setInstructionsDraft((current) =>
+                current === submittedInstructions ? instructions : current);
+            }
+          }
+          if (context.publish) publishGitPreferences(host, preferences);
+        },
+        onError: (reason) =>
+          setError(reason instanceof Error ? reason.message : String(reason)),
+      }),
+    };
+  }
+  const preferenceSaver = preferenceSaverRef.current.saver;
 
   if (!supported) {
     return <Group title="Git">
@@ -221,53 +303,81 @@ export function GitPanel() {
       </p>}
     </Group>
     <Group title="Commit messages"
-      description="The chosen format shows as ghost text in the Source Control commit form — it is never inserted into your message.">
-      <SelectRow title="Format" value={preset} disabled={busyAny}
+      description="Choose how manual commit hints and AI-generated messages should be written.">
+      <SelectRow title="Format" value={preset} disabled={preferenceBusy.preset === true}
         options={[
-          { value: 'none', label: 'None' },
+          { value: 'none', label: 'Plain' },
           { value: 'conventional', label: 'Conventional Commits' },
-          { value: 'custom', label: 'Custom' },
+          { value: 'custom', label: 'Custom instructions' },
         ]}
         onChange={(next) => {
           const value = next as DesktopGitCommitPreset;
           setPreset(value);
-          act('preset', () => host?.updateGitPreferences?.({ commitPreset: value })
-            .then((saved) => { if (saved) publishGitPreferences(host, saved); }));
+          setError('');
+          void preferenceSaver.save('preset', { commitPreset: value });
         }} />
+      {preferenceBusy.preset && <p className="settings-git-inline-status" role="status">
+        Saving format…
+      </p>}
       <ToggleRow title="Auto commit message"
         description="Committing with an empty summary writes the message from the included changes (maintenance model), then commits."
-        checked={autoCommit} disabled={busyAny}
+        checked={autoCommit} disabled={preferenceBusy.auto === true}
         onChange={(enabled) => {
           setAutoCommit(enabled);
-          act('auto-commit', () => host?.updateGitPreferences?.({ autoCommitMessage: enabled })
-            .then((saved) => { if (saved) publishGitPreferences(host, saved); }));
+          setError('');
+          void preferenceSaver.save('auto', { autoCommitMessage: enabled });
         }} />
-      {preset === 'custom' && <FormRow title="Custom pattern"
-        status={customDraft === customSaved ? undefined : 'Unsaved'}
-        onSubmit={() => act('template', () =>
-          host?.updateGitPreferences?.({ commitTemplate: customDraft }).then((next) => {
-            const value = String(next?.commitTemplate ?? customDraft);
-            setCustomDraft(value);
-            setCustomSaved(value);
-            if (next) publishGitPreferences(host, next);
-          }))}>
-        <textarea name="commitTemplate" aria-label="Custom commit pattern" rows={2}
-          value={customDraft} placeholder={CONVENTIONAL_PATTERN}
-          onChange={(event) => setCustomDraft(event.currentTarget.value)} />
-        <button disabled={busyAny || customDraft === customSaved}>Save</button>
+      {preferenceBusy.auto && <p className="settings-git-inline-status" role="status">
+        Saving auto-message setting…
+      </p>}
+      {preset === 'none' && <div className="settings-commit-rule-card">
+        <b>Plain</b>
+        <p>Write any summary and optional description. No format validation is applied.</p>
+        <code>Improve settings save recovery</code>
+      </div>}
+      {preset === 'conventional' && <div className="settings-commit-rule-grid">
+        <article><b>Format</b><code>type(scope)!: description</code></article>
+        <article><b>Types</b><p>feat, fix, docs, refactor, test, build, ci, chore, revert, or a custom lowercase type.</p></article>
+        <article><b>Scope and breaking changes</b><p>Scope is optional. Add <code>!</code> before <code>:</code> for a breaking change.</p></article>
+        <article><b>Body</b><p>Optional details start after one blank line. Manual messages warn but remain committable.</p></article>
+        <article className="settings-commit-rule-preview"><b>Actual preview</b>
+          <code>feat(settings)!: preserve saves during daemon recovery{'\n\n'}Keep unrelated inputs editable while reconnecting.</code>
+        </article>
+      </div>}
+      {preset === 'custom' && <FormRow title="Custom instructions"
+        status={preferenceBusy.custom
+          ? 'Saving'
+          : exampleDraft === exampleSaved && instructionsDraft === instructionsSaved
+            ? undefined : 'Unsaved'}
+        onSubmit={() => {
+          setError('');
+          void preferenceSaver.save('custom', {
+            commitExample: exampleDraft,
+            commitInstructions: instructionsDraft,
+          });
+        }}>
+        <div className="settings-commit-custom-fields">
+          <label><span>Example commit message</span>
+            <textarea name="commitExample" aria-label="Example commit message" rows={2}
+              value={exampleDraft} placeholder={CONVENTIONAL_PATTERN}
+              onChange={(event) => setExampleDraft(event.currentTarget.value)} />
+          </label>
+          <label><span>AI instructions</span>
+            <textarea name="commitInstructions" aria-label="AI commit message instructions" rows={4}
+              value={instructionsDraft}
+              placeholder="Describe the tone, structure, and details the AI should include."
+              onChange={(event) => setInstructionsDraft(event.currentTarget.value)} />
+          </label>
+          <button disabled={preferenceBusy.custom
+            || (exampleDraft === exampleSaved && instructionsDraft === instructionsSaved)}>
+            {preferenceBusy.custom ? 'Saving…' : 'Save'}
+          </button>
+        </div>
       </FormRow>}
-      {preset !== 'none' && (() => {
-        const lines = (preset === 'conventional' ? CONVENTIONAL_PATTERN : customSaved).split('\n');
-        const summaryHint = (lines[0] || '').trim();
-        const descriptionHint = lines.slice(1).join(' ').trim();
-        return <p className="settings-connection-note" role="status">
-          Preview — Summary: <code>{summaryHint || '(empty)'}</code>
-          {descriptionHint ? <> · Description: <code>{descriptionHint}</code></> : null}
-          {preset === 'conventional' && <>
-            <br />Types: feat · fix · docs · style · refactor · perf · test · build · ci · chore
-          </>}
-        </p>;
-      })()}
+      {preset === 'custom' && <div className="settings-commit-rule-card">
+        <b>Actual preview</b>
+        <code>{exampleDraft.trim() || 'Your example commit message appears here.'}</code>
+      </div>}
     </Group>
   </>;
 }

@@ -177,9 +177,7 @@ export function resolveAnchorScrollOffset({ anchor, items, curPrefix, totalRows,
     if (list[i] && list[i].id === anchor.id) { idx = i; break; }
   }
   if (idx < 0 || idx > curPrefix.length - 2) return null;
-  const itemHeight = Math.max(0, transcriptRowAt(curPrefix, idx + 1) - transcriptRowAt(curPrefix, idx));
-  const clampedOffset = Math.max(0, Math.min(Number(anchor.offset) || 0, itemHeight));
-  const anchorRowCur = transcriptRowAt(curPrefix, idx) + clampedOffset;
+  const anchorRowCur = transcriptRowAt(curPrefix, idx) + (Number(anchor.offset) || 0);
   return Math.max(0, Math.min(maxRows, totalRows - viewRows - anchorRowCur));
 }
 

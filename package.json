@@ -63,7 +63,7 @@
     "test:release-assets": "node --check scripts/verify-release-assets.mjs && node --check scripts/release-gate-test.mjs && node --test scripts/release-gate-test.mjs",
     "test:release-focused": "npm run test:release-critical && npm run test:compact && npm run test:shellhardening && npm run test:tool-contracts && npm run test:session && npm run test:session-transport",
     "test:release-critical": "npm run test:release-assets && npm run smoke:patch && npm run test:providers",
-    "test:session-transport": "node --test scripts/session-transport-test.mjs",
+    "test:session-transport": "node --test scripts/session-transport-test.mjs scripts/daemon-bootstrap-test.mjs",
     "test:session": "node --test scripts/runtime-turn-contract-test.mjs scripts/session-save-fault-store-test.mjs",
     "test:media": "node --test src/runtime/media/store.test.mjs src/runtime/media/renditions.test.mjs src/runtime/media/adapters/codex-image.test.mjs",
     "failures": "node scripts/tool-failures.mjs",

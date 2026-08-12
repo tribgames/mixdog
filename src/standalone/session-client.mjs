@@ -24,6 +24,7 @@ import {
   SESSION_READ_ACTIONS,
   SESSION_READ_ACTION_SET,
 } from './session-protocol.mjs';
+import { readSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
 
 function runtimeRoot() {
   return process.env.MIXDOG_RUNTIME_ROOT
@@ -33,6 +34,13 @@ function runtimeRoot() {
 
 export function sessionDiscoveryPath() {
   return path.join(runtimeRoot(), 'daemon.json');
+}
+
+function daemonOwnerPath() {
+  const dataDir = process.env.MIXDOG_DATA_DIR
+    ? path.resolve(process.env.MIXDOG_DATA_DIR)
+    : path.join(process.env.MIXDOG_HOME || path.join(os.homedir(), '.mixdog'), 'data');
+  return path.join(dataDir, 'daemon-owner.json');
 }
 
 function daemonEntry() {
@@ -61,13 +69,14 @@ const URGENT_CALLS = new Set([
   'desktop.control',
   'desktop.unsubscribe',
 ]);
-const EVENT_STREAM_RECONNECT_BASE_MS = 100;
-const EVENT_STREAM_RECONNECT_MAX_MS = 1_000;
-const EVENT_STREAM_HEALTH_GRACE_MS = 750;
+const EVENT_STREAM_RECONNECT_BASE_MS = 1_000;
+const EVENT_STREAM_RECONNECT_MAX_MS = 30_000;
 // Claude Code transport parity: keepalive silence is detected independently
 // from TCP close, and a continuously failing reconnect storm is bounded.
 const EVENT_STREAM_LIVENESS_TIMEOUT_MS = 45_000;
 const EVENT_STREAM_RECONNECT_BUDGET_MS = 10 * 60_000;
+const DEFAULT_DAEMON_READY_TIMEOUT_MS = 15_000;
+const DAEMON_OWNER_POLL_MS = 50;
 // A daemon that restarted needs a moment to rebind its port, so one immediate
 // re-attach often lands in the same gap the first call died in. Mirror the
 // event-stream policy above with a short bounded ladder; `callId` keeps a
@@ -127,17 +136,20 @@ export async function probeSessionHealth({ port, token, timeoutMs = 800 } = {}) 
   } catch { return null; }
 }
 
+function isPidAlive(pid) {
+  const value = Number(pid);
+  if (!Number.isInteger(value) || value <= 0) return false;
+  try { process.kill(value, 0); return true; }
+  catch (error) { return error?.code === 'EPERM'; }
+}
+
 export function readSessionDiscovery(discoveryPath = sessionDiscoveryPath()) {
-  const pidAlive = (pid) => {
-    try { process.kill(Number(pid), 0); return true; }
-    catch (error) { return error?.code === 'EPERM'; }
-  };
   const readUnified = (candidate) => {
     const parsed = JSON.parse(readFileSync(candidate, 'utf8'));
     const endpoint = parsed?.endpoints?.session;
     const channel = parsed?.endpoints?.channel;
     const pid = parsed?.pid;
-    if (!endpoint?.port || !endpoint?.token || !pid || !pidAlive(pid)) return null;
+    if (!endpoint?.port || !endpoint?.token || !pid || !isPidAlive(pid)) return null;
     return {
       ...endpoint,
       pid,
@@ -229,19 +241,29 @@ async function replaceLowerDaemon(discovery, initialHealth, { log }) {
 /** Fork one daemon candidate DETACHED (it outlives this client — machine
  *  global) and resolve when it reports ready OR exits (race loss/crash); the
  *  caller then re-reads discovery and attaches to whoever won. */
-function spawnDaemonCandidate({ cwd, log }) {
+function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000 }) {
   return new Promise((resolve) => {
     let settled = false;
-    const done = () => { if (!settled) { settled = true; resolve(); } };
+    let timer = null;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve();
+    };
     let child;
     try {
       child = fork(daemonEntry(), [], {
         cwd,
         stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
-        detached: process.platform !== 'win32',
+        // The machine-global daemon must not share Electron's Windows process
+        // lifetime. A GPU/Crashpad failure in the desktop must leave this Node
+        // host and every live session untouched.
+        detached: true,
         windowsHide: true,
         env: {
           ...process.env,
+          ELECTRON_RUN_AS_NODE: '1',
           MIXDOG_DAEMON_HOST: '1',
           // Session-only spawn: the daemon stays dormant on the channels side
           // until a channels client registers.
@@ -269,14 +291,32 @@ function spawnDaemonCandidate({ cwd, log }) {
     });
     child.once('exit', done);
     child.once('error', (err) => { log(`daemon spawn error: ${err?.message || err}`); done(); });
-    const timer = setTimeout(done, 30_000);
+    timer = setTimeout(done, Math.max(1, timeoutMs));
     timer.unref?.();
   });
 }
 
 /** Spawn-or-attach discovery for the machine-global daemon. */
-export async function ensureDaemon({ cwd = process.cwd(), log = () => {}, attempts = 5 } = {}) {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
+export async function ensureDaemon({
+  cwd = process.cwd(),
+  log = () => {},
+  attempts = 5,
+  readyTimeoutMs = null,
+} = {}) {
+  const configuredTimeoutMs = Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS);
+  const timeoutMs = Math.max(
+    1,
+    Number.isFinite(Number(readyTimeoutMs)) && Number(readyTimeoutMs) > 0
+      ? Number(readyTimeoutMs)
+      : configuredTimeoutMs > 0
+        ? configuredTimeoutMs
+        : DEFAULT_DAEMON_READY_TIMEOUT_MS,
+  );
+  const deadline = Date.now() + timeoutMs;
+  const maxSpawnAttempts = Math.max(0, Math.floor(Number(attempts) || 0));
+  let spawnAttempts = 0;
+  let waitingOwnerPid = 0;
+  while (Date.now() < deadline) {
     const discovery = readSessionDiscovery();
     if (discovery) {
       const health = await probeSessionHealth({ port: discovery.port, token: discovery.token });
@@ -294,8 +334,27 @@ export async function ensureDaemon({ cwd = process.cwd(), log = () => {}, attemp
         throw err;
       }
     }
-    await spawnDaemonCandidate({ cwd, log });
-    await delay(100);
+    // A concurrent launcher can win the owner lock before it publishes
+    // daemon.json. That is a healthy singleton boot, not a reason to spawn five
+    // doomed contenders and report "endpoint unavailable" after ~500 ms.
+    const ownerState = readSingletonOwner(daemonOwnerPath());
+    const ownerPid = ownerState.alive ? Number(ownerState.owner?.pid) || 0 : 0;
+    if (ownerPid) {
+      if (ownerPid !== waitingOwnerPid) {
+        waitingOwnerPid = ownerPid;
+        log(`waiting for daemon owner pid=${ownerPid} to publish its session endpoint`);
+      }
+      await delay(Math.min(DAEMON_OWNER_POLL_MS, Math.max(1, deadline - Date.now())));
+      continue;
+    }
+    waitingOwnerPid = 0;
+    if (spawnAttempts >= maxSpawnAttempts) break;
+    spawnAttempts += 1;
+    await spawnDaemonCandidate({
+      cwd,
+      log,
+      timeoutMs: Math.max(1, deadline - Date.now()),
+    });
   }
   throw new Error('daemon session endpoint is unavailable');
 }
@@ -314,7 +373,6 @@ export async function attachSession({
   onStreamReconnect = () => {},
   streamReconnectBaseMs = EVENT_STREAM_RECONNECT_BASE_MS,
   streamReconnectMaxMs = EVENT_STREAM_RECONNECT_MAX_MS,
-  streamReconnectHealthGraceMs = EVENT_STREAM_HEALTH_GRACE_MS,
   streamLivenessTimeoutMs = EVENT_STREAM_LIVENESS_TIMEOUT_MS,
   streamReconnectBudgetMs = EVENT_STREAM_RECONNECT_BUDGET_MS,
   log = () => {},
@@ -363,10 +421,6 @@ export async function attachSession({
   const reconnectMaxMs = Math.max(
     reconnectBaseMs,
     Number(streamReconnectMaxMs) || EVENT_STREAM_RECONNECT_MAX_MS,
-  );
-  const healthGraceMs = Math.max(
-    reconnectBaseMs,
-    Number(streamReconnectHealthGraceMs) || EVENT_STREAM_HEALTH_GRACE_MS,
   );
   const livenessMs = Math.max(
     1,
@@ -426,15 +480,40 @@ export async function attachSession({
           signalFatal(`${lastLossReason}; reconnect budget exhausted after ${downtimeMs}ms`);
           return;
         }
-        if (downtimeMs >= healthGraceMs) {
-          const health = await probeSessionHealth({ port, token: serverToken, timeoutMs: 500 });
-          if (!health || Number(health.pid) !== Number(discovery.pid)) {
-            signalFatal(`${lastLossReason}; daemon unavailable or replaced`);
+        const current = readSessionDiscovery();
+        const replaced = current
+          && (
+            Number(current.pid) !== Number(discovery.pid)
+            || Number(current.port) !== Number(port)
+            || String(current.token || '') !== String(serverToken)
+          );
+        if (replaced) {
+          const health = await probeSessionHealth({
+            port: current.port,
+            token: current.token,
+            timeoutMs: 800,
+          });
+          if (health && Number(health.pid) === Number(current.pid)) {
+            signalFatal(
+              `${lastLossReason}; daemon replaced`
+              + ` oldPid=${Number(discovery.pid)} oldPort=${Number(port)}`
+              + ` newPid=${Number(current.pid)} newPort=${Number(current.port)}`,
+            );
             return;
           }
         }
+        if (!isPidAlive(discovery.pid)) {
+          signalFatal(
+            `${lastLossReason}; daemon exited`
+            + ` pid=${Number(discovery.pid)} port=${Number(port)}`,
+          );
+          return;
+        }
         openStream();
-      })().catch(() => signalFatal(`${lastLossReason}; daemon health check failed`));
+      })().catch((error) => {
+        log(`session event stream recovery probe failed: ${error?.message || error}`);
+        openStream();
+      });
     }, delayMs);
     reconnectTimer.unref?.();
   }
