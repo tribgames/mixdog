@@ -298,7 +298,14 @@ export class SessionHost implements DesktopService {
   private handleSessionFrame(frame: Record<string, unknown>): void {
     if (this.disposed) return;
     const sessionId = String(frame.sessionId || '');
-    if (!sessionId || sessionId === this.controlSessionId) return;
+    if (!sessionId) return;
+    if (sessionId === this.controlSessionId) {
+      if (frame.type === 'session-gone') {
+        this.sessionProjections.delete(sessionId);
+        this.controlSessionId = '';
+      }
+      return;
+    }
     if (frame.type === 'session-gone') {
       this.sessionProjections.delete(sessionId);
       for (const listener of [...this.sessionStateListeners]) {
@@ -317,6 +324,7 @@ export class SessionHost implements DesktopService {
   }
 
   private handleSessionTransportLoss(): void {
+    this.controlSessionId = '';
     this.sessionProjections.clear();
     for (const sessionId of this.visibleSessionIds) {
       for (const listener of [...this.sessionStateListeners]) {
@@ -403,7 +411,10 @@ export class SessionHost implements DesktopService {
     return sessionId;
   }
 
-  private async invokeControl(method: string, args: unknown[] = []): Promise<unknown> {
+  private async invokeControlResult(
+    method: string,
+    args: unknown[] = [],
+  ): Promise<{ value: unknown; snapshot: SessionSnapshot; result: Record<string, unknown> }> {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const sessionId = await this.ensureControlSession();
       try {
@@ -417,8 +428,11 @@ export class SessionHost implements DesktopService {
         const result = READ_CAPABILITIES.has(method)
           ? await this.sessionClient.read(params, this.callOptions())
           : await this.sessionClient.configure(params, this.callOptions());
-        this.applySessionResult(sessionId, result, false);
-        return result.value;
+        return {
+          value: result.value,
+          snapshot: this.applySessionResult(sessionId, result, false),
+          result,
+        };
       } catch (error) {
         if (attempt > 0) throw error;
         this.sessionProjections.delete(sessionId);
@@ -426,6 +440,10 @@ export class SessionHost implements DesktopService {
       }
     }
     throw new Error('Service control session is unavailable.');
+  }
+
+  private async invokeControl(method: string, args: unknown[] = []): Promise<unknown> {
+    return (await this.invokeControlResult(method, args)).value;
   }
 
   private blankSnapshot(
@@ -871,8 +889,9 @@ export class SessionHost implements DesktopService {
     args: unknown[] = [],
     sessionId?: string,
   ): Promise<DesktopCapabilityResult<T>> {
-    const target = sessionId || await this.ensureControlSession();
-    const result = await this.invokeSession(target, capability, args);
+    const result = sessionId
+      ? await this.invokeSession(sessionId, capability, args)
+      : await this.invokeControlResult(capability, args);
     return {
       value: copyCapabilityValue(result.value) as T,
       snapshot: result.snapshot,

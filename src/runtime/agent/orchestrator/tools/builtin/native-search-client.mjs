@@ -154,6 +154,15 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
   const server = _ensureServer();
   if (!server) return null;
   const id = ++server.sequence;
+  // Honor the caller's rg deadline: the resident server must never wait
+  // LONGER than the spawn fallback it replaces (glob passes 10s while the
+  // serve ceiling is 20s), otherwise a queued/stuck serve request delays the
+  // fallback instead of accelerating it. The fixed ceiling still bounds
+  // callers that pass no timeout.
+  const callerTimeoutMs = Number(execOptions.timeout);
+  const deadlineMs = Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
+    ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
+    : REQUEST_TIMEOUT_MS;
   _setServerReferenced(server, true);
   const request = {
     id,
@@ -185,7 +194,7 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
     const timer = setTimeout(() => {
       server.pending.delete(id);
       settle(null, true);
-    }, REQUEST_TIMEOUT_MS);
+    }, deadlineMs);
     timer.unref?.();
     server.pending.set(id, { resolve: settle, reject: () => settle(null) });
     onAbort = () => {

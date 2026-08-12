@@ -926,6 +926,10 @@ const shellCwdDescription = shellTool?.inputSchema?.properties?.cwd?.description
 if (!/current Project root/i.test(shellCwdDescription) || !/for this call only/i.test(shellCwdDescription)) {
   throw new Error(`shell cwd contract must distinguish the Project root from call-local cwd: ${shellCwdDescription}`);
 }
+const shellTimeoutDescription = shellTool?.inputSchema?.properties?.timeout?.description || '';
+if (!/unlimited async/i.test(shellTimeoutDescription) || !/kill at deadline/i.test(shellTimeoutDescription)) {
+  throw new Error(`shell timeout contract must distinguish omitted async execution from an explicit deadline: ${shellTimeoutDescription}`);
+}
 
 const shellProjectCwdSession = `tool-smoke-project-cwd-${process.pid}`;
 const shellLocalCdOut = await executeBuiltinTool('shell', {

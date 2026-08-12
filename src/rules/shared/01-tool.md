@@ -61,7 +61,8 @@
   evidence unavailable to file tools — an independent facet, batched with
   the rest; independent probes are parallel shell calls, never one serial
   script per round.
-- A long or uncertain command runs async — never nohup — and its
-  `task_id` ends the turn; completion resumes work. Never poll in any
-  form — sleep/status probes included; task control is for recovery or a
-  required blocking result only.
+- Run long/uncertain commands async—never nohup—and omit timeout unless a real
+  total deadline is required; explicit timeout kills even async jobs. Do not
+  poll a notified `task_id`; completion resumes. Else poll only when requested
+  or no notification exists, with cadence/stop condition; task control only
+  serves recovery/blocking.

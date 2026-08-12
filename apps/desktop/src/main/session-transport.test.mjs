@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
+import { SessionHost } from './session-host.ts';
 import { SessionTransport } from './session-transport.ts';
 
 const options = {
@@ -119,6 +123,78 @@ test('a transient pooled-socket reset retries one desktop request with the same 
   assert.equal(invocations[0].callId, invocations[1].callId);
   assert.match(invocations[0].callId, /^desktop-invoke:/);
   await transport.close();
+});
+
+test('global capabilities recreate a stale service control session without exposing the failure', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-session-host-'));
+  let host = null;
+  let hooks = null;
+  let createCount = 0;
+  const reads = [];
+  const dead = new Set();
+  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const client = {
+    list: unsupported,
+    async create() {
+      createCount += 1;
+      const sessionId = `control_${createCount}`;
+      return {
+        sessionId,
+        revision: 0,
+        snapshot: { sessionId, items: [], queued: [] },
+      };
+    },
+    async read({ sessionId }) {
+      reads.push(sessionId);
+      if (dead.has(sessionId)) throw new Error(`session ${sessionId} is not available`);
+      return {
+        sessionId,
+        revision: 1,
+        snapshot: { sessionId, items: [], queued: [] },
+        value: { api: [], oauth: [], local: [] },
+      };
+    },
+    subscribe: unsupported,
+    unsubscribe: unsupported,
+    submit: unsupported,
+    abort: unsupported,
+    approve: unsupported,
+    configure: unsupported,
+    async close() {},
+  };
+  try {
+    host = await SessionHost.create({
+      userDataPath,
+      packaged: false,
+      resourcesPath: userDataPath,
+      appPath: userDataPath,
+    }, {
+      async attachSessionClient(nextHooks) {
+        hooks = nextHooks;
+        return client;
+      },
+      loadProjects: unsupported,
+      loadSessionStore: unsupported,
+      loadStatuslineSegments: unsupported,
+      executeCodeGraphTool: unsupported,
+    });
+
+    await host.invokeCapability('getProviderSetup');
+    dead.add('control_1');
+    hooks.onFatal?.('test transport loss');
+    await host.invokeCapability('getProviderSetup');
+    dead.add('control_2');
+    hooks.onFrame({ type: 'session-gone', sessionId: 'control_2' });
+    await host.invokeCapability('getProviderSetup');
+    dead.add('control_3');
+    await host.invokeCapability('getProviderSetup');
+
+    assert.equal(createCount, 4);
+    assert.deepEqual(reads, ['control_1', 'control_2', 'control_3', 'control_3', 'control_4']);
+  } finally {
+    await host?.dispose();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
 });
 
 test('an SSE reconnect resyncs in place without rejecting an in-flight desktop request', async () => {

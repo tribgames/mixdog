@@ -76,6 +76,12 @@ export async function windowsPidDescendants(pid) {
     if (process.platform !== 'win32') return new Map();
     let rows = null;
     try { rows = await windowsProcessSnapshot({ fresh: true }); } catch { rows = null; }
+    if (!rows) {
+        // One retry before giving up: a single missed 750ms native-snapshot
+        // deadline (server busy with a bulk enumeration) otherwise marks
+        // every standby dirty and collapses the pool into cold spawns.
+        try { rows = await windowsProcessSnapshot({ fresh: true }); } catch { rows = null; }
+    }
     if (!rows) return null;
     const owned = new Set([pid]);
     const descendants = new Map();

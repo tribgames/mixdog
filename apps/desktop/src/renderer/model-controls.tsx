@@ -293,9 +293,8 @@ export const ModelSelector = memo(function ModelSelector({
         const setupRequest = shared.setup
             .then((setup) => { setProviderSetup(setup); })
             .catch((reason) => {
-              setProviderSetupError(reason instanceof Error
-                ? reason.message
-                : String(reason || "Provider status is unavailable."));
+              console.warn("[model-catalog] provider setup refresh failed", reason);
+              setProviderSetupError("unavailable");
             })
         ;
         try {
