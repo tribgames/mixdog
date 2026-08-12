@@ -255,6 +255,18 @@ const settingsStore = new DesktopSettingsStore({
 });
 let mainWindow: BrowserWindow | null = null;
 let removeIpc: (() => void) | null = null;
+let pendingPrimaryActivation = false;
+function activatePrimaryWindow(): void {
+  const window = mainWindow;
+  if (!window || window.isDestroyed()) {
+    pendingPrimaryActivation = true;
+    return;
+  }
+  pendingPrimaryActivation = false;
+  if (window.isMinimized()) window.restore();
+  if (!window.isVisible()) window.show();
+  window.focus();
+}
 // PTYs are daemon-owned; Electron forwards control and receives output events.
 const serviceTerminalManager = {
   async ensure(
@@ -819,9 +831,8 @@ async function createWindow(): Promise<void> {
       });
     }
     rendererCommitted = true;
-    // The shell has completed its first React frame. Starting the daemon
-    // adapter here avoids competing with Chromium module/font/bootstrap work;
-    // renderer data reads may have already started the same idempotent promise.
+    // Idempotent fallback for recreated windows; the primary boot starts this
+    // concurrently before renderer navigation.
     startDaemonService();
     showWhenComposed();
     scheduleDeferredDesktopServices(window);
@@ -882,8 +893,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow?.isMinimized()) mainWindow.restore();
-    mainWindow?.focus();
+    activatePrimaryWindow();
   });
 
   void app.whenReady().then(async () => {
@@ -924,6 +934,11 @@ if (!app.requestSingleInstanceLock()) {
         ? { gpuFallbackCrashes: gpuFallbackMarker.crashesInWindow }
         : {}),
     });
+    // The daemon front door is intentionally lighter than the renderer and
+    // prewarms runtime work asynchronously. Start it in parallel with window
+    // creation so immediate post-update submits queue for readiness instead of
+    // beginning the service handshake only after the first React frame.
+    startDaemonService();
     startDiagnosticsEventLoopMonitor();
     // Keep-awake + taskbar attention feed on the same session state lane.
     unsubscribeAwake = host.subscribe((snapshot) => {
@@ -986,6 +1001,7 @@ if (!app.requestSingleInstanceLock()) {
       callback(true);
     });
     await createWindow();
+    if (pendingPrimaryActivation) activatePrimaryWindow();
     installDesktopMenu();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {

@@ -807,6 +807,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 const persistedAssistantContent = typeof result.historyContent === 'string'
                     ? result.historyContent
                     : (result.content || '');
+                const _terminalStop = result?.stopReason ?? result?.stop_reason ?? null;
                 session.messages.push({
                     role: 'assistant',
                     // Keep content as-is in memory (model-visible). Image bytes,
@@ -820,6 +821,14 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     ...(result.providerMetadata && typeof result.providerMetadata === 'object'
                         ? { providerMetadata: result.providerMetadata }
                         : {}),
+                    // Keep terminal provider evidence for non-empty turns too.
+                    // A safety classifier can emit narration and then refuse;
+                    // omitting this metadata made that shape indistinguishable
+                    // from an ordinary successful final response.
+                    ...(_terminalStop ? { stopReason: _terminalStop } : {}),
+                    ...(result?.terminationReason ? { terminationReason: result.terminationReason } : {}),
+                    iterations: result?.iterations ?? null,
+                    toolCallsTotal: result?.toolCallsTotal ?? null,
                 });
             } else {
                 // Empty terminal turn: still persist a forensic record so

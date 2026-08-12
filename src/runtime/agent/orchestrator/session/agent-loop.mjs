@@ -327,6 +327,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         const providerMetadata = resp.providerMetadata && typeof resp.providerMetadata === 'object'
             ? resp.providerMetadata
             : null;
+        const stopReason = resp.stopReason ?? resp.stop_reason ?? null;
+        const terminationReason = resp.terminationReason ?? null;
         // Anthropic native server-tool turns (web search / code execution /
         // native MCP) carry `server_tool_use` + `*_tool_result` blocks that
         // exist ONLY in this ordered verbatim list — they cannot be rebuilt
@@ -358,6 +360,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             ...(reasoningItems ? { reasoningItems } : {}),
             ...(reasoningContent ? { reasoningContent } : {}),
             ...(providerMetadata ? { providerMetadata } : {}),
+            ...(stopReason ? { stopReason } : {}),
+            ...(terminationReason ? { terminationReason } : {}),
         }, opts);
         messages.push(message);
         try { opts.onAssistantMessageCommitted?.(message); } catch {}
@@ -832,12 +836,22 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 };
                 break;
             }
-            if (!hasContent && stopReason === 'refusal') {
+            if (stopReason === 'refusal') {
                 if (_refusalRetryUsed) {
                     process.stderr.write(`[loop] safety-classifier refusal persisted after one context-changing retry (sess=${sessionId || 'unknown'}); ending loop as refusal termination.\n`);
                     break;
                 }
                 _refusalRetryUsed = true;
+                // A provider may emit harmless narration before its safety
+                // classifier terminates the turn. Preserve that partial turn
+                // and its stop reason, but never mistake the non-empty text for
+                // a successful completion.
+                if (hasContent && pushIntermediateAssistantResponse(response)) {
+                    if (!suppressMidTurnText) {
+                        _committedTextParts.push(response.content);
+                        try { opts.onAssistantText?.(response.content); } catch { /* best-effort */ }
+                    }
+                }
                 messages.push({
                     role: 'user',
                     content: '[mixdog-runtime] The previous completion was refused by the provider safety classifier (stopReason=refusal). Do not repeat it. Complete your assigned output within policy by omitting or reframing disallowed content; if no compliant output is possible, briefly state the refusal.',

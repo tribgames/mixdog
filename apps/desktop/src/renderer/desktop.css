@@ -1594,17 +1594,16 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   text-align: left;
   cursor: pointer;
 }
-/* Icon, stacked copy, then the trailing chevron. Copy is top-aligned and the
-   card grows with its 1–2 line description instead of centering inside a
-   fixed 76px box; the icon box matches the 18px title line so glyph and
-   title share one optical baseline (user: 상하 정렬이 마음에 들지 않는다). */
+/* Icon, stacked copy, then the trailing chevron. Copy stays top-aligned while
+   the icon and chevron are vertically centered against the full card height. */
 .session-sidebar-panels .utilities-row { gap: 10px; }
 .session-sidebar-panels .utilities-row-copy { gap: 4px; }
 .session-sidebar-panels .utilities-row .schedules-row-copy b { line-height: 18px; }
 .session-sidebar-panels .utilities-row-icon {
   flex: 0 0 auto;
   width: 20px;
-  height: 18px;
+  height: 20px;
+  align-self: center;
   display: grid;
   place-items: center;
   color: var(--mx-text-soft);
@@ -7492,24 +7491,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .workflows-agent-remove:hover { color: var(--mx-danger); background: var(--mx-hover); }
 .workflows-agent-empty { margin: 0; color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
-.workflows-agent-empty-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.workflows-agent-mode {
-  flex: none;
-  padding: 3px 8px;
-  border: 0;
-  border-radius: 6px;
-  color: var(--mx-text-faint);
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  font-size: var(--mx-font-meta);
-  cursor: pointer;
-}
-.workflows-agent-mode:hover { color: var(--mx-text); background: var(--mx-hover); }
+.workflows-agent-mode-field { display: grid; justify-items: start; gap: 6px; }
+.workflows-agent-mode-field .mx-select-root { min-width: 180px; }
+.workflows-agent-mode-field .mx-select-trigger { width: 100%; height: 32px; border-radius: 8px; }
 .workflows-agent-add { display: flex; justify-content: flex-start; }
 .workflows-section-head {
   display: flex;
@@ -7539,7 +7523,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .workflows-delete-dialog-body p { margin: 0 0 10px; line-height: var(--mx-line-ui); }
 .workflows-delete-dialog-body b { color: var(--mx-text); font-weight: var(--mx-weight-semibold); }
 .workflows-delete-dialog-body ul { margin: 0; padding-left: 20px; color: var(--mx-text); }
-.workflows-delete-dialog footer button.danger { color: var(--mx-grey-50); background: var(--mx-danger); }
+.workflows-dialog footer button.danger { margin-right: auto; color: var(--mx-danger); }
+.workflows-dialog footer button.danger.confirming { color: var(--mx-grey-50); background: var(--mx-danger); }
+.workflows-row-enter { flex: 0 0 auto; }
 .workflows-model-row .row-overflow { margin-left: 0; justify-self: end; }
 @media (max-width: 820px) {
   /* The stacked layout moves the route cluster onto a SECOND grid row, so the
@@ -11012,6 +10998,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   outline: 0;
 }
 .dock-scm-commit-summary::placeholder { color: var(--mx-text-faint); }
+.dock-scm-commit-format-warning {
+  margin: 6px 0 0;
+  color: var(--mx-warning);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.dock-scm-commit-format-warning code { color: inherit; }
 /* `Description` gets its OWN focus container beneath the summary
    (_commit-message.scss:209-250 `.description-focus-container`): the border and
    the focus ring live on the container, the textarea inside is borderless, and

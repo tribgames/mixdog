@@ -139,6 +139,14 @@ export class DesktopServiceClient implements DesktopService {
       this.readyResolve = resolve;
       this.readyReject = reject;
     });
+    this.startupTimer = setTimeout(() => {
+      if (!this.readyReject) return;
+      const error = this.lastExitError ?? new Error('Mixdog service startup timed out.');
+      const transport = this.transport;
+      this.rejectStartup(error);
+      void transport?.close().catch(() => {});
+    }, this.options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS);
+    this.startupTimer.unref?.();
     const readyPromise = this.readyPromise;
     const restartDelayMs = Math.max(0, this.nextRestartAt - Date.now());
     if (restartDelayMs > 0) {
@@ -188,13 +196,6 @@ export class DesktopServiceClient implements DesktopService {
       Number(code) || 0,
       cause instanceof Error ? cause : undefined,
     ));
-    this.startupTimer = setTimeout(() => {
-      if (transport !== this.transport || !this.readyReject) return;
-      const error = new Error('Mixdog service startup timed out.');
-      this.rejectStartup(error);
-      void transport.close().catch(() => {});
-    }, this.options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS);
-    this.startupTimer.unref?.();
     try {
       transport.postMessage({ kind: 'init', options: this.options.sessionOptions() });
     } catch (error) {
@@ -338,19 +339,18 @@ export class DesktopServiceClient implements DesktopService {
 
   private handleExit(transport: DesktopTransport, code: number, cause?: Error): void {
     if (transport !== this.transport) return;
+    const startupPending = this.readyReject !== null;
     this.transport = null;
     this.decoder.reset();
     this.sessionStateDecoders.clear();
-    if (this.startupTimer) clearTimeout(this.startupTimer);
-    this.startupTimer = null;
+    if (!startupPending) {
+      if (this.startupTimer) clearTimeout(this.startupTimer);
+      this.startupTimer = null;
+    }
     if (this.stableTimer) clearTimeout(this.stableTimer);
     this.stableTimer = null;
     const error = new DesktopTransportExitError(code, cause);
     this.lastExitError = error;
-    this.readyReject?.(error);
-    this.readyResolve = null;
-    this.readyReject = null;
-    this.readyPromise = null;
     this.rejectPending(error);
     if (this.disposing || this.disposed) return;
     this.consecutiveExitCount += 1;
@@ -374,6 +374,20 @@ export class DesktopServiceClient implements DesktopService {
       restartDelayMs,
     });
     this.scheduleProcessFailure();
+    if (startupPending) {
+      // No desktop request has crossed the wire yet: keep every early caller
+      // queued behind the same readiness promise while the singleton winner
+      // finishes booting. Rejecting here surfaced a transient daemon handoff as
+      // an "Error invoking remote method" toast after updates.
+      if (this.restartTimer) clearTimeout(this.restartTimer);
+      this.restartTimer = setTimeout(() => {
+        this.restartTimer = null;
+        this.connectService();
+      }, restartDelayMs);
+      this.restartTimer.unref?.();
+      return;
+    }
+    this.readyPromise = null;
     void this.start().catch((restartError) => {
       if (this.disposing || this.disposed) return;
       this.options.onDiagnostic?.('desktop-transport-restart-failed', {
@@ -385,6 +399,8 @@ export class DesktopServiceClient implements DesktopService {
   private rejectStartup(error: Error): void {
     if (this.startupTimer) clearTimeout(this.startupTimer);
     this.startupTimer = null;
+    if (this.restartTimer) clearTimeout(this.restartTimer);
+    this.restartTimer = null;
     this.readyReject?.(error);
     this.readyResolve = null;
     this.readyReject = null;
@@ -483,13 +499,7 @@ export class DesktopServiceClient implements DesktopService {
   }
 
   private async invoke<T>(method: DesktopServiceMethod, args: unknown[] = []): Promise<T> {
-    const ready = this.start();
-    const generation = this.generation;
-    await ready;
-    if (generation !== this.generation) {
-      throw this.lastExitError
-        ?? new Error('Mixdog service transport changed before the request was sent.');
-    }
+    await this.start();
     return await this.sendRequest<T>(method, args);
   }
 

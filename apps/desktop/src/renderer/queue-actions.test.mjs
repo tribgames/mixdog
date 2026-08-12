@@ -12,6 +12,7 @@ import {
   shouldNavigatePromptHistory,
   shouldRestoreInterruptedPrompt,
 } from "./renderer-logic.mjs";
+import { paneSessionTabIds } from "./pane-layout.ts";
 import { classifyPromptEscape } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
 import { mergeQueuedRestoreDraft } from "../../../../src/tui/components/prompt-input/restore-policy.mjs";
 
@@ -80,9 +81,16 @@ test("queued follow-up rows expose independent edit, steer-now, and remove actio
 test("queued follow-up Escape behavior matches Claude Code priority and handoff", () => {
   assert.equal(classifyPromptEscape({
     interruptActive: true,
+    hasSelection: true,
     hasQueuedMessages: true,
     value: "",
-  }).action, "interrupt");
+  }).action, "interrupt", "an active turn wins even when draft text is selected");
+  assert.equal(classifyPromptEscape({
+    interruptActive: false,
+    hasSelection: true,
+    hasQueuedMessages: true,
+    value: "selected draft",
+  }).action, "collapse-selection", "idle selection keeps its existing first-Escape behavior");
   assert.equal(shouldRestoreInterruptedPrompt({
     hasDraft: false,
     hasQueuedMessages: true,
@@ -160,4 +168,32 @@ test("prompt arrows enter history only from an empty draft", () => {
     selectionStart: 13,
     historyActive: true,
   }), true, "active history navigation may continue toward the seed");
+});
+
+test("PANE prewarm includes restored inactive session tabs with active sessions first", () => {
+  const session = (id) => ({ kind: "session", id });
+  const leaves = [
+    {
+      type: "leaf",
+      id: "left",
+      tabs: [session("left-inactive"), session("left-active")],
+      activeKey: "session:left-active",
+    },
+    {
+      type: "leaf",
+      id: "right",
+      tabs: [
+        session("right-active"),
+        { kind: "file", project: "C:/Project/mixdog", rel: "README.md" },
+        session("left-inactive"),
+      ],
+      activeKey: "session:right-active",
+    },
+  ];
+
+  assert.deepEqual(paneSessionTabIds(leaves, "right"), [
+    "right-active",
+    "left-active",
+    "left-inactive",
+  ]);
 });

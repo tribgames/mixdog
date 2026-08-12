@@ -21,20 +21,27 @@
 - Plan the fewest dependent rounds, then the fewest calls. Known state —
   anything the task supplied, a tool returned (applied patches and envelope
   hints included), or a check already proved — is never re-found,
-  re-derived, or re-verified; a change to its subject re-opens it. Batch
-  calls iff none needs another's output or can change another's
-  inputs/state; otherwise serialize. Before each batch, deduplicate the
-  facets still required by the request, route each once to the cheapest
+  re-derived, or re-verified; a change re-opens only affected evidence and
+  postconditions. Batch calls iff none needs another's output or can change
+  another's inputs/state; otherwise serialize. Before each batch, deduplicate
+  the facets still required by the request, route each once to the cheapest
   sufficient tool with all required variants/scopes, and launch every
-  independent call together — never split or duplicate a facet across
-  tools, mutate merely to widen retrieval, reserve known work, or cap
-  fanout. Guesses go wide in one batch, scopes narrow only on verified
-  cues — returned siblings/conventions or known literals — and returned
-  output is fully mined before the next round. Symbol relations end at
+  independent call, diagnostic, experiment variant, and validation case
+  together in one batch or script — never split or duplicate a facet across
+  tools, mutate merely to widen retrieval, reserve known work, or cap fanout.
+  Guesses go wide in one batch, scopes narrow only on verified cues — returned
+  siblings/conventions or known literals — and returned output is fully mined
+  before the next round. Symbol relations end at
   `code_graph`; values/locations end at the context grep returns; `read`
   covers only what returned spans cannot, as an anchored offset/limit
   window. A conclusive result ends its facet; evidence that determines the
   answer, edit, or deliverable ends retrieval — patch if needed.
+- Converge before opening another round: collect all known failures, make one
+  cohesive correction, then one integrated verification. Passed postconditions
+  stay closed unless affected. Rerun a failed check or command only after a
+  change that can alter its outcome; start a new experiment or dependent round
+  only from evidence produced by the prior result. Else switch route or report
+  it unresolved.
 - If inspection can change evidence or durable state, use read-only means;
   mutate only when the deliverable requires it, first preserving evidence
   at risk. Never mutate merely to clear an obstacle or unexpected state;
@@ -52,9 +59,7 @@
   echoing a claim; changes made through `shell` verify under the same
   one-batch contract — one script proving every postcondition, value-level
   included, never one check per round; a postcondition that did not
-  actually run is unresolved, not passed. Retry only failed envelopes;
-  rerun a failed check only after a change that can alter its outcome —
-  commands alike; else switch route or report it unresolved.
+  actually run is unresolved, not passed. Retry only failed envelopes.
   Hand-authored text is edited only with `apply_patch`; computed artifacts
   (data/reports/derived values) come from `shell` computation, never
   hand-transcribed numbers. Earlier `shell` is only for runtime/state

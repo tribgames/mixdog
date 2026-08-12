@@ -11,6 +11,7 @@ import type {
   DesktopGitBranch,
   DesktopGitStatus,
   DesktopProjectSummary,
+  DesktopSessionSummary,
   DesktopWorkspaceFolder,
   DesktopWorkspaceTextFileResult,
   DesktopWorkspaceTextSearchOptions,
@@ -29,7 +30,7 @@ import {
 } from "./boot-metrics";
 import type { Snapshot } from "./desktop-types";
 import { desktopUtilityDockTabEnabled } from "./desktop-feature-config";
-import { SetiFileIcon } from "./ExplorerTree";
+import { FilesRootPane, SetiFileIcon } from "./ExplorerTree";
 import { t } from "./i18n";
 import {
   cancelLayoutFrame,
@@ -39,6 +40,8 @@ import {
 import { scheduleEditorPanePrefetch } from "./lazy-widgets";
 
 const MemoSourceControlDock = memo(SourceControlDock);
+const EMPTY_CHANGED_FILES = new Set<string>();
+const ignoreFilesReadyChange = () => {};
 
 /** One retained Dock layer. The provider is the bounded lifecycle signal every
  *  escaping body portal (menus, selects) and every background loader inside
@@ -99,11 +102,13 @@ export function readDockState(): { open: boolean; tab: UtilityDockTab; width: nu
 // ── Right utility dock (Cursor-style side panel) ─────────────────────────
 const SearchPane = memo(function SearchPane({
   projectPath,
+  gitStatus,
   active,
   onOpenFile,
   onOpenFileAt,
 }: {
   projectPath: string;
+  gitStatus: DesktopGitStatus | null;
   active: boolean;
   onOpenFile?(project: string, rel: string, mode?: "preview" | "pinned"): void;
   onOpenFileAt?(project: string, rel: string, line?: number): void;
@@ -285,11 +290,25 @@ const SearchPane = memo(function SearchPane({
                   </details>;
                 }))}
               </div>)
-    ) : <p className="utility-dock-empty">
-      {folders.length === 0
-        ? t("Open a project to search files.")
-        : t("Search project files by name or contents.")}
-    </p>}
+    ) : contentsMode
+      ? <p className="utility-dock-empty">
+        {folders.length === 0
+          ? t("Open a project to search files.")
+          : t("Search project files by name or contents.")}
+      </p>
+      : folders.length === 0
+        ? <p className="utility-dock-empty">{t("Open a project to browse its files.")}</p>
+        : <FilesRootPane
+          projectPath={projectPath}
+          gitStatus={gitStatus}
+          changed={EMPTY_CHANGED_FILES}
+          activeFileKey=""
+          active={active}
+          readinessKey={`search-files:${projectPath}`}
+          onReadyChange={ignoreFilesReadyChange}
+          onOpenFile={onOpenFile}
+          showRootHeader />
+    }
   </div>;
 });
 
@@ -308,6 +327,9 @@ export const UtilityDock = memo(function UtilityDock({
   onOpenDiff,
   onOpenPullRequest,
   onOpenFileAt,
+  sessions = [],
+  activeSessionIds = [],
+  onOpenLeadSession,
   onOpenAgentSession,
   entering = false,
   contentReady = true,
@@ -323,6 +345,8 @@ export const UtilityDock = memo(function UtilityDock({
   onResize(width: number): void;
   onClose?(): void;
   snapshot: Snapshot;
+  sessions?: readonly DesktopSessionSummary[];
+  activeSessionIds?: readonly string[];
   projectPath?: string;
   workspaceFolders?: readonly DesktopWorkspaceFolder[];
   /** Main App owns the shared Search / Source Control / Pull Requests
@@ -332,6 +356,7 @@ export const UtilityDock = memo(function UtilityDock({
   onOpenDiff?(project: string, rel: string, request: SourceControlDiffRequest): void;
   onOpenPullRequest?: PullRequestOpenHandler;
   onOpenFileAt?(project: string, rel: string, line?: number): void;
+  onOpenLeadSession?(sessionId: string): void;
   onOpenAgentSession?(sessionId: string, title: string, ownerSessionId: string): void;
   /** Surface re-entry: render already-open, without the slide-in replay. */
   entering?: boolean;
@@ -410,7 +435,7 @@ export const UtilityDock = memo(function UtilityDock({
     : null, [dockProjectOptions.length, dockProjectPath, dockProjectSelectOptions, selectDockProject]);
   const projectKey = dockProjectPath;
   const surfaceKeys: Record<UtilityDockTab, string> = {
-    agents: `agents:${String(snapshot.sessionId || "draft")}`,
+    agents: `agents:${activeSessionIds.join(",") || "idle"}`,
     search: `search:${projectKey}`,
     "source-control": `source-control:${dockProjectPath}`,
     "pull-requests": `pull-requests:${dockProjectPath}`,
@@ -804,7 +829,9 @@ export const UtilityDock = memo(function UtilityDock({
         <div className="utility-dock-title"><b>{t(title || "Agents")}</b></div>
       </header>}
       <AgentActivityPane active={paneActive("agents")}
-        snapshot={snapshot}
+        sessions={sessions}
+        activeSessionIds={activeSessionIds}
+        onOpenLeadSession={onOpenLeadSession}
         onOpenSession={onOpenAgentSession} />
       </DockPane>}
       {desktopUtilityDockTabEnabled("search") && paneMounted("search") && <DockPane tab="search" active={paneActive("search")}>
@@ -817,6 +844,7 @@ export const UtilityDock = memo(function UtilityDock({
       </div>}
       <SearchPane
         projectPath={dockProjectPath}
+        gitStatus={dockGitStatus}
         active={paneActive("search")}
         onOpenFile={onOpenFile} onOpenFileAt={resolvedOpenFileAt} />
       </DockPane>}

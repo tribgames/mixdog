@@ -5,6 +5,22 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Desktop agent activity now groups every active session independently of the
+  focused tab, while restored session panes prewarm correctly and existing
+  sessions accept follow-up input without waiting for host acknowledgement.
+- Desktop and daemon session transport now survives startup races, stale
+  control sessions, transient socket loss, and in-place stream recovery while
+  keeping remote ownership global across session focus changes.
+- Git commit preferences now separate the visible example from AI
+  instructions, serialize overlapping saves, and validate then correct
+  Conventional Commit output before accepting it.
+- Core memory now mirrors curated and generated context into an atomic,
+  revision-guarded file so sessions can load scoped memory without cold-starting
+  the memory runtime, with mutations refreshing the mirror.
+- TUI transcript anchoring and Escape selection handling avoid visual jumps and
+  accidental queue restoration, while Terminal-Bench refusal fallback follows
+  the runtime termination reason even after streamed narration.
+
 ## v0.9.123 - 2026-08-12
 
 - Desktop provider setup now recovers stale control sessions without exposing

@@ -1,6 +1,5 @@
 import {
   EMPTY_SNAPSHOT,
-  hasActiveSnapshotWork,
   type Snapshot,
 } from "./desktop-types";
 
@@ -143,17 +142,6 @@ export function desktopChromeSnapshotsEqual(left: Snapshot, right: Snapshot): bo
   if (left === right) return true;
   if (!preservesInitialBoundary(left, right)) return false;
   return snapshotFieldsEqual(left, right, CHROME_SNAPSHOT_FIELDS);
-}
-
-// Sidebar progress only needs the selected session and whether it is active;
-// spinner wording and token counters belong to the isolated header selector.
-export function desktopSidebarSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
-  if (left === right) return true;
-  if (!preservesInitialBoundary(left, right)) return false;
-  return String(left.sessionId || "") === String(right.sessionId || "")
-    && hasActiveSnapshotWork(left) === hasActiveSnapshotWork(right)
-    // The sidebar's Remote section follows the relay owner.
-    && String(left.remoteSessionId || "") === String(right.remoteSessionId || "");
 }
 
 export function desktopConversationSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {

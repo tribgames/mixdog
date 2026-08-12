@@ -1,7 +1,6 @@
 // Renderer consumption of the per-session live lanes (mixdog:session-state).
 // One process-wide store fans lane frames out per sessionId so a pane
-// subscribed to session A never re-renders for session B's traffic; the
-// focused mixdog:state pipeline stays untouched.
+// subscribed to session A never re-renders for session B's traffic.
 import { useCallback, useRef, useSyncExternalStore } from "react";
 
 import type { DesktopSessionStateUpdate } from "../shared/contract";
@@ -23,15 +22,13 @@ export type SessionLaneSource =
 export interface SessionLaneStore {
   get(sessionId: string): Snapshot | null;
   subscribe(sessionId: string, listener: () => void): () => void;
+  getRemoteSessionId(): string;
+  subscribeRemoteSession(listener: () => void): () => void;
   /** Wire the preload lane once; returns a stop function. Idempotent — a
    *  second start while wired returns the existing stop. */
   start(source?: SessionLaneSource | undefined): () => void;
   /** Test/manual injection of one lane frame. */
   apply(update: DesktopSessionStateUpdate): void;
-  /** Reuse an already decorated focused-state frame without a second
-   * transcript identity/failure reconciliation pass. `source` names the call
-   * boundary the frame came from (see SessionLaneFrameSource). */
-  applyDecorated(sessionId: string, snapshot: Snapshot, source?: SessionLaneFrameSource): void;
   stats(): { entries: number; estimatedBytes: number; subscribedSessions: number };
   clear(): void;
 }
@@ -80,41 +77,12 @@ function laneUpdateIsUrgent(previous: Snapshot | null, next: Snapshot | null): b
     || agentActivityIdentity(previous) !== agentActivityIdentity(next);
 }
 
-/** Where a lane frame came from. These are the renderer's OWN call
- *  boundaries — not a guess about the frame's content:
- *  - "session-lane": mixdog:session-state, the session's own publication
- *    (its pooled session runtime's live frame, or the one-shot disk/replay peek used
- *    for a session with no pooled session runtime). Authoritative for that session's
- *    live state; its transcript may be a tail WINDOW because both
- *    projections cap at the host transcript item limit.
- *  - "focused-state": the settled focused mixdog:state stream — the same
- *    authority for the session it names.
- *  - "focused-transition": the focused stream WHILE a renderer-initiated
- *    session route (resumeSession) is in flight. Such a frame describes a
- *    host transition: an empty/partial transcript there is the session runtime
- *    loading, not the session losing rows.
- *  - "renderer-result": a renderer-initiated answer (submit, /clear, the
- *    resume RPC result). Always replaces the cache. */
-export type SessionLaneFrameSource =
-  | "session-lane"
-  | "focused-state"
-  | "focused-transition"
-  | "renderer-result";
-
-// ONE session reaches this cache through all four boundaries above, and they
-// do not carry the same completeness. Overwriting the cache with whichever
-// frame arrived last collapsed the clicked pane's transcript (rows unmounted,
-// scrollTop clamped to 0, every row id reissued) and made the previously
-// focused pane grow and shrink again (user report, CDP-attributed).
-//
-// Only the TRANSCRIPT's completeness is reconciled here:
+// Only the transcript's completeness is reconciled here:
 //   * alignment failure          -> replace (host/channel clear, genuine
 //     deletion, compaction, branch resume, retry/edit rewrite).
 //   * settled source, aligned but missing the HEAD this cache still holds
 //     -> restore that head only; the frame keeps owning its tail, so trailing
 //     removal and streaming settle are never blocked.
-//   * transition source, aligned but shorter/empty -> keep the settled rows
-//     until the route settles.
 // Every LIVE field (busy, spinner, queued, approvals, agent activity,
 // streaming tail) is always taken from the incoming frame. A frame that omits
 // transcript history also tends to omit the presentation read-outs derived
@@ -247,9 +215,8 @@ export function laneFrameWithRetainedRoute(prior: Snapshot | null, next: Snapsho
 export function laneFrameRetainingSettledRows(
   prior: Snapshot | null,
   next: Snapshot,
-  source: SessionLaneFrameSource = "session-lane",
 ): Snapshot {
-  if (!prior || source === "renderer-result") return next;
+  if (!prior) return next;
   const priorSessionId = String(prior.sessionId || "");
   const nextSessionId = String(next.sessionId || "");
   if (priorSessionId && nextSessionId && priorSessionId !== nextSessionId) return next;
@@ -257,35 +224,16 @@ export function laneFrameRetainingSettledRows(
   if (!priorItems || priorItems.length === 0) return next;
   const nextItems = laneTranscript(next);
   if (nextItems === priorItems) return next;
-  const transitional = source === "focused-transition";
-  // A frame without any transcript field makes no completeness claim at all.
-  if (!nextItems) {
-    return transitional ? mergedLaneFrame(prior, next, priorItems, true) : next;
-  }
+  if (!nextItems) return next;
   const offset = laneWindowOffset(priorItems, nextItems);
   if (offset < 0) return next;
-  const keepsTail = offset + nextItems.length >= priorItems.length;
-  if (!transitional) {
-    // Settled sources own their own tail, and an EMPTY frame carries no
-    // window at all: it states the session has no transcript (host/channel
-    // clear). Only the head this cache still holds, which a windowed frame
-    // no longer carries, is restored.
-    if (offset === 0 || nextItems.length === 0) return next;
-    return mergedLaneFrame(prior, next, [...priorItems.slice(0, offset), ...nextItems], false);
-  }
-  if (offset === 0 && keepsTail) return next;
-  // Reuse the cached array identity for a pure replay so no consumer even
-  // re-renders; a window that reaches the settled tail keeps its live rows.
-  const retainAll = nextItems.length === 0 || !keepsTail;
-  const items = retainAll ? priorItems : [...priorItems.slice(0, offset), ...nextItems];
-  return mergedLaneFrame(prior, next, items, retainAll);
+  // Lane frames own their tail. A window can omit only the cached head.
+  if (offset === 0 || nextItems.length === 0) return next;
+  return mergedLaneFrame(prior, next, [...priorItems.slice(0, offset), ...nextItems], false);
 }
 
-/** What the store was told about ONE incoming frame. `source` is the
- *  renderer's own call boundary; `frameSource`/`contentRevision` are the
- *  host's lane metadata. */
+/** Host metadata travelling with one keyed lane frame. */
 export interface SessionLaneFrameProvenance {
-  source: SessionLaneFrameSource;
   frameSource: "live" | "replay";
   contentRevision?: number;
 }
@@ -307,7 +255,6 @@ function rejectedSessionLaneRevision(
   priorRevision: number | null,
   provenance: SessionLaneFrameProvenance,
 ): "stale-replay" | "stale-live" | "duplicate-replay" | null {
-  if (provenance.source === "renderer-result") return null;
   const revision = typeof provenance.contentRevision === "number"
     ? provenance.contentRevision
     : null;
@@ -335,11 +282,8 @@ export function staleSessionLaneReplay(
     : null;
 }
 
-/** The multi-writer rule for one lane cache entry. The store has three
- *  writers (the focused pipeline, renderer results, and the host lane, which
- *  itself mixes owner publications with durable replays), so "last write
- *  wins" repeatedly swapped a pane's rendered rows for an older projection.
- *  Ordering is by authoritative CONTENT generation, never arrival. */
+/** The host lane mixes owner publications with durable replays. Ordering is
+ * by authoritative CONTENT generation, never arrival. */
 export function decideSessionLaneFrame(
   prior: Snapshot | null,
   priorRevision: number | null,
@@ -349,17 +293,6 @@ export function decideSessionLaneFrame(
   const revision = typeof provenance.contentRevision === "number"
     ? provenance.contentRevision
     : null;
-  if (provenance.source === "renderer-result") {
-    // Explicit authoritative answer, epoch/target guarded by its caller. It
-    // replaces the content and leaves the recorded generation untouched, so
-    // the next owner publication still orders normally against it.
-    return {
-      accept: true,
-      snapshot: laneFrameWithRetainedRoute(prior, next),
-      revision: priorRevision,
-      reason: "authoritative",
-    };
-  }
   if (prior) {
     const rejected = rejectedSessionLaneRevision(priorRevision, provenance);
     if (rejected) return { accept: false, reason: rejected, revision: priorRevision };
@@ -390,7 +323,7 @@ export function decideSessionLaneFrame(
       };
     }
   }
-  const snapshot = laneFrameRetainingSettledRows(prior, next, provenance.source);
+  const snapshot = laneFrameRetainingSettledRows(prior, next);
   const reason = snapshot === next ? "adopted" : "aligned";
   return {
     accept: true,
@@ -421,8 +354,7 @@ function reportLaneDecision(
     laneDiagnosticAt.delete(oldest);
   }
   try {
-    window.mixdogDesktop?.perfLog?.(`lane-frame id=${sessionId} source=${provenance.source}`
-      + ` frame=${provenance.frameSource}`
+    window.mixdogDesktop?.perfLog?.(`lane-frame id=${sessionId} frame=${provenance.frameSource}`
       + ` rev=${provenance.contentRevision ?? "-"} decision=${decision.reason}`);
   } catch {
     // Diagnostics never affect the lane.
@@ -443,7 +375,9 @@ export function createSessionLaneStore({
 } = {}): SessionLaneStore {
   const snapshots = new Map<string, SessionLaneEntry>();
   const listeners = new Map<string, Set<() => void>>();
+  const remoteSessionListeners = new Set<() => void>();
   const notificationKeys = new Map<string, object>();
+  let remoteSessionId = "";
   let retainedBytes = 0;
   let stop: (() => void) | null = null;
   const removeSnapshot = (sessionId: string): void => {
@@ -483,15 +417,12 @@ export function createSessionLaneStore({
   };
   const applyUpdate = (
     update: DesktopSessionStateUpdate,
-    decorated = false,
-    source: SessionLaneFrameSource = "session-lane",
   ): void => {
     const sessionId = String(update?.sessionId || "");
     if (!sessionId) return;
     const prior = snapshots.get(sessionId);
     const priorSnapshot = prior?.snapshot ?? null;
     const provenance: SessionLaneFrameProvenance = {
-      source,
       frameSource: update.frameSource,
       ...(typeof update.contentRevision === "number"
         ? { contentRevision: update.contentRevision }
@@ -513,9 +444,17 @@ export function createSessionLaneStore({
       retainedBytes -= prior.bytes;
     }
     if (update.snapshot) {
-      const incoming = decorated
-        ? update.snapshot as Snapshot
-        : decorator.decorate(update.snapshot);
+      const incoming = decorator.decorate(update.snapshot);
+      if (Object.prototype.hasOwnProperty.call(incoming, "remoteEnabled")
+        || Object.prototype.hasOwnProperty.call(incoming, "remoteSessionId")) {
+        const nextRemoteSessionId = incoming.remoteEnabled === true
+          ? String(incoming.remoteSessionId || "")
+          : "";
+        if (nextRemoteSessionId !== remoteSessionId) {
+          remoteSessionId = nextRemoteSessionId;
+          for (const listener of [...remoteSessionListeners]) listener();
+        }
+      }
       const decision = decideSessionLaneFrame(
         priorSnapshot,
         prior?.revision ?? null,
@@ -575,6 +514,11 @@ export function createSessionLaneStore({
         }
       };
     },
+    getRemoteSessionId: () => remoteSessionId,
+    subscribeRemoteSession(listener) {
+      remoteSessionListeners.add(listener);
+      return () => remoteSessionListeners.delete(listener);
+    },
     start(source = window.mixdogDesktop?.subscribeSessionState?.bind(window.mixdogDesktop)) {
       if (stop) return stop;
       if (typeof source !== "function") return () => {};
@@ -592,13 +536,6 @@ export function createSessionLaneStore({
       return halt;
     },
     apply,
-    applyDecorated(sessionId, snapshot, source = "focused-state") {
-      applyUpdate({
-        sessionId,
-        snapshot: snapshot as DesktopSessionStateUpdate["snapshot"],
-        frameSource: "live",
-      }, true, source);
-    },
     stats: () => ({
       entries: snapshots.size,
       estimatedBytes: retainedBytes,
@@ -609,6 +546,7 @@ export function createSessionLaneStore({
       notificationKeys.clear();
       snapshots.clear();
       retainedBytes = 0;
+      remoteSessionId = "";
       decorator.clear();
     },
   };
@@ -616,16 +554,6 @@ export function createSessionLaneStore({
 
 /** Shared store for the app renderer; components use the hook below. */
 export const defaultSessionLaneStore = createSessionLaneStore();
-
-export function applyFocusedSnapshotToSessionLane(
-  snapshot: Snapshot,
-  store: SessionLaneStore = defaultSessionLaneStore,
-  { source = "focused-state" }: { source?: SessionLaneFrameSource } = {},
-): void {
-  const sessionId = String(snapshot?.sessionId || "");
-  if (!sessionId) return;
-  store.applyDecorated(sessionId, snapshot, source);
-}
 
 export function useSessionLane(
   sessionId: string,
@@ -655,4 +583,14 @@ export function useSessionLane(
     [enabled, isEqual, sessionId, store],
   );
   return useSyncExternalStore(subscribe, read);
+}
+
+export function useSessionRemoteOwner(
+  store: SessionLaneStore = defaultSessionLaneStore,
+): string {
+  return useSyncExternalStore(
+    store.subscribeRemoteSession,
+    store.getRemoteSessionId,
+    store.getRemoteSessionId,
+  );
 }

@@ -2491,7 +2491,13 @@ export async function createMixdogSessionRuntime() {
     async ask(_message, { onTextDelta }) {
       onTextDelta('interim narration');
       process.stderr.write(`[session] empty-final persisted sessionId=${sessionId} detail=fixture stopReason=refusal\\n`);
-      return { result: { text: '' } };
+      return {
+        result: {
+          content: 'interim narration',
+          stopReason: 'refusal',
+          terminationReason: 'refusal',
+        },
+      };
     },
   };
 }

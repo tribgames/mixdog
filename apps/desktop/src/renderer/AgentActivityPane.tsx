@@ -1,17 +1,21 @@
-import { Clock3 } from 'lucide-react';
+import { Bot, Clock3 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
+import type { DesktopSessionSummary } from '../shared/contract';
 import {
   desktopAgentIdentity,
   desktopAgentStatus,
   isActiveDesktopAgentEntry,
   isQueuedDesktopAgentEntry,
 } from '../shared/agent-activity';
+import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { FastModeIndicator } from './FastModeToggle';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 import { modelDisplayName } from './provider-display';
+import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { formatWorkElapsed, timeMs } from './TranscriptView';
+import type { Snapshot } from './desktop-types';
 
 type RecordValue = Record<string, unknown>;
 
@@ -159,68 +163,165 @@ export function liveTaskCount(snapshot: unknown): number {
   return liveAgentRows(snapshot).length + liveShellCount(snapshot);
 }
 
-export function AgentActivityPane({
+function leadIsActive(snapshot: Snapshot): boolean {
+  const spinner = record(snapshot.spinner);
+  const commandStatus = record(snapshot.commandStatus);
+  return Boolean(
+    snapshot.busy
+    || snapshot.commandBusy
+    || snapshot.thinking
+    || (snapshot.spinner && spinner.active !== false)
+    || (snapshot.commandStatus && commandStatus.active !== false),
+  );
+}
+
+function agentActivitySnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
+  return left.sessionId === right.sessionId
+    && left.busy === right.busy
+    && left.commandBusy === right.commandBusy
+    && left.thinking === right.thinking
+    && left.spinner === right.spinner
+    && left.commandStatus === right.commandStatus
+    && left.provider === right.provider
+    && left.model === right.model
+    && left.effort === right.effort
+    && left.fast === right.fast
+    && left.agentWorkers === right.agentWorkers
+    && left.agentJobs === right.agentJobs
+    && left.shellJobs === right.shellJobs;
+}
+
+function AgentActivityRow({
+  agent,
+  clock,
+  ownerSessionId,
+  onOpenSession,
+}: {
+  agent: LiveAgentSummary;
+  clock: number;
+  ownerSessionId: string;
+  onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
+}): React.ReactElement {
+  const elapsedBase = agent.turnStartedAt || agent.startedAt;
+  const elapsed = agent.queued
+    ? t('Queued')
+    : elapsedBase ? formatWorkElapsed(clock - elapsedBase) || '0s' : agent.status;
+  const modelLabel = modelDisplayName(agent.model, agent.provider);
+  const effortLabel = agent.effort
+    ? `${agent.effort.slice(0, 1).toLocaleUpperCase()}${agent.effort.slice(1)}`
+    : '';
+  const routeLabel = [modelLabel, effortLabel].filter(Boolean).join(' · ');
+  return <button type="button" className="agent-activity-row"
+    data-agent-tag={agent.tag || undefined}
+    data-agent-session-id={agent.sessionId || undefined}
+    aria-label={agent.tag || agent.role}
+    aria-disabled={!agent.sessionId || undefined}
+    onClick={() => {
+      if (agent.sessionId) {
+        onOpenSession?.(
+          agent.sessionId,
+          agent.tag || agent.role,
+          agent.ownerSessionId || ownerSessionId,
+        );
+      }
+    }}>
+    <span className="agent-activity-state">
+      {agent.queued
+        ? <Clock3 size={12} aria-label={t('Queued')} />
+        : <ProgressSpinner size={12} role="status"
+            aria-label={t('{{name}} is running', { name: agent.role })} />}
+    </span>
+    <span className="agent-activity-copy">
+      <span className="agent-activity-primary"><b>{agent.role}</b></span>
+      <small className="agent-route-summary" title={agent.model || undefined}>
+        <span>{routeLabel}</span>
+        {agent.fast && <FastModeIndicator />}
+      </small>
+    </span>
+    <time className="agent-activity-elapsed">{elapsed}</time>
+  </button>;
+}
+
+function AgentSessionGroup({
   active,
-  snapshot,
+  session,
+  clock,
+  onOpenLeadSession,
   onOpenSession,
 }: {
   active: boolean;
-  snapshot: unknown;
+  session: DesktopSessionSummary;
+  clock: number;
+  onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }): React.ReactElement {
-  const state = record(snapshot);
-  const ownerSessionId = String(state.sessionId || '').trim();
-  const agents = liveAgentRows(snapshot, ownerSessionId);
+  const lane = useSessionLane(
+    session.id,
+    defaultSessionLaneStore,
+    agentActivitySnapshotsEqual,
+    active,
+  );
+  const title = sessionSummaryTitle(session);
+  if (lane === null) {
+    return <section className="agent-session-group" data-agent-owner-session-id={session.id}>
+      <button type="button" className="agent-session-heading"
+        aria-label={title}
+        onClick={() => onOpenLeadSession?.(session.id)}>
+        <span className="agent-session-title">{title}</span>
+      </button>
+      <div className="agent-activity-rows">
+        <div className="agent-activity-row agent-activity-row--static" role="status">
+          <span className="agent-activity-state"><ProgressSpinner size={12} /></span>
+          <span className="agent-activity-copy">{t('Loading activity…')}</span>
+        </div>
+      </div>
+    </section>;
+  }
+  const snapshot = lane as Snapshot;
+  const agents = liveAgentRows(snapshot, session.id);
   const shells = liveShellRows(snapshot);
   const shellCount = liveShellCount(snapshot);
-  const taskCount = agents.length + shellCount;
-  const [clock, setClock] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active || taskCount === 0) return undefined;
-    setClock(Date.now());
-    const timer = window.setInterval(() => setClock(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [active, taskCount]);
-
-  if (taskCount === 0) return <div className="agent-activity-page" />;
-  return <div className="agent-activity-page">
+  const showLead = leadIsActive(snapshot);
+  const taskCount = (showLead ? 1 : 0) + agents.length + shellCount;
+  const leadModel = String(snapshot.model || '').trim();
+  const leadProvider = String(snapshot.provider || '').trim();
+  const leadRoute = modelDisplayName(leadModel, leadProvider);
+  const leadStartedAt = timeMs(
+    record(snapshot.commandStatus).startedAt || record(snapshot.spinner).startedAt,
+  );
+  return <section className="agent-session-group" data-agent-owner-session-id={session.id}>
+    <button type="button" className="agent-session-heading"
+      aria-label={title}
+      onClick={() => onOpenLeadSession?.(session.id)}>
+      <span className="agent-session-title">{title}</span>
+      <small>{taskCount}</small>
+    </button>
     <div className="agent-activity-rows">
-      {agents.map((agent) => {
-        const elapsedBase = agent.turnStartedAt || agent.startedAt;
-        const elapsed = agent.queued
-          ? t('Queued')
-          : elapsedBase ? formatWorkElapsed(clock - elapsedBase) || '0s' : agent.status;
-        const modelLabel = modelDisplayName(agent.model, agent.provider);
-        const effortLabel = agent.effort
-          ? `${agent.effort.slice(0, 1).toLocaleUpperCase()}${agent.effort.slice(1)}`
-          : '';
-        const routeLabel = [modelLabel, effortLabel].filter(Boolean).join(' · ');
-        return <button key={agent.key} type="button" className="agent-activity-row"
-          data-agent-tag={agent.tag || undefined}
-          data-agent-session-id={agent.sessionId || undefined}
-          aria-label={agent.tag || agent.role}
-          aria-disabled={!agent.sessionId || undefined}
-          onClick={() => {
-            if (agent.sessionId) {
-              onOpenSession?.(agent.sessionId, agent.tag || agent.role, ownerSessionId);
-            }
-          }}>
-          <span className="agent-activity-state">
-            {agent.queued
-              ? <Clock3 size={12} aria-label={t('Queued')} />
-              : <ProgressSpinner size={12} role="status"
-                  aria-label={t('{{name}} is running', { name: agent.role })} />}
-          </span>
-          <span className="agent-activity-copy">
-            <span className="agent-activity-primary"><b>{agent.role}</b></span>
-            <small className="agent-route-summary" title={agent.model || undefined}>
-              <span>{routeLabel}</span>
-              {agent.fast && <FastModeIndicator />}
-            </small>
-          </span>
-          <time className="agent-activity-elapsed">{elapsed}</time>
-        </button>;
-      })}
+      {showLead && <button type="button"
+        className="agent-activity-row agent-activity-row--lead"
+        data-lead-session-id={session.id}
+        aria-label={`Lead · ${title}`}
+        onClick={() => onOpenLeadSession?.(session.id)}>
+        <span className="agent-activity-state">
+          <ProgressSpinner size={12} role="status"
+            aria-label={t('{{name}} is running', { name: 'Lead' })} />
+        </span>
+        <span className="agent-activity-copy">
+          <span className="agent-activity-primary"><b>Lead</b></span>
+          <small className="agent-route-summary" title={leadModel || undefined}>
+            <span>{leadRoute}</span>
+            {snapshot.fast === true && <FastModeIndicator />}
+          </small>
+        </span>
+        <time className="agent-activity-elapsed">
+          {leadStartedAt ? formatWorkElapsed(clock - leadStartedAt) || '0s' : ''}
+        </time>
+      </button>}
+      {agents.map((agent) => <AgentActivityRow key={agent.key}
+        agent={agent}
+        clock={clock}
+        ownerSessionId={session.id}
+        onOpenSession={onOpenSession} />)}
       {shells.map((shell) => <div key={shell.key}
         className="agent-activity-row agent-activity-row--static"
         data-shell-task-id={shell.key}>
@@ -252,9 +353,53 @@ export function AgentActivityPane({
           </small>
         </span>
         <time className="agent-activity-elapsed">
-          {String(record(state.shellJobs).elapsedLabel || '')}
+          {String(record(snapshot.shellJobs).elapsedLabel || '')}
         </time>
       </div>}
+    </div>
+  </section>;
+}
+
+export function AgentActivityPane({
+  active,
+  sessions,
+  activeSessionIds,
+  onOpenLeadSession,
+  onOpenSession,
+}: {
+  active: boolean;
+  sessions: readonly DesktopSessionSummary[];
+  activeSessionIds: readonly string[];
+  onOpenLeadSession?(sessionId: string): void;
+  onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
+}): React.ReactElement {
+  const activeIds = new Set(activeSessionIds);
+  const activeSessions = sessions
+    .filter((session) => activeIds.has(session.id))
+    .sort((left, right) =>
+      Number(right.activityAt || right.updatedAt) - Number(left.activityAt || left.updatedAt));
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active || activeSessions.length === 0) return undefined;
+    setClock(Date.now());
+    const timer = window.setInterval(() => setClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [active, activeSessions.length]);
+
+  if (activeSessions.length === 0) return <div className="agent-activity-page">
+    <p className="agent-activity-empty">
+      <Bot size={28} aria-hidden="true" />
+      <span>{t('No agents are running.')}</span>
+    </p>
+  </div>;
+  return <div className="agent-activity-page">
+    <div className="agent-session-groups">
+      {activeSessions.map((session) => <AgentSessionGroup key={session.id}
+        active={active}
+        session={session}
+        clock={clock}
+        onOpenLeadSession={onOpenLeadSession}
+        onOpenSession={onOpenSession} />)}
     </div>
   </div>;
 }

@@ -131,6 +131,33 @@ export function paneLeaves(node: PaneNode): PaneLeaf[] {
   return [...paneLeaves(node.first), ...paneLeaves(node.second)];
 }
 
+/** Session lanes represented by the complete PANE tab model. Active sessions
+ * lead the queue (focused group first), then inactive tabs follow in strip
+ * order. Restored tabs therefore warm even when App's legacy registry is empty. */
+export function paneSessionTabIds(
+  leaves: readonly PaneLeaf[],
+  focusedLeafId = "",
+): string[] {
+  const orderedLeaves = focusedLeafId
+    ? [
+      ...leaves.filter((leaf) => leaf.id === focusedLeafId),
+      ...leaves.filter((leaf) => leaf.id !== focusedLeafId),
+    ]
+    : [...leaves];
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const append = (selection: WorkspaceSelection | null): void => {
+    if (selection?.kind !== "session" || seen.has(selection.id)) return;
+    seen.add(selection.id);
+    ids.push(selection.id);
+  };
+  for (const leaf of orderedLeaves) append(paneActiveSelection(leaf));
+  for (const leaf of orderedLeaves) {
+    for (const tab of leaf.tabs) append(tab);
+  }
+  return ids;
+}
+
 /** Authorize persisted session tabs against the durable startup catalog before
  * any pane mounts. Empty orphan-only groups collapse exactly like closed
  * editor groups; non-session tabs retain their original layout. */

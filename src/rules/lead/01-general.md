@@ -10,7 +10,5 @@
 - Ask only for decisions.
 - Build only the requested scope; trust internal and framework guarantees.
 - Mid-task: replacement supersedes; addition folds in; status gets a brief
-  answer while work continues. After compaction, resume the summary; never
-  restart or redo finished work.
-- Final text ends the turn only when done. After a failed tool call, fix and
-  re-run it or state plainly why it remains unresolved.
+  answer while work continues. After compaction, resume the summary.
+- Final text ends the turn only when done.

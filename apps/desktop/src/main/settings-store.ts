@@ -67,13 +67,23 @@ const COMMIT_PRESETS: ReadonlySet<string> = new Set(['none', 'conventional', 'cu
 
 export function gitPreferencesFromConfig(value: unknown): DesktopGitPreferences {
   const git = record(record(record(value).desktop).git);
+  const legacy = typeof git.commitTemplate === 'string'
+    ? git.commitTemplate.slice(0, COMMIT_TEMPLATE_LIMIT)
+    : '';
+  const legacyLines = legacy.split(/\r?\n/);
+  const commitExample = typeof git.commitExample === 'string'
+    ? git.commitExample.slice(0, COMMIT_TEMPLATE_LIMIT)
+    : (legacyLines[0] || '').trim();
+  const commitInstructions = typeof git.commitInstructions === 'string'
+    ? git.commitInstructions.slice(0, COMMIT_TEMPLATE_LIMIT)
+    : legacyLines.slice(1).join('\n').trim();
   return {
     commitPreset: typeof git.commitPreset === 'string' && COMMIT_PRESETS.has(git.commitPreset)
       ? git.commitPreset as DesktopGitCommitPreset
       : 'none',
-    commitTemplate: typeof git.commitTemplate === 'string'
-      ? git.commitTemplate.slice(0, COMMIT_TEMPLATE_LIMIT)
-      : '',
+    commitTemplate: [commitExample, commitInstructions].filter(Boolean).join('\n'),
+    commitExample,
+    commitInstructions,
     // Default ON (user decision): only an explicit false turns it off.
     autoCommitMessage: git.autoCommitMessage !== false,
   };
@@ -145,7 +155,24 @@ export class DesktopSettingsStore {
         git.commitPreset = preferences.commitPreset;
       }
       if (typeof preferences.commitTemplate === 'string') {
-        git.commitTemplate = preferences.commitTemplate.slice(0, COMMIT_TEMPLATE_LIMIT);
+        const legacy = preferences.commitTemplate.slice(0, COMMIT_TEMPLATE_LIMIT);
+        const legacyLines = legacy.split(/\r?\n/);
+        git.commitExample = (legacyLines[0] || '').trim();
+        git.commitInstructions = legacyLines.slice(1).join('\n').trim();
+      }
+      if (typeof preferences.commitExample === 'string') {
+        git.commitExample = preferences.commitExample.slice(0, COMMIT_TEMPLATE_LIMIT);
+      }
+      if (typeof preferences.commitInstructions === 'string') {
+        git.commitInstructions = preferences.commitInstructions.slice(0, COMMIT_TEMPLATE_LIMIT);
+      }
+      if (typeof preferences.commitTemplate === 'string'
+          || typeof preferences.commitExample === 'string'
+          || typeof preferences.commitInstructions === 'string') {
+        git.commitTemplate = [
+          typeof git.commitExample === 'string' ? git.commitExample : '',
+          typeof git.commitInstructions === 'string' ? git.commitInstructions : '',
+        ].filter(Boolean).join('\n').slice(0, COMMIT_TEMPLATE_LIMIT);
       }
       if (typeof preferences.autoCommitMessage === 'boolean') {
         git.autoCommitMessage = preferences.autoCommitMessage;

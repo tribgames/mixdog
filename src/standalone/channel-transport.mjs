@@ -55,6 +55,7 @@ export function createChannelTransport({
   remoteStatePath = null,
   remoteIntentPath = null,
   onClientRegistered = null,
+  onRemoteOwnerStateChange = null,
   agentBroker = null,
 } = {}) {
   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
@@ -243,7 +244,6 @@ export function createChannelTransport({
   }
 
   function publishRemoteOwnerState() {
-    if (!resolvedRemoteStatePath) return;
     const owner = pointerToken ? clients.get(pointerToken) : null;
     const sessionId = String(owner?.remoteSessionId || '');
     const state = {
@@ -263,6 +263,11 @@ export function createChannelTransport({
     ]);
     if (signature === remoteStateSignature) return;
     remoteStateSignature = signature;
+    if (typeof onRemoteOwnerStateChange === 'function') {
+      try { onRemoteOwnerStateChange(state); }
+      catch (err) { log(`remote owner state listener failed: ${err?.message || err}`); }
+    }
+    if (!resolvedRemoteStatePath) return;
     try {
       writeJsonAtomicSync(resolvedRemoteStatePath, state, { compact: true });
     } catch (err) {

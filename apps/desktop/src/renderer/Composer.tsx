@@ -1559,19 +1559,13 @@ export const Composer = memo(function Composer({
         return;
       }
       const element = event.currentTarget;
-      if (element.selectionStart !== element.selectionEnd) {
-        event.preventDefault();
-        const end = element.selectionEnd;
-        window.setTimeout(() => element.setSelectionRange(end, end), 0);
-        escapeClearAtRef.current = 0;
-        return;
-      }
       const escape = classifyPromptEscape({
         interruptActive: shouldInterruptPrompt({
           turnBusy,
           pendingSubmissionId,
           draftMode,
         }),
+        hasSelection: element.selectionStart !== element.selectionEnd,
         hasQueuedMessages: hasRestorableQueuedMessages(),
         hasMessages: selectableMessages.length > 0,
         value: draft || (attachments.length ? 'attachment' : ''),
@@ -1581,6 +1575,10 @@ export const Composer = memo(function Composer({
       if (escape.action === 'interrupt') {
         event.preventDefault();
         void stop(Boolean(draft || attachments.length), pendingSubmissionId);
+      } else if (escape.action === 'collapse-selection') {
+        event.preventDefault();
+        const end = element.selectionEnd;
+        window.setTimeout(() => element.setSelectionRange(end, end), 0);
       } else if (escape.action === 'restore-queue') {
         event.preventDefault();
         void restoreQueue();

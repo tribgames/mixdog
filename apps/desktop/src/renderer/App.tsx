@@ -45,6 +45,7 @@ import {
   paneActiveSelection,
   paneLeavesInColumnOrder,
   paneLeavesInVisualOrder,
+  paneSessionTabIds,
   type PaneLeaf,
 } from "./pane-layout";
 import { usePaneWorkspace } from "./pane-workspace-state";
@@ -58,9 +59,9 @@ import {
   startupRestorePlan
 } from "./renderer-logic.mjs";
 import {
-  applyFocusedSnapshotToSessionLane,
   defaultSessionLaneStore,
   useSessionLane,
+  useSessionRemoteOwner,
 } from "./session-lane-store";
 import {
   getSidePanelMode,
@@ -89,7 +90,7 @@ import {
   reportBootSurfaceStage,
 } from "./boot-metrics";
 import { BottomPanel, useBottomPanelState } from "./BottomPanel";
-import { EMPTY_SNAPSHOT, hasActiveSnapshotWork, workingSessionIdsForSnapshot, type RecordValue, type Snapshot } from "./desktop-types";
+import { agentActivitySessionIds, EMPTY_SNAPSHOT, type RecordValue, type Snapshot } from "./desktop-types";
 import {
   desktopFeatureEnabled,
   desktopSidebarDestinationEnabled,
@@ -156,8 +157,7 @@ import {
 } from "./WorkbenchProblems";
 
 import {
-  desktopChromeSnapshotsEqual,
-  desktopSidebarSnapshotsEqual
+  desktopChromeSnapshotsEqual
 } from "./desktop-snapshot-store";
 import { DesktopToastRegion, DesktopUpdateDialog } from "./notifications";
 
@@ -166,6 +166,16 @@ const LAST_PROJECT_KEY = 'mixdog.desktop-last-project.v1';
 const LAST_SESSION_KEY = 'mixdog.desktop-last-session.v1';
 const DRAFT_PANE_PREFS_KEY = 'mixdog.desktop-draft-pane-prefs.v1';
 const LAST_NEW_TASK_PREFS_KEY = 'mixdog.desktop-last-new-task-prefs.v1';
+function applySessionLaneResult(sessionId: string, next: SessionSnapshot | null): void {
+  if (!sessionId || !next || typeof next !== "object") return;
+  const returnedSessionId = String((next as Snapshot).sessionId || "");
+  if (returnedSessionId && returnedSessionId !== sessionId) return;
+  defaultSessionLaneStore.apply({
+    sessionId,
+    snapshot: next,
+    frameSource: "live",
+  });
+}
 function desktopProjectPathKey(value: unknown): string {
   return String(value || "")
     .trim()
@@ -423,21 +433,18 @@ import { schedulePostInteractionIdle } from "./app-idle-warmup";
 
 import {
   AgentSessionConversation,
-  LiveConversation,
+  DraftConversation,
   PaneConversation,
   PaneHeaderStatus,
   selectDesktopSnapshot,
-  SnapshotLiveWork,
   SnapshotUtilityDock,
   requestSessionPeek,
   useDesktopSnapshotSelector,
-  type SnapshotSessionScope,
 } from "./app-snapshot-views";
 
 import { useDesktopState } from "./app-desktop-state";
 import { createProjectActions } from "./app-project-actions";
 import { useSessionCatalog } from "./app-session-catalog";
-import { useSessionSnapshotCache } from "./app-session-snapshots";
 import { useSidePanelOpenFlip } from "./app-side-panel-flip";
 import { useUnreadSessions } from "./app-unread-sessions";
 import { useWorkspaceShortcuts } from "./app-workspace-shortcuts";
@@ -452,7 +459,6 @@ export function App() {
   }, []);
   const {
     snapshotStore,
-    snapshotRef,
     connected,
     hydrated: snapshotHydrated,
     error,
@@ -464,11 +470,7 @@ export function App() {
     selectDesktopSnapshot,
     desktopChromeSnapshotsEqual,
   );
-  const sidebarSnapshot = useDesktopSnapshotSelector(
-    snapshotStore,
-    selectDesktopSnapshot,
-    desktopSidebarSnapshotsEqual,
-  );
+  const sidebarRemoteSessionId = useSessionRemoteOwner(defaultSessionLaneStore);
   const preferredSidePanelMode = useSyncExternalStore(
     subscribeSidePanelMode,
     getSidePanelMode,
@@ -553,9 +555,12 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [commandSurface, setCommandSurface] = useState<CommandSurfaceName | null>(null);
+  const [commandSurfaceSessionId, setCommandSurfaceSessionId] = useState("");
+  const commandSurfaceLane = useSessionLane(commandSurfaceSessionId, defaultSessionLaneStore);
   const openConversationCommandSurface = useCallback((surface: CommandSurfaceName) => {
     if (surface === "usage" && !desktopFeatureEnabled("usage")) return;
     setSettingsOpen(false);
+    setCommandSurfaceSessionId("");
     setCommandSurface(surface);
   }, []);
   // Right utility dock (Cursor-style side panel): tab/width persist; the
@@ -1054,19 +1059,6 @@ export function App() {
   const focusedPaneSelection = paneWorkspace.focusedLeaf
     ? paneActiveSelection(paneWorkspace.focusedLeaf)
     : null;
-  const focusedPaneSessionId = focusedPaneSelection?.kind === "session"
-    ? focusedPaneSelection.id
-    : "";
-  const focusedPaneSnapshot = useSessionLane(
-    focusedPaneSessionId,
-    defaultSessionLaneStore,
-  );
-  useEffect(() => {
-    if (!focusedPaneSnapshot || focusedPaneSnapshot === snapshotRef.current) return;
-    // The daemon has no active session. Renderer chrome follows the lane of
-    // the focused pane, while every pane continues painting its own lane.
-    applySnapshot(focusedPaneSnapshot as SessionSnapshot);
-  }, [applySnapshot, focusedPaneSnapshot, snapshotRef]);
   const paneLeavesRef = useRef(paneWorkspace.leaves);
   paneLeavesRef.current = paneWorkspace.leaves;
   const focusedLeafIdRef = useRef(paneWorkspace.focusedLeafId);
@@ -1492,54 +1484,8 @@ export function App() {
     const timer = window.setTimeout(run, 1_500);
     return () => window.clearTimeout(timer);
   }, [startupSettled]);
-  // Per-session snapshot cache (bounded LRU) lives in app-session-snapshots.ts.
-  const {
-    cachedSessionSnapshot,
-    forgetSessionSnapshot,
-  } = useSessionSnapshotCache(snapshotStore);
-  // Seed for a frozen session-transition frame: the live lane is freshest
-  // (background panes stream it), then the LRU cache.
-  const availableFrozenSeedFor = (targetSessionId: string): Snapshot | null => {
-    const available = (defaultSessionLaneStore.get(targetSessionId) as Snapshot | null)
-      || cachedSessionSnapshot(targetSessionId);
-    if (!available) return null;
-    // Legacy/remote snapshots may omit sessionId. Transition frames cannot:
-    // pane ownership uses this identity to reject an explicitly foreign frame.
-    return String(available.sessionId || "") === targetSessionId
-      ? available
-      : { ...available, sessionId: targetSessionId };
-  };
-  // A cold target still needs its own route identity. Falling through to the
-  // shared EMPTY snapshot made Conversation treat it as "new-task", mixing a
-  // session transition with the draft's saved scroll position.
-  // A session's ROUTE is catalog data, not stream data. The sidebar row keeps
-  // the last provider/model, so a pane names its model on the first frame —
-  // focus, lane arrival and catalog warmup no longer decide whether the label
-  // exists (user: 세션에 처음 들어가면 모델명이 비고, 비포커스 패널은 아예 안 뜸).
-  const frozenSeedFor = (targetSessionId: string): Snapshot => {
-    const seed = availableFrozenSeedFor(targetSessionId)
-      || { ...EMPTY_SNAPSHOT, sessionId: targetSessionId };
-    if (seed.provider && seed.model) return seed;
-    const row = sessions.find((entry) => entry.id === targetSessionId);
-    if (!row?.provider && !row?.model) return seed;
-    return {
-      ...seed,
-      provider: seed.provider || String(row?.provider || ""),
-      model: seed.model || String(row?.model || ""),
-    };
-  };
   // Callback-safe view of the active selection for tab-promotion decisions.
   const selectionRef = useRef<NavigationSelection>(selection);
-  const sessionRefresh = useRef({
-    submitInFlight: false,
-    accepted: false,
-    sawBusy: false,
-    sawSettlement: false,
-  });
-  // Per-session throttle for foreign-frame suppression diagnostics.
-  const foreignFrameLogAt = useRef(new Map<string, number>());
-  const isBusy = Boolean(snapshot.busy || snapshot.commandBusy);
-  const activeBusy = hasActiveSnapshotWork(sidebarSnapshot);
   const startupMeasured = useRef(false);
   useEffect(() => {
     if (!import.meta.env?.DEV || startupMeasured.current) return;
@@ -1779,24 +1725,24 @@ export function App() {
     }
   }, [setError]);
   const remoteRequestEpoch = useRef(0);
-  const setRemoteEnabled = useCallback(async (enabled: boolean): Promise<void> => {
+  const setRemoteEnabled = useCallback(async (
+    sessionId: string,
+    enabled: boolean,
+  ): Promise<void> => {
+    if (!sessionId) return;
     const requestId = ++remoteRequestEpoch.current;
     const result = await invokeResult(() => window.mixdogDesktop.invokeCapability({
       capability: enabled ? "claimRemote" : "releaseRemote",
       args: [],
+      sessionId,
     }));
     if (requestId !== remoteRequestEpoch.current) return;
     if (result?.snapshot !== undefined) {
-      applySnapshot(result.snapshot);
+      applySessionLaneResult(sessionId, result.snapshot);
       return;
     }
-    // A failed latest request still reconciles to engine truth. Earlier
-    // completions are ignored so ON cannot repaint over a newer OFF click.
-    const authoritative = await invokeResult(() => window.mixdogDesktop.getSnapshot());
-    if (requestId === remoteRequestEpoch.current && authoritative !== undefined) {
-      applySnapshot(authoritative);
-    }
-  }, [applySnapshot, invokeResult]);
+    void requestSessionPeek(sessionId, { reconcile: true });
+  }, [invokeResult]);
   const openDesktopUpdate = useCallback(() => {
     if (updaterState.status === "ready") setUpdateDialogOpen(true);
   }, [updaterState.status]);
@@ -2006,34 +1952,6 @@ export function App() {
   const refreshSessionsBestEffort = useCallback(() => {
     void refreshSessions().catch(() => undefined);
   }, [refreshSessions]);
-  const refreshSettledSession = useCallback(() => {
-    const pending = sessionRefresh.current;
-    if (!pending.accepted || !pending.sawSettlement) return;
-    sessionRefresh.current = {
-      submitInFlight: false,
-      accepted: false,
-      sawBusy: false,
-      sawSettlement: false,
-    };
-    // Native desktop hosts push the updated catalog from the session-store
-    // watcher. Running the authoritative list path here as well rescans every
-    // stored session inside the host transition lock, so a prompt submitted
-    // immediately after turn completion waits behind that scan. Remote/legacy
-    // bridges without catalog push retain the explicit fallback refresh.
-    if (typeof window.mixdogDesktop?.subscribeSessions !== "function") {
-      refreshSessionsBestEffort();
-    }
-  }, [refreshSessionsBestEffort]);
-  useEffect(() => {
-    const pending = sessionRefresh.current;
-    if (isBusy) {
-      if (pending.submitInFlight || pending.accepted) pending.sawBusy = true;
-      return;
-    }
-    if (!pending.sawBusy) return;
-    pending.sawSettlement = true;
-    refreshSettledSession();
-  }, [isBusy, refreshSettledSession]);
   const synchronizeActualHost = async () => {
     const actual = await window.mixdogDesktop?.getSnapshot().catch(() => null) ?? null;
     applySnapshot(actual);
@@ -2164,8 +2082,7 @@ export function App() {
   const deleteSession = useCallback(async (sessionId: string) => {
     const previousSession = sessions.find((session) => session.id === sessionId);
     if (!previousSession || pendingSessionDeletes.current.has(sessionId)) return;
-    const deletingCurrent = (selection.kind === "session" && selection.id === sessionId)
-      || String(snapshot.sessionId || "") === sessionId;
+    const deletingCurrent = selection.kind === "session" && selection.id === sessionId;
     pendingSessionDeletes.current.add(sessionId);
     setError("");
     let next: SessionSnapshot;
@@ -2186,7 +2103,6 @@ export function App() {
       navigationEpoch.current += 1;
       activateSelection({ kind: "new" }, "New task");
       setRequestedSessionId("");
-      forgetSessionSnapshot(sessionId);
     }
     try {
       await refreshSessions();
@@ -2195,7 +2111,7 @@ export function App() {
     } finally {
       pendingSessionDeletes.current.delete(sessionId);
     }
-  }, [activateSelection, applySnapshot, clearNewTaskPreferences, refreshSessions, selection, sessions, setError, snapshot.sessionId]);
+  }, [activateSelection, applySnapshot, clearNewTaskPreferences, refreshSessions, selection, sessions, setError]);
   const finishPendingConversationHandoff = () => {
     if (!pendingConversationHandoff.current) return;
     pendingConversationHandoff.current = null;
@@ -2235,7 +2151,7 @@ export function App() {
     navigationEpoch.current += 1;
     closeSidebarForNavigation();
     setRequestedSessionId("");
-    if (!availableFrozenSeedFor(sessionId)) requestSessionPeek(sessionId);
+    if (!defaultSessionLaneStore.get(sessionId)) requestSessionPeek(sessionId);
     const session = sessions.find((item) => item.id === sessionId);
     finishPendingConversationHandoff();
     activateSelection(
@@ -2275,14 +2191,8 @@ export function App() {
     const ownerLeaf = leaves.find((leaf) => leaf.id === focusedLeafIdRef.current
         && leaf.tabs.some((tab) => navigationKey(tab) === sessionKey))
       ?? leaves.find((leaf) => leaf.tabs.some((tab) => navigationKey(tab) === sessionKey));
-    // The session's OWN route seeds the draft: pane-local lane frame first,
-    // then the focused engine snapshot; the usual inheritance chain fills any
-    // field the session never named.
-    const lane = defaultSessionLaneStore.get(sessionId);
-    const source = lane
-      ?? (String(snapshotRef.current.sessionId || "") === sessionId
-        ? snapshotRef.current
-        : null);
+    // The session's OWN lane seeds the draft; focus has no data authority.
+    const source = defaultSessionLaneStore.get(sessionId);
     const inherited = inheritedDraftPrefs();
     const seeded: DraftPanePrefs = {
       projectPath: effectiveDraftProjectPath(
@@ -2315,8 +2225,7 @@ export function App() {
     // Remote seat: when the cleared session holds it, the replacement draft
     // starts remote-on so its first submit takes the seat over.
     const holdsRemote = source?.remoteEnabled === true
-      || (snapshotRef.current.remoteEnabled === true
-        && String(snapshotRef.current.remoteSessionId || "") === sessionId);
+      && String(source.remoteSessionId || "") === sessionId;
     inheritDraftRemoteOnce.current = holdsRemote;
     setRemoteNewTaskMode(holdsRemote ? "on" : "off");
     activateSelection(draftSelection, "New task", ownerLeaf ? sessionKey : "");
@@ -2391,9 +2300,6 @@ export function App() {
       && selectionRef.current.kind === "new"
       && navigationKey(selectionRef.current) === draftKey
       && navigationEpoch.current === submitEpoch;
-    const pending = sessionRefresh.current;
-    pending.submitInFlight = true;
-    pending.sawBusy ||= isBusy;
     let startedSessionId = "";
     let accepted: unknown;
     // One-shot channel-relay reservation: capture the draft's Remote choice at
@@ -2425,16 +2331,10 @@ export function App() {
           throw new Error("New task submission was accepted without a session id.");
         }
         if (result.accepted && startedSessionId) {
-          const resultRecord = asRecord(result.snapshot);
-          const resultSessionId = String(resultRecord?.sessionId || "");
-          if (!resultRecord || resultSessionId !== startedSessionId) {
+          const resultSessionId = String(asRecord(result.snapshot)?.sessionId || "");
+          if (resultSessionId !== startedSessionId) {
             throw new Error("New task session returned a mismatched session snapshot.");
           }
-          // The session projection is authoritative. The optimistic input row
-          // remains a renderer concern until the durable user item arrives.
-          applyFocusedSnapshotToSessionLane(resultRecord as Snapshot, defaultSessionLaneStore, {
-            source: "renderer-result",
-          });
         }
         if (result.accepted && draftStillSelected()) {
           clearNewTaskPreferences(routeSelection);
@@ -2446,17 +2346,9 @@ export function App() {
         throw new Error("Prompt submission requires a New task draft or session.");
       }
     } catch (reason) {
-      sessionRefresh.current = {
-        submitInFlight: false,
-        accepted: false,
-        sawBusy: false,
-        sawSettlement: false,
-      };
       throw reason;
     }
-    pending.submitInFlight = false;
     if (accepted === true) {
-      pending.accepted = true;
       // Consume the reservation once a session actually claimed it, even when
       // the user already navigated away: the seat is taken either way.
       if (newTaskRemoteRequested) setRemoteNewTaskMode("off");
@@ -2478,23 +2370,13 @@ export function App() {
           }
         }
       }
-      refreshSettledSession();
-    } else {
-      sessionRefresh.current = {
-        submitInFlight: false,
-        accepted: false,
-        sawBusy: false,
-        sawSettlement: false,
-      };
     }
     return accepted;
   }, [
     activateSelection,
     clearNewTaskPreferences,
     effectiveDraftProjectPath,
-    isBusy,
     promoteSelectionInLeaf,
-    refreshSettledSession,
     registerWorkspaceSelection,
     resolvedDraftPrefsFor,
   ]);
@@ -2538,9 +2420,8 @@ export function App() {
     } finally {
       if (watchdog !== undefined) window.clearTimeout(watchdog);
     }
-    if (accepted === true) refreshSettledSession();
     return accepted;
-  }, [refreshSettledSession]);
+  }, []);
   // Stable per-session submit identity so memoised pane trees do not
   // re-render from a fresh closure on every App commit.
   const paneSessionSubmitCache = useRef(new Map<string, (
@@ -2587,9 +2468,6 @@ export function App() {
     }
     return fn;
   };
-  const visibleSnapshot = selection.kind === "new"
-    ? EMPTY_SNAPSHOT
-    : snapshot;
   const navigationSelection: NavigationSelection = selection;
   // Stable identity: SessionSidebar is memoised and must not re-render from a
   // fresh selection object literal on every App commit.
@@ -2599,31 +2477,11 @@ export function App() {
       : navigationSelection,
     [requestedSessionId, navigationSelection],
   );
-  // Viewing a session consumes its unread dot. The foreign-frame gate keeps
-  // tracking the COMMITTED selection only, while unread consumption also
-  // covers the in-flight switch target so a slow resume or fork-on-resume
-  // never strands the clicked row's dot.
+  // Viewing a session consumes its unread dot.
   const viewedSessionId = navigationSelection.kind === "session" ? navigationSelection.id : "";
   viewedSessionRef.current = viewedSessionId;
   const unreadViewedSessionId = requestedSessionId || viewedSessionId;
   unreadViewedSessionRef.current = unreadViewedSessionId;
-  const onForeignFrameSuppressed = useCallback((liveSessionId: string) => {
-    const now = Date.now();
-    if (now - (foreignFrameLogAt.current.get(liveSessionId) || 0) < 10_000) return;
-    foreignFrameLogAt.current.set(liveSessionId, now);
-    // The selector runs during render: defer the diagnostic side effect.
-    queueMicrotask(() => {
-      try {
-        const line = `foreign-session-frame suppressed live=${liveSessionId} viewed=${viewedSessionRef.current}`;
-        console.warn(`[mixdog] ${line}`);
-        window.mixdogDesktop?.perfLog?.(line);
-      } catch { /* diagnostics only */ }
-    });
-  }, []);
-  const conversationSessionScope = useMemo<SnapshotSessionScope>(() => ({
-    sessionId: viewedSessionId,
-    onForeignFrameSuppressed,
-  }), [onForeignFrameSuppressed, viewedSessionId]);
   useEffect(() => {
     consumeUnread(unreadViewedSessionId, sessions);
   }, [consumeUnread, sessions, unreadViewedSessionId, windowFocusTick]);
@@ -2631,15 +2489,15 @@ export function App() {
     ? sessions.find((session) => session.id === navigationSelection.id)
     : undefined;
   const currentSessionTitle = selectedSession ? sessionSummaryTitle(selectedSession) : "";
-  const workingSessionIds = useMemo(() => {
-    const activeSessionId = String(sidebarSnapshot.sessionId || "");
-    return workingSessionIdsForSnapshot(
-      sessions,
-      activeSessionId,
-      activeBusy,
-      sidebarSnapshot.sessionRemoteAttached === true,
-    );
-  }, [activeBusy, sessions, sidebarSnapshot.sessionId, sidebarSnapshot.sessionRemoteAttached]);
+  const workingSessionIds = useMemo(() => new Set(
+    sessions
+      .filter((session) => session.leadWorking === true || session.agentWorking === true)
+      .map((session) => session.id),
+  ), [sessions]);
+  const observedAgentSessionIds = useMemo(
+    () => desktopUtilityDockTabEnabled("agents") ? agentActivitySessionIds(sessions) : [],
+    [sessions],
+  );
   const visibleSessionTitle = currentSessionTitle ||
     tabs.find((tab) => tab.key === navigationKey(navigationSelection))?.title || "New task";
   const openHeaderTitleEditor = () => {
@@ -2664,11 +2522,8 @@ export function App() {
     closeHeaderTitleEditor();
     if (title !== visibleSessionTitle) void renameSession(selectedSession.id, title);
   };
-  const snapshotProjectPath = registeredProjectPath(
-    String(asRecord(visibleSnapshot)?.currentProject || ""),
-  );
   const activeProjectPath = navigationSelection.kind === "session"
-    ? registeredProjectPath(selectedSession?.projectPath || snapshotProjectPath)
+    ? registeredProjectPath(selectedSession?.projectPath || "")
     : navigationSelection.kind === "project" ? navigationSelection.path
       : effectiveDraftProjectPath(newTaskProjectPath);
   const focusedPaneProjectPath = focusedPaneSelection?.kind === "file"
@@ -2731,28 +2586,8 @@ export function App() {
       });
     return () => { active = false; };
   }, [paneTranscriptRendererPending]);
-  // The SESSION-TRANSITION frame. While a requested switch is in flight and
-  // the focused engine still publishes the OUTGOING session, the focused
-  // single-surface route paints the TARGET's last cached frame instead of
-  // that foreign transcript; a genuinely cold target has no seed and keeps
-  // its surface cover. It is never derived from Markdown/renderer readiness —
-  // freezing on chunk readiness also froze the composer route, queue and
-  // command state.
-  // Subscribe to the REQUESTED session's lane while the switch is in flight:
-  // the click-time disk peek (or a background pane's stream) lands there, and
-  // without this subscription nothing re-rendered the single-surface route,
-  // so a cold target kept painting the outgoing transcript.
-  // Collapse-equal: only the seed APPEARING (null -> first frame) matters. A
-  // BUSY target streams lane frames at turn cadence, and re-rendering the
-  // whole App per frame during the transition hitched the close-fallback
-  // switch onto a working session for seconds (user report).
+  // Subscribe to a requested session while its lane is being opened.
   useSessionLane(requestedSessionId, defaultSessionLaneStore, () => true);
-  const frozenSnapshot = requestedSessionId
-    && requestedSessionId !== String(snapshot.sessionId || "")
-    ? availableFrozenSeedFor(requestedSessionId)
-    : null;
-  const conversationFrozenSnapshot = frozenSnapshot;
-  const hideLiveSnapshot = selection.kind === "new";
   const [fileReveal, setFileReveal] = useState<{ key: string; line: number; nonce: number } | null>(null);
   const latestEditorLocation = useRef<EditorNavigationLocation | null>(null);
   const editorNavigationHistory = useRef<{
@@ -3020,6 +2855,9 @@ export function App() {
   const dockOpenFileAt = useStableEvent(openFileTab);
   const dockOpenDiff = useStableEvent(openDiffTab);
   const dockOpenPullRequest = useStableEvent(openPullRequestTab);
+  const dockOpenLeadSession = useStableEvent((sessionId: string) => {
+    void openSession(sessionId);
+  });
   const dockOpenAgentSession = useStableEvent((
     sessionId: string,
     title: string,
@@ -4170,7 +4008,6 @@ export function App() {
       <WorkspaceTabStrip
         tabs={leafTabs}
         activeKey={leaf.activeKey}
-        activeBusy={focused && activeBusy}
         workingSessionIds={workingSessionIds}
         unreadSessionIds={unreadSessionIds}
         focused={focused}
@@ -4204,11 +4041,6 @@ export function App() {
         displayProject(summary.path).name || "Project"
       : "";
   }, [projects]);
-  const focusedLiveWork = useMemo(() => (
-    <SnapshotLiveWork snapshotStore={snapshotStore}
-      frozenSnapshot={null} hidden={hideLiveSnapshot}
-      sessionScope={conversationSessionScope} />
-  ), [snapshotStore, hideLiveSnapshot, conversationSessionScope]);
   const paneConversationSurface = (
     paneSelection: NavigationSelection,
     focused: boolean,
@@ -4227,13 +4059,8 @@ export function App() {
     const sessionRow = paneSessionId
       ? sessions.find((row) => row.id === paneSessionId)
       : undefined;
-    const paneFallback = paneSessionId
-      ? frozenSeedFor(paneSessionId)
-      : EMPTY_SNAPSHOT;
     const paneProjectPath = paneSessionId
-      ? registeredProjectPath(
-        sessionRow?.projectPath || paneFallback.currentProject || "",
-      )
+      ? registeredProjectPath(sessionRow?.projectPath || "")
       : prefs.projectPath;
     const paneProjectLabel = projectChromeLabel(paneProjectPath);
     const paneTitle = paneSessionId && sessionRow
@@ -4277,38 +4104,30 @@ export function App() {
             {/* Context/remote cluster: right edge of the TASK strip, same
                 placement grammar as the File breadcrumb actions. */}
             <div className="session-header-status">
-              <PaneHeaderStatus focused={focused}
-                sessionId={paneSessionId} fallback={paneFallback}
-                snapshotStore={snapshotStore}
-                frozenSnapshot={null}
-                hidden={!paneSessionId && focused && hideLiveSnapshot}
+              <PaneHeaderStatus sessionId={paneSessionId}
+                hidden={false}
                 reconcileOnMount={paneSessionId !== requestedSessionId}
-                sessionScope={focused ? conversationSessionScope : undefined}
                 draftRemoteEnabled={focused && draftKey ? newTaskRemoteMode === "on" : undefined}
-                onOpen={() => setCommandSurface("context")}
+                onOpen={() => {
+                  setCommandSurfaceSessionId(paneSessionId);
+                  setCommandSurface("context");
+                }}
                 onOpenAgents={desktopFeatureEnabled("agents")
                   ? () => openDockTab("agents")
                   : undefined}
-                onRemoteChange={draftKey ? setNewTaskRemoteEnabled : setRemoteEnabled} />
+                onRemoteChange={draftKey
+                  ? setNewTaskRemoteEnabled
+                  : (enabled) => setRemoteEnabled(paneSessionId, enabled)} />
             </div>
           </div>
         </header>
         <div className="pane-surface-body">
           <div className="pane-chat-surface">
             <PaneConversation focused={focused}
-            sessionId={paneSessionId} fallback={paneFallback}
-            snapshotStore={snapshotStore}
-            // Pane surfaces are pane-local: a session pane paints its OWN
-            // lane (fallback: that session's cached seed) and a draft pane
-            // must never be handed another session's transition frame. The
-            // frozen transition frame belongs to the single-surface route.
-            frozenSnapshot={null}
-            // Only a draft/no-session pane follows the global draft hide.
-            // A focused session pane keeps its own lane painted.
-            hidden={!paneSessionId && focused && hideLiveSnapshot}
+            sessionId={paneSessionId}
+            hidden={false}
             transcriptPending={Boolean(paneSessionId) && paneTranscriptRendererPending}
             reconcileOnMount={paneSessionId !== requestedSessionId}
-            sessionScope={focused ? conversationSessionScope : undefined}
             invokeResult={invokeResult}
             // Session panes always submit to THEIR session; only a draft pane
             // uses the selection-driven materialization path.
@@ -4318,7 +4137,9 @@ export function App() {
               : presentedSelection.kind === "new"
                 ? paneDraftSubmitFor(presentedSelection, leafId)
                 : submit}
-            applySnapshot={applySnapshot}
+            applySnapshot={paneSessionId
+              ? (next) => applySessionLaneResult(paneSessionId, next)
+              : applySnapshot}
             // Pane focus is not a loading mode: the already-mounted surface
             // remains interactive while its engine route catches up.
             transitioning={false}
@@ -4342,7 +4163,10 @@ export function App() {
             activeProjectLabel={paneProjectLabel}
             onSelectProject={conversationSelectProject}
             onChooseProject={conversationChooseProject}
-            onOpenCommandSurface={openConversationCommandSurface} />
+            onOpenCommandSurface={(surface) => {
+              setCommandSurfaceSessionId(surface === "context" ? paneSessionId : "");
+              openConversationCommandSurface(surface);
+            }} />
           </div>
         </div>
       </div>
@@ -4586,10 +4410,10 @@ export function App() {
   // the disk read that the first click would otherwise pay behind a cover.
   useEffect(() => {
     if (!desktopBootReady) return undefined;
-    const sessionIds = [...new Set(tabs
-      .map((tab) => String(tab.key || ""))
-      .filter((key) => key.startsWith("session:"))
-      .map((key) => key.slice("session:".length)))];
+    const sessionIds = paneSessionTabIds(
+      paneWorkspace.leaves,
+      paneWorkspace.focusedLeafId,
+    );
     if (sessionIds.length === 0) return undefined;
     const host = window as typeof window & {
       requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
@@ -4614,7 +4438,7 @@ export function App() {
       if (idle !== undefined) host.cancelIdleCallback?.(idle);
       window.clearTimeout(stepTimer);
     };
-  }, [desktopBootReady, tabs]);
+  }, [desktopBootReady, paneWorkspace.focusedLeafId, paneWorkspace.leaves]);
   useEffect(() => {
     if (!desktopBootReady) return undefined;
     let timer = 0;
@@ -4747,9 +4571,7 @@ export function App() {
           sessionsReady={sessionCatalogReady}
           workingSessionIds={workingSessionIds}
           unreadSessionIds={unreadSessionIds}
-          remoteSessionId={sidebarSnapshot.remoteEnabled === true
-            ? String(sidebarSnapshot.remoteSessionId || "")
-            : ""}
+          remoteSessionId={sidebarRemoteSessionId}
           selection={sidebarSelection}
           onNewTask={sidebarNewTask}
           onPrefetchSession={window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined}
@@ -4794,11 +4616,8 @@ export function App() {
                   <span className="session-project-badge">{activeProjectLabel}</span>}
               </div>
             </header>
-            <LiveConversation snapshotStore={snapshotStore}
-              frozenSnapshot={conversationFrozenSnapshot} hidden={hideLiveSnapshot}
+            <DraftConversation
               transcriptPending={transcriptRendererPending}
-              sessionScope={conversationSessionScope}
-              liveWork={focusedLiveWork}
               invokeResult={invokeResult}
               errors={errors} submit={submit} applySnapshot={applySnapshot}
               transitioning={false}
@@ -4837,6 +4656,7 @@ export function App() {
             );
             return <PaneWorkspace
                   workspace={paneWorkspace}
+                  observedSessionIds={observedAgentSessionIds}
                   renderStrip={paneStripFor}
                   renderConversation={paneConversationSurface}
                   renderAgentSession={paneAgentSessionSurface}
@@ -4918,8 +4738,10 @@ export function App() {
           tabIndex={bottomPanel.open ? 0 : -1}
           onClick={() => bottomPanel.setOpen(false)} aria-label="Close panel" />
     {dockOpen && <SnapshotUtilityDock snapshotStore={snapshotStore}
-          frozenSnapshot={null} hidden={hideLiveSnapshot}
+          hidden={false}
       open={dockOpen} width={dockWidth} tab={dockTab}
+          sessions={sessions}
+          activeSessionIds={observedAgentSessionIds}
           projectPath={quickAccessProjectPath}
           workspaceFolders={workbenchWorkspace.workspace.folders as DesktopWorkspaceFolder[]}
           onSelectProject={selectToolProject}
@@ -4933,6 +4755,7 @@ export function App() {
           onOpenFileAt={dockOpenFileAt}
           onOpenDiff={dockOpenDiff}
           onOpenPullRequest={dockOpenPullRequest}
+          onOpenLeadSession={dockOpenLeadSession}
           onOpenAgentSession={dockOpenAgentSession}
         />}
       </div>
@@ -4977,7 +4800,13 @@ export function App() {
           }}
           onClose={() => setSettingsOpen(false)} />}
         {commandSurface && <CommandSurface surface={commandSurface}
-          onClose={() => setCommandSurface(null)} />}
+          snapshot={commandSurface === "context"
+            ? commandSurfaceLane ?? EMPTY_SNAPSHOT
+            : snapshot}
+          onClose={() => {
+            setCommandSurface(null);
+            setCommandSurfaceSessionId("");
+          }} />}
         {onboardingOpen && <OnboardingWizard api={window.mixdogDesktop} onDone={() => setOnboardingOpen(false)} />}
       </Suspense>
       {updateDialogOpen && updaterState.status === "ready" && <DesktopUpdateDialog

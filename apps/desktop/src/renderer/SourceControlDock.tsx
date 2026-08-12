@@ -45,6 +45,7 @@ import type {
   DesktopGitLogEntry,
   DesktopGitStatus,
 } from "../shared/contract";
+import { isConventionalCommitMessage } from "../shared/commit-message-format";
 import {
   PullRequestsPane,
   type PullRequestOpenHandler,
@@ -377,9 +378,9 @@ export function SourceControlDock({
   /** Settings → Git commit format: a ghost-text placeholder only (user
    *  decision: 프리셋 + 미리보기) — nothing is ever inserted into the draft —
    *  plus the auto-commit-message switch. */
-  const [commitFormat, setCommitFormat] = useState<{ preset: string; template: string; auto: boolean }>(
+  const [commitFormat, setCommitFormat] = useState<{ preset: string; example: string; auto: boolean }>(
     // Auto defaults ON (user decision); the preferences read reconciles.
-    { preset: "none", template: "", auto: true },
+    { preset: "none", example: "", auto: true },
   );
   /** ONE right-click / Menu-key menu shared by every row grammar in the dock
    *  (changed file, history commit, branch) and by the file list's View & Sort
@@ -801,7 +802,9 @@ export function SourceControlDock({
     void api?.readGitPreferences?.().then((preferences) => {
       if (live) setCommitFormat({
         preset: String(preferences?.commitPreset || "none"),
-        template: String(preferences?.commitTemplate || ""),
+        example: String(preferences?.commitExample
+          || String(preferences?.commitTemplate || "").split(/\r?\n/)[0]
+          || ""),
         auto: preferences?.autoCommitMessage === true,
       });
     }).catch(() => { /* the default placeholders remain */ });
@@ -812,12 +815,15 @@ export function SourceControlDock({
   useEffect(() => {
     const onPreferences = (event: Event) => {
       const detail = (event as CustomEvent<{
-        commitPreset?: string; commitTemplate?: string; autoCommitMessage?: boolean;
+        commitPreset?: string; commitTemplate?: string; commitExample?: string;
+        autoCommitMessage?: boolean;
       }>).detail;
       if (!detail) return;
       setCommitFormat({
         preset: String(detail.commitPreset || "none"),
-        template: String(detail.commitTemplate || ""),
+        example: String(detail.commitExample
+          || String(detail.commitTemplate || "").split(/\r?\n/)[0]
+          || ""),
         auto: detail.autoCommitMessage === true,
       });
     };
@@ -827,11 +833,14 @@ export function SourceControlDock({
   // The conventional string mirrors Settings → Git's preset preview.
   const commitFormatLines = (commitFormat.preset === "conventional"
     ? "feat(scope): summary"
-    : commitFormat.preset === "custom" ? commitFormat.template : "").split("\n");
+    : commitFormat.preset === "custom" ? commitFormat.example : "").split("\n");
   const summaryPlaceholder = (commitFormatLines[0] || "").trim() || "Summary (required)";
   const descriptionPlaceholder = commitFormatLines.slice(1).join("\n").trim() || "Description";
   /** Auto-message needs both the setting AND a build that carries the API. */
   const autoCommitMessage = commitFormat.auto && Boolean(api?.gitGenerateCommitMessage);
+  const conventionalWarning = commitFormat.preset === "conventional"
+    && Boolean(summary.trim())
+    && !isConventionalCommitMessage(summary);
   const clearCommitDraft = () => {
     setSummary("");
     setDescription("");
@@ -2087,6 +2096,9 @@ export function SourceControlDock({
               onInput={(event) => setDescription(event.currentTarget.value)}
               onKeyDown={submitOnAccelerator} />
           </div>
+          {conventionalWarning && <p className="dock-scm-commit-format-warning" role="status">
+            Expected <code>type(scope)!: description</code>. You can still commit this message.
+          </p>}
           <div className="dock-scm-commit-split">
             <button type="submit" className="dock-scm-commit-button"
               disabled={primaryDisabled} title={primaryTitle}>

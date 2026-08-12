@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import type { DesktopGitPreferences } from '../shared/contract';
+import { isConventionalCommitMessage } from '../shared/commit-message-format';
 import { gitDiff } from './git-cli';
 
 export interface CommitCompletionModule {
@@ -35,10 +36,15 @@ const DIFF_TOTAL_BUDGET = 160_000;
 
 function commitStyleHint(preferences: DesktopGitPreferences | null): string {
   if (preferences?.commitPreset === 'conventional') {
-    return 'Format the first line as Conventional Commits — type(scope): subject — using feat|fix|docs|style|refactor|perf|test|build|ci|chore.';
+    return 'Format the first line as Conventional Commits: type(scope)!: description. '
+      + 'Scope and ! are optional; custom lowercase types and revert are valid. '
+      + 'Put an optional body after one blank line.';
   }
-  if (preferences?.commitPreset === 'custom' && preferences.commitTemplate.trim()) {
-    return `Follow this commit message pattern:\n${preferences.commitTemplate.trim()}`;
+  const instructions = preferences?.commitInstructions?.trim()
+    || preferences?.commitTemplate?.trim()
+    || '';
+  if (preferences?.commitPreset === 'custom' && instructions) {
+    return `Follow these custom commit-message instructions:\n${instructions}`;
   }
   return '';
 }
@@ -91,10 +97,19 @@ export function createCommitMessageGenerator({
     const source = sections.join('\n').trim();
     if (!source) throw new Error('The selected files have no diff to describe.');
     const completion = await load();
-    const message = (await completion.generateCommitMessage(source, {
-      style: commitStyleHint(preferences),
-    })).trim();
+    const style = commitStyleHint(preferences);
+    let message = (await completion.generateCommitMessage(source, { style })).trim();
     if (!message) throw new Error('Commit message generation returned nothing.');
+    if (preferences?.commitPreset === 'conventional'
+        && !isConventionalCommitMessage(message)) {
+      message = (await completion.generateCommitMessage(source, {
+        style: `${style}\nThe previous message did not match the required header grammar. `
+          + `Correct it once and return only the complete commit message.\nPrevious message:\n${message}`,
+      })).trim();
+      if (!isConventionalCommitMessage(message)) {
+        throw new Error('Generated commit message did not match Conventional Commits after correction.');
+      }
+    }
     return message;
   };
 }

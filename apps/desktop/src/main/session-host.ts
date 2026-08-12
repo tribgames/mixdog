@@ -154,6 +154,7 @@ export class SessionHost implements DesktopService {
   private sessionCatalogPromise: Promise<DesktopSessionSummary[]> | null = null;
   private storeWatcher: FSWatcher | null = null;
   private storeRefreshTimer: NodeJS.Timeout | null = null;
+  private remoteSessionId = '';
   private disposed = false;
 
   private constructor(
@@ -222,10 +223,39 @@ export class SessionHost implements DesktopService {
     return () => this.sessionStateListeners.delete(listener);
   }
 
+  private snapshotWithRemoteOwner(snapshot: SessionSnapshot): SessionSnapshot {
+    if (!snapshot || typeof snapshot !== 'object') return snapshot;
+    return {
+      ...snapshot,
+      remoteEnabled: Boolean(this.remoteSessionId),
+      remoteSessionId: this.remoteSessionId || null,
+    };
+  }
+
+  private applyRemoteOwnerState(value: unknown): void {
+    const state = value && typeof value === 'object'
+      ? value as Record<string, unknown>
+      : {};
+    const candidate = String(state.sessionId || '');
+    const next = state.enabled === true
+      && candidate.length <= 256
+      && /^[A-Za-z0-9_-]+$/.test(candidate)
+      ? candidate
+      : '';
+    if (next === this.remoteSessionId) return;
+    this.remoteSessionId = next;
+    if (this.shellSnapshot) this.publishShell(this.shellSnapshot);
+    for (const sessionId of this.visibleSessionIds) {
+      const projection = this.sessionProjections.get(sessionId);
+      if (projection) this.publishSession(sessionId, projection.snapshot);
+    }
+  }
+
   private publishShell(snapshot: SessionSnapshot): void {
-    this.shellSnapshot = snapshot;
+    const visibleSnapshot = this.snapshotWithRemoteOwner(snapshot);
+    this.shellSnapshot = visibleSnapshot;
     for (const listener of [...this.listeners]) {
-      try { listener(snapshot); } catch { /* a presentation listener owns its failure */ }
+      try { listener(visibleSnapshot); } catch { /* a presentation listener owns its failure */ }
     }
     this.shellJobsPoller.onEngineEvent();
   }
@@ -249,7 +279,9 @@ export class SessionHost implements DesktopService {
   }
 
   private publishSession(sessionId: string, snapshot: SessionSnapshot): void {
-    const visibleSnapshot = this.snapshotWithShellJobs(sessionId, snapshot);
+    const visibleSnapshot = this.snapshotWithRemoteOwner(
+      this.snapshotWithShellJobs(sessionId, snapshot),
+    );
     for (const listener of [...this.sessionStateListeners]) {
       try {
         listener({ sessionId, snapshot: visibleSnapshot, frameSource: 'live' });
@@ -260,7 +292,9 @@ export class SessionHost implements DesktopService {
   }
 
   private publishSessionReplay(sessionId: string, snapshot: SessionSnapshot): void {
-    const visibleSnapshot = this.snapshotWithShellJobs(sessionId, snapshot);
+    const visibleSnapshot = this.snapshotWithRemoteOwner(
+      this.snapshotWithShellJobs(sessionId, snapshot),
+    );
     for (const listener of [...this.sessionStateListeners]) {
       try {
         listener({ sessionId, snapshot: visibleSnapshot, frameSource: 'replay' });
@@ -292,11 +326,15 @@ export class SessionHost implements DesktopService {
     const nextRevision = Number.isFinite(revision) ? revision : (prior?.revision ?? 0);
     this.sessionProjections.set(id, { revision: nextRevision, snapshot });
     if (publish && id !== this.controlSessionId) this.publishSession(id, snapshot);
-    return snapshot;
+    return this.snapshotWithRemoteOwner(snapshot);
   }
 
   private handleSessionFrame(frame: Record<string, unknown>): void {
     if (this.disposed) return;
+    if (frame.type === 'remote-owner-state') {
+      this.applyRemoteOwnerState(frame);
+      return;
+    }
     const sessionId = String(frame.sessionId || '');
     if (!sessionId) return;
     if (sessionId === this.controlSessionId) {
@@ -450,7 +488,7 @@ export class SessionHost implements DesktopService {
     cwd: string,
     projectPath: string | null,
   ): SessionSnapshot {
-    return {
+    return this.snapshotWithRemoteOwner({
       sessionId: '',
       items: [],
       queued: [],
@@ -462,7 +500,7 @@ export class SessionHost implements DesktopService {
         classification: projectPath ? 'project' : 'task',
         projectPath,
       },
-    } as SessionSnapshot;
+    } as SessionSnapshot);
   }
 
   async startProject(projectPath: string): Promise<SessionSnapshot> {
@@ -589,6 +627,7 @@ export class SessionHost implements DesktopService {
       const catalog = await this.sessionClient.list({
         refreshFromStorage: false,
       }, this.callOptions());
+      this.applyRemoteOwnerState(catalog.remoteOwner);
       this.rawSessionRows = Array.isArray(catalog.sessions)
         ? catalog.sessions as Array<Record<string, unknown>>
         : [];
@@ -746,14 +785,20 @@ export class SessionHost implements DesktopService {
         await this.invokeSession(sessionId, 'setWorkflow', [draft.workflowId]);
       }
       if (draft.route) {
-        await this.invokeSession(sessionId, 'setRoute', [{
+        const routeResult = await this.invokeSession(sessionId, 'setRoute', [{
           provider: draft.route.provider,
           model: draft.route.model,
           ...(draft.route.effort ? { effort: draft.route.effort } : {}),
+          ...(typeof draft.route.fast === 'boolean' ? { fast: draft.route.fast } : {}),
           applyToCurrentSession: true,
         }]);
-        if (typeof draft.route.fast === 'boolean') {
-          await this.invokeSession(sessionId, 'setFast', [draft.route.fast]);
+        // setRoute already persists and projects fast. Keep setFast(true)'s
+        // strict unsupported-model contract: setRoute normally clamps an
+        // unsupported explicit fast request to false instead of throwing.
+        if (draft.route.fast === true && routeResult.snapshot?.fast !== true) {
+          throw new Error(
+            `fast mode is not available for ${draft.route.provider}/${draft.route.model}`,
+          );
         }
       }
       const submissionId = String(options.id || '').trim()

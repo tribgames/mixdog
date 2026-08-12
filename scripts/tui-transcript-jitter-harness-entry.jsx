@@ -4,6 +4,7 @@ import { Box, measureElement, render } from 'ink';
 import { Item } from '../src/tui/components/TranscriptItem.jsx';
 import { AssistantMessage } from '../src/tui/components/Message.jsx';
 import { useTranscriptWindow } from '../src/tui/app/use-transcript-window.mjs';
+import { resolveAnchorScrollOffset } from '../src/tui/app/transcript-window.mjs';
 import {
   resetAllStreamingMarkdownStablePrefixes,
   resetStreamingMarkdownStablePrefix,
@@ -294,7 +295,42 @@ function assertStreamingMarkdownPartsCache() {
   }
 }
 
+function assertDeepToolAnchorToggleRoundTrip() {
+  const items = [
+    { id: 'before-tool' },
+    { id: 'expanded-tool' },
+    { id: 'after-tool' },
+  ];
+  const anchor = { id: 'expanded-tool', offset: 15 };
+  const viewRows = 8;
+  const geometries = [
+    { curPrefix: [0, 10, 30, 130], totalRows: 130 },
+    { curPrefix: [0, 10, 13, 113], totalRows: 113 },
+    { curPrefix: [0, 10, 30, 130], totalRows: 130 },
+  ];
+  const positions = geometries.map(({ curPrefix, totalRows }) => {
+    const maxRows = totalRows - viewRows;
+    const scrollOffset = resolveAnchorScrollOffset({
+      anchor,
+      items,
+      curPrefix,
+      totalRows,
+      viewRows,
+      maxRows,
+    });
+    return {
+      scrollOffset,
+      visibleTop: totalRows - viewRows - scrollOffset,
+    };
+  });
+  if (positions.some(({ visibleTop }) => visibleTop !== 25)
+    || positions[0].scrollOffset !== positions[2].scrollOffset) {
+    throw new Error(`deep tool anchor moved across expand/collapse: ${JSON.stringify(positions)}`);
+  }
+}
+
 assertStreamingMarkdownPartsCache();
+assertDeepToolAnchorToggleRoundTrip();
 resetAllStreamingMarkdownStablePrefixes();
 await assertAssistantSettleHeight('```js\nconst value = 1;\n```', 'settle-complete-fence');
 await assertAssistantSettleHeight('```js\nconst value = 1;\n``', 'settle-partial-fence');
