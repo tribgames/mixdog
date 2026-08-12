@@ -5,6 +5,13 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Desktop provider setup now recovers stale control sessions without exposing
+  raw transport failures, and prompt history engages only from an empty draft.
+- Path search avoids cold full-tree sweeps, coalesces watcher prewarms, and
+  tightens native search deadlines, bulk concurrency, and process snapshots.
+- Async shell timeout guidance now distinguishes unlimited background work from
+  explicit kill deadlines.
+
 ## v0.9.122 - 2026-08-11
 
 - Tool routing rules now centralize path conventions, remove duplicate batching
