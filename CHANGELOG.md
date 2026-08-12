@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.123 - 2026-08-12
+
 - Desktop provider setup now recovers stale control sessions without exposing
   raw transport failures, and prompt history engages only from an empty draft.
 - Path search avoids cold full-tree sweeps, coalesces watcher prewarms, and
