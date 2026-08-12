@@ -428,7 +428,7 @@ export function ModelPicker({
                   {t('Model catalog unavailable: {{error}}', { error: catalogError })}
                 </p>}
                 {providerSetupError && <p className="model-notice" role="status">
-                  Provider status unavailable: {providerSetupError}
+                  {t('Provider status is temporarily unavailable. Try again.')}
                 </p>}
                 {renderedKeys.length === 0 && <p className="model-empty">
                   {catalogRefreshing || !catalogLoaded

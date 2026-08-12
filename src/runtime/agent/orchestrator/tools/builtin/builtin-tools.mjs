@@ -83,7 +83,7 @@ export const BUILTIN_TOOLS = [
                 cwd: { type: 'string', description: 'Omit to use the current Project root; use a project-relative subdir or explicit external path for this call only.' },
                 timeout: {
                     type: 'number',
-                    description: `Timeout ms; default ${_shellDefaultTimeoutMs()}. Explicit values are deadlines; sync may return task_id.`,
+                    description: `Total deadline ms. Omit for sync default ${_shellDefaultTimeoutMs()}; omit for unlimited async. Explicit values kill at deadline; sync may return task_id.`,
                 },
                 mode: { type: 'string', enum: ['sync', 'async'], description: executionModeSchemaDescription('sync') },
                 shell: { type: 'string', enum: ['bash', 'powershell'], description: 'Force shell.' },

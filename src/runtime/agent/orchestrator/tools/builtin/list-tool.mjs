@@ -447,6 +447,29 @@ function invalidateFindEnumerationRoot(root) {
         if (findEnumerationRootFromKey(key) === root) FIND_ENUM_INFLIGHT.delete(key);
     }
 }
+// Trailing-edge prewarm throttle: sustained write bursts (builds, installs)
+// fire the watcher continuously; re-running the two full sweeps on every
+// flush kept the serve bulk queue permanently busy. Invalidation stays
+// immediate — only the warm rebuild is coalesced to one run per interval
+// per root, scheduled at the trailing edge so the cache re-arms after the
+// burst settles.
+const FIND_ENUM_PREWARM_STATE = new Map(); // root -> { lastAt, timer }
+const FIND_ENUM_PREWARM_MIN_INTERVAL_MS = 15_000;
+function scheduleFindEnumerationPrewarm(root, delayMs = 100) {
+    let state = FIND_ENUM_PREWARM_STATE.get(root);
+    if (!state) {
+        state = { lastAt: 0, timer: null };
+        FIND_ENUM_PREWARM_STATE.set(root, state);
+    }
+    if (state.timer) return;
+    const wait = Math.max(delayMs, state.lastAt + FIND_ENUM_PREWARM_MIN_INTERVAL_MS - Date.now());
+    state.timer = setTimeout(() => {
+        state.timer = null;
+        state.lastAt = Date.now();
+        void prewarmFindEnumeration(root);
+    }, wait);
+    state.timer.unref?.();
+}
 function ensureFindEnumerationWatcher(root) {
     const existing = FIND_ENUM_WATCHERS.get(root);
     if (existing) {
@@ -461,8 +484,7 @@ function ensureFindEnumerationWatcher(root) {
             const paths = [...pending];
             pending.clear();
             invalidateBuiltinResultCache(paths.length ? paths : [root]);
-            const warm = setTimeout(() => void prewarmFindEnumeration(root), 100);
-            warm.unref?.();
+            scheduleFindEnumerationPrewarm(root);
         };
         record.watcher = watch(root, { recursive: true, persistent: false }, (_event, filename) => {
             const rel = filename == null ? '' : String(filename);
@@ -649,6 +671,21 @@ async function getBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMo
     return subscribeToFindEnumeration(key, entry, signal);
 }
 
+// Cache-only peek: returns the SHARED files array of a still-valid broad
+// sweep for these dimensions, or null. Never spawns, joins, or waits — the
+// targeted find path below must not block behind a full-tree enumeration.
+function peekBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMode }) {
+    if (findEnumTtlMs() <= 0) return null;
+    const key = findEnumKey({ root, hidden, depth, includeNoise, ignoreMode });
+    const hit = FIND_ENUM_CACHE.get(key);
+    if (hit && hit.gen === FIND_ENUM_GEN
+        && hit.rootGen === findEnumerationRootGeneration(root)
+        && hit.expiresAt > Date.now()) {
+        return hit.files;
+    }
+    return null;
+}
+
 // Best-effort warm of the broad enumeration for a root using the `find` tool's
 // DEFAULT flags (hidden:true, includeNoise:false, depth:unbounded). Swallows
 // all errors — a failed prewarm must never surface or block the caller.
@@ -695,38 +732,27 @@ async function getTargetedFindEnumeration({
     const key = JSON.stringify([root, hidden, depth ?? '', includeNoise, terms]);
     const runs = context?.targetedRuns;
     if (runs?.has(key)) return runs.get(key);
-    try {
-        const inventoryArgs = ['--files', '--no-ignore'];
-        if (hidden) inventoryArgs.push('--hidden');
-        if (depth != null) inventoryArgs.push('--max-depth', String(depth));
-        if (!includeNoise) {
-            for (const ex of DEFAULT_IGNORE_GLOBS) inventoryArgs.push('--glob', ex);
-        }
-        inventoryArgs.push('.');
-        const inventory = await getBroadEnumeration({
-            root: normalizeOutputPath(root),
-            hidden,
-            depth,
-            includeNoise,
-            ignoreMode: 'targeted-all',
-            rgArgs: inventoryArgs,
-            cwd: root,
-            runRgImpl,
-            signal,
-        });
-        if (!inventory.truncated && !inventory.partial) {
-            const lowerTerms = terms.map((term) => term.toLowerCase());
-            return {
-                files: inventory.files.filter((path) => {
-                    const lower = path.toLowerCase();
-                    return lowerTerms.some((term) => lower.includes(term));
-                }),
-                truncated: false,
-                partial: false,
-            };
-        }
-    } catch {
-        if (signal?.aborted) throw findEnumerationAbortError(signal);
+    // Reuse a WARM broad inventory only (cache peek). A cold cache goes
+    // straight to the cheap targeted --iglob batch below: front-running the
+    // full `--no-ignore` sweep made cold finds stall behind the serve bulk
+    // queue for tens of seconds.
+    const inventory = peekBroadEnumeration({
+        root: normalizeOutputPath(root),
+        hidden,
+        depth,
+        includeNoise,
+        ignoreMode: 'targeted-all',
+    });
+    if (inventory) {
+        const lowerTerms = terms.map((term) => term.toLowerCase());
+        return {
+            files: inventory.filter((path) => {
+                const lower = path.toLowerCase();
+                return lowerTerms.some((term) => lower.includes(term));
+            }),
+            truncated: false,
+            partial: false,
+        };
     }
     let batches = FIND_TARGETED_BATCHES_BY_RUNNER.get(runRgImpl);
     if (!batches) {

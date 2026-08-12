@@ -9,6 +9,7 @@ import { QueueList } from "./composer-support.tsx";
 import {
   shouldBlockPromptSubmit,
   shouldInterruptPrompt,
+  shouldNavigatePromptHistory,
   shouldRestoreInterruptedPrompt,
 } from "./renderer-logic.mjs";
 import { classifyPromptEscape } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
@@ -134,4 +135,29 @@ test("existing-session Enter does not wait for the previous host acknowledgement
     draftMode: false,
     slashCommand: true,
   }), true);
+});
+
+test("prompt arrows enter history only from an empty draft", () => {
+  assert.equal(shouldNavigatePromptHistory({
+    key: "ArrowUp",
+    value: "current draft",
+    selectionStart: 0,
+  }), false, "an existing draft keeps native cursor navigation");
+  assert.equal(shouldNavigatePromptHistory({
+    key: "ArrowUp",
+    value: "",
+    selectionStart: 0,
+  }), true, "an empty draft may enter prompt history");
+  assert.equal(shouldNavigatePromptHistory({
+    key: "ArrowUp",
+    value: "history entry",
+    selectionStart: 0,
+    historyActive: true,
+  }), true, "active history navigation may continue backward");
+  assert.equal(shouldNavigatePromptHistory({
+    key: "ArrowDown",
+    value: "history entry",
+    selectionStart: 13,
+    historyActive: true,
+  }), true, "active history navigation may continue toward the seed");
 });

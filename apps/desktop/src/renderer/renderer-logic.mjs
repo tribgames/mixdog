@@ -102,6 +102,7 @@ export function shouldNavigatePromptHistory({
   const text = String(value || '');
   const start = Math.max(0, Number(selectionStart) || 0);
   const end = Math.max(start, Number(selectionEnd) || start);
+  if (!historyActive && text.length > 0) return false;
   if (key === 'ArrowUp') {
     return text.lastIndexOf('\n', Math.max(0, start - 1)) === -1;
   }
