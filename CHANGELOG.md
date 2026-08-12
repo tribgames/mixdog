@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.124 - 2026-08-12
+
 - Desktop agent activity now groups every active session independently of the
   focused tab, while restored session panes prewarm correctly and existing
   sessions accept follow-up input without waiting for host acknowledgement.
