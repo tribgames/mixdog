@@ -1,26 +1,26 @@
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "_comment": "Synced from immutable token-v release assets.",
   "assets": {
     "darwin-arm64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/token-v0.1.0/mixdog-token-darwin-arm64",
-      "sha256": "1d5259803207dd5ace466c506d8db4087460a20c1e3f4f6cc249832a8a996f6b"
+      "url": "https://github.com/tribgames/mixdog/releases/download/token-v0.2.0/mixdog-token-darwin-arm64.node",
+      "sha256": "ff954d7455e88137d33e59f29e7b02151bd32f9f2cee6cb07f97de2c38a94068"
     },
     "darwin-x64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/token-v0.1.0/mixdog-token-darwin-x64",
-      "sha256": "2212a434a89419ce0a4122ce4647e2feb2b4642e26d3e74e11b4de2819a6c2e3"
+      "url": "https://github.com/tribgames/mixdog/releases/download/token-v0.2.0/mixdog-token-darwin-x64.node",
+      "sha256": "f2f2b687464afba76661eab8ee667f80a1da6fee0b8ad5a8133c23d521e9eec4"
     },
     "linux-arm64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/token-v0.1.0/mixdog-token-linux-arm64",
-      "sha256": "332839da398050218fbed4b6700a3e34dbdcba800893b9a3ba16ebca3e88b9ee"
+      "url": "https://github.com/tribgames/mixdog/releases/download/token-v0.2.0/mixdog-token-linux-arm64.node",
+      "sha256": "bd6c4ba5efcdd91b42dfe4fc5275ed239c29427d44f59d123a2ac0ada34565e1"
     },
     "linux-x64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/token-v0.1.0/mixdog-token-linux-x64",
-      "sha256": "ac79201259985705cf378d225a25a779591d1f75fefd626e470b398e3d8fdd9c"
+      "url": "https://github.com/tribgames/mixdog/releases/download/token-v0.2.0/mixdog-token-linux-x64.node",
+      "sha256": "67a94e84acc8f7609c9e28400e3ac11b77767561e2524041faf969007d5110ed"
     },
     "win32-x64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/token-v0.1.0/mixdog-token-win32-x64.exe",
-      "sha256": "da6e39974811123b3e0c72f539c9e5b424261b66a3f2a30eb0e9cc837036d1ba"
+      "url": "https://github.com/tribgames/mixdog/releases/download/token-v0.2.0/mixdog-token-win32-x64.node",
+      "sha256": "36cc8e1435c8508a8bf164ffab5e6afbeb9dff1412093a69679a89822074b304"
     }
   }
 }
