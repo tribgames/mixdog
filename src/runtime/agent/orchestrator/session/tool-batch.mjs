@@ -196,6 +196,8 @@ export async function processToolBatch(ctx) {
                 }
             }
             if (sessionId) markSessionToolCall(sessionId, call.name, resolveToolSelfDeadlineMs(call.name, call.arguments));
+            let dispatchStartedAt = Date.now();
+            let executionStartedAt;
             let result;
             let toolStartedAt;
             let toolEndedAt;
@@ -234,12 +236,14 @@ export async function processToolBatch(ctx) {
             try {
                 if (_invalidArgs) {
                     toolStartedAt = Date.now();
+                    executionStartedAt = toolStartedAt;
                     toolEndedAt = toolStartedAt;
                     result = formatInvalidToolArgsResult(call);
                     _resultKind = 'error';
                     _executeOk = false;
                 } else if (_readCacheHit !== null) {
                     toolStartedAt = Date.now();
+                    executionStartedAt = toolStartedAt;
                     toolEndedAt = toolStartedAt;
                     const _body = _readCacheHit.content;
                     // Return the cached body byte-for-byte instead of a
@@ -251,6 +255,7 @@ export async function processToolBatch(ctx) {
                     _executeOk = true;
                 } else if (_scopedCacheHit !== null) {
                     toolStartedAt = Date.now();
+                    executionStartedAt = toolStartedAt;
                     toolEndedAt = toolStartedAt;
                     const _body = _scopedCacheHit.content;
                     result = _body;
@@ -276,6 +281,8 @@ export async function processToolBatch(ctx) {
                 }
                 if (eager !== undefined) {
                     toolStartedAt = eager.startedAt;
+                    dispatchStartedAt = eager.dispatchStartedAt ?? eager.startedAt;
+                    executionStartedAt = eager.executionStartedAt ?? eager.endedAt;
                     _localSearchTelemetry = eager.localSearchTelemetry || null;
                     _resultTelemetry = eager.resultTelemetry || {};
                     const settled = await eager.promise;
@@ -306,11 +313,13 @@ export async function processToolBatch(ctx) {
                     // both paths.
                     const _denyMsg = preDispatchDenyForSession(sessionRef, call, toolKind);
                     if (_denyMsg !== null) {
+                        executionStartedAt = toolStartedAt;
                         result = _denyMsg;
                         toolEndedAt = Date.now();
                         _resultKind = 'error';
                     } else {
                         await opts.beforeToolExecution?.();
+                        executionStartedAt = Date.now();
                         _localSearchTelemetry = {};
                         result = await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: iterations, localSearchTelemetry: _localSearchTelemetry, resultTelemetry: _resultTelemetry });
                         toolEndedAt = Date.now();
@@ -330,6 +339,7 @@ export async function processToolBatch(ctx) {
             }
             catch (err) {
                 if (toolStartedAt === undefined) toolStartedAt = Date.now();
+                if (executionStartedAt === undefined) executionStartedAt = toolStartedAt;
                 toolEndedAt = Date.now();
                 result = `Error: ${err instanceof Error ? err.message : String(err)}`;
                 _resultKind = 'error';
@@ -484,6 +494,8 @@ export async function processToolBatch(ctx) {
             _batchCompleted.push({
                 call,
                 result,
+                dispatchStartedAt,
+                executionStartedAt,
                 toolStartedAt,
                 toolEndedAt,
                 toolKind,
@@ -528,10 +540,11 @@ export async function processToolBatch(ctx) {
         for (let completedIndex = 0; completedIndex < _batchCompleted.length; completedIndex += 1) {
             const completed = _batchCompleted[completedIndex];
             const {
-                call, toolStartedAt, toolEndedAt, toolKind,
+                call, dispatchStartedAt, executionStartedAt, toolStartedAt, toolEndedAt, toolKind,
                 executeOk: _executeOk, resultKind: _resultKind,
                 readCacheHit: _readCacheHit, scopedCacheHit: _scopedCacheHit,
             } = completed;
+            const postprocessStartedAt = Date.now();
             let _ctSig = completed.crossTurnSig;
             let result = completed.result;
             const _nativeToolSearch = completed.nativeToolSearch;
@@ -604,11 +617,19 @@ export async function processToolBatch(ctx) {
                 const _applyPatchUiDiff = _stripMcpPrefix(call.name) === 'apply_patch'
                     ? takeApplyPatchUiDiff(call.id)
                     : null;
+                const resultCompletedAt = Date.now();
                 _stageToolResultMessage({
                     role: 'tool',
                     content: result,
                     toolCallId: call.id,
                     toolKind: _resultKind,
+                    toolTiming: {
+                        dispatchStartedAt,
+                        executionStartedAt: executionStartedAt ?? toolStartedAt,
+                        executionCompletedAt: toolEndedAt,
+                        postprocessStartedAt,
+                        resultCompletedAt,
+                    },
                     ...(_nativeToolSearch ? { nativeToolSearch: _nativeToolSearch } : {}),
                     ...(_applyPatchUiDiff !== null ? { uiDiff: _applyPatchUiDiff } : {}),
                 });
@@ -651,11 +672,19 @@ export async function processToolBatch(ctx) {
                     resultText: _postMsg,
                     resultKind: 'error',
                 });
+                const resultCompletedAt = Date.now();
                 _stageToolResultMessage({
                     role: 'tool',
                     content: _postMsg,
                     toolCallId: call.id,
                     toolKind: 'error',
+                    toolTiming: {
+                        dispatchStartedAt,
+                        executionStartedAt: executionStartedAt ?? toolStartedAt,
+                        executionCompletedAt: toolEndedAt,
+                        postprocessStartedAt,
+                        resultCompletedAt,
+                    },
                 });
             }
             throwIfAborted();
