@@ -125,11 +125,13 @@ test('headless exec emits a timestamped JSONL lifecycle and exact tool count', a
             deltaCacheWrite: 3,
             deltaOutput: 5,
           });
-          await options.onToolCall(1, [{
+          const call = {
             id: 'call_1',
             name: 'shell',
             arguments: { command: 'echo ok' },
-          }]);
+          };
+          options.onAssistantToolCallObserved(call);
+          await options.onToolCall(1, [call]);
           options.onToolPhaseStarted();
           options.onToolResult({
             role: 'tool',

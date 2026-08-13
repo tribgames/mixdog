@@ -13,9 +13,10 @@ install():
     shell command or Harbor's debug logs.
 
 run():
-  - invokes ``mixdog exec --provider anthropic-oauth --model <model> <instruction>``
+  - invokes ``mixdog exec --json --provider anthropic-oauth --model <model> <instruction>``
     with ANTHROPIC_OAUTH_CREDENTIALS_PATH / MIXDOG_DATA_DIR pointed at the
-    injected credentials, teeing output to /logs/agent/mixdog.txt.
+    injected credentials, teeing JSONL stdout to /logs/agent/mixdog.txt and
+    diagnostics to /logs/agent/mixdog.stderr.
 """
 
 from __future__ import annotations
@@ -997,10 +998,10 @@ class MixdogAgent(BaseInstalledAgent):
         escaped_instruction = shlex.quote(instruction)
         worker_pipeline = (
             "mkdir -p /logs/agent; "
-            f"mixdog exec --provider {shlex.quote(provider)} --model {shlex.quote(model)}"
+            f"mixdog exec --json --provider {shlex.quote(provider)} --model {shlex.quote(model)}"
             f"{route_args} "
             f"{escaped_instruction} "
-            "2>&1 | tee /logs/agent/mixdog.txt"
+            "2> >(tee /logs/agent/mixdog.stderr >&2) | tee /logs/agent/mixdog.txt"
         )
         await self.exec_as_agent(
             environment,
@@ -1025,10 +1026,10 @@ class MixdogAgent(BaseInstalledAgent):
         lead_pipeline = (
             "mkdir -p /logs/agent; "
             "export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; "
-            f"mixdog exec --provider {shlex.quote(provider)} "
+            f"mixdog exec --json --provider {shlex.quote(provider)} "
             f"--model {shlex.quote(selected_model)}{route_args} "
             f"{escaped_instruction} "
-            "2>&1 | tee /logs/agent/mixdog.txt"
+            "2> >(tee /logs/agent/mixdog.stderr >&2) | tee /logs/agent/mixdog.txt"
         )
         try:
             await self.exec_as_agent(
@@ -1039,7 +1040,10 @@ class MixdogAgent(BaseInstalledAgent):
         except Exception:
             try:
                 captured = await environment.exec(
-                    command="cat /logs/agent/mixdog.txt"
+                    command=(
+                        "cat /logs/agent/mixdog.txt; "
+                        "cat /logs/agent/mixdog.stderr >&2"
+                    )
                 )
                 output = (
                     (getattr(captured, "stdout", "") or "")

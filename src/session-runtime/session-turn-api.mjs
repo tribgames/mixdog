@@ -339,6 +339,7 @@ export function createSessionTurnApi(deps) {
               return options.onAssistantText?.(text);
             },
             onUsageDelta: options.onUsageDelta,
+            onAssistantToolCallObserved: options.onAssistantToolCallObserved,
             onToolResult: (message) => {
               if (getRemoteEnabled() && getTranscriptWriter()) {
                 try {
