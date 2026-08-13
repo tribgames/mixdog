@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import './native-spawn-test-runtime.mjs';
 // Deterministic tool contracts use injected managers/providers and no network.
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,8 +9,7 @@ import { __applyStandaloneToolDefaultsForTest, __renderToolSearchForTest, compac
 import { applyInitialDeferredToolManifestToBp2, buildDeferredToolManifest } from '../src/runtime/agent/orchestrator/context/collect.mjs';
 import { refreshSessionBp3Environment, resetSessionBp3Environment } from '../src/runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { AGENT_TOOL, createStandaloneAgent } from '../src/standalone/agent-tool.mjs';
-import { parseHeadlessRoleCommand } from '../src/app.mjs';
-import { buildHeadlessSpawnArgs } from '../src/headless-role.mjs';
+import { parseHeadlessExecCommand } from '../src/app.mjs';
 import { createStandaloneChannelWorker } from '../src/standalone/channel-worker.mjs';
 import { OpenAIOAuthProvider, buildRequestBody, sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { _test as _anthropicOAuthTest } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
@@ -971,6 +971,14 @@ const shellWorkdirOutPromise = executeBuiltinTool('shell', {
 }, root);
 
 const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
+const shellDescription = shellTool?.description || '';
+if (!/Run programs and runtime\/state operations/i.test(shellDescription)
+    || !/perform calculations, transform data, generate computed files/i.test(shellDescription)
+    || !/ordinary file-content inspection/i.test(shellDescription)
+    || !/Tracked sync\/async commands belong to the current run/i.test(shellDescription)
+    || !/service explicitly required after the run exits.*nohup/i.test(shellDescription)) {
+  throw new Error(`shell description must use ordinary execution/computation/file-role concepts: ${shellDescription}`);
+}
 const shellCwdDescription = shellTool?.inputSchema?.properties?.cwd?.description || '';
 if (!/current Project root/i.test(shellCwdDescription) || !/for this call only/i.test(shellCwdDescription)) {
   throw new Error(`shell cwd contract must distinguish the Project root from call-local cwd: ${shellCwdDescription}`);
@@ -978,6 +986,19 @@ if (!/current Project root/i.test(shellCwdDescription) || !/for this call only/i
 const shellTimeoutDescription = shellTool?.inputSchema?.properties?.timeout?.description || '';
 if (!/unlimited async/i.test(shellTimeoutDescription) || !/kill at deadline/i.test(shellTimeoutDescription)) {
   throw new Error(`shell timeout contract must distinguish omitted async execution from an explicit deadline: ${shellTimeoutDescription}`);
+}
+const publicTaskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
+const publicTaskProps = publicTaskTool?.inputSchema?.properties || {};
+if (publicTaskProps.action?.enum?.includes('wait') || publicTaskProps.timeout_ms || publicTaskProps.poll_ms) {
+  throw new Error('task schema must not expose the retired synchronous wait contract');
+}
+const taskWaitOut = await executeBuiltinTool('task', {
+  action: 'wait',
+  task_id: 'task_hidden_wait_smoke',
+  timeout_ms: 1,
+}, root);
+if (!/^Error[\s:[]/.test(String(taskWaitOut)) || !/list\|status\|read\|check_after\|cancel/i.test(String(taskWaitOut))) {
+  throw new Error(`task wait must be rejected by the runtime contract:\n${taskWaitOut}`);
 }
 
 const shellProjectCwdSession = `tool-smoke-project-cwd-${process.pid}`;
@@ -1376,6 +1397,9 @@ for (const name of ['apply_patch', 'agent', 'shell']) {
 
 const agentProps = AGENT_TOOL.inputSchema?.properties || {};
 if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not expose execution mode controls');
+if (AGENT_TOOL.inputSchema?.additionalProperties !== false) {
+  throw new Error('agent schema must reject hidden or misspelled fields');
+}
 {
   const heavyPrompt = composeSystemPrompt({
     agent: 'heavy-worker',
@@ -1460,27 +1484,23 @@ if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not
   }
 }
 {
-  const shorthand = parseHeadlessRoleCommand(['reviewer', 'check', 'this']);
-  if (shorthand?.agent !== 'reviewer' || shorthand?.message !== 'check this') {
-    throw new Error(`headless shorthand command parse failed: ${JSON.stringify(shorthand)}`);
+  const command = parseHeadlessExecCommand([
+    'exec', '--provider', 'openai-oauth', '--model', 'gpt-test', 'check', 'this',
+  ]);
+  if (command?.message !== 'check this') {
+    throw new Error(`headless exec command parse failed: ${JSON.stringify(command)}`);
   }
-  const explicit = parseHeadlessRoleCommand(['role', 'debug', 'trace', 'failure']);
-  if (!explicit?.error || !/mixdog <role> <message/.test(explicit.error)) {
-    throw new Error(`headless role subcommand must be rejected: ${JSON.stringify(explicit)}`);
+  const missing = parseHeadlessExecCommand(['exec']);
+  if (!missing?.error || !/mixdog exec/.test(missing.error)) {
+    throw new Error(`headless exec without a message must be rejected: ${JSON.stringify(missing)}`);
   }
-  const tuiDefault = parseHeadlessRoleCommand([]);
+  const tuiDefault = parseHeadlessExecCommand([]);
   if (tuiDefault !== null) {
     throw new Error(`empty argv must keep TUI default: ${JSON.stringify(tuiDefault)}`);
   }
-  const modelOnlySpawn = buildHeadlessSpawnArgs({
-    agent: 'reviewer',
-    tag: 'headless-smoke',
-    cwd: root,
-    message: 'check this',
-    model: 'haiku',
-  });
-  if (modelOnlySpawn.model !== 'haiku' || modelOnlySpawn.provider) {
-    throw new Error(`headless model-only route must preserve --model without forcing provider: ${JSON.stringify(modelOnlySpawn)}`);
+  const legacyRole = parseHeadlessExecCommand(['reviewer', 'check', 'this']);
+  if (legacyRole !== null) {
+    throw new Error(`legacy role shorthand must not enter headless exec: ${JSON.stringify(legacyRole)}`);
   }
 }
 if (!/always start background tasks/i.test(AGENT_TOOL.description || '') || !/distinct tags?/i.test(AGENT_TOOL.description || '') || !/same scope/i.test(AGENT_TOOL.description || '') || !/send/i.test(AGENT_TOOL.description || '') || !/completion notification/i.test(AGENT_TOOL.description || '') || !/do not (?:call|poll) status\/read/i.test(AGENT_TOOL.description || '')) {
@@ -1744,9 +1764,14 @@ setInternalToolsProvider({
         || !/# Agent Constraints/i.test(systemLayers[2]?.content || '')) {
         throw new Error(`agent prompt layers must place tool policy in BP1, skills in BP2, and role in BP3: ${JSON.stringify(systemLayers)}`);
       }
+      const agentSkillTool = (agentSkillSession.tools || []).find((tool) => tool?.name === 'Skill');
       const agentSkillToolNames = (agentSkillSession.tools || []).map((tool) => tool?.name).filter(Boolean);
       if (!agentSkillToolNames.includes('Skill')) {
         throw new Error(`read-write agent schema must expose Skill loader with the manifest: ${agentSkillToolNames.join(', ')}`);
+      }
+      if (agentSkillTool?.title !== SKILL_TOOL.title
+        || JSON.stringify(agentSkillTool?.annotations) !== JSON.stringify(SKILL_TOOL.annotations)) {
+        throw new Error(`agent Skill metadata must match the session Skill contract: ${JSON.stringify(agentSkillTool)}`);
       }
     } finally {
       closeSession(agentSkillSession.id, 'tool-smoke');
@@ -2327,11 +2352,14 @@ if (!/^Fetch page\/docs body from URL\.$/i.test(webFetchTool?.description || '')
 if (!/offset/i.test(webFetchProps.startIndex?.description || '') || !/Maximum characters/i.test(webFetchProps.maxLength?.description || '')) {
   throw new Error('web_fetch schema must describe paging window fields');
 }
+const toolSearchNamesSchema = TOOL_SEARCH_TOOL.inputSchema?.properties?.names;
+const toolSearchNamesArraySchema = toolSearchNamesSchema?.anyOf?.find((entry) => entry?.type === 'array');
 if (!/deferred-tool/i.test(TOOL_SEARCH_TOOL.description || '')
-  || !TOOL_SEARCH_TOOL.inputSchema?.properties?.names
+  || !toolSearchNamesSchema
+  || toolSearchNamesArraySchema?.minItems !== 1
   || TOOL_SEARCH_TOOL.inputSchema?.properties?.select
   || TOOL_SEARCH_TOOL.inputSchema?.additionalProperties !== false) {
-  throw new Error('load_tool schema must keep names[] as the only loader field (legacy select stays retired)');
+  throw new Error('load_tool schema must require non-empty names[] as the only loader field (legacy select stays retired)');
 }
 const toolSearchSession = {
   tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
@@ -2650,10 +2678,9 @@ const grepContextDescription = grepTool?.inputSchema?.properties?.context?.descr
 if (!/pattern\[\] batches exact query literals and identifier variants/i.test(grepPatternDescription) || !/File\/dir scope/i.test(grepPathDescription)) {
   throw new Error('grep schema must keep compact pattern/path guidance');
 }
-if (!/\bFile-content literal\/regex\b/i.test(grepTool?.description || '')
-    || !/unknown source locations/i.test(grepTool?.description || '')
+if (!/\bSearch file contents for literal or regex matches\b/i.test(grepTool?.description || '')
     || !/read only omitted lines/i.test(grepTool?.description || '')) {
-  throw new Error('grep description must state its search and returned-span reuse contract');
+  throw new Error('grep description must state its scoped discovery and returned-span reuse contract');
 }
 if (!/Glob filter/i.test(grepGlobDescription)) {
   throw new Error('grep glob schema must describe scope narrowing');
@@ -2676,19 +2703,21 @@ const globTool = BUILTIN_TOOLS.find((tool) => tool.name === 'glob');
 const findTool = BUILTIN_TOOLS.find((tool) => tool.name === 'find');
 const listTool = BUILTIN_TOOLS.find((tool) => tool.name === 'list');
 const findLimitDescription = findTool?.inputSchema?.properties?.limit?.description || '';
-if (!/Known-base wildcard paths/i.test(globTool?.description || '')
-    || !/returns paths only/i.test(globTool?.description || '')) {
+if (!/wildcard-matching paths under a known base/i.test(globTool?.description || '')
+    || !/when those paths are needed/i.test(globTool?.description || '')) {
   throw new Error('glob description must state its known-base wildcard path contract');
 }
 // Contract-only description: guessed-fragment/verified-root routing policy
 // lives in src/rules/shared/01-tool.md.
-if (!/Fuzzy filename\/directory path-string lookup/i.test(findTool?.description || '') || !/returns paths only/i.test(findTool?.description || '')) {
+if (!/Fuzzy filename\/directory path lookup when the location itself is unknown/i.test(findTool?.description || '') || !/returns paths only/i.test(findTool?.description || '')) {
   throw new Error('find description must state its fuzzy path-lookup contract');
 }
 if (!/default 25/i.test(findLimitDescription) || !/0 unlimited/i.test(findLimitDescription)) {
   throw new Error('find limit must state default 25 and the 0-unlimited sentinel');
 }
-if (!/Known-directory immediate entries/i.test(listTool?.description || '')
+if (!/known directory's immediate entries/i.test(listTool?.description || '')
+    || !/entry list itself is needed/i.test(listTool?.description || '')
+    || !/not a prerequisite for another tool/i.test(listTool?.description || '')
     || !/no wildcard/i.test(listTool?.description || '')
     || !/path\[\]/i.test(listTool?.inputSchema?.properties?.path?.description || '')) {
   throw new Error('list description must state its known-directory immediate-entry contract');

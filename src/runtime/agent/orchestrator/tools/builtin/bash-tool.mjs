@@ -50,7 +50,6 @@ import {
     resolveExecutionMode,
 } from '../../../../shared/background-tasks.mjs';
 import { resolveShellFor } from './shell-runtime.mjs';
-import { prewarmPwshStandbyPool } from '../lib/pwsh-standby-pool.mjs';
 import {
     recordShellCaptureTelemetry,
     renderBackgroundPartialOutput,
@@ -90,19 +89,6 @@ export function _captureTrackedMtimes(_scope) {
  * the pwsh standby pool with it, so the first shell call of a session skips
  * the pwsh startup cost. No-op off Windows / non-pwsh. Best-effort.
  */
-export function prewarmShellStandbys() {
-    try {
-        const spec = resolveShellFor('default');
-        if (!spec || spec.shellType !== 'powershell') return false;
-        const env = { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' };
-        scrubProviderSecrets(env);
-        scrubLoaderVars(env);
-        scrubRuntimeRootVars(env);
-        return prewarmPwshStandbyPool({ shell: spec.shell, shellArgs: spec.shellArgs, env }) === true;
-    } catch {
-        return false;
-    }
-}
 export function _trackedDriftNoteAfter(_scope, _pre) {
     return '';
 }
@@ -166,12 +152,7 @@ export function _isBenignSearchExitOne(command, exitCode, signal, stderr) {
 
 // Combine an existing session abort signal with an externally-supplied
 // AbortSignal (e.g. the MCP/request signal threaded through options.abortSignal).
-// Returns null when neither is present so existing session-only behavior is
-// preserved unchanged. Uses AbortSignal.any when available; falls back to a
-// manual controller + listener path otherwise. The returned signal aborts as
-// soon as either input signal aborts, which propagates to execShellCommand /
-// executeBashSessionTool and triggers the same child-kill path the session
-// signal already drives.
+// Uses AbortSignal.any when available; falls back to a manual controller.
 function _combineAbortSignals(sessionSignal, externalSignal) {
     const a = sessionSignal || null;
     const b = externalSignal || null;
@@ -377,13 +358,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     const executionMode = resolveExecutionMode(args || {}, args?.run_in_background === true ? 'async' : 'sync');
     let runInBackground = executionMode === 'async';
 
-    // Run hard-block policy BEFORE branching into the persistent-shell tool.
-    // The persistent path used to bypass the one-shot block scan because the
-    // normalization (stripQuotedAndHeredoc / extractShellCInner / unquoted
-    // span sweep) lived only on the one-shot side. Centralised policy in
-    // shell-policy.mjs already covers the literal scan + EncodedCommand
-    // decode + rm token guard; calling it here applies the same allowlist
-    // to both persistent and stateless paths.
+    // Run hard-block policy before any shell dispatch.
     const _rawCmd = String(args && args.command != null ? args.command : '');
     // `apply_patch` typed into the shell (heredoc/argument/bare
     // patch forms) routes to the internal patch engine instead of failing as
@@ -401,47 +376,12 @@ export async function executeBashTool(args, workDir, options = {}) {
         }
     }
     if (_rawCmd) {
-        // R5-③: persistent:true used to route into bash_session BEFORE the
-        // stripQuotedAndHeredoc / extractShellCInner / unquote sweep ran
-        // (that sweep lived only on the stateless one-shot path below at
-        // ~:218). Result: `bash -c 'shutdown -h now'` / `sh -c 'mkfs ...'` /
-        // dd payloads were rejected stateless but accepted with
-        // persistent:true. Run the full sweep here so both paths share the
-        // same blocklist before dispatch.
         const _policyBlock = checkExecPolicyMessage(_rawCmd);
         if (_policyBlock) return formatShellToolFailure(_policyBlock);
     }
 
-    // An empty-string session_id is NOT a persistent-session request: `typeof
-    // '' === 'string'` would otherwise route a stateless call into the
-    // persistent path and (on Windows) hard-fail with the disabled-sessions
-    // error, which models then retry in a loop. Require a non-blank id.
     if (args.persistent === true || (typeof args.session_id === 'string' && args.session_id.trim().length > 0)) {
-        if (process.platform === 'win32') {
-            return formatShellToolFailure('persistent shell sessions are disabled on Windows native-shell mode; run one-shot PowerShell commands without persistent/session_id.');
-        }
-        const { executeBashSessionTool } = await import('../bash-session.mjs');
-        let persistAbort = null;
-        try { persistAbort = (await getAbortSignalForSession(options?.sessionId)) || null; }
-        catch { persistAbort = null; }
-        const combinedPersistAbort = _combineAbortSignals(persistAbort, options?.abortSignal || null);
-        let effectiveArgs = (args.persistent === true && !args.session_id && options?.sessionId)
-            ? { ...args, session_id: `__default__${options.sessionId}` }
-            : (typeof args.session_id === 'string' && options?.sessionId)
-            ? { ...args, session_id: `${options.sessionId}__${args.session_id}` }
-            : args;
-        const userProvidedSession = typeof args.session_id === 'string' && args.session_id.trim().length > 0;
-        const shouldCreate = args.create === true || !userProvidedSession;
-        effectiveArgs = { ...effectiveArgs, create: shouldCreate };
-        try {
-            return await executeBashSessionTool('bash_session', effectiveArgs, bashWorkDir, {
-                abortSignal: combinedPersistAbort.signal,
-                sessionId: options?.sessionId,
-                resourceAdmission: options?.resourceAdmission || resourceAdmission,
-            });
-        } finally {
-            combinedPersistAbort.cleanup();
-        }
+        return formatShellToolFailure('persistent/session_id shell mode was removed; use independent native shell calls.');
     }
 
     let command = args.command;

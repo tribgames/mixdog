@@ -11,7 +11,7 @@ import { backfillCoreEmbeddings, nominateCoreCandidates } from './core-memory-st
 import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
 import { __mixdogMemoryLog, throwIfAborted } from './memory-cycle2-shared.mjs'
 import {
-  applyBatchStatusVerdicts, clampPendingPromotions, blockTransientPromotions, applySimpleStatus, applyUpdate, applyMerge, runPhaseMerge,
+  applyBatchStatusVerdicts, clampPendingPromotions, blockTransientPromotions, applySimpleStatus, applyUpdate, applyLineage, applyMerge, runPhaseMerge,
 } from './memory-cycle2-mutations.mjs'
 import {
   CYCLE2_ACTIVE_TARGET_CAP, CYCLE2_ACTIVE_MIN_FLOOR, loadCurrentRulesDigest, runUnifiedGate, sonnetCascade,
@@ -275,6 +275,10 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
     ? 0
     : Math.max(0, Math.min(Number(config.active_recheck_quota ?? 8), batchSize - 1))
   const pendingLimit = batchSize - activeRecheckQuota
+  const lineageBackfillLimit = Math.max(0, Math.min(
+    100,
+    Number(config.lineage_backfill_limit ?? 8),
+  ))
   // Score direction depends on the phase. Under cap we are SEEDING the active
   // set: evaluate the highest-value pending first so promotion-worthy rows
   // reach the gate instead of starving behind low-score cycle1 churn. Over cap
@@ -288,7 +292,7 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
   // below. Cleanup of duplicates/stale user-core overlap also runs via
   // phase_merge / cycle3.
   const rowsRes = await db.query(`
-    SELECT id, element, category, summary, score, last_seen_at, project_id, status, reviewed_at
+    SELECT id, ts, element, category, summary, score, last_seen_at, project_id, status, reviewed_at, concept_id, supersedes_id
     FROM entries
     WHERE is_root = 1
       AND (status = 'pending' OR ($2::boolean AND status = 'active'))
@@ -306,13 +310,29 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
   throwIfAborted(signal)
   const rows = rowsRes.rows
 
+  // One-time lineage backfill for historical generated roots. Archived rows
+  // keep their status; the gate only decides whether a clear predecessor
+  // exists, then concept_id marks the row as reviewed for future cycles.
+  const lineageBackfillRes = lineageBackfillLimit > 0 ? await db.query(`
+    SELECT id, ts, element, category, summary, score, last_seen_at, project_id, status, reviewed_at, concept_id, supersedes_id
+    FROM entries
+    WHERE is_root = 1 AND status = 'archived' AND concept_id IS NULL
+      AND embedding IS NOT NULL
+    ORDER BY ts DESC, id DESC
+    LIMIT $1
+  `, [lineageBackfillLimit]) : { rows: [] }
+  const selectedIds = new Set(rows.map(r => Number(r.id)))
+  for (const row of lineageBackfillRes.rows) {
+    if (!selectedIds.has(Number(row.id))) rows.push(row)
+  }
+
   // Append the reserved rolling slice of stalest active rows (under-cap only;
   // the over-cap branch already pulls active broadly). De-duped against the
   // primary selection so an id never gets two verdicts in one batch.
   if (activeRecheckQuota > 0 && activeCount > 0) {
     const seen = new Set(rows.map(r => Number(r.id)))
     const recheckRes = await db.query(`
-      SELECT id, element, category, summary, score, last_seen_at, project_id, status, reviewed_at
+      SELECT id, ts, element, category, summary, score, last_seen_at, project_id, status, reviewed_at, concept_id, supersedes_id
       FROM entries
       WHERE is_root = 1 AND status = 'active'
       ORDER BY reviewed_at ASC NULLS FIRST, score ASC, id ASC
@@ -326,7 +346,7 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
 
   // Active snapshot for prompt context (do-not-duplicate reference).
   const activeContextRes = await db.query(`
-    SELECT id, element, category, summary, score, last_seen_at, project_id, status
+    SELECT id, ts, element, category, summary, score, last_seen_at, project_id, status, concept_id, supersedes_id
     FROM entries
     WHERE is_root = 1 AND status = 'active'
     ORDER BY score DESC, last_seen_at DESC, id ASC
@@ -388,6 +408,8 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
     const cascadeDropArchiveIds = []
     const statusBatch = []
     const coreSummaryById = new Map()
+    const lineageActions = []
+    const lineageNoneIds = []
     const primaryActions = []
 
     for (const a of gateResult.actions) {
@@ -396,8 +418,37 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
         const id = Number(a.entry_id)
         const core = String(a.core_summary ?? '').replace(/\s+/g, ' ').trim()
         if (Number.isFinite(id) && core) coreSummaryById.set(id, core)
+      } else if (a.action === 'lineage') {
+        lineageActions.push(a)
+      } else if (a.action === 'lineage_none') {
+        lineageNoneIds.push(Number(a.entry_id))
       } else {
         primaryActions.push(a)
+      }
+    }
+
+    const lineageCandidateIds = new Set((gateResult.lineageCandidateIds ?? []).map(Number))
+    const conceptIds = [...new Set([
+      ...lineageNoneIds,
+      ...primaryActions
+        .map(a => Number(a.entry_id))
+        .filter(id => Number.isFinite(id) && !lineageCandidateIds.has(id)),
+    ].filter(Number.isFinite))]
+    if (conceptIds.length > 0) {
+      await db.query(
+        `UPDATE entries SET concept_id = COALESCE(concept_id, id)
+         WHERE id = ANY($1::bigint[]) AND is_root = 1`,
+        [conceptIds],
+      )
+    }
+    for (const lineage of lineageActions) {
+      throwIfAborted(signal)
+      for (const predecessorId of lineage.predecessor_ids ?? []) {
+        try {
+          await applyLineage(db, Number(lineage.entry_id), Number(predecessorId))
+        } catch (err) {
+          __mixdogMemoryLog(`[cycle2] lineage apply failed (id=${lineage.entry_id} predecessor=${predecessorId}): ${err.message}\n`)
+        }
       }
     }
 
@@ -446,7 +497,9 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
           await setCoreSummary(id, explicitCore)
           accepted = true
         } else if (a.action === 'archived') {
-          statusBatch.push({ entry_id: id, new_status: 'archived', was_pending: row.status === 'pending', expected: { status: row.status, reviewedAt: row.reviewed_at } })
+          if (row.status !== 'archived') {
+            statusBatch.push({ entry_id: id, new_status: 'archived', was_pending: row.status === 'pending', expected: { status: row.status, reviewedAt: row.reviewed_at } })
+          }
           accepted = true
         } else if (a.action === 'update') {
           // Optimistic guard: skip if the row moved since the gate read it

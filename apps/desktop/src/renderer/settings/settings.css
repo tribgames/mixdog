@@ -196,10 +196,10 @@
   gap: 10px;
   padding: 0 10px;
   border: 0;
-  border-radius: 6px;
-  /* Sidebar row grammar: 14px medium, full ink. */
+  border-radius: var(--mx-radius-md);
+  /* Category rail: 15/400 full ink, same size as panel/section heads. */
   color: var(--mx-text);
-  font-size: var(--mx-font-emphasis);
+  font-size: var(--mx-font-body);
   font-weight: var(--mx-weight-regular);
   background: transparent;
   text-align: left;
@@ -425,8 +425,8 @@
    floating popup card and the mobile sheet keep the X. */
 .mixdog-settings__close .mixdog-settings__close-back { display: none; }
 @media (max-width: 760px), (max-height: 680px) {
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__close .mixdog-settings__close-x { display: none; }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__close .mixdog-settings__close-back { display: block; }
+  .mixdog-settings__close .mixdog-settings__close-x { display: none; }
+  .mixdog-settings__close .mixdog-settings__close-back { display: block; }
 }
 
 /* Compact DESKTOP window: stop squeezing the centered card once either axis
@@ -434,13 +434,13 @@
    starts below Window Controls Overlay; this reclaims the side/bottom gutters
    without putting categories or the in-app X under native caption buttons. */
 @media (max-width: 760px), (max-height: 680px) {
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings-layer {
+  .mixdog-settings-layer {
     --settings-layer-safe-top: env(titlebar-area-height, 0px);
     --settings-layer-safe-bottom: 0px;
     place-items: stretch;
     padding: 0;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings-v2 {
+  .mixdog-settings-v2 {
     width: 100vw;
     height: var(--vvh, 100vh);
     max-width: none;
@@ -448,47 +448,47 @@
     border-radius: 0;
     box-shadow: none;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__rail {
+  .mixdog-settings__rail {
     padding-top: calc(var(--settings-layer-safe-top, 0px) + 12px);
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings-v2 .mixdog-settings__header {
+  .mixdog-settings-v2 .mixdog-settings__header {
     height: 52px;
     min-height: 52px;
     flex-basis: 52px;
     box-sizing: content-box;
     padding: var(--settings-layer-safe-top, 0px) 20px 0 32px;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings-v2 .mixdog-settings__body {
+  .mixdog-settings-v2 .mixdog-settings__body {
     padding: 24px 32px 32px;
   }
 }
 
 @media (max-width: 760px) {
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings-v2 {
+  .mixdog-settings-v2 {
     grid-template-columns: 200px minmax(0, 1fr);
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__rail {
+  .mixdog-settings__rail {
     padding-right: 10px;
     padding-bottom: 12px;
     padding-left: 10px;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings-v2 .mixdog-settings__header {
+  .mixdog-settings-v2 .mixdog-settings__header {
     padding-right: 12px;
     padding-left: 20px;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings-v2 .mixdog-settings__body {
+  .mixdog-settings-v2 .mixdog-settings__body {
     padding: 24px 20px 32px;
   }
 }
 
 /* Very narrow DESKTOP window: use the main 48px Activity Bar grammar rather
-   than spending 200px on labels. Mobile keeps its roomier 52px touch rail. */
+   than spending 200px on labels. */
 @media (max-width: 640px) {
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings-v2 {
+  .mixdog-settings-v2 {
     --settings-narrow-value-column: minmax(0, 45%);
     grid-template-columns: 48px minmax(0, 1fr);
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__rail {
+  .mixdog-settings__rail {
     align-items: stretch;
     padding-right: 0;
     padding-bottom: 8px;
@@ -497,17 +497,17 @@
     color: var(--mx-text-faint);
     background: var(--mx-window-band);
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__rail nav {
+  .mixdog-settings__rail nav {
     overflow-x: hidden;
     scrollbar-width: none;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__rail nav::-webkit-scrollbar { display: none; }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__rail-group {
+  .mixdog-settings__rail nav::-webkit-scrollbar { display: none; }
+  .mixdog-settings__rail-group {
     display: grid;
     justify-items: start;
     gap: 0;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__rail-group button {
+  .mixdog-settings__rail-group button {
     position: relative;
     width: 47px;
     min-width: 47px;
@@ -521,18 +521,18 @@
     background: transparent;
     box-shadow: none;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__rail-group button:hover,
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__rail-group button:focus-visible {
+  .mixdog-settings__rail-group button:hover,
+  .mixdog-settings__rail-group button:focus-visible {
     color: var(--mx-text);
     background: var(--mx-hover);
     outline: 0;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__rail-group button.active {
+  .mixdog-settings__rail-group button.active {
     color: var(--mx-text);
     background: transparent;
     box-shadow: none;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__rail-group button::before {
+  .mixdog-settings__rail-group button::before {
     content: "";
     position: absolute;
     inset: 0 auto 0 0;
@@ -542,344 +542,118 @@
     transform: scaleY(.55);
     transition: opacity 100ms ease-out, transform 120ms cubic-bezier(.2, .8, .2, 1);
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__rail-group button.active::before {
+  .mixdog-settings__rail-group button.active::before {
     opacity: 1;
     transform: scaleY(1);
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__rail-group button span { display: none; }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__rail-group button svg {
+  .mixdog-settings__rail-group button span { display: none; }
+  .mixdog-settings__rail-group button svg {
     width: 24px;
     height: 24px;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings-v2 .mixdog-settings__close {
+  .mixdog-settings-v2 .mixdog-settings__close {
     width: 40px;
     height: 40px;
     flex-basis: 40px;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings-v2 .mixdog-settings__body {
+  .mixdog-settings-v2 .mixdog-settings__body {
     padding: 20px 16px 32px;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings-v2 .settings-group-body {
+  .mixdog-settings-v2 .settings-group-body {
     padding-inline: 14px;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings-v2 .mixdog-settings__row,
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings-v2 .settings-form-row,
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings-v2 .settings-resource {
+  .mixdog-settings-v2 .mixdog-settings__row,
+  .mixdog-settings-v2 .settings-form-row,
+  .mixdog-settings-v2 .settings-resource {
     display: grid;
     grid-template-columns: minmax(0, 1fr) var(--settings-narrow-value-column);
     align-items: center;
     column-gap: 12px;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__row-title {
+  .mixdog-settings__row-title {
     display: block;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  html:not([data-mixdog-mobile="1"]) .mixdog-settings__copy,
-  html:not([data-mixdog-mobile="1"]) .settings-form-row > div:first-child,
-  html:not([data-mixdog-mobile="1"]) .settings-resource > div:first-child {
+  .mixdog-settings__copy,
+  .settings-form-row > div:first-child,
+  .settings-resource > div:first-child {
     width: 100%;
     min-width: 0;
     justify-self: start;
   }
-  html:not([data-mixdog-mobile="1"]) .settings-row-control,
-  html:not([data-mixdog-mobile="1"]) .settings-form-controls,
-  html:not([data-mixdog-mobile="1"]) .settings-resource-control {
+  .settings-row-control,
+  .settings-form-controls,
+  .settings-resource-control {
     width: 100%;
     max-width: none;
     min-width: 0;
     justify-self: stretch;
     justify-content: flex-end;
   }
-  html:not([data-mixdog-mobile="1"]) .settings-form-controls {
+  .settings-form-controls {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     align-items: center;
   }
-  html:not([data-mixdog-mobile="1"]) .settings-form-controls > input:not([type="checkbox"]),
-  html:not([data-mixdog-mobile="1"]) .settings-form-controls .mx-select-root,
-  html:not([data-mixdog-mobile="1"]) .settings-provider-secret input {
+  .settings-form-controls > input:not([type="checkbox"]),
+  .settings-form-controls .mx-select-root,
+  .settings-provider-secret input {
     box-sizing: border-box;
     width: 100%;
     min-width: 0;
     max-width: 100%;
   }
-  html:not([data-mixdog-mobile="1"]) .settings-form-controls > button,
-  html:not([data-mixdog-mobile="1"]) .settings-form-controls > .settings-action {
+  .settings-form-controls > button,
+  .settings-form-controls > .settings-action {
     justify-self: end;
   }
-  html:not([data-mixdog-mobile="1"]) .settings-provider-secret {
+  .settings-provider-secret {
     width: 100%;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
   }
-  html:not([data-mixdog-mobile="1"]) .settings-provider-secret button { justify-self: end; }
-  html:not([data-mixdog-mobile="1"]) .settings-resource-actions {
+  .settings-provider-secret button { justify-self: end; }
+  .settings-resource-actions {
     width: 100%;
     max-width: 100%;
     justify-content: flex-end;
   }
-  html:not([data-mixdog-mobile="1"]) .settings-shortcut-row {
+  .settings-shortcut-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) var(--settings-narrow-value-column);
     align-items: center;
     column-gap: 12px;
   }
-  html:not([data-mixdog-mobile="1"]) .settings-shortcut-row kbd {
+  .settings-shortcut-row kbd {
     max-width: 100%;
     justify-self: end;
     overflow-wrap: anywhere;
     white-space: normal;
     text-align: right;
   }
-  html:not([data-mixdog-mobile="1"]) .settings-connection-grid { flex-wrap: wrap; }
-  html:not([data-mixdog-mobile="1"]) .settings-connection-card { flex: 1 1 190px; }
-  html:not([data-mixdog-mobile="1"]) .core-memory-add-card,
-  html:not([data-mixdog-mobile="1"]) .core-memory-list {
+  .settings-connection-grid { flex-wrap: wrap; }
+  .settings-connection-card { flex: 1 1 190px; }
+  .core-memory-add-card,
+  .core-memory-list {
     padding-inline: 14px;
   }
-  html:not([data-mixdog-mobile="1"]) .core-memory-edit,
-  html:not([data-mixdog-mobile="1"]) .core-memory-row {
+  .core-memory-edit,
+  .core-memory-row {
     grid-template-columns: minmax(0, 1fr);
   }
-  html:not([data-mixdog-mobile="1"]) .core-memory-edit input,
-  html:not([data-mixdog-mobile="1"]) .core-memory-copy,
-  html:not([data-mixdog-mobile="1"]) .core-memory-scope,
-  html:not([data-mixdog-mobile="1"]) .core-memory-actions {
+  .core-memory-edit input,
+  .core-memory-copy,
+  .core-memory-scope,
+  .core-memory-actions {
     grid-column: 1;
   }
-  html:not([data-mixdog-mobile="1"]) .core-memory-actions {
+  .core-memory-actions {
     flex-wrap: wrap;
     justify-content: flex-start;
   }
-}
-
-/* Phone: full-screen settings — a THIN icon-only rail on the LEFT (user
-   decision, replacing the chip row) with the category title + X living in
-   the panel header. Keyed off html[data-mixdog-mobile], which the responsive
-   web surface sets from its viewport contract rather than duplicating this
-   layout behind another media query. */
-html[data-mixdog-mobile] .mixdog-settings-layer {
-  --settings-layer-safe-top: 0px;
-  --settings-layer-safe-bottom: 0px;
-  padding: 0;
-}
-html[data-mixdog-mobile] .mixdog-settings-v2 {
-  width: 100vw;
-  height: var(--vvh, 100vh);
-  max-height: none;
-  grid-template-columns: 52px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-  border-radius: 0;
-}
-html[data-mixdog-mobile] .mixdog-settings__rail {
-  flex-direction: column;
-  align-items: center;
-  padding: calc(8px + env(safe-area-inset-top, 0px)) 6px 8px;
-  border-right: .5px solid var(--mx-border);
-}
-html[data-mixdog-mobile] .mixdog-settings__rail nav {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  flex: 1;
-  overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-width: none;
-}
-html[data-mixdog-mobile] .mixdog-settings__rail nav::-webkit-scrollbar { display: none; }
-html[data-mixdog-mobile] .mixdog-settings__rail-group { display: contents; }
-html[data-mixdog-mobile] .mixdog-settings__rail-group h2 { display: none; }
-html[data-mixdog-mobile] .mixdog-settings__rail-group button {
-  /* Icon-only 40px squares; the label lives in the panel header instead. */
-  width: 40px;
-  min-width: 40px;
-  height: 40px;
-  flex: 0 0 auto;
-  margin: 0;
-  padding: 0;
-  justify-content: center;
-  gap: 0;
-  border-radius: 10px;
-}
-html[data-mixdog-mobile] .mixdog-settings__rail-group button span { display: none; }
-html[data-mixdog-mobile] .mixdog-settings__rail-group button svg {
-  width: 18px;
-  height: 18px;
-}
-html[data-mixdog-mobile] .mixdog-settings__rail footer { display: none; }
-html[data-mixdog-mobile] .mixdog-settings-v2 .mixdog-settings__header {
-  height: 52px;
-  min-height: 52px;
-  flex-basis: 52px;
-  padding: calc(env(safe-area-inset-top, 0px)) 8px 0 16px;
-  box-sizing: content-box;
-}
-html[data-mixdog-mobile] .mixdog-settings-v2 .mixdog-settings__body {
-  gap: 24px;
-  padding: 20px 16px calc(32px + env(safe-area-inset-bottom, 0px));
-}
-html[data-mixdog-mobile] .mixdog-settings__category-stage .capability-settings-content { gap: 24px; }
-/* Pairing cards stack instead of squeezing two 168px QRs side by side. */
-html[data-mixdog-mobile] .settings-connection-grid { flex-wrap: wrap; }
-/* Phone settings keep the desktop grammar: one label column, one shared value
-   column, and a common right edge. Narrow-only exceptions stack controls
-   inside that value column instead of moving the column itself. */
-html[data-mixdog-mobile] .mixdog-settings-v2 {
-  --settings-phone-value-column: minmax(0, 45%);
-}
-html[data-mixdog-mobile] .mixdog-settings-v2 .settings-group-body {
-  padding-inline: 14px;
-}
-html[data-mixdog-mobile] .mixdog-settings-v2 .mixdog-settings__close {
-  width: 40px;
-  height: 40px;
-  flex-basis: 40px;
-}
-html[data-mixdog-mobile] .mixdog-settings-v2 .mixdog-settings__row,
-html[data-mixdog-mobile] .mixdog-settings-v2 .settings-form-row,
-html[data-mixdog-mobile] .mixdog-settings-v2 .settings-resource {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--settings-phone-value-column);
-  align-items: center;
-  column-gap: 12px;
-}
-html[data-mixdog-mobile] .mixdog-settings__row-title {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-html[data-mixdog-mobile] .mixdog-settings__copy,
-html[data-mixdog-mobile] .settings-form-row > div:first-child,
-html[data-mixdog-mobile] .settings-resource > div:first-child {
-  width: 100%;
-  min-width: 0;
-  justify-self: start;
-}
-/* Resource rows (Providers, Skills, MCP, Plugins…): the status tag sits on
-   its own line UNDER the name (user decision) — long names never squeeze
-   the badge inline. */
-html[data-mixdog-mobile] .settings-resource-title {
-  min-width: 0;
-  flex-direction: column;
-  align-items: flex-start;
-  row-gap: 4px;
-  white-space: normal;
-}
-html[data-mixdog-mobile] .settings-resource-title b { max-width: 100%; }
-html[data-mixdog-mobile] .settings-resource-title b,
-html[data-mixdog-mobile] .settings-form-row > div:first-child b {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-html[data-mixdog-mobile] .settings-resource-title .settings-status {
-  flex: 0 0 auto;
-}
-html[data-mixdog-mobile] .settings-row-control,
-html[data-mixdog-mobile] .settings-form-controls,
-html[data-mixdog-mobile] .settings-resource-control {
-  width: 100%;
-  max-width: none;
-  min-width: 0;
-  justify-self: stretch;
-  justify-content: flex-end;
-}
-html[data-mixdog-mobile] .settings-form-controls {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: center;
-}
-html[data-mixdog-mobile] .settings-form-controls > input:not([type="checkbox"]),
-html[data-mixdog-mobile] .settings-provider-secret input {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-  flex: none;
-}
-html[data-mixdog-mobile] .settings-form-controls > button,
-html[data-mixdog-mobile] .settings-form-controls > .settings-action {
-  justify-self: end;
-}
-html[data-mixdog-mobile] .settings-resource-actions {
-  width: 100%;
-  max-width: 100%;
-  justify-content: flex-end;
-}
-
-/* Settings → About: equal-width link buttons (user request). */
-.settings-about-row .settings-action {
-  min-width: 104px;
-  text-align: center;
-}
-html[data-mixdog-mobile] .settings-provider-secret {
-  width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  justify-items: stretch;
-}
-html[data-mixdog-mobile] .settings-provider-secret button { justify-self: end; }
-html[data-mixdog-mobile] .settings-row-control > .settings-select.mx-select-root,
-html[data-mixdog-mobile] .settings-row-control > .settings-model-trigger,
-html[data-mixdog-mobile] .settings-row-control > .effort-control,
-html[data-mixdog-mobile] .settings-row-control > .fast-control,
-html[data-mixdog-mobile] .settings-row-control > .effort-control .mx-select-root,
-html[data-mixdog-mobile] .settings-row-control > .effort-control .mx-select-trigger {
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-  margin-left: 0;
-}
-html[data-mixdog-mobile] .settings-row-control .mx-select-value,
-html[data-mixdog-mobile] .settings-model-trigger > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-html[data-mixdog-mobile] .settings-row-control .effort-control,
-html[data-mixdog-mobile] .settings-row-control .fast-control {
-  width: 100%;
-  min-width: 0;
-  flex: 1 1 auto;
-  justify-content: flex-end;
-}
-html[data-mixdog-mobile] .settings-row-control > .settings-model-trigger,
-html[data-mixdog-mobile] .settings-row-control .mx-select-trigger,
-html[data-mixdog-mobile] .settings-agent-route .settings-model-trigger,
-html[data-mixdog-mobile] .settings-agent-route .mx-select-trigger {
-  justify-content: flex-end;
-  text-align: right;
-}
-html[data-mixdog-mobile] .settings-row-control .mx-select-value,
-html[data-mixdog-mobile] .settings-row-control .settings-model-trigger > span,
-html[data-mixdog-mobile] .settings-agent-route .mx-select-value,
-html[data-mixdog-mobile] .settings-agent-route .settings-model-trigger > span {
-  flex: 0 1 auto;
-  text-align: right;
-}
-html[data-mixdog-mobile] .settings-shortcut-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--settings-phone-value-column);
-  align-items: center;
-  column-gap: 12px;
-}
-html[data-mixdog-mobile] .settings-shortcut-row kbd {
-  max-width: 100%;
-  justify-self: end;
-  overflow-wrap: anywhere;
-  white-space: normal;
-  text-align: right;
-}
-html[data-mixdog-mobile] .core-memory-add-card,
-html[data-mixdog-mobile] .core-memory-list {
-  padding-inline: 14px;
 }
 
 /* Settings → Connection: phone pairing card. */
@@ -891,14 +665,14 @@ html[data-mixdog-mobile] .core-memory-list {
   gap: 8px;
   justify-items: center;
   padding: 14px 10px;
-  border-radius: 10px;
+  border-radius: var(--mx-radius-lg);
   background: var(--mx-bg-layer-1);
 }
-.settings-connection-card svg { width: 168px; height: 168px; border-radius: 8px; }
+.settings-connection-card svg { width: 168px; height: 168px; border-radius: var(--mx-radius-md); }
 .settings-connection-qr-placeholder {
   width: 168px;
   height: 168px;
-  border-radius: 8px;
+  border-radius: var(--mx-radius-md);
   background: var(--mx-bg-layer-2);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
@@ -914,11 +688,11 @@ html[data-mixdog-mobile] .core-memory-list {
 }
 .settings-connection-card figcaption { display: grid; gap: 2px; justify-items: center; }
 .settings-connection-card b { font-size: var(--mx-font-ui); }
-.settings-connection-card small { color: var(--settings-muted); font-size: var(--mx-font-meta); }
-.settings-connection-note { margin: 0; color: var(--settings-muted); font-size: var(--mx-font-code); line-height: var(--mx-line-minor); }
+.settings-connection-card small { color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.settings-connection-note { margin: 0; color: var(--mx-text-muted); font-size: var(--mx-font-code); line-height: var(--mx-line-minor); }
 .settings-git-inline-status {
   margin: -6px 0 8px;
-  color: var(--settings-muted);
+  color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
@@ -928,12 +702,12 @@ html[data-mixdog-mobile] .core-memory-list {
   gap: 7px;
   margin: 0;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--mx-radius-md);
   background: var(--mx-bg-layer-2);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
 .settings-commit-rule-card p,
-.settings-commit-rule-grid p { margin: 0; color: var(--settings-muted); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.settings-commit-rule-grid p { margin: 0; color: var(--mx-text-muted); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
 .settings-commit-rule-card code,
 .settings-commit-rule-grid code {
   overflow-wrap: anywhere;
@@ -944,7 +718,7 @@ html[data-mixdog-mobile] .core-memory-list {
 .settings-commit-rule-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .settings-commit-rule-preview { grid-column: 1 / -1; }
 .settings-commit-custom-fields { width: 100%; display: grid; gap: 10px; }
-.settings-commit-custom-fields label { display: grid; gap: 5px; color: var(--settings-muted); font-size: var(--mx-font-meta); }
+.settings-commit-custom-fields label { display: grid; gap: 5px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
 .settings-commit-custom-fields textarea { width: 100%; min-width: 0; resize: vertical; }
 .settings-commit-custom-fields button { justify-self: end; }
 @media (max-width: 720px) {
@@ -960,12 +734,12 @@ html[data-mixdog-mobile] .core-memory-list {
   padding-block: 6px;
 }
 .settings-connection-links > div + div { border-top: .5px solid var(--mx-border-muted); }
-.settings-connection-links span { flex: 0 0 132px; color: var(--settings-muted); font-size: var(--mx-font-minor); }
+.settings-connection-links span { flex: 0 0 132px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
 .settings-connection-links code {
   flex: 1;
   min-width: 0;
   padding: 7px 9px;
-  border-radius: 6px;
+  border-radius: var(--mx-radius-md);
   overflow-wrap: anywhere;
   background: var(--mx-pressed);
   font-size: var(--mx-font-meta);

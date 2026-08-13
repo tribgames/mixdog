@@ -1,0 +1,238 @@
+name: spawn-release
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: spawn-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: "0"
+  MANIFEST: src/runtime/agent/orchestrator/tools/spawn-manifest.json
+  RUST_VERSION: "1.85.1"
+
+jobs:
+  gate:
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.verify.outputs.tag }}
+      version: ${{ steps.verify.outputs.version }}
+      source_sha: ${{ steps.verify.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: verify
+        env:
+          SPAWN_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SPAWN_TAG" =~ ^spawn-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          VERSION=${SPAWN_TAG#spawn-v}
+          test "$VERSION" = "$(grep -m1 -E '^version = "[^"]+"' native/mixdog-spawn/Cargo.toml | cut -d '"' -f2)"
+          echo "tag=$SPAWN_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: gate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: refs/tags/${{ needs.gate.outputs.tag }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - run: cargo test --locked --manifest-path native/mixdog-spawn/Cargo.toml
+
+  build:
+    needs: gate
+    name: build-${{ matrix.pkey }}-primary
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-2022, target: x86_64-pc-windows-msvc, pkey: win32-x64, ext: .exe, rustflags: "-C link-arg=/Brepro" }
+          - { runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu, pkey: linux-x64, ext: "", rustflags: "-C link-arg=-Wl,--build-id=sha1" }
+          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, pkey: linux-arm64, ext: "", rustflags: "-C link-arg=-Wl,--build-id=sha1" }
+          - { runner: macos-15-intel, target: x86_64-apple-darwin, pkey: darwin-x64, ext: "", rustflags: "-C link-arg=-Wl,-no_uuid" }
+          - { runner: macos-14, target: aarch64-apple-darwin, pkey: darwin-arm64, ext: "", rustflags: "-C link-arg=-Wl,-no_uuid" }
+    runs-on: ${{ matrix.runner }}
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: refs/tags/${{ needs.gate.outputs.tag }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: ${{ matrix.target }}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          cargo build --locked --release --target "${{ matrix.target }}" --manifest-path native/mixdog-spawn/Cargo.toml
+          mkdir _asset
+          cp "native/mixdog-spawn/target/${{ matrix.target }}/release/mixdog-spawn${{ matrix.ext }}" \
+            "_asset/mixdog-spawn-${{ matrix.pkey }}${{ matrix.ext }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: spawn-${{ matrix.pkey }}-${{ github.run_attempt }}
+          path: _asset/*
+          if-no-files-found: error
+          retention-days: 1
+
+  rebuild:
+    needs: gate
+    name: build-${{ matrix.pkey }}-comparison
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-2022, target: x86_64-pc-windows-msvc, pkey: win32-x64, ext: .exe, rustflags: "-C link-arg=/Brepro" }
+          - { runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu, pkey: linux-x64, ext: "", rustflags: "-C link-arg=-Wl,--build-id=sha1" }
+          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, pkey: linux-arm64, ext: "", rustflags: "-C link-arg=-Wl,--build-id=sha1" }
+          - { runner: macos-15-intel, target: x86_64-apple-darwin, pkey: darwin-x64, ext: "", rustflags: "-C link-arg=-Wl,-no_uuid" }
+          - { runner: macos-14, target: aarch64-apple-darwin, pkey: darwin-arm64, ext: "", rustflags: "-C link-arg=-Wl,-no_uuid" }
+    runs-on: ${{ matrix.runner }}
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: refs/tags/${{ needs.gate.outputs.tag }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: ${{ matrix.target }}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          cargo build --locked --release --target "${{ matrix.target }}" --manifest-path native/mixdog-spawn/Cargo.toml
+          mkdir _repro
+          cp "native/mixdog-spawn/target/${{ matrix.target }}/release/mixdog-spawn${{ matrix.ext }}" \
+            "_repro/mixdog-spawn-${{ matrix.pkey }}${{ matrix.ext }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rebuild-spawn-${{ matrix.pkey }}-${{ github.run_attempt }}
+          path: _repro/*
+          if-no-files-found: error
+          retention-days: 1
+
+  prepare:
+    needs: [gate, test, build, rebuild]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: refs/tags/${{ needs.gate.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: spawn-*-${{ github.run_attempt }}
+          path: _release
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: rebuild-spawn-*-${{ github.run_attempt }}
+          path: _repro
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          SPAWN_TAG: ${{ needs.gate.outputs.tag }}
+          SPAWN_VERSION: ${{ needs.gate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=(mixdog-spawn-darwin-arm64 mixdog-spawn-darwin-x64 mixdog-spawn-linux-arm64 mixdog-spawn-linux-x64 mixdog-spawn-win32-x64.exe)
+          for asset in "${expected[@]}"; do cmp "_release/$asset" "_repro/$asset"; done
+          node <<'NODE'
+          const { createHash } = require('node:crypto');
+          const { readFileSync, writeFileSync } = require('node:fs');
+          const files = {
+            'darwin-arm64': 'mixdog-spawn-darwin-arm64',
+            'darwin-x64': 'mixdog-spawn-darwin-x64',
+            'linux-arm64': 'mixdog-spawn-linux-arm64',
+            'linux-x64': 'mixdog-spawn-linux-x64',
+            'win32-x64': 'mixdog-spawn-win32-x64.exe',
+          };
+          const assets = Object.fromEntries(Object.entries(files).map(([platform, file]) => [platform, {
+            url: `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${process.env.SPAWN_TAG}/${file}`,
+            sha256: createHash('sha256').update(readFileSync(`_release/${file}`)).digest('hex'),
+          }]));
+          writeFileSync('_release/spawn-manifest.json', JSON.stringify({
+            version: process.env.SPAWN_VERSION,
+            _comment: 'Synced from immutable spawn-v release assets.',
+            assets,
+          }, null, 2) + '\n');
+          NODE
+          (cd _release && sha256sum "${expected[@]}" > SHA256SUMS)
+          if gh release view "$SPAWN_TAG" --json isDraft --jq .isDraft >/tmp/draft 2>/dev/null; then
+            test "$(cat /tmp/draft)" = true
+          else
+            gh release create "$SPAWN_TAG" --draft --verify-tag \
+              --title "mixdog-spawn ${SPAWN_VERSION}" \
+              --notes "Immutable mixdog-spawn ${SPAWN_VERSION} assets."
+          fi
+          gh release upload "$SPAWN_TAG" "${expected[@]/#/_release/}" _release/SHA256SUMS --clobber
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: spawn-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: _release/spawn-manifest.json
+          if-no-files-found: error
+          retention-days: 1
+
+  sync:
+    needs: [gate, prepare]
+    runs-on: ubuntu-22.04
+    concurrency:
+      group: spawn-release-finalize
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: spawn-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: _generated
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          SPAWN_TAG: ${{ needs.gate.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp _generated/spawn-manifest.json "$MANIFEST"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MANIFEST"
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(spawn): sync manifest for ${SPAWN_TAG}"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+          gh release edit "$SPAWN_TAG" --draft=false --latest=false

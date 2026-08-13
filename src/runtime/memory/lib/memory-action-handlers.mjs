@@ -147,7 +147,14 @@ export function createMemoryActionHandlers({
     if (typeof c2Options?.callLlm !== 'function') {
       c2Options = { ...c2Options, callLlm: getCycle2CallLlm() }
     }
-    const result = await runCycle2(db, config?.cycle2 || {}, c2Options, DATA_DIR)
+    const cycle2Config = { ...(config?.cycle2 || {}) }
+    if (Number.isFinite(Number(args?.batch_size))) {
+      cycle2Config.batch_size = Math.max(1, Math.floor(Number(args.batch_size)))
+    }
+    if (Number.isFinite(Number(args?.lineage_backfill_limit))) {
+      cycle2Config.lineage_backfill_limit = Math.max(0, Math.floor(Number(args.lineage_backfill_limit)))
+    }
+    const result = await runCycle2(db, cycle2Config, c2Options, DATA_DIR)
     if (signal?.aborted) throw signal.reason ?? new Error('aborted')
     await finalizeCycle2Run(result)
     const counts = {

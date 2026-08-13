@@ -18,8 +18,6 @@ param(
     [string]$Effort = "",
     # Complete per-role routing table, applied to the disposable config copy.
     [string]$RouteProfile = "",
-    # Benchmark runs default to delegation-free Solo Bench; explicit values override it.
-    [string]$Workflow = "solo-bench",
     # Auto-retry count for trials that die before/around the agent run
     # (RuntimeError, NonZeroAgentExitCodeError, docker daemon death, ...).
     # Harbor's default exclude list keeps AgentTimeout/Verifier errors OUT of
@@ -35,7 +33,6 @@ $hasProvider = -not [string]::IsNullOrWhiteSpace($Provider)
 $hasModel = -not [string]::IsNullOrWhiteSpace($Model)
 $hasEffort = -not [string]::IsNullOrWhiteSpace($Effort)
 $hasRouteProfile = -not [string]::IsNullOrWhiteSpace($RouteProfile)
-$hasWorkflow = -not [string]::IsNullOrWhiteSpace($Workflow)
 $resumeCompletedTasks = @()
 if (-not [string]::IsNullOrWhiteSpace($ResumeFrom)) {
     $resumeRoot = (Resolve-Path -LiteralPath $ResumeFrom -ErrorAction Stop).Path
@@ -124,38 +121,12 @@ try {
     }
     New-Item -ItemType Directory -Path $harnessSnapshotRoot -ErrorAction Stop | Out-Null
     $harnessManifest = [ordered]@{}
-    foreach ($name in @("lead_driver.mjs", "anthropic_oauth_preflight.mjs")) {
+    foreach ($name in @("anthropic_oauth_preflight.mjs")) {
         $source = Join-Path $PSScriptRoot $name
         $target = Join-Path $harnessSnapshotRoot $name
         Copy-Item -LiteralPath $source -Destination $target -ErrorAction Stop
         (Get-Item -LiteralPath $target).IsReadOnly = $true
         $harnessManifest[$name] = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
-    }
-    $driverSyntax = @(& node --check (Join-Path $harnessSnapshotRoot "lead_driver.mjs") 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Terminal-Bench lead driver syntax preflight failed: $($driverSyntax -join [Environment]::NewLine)"
-    }
-    $preflightEnv = @("MIXDOG_USAGE_SUMMARY_ONLY", "MIXDOG_DATA_DIR", "MIXDOG_USAGE_LOG")
-    $priorPreflightEnv = @{}
-    foreach ($name in $preflightEnv) {
-        $priorPreflightEnv[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
-    }
-    try {
-        $env:MIXDOG_USAGE_SUMMARY_ONLY = "1"
-        $env:MIXDOG_DATA_DIR = Join-Path $harnessSnapshotRoot "preflight-data"
-        $env:MIXDOG_USAGE_LOG = Join-Path $harnessSnapshotRoot "preflight-usage.json"
-        $driverImport = @(& node (Join-Path $harnessSnapshotRoot "lead_driver.mjs") 2>&1)
-        $driverImportExit = $LASTEXITCODE
-    }
-    finally {
-        foreach ($name in $preflightEnv) {
-            $prior = $priorPreflightEnv[$name]
-            if ($null -eq $prior) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
-            else { [Environment]::SetEnvironmentVariable($name, $prior, "Process") }
-        }
-    }
-    if ($driverImportExit -ne 0) {
-        throw "Terminal-Bench lead driver import preflight failed: $($driverImport -join [Environment]::NewLine)"
     }
     $env:MIXDOG_TB_SRC_SNAPSHOT = $snapshotRoot
     $env:MIXDOG_TB_HARNESS_SNAPSHOT = $harnessSnapshotRoot
@@ -188,15 +159,9 @@ foreach ($t in $resumeCompletedTasks) { $harborArgs += @("-x", $t) }
 if ($resumeCompletedTasks.Count -gt 0) {
     "resume: excluding $($resumeCompletedTasks.Count) completed task(s) from $resumeResultPath"
 }
-# Boot jitter defaults to 0 so every run measures the same agent-execution
-# window and stays comparable run-to-run (the driver itself would default to
-# 30s if this env were omitted). Opt back into an anti-429 boot spread with
-# an explicit -AgentEnv MIXDOG_BOOT_JITTER_MS=<ms>; entries appended later win.
-$harborArgs += @("--ae", "MIXDOG_BOOT_JITTER_MS=0")
 if ($hasModel) { $harborArgs += @("-m", $Model) }
 if ($hasProvider) { $harborArgs += @("--ak", "provider=$Provider") }
 if ($Effort) { $harborArgs += @("--ak", "effort=$Effort") }
-if ($hasWorkflow) { $harborArgs += @("--ak", "workflow=$Workflow") }
 foreach ($item in $AgentEnv) {
     foreach ($entry in ($item -split ",")) {
         if ($entry -notmatch "^[A-Za-z_][A-Za-z0-9_]*=.+$") {

@@ -99,6 +99,8 @@ export async function init(db, dims) {
       source_turn   INTEGER,
       time_source   TEXT,
       chunk_root    BIGINT REFERENCES entries(id) ON DELETE SET NULL,
+      concept_id    BIGINT,
+      supersedes_id BIGINT REFERENCES entries(id) ON DELETE SET NULL,
       is_root       SMALLINT NOT NULL DEFAULT 0,
       element       TEXT,
       category      TEXT,
@@ -122,7 +124,20 @@ export async function init(db, dims) {
       ) STORED
     )
   `)
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS entry_concepts (
+      entry_id       BIGINT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+      concept_id     BIGINT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+      supersedes_id  BIGINT REFERENCES entries(id) ON DELETE SET NULL,
+      created_at     BIGINT NOT NULL,
+      PRIMARY KEY (entry_id, concept_id)
+    )
+  `)
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entry_concepts_latest ON entry_concepts(concept_id, entry_id DESC)`)
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entry_concepts_supersedes ON entry_concepts(supersedes_id) WHERE supersedes_id IS NOT NULL`)
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_chunk_root  ON entries(chunk_root) WHERE chunk_root IS NOT NULL`)
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_concept_latest ON entries(concept_id, ts DESC, id DESC) WHERE is_root = 1 AND concept_id IS NOT NULL`)
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_supersedes ON entries(supersedes_id) WHERE supersedes_id IS NOT NULL`)
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_ts_desc     ON entries(ts DESC)`)
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_session_ts  ON entries(session_id, ts DESC) WHERE session_id IS NOT NULL`)
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_root_status_score ON entries(status, score DESC) WHERE is_root = 1`)
@@ -507,6 +522,29 @@ export async function ensureCurrentSchemaExtensions(db, dims) {
   }
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS core_summary text`)
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS time_source text`)
+  await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS concept_id bigint`)
+  await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS supersedes_id bigint`)
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_concept_latest ON entries(concept_id, ts DESC, id DESC) WHERE is_root = 1 AND concept_id IS NOT NULL`)
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_supersedes ON entries(supersedes_id) WHERE supersedes_id IS NOT NULL`)
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS entry_concepts (
+      entry_id       BIGINT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+      concept_id     BIGINT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+      supersedes_id  BIGINT REFERENCES entries(id) ON DELETE SET NULL,
+      created_at     BIGINT NOT NULL,
+      PRIMARY KEY (entry_id, concept_id)
+    )
+  `)
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entry_concepts_latest ON entry_concepts(concept_id, entry_id DESC)`)
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entry_concepts_supersedes ON entry_concepts(supersedes_id) WHERE supersedes_id IS NOT NULL`)
+  await db.exec(`
+    INSERT INTO entry_concepts(entry_id, concept_id, supersedes_id, created_at)
+    SELECT id, concept_id, supersedes_id, ts
+    FROM entries
+    WHERE is_root = 1 AND concept_id IS NOT NULL
+    ON CONFLICT (entry_id, concept_id) DO UPDATE
+      SET supersedes_id = COALESCE(EXCLUDED.supersedes_id, entry_concepts.supersedes_id)
+  `)
 
   // Core-candidate promotion pipeline (proposal mode): active entries the
   // cycle2 nomination pass flags as strong core-memory candidates. Never

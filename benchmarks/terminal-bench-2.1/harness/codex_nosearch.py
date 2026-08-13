@@ -1,7 +1,7 @@
 """Codex baseline variant with the native web_search tool hard-disabled.
 
 Fairness contract: the mixdog bench surface runs with MIXDOG_FEATURE_WEB_SEARCH
-off (see lead_driver.mjs classic headless surface), but the stock Harbor Codex
+off (matching the product headless surface), but the stock Harbor Codex
 agent ships the Responses ``web_search`` tool enabled — the 2026-08-02 full run
 used it 50 times across 14 tasks, including lookups of the benchmark's own
 test files.

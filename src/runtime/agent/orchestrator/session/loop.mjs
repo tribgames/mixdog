@@ -10,7 +10,6 @@ export {
     repairTranscriptBeforeProviderSend,
     normalizeHookUpdatedToolOutput,
     resolveToolResultAfterHook,
-    buildAgentBashSessionArgs,
     formatMissingToolApprovalUiDenial,
     resolvePreToolAskApproval,
     approvalGranted,

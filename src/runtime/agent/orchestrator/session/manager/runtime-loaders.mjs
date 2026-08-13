@@ -1,10 +1,9 @@
 // manager/runtime-loaders.mjs
 // Lazy runtime import bridges extracted from manager.mjs. Dynamic import()
-// keeps the heavy code_graph tool / agent loop / bash-session runtimes out of
+// keeps the heavy code_graph tool / agent loop runtimes out of
 // the session-creation path and avoids a circular import through loop.mjs.
 let _codeGraphRuntimePromise = null;
 let _agentLoopPromise = null;
-let _bashSessionRuntimePromise = null;
 export async function _executeCodeGraphToolLazy(name, args, cwd, signal = null, options = {}) {
     _codeGraphRuntimePromise ??= import('../../tools/code-graph.mjs');
     const mod = await _codeGraphRuntimePromise;
@@ -20,11 +19,4 @@ export async function _getAgentLoop() {
 export async function prewarmAgentLoop() {
     await _getAgentLoop();
     return true;
-}
-export function _closeBashSessionLazy(sessionId, reason) {
-    if (!sessionId) return;
-    _bashSessionRuntimePromise ??= import('../../tools/bash-session.mjs');
-    _bashSessionRuntimePromise
-        .then((mod) => { if (typeof mod.closeBashSession === 'function') mod.closeBashSession(sessionId, reason); })
-        .catch(() => {});
 }

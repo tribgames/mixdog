@@ -35,10 +35,10 @@ import { readFile } from 'fs/promises'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { pipeline } from 'stream/promises'
-import { Readable, Transform } from 'stream'
 import { spawnSync } from 'child_process'
 import { createGunzip } from 'zlib'
 import { renameWithRetrySync, writeFileAtomicSync } from '../../shared/atomic-file.mjs'
+import { streamResponseToFile } from '../../shared/bounded-download.mjs'
 import { windowsProgramRoots, windowsSystemRoot } from '../../agent/orchestrator/tools/builtin/windows-roots.mjs'
 import { detectDeviceLanguage, normalizeWhisperLanguage } from './whisper-language.mjs'
 
@@ -388,6 +388,7 @@ async function processExtras(extras, stagingDir, onProgress) {
     process.stderr.write(`[voice-runtime] fetching extra ${tag} (${(extra.size / 1024 / 1024).toFixed(0)} MB) ...\n`)
     await downloadFile(extra.url, archivePath, {
       onProgress: onProgress ? (p) => onProgress({ phase: 'extra', ...p }) : null,
+      expectedBytes: extra.size,
     })
     if (!extra.sha256) throw new Error(`[voice-runtime] manifest extra entry missing required sha256: ${extra.url}`)
     await verifySha256(archivePath, extra.sha256)
@@ -436,7 +437,11 @@ function gcStagingPartials(dir) {
   } catch {}
 }
 
-async function downloadFile(url, destPath, { onProgress = null, timeoutMs = 180_000 } = {}) {
+async function downloadFile(url, destPath, {
+  onProgress = null,
+  timeoutMs = 180_000,
+  expectedBytes,
+} = {}) {
   // Default 180s ceiling: voice runtime tarball (ffmpeg/whisper) is < 100MB.
   // Callers may raise timeoutMs (e.g. the ~1.5GB model). On any failure path
   // the destPath is unlinked so the next attempt does not see a corrupt
@@ -444,33 +449,12 @@ async function downloadFile(url, destPath, { onProgress = null, timeoutMs = 180_
   try {
     const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(timeoutMs) })
     if (!res.ok) throw new Error(`[voice-runtime] download failed ${res.status} ${res.statusText} (${url})`)
-    if (!res.body) throw new Error(`[voice-runtime] download has no body (${url})`)
-    if (onProgress) {
-      const total = Number(res.headers.get('content-length')) || 0
-      let downloaded = 0
-      let lastEmit = 0
-      const emit = (force = false) => {
-        const now = Date.now()
-        if (!force && now - lastEmit < 200) return
-        lastEmit = now
-        onProgress({ downloaded, total })
-      }
-      const counter = new Transform({
-        transform(chunk, _enc, cb) {
-          downloaded += chunk.length
-          emit()
-          if (total > 0 && downloaded >= total) emit(true)
-          cb(null, chunk)
-        },
-        flush(cb) {
-          emit(true)
-          cb()
-        },
-      })
-      await pipeline(Readable.fromWeb(res.body), counter, createWriteStream(destPath))
-    } else {
-      await pipeline(res.body, createWriteStream(destPath))
-    }
+    await streamResponseToFile(res, destPath, {
+      maxBytes: expectedBytes,
+      expectedBytes,
+      label: 'voice runtime download',
+      onProgress,
+    })
   } catch (e) {
     try { rmSync(destPath, { force: true }) } catch {}
     throw e
@@ -550,6 +534,7 @@ export async function ensureWhisperRuntime(dataDir, onProgress = null) {
       process.stderr.write(`[voice-runtime] fetching whisper-${ver} variant=${variant.id} for ${key} (${(variant.size / 1024 / 1024).toFixed(0)} MB; cuda=${[...env.cudaMajors].join(',') || 'none'} nvidiaDriver=${env.hasNvidiaDriver}) ...\n`)
       await downloadFile(variant.url, archivePath, {
         onProgress: onProgress ? (p) => onProgress({ phase: 'runtime', ...p }) : null,
+        expectedBytes: variant.size,
       })
       if (!variant.sha256) throw new Error(`[voice-runtime] manifest variant ${variant.id} for ${key} missing required sha256`)
       await verifySha256(archivePath, variant.sha256)
@@ -701,6 +686,7 @@ export async function ensureFfmpegRuntime(dataDir, onProgress = null) {
       process.stderr.write(`[voice-runtime] fetching ffmpeg-${ver} for ${key} (${(platformEntry.size / 1024 / 1024).toFixed(0)} MB) ...\n`)
       await downloadFile(platformEntry.url, archivePath, {
         onProgress: onProgress ? (p) => onProgress({ phase: 'ffmpeg', ...p }) : null,
+        expectedBytes: platformEntry.size,
       })
       if (!platformEntry.sha256) throw new Error(`[voice-runtime] manifest ffmpeg entry for ${key} missing required sha256`)
       await verifySha256(archivePath, platformEntry.sha256)
@@ -823,6 +809,7 @@ export async function ensureWhisperModel(dataDir, onProgress = null, modelId = '
       await downloadFile(model.url, stagingPath, {
         onProgress: onProgress ? (p) => onProgress({ phase: 'model', ...p }) : null,
         timeoutMs: 1_200_000,
+        expectedBytes: model.size,
       })
       await verifySha256(stagingPath, model.sha256)
       renameWithRetrySync(stagingPath, modelPath)

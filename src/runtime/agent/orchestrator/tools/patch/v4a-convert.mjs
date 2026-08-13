@@ -469,8 +469,45 @@ function uniqueExactSequenceStart(sourceLines, pattern) {
   return found;
 }
 
+// Last-resort already-applied guard: old-side is gone, but the full new-side
+// exists at exactly one place. Skip that hunk instead of failing a resend.
+function skipIfAlreadyApplied(sourceLines, newLines) {
+  const at = uniqueExactSequenceStart(sourceLines, newLines);
+  if (at < 0) return null;
+  if (_v4aAmbiguityNotices.size < V4A_AMBIGUITY_NOTICE_CAP) {
+    _v4aAmbiguityNotices.add(
+      `hunk already present at line ${at + 1}; skipped (no-op).`,
+    );
+  }
+  return { skip: true, alreadyApplied: true, oldStartIdx: at };
+}
+
 function trimLeadingWs(value) {
   return String(value ?? '').replace(/^[\t ]*/, '');
+}
+
+function leadingWs(value) {
+  return String(value ?? '').match(/^[\t ]*/)[0];
+}
+
+function remapNewLineIndents(oldLines, sourceSlice, newLines) {
+  const prefixMap = new Map();
+  for (let k = 0; k < oldLines.length; k++) {
+    const pat = String(oldLines[k] ?? '');
+    const src = String(sourceSlice[k] ?? '');
+    if (trimLeadingWs(pat) !== trimLeadingWs(src)) continue;
+    const from = leadingWs(pat);
+    const to = leadingWs(src);
+    if (from === to) continue;
+    if (prefixMap.has(from) && prefixMap.get(from) !== to) return newLines;
+    prefixMap.set(from, to);
+  }
+  if (prefixMap.size === 0) return newLines;
+  return newLines.map((line) => {
+    const lead = leadingWs(line);
+    if (!prefixMap.has(lead)) return line;
+    return prefixMap.get(lead) + String(line).slice(lead.length);
+  });
 }
 
 // Observed (tool-failures): same text, wrong leading indent. Accept only a
@@ -592,6 +629,8 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
     // stale bodies retain the hard anchor miss instead of choosing a target.
     const uniqueBody = fuzzy ? uniqueExactSequenceStart(sourceLines, stats.oldLines) : -1;
     if (uniqueBody < 0) {
+      const already = skipIfAlreadyApplied(sourceLines, stats.newLines);
+      if (already) return already;
       const msg = `V4A hunk anchor not found: ${formatV4AHunkLocator(hunk)};${formatV4AAnchorMissHint(sourceLines, hunk)}`;
       return { error: msg };
     }
@@ -812,6 +851,8 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
   // Fuzzy locate can accept indent/trim-equivalent lines, then emit the
   // patch's context bytes. Remap to the file so native apply stays exact.
   if (oldStartIdx >= 0 && oldLinesPattern.length > 0) {
+    const sourceSlice = sourceLines.slice(oldStartIdx, oldStartIdx + oldLinesPattern.length);
+    newLinesPattern = remapNewLineIndents(oldLinesPattern, sourceSlice, newLinesPattern);
     const remapped = new Map();
     let ambiguous = false;
     for (let k = 0; k < oldLinesPattern.length; k++) {
@@ -827,6 +868,8 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
     }
   }
   if (oldStartIdx < 0) {
+    const already = skipIfAlreadyApplied(sourceLines, newLinesPattern);
+    if (already) return already;
     const msg = `V4A hunk context not found: ${formatV4AHunkLocator(hunk)};${formatV4AContextMissHint(sourceLines, stats, anchorLine)}`;
     return { error: msg };
   }
@@ -1316,5 +1359,5 @@ export async function convertV4ASectionsToUnifiedPatch(sections, basePath, optio
       } catch { /* leave original cached lines */ }
     }
   }
-  return out.join('\n') + '\n';
+  return out.length > 0 ? `${out.join('\n')}\n` : '';
 }

@@ -25,6 +25,84 @@ const AUTO_DETECT_PORTS = {
 const DEFAULT_MCP_CALL_TIMEOUT_MS = 120000;
 // Per-server STARTUP handshake budget (connect + listTools): 10s.
 const DEFAULT_MCP_STARTUP_TIMEOUT_MS = 10000;
+
+function isLoopbackMcpHost(hostname) {
+    const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+    return host === 'localhost' || host === '::1' || /^127(?:\.\d{1,3}){3}$/.test(host);
+}
+
+export function normalizeMcpTransportUrl(raw, kind = 'http') {
+    let parsed;
+    try {
+        parsed = new URL(String(raw || '').trim());
+    } catch {
+        throw new Error(`MCP ${kind} URL is invalid`);
+    }
+    if (parsed.username || parsed.password) {
+        throw new Error('MCP URLs must not contain credentials');
+    }
+    const websocket = kind === 'ws';
+    const encrypted = websocket
+        ? parsed.protocol === 'wss:' || parsed.protocol === 'https:'
+        : parsed.protocol === 'https:';
+    const localPlaintext = isLoopbackMcpHost(parsed.hostname)
+        && (websocket
+            ? parsed.protocol === 'ws:' || parsed.protocol === 'http:'
+            : parsed.protocol === 'http:');
+    if (!encrypted && !localPlaintext) {
+        throw new Error(
+            websocket
+                ? 'MCP WebSocket URLs must use wss://; ws:// is allowed only for loopback'
+                : 'MCP URLs must use https://; http:// is allowed only for loopback',
+        );
+    }
+    parsed.hash = '';
+    return parsed.toString();
+}
+
+export function mcpUrlForLog(raw) {
+    try {
+        const parsed = new URL(String(raw || ''));
+        const hadQuery = Boolean(parsed.search);
+        parsed.username = '';
+        parsed.password = '';
+        parsed.search = '';
+        parsed.hash = '';
+        return `${parsed.toString()}${hadQuery ? '?[query-redacted]' : ''}`;
+    } catch {
+        return '[invalid MCP URL]';
+    }
+}
+
+function replaceSecret(text, value) {
+    const secret = String(value || '');
+    return secret.length >= 4 ? text.split(secret).join('[redacted]') : text;
+}
+
+export function scrubMcpConnectionMessage(value, cfg = {}) {
+    let text = String(value || '');
+    const rawUrl = expandEnvVars(String(cfg?.url || ''));
+    if (rawUrl) {
+        text = text.split(rawUrl).join(mcpUrlForLog(rawUrl));
+        try {
+            const parsed = new URL(rawUrl);
+            text = replaceSecret(text, parsed.username);
+            text = replaceSecret(text, parsed.password);
+            for (const paramValue of parsed.searchParams.values()) {
+                text = replaceSecret(text, paramValue);
+            }
+        } catch { /* invalid URL is reported without echoing it */ }
+    }
+    const headers = cfg?.headers && typeof cfg.headers === 'object' ? expandEnvVars(cfg.headers) : {};
+    for (const [name, headerValue] of Object.entries(headers)) {
+        if (/authorization|cookie|token|secret|api[-_]?key|signature/i.test(name)) {
+            text = replaceSecret(text, headerValue);
+        }
+    }
+    return text
+        .replace(/\b(https?|wss?):\/\/[^/\s@]+@/giu, '$1://[redacted]@')
+        .replace(/([?&](?:access_token|api[_-]?key|auth|secret|signature|token)=)[^&\s'"]+/giu, '$1[redacted]');
+}
 // --- State ---
 const servers = new Map();
 const reconnects = createKeyedSingleflight();
@@ -158,8 +236,9 @@ export async function connectMcpServers(config, options = {}) {
     );
     settled.forEach((res, i) => {
         if (res.status !== 'rejected') return;
-        const [name] = entries[i];
-        const msg = res.reason instanceof Error ? res.reason.message : String(res.reason);
+        const [name, cfg] = entries[i];
+        const rawMessage = res.reason instanceof Error ? res.reason.message : String(res.reason);
+        const msg = scrubMcpConnectionMessage(rawMessage, cfg);
         mcpLog(`[mcp-client] Failed to connect "${name}": ${msg}\n`);
         failures.push({ name, msg });
     });
@@ -269,7 +348,12 @@ async function reconnectMcpServer(scopeId, serverName, failedServer) {
             await _closeServer(current);
             if (servers.get(registryKey) === current) servers.delete(registryKey);
         }
-        await connectServer(serverName, failedServer.cfg, scopeId);
+        try {
+            await connectServer(serverName, failedServer.cfg, scopeId);
+        } catch (reason) {
+            const rawMessage = reason instanceof Error ? reason.message : String(reason);
+            throw new Error(scrubMcpConnectionMessage(rawMessage, failedServer.cfg));
+        }
         const replacement = servers.get(registryKey);
         if (!replacement) {
             throw new Error(`reconnect succeeded but server "${serverName}" entry is missing from registry`);
@@ -637,7 +721,7 @@ async function connectServer(name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID, genAtSta
         mcpLog(`[mcp-client] Connecting "${name}" via autoDetect HTTP: ${url}\n`);
     }
     else if (kind === 'http') {
-        const url = expandEnvVars(String(cfg.url ?? ''));
+        const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), 'http');
         const headers = expandEnvVars(cfg.headers && typeof cfg.headers === 'object' ? cfg.headers : {});
         const opts = (headers && Object.keys(headers).length > 0)
             ? { requestInit: { headers } }
@@ -645,10 +729,10 @@ async function connectServer(name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID, genAtSta
         transport = opts
             ? new StreamableHTTPClientTransport(new URL(url), opts)
             : new StreamableHTTPClientTransport(new URL(url));
-        mcpLog(`[mcp-client] Connecting "${name}" via HTTP: ${url}\n`);
+        mcpLog(`[mcp-client] Connecting "${name}" via HTTP: ${mcpUrlForLog(url)}\n`);
     }
     else if (kind === 'sse') {
-        const url = expandEnvVars(String(cfg.url ?? ''));
+        const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), 'sse');
         const headers = expandEnvVars(cfg.headers && typeof cfg.headers === 'object' ? cfg.headers : {});
         const opts = (headers && Object.keys(headers).length > 0)
             ? { requestInit: { headers } }
@@ -656,13 +740,13 @@ async function connectServer(name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID, genAtSta
         transport = opts
             ? new SSEClientTransport(new URL(url), opts)
             : new SSEClientTransport(new URL(url));
-        mcpLog(`[mcp-client] Connecting "${name}" via SSE: ${url}\n`);
+        mcpLog(`[mcp-client] Connecting "${name}" via SSE: ${mcpUrlForLog(url)}\n`);
     }
     else if (kind === 'ws') {
         // WebSocketClientTransport ctor takes only a URL; headers are ignored.
-        const url = expandEnvVars(String(cfg.url ?? ''));
+        const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), 'ws');
         transport = new WebSocketClientTransport(new URL(url));
-        mcpLog(`[mcp-client] Connecting "${name}" via WebSocket: ${url}\n`);
+        mcpLog(`[mcp-client] Connecting "${name}" via WebSocket: ${mcpUrlForLog(url)}\n`);
     }
     else if (kind === 'stdio') {
         transport = new StdioClientTransport({
@@ -673,7 +757,7 @@ async function connectServer(name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID, genAtSta
             stderr: cfg.stderr ?? 'pipe',
         });
         transport.stderr?.on?.('data', (chunk) => {
-            mcpLog(`[mcp:${name}:stderr] ${String(chunk)}`);
+            mcpLog(`[mcp:${name}:stderr] ${scrubMcpConnectionMessage(chunk, cfg)}`);
         });
     }
     else {

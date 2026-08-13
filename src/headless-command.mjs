@@ -3,32 +3,25 @@ const FLAG_OPTIONS = new Set([
   '--readonly', '--help', '-h', '--plain', '--react', '--remote', '--onboarding', '--fast',
   '--web-search', '--memory',
 ]);
-const HEADLESS_ROLE_ALIASES = new Map([
-  ['maint', 'maintainer'], ['maintenance', 'maintainer'], ['maintainer', 'maintainer'],
-  ['worker', 'worker'],
-  ['heavy', 'heavy-worker'], ['heavyworker', 'heavy-worker'], ['heavy-worker', 'heavy-worker'],
-  ['review', 'reviewer'], ['reviewer', 'reviewer'],
-  ['web', 'web-researcher'], ['web-researcher', 'web-researcher'],
+const EXEC_UNSUPPORTED_FLAGS = new Set([
+  '--readonly', '--remote', '--onboarding', '--web-search', '--memory',
 ]);
-const HEADLESS_WORKFLOW_ERROR = 'option --workflow is not supported for headless role commands';
+const HEADLESS_WORKFLOW_ERROR = 'option --workflow is not supported for mixdog exec';
 
 function roleKey(value) {
   return String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
 }
 
-function argvIndicatesHeadlessRole(argv) {
+function argvIndicatesExec(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = String(argv[index] ?? '');
     if (VALUE_OPTIONS.has(arg)) {
-      const value = argv[index + 1];
-      if (value !== undefined && value !== '' && !String(value).startsWith('-')) {
-        if (HEADLESS_ROLE_ALIASES.has(roleKey(value))) return true;
-        index += 1;
-      }
+      index += 1;
       continue;
     }
+    if (arg === '--') continue;
     if (FLAG_OPTIONS.has(arg) || arg.startsWith('-')) continue;
-    return HEADLESS_ROLE_ALIASES.has(roleKey(arg));
+    return roleKey(arg) === 'exec';
   }
   return false;
 }
@@ -51,7 +44,7 @@ function parseTokens(argv, { strictValues = true } = {}) {
         continue;
       }
       const valueKey = roleKey(value);
-      if (allowHeadlessIntent && arg === '--workflow' && HEADLESS_ROLE_ALIASES.has(valueKey)) {
+      if (allowHeadlessIntent && arg === '--workflow' && valueKey === 'exec') {
         return {
           error: HEADLESS_WORKFLOW_ERROR,
           skipHostPrelude: true,
@@ -59,9 +52,9 @@ function parseTokens(argv, { strictValues = true } = {}) {
       }
       if (allowHeadlessIntent
         && (arg === '--provider' || arg === '--model' || arg === '--effort')
-        && HEADLESS_ROLE_ALIASES.has(valueKey)) {
+        && valueKey === 'exec') {
         return {
-          error: `option ${arg} requires a route value before headless role ${JSON.stringify(String(value))}`,
+          error: `option ${arg} requires a route value before ${JSON.stringify(String(value))}`,
           skipHostPrelude: true,
         };
       }
@@ -70,11 +63,15 @@ function parseTokens(argv, { strictValues = true } = {}) {
       continue;
     }
     if (FLAG_OPTIONS.has(arg)) continue;
+    if (arg === '--') {
+      positional.push(...argv.slice(index + 1).map((value) => String(value ?? '')));
+      break;
+    }
     if (arg.startsWith('-')) {
       return {
         error: `unknown option ${arg}`,
         ...(allowHeadlessIntent
-          && argvIndicatesHeadlessRole(argv)
+          && argvIndicatesExec(argv)
           ? { skipHostPrelude: true }
           : {}),
       };
@@ -84,17 +81,12 @@ function parseTokens(argv, { strictValues = true } = {}) {
   return { positional, values };
 }
 
-function headlessFromPositional(positional) {
+function execFromPositional(positional) {
   if (!positional.length) return null;
-  if (String(positional[0]).toLowerCase() === 'role') {
-    return { error: 'usage: mixdog <role> <message...>' };
-  }
-  const key = roleKey(positional[0]);
-  const agent = HEADLESS_ROLE_ALIASES.get(key) || null;
-  if (!agent) return null;
+  if (roleKey(positional[0]) !== 'exec') return null;
   const message = positional.slice(1).join(' ').trim();
-  if (!message) return { error: `usage: mixdog ${positional[0]} <message...>` };
-  return { agent, message };
+  if (!message) return { error: 'usage: mixdog exec [options] <message...>' };
+  return { message };
 }
 
 export function classifyCliInvocation(argv = []) {
@@ -116,11 +108,11 @@ export function classifyCliInvocation(argv = []) {
   if (hasHelp) return { kind: 'help', options };
   if (hasPlain) return { kind: 'plain', options };
   if (argv.includes('--react')) return { kind: 'react', options };
-  const headless = headlessFromPositional(parsed.positional);
-  if (headless?.error) {
-    return { kind: 'error', error: headless.error, skipHostPrelude: true };
+  const exec = execFromPositional(parsed.positional);
+  if (exec?.error) {
+    return { kind: 'error', error: exec.error, skipHostPrelude: true };
   }
-  if (headless) {
+  if (exec) {
     if (parsed.values['--workflow'] !== undefined) {
       return {
         kind: 'error',
@@ -128,13 +120,21 @@ export function classifyCliInvocation(argv = []) {
         skipHostPrelude: true,
       };
     }
-    return { kind: 'headless', headless, options, skipHostPrelude: true };
+    const unsupported = [...EXEC_UNSUPPORTED_FLAGS].find((flag) => argv.includes(flag));
+    if (unsupported) {
+      return {
+        kind: 'error',
+        error: `option ${unsupported} is not supported for mixdog exec`,
+        skipHostPrelude: true,
+      };
+    }
+    return { kind: 'exec', exec, options, skipHostPrelude: true };
   }
   return { kind: 'general', options };
 }
 
-export function parseHeadlessRoleCommand(argv = []) {
+export function parseHeadlessExecCommand(argv = []) {
   const invocation = classifyCliInvocation(argv);
   if (invocation.kind === 'error') return { error: invocation.error };
-  return invocation.kind === 'headless' ? invocation.headless : null;
+  return invocation.kind === 'exec' ? invocation.exec : null;
 }

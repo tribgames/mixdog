@@ -28,9 +28,10 @@ import { CapabilitySettings, getCachedCapabilitySettings, preloadCapabilitySetti
 import { preloadConnectionInfo } from './connection-info';
 import { preloadGitPanelInfo } from './git-panel-info';
 import {
-  SETTINGS_CATEGORIES,
   SETTINGS_ITEMS,
   categoryForSettingsItem,
+  settingsCategoriesForSurface,
+  settingsCategoryForSurface,
   type SettingsCategory,
 } from './settings-items';
 import './settings.css';
@@ -91,8 +92,14 @@ export function SettingsView({
   onCompose,
   onClose,
 }: SettingsViewProps) {
+  const remoteSettings = Boolean(
+    (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer,
+  );
+  const visibleCategories = settingsCategoriesForSurface(remoteSettings);
+  const resolveCategory = (next: SettingsCategory): SettingsCategory =>
+    settingsCategoryForSurface(next, remoteSettings);
   const [category, setCategory] = useState<SettingsCategory>(
-    initialSection ? categoryForSettingsItem(initialSection) : 'general',
+    resolveCategory(initialSection ? categoryForSettingsItem(initialSection) : 'general'),
   );
   const dialogRef = useRef<HTMLElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -125,9 +132,9 @@ export function SettingsView({
   // (user: the kept-mounted dialog must not resume the last-visited page).
   useEffect(() => {
     if (!open) return;
-    setCategory(initialSection ? categoryForSettingsItem(initialSection) : 'general');
+    setCategory(resolveCategory(initialSection ? categoryForSettingsItem(initialSection) : 'general'));
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
-  }, [open, initialSection]);
+  }, [open, initialSection, remoteSettings]);
   // Windows caption controls are native chrome, outside the DOM backdrop.
   // Hold their matching composited colors for the full settings lifetime.
   useEffect(() => {
@@ -285,7 +292,7 @@ export function SettingsView({
               short rows read better as a single run. `group` survives in the
               data purely as the authoring order. */}
           <div className="mixdog-settings__rail-group">
-            {SETTINGS_CATEGORIES.map((item) => {
+            {visibleCategories.map((item) => {
               const Icon = CATEGORY_ICONS[item.value];
               return <button type="button" key={item.value}
                 className={category === item.value ? 'active' : ''}
@@ -303,7 +310,7 @@ export function SettingsView({
       <div className="mixdog-settings__panel">
         <header className="mixdog-settings__header">
           <div className="mixdog-settings__header-title">
-            <h1 id="mixdog-settings-title">{t(SETTINGS_CATEGORIES.find((item) => item.value === category)?.label || 'Settings')}</h1>
+            <h1 id="mixdog-settings-title">{t(visibleCategories.find((item) => item.value === category)?.label || 'Settings')}</h1>
           </div>
           <button ref={closeRef} type="button" className="mixdog-settings__close" onClick={requestClose}
             aria-label={t('Close settings')}><X aria-hidden="true" size={16} className="mixdog-settings__close-x" /><ArrowLeft aria-hidden="true" size={16} className="mixdog-settings__close-back" /></button>
@@ -311,7 +318,7 @@ export function SettingsView({
         <div ref={bodyRef} className="mixdog-settings__body">
           <div className="mixdog-settings__category-stage">
             <CapabilitySettings api={api} category={category} onCompose={onCompose}
-              onOpenCategory={setCategory} />
+              onOpenCategory={(next) => setCategory(resolveCategory(next))} />
           </div>
         </div>
       </div>

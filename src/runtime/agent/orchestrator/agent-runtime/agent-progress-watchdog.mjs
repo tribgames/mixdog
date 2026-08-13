@@ -50,20 +50,19 @@ function isAgentProgressWatchdogAbortError(err) {
 }
 
 // Tools that enforce their own execution deadline: 'shell' kills the process
-// at its configured timeout; 'task' wait is bounded by its own wait budget.
-// These are NOT blanket-exempted from the tool-running watchdog — if their own
+// at its configured timeout. These are NOT blanket-exempted from the
+// tool-running watchdog — if their own
 // deadline timer dies the session would otherwise hang forever. Instead the
 // watchdog raises the tool-running ceiling to their self-deadline + a grace
 // window (below), so normal long runs are allowed but a dead timer is still
 // caught. Unknown/missing self-deadline falls back to the plain toolRunningMs.
-const SELF_DEADLINE_TOOLS = new Set(['shell', 'task']);
+const SELF_DEADLINE_TOOLS = new Set(['shell']);
 // Grace added on top of a tool's own deadline before the watchdog steps in, so
 // the tool's in-process kill always fires first under normal operation.
 const TOOL_SELF_DEADLINE_GRACE_MS = 60_000;
-// Fallback deadlines matching the tool implementations (bash-tool.mjs default
-// 120s foreground timeout; task/shell-job wait default 30s budget).
+// Fallback deadline matching the shell implementation's 120s foreground
+// timeout.
 const SHELL_DEFAULT_TIMEOUT_MS = 120_000;
-const TASK_DEFAULT_WAIT_MS = 30_000;
 
 function bareToolName(toolName) {
     if (typeof toolName !== 'string' || !toolName) return '';
@@ -82,8 +81,6 @@ function isSelfDeadlineTool(toolName) {
  * number when the tool enforces its own deadline, or null when unknown/missing
  * (caller then falls back to the plain toolRunningMs ceiling).
  *   - shell: explicit `timeout` (ms) if positive, else the 120s default.
- *   - task:  explicit `timeout_ms` if positive, else 30s for the `wait` action
- *            (other actions carry no wait budget -> null).
  */
 export function resolveToolSelfDeadlineMs(toolName, args) {
     if (!isSelfDeadlineTool(toolName)) return null;
@@ -94,13 +91,6 @@ export function resolveToolSelfDeadlineMs(toolName, args) {
         if (Number.isFinite(t) && t > 0) return t;
         const envDefault = parseInt(process.env.BASH_DEFAULT_TIMEOUT_MS ?? '', 10);
         return envDefault > 0 ? envDefault : SHELL_DEFAULT_TIMEOUT_MS;
-    }
-    if (bare === 'task') {
-        const t = Number(a.timeout_ms);
-        if (Number.isFinite(t) && t > 0) return t;
-        const action = typeof a.action === 'string' ? a.action : '';
-        if (action === 'wait') return TASK_DEFAULT_WAIT_MS;
-        return null;
     }
     return null;
 }

@@ -3,9 +3,8 @@
 import { isDangerousDeleteTarget as _isDangerousDeleteTarget } from './shell-policy-danger-target.mjs';
 export { isDangerousDeleteTarget } from './shell-policy-danger-target.mjs';
 // Shell execution security policy — shared constants used by both
-// destructive-warning.mjs (heuristic classifier) and bash-session.mjs
-// (hard block list). Centralised here so the two files stay in sync
-// without requiring manual "drift should be fixed in BOTH files" notes.
+// destructive-warning.mjs (heuristic classifier) and the shell command
+// runner (hard block list).
 //
 // These are documented security-policy allowlists, not heuristic
 // classifiers: membership is explicit and reviewed on addition.
@@ -23,9 +22,7 @@ export const WRAPPER_NAMES = new Set([
   'nohup', 'setpriv', 'ionice', 'taskset',
 ]);
 
-// Hard-block patterns shared by the stateless bash tool (builtin.mjs) and
-// the persistent bash_session tool (bash-session.mjs). Adding a pattern
-// here propagates to both without manual sync.
+// Hard-block patterns used by the native shell command runner.
 //
 // These block outright data-destructive or system-destabilising operations
 // that the agent must never execute regardless of context. Informational

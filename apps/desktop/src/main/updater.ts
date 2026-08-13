@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 
 import type { DesktopUpdaterState } from '../shared/contract';
 import { createUpdaterController, type UpdaterReadyRecord } from './updater-controller';
+import { normalizeUpdaterDevFeed } from './updater-feed';
 
 const UPDATE_CHECK_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -91,11 +92,13 @@ export function startAutoUpdater(
     autoUpdater.allowDowngrade = false;
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
-    // Dev loop (scripts/dev-update-windows.ps1 -ViaUpdater): point THIS code —
-    // the shipping update path — at a build served from the working tree. The
-    // production feed is untouched unless the variable is set, and an
-    // unpackaged app never reaches this branch at all.
-    const devFeed = String(process.env.MIXDOG_UPDATER_DEV_FEED || '').trim();
+    // The packaged dev loop serves artifacts on 127.0.0.1. Never let an
+    // inherited environment redirect the shipping updater to a remote feed.
+    const requestedDevFeed = String(process.env.MIXDOG_UPDATER_DEV_FEED || '').trim();
+    const devFeed = normalizeUpdaterDevFeed(requestedDevFeed);
+    if (requestedDevFeed && !devFeed) {
+      console.warn('Mixdog ignored a non-loopback updater dev feed.');
+    }
     if (devFeed) {
       autoUpdater.allowPrerelease = true;
       autoUpdater.allowDowngrade = true;

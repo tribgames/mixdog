@@ -12,13 +12,16 @@
 
 import { createHash } from 'node:crypto';
 import {
-  chmodSync, createWriteStream, existsSync, mkdirSync,
+  chmodSync, existsSync, mkdirSync,
   readFileSync, readdirSync, renameSync, rmSync,
 } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pipeline } from 'node:stream/promises';
+import {
+  MAX_NATIVE_BINARY_DOWNLOAD_BYTES,
+  streamResponseToFile,
+} from '../../../shared/bounded-download.mjs';
 
 const BUNDLED_MANIFEST_PATH = fileURLToPath(new URL('./patch-manifest.json', import.meta.url));
 const MANIFEST_URL = 'https://raw.githubusercontent.com/tribgames/mixdog/main/src/runtime/agent/orchestrator/tools/patch-manifest.json';
@@ -115,7 +118,10 @@ async function downloadWithRetry(url, destPath) {
         throw new Error(`[patch-fetcher] asset HTTP ${res.status} (terminal) — ${url}`);
       }
       if (!res.ok) throw new Error(`[patch-fetcher] asset HTTP ${res.status} — ${url}`);
-      await pipeline(res.body, createWriteStream(destPath));
+      await streamResponseToFile(res, destPath, {
+        maxBytes: MAX_NATIVE_BINARY_DOWNLOAD_BYTES,
+        label: 'patch binary download',
+      });
       return;
     } catch (err) {
       lastErr = err;

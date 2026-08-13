@@ -1,5 +1,7 @@
 import { existsSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
+import { readResponseBuffer } from '../../runtime/shared/bounded-download.mjs';
+import { assertPublicUrl, pinnedFetch } from '../../runtime/search/lib/ssrf-guard.mjs';
 import {
   DEFAULT_AGENT_TIMEOUT_S,
   DEFAULT_COMMAND_TIMEOUT_S,
@@ -367,20 +369,33 @@ function validateHttpUrl(handler) {
     ? handler.allowedHosts.map((x) => String(x || '').trim().toLowerCase()).filter(Boolean)
     : [];
   const host = url.hostname.toLowerCase();
-  if (allowedHosts.includes(host)) return { url };
-  if (isPrivateHostname(host) && handler.allowPrivateHosts !== true) {
+  const allowPrivate = allowedHosts.includes(host) || handler.allowPrivateHosts === true;
+  if (!allowPrivate && isPrivateHostname(host)) {
     return { error: `blocked hook URL to private/loopback host: ${url.hostname} (set allowPrivateHosts or allowedHosts to opt in)` };
   }
-  return { url };
+  if (!allowPrivate) {
+    try {
+      assertPublicUrl(url);
+    } catch (error) {
+      return { error: error?.message || String(error) };
+    }
+  }
+  return { url, allowPrivate };
 }
 
-export async function runHttpHandler(handler, payload, eventName) {
-  if (typeof fetch !== 'function') {
-    return { exitCode: -1, stdout: '', stderr: 'fetch is not available', timedOut: false, spawnError: new Error('fetch is not available') };
-  }
+export const MAX_HTTP_HOOK_RESPONSE_BYTES = MAX_BUFFER_BYTES;
+
+export async function runHttpHandler(handler, payload, eventName, {
+  publicFetch = pinnedFetch,
+  privateFetch = globalThis.fetch,
+} = {}) {
   const checked = validateHttpUrl(handler);
   if (checked.error) {
     return { exitCode: -1, stdout: '', stderr: checked.error, timedOut: false, spawnError: new Error(checked.error) };
+  }
+  const requestFetch = checked.allowPrivate ? privateFetch : publicFetch;
+  if (typeof requestFetch !== 'function') {
+    return { exitCode: -1, stdout: '', stderr: 'fetch is not available', timedOut: false, spawnError: new Error('fetch is not available') };
   }
   const timeoutMs = Math.round(handlerTimeoutS(handler, eventName) * 1000);
   const controller = new AbortController();
@@ -394,14 +409,17 @@ export async function runHttpHandler(handler, payload, eventName) {
         headers[key] = resolveHeaderValue(value, allowed);
       }
     }
-    const response = await fetch(checked.url, {
+    const response = await requestFetch(checked.url, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
       signal: controller.signal,
       redirect: 'error',
     });
-    const text = await response.text();
+    const text = (await readResponseBuffer(response, {
+      maxBytes: MAX_HTTP_HOOK_RESPONSE_BYTES,
+      label: 'HTTP hook response',
+    })).toString('utf8');
     if (!response.ok) {
       return { exitCode: 1, stdout: text, stderr: `HTTP ${response.status} ${response.statusText}`.trim(), timedOut: false, spawnError: null };
     }

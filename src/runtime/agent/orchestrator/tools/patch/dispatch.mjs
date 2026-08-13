@@ -221,6 +221,7 @@ function joinTextLinesForPatch(lines) {
 // LF, so without this an out-of-base CRLF file would be rewritten as LF.
 function detectDominantEol(text) {
   const body = String(text ?? '');
+  if (body.includes('\r') && !body.includes('\n')) return '\r';
   let lf = 0;
   let crlf = 0;
   for (let i = 0; i < body.length; i++) {
@@ -366,6 +367,9 @@ async function applyJsParsedEntry(entry, basePath, { dryRun, fuzzy, readStateSco
       for (const line of hunk.lines || []) {
         if (line.startsWith('+')) addedLines.push(line.slice(1));
       }
+    }
+    if (existing) {
+      try { addedLines.eol = detectDominantEol(readFileSync(fullPath, 'utf8')); } catch { /* keep LF */ }
     }
     const content = joinTextLinesForPatch(addedLines);
     if (!dryRun) {

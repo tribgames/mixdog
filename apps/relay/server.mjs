@@ -76,6 +76,7 @@ function sendToPhone(phone, data, droppable) {
 // inbound `/hook/<deviceId>/...` HTTP requests over it as JSON frames.
 // Payloads pass through un-inspected; HMAC verification stays on the agent.
 const MAX_HOOK_BODY_BYTES = 1024 * 1024;
+export const MAX_HOOK_RESPONSE_BODY_BYTES = MAX_HOOK_BODY_BYTES;
 const HOOK_TIMEOUT_MS = 30_000;
 // Media travels as a proxied byte stream over the desktop leg: the phone gets
 // a cacheable, range-able HTTP response instead of a base64 RPC answer, and
@@ -105,12 +106,33 @@ const REGISTER_RATE_LIMIT = 5;
 const REGISTER_RATE_WINDOW_MS = 10 * 60_000;
 const UNAUTHORIZED_RATE_LIMIT = 60;
 const UNAUTHORIZED_RATE_WINDOW_MS = 60_000;
+export const MAX_PHONE_CONNECTIONS_PER_MINUTE = 120;
+const PHONE_CONNECT_RATE_WINDOW_MS = 60_000;
 const MAX_REGISTERED_DEVICES = 5000;
 export const MAX_PHONE_CLIENTS_PER_DEVICE = 32;
 export const MAX_RATE_KEYS = 10_000;
 
 export function phoneClientCapacityAvailable(clientCount) {
   return Number(clientCount) < MAX_PHONE_CLIENTS_PER_DEVICE;
+}
+
+export function browserSocketOriginAllowed(request) {
+  const origin = typeof request?.headers?.origin === 'string' ? request.headers.origin : '';
+  const host = typeof request?.headers?.host === 'string' ? request.headers.host : '';
+  if (!origin || !host) return false;
+  try {
+    const parsed = new URL(origin);
+    const protocol = request?.socket?.encrypted ? 'https:' : 'http:';
+    return parsed.protocol === protocol
+      && parsed.host.toLowerCase() === host.toLowerCase()
+      && parsed.pathname === '/'
+      && !parsed.search
+      && !parsed.hash
+      && !parsed.username
+      && !parsed.password;
+  } catch {
+    return false;
+  }
 }
 
 export class RateLimiter {
@@ -272,10 +294,19 @@ function runHookLeg(liveHooks, deviceId, socket) {
     const status = Number.isInteger(frame.status) && frame.status >= 100 && frame.status <= 599
       ? frame.status : 502;
     let body;
-    try { body = frame.body ? Buffer.from(String(frame.body), 'base64') : Buffer.alloc(0); }
-    catch { body = Buffer.alloc(0); }
-    const contentType = typeof frame.headers?.['content-type'] === 'string'
-      ? frame.headers['content-type'] : 'application/json';
+    try {
+      body = decodeHookResponseBody(frame.body);
+    } catch {
+      try {
+        pending.response.writeHead(502, { 'Content-Type': 'application/json' })
+          .end('{"error":"invalid agent response"}');
+      } catch { /* client vanished */ }
+      return;
+    }
+    const rawContentType = typeof frame.headers?.['content-type'] === 'string'
+      ? frame.headers['content-type'] : '';
+    const contentType = /^[\x20-\x7e]{1,200}$/.test(rawContentType)
+      ? rawContentType : 'application/json';
     try {
       pending.response.writeHead(status, { 'Content-Type': contentType, 'Content-Length': body.length });
       pending.response.end(body);
@@ -491,12 +522,23 @@ export function readDeviceCredentials(request, url) {
           secret: decoded.slice(divider + 1),
         };
       }
-    } catch { /* fall through to legacy query authentication */ }
+    } catch { /* invalid Basic authorization */ }
   }
-  return {
-    deviceId: url.searchParams.get('device') || '',
-    secret: url.searchParams.get('secret') || '',
-  };
+  return { deviceId: '', secret: '' };
+}
+
+export function decodeHookResponseBody(value) {
+  const encoded = value == null ? '' : String(value);
+  const maximumEncoded = Math.ceil(MAX_HOOK_RESPONSE_BODY_BYTES / 3) * 4;
+  if (encoded.length > maximumEncoded
+    || (encoded && !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded))) {
+    throw new Error('invalid hook response body');
+  }
+  const body = encoded ? Buffer.from(encoded, 'base64') : Buffer.alloc(0);
+  if (body.length > MAX_HOOK_RESPONSE_BODY_BYTES) {
+    throw new Error('hook response body exceeds limit');
+  }
+  return body;
 }
 
 export class DeviceStore {
@@ -684,6 +726,10 @@ export async function startRelay({
   const hookLimiter = new RateLimiter(HOOK_RATE_LIMIT, HOOK_RATE_WINDOW_MS);
   const registerLimiter = new RateLimiter(REGISTER_RATE_LIMIT, REGISTER_RATE_WINDOW_MS);
   const unauthorizedLimiter = new RateLimiter(UNAUTHORIZED_RATE_LIMIT, UNAUTHORIZED_RATE_WINDOW_MS);
+  const phoneConnectLimiter = new RateLimiter(
+    MAX_PHONE_CONNECTIONS_PER_MINUTE,
+    PHONE_CONNECT_RATE_WINDOW_MS,
+  );
   const handler = (request, response) => {
     // Public webhook ingress bypasses the pairing-token gate: callers are
     // external services (GitHub, Stripe); authentication is the per-endpoint
@@ -769,11 +815,19 @@ export async function startRelay({
       return;
     }
     if (url.pathname === '/ws') {
+      if (!browserSocketOriginAllowed(request)) {
+        reject(403, 'Forbidden');
+        return;
+      }
       const token = url.searchParams.get('token') || '';
       const deviceId = store.deviceIdForClientToken(token);
       const entry = deviceId ? liveDesktops.get(deviceId) : null;
       if (!entry || entry.socket.readyState !== entry.socket.OPEN) {
         reject();
+        return;
+      }
+      if (!phoneConnectLimiter.allow(deviceId)) {
+        reject(429, 'Too Many Requests');
         return;
       }
       if (!phoneClientCapacityAvailable(entry.clients.size)) {

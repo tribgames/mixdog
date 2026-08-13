@@ -166,7 +166,10 @@ function isBox(value: unknown): value is RelayE2EEBox {
     && Number.isSafeInteger(row.sequence)
     && Number(row.sequence) > 0
     && typeof row.nonce === 'string'
-    && typeof row.ciphertext === 'string';
+    && /^[A-Za-z0-9_-]{16}$/u.test(row.nonce)
+    && typeof row.ciphertext === 'string'
+    && /^[A-Za-z0-9_-]{22,}$/u.test(row.ciphertext)
+    && row.ciphertext.length % 4 !== 1;
 }
 
 export class RelayE2EEChannel {
@@ -259,7 +262,7 @@ export function isRelayE2EEChallenge(value: unknown): value is RelayE2EEChalleng
   return row?.type === 'e2ee-challenge'
     && row.version === E2EE_VERSION
     && typeof row.challenge === 'string'
-    && /^[A-Za-z0-9_-]{40,64}$/u.test(row.challenge);
+    && /^[A-Za-z0-9_-]{43}$/u.test(row.challenge);
 }
 
 export function isRelayE2EEHello(value: unknown): value is RelayE2EEHello {
@@ -267,8 +270,11 @@ export function isRelayE2EEHello(value: unknown): value is RelayE2EEHello {
   return row?.type === 'e2ee-hello'
     && row.version === E2EE_VERSION
     && typeof row.challenge === 'string'
+    && /^[A-Za-z0-9_-]{43}$/u.test(row.challenge)
     && typeof row.clientPublicKey === 'string'
-    && typeof row.proof === 'string';
+    && /^[A-Za-z0-9_-]{87}$/u.test(row.clientPublicKey)
+    && typeof row.proof === 'string'
+    && /^[A-Za-z0-9_-]{43}$/u.test(row.proof);
 }
 
 export async function generateRelayE2EEServerIdentity(): Promise<RelayE2EEServerIdentity> {

@@ -9,9 +9,11 @@ import test from 'node:test';
 import {
   GRAPH_PLATFORMS,
   PATCH_PLATFORMS,
+  SPAWN_PLATFORMS,
   validateGraphManifest,
   validatePatchManifest,
   validateRuntimeManifest,
+  validateSpawnManifest,
   verifyAssetDownloads,
   verifyReleaseAssets,
 } from './verify-release-assets.mjs';
@@ -69,10 +71,25 @@ function graphFixture() {
   };
 }
 
+function spawnFixture() {
+  return {
+    version: VERSION,
+    _comment: 'test fixture',
+    assets: Object.fromEntries(Object.entries(SPAWN_PLATFORMS).map(([platform, filename]) => [
+      platform,
+      {
+        url: `https://github.com/tribgames/mixdog/releases/download/spawn-v${VERSION}/${filename}`,
+        sha256,
+      },
+    ])),
+  };
+}
+
 test('accepts independent strict patch, runtime, app, and graph versions', () => {
   assert.equal(validatePatchManifest(patchFixture(), `[package]\nversion = "${VERSION}"\n`).version, VERSION);
   assert.equal(validateRuntimeManifest(runtimeFixture()).release_tag, 'runtime-v1.2.3');
   assert.equal(validateGraphManifest(graphFixture(), { version: APP_VERSION }).version, GRAPH_VERSION);
+  assert.equal(validateSpawnManifest(spawnFixture(), `[package]\nversion = "${VERSION}"\n`).version, VERSION);
 });
 
 test('rejects stale Cargo version, partial schema, and wrong patch tag URL', () => {
@@ -250,8 +267,9 @@ test('full guard reads deterministic fixtures and downloads every declared asset
   const patch = patchFixture();
   const runtime = runtimeFixture();
   const graph = graphFixture();
+  const spawn = spawnFixture();
   const expectedUrls = new Set(
-    [...Object.values(patch.assets), ...Object.values(runtime.assets), ...Object.values(graph.assets)]
+    [...Object.values(patch.assets), ...Object.values(runtime.assets), ...Object.values(graph.assets), ...Object.values(spawn.assets)]
       .map(({ url }) => url),
   );
   const paths = {
@@ -259,6 +277,8 @@ test('full guard reads deterministic fixtures and downloads every declared asset
     cargoPath: join(dir, 'Cargo.toml'),
     runtimeManifestPath: join(dir, 'runtime.json'),
     graphManifestPath: join(dir, 'graph.json'),
+    spawnManifestPath: join(dir, 'spawn.json'),
+    spawnCargoPath: join(dir, 'spawn-Cargo.toml'),
     packagePath: join(dir, 'package.json'),
   };
   await Promise.all([
@@ -266,6 +286,8 @@ test('full guard reads deterministic fixtures and downloads every declared asset
     writeFile(paths.cargoPath, `[package]\nversion = "${VERSION}"\n`),
     writeFile(paths.runtimeManifestPath, JSON.stringify(runtime)),
     writeFile(paths.graphManifestPath, JSON.stringify(graph)),
+    writeFile(paths.spawnManifestPath, JSON.stringify(spawn)),
+    writeFile(paths.spawnCargoPath, `[package]\nversion = "${VERSION}"\n`),
     writeFile(paths.packagePath, JSON.stringify({ version: APP_VERSION })),
   ]);
   let downloads = 0;
@@ -286,7 +308,7 @@ test('full guard reads deterministic fixtures and downloads every declared asset
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-  assert.equal(downloads, 15);
+  assert.equal(downloads, 20);
   assert.deepEqual(new Set(requestedUrls), expectedUrls);
 });
 
@@ -303,6 +325,7 @@ advisoryTest('Deploy is the one-click release entry with incremental native work
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/build-runtime\.yml/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/patch-release\.yml/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/graph-release\.yml/);
+  assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/spawn-release\.yml/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/release\.yml/);
   assert.match(deploy, /changedSince\(`\$\{tagPrefix\}\$\{manifestVersion\}`/);
   assert.match(deploy, /const preBumped = !currentTagExists && !currentReleaseExists/);
@@ -420,13 +443,14 @@ advisoryTest('desktop production dependencies contain only main-process runtime 
 });
 
 advisoryTest('native release workflows are reusable and unchanged runtime platforms stay skipped', async () => {
-  const [runtime, patch, graph, token] = await Promise.all([
+  const [runtime, patch, graph, spawn, token] = await Promise.all([
     workflow('build-runtime.yml'),
     workflow('patch-release.yml'),
     workflow('graph-release.yml'),
+    workflow('spawn-release.yml'),
     workflow('token-release.yml'),
   ]);
-  for (const worker of [runtime, patch, graph, token]) assert.match(worker, /workflow_call:/);
+  for (const worker of [runtime, patch, graph, spawn, token]) assert.match(worker, /workflow_call:/);
   assert.match(runtime, /needs\.build\.result == 'skipped' && inputs\.refresh_manifest/);
   assert.doesNotMatch(runtime,
     /needs\.build\.result == 'success' \|\| needs\.build\.result == 'skipped'\)\s*\}\}/);
@@ -438,15 +462,18 @@ advisoryTest('native release workflows are reusable and unchanged runtime platfo
   assert.match(patch, /pattern:\s*patch-\*-\$\{\{ github\.run_attempt \}\}/);
   assert.match(graph, /workflow_dispatch\|workflow_call/);
   assert.equal((graph.match(/cargo test --locked --manifest-path native\/mixdog-graph\/Cargo\.toml/g) || []).length, 1);
-  for (const [name, worker] of [['graph', graph], ['token', token]]) {
+  for (const [name, worker] of [['graph', graph], ['spawn', spawn], ['token', token]]) {
     assert.match(worker, /rebuild:[\s\S]*name:\s*build-\$\{\{ matrix\.pkey \}\}-comparison/);
     assert.match(worker, /prepare:[\s\S]*needs:\s*\[gate,\s*test,\s*build,\s*rebuild\]/);
     assert.match(worker,
       new RegExp(`pattern:\\s*rebuild-${name}-\\*-\\$\\{\\{ github\\.run_attempt \\}\\}`));
     assert.match(worker, /cmp "_release\/\$asset" "_repro\/\$asset"/);
   }
-  assert.match(graph, /^concurrency:\s*\n\s*group:\s*graph-release-\$\{\{ inputs\.tag \|\| github\.ref_name \}\}/m);
-  assert.match(graph, /sync:[\s\S]*group:\s*graph-release-finalize/);
+  for (const [name, worker] of [['graph', graph], ['spawn', spawn]]) {
+    assert.match(worker,
+      new RegExp(`^concurrency:\\s*\\n\\s*group:\\s*${name}-release-\\$\\{\\{ inputs\\.tag \\|\\| github\\.ref_name \\}\\}`, 'm'));
+    assert.match(worker, new RegExp(`sync:[\\s\\S]*group:\\s*${name}-release-finalize`));
+  }
   assert.doesNotMatch(graph, /^  publish:/m);
 });
 

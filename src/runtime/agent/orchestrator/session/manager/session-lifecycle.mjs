@@ -426,15 +426,6 @@ export function createSession(opts) {
         // scheduler/webhook). Role or source-specific context must be
         // injected into the message tail, not the shared prefix.
         promptCacheKey: providerCacheKey(presetObj?.provider || opts.provider, opts.cacheKeyOverride),
-        // Agent shell continuity: when an agent session explicitly opts into
-        // persistent shell state (`bash` with `persistent:true`, or direct
-        // `bash_session`), the minted bash_session id is stored here so later
-        // opted-in `bash` calls can reuse the same shell state.
-        implicitBashSessionId: null,
-        // Tracks every persistent bash session id minted during this
-        // orchestrator session so closeSession can kill them all, not just
-        // the most recently recorded one.
-        allBashSessionIds: [],
         // Agent Runtime metadata — optional. Applied on every ask() to merge
         // profile-driven cache settings into provider sendOpts.
         profileId: profile?.id || null,

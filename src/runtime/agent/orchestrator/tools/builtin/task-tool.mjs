@@ -1,13 +1,9 @@
 // Generic background-task tool (status/wait/cancel), extracted from bash-tool.mjs.
 import {
     buildJobNotFoundMessage,
-    waitForShellJob,
     peekShellJob,
     killShellJob,
-    watchBackgroundShellJob,
     cancelBackgroundShellJobWatch,
-    beginShellJobWait,
-    endShellJobWait,
     clearShellJobNotifyCtx,
     shellJobPublicTaskResult,
 } from './shell-jobs.mjs';
@@ -19,12 +15,6 @@ import {
     renderBackgroundTask,
     renderBackgroundTaskList,
 } from '../../../../shared/background-tasks.mjs';
-
-const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled']);
-
-export function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function shellJobToTaskStatus(status) {
     if (status === 'completed') return 'completed';
@@ -52,22 +42,6 @@ function refreshShellTask(taskId, { includeRunning = false } = {}) {
         }
     }
     return job;
-}
-
-async function waitForGenericTask(taskId, { timeoutMs = 30_000, pollMs = 250, context = {} } = {}) {
-    const started = Date.now();
-    const deadline = started + Math.max(0, Number(timeoutMs) || 0);
-    let task = getBackgroundTask(taskId, { context });
-    if (!task) return null;
-    while (task && task.status === 'running' && Date.now() < deadline) {
-        await sleep(Math.max(25, Number(pollMs) || 250));
-        task = getBackgroundTask(taskId, { context });
-    }
-    return {
-        task,
-        waitedMs: Date.now() - started,
-        waitTimedOut: Boolean(task && task.status === 'running'),
-    };
 }
 
 function renderTaskCancelSuccess(taskId, task) {
@@ -167,75 +141,5 @@ export async function executeTaskTool(args, options = {}) {
         ].filter(Boolean).join('\n');
     }
 
-    if (action !== 'wait') {
-        return `Error: task action must be one of list|status|read|check_after|cancel (got ${JSON.stringify(args.action)})`;
-    }
-    if (!Number.isInteger(args.timeout_ms) || args.timeout_ms <= 0) {
-        return 'Error: task action "wait" requires explicit positive integer "timeout_ms"';
-    }
-    const waitTimeoutMs = args.timeout_ms;
-
-    if (!isShellTask) {
-        const waited = await waitForGenericTask(taskId, {
-            timeoutMs: waitTimeoutMs,
-            pollMs: typeof args.poll_ms === 'number' ? args.poll_ms : 250,
-            context: options,
-        });
-        if (!waited?.task) return `Error: task not found: ${taskId}`;
-        const rendered = renderBackgroundTask(waited.task, { includeResult: TERMINAL_TASK_STATUSES.has(waited.task.status) });
-        return waited.waitTimedOut ? `${rendered}\nwait_timed_out: true\nwaited_ms: ${waited.waitedMs}` : rendered;
-    }
-    // Register as a synchronous waiter and cancel the armed watcher BEFORE
-    // awaiting: the caller consumes the outcome via task wait, so no async
-    // push is wanted, and cancelling up front closes the race where the armed
-    // watcher (watch callback or 2s poll) fires during the await window. The
-    // persistent notify ctx survives the cancel for a possible re-arm.
-    beginShellJobWait(taskId);
-    cancelBackgroundShellJobWatch(taskId);
-    try {
-        const job = await waitForShellJob(taskId, {
-            timeoutMs: waitTimeoutMs,
-            pollMs: typeof args.poll_ms === 'number' ? args.poll_ms : 250,
-        });
-        if (!job) return buildJobNotFoundMessage(taskId);
-        const publicResult = shellJobPublicTaskResult(job);
-        if (job.status !== 'running') {
-            completeBackgroundTask(taskId, {
-                status: shellJobToTaskStatus(job.status),
-                result: publicResult,
-                resultText: JSON.stringify(publicResult, null, 2),
-                notify: false,
-            });
-        } else {
-            const runningTask = getBackgroundTask(taskId, { context: options });
-            if (runningTask) {
-                runningTask.result = publicResult;
-                runningTask.resultText = JSON.stringify(publicResult, null, 2);
-            }
-        }
-        const latest = getBackgroundTask(taskId, { context: options }) || task;
-        const rendered = renderBackgroundTask(latest, { includeResult: true });
-        return job.status === 'running' ? `${rendered}\nwait_timed_out: true\nwaited_ms: ${job.waitedMs}` : rendered;
-    } finally {
-        // Only the LAST concurrent waiter (post-decrement count 0) may re-arm,
-        // and only for a still-running job (timed-out wait). Re-arm with no ctx
-        // arg — watchBackgroundShellJob falls back to the persistent ctx. This
-        // prevents the concurrent-waiter double-deliver: while any other waiter
-        // is still synchronously consuming the outcome, the watcher stays off.
-        const remaining = endShellJobWait(taskId);
-        if (remaining === 0) {
-            const latest = peekShellJob(taskId);
-            if (latest && latest.status === 'running') watchBackgroundShellJob(taskId);
-            // LAST waiter out and the job already finished — the outcome was
-            // consumed synchronously, so no re-arm. Drop the persisted ctx here
-            // or it leaks (cleanup only runs on a real watcher settle, which
-            // never happens for a never-re-armed entry).
-            // EXCEPT when this wait's tool call was aborted: its result was
-            // discarded, so nobody consumed the outcome — re-arm so the
-            // watcher delivers the completion notification instead of
-            // swallowing it.
-            else if (options?.signal?.aborted) watchBackgroundShellJob(taskId);
-            else clearShellJobNotifyCtx(taskId);
-        }
-    }
+    return `Error: task action must be one of list|status|read|check_after|cancel (got ${JSON.stringify(args.action)})`;
 }

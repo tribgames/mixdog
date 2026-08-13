@@ -38,7 +38,7 @@ export function validateExplicitPristineRoute({ provider, model, effort, fast } 
   const selectedProvider = clean(provider);
   const selectedModel = clean(model);
   if (!selectedProvider || !selectedModel) {
-    return 'headless role commands require both --provider <name> and --model <name>; host route fallback is disabled';
+    return 'mixdog exec requires both --provider <name> and --model <name>; host route fallback is disabled';
   }
   const selectedEffort = clean(effort).toLowerCase();
   if (selectedEffort && !EFFORTS.has(selectedEffort)) {
@@ -77,14 +77,14 @@ export function buildMinimalPristineConfig({ provider, model, effort, fast } = {
     agent: {
       providers: { [selectedProvider]: providerConfig },
       presets: [{
-        id: 'headless-explicit-route',
-        name: 'HEADLESS EXPLICIT ROUTE',
+        id: 'exec-explicit-route',
+        name: 'EXEC EXPLICIT ROUTE',
         type: 'agent',
         tools: 'full',
         ...route,
       }],
-      default: 'headless-explicit-route',
-      workflow: { active: 'default' },
+      default: 'exec-explicit-route',
+      workflow: { active: 'solo' },
       workflowRoutes: {},
       agents: {},
       modelSettings,
@@ -171,7 +171,7 @@ function auditDocument({
   const contract = PRISTINE_EXECUTION_CONTRACT;
   return {
     schemaVersion: contract.schemaVersion,
-    mode: 'headless-role-pristine',
+    mode: 'headless-exec-pristine',
     provider: clean(provider),
     model: clean(model),
     effort: clean(effort).toLowerCase() || null,
@@ -193,7 +193,7 @@ function auditDocument({
 export function formatPristineExecutionAudit(audit) {
   return [
     `pristine-execution-audit v${audit.schemaVersion}`,
-    'mode=headless-role',
+    'mode=headless-exec',
     'personal-files=0',
     'host-config=0',
     'mcp=0',
@@ -311,7 +311,7 @@ export function createPristineExecutionBoundary({
         ? resolve(hostEnv[oauth.credentialPathEnv])
         : join(sourceDataDir, oauth.credentialFile);
       if (!existsSync(sourceCredential)) {
-        throw new Error(`required ${clean(provider)} credentials are unavailable; sign in before using the headless role command`);
+        throw new Error(`required ${clean(provider)} credentials are unavailable; sign in before using mixdog exec`);
       }
       // Authentication is the sole host-state exception. Bind in-process (not
       // via child-visible environment) so tools cannot discover the auth path.

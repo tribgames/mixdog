@@ -1,5 +1,6 @@
 // Consolidated suite; sources: shell-hardening-test.mjs, shell-failure-diagnostics-test.mjs, windows-hide-spawn-options-test.mjs
 import test from 'node:test';
+import './native-spawn-test-runtime.mjs';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import fs from 'node:fs';

@@ -236,25 +236,22 @@ export function createMcpGlue({
     const url = clean(input.url);
     const type = clean(input.type).toLowerCase();
     if (url) {
+      const secureUrl = (kind) => typeof mcpClient.normalizeMcpTransportUrl === 'function'
+        ? mcpClient.normalizeMcpTransportUrl(url, kind)
+        : url;
       if (type === 'sse') {
-        if (!/^https?:\/\//i.test(url)) throw new Error('MCP URL must start with http:// or https://');
-        return { name, config: withOptionalHeaders({ type: 'sse', url }) };
+        return { name, config: withOptionalHeaders({ type: 'sse', url: secureUrl('sse') }) };
       }
       if (type === 'ws') {
-        if (!/^(?:wss?|https?):\/\//i.test(url)) {
-          throw new Error('MCP WebSocket URL must start with ws://, wss://, http://, or https://');
-        }
-        return { name, config: withOptionalHeaders({ type: 'ws', url }) };
+        return { name, config: withOptionalHeaders({ type: 'ws', url: secureUrl('ws') }) };
       }
       if (type === 'http' || type === 'streamable-http') {
-        if (!/^https?:\/\//i.test(url)) throw new Error('MCP URL must start with http:// or https://');
-        return { name, config: withOptionalHeaders({ type: 'http', url }) };
+        return { name, config: withOptionalHeaders({ type: 'http', url: secureUrl('http') }) };
       }
       if (/^wss?:\/\//i.test(url)) {
-        return { name, config: withOptionalHeaders({ type: 'ws', url }) };
+        return { name, config: withOptionalHeaders({ type: 'ws', url: secureUrl('ws') }) };
       }
-      if (!/^https?:\/\//i.test(url)) throw new Error('MCP URL must start with http:// or https://');
-      return { name, config: withOptionalHeaders({ type: 'http', url }) };
+      return { name, config: withOptionalHeaders({ type: 'http', url: secureUrl('http') }) };
     }
     const command = clean(input.command);
     if (!command) throw new Error('MCP server command or URL is required');

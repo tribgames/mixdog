@@ -3,13 +3,17 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
-import { createHash } from 'node:crypto';
-import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  withFileLockSync,
+  writeJsonAtomicSync,
+} from '../runtime/shared/atomic-file.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 
 const REGISTRY_VERSION = 1;
@@ -38,29 +42,30 @@ function readJsonSafe(path) {
   try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
 }
 
-function writeJson(path, data) {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeJsonAtomicSync(path, data, {
-    lock: true,
-    secret: true,
-    fsyncDir: true,
-  });
-}
-
 function loadRegistry(dataDir = resolvePluginData()) {
   const path = registryPath(dataDir);
+  if (!existsSync(path)) return { version: REGISTRY_VERSION, plugins: [] };
   const raw = readJsonSafe(path);
   if (raw && Array.isArray(raw.plugins)) return raw;
-  return { version: REGISTRY_VERSION, plugins: [] };
+  throw new Error(`plugin registry is corrupt: ${path}`);
 }
 
-function saveRegistry(registry, dataDir = resolvePluginData()) {
-  const next = {
-    version: REGISTRY_VERSION,
-    plugins: Array.isArray(registry?.plugins) ? registry.plugins : [],
-  };
-  writeJson(registryPath(dataDir), next);
-  return next;
+function mutateRegistry(dataDir, mutator) {
+  const path = registryPath(dataDir);
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  return withFileLockSync(`${path}.lock`, () => {
+    const registry = loadRegistry(dataDir);
+    const result = mutator(registry);
+    writeJsonAtomicSync(path, {
+      version: REGISTRY_VERSION,
+      plugins: Array.isArray(registry.plugins) ? registry.plugins : [],
+    }, {
+      lock: false,
+      secret: true,
+      fsyncDir: true,
+    });
+    return result;
+  }, { secret: true });
 }
 
 function pluginManifest(root) {
@@ -100,6 +105,20 @@ function normalizeSource(input) {
     };
   }
   if (/^(https?:\/\/|git@|ssh:\/\/).+\.git(?:#.+)?$/i.test(source) || /^https:\/\/github\.com\/[^/]+\/[^/]+\/?$/i.test(source)) {
+    if (/^http:\/\//i.test(source)) {
+      throw new Error('plugin Git URLs must use HTTPS or SSH');
+    }
+    if (/^(https|ssh):\/\//i.test(source)) {
+      let parsed;
+      try {
+        parsed = new URL(source);
+      } catch {
+        throw new Error('plugin Git URL is invalid');
+      }
+      if (parsed.password || (parsed.protocol === 'https:' && parsed.username)) {
+        throw new Error('plugin Git URLs must not contain credentials');
+      }
+    }
     return {
       type: 'git',
       url: source.replace(/\/$/g, '').replace(/^(https:\/\/github\.com\/[^/]+\/[^/.]+)$/i, '$1.git'),
@@ -136,21 +155,83 @@ function ensureInside(parent, child) {
   }
 }
 
+function pluginIndex(registry, key) {
+  return registry.plugins.findIndex((plugin) =>
+    plugin.id === key || plugin.name === key || plugin.title === key);
+}
+
+function withPluginMutation(dataDir, id, operation) {
+  const root = installRoot(dataDir);
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  return withFileLockSync(join(root, `.${normalizePluginId(id) || 'plugin'}.mutation.lock`), operation, {
+    secret: true,
+    timeoutMs: 130_000,
+    staleMs: 10 * 60_000,
+  });
+}
+
+function cleanupManagedPartials(root) {
+  const parent = dirname(root);
+  const prefix = `${basename(root)}.tmp-`;
+  if (!existsSync(parent)) return;
+  for (const entry of readdirSync(parent)) {
+    if (!entry.startsWith(prefix)) continue;
+    try { rmSync(join(parent, entry), { recursive: true, force: true }); } catch {}
+  }
+}
+
+function recoverManagedPluginRoot(root) {
+  const backupRoot = `${root}.backup`;
+  if (!existsSync(root) && existsSync(backupRoot)) {
+    renameSync(backupRoot, root);
+  } else if (existsSync(root) && existsSync(backupRoot)) {
+    rmSync(backupRoot, { recursive: true, force: true });
+  }
+  return backupRoot;
+}
+
+export function _publishManagedPluginRoot(root, tempRoot) {
+  const backupRoot = recoverManagedPluginRoot(root);
+  let previousMoved = false;
+  try {
+    if (existsSync(root)) {
+      renameSync(root, backupRoot);
+      previousMoved = true;
+    }
+    renameSync(tempRoot, root);
+  } catch (error) {
+    if (!existsSync(root) && previousMoved && existsSync(backupRoot)) {
+      try {
+        renameSync(backupRoot, root);
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          `plugin publish and rollback both failed for ${root}`,
+        );
+      }
+    }
+    throw error;
+  }
+  try { rmSync(backupRoot, { recursive: true, force: true }); } catch {}
+}
+
 function materializePlugin(normalized, id, dataDir) {
   const root = join(installRoot(dataDir), id);
   if (normalized.type === 'local') {
     return { root: normalized.path, managed: false };
   }
-  const tempRoot = `${root}.tmp-${Date.now()}`;
-  if (existsSync(tempRoot)) rmSync(tempRoot, { recursive: true, force: true });
   mkdirSync(dirname(root), { recursive: true, mode: 0o700 });
+  recoverManagedPluginRoot(root);
+  cleanupManagedPartials(root);
+  const tempRoot = `${root}.tmp-${process.pid}-${randomUUID()}`;
   try {
     runGit(['clone', '--depth', '1', normalized.url, tempRoot]);
-    if (existsSync(root)) rmSync(root, { recursive: true, force: true });
-    renameSync(tempRoot, root);
+    _publishManagedPluginRoot(root, tempRoot);
   } catch (error) {
     try { rmSync(tempRoot, { recursive: true, force: true }); } catch {}
     throw error;
+  } finally {
+    cleanupManagedPartials(root);
   }
   return { root, managed: true };
 }
@@ -177,69 +258,107 @@ export function listRegisteredPlugins({ dataDir = resolvePluginData() } = {}) {
 export function addPlugin(sourceInput, { dataDir = resolvePluginData(), name } = {}) {
   const normalized = normalizeSource(sourceInput);
   const id = stableIdForSource(normalized.displaySource || normalized.url || normalized.path);
-  const registry = loadRegistry(dataDir);
-  const existing = registry.plugins.find((p) => p.id === id || clean(p.source) === clean(normalized.displaySource));
-  if (existing) return updatePlugin(existing.id, { dataDir });
-  const materialized = materializePlugin(normalized, id, dataDir);
-  const manifest = pluginManifest(materialized.root);
-  const entry = {
-    id,
-    source: normalized.displaySource,
-    url: normalized.url || null,
-    sourceType: normalized.type,
-    root: materialized.root,
-    managed: materialized.managed,
-    name: clean(name) || clean(manifest.name) || clean(manifest.id) || displayNameFromUrl(normalized.displaySource),
-    title: clean(manifest.title) || clean(manifest.displayName) || clean(name) || displayNameFromUrl(normalized.displaySource),
-    version: clean(manifest.version) || null,
-    description: clean(manifest.description),
-    installedAt: nowIso(),
-    updatedAt: nowIso(),
-  };
-  registry.plugins = [...registry.plugins, entry];
-  saveRegistry(registry, dataDir);
-  return enrichEntry(entry);
+  const initial = loadRegistry(dataDir);
+  const initialExisting = initial.plugins.find((plugin) =>
+    plugin.id === id || clean(plugin.source) === clean(normalized.displaySource));
+  const lockId = initialExisting?.id || id;
+  return withPluginMutation(dataDir, lockId, () => {
+    const currentRegistry = loadRegistry(dataDir);
+    const existing = currentRegistry.plugins.find((plugin) =>
+      plugin.id === id || clean(plugin.source) === clean(normalized.displaySource));
+    if (existing) return updatePluginLocked(existing, dataDir);
+    const materialized = materializePlugin(normalized, id, dataDir);
+    const manifest = pluginManifest(materialized.root);
+    const entry = {
+      id,
+      source: normalized.displaySource,
+      url: normalized.url || null,
+      sourceType: normalized.type,
+      root: materialized.root,
+      managed: materialized.managed,
+      name: clean(name) || clean(manifest.name) || clean(manifest.id) || displayNameFromUrl(normalized.displaySource),
+      title: clean(manifest.title) || clean(manifest.displayName) || clean(name) || displayNameFromUrl(normalized.displaySource),
+      version: clean(manifest.version) || null,
+      description: clean(manifest.description),
+      installedAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    return mutateRegistry(dataDir, (registry) => {
+      const duplicate = registry.plugins.findIndex((plugin) =>
+        plugin.id === id || clean(plugin.source) === clean(normalized.displaySource));
+      if (duplicate >= 0) {
+        entry.installedAt = registry.plugins[duplicate].installedAt || entry.installedAt;
+        registry.plugins[duplicate] = entry;
+      } else {
+        registry.plugins.push(entry);
+      }
+      return enrichEntry(entry);
+    });
+  });
+}
+
+function updatePluginLocked(current, dataDir) {
+  if (current.sourceType === 'local' || current.managed === false) {
+    return mutateRegistry(dataDir, (registry) => {
+      const index = registry.plugins.findIndex((plugin) => plugin.id === current.id);
+      if (index < 0) throw new Error(`plugin not registered: ${current.id}`);
+      const next = { ...enrichEntry(registry.plugins[index]), updatedAt: nowIso() };
+      registry.plugins[index] = next;
+      return next;
+    });
+  }
+  const normalized = normalizeSource(current.url || current.source);
+  const materialized = materializePlugin(normalized, current.id, dataDir);
+  return mutateRegistry(dataDir, (registry) => {
+    const index = registry.plugins.findIndex((plugin) => plugin.id === current.id);
+    if (index < 0) throw new Error(`plugin not registered: ${current.id}`);
+    const next = enrichEntry({
+      ...registry.plugins[index],
+      root: materialized.root,
+      managed: materialized.managed,
+      updatedAt: nowIso(),
+    });
+    registry.plugins[index] = next;
+    return next;
+  });
 }
 
 export function updatePlugin(idOrName, { dataDir = resolvePluginData() } = {}) {
   const key = clean(idOrName);
   if (!key) throw new Error('plugin id/name is required');
-  const registry = loadRegistry(dataDir);
-  const index = registry.plugins.findIndex((p) => p.id === key || p.name === key || p.title === key);
+  const initial = loadRegistry(dataDir);
+  const index = pluginIndex(initial, key);
   if (index < 0) throw new Error(`plugin not registered: ${key}`);
-  const current = registry.plugins[index];
-  if (current.sourceType === 'local' || current.managed === false) {
-    const next = { ...enrichEntry(current), updatedAt: nowIso() };
-    registry.plugins[index] = next;
-    saveRegistry(registry, dataDir);
-    return next;
-  }
-  const normalized = normalizeSource(current.url || current.source);
-  const materialized = materializePlugin(normalized, current.id, dataDir);
-  const next = {
-    ...current,
-    root: materialized.root,
-    managed: materialized.managed,
-    updatedAt: nowIso(),
-  };
-  registry.plugins[index] = enrichEntry(next);
-  saveRegistry(registry, dataDir);
-  return registry.plugins[index];
+  const id = initial.plugins[index].id;
+  return withPluginMutation(dataDir, id, () => {
+    const registry = loadRegistry(dataDir);
+    const currentIndex = registry.plugins.findIndex((plugin) => plugin.id === id);
+    if (currentIndex < 0) throw new Error(`plugin not registered: ${key}`);
+    return updatePluginLocked(registry.plugins[currentIndex], dataDir);
+  });
 }
 
 export function removePlugin(idOrName, { dataDir = resolvePluginData() } = {}) {
   const key = clean(idOrName);
   if (!key) throw new Error('plugin id/name is required');
-  const registry = loadRegistry(dataDir);
-  const index = registry.plugins.findIndex((p) => p.id === key || p.name === key || p.title === key);
+  const initial = loadRegistry(dataDir);
+  const index = pluginIndex(initial, key);
   if (index < 0) throw new Error(`plugin not registered: ${key}`);
-  const [entry] = registry.plugins.splice(index, 1);
-  if (entry.managed !== false && entry.root) {
-    ensureInside(installRoot(dataDir), entry.root);
-    rmSync(entry.root, { recursive: true, force: true });
-  }
-  saveRegistry(registry, dataDir);
-  return { ...entry, removed: true };
+  const id = initial.plugins[index].id;
+  return withPluginMutation(dataDir, id, () => {
+    const entry = mutateRegistry(dataDir, (registry) => {
+      const currentIndex = registry.plugins.findIndex((plugin) => plugin.id === id);
+      if (currentIndex < 0) throw new Error(`plugin not registered: ${key}`);
+      return registry.plugins.splice(currentIndex, 1)[0];
+    });
+    if (entry.managed !== false && entry.root) {
+      ensureInside(installRoot(dataDir), entry.root);
+      rmSync(entry.root, { recursive: true, force: true });
+      rmSync(`${entry.root}.backup`, { recursive: true, force: true });
+      cleanupManagedPartials(entry.root);
+    }
+    return { ...entry, removed: true };
+  });
 }
 
 export function pluginAdminStatus({ dataDir = resolvePluginData() } = {}) {

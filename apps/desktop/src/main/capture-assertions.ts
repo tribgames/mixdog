@@ -141,7 +141,6 @@ export interface LiveCaptureAssertions {
     large: SettingsPlacementAssertions;
     compact: SettingsPlacementAssertions;
     narrow: SettingsPhoneAssertions;
-    phone: SettingsPhoneAssertions;
   };
   lightTheme: LightThemeAssertions;
   modalStack: ModalStackAssertions;

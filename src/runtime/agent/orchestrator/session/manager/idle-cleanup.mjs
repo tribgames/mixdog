@@ -9,7 +9,6 @@ import {
     _clearSessionRuntime,
     _sweepTerminalSessionRuntimes,
 } from './runtime-liveness.mjs';
-import { _closeBashSessionLazy } from './runtime-loaders.mjs';
 import { nonNegativeIntEnv } from './env-utils.mjs';
 
 // --- Periodic idle session cleanup ---
@@ -53,9 +52,6 @@ export function _finalizeSweptSessionRuntime(detail) {
         || IN_FLIGHT_STAGES.has(rtEntry.stage)
     )) return false;
     _clearSessionRuntime(detail.id);
-    if (detail.bashSessionId) {
-        try { _closeBashSessionLazy(detail.bashSessionId, `idle-sweep:${detail.id}`); } catch { /* ignore */ }
-    }
     return true;
 }
 

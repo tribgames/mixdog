@@ -309,25 +309,13 @@ export function createLifecycleApi(deps) {
       const shellJobsStop = teardownReapsWork && globalThis.__mixdogShellJobsRuntimeLoaded === true
         ? import('../runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs')
           .then((mod) => mod?.shutdownShellJobs?.(reason, {
-            sync: !detach,
             ...(scopedTeardown ? { scope: { ownerSessionId: closingSessionId } } : {}),
           }))
-          .catch(() => {})
-        : null;
-      // Persistent bash sessions have their own bounded idle reaper but no
-      // owner metadata for explicit session_id values. A per-engine dispose
-      // therefore cannot safely select one; preserve the pool until the real
-      // process exit rather than killing another engine's shell.
-      const bashSessionsStop = isProcessExit && !keepBackgroundWork
-        && globalThis.__mixdogBashSessionRuntimeLoaded === true
-        ? import('../runtime/agent/orchestrator/tools/bash-session.mjs')
-          .then((mod) => mod?.shutdownBashSessions?.(reason))
           .catch(() => {})
         : null;
       if (detach) {
         try { await withTeardownDeadline(channelStop, 300, false); } catch {}
         try { await withTeardownDeadline(shellJobsStop, 300, false); } catch {}
-        try { await withTeardownDeadline(bashSessionsStop, 300, false); } catch {}
         try { await withTeardownDeadline(memoryStop, 1500, false); } catch {}
         for (const stop of [mcpStop, openaiWsStop, patchStop]) {
           Promise.resolve(stop).catch(() => {});
@@ -342,7 +330,6 @@ export function createLifecycleApi(deps) {
         withTeardownDeadline(patchStop, 1500, false),
         withTeardownDeadline(memoryStop, 5500, false),
         withTeardownDeadline(shellJobsStop, 1500, false),
-        withTeardownDeadline(bashSessionsStop, 1500, false),
       ]);
       onProcessExit();
       return ok;

@@ -585,8 +585,7 @@ fn plan_entry(
         EntryKind::Create => {
             let path = resolve_entry_path(base, &entry.new_file)?;
             let t = Instant::now();
-            let bytes = build_create_bytes(&entry)?;
-            let content_hash = sha256_hex(&bytes);
+            let mut bytes = build_create_bytes(&entry)?;
             let occupied = match fs::symlink_metadata(&path) {
                 Ok(metadata) => Some(metadata),
                 Err(err) if err.kind() == io::ErrorKind::NotFound => None,
@@ -602,6 +601,8 @@ fn plan_entry(
                 let snapshot = snapshot_from_metadata(&metadata);
                 let source = fs::read(&path)
                     .map_err(|e| format!("read Add File target {}: {e}", path.display()))?;
+                bytes = preserve_eol(&bytes, &source, &source);
+                let content_hash = sha256_hex(&bytes);
                 let elapsed_ms = t.elapsed().as_secs_f64() * 1000.0;
                 return Ok(PlannedEntry {
                     plan: PlannedWrite {
@@ -618,6 +619,7 @@ fn plan_entry(
                 });
             }
             let apply_ms = t.elapsed().as_secs_f64() * 1000.0;
+            let content_hash = sha256_hex(&bytes);
             Ok(PlannedEntry {
                 plan: PlannedWrite {
                     kind: EntryKind::Create,
@@ -1925,6 +1927,9 @@ fn preserve_eol(new_bytes: &[u8], slice: &[u8], file: &[u8]) -> Vec<u8> {
     let has_crlf = slice_str.contains("\r\n");
     let has_lf = slice_str.contains('\n');
     if !has_crlf && !has_lf {
+        if file.contains(&b'\r') && !file.contains(&b'\n') {
+            return new_str.replace("\r\n", "\n").replace('\n', "\r").into_bytes();
+        }
         // Single-line slice: only upgrade LF->CRLF when the WHOLE file is pure
         // CRLF (no bare LF); otherwise leave new untouched to avoid mixed-EOL.
         if !file.windows(2).any(|w| w == b"\r\n") {
@@ -2090,13 +2095,13 @@ fn hunk_old_lines_eof_relaxed(parts: &HunkParts) -> Vec<HunkLine> {
 }
 
 fn old_hunk_span_matches(parts: &HunkParts, span: &[u8]) -> Option<&'static str> {
-    for eol in ["\n", "\r\n"] {
+    for eol in ["\n", "\r\n", "\r"] {
         if span == hunk_lines_to_bytes(&parts.old, eol).as_slice() {
             return Some(eol);
         }
     }
     let relaxed = hunk_old_lines_eof_relaxed(parts);
-    ["\n", "\r\n"].into_iter().find(|&eol| span == hunk_lines_to_bytes(&relaxed, eol).as_slice()).map(|v| v as _)
+    ["\n", "\r\n", "\r"].into_iter().find(|&eol| span == hunk_lines_to_bytes(&relaxed, eol).as_slice()).map(|v| v as _)
 }
 
 fn newline_flags_compatible(
@@ -2514,12 +2519,41 @@ fn source_line_eol<'a>(source: &'a [u8], line: &SourceLine) -> Option<&'a str> {
     {
         return Some("\r\n");
     }
+    if source.get(line.body_end) == Some(&b'\r') {
+        return Some("\r");
+    }
     Some("\n")
 }
 
 fn split_source_lines(source: &[u8]) -> Vec<SourceLine> {
     let mut lines = Vec::new();
     let mut start = 0usize;
+    if source_uses_cr_only(source) {
+        while start < source.len() {
+            match memchr(b'\r', &source[start..]) {
+                Some(rel) => {
+                    let cr = start + rel;
+                    lines.push(SourceLine {
+                        start,
+                        body_end: cr,
+                        end: cr + 1,
+                        has_newline: true,
+                    });
+                    start = cr + 1;
+                }
+                None => {
+                    lines.push(SourceLine {
+                        start,
+                        body_end: source.len(),
+                        end: source.len(),
+                        has_newline: false,
+                    });
+                    break;
+                }
+            }
+        }
+        return lines;
+    }
     while start < source.len() {
         match memchr_lf(source, start) {
             Some(nl) => {
@@ -2567,7 +2601,7 @@ fn line_start_at(source: &[u8], target_line: usize, scan: &mut Scan) -> Option<u
         return None;
     }
     while scan.line < target_line {
-        match memchr_lf(source, scan.pos) {
+        match memchr_eol(source, scan.pos) {
             Some(nl) => {
                 scan.pos = nl + 1;
                 scan.line += 1;
@@ -2586,13 +2620,25 @@ fn memchr_lf(source: &[u8], start: usize) -> Option<usize> {
     memchr(b'\n', source.get(start..)?).map(|idx| start + idx)
 }
 
+fn source_uses_cr_only(source: &[u8]) -> bool {
+    source.contains(&b'\r') && !source.contains(&b'\n')
+}
+
+fn memchr_eol(source: &[u8], start: usize) -> Option<usize> {
+    if source_uses_cr_only(source) {
+        memchr(b'\r', source.get(start..)?).map(|idx| start + idx)
+    } else {
+        memchr_lf(source, start)
+    }
+}
+
 fn count_source_lines(source: &[u8]) -> usize {
     if source.is_empty() {
         return 0;
     }
     let mut n = 0usize;
     let mut pos = 0usize;
-    while let Some(nl) = memchr_lf(source, pos) {
+    while let Some(nl) = memchr_eol(source, pos) {
         n += 1;
         pos = nl + 1;
     }
@@ -2603,6 +2649,9 @@ fn count_source_lines(source: &[u8]) -> usize {
 }
 
 fn insertion_line_ending_at(source: &[u8], byte_offset: usize) -> &'static str {
+    if source_uses_cr_only(source) {
+        return "\r";
+    }
     if byte_offset >= 2 && source[byte_offset - 1] == b'\n' && source[byte_offset - 2] == b'\r' {
         return "\r\n";
     }
@@ -2615,12 +2664,15 @@ fn insertion_line_ending_at(source: &[u8], byte_offset: usize) -> &'static str {
 }
 
 fn source_ends_with_newline(source: &[u8]) -> bool {
-    source.last() == Some(&b'\n')
+    source.last() == Some(&b'\n') || (source_uses_cr_only(source) && source.last() == Some(&b'\r'))
 }
 
 /// The file's own line terminator, taken from its LAST terminator so a CRLF
 /// file keeps CRLF when a separator has to be synthesised at EOF.
 fn source_trailing_eol(source: &[u8]) -> &'static str {
+    if source_uses_cr_only(source) {
+        return "\r";
+    }
     match memrchr(b'\n', source) {
         Some(idx) if idx > 0 && source[idx - 1] == b'\r' => "\r\n",
         _ => "\n",
@@ -2631,6 +2683,8 @@ fn strip_trailing_eol(bytes: &mut Vec<u8>) {
     if bytes.ends_with(b"\r\n") {
         bytes.truncate(bytes.len() - 2);
     } else if bytes.ends_with(b"\n") {
+        bytes.truncate(bytes.len() - 1);
+    } else if bytes.ends_with(b"\r") {
         bytes.truncate(bytes.len() - 1);
     }
 }
@@ -2958,6 +3012,18 @@ mod tests {
 
         let applied = apply_exact_bytes(source, &entry, 2).expect("insert at CRLF EOF");
         assert_eq!(String::from_utf8_lossy(&applied.bytes), "one\r\ntwo\r\nthree");
+    }
+
+    #[test]
+    fn cr_only_update_preserves_cr() {
+        let source = b"hello\rworld\r";
+        let entry = Entry {
+            old_file: "f".to_string(),
+            new_file: "f".to_string(),
+            hunks: vec![hunk(1, &[" hello", "-world", "+WORLD"])],
+        };
+        let applied = apply_exact_bytes(source, &entry, 2).expect("cr-only update");
+        assert_eq!(&applied.bytes, b"hello\rWORLD\r");
     }
 
     #[test]

@@ -221,6 +221,49 @@ export async function applyUpdate(db, entryId, element, summary, options = {}) {
   return true
 }
 
+export async function applyLineage(db, entryId, predecessorId) {
+  const newerId = Number(entryId)
+  const olderId = Number(predecessorId)
+  if (!Number.isFinite(newerId) || !Number.isFinite(olderId) || newerId === olderId) return false
+  return await db.transaction(async (tx) => {
+    const valid = await tx.query(`
+      SELECT newer.id
+      FROM entries newer
+      JOIN entries older ON older.id = $2
+      WHERE newer.id = $1
+        AND newer.is_root = 1
+        AND older.is_root = 1
+        AND newer.project_id IS NOT DISTINCT FROM older.project_id
+        AND (older.ts < newer.ts OR (older.ts = newer.ts AND older.id < newer.id))
+    `, [newerId, olderId])
+    if (valid.rows.length === 0) return false
+    const concepts = await tx.query(`
+      SELECT concept_id FROM entry_concepts WHERE entry_id = $1
+      UNION
+      SELECT id AS concept_id FROM entries WHERE id = $1
+      UNION
+      SELECT concept_id FROM entries WHERE id = $1 AND concept_id IS NOT NULL
+    `, [olderId])
+    const conceptIds = [...new Set(concepts.rows.map(row => Number(row.concept_id)).filter(Number.isFinite))]
+    if (conceptIds.length === 0) return false
+    for (const conceptId of conceptIds) {
+      await tx.query(`
+        INSERT INTO entry_concepts(entry_id, concept_id, supersedes_id, created_at)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (entry_id, concept_id) DO UPDATE
+          SET supersedes_id = EXCLUDED.supersedes_id
+      `, [newerId, conceptId, olderId, Date.now()])
+    }
+    await tx.query(`
+      UPDATE entries
+      SET concept_id = COALESCE(concept_id, $2),
+          supersedes_id = COALESCE(supersedes_id, $3)
+      WHERE id = $1 AND is_root = 1
+    `, [newerId, conceptIds[0], olderId])
+    return true
+  })
+}
+
 export async function applyMerge(db, targetId, sourceIds, options = {}) {
   const signal = options?.signal
   throwIfAborted(signal)

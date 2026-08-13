@@ -331,6 +331,8 @@ export async function createMixdogSessionRuntime({
   cwd = process.cwd(),
   toolMode = 'full',
   approvalMode = null,
+  disallowDelegation = false,
+  initialConfig = null,
   remote = false,
   desktopSession: initialDesktopSession = null,
   agentSession = null,
@@ -339,6 +341,7 @@ export async function createMixdogSessionRuntime({
   // modules can read/write live values through one reference.
   const rt = {};
   rt.approvalMode = approvalMode === 'implicit' ? 'implicit' : null;
+  rt.disallowDelegation = disallowDelegation === true;
   rt.mcpScopeId = randomUUID();
   rt.desktopSession = initialDesktopSession;
   // Agent shard spread: a daemon-hosted worker runtime carries the resolved
@@ -514,7 +517,9 @@ export async function createMixdogSessionRuntime({
   }
 
   const configStartedAt = performance.now();
-  rt.config = cfgMod.loadConfig({ secrets: false });
+  rt.config = initialConfig && typeof initialConfig === 'object'
+    ? initialConfig
+    : cfgMod.loadConfig({ secrets: false });
   setConfiguredShell(normalizeSystemShellConfig(rt.config.shell).command);
   rt.configHasSecrets = false;
   rt.route = resolveRoute(rt.config, { provider, model });

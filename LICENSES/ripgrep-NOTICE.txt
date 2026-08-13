@@ -1,0 +1,6 @@
+This project includes code from ripgrep's grep library crates,
+licensed under the MIT License or the Unlicense.
+
+Copyright (c) 2015 Andrew Gallant
+
+See LICENSES/MIT.txt for the MIT license text.

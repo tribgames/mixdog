@@ -712,7 +712,7 @@ function guardTask(a) {
     const action = typeof a.action === 'string'
         ? a.action.trim().toLowerCase()
         : (hasOwn(a, 'action') ? a.action : (hasOwn(a, 'task_id') ? 'status' : 'list'));
-    if (hasOwn(a, 'action') && !['list', 'status', 'read', 'check_after', 'wait', 'cancel'].includes(action)) {
+    if (hasOwn(a, 'action') && !['list', 'status', 'read', 'check_after', 'cancel'].includes(action)) {
         return `Error: task arg "action" must be one of list|status|read|check_after|cancel (got ${JSON.stringify(a.action)})`;
     }
     if (action === 'list') return null;
@@ -721,12 +721,6 @@ function guardTask(a) {
     }
     if (typeof a.task_id !== 'string' || a.task_id.trim().length === 0) {
         return `Error: task arg "task_id" must be a non-empty string (got ${describeType(a.task_id)})`;
-    }
-    if (action === 'wait') {
-        if (!hasOwn(a, 'timeout_ms')) {
-            return 'Error: task action "wait" requires explicit "timeout_ms"';
-        }
-        return checkIntInRange(a, 'timeout_ms', 1, 2_147_483_647);
     }
     if (action === 'check_after') {
         if (!hasOwn(a, 'after_ms')) {

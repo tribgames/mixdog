@@ -50,7 +50,7 @@ export function normalizedWorkspace(value: unknown): DesktopWorkspace | null {
         ? folderName(workspaceFile).replace(/\.code-workspace$/i, '')
         : folders.length === 1
           ? folders[0].name || folderName(folders[0].path)
-          : 'Workspace',
+          : 'Project',
     ...(workspaceFile ? { workspaceFile } : {}),
     folders,
   };
@@ -69,7 +69,7 @@ export function workspaceWithFolder(
     kind: workspace.workspaceFile || folders.length > 1 ? 'workspace' : 'folder',
     name: workspace.workspaceFile
       ? workspace.name
-      : folders.length === 1 ? folders[0].name || folderName(folders[0].path) : 'Untitled Workspace',
+      : folders.length === 1 ? folders[0].name || folderName(folders[0].path) : 'Untitled Project',
     folders,
   };
 }
@@ -113,7 +113,7 @@ export function useWorkbenchWorkspace(fallbackFolder: string) {
       }
       : {
         kind: 'empty',
-        name: 'Workspace',
+        name: 'Project',
         folders: [],
       };
   }, [explicitWorkspace, fallbackFolder]);
@@ -156,7 +156,7 @@ export function useWorkbenchWorkspace(fallbackFolder: string) {
           : folders.length === 1 ? 'folder' : 'empty',
         name: source.workspaceFile
           ? source.name
-          : folders.length === 1 ? folders[0].name || folderName(folders[0].path) : 'Workspace',
+          : folders.length === 1 ? folders[0].name || folderName(folders[0].path) : 'Project',
         folders,
       };
     });
@@ -173,7 +173,7 @@ export function useWorkbenchWorkspace(fallbackFolder: string) {
   const closeWorkspace = useCallback(() => {
     setExplicitWorkspace({
       kind: 'empty',
-      name: 'Workspace',
+      name: 'Project',
       folders: [],
     });
   }, []);

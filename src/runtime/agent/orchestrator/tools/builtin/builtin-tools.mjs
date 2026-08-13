@@ -32,7 +32,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Known-file contents or line ranges absent from prior output; never pair with same-span search. Images render for viewing; not directories. Replaces cat/head/tail.',
+        description: 'Known-file contents or line ranges. Images render for viewing; not directories. Replaces cat/head/tail.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -75,7 +75,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Mixdog Shell',
         annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: 'Run executable/runtime/state operations or generate computed artifacts. Never explore files with shell (NOT ls/find/cat/head/tail/grep/rg/sed); use file tools.',
+        description: 'Run programs and runtime/state operations; perform calculations, transform data, generate computed files, or inspect formats unsupported by file tools. Do not use for ordinary file-content inspection. Tracked sync/async commands belong to the current run; only a service explicitly required after the run exits should be shell-detached (for example, nohup ... &).',
         inputSchema: {
             type: 'object',
             properties: {
@@ -112,7 +112,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'File-content literal/regex search for unknown source locations; contextual path:line blocks are directly usable—read only omitted lines. Replaces grep/rg.',
+        description: 'Search file contents for literal or regex matches; contextual path:line blocks are directly usable—read only omitted lines. Replaces grep/rg.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -150,7 +150,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Mixdog Glob',
         annotations: { title: 'Mixdog Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Known-base wildcard paths; returns paths only. Replaces find -name.',
+        description: 'Return wildcard-matching paths under a known base when those paths are needed. Replaces find -name.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -179,7 +179,7 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Mixdog Find Files',
         annotations: { title: 'Mixdog Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Fuzzy filename/directory path-string lookup; returns paths only. No source-content, symbol, value, or line search.',
+        description: 'Fuzzy filename/directory path lookup when the location itself is unknown; returns paths only. No source-content, symbol, value, or line search.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -202,7 +202,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'Mixdog List Directory',
         annotations: { title: 'Mixdog List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Known-directory immediate entries (path + type); no wildcard. Replaces ls; meta:true adds size/mtime/mode.',
+        description: "Return a known directory's immediate entries (path + type) when the entry list itself is needed; not a prerequisite for another tool on that directory. No wildcard; meta:true adds size/mtime/mode.",
         inputSchema: {
             type: 'object',
             properties: {

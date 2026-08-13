@@ -1,0 +1,5 @@
+{
+  "version": "0.1.0",
+  "_comment": "Bootstrap marker. The spawn-v0.1.0 release must replace this empty asset set before an application release can pass its native asset gate.",
+  "assets": {}
+}

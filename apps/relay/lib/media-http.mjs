@@ -64,12 +64,30 @@ export function parseRange(header, size) {
  *
  * Pure: the relay leg ships this plan across the desktop socket while the
  * Electron media protocol uses the same cache and range rules.
+ * @param {{
+ *   size: number,
+ *   mime: string,
+ *   assetId: string,
+ *   variant: string,
+ *   rangeHeader?: string | string[] | null,
+ *   ifNoneMatch?: string | string[] | null,
+ *   cacheControl?: string,
+ * }} input
  */
-export function mediaResponsePlan({ size, mime, assetId, variant, rangeHeader, ifNoneMatch }) {
+export function mediaResponsePlan(input) {
+  const {
+    size,
+    mime,
+    assetId,
+    variant,
+    rangeHeader,
+    ifNoneMatch,
+    cacheControl = CACHE_CONTROL,
+  } = input;
   const etag = mediaEtag(assetId, variant, size);
   const headers = {
     'Content-Type': mime || 'application/octet-stream',
-    'Cache-Control': CACHE_CONTROL,
+    'Cache-Control': cacheControl,
     'Accept-Ranges': 'bytes',
     ETag: etag,
   };

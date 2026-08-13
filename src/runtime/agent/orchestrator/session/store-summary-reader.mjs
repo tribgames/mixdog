@@ -350,7 +350,6 @@ function normalizedRow(row, heartbeatAt = 0) {
         title: cleanText(row.title, 100),
         preview: cleanText(row.preview),
         generation: typeof row.generation === 'number' ? row.generation : 0,
-        implicitBashSessionId: row.implicitBashSessionId || null,
         storageMtimeMs: positiveNumber(row.storageMtimeMs, 0),
         storageSize: positiveNumber(row.storageSize, 0),
         detachedReason: row.detachedReason || null,

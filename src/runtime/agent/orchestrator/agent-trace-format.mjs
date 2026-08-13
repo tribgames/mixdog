@@ -139,7 +139,7 @@ const TOOL_ARG_KEYS = {
     search: ['query', 'limit', 'cwd'],
     code_graph: ['mode', 'file', 'files', 'symbol', 'symbols', 'body', 'language', 'limit', 'depth', 'page', 'cwd'],
     shell: ['command', 'cwd', 'timeout', 'mode', 'run_in_background', 'persistent', 'session_id'],
-    task: ['task_id', 'action', 'after_ms', 'timeout_ms', 'poll_ms'],
+    task: ['task_id', 'action', 'after_ms'],
     edit: ['path', 'replace_all', 'edits'],
     edit_many: ['edits'],
     write: ['path'],

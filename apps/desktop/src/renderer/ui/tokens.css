@@ -9,6 +9,10 @@
   --mx-radius-sm: 3px;
   --mx-radius-md: 6px;
   --mx-radius-lg: 10px;
+  --mx-radius-xl: 12px;
+  --mx-radius-sheet: 16px;
+  --mx-radius-pill: 999px;
+  --mx-radius-hair: 2px;
   --mx-control-xs: 24px;
   --mx-control-sm: 28px;
   --mx-control-md: 32px;
@@ -17,8 +21,8 @@
      lucide `size={}` literals in TSX are snapped to these values: lucide
      takes a JS prop, so the tokens cannot drive it and this block is the
      spec the call sites follow. xs = inline counters/badge glyphs, sm = row
-     and menu glyphs, md = control/toolbar glyphs, lg = pane-header and rail
-     toggles, xl = activity-rail destinations, 2xl = empty-state marks.
+     and menu glyphs, md = control/toolbar glyphs, lg = pane-header toggles,
+     xl = 20px row marks, 2xl = activity-rail destinations and empty-state marks.
      Anything above 2xl (26/28/40/72/96) is a content illustration, not an
      icon, and stays literal like the content font sizes. */
   --mx-icon-xs: 12px;

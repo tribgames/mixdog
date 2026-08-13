@@ -87,6 +87,28 @@ function gitEnvironment(indexFile?: string, protectHook = false): NodeJS.Process
   return env;
 }
 
+export function scrubGitCredentials(value: unknown): string {
+  return String(value || '')
+    .replace(/\b(https?|ssh):\/\/[^/\s@]+@/giu, '$1://[redacted]@')
+    .replace(/([?&](?:access_token|api[_-]?key|auth|password|secret|signature|token)=)[^&\s'"]+/giu, '$1[redacted]');
+}
+
+export function publicGitRemoteUrl(value: unknown): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw);
+    if (!['http:', 'https:', 'ssh:'].includes(parsed.protocol)) return scrubGitCredentials(raw);
+    parsed.username = '';
+    parsed.password = '';
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return scrubGitCredentials(raw);
+  }
+}
+
 function run(
   cwd: string,
   args: string[],
@@ -100,7 +122,7 @@ function run(
       maxBuffer: 16_000_000,
       env: gitEnvironment(indexFile, protectHook),
     }, (error, stdout, stderr) => {
-      if (error) reject(new Error(String(stderr || error.message).trim()));
+      if (error) reject(new Error(scrubGitCredentials(stderr || error.message).trim()));
       else resolve(String(stdout));
     });
   });
@@ -130,7 +152,7 @@ function runWithStatus(cwd: string, args: string[]): Promise<GitOutcome> {
       settle({
         code: error ? (typeof raw === 'number' ? raw : -1) : 0,
         stdout: String(stdout),
-        stderr: String(stderr || error?.message || '').trim(),
+        stderr: scrubGitCredentials(stderr || error?.message || '').trim(),
       });
     });
   });
@@ -173,7 +195,7 @@ function runWithInput(
       if (settled) return;
       settled = true;
       if (code !== 0) {
-        reject(new Error(stderr.trim() || `git exited with code ${code}.`));
+        reject(new Error(scrubGitCredentials(stderr).trim() || `git exited with code ${code}.`));
         return;
       }
       resolvePromise(stdout);
@@ -220,7 +242,7 @@ function streamNulRecords(
       if (settled) return;
       settled = true;
       if (code !== 0) {
-        reject(new Error(stderr.trim() || `git exited with code ${code}.`));
+        reject(new Error(scrubGitCredentials(stderr).trim() || `git exited with code ${code}.`));
         return;
       }
       if (pending) onRecord(pending);
@@ -442,7 +464,7 @@ export async function gitStatus(cwd: string): Promise<GitStatusResult> {
   const remoteNames = remotesRaw.trim().split(/\r?\n/).filter(Boolean);
   const primaryRemote = remoteNames.includes('origin') ? 'origin' : remoteNames[0] || '';
   const remoteUrl = primaryRemote
-    ? (await run(cwd, ['remote', 'get-url', primaryRemote]).catch(() => '')).trim()
+    ? publicGitRemoteUrl(await run(cwd, ['remote', 'get-url', primaryRemote]).catch(() => ''))
     : '';
 
   const [stagedStats, unstagedStats] = await Promise.all([
@@ -2165,11 +2187,11 @@ export async function gitPush(cwd: string): Promise<string> {
 }
 
 function readableRemoteError(reason: unknown): Error {
-  const message = reason instanceof Error ? reason.message : String(reason);
+  const message = scrubGitCredentials(reason instanceof Error ? reason.message : String(reason));
   if (/authentication failed|could not read username|terminal prompts disabled|permission denied|publickey/i.test(message)) {
     return new Error('Git authentication is required. Sign in with your Git credential helper and retry.');
   }
-  return reason instanceof Error ? reason : new Error(message);
+  return new Error(message);
 }
 
 async function remoteAction(cwd: string, args: string[]): Promise<string> {

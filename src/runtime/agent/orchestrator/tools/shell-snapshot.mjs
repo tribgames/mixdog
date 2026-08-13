@@ -11,7 +11,6 @@
 // Scope: bash and zsh only, no embedded
 // search-tool injection (mixdog ships its own grep/glob helpers).
 
-import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, statSync, readFileSync, unlinkSync } from 'node:fs';
 import { readdir as readdirAsync, stat as statAsync, unlink as unlinkAsync } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -19,6 +18,7 @@ import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { getPluginData } from '../config.mjs';
 import { scrubLoaderVars, scrubProviderSecrets, scrubRuntimeRootVars } from './env-scrub.mjs';
+import { spawnShellWithRetry } from './lib/shell-spawn-retry.mjs';
 
 const SNAPSHOT_TIMEOUT_MS = 10_000;
 
@@ -149,8 +149,7 @@ exit 0
 `;
 }
 
-function _runSnapshot(shellPath, snapshotPath, configFileExists) {
-  return new Promise((resolve) => {
+async function _runSnapshot(shellPath, snapshotPath, configFileExists) {
     const script = getSnapshotScript(shellPath, snapshotPath, configFileExists);
     let stderrBuf = '';
     // Mirror reference implementation (bash/ShellSnapshot.ts:458):
@@ -162,7 +161,7 @@ function _runSnapshot(shellPath, snapshotPath, configFileExists) {
     // without triggering completion init. The script also explicitly sources
     // the rc file, so the interactive-guard `[[ $- == *i* ]] && return` is
     // accepted as a known tradeoff (matches the reference choice).
-    const child = spawn(shellPath, ['-c', '-l', script], {
+    const env = (() => {
       // P3 fix: blank prompts so an interactive sourcing in -ic does not
       // print PS1 / PS2 / RPROMPT / PROMPT noise to stderr (which our
       // failure log truncates to 200 chars and tags as "snapshot failed"
@@ -173,7 +172,6 @@ function _runSnapshot(shellPath, snapshotPath, configFileExists) {
       // snapshot child sources the user's rc file, so NODE_OPTIONS /
       // LD_PRELOAD / BASH_ENV here would inject into every subsequent
       // bash command that uses this snapshot.
-      env: (() => {
         const e = scrubLoaderVars({
           ...process.env,
           SHELL: shellPath,
@@ -194,21 +192,37 @@ function _runSnapshot(shellPath, snapshotPath, configFileExists) {
         // Runtime-root isolation — see env-scrub.mjs scrubRuntimeRootVars.
         scrubRuntimeRootVars(e);
         return e;
-      })(),
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+      })();
+    let spawned;
+    try {
+      spawned = await spawnShellWithRetry({
+        shell: shellPath,
+        argv: ['-c', '-l', script],
+        shellArg: '-c',
+        cwd: process.cwd(),
+        spawnOptions: { env, cwd: process.cwd() },
+      });
+    } catch {
+      return null;
+    }
+    const child = spawned.child;
     child.stderr.setEncoding('utf-8');
     child.stderr.on('data', (s) => {
       stderrBuf += s;
     });
-    const timer = setTimeout(() => {
-      try {
-        child.kill('SIGTERM');
-      } catch {}
-    }, SNAPSHOT_TIMEOUT_MS);
-    if (timer.unref) timer.unref();
-    child.once('exit', (code) => {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      };
+      const timer = setTimeout(() => {
+        try { child.kill(); } catch {}
+      }, SNAPSHOT_TIMEOUT_MS);
+      if (timer.unref) timer.unref();
+      child.once('close', (code) => {
       clearTimeout(timer);
       if (code === 0 && existsSync(snapshotPath)) {
         // P3 fix: payload-aware sentinel. Header bytes alone (~80) plus
@@ -230,11 +244,11 @@ function _runSnapshot(shellPath, snapshotPath, configFileExists) {
             );
           } catch {}
           try { unlinkSync(snapshotPath); } catch {}
-          resolve(null);
+          finish(null);
           return;
         }
         _registerSnapshotCleanup(snapshotPath);
-        resolve(snapshotPath);
+        finish(snapshotPath);
       } else {
         try {
           process.stderr.write(
@@ -243,14 +257,11 @@ function _runSnapshot(shellPath, snapshotPath, configFileExists) {
         } catch {}
         // Failure branch may have left a partially-written file behind.
         try { unlinkSync(snapshotPath); } catch {}
-        resolve(null);
+        finish(null);
       }
+      });
+      child.once('error', () => finish(null));
     });
-    child.once('error', () => {
-      clearTimeout(timer);
-      resolve(null);
-    });
-  });
 }
 
 // Returns the snapshot file path for the given shell, generating one on

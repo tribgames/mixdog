@@ -1,5 +1,4 @@
 import * as http from "http";
-import { randomUUID } from "crypto";
 import { logWebhook } from "./webhook/log.mjs";
 import { SIGNATURE_HEADERS, extractSignature, STRIPE_TOLERANCE_MS, verifySignature } from "./webhook/signature.mjs";
 import {
@@ -9,10 +8,12 @@ import {
   updateDeliveryStatus,
 } from "../../shared/webhooks-db.mjs";
 import {
-  extractDeliveryId,
+  contentDeliveryId,
   buildHeadersSummary,
 } from "./webhook/deliveries.mjs";
 import { resolveHookRelayUrl, startHookTunnel } from "./webhook/relay-tunnel.mjs";
+
+const WEBHOOK_BIND_HOST = "127.0.0.1";
 
 class WebhookServer {
   config;
@@ -169,7 +170,10 @@ class WebhookServer {
       // Signature has accepted the raw bytes; decode to a UTF-8 string for
       // content-type / JSON / preview handling below.
       const body = rawBody.length === 0 ? "" : rawBody.toString("utf8");
-      deliveryId = extractDeliveryId(headers) || `gen-${randomUUID()}`;
+      // Signature schemes authenticate the body, not delivery-id headers.
+      // Claim by body digest so a captured valid body/signature cannot bypass
+      // dedup merely by changing x-request-id or x-github-delivery.
+      deliveryId = contentDeliveryId(rawBody);
       // Atomic claim + dedup in one step: INSERT ... ON CONFLICT DO NOTHING.
       // A concurrent duplicate POST of the same id loses the race
       // (claimed:false) and is rejected flat, so the first run is never
@@ -306,10 +310,10 @@ class WebhookServer {
     const maxPort = basePort + 7;
     let currentPort = basePort;
     const tryListen = () => {
-      this.server.listen(currentPort, () => {
+      this.server.listen(currentPort, WEBHOOK_BIND_HOST, () => {
         this.listenInFlight = false;
         this.boundPort = currentPort;
-        logWebhook(`listening on port ${currentPort}`);
+        logWebhook(`listening on ${WEBHOOK_BIND_HOST}:${currentPort}`);
         this._startHookTunnel();
       });
     };
@@ -491,6 +495,7 @@ ${payload}
 }
 export {
   WebhookServer,
+  WEBHOOK_BIND_HOST,
   // Exported for scripts/webhook-smoke.mjs unit coverage. No behavior
   // change — these were previously module-private.
   extractSignature,

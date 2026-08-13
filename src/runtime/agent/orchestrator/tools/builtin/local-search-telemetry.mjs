@@ -28,6 +28,17 @@ export function recordLocalSearchBackend(backend, durationMs, outcome) {
     addNumber(target, `${name}_ms`, durationMs);
 }
 
+export function recordNativeSearchTiming(served) {
+    const target = current();
+    if (!target || !served || typeof served !== 'object') return;
+    const requestClass = ['bulk', 'fuzzy'].includes(served.requestClass)
+        ? served.requestClass
+        : 'interactive';
+    target[`native_${requestClass}_requests`] = (Number(target[`native_${requestClass}_requests`]) || 0) + 1;
+    addNumber(target, `native_${requestClass}_queue_ms`, served.queueMs);
+    addNumber(target, `native_${requestClass}_handler_ms`, served.handlerMs);
+}
+
 export function recordLocalSearchCacheHit(layer) {
     const target = current();
     if (!target) return;

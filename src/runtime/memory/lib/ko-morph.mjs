@@ -17,6 +17,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
+import { createHash } from 'node:crypto'
+import { readResponseBuffer } from '../../shared/bounded-download.mjs'
 
 // Pinned model release. The WASM package version (kiwi-nlp in package.json) and
 // this model version are independent; base model is format-stable across the
@@ -30,6 +32,9 @@ import zlib from 'node:zlib'
 const KIWI_MODEL_VERSION = 'v0.21.0'
 const KIWI_MODEL_ASSET = `kiwi_model_${KIWI_MODEL_VERSION}_base.tgz`
 const KIWI_MODEL_URL = `https://github.com/bab2min/Kiwi/releases/download/${KIWI_MODEL_VERSION}/${KIWI_MODEL_ASSET}`
+const KIWI_MODEL_ARCHIVE_BYTES = 35_791_770
+const KIWI_MODEL_ARCHIVE_SHA256 = '87c7ed775a84bf05399a66e60ca01b83b18d78ab9a4145c37efc84115577c51d'
+const KIWI_MODEL_TAR_MAX_BYTES = 64 * 1024 * 1024
 
 // Model files KiwiBuilder.build({ modelFiles }) needs from the extracted
 // archive (v0.21.0 base layout: KnLM = sj.knlm + sj.morph).
@@ -38,6 +43,7 @@ const REQUIRED_MODEL_FILES = [
 ]
 // Optional files loaded when present (loadMultiDict / loadTypoDict defaults).
 const OPTIONAL_MODEL_FILES = ['multi.dict', 'skipbigram.mdl', 'typo.dict']
+const ALLOWED_MODEL_FILES = new Set([...REQUIRED_MODEL_FILES, ...OPTIONAL_MODEL_FILES])
 
 // Content-morpheme POS tags whose stems are worth indexing against search_tsv.
 // NNG/NNP nouns, VV/VA predicate stems, XR root, SL foreign(latin) — matches
@@ -88,35 +94,76 @@ function hasAllRequired(dir) {
   } catch { return false }
 }
 
-// Minimal POSIX/ustar tar reader over an already-gunzipped buffer. Avoids a
-// node-tar dependency for a one-shot boot extraction. Handles regular files
-// (typeflag '0'/'\0') and the GNU/pax long-name records well enough for the
-// flat Kiwi model archive (all entries live under a single top-level dir).
-function extractTar(buf, destDir) {
+// Minimal POSIX/ustar tar reader over an already-gunzipped buffer. The pinned
+// model has one `base/` directory and a fixed file set; reject links, devices,
+// duplicate names, truncation, and unexpected files before writing anything.
+export function _extractTar(buf, destDir) {
   let offset = 0
-  const written = []
+  let ended = false
+  const entries = []
+  const seen = new Set()
   while (offset + 512 <= buf.length) {
     const header = buf.subarray(offset, offset + 512)
     // Two consecutive zero blocks mark end of archive.
-    if (header.every(b => b === 0)) break
+    if (header.every(b => b === 0)) {
+      ended = true
+      break
+    }
     let name = header.subarray(0, 100).toString('utf8').replace(/\0.*$/, '')
     const sizeStr = header.subarray(124, 136).toString('utf8').replace(/\0.*$/, '').trim()
-    const size = parseInt(sizeStr, 8) || 0
+    if (sizeStr && !/^[0-7]+$/.test(sizeStr)) throw new Error(`kiwi model tar has invalid size: ${name}`)
+    const size = sizeStr ? parseInt(sizeStr, 8) : 0
     const typeflag = String.fromCharCode(header[156]) || '0'
     // ustar prefix (name continuation) at 345..500.
     const prefix = header.subarray(345, 500).toString('utf8').replace(/\0.*$/, '')
     if (prefix) name = `${prefix}/${name}`
     offset += 512
+    if (!Number.isSafeInteger(size) || size < 0 || offset + size > buf.length) {
+      throw new Error(`kiwi model tar entry is truncated: ${name}`)
+    }
     const body = buf.subarray(offset, offset + size)
     offset += Math.ceil(size / 512) * 512
-    if (typeflag !== '0' && typeflag !== '\0' && typeflag !== '') continue
-    // Flatten: take basename only; the archive nests files under one dir.
-    const base = name.split('/').filter(Boolean).pop()
-    if (!base) continue
-    fs.writeFileSync(path.join(destDir, base), body)
-    written.push(base)
+    if (offset > buf.length) throw new Error(`kiwi model tar padding is truncated: ${name}`)
+    if (typeflag === '5') {
+      if (name !== 'base/' && name !== 'base') throw new Error(`kiwi model tar has unexpected directory: ${name}`)
+      continue
+    }
+    if (typeflag !== '0' && typeflag !== '\0' && typeflag !== '') {
+      throw new Error(`kiwi model tar has unsupported entry type: ${name}`)
+    }
+    if (name.includes('\\')) throw new Error(`kiwi model tar has unsafe entry path: ${name}`)
+    const parts = name.split('/').filter(Boolean)
+    const base = parts[1]
+    if (parts.length !== 2 || parts[0] !== 'base' || !ALLOWED_MODEL_FILES.has(base)) {
+      throw new Error(`kiwi model tar has unexpected file: ${name}`)
+    }
+    if (seen.has(base)) throw new Error(`kiwi model tar has duplicate file: ${base}`)
+    seen.add(base)
+    entries.push({ base, body })
   }
-  return written
+  if (!ended) throw new Error('kiwi model tar is missing its end marker')
+  for (const required of REQUIRED_MODEL_FILES) {
+    if (!seen.has(required)) throw new Error(`kiwi model tar is missing required file: ${required}`)
+  }
+  for (const { base, body } of entries) fs.writeFileSync(path.join(destDir, base), body)
+  return entries.map(({ base }) => base)
+}
+
+export function _verifyKiwiModelArchive(gz, {
+  expectedBytes = KIWI_MODEL_ARCHIVE_BYTES,
+  expectedSha256 = KIWI_MODEL_ARCHIVE_SHA256,
+  maxTarBytes = KIWI_MODEL_TAR_MAX_BYTES,
+} = {}) {
+  if (gz.byteLength !== expectedBytes) {
+    throw new Error(`kiwi model archive size mismatch: expected ${expectedBytes}, got ${gz.byteLength}`)
+  }
+  const actualSha256 = createHash('sha256').update(gz).digest('hex')
+  if (actualSha256 !== expectedSha256) throw new Error('kiwi model archive sha256 mismatch')
+  try {
+    return zlib.gunzipSync(gz, { maxOutputLength: maxTarBytes })
+  } catch (error) {
+    throw new Error('kiwi model archive decompression failed or exceeds its limit', { cause: error })
+  }
 }
 
 async function downloadAndExtractModel(dataDir) {
@@ -124,11 +171,17 @@ async function downloadAndExtractModel(dataDir) {
   if (hasAllRequired(dir)) return dir
   fs.mkdirSync(dir, { recursive: true })
   _log(`[memory-service] kiwi model missing — downloading ${KIWI_MODEL_ASSET} (~35MB) once\n`)
-  const res = await fetch(KIWI_MODEL_URL, { redirect: 'follow' })
+  const res = await fetch(KIWI_MODEL_URL, {
+    redirect: 'follow',
+    signal: AbortSignal.timeout(180_000),
+  })
   if (!res.ok) throw new Error(`kiwi model download HTTP ${res.status}`)
-  const gz = Buffer.from(await res.arrayBuffer())
-  const tar = zlib.gunzipSync(gz)
-  extractTar(tar, dir)
+  const gz = await readResponseBuffer(res, {
+    maxBytes: KIWI_MODEL_ARCHIVE_BYTES,
+    label: 'kiwi model download',
+  })
+  const tar = _verifyKiwiModelArchive(gz)
+  _extractTar(tar, dir)
   if (!hasAllRequired(dir)) {
     throw new Error(`kiwi model extract incomplete under ${dir}`)
   }

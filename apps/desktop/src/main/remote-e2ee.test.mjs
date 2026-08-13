@@ -8,6 +8,7 @@ import {
   acceptRelayE2EEClientHello,
   createRelayE2EEChallenge,
   createRelayE2EEClientHandshake,
+  isRelayE2EEHello,
   relayE2EEPairingMaterial,
 } from '../shared/remote-e2ee';
 import {
@@ -33,10 +34,42 @@ test('authenticates, encrypts both directions, and rejects replay', async () => 
   const request = await client.channel.encryptJson({ method: 'listProjects', params: [] });
   assert.deepEqual(await server.decryptJson(request), { method: 'listProjects', params: [] });
   await assert.rejects(() => server.decryptJson(request), /replayed/);
+  await assert.rejects(
+    () => server.decryptJson(JSON.stringify({
+      type: 'e2ee-box',
+      version: 1,
+      sequence: 2,
+      nonce: 'A'.repeat(17),
+      ciphertext: 'A'.repeat(22),
+    })),
+    /Expected an encrypted relay frame/,
+  );
 
   const response = await server.encryptJson({ id: 1, ok: true });
   assert.deepEqual(await client.channel.decryptJson(response), { id: 1, ok: true });
   assert.doesNotMatch(request, /listProjects/);
+});
+
+test('rejects oversized handshake fields before cryptographic work', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-e2ee-shape-'));
+  const identity = await loadOrCreateRelayE2EEIdentity(dir);
+  const challenge = createRelayE2EEChallenge();
+  const client = await createRelayE2EEClientHandshake(
+    relayE2EEPairingMaterial(identity),
+    challenge,
+  );
+  assert.equal(isRelayE2EEHello(client.hello), true);
+  assert.equal(isRelayE2EEHello({ ...client.hello, challenge: `${client.hello.challenge}A` }), false);
+  assert.equal(isRelayE2EEHello({ ...client.hello, clientPublicKey: `${client.hello.clientPublicKey}A` }), false);
+  assert.equal(isRelayE2EEHello({ ...client.hello, proof: `${client.hello.proof}A` }), false);
+  await assert.rejects(
+    () => acceptRelayE2EEClientHello(
+      identity,
+      challenge,
+      { ...client.hello, proof: `${client.hello.proof}A` },
+    ),
+    /authentication failed/,
+  );
 });
 
 test('rejects a client that does not possess the fragment secret', async () => {

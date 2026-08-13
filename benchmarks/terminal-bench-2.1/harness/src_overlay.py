@@ -161,14 +161,19 @@ def _collect_source_entries(
                 )
                 walk(source, parts)
             elif stat.S_ISREG(info.st_mode):
+                relative_name = "/".join(parts)
                 entries.append(
                     _SourceEntry(
                         source,
                         archive_name,
                         (
-                            tracked_modes.get("/".join(parts), 0o644)
-                            if os.name == "nt"
-                            else stat.S_IMODE(info.st_mode)
+                            0o755
+                            if relative_name == "cli.mjs"
+                            else (
+                                tracked_modes.get(relative_name, 0o644)
+                                if os.name == "nt"
+                                else stat.S_IMODE(info.st_mode)
+                            )
                         ),
                         info.st_size,
                         False,

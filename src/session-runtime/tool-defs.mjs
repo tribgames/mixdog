@@ -17,7 +17,7 @@ export const TOOL_SEARCH_TOOL = {
   inputSchema: {
     type: 'object',
     properties: {
-      names: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Exact deferred tool names/aliases to load.' },
+      names: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Exact deferred tool names/aliases to load.' },
     },
     additionalProperties: false,
   },

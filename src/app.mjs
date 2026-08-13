@@ -5,7 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { ensureProcessListenerHeadroom } from './runtime/shared/process-listener-headroom.mjs';
 import {
   classifyCliInvocation,
-  parseHeadlessRoleCommand,
+  parseHeadlessExecCommand,
 } from './headless-command.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -30,7 +30,7 @@ function bootProfile(event, fields = {}) {
   try { process.stderr.write(`${parts.join(' ')}\n`); } catch {}
 }
 
-export { parseHeadlessRoleCommand };
+export { parseHeadlessExecCommand };
 
 /**
  * mixdog launcher.
@@ -41,9 +41,9 @@ export { parseHeadlessRoleCommand };
  */
 export async function run(argv = [], classifiedInvocation = null) {
   const invocation = classifiedInvocation ?? classifyCliInvocation(argv);
-  // Headless commands establish their own audited environment after route
+  // Headless exec establishes its own audited environment after route
   // validation; do not let an inherited MIXDOG_BOOT_PROFILE affect that path.
-  if (invocation.kind !== 'headless' && invocation.skipHostPrelude !== true) {
+  if (invocation.kind !== 'exec' && invocation.skipHostPrelude !== true) {
     bootProfile('run:start', { argv: argv.join(',') });
   }
   if (invocation.kind === 'error') {
@@ -70,7 +70,7 @@ export async function run(argv = [], classifiedInvocation = null) {
     return 1;
   }
 
-  if (invocation.kind === 'headless') {
+  if (invocation.kind === 'exec') {
     const { validateExplicitPristineRoute } = await import(
       './runtime/shared/pristine-execution.mjs'
     );
@@ -79,16 +79,13 @@ export async function run(argv = [], classifiedInvocation = null) {
       process.stderr.write(`mixdog: ${routeError}\n`);
       return 1;
     }
-    const { runHeadlessRole } = await import('./headless-role.mjs');
-    return await runHeadlessRole({
-      agent: invocation.headless.agent,
-      message: invocation.headless.message,
+    const { runHeadlessExec } = await import('./headless-exec.mjs');
+    return await runHeadlessExec({
+      message: invocation.exec.message,
       provider: opts.provider,
       model: opts.model,
       effort: opts.effort,
       fast: opts.fast,
-      webSearch: opts.webSearch,
-      memory: opts.memory,
       cwd: process.cwd(),
     });
   }

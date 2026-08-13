@@ -13,7 +13,7 @@ install():
     shell command or Harbor's debug logs.
 
 run():
-  - invokes ``mixdog --provider anthropic-oauth --model <model> worker <instruction>``
+  - invokes ``mixdog exec --provider anthropic-oauth --model <model> <instruction>``
     with ANTHROPIC_OAUTH_CREDENTIALS_PATH / MIXDOG_DATA_DIR pointed at the
     injected credentials, teeing output to /logs/agent/mixdog.txt.
 """
@@ -62,8 +62,6 @@ DEFAULT_MIXDOG_VERSION = "latest"
 # and any config writes stay in a writable, self-contained directory.
 CONTAINER_DATA_DIR = "/opt/mixdog"
 CONTAINER_CREDS_PATH = f"{CONTAINER_DATA_DIR}/anthropic-oauth-credentials.json"
-# Full-Lead-session driver, uploaded next to the creds and run with node.
-CONTAINER_LEAD_DRIVER = f"{CONTAINER_DATA_DIR}/lead_driver.mjs"
 HARNESS_SNAPSHOT_ENV = "MIXDOG_TB_HARNESS_SNAPSHOT"
 HARNESS_SNAPSHOT_MANIFEST_ENV = "MIXDOG_TB_HARNESS_SNAPSHOT_MANIFEST"
 REFUSAL_FALLBACK_EXIT_CODE = 86
@@ -322,7 +320,7 @@ def _uv_provision_command(
 
 
 class MixdogAgent(BaseInstalledAgent):
-    """Installed-agent adapter for the mixdog headless ``worker`` role."""
+    """Installed-agent adapter for the product ``mixdog exec`` command."""
 
     SUPPORTS_ATIF = False
 
@@ -343,9 +341,9 @@ class MixdogAgent(BaseInstalledAgent):
         )
         # Accept mixdog_version via agents[].kwargs; default to the pinned release.
         self._mixdog_version = mixdog_version or DEFAULT_MIXDOG_VERSION
-        # mode: "lead" (full session runtime + agent fan-out, default) or
-        # "worker" (single headless role). Selectable via --ak mode=worker.
-        self._mode = (mode or "lead").strip().lower()
+        # Legacy direct-worker probes still select "worker"; published runs use
+        # the product headless path.
+        self._mode = (mode or "headless").strip().lower()
         # Bench runs use the stock default workflow; the prompt-level mandate
         # bypasses only waiting for interactive approval.
         self._workflow = workflow or "default"
@@ -815,7 +813,7 @@ class MixdogAgent(BaseInstalledAgent):
             # Containers receive a bounded-lifetime snapshot and fail clearly
             # instead of consuming its single-use rotating refresh token.
             "MIXDOG_ANTHROPIC_OAUTH_REFRESH_DISABLED": "1",
-            "MIXDOG_DRIVER_DEADLINE_MS": str(LEAD_INNER_DEADLINE_MS),
+            "MIXDOG_USAGE_LOG": "/logs/agent/usage.json",
             # Credential-agnostic boot: model catalogs come from uploaded
             # caches and no unrelated provider is touched at startup.
             "MIXDOG_DISABLE_PROVIDER_WARMUP": "1",
@@ -849,10 +847,6 @@ class MixdogAgent(BaseInstalledAgent):
             # retryable transport timeout, not an agent kill.
             "MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS": "120000",
             "MIXDOG_STALL_FIRST_BYTE_ABORT_S": "450",
-            # Driver stall guard (lead_driver STALL_MS): last resort only —
-            # every runtime layer recovers first; a driver stall still
-            # invalidates the attempt for a fresh Harbor trial.
-            "MIXDOG_STALL_MS": "840000",
             # BP4 messages-tail cache TTL pinned to 1h: bench turns routinely
             # gap >5m (long thinking / 900s tools), so a 5m tail would expire
             # between requests and re-write the whole context. The uncached
@@ -1003,9 +997,9 @@ class MixdogAgent(BaseInstalledAgent):
         escaped_instruction = shlex.quote(instruction)
         worker_pipeline = (
             "mkdir -p /logs/agent; "
-            f"mixdog --provider {shlex.quote(provider)} --model {shlex.quote(model)}"
+            f"mixdog exec --provider {shlex.quote(provider)} --model {shlex.quote(model)}"
             f"{route_args} "
-            f"worker {escaped_instruction} "
+            f"{escaped_instruction} "
             "2>&1 | tee /logs/agent/mixdog.txt"
         )
         await self.exec_as_agent(
@@ -1017,52 +1011,42 @@ class MixdogAgent(BaseInstalledAgent):
     async def _run_lead(
         self, environment, instruction, model, base_env, *, lead_route=None
     ):
-        # Upload the launch-frozen Lead-session driver, then run it against the globally
-        # installed package (src under `npm root -g`/mixdog). Prompt/provider/
-        # model/workflow travel via env so the instruction needs no quoting.
-        lead_driver = _harness_snapshot_file("lead_driver.mjs")
-        await self.exec_as_root(
-            environment, command=f"mkdir -p {CONTAINER_DATA_DIR}"
-        )
-        await environment.upload_file(lead_driver, CONTAINER_LEAD_DRIVER)
-        user = getattr(environment, "default_user", None)
-        if user is not None:
-            await self.exec_as_root(
-                environment,
-                command=f"chown {shlex.quote(str(user))} {CONTAINER_LEAD_DRIVER}",
-            )
-        run_env = {
-            **base_env,
-            # CC-parity: the raw task instruction only. The old headless
-            # mandate prefix proved unnecessary (2026-08-03 no-mandate probe:
-            # pass parity, no approval stall, no cost delta) — the lead treats
-            # the imperative task text as the approved plan on its own.
-            "MIXDOG_PROMPT": instruction,
-        }
-        # Only set overrides when explicitly requested; otherwise the driver
-        # boots the user's configured route + active workflow.
-        if lead_route is not None:
-            run_env["MIXDOG_PROVIDER"] = lead_route["provider"]
-            run_env["MIXDOG_MODEL"] = lead_route["model"]
-            run_env["MIXDOG_EFFORT"] = lead_route["effort"]
-            run_env["MIXDOG_FAST"] = "1" if lead_route["fast"] else "0"
-        elif model:
-            run_env["MIXDOG_MODEL"] = model
-        if lead_route is None and self._provider:
-            run_env["MIXDOG_PROVIDER"] = self._provider
-        if lead_route is None and self._effort:
-            run_env["MIXDOG_EFFORT"] = self._effort
-        if self._workflow:
-            run_env["MIXDOG_WORKFLOW"] = self._workflow
+        route = lead_route
+        if route is None and self._route_profile is not None:
+            route = self._route_profile.get("routes", {}).get("lead")
+        provider = route["provider"] if route is not None else self._provider or "anthropic-oauth"
+        selected_model = route["model"] if route is not None else model or "claude-sonnet-4-5"
+        effort = route["effort"] if route is not None else self._effort
+        fast = route["fast"] if route is not None else False
+        route_args = f" --effort {shlex.quote(effort)}" if effort else ""
+        if fast:
+            route_args += " --fast"
+        escaped_instruction = shlex.quote(instruction)
         lead_pipeline = (
             "mkdir -p /logs/agent; "
             "export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; "
-            'export MIXDOG_SRC="$(npm root -g)/mixdog/src"; '
-            f"node {CONTAINER_LEAD_DRIVER} "
+            f"mixdog exec --provider {shlex.quote(provider)} "
+            f"--model {shlex.quote(selected_model)}{route_args} "
+            f"{escaped_instruction} "
             "2>&1 | tee /logs/agent/mixdog.txt"
         )
-        await self.exec_as_agent(
-            environment,
-            command=_bounded_process_command(lead_pipeline, "lead"),
-            env=run_env,
-        )
+        try:
+            await self.exec_as_agent(
+                environment,
+                command=_bounded_process_command(lead_pipeline, "lead"),
+                env=base_env,
+            )
+        except Exception:
+            try:
+                captured = await environment.exec(
+                    command="cat /logs/agent/mixdog.txt"
+                )
+                output = (
+                    (getattr(captured, "stdout", "") or "")
+                    + (getattr(captured, "stderr", "") or "")
+                ).strip()
+                if output:
+                    print(f"[mixdog-exec-failure]\n{output}", flush=True)
+            except Exception:
+                pass
+            raise

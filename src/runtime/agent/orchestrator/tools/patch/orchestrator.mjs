@@ -49,6 +49,15 @@ function isPatchErrorText(text) {
   return /^Error:/i.test(String(text ?? '').trimStart());
 }
 
+// convertV4ASectionsToUnifiedPatch may emit nothing when every hunk is a
+// unique-new-side no-op. `diff.parsePatch` turns a blank body into a junk
+// entry with no path; treat that as "no applicable hunks".
+function parseConvertedUnifiedPatch(unified) {
+  const text = prepareInput(unified);
+  if (!String(text).trim()) return [];
+  return (parsePatch(text) || []).filter((entry) => entry?.oldFileName || entry?.newFileName);
+}
+
 function patchPathKey(fullPath) {
   const value = String(fullPath || '');
   return process.platform === 'win32' ? value.toLowerCase() : value;
@@ -259,7 +268,7 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
       // rejectedHunks and skipped under reject_partial=false.
       buildParsed: async () => {
         const unified = await convertV4ASectionsToUnifiedPatch([section], basePath, v4aConvertOpts);
-        return parsePatch(prepareInput(unified));
+        return parseConvertedUnifiedPatch(unified);
       },
     });
   };
@@ -779,13 +788,32 @@ async function apply_patch(args, cwd, options = {}) {
   let inputPatchStr = patchStr;
   const rejectedV4AHunks = [];
   const v4aConvertOpts = { rejectPartial, rejectedHunks: rejectedV4AHunks, fuzzy, dryRun, readStateScope };
+  let preParsedV4ASections = null;
+  if (isV4APatchInput(patchStr, requestedFormat)) {
+    try {
+      preParsedV4ASections = rewriteV4AReadRedirects(
+        parseV4APatch(patchStr),
+        basePath,
+        readStateScope,
+      );
+    } catch {
+      // The selected execution path reports the authoritative parse error.
+    }
+  }
+  // The freeform tool surface intentionally exposes only the patch body, not
+  // internal mode switches. Route a standalone move to the existing atomic
+  // rename executor automatically so the advertised `*** Move to:` grammar is
+  // actually callable. Mixed patches stay ordered and tell the caller to retry
+  // the move as its own section.
+  const modelSurfaceRenameOnly = preParsedV4ASections?.length === 1
+    && isV4ARenameSection(preParsedV4ASections[0]);
   // Default ordered mode mirrors Codex's lower executor: apply sections in
   // listed order, stop at the first failure, and keep the committed prefix.
-  // The model-visible schema stays unchanged; legacy bulk/atomic rollback
-  // remains an internal escape hatch.
+  // Legacy bulk/atomic rollback remains an internal escape hatch.
   const patchMode = String(args?.mode || '').toLowerCase();
   const legacyBulkMode = args?.sequence === false
-    || ['atomic', 'bulk'].includes(patchMode);
+    || ['atomic', 'bulk'].includes(patchMode)
+    || modelSurfaceRenameOnly;
   if (!legacyBulkMode) {
     const seqOut = await applyPatchSequence(patchStr, requestedFormat, basePath, {
       v4aConvertOpts, dryRun, fuzz, fuzzy, rejectPartial,
@@ -798,11 +826,11 @@ async function apply_patch(args, cwd, options = {}) {
   let v4aRenamePlan = null;
   if (isV4APatchInput(patchStr, requestedFormat)) {
     try {
-      const allSections = rewriteV4AReadRedirects(
-        parseV4APatch(patchStr),
-        basePath,
-        readStateScope,
-      );
+      const allSections = preParsedV4ASections || rewriteV4AReadRedirects(
+          parseV4APatch(patchStr),
+          basePath,
+          readStateScope,
+        );
       v4aRenamePlan = await planV4ARenameSections(allSections, basePath);
       inputPatchStr = await convertV4ASectionsToUnifiedPatch(v4aRenamePlan.remainingSections, basePath, v4aConvertOpts);
       if (v4aRenamePlan.renameSections.length > 0) {

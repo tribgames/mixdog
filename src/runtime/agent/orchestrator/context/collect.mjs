@@ -556,6 +556,15 @@ export function buildSkillToolDefs(skills, { ownerIsAgentSession = false } = {})
     _skillToolDefsCache = [
         {
             name: 'Skill',
+            title: 'Skill',
+            annotations: {
+                title: 'Skill',
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+                agentHidden: false,
+            },
             description: 'Load a named SKILL.md into context.',
             inputSchema: {
                 type: 'object',

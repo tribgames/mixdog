@@ -11,7 +11,6 @@ import {
     filterSkillsExcludingDisabled,
     isSkillDisabled,
 } from '../../context/collect.mjs';
-import { isAgentOwner } from '../../agent-owner.mjs';
 
 // Eager-dispatch: tools with readOnlyHint:true in their declaration are safe
 // to execute during SSE parsing so tool work overlaps with the rest of the
@@ -68,8 +67,7 @@ export function messagesArrayChanged(before, after) {
 }
 
 const SKILL_TOOL_NAMES = new Set(['Skill', 'skills_list', 'skill_view']);
-const SPECIAL_TOOL_NAMES = new Set(['bash_session', 'apply_patch', 'code_graph']);
-const BASH_SESSION_HEADER_RE = /\[session: ([^\]\r\n]+)\]/;
+const SPECIAL_TOOL_NAMES = new Set(['apply_patch', 'code_graph']);
 
 export function getToolKind(name) {
     if (SKILL_TOOL_NAMES.has(name)) return 'skill';
@@ -173,35 +171,6 @@ export function parseNativeToolSearchPayload(toolName, result) {
         return null;
     }
 }
-export function extractBashSessionId(result) {
-    if (typeof result !== 'string') return null;
-    const match = BASH_SESSION_HEADER_RE.exec(result);
-    return match ? match[1] : null;
-}
-
-export function buildAgentBashSessionArgs(args, sessionRef) {
-    if (!isAgentOwner(sessionRef)) return null;
-    // run_in_background is a detached one-shot job, incompatible with the
-    // persistent bash session. Fall through to the background-job path
-    // (executeBuiltinTool -> startBackgroundShellJob) so the worker gets a
-    // task_id that task control can resolve — otherwise the persistent
-    // session returns a [session: ...] header and task control reports "task not found".
-    if (args?.run_in_background === true) return null;
-    const routedArgs = { ...(args || {}) };
-    const explicitSessionId = typeof routedArgs.session_id === 'string' && routedArgs.session_id.trim()
-        ? routedArgs.session_id.trim()
-        : null;
-    const wantsPersistent = routedArgs.persistent === true || !!explicitSessionId;
-    if (!wantsPersistent) return null;
-    if (!explicitSessionId && sessionRef?.implicitBashSessionId) {
-        routedArgs.session_id = sessionRef.implicitBashSessionId;
-    } else if (explicitSessionId) {
-        routedArgs.session_id = explicitSessionId;
-    }
-    delete routedArgs.persistent;
-    return routedArgs;
-}
-
 export function formatMissingToolApprovalUiDenial(toolName, askReason) {
     const reason = String(askReason || 'approval requested by hook').trim();
     const name = String(toolName || 'tool');

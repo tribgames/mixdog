@@ -31,6 +31,7 @@ import "./desktop.css";
 // Split-pane workspace + bottom panel chrome (components import no css).
 import "./pane-layout.css";
 import "./webview-zoom";
+import { installShellViewport } from "./shell-viewport";
 import { markBootStage } from "./boot-metrics";
 import { scheduleFontWarmup } from "./font-warmup";
 import { preloadMarkdownBody } from "./TranscriptView";
@@ -57,6 +58,8 @@ const removeGlobalRendererDiagnostics = installGlobalRendererDiagnostics();
 window.addEventListener("beforeunload", removeGlobalRendererDiagnostics, { once: true });
 const removeAutoDomI18n = installAutoDomI18n();
 window.addEventListener("beforeunload", removeAutoDomI18n, { once: true });
+const removeShellViewport = installShellViewport();
+window.addEventListener("beforeunload", removeShellViewport, { once: true });
 const syncMotionVisibility = () => {
   document.documentElement.dataset.mixdogMotion =
     document.visibilityState === "visible" ? "running" : "paused";

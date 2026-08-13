@@ -21,15 +21,17 @@ export const CYCLE2_ACTIVE_MIN_FLOOR = 0
 const STATUS_ALLOWED_VERBS = {
   pending: new Set(['active', 'archived']),
   active:  new Set(['active', 'archived', 'update', 'merge']),
+  archived: new Set(['archived']),
 }
 const NON_ARCHIVE_VERBS = new Set(['active', 'update', 'merge'])
+const AUXILIARY_ACTIONS = new Set(['core', 'lineage', 'lineage_none'])
 // Union of every primary (status) verb across all statuses, plus the two
 // non-verb line kinds. Used by the stray-index shift guard to decide whether
 // a `idx|id|verb` line had a leading row index prepended by the LLM.
 const ALL_PRIMARY_VERBS = new Set(['active', 'archived', 'update', 'merge'])
 const isShiftFollowToken = (tok) => {
   const v = String(tok ?? '').trim().toLowerCase()
-  return ALL_PRIMARY_VERBS.has(v) || v === 'why' || v === 'core'
+  return ALL_PRIMARY_VERBS.has(v) || v === 'why' || v === 'core' || v === 'lineage'
 }
 
 async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispatch, signal = null) {
@@ -81,6 +83,96 @@ function formatUserCoreForPrompt(rows, pidMap) {
   }).join('\n')
 }
 
+async function loadLineageCandidates(db, rows) {
+  const ids = rows.map(r => Number(r.id)).filter(Number.isFinite)
+  if (ids.length === 0) return new Map()
+  const result = await db.query(`
+    SELECT newer.id AS newer_id,
+           older.id AS older_id,
+           older.ts AS older_ts,
+           older.element AS older_element,
+           older.summary AS older_summary,
+           older.concept_id AS older_concept_id,
+           older.sim,
+           older.lex,
+           older.source
+    FROM entries newer
+    CROSS JOIN LATERAL (
+      WITH lexical_query AS (
+        SELECT to_tsquery('simple', string_agg(quote_literal(term), ' | ')) AS query
+        FROM (
+          SELECT term
+          FROM unnest(tsvector_to_array(newer.search_tsv)) AS term
+          WHERE length(term) >= 3
+          ORDER BY length(term) DESC, term
+          LIMIT 24
+        ) terms
+      ), candidates AS (
+        (
+          SELECT prior.id, prior.ts, prior.element, prior.summary, prior.concept_id,
+                 1 - (newer.embedding <=> prior.embedding)::float8 AS sim,
+                 0::float8 AS lex,
+                 'dense'::text AS source
+          FROM entries prior
+          WHERE prior.is_root = 1
+            AND prior.embedding IS NOT NULL
+            AND prior.id != newer.id
+            AND (prior.ts < newer.ts OR (prior.ts = newer.ts AND prior.id < newer.id))
+            AND prior.project_id IS NOT DISTINCT FROM newer.project_id
+          ORDER BY prior.embedding <=> newer.embedding
+          LIMIT 8
+        )
+        UNION ALL
+        (
+          SELECT prior.id, prior.ts, prior.element, prior.summary, prior.concept_id,
+                 CASE WHEN prior.embedding IS NULL THEN 0
+                      ELSE 1 - (newer.embedding <=> prior.embedding)::float8 END AS sim,
+                 ts_rank_cd(prior.search_tsv, lexical_query.query)::float8 AS lex,
+                 'lexical'::text AS source
+          FROM entries prior
+          CROSS JOIN lexical_query
+          WHERE lexical_query.query IS NOT NULL
+            AND prior.is_root = 1
+            AND prior.id != newer.id
+            AND (prior.ts < newer.ts OR (prior.ts = newer.ts AND prior.id < newer.id))
+            AND prior.project_id IS NOT DISTINCT FROM newer.project_id
+            AND prior.search_tsv @@ lexical_query.query
+          ORDER BY lex DESC, prior.ts DESC, prior.id DESC
+          LIMIT 12
+        )
+      )
+      SELECT DISTINCT ON (id)
+             id, ts, element, summary, concept_id, sim, lex, source
+      FROM candidates
+      WHERE sim >= 0.55 OR lex > 0
+      ORDER BY id, lex DESC, sim DESC
+    ) older
+    WHERE newer.id = ANY($1::bigint[])
+      AND newer.embedding IS NOT NULL
+    ORDER BY newer.id, older.lex DESC, older.sim DESC, older.ts DESC
+  `, [ids])
+  const out = new Map()
+  for (const row of result.rows ?? []) {
+    const id = Number(row.newer_id)
+    if (!out.has(id)) out.set(id, [])
+    out.get(id).push(row)
+  }
+  return out
+}
+
+function formatLineageCandidates(rows, candidates) {
+  const lines = []
+  rows.forEach((row, index) => {
+    const prior = candidates.get(Number(row.id)) ?? []
+    if (prior.length === 0) return
+    lines.push(`row:${index + 1} id:${row.id}`)
+    for (const item of prior) {
+      lines.push(`- older_id:${item.older_id} ts:${item.older_ts} source:${item.source} sim:${Number(item.sim).toFixed(3)} lex:${Number(item.lex).toFixed(3)} concept:${item.older_concept_id ?? '-'} el:${String(item.older_element ?? '').slice(0, 100)} sm:${String(item.older_summary ?? '').slice(0, 180)}`)
+    }
+  })
+  return lines.length > 0 ? lines.join('\n') : '(none)'
+}
+
 // Parse pipe-format unified verdicts. Each line: <id>|<verb> [|...].
 // Verbs validated against the row's current status via STATUS_ALLOWED_VERBS.
 // Returns { actions, rejected } or null when no parseable lines.
@@ -95,7 +187,7 @@ function batchOrdinalIdCollides(statusById, ordinalToId, rowCount) {
   return null
 }
 
-function parseUnifiedFormat(raw, statusById, ordinalToId = null) {
+function parseUnifiedFormat(raw, statusById, ordinalToId = null, lineageCandidates = new Map()) {
   if (raw == null) return null
   const text = String(raw).trim()
   if (!text) return { actions: [], rejected: new Set() }
@@ -151,6 +243,24 @@ function parseUnifiedFormat(raw, statusById, ordinalToId = null) {
     sawValid = true
     if (action === 'core') {
       actions.push({ entry_id: entryId, action: 'core', core_summary: parts.slice(2).join('|').trim().slice(0, 120) })
+      continue
+    }
+    if (action === 'lineage') {
+      const predecessorToken = String(parts[2] ?? '').trim()
+      if (predecessorToken.toLowerCase() === 'none') {
+        actions.push({ entry_id: entryId, action: 'lineage_none' })
+        continue
+      }
+      const allowed = new Set((lineageCandidates.get(entryId) ?? []).map(row => Number(row.older_id)))
+      const predecessorIds = [...new Set(predecessorToken
+        .split(',')
+        .map(value => Number(value.trim()))
+        .filter(id => Number.isFinite(id) && allowed.has(id)))]
+      if (predecessorIds.length > 0) {
+        actions.push({ entry_id: entryId, action: 'lineage', predecessor_ids: predecessorIds })
+      } else {
+        __mixdogMemoryLog(`[cycle2] lineage rejected: id=${entryId} predecessor=${parts[2] ?? ''}\n`)
+      }
       continue
     }
     if (action === 'why') {
@@ -254,9 +364,9 @@ function uniqueIds(values) {
     .filter(id => Number.isFinite(id)))]
 }
 
-function validateUnifiedGate(parsed, statusById) {
+function validateUnifiedGate(parsed, statusById, lineageCandidates = new Map()) {
   const actions = Array.isArray(parsed?.actions) ? parsed.actions : []
-  const primary = actions.filter(a => a?.action !== 'core')
+  const primary = actions.filter(a => !AUXILIARY_ACTIONS.has(a?.action))
   const verdictCounts = new Map()
   for (const action of primary) {
     const id = Number(action?.entry_id)
@@ -275,6 +385,18 @@ function validateUnifiedGate(parsed, statusById) {
     .filter(id => Number.isFinite(id)))
   const missingSupportIds = []
   const missingCoreIds = []
+  const lineageDecisionCounts = new Map()
+  for (const action of actions) {
+    if (action?.action !== 'lineage' && action?.action !== 'lineage_none') continue
+    const id = Number(action.entry_id)
+    if (!Number.isFinite(id)) continue
+    lineageDecisionCounts.set(id, (lineageDecisionCounts.get(id) || 0) + 1)
+  }
+  const lineageExpectedIds = [...lineageCandidates.keys()]
+  const missingLineageIds = lineageExpectedIds.filter(id => !lineageDecisionCounts.has(Number(id)))
+  const duplicateLineageIds = [...lineageDecisionCounts.entries()]
+    .filter(([id, count]) => lineageCandidates.has(id) && count > 1)
+    .map(([id]) => id)
   for (const action of primary) {
     if (!NON_ARCHIVE_VERBS.has(action?.action)) continue
     const id = Number(action.entry_id)
@@ -291,6 +413,8 @@ function validateUnifiedGate(parsed, statusById) {
     duplicateVerdictIds: uniqueIds(duplicateVerdictIds),
     missingSupportIds: uniqueIds(missingSupportIds),
     missingCoreIds: uniqueIds(missingCoreIds),
+    missingLineageIds: uniqueIds(missingLineageIds),
+    duplicateLineageIds: uniqueIds(duplicateLineageIds),
   }
 }
 
@@ -300,6 +424,8 @@ function gateQualitySummary(quality) {
   if (quality?.duplicateVerdictIds?.length) parts.push(`duplicate verdict ids=${quality.duplicateVerdictIds.join(',')}`)
   if (quality?.missingSupportIds?.length) parts.push(`missing why ids=${quality.missingSupportIds.join(',')}`)
   if (quality?.missingCoreIds?.length) parts.push(`missing core ids=${quality.missingCoreIds.join(',')}`)
+  if (quality?.missingLineageIds?.length) parts.push(`missing lineage ids=${quality.missingLineageIds.join(',')}`)
+  if (quality?.duplicateLineageIds?.length) parts.push(`duplicate lineage ids=${quality.duplicateLineageIds.join(',')}`)
   return parts.join('; ')
 }
 
@@ -309,7 +435,7 @@ function stripUnsupportedPromotions(parsed, unsupportedIds) {
   const rejected = new Set(parsed?.rejected || [])
   for (const id of ids) rejected.add(id)
   const actions = (parsed?.actions || []).filter(a => {
-    if (a?.action === 'core') return true
+    if (AUXILIARY_ACTIONS.has(a?.action)) return true
     return !ids.has(Number(a?.entry_id))
   })
   return { ...parsed, actions, rejected }
@@ -336,6 +462,7 @@ export async function runUnifiedGate(db, rows, activeContext, config = {}, optio
   }
   const template = readFileSync(promptPath, 'utf8')
   const userCoreRows = options.dataDir ? await listCore(options.dataDir, '*').catch(() => []) : []
+  const lineageCandidates = await loadLineageCandidates(db, rows)
   throwIfAborted(signal)
   const sharedPidMap = buildPidMap([activeContext ?? [], rows ?? [], userCoreRows ?? []])
   const rulesDigest = loadCurrentRulesDigest() || '(no current rules digest available)'
@@ -347,6 +474,7 @@ export async function runUnifiedGate(db, rows, activeContext, config = {}, optio
     .replace('{{USER_CORE}}', formatUserCoreForPrompt(userCoreRows, sharedPidMap))
     .replace('{{CORE_MEMORY}}', formatEntriesForPromotePrompt(activeContext, sharedPidMap))
     .replace('{{ITEMS}}', formatEntriesForPromotePrompt(rows, sharedPidMap, { numbered: true }))
+    .replace('{{LINEAGE_CANDIDATES}}', formatLineageCandidates(rows, lineageCandidates))
     .replace('{{ACTIVE_COUNT}}', String(activeCount))
     .replace('{{ACTIVE_CAP}}', String(activeCap))
 
@@ -392,8 +520,8 @@ export async function runUnifiedGate(db, rows, activeContext, config = {}, optio
   throwIfAborted(signal)
   __mixdogMemoryLog(`[cycle2-diag] unified raw (first 1500): ${String(raw ?? '').replace(/\n/g, '⏎').slice(0, 1500)}\n`)
 
-  let parsed = parseUnifiedFormat(raw, statusById, ordinalToId)
-  let quality = parsed ? validateUnifiedGate(parsed, statusById) : null
+  let parsed = parseUnifiedFormat(raw, statusById, ordinalToId, lineageCandidates)
+  let quality = parsed ? validateUnifiedGate(parsed, statusById, lineageCandidates) : null
   const qualityIssue = () => gateQualitySummary(quality)
   if (!parsed || qualityIssue()) {
     throwIfAborted(signal)
@@ -409,10 +537,10 @@ export async function runUnifiedGate(db, rows, activeContext, config = {}, optio
         ? 'complete-verdicts-with-why-and-core-lines'
         : 'first-field-must-be-the-listed-row-number'
       const raw2 = await callOnce(retryTag)
-      const retryParsed = parseUnifiedFormat(raw2, statusById, ordinalToId)
+      const retryParsed = parseUnifiedFormat(raw2, statusById, ordinalToId, lineageCandidates)
       if (retryParsed) {
         parsed = retryParsed
-        quality = validateUnifiedGate(retryParsed, statusById)
+        quality = validateUnifiedGate(retryParsed, statusById, lineageCandidates)
       } else if (firstParsed) {
         __mixdogMemoryLog(`[cycle2] unparseable after retry — falling back to first-pass parse (${previewRaw(raw2)})\n`)
         parsed = firstParsed
@@ -439,7 +567,7 @@ export async function runUnifiedGate(db, rows, activeContext, config = {}, optio
   // WHOLE batch, so a handful of persistently-missing poison rows could livelock
   // the gate. Partial-apply instead: keep the valid verdicts we did receive, just
   // log the missing ids and leave those rows for a later run.
-  if (quality?.duplicateVerdictIds?.length) {
+  if (quality?.duplicateVerdictIds?.length || quality?.duplicateLineageIds?.length) {
     __mixdogMemoryLog(`[cycle2] duplicate verdict coverage after retry — skipping batch (${finalIssue})\n`)
     return { actions: null, rejected: new Set(), parseOk: false }
   }
@@ -450,7 +578,7 @@ export async function runUnifiedGate(db, rows, activeContext, config = {}, optio
   // primary (status-verb) verdicts. Without this guard parseOk stays true and
   // the caller treats the batch as a clean no-op, masking the coverage failure
   // and marking the rows reviewed. Fail the parse so the rows are re-queued.
-  const primaryCount = (parsed.actions || []).filter(a => a?.action !== 'core').length
+  const primaryCount = (parsed.actions || []).filter(a => !AUXILIARY_ACTIONS.has(a?.action)).length
   if (rows.length > 0 && primaryCount === 0) {
     __mixdogMemoryLog(`[cycle2] gate produced zero primary verdicts for ${rows.length} rows — failing parse\n`)
     return { actions: null, rejected: new Set(), parseOk: false, missingIds: [...statusById.keys()] }
@@ -468,6 +596,7 @@ export async function runUnifiedGate(db, rows, activeContext, config = {}, optio
     rejected: parsed.rejected,
     parseOk: true,
     missingIds: quality?.missingVerdictIds || [],
+    lineageCandidateIds: [...lineageCandidates.keys()],
   }
 }
 

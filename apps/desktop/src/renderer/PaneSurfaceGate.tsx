@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 
 import { createBootSurfaceBarrier, markBootStage } from "./boot-metrics";
 import { DesktopLoadingSurface } from "./RendererRecovery";
+import { t } from "./i18n";
 
 type SurfaceId = string | number;
 const SURFACE_FONT_WAIT_MAX_MS = 300;
@@ -156,7 +157,7 @@ function useStableSurfaceReveal(
 export function DesktopBootGate({
   ready,
   enabled = true,
-  label = "Preparing workspace…",
+  label = t("Starting Mixdog…"),
   children,
 }: {
   ready: boolean;

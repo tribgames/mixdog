@@ -4,6 +4,7 @@
 // patch/read integrity preserved, cancellation clean). One-shot script:
 // `node scripts/tool-stress.mjs`. Exit 0 = stable, 1 = instability found.
 import '../src/runtime/shared/uv-threadpool-boot.mjs';
+import './native-spawn-test-runtime.mjs';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,8 +13,7 @@ import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/buil
 import { executeCodeGraphTool } from '../src/runtime/agent/orchestrator/tools/code-graph.mjs';
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
-import { prewarmShellStandbys } from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
-import { waitPwshStandbysReady } from '../src/runtime/agent/orchestrator/tools/lib/pwsh-standby-pool.mjs';
+import { warmNativeSpawnServer } from '../src/runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const SESSIONS = 8;
@@ -52,8 +52,7 @@ function pct(list, p) {
 const tmp = mkdtempSync(join(tmpdir(), 'mixdog-tool-stress-'));
 const t0 = Date.now();
 try {
-  prewarmShellStandbys();
-  await waitPwshStandbysReady({ timeoutMs: 4_000 });
+  await warmNativeSpawnServer();
   // ── Phase A+C: concurrent multi-session waves (search/read/graph/shell +
   // per-session patch integrity riding the same load) ──────────────────────
   for (let wave = 0; wave < WAVES; wave++) {

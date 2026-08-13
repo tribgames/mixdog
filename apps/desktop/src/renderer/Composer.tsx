@@ -1104,7 +1104,11 @@ export const Composer = memo(function Composer({
         invocationFailed = true;
         return undefined;
       }
-      const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<T>({ capability, args }));
+      const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<T>({
+        capability,
+        args,
+        ...(sessionId ? { sessionId } : {}),
+      }));
       if (result === undefined) {
         invocationFailed = true;
         return undefined;
