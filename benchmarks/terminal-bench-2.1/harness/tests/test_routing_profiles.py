@@ -1562,9 +1562,10 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         self.assertIn("process group terminated before OAuth lease expiry", command)
         self.assertIn('exit "$status"', command)
         self.assertIn(
-            "mixdog exec --provider openai-oauth --model gpt-worker --effort high --fast",
+            "mixdog exec --json --provider openai-oauth --model gpt-worker --effort high --fast",
             command,
         )
+        self.assertIn("/logs/agent/mixdog.stderr", command)
         self.assertEqual(child_env, base_env)
 
     def test_usage_totals_populate_supported_harbor_context_fields(self) -> None:
@@ -1903,8 +1904,9 @@ INSTALLER
             command,
         )
         self.assertIn("GNU coreutils", command)
-        self.assertIn("mixdog exec --provider anthropic-oauth", command)
+        self.assertIn("mixdog exec --json --provider anthropic-oauth", command)
         self.assertIn("--model claude-sonnet-4-5", command)
+        self.assertIn("/logs/agent/mixdog.stderr", command)
         self.assertIn("fixture", command)
         self.assertNotIn("MIXDOG_PROMPT", run_env)
         self.assertNotIn("MIXDOG_WORKFLOW", run_env)

@@ -640,6 +640,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     onAssistantToolCallObserved: (call, detail) => {
                         _turnInterruption.recordToolCalls([call], detail);
                         _scheduleTurnCheckpoint(true);
+                        try { askOpts?.onAssistantToolCallObserved?.(call, detail); } catch {}
                     },
                     onProviderSendStarted: () => {
                         _turnInterruption.markProviderSendStarted();

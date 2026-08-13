@@ -37,6 +37,32 @@ function jsonValue(value) {
   }
 }
 
+function toolCallName(call) {
+  return clean(
+    call?.name
+    ?? call?.toolName
+    ?? call?.function?.name
+    ?? call?.tool?.name,
+  ) || 'tool';
+}
+
+function toolCallArguments(call) {
+  const raw = call?.arguments
+    ?? call?.input
+    ?? call?.function?.arguments
+    ?? call?.tool?.arguments
+    ?? call?.args
+    ?? {};
+  if (typeof raw !== 'string') return jsonValue(raw);
+  const text = raw.trim();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { input: raw };
+  }
+}
+
 function usageSummary(stats, toolCallCount = 0) {
   return {
     input_tokens: nonNegativeNumber(stats.inputTokens),
@@ -183,8 +209,8 @@ function createJsonLifecycle({
     if (pendingTools.has(callId) || completedTools.has(callId)) return;
     const entry = {
       id: callId,
-      name: clean(call?.name) || 'tool',
-      arguments: jsonValue(call?.arguments ?? call?.input ?? {}),
+      name: toolCallName(call),
+      arguments: toolCallArguments(call),
       startedAt: at,
       startedAtIso: nowIso(at),
     };
@@ -293,6 +319,11 @@ function createJsonLifecycle({
     },
     onAssistantText(text) {
       emitAssistant(text);
+    },
+    onAssistantToolCallObserved(call) {
+      start();
+      flushReasoning();
+      startTool(call);
     },
     onToolCall(_iteration, calls) {
       start();
@@ -573,6 +604,7 @@ export async function runHeadlessExec({
         onProviderSendStarted: () => lifecycle.onProviderSendStarted(),
         onReasoningDelta: (chunk) => lifecycle.onReasoningDelta(chunk),
         onAssistantText: (text) => lifecycle.onAssistantText(text),
+        onAssistantToolCallObserved: (call) => lifecycle.onAssistantToolCallObserved(call),
         onToolCall: (iteration, calls) => lifecycle.onToolCall(iteration, calls),
         onToolResult: (message) => lifecycle.onToolResult(message),
         onToolPhaseStarted: () => lifecycle.onToolBatchStarted(),

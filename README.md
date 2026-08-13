@@ -170,6 +170,7 @@ mixdog exec --provider openai-oauth --model gpt-5.6-sol --json "fix the failing 
 provider request timing, reasoning and assistant messages, tool start/completion
 with arguments/output/duration, background notifications, final usage, and a
 terminal success/error result. Without `--json`, stdout remains final text only.
+In JSON mode stdout is JSONL-only; runtime diagnostics remain on stderr.
 
 ## TUI basics
 
