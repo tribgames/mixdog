@@ -13,6 +13,8 @@ the Unreleased section is empty, and stamps it with the released version.
 - Native search, patch, download, media, recall, webhook, and session paths now
   enforce bounded resources, stricter ownership, and hardened transport and
   release-supply-chain checks.
+- Memory runtime extraction now accepts verified in-archive links while still
+  rejecting traversal, external links, and special tar entries.
 - Desktop project, terminal, update, remote pairing, relay, and pane behavior
   now include the consolidated security, recovery, and responsive-layout fixes.
 

@@ -21,7 +21,7 @@ import {
   readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync,
 } from 'fs'
 import { readFile } from 'fs/promises'
-import { isAbsolute, join, relative, resolve, sep } from 'path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { fileURLToPath } from 'url'
 import { pipeline } from 'stream/promises'
 import { spawnSync } from 'child_process'
@@ -197,12 +197,13 @@ export function _validateRuntimeTarEntries(entries, details, stagingBase) {
     throw new Error('[runtime-fetcher] tar listings disagree; refusing extraction')
   }
   const resolvedBase = resolve(stagingBase)
+  const resolvedEntries = new Set()
+  const isInsideBase = (candidate) => {
+    const remainder = relative(resolvedBase, candidate)
+    return remainder !== '..' && !remainder.startsWith(`..${sep}`) && !isAbsolute(remainder)
+  }
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index]
-    const type = String(details[index] || '').trimStart()[0]
-    if (type !== '-' && type !== 'd') {
-      throw new Error(`[runtime-fetcher] tar entry type is unsafe: ${entry}`)
-    }
     if (!entry || entry.includes('\0') || entry.includes('\\')
       || entry.startsWith('/') || /^[A-Za-z]:/u.test(entry)) {
       throw new Error(`[runtime-fetcher] tar entry path validation failed (unsafe entry): ${entry}`)
@@ -212,9 +213,32 @@ export function _validateRuntimeTarEntries(entries, details, stagingBase) {
       throw new Error(`[runtime-fetcher] tar entry path validation failed (unsafe entry): ${entry}`)
     }
     const resolved = resolve(join(stagingBase, entry))
-    const remainder = relative(resolvedBase, resolved)
-    if (remainder === '..' || remainder.startsWith(`..${sep}`) || isAbsolute(remainder)) {
+    if (!isInsideBase(resolved)) {
       throw new Error(`[runtime-fetcher] tar entry escapes staging dir: ${entry}`)
+    }
+    resolvedEntries.add(resolved)
+  }
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index]
+    const detail = String(details[index] || '').trimStart()
+    const type = detail[0]
+    if (type === '-' || type === 'd') continue
+    if (type !== 'l' && type !== 'h') {
+      throw new Error(`[runtime-fetcher] tar entry type is unsafe: ${entry}`)
+    }
+    const marker = type === 'l' ? ' -> ' : ' link to '
+    const markerIndex = detail.lastIndexOf(marker)
+    const target = markerIndex === -1 ? '' : detail.slice(markerIndex + marker.length)
+    if (!target || target.includes('\0') || target.includes('\\')
+      || target.startsWith('/') || /^[A-Za-z]:/u.test(target)) {
+      throw new Error(`[runtime-fetcher] tar link target is unsafe: ${entry}`)
+    }
+    const entryPath = resolve(join(stagingBase, entry))
+    const targetPath = type === 'l'
+      ? resolve(dirname(entryPath), target)
+      : resolve(join(stagingBase, target))
+    if (!isInsideBase(targetPath) || !resolvedEntries.has(targetPath)) {
+      throw new Error(`[runtime-fetcher] tar link target is unsafe: ${entry}`)
     }
   }
 }
@@ -222,8 +246,8 @@ export function _validateRuntimeTarEntries(entries, details, stagingBase) {
 function extractTarGz(tarPath, destDir, stagingBase) {
   mkdirSync(destDir, { recursive: true })
 
-  // List entries first and validate — reject traversal, links, and special
-  // files before the extractor can materialize any archive-controlled target.
+  // List entries first and validate — reject traversal, external links, and
+  // special files before the extractor can materialize archive content.
   const listResult = spawnSync('tar', ['-tzf', tarPath], { stdio: 'pipe', windowsHide: true })
   if (listResult.status !== 0) {
     throw new Error(`[runtime-fetcher] tar list failed: ${listResult.stderr?.toString() || 'unknown'}`)
