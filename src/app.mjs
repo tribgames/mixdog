@@ -86,6 +86,7 @@ export async function run(argv = [], classifiedInvocation = null) {
       model: opts.model,
       effort: opts.effort,
       fast: opts.fast,
+      json: opts.json,
       cwd: process.cwd(),
     });
   }
