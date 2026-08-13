@@ -48,7 +48,7 @@ import {
     buildGrepRgArgs,
     DEFAULT_IGNORE_GLOBS,
 } from './search-builders.mjs';
-import { runRg, runRgWindowedLines, rgSupportsPcre2 } from './rg-runner.mjs';
+import { runRg, runRgWindowedLines, rgSupportsPcre2 } from './native-search-runner.mjs';
 import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
 import {
     normalizeGrepLine,
@@ -418,12 +418,8 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     const patternsWantMultiline = patterns.some(hasRegexNewlineEscape);
     const multilineMode = args.multiline === true || patternsWantMultiline;
     // Rescue: lookaround/backreference patterns are rejected by rg's default
-    // Rust regex engine ("look-around ... is not supported" / "backreferences
-    // ... not supported"). rg builds compiled with the optional `pcre2`
-    // feature accept the same syntax via -P/--pcre2. Probe capability once
-    // (cached) and route there instead of hard-erroring; when the installed
-    // rg has no PCRE2 support, fall through unchanged and let the existing
-    // arg-guard rejection (or rg's own runtime error) stand.
+    // Rust regex engine rejects lookaround/backreferences. The embedded native
+    // PCRE2 matcher accepts the same syntax via -P/--pcre2.
     const patternsWantPcre2 = hasUnsupportedRipgrepRegex(patterns);
     const pcre2Mode = patternsWantPcre2 && await rgSupportsPcre2();
     if (patternsWantPcre2 && !pcre2Mode) {

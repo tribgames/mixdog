@@ -8,6 +8,7 @@
  */
 import { randomBytes } from 'crypto';
 import { resolveCodexAuth } from '../auth.mjs';
+import { decodeBase64Media } from '../download.mjs';
 import { mediaError } from '../lanes.mjs';
 import { upstreamError } from '../upstream-error.mjs';
 import { CODEX_OAUTH_ORIGINATOR, CODEX_RESPONSES_URL } from '../../agent/orchestrator/providers/openai-oauth.mjs';
@@ -111,5 +112,9 @@ export async function generateImage({ model, prompt, options = {}, references = 
   if (!b64) {
     throw mediaError(`ChatGPT returned no image data${failure ? `: ${failure}` : ''}`, 'MEDIA_EMPTY_RESULT', 502);
   }
-  return { bytes: Buffer.from(b64, 'base64'), mime: 'image/png', revisedPrompt: state.revisedPrompt };
+  return {
+    bytes: decodeBase64Media(b64, 'ChatGPT image'),
+    mime: 'image/png',
+    revisedPrompt: state.revisedPrompt,
+  };
 }

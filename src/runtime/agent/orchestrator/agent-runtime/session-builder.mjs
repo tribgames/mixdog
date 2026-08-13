@@ -28,17 +28,12 @@ import {
     normalizeCompactType,
 } from '../session/compact.mjs';
 
-function normalizeAgentCompactionConfig(value = {}, { memoryEnabled = true } = {}) {
+function normalizeAgentCompactionConfig(value = {}) {
     const raw = value && typeof value === 'object' ? value : {};
-    let compactType = normalizeCompactType(
+    const compactType = normalizeCompactType(
         raw.compactType ?? raw.compact_type ?? raw.type,
         COMPACT_TYPE_SEMANTIC,
     );
-    // Memory is now always-on, so recall-fasttrack no longer downgrades to
-    // semantic. `memoryEnabled` is retained as a param for API compatibility
-    // but is intentionally ignored (fasttrack drains run on-demand regardless
-    // of the recap/background-cycle toggle) — mirrors config-helpers.mjs.
-    void memoryEnabled;
     return {
         ...raw,
         auto: raw.auto !== false && raw.enabled !== false,

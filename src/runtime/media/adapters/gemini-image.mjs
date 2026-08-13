@@ -7,6 +7,7 @@
  * control the model does not know never fails the whole generation.
  */
 import { resolveGeminiKey } from '../auth.mjs';
+import { decodeBase64Media } from '../download.mjs';
 import { mediaError } from '../lanes.mjs';
 import { upstreamError } from '../upstream-error.mjs';
 
@@ -61,7 +62,7 @@ export async function generateImage({ model, prompt, options = {}, references = 
     );
   }
   return {
-    bytes: Buffer.from(image.inlineData.data, 'base64'),
+    bytes: decodeBase64Media(image.inlineData.data, 'Gemini image'),
     mime: image.inlineData.mimeType || 'image/png',
     revisedPrompt: null,
   };

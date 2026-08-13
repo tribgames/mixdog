@@ -23,6 +23,9 @@ import {
   REMOTE_PAIRING_STORAGE_KEYS,
   clearStoredRemotePairing,
   isInvalidRemotePairingClose,
+  normalizeRemoteExternalUrl,
+  normalizeRemoteRelayOrigin,
+  parseRemotePairingLink,
 } from './remote-pairing-recovery';
 
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
@@ -42,7 +45,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // A pairing recovery can redirect this browser to another relay origin, so
   // retain that origin alongside the token until a new QR link replaces it.
   let serverBase = '';
-  try { serverBase = localStorage.getItem(SERVER_STORAGE_KEY) || ''; } catch { /* pairing screen */ }
+  let pairingRedirectUrl = '';
+  try {
+    const storedServer = localStorage.getItem(SERVER_STORAGE_KEY) || '';
+    serverBase = normalizeRemoteRelayOrigin(storedServer);
+    if (storedServer && !serverBase) clearStoredRemotePairing(localStorage);
+  } catch { /* pairing screen */ }
 
   // ?token= wins and is persisted for reconnects. Relay E2EE material rides
   // the fragment so it never reaches relay HTTP logs; strip both after use.
@@ -51,21 +59,21 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let e2eeSecret = '';
   try {
     const params = new URLSearchParams(location.search);
-    const fragment = new URLSearchParams(location.hash.replace(/^#/u, ''));
     const fromUrl = params.get('token');
-    const publicKeyFromUrl = fragment.get('e2eeKey') || params.get('e2eeKey');
-    const secretFromUrl = fragment.get('e2eeSecret') || params.get('e2eeSecret');
     if (fromUrl) {
-      token = fromUrl;
-      localStorage.setItem(TOKEN_STORAGE_KEY, fromUrl);
-      if (publicKeyFromUrl && secretFromUrl) {
-        e2eePublicKey = publicKeyFromUrl;
-        e2eeSecret = secretFromUrl;
-        localStorage.setItem(E2EE_PUBLIC_KEY_STORAGE_KEY, publicKeyFromUrl);
-        localStorage.setItem(E2EE_SECRET_STORAGE_KEY, secretFromUrl);
+      const parsed = parseRemotePairingLink(location.href);
+      if (parsed) {
+        token = parsed.token;
+        e2eePublicKey = parsed.serverPublicKey;
+        e2eeSecret = parsed.pairingSecret;
+        serverBase = parsed.origin;
+        localStorage.setItem(TOKEN_STORAGE_KEY, parsed.token);
+        localStorage.setItem(E2EE_PUBLIC_KEY_STORAGE_KEY, parsed.serverPublicKey);
+        localStorage.setItem(E2EE_SECRET_STORAGE_KEY, parsed.pairingSecret);
+        localStorage.setItem(SERVER_STORAGE_KEY, parsed.origin);
       } else {
-        localStorage.removeItem(E2EE_PUBLIC_KEY_STORAGE_KEY);
-        localStorage.removeItem(E2EE_SECRET_STORAGE_KEY);
+        clearStoredRemotePairing(localStorage);
+        serverBase = '';
       }
       params.delete('token');
       params.delete('e2eeKey');
@@ -116,22 +124,14 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
 
   const persistPairing = (raw: string): boolean => {
     try {
-      const link = new URL(raw.trim());
-      const pairToken = link.searchParams.get('token');
-      const fragment = new URLSearchParams(link.hash.replace(/^#/u, ''));
-      const pairPublicKey = fragment.get('e2eeKey') || link.searchParams.get('e2eeKey');
-      const pairSecret = fragment.get('e2eeSecret') || link.searchParams.get('e2eeSecret');
-      if (link.protocol !== 'http:' && link.protocol !== 'https:') return false;
-      const origin = link.origin;
-      localStorage.setItem(SERVER_STORAGE_KEY, origin);
-      if (pairToken) localStorage.setItem(TOKEN_STORAGE_KEY, pairToken);
-      if (pairPublicKey && pairSecret) {
-        localStorage.setItem(E2EE_PUBLIC_KEY_STORAGE_KEY, pairPublicKey);
-        localStorage.setItem(E2EE_SECRET_STORAGE_KEY, pairSecret);
-      } else {
-        localStorage.removeItem(E2EE_PUBLIC_KEY_STORAGE_KEY);
-        localStorage.removeItem(E2EE_SECRET_STORAGE_KEY);
-      }
+      const parsed = parseRemotePairingLink(raw);
+      if (!parsed) return false;
+      pairingRedirectUrl = parsed.url;
+      serverBase = parsed.origin;
+      localStorage.setItem(SERVER_STORAGE_KEY, parsed.origin);
+      localStorage.setItem(TOKEN_STORAGE_KEY, parsed.token);
+      localStorage.setItem(E2EE_PUBLIC_KEY_STORAGE_KEY, parsed.serverPublicKey);
+      localStorage.setItem(E2EE_SECRET_STORAGE_KEY, parsed.pairingSecret);
       // A new desktop has to prove itself again before it counts as reachable.
       localStorage.removeItem(PAIRED_STORAGE_KEY);
       everPaired = false;
@@ -149,7 +149,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     layer.querySelector('.mrp-success')?.removeAttribute('hidden');
     try { navigator.vibrate?.([30, 60, 30]); } catch { /* no haptics */ }
     // Long enough for the lock pulse + check draw + caption to play out.
-    window.setTimeout(() => location.reload(), 1250);
+    const target = pairingRedirectUrl;
+    window.setTimeout(() => {
+      if (target) location.assign(target);
+      else location.reload();
+    }, 1250);
   };
 
   const startPairingScanner = async (
@@ -300,7 +304,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         + '<div class="mrp-ap"><span class="tl"></span><span class="tr"></span>'
         + '<span class="bl"></span><span class="br"></span></div>'
         + '<header class="mrp-top"><b>Connect to your Mixdog desktop</b>'
-        + `<span data-role="note">${message}</span></header>`
+        + '<span data-role="note"></span></header>'
         + '<footer class="mrp-bottom">'
         + '<button type="button" class="mrp-manual">Enter address manually</button></footer>'
         + '<div class="mrp-sheet" hidden>'
@@ -322,6 +326,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       const form = layer.querySelector('form');
       const input = layer.querySelector('input');
       const error = layer.querySelector<HTMLElement>('[data-role="err"]');
+      if (note) note.textContent = message;
       if (input && serverBase) input.value = serverBase;
       layer.querySelector('.mrp-manual')?.addEventListener('click', () => {
         sheet?.removeAttribute('hidden');
@@ -764,7 +769,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     addProject: (projectPath) => call('addProject', [projectPath]),
     openProjectInExplorer: () => Promise.resolve(),
     openExternal: (url) => {
-      try { window.open(url, '_blank', 'noopener'); } catch { /* popup blocked */ }
+      const target = normalizeRemoteExternalUrl(url);
+      if (!target) return Promise.reject(new TypeError('url protocol is unsupported.'));
+      try { window.open(target, '_blank', 'noopener'); } catch { /* popup blocked */ }
       return Promise.resolve();
     },
     renameProject: (projectPath, alias) => call('renameProject', [projectPath, alias]),
@@ -862,8 +869,21 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     setFast: (enabled, sessionId) => call('setFast', [enabled, sessionId]),
     readSettings: () => call('readSettings'),
     updateSetting: (key, enabled) => call('updateSetting', [key, enabled]),
-    getZoomFactor: () => Promise.resolve(1),
-    setZoomFactor: (factor) => Promise.resolve(factor),
+    getZoomFactor: () => {
+      try {
+        const stored = Number(window.localStorage.getItem('mixdog.web-zoom') || '1');
+        return Promise.resolve(Number.isFinite(stored) && stored > 0 ? stored : 1);
+      } catch {
+        return Promise.resolve(1);
+      }
+    },
+    setZoomFactor: (factor) => {
+      const next = Math.min(10, Math.max(0.2, Math.round(Number(factor) * 100) / 100)) || 1;
+      if (next === 1) document.documentElement.style.removeProperty('zoom');
+      else document.documentElement.style.zoom = String(next);
+      try { window.localStorage.setItem('mixdog.web-zoom', String(next)); } catch { /* session only */ }
+      return Promise.resolve(next);
+    },
     onZoomFactorChanged: () => () => {},
     applyTitleBarTheme: () => Promise.resolve(),
     setTitleBarDim: () => Promise.resolve(),

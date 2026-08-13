@@ -8,6 +8,7 @@
  *     the sample URI with `alt=media`.
  */
 import { resolveGeminiKey } from '../auth.mjs';
+import { decodeBase64Media, downloadGeminiMedia } from '../download.mjs';
 import { mediaError } from '../lanes.mjs';
 import { upstreamError } from '../upstream-error.mjs';
 
@@ -53,7 +54,7 @@ async function generateViaOmni({ model, prompt, options, references = [], signal
     const content = Array.isArray(step?.content) ? step.content : [step?.content].filter(Boolean);
     const video = content.find((item) => item?.type === 'video' && typeof item?.data === 'string');
     if (video) {
-      return { bytes: Buffer.from(video.data, 'base64'), mime: video.mime_type || 'video/mp4' };
+      return { bytes: decodeBase64Media(video.data, 'Gemini Omni video'), mime: video.mime_type || 'video/mp4' };
     }
   }
   throw mediaError('Gemini Omni returned no video data', 'MEDIA_EMPTY_RESULT', 502);
@@ -105,9 +106,10 @@ async function generateViaVeo({ model, prompt, options, references = [], signal,
       || data?.response?.generatedVideos?.[0];
     const uri = sample?.video?.uri || sample?.video?.fileUri;
     if (!uri) throw mediaError('Veo finished without a video URI', 'MEDIA_EMPTY_RESULT', 502);
-    const file = await fetch(`${uri}${uri.includes('?') ? '&' : '?'}alt=media`, { headers, signal });
-    if (!file.ok) throw upstreamError('Veo download', file.status, await file.text().catch(() => ''));
-    return { bytes: Buffer.from(await file.arrayBuffer()), mime: 'video/mp4' };
+    return {
+      bytes: await downloadGeminiMedia(uri, { key, signal }),
+      mime: 'video/mp4',
+    };
   }
 }
 

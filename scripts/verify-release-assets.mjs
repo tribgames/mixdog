@@ -18,6 +18,14 @@ export const GRAPH_PLATFORMS = {
   'win32-x64': 'mixdog-graph-win32-x64.exe',
 };
 
+export const SPAWN_PLATFORMS = {
+  'darwin-arm64': 'mixdog-spawn-darwin-arm64',
+  'darwin-x64': 'mixdog-spawn-darwin-x64',
+  'linux-arm64': 'mixdog-spawn-linux-arm64',
+  'linux-x64': 'mixdog-spawn-linux-x64',
+  'win32-x64': 'mixdog-spawn-win32-x64.exe',
+};
+
 const RUNTIME_PLATFORMS = [
   'linux-x64',
   'linux-arm64',
@@ -33,6 +41,8 @@ const PATCH_MANIFEST_PATH = 'src/runtime/agent/orchestrator/tools/patch-manifest
 const PATCH_CARGO_PATH = 'native/mixdog-patch/Cargo.toml';
 const RUNTIME_MANIFEST_PATH = 'src/runtime/memory/data/runtime-manifest.json';
 const GRAPH_MANIFEST_PATH = 'src/runtime/agent/orchestrator/tools/graph-manifest.json';
+const SPAWN_MANIFEST_PATH = 'src/runtime/agent/orchestrator/tools/spawn-manifest.json';
+const SPAWN_CARGO_PATH = 'native/mixdog-spawn/Cargo.toml';
 const PACKAGE_PATH = 'package.json';
 
 function assertPlainObject(value, label) {
@@ -181,6 +191,34 @@ export function validateGraphManifest(manifest, packageJson) {
   return manifest;
 }
 
+export function validateSpawnManifest(manifest, cargoToml) {
+  assertPlainObject(manifest, 'Spawn manifest');
+  assertExactKeys(manifest, ['version', '_comment', 'assets'], 'Spawn manifest');
+  if (typeof manifest.version !== 'string' || !STRICT_VERSION.test(manifest.version)) {
+    throw new Error(`Spawn manifest version is not strict MAJOR.MINOR.PATCH: ${manifest.version}`);
+  }
+  if (typeof manifest._comment !== 'string' || !manifest._comment) {
+    throw new Error('Spawn manifest _comment must be a non-empty string');
+  }
+  const cargoVersion = String(cargoToml).match(/^\s*version\s*=\s*"([^"]+)"\s*$/m)?.[1];
+  if (cargoVersion !== manifest.version) {
+    throw new Error(`Spawn Cargo version ${cargoVersion || '(missing)'} does not match manifest version ${manifest.version}`);
+  }
+  assertPlainObject(manifest.assets, 'Spawn manifest assets');
+  assertExactKeys(manifest.assets, Object.keys(SPAWN_PLATFORMS), 'Spawn manifest assets');
+  for (const [platform, filename] of Object.entries(SPAWN_PLATFORMS)) {
+    const asset = manifest.assets[platform];
+    assertPlainObject(asset, `Spawn asset ${platform}`);
+    assertExactKeys(asset, ['url', 'sha256'], `Spawn asset ${platform}`);
+    const expected = `https://github.com/tribgames/mixdog/releases/download/spawn-v${manifest.version}/${filename}`;
+    if (asset.url !== expected) throw new Error(`${platform}: spawn asset URL must be ${expected}`);
+    if (typeof asset.sha256 !== 'string' || !SHA256.test(asset.sha256)) {
+      throw new Error(`${platform}: invalid spawn asset sha256`);
+    }
+  }
+  return manifest;
+}
+
 async function downloadAndVerify(label, asset, fetchImpl, timeoutMs, maxAssetBytes) {
   console.log(`Downloading and verifying ${label}`);
   const controller = new AbortController();
@@ -267,25 +305,32 @@ export async function verifyReleaseAssets({
   cargoPath = PATCH_CARGO_PATH,
   runtimeManifestPath = RUNTIME_MANIFEST_PATH,
   graphManifestPath = GRAPH_MANIFEST_PATH,
+  spawnManifestPath = SPAWN_MANIFEST_PATH,
+  spawnCargoPath = SPAWN_CARGO_PATH,
   packagePath = PACKAGE_PATH,
   downloadOptions,
 } = {}) {
-  const [patchSource, cargoToml, runtimeSource, graphSource, packageSource] = await Promise.all([
+  const [patchSource, cargoToml, runtimeSource, graphSource, spawnSource, spawnCargo, packageSource] = await Promise.all([
     readFile(patchManifestPath, 'utf8'),
     readFile(cargoPath, 'utf8'),
     readFile(runtimeManifestPath, 'utf8'),
     readFile(graphManifestPath, 'utf8'),
+    readFile(spawnManifestPath, 'utf8'),
+    readFile(spawnCargoPath, 'utf8'),
     readFile(packagePath, 'utf8'),
   ]);
   const patchManifest = validatePatchManifest(JSON.parse(patchSource), cargoToml);
   const runtimeManifest = validateRuntimeManifest(JSON.parse(runtimeSource));
   const graphManifest = validateGraphManifest(JSON.parse(graphSource), JSON.parse(packageSource));
+  const spawnManifest = validateSpawnManifest(JSON.parse(spawnSource), spawnCargo);
   await verifyAssetDownloads(patchManifest.assets, downloadOptions);
   console.log(`Verified all bundled patch assets for patch-v${patchManifest.version}.`);
   await verifyAssetDownloads(runtimeManifest.assets, downloadOptions);
   console.log(`Verified all bundled runtime assets for ${runtimeManifest.release_tag}.`);
   await verifyAssetDownloads(graphManifest.assets, downloadOptions);
   console.log(`Verified all bundled graph assets for graph-v${graphManifest.version}.`);
+  await verifyAssetDownloads(spawnManifest.assets, downloadOptions);
+  console.log(`Verified all bundled spawn assets for spawn-v${spawnManifest.version}.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

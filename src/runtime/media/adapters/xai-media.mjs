@@ -6,6 +6,7 @@
  * poll route answers 202 while pending, 200 with a signed URL when done.
  */
 import { resolveXaiAuth } from '../auth.mjs';
+import { decodeBase64Media, downloadPublicMedia } from '../download.mjs';
 import { mediaError } from '../lanes.mjs';
 import { upstreamError } from '../upstream-error.mjs';
 
@@ -58,7 +59,7 @@ export async function generateImage({ lane, model, prompt, options = {}, referen
   const entry = data?.data?.[0];
   if (!entry?.b64_json) throw mediaError('xAI returned no image data', 'MEDIA_EMPTY_RESULT', 502);
   return {
-    bytes: Buffer.from(entry.b64_json, 'base64'),
+    bytes: decodeBase64Media(entry.b64_json, 'xAI image'),
     mime: entry.mime_type || 'image/png',
     revisedPrompt: entry.revised_prompt || null,
   };
@@ -101,10 +102,8 @@ export async function generateVideo({ lane, model, prompt, options = {}, referen
     if (data?.status === 'done') {
       const url = data?.video?.url;
       if (!url) throw mediaError('xAI video finished without a URL', 'MEDIA_EMPTY_RESULT', 502);
-      const file = await fetch(url, { signal });
-      if (!file.ok) throw mediaError(`xAI video download failed (${file.status})`, 'MEDIA_UPSTREAM_FAILED', file.status);
       return {
-        bytes: Buffer.from(await file.arrayBuffer()),
+        bytes: await downloadPublicMedia(url, { signal, label: 'xAI video' }),
         mime: 'video/mp4',
         durationSeconds: Number(data?.video?.duration) || duration,
       };

@@ -434,8 +434,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         try {
             const session = activeSession;
             const provider = getProvider(session.provider);
-            // Register the live session object into runtime so closeSession()
-            // can read allBashSessionIds that loop.mjs appends mid-turn.
+            // Register the live session object for synchronous close snapshots.
             runtime.session = session;
             if (!provider)
                 throw new Error(`Provider "${session.provider}" not available`);

@@ -9,12 +9,15 @@ path = "src/main.rs"
 
 [dependencies]
 ignore = "0.4"
+notify = "8.2"
+grep = { version = "0.3.2", features = ["pcre2"] }
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 hex = "0.4"
 rayon = "1"
+nucleo-matcher = "0.3.1"
 tree-sitter = "0.25"
 streaming-iterator = "0.1"
 tree-sitter-typescript = "0.23"

@@ -1,24 +1,24 @@
 // Resident native search: forwards rg-style windowed line requests to ONE
-// long-lived `mixdog-graph --serve-search` process instead of spawning rg per
-// call. Per-call spawn + AV on-access scan measured ~100ms fixed on win32
-// while the actual match work is ~5-10ms; a warm in-process scan answers in
-// single-digit ms. The server accepts only the arg subset the grep builder
-// emits — anything else answers `unsupported` and the caller falls back to
-// the real rg spawn, so behavior can never be lost, only accelerated.
+// long-lived `mixdog-graph --serve-search` process. The server embeds the
+// ripgrep matcher/searcher/printer crates and is the only local-search backend.
+// Unsupported requests and server failures are explicit errors at the caller.
 // MIXDOG_SEARCH_SERVER=0 disables; MIXDOG_SEARCH_SERVER_BIN overrides the
 // binary (dev builds).
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { hiddenSpawnOpts } from '../../../../shared/spawn-flags.mjs';
+import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 
 const RESTART_BACKOFF_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 20_000;
+const SERVER_READY_TIMEOUT_MS = 1_000;
 
 let _server = null; // { child, pending: Map, sequence }
 let _binaryPath = undefined; // undefined = unresolved, null = unavailable
 let _lastFailureAt = 0;
 let _binaryResolveStarted = false;
+let _warmPromise = null;
 
 function _setServerReferenced(server, referenced) {
   const method = referenced ? 'ref' : 'unref';
@@ -61,6 +61,7 @@ function _teardown(error) {
     try { pending.reject(error || new Error('native search server exited')); } catch {}
   }
   server.pending.clear();
+  try { server.resolveReady?.(false); } catch {}
   try { server.child.kill(); } catch {}
 }
 
@@ -79,14 +80,35 @@ function _ensureServer() {
     _lastFailureAt = Date.now();
     return null;
   }
-  const server = { child, pending: new Map(), sequence: 0 };
+  let resolveReady;
+  const ready = new Promise((resolve) => { resolveReady = resolve; });
+  const server = {
+    child,
+    pending: new Map(),
+    sequence: 0,
+    timeoutStreak: 0,
+    ready,
+    readyState: false,
+    readyWaiters: 0,
+    resolveReady,
+  };
   const lines = createInterface({ input: child.stdout });
   lines.on('line', (line) => {
     let message;
     try { message = JSON.parse(line); } catch { return; }
+    if (message?.ready === true) {
+      server.readyState = true;
+      server.resolveReady?.(true);
+      return;
+    }
+    if (message?.event === 'invalidate' && Array.isArray(message.paths)) {
+      invalidateBuiltinResultCache(message.paths.map(String));
+      return;
+    }
     const pending = server.pending.get(Number(message?.id));
     if (!pending) return;
     server.pending.delete(Number(message.id));
+    server.timeoutStreak = 0;
     pending.resolve(message);
   });
   child.on('error', (error) => { if (_server === server) _teardown(error); });
@@ -99,26 +121,85 @@ function _ensureServer() {
   return server;
 }
 
-/** rg-runner seam: returns a runRgWindowedLines-shaped result, or null when
- *  the server is unavailable / the request shape is unsupported (caller then
- *  spawns rg exactly as before). */
-// Boot-time prewarm: binary resolution is async (dynamic import), so the
-// first search of a cold session otherwise races it and falls back to a
-// spawn. Long-lived hosts call this fire-and-forget to have the resident
-// server up before the first tool call. Honors the same kill switch.
-export async function warmNativeSearchServer() {
+async function _waitServerReady(server, timeoutMs = 5_000) {
+  if (!server) return false;
+  if (server.readyState) return true;
+  server.readyWaiters += 1;
+  _setServerReferenced(server, true);
+  let timer;
   try {
-    if (process.env.MIXDOG_SEARCH_SERVER === '0') return false;
-    if (!_resolveBinary()) {
-      const mod = await import('../code-graph/graph-binary.mjs');
-      const candidate = mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
-      if (candidate && existsSync(candidate)) _binaryPath = candidate;
-      else if (_binaryPath === undefined) _binaryPath = null;
+    return await Promise.race([
+      server.ready,
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+        timer.unref?.();
+      }),
+    ]) === true;
+  } finally {
+    if (timer) clearTimeout(timer);
+    server.readyWaiters = Math.max(0, server.readyWaiters - 1);
+    if (server.readyWaiters === 0 && server.pending.size === 0) {
+      _setServerReferenced(server, false);
     }
-    return Boolean(_ensureServer());
-  } catch {
-    return false;
   }
+}
+
+async function _awaitWithin(promise, timeoutMs) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), Math.max(1, timeoutMs));
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** Returns a runRgWindowedLines-shaped result, or null when the native server
+ *  is unavailable or the request shape is unsupported. */
+// Boot-time prewarm: binary resolution is async (dynamic import), so the
+// first search of a cold session otherwise waits for startup. Long-lived hosts
+// call this fire-and-forget to have the resident
+// server up before the first tool call. Honors the same kill switch.
+export async function warmNativeSearchServer(timeoutMs = 5_000) {
+  if (process.env.MIXDOG_SEARCH_SERVER === '0') return false;
+  if (!_warmPromise) {
+    const warm = (async () => {
+      try {
+        if (!_resolveBinary()) {
+          const mod = await import('../code-graph/graph-binary.mjs');
+          const candidate = mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
+          if (candidate && existsSync(candidate)) _binaryPath = candidate;
+          else if (_binaryPath === undefined) _binaryPath = null;
+        }
+        const server = _ensureServer();
+        return await _waitServerReady(server);
+      } catch {
+        return false;
+      }
+    })();
+    _warmPromise = warm;
+    void warm.finally(() => {
+      if (_warmPromise === warm) _warmPromise = null;
+    });
+  }
+  return await _awaitWithin(_warmPromise, timeoutMs);
+}
+
+async function _readyServer(timeoutMs = SERVER_READY_TIMEOUT_MS) {
+  const startedAt = Date.now();
+  const remaining = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
+  let server = _ensureServer();
+  if (server && await _waitServerReady(server, remaining())) return server;
+  if (await warmNativeSearchServer(remaining())) {
+    server = _ensureServer();
+    if (server && await _waitServerReady(server, remaining())) return server;
+  }
+  return null;
 }
 
 /** Fast Windows process table snapshot served by the resident native helper.
@@ -126,8 +207,7 @@ export async function warmNativeSearchServer() {
  *  the binary is unavailable or the request misses its short deadline. */
 export async function tryNativeProcessSnapshot({ timeoutMs = 750 } = {}) {
   if (process.platform !== 'win32' || process.env.MIXDOG_SEARCH_SERVER === '0') return null;
-  let server = _ensureServer();
-  if (!server && await warmNativeSearchServer()) server = _ensureServer();
+  const server = await _readyServer(Math.max(1, Number(timeoutMs) || 750));
   if (!server) return null;
   const id = ++server.sequence;
   _setServerReferenced(server, true);
@@ -157,39 +237,13 @@ export async function tryNativeProcessSnapshot({ timeoutMs = 750 } = {}) {
   return response.rows;
 }
 
-export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
-  if (process.env.MIXDOG_SEARCH_SERVER === '0') return null;
-  let server = _ensureServer();
-  // Do not start the resident server on the first grep. ask() already races
-  // that CreateProcess against the first tool wave; waiting here made the
-  // card sit on "Searching 1 pattern" for several seconds. If the helper is
-  // already up, use it. Otherwise the caller falls through to rg.
-  if (!server) return null;
-  const id = ++server.sequence;
-  // Honor the caller's rg deadline: the resident server must never wait
-  // LONGER than the spawn fallback it replaces (glob passes 10s while the
-  // serve ceiling is 20s), otherwise a queued/stuck serve request delays the
-  // fallback instead of accelerating it. The fixed ceiling still bounds
-  // callers that pass no timeout.
-  const callerTimeoutMs = Number(execOptions.timeout);
-  const deadlineMs = Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
-    ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
-    : REQUEST_TIMEOUT_MS;
+async function requestNative(server, request, execOptions, deadlineMs) {
   _setServerReferenced(server, true);
-  const request = {
-    id,
-    cwd: String(execOptions.cwd || process.cwd()),
-    args: argsList.map(String),
-    offset: Math.max(0, Math.floor(Number(opts.offset) || 0)),
-    limit: Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0
-      ? Math.floor(Number(opts.limit))
-      : 0,
-  };
   const response = await new Promise((resolve) => {
     let settled = false;
     let onAbort = null;
     const cancelServerWork = () => {
-      try { server.child.stdin.write(`${JSON.stringify({ cancel: id })}\n`); } catch {}
+      try { server.child.stdin.write(`${JSON.stringify({ cancel: request.id })}\n`); } catch {}
     };
     const settle = (value, cancel = false) => {
       if (settled) return;
@@ -204,13 +258,17 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
       if (server.pending.size === 0) _setServerReferenced(server, false);
     };
     const timer = setTimeout(() => {
-      server.pending.delete(id);
+      server.pending.delete(request.id);
+      server.timeoutStreak += 1;
       settle(null, true);
+      if (server.timeoutStreak >= 2 && _server === server) {
+        _teardown(new Error('native search server timed out repeatedly'));
+      }
     }, deadlineMs);
     timer.unref?.();
-    server.pending.set(id, { resolve: settle, reject: () => settle(null) });
+    server.pending.set(request.id, { resolve: settle, reject: () => settle(null) });
     onAbort = () => {
-      server.pending.delete(id);
+      server.pending.delete(request.id);
       settle(null, true);
     };
     if (execOptions.signal?.aborted) {
@@ -221,16 +279,77 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
     try {
       server.child.stdin.write(`${JSON.stringify(request)}\n`);
     } catch {
-      server.pending.delete(id);
+      server.pending.delete(request.id);
       settle(null);
     }
   });
+  return response;
+}
+
+export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
+  if (process.env.MIXDOG_SEARCH_SERVER === '0') return null;
+  const callerTimeoutMs = Number(execOptions.timeout);
+  const deadlineMs = Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
+    ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
+    : REQUEST_TIMEOUT_MS;
+  const readyStartedAt = Date.now();
+  const server = await _readyServer(Math.min(deadlineMs, SERVER_READY_TIMEOUT_MS));
+  if (!server) return null;
+  const requestDeadlineMs = Math.max(1, deadlineMs - (Date.now() - readyStartedAt));
+  const response = await requestNative(server, {
+    id: ++server.sequence,
+    cwd: String(execOptions.cwd || process.cwd()),
+    args: argsList.map(String),
+    offset: Math.max(0, Math.floor(Number(opts.offset) || 0)),
+    limit: Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0
+      ? Math.floor(Number(opts.limit))
+      : 0,
+  }, execOptions, requestDeadlineMs);
   if (!response || response.unsupported || response.error) return null;
   if (!Array.isArray(response.lines)) return null;
   return {
     lines: response.lines,
     complete: response.complete === true,
     totalSeen: Math.max(0, Math.floor(Number(response.totalSeen) || 0)),
+    queueMs: Math.max(0, Number(response.queueMs) || 0),
+    handlerMs: Math.max(0, Number(response.handlerMs) || 0),
+    requestClass: response.class === 'bulk' ? 'bulk' : 'interactive',
+    served: true,
+  };
+}
+
+export async function tryServeFuzzySearch(args, execOptions = {}) {
+  if (process.env.MIXDOG_SEARCH_SERVER === '0') return null;
+  const callerTimeoutMs = Number(execOptions.timeout);
+  const deadlineMs = Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
+    ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
+    : REQUEST_TIMEOUT_MS;
+  const readyStartedAt = Date.now();
+  const server = await _readyServer(Math.min(deadlineMs, SERVER_READY_TIMEOUT_MS));
+  if (!server) return null;
+  const requestDeadlineMs = Math.max(1, deadlineMs - (Date.now() - readyStartedAt));
+  const response = await requestNative(server, {
+    id: ++server.sequence,
+    cwd: String(args?.cwd || execOptions.cwd || process.cwd()),
+    fuzzy: String(args?.query || ''),
+    limit: Math.max(1, Math.min(1_000, Math.floor(Number(args?.limit) || 25))),
+    hidden: args?.hidden !== false,
+    includeNoise: args?.includeNoise === true,
+    ...(Number.isFinite(Number(args?.maxDepth)) && Number(args.maxDepth) > 0
+      ? { maxDepth: Math.floor(Number(args.maxDepth)) }
+      : {}),
+    exclude: Array.isArray(args?.exclude) ? args.exclude.map(String) : [],
+  }, execOptions, requestDeadlineMs);
+  if (!response || response.unsupported || response.error || !Array.isArray(response.matches)) return null;
+  return {
+    matches: response.matches.map(String),
+    hasMore: response.hasMore === true,
+    totalMatches: Math.max(0, Number(response.totalMatches) || 0),
+    totalSeen: Math.max(0, Number(response.totalSeen) || 0),
+    complete: response.complete === true,
+    queueMs: Math.max(0, Number(response.queueMs) || 0),
+    handlerMs: Math.max(0, Number(response.handlerMs) || 0),
+    requestClass: response.class === 'fuzzy' ? 'fuzzy' : 'bulk',
     served: true,
   };
 }
@@ -240,4 +359,5 @@ export function _resetNativeSearchClientForTest() {
   _binaryPath = undefined;
   _lastFailureAt = 0;
   _binaryResolveStarted = false;
+  _warmPromise = null;
 }

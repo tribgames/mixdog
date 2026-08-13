@@ -46,12 +46,17 @@ function hasRecallEntity(text) {
 const LATEST_RECALL_CONTEXT_TERMS = new Set([
   'latest', 'current', 'recent', 'most', 'now', 'final', 'result', 'status', 'statu',
   'decision', 'complete', 'completed',
-  '최신', '현재', '최근', '지금', '최종', '결과', '상태', '값', '확정값', '결정', '완료',
+  '최신', '현재', '최근', '지금', '방금', '최종', '결과', '상태', '값', '확정값', '결정', '완료',
 ])
 
 export function hasLatestRecallIntent(text) {
   const value = String(text ?? '').normalize('NFKC').toLowerCase()
-  return /최신|현재|최근|latest|current|most\s+recent/.test(value)
+  return /최신|현재|최근|방금|latest|current|most\s+recent/.test(value)
+}
+
+function hasVagueLatestWorkIntent(text) {
+  const value = String(text ?? '').normalize('NFKC').toLowerCase()
+  return /방금.*(?:작업|결과)|(?:latest|recent|most\s+recent).*(?:work|result)/u.test(value)
 }
 
 export function latestRecallTopicTerms(text) {
@@ -87,6 +92,10 @@ function recallRowTopicText(row) {
 
 export function rankLatestRecallRows(rows, query) {
   const terms = latestRecallTopicTerms(query)
+  const explicitIdentifiers = String(query ?? '').match(/[A-Za-z][A-Za-z0-9_]*/g) ?? []
+  const strictEntityCoverage = explicitIdentifiers.filter((term) => (
+    /^[A-Z]{2,}$/u.test(term) || /[A-Z]/u.test(term.slice(1)) || /[_\d]/u.test(term)
+  )).length > 1
   const normalizedQuery = String(query ?? '').normalize('NFKC').trim().toLowerCase()
   const score = (row) => {
     const value = Number(row?.retrievalScore ?? row?.rrf ?? row?.score ?? 0)
@@ -103,7 +112,9 @@ export function rankLatestRecallRows(rows, query) {
       }
     })
   const maxCoverage = annotated.reduce((max, candidate) => Math.max(max, candidate.coverage), 0)
-  const latestCoverageFloor = maxCoverage > 1 ? maxCoverage - 1 : maxCoverage
+  const latestCoverageFloor = strictEntityCoverage
+    ? maxCoverage
+    : (maxCoverage > 1 ? maxCoverage - 1 : maxCoverage)
   return annotated
     .sort((a, b) => {
       if (a.selfEcho !== b.selfEcho) return a.selfEcho ? 1 : -1
@@ -122,6 +133,135 @@ export function rankLatestRecallRows(rows, query) {
         || (a.index - b.index)
     })
     .map(({ row }) => row)
+}
+
+export function mergeHistoricalRecallRows(primaryRows, rootRows, limit = 10, {
+  includeMatchedRootSummary = false,
+  rootReserve = 1,
+} = {}) {
+  const cap = Math.max(1, Math.floor(Number(limit) || 10))
+  const rootById = new Map()
+  for (const row of Array.isArray(rootRows) ? rootRows : []) {
+    const id = String(row?.id ?? '')
+    if (id && !rootById.has(id)) rootById.set(id, row)
+  }
+  const seen = new Set()
+  const primary = []
+  for (const row of Array.isArray(primaryRows) ? primaryRows : []) {
+    const id = String(row?.id ?? '')
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    const classified = rootById.get(id)
+    const summarySource = classified ?? (Number(row?.is_root) === 1 ? row : null)
+    primary.push(includeMatchedRootSummary && summarySource
+      ? {
+          ...row,
+          _historicalRootElement: summarySource.element,
+          _historicalRootSummary: summarySource.summary,
+        }
+      : row)
+  }
+  const reserve = Math.max(0, Math.min(cap, Math.floor(Number(rootReserve) || 0)))
+  const novelRoots = (Array.isArray(rootRows) ? rootRows : [])
+    .filter((row) => !seen.has(String(row?.id ?? '')))
+    .slice(0, reserve)
+  if (novelRoots.length === 0) return primary.slice(0, cap)
+  const out = []
+  let primaryIndex = 0
+  if (primary.length > 0) out.push(primary[primaryIndex++])
+  if (reserve > 1) {
+    out.push(...novelRoots)
+    while (out.length < cap && primaryIndex < primary.length) {
+      out.push(primary[primaryIndex++])
+    }
+    return out.slice(0, cap)
+  }
+  for (const root of novelRoots) {
+    out.push(root)
+    if (primaryIndex < primary.length) out.push(primary[primaryIndex++])
+  }
+  while (out.length < cap && primaryIndex < primary.length) {
+    out.push(primary[primaryIndex++])
+  }
+  return out.slice(0, cap)
+}
+
+export function preserveLatestConceptRows(primaryRows, conceptRows, limit = 30) {
+  const cap = Math.max(1, Math.floor(Number(limit) || 30))
+  const primary = Array.isArray(primaryRows) ? primaryRows : []
+  const concepts = Array.isArray(conceptRows)
+    ? conceptRows
+        .slice()
+        .sort((a, b) => (
+          Number(b?.retrievalScore ?? b?.rrf ?? 0) - Number(a?.retrievalScore ?? a?.rrf ?? 0)
+          || Number(a?.retrievalRank ?? Number.MAX_SAFE_INTEGER)
+            - Number(b?.retrievalRank ?? Number.MAX_SAFE_INTEGER)
+        ))
+        .slice(0, 1)
+    : []
+  const seen = new Set()
+  const out = []
+  const append = (row) => {
+    const id = String(row?.id ?? '')
+    if (!id || seen.has(id) || out.length >= cap) return
+    seen.add(id)
+    out.push(row)
+  }
+  if (primary.length > 0) append(primary[0])
+  for (const row of concepts) append(row)
+  for (const row of primary) append(row)
+  return out
+}
+
+export function boundRecallRowsToTemporal(rows, temporal) {
+  const startMs = Number(temporal?.startMs)
+  const endMs = Number(temporal?.endMs)
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return rows
+  const inRange = (row) => {
+    const ts = Number(row?.ts)
+    return Number.isFinite(ts) && ts >= startMs && ts <= endMs
+  }
+  return (Array.isArray(rows) ? rows : []).flatMap((row) => {
+    if (!Array.isArray(row?.members) || row.members.length === 0) {
+      return inRange(row) ? [row] : []
+    }
+    const members = row.members.filter(inRange)
+    if (members.length > 0) return [{ ...row, members }]
+    return inRange(row) ? [{ ...row, members: [] }] : []
+  })
+}
+
+export function prioritizeHistoricalRootEvidence(rows) {
+  const source = Array.isArray(rows) ? rows : []
+  const rootIds = new Set(source
+    .filter((row) => Number(row?.is_root) === 1)
+    .map((row) => String(row?.id ?? ''))
+    .filter(Boolean))
+  const groups = new Map()
+  for (const row of source) {
+    const ownId = String(row?.id ?? '')
+    const parentId = String(row?.chunk_root ?? '')
+    const key = Number(row?.is_root) === 1
+      ? `root:${ownId}`
+      : (rootIds.has(parentId) ? `root:${parentId}` : `row:${ownId}`)
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(row)
+  }
+  return [...groups.values()].flatMap((group) => group.sort((a, b) => (
+    Number(b?.is_root === 1) - Number(a?.is_root === 1)
+  )))
+}
+
+export function annotateRecallRootContext(rows) {
+  return (Array.isArray(rows) ? rows : []).map((row) => (
+    Number(row?.is_root) === 1 && Array.isArray(row?.members) && row.members.length > 0
+      ? {
+          ...row,
+          _historicalRootElement: row.element,
+          _historicalRootSummary: row.summary,
+        }
+      : row
+  ))
 }
 
 function hasTimelineIntent(text) {
@@ -628,6 +768,17 @@ export function createQueryHandlers({
     const includeArchived = args.includeArchived !== false
     const category = args.category
     const temporal = parsePeriod(period, Boolean(query))
+    const boundedHistoricalMode = Boolean(
+      query
+      && sort !== 'date'
+      && !latestIntent
+      && !timelineMode
+      && Number.isFinite(Number(temporal?.startMs))
+      && Number.isFinite(Number(temporal?.endMs))
+      && Number(temporal.endMs) < Date.now() - 60 * 60 * 1000
+    )
+    const deepHistoricalMode = boundedHistoricalMode
+      && Number(temporal.endMs) < Date.now() - 3 * 24 * 60 * 60 * 1000
     // A period bounds the candidate set; it does not imply chronology. Topic
     // queries keep relevance ordering even inside a date window, while
     // query-less browsing stays newest-first through the default above.
@@ -697,7 +848,7 @@ export function createQueryHandlers({
       // that need only live invariants can pass includeArchived:false.
       const excludeStatuses = includeArchived ? [] : ['archived']
       const retrievalLimit = Math.min(RECALL_LIMIT_CAP, Math.max(limit + offset, (limit + offset) * 3))
-      const results = await searchRelevantHybrid(db, retrievalQuery, {
+      const searchOptions = {
         limit: retrievalLimit,
         queryVector: Array.isArray(queryVector) ? queryVector : null,
         includeMembers: structuredTimeMode ? false : includeMembers,
@@ -707,6 +858,8 @@ export function createQueryHandlers({
         projectScope,
         category,
         excludeStatuses,
+        writeBackMemberHits: false,
+        latestByConcept: latestIntent && args.period == null,
         // useHotActive was set to true here so default (no-period) calls
         // routed through the mv_hot_active materialized view — a narrow
         // active-roots-only pool. Live usage is dominated by vague-time
@@ -721,7 +874,76 @@ export function createQueryHandlers({
         // place for now but no longer routed to from search; cycle2 may stop
         // refreshing it in a follow-up commit once nothing else reads it.
         useHotActive: false,
-      })
+      }
+      const vagueLatestRootMode = latestRootMode && hasVagueLatestWorkIntent(query)
+      const [results, historicalRootRows] = await Promise.all([
+        vagueLatestRootMode
+          ? retrieveEntries(db, {
+              is_root: true,
+              ts_from: temporal?.startMs,
+              ts_to: temporal?.endMs,
+              projectScope,
+              category,
+              excludeStatuses,
+              sort: 'date',
+              limit: retrievalLimit,
+            })
+          : searchRelevantHybrid(db, retrievalQuery, searchOptions),
+        boundedHistoricalMode
+          ? searchRelevantHybrid(db, retrievalQuery, {
+              ...searchOptions,
+              includeMembers: false,
+              rootOnly: true,
+              writeBackMemberHits: false,
+            })
+          : Promise.resolve([]),
+      ])
+      const primaryRootCandidates = deepHistoricalMode
+        ? results
+            .filter((row) => Number(row?.is_root) === 1)
+            .map((row) => ({ ...row, members: [] }))
+        : []
+      const seenHistoricalRoots = new Set()
+      let historicalRootCandidates = [...primaryRootCandidates, ...historicalRootRows]
+        .filter((row) => {
+          const id = String(row?.id ?? '')
+          if (!id || seenHistoricalRoots.has(id)) return false
+          seenHistoricalRoots.add(id)
+          return true
+        })
+      const lowHistoricalResultMode = deepHistoricalMode
+        ? results.length <= 2
+        : (results.length <= 5 && historicalRootRows.length <= 2)
+      if (boundedHistoricalMode && lowHistoricalResultMode) {
+        const windowRoots = await retrieveEntries(db, {
+          is_root: true,
+          ts_from: temporal?.startMs,
+          ts_to: temporal?.endMs,
+          projectScope,
+          category,
+          excludeStatuses,
+          sort: 'date',
+          limit: 50,
+        })
+        const terms = sessionRecallTerms(retrievalQuery)
+        const coverage = (row) => {
+          const text = recallRowTopicText(row)
+          return terms.reduce((count, term) => count + (text.includes(term) ? 1 : 0), 0)
+        }
+        const seenRoots = new Set()
+        historicalRootCandidates = [...primaryRootCandidates, ...windowRoots, ...historicalRootRows]
+          .filter((row) => {
+            const id = String(row?.id ?? '')
+            if (!id || seenRoots.has(id)) return false
+            seenRoots.add(id)
+            return true
+          })
+          .sort((a, b) => (
+            coverage(b) - coverage(a)
+            || Number(b?.retrievalScore ?? b?.rrf ?? 0) - Number(a?.retrievalScore ?? a?.rrf ?? 0)
+            || compareRecallNewestFirst(a, b)
+          ))
+      }
       let filtered = results
       let promoteLatestRaw = false
       if (sort === 'date') {
@@ -739,7 +961,9 @@ export function createQueryHandlers({
       }
       if (structuredTimeMode) {
         const rootRows = filtered.filter((row) => Number(row?.is_root) === 1)
-        const roots = latestIntent
+        const roots = vagueLatestRootMode
+          ? rootRows.sort(compareRecallNewestFirst)
+          : latestIntent
           ? rankLatestRecallRows(rootRows, retrievalQuery)
           : rootRows.sort(compareRecallNewestFirst)
         const other = filtered.filter((row) => Number(row?.is_root) !== 1)
@@ -826,6 +1050,9 @@ export function createQueryHandlers({
         filtered.sort(compareRecallNewestFirst)
       }
       if (sort !== 'date' && includeRaw && (!structuredTimeMode || promoteLatestRaw)) {
+        const latestConceptRows = latestIntent
+          ? filtered.filter((row) => row?._conceptExpanded === true)
+          : []
         filtered = await expandRecallEventContext(db, filtered, {
           query: retrievalQuery,
           limit: retrievalLimit,
@@ -836,12 +1063,30 @@ export function createQueryHandlers({
           projectScope,
           dedupeEvents: latestIntent,
         })
+        if (latestConceptRows.length > 0) {
+          filtered = preserveLatestConceptRows(filtered, latestConceptRows, retrievalLimit)
+        }
+      }
+      if (boundedHistoricalMode) {
+        filtered = mergeHistoricalRecallRows(filtered, historicalRootCandidates, retrievalLimit, {
+          includeMatchedRootSummary: true,
+          rootReserve: deepHistoricalMode ? 6 : (lowHistoricalResultMode ? 5 : 1),
+        })
+        if (deepHistoricalMode) filtered = prioritizeHistoricalRootEvidence(filtered)
       }
       if (timelineMode) {
         const roots = filtered.filter((row) => Number(row?.is_root) === 1)
         filtered = sampleRecallTimeline(roots.length > 1 ? roots : filtered, limit + offset)
       }
-      const sliced = filtered.slice(offset, offset + limit)
+      filtered = annotateRecallRootContext(filtered)
+      filtered = boundRecallRowsToTemporal(filtered, temporal)
+      // De-duplicate before pagination so member/root pairs do not consume the
+      // page and then collapse into a half-empty result set.
+      const deduped = collapseNearDuplicateRows(filtered)
+      const pageRows = latestIntent
+        ? deduped.filter((row) => row?._dupStub !== true)
+        : deduped
+      const sliced = pageRows.slice(offset, offset + limit)
       const _t2 = Date.now()
       if (process.env.MIXDOG_DEBUG_MEMORY) {
         log(`[search-time] hybrid+sort+raw=${_t2 - _t1}ms rows=${filtered.length} sliced=${sliced.length}\n`)
@@ -864,13 +1109,12 @@ export function createQueryHandlers({
           }]).catch(e => log(`[trace] insertTraceEvents error: ${e?.message}\n`))
         }
       }
-      // Collapse near-duplicate long bodies within this single result set so
-      // paraphrased restatements don't each spend the full line budget. Search
-      // path only — id-lookup output above never calls this.
-      const deduped = collapseNearDuplicateRows(sliced)
       // recencyOrder render on the date path flattens roots+members into one
       // ts-desc stream so per-chunk (ts-ASC) members can't invert the timeline.
-      const out = { text: recallCapPrefix + renderEntryLines(deduped, { recencyOrder: sort === 'date' }) }
+      const latestEvidenceNote = latestIntent && args.period == null
+        ? 'note: latest stored evidence; no newer stored completion is implied\n'
+        : ''
+      const out = { text: recallCapPrefix + latestEvidenceNote + renderEntryLines(sliced, { recencyOrder: sort === 'date' }) }
       if (process.env.MIXDOG_DEBUG_MEMORY) {
         log(`[search-time] render+trace=${Date.now() - _t2}ms total=${Date.now() - _t0}ms textLen=${out.text.length}\n`)
       }

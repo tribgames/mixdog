@@ -27,13 +27,13 @@ process.env.NODE_ENV ||= 'production';
 
 let swapped = false;
 const invocation = classifyCliInvocation(argv);
-const skipHostPrelude = invocation.kind === 'headless' || invocation.skipHostPrelude === true;
+const skipHostPrelude = invocation.kind === 'exec' || invocation.skipHostPrelude === true;
 if (!skipHostPrelude) {
   beginProcessLifecycle({ safeCommandLine: argv.length === 0 });
 }
 if (!skipHostPrelude) {
   // Interactive/general sessions retain the staged-update and live-session
-  // semantics. Headless role commands skip both because those helpers touch the
+  // semantics. Headless exec skips both because those helpers touch the
   // host data tree before the pristine boundary exists.
   try {
     const { performPendingSwap, registerLiveSession } = await import(

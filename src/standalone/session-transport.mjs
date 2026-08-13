@@ -667,7 +667,7 @@ export function createSessionTransport({
         });
         return;
       }
-      const token = req.headers['x-mixdog-daemon-token'] || url.searchParams.get('server_token');
+      const token = req.headers['x-mixdog-daemon-token'];
       if (token !== serverToken) { sendError(res, 'forbidden', 403); return; }
 
       if (req.method === 'POST' && pathName === '/client/register') {

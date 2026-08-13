@@ -9,9 +9,14 @@ let requestedZoom = 1;
 
 async function applyZoom(value: number) {
   const api = window.mixdogDesktop;
-  if (typeof api?.setZoomFactor !== 'function') return;
   const next = clampZoom(value);
   requestedZoom = next;
+  if (typeof api?.setZoomFactor !== 'function') {
+    if (next === 1) document.documentElement.style.removeProperty('zoom');
+    else document.documentElement.style.zoom = String(next);
+    try { window.localStorage.setItem('mixdog.web-zoom', String(next)); } catch { /* session only */ }
+    return;
+  }
   try {
     requestedZoom = clampZoom(await api.setZoomFactor(next));
   } catch {
@@ -31,6 +36,11 @@ if (typeof api?.getZoomFactor === 'function') {
   void api.getZoomFactor()
     .then((factor) => { requestedZoom = clampZoom(factor); })
     .catch(() => {});
+} else {
+  try {
+    const stored = Number(window.localStorage.getItem('mixdog.web-zoom') || '');
+    if (stored) void applyZoom(stored);
+  } catch { /* default 1 */ }
 }
 
 window.addEventListener('keydown', (event) => {

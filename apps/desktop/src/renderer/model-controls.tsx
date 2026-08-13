@@ -466,6 +466,7 @@ export const ModelSelector = memo(function ModelSelector({
       const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<string>({
         capability: 'setEffort',
         args: [effort],
+        ...(sessionId ? { sessionId } : {}),
       }));
       if (result !== undefined) applySnapshot(result.snapshot);
     } finally {

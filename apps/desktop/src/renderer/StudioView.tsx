@@ -69,7 +69,7 @@ const EAGER_THUMB_COUNT = 12;
 // response one frame to win, then start the bounded Chromium fallback instead
 // of leaving a cold cache miss behind native/custom-protocol scheduling.
 const THUMB_STALL_MS = 120;
-const STUDIO_DETAIL_STACK_MAX_WIDTH = 700;
+const STUDIO_NARROW_PANE = 760;
 // Gallery density steps: columns per row. The slider presents these in reverse
 // so moving right follows the familiar smaller → larger thumbnail direction.
 const TILE_SIZES = [3, 4, 5, 6] as const;
@@ -248,15 +248,9 @@ export function StudioPane({
   const [copied, setCopied] = useState(false);
   // Compact detail sheet: the prompt is clamped to two lines and expands on tap.
   const [promptOpen, setPromptOpen] = useState(false);
-  // Device type never changes the composition: only available width may stack
-  // the detail surface, so VPS web and Electron stay identical at equal sizes.
-  const [phoneViewer, setPhoneViewer] = useState(
-    () => window.matchMedia?.('(max-width: 700px)').matches === true,
-  );
-  // Split panes resize independently of the Electron window. Keep desktop
-  // tile interactions, but stack the detail viewer when this Studio surface
-  // itself becomes phone-width.
-  const [narrowDetailViewer, setNarrowDetailViewer] = useState(false);
+  // Tile hover chrome follows the Studio PANE, not the window — a split
+  // leaf can be narrow while the window is still wide.
+  const [narrowPane, setNarrowPane] = useState(false);
   const [dropping, setDropping] = useState(false);
   // Hover preview: exactly one <video> is mounted at a time (a grid full of
   // live decoders is what took the window down before).
@@ -471,20 +465,11 @@ export function StudioPane({
     setLoading(false);
   }, [api, refreshAssetKind]);
 
-  useEffect(() => {
-    const query = window.matchMedia?.('(max-width: 700px)');
-    if (!query) return undefined;
-    const apply = () => setPhoneViewer(query.matches);
-    apply();
-    query.addEventListener('change', apply);
-    return () => query.removeEventListener('change', apply);
-  }, []);
-
   useLayoutEffect(() => {
     const element = studioRootRef.current;
     if (!element) return undefined;
     const apply = (width: number) => {
-      if (width > 0) setNarrowDetailViewer(width <= STUDIO_DETAIL_STACK_MAX_WIDTH);
+      if (width > 0) setNarrowPane(width <= STUDIO_NARROW_PANE);
     };
     apply(element.getBoundingClientRect().width);
     if (typeof ResizeObserver !== 'function') return undefined;
@@ -1209,6 +1194,7 @@ export function StudioPane({
           </button>
         </div>
       </header>
+      <div className="studio-stage-host">
       {/* Mode stays visually centered while thumbnail scale owns the gallery's
           top-right corner and contracts with narrow split layouts. */}
       <div className="studio-topbar">
@@ -1351,12 +1337,12 @@ export function StudioPane({
               aria-label={`Open ${asset.kind}: ${asset.prompt}`}
               // Hover preview mounts ONE video at a time; a grid of live
               // decoders is what crashed the window earlier.
-              onMouseEnter={!phoneViewer && asset.kind === 'video'
+              onMouseEnter={!narrowPane && asset.kind === 'video'
                 && (localTransport || Boolean(assetUrl(asset.id, 'original')))
                 ? () => void hoverPreview(asset) : undefined}
-              onMouseLeave={!phoneViewer && asset.kind === 'video'
+              onMouseLeave={!narrowPane && asset.kind === 'video'
                 ? () => setHoverId('') : undefined}>
-              {mediaForeground && !phoneViewer && asset.kind === 'video' && hoverId === asset.id
+              {mediaForeground && !narrowPane && asset.kind === 'video' && hoverId === asset.id
                 && (assetUrl(asset.id, 'original') || fullUrls[asset.id])
                 ? <video src={assetUrl(asset.id, 'original') || fullUrls[asset.id]}
                   muted loop autoPlay playsInline preload="metadata" />
@@ -1405,7 +1391,7 @@ export function StudioPane({
             </button>
             {/* Clean tiles: detail opens from the media itself; only destructive
                 cleanup remains in the top-right hover control. */}
-            {!phoneViewer && <div className="studio-tile-actions">
+            {!narrowPane && <div className="studio-tile-actions">
               <button type="button" className="studio-tile-remove" aria-label={t('Delete asset')}
                 title={assetLabel(asset)}
                 onClick={() => void remove(asset)}><Trash2 size={16} aria-hidden="true" /></button>
@@ -1415,7 +1401,33 @@ export function StudioPane({
           </div>)}
         </div>
       </div>
-
+      {selected && <div className="studio-detail" role="dialog" aria-label={t('Generated media detail')}
+        onClick={() => setSelected(null)}>
+        <div className="studio-detail-card" onClick={(event) => event.stopPropagation()}>
+        <div className="studio-detail-stage">
+          {selected.kind === 'video'
+            ? <video key={mediaForeground ? 'foreground' : 'suspended'}
+              src={mediaForeground ? assetUrl(selected.id, 'original') || previewUrl : undefined}
+              poster={assetUrl(selected.id, 'thumb') || thumbs[selected.id] || undefined}
+              controls={mediaForeground} autoPlay={mediaForeground} playsInline
+              preload={mediaForeground ? 'metadata' : 'none'}
+              onError={() => markUrlBroken(selected.id, 'original')} />
+            : <img src={assetUrl(selected.id, 'display') || previewUrl || thumbs[selected.id] || ''}
+              alt={selected.prompt} onError={() => markUrlBroken(selected.id, 'display')} />}
+          <button type="button" className="studio-detail-stage-close" aria-label={t('Close preview')}
+            onClick={() => setSelected(null)}><X size={16} aria-hidden="true" /></button>
+        </div>
+        <aside className="studio-detail-side">
+          <header>
+            <b>{selected.kind === 'video' ? t('Video') : t('Image')}</b>
+            <button type="button" className="studio-detail-close" aria-label={t('Close preview')}
+              onClick={() => setSelected(null)}><X size={16} aria-hidden="true" /></button>
+          </header>
+          {detailSections(selected)}
+        </aside>
+        </div>
+      </div>}
+      </div>
       <div className="studio-dock">
         {/* Progress AND job failures live on the pending tile; the banner is
             only for pane-level errors. */}
@@ -1519,40 +1531,6 @@ export function StudioPane({
           </div>
         </div>
       </div>
-
-      {selected && <div className="studio-detail" role="dialog" aria-label={t('Generated media detail')}
-        data-phone={phoneViewer || narrowDetailViewer ? 'true' : undefined}
-        data-pane-compact={narrowDetailViewer && !phoneViewer ? 'true' : undefined}
-        onClick={() => setSelected(null)}>
-        {/* One stable media/details frame on a dimmed backdrop. */}
-        <div className="studio-detail-card" onClick={(event) => event.stopPropagation()}>
-        <div className="studio-detail-stage">
-          {selected.kind === 'video'
-            ? <video key={mediaForeground ? 'foreground' : 'suspended'}
-              src={mediaForeground ? assetUrl(selected.id, 'original') || previewUrl : undefined}
-              poster={assetUrl(selected.id, 'thumb') || thumbs[selected.id] || undefined}
-              controls={mediaForeground} autoPlay={mediaForeground} playsInline
-              preload={mediaForeground ? 'metadata' : 'none'}
-              onError={() => markUrlBroken(selected.id, 'original')} />
-            // The tile rendition is already decoded, so the detail view opens
-            // on it and swaps to the display rendition when that lands.
-            : <img src={assetUrl(selected.id, 'display') || previewUrl || thumbs[selected.id] || ''}
-              alt={selected.prompt} onError={() => markUrlBroken(selected.id, 'display')} />}
-          {/* Phone viewer: the media is full-bleed, so its close control floats
-              over the stage instead of sitting in the side rail's header. */}
-          <button type="button" className="studio-detail-stage-close" aria-label={t('Close preview')}
-            onClick={() => setSelected(null)}><X size={16} aria-hidden="true" /></button>
-        </div>
-        <aside className="studio-detail-side">
-          <header>
-            <b>{selected.kind === 'video' ? t('Video') : t('Image')}</b>
-            <button type="button" className="studio-detail-close" aria-label={t('Close preview')}
-              onClick={() => setSelected(null)}><X size={16} aria-hidden="true" /></button>
-          </header>
-          {detailSections(selected)}
-        </aside>
-        </div>
-      </div>}
     </div>
     </div>
   </div>;

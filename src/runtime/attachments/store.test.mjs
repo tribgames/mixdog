@@ -105,6 +105,27 @@ test('daemon intake stores one payload and keeps byte-free refs through history/
   assert.ok(attachmentStoreCacheStats().bytes <= attachmentStoreCacheStats().maxBytes);
 });
 
+test('attachment reads reject content that no longer matches its sha256 reference', async () => {
+  const stored = materializePromptSubmission([{
+    type: 'file',
+    data: Buffer.from('original attachment').toString('base64'),
+    mimeType: 'application/octet-stream',
+  }]).prompt[0];
+  const blobPath = join(
+    dataDir,
+    'prompt-attachments',
+    'sha256',
+    stored.attachmentRef.slice(0, 2),
+    stored.attachmentRef,
+  );
+  writeFileSync(blobPath, 'tampered attachment');
+  const freshStore = await import(`./store.mjs?integrity=${Date.now()}`);
+  assert.throws(
+    () => freshStore.readAttachmentBuffer(stored),
+    /integrity check failed/,
+  );
+});
+
 test('image resize output is reused from the bounded hash LRU', async () => {
   const onePixelPng = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',

@@ -31,10 +31,10 @@ export function formatToolStartProgress(name, args = {}) {
         case 'shell':
             return a.command ? `running ${_t(a.command)}` : 'running shell';
         case 'task': {
-            const action = a.action || 'wait';
+            const action = a.action || (a.task_id ? 'status' : 'list');
             return action === 'list'
                 ? 'listing background tasks'
-                : `${action === 'wait' ? 'waiting for' : action} task ${_t(a.task_id)}`;
+                : `${action} task ${_t(a.task_id)}`;
         }
         // ── builtin / code_graph: search & navigation ────────────────────
         case 'grep':

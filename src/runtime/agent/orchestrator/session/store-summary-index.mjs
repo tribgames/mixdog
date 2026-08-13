@@ -153,7 +153,6 @@ export function _sessionSummary(session) {
         title: _cleanPreview(session.title || '', 100),
         preview: messageProjection.preview,
         generation: typeof session.generation === 'number' ? session.generation : 0,
-        implicitBashSessionId: session.implicitBashSessionId || null,
         storageMtimeMs: _positiveNumber(session.storageMtimeMs, 0),
         storageSize: _positiveNumber(session.storageSize, 0),
         // Lifecycle provenance for catalog filters: resume-machinery scratch
@@ -191,7 +190,6 @@ function _normalizeSummaryRow(row) {
         title: _cleanPreview(row.title || '', 100),
         preview: _cleanPreview(row.preview || ''),
         generation: typeof row.generation === 'number' ? row.generation : 0,
-        implicitBashSessionId: row.implicitBashSessionId || null,
         storageMtimeMs: _positiveNumber(row.storageMtimeMs, 0),
         storageSize: _positiveNumber(row.storageSize, 0),
         detachedReason: row.detachedReason || null,

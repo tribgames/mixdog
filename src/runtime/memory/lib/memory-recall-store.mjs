@@ -47,6 +47,7 @@ export async function searchRelevantHybrid(db, query, options = {}) {
   const candidateWindow = Math.max(240, limit * 8)
   const includeMembers = Boolean(options.includeMembers)
   const writeBackMemberHits = options.writeBackMemberHits !== false
+  const rootOnly = options.rootOnly === true
   // Pre-filter knobs. Without them, FTS/vec rank the whole tree and a
   // post-filter time window can wipe the result set.
   const tsFrom = Number.isFinite(Number(options.ts_from)) ? Number(options.ts_from) : null
@@ -131,7 +132,7 @@ export async function searchRelevantHybrid(db, query, options = {}) {
       excludeStatuses,
       category: categories,
       projectScope,
-    })
+    }, opts.tableAlias || '')
   }
 
   // Kept for the non-candidate root-lookup inside the member-hit resolution path.
@@ -181,6 +182,8 @@ export async function searchRelevantHybrid(db, query, options = {}) {
   // independent SELECT scopes. When useHotActive=true, the trgm leg still uses
   // these params but at adjusted offsets (see activeBindParams below).
   const { clause: filterClause, params: filterParams } = buildFilterClause(5)
+  const entryRootFilter = rootOnly ? 'AND is_root = 1' : ''
+  const exactRootFilter = rootOnly ? 'AND ee.is_root = 1' : ''
 
   // MV-specific filter: only category/projectScope matter (status='active' and
   // embedding IS NOT NULL are baked into mv_hot_active; ts_from/ts_to are
@@ -257,6 +260,7 @@ dense AS (
   FROM entries
   WHERE embedding IS NOT NULL
     ${filterClause}
+    ${entryRootFilter}
   ORDER BY embedding <=> $1::halfvec
   LIMIT $4
 ),`) : `
@@ -288,6 +292,7 @@ sparse AS (
   FROM entries
   WHERE search_tsv @@ ${tsqExpr}
     ${filterClause}
+    ${entryRootFilter}
   ORDER BY lex DESC
   LIMIT $4
 ),`) : `
@@ -310,6 +315,7 @@ trgm AS (
       OR coalesce(summary, '') ILIKE '%' || $3 || '%'
     )
     ${trgmFilterClause}
+    ${entryRootFilter}
     ${lexScanBound()}
   ORDER BY ts DESC
   LIMIT $4
@@ -329,6 +335,7 @@ exact_matches AS (
   )
   WHERE true
     ${exactFilterClause}
+    ${exactRootFilter}
     ${lexScanBound('ee')}
 ),
 exact AS (
@@ -379,7 +386,7 @@ combined AS (
 SELECT
   e.id, e.element, e.summary, e.category, e.status, e.score,
   e.last_seen_at, e.ts, e.project_id, e.session_id, e.source_ref,
-  e.source_turn, e.content, e.chunk_root, e.is_root,
+  e.source_turn, e.content, e.chunk_root, e.concept_id, e.supersedes_id, e.is_root,
   e.role,
   d.sim        AS dense_sim,
   d.dense_rank,
@@ -399,6 +406,7 @@ LEFT JOIN trgm   t ON t.id = c.id
 LEFT JOIN exact  x ON x.id = c.id`
 
   let rawRows = []
+  const conceptExpandedRootIds = new Set()
   let denseCount = 0
   let sparseCount = 0
   let trgmCount = 0
@@ -420,6 +428,97 @@ LEFT JOIN exact  x ON x.id = c.id`
   }
 
   if (rawRows.length === 0) return []
+  if (options.latestByConcept === true) {
+    const candidateRootIds = [...new Set(rawRows.map(row => (
+      Number(row.is_root) === 1 ? Number(row.id) : Number(row.chunk_root)
+    )).filter(Number.isFinite))]
+    if (candidateRootIds.length > 0) {
+      const relations = await recallReadQuery(db, `
+        WITH roots AS (
+          SELECT id, concept_id FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 1
+        )
+        SELECT r.id AS root_id, ec.concept_id
+        FROM roots r
+        JOIN entry_concepts ec ON ec.entry_id = r.id
+        UNION
+        SELECT r.id AS root_id, r.id AS concept_id FROM roots r
+        UNION
+        SELECT r.id AS root_id, r.concept_id FROM roots r WHERE r.concept_id IS NOT NULL
+      `, [candidateRootIds])
+      const conceptIdsByRoot = new Map()
+      for (const relation of relations.rows) {
+        const rootId = Number(relation.root_id)
+        const conceptId = Number(relation.concept_id)
+        if (!Number.isFinite(rootId) || !Number.isFinite(conceptId)) continue
+        if (!conceptIdsByRoot.has(rootId)) conceptIdsByRoot.set(rootId, [])
+        conceptIdsByRoot.get(rootId).push(conceptId)
+      }
+      const anchorStrength = (row) => (
+        (row.exact_rank != null ? 4 / (60 + Number(row.exact_rank)) : 0)
+        + (row.sparse_rank != null ? 3 / (60 + Number(row.sparse_rank)) : 0)
+        + (row.dense_rank != null ? 2 / (60 + Number(row.dense_rank)) : 0)
+        + (row.trgm_rank != null ? 1 / (60 + Number(row.trgm_rank)) : 0)
+      )
+      const anchorByConcept = new Map()
+      for (const row of rawRows) {
+        const rootId = Number(row.is_root) === 1 ? Number(row.id) : Number(row.chunk_root)
+        for (const conceptId of conceptIdsByRoot.get(rootId) ?? []) {
+          const prior = anchorByConcept.get(conceptId)
+          if (!prior || anchorStrength(row) > anchorStrength(prior)) anchorByConcept.set(conceptId, row)
+        }
+      }
+      const conceptIds = [...anchorByConcept.keys()]
+      if (conceptIds.length > 0) {
+        const { clause: latestFilter, params: latestParams } = buildFilterClause(2, {
+          skipTsWindow: true,
+          tableAlias: 'e',
+        })
+        const latest = await recallReadQuery(db, `
+          SELECT DISTINCT ON (ec.concept_id)
+                 ec.concept_id AS matched_concept_id,
+                 e.id, e.ts, e.role, e.content, e.source_ref, e.session_id,
+                 e.source_turn, e.time_source, e.chunk_root, e.is_root,
+                 e.concept_id, e.supersedes_id, e.element, e.category,
+                 e.summary, e.project_id, e.status, e.score, e.last_seen_at
+          FROM entry_concepts ec
+          JOIN entries e ON e.id = ec.entry_id
+          WHERE ec.concept_id = ANY($1::bigint[])
+            AND e.is_root = 1
+            ${latestFilter}
+          ORDER BY ec.concept_id, e.ts DESC, e.id DESC
+        `, [conceptIds, ...latestParams])
+        const merged = new Map(rawRows.map(row => [Number(row.id), row]))
+        const rankKeys = ['dense_rank', 'sparse_rank', 'trgm_rank', 'exact_rank']
+        const maxKeys = ['dense_sim', 'sparse_lex', 'trg_sim', 'exact_hits', 'exact_phrase_hits', 'exact_rarity']
+        for (const latestRow of latest.rows) {
+          const anchor = anchorByConcept.get(Number(latestRow.matched_concept_id))
+          if (!anchor) continue
+          const inherited = { ...latestRow }
+          const anchorRootId = Number(anchor.is_root) === 1
+            ? Number(anchor.id)
+            : Number(anchor.chunk_root)
+          const carriesLatestConclusion = latestRow.supersedes_id != null
+            || Number(latestRow.id) !== anchorRootId
+          inherited._conceptExpanded = carriesLatestConclusion
+          if (carriesLatestConclusion) conceptExpandedRootIds.add(Number(latestRow.id))
+          for (const key of [...rankKeys, ...maxKeys]) inherited[key] = anchor[key]
+          const existing = merged.get(Number(latestRow.id))
+          if (existing) {
+            for (const key of rankKeys) {
+              const values = [existing[key], inherited[key]].filter(value => value != null).map(Number)
+              inherited[key] = values.length > 0 ? Math.min(...values) : null
+            }
+            for (const key of maxKeys) {
+              const values = [existing[key], inherited[key]].filter(value => value != null).map(Number)
+              inherited[key] = values.length > 0 ? Math.max(...values) : null
+            }
+          }
+          merged.set(Number(latestRow.id), inherited)
+        }
+        rawRows = [...merged.values()]
+      }
+    }
+  }
 
   // ── JS-side RRF merge (unchanged logic) ──────────────────────────────────
   // K=60 is the standard RRF constant from Cormack et al. (SIGIR 2009).
@@ -600,7 +699,7 @@ LEFT JOIN exact  x ON x.id = c.id`
     const { rows: rootRows } = await recallReadQuery(
       db,
       `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
-              element, category, summary, project_id, status, score, last_seen_at
+              concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at
        FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 1 ${rootScopeClause}`,
       [memberRootIds, ...rootScopeParams],
     )
@@ -634,6 +733,8 @@ LEFT JOIN exact  x ON x.id = c.id`
       rrf,
       retrievalScore,
       retrievalRank: rootIdsForReturn.length + 1,
+      conceptExpanded: conceptExpandedRootIds.has(Number(targetRow.id))
+        || (options.latestByConcept === true && targetRow.supersedes_id != null),
     })
     if (rootIdsForReturn.length >= limit) break
   }
@@ -680,13 +781,13 @@ LEFT JOIN exact  x ON x.id = c.id`
       nonExempt.length > 0
         ? recallReadQuery(db,
             `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
-                    element, category, summary, project_id, status, score, last_seen_at
+                    concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at
              FROM entries WHERE id = ANY($1::bigint[]) ${winFilter}`,
             [nonExempt, ...winParams])
         : Promise.resolve({ rows: [] }),
       recallReadQuery(db,
         `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
-                element, category, summary, project_id, status, score, last_seen_at
+                concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at
          FROM entries WHERE id = ANY($1::bigint[]) ${statusFilter}`,
         [memberHitExemptIds, ...statusParams]),
     ])
@@ -695,12 +796,75 @@ LEFT JOIN exact  x ON x.id = c.id`
     const { clause: winFilter, params: winParams } = buildFilterClause(2)
     const r = await recallReadQuery(db,
       `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
-              element, category, summary, project_id, status, score, last_seen_at
+              concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at
        FROM entries WHERE id = ANY($1::bigint[]) ${winFilter}`,
       [topIds, ...winParams])
     finalRows = r.rows
   }
-  const finalById = new Map(finalRows.map(r => [Number(r.id), r]))
+  let resolvedFinalRows = finalRows
+  if (options.latestByConcept === true && finalRows.length > 0) {
+    const rootIds = finalRows
+      .filter(row => Number(row.is_root) === 1)
+      .map(row => Number(row.id))
+      .filter(Number.isFinite)
+    const relationResult = rootIds.length > 0
+      ? await recallReadQuery(db, `
+          SELECT entry_id, array_agg(concept_id ORDER BY concept_id) AS concept_ids
+          FROM entry_concepts
+          WHERE entry_id = ANY($1::bigint[])
+          GROUP BY entry_id
+        `, [rootIds])
+      : { rows: [] }
+    const relationConcepts = new Map(relationResult.rows.map(row => [
+      Number(row.entry_id),
+      (row.concept_ids ?? []).map(Number).filter(Number.isFinite),
+    ]))
+    finalRows = finalRows.map(row => {
+      const conceptIds = relationConcepts.get(Number(row.id))
+      return conceptIds?.length ? { ...row, concept_ids: conceptIds } : row
+    })
+    const conceptIds = [...new Set(finalRows
+      .filter(row => Number(row.is_root) === 1)
+      .flatMap(row => row.concept_ids?.length
+        ? row.concept_ids
+        : [Number(row.concept_id ?? row.id)])
+      .filter(Number.isFinite))]
+    if (conceptIds.length > 0) {
+      const { clause: latestFilter, params: latestParams } = buildFilterClause(2, {
+        skipTsWindow: true,
+        tableAlias: 'e',
+      })
+      const latestResult = await recallReadQuery(db, `
+        WITH candidates AS (
+          SELECT ec.concept_id AS matched_concept_id,
+                 e.id, e.ts, e.role, e.content, e.source_ref, e.session_id,
+                 e.source_turn, e.time_source, e.chunk_root, e.is_root,
+                 e.concept_id, e.supersedes_id, e.element, e.category,
+                 e.summary, e.project_id, e.status, e.score, e.last_seen_at
+          FROM entry_concepts ec
+          JOIN entries e ON e.id = ec.entry_id
+          WHERE ec.concept_id = ANY($1::bigint[])
+            AND e.is_root = 1
+            ${latestFilter}
+          UNION ALL
+          SELECT COALESCE(e.concept_id, e.id) AS matched_concept_id,
+                 e.id, e.ts, e.role, e.content, e.source_ref, e.session_id,
+                 e.source_turn, e.time_source, e.chunk_root, e.is_root,
+                 e.concept_id, e.supersedes_id, e.element, e.category,
+                 e.summary, e.project_id, e.status, e.score, e.last_seen_at
+          FROM entries e
+          WHERE e.is_root = 1
+            AND COALESCE(e.concept_id, e.id) = ANY($1::bigint[])
+            ${latestFilter}
+        )
+        SELECT DISTINCT ON (matched_concept_id) *
+        FROM candidates
+        ORDER BY matched_concept_id, ts DESC, id DESC
+      `, [conceptIds, ...latestParams])
+      resolvedFinalRows = preferLatestConceptRows(finalRows, latestResult.rows)
+    }
+  }
+  const finalById = new Map(finalRows.map((row, index) => [Number(row.id), resolvedFinalRows[index]]))
 
   // Members: single batch fetch keyed by chunk_root = ANY($1) — one
   // round-trip vs N. Map to per-root arrays preserving (ts ASC, id ASC).
@@ -728,13 +892,19 @@ LEFT JOIN exact  x ON x.id = c.id`
     }
   }
   const results = []
-  for (const { root, rrf, retrievalScore, retrievalRank } of rootIdsForReturn) {
+  const emittedRootIds = new Set()
+  for (const { root, rrf, retrievalScore, retrievalRank, conceptExpanded } of rootIdsForReturn) {
     // Roots absent from finalById were excluded by the status/time filter on
     // the final fetch; falling back to the unfiltered `root` would leak
     // archived / out-of-window rows via member-hit resolution.
     const finalRoot = finalById.get(Number(root.id))
     if (!finalRoot) continue
+    if (emittedRootIds.has(Number(finalRoot.id))) continue
+    emittedRootIds.add(Number(finalRoot.id))
     const out = { ...finalRoot, rrf, retrievalScore, retrievalRank }
+    if (conceptExpanded || (options.latestByConcept === true && finalRoot.supersedes_id != null)) {
+      out._conceptExpanded = true
+    }
     if (includeMembers && finalRoot.is_root === 1) {
       const allMembers = membersByRoot.get(Number(finalRoot.id)) ?? []
       // Member-hit root: attach only the turns that actually matched (keeps the
@@ -763,4 +933,29 @@ LEFT JOIN exact  x ON x.id = c.id`
   )
 
   return results
+}
+
+export function preferLatestConceptRows(rows, latestRows) {
+  const latestByConcept = new Map()
+  for (const row of latestRows ?? []) {
+    const conceptId = Number(row?.matched_concept_id ?? row?.concept_id ?? row?.id)
+    if (Number.isFinite(conceptId) && !latestByConcept.has(conceptId)) {
+      latestByConcept.set(conceptId, row)
+    }
+  }
+  return (rows ?? []).map(row => {
+    const conceptIds = row?.concept_ids?.length
+      ? row.concept_ids.map(Number).filter(Number.isFinite)
+      : [Number(row?.concept_id ?? row?.id)].filter(Number.isFinite)
+    let best = row
+    for (const conceptId of conceptIds) {
+      const candidate = latestByConcept.get(conceptId)
+      if (!candidate) continue
+      const newer = Number(candidate.ts ?? 0) > Number(best?.ts ?? 0)
+        || (Number(candidate.ts ?? 0) === Number(best?.ts ?? 0)
+          && Number(candidate.id ?? 0) > Number(best?.id ?? 0))
+      if (newer) best = candidate
+    }
+    return best
+  })
 }

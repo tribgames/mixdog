@@ -348,7 +348,7 @@ export function TranscriptList({
     patchedVirtualizer.current = virtualizer;
     const resizeItem = virtualizer.resizeItem;
     baseResizeItem.current = resizeItem;
-    virtualizer.scrollToEnd = (options) => {
+    virtualizer.scrollToEnd = () => {
       pinFollowEnd.current();
     };
     virtualizer.resizeItem = (index, size) => {

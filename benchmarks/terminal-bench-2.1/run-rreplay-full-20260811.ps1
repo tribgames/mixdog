@@ -22,7 +22,6 @@ harbor run -d terminal-bench/terminal-bench-2-1 `
     --retry-exclude RewardFileEmptyError `
     --verifier-env UV_HTTP_TIMEOUT=300 `
     -q -y `
-    --ak workflow=solo-bench `
     --ak route_profile=sol-xhigh-nofast `
     --ae MIXDOG_BOOT_JITTER_MS=0 `
     --ae MIXDOG_OAI_EXPLICIT_REASONING_REPLAY=1 `

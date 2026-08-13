@@ -898,6 +898,7 @@ class SrcSnapshotTests(unittest.TestCase):
             repo_src = root / "src"
             repo_src.mkdir()
             (root / ".git").mkdir()
+            (repo_src / "cli.mjs").write_bytes(b"#!/usr/bin/env node\n")
             (repo_src / "tracked-tool.mjs").write_bytes(b"tracked")
             (repo_src / "untracked-local.mjs").write_bytes(b"untracked")
             git_result = subprocess.CompletedProcess(
@@ -919,6 +920,7 @@ class SrcSnapshotTests(unittest.TestCase):
 
             with tarfile.open(snapshot.archive_path, "r:") as archive:
                 members = {member.name: member for member in archive.getmembers()}
+            self.assertEqual(members["src/cli.mjs"].mode, 0o755)
             self.assertEqual(members["src/tracked-tool.mjs"].mode, 0o755)
             self.assertEqual(members["src/untracked-local.mjs"].mode, 0o644)
             self.assertNotIn("src/locally-deleted.mjs", members)
@@ -1048,20 +1050,22 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
                 await agent._run_lead(Environment(), "adapter task", None, base_env)
         return captured[0]
 
-    def test_default_workflow_preserves_headless_mandate(self) -> None:
+    def test_headless_exec_uses_product_usage_contract(self) -> None:
         module = self.load_adapter_module()
         child_env = asyncio.run(
             self.capture_lead_env(
                 module,
                 None,
-                {"BASE_SENTINEL": "preserved"},
+                {
+                    "BASE_SENTINEL": "preserved",
+                    "MIXDOG_USAGE_LOG": "/logs/agent/usage.json",
+                },
             )
         )
 
-        self.assertEqual(child_env["MIXDOG_WORKFLOW"], "default")
-        self.assertEqual(
-            child_env["MIXDOG_PROMPT"], "adapter task"
-        )
+        self.assertEqual(child_env["MIXDOG_USAGE_LOG"], "/logs/agent/usage.json")
+        self.assertNotIn("MIXDOG_WORKFLOW", child_env)
+        self.assertNotIn("MIXDOG_PROMPT", child_env)
 
     def test_profile_fallback_is_not_inlined_into_primary_attempt(self) -> None:
         module = self.load_adapter_module()
@@ -1376,10 +1380,8 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         self.assertEqual(
             captured[0]["MIXDOG_ANTHROPIC_OAUTH_REFRESH_DISABLED"], "1"
         )
-        self.assertEqual(
-            captured[0]["MIXDOG_DRIVER_DEADLINE_MS"],
-            str(module.LEAD_INNER_DEADLINE_MS),
-        )
+        self.assertEqual(captured[0]["MIXDOG_USAGE_LOG"], "/logs/agent/usage.json")
+        self.assertNotIn("MIXDOG_DRIVER_DEADLINE_MS", captured[0])
         self.assertEqual(captured[0]["MIXDOG_DISABLE_MCP"], "1")
         self.assertEqual(captured[0]["MIXDOG_DISABLE_SKILLS"], "1")
         self.assertEqual(captured[0]["MIXDOG_BOOT_CORE_MEMORY"], "0")
@@ -1560,7 +1562,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         self.assertIn("process group terminated before OAuth lease expiry", command)
         self.assertIn('exit "$status"', command)
         self.assertIn(
-            "mixdog --provider openai-oauth --model gpt-worker --effort high --fast worker",
+            "mixdog exec --provider openai-oauth --model gpt-worker --effort high --fast",
             command,
         )
         self.assertEqual(child_env, base_env)
@@ -1901,9 +1903,11 @@ INSTALLER
             command,
         )
         self.assertIn("GNU coreutils", command)
-        self.assertIn("node /opt/mixdog/lead_driver.mjs", command)
-        self.assertEqual(run_env["MIXDOG_PROMPT"], "fixture")
-        self.assertEqual(run_env["MIXDOG_WORKFLOW"], "default")
+        self.assertIn("mixdog exec --provider anthropic-oauth", command)
+        self.assertIn("--model claude-sonnet-4-5", command)
+        self.assertIn("fixture", command)
+        self.assertNotIn("MIXDOG_PROMPT", run_env)
+        self.assertNotIn("MIXDOG_WORKFLOW", run_env)
 
     @unittest.skipUnless(
         os.environ.get("MIXDOG_RUN_CONTAINER_PROBE") == "1",
@@ -3155,7 +3159,7 @@ class LauncherDryRunTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines()[0], EXPECTED_AUDIT_LINE)
         self.assertIn("--ak route_profile=fable-xhigh", result.stdout)
-        self.assertIn("--ak workflow=solo-bench", result.stdout)
+        self.assertNotIn("--ak workflow=", result.stdout)
         self.assertNotIn("--verifier-env", result.stdout)
 
     def test_launcher_rejects_unknown_profile_and_conflicts(self) -> None:

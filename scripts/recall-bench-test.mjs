@@ -14,13 +14,19 @@ import { decodeRecallPageCursor, encodeRecallPageCursor } from '../src/runtime/m
 import { mergeRecallConceptTokens, tokenizeRecallQuery } from '../src/runtime/memory/lib/memory-text-utils.mjs';
 import { countQueryTokens, queryTokensLower } from '../src/runtime/memory/lib/recall-scoring.mjs';
 import {
+  annotateRecallRootContext,
+  boundRecallRowsToTemporal,
   createQueryHandlers,
   hasLatestRecallIntent,
   latestRecallSearchTerms,
   latestRecallTopicTerms,
+  mergeHistoricalRecallRows,
+  preserveLatestConceptRows,
+  prioritizeHistoricalRootEvidence,
   rankLatestRecallRows,
 } from '../src/runtime/memory/lib/query-handlers.mjs';
 import { mergeRecallEventRows } from '../src/runtime/memory/lib/recall-event-context.mjs';
+import { preferLatestConceptRows } from '../src/runtime/memory/lib/memory-recall-store.mjs';
 
 const sample = [
   '## session alpha',
@@ -157,6 +163,7 @@ test('natural time expressions map to structural recall periods', () => {
   assert.equal(inferRecallPeriod('what changed in the last 3 hours'), '3h');
   assert.equal(inferRecallPeriod('이번 주 작업 결정'), 'this_week');
   assert.equal(inferRecallPeriod('방금 수정한 결과'), '3h');
+  assert.equal(hasLatestRecallIntent('방금 한 중요한 작업'), true);
   assert.equal(hasLatestRecallIntent('Mixdog Codex 비용 비교 최신 상태'), true);
   assert.equal(hasLatestRecallIntent('current fast8 cost'), true);
   assert.equal(hasLatestRecallIntent('8월 11일 당시 비용 비교'), false);
@@ -188,11 +195,118 @@ test('latest recall separates time/status context and chooses the newest equally
     { id: 3, ts: 400, retrievalScore: 1.0, content: 'current session switch flicker status' },
   ], 'current session switch flicker status');
   assert.deepEqual(ranked.map((row) => row.id), [2, 1, 3]);
+  const strictEntities = rankLatestRecallRows([
+    { id: 1, ts: 300, content: 'SSE current status' },
+    { id: 2, ts: 200, content: 'SSE callId reconnect final state' },
+  ], 'SSE callId current status');
+  assert.deepEqual(strictEntities.map((row) => row.id), [2, 1]);
+});
+
+test('latest concept expansion replaces an older hit with its newest stored conclusion', () => {
+  const rows = [
+    { id: 10, concept_ids: [7, 8], ts: 100, summary: 'old value' },
+    { id: 20, concept_id: 20, summary: 'independent fact' },
+  ];
+  const latest = [
+    { id: 12, matched_concept_id: 7, concept_id: 7, ts: 200, supersedes_id: 10, summary: 'new value' },
+    { id: 13, matched_concept_id: 8, concept_id: 99, ts: 300, supersedes_id: 11, summary: 'newest multi-concept value' },
+  ];
+  assert.deepEqual(preferLatestConceptRows(rows, latest).map(row => row.id), [13, 20]);
+});
+
+test('latest concept evidence survives event-context expansion', () => {
+  const merged = preserveLatestConceptRows(
+    [{ id: 1 }, { id: 2 }, { id: 3 }],
+    [
+      { id: 9, _conceptExpanded: true, retrievalScore: 0.2 },
+      { id: 8, _conceptExpanded: true, retrievalScore: 0.8 },
+    ],
+    4,
+  );
+  assert.deepEqual(merged.map((row) => row.id), [1, 8, 2, 3]);
+});
+
+test('historical recall reserves classified roots without duplicating primary hits', () => {
+  const merged = mergeHistoricalRecallRows(
+    [
+      { id: 1, is_root: 0, content: 'raw progress one' },
+      { id: 2, is_root: 0, content: 'raw progress two' },
+      { id: 10, is_root: 1, summary: 'primary root' },
+      { id: 3, is_root: 0, content: 'raw progress three' },
+    ],
+    [
+      { id: 10, is_root: 1, summary: 'classified root one' },
+      { id: 11, is_root: 1, summary: 'classified root two' },
+      { id: 12, is_root: 1, summary: 'classified root three' },
+    ],
+    6,
+  );
+  assert.equal(new Set(merged.map((row) => row.id)).size, merged.length);
+  assert.equal(merged.filter((row) => row.is_root === 1).length >= 1, true);
+  assert.deepEqual(merged.filter((row) => row.is_root === 0).map((row) => row.id), [1, 2, 3]);
+  assert.equal(merged.find((row) => row.id === 10)?.summary, 'primary root');
+  const withSummary = mergeHistoricalRecallRows(
+    [{ id: 10, is_root: 1, members: [{ id: 20, ts: Date.parse('2026-08-13T12:00:00Z'), role: 'assistant', content: 'raw evidence' }] }],
+    [{ id: 10, is_root: 1, element: 'decision', summary: '@@ anchors' }],
+    5,
+    { includeMatchedRootSummary: true },
+  );
+  const rendered = renderEntryLines(withSummary);
+  assert.equal(parseRecallOutput(rendered).items.length, 1);
+  assert.match(rendered, /raw evidence \[event: decision — @@ anchors\]/u);
+  const ownSummary = mergeHistoricalRecallRows(
+    [{ id: 10, is_root: 1, element: 'own decision', summary: 'own summary', members: [{ id: 20, ts: Date.parse('2026-08-13T12:00:00Z'), role: 'assistant', content: 'raw evidence' }] }],
+    [],
+    5,
+    { includeMatchedRootSummary: true },
+  );
+  assert.match(renderEntryLines(ownSummary), /\[event: own decision — own summary\]/u);
+  const withFallback = mergeHistoricalRecallRows(
+    [{ id: 1, is_root: 0 }, { id: 2, is_root: 0 }],
+    [{ id: 11, is_root: 1 }, { id: 12, is_root: 1 }, { id: 13, is_root: 1 }],
+    5,
+    { rootReserve: 3 },
+  );
+  assert.deepEqual(withFallback.map((row) => row.id), [1, 11, 12, 13, 2]);
+});
+
+test('temporal recall bounds root members before rendering', () => {
+  const bounded = boundRecallRowsToTemporal([
+    {
+      id: 10,
+      ts: 150,
+      members: [
+        { id: 20, ts: 90, content: 'before' },
+        { id: 21, ts: 150, content: 'inside' },
+        { id: 22, ts: 210, content: 'after' },
+      ],
+    },
+    { id: 30, ts: 220, content: 'outside root' },
+  ], { startMs: 100, endMs: 200 });
+  assert.deepEqual(bounded.map((row) => row.id), [10]);
+  assert.deepEqual(bounded[0].members.map((row) => row.id), [21]);
+});
+
+test('historical evidence places each root before its matching member', () => {
+  const prioritized = prioritizeHistoricalRootEvidence([
+    { id: 20, chunk_root: 10, is_root: 0 },
+    { id: 10, is_root: 1 },
+    { id: 30, is_root: 0 },
+  ]);
+  assert.deepEqual(prioritized.map((row) => row.id), [10, 20, 30]);
+});
+
+test('latest root context is attached without adding a result row', () => {
+  const annotated = annotateRecallRootContext([
+    { id: 10, is_root: 1, element: 'latest decision', summary: 'verified', members: [{ id: 20 }] },
+  ]);
+  assert.equal(annotated.length, 1);
+  assert.equal(annotated[0]._historicalRootSummary, 'verified');
 });
 
 test('event expansion emits the selected session tail before matching evidence', () => {
   const ranked = [
-    { id: 1, session_id: 'a', ts: 100, content: 'matching evidence' },
+    { id: 1, is_root: 1, session_id: 'a', ts: 100, element: 'decision', summary: 'verified', content: 'matching evidence' },
     { id: 2, session_id: 'b', ts: 90, content: 'other evidence' },
   ];
   const tails = [
@@ -200,10 +314,10 @@ test('event expansion emits the selected session tail before matching evidence',
     { id: 4, _anchor_order: 0, session_id: 'a', ts: 200, source_turn: 2, content: 'verification' },
     { id: 5, _anchor_order: 1, session_id: 'b', ts: 250, source_turn: 4, content: 'other final' },
   ];
-  assert.deepEqual(
-    mergeRecallEventRows(ranked, tails).map((row) => row.id),
-    [3, 1, 5, 2],
-  );
+  const merged = mergeRecallEventRows(ranked, tails);
+  assert.deepEqual(merged.map((row) => row.id), [3, 1, 5, 2]);
+  assert.equal(merged[0]._historicalRootSummary, 'verified');
+  assert.match(renderEntryLines([merged[0]]), /\[event: decision — verified\]/u);
 });
 
 test('event expansion preserves ranked evidence even within one user-turn event', () => {

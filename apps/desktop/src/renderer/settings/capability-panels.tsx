@@ -65,7 +65,7 @@ export function CategoryPanel({ category, context }: {
 // Keybind reference (read-only). Bindings live in App.tsx's
 // global keydown handler and the composer key map; keep this list in sync.
 const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, string]>]> = [
-  ['Workspace', [
+  ['Project', [
     ['Ctrl+N', 'New task'],
     ['Ctrl+P', 'Quick Open'],
     ['Ctrl+Shift+P', 'Command Palette'],

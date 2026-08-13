@@ -97,8 +97,8 @@ every number above live under `benchmarks/terminal-bench-2.1/`.
 **Any environment**
 
 - Full-screen TUI with slash commands, provider setup, model/workflow
-  pickers, statusline integration, and detailed tool cards — plus headless
-  role mode for scripting.
+  pickers, statusline integration, and detailed tool cards — plus `exec`
+  mode for headless scripting.
 - Mixdog Desktop: a full agent workbench for Windows/macOS/Linux (see
   below).
 - Installable web app over relay pairing — scan a QR code to open your
@@ -156,16 +156,14 @@ mixdog --remote
 mixdog --onboarding
 ```
 
-Headless role mode is also supported. It requires an explicit
-provider/model pair and runs with ephemeral config — host behavioral config
-and personal state are not loaded:
+Headless `exec` is also supported. It runs one non-interactive primary-model
+session and requires an explicit provider/model pair. Ephemeral config keeps
+host behavioral config and personal state out of the run:
 
 ```bash
-mixdog --provider anthropic-oauth --model claude-opus-5 worker "fix the failing test"
-mixdog --provider openai-oauth --model gpt-5.6-sol reviewer "review the current diff"
+mixdog exec --provider anthropic-oauth --model claude-opus-5 "fix the failing test"
+mixdog exec --provider openai-oauth --model gpt-5.6-sol --effort xhigh --fast "review the current diff"
 ```
-
-Roles: `worker`, `heavy-worker`, `reviewer`, `maintainer`, `web-researcher`.
 
 ## TUI basics
 

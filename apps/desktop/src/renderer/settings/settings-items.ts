@@ -147,7 +147,26 @@ export const SETTINGS_CATEGORIES = [
   },
 ] as const satisfies ReadonlyArray<SettingsCategoryItem>;
 
+const REMOTE_HIDDEN_SETTINGS_CATEGORIES = new Set<SettingsCategory>([
+  'providers',
+  'channels',
+]);
+const REMOTE_SETTINGS_CATEGORIES = SETTINGS_CATEGORIES.filter(
+  (category) => !REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category.value),
+);
+
 export function categoryForSettingsItem(value: SettingsItemValue): SettingsCategory {
   return SETTINGS_CATEGORIES.find((category) =>
     (category.items as readonly SettingsItemValue[]).includes(value))?.value || 'general';
+}
+
+export function settingsCategoryForSurface(
+  category: SettingsCategory,
+  remote: boolean,
+): SettingsCategory {
+  return remote && REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category) ? 'general' : category;
+}
+
+export function settingsCategoriesForSurface(remote: boolean): ReadonlyArray<SettingsCategoryItem> {
+  return remote ? REMOTE_SETTINGS_CATEGORIES : SETTINGS_CATEGORIES;
 }

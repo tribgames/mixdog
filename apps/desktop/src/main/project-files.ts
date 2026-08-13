@@ -1,6 +1,7 @@
 // Traversal-guarded project directory listing, editor read/stat/atomic-write,
 // tree mutations, and code-graph symbol lookup. Every function receives a
 // resolved project root from the service project registry.
+import { existsSync, realpathSync } from 'node:fs';
 import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 
@@ -74,12 +75,36 @@ export function encodeProjectText(content: string, encoding: ProjectTextEncoding
   return Buffer.from(content, 'utf8');
 }
 
-/** Traversal-guarded absolute path for a project-relative entry. */
+function comparablePath(path: string): string {
+  return process.platform === 'win32' ? path.toLocaleLowerCase() : path;
+}
+
+function canonicalPathThroughExistingAncestor(path: string): string {
+  let existing = path;
+  const missing: string[] = [];
+  while (!existsSync(existing)) {
+    const parent = dirname(existing);
+    if (parent === existing) break;
+    missing.unshift(basename(existing));
+    existing = parent;
+  }
+  return resolve(realpathSync(existing), ...missing);
+}
+
+/** Traversal- and symlink-guarded absolute path for a project-relative entry. */
 export function projectEntryPathIn(root: string, relPath: string): string {
+  const absoluteRoot = resolve(root);
   const rel = String(relPath || '').replace(/\\/g, '/');
-  const target = resolve(root, rel);
-  if (target !== root && !target.startsWith(root + sep)) {
+  const target = resolve(absoluteRoot, rel);
+  if (target !== absoluteRoot && !target.startsWith(absoluteRoot + sep)) {
     throw new Error('Path is outside the project.');
+  }
+  const canonicalRoot = realpathSync(absoluteRoot);
+  const canonicalTarget = canonicalPathThroughExistingAncestor(target);
+  const rootKey = comparablePath(canonicalRoot);
+  const targetKey = comparablePath(canonicalTarget);
+  if (targetKey !== rootKey && !targetKey.startsWith(rootKey + sep)) {
+    throw new Error('Path resolves outside the project.');
   }
   return target;
 }
@@ -88,11 +113,7 @@ export function projectEntryPathIn(root: string, relPath: string): string {
  *  Traversal-guarded — the resolved target must stay under the project
  *  root. One directory level is loaded per request. */
 export async function listProjectDirIn(root: string, relDir: string): Promise<Array<{ name: string; dir: boolean }>> {
-  const rel = String(relDir || '').replace(/\\/g, '/');
-  const target = resolve(root, rel);
-  if (target !== root && !target.startsWith(root + sep)) {
-    throw new Error('Directory is outside the project.');
-  }
+  const target = projectEntryPathIn(root, relDir);
   const entries = await readdir(target, { withFileTypes: true });
   return entries
     .map((entry) => ({ name: entry.name, dir: entry.isDirectory() }))
@@ -277,8 +298,8 @@ function explorerEntrySegments(name: string): string[] {
  *  name may contain "a/b/c" segments; missing parent folders are created. */
 export async function createProjectEntryIn(root: string, relDir: string, name: string, dir: boolean): Promise<void> {
   const segments = explorerEntrySegments(name);
-  const parent = projectEntryPathIn(root, relDir);
-  const target = join(parent, ...segments);
+  const relTarget = join(String(relDir || ''), ...segments);
+  const target = projectEntryPathIn(root, relTarget);
   if (dir) {
     await mkdir(target, { recursive: true });
     return;

@@ -7,6 +7,7 @@
  * here streams, which keeps a long video job independent of window lifetime.
  */
 import { randomUUID } from 'crypto';
+import { MAX_GENERATED_MEDIA_BYTES } from './download.mjs';
 import { mediaError, resolveMediaRequest } from './lanes.mjs';
 import { saveMediaAsset } from './store.mjs';
 
@@ -123,6 +124,15 @@ export function startMediaJob({ lane: laneId, kind, model, prompt, options = {},
           if (next > job.progress) job.progress = next;
         },
       });
+      if (!Buffer.isBuffer(result?.bytes)
+        || !result.bytes.length
+        || result.bytes.length > MAX_GENERATED_MEDIA_BYTES) {
+        throw mediaError(
+          'generated media exceeds the media size limit',
+          'MEDIA_RESULT_TOO_LARGE',
+          502,
+        );
+      }
       const asset = saveMediaAsset({
         kind: resolved.kind,
         lane: resolved.lane.id,

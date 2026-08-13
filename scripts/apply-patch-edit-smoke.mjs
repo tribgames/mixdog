@@ -82,6 +82,24 @@ try {
     else throw err;
   }
   assert(deleteMissing, 'apply_patch delete left created.txt on disk');
+  writeFileSync(join(tmp, 'rename-source.txt'), 'before rename\n', 'utf8');
+  const renameResult = await executePatchTool('apply_patch', {
+    base_path: tmp,
+    patch: `*** Begin Patch
+*** Update File: rename-source.txt
+*** Move to: nested/rename-destination.txt
+@@
+-before rename
++after rename
+*** End Patch
+`,
+  }, tmp, { sessionId: reviewSession, toolCallId: 'review-rename' });
+  assertOk('apply_patch model-surface rename', renameResult);
+  assert(!existsSync(join(tmp, 'rename-source.txt')), 'apply_patch rename left the source on disk');
+  assert(
+    readFileSync(join(tmp, 'nested', 'rename-destination.txt'), 'utf8') === 'after rename\n',
+    'apply_patch rename did not write the destination contents',
+  );
   const review = await getTurnReviewDiff(tmp, reviewSession);
   assert(review.authoritative === true && /-beta/.test(review.patch) && /\+bravo/.test(review.patch),
     `turn review did not retain the first-before/latest-after diff:\n${review.patch}`);

@@ -204,11 +204,6 @@ export async function clearSessionMessages(sessionId, options = {}) {
                 lastContextTokens: 0,
                 lastContextTokensUpdatedAt: now,
                 lastContextTokensStaleAfterCompact: false,
-                // Shell state must not alias the live session: resuming the
-                // fork would otherwise reuse/close the original session's
-                // persistent bash shells.
-                implicitBashSessionId: null,
-                allBashSessionIds: undefined,
             };
             delete fork.liveTurnMessages;
             setLiveSession(fork);

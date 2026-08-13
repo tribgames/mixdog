@@ -246,7 +246,7 @@ export async function attachChannel({
     const req = http.request({
       hostname: '127.0.0.1',
       port,
-      path: `/events?token=${encodeURIComponent(clientToken)}&server_token=${encodeURIComponent(serverToken)}`,
+      path: `/events?token=${encodeURIComponent(clientToken)}`,
       method: 'GET',
       headers: { Accept: 'text/event-stream', 'X-Mixdog-Daemon-Token': serverToken },
     }, (res) => {

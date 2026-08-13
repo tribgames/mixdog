@@ -190,14 +190,14 @@ export function ActivityRail({
   }, [usageOpen]);
   return (
     <aside className="activity-rail" aria-label={t("Activity Bar")}>
-      <nav className="sidebar-primary-nav" aria-label={t("Workspace")}>
+      <nav className="sidebar-primary-nav" aria-label={t("Sidebar")}>
         {/* The Sessions toggle mirrors VS Code's Explorer button: pressing it
             expands/collapses the session panel. is-active (not selected)
             tracks the OPEN panel so surface selection stays separate. */}
         {desktopFeatureEnabled("sessions") && <button type="button" className={`sessions-link ${sidebarOpen ? "is-active" : ""}`}
           aria-label={t("Sessions")} aria-expanded={sidebarOpen} aria-controls="session-sidebar"
           data-tooltip={t("Sessions")} onClick={onToggleSessions}>
-          <MessageSquare size={20} aria-hidden="true" />
+          <MessageSquare size={24} aria-hidden="true" />
         </button>}
         {/* Workbench tools (Explorer/Search/SCM/Debug/Tests) live ONLY on the
             right utility dock (user: 원래 의도 — 좌측은 앱 목적지, 우측은
@@ -213,7 +213,7 @@ export function ActivityRail({
               onPointerEnter={onPrefetch}
               onFocus={onPrefetch}
               onClick={selected ? onCloseActiveSurface : onOpen}>
-              <Icon size={20} aria-hidden="true" />
+              <Icon size={24} aria-hidden="true" />
             </button>
           );
         })}
@@ -257,14 +257,14 @@ export function ActivityRail({
               </span>;
             })}
           </span>
-          : <ChartPie size={20} aria-hidden="true" />}
+          : <ChartPie size={24} aria-hidden="true" />}
       </button>}
       {desktopFeatureEnabled("settings") && <button type="button"
         className={`sidebar-settings-button ${activeSurface === "settings" ? "selected" : ""}`}
         aria-label={t("Open settings")} aria-current={activeSurface === "settings" ? "page" : undefined}
         data-tooltip={t("Settings")} onPointerEnter={onPrefetchSettings}
         onFocus={onPrefetchSettings} onClick={onOpenSettings}>
-        <Settings size={20} aria-hidden="true" />
+        <Settings size={24} aria-hidden="true" />
       </button>}
       {/* The flyout's bottom edge tracks the Usage button itself (user). */}
       {desktopFeatureEnabled("usage") && usageOpen && <div className="rail-usage-popup" role="dialog" aria-label={t("Subscription usage")}

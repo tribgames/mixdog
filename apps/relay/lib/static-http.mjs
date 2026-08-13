@@ -2,8 +2,8 @@
 // relay (apps/relay/server.mjs, plain node on the VPS). The MIME table,
 // path-escape guard, SPA fallback rule, gzip negotiation and pairing cookie
 // live here outside the server entrypoint.
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { extname, join, resolve, sep } from 'node:path';
+import { createReadStream, existsSync, realpathSync, statSync } from 'node:fs';
+import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createGzip } from 'node:zlib';
 
 export const MIME_TYPES = {
@@ -82,10 +82,21 @@ export function pairingCookieHeaders(queryToken, request) {
  *  Returns { status: 403 } for an escape attempt, { status: 404 } for a missing
  *  file route, else
  *  { status: 200, target }. */
+function pathIsWithin(root, target) {
+  const rel = relative(root, target);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
 export function resolveStaticTarget(rootDir, pathname) {
   const root = resolve(rootDir);
+  let realRoot;
+  try {
+    realRoot = realpathSync(root);
+  } catch {
+    return { status: 404, target: '' };
+  }
   let target = resolve(root, `.${pathname}`);
-  if (target !== root && !target.startsWith(root + sep)) return { status: 403, target: '' };
+  if (!pathIsWithin(root, target)) return { status: 403, target: '' };
   try {
     if (target === root || !statSync(target).isFile()) target = join(root, 'index.html');
   } catch {
@@ -96,7 +107,14 @@ export function resolveStaticTarget(rootDir, pathname) {
   const fellBack = target === join(root, 'index.html');
   if (fellBack && extname(pathname) && pathname !== '/index.html') return { status: 404, target: '' };
   if (!existsSync(target)) return { status: 404, target: '' };
-  return { status: 200, target };
+  try {
+    const realTarget = realpathSync(target);
+    if (!pathIsWithin(realRoot, realTarget)) return { status: 403, target: '' };
+    if (!statSync(realTarget).isFile()) return { status: 404, target: '' };
+    return { status: 200, target: realTarget };
+  } catch {
+    return { status: 404, target: '' };
+  }
 }
 
 /** Stream a resolved file with cache/gzip/HEAD handling. */

@@ -38,9 +38,8 @@ lookups disabled. The Claude Code baseline uses its standard shipped loop.
 Speed is baseline elapsed agent time divided by mixdog elapsed agent time.
 Final context is the median context occupancy of each run's last model call,
 measured from the session logs of both harnesses.
-The mixdog runs use the Solo workflow as a strict single-model,
-single-session bench. The native baselines keep their standard shipped
-loops.
+The mixdog runs use the product `mixdog exec` path as a strict single-model,
+single-session bench. The native baselines keep their standard shipped loops.
 
 Baselines are full 89-task runs of each native harness: Claude Code 2.1.220
 (`jobs-full-cc-n8`, 77/89 settled) and Codex CLI (`jobs-full-codex`, 75/89).
@@ -58,9 +57,9 @@ retain `cache_write_tokens`, so its recorded **$97.54** is a lower bound.
 
 ## Reproduce
 Everything that defines the published runs is pinned in this directory:
-`harness/mixdog_agent.py` (Harbor adapter), `harness/lead_driver.mjs` (Lead
-loop driver), `harness/route_profiles.json` (the exact route configuration),
-and `harness/run-tb21.ps1` (launcher). Versions: Claude Code **2.1.220**
+`harness/mixdog_agent.py` (Harbor adapter), `harness/route_profiles.json`
+(the exact route configuration), and `harness/run-tb21.ps1` (launcher).
+Versions: Claude Code **2.1.220**
 (linux-x64 prebaked), Codex CLI **0.146.0**, dataset
 `terminal-bench/terminal-bench-2-1` (per-trial `task_checksum` recorded in
 each archived `config.json`).
@@ -72,9 +71,9 @@ your own provider auth configured through mixdog on the host.
 ```powershell
 cd benchmarks/terminal-bench-2.1
 .\harness\run-tb21.ps1 -JobsDir jobs-opus5 -Concurrent 8 `
-  -RouteProfile opus5-solo -Workflow solo-bench
+  -RouteProfile opus5-solo
 .\harness\run-tb21.ps1 -JobsDir jobs-sol -Concurrent 8 `
-  -RouteProfile sol-xhigh -Workflow solo-bench
+  -RouteProfile sol-xhigh
 ```
 The launcher auto-retries infra errors only — agent timeouts and verifier
 failures are never retried. `-DryRun` prints the resolved routes and the

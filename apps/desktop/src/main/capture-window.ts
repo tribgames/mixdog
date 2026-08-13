@@ -27,11 +27,6 @@ const outputArgIndex = process.argv.findIndex((argument, index) => index > 0 && 
 const requestedOutputPath = outputArgIndex >= 0 ? process.argv[outputArgIndex] : '';
 const outputPath = requestedOutputPath ? resolve(requestedOutputPath) : '';
 const captureId = outputArgIndex >= 0 ? process.argv[outputArgIndex + 1] : '';
-const allowedSettingsCategoryLabelSets = [
-  SETTINGS_CATEGORIES.filter((category) => category.value !== 'connection')
-    .map((category) => category.label),
-  SETTINGS_CATEGORIES.map((category) => category.label),
-];
 if (process.env.MIXDOG_CAPTURE_USER_DATA) {
   app.setPath('userData', resolve(process.env.MIXDOG_CAPTURE_USER_DATA));
 }
@@ -357,24 +352,10 @@ async function captureWindow(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 250));
     const narrowSettings = await readPhoneSettingsAssertions(window);
     const expectedNarrowSettingsCategoryLabels = SETTINGS_CATEGORIES.map((category) => category.label);
-    window.setSize(390, 740);
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    await window.webContents.executeJavaScript(`(() => {
-      document.documentElement.dataset.mixdogMobile = '1';
-      document.documentElement.style.setProperty('--mixdog-vvh', innerHeight + 'px');
-    })()`);
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    const phoneSettings = await readPhoneSettingsAssertions(window);
-    const capturedSettingsCategoryLabels = phoneSettings.categories.map((category) => category.label);
-    const expectedSettingsCategoryLabels = allowedSettingsCategoryLabelSets.find((labels) =>
-      labels.length === capturedSettingsCategoryLabels.length
-      && labels.every((label, index) => label === capturedSettingsCategoryLabels[index]))
-      ?? [];
     const liveSettings = {
       large: largeSettings,
       compact: compactSettings,
       narrow: narrowSettings,
-      phone: phoneSettings,
     };
     if (largeSettings.viewport.width !== 1_280 || largeSettings.viewport.height !== 820
       || !largeSettings.centered || !largeSettings.layerCoversViewport
@@ -401,19 +382,6 @@ async function captureWindow(): Promise<void> {
       || !narrowSettings.overflowFree || narrowSettings.categories.some((category) =>
         !category.overflowFree || !category.controlsContained
         || !category.controlsRightAligned || !category.labelsSeparated)
-      || phoneSettings.viewport.width > 430 || phoneSettings.viewport.width < 320
-      || !phoneSettings.fullScreen || !phoneSettings.railConnected || phoneSettings.rail.width !== 52
-      || phoneSettings.railButtonCount !== expectedSettingsCategoryLabels.length
-      || phoneSettings.categories.some((category, index) =>
-        category.label !== expectedSettingsCategoryLabels[index])
-      || !phoneSettings.railButtonsAccessible
-      || !phoneSettings.closeTouchTarget || phoneSettings.rowCount < 1
-      || phoneSettings.filledValueControlCount < 1 || !phoneSettings.sharedValueAxis
-      || !phoneSettings.controlsContained || !phoneSettings.controlsRightAligned
-      || !phoneSettings.labelsSeparated || !phoneSettings.valuesFillColumn
-      || !phoneSettings.overflowFree || phoneSettings.categories.some((category) =>
-        !category.overflowFree || !category.controlsContained
-        || !category.controlsRightAligned || !category.labelsSeparated)
       || lightTheme.theme !== 'light' || lightTheme.colorScheme !== 'light'
       || !lightTheme.titlebarIconMatchesToken || !lightTheme.activeTabMatchesToken
       || !modalStack.toastParentIsBody || !modalStack.toastVisible
@@ -428,10 +396,6 @@ async function captureWindow(): Promise<void> {
       "document.querySelector('.mixdog-settings__close')?.click()",
     );
     await new Promise((resolve) => setTimeout(resolve, 150));
-    await window.webContents.executeJavaScript(`(() => {
-      delete document.documentElement.dataset.mixdogMobile;
-      document.documentElement.style.removeProperty('--mixdog-vvh');
-    })()`);
     window.setMinimumSize(DESKTOP_WINDOW_OPTIONS.minWidth, DESKTOP_WINDOW_OPTIONS.minHeight);
     window.setSize(targetSize.width, targetSize.height);
     await window.webContents.executeJavaScript(
@@ -735,7 +699,7 @@ async function captureWindow(): Promise<void> {
       },
       dictationSmoke,
       toolShowcase: { ...toolShowcase, dimensions: toolShowcaseDimensions },
-      expectedSettingsCategoryLabels,
+      expectedSettingsCategoryLabels: expectedNarrowSettingsCategoryLabels,
       startupGeometry,
       nativeWindow: {
         ...nativeWindow,

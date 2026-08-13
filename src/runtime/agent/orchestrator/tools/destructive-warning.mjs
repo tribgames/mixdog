@@ -5,7 +5,7 @@
 // a known data-loss / hard-to-reverse pattern. Purely informational —
 // the caller (case 'shell' in builtin.mjs) prepends the warning to the result
 // envelope so the agent sees the risk inline. Does NOT block execution;
-// hard blocks remain in BLOCKED_PATTERNS in builtin.mjs / bash-session.mjs.
+// hard blocks remain in the shared shell policy scan.
 
 import { SHELL_NAMES as _SHELL_NAMES, WRAPPER_NAMES as _WRAPPER_NAMES } from './shell-policy.mjs';
 import { extractPowerShellCommandInner } from './shell-command.mjs';

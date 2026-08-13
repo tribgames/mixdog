@@ -40,6 +40,10 @@ jobs:
       graph_bump: ${{ steps.plan.outputs.graph_bump }}
       graph_version: ${{ steps.plan.outputs.graph_version }}
       graph_tag: ${{ steps.plan.outputs.graph_tag }}
+      spawn_build: ${{ steps.plan.outputs.spawn_build }}
+      spawn_bump: ${{ steps.plan.outputs.spawn_bump }}
+      spawn_version: ${{ steps.plan.outputs.spawn_version }}
+      spawn_tag: ${{ steps.plan.outputs.spawn_tag }}
       token_build: ${{ steps.plan.outputs.token_build }}
       token_bump: ${{ steps.plan.outputs.token_bump }}
       token_version: ${{ steps.plan.outputs.token_version }}
@@ -164,6 +168,13 @@ jobs:
             tagPrefix: 'graph-v',
             paths: ['native/mixdog-graph'],
           });
+          const spawn = component({
+            name: 'spawn',
+            manifestPath: 'src/runtime/agent/orchestrator/tools/spawn-manifest.json',
+            cargoPath: 'native/mixdog-spawn/Cargo.toml',
+            tagPrefix: 'spawn-v',
+            paths: ['native/mixdog-spawn'],
+          });
           const token = component({
             name: 'token',
             manifestPath: 'src/runtime/agent/orchestrator/tools/token-manifest.json',
@@ -185,6 +196,10 @@ jobs:
             graph_bump: String(mode !== 'skip' && graph.bump),
             graph_version: graph.version,
             graph_tag: graph.tag,
+            spawn_build: String(mode !== 'skip' && spawn.build),
+            spawn_bump: String(mode !== 'skip' && spawn.bump),
+            spawn_version: spawn.version,
+            spawn_tag: spawn.tag,
             token_build: String(mode !== 'skip' && token.build),
             token_bump: String(mode !== 'skip' && token.bump),
             token_version: token.version,
@@ -216,6 +231,10 @@ jobs:
           GRAPH_BUMP: ${{ needs.plan.outputs.graph_bump }}
           GRAPH_VERSION: ${{ needs.plan.outputs.graph_version }}
           GRAPH_TAG: ${{ needs.plan.outputs.graph_tag }}
+          SPAWN_BUILD: ${{ needs.plan.outputs.spawn_build }}
+          SPAWN_BUMP: ${{ needs.plan.outputs.spawn_bump }}
+          SPAWN_VERSION: ${{ needs.plan.outputs.spawn_version }}
+          SPAWN_TAG: ${{ needs.plan.outputs.spawn_tag }}
           TOKEN_BUILD: ${{ needs.plan.outputs.token_build }}
           TOKEN_BUMP: ${{ needs.plan.outputs.token_bump }}
           TOKEN_VERSION: ${{ needs.plan.outputs.token_version }}
@@ -246,6 +265,9 @@ jobs:
           if (process.env.GRAPH_BUMP === 'true') {
             setCargoVersion('mixdog-graph', 'native/mixdog-graph', process.env.GRAPH_VERSION);
           }
+          if (process.env.SPAWN_BUMP === 'true') {
+            setCargoVersion('mixdog-spawn', 'native/mixdog-spawn', process.env.SPAWN_VERSION);
+          }
           if (process.env.TOKEN_BUMP === 'true') {
             setCargoVersion('mixdog-token', 'native/mixdog-token', process.env.TOKEN_VERSION);
           }
@@ -255,6 +277,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add native/mixdog-patch/Cargo.toml native/mixdog-patch/Cargo.lock \
             native/mixdog-graph/Cargo.toml native/mixdog-graph/Cargo.lock \
+            native/mixdog-spawn/Cargo.toml native/mixdog-spawn/Cargo.lock \
             native/mixdog-token/Cargo.toml native/mixdog-token/Cargo.lock
           if ! git diff --cached --quiet; then
             git commit -m "chore(native): prepare incremental release assets"
@@ -273,6 +296,7 @@ jobs:
           }
           create_tag "$PATCH_BUILD" "$PATCH_TAG"
           create_tag "$GRAPH_BUILD" "$GRAPH_TAG"
+          create_tag "$SPAWN_BUILD" "$SPAWN_TAG"
           create_tag "$TOKEN_BUILD" "$TOKEN_TAG"
 
   runtime:
@@ -304,6 +328,15 @@ jobs:
       tag: ${{ needs.plan.outputs.graph_tag }}
     secrets: inherit
 
+  spawn:
+    name: incremental-spawn
+    needs: [plan, prepare-native]
+    if: ${{ needs.plan.outputs.spawn_build == 'true' }}
+    uses: ./.github/workflows/spawn-release.yml
+    with:
+      tag: ${{ needs.plan.outputs.spawn_tag }}
+    secrets: inherit
+
   token:
     name: incremental-token
     needs: [plan, prepare-native]
@@ -315,7 +348,7 @@ jobs:
 
   prepare-app:
     name: prepare-app-release
-    needs: [plan, prepare-native, runtime, patch, graph, token]
+    needs: [plan, prepare-native, runtime, patch, graph, spawn, token]
     if: >-
       ${{
         always()
@@ -324,6 +357,7 @@ jobs:
         && (needs.runtime.result == 'success' || needs.runtime.result == 'skipped')
         && (needs.patch.result == 'success' || needs.patch.result == 'skipped')
         && (needs.graph.result == 'success' || needs.graph.result == 'skipped')
+        && (needs.spawn.result == 'success' || needs.spawn.result == 'skipped')
         && (needs.token.result == 'success' || needs.token.result == 'skipped')
       }}
     runs-on: ubuntu-22.04

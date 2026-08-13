@@ -225,16 +225,21 @@ export function renderEntryLines(rows, { recencyOrder = false, pendingMarks = tr
       // Chunks present: emit each member as its own line. Root row is a
       // grouping artifact for retrieval — the caller wants the chunk
       // content (cycle1 raw), not the cycle2-compressed summary.
-      for (const m of r.members) {
+      for (const [memberIndex, m] of r.members.entries()) {
         const mTs = formatTs(m.ts)
         const role = m.role === 'user' ? 'u' : m.role === 'assistant' ? 'a' : (m.role || '?')
         const content = cleanMemoryText(String(m.content ?? '')).slice(0, 8000)
+        const rootElement = memberIndex === 0 ? cleanMemoryText(String(r._historicalRootElement ?? '')) : ''
+        const rootSummary = memberIndex === 0 ? cleanMemoryText(String(r._historicalRootSummary ?? '')) : ''
+        const rootContext = rootElement || rootSummary
+          ? ` [event: ${rootElement}${rootSummary ? `${rootElement ? ' — ' : ''}${rootSummary}` : ''}]`
+          : ''
         units.push({
           id: m.id,
           ts: Number(m.ts) || 0,
           source_turn: m.source_turn,
           session_id: m.session_id,
-          text: `[${mTs}] ${role}: ${content}${timeSourceMark(m)} #${m.id}`,
+          text: `[${mTs}] ${role}: ${content}${rootContext}${timeSourceMark(m)} #${m.id}`,
         })
       }
     } else {
@@ -254,6 +259,11 @@ export function renderEntryLines(rows, { recencyOrder = false, pendingMarks = tr
       const body = element || summary
         ? `${element}${summary ? ' — ' + summary : ''}`
         : cleanMemoryText(String(r.content ?? '')).slice(0, 8000)
+      const rootElement = cleanMemoryText(String(r._historicalRootElement ?? ''))
+      const rootSummary = cleanMemoryText(String(r._historicalRootSummary ?? ''))
+      const rootContext = rootElement || rootSummary
+        ? ` [event: ${rootElement}${rootSummary ? `${rootElement ? ' — ' : ''}${rootSummary}` : ''}]`
+        : ''
       // Unchunked raw leaf (cycle1 hasn't classified it yet): mark it so
       // callers can tell fresh-but-unprocessed rows from chunked memory.
       const pendingMark = pendingMarks && (r.is_root === 0 && r.chunk_root == null) ? ' [pending]' : ''
@@ -262,7 +272,7 @@ export function renderEntryLines(rows, { recencyOrder = false, pendingMarks = tr
         ts: Number(r.ts) || 0,
         source_turn: r.source_turn,
         session_id: r.session_id,
-        text: `[${ts}] ${rolePrefix}${body.slice(0, 8000)}${pendingMark}${timeSourceMark(r)} #${r.id}`,
+        text: `[${ts}] ${rolePrefix}${body.slice(0, 8000)}${rootContext}${pendingMark}${timeSourceMark(r)} #${r.id}`,
       })
     }
   }

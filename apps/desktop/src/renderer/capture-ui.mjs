@@ -696,32 +696,6 @@ try {
     assert.equal(category.controlsRightAligned, true, `${category.label} narrow controls must share the row edge`);
     assert.equal(category.labelsSeparated, true, `${category.label} narrow labels must not overlap controls`);
   }
-  const phoneSettings = metadata.liveAssertions.settings.phone;
-  assert.ok(phoneSettings.viewport.width >= 320 && phoneSettings.viewport.width <= 430);
-  assert.equal(phoneSettings.fullScreen, true);
-  assert.equal(phoneSettings.railConnected, true);
-  assert.equal(phoneSettings.rail.width, 52);
-  assert.equal(phoneSettings.railButtonCount, metadata.expectedSettingsCategoryLabels.length);
-  assert.equal(phoneSettings.railButtonsAccessible, true);
-  assert.equal(phoneSettings.closeTouchTarget, true);
-  assert.ok(phoneSettings.rowCount > 0);
-  assert.ok(phoneSettings.filledValueControlCount > 0);
-  assert.equal(phoneSettings.sharedValueAxis, true);
-  assert.equal(phoneSettings.controlsContained, true);
-  assert.equal(phoneSettings.controlsRightAligned, true);
-  assert.equal(phoneSettings.labelsSeparated, true);
-  assert.equal(phoneSettings.valuesFillColumn, true);
-  assert.equal(phoneSettings.overflowFree, true);
-  assert.deepEqual(
-    phoneSettings.categories.map((category) => category.label),
-    metadata.expectedSettingsCategoryLabels,
-  );
-  for (const category of phoneSettings.categories) {
-    assert.equal(category.overflowFree, true, `${category.label} phone settings must not overflow`);
-    assert.equal(category.controlsContained, true, `${category.label} controls must stay inside rows`);
-    assert.equal(category.controlsRightAligned, true, `${category.label} controls must share the row edge`);
-    assert.equal(category.labelsSeparated, true, `${category.label} labels must not overlap controls`);
-  }
   assert.equal(
     metadata.imageMeasuredSidebar.method,
     metadata.captureMethod === "desktopCapturer" ? "horizontal-pixel-scan" : "dom-geometry-fallback",

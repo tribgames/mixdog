@@ -19,6 +19,7 @@ For Entries numbered `1. id:... 2. id:... 3. id:... 4. id:...`:
 4|merge|2|2,4|merged element|merged durable summary
 2|why|A|Same durable preference as the survivor.
 2|core|merged core line
+4|lineage|12345
 ```
 
 ## Required Lines
@@ -52,12 +53,27 @@ regardless of source language as one compact, self-contained clause, <=120
 chars. Keep code identifiers, paths, and commands verbatim. For `merge`, `why`
 and `core` may use the survivor `target_row`.
 
+For every Entry that has a row in Lineage Candidates, emit exactly one
+lineage verdict:
+
+```
+<row>|lineage|<older_ids_csv>
+<row>|lineage|none
+```
+
+Use one or more exact comma-separated `older_id` values when the Entry updates
+multiple independently evolving facts. A broad result may therefore supersede
+several candidates. Otherwise emit `lineage|none`. Do not link merely related
+work, progress updates, causes, examples, or duplicate restatements. Never omit
+the lineage verdict when candidates are listed.
+
 Allowed primary verbs:
 
 | Current status | Verbs |
 |---|---|
 | `pending` | `active`, `archived` |
 | `active` | `active`, `archived`, `update`, `merge` |
+| `archived` | `archived` |
 
 ## Source Of Truth
 
@@ -79,6 +95,10 @@ candidate restates either source, archive it; do not promote duplicates.
 ## Entries
 
 {{ITEMS}}
+
+## Lineage Candidates
+
+{{LINEAGE_CANDIDATES}}
 
 Active: {{ACTIVE_COUNT}} / cap: {{ACTIVE_CAP}}
 

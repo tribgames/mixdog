@@ -1,6 +1,5 @@
 import { readdirSync, watch } from 'fs';
 import { basename, isAbsolute, relative } from 'path';
-import { spawn } from 'node:child_process';
 import {
     coerceReadFamilyPathArg,
     extractGlobBaseDirectory,
@@ -36,12 +35,14 @@ import {
     LOCATOR_OUTPUT_MAX_BYTES,
     TOOL_OUTPUT_MAX_BYTES,
 } from './tool-output-limit.mjs';
-import { runRg, runRgWindowedLines } from './rg-runner.mjs';
-import { hasSpareCapacity as childSpawnHasSpareCapacity } from '../../../../shared/child-spawn-gate.mjs';
+import { runRg, runRgWindowedLines } from './native-search-runner.mjs';
+import { tryServeFuzzySearch } from './native-search-client.mjs';
 import { fuzzyRank, prepareFuzzyItems } from './fuzzy-match.mjs';
 import {
+    recordLocalSearchBackend,
     recordLocalSearchCacheHit,
     recordLocalSearchIndex,
+    recordNativeSearchTiming,
 } from './local-search-telemetry.mjs';
 import { assertPathReachable } from './fs-reachability.mjs';
 import { listGuardPath, normalizeListHeadLimit, readFamilyPathEnoentOrError } from './lib/list-helpers.mjs';
@@ -568,85 +569,6 @@ function parseRgFileList(stdout) {
         .map((p) => normalizeOutputPath(p.replace(/^\.[/\\]/, '')));
 }
 
-const GIT_INVENTORY_TIMEOUT_MS = 5_000;
-
-function filterGitInventoryPaths(files, { hidden, depth, includeNoise }) {
-    const out = [];
-    const noiseOnWin = process.platform === 'win32';
-    for (const raw of files) {
-        const rel = normalizeOutputPath(String(raw || '').replace(/^\.[/\\]/, ''));
-        if (!rel) continue;
-        const parts = rel.split('/');
-        if (!hidden && parts.some((part) => part.startsWith('.'))) continue;
-        if (depth != null && parts.length > depth) continue;
-        if (!includeNoise && parts.some((part) => (
-            NOISE_DIR_NAMES.has(part) || (noiseOnWin && NOISE_DIR_NAMES.has(part.toLowerCase()))
-        ))) continue;
-        out.push(rel);
-    }
-    return out;
-}
-
-function listGitInventory(cwd, { hidden, depth, includeNoise, signal } = {}) {
-    if (process.env.MIXDOG_FIND_ENUM_GIT === '0') return Promise.resolve(null);
-    return new Promise((resolve) => {
-        let settled = false;
-        let child = null;
-        let onAbort = null;
-        const finish = (value) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            if (onAbort && signal) {
-                try { signal.removeEventListener('abort', onAbort); } catch { /* ignore */ }
-            }
-            resolve(value);
-        };
-        const timer = setTimeout(() => {
-            try { child?.kill(); } catch { /* ignore */ }
-            finish(null);
-        }, GIT_INVENTORY_TIMEOUT_MS);
-        timer.unref?.();
-        try {
-            child = spawn('git', [
-                '-c', 'core.quotepath=false',
-                'ls-files', '--cached', '--others', '--exclude-standard', '-z',
-            ], {
-                cwd,
-                windowsHide: true,
-                stdio: ['ignore', 'pipe', 'ignore'],
-            });
-        } catch {
-            finish(null);
-            return;
-        }
-        const chunks = [];
-        onAbort = () => {
-            try { child.kill(); } catch { /* ignore */ }
-            finish(null);
-        };
-        if (signal?.aborted) {
-            onAbort();
-            return;
-        }
-        signal?.addEventListener?.('abort', onAbort, { once: true });
-        child.stdout?.on('data', (chunk) => { chunks.push(chunk); });
-        child.on('error', () => finish(null));
-        child.on('close', (code) => {
-            if (code !== 0) {
-                finish(null);
-                return;
-            }
-            const files = filterGitInventoryPaths(
-                Buffer.concat(chunks).toString('utf8').split('\0'),
-                { hidden, depth, includeNoise },
-            );
-            files.sort();
-            finish(files);
-        });
-    });
-}
-
 function findEnumerationAbortError(signal) {
     const reason = signal?.reason;
     return reason instanceof Error ? reason : new Error(String(reason || 'find canceled'));
@@ -714,50 +636,19 @@ async function getBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMo
     // instead of spawning N identical enumerations.
     const inflight = FIND_ENUM_INFLIGHT.get(key);
     if (inflight) return subscribeToFindEnumeration(key, inflight, signal);
-    // Non-competing prewarm: past the cache/single-flight fast paths this runs
-    // a fresh `rg` sweep (a child-spawn slot). Best-effort warmers skip that
-    // spawn when the gate has no spare capacity, returning a known-incomplete
-    // result — and skipping BEFORE registering FIND_ENUM_INFLIGHT so a real
-    // caller is never attached to (or cache-poisoned by) a skipped warm.
-    const allowGit = process.env.MIXDOG_FIND_ENUM_GIT !== '0'
-        && ignoreMode === 'git'
-        && runRgImpl === runRg;
-    if (bestEffort && !childSpawnHasSpareCapacity()) {
-        return { files: [], items: [], truncated: false, partial: true };
-    }
+    void bestEffort;
     const genAtStart = FIND_ENUM_GEN;
     const rootGenAtStart = rootGen;
     const controller = new AbortController();
     const entry = { promise: null, controller, subscribers: new Set() };
     entry.promise = (async () => {
-        if (allowGit) {
-            const gitFiles = await listGitInventory(cwd, {
-                hidden, depth, includeNoise, signal: controller.signal,
-            });
-            if (Array.isArray(gitFiles)) {
-                const items = prepareFuzzyItems(gitFiles);
-                recordLocalSearchIndex('build', gitFiles.length);
-                if (ttl > 0 && FIND_ENUM_GEN === genAtStart
-                    && findEnumerationRootGeneration(root) === rootGenAtStart) {
-                    const watched = ensureFindEnumerationWatcher(root);
-                    FIND_ENUM_CACHE.set(key, {
-                        files: gitFiles,
-                        items,
-                        expiresAt: watched ? Number.MAX_SAFE_INTEGER : Date.now() + ttl,
-                        gen: genAtStart,
-                        rootGen: rootGenAtStart,
-                    });
-                }
-                return { files: gitFiles, items, truncated: false, partial: false };
-            }
-        }
         let truncated = false;
         let partial = false;
         let files;
         if (runRgImpl === runRg) {
             const served = await runRgWindowedLines(rgArgs, {
                 cwd, timeout: 10_000, signal: controller.signal,
-            }, { offset: 0, limit: 50_000 });
+            }, { offset: 0, limit: 50_000, nativeInventory: true });
             files = parseRgFileList(served.lines.join('\n'));
             truncated = served.complete !== true || served.truncated === true;
             partial = served.partial === true || served.timeout === true;
@@ -1056,6 +947,42 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
         recordLocalSearchCacheHit('result');
         return capFindResult(cached);
     }
+    if (headLimit > 0 && typeof options?.__runRg !== 'function') {
+        const nativeStartedAt = performance.now();
+        try {
+            const served = await tryServeFuzzySearch({
+                query,
+                cwd: fullPath,
+                limit: headLimit + 1,
+                hidden,
+                includeNoise,
+                maxDepth: depth,
+                exclude: includeNoise ? [] : DEFAULT_IGNORE_GLOBS,
+            }, {
+                cwd: fullPath,
+                timeout: FIND_WALK_TIMEOUT_MS,
+                signal: options.signal,
+            });
+            if (served?.complete) {
+                recordNativeSearchTiming(served);
+                recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'hit');
+                const hasMore = served.hasMore || served.matches.length > headLimit;
+                const matches = hasMore ? served.matches.slice(0, headLimit) : served.matches;
+                const lines = matches.length === 0
+                    ? [`(no fuzzy match for "${query}")`]
+                    : [...matches, ...(hasMore ? [`... (top ${headLimit}; raise limit for more)`] : [])];
+                const result = lines.join('\n');
+                if (typeof options?.onProgress === 'function') {
+                    try { options.onProgress(`${matches.length} candidates`); } catch {}
+                }
+                return capFindResult(result);
+            }
+            recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'miss');
+        } catch (error) {
+            recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'error');
+            if (options.signal?.aborted) throw error;
+        }
+    }
     // Common discovery respects .gitignore even outside a Git repository.
     // include_noise deliberately retains the old hardened --no-ignore behavior.
     // Noise dirs stay excluded via DEFAULT_IGNORE_GLOBS below.
@@ -1305,139 +1232,60 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
     const matches = [];
     const FIND_ABSOLUTE_CAP = 50_000;
     let truncatedByCap = false;
-    let rgStdoutTruncated = false;
-    let rgStdoutPartial = false;
-    const useBatchedStat = minSize === null && maxSize === null && after === null && before === null;
-    let handledByRgFiles = false;
-    if (useBatchedStat && typeFilter === 'file') {
-        try {
-            // --no-ignore: do not consult .gitignore. The slow walk path
-            // never honours .gitignore, so the fast path must match that
-            // contract — otherwise the rg branch silently returns fewer
-            // results than the fallback. Noise dirs are still excluded
-            // via DEFAULT_IGNORE_GLOBS below (unless include_noise).
-            const rgArgs = ['--files', '--no-ignore'];
-            if (hidden) rgArgs.push('--hidden');
-            if (depth != null) rgArgs.push('--max-depth', String(depth));
-            if (!includeNoise) {
-                for (const ex of DEFAULT_IGNORE_GLOBS) rgArgs.push('--glob', ex);
-            }
-            // Substring `name` (no glob metachars) → contains-glob so rg's
-            // pre-filter matches the JS matcher; explicit globs pass through.
-            if (namePattern) rgArgs.push('--iglob', nameIsGlob ? namePattern : `*${namePattern}*`);
-            rgArgs.push('.');
-            // No `name` filter → this is the pure broad sweep (rgArgs match the
-            // fuzzy-find broad pass), so share it via the enumeration cache.
-            // With a `name` filter the sweep is narrowed by --iglob and must
-            // NOT hit the broad cache — run it directly.
-            let relPaths;
-            if (!namePattern) {
-                const enumRes = await getBroadEnumeration({
-                    root: normalizeOutputPath(fullPath),
-                    hidden, depth, includeNoise, ignoreMode: 'all',
-                    rgArgs, cwd: fullPath,
-                    signal: options.signal,
-                });
-                rgStdoutTruncated = enumRes.truncated;
-                rgStdoutPartial = enumRes.partial;
-                relPaths = enumRes.files;
-            } else {
-                const stdout = await runRg(rgArgs, { cwd: fullPath, signal: options.signal });
-                rgStdoutTruncated = Boolean(stdout && typeof stdout === 'object' && stdout.truncated);
-                rgStdoutPartial = Boolean(stdout && typeof stdout === 'object' && stdout.partial);
-                relPaths = parseRgFileList(stdout);
-            }
-            const candidates = [];
-            for (const rel of relPaths) {
-                if (!rel) continue;
-                const candidate = resolveAgainstCwd(normalizeInputPath(rel), fullPath);
-                if (!matchesFindNamePattern(basename(candidate), candidate)) continue;
-                candidates.push(candidate);
-                if (candidates.length >= FIND_ABSOLUTE_CAP) {
-                    truncatedByCap = true;
-                    break;
-                }
-            }
-            const withStat = await statPathsForMtime(candidates, workDir, 64, { deadlineMs: 5000 });
-            for (const item of withStat) {
-                if (!item?.stat) continue;
-                matches.push({ path: item.full, size: item.size, mtimeMs: item.mtimeMs });
-            }
-            handledByRgFiles = true;
-        } catch {
-            handledByRgFiles = false;
+    const inventoryArgs = ['--files', '--directories', '--no-ignore'];
+    if (hidden) inventoryArgs.push('--hidden');
+    if (depth != null) inventoryArgs.push('--max-depth', String(depth));
+    if (!includeNoise) {
+        for (const ex of DEFAULT_IGNORE_GLOBS) inventoryArgs.push('--glob', ex);
+    }
+    if (namePattern) {
+        inventoryArgs.push('--iglob', nameIsGlob ? namePattern : `*${namePattern}*`);
+    }
+    inventoryArgs.push('.');
+    let relPaths;
+    try {
+        relPaths = parseRgFileList(await runRg(inventoryArgs, {
+            cwd: fullPath,
+            signal: options.signal,
+            timeout: FIND_WALK_TIMEOUT_MS,
+        }));
+    } catch (error) {
+        return `Error: ${normalizeErrorMessage(error instanceof Error ? error.message : String(error))}`;
+    }
+    const candidates = [];
+    for (const rel of relPaths) {
+        if (!rel) continue;
+        const candidate = resolveAgainstCwd(normalizeInputPath(rel), fullPath);
+        if (!matchesFindNamePattern(basename(candidate), candidate)) continue;
+        candidates.push(candidate);
+        if (candidates.length >= FIND_ABSOLUTE_CAP) {
+            truncatedByCap = true;
+            break;
         }
     }
-    if (!handledByRgFiles && useBatchedStat) {
-        const candidates = [];
-        const walkDeadline1 = Date.now() + FIND_WALK_TIMEOUT_MS;
-        await walkDir(fullPath, {
-            hidden,
-            maxDepth: depth ?? Infinity,
-            excludeDirNames: includeNoise ? null : NOISE_DIR_NAMES,
-            signal: options.signal,
-            visit: (ent, entPath) => {
-                if (Date.now() > walkDeadline1) { truncatedByCap = true; return false; }
-                const isDir = ent.isDirectory();
-                const isFile = ent.isFile();
-                if (typeFilter === 'file' && !isFile) return;
-                if (typeFilter === 'dir' && !isDir) return;
-                if (!matchesFindNamePattern(ent.name, entPath)) return;
-                candidates.push(entPath);
-                if (candidates.length >= FIND_ABSOLUTE_CAP) {
-                    truncatedByCap = true;
-                    return false;
-                }
-            },
-        });
-        const withStat = await statPathsForMtime(candidates, workDir, 64, { deadlineMs: 5000 });
-        for (const item of withStat) {
-            if (!item?.stat) continue;
-            matches.push({ path: item.full, size: item.size, mtimeMs: item.mtimeMs });
+    const sizeFiltered = minSize !== null || maxSize !== null;
+    const effectiveTypeFilter = sizeFiltered && typeFilter === 'any' ? 'file' : typeFilter;
+    const withStat = await statPathsForMtime(candidates, workDir, 64, { deadlineMs: 5000 });
+    for (const item of withStat) {
+        if (!item?.stat) continue;
+        const { stat, full: entPath, mtimeMs } = item;
+        if (effectiveTypeFilter === 'file' && !stat.isFile()) continue;
+        if (effectiveTypeFilter === 'dir' && !stat.isDirectory()) continue;
+        if (stat.isFile()) {
+            if (minSize !== null && stat.size < minSize) continue;
+            if (maxSize !== null && stat.size > maxSize) continue;
         }
-    } else if (!handledByRgFiles) {
-        // Size filters only have meaning for files; when the caller passed
-        // min_size/max_size without also restricting type, narrow the
-        // result set to files so directories don't slip past with their
-        // (usually 0-byte) directory size.
-        const sizeFiltered = (minSize !== null || maxSize !== null);
-        const effectiveTypeFilter = sizeFiltered && typeFilter === 'any' ? 'file' : typeFilter;
-        const candidates = [];
-        const walkDeadline2 = Date.now() + FIND_WALK_TIMEOUT_MS;
-        await walkDir(fullPath, {
-            hidden,
-            maxDepth: depth ?? Infinity,
-            excludeDirNames: includeNoise ? null : NOISE_DIR_NAMES,
-            signal: options.signal,
-            visit: (ent, entPath) => {
-                if (Date.now() > walkDeadline2) { truncatedByCap = true; return false; }
-                const isDir = ent.isDirectory();
-                const isFile = ent.isFile();
-                if (effectiveTypeFilter === 'file' && !isFile) return;
-                if (effectiveTypeFilter === 'dir' && !isDir) return;
-                if (!matchesFindNamePattern(ent.name, entPath)) return;
-                candidates.push(entPath);
-                if (candidates.length >= FIND_ABSOLUTE_CAP) {
-                    truncatedByCap = true;
-                    return false;
-                }
-            },
+        if (after !== null && mtimeMs < after) continue;
+        if (before !== null && mtimeMs > before) continue;
+        matches.push({
+            path: entPath,
+            type: stat.isDirectory() ? 'dir' : 'file',
+            size: stat.size,
+            mtimeMs,
         });
-        const withStat = await statPathsForMtime(candidates, workDir, 64, { deadlineMs: 5000 });
-        for (const item of withStat) {
-            if (!item?.stat) continue;
-            const { stat, full: entPath, mtimeMs } = item;
-            if (stat.isFile()) {
-                if (minSize !== null && stat.size < minSize) continue;
-                if (maxSize !== null && stat.size > maxSize) continue;
-            }
-            if (after !== null && mtimeMs < after) continue;
-            if (before !== null && mtimeMs > before) continue;
-            matches.push({ path: entPath, size: stat.size, mtimeMs });
-            if (matches.length >= FIND_ABSOLUTE_CAP) {
-                truncatedByCap = true;
-                break;
-            }
+        if (matches.length >= FIND_ABSOLUTE_CAP) {
+            truncatedByCap = true;
+            break;
         }
     }
 
@@ -1449,16 +1297,14 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
     const windowed = offset > 0 ? matches.slice(offset) : matches;
     const sliced = headLimit > 0 ? windowed.slice(0, headLimit) : windowed;
     const lines = sliced.map(m =>
-        `${displayRelPath(m.path, fullPath)}\t${formatListSize('file', m.size)}\t${formatMtime(m.mtimeMs)}`);
+        `${displayRelPath(m.path, fullPath)}\t${formatListSize(m.type, m.size)}\t${formatMtime(m.mtimeMs)}`);
     if (windowed.length > sliced.length) lines.push(`... [entries ${offset + 1}-${offset + sliced.length} of ${matches.length}; pass offset:${offset + sliced.length} to continue]`);
-    if (rgStdoutTruncated) lines.push('... [warning] rg stdout truncated at 20MB cap; results incomplete');
-    if (rgStdoutPartial) lines.push('... [warning] rg exit 2 (partial results); listing may be incomplete');
     if (truncatedByCap) lines.push(`... walk truncated at ${FIND_ABSOLUTE_CAP} matches; narrow the scope (path/name/modified_after) for accurate global sort`);
     const out = lines.join('\n') || '(no matches)';
-    if (options?.scopedCacheOutcome && (truncatedByCap || rgStdoutTruncated || rgStdoutPartial || windowed.length > sliced.length)) {
+    if (options?.scopedCacheOutcome && (truncatedByCap || windowed.length > sliced.length)) {
         markScopedCacheIncomplete(options.scopedCacheOutcome);
     }
-    const findIncomplete = truncatedByCap || rgStdoutTruncated || rgStdoutPartial || windowed.length > sliced.length;
+    const findIncomplete = truncatedByCap || windowed.length > sliced.length;
     if (!findIncomplete) {
         cacheSet(cacheKey, out, { scopes: [fullPath] });
     }

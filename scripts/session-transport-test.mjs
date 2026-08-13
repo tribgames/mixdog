@@ -83,7 +83,7 @@ function waitForSseFrame(discovery, clientToken, predicate, timeoutMs = 2_000) {
     const req = http.request({
       hostname: '127.0.0.1',
       port: discovery.port,
-      path: `/events?token=${encodeURIComponent(clientToken)}&server_token=${encodeURIComponent(discovery.token)}`,
+      path: `/events?token=${encodeURIComponent(clientToken)}`,
       method: 'GET',
       headers: { 'X-Mixdog-Daemon-Token': discovery.token },
     }, (res) => {

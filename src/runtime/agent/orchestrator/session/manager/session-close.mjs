@@ -10,7 +10,6 @@ import { clearOffloadSession } from '../tool-result-offload.mjs';
 import { SessionClosedError } from './session-errors.mjs';
 import { _dropPendingMessageState } from './pending-messages.mjs';
 import { _stopToolActivityHeartbeat, _getRuntimeEntry, _clearSessionRuntime } from './runtime-liveness.mjs';
-import { _closeBashSessionLazy } from './runtime-loaders.mjs';
 import { clearTurnCheckpoint } from './turn-checkpoint.mjs';
 import { releaseReadSnapshotScope } from '../../tools/builtin/snapshot-store.mjs';
 
@@ -47,18 +46,6 @@ export function closeSession(id, reason = 'manual', opts = {}) {
     // normal cancellation cleanup save is intentionally rejected as stale.
     try { entry?.prepareCloseSnapshot?.(reason); } catch { /* best-effort */ }
     _stopToolActivityHeartbeat(id);
-    // Prefer in-memory runtime session — allBashSessionIds may not be persisted
-    // yet for shells opened in the current turn (BL-bash-disk-sync).
-    const inMemory = entry?.session;
-    const persisted = inMemory || loadSession(id);
-    const bashSessionId = persisted?.implicitBashSessionId || null;
-    // Collect all persistent bash shells created during this session.
-    const allBashIds = Array.isArray(persisted?.allBashSessionIds)
-        ? persisted.allBashSessionIds.filter(Boolean)
-        : (bashSessionId ? [bashSessionId] : []);
-    // Deduplicate: allBashIds already covers implicitBashSessionId, but guard
-    // against old session records that only have implicitBashSessionId.
-    if (bashSessionId && !allBashIds.includes(bashSessionId)) allBashIds.push(bashSessionId);
     // 1. Tombstone first — this wins the race against saveSession().
     //    Skipped when tombstone=false: no closed:true marker is planted, so
     //    the session file stays intact and resumeSession() will accept it.
@@ -132,9 +119,6 @@ export function closeSession(id, reason = 'manual', opts = {}) {
         if (durationMs != null) parts.push(`duration=${durationMs}ms`);
         if (process.env.MIXDOG_DEBUG_SESSION_LOG) process.stderr.write(`[agent-close] ${parts.join(' ')}\n`);
     } catch { /* best-effort */ }
-    for (const bsid of allBashIds) {
-        try { _closeBashSessionLazy(bsid, `agent-close:${id}`); } catch { /* ignore */ }
-    }
     // Drop session-scoped read dedup cache so the Map doesn't accumulate
     // entries across mcp-server lifetime.
     try { clearReadDedupSession(id); } catch { /* ignore */ }
@@ -181,8 +165,8 @@ const _UNLOAD_BLOCKED_STAGES = new Set([
  * Runtime-only unload for a session whose work is DONE.
  *
  * Releases the heavy process-local runtime a finished agent still pins —
- * persistent bash shells (real child processes), pooled provider connections,
- * the read-dedup cache, and the liveness/metric runtime entry — WITHOUT
+ * pooled provider connections, the read-dedup cache, and the liveness/metric
+ * runtime entry — WITHOUT
  * touching lifecycle state. Deliberately NOT a close:
  *   - no markSessionClosed() tombstone and no bumpSessionGeneration(): the
  *     session file stays open and resumable, so a same-tag follow-up
@@ -214,24 +198,13 @@ export function unloadSessionRuntime(id, reason = 'runtime-unload') {
         if (_UNLOAD_BLOCKED_STAGES.has(entry.stage)) return false;
     }
     _stopToolActivityHeartbeat(id);
-    // Prefer the in-memory runtime session: shells opened in the last turn may
-    // not be on disk yet (same BL-bash-disk-sync reason as closeSession).
-    const persisted = entry?.session || loadSession(id);
-    const bashSessionId = persisted?.implicitBashSessionId || null;
-    const allBashIds = Array.isArray(persisted?.allBashSessionIds)
-        ? persisted.allBashSessionIds.filter(Boolean)
-        : (bashSessionId ? [bashSessionId] : []);
-    if (bashSessionId && !allBashIds.includes(bashSessionId)) allBashIds.push(bashSessionId);
-    for (const bsid of allBashIds) {
-        try { _closeBashSessionLazy(bsid, `runtime-unload:${id}`); } catch { /* ignore */ }
-    }
     try { globalThis.__mixdogCloseProviderConnectionsForSession?.(id, `runtime-unload:${reason}`); } catch { /* ignore */ }
     // Pure caches — a resumed turn rebuilds them from the transcript/disk.
     try { clearReadDedupSession(id); } catch { /* ignore */ }
     try { releaseReadSnapshotScope(id); } catch { /* ignore */ }
     _clearSessionRuntime(id);
     if (process.env.MIXDOG_DEBUG_SESSION_LOG) {
-        try { process.stderr.write(`[agent-unload] session=${id} reason=${reason} shells=${allBashIds.length}\n`); } catch { /* best-effort */ }
+        try { process.stderr.write(`[agent-unload] session=${id} reason=${reason}\n`); } catch { /* best-effort */ }
     }
     return true;
 }

@@ -17,7 +17,12 @@ import { logWebhook } from "./log.mjs";
 
 /** Packaged default mirrors the desktop pairing relay. */
 const DEFAULT_RELAY_URL = "wss://192-255-139-161.sslip.io";
-const MAX_TUNNEL_BODY_BYTES = 1024 * 1024;
+export const MAX_TUNNEL_BODY_BYTES = 1024 * 1024;
+const MAX_HOOK_FRAME_BYTES = 2 * 1024 * 1024;
+const MAX_HOOK_HEADER_BYTES = 32 * 1024;
+const HOP_HEADERS = new Set([
+  "host", "connection", "content-length", "transfer-encoding", "keep-alive", "upgrade", "te",
+]);
 const HEARTBEAT_MS = 25_000;
 const LOCAL_TIMEOUT_MS = 25_000;
 
@@ -25,7 +30,21 @@ export function resolveHookRelayUrl(env = process.env) {
   const raw = String(env.MIXDOG_RELAY_URL || "").trim();
   const flag = raw.toLowerCase();
   if (flag === "0" || flag === "false" || flag === "off") return null;
-  return raw || DEFAULT_RELAY_URL;
+  let url;
+  try {
+    url = new URL(raw || DEFAULT_RELAY_URL);
+  } catch {
+    throw new TypeError("MIXDOG_RELAY_URL is invalid");
+  }
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  const loopback = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  if (url.protocol !== "wss:" && !(url.protocol === "ws:" && loopback)) {
+    throw new TypeError("MIXDOG_RELAY_URL must use wss://; ws:// is allowed only for loopback development");
+  }
+  if (url.username || url.password) {
+    throw new TypeError("MIXDOG_RELAY_URL must not contain credentials");
+  }
+  return url.toString();
 }
 
 function hookIdentityPath() {
@@ -65,6 +84,62 @@ function hookPublicBase(relayUrl, deviceId) {
   url.search = "";
   url.hash = "";
   return url.toString();
+}
+
+export function hookLegSocketOptions(relayUrl, { deviceId, deviceSecret }) {
+  const target = new URL(resolveHookRelayUrl({ MIXDOG_RELAY_URL: relayUrl }));
+  target.pathname = "/hookleg";
+  target.search = "";
+  target.hash = "";
+  return {
+    url: target.toString(),
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${deviceId}:${deviceSecret}`, "utf8").toString("base64")}`,
+    },
+  };
+}
+
+export function normalizeHookRequestFrame(frame) {
+  if (!frame || typeof frame !== "object" || Array.isArray(frame)
+    || frame.type !== "http"
+    || typeof frame.id !== "string" || frame.id.length < 1 || frame.id.length > 128) {
+    throw new TypeError("invalid webhook relay frame");
+  }
+  if (frame.method !== "POST") throw new TypeError("webhook relay method must be POST");
+  if (typeof frame.path !== "string" || frame.path.length > 4096
+    || !/^\/webhook\/[A-Za-z0-9_-]{1,64}(?:\?[^#\r\n]{0,2048})?$/.test(frame.path)) {
+    throw new TypeError("invalid webhook relay path");
+  }
+  const inputHeaders = frame.headers && typeof frame.headers === "object" && !Array.isArray(frame.headers)
+    ? frame.headers : {};
+  const headers = {};
+  let headerBytes = 0;
+  for (const [rawName, rawValue] of Object.entries(inputHeaders)) {
+    const name = String(rawName).toLowerCase();
+    if (HOP_HEADERS.has(name)) continue;
+    if (!/^[!#$%&'*+\-.^_`|~0-9a-z]+$/.test(name)) {
+      throw new TypeError("invalid webhook relay header name");
+    }
+    const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+    const normalized = values.map((value) => String(value));
+    if (normalized.some((value) => /[\r\n]/.test(value) || value.length > 8192)) {
+      throw new TypeError("invalid webhook relay header value");
+    }
+    headerBytes += name.length + normalized.reduce((sum, value) => sum + value.length, 0);
+    if (headerBytes > MAX_HOOK_HEADER_BYTES) throw new TypeError("webhook relay headers exceed limit");
+    headers[name] = Array.isArray(rawValue) ? normalized : normalized[0];
+  }
+  const encoded = frame.body == null ? "" : String(frame.body);
+  const maximumEncoded = Math.ceil(MAX_TUNNEL_BODY_BYTES / 3) * 4;
+  if (encoded.length > maximumEncoded
+    || (encoded && !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded))) {
+    throw new TypeError("invalid webhook relay body");
+  }
+  const body = encoded ? Buffer.from(encoded, "base64") : null;
+  if (body && body.length > MAX_TUNNEL_BODY_BYTES) {
+    throw new TypeError("webhook relay body exceeds limit");
+  }
+  return { id: frame.id, method: "POST", path: frame.path, headers, body };
 }
 
 /** Public base URL for status surfaces; null until the first tunnel start
@@ -116,26 +191,41 @@ export function startHookTunnel({ relayUrl, getLocalPort }) {
         Buffer.from('{"error":"webhook server not listening"}'));
       return;
     }
-    const body = frame.body ? Buffer.from(String(frame.body), "base64") : null;
-    const request = http.request({
-      host: "127.0.0.1",
-      port,
-      method: typeof frame.method === "string" ? frame.method : "GET",
-      path: typeof frame.path === "string" && frame.path.startsWith("/") ? frame.path : "/",
-      headers: frame.headers && typeof frame.headers === "object" ? frame.headers : {},
-      timeout: LOCAL_TIMEOUT_MS,
-    }, (response) => {
+    let request;
+    try {
+      request = http.request({
+        host: "127.0.0.1",
+        port,
+        method: frame.method,
+        path: frame.path,
+        headers: frame.headers,
+        timeout: LOCAL_TIMEOUT_MS,
+      }, (response) => {
       const chunks = [];
       let total = 0;
+      let overflow = false;
       response.on("data", (chunk) => {
         total += chunk.length;
-        if (total <= MAX_TUNNEL_BODY_BYTES) chunks.push(chunk);
+        if (total > MAX_TUNNEL_BODY_BYTES) {
+          overflow = true;
+          response.destroy(new Error("local webhook response exceeds limit"));
+          return;
+        }
+        chunks.push(chunk);
       });
-      response.on("end", () => respond(ws, frame.id, response.statusCode || 502,
-        { "content-type": response.headers["content-type"] || "application/json" },
-        Buffer.concat(chunks)));
+      response.on("end", () => {
+        if (overflow) return;
+        respond(ws, frame.id, response.statusCode || 502,
+          { "content-type": response.headers["content-type"] || "application/json" },
+          Buffer.concat(chunks));
+      });
       response.on("error", () => respond(ws, frame.id, 502, {}, null));
-    });
+      });
+    } catch (err) {
+      respond(ws, frame.id, 400, { "content-type": "application/json" },
+        Buffer.from(JSON.stringify({ error: String(err?.message || err) })));
+      return;
+    }
     request.on("timeout", () => request.destroy(new Error("local webhook timeout")));
     request.on("error", (err) => respond(ws, frame.id, 502, { "content-type": "application/json" },
       Buffer.from(JSON.stringify({ error: String(err?.message || err) }))));
@@ -145,12 +235,13 @@ export function startHookTunnel({ relayUrl, getLocalPort }) {
 
   const connect = () => {
     if (closed) return;
-    const target = new URL(relayUrl);
-    target.pathname = "/hookleg";
-    target.search = `device=${encodeURIComponent(deviceId)}&secret=${encodeURIComponent(deviceSecret)}`;
+    const connection = hookLegSocketOptions(relayUrl, { deviceId, deviceSecret });
     let ws;
     try {
-      ws = new WebSocket(target.toString(), { maxPayload: 8 * 1024 * 1024 });
+      ws = new WebSocket(connection.url, {
+        headers: connection.headers,
+        maxPayload: MAX_HOOK_FRAME_BYTES,
+      });
     } catch (err) {
       logWebhook(`hook tunnel: dial failed — ${err?.message || err}`);
       scheduleReconnect();
@@ -177,9 +268,18 @@ export function startHookTunnel({ relayUrl, getLocalPort }) {
     });
     ws.on("message", (raw) => {
       alive = true;
+      let rawFrame;
+      try { rawFrame = JSON.parse(String(raw)); } catch { return; }
       let frame;
-      try { frame = JSON.parse(String(raw)); } catch { return; }
-      if (frame?.type !== "http" || typeof frame.id !== "string") return;
+      try {
+        frame = normalizeHookRequestFrame(rawFrame);
+      } catch (err) {
+        if (typeof rawFrame?.id === "string") {
+          respond(ws, rawFrame.id, 400, { "content-type": "application/json" },
+            Buffer.from(JSON.stringify({ error: String(err?.message || err) })));
+        }
+        return;
+      }
       forwardToLocal(frame, ws);
     });
     ws.on("error", () => { /* surfaced as close */ });

@@ -346,15 +346,8 @@ export function normalizeTypographic(s) {
 
 export function splitTextLinesForPatch(text) {
   const raw = String(text ?? '');
-  let lf = 0;
-  let crlf = 0;
-  for (let i = 0; i < raw.length; i++) {
-    if (raw[i] !== '\n') continue;
-    lf++;
-    if (i > 0 && raw[i - 1] === '\r') crlf++;
-  }
-  const eol = lf > 0 && crlf * 2 >= lf ? '\r\n' : '\n';
-  const body = raw.replace(/\r\n/g, '\n');
+  const eol = detectDominantEol(raw);
+  const body = eol === '\r' ? raw.replace(/\r/g, '\n') : raw.replace(/\r\n/g, '\n');
   if (body.length === 0) {
     const empty = [];
     empty.hasFinalNewline = true;
@@ -370,6 +363,19 @@ export function splitTextLinesForPatch(text) {
   return lines;
 }
 
+export function detectDominantEol(text) {
+  const raw = String(text ?? '');
+  if (raw.includes('\r') && !raw.includes('\n')) return '\r';
+  let lf = 0;
+  let crlf = 0;
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] !== '\n') continue;
+    lf++;
+    if (i > 0 && raw[i - 1] === '\r') crlf++;
+  }
+  return lf > 0 && crlf * 2 >= lf ? '\r\n' : '\n';
+}
+
 export function splitBufferLinesForPatch(buf) {
   const empty = [];
   if (!buf || buf.length === 0) {
@@ -378,10 +384,12 @@ export function splitBufferLinesForPatch(buf) {
   }
   const lines = [];
   let start = 0;
+  const crOnly = buf.includes(0x0d) && !buf.includes(0x0a);
+  const nl = crOnly ? 0x0d : 0x0a;
   for (let i = 0; i < buf.length; i++) {
-    if (buf[i] === 0x0a) {
+    if (buf[i] === nl) {
       let end = i;
-      if (end > start && buf[end - 1] === 0x0d) end--;
+      if (!crOnly && end > start && buf[end - 1] === 0x0d) end--;
       lines.push(buf.subarray(start, end));
       start = i + 1;
     }

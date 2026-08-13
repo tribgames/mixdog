@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // bench-run.mjs — repeatable internal A/B bench runner (mixdog).
 //
-// Runs a FIXED task set through the LIVE headless path (runHeadlessRole in a
-// fresh child node process = identical to `mixdog <agent> <msg>` and loads the
+// Runs a FIXED task set through the LIVE headless path (runHeadlessExec in a
+// fresh child node process = identical to `mixdog exec <msg>` and loads the
 // latest on-disk code), captures each task's session id, scores the round with
 // task-bench, and freezes it to a round file. Change rules/briefs between
 // rounds; the task set stays constant so rounds are comparable.
@@ -24,7 +24,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const HEADLESS = pathToFileURL(resolve(__dir, '../src/headless-role.mjs')).href;
+const HEADLESS = pathToFileURL(resolve(__dir, '../src/headless-exec.mjs')).href;
 const WORKFLOW_MOD = pathToFileURL(resolve(__dir, '../src/session-runtime/workflow.mjs')).href;
 const TASK_BENCH = resolve(__dir, 'task-bench.mjs');
 
@@ -167,10 +167,9 @@ const RUNNERS = {
       );
     }
     const driver = [
-      `import { runHeadlessRole } from ${JSON.stringify(HEADLESS)};`,
+      `import { runHeadlessExec } from ${JSON.stringify(HEADLESS)};`,
       `const out = [];`,
-      `const code = await runHeadlessRole({`,
-      `  agent: ${JSON.stringify(task.agent || 'worker')},`,
+      `const code = await runHeadlessExec({`,
       `  message: ${JSON.stringify(task.prompt || '')},`,
       `  provider: ${JSON.stringify(opts.provider || null)},`,
       `  model: ${JSON.stringify(opts.model || null)},`,

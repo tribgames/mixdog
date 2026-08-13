@@ -36,6 +36,6 @@ export const AGENT_TOOL = {
       cwd: { type: 'string', description: 'Working directory.' },
       context: { type: 'string', description: 'Extra agent context.' },
     },
-    additionalProperties: true,
+    additionalProperties: false,
   },
 };

@@ -77,10 +77,7 @@ export function createPrewarmSchedulers({
     timers.codeGraphPrewarmTimer.unref?.();
   }
 
-  // Tool-runtime warmup: the per-call cold starts a session's FIRST tool call
-  // would otherwise pay — pwsh standby processes (~300ms each) and the o200k
-  // encoder + token-count worker (~100ms). Each part is independent and
-  // best-effort; failures only mark the boot profile.
+  // Tool-runtime warmup: start the native shell manager and token estimator.
   function scheduleToolRuntimeWarmup(delayMs = 2500) {
     if (envFlag('MIXDOG_DISABLE_TOOL_PREWARM')) {
       bootProfile('tool-runtime:prewarm-skipped');
@@ -88,22 +85,11 @@ export function createPrewarmSchedulers({
     }
     const timer = setTimeout(() => void (async () => {
       if (isCloseRequested()) return;
-      const turnBusy = getActiveTurnCount() > 0 || Boolean(getSessionCreatePromise());
       try {
-        if (turnBusy) {
-          bootProfile('tool-runtime:shell-standby-deferred', { reason: 'turn-active' });
-        } else {
-        const { prewarmShellStandbys } = await import('../runtime/agent/orchestrator/tools/builtin/bash-tool.mjs');
-        const warmed = prewarmShellStandbys() === true;
-        let ready = 0;
-        if (warmed) {
-          const { waitPwshStandbysReady } = await import('../runtime/agent/orchestrator/tools/lib/pwsh-standby-pool.mjs');
-          ready = await waitPwshStandbysReady({ timeoutMs: 2_500 });
-        }
-        bootProfile('tool-runtime:shell-standby', { warmed, ready });
-        }
+        const { warmNativeSpawnServer } = await import('../runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs');
+        bootProfile('tool-runtime:native-shell', { warmed: await warmNativeSpawnServer() === true });
       } catch (error) {
-        bootProfile('tool-runtime:shell-standby-failed', { error: error?.message || String(error) });
+        bootProfile('tool-runtime:native-shell-failed', { error: error?.message || String(error) });
       }
       try {
         const { prewarmTokenEstimator } = await import('../runtime/agent/orchestrator/session/context-utils.mjs');

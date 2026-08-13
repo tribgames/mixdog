@@ -121,6 +121,12 @@ export function createHttpRouter({
   const _ownerInFlightHttpCalls = new Map()
 
   const requestHandler = async (req, res) => {
+    // Apply the loopback Host/Origin policy before every route, including
+    // read-only admin/core-memory responses that DNS rebinding could exfiltrate.
+    if (!isLocalOrigin(req)) {
+      sendJson(res, { ok: false, error: 'forbidden: non-local request' }, 403)
+      return
+    }
     touchDaemonIdleTimer?.(`${req.method || 'HTTP'} ${req.url || '/'}`)
     if (req.method === 'POST' && (req.url === '/client/register' || req.url === '/client/deregister')) {
       if (!isLocalOrigin(req)) {

@@ -235,7 +235,11 @@ export function createSessionLifecycle({
         ...(rt.approvalMode ? { approvalMode: rt.approvalMode } : {}),
         clientHostPid: process.pid,
         mcpScopeId: rt.mcpScopeId,
-        disallowedTools: [...LEAD_DISALLOWED_TOOLS, ...featureDisallowedTools()],
+        disallowedTools: [
+          ...LEAD_DISALLOWED_TOOLS,
+          ...(rt.disallowDelegation ? ['agent'] : []),
+          ...featureDisallowedTools(),
+        ],
         cwd: rt.currentCwd,
         ...(rt.desktopSession && typeof rt.desktopSession === 'object' ? { desktopSession: rt.desktopSession } : {}),
         coreMemoryContext,

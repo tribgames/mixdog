@@ -19,6 +19,9 @@ import {
   MAX_ACTIVE_REMOTE_CLIENTS,
   MAX_PENDING_REMOTE_FRAME_BYTES,
   MAX_PENDING_REMOTE_FRAMES,
+  MAX_PENDING_REMOTE_TOTAL_BYTES,
+  MAX_PENDING_REMOTE_TOTAL_FRAMES,
+  buildRelayMediaResponsePlan,
   relayDeviceSocketOptions,
   remoteFrameBudgetAvailable,
   resolveRelayUrl,
@@ -54,7 +57,7 @@ test('desktop permission policy preserves media and rejects every other permissi
   assert.equal(desktopPermissionAllowed('geolocation', trusted, trusted), false);
 });
 
-test('remote capability denylist preserves existing non-secret capabilities', () => {
+test('remote capability denylist blocks sensitive capabilities and permits additions by default', () => {
   assert.deepEqual(
     [...REMOTE_BLOCKED_CAPABILITIES].sort(),
     [...SENSITIVE_REMOTE_CAPABILITIES].sort(),
@@ -66,6 +69,7 @@ test('remote capability denylist preserves existing non-secret capabilities', ()
       assert.doesNotThrow(() => assertRemoteCapability(capability));
     }
   }
+  assert.doesNotThrow(() => assertRemoteCapability('futureCapability'));
 });
 
 test('relay URL policy requires encryption except for loopback development', () => {
@@ -97,6 +101,38 @@ test('remote client and frame budgets retain normal traffic and bound floods', (
   assert.equal(remoteFrameBudgetAvailable(0, 0, 1024), true);
   assert.equal(remoteFrameBudgetAvailable(MAX_PENDING_REMOTE_FRAMES, 0, 1), false);
   assert.equal(remoteFrameBudgetAvailable(0, MAX_PENDING_REMOTE_FRAME_BYTES, 1), false);
+  assert.equal(
+    remoteFrameBudgetAvailable(0, 0, 1, MAX_PENDING_REMOTE_TOTAL_FRAMES, 0),
+    false,
+  );
+  assert.equal(
+    remoteFrameBudgetAvailable(0, 0, 1, 0, MAX_PENDING_REMOTE_TOTAL_BYTES),
+    false,
+  );
+});
+
+test('relay media cache revalidates authorization while preserving ETags', () => {
+  const input = {
+    size: 5,
+    mime: 'image/png',
+    assetId: '01234567',
+    variant: 'thumb',
+    rangeHeader: '',
+    ifNoneMatch: '',
+  };
+  const first = buildRelayMediaResponsePlan(input);
+  assert.equal(first.headers['Cache-Control'], 'private, no-cache');
+  const cached = buildRelayMediaResponsePlan({
+    ...input,
+    ifNoneMatch: first.headers.ETag,
+  });
+  assert.equal(cached.status, 304);
+});
+
+test('pairing recovery navigates to the scanned relay before same-origin websocket use', () => {
+  const source = readFileSync(new URL('../renderer/remote-shim.ts', import.meta.url), 'utf8');
+  assert.match(source, /pairingRedirectUrl = parsed\.url/);
+  assert.match(source, /location\.assign\(target\)/);
 });
 
 test('selected-file grant storage migrates plaintext tokens to hashes', () => {

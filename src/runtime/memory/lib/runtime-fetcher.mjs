@@ -21,11 +21,12 @@ import {
   readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync,
 } from 'fs'
 import { readFile } from 'fs/promises'
-import { join, resolve } from 'path'
+import { isAbsolute, join, relative, resolve, sep } from 'path'
 import { fileURLToPath } from 'url'
 import { pipeline } from 'stream/promises'
 import { spawnSync } from 'child_process'
 import { renameWithRetrySync, writeFileAtomicSync, writeJsonAtomicSync } from '../../shared/atomic-file.mjs'
+import { streamResponseToFile } from '../../shared/bounded-download.mjs'
 
 // Bundled fallback manifest shipped alongside Mixdog. fileURLToPath required
 // for cross-platform path resolution (URL.pathname returns /C:/... on Windows).
@@ -134,7 +135,7 @@ function runtimePaths(verDir) {
 // Download with retry
 // ---------------------------------------------------------------------------
 
-async function downloadWithRetry(url, destPath) {
+async function downloadWithRetry(url, destPath, expectedBytes) {
   // 4 total attempts: 1 initial + 3 retries; waits between attempts: 1s, 3s, 9s.
   const delays = [1000, 3000, 9000]
   let lastErr
@@ -148,8 +149,11 @@ async function downloadWithRetry(url, destPath) {
       if (!res.ok) {
         throw new Error(`[runtime-fetcher] asset download HTTP ${res.status} — ${url}`)
       }
-      const out = createWriteStream(destPath)
-      await pipeline(res.body, out)
+      await streamResponseToFile(res, destPath, {
+        maxBytes: expectedBytes,
+        expectedBytes,
+        label: 'memory runtime download',
+      })
       return // success
     } catch (err) {
       lastErr = err
@@ -188,26 +192,49 @@ function runtimeAssetUrlCandidates(url) {
 // Tar entry path validation + extraction
 // ---------------------------------------------------------------------------
 
+export function _validateRuntimeTarEntries(entries, details, stagingBase) {
+  if (entries.length !== details.length) {
+    throw new Error('[runtime-fetcher] tar listings disagree; refusing extraction')
+  }
+  const resolvedBase = resolve(stagingBase)
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index]
+    const type = String(details[index] || '').trimStart()[0]
+    if (type !== '-' && type !== 'd') {
+      throw new Error(`[runtime-fetcher] tar entry type is unsafe: ${entry}`)
+    }
+    if (!entry || entry.includes('\0') || entry.includes('\\')
+      || entry.startsWith('/') || /^[A-Za-z]:/u.test(entry)) {
+      throw new Error(`[runtime-fetcher] tar entry path validation failed (unsafe entry): ${entry}`)
+    }
+    const segments = entry.split('/')
+    if (segments.includes('..')) {
+      throw new Error(`[runtime-fetcher] tar entry path validation failed (unsafe entry): ${entry}`)
+    }
+    const resolved = resolve(join(stagingBase, entry))
+    const remainder = relative(resolvedBase, resolved)
+    if (remainder === '..' || remainder.startsWith(`..${sep}`) || isAbsolute(remainder)) {
+      throw new Error(`[runtime-fetcher] tar entry escapes staging dir: ${entry}`)
+    }
+  }
+}
+
 function extractTarGz(tarPath, destDir, stagingBase) {
   mkdirSync(destDir, { recursive: true })
 
-  // List entries first and validate — reject any that escape staging.
+  // List entries first and validate — reject traversal, links, and special
+  // files before the extractor can materialize any archive-controlled target.
   const listResult = spawnSync('tar', ['-tzf', tarPath], { stdio: 'pipe', windowsHide: true })
   if (listResult.status !== 0) {
     throw new Error(`[runtime-fetcher] tar list failed: ${listResult.stderr?.toString() || 'unknown'}`)
   }
-  const entries = (listResult.stdout?.toString() || '').split('\n').filter(Boolean)
-  const resolvedBase = resolve(stagingBase)
-  for (const entry of entries) {
-    // Reject absolute paths and traversal sequences.
-    if (entry.startsWith('/') || entry.includes('..')) {
-      throw new Error(`[runtime-fetcher] tar entry path validation failed (unsafe entry): ${entry}`)
-    }
-    const resolved = resolve(join(stagingBase, entry))
-    if (!resolved.startsWith(resolvedBase)) {
-      throw new Error(`[runtime-fetcher] tar entry escapes staging dir: ${entry}`)
-    }
+  const detailResult = spawnSync('tar', ['-tvzf', tarPath], { stdio: 'pipe', windowsHide: true })
+  if (detailResult.status !== 0) {
+    throw new Error(`[runtime-fetcher] tar detail list failed: ${detailResult.stderr?.toString() || 'unknown'}`)
   }
+  const entries = (listResult.stdout?.toString() || '').split('\n').filter(Boolean)
+  const details = (detailResult.stdout?.toString() || '').split('\n').filter(Boolean)
+  _validateRuntimeTarEntries(entries, details, stagingBase)
 
   const r = spawnSync('tar', ['-xzf', tarPath, '-C', destDir], { stdio: 'pipe', windowsHide: true })
   if (r.status !== 0) {
@@ -465,7 +492,7 @@ export async function ensureRuntime(dataDir) {
           if (candidateUrl !== url) {
             __mixdogMemoryLog(`[runtime-fetcher] retrying runtime download from fallback release repo — ${candidateUrl}\n`)
           }
-          await downloadWithRetry(candidateUrl, tarPath)
+          await downloadWithRetry(candidateUrl, tarPath, size)
           await verifySha256(tarPath, sha256)
           downloadOk = true
           break

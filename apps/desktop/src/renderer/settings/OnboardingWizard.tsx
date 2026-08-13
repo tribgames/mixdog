@@ -1033,7 +1033,7 @@ function StarStep({ api }: { api: DesktopApi }) {
       <b><span>mixdog</span></b>
       <span className="onboarding-pill neutral">{t('Public')}</span>
     </div>
-    <p>{t('Standalone coding-agent workspace — multi-provider agent workflows across CLI, desktop, and phone.')} {starred
+        <p>{t('Standalone coding agent — multi-provider agent workflows across CLI, desktop, and phone.')} {starred
         ? t('Thank you for the star — it genuinely helps mixdog grow!')
         : t('Built in the open; a star helps other developers find it.')}</p>
     <div className="onboarding-repo-meta">

@@ -69,6 +69,8 @@ export function sendJson(res, data, status = 200) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
   })
   res.end(body)
 }
@@ -77,16 +79,18 @@ export function sendError(res, msg, status = 500) {
   sendJson(res, { error: msg }, status)
 }
 
-// Origin/Referer guard for /admin/* mutation routes. Memory-service binds
-// 127.0.0.1, but browser DNS-rebinding or a stray cross-origin fetch could
-// still reach destructive endpoints (purge, backfill, entry mutations).
+// Host + Origin/Referer guard for the entire memory HTTP surface.
+// Memory-service binds 127.0.0.1, but browser DNS rebinding can preserve an
+// attacker-controlled Host while routing the request to loopback.
 // Server-to-server callers (setup-server, hooks) issue raw http.request
-// without a browser Origin/Referer, so absent headers pass; any non-loopback
-// Origin/Referer is rejected. Mirrors setup-server.mjs isAllowedOrigin.
+// without a browser Origin/Referer, but still send a loopback Host.
 export function isLocalOrigin(req) {
   const LOOP = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i
+  const LOOP_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i
+  const host = String(req.headers.host || '').trim()
   const origin = req.headers.origin || ''
   const referer = req.headers.referer || ''
+  if (!LOOP_HOST.test(host)) return false
   if (origin && !LOOP.test(origin)) return false
   if (referer && !LOOP.test(referer)) return false
   return true

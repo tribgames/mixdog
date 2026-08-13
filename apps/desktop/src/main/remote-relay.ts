@@ -34,6 +34,8 @@ const E2EE_HANDSHAKE_TIMEOUT_MS = 10_000;
 export const MAX_ACTIVE_REMOTE_CLIENTS = 32;
 export const MAX_PENDING_REMOTE_FRAMES = 256;
 export const MAX_PENDING_REMOTE_FRAME_BYTES = MAX_WS_PAYLOAD_BYTES;
+export const MAX_PENDING_REMOTE_TOTAL_FRAMES = 512;
+export const MAX_PENDING_REMOTE_TOTAL_BYTES = MAX_WS_PAYLOAD_BYTES * 2;
 // Media chunk size and the socket backlog that pauses the read. Bigger frames
 // waste memory on the relay, smaller ones waste round trips; 256 KB keeps a
 // clip flowing while a phone that stalls stops the pump within a few frames.
@@ -101,9 +103,30 @@ export function remoteFrameBudgetAvailable(
   pendingFrames: number,
   pendingBytes: number,
   nextBytes: number,
+  totalPendingFrames = pendingFrames,
+  totalPendingBytes = pendingBytes,
 ): boolean {
   return pendingFrames < MAX_PENDING_REMOTE_FRAMES
-    && pendingBytes + nextBytes <= MAX_PENDING_REMOTE_FRAME_BYTES;
+    && pendingBytes + nextBytes <= MAX_PENDING_REMOTE_FRAME_BYTES
+    && totalPendingFrames < MAX_PENDING_REMOTE_TOTAL_FRAMES
+    && totalPendingBytes + nextBytes <= MAX_PENDING_REMOTE_TOTAL_BYTES;
+}
+
+export function buildRelayMediaResponsePlan(input: {
+  size: number;
+  mime: string;
+  assetId: string;
+  variant: string;
+  rangeHeader: string;
+  ifNoneMatch: string;
+}) {
+  return mediaResponsePlan({
+    ...input,
+    // The browser may retain bytes, but every reuse must revalidate through
+    // the relay token gate so Unpair revokes access immediately. ETags keep
+    // unchanged content at 304 without re-downloading it.
+    cacheControl: 'private, no-cache',
+  });
 }
 
 const DEVICE_IDENTITY_FILE = 'relay-device.json';
@@ -288,6 +311,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     pendingBytes: number;
   }
   const activeClients = new Map<string, RelayClientState>();
+  let totalPendingFrames = 0;
+  let totalPendingBytes = 0;
   const notifyClientCount = (): void => options.onClientCountChanged?.();
   // Media streams currently pumping to the relay, keyed by request id: an
   // aborted phone request (scrolled away, closed tab) must stop the read.
@@ -401,7 +426,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       fail(404);
       return;
     }
-    const plan = mediaResponsePlan({
+    const plan = buildRelayMediaResponsePlan({
       size,
       mime: target.mime,
       assetId: media.assetId,
@@ -565,12 +590,16 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           client.pendingFrames,
           client.pendingBytes,
           frameBytes,
+          totalPendingFrames,
+          totalPendingBytes,
         )) {
           closeClient(envelope.clientId, 'remote client backlog exceeded');
           return;
         }
         client.pendingFrames += 1;
         client.pendingBytes += frameBytes;
+        totalPendingFrames += 1;
+        totalPendingBytes += frameBytes;
         const processFrame = async (): Promise<void> => {
           if (activeClients.get(envelope.clientId as string) !== client) return;
           if (!client.channel) {
@@ -624,6 +653,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           .finally(() => {
             client.pendingFrames = Math.max(0, client.pendingFrames - 1);
             client.pendingBytes = Math.max(0, client.pendingBytes - frameBytes);
+            totalPendingFrames = Math.max(0, totalPendingFrames - 1);
+            totalPendingBytes = Math.max(0, totalPendingBytes - frameBytes);
           });
       })();
     });

@@ -4,7 +4,11 @@ import {
   desktopSlashCommandDescription,
   resolveDesktopSlashCommand,
 } from './slash-commands.ts';
-import { SETTINGS_CATEGORIES } from './settings/settings-items.ts';
+import {
+  SETTINGS_CATEGORIES,
+  settingsCategoriesForSurface,
+  settingsCategoryForSurface,
+} from './settings/settings-items.ts';
 
 test('current slash-command and settings product choices', () => {
   const quitAlias = resolveDesktopSlashCommand('q');
@@ -14,4 +18,15 @@ test('current slash-command and settings product choices', () => {
     SETTINGS_CATEGORIES.find((category) => category.value === 'context')?.items.includes('memory-cycles'),
     false,
   );
+});
+
+test('remote settings hide desktop-local credential categories', () => {
+  assert.equal(settingsCategoriesForSurface(true), settingsCategoriesForSurface(true));
+  const remoteCategories = settingsCategoriesForSurface(true).map((category) => category.value);
+  assert.equal(remoteCategories.includes('providers'), false);
+  assert.equal(remoteCategories.includes('channels'), false);
+  assert.equal(remoteCategories.includes('mcp'), true);
+  assert.equal(settingsCategoryForSurface('providers', true), 'general');
+  assert.equal(settingsCategoryForSurface('channels', true), 'general');
+  assert.equal(settingsCategoryForSurface('providers', false), 'providers');
 });

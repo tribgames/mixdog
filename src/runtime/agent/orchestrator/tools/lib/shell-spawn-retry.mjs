@@ -1,5 +1,4 @@
-import { spawn } from 'node:child_process';
-import { tryNativeSpawn } from './native-spawn-client.mjs';
+import { ensureNativeSpawnServer, tryNativeSpawn } from './native-spawn-client.mjs';
 
 let activeShellSpawns = 0;
 
@@ -12,6 +11,7 @@ export async function spawnShellWithRetry({ shell, argv, spawnOptions, shellArg,
   const isPowerShell = isPowerShellSpawn(shell, shellArg);
   activeShellSpawns++;
   try {
+    await ensureNativeSpawnServer();
     let attempt = 0;
     for (;;) {
       try {
@@ -37,35 +37,9 @@ export async function spawnShellWithRetry({ shell, argv, spawnOptions, shellArg,
           });
           return native;
         }
-        const child = spawn(shell, argv, spawnOptions);
-        let bufferedError = null;
-        const guardError = (err) => { bufferedError = bufferedError || err; };
-        child.on('error', guardError);
-        try {
-          await new Promise((resolveSpawn, rejectSpawn) => {
-            const onSpawn = () => {
-              child.removeListener('error', onError);
-              resolveSpawn();
-            };
-            const onError = (err) => {
-              child.removeListener('spawn', onSpawn);
-              rejectSpawn(err);
-            };
-            child.once('spawn', onSpawn);
-            child.once('error', onError);
-          });
-        } catch (err) {
-          child.removeListener('error', guardError);
-          throw err;
-        }
-        return {
-          child,
-          adoptErrorHandler(handler) {
-            child.on('error', handler);
-            child.removeListener('error', guardError);
-            if (bufferedError) handler(bufferedError);
-          },
-        };
+        throw Object.assign(new Error('native spawn server unavailable'), {
+          code: 'NATIVE_SPAWN_UNAVAILABLE',
+        });
       } catch (err) {
         try {
           console.error('[shell-spawn-retry] ' + JSON.stringify({

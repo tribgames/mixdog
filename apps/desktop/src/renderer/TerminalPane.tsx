@@ -191,7 +191,7 @@ function terminalView(key: string): TerminalView {
     cursorBlink: true,
     cursorStyle: 'bar',
     cursorInactiveStyle: 'bar',
-    theme: TERMINAL_THEME,
+    theme: terminalTheme(),
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
@@ -248,11 +248,19 @@ export async function disposeTerminalPane(id: string): Promise<void> {
 // built-in Tango defaults: Tango's blue (#3465a4) and bright black sit near
 // this canvas and made paths/prompts hard to read. Background stays in sync
 // with --mx-terminal-bg (desktop.css).
-const TERMINAL_THEME = {
-  background: '#121215',
-  foreground: '#e9e9e9',
-  cursor: '#e9e9e9',
-  cursorAccent: '#121215',
+function cssVar(name: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
+
+function terminalTheme() {
+  const background = cssVar("--mx-terminal-bg", "#121215");
+  const foreground = cssVar("--mx-text", "#e9e9e9");
+  return {
+  background,
+  foreground,
+  cursor: foreground,
+  cursorAccent: background,
   selectionBackground: 'rgba(255, 255, 255, .28)',
   black: '#000000',
   red: '#cd3131',
@@ -270,7 +278,8 @@ const TERMINAL_THEME = {
   brightMagenta: '#d670d6',
   brightCyan: '#29b8db',
   brightWhite: '#e5e5e5',
-};
+  };
+}
 
 export default function TerminalPane({
   cwd,

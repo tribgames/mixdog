@@ -1,24 +1,7 @@
 // Shell exec output plumbing: inline/disk caps, ANSI strip, tree-kill, bounded capture, results.
 // Extracted from shell-command.mjs.
 'use strict';
-// Async one-shot shell runner.
-//
-// Replaces the legacy spawnSync path in builtin.mjs shell execution. The
-// improvements over spawnSync are:
-//   - tree-kill on timeout / abort (Windows taskkill /T /F, POSIX process
-//     group SIGTERM->SIGKILL escalation) so forked children come down with
-//     the parent shell instead of being orphaned holding pipes.
-//   - automatic spill to $PLUGIN_DATA/shell-output/<taskId>.* once the
-//     in-memory buffers exceed SHELL_OUTPUT_INLINE_CAP*4 bytes. The caller
-//     receives an outputFilePath marker the model can FileRead later
-//     instead of losing the tail past the inline cap.
-//   - external AbortSignal hookup so a session-scoped abort (ESC, new
-//     prompt) cancels in-flight bash work without orphaning the child.
-//
-// Persistent shells in bash-session.mjs keep their separate stdin-marker
-// protocol — that runner is stateful and uses a different model entirely.
-
-import { spawn } from 'node:child_process';
+// Output capture for the native shell process manager.
 import {
   mkdirSync,
   openSync,
@@ -32,27 +15,8 @@ import {
   statSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import * as nodeUtil from 'node:util';
 import { getPluginData } from '../config.mjs';
-import { startChildGuardian } from '../../../shared/child-guardian.mjs';
-import { resourceAdmission } from '../../../shared/resource-admission.mjs';
-// Runtime-only import (used inside execShellCommand's auto-background
-// transition). shell-jobs.mjs imports stripAnsi from this module, so this is
-// a static cycle — safe because neither binding is touched at module-eval
-// time, only when the respective functions actually run.
-import { adoptForegroundShellJob, killShellJob } from './builtin/shell-jobs.mjs';
-import { trackProcessTreeQuiescence } from './builtin/shell-job-process.mjs';
-import {
-  _maybeEncodePowerShellCommand,
-  extractPowerShellCommandInner,
-} from './shell-powershell.mjs';
-import { spawnShellWithRetry as _spawnShellWithRetry } from './lib/shell-spawn-retry.mjs';
-
-export {
-  _maybeEncodePowerShellCommand,
-  extractPowerShellCommandInner,
-} from './shell-powershell.mjs';
 
 // Inline cap. Output above this size is spilled to disk and the caller
 // renders a path marker instead of pasting the tail. Matches the
@@ -71,8 +35,6 @@ export const SHELL_OUTPUT_DISK_CAP = 100 * 1024 * 1024;
 // stdout/stderr files every interval and SIGKILLs the child once the
 // combined size exceeds SHELL_OUTPUT_DISK_CAP — short enough that a runaway loop is caught within a
 // few seconds, long enough that the stat overhead is negligible.
-export const SIZE_WATCHDOG_INTERVAL_MS = 1_000;
-
 // fsync throttle for spilled output reads. getStdout/getStderr call
 // fsyncSync before reading to ensure the caller sees the latest bytes.
 // On Windows every fsyncSync is a noticeable I/O syscall, so throttle
@@ -98,59 +60,10 @@ export function stripAnsi(s) {
   return _stripAnsiImpl(s);
 }
 
-// Tree-kill helper. spawn alone only signals the direct child, so a
-// `sleep 1000 &` or a forked node server inside the shell stays alive
-// holding the pipes open. POSIX path signals the process group (we spawn
-// with detached:true to give the child its own pgid). Windows uses
-// taskkill /T /F to walk the tree. Safe to call repeatedly; all errors
-// swallowed.
+// Delegate process-tree termination to the native manager.
 export function treeKill(child) {
-  if (!child) return;
-  if (child.__nativeSpawn && typeof child.kill === 'function') {
-    try { child.kill(); } catch {}
-    return;
-  }
-  // Track close/exit via the standard child fields (set by Node when
-  // the corresponding events fire) instead of `child.killed`, which is
-  // true the moment any signal is delivered — even before the child has
-  // actually terminated. Using exitCode/signalCode means the SIGKILL
-  // escalation only suppresses itself when the process is genuinely
-  // gone.
-  if (child.exitCode != null || child.signalCode != null) return;
-  const pid = child.pid;
-  if (!pid) return;
-  try {
-    if (process.platform === 'win32') {
-      spawn('taskkill', ['/pid', String(pid), '/t', '/f'], {
-        windowsHide: true,
-        stdio: 'ignore',
-      });
-    } else {
-      try {
-        process.kill(-pid, 'SIGTERM');
-      } catch {
-        try {
-          child.kill('SIGTERM');
-        } catch {}
-      }
-      // Escalate to SIGKILL after 3s so a child that ignores SIGTERM
-      // still comes down. Windows taskkill /F is already forceful so
-      // skip the escalation timer there.
-      const esc = setTimeout(() => {
-        if (child.exitCode != null || child.signalCode != null) return;
-        try {
-          process.kill(-pid, 'SIGKILL');
-        } catch {
-          try {
-            child.kill('SIGKILL');
-          } catch {}
-        }
-      }, 3000);
-      if (esc.unref) esc.unref();
-    }
-  } catch {
-    /* swallow */
-  }
+  if (!child?.__nativeSpawn || typeof child.kill !== 'function') return false;
+  try { return child.kill() !== false; } catch { return false; }
 }
 
 // Head+tail read helper: avoid pulling a large spill back into memory, but

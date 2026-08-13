@@ -5,7 +5,6 @@
 // loop.mjs, re-exported via the facade so existing importers keep working.
 import { executeMcpTool, isMcpTool, isRegisteredMcpTool, mcpToolHasField } from '../../mcp/client.mjs';
 import { executeBuiltinTool, formatUnknownBuiltinToolMessage, isBuiltinTool, isExternalAdapterTool } from '../../tools/builtin.mjs';
-import { executeBashSessionTool } from '../../tools/bash-session.mjs';
 import { executePatchTool } from '../../tools/patch.mjs';
 import { executeInternalTool, isInternalTool } from '../../internal-tools.mjs';
 import { normalizeToolEnvelope, makeToolEnvelope } from '../tool-envelope.mjs';
@@ -17,8 +16,6 @@ import {
     buildSkillsListResponse,
     viewSkill,
     resolveToolResultAfterHook,
-    extractBashSessionId,
-    buildAgentBashSessionArgs,
     resolvePreToolAskApproval,
 } from './tool-helpers.mjs';
 import { isOnDeferredToolSurface, prepareDeferredToolCallThrough } from './deferred-call-through.mjs';
@@ -219,35 +216,7 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
         });
     }
     if (name === 'shell') {
-        const routedArgs = buildAgentBashSessionArgs(args, sessionRef);
-        if (!routedArgs) {
-            // clientHostPid scopes background shell-jobs to the dispatching
-            // terminal's claude.exe pid (agent sessions store it on sessionRef);
-            // without it resolveJobOwnerHostPid falls back to the daemon-global env.
-            return executeBuiltinTool(name, args, cwd, completionToolOpts);
-        }
-        // Thread the session's AbortSignal so agent type=close can interrupt the
-        // persistent child process. getSessionAbortSignal is imported from
-        // manager.mjs; callerSessionId identifies the controller.
-        let _bashAbortSignal = null;
-        try { _bashAbortSignal = getSessionAbortSignal(callerSessionId); } catch { /* ignore */ }
-        const result = await executeBashSessionTool('bash_session', routedArgs, cwd, {
-            sessionId: callerSessionId,
-            abortSignal: _bashAbortSignal,
-        });
-        const bashSid = extractBashSessionId(result);
-        if (bashSid) {
-            sessionRef.implicitBashSessionId = bashSid;
-            // Track all persistent bash sessions for bulk teardown on close.
-            if (sessionRef.allBashSessionIds) {
-                if (!sessionRef.allBashSessionIds.includes(bashSid)) {
-                    sessionRef.allBashSessionIds.push(bashSid);
-                }
-            } else {
-                sessionRef.allBashSessionIds = [bashSid];
-            }
-        }
-        return result;
+        return executeBuiltinTool(name, args, cwd, completionToolOpts);
     }
     if (name === 'apply_patch') {
         const patchArgs = typeof args === 'string' ? { patch: args } : { ...(args || {}) };

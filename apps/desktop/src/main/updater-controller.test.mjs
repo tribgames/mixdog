@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createUpdaterController } from './updater-controller.ts';
+import { normalizeUpdaterDevFeed } from './updater-feed.ts';
 
 function setup({
   currentVersion = '1.0.0',
@@ -158,4 +159,14 @@ test('disabled and unreachable update feeds are safe no-ops', async () => {
     stop: async () => {},
   });
   assert.deepEqual(await unavailable.start(), { status: 'error', message: 'publish feed unavailable' });
+});
+
+test('packaged updater dev feeds are limited to credential-free loopback HTTP', () => {
+  assert.equal(
+    normalizeUpdaterDevFeed('http://127.0.0.1:9123/feed'),
+    'http://127.0.0.1:9123/feed',
+  );
+  assert.equal(normalizeUpdaterDevFeed('https://updates.example.test/feed'), null);
+  assert.equal(normalizeUpdaterDevFeed('http://127.0.0.1.example.test/feed'), null);
+  assert.equal(normalizeUpdaterDevFeed('http://token@127.0.0.1:9123/feed'), null);
 });

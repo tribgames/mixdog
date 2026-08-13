@@ -18,6 +18,7 @@ export declare function mediaResponsePlan(input: {
   variant: string;
   rangeHeader?: string | string[] | null;
   ifNoneMatch?: string | string[] | null;
+  cacheControl?: string;
 }): {
   status: number;
   headers: Record<string, string | number>;

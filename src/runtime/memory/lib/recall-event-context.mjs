@@ -50,8 +50,17 @@ export function mergeRecallEventRows(rankedRows, tailRows, { dedupeEvents = fals
     const eventKey = String(tails[0]?._event_key ?? '')
     if (dedupeEvents && eventKey && emittedEventKeys.has(eventKey)) continue
     if (dedupeEvents && eventKey) emittedEventKeys.add(eventKey)
-    for (const tail of tails) emit(tail)
-    emit(rankedRows[index])
+    const anchor = rankedRows[index]
+    for (const [tailIndex, tail] of tails.entries()) {
+      emit(tailIndex === 0 && Number(anchor?.is_root) === 1
+        ? {
+            ...tail,
+            _historicalRootElement: anchor.element,
+            _historicalRootSummary: anchor.summary,
+          }
+        : tail)
+    }
+    emit(anchor)
   }
   return out
 }
@@ -102,7 +111,7 @@ export async function expandRecallEventContext(db, rankedRows, {
         anchor_ts bigint
       )
     ),
-    bounded AS (
+    bounded AS MATERIALIZED (
       SELECT a.*,
              (
                SELECT MIN(next_row.source_turn)

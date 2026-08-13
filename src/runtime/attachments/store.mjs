@@ -12,6 +12,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   utimesSync,
   writeFileSync,
@@ -34,6 +35,7 @@ export const MAX_PROMPT_TEXT_BYTES = 1024 * 1024;
 export const MAX_PROMPT_PDF_BYTES = 20 * 1024 * 1024;
 export const MAX_PROMPT_PDF_PAGES = 100;
 export const ATTACHMENT_CACHE_MAX_BYTES = 64 * 1024 * 1024;
+export const MAX_ATTACHMENT_BLOB_BYTES = 64 * 1024 * 1024;
 export const ATTACHMENT_GC_MIN_AGE_MS = Math.max(
   60_000,
   Number(process.env.MIXDOG_ATTACHMENT_GC_MIN_AGE_MS) || 7 * 24 * 60 * 60 * 1000,
@@ -79,16 +81,36 @@ function saveBuffer(buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
     throw new TypeError('prompt attachment is empty');
   }
+  if (buffer.length > MAX_ATTACHMENT_BLOB_BYTES) {
+    throw new RangeError('prompt attachment exceeds the 64 MiB input limit');
+  }
   const attachmentRef = createHash('sha256').update(buffer).digest('hex');
   const target = attachmentPath(attachmentRef);
-  if (!existsSync(target)) {
+  let existingValid = false;
+  if (existsSync(target)) {
+    try {
+      const current = readFileSync(target);
+      existingValid = current.length === buffer.length
+        && createHash('sha256').update(current).digest('hex') === attachmentRef;
+    } catch {}
+    if (!existingValid) {
+      try { unlinkSync(target); } catch {}
+    }
+  }
+  if (!existingValid) {
     mkdirSync(join(attachmentsDir(), attachmentRef.slice(0, 2)), { recursive: true, mode: 0o700 });
     const temp = `${target}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
     writeFileSync(temp, buffer, { mode: 0o600 });
     try {
       renameSync(temp, target);
     } catch (error) {
-      if (!existsSync(target)) throw error;
+      let racedValid = false;
+      try {
+        const current = readFileSync(target);
+        racedValid = current.length === buffer.length
+          && createHash('sha256').update(current).digest('hex') === attachmentRef;
+      } catch {}
+      if (!racedValid) throw error;
     } finally {
       try { unlinkSync(temp); } catch {}
     }
@@ -122,7 +144,14 @@ export function readAttachmentBuffer(value) {
     return cached;
   }
   cacheMisses += 1;
+  const info = statSync(path);
+  if (!info.isFile() || info.size <= 0 || info.size > MAX_ATTACHMENT_BLOB_BYTES) {
+    throw new Error('prompt attachment blob is invalid');
+  }
   const buffer = readFileSync(path);
+  if (createHash('sha256').update(buffer).digest('hex') !== ref) {
+    throw new Error('prompt attachment integrity check failed');
+  }
   rememberBuffer(path, buffer);
   return buffer;
 }

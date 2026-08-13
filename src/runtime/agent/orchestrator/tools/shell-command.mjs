@@ -3,9 +3,7 @@
 //
 // Replaces the legacy spawnSync path in builtin.mjs shell execution. The
 // improvements over spawnSync are:
-//   - tree-kill on timeout / abort (Windows taskkill /T /F, POSIX process
-//     group SIGTERM->SIGKILL escalation) so forked children come down with
-//     the parent shell instead of being orphaned holding pipes.
+//   - native process-tree termination on timeout / abort.
 //   - automatic spill to $PLUGIN_DATA/shell-output/<taskId>.* once the
 //     in-memory buffers exceed SHELL_OUTPUT_INLINE_CAP*4 bytes. The caller
 //     receives an outputFilePath marker the model can FileRead later
@@ -13,41 +11,19 @@
 //   - external AbortSignal hookup so a session-scoped abort (ESC, new
 //     prompt) cancels in-flight bash work without orphaning the child.
 //
-// Persistent shells in bash-session.mjs keep their separate stdin-marker
-// protocol — that runner is stateful and uses a different model entirely.
-
-import { spawn } from 'node:child_process';
-import {
-  mkdirSync,
-  openSync,
-  closeSync,
-  readFileSync,
-  readSync,
-  writeSync,
-  fsyncSync,
-  unlinkSync,
-  writeFileSync,
-  statSync,
-} from 'node:fs';
-import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import * as nodeUtil from 'node:util';
-import { getPluginData } from '../config.mjs';
-import { startChildGuardian } from '../../../shared/child-guardian.mjs';
 import { resourceAdmission } from '../../../shared/resource-admission.mjs';
 import { acquire as acquireChildSpawnSlot } from '../../../shared/child-spawn-gate.mjs';
 // Runtime-only import (used inside execShellCommand's auto-background
 // transition). shell-jobs.mjs imports stripAnsi from this module, so this is
 // a static cycle — safe because neither binding is touched at module-eval
 // time, only when the respective functions actually run.
-import { adoptForegroundShellJob, killShellJob } from './builtin/shell-jobs.mjs';
-import { trackProcessTreeQuiescence } from './builtin/shell-job-process.mjs';
+import { adoptForegroundShellJob, attachShellJobResourceLease, killShellJob } from './builtin/shell-jobs.mjs';
 import {
   _maybeEncodePowerShellCommand,
   extractPowerShellCommandInner,
 } from './shell-powershell.mjs';
 import { spawnShellWithRetry as _spawnShellWithRetry } from './lib/shell-spawn-retry.mjs';
-import { takePwshStandbyBurst } from './lib/pwsh-standby-pool.mjs';
 
 export {
   _maybeEncodePowerShellCommand,
@@ -58,7 +34,7 @@ export {
 // renders a path marker instead of pasting the tail. Matches the
 // SHELL_OUTPUT_MAX_CHARS used by the smart-truncate renderer in
 // builtin.mjs so spilled output and inline output share the same boundary.
-import { SHELL_OUTPUT_INLINE_CAP, SHELL_OUTPUT_DISK_CAP, SIZE_WATCHDOG_INTERVAL_MS, stripAnsi, treeKill, TaskOutput, ExecResult } from './shell-exec-output.mjs';
+import { SHELL_OUTPUT_INLINE_CAP, SHELL_OUTPUT_DISK_CAP, stripAnsi, treeKill, TaskOutput, ExecResult } from './shell-exec-output.mjs';
 export { stripAnsi, ExecResult } from './shell-exec-output.mjs';
 
 async function _execPolicyBlockMessage(command) {
@@ -90,11 +66,6 @@ const SHELL_ADMISSION_WAIT_MS = Number.isFinite(_envAdmissionWait) && _envAdmiss
 // Pipe capture keeps the hide flag; the exit→2s-grace settle fallback below
 // already covers the grandchild-holds-pipe wedge that direct mode was
 // built to avoid.
-const SHELL_DIRECT_CAPTURE = process.platform !== 'win32'
-  && !/^(1|true|yes|on)$/i.test(
-    String(process.env.MIXDOG_SHELL_PIPE_CAPTURE || '').trim(),
-  );
-
 function _admissionSaturationError(admission, waitMs) {
   let detail = '';
   try {
@@ -255,14 +226,12 @@ export function execShellCommand({
     let failureReason = null;
     let spawnError = null;
     let pendingChildError = null;
-    let childGuardian = null;
     let settle = null;
     let settled = false;
     let timer = null;
     let abortHandler = null;
     let partialOutput = false;
     let resourceLease = null;
-    let resourceLeaseSettlement = null;
     const releaseResourceLease = async () => {
       if (!resourceLease) return null;
       const lease = resourceLease;
@@ -273,32 +242,6 @@ export function execShellCommand({
       } catch (error) {
         return error;
       }
-    };
-    const releaseResourceLeaseWhenTreeQuiescent = (pid, { waitForRootExit = false } = {}) => {
-      if (resourceLeaseSettlement) return resourceLeaseSettlement;
-      if (!resourceLease) {
-        return { pending: false, release: () => Promise.resolve(), tracker: null, lease: null };
-      }
-      const lease = resourceLease;
-      resourceLease = null;
-      let releasePromise = null;
-      const release = () => {
-        if (releasePromise) return releasePromise;
-        try {
-          releasePromise = Promise.resolve(lease.release()).catch(() => {});
-        } catch {
-          releasePromise = Promise.resolve();
-        }
-        return releasePromise;
-      };
-      const tracker = trackProcessTreeQuiescence(pid, release, { waitForRootExit });
-      resourceLeaseSettlement = {
-        lease,
-        tracker,
-        release,
-        get pending() { return tracker.pending; },
-      };
-      return resourceLeaseSettlement;
     };
     const detachAbortHandler = () => {
       if (abortSignal && abortHandler) {
@@ -357,10 +300,6 @@ export function execShellCommand({
     const _isBackground = /(^|[^&|])&$/.test(_trimmed);
 
     let child;
-    let _standby = null;
-    let _viaMarker = false;
-    let _standbyDetach = null;
-    let _markerFilters = null;
     let _onChildErrorRef = null;
     try {
       resourceLease = await acquireShellLeaseBounded(admission, {
@@ -401,27 +340,6 @@ export function execShellCommand({
         else pendingChildError = pendingChildError || err;
       };
       _onChildErrorRef = _onChildError;
-      // Warm standby adoption (Windows/pwsh only, see pwsh-standby-pool.mjs):
-      // a pre-spawned pwsh blocked on stdin replaces the cold spawn. The
-      // command is fed via stdin AFTER the stdio/exit wiring below, so no
-      // output can be produced before the capture handlers are attached.
-      // Standby children always use pipe capture — identical to the win32
-      // default (SHELL_DIRECT_CAPTURE is false on win32).
-      _standby = _useDirectArgv
-        ? null
-        : await takePwshStandbyBurst(
-          { shell, shellArgs, env },
-          { signal: abortSignal || null },
-        );
-      if (_standby) {
-        child = _standby.child;
-        child.on('error', _onChildError);
-      } else {
-      // Direct capture (CC file-mode parity): the child writes stdout/stderr
-      // into the spill files via inherited fds. No parent pipes exist, so
-      // 'close' fires with 'exit' and grandchildren cannot hold the capture
-      // open. Falls back to pipe capture if the files cannot be opened.
-      const _directCapture = SHELL_DIRECT_CAPTURE ? taskOutput.openDirectCapture() : null;
       // Spawn-burst gate: hold a 'process-spawn' slot only across process
       // creation (CreateProcess + AV scan + EPERM retries), released the
       // moment the child exists. Bounds the Defender convoy a shell burst
@@ -447,10 +365,7 @@ export function execShellCommand({
         spawnOptions: {
         env,
         cwd,
-        windowsHide: true,
-        stdio: _directCapture
-          ? ['ignore', _directCapture.stdoutFd, _directCapture.stderrFd]
-          : ['ignore', 'pipe', 'pipe'],
+        outputLimit: SHELL_OUTPUT_DISK_CAP,
         // NOTE (child-spawn-gate): the full command lifetime is intentionally
         // NOT gated — bash/pwsh commands can run for minutes and would starve
         // rg/code_graph. Only the spawn window above holds a slot.
@@ -458,7 +373,6 @@ export function execShellCommand({
         // signal the whole group. The child is still CLI-owned because we do
         // not unref it after adoption. Windows detached has different console
         // semantics, so it stays off there.
-        detached: process.platform !== 'win32',
         },
         });
       } finally {
@@ -466,17 +380,6 @@ export function execShellCommand({
       }
       child = spawned.child;
       spawned.adoptErrorHandler(_onChildError);
-      }
-      // A standby is daemon-owned, timeout-killed by this command, and checked
-      // for new descendants before recycle. Spawning another detached guardian
-      // for every short reuse duplicates those guarantees and dominates latency.
-      if (!_standby) {
-        childGuardian = startChildGuardian({
-          childPid: child.pid,
-          childGroupPid: child.pid,
-          label: 'shell-command',
-        });
-      }
     } catch (err) {
       const cleanupError = await releaseResourceLease();
       const spawnText = String((err && err.message) || err);
@@ -508,72 +411,14 @@ export function execShellCommand({
       _treeKillForceSettle('cancellation');
     }
 
-    // Pipe-capture wiring only; direct mode has no parent-side streams.
-    // Standby children speak the marker protocol: per-command completion
-    // markers on BOTH streams are stripped from the capture and drive settle()
-    // (the process stays alive for the next command), while kill/exit paths
-    // still settle through 'close' as before.
-    let _stdoutData = (chunk) => { taskOutput.writeStdout(chunk); };
-    let _stderrData = (chunk) => taskOutput.writeStderr(chunk);
-    if (_standby) {
-      const donePrefix = _standby.doneMarkerPrefix;
-      const stalePrefix = _standby.staleMarkerPrefix;
-      const _mk = { outDone: false, errDone: false, code: 1 };
-      const tryComplete = () => {
-        if (!_mk.outDone || !_mk.errDone) return;
-        if (settled || autoBackgrounded || killed) return;
-        // Both streams delivered their marker — everything the command wrote
-        // is already in the capture. Detach BEFORE settle so late output from
-        // an undiscovered descendant can never pollute this task, then settle
-        // through the marker path (recycle + direct lease release).
-        _standbyDetach?.();
-        _viaMarker = true;
-        settle(_mk.code, null);
-      };
-      const makeFilter = (write, onMarkerLine) => {
-        let tail = '';
-        return {
-          data: (chunk) => {
-            tail += chunk;
-            let idx;
-            let out = '';
-            while ((idx = tail.indexOf('\n')) !== -1) {
-              const line = tail.slice(0, idx + 1);
-              tail = tail.slice(idx + 1);
-              if (line.startsWith(donePrefix)) { onMarkerLine(line); continue; }
-              // Same-nonce marker with a DIFFERENT run token: a straggler
-              // from an earlier command on this standby entry. Drop it from
-              // the capture and log — this is the observable trace of the
-              // late-flush/offset condition the per-command token defuses.
-              if (stalePrefix && line.startsWith(stalePrefix)) {
-                try { process.stderr.write(`[pwsh-standby] dropped stale marker from a previous command (pid=${child.pid})\n`); } catch { /* diagnostics only */ }
-                continue;
-              }
-              out += line;
-            }
-            if (out) write(out);
-            // A marker always ends with a newline, so only a pathological
-            // marker-free run can grow the tail; spill it but keep enough to
-            // recognize a marker split across chunks.
-            if (tail.length > 65536) { write(tail.slice(0, -256)); tail = tail.slice(-256); }
-          },
-          flush: () => { if (tail) { write(tail); tail = ''; } },
-        };
-      };
-      const outFilter = makeFilter((s) => taskOutput.writeStdout(s), (line) => {
-        const m = /^:(-?\d+)>>>/.exec(line.slice(donePrefix.length));
-        _mk.code = m ? Number(m[1]) : 1;
-        _mk.outDone = true;
-        tryComplete();
-      });
-      const errFilter = makeFilter((s) => taskOutput.writeStderr(s), () => {
-        _mk.errDone = true;
-        tryComplete();
-      });
-      _markerFilters = [outFilter, errFilter];
-      _stdoutData = outFilter.data;
-      _stderrData = errFilter.data;
-    }
+    const _stdoutData = (chunk) => {
+      taskOutput.writeStdout(chunk);
+      if (taskOutput.writeError && !settled && !autoBackgrounded) _treeKillForceSettle('output-capture-error');
+    };
+    const _stderrData = (chunk) => {
+      taskOutput.writeStderr(chunk);
+      if (taskOutput.writeError && !settled && !autoBackgrounded) _treeKillForceSettle('output-capture-error');
+    };
     if (child.stdout) {
       child.stdout.setEncoding('utf-8');
       child.stdout.on('data', _stdoutData);
@@ -583,24 +428,6 @@ export function execShellCommand({
       child.stderr.on('data', _stderrData);
     }
 
-    // Standby path: the capture handlers are attached — release the command
-    // into the waiting pwsh now. Skipped when a pre-fired abort already
-    // tree-killed the child (its close still settles the call).
-    if (_standby && !killed) {
-      const _spawnCommandForStandby = _maybeEncodePowerShellCommand(command);
-      _standby.run(_spawnCommandForStandby, cwd);
-    }
-
-    // If the spill writer hits an I/O failure (full disk, EBADF after
-    // an unlink race) bring the child down so the agent isn't deceived
-    // by a successful exit code on a truncated capture.
-    const _abortOnCaptureError = () => {
-      if (taskOutput.writeError && !killed && !settled && !autoBackgrounded) {
-        _treeKillForceSettle('output-capture-error');
-      }
-    };
-
-    let sizeWatchdog = null;
     settle = async (exitCode, signal) => {
       if (settled || autoBackgrounded) return;
       settled = true;
@@ -609,20 +436,11 @@ export function execShellCommand({
         timer = null;
       }
       _clearProgressTimer();
-      if (sizeWatchdog) {
-        clearInterval(sizeWatchdog);
-        sizeWatchdog = null;
-      }
       if (autoBgTimer) {
         clearTimeout(autoBgTimer);
         autoBgTimer = null;
       }
       detachAbortHandler();
-      // Marker-free paths (kill/exit) may hold a partial last line in the
-      // standby stream filters — flush it so the capture keeps the tail.
-      if (_markerFilters) {
-        for (const f of _markerFilters) { try { f.flush(); } catch { /* best-effort */ } }
-      }
       // getStdout/getStderr can throw on a spilled-file read failure (EBADF
       // after unlink race, EACCES). Without this catch the rejection bubbles
       // up and leaves the outer settle promise unresolved, hanging the call.
@@ -647,38 +465,7 @@ export function execShellCommand({
       } else {
         taskOutput.closeFds();
       }
-      if (_viaMarker && _standby) {
-        // Marker-settled standby: the root pwsh is ALIVE by design, so the
-        // waitForRootExit tracker could never confirm. Return admission as soon
-        // as the command result is complete; recycle() probes for leftover
-        // descendants off the result path and discards a polluted standby.
-        const lease = resourceLease;
-        resourceLease = null;
-        try { Promise.resolve(lease?.release()).catch(() => {}); } catch {}
-        // The standby root survives this command and may return to the pool.
-        // Stop this command-scoped guardian so every reuse does not leave
-        // another detached Node process watching the same pwsh forever.
-        const standbyGuardian = childGuardian;
-        childGuardian = null;
-        void _standby.recycle()
-          .catch(() => false)
-          .finally(() => standbyGuardian?.stop?.());
-      } else {
-      childGuardian?.stop?.();
-      childGuardian = null;
-      if (resourceLeaseSettlement) {
-        // A promotion attempt started descendant tracking while the root was
-        // alive. A foreground terminal path won afterward, so return admission
-        // now while allowing that ownership observation to finish off-path.
-        resourceLeaseSettlement.tracker?.rootExited?.();
-        void resourceLeaseSettlement.release();
-      } else {
-        // Foreground completion owns no continuing work. Do not put a Windows
-        // CIM descendant probe on the admission path: CC/Codex both return
-        // their execution gate when the tool future completes.
-        void releaseResourceLease();
-      }
-      }
+      void releaseResourceLease();
       resolveResult(
         new ExecResult({
           stdout,
@@ -727,20 +514,6 @@ export function execShellCommand({
       if (grace.unref) grace.unref();
     };
     child.once('exit', _onChildExit);
-    // Standby recycle prerequisite: THIS command's listeners must come off the
-    // long-lived child before it can serve another command (otherwise every
-    // reuse would stack another close/exit/data listener and stale handlers
-    // would keep writing into this task's finished capture).
-    _standbyDetach = () => {
-      try { child.stdout?.removeListener('data', _stdoutData); } catch { /* best-effort */ }
-      try { child.stderr?.removeListener('data', _stderrData); } catch { /* best-effort */ }
-      try { child.removeListener('close', _onChildClose); } catch { /* best-effort */ }
-      try { child.removeListener('exit', _onChildExit); } catch { /* best-effort */ }
-      if (_onChildErrorRef) {
-        try { child.removeListener('error', _onChildErrorRef); } catch { /* best-effort */ }
-      }
-    };
-
     // Auto-background transition (CC startBackgrounding analogue). Two triggers
     // resolve the call immediately with a 'backgrounded' result while the
     // child keeps running, adopted into the shell-jobs registry but still
@@ -760,20 +533,10 @@ export function execShellCommand({
       if (settled || autoBackgrounded || killed || timedOut) return;
       if (child.exitCode != null || child.signalCode != null) return;
       autoBackgrounded = true;
-      // Background lifetime, unlike foreground completion, retains admission
-      // until the owned tree is quiescent. Start while the root still exists so
-      // Windows snapshots can attribute descendants even if it exits mid-handoff.
-      releaseResourceLeaseWhenTreeQuiescent(child.pid, { waitForRootExit: true });
-      // Standby handoff: stop feeding this process. Once the in-flight
-      // command completes, the marker loop reads stdin EOF and exits with
-      // that command's code — the adopted job's close-wired exit file then
-      // records the real command exit, and the standby is never reused.
-      if (_standby) { try { _standby.endStdin(); } catch { /* best-effort */ } }
       // The foreground capture is over; stop the local watchdogs/timers so
       // they cannot treeKill the now-adopted child.
       if (timer) { clearTimeout(timer); timer = null; }
       _clearProgressTimer();
-      if (sizeWatchdog) { clearInterval(sizeWatchdog); sizeWatchdog = null; }
       if (autoBgTimer) { clearTimeout(autoBgTimer); autoBgTimer = null; }
       // Keep the abort handler ATTACHED through the promotion window. A user
       // cancel racing in after promotion starts must still bring the adopted
@@ -799,7 +562,7 @@ export function execShellCommand({
           ? Math.max(1, backgroundDeadlineMs - elapsedMs)
           : 0);
       try {
-        job = adoptForegroundShellJob({
+        job = await adoptForegroundShellJob({
           command,
           cwd,
           pid: child.pid,
@@ -833,28 +596,18 @@ export function execShellCommand({
         }
         return;
       }
-      // Only a SUCCESSFUL promotion keeps owning shell capacity after the tool
-      // result. Start descendant tracking here, while the root is still live,
-      // rather than for every foreground command. Foreground completion can
-      // therefore return admission immediately without a Windows CIM probe,
-      // while adopted jobs still hold their lease for their real lifetime.
-      const leaseSettlement = releaseResourceLeaseWhenTreeQuiescent(
-        child.pid,
-        { waitForRootExit: true },
-      );
-      const promotedLease = leaseSettlement.lease;
-      child.once('close', () => { leaseSettlement.tracker?.rootExited?.(); });
-      // Wire the lifecycle: on close, write the exit-code file FIRST then
-      // touch donePath STRICTLY AFTER — the exact ordering refreshShellJob()
-      // gates completion on (donePath visible ⇒ exit file fully flushed).
-      if (job && job.exitPath && job.donePath) {
-        child.once('close', (code, signal) => {
-          const rc = code == null ? (signal ? 1 : 0) : code;
-          try { writeFileSync(job.exitPath, String(rc)); } catch {}
-          try { writeFileSync(job.donePath, ''); } catch {}
-          // The adopted child is done writing; release the parent's spill fds.
-          try { taskOutput.closeFds(); } catch {}
-        });
+      const jobId = job.jobId;
+      autoBackgroundJobId = jobId;
+      const promotedLease = resourceLease;
+      resourceLease = null;
+      if (promotedLease) {
+        try {
+          await promotedLease.detachDependency?.();
+          attachShellJobResourceLease(jobId, promotedLease);
+        } catch (error) {
+          try { await promotedLease.release(); } catch {}
+          throw error;
+        }
       }
       // Snapshot the partial output captured so far for the immediate result.
       let stdout = '';
@@ -863,8 +616,6 @@ export function execShellCommand({
       catch (err) { taskOutput.writeError = taskOutput.writeError || err; }
       try { stderr = await taskOutput.getStderr(); }
       catch (err) { taskOutput.writeError = taskOutput.writeError || err; }
-      const jobId = job ? job.jobId : null;
-      autoBackgroundJobId = jobId;
       // Re-check after the awaited capture reads: cancellation can race after
       // adoption commits. Never report that cancelled process as a successful
       // still-running background task.
@@ -878,7 +629,6 @@ export function execShellCommand({
         killCause = 'cancellation';
         try { killShellJob(jobId); } catch {}
         try { treeKill(child); } catch {}
-        await promotedLease?.detachDependency?.();
         resolveResult(new ExecResult({
           stdout,
           stderr,
@@ -906,14 +656,6 @@ export function execShellCommand({
       // once('close') wiring above, nothing else would ever flip the adopted
       // job detail off 'running'.
       if (child.exitCode != null || child.signalCode != null) {
-        const rc = child.exitCode == null ? 1 : child.exitCode;
-        leaseSettlement.tracker?.rootExited?.();
-        void leaseSettlement.release();
-        if (job && job.exitPath && job.donePath) {
-          try { writeFileSync(job.exitPath, String(rc)); } catch {}
-          try { writeFileSync(job.donePath, ''); } catch {}
-        }
-        await promotedLease?.detachDependency?.();
         detachAbortHandler();
         resolveResult(new ExecResult({
           stdout,
@@ -933,11 +675,6 @@ export function execShellCommand({
         }));
         return;
       }
-      // Promotion changes a scoped dependency into detached lifetime work.
-      // Re-admit the continuing parent through the normal bounded queue before
-      // returning control; if the child exits first, its close release supplies
-      // the capacity that completes this restoration.
-      await promotedLease?.detachDependency?.();
       // The adopted job now owns cancellation through task control. Retaining
       // the foreground caller's signal listener would keep the completed tool
       // frame alive and could later kill an unrelated, already-returned job.
@@ -1065,20 +802,6 @@ export function execShellCommand({
       autoBgTimer = setTimeout(() => { fireAutoBackground(); }, autoBackgroundMs);
       if (autoBgTimer.unref) autoBgTimer.unref();
     }
-
-    // Size watchdog — a stuck command pumping GBs of stdout into the spill
-    // file would fill the user's disk before the timeout fires. Poll the
-    // running disk total every 5 s and SIGKILL once we cross the cap. The
-    // settle() path clears this interval directly (see top of this Promise
-    // body) so no extra exit / error listeners are needed here.
-    sizeWatchdog = setInterval(() => {
-      if (settled || autoBackgrounded) return;
-      _abortOnCaptureError();
-      if (taskOutput.totalDiskBytes() > SHELL_OUTPUT_DISK_CAP) {
-        _treeKillForceSettle('output-limit');
-      }
-    }, SIZE_WATCHDOG_INTERVAL_MS);
-    if (sizeWatchdog.unref) sizeWatchdog.unref();
 
     if (abortSignal) {
       abortHandler = () => {
