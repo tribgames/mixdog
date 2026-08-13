@@ -34,6 +34,16 @@ function hasRouteHistoryMessage(messages) {
   return hasUserConversationMessage(list) || list.some(isSummaryAnchorMessage);
 }
 
+export function shouldRecreateEmptySessionForRouteChange(
+  session,
+  applyToCurrentSession = false,
+) {
+  return applyToCurrentSession !== true
+    && !!session
+    && !hasRouteHistoryMessage(session.messages)
+    && !hasRouteHistoryMessage(session.liveTurnMessages);
+}
+
 // Model/route/search-route selection + mutation surface. Extracted verbatim from
 // the runtime API object; stateless helpers are imported directly and the
 // runtime injects live getters/setters for the mutable config/route/searchRoute/
@@ -54,6 +64,14 @@ export function createModelRouteApi(deps) {
     pushTranscriptRebind,
     collectSearchProviderModels,
   } = deps;
+  function persistAdoptedModelSettings(route) {
+    // saveModelSettings is in-memory only. persistLeadRoute debounce-writes
+    // the adopted config (including modelSettings). If the lead preset cannot
+    // be normalized, still debounce-persist so effort/fast are not memory-only.
+    const leadRoute = persistLeadRoute(route);
+    if (!leadRoute) saveConfigAndAdopt(getConfig());
+    return leadRoute;
+  }
   return {
     getSearchRoute() {
       const sr = normalizeSearchRouteConfig(getConfig().searchRoute) || normalizeSearchRouteConfig(getSearchRouteState());
@@ -144,7 +162,7 @@ export function createModelRouteApi(deps) {
       const fastCapable = fastCapableFor(selectedRoute.provider, modelMeta);
       selectedRoute = { ...selectedRoute, fast: fastCapable ? selectedRoute.fast === true : false };
       adoptConfig(saveModelSettings(cfgMod, selectedRoute, { fastCapable, baseConfig: getConfig() }), { hasSecrets: getConfigHasSecrets() });
-      const leadRoute = persistLeadRoute(selectedRoute);
+      const leadRoute = persistAdoptedModelSettings(selectedRoute);
       setRouteState(resolveRoute(getConfig(), leadRoute
         ? { model: workflowPresetId('lead') }
         : selectedRoute));
@@ -164,7 +182,9 @@ export function createModelRouteApi(deps) {
       if (!applyLive) {
         return getRoute();
       }
-      if (currentSessionEmpty && session?.id && typeof createCurrentSession === 'function') {
+      if (shouldRecreateEmptySessionForRouteChange(session, applyToCurrentSession)
+        && session?.id
+        && typeof createCurrentSession === 'function') {
         // If the boot create is still finishing SessionStart/deferred-surface
         // work, drain that promise first. Otherwise createCurrentSession()
         // would return the old in-flight promise after we tombstone/null the
@@ -187,6 +207,10 @@ export function createModelRouteApi(deps) {
         return getRoute();
       }
       if (session) {
+        // An explicitly addressed daemon/desktop mutation must keep that
+        // durable address. The caller asked to apply this route to THIS empty
+        // session, so update it in place instead of closing A and silently
+        // materializing B before the first prompt.
         const route = getRoute();
         rebuildDeferredToolSurfaceForProvider(session, route.provider);
         const updated = mgr.updateSessionRoute?.(session.id, {
@@ -216,7 +240,7 @@ export function createModelRouteApi(deps) {
       }
       setRouteState(resolveRoute(getConfig(), { provider: getRoute().provider, model: getRoute().model, effort: getRoute().effort, fast: fastCapable ? enabled : false }));
       adoptConfig(saveModelSettings(cfgMod, getRoute(), { fastCapable, baseConfig: getConfig() }), { hasSecrets: getConfigHasSecrets() });
-      const leadRoute = persistLeadRoute(getRoute());
+      const leadRoute = persistAdoptedModelSettings(getRoute());
       if (leadRoute) setRouteState(resolveRoute(getConfig(), { model: workflowPresetId('lead') }));
       await refreshRouteEffort(modelMeta);
       const session = getSession();
@@ -238,7 +262,7 @@ export function createModelRouteApi(deps) {
       const modelMeta = await lookupModelMeta(getRoute().provider, getRoute().model);
       const fastCapable = fastCapableFor(getRoute().provider, modelMeta);
       adoptConfig(saveModelSettings(cfgMod, getRoute(), { fastCapable, baseConfig: getConfig() }), { hasSecrets: getConfigHasSecrets() });
-      const leadRoute = persistLeadRoute(getRoute());
+      const leadRoute = persistAdoptedModelSettings(getRoute());
       if (leadRoute) {
         setRouteState(resolveRoute(getConfig(), { model: workflowPresetId('lead') }));
       }

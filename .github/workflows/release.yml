@@ -106,11 +106,10 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
-  # The deploy gate runs only the ship-critical lane: release-asset and
-  # workflow discipline, apply_patch smoke, and the provider stream/tool
-  # contracts. The full test:release-focused:* groups stay available for
-  # manual pre-release verification and are intentionally not part of deploy.
-  release-regressions:
+  # The deploy gate runs only ship-critical invariants: release assets,
+  # apply_patch integrity, and provider stream/tool compatibility. Mutable
+  # workflow and product specifications stay in the advisory test lane.
+  release-invariants:
     name: verify-critical
     runs-on: ubuntu-22.04
     steps:
@@ -196,7 +195,7 @@ jobs:
   # set and npm package have both been verified.
   prepare-github-release:
     name: prepare-hidden-release
-    needs: [validate, release-regressions]
+    needs: [validate, release-invariants]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -217,7 +216,7 @@ jobs:
   # GitHub release, so a tag without these assets leaves every installed app
   # stranded on its current version ("no update available" forever).
   desktop-windows:
-    needs: [validate, release-regressions, desktop-build, prepare-github-release]
+    needs: [validate, release-invariants, desktop-build, prepare-github-release]
     runs-on: windows-2022
     permissions:
       contents: write
@@ -323,7 +322,7 @@ jobs:
   # Native macOS/Linux desktop packages. Each runner's postinstall keeps only
   # its own Transformers.js Node bundle and ONNX platform/architecture payload.
   desktop-unix:
-    needs: [validate, release-regressions, desktop-build, prepare-github-release]
+    needs: [validate, release-invariants, desktop-build, prepare-github-release]
     permissions:
       contents: write
     env:
@@ -451,7 +450,7 @@ jobs:
 
   publish:
     name: publish-staged-release
-    needs: [validate, release-regressions, prepare-github-release, desktop-windows, desktop-unix]
+    needs: [validate, release-invariants, prepare-github-release, desktop-windows, desktop-unix]
     runs-on: ubuntu-22.04
     permissions:
       contents: write

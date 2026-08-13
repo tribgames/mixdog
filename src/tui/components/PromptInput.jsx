@@ -54,6 +54,7 @@ import {
   schedulePromptImmediateFlush,
 } from './prompt-input/immediate-render.mjs';
 import { classifyPromptEscape } from './prompt-input/escape-policy.mjs';
+import { paletteOwnsPromptVerticalArrow } from './prompt-input/restore-policy.mjs';
 
 // Windows Terminal IME composition can clip a glyph that starts exactly at the
 // left edge of the editable text node. The rounded prompt box already adds a
@@ -88,6 +89,7 @@ export function PromptInput({
   onInterrupt,
   commandPaletteActive = false,
   commandPaletteOpen = commandPaletteActive,
+  commandPaletteOptionCount = commandPaletteActive ? 2 : 0,
   mask = false,
   hint = '',
   hintTone = 'info',
@@ -746,7 +748,7 @@ export function PromptInput({
     }
 
     if (key.upArrow || rawUpArrow || rawShiftUp || rawCtrlShiftUp) {
-      if (commandPaletteActive) {
+      if (commandPaletteActive && paletteOwnsPromptVerticalArrow(commandPaletteOptionCount)) {
         onCommandPaletteNavigate?.(-1);
       } else {
         // A Shift-held Up is a SELECTION gesture, never history navigation:
@@ -768,7 +770,7 @@ export function PromptInput({
     }
 
     if (key.downArrow || rawDownArrow || rawShiftDown || rawCtrlShiftDown) {
-      if (commandPaletteActive) {
+      if (commandPaletteActive && paletteOwnsPromptVerticalArrow(commandPaletteOptionCount)) {
         onCommandPaletteNavigate?.(1);
       } else {
         // Shift-held Down: extend selection down one line, or to document end

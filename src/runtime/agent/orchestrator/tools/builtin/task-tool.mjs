@@ -1,14 +1,6 @@
 // Generic background-task tool (status/wait/cancel), extracted from bash-tool.mjs.
-import { getAbortSignalForSession } from '../../session/abort-lookup.mjs';
-import { execShellCommand, stripAnsi } from '../shell-command.mjs';
-import { wrapCommandWithSnapshot } from '../shell-snapshot.mjs';
-import { getDestructiveCommandWarning } from '../destructive-warning.mjs';
-import { maybeRewriteWmicProcessCommand } from '../shell-policy.mjs';
-import { buildBashPolicyScanTargets, checkExecPolicyMessage } from '../bash-policy-scan.mjs';
-import { markCodeGraphDirtyPaths, drainCodeGraphCache } from '../code-graph-state.mjs';
 import {
     buildJobNotFoundMessage,
-    startBackgroundShellJob,
     waitForShellJob,
     peekShellJob,
     killShellJob,
@@ -18,43 +10,15 @@ import {
     endShellJobWait,
     clearShellJobNotifyCtx,
     shellJobPublicTaskResult,
-    attachShellJobResourceLease,
 } from './shell-jobs.mjs';
-import {
-    analyzeShellCommandEffects,
-    foregroundLongCommandHint,
-    isAutobackgroundingAllowed,
-    preflightPowerShellHygiene,
-    shellSplitSegments,
-    shellSplitPipelineSegments,
-    shellTokenize,
-    stripShellProbeWrappers,
-} from './shell-analysis.mjs';
 import {
     cancelBackgroundTask,
     completeBackgroundTask,
     getBackgroundTask,
-    registerBackgroundTask,
+    notifyBackgroundTaskProgress,
     renderBackgroundTask,
     renderBackgroundTaskList,
-    resolveExecutionMode,
 } from '../../../../shared/background-tasks.mjs';
-import { resolveShellFor } from './shell-runtime.mjs';
-import { smartMiddleTruncate } from './shell-output.mjs';
-import { normalizeOutputPath } from './path-utils.mjs';
-import { normalizeErrorMessage } from './path-diagnostics.mjs';
-import { invalidateBuiltinResultCache } from './cache-layers.mjs';
-import { resolveOptionalCwd } from './cwd-utils.mjs';
-import { scrubLoaderVars, scrubProviderSecrets } from '../env-scrub.mjs';
-import { resourceAdmission } from '../../../../shared/resource-admission.mjs';
-
-// Post-exec drift detection. After a foreground shell command, compare the
-// live mtime+size of files mixdog has already read this session against their
-// pre-command state (captured just before exec). Files this command changed
-// surface as ONE compact reminder so the model re-reads before editing —
-// closing the "external write -> stale old_string -> code 8" gap when shell is
-// routed through this tool. Bounded to the tracked-read set (capped) so cost
-// stays off the whole-cwd path; emits nothing when no read file changed.
 
 const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 
@@ -116,8 +80,38 @@ function renderTaskCancelSuccess(taskId, task) {
     ].join('\n');
 }
 
+function scheduleShellProgressCheck(task, afterMs) {
+    const replaced = Boolean(task.progressCheckTimer);
+    if (task.progressCheckTimer) {
+        try { clearTimeout(task.progressCheckTimer); } catch {}
+    }
+    const scheduledAt = Date.now();
+    const timer = setTimeout(() => {
+        const current = getBackgroundTask(task.taskId);
+        if (!current || current.progressCheckTimer !== timer) return;
+        current.progressCheckTimer = null;
+        if (current.status !== 'running') return;
+        const job = peekShellJob(task.taskId);
+        if (!job || job.status !== 'running') return;
+        const snapshot = shellJobPublicTaskResult(job);
+        notifyBackgroundTaskProgress(current, {
+            text: [
+                renderBackgroundTask(current),
+                '',
+                JSON.stringify(snapshot, null, 2),
+            ].join('\n'),
+            resultType: 'shell_task_progress',
+            instruction: `The scheduled progress check for shell task ${task.taskId} is ready; inspect this snapshot and schedule another check_after only if needed.`,
+            key: `scheduled-progress-${scheduledAt}`,
+        });
+    }, afterMs);
+    if (typeof timer.unref === 'function') timer.unref();
+    task.progressCheckTimer = timer;
+    return replaced;
+}
+
 export async function executeTaskTool(args, options = {}) {
-    const action = typeof args.action === 'string' ? args.action.toLowerCase() : (args.task_id ? 'wait' : 'list');
+    const action = typeof args.action === 'string' ? args.action.toLowerCase() : (args.task_id ? 'status' : 'list');
     if (action === 'list') return renderBackgroundTaskList({ context: options });
 
     const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : '';
@@ -152,13 +146,38 @@ export async function executeTaskTool(args, options = {}) {
         return renderTaskCancelSuccess(taskId, getBackgroundTask(taskId, { context: options }) || task);
     }
 
-    if (action !== 'wait') {
-        return `Error: task action must be one of list|status|read|wait|cancel (got ${JSON.stringify(args.action)})`;
+    if (action === 'check_after') {
+        if (!Number.isInteger(args.after_ms) || args.after_ms <= 0 || args.after_ms > 2_147_483_647) {
+            return 'Error: task action "check_after" requires explicit positive integer "after_ms"';
+        }
+        if (!isShellTask) return 'Error: task action "check_after" supports shell task_id values only';
+        const job = peekShellJob(taskId);
+        if (!job) return buildJobNotFoundMessage(taskId);
+        if (job.status !== 'running') {
+            refreshShellTask(taskId);
+            return renderBackgroundTask(getBackgroundTask(taskId, { context: options }) || task, { includeResult: true });
+        }
+        const replaced = scheduleShellProgressCheck(task, args.after_ms);
+        return [
+            'status: running',
+            `task_id: ${taskId}`,
+            'progress_check_scheduled: true',
+            `after_ms: ${args.after_ms}`,
+            replaced ? 'replaced_previous_check: true' : null,
+        ].filter(Boolean).join('\n');
     }
+
+    if (action !== 'wait') {
+        return `Error: task action must be one of list|status|read|check_after|cancel (got ${JSON.stringify(args.action)})`;
+    }
+    if (!Number.isInteger(args.timeout_ms) || args.timeout_ms <= 0) {
+        return 'Error: task action "wait" requires explicit positive integer "timeout_ms"';
+    }
+    const waitTimeoutMs = args.timeout_ms;
 
     if (!isShellTask) {
         const waited = await waitForGenericTask(taskId, {
-            timeoutMs: typeof args.timeout_ms === 'number' ? args.timeout_ms : 30_000,
+            timeoutMs: waitTimeoutMs,
             pollMs: typeof args.poll_ms === 'number' ? args.poll_ms : 250,
             context: options,
         });
@@ -175,21 +194,27 @@ export async function executeTaskTool(args, options = {}) {
     cancelBackgroundShellJobWatch(taskId);
     try {
         const job = await waitForShellJob(taskId, {
-            timeoutMs: typeof args.timeout_ms === 'number' ? args.timeout_ms : 30_000,
+            timeoutMs: waitTimeoutMs,
             pollMs: typeof args.poll_ms === 'number' ? args.poll_ms : 250,
         });
         if (!job) return buildJobNotFoundMessage(taskId);
+        const publicResult = shellJobPublicTaskResult(job);
         if (job.status !== 'running') {
-            const publicResult = shellJobPublicTaskResult(job);
             completeBackgroundTask(taskId, {
                 status: shellJobToTaskStatus(job.status),
                 result: publicResult,
                 resultText: JSON.stringify(publicResult, null, 2),
                 notify: false,
             });
+        } else {
+            const runningTask = getBackgroundTask(taskId, { context: options });
+            if (runningTask) {
+                runningTask.result = publicResult;
+                runningTask.resultText = JSON.stringify(publicResult, null, 2);
+            }
         }
         const latest = getBackgroundTask(taskId, { context: options }) || task;
-        const rendered = renderBackgroundTask(latest, { includeResult: job.status !== 'running' });
+        const rendered = renderBackgroundTask(latest, { includeResult: true });
         return job.status === 'running' ? `${rendered}\nwait_timed_out: true\nwaited_ms: ${job.waitedMs}` : rendered;
     } finally {
         // Only the LAST concurrent waiter (post-decrement count 0) may re-arm,

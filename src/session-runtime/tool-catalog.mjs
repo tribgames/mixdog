@@ -4,7 +4,7 @@
 import { clean, LATE_TOOL_ANNOUNCEMENT_SENTINEL } from './session-text.mjs';
 import { estimateToolSchemaTokens, toolSchemaSignature } from '../runtime/agent/orchestrator/session/context-utils.mjs';
 import {
-  applyInitialDeferredToolManifestToBp1,
+  applyInitialDeferredToolManifestToBp2,
   buildDeferredToolManifest,
   stripDeferredToolManifestBlock,
 } from '../runtime/agent/orchestrator/context/collect.mjs';
@@ -309,14 +309,14 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   } else {
     setDeferredToolState(session, active);
   }
-  if (!session.deferredToolBp1Applied && session.messages?.some((m) => m?.role === 'system')) {
+  if (!session.deferredToolBp2Applied && session.messages?.some((m) => m?.role === 'system')) {
     if (!session.mcpServerInstructions || typeof session.mcpServerInstructions !== 'object') {
       session.mcpServerInstructions = getMcpServerInstructionsMap(session.mcpScopeId);
     }
-    applyInitialDeferredToolManifestToBp1(session, deferredPoolToolNames(session));
+    applyInitialDeferredToolManifestToBp2(session, deferredPoolToolNames(session));
   }
-  if (!Array.isArray(session.deferredAnnouncedTools) && session.deferredToolBp1Applied) {
-    // Seed the announced set with everything already advertised in the BP1
+  if (!Array.isArray(session.deferredAnnouncedTools) && session.deferredToolBp2Applied) {
+    // Seed the announced set with everything already advertised in the BP2
     // manifest, so the turn-boundary MCP delta (reconcileDeferredMcpToolCatalog)
     // only announces genuinely new, late-connecting tools and never re-announces
     // the startup pool.
@@ -353,17 +353,24 @@ export function rebuildDeferredToolSurfaceForProvider(session, provider) {
   if (previousMode && previousMode !== session.deferredProviderMode) {
     if (session.deferredProviderMode === 'native') {
       session.mcpServerInstructions = getMcpServerInstructionsMap(session.mcpScopeId);
-      applyInitialDeferredToolManifestToBp1(session, deferredPoolToolNames(session), { rebuild: true });
-      const rendered = session.messages?.find((message) => message?.role === 'system')?.content;
+      applyInitialDeferredToolManifestToBp2(session, deferredPoolToolNames(session), { rebuild: true });
+      const rendered = session.messages?.find((message) => (
+        message?.role === 'system'
+        && typeof message.content === 'string'
+        && message.content.includes('<available-deferred-tools>')
+      ))?.content;
       session.deferredAnnouncedTools = deferredPoolToolNames(session)
         .filter((name) => typeof rendered === 'string' && rendered.includes(name));
     } else if (previousMode === 'native') {
-      const system = session.messages?.find((message) => message?.role === 'system');
-      if (system && typeof system.content === 'string') {
-        system.content = stripDeferredToolManifestBlock(system.content);
+      for (const system of session.messages?.filter((message) => message?.role === 'system') || []) {
+        if (typeof system.content === 'string') system.content = stripDeferredToolManifestBlock(system.content);
       }
+      session.messages = session.messages.filter((message) => (
+        message?.role !== 'system' || String(message.content || '').trim()
+      ));
       session.deferredAnnouncedTools = [];
-      session.deferredToolBp1Applied = true;
+      session.deferredToolBp2Applied = true;
+      delete session.deferredToolBp1Applied;
     }
   }
   return session;
@@ -372,7 +379,7 @@ export function rebuildDeferredToolSurfaceForProvider(session, provider) {
 // FIRST-TURN deferred-surface refresh (claude-code turn-time deferred manifest).
 // An MCP server may finish its handshake BETWEEN session-create and the first
 // user send. Fold those LIVE MCP tools into the boot deferred catalog + the
-// provider-visible first-turn surface. Native providers rebuild the initial BP1
+// provider-visible first-turn surface. Native providers rebuild the initial BP2
 // <available-deferred-tools> manifest IN PLACE and pre-mark names announced.
 // Manifest/canonical providers update their active fixed surface directly; the
 // canonical path never emits a deferred manifest or late reminder. Fully sync
@@ -408,15 +415,19 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
     return true;
   }
   // Refresh MCP server instructions so a newly-connected server's block is
-  // included when BP1 is re-rendered below.
+  // included when BP2 is re-rendered below.
   session.mcpServerInstructions = getMcpServerInstructionsMap(session.mcpScopeId);
-  const applied = applyInitialDeferredToolManifestToBp1(session, deferredPoolToolNames(session), { rebuild: true });
+  const applied = applyInitialDeferredToolManifestToBp2(session, deferredPoolToolNames(session), { rebuild: true });
   if (!applied) return false;
-  // Pre-mark ONLY the names that ACTUALLY landed in the rebuilt BP1 manifest as
+  // Pre-mark ONLY the names that ACTUALLY landed in the rebuilt BP2 manifest as
   // announced; anything the manifest could not advertise stays un-announced so
   // the turn-boundary late reminder can still surface it.
   const rendered = (() => {
-    const sys = session.messages.find((m) => m?.role === 'system');
+    const sys = session.messages.find((m) => (
+      m?.role === 'system'
+      && typeof m.content === 'string'
+      && m.content.includes('<available-deferred-tools>')
+    ));
     return typeof sys?.content === 'string' ? sys.content : '';
   })();
   session.deferredAnnouncedTools = deferredPoolToolNames(session).filter((name) => rendered.includes(name));

@@ -29,8 +29,6 @@ import {
     analyzeShellCommandEffects,
     buildPowerShellFilterTeePlan,
     consumeFilterTeeCapture,
-    detectBlockedSleepPattern,
-    detectLongForegroundReason,
     extractShellApplyPatchInvocation,
     foregroundLongCommandHint,
     hasPowerShellOnlySyntax,
@@ -54,15 +52,27 @@ import {
 import { resolveShellFor } from './shell-runtime.mjs';
 import { prewarmPwshStandbyPool } from '../lib/pwsh-standby-pool.mjs';
 import {
+    recordShellCaptureTelemetry,
     renderBackgroundPartialOutput,
     smartMiddleTruncate,
 } from './shell-output.mjs';
+import {
+    compactShellOutputLosslessly,
+    renderLosslessRecoveryHint,
+} from './shell-lossless-compact.mjs';
 import { normalizeOutputPath } from './path-utils.mjs';
 import { normalizeErrorMessage } from './path-diagnostics.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { resolveOptionalCwd } from './cwd-utils.mjs';
 import { scrubLoaderVars, scrubProviderSecrets, scrubRuntimeRootVars } from '../env-scrub.mjs';
 import { resourceAdmission } from '../../../../shared/resource-admission.mjs';
+import {
+    findPathExecutable,
+    SHELL_RUNTIME_CANDIDATES,
+} from './runtime-capabilities.mjs';
+import { planDirectExeSpawn } from './shell-direct-exe.mjs';
+
+export const DEFAULT_SHELL_AUTO_BACKGROUND_MS = 10_000;
 
 // Post-exec drift detection. After a foreground shell command, compare the
 // live mtime+size of files mixdog has already read this session against their
@@ -289,6 +299,17 @@ function _pathPrefixExecutables(cmd, limit = 5) {
     }
     return hits;
 }
+function _availableRuntimeExecutables(missing, limit = 5) {
+    const omitted = String(missing || '').toLowerCase().replace(/\.(?:exe|cmd|bat)$/i, '');
+    const found = [];
+    for (const name of SHELL_RUNTIME_CANDIDATES) {
+        if (name.toLowerCase() === omitted) continue;
+        const hit = findPathExecutable(name);
+        if (hit) found.push(hit);
+        if (found.length >= limit) break;
+    }
+    return found;
+}
 export function _exitClassDiagnostic(exitCode, stderr) {
     // Not gated on 127: compound chains (`a && b; c`) and pipelines mask the
     // 127 into the chain's final code (observed as exit 1 in 6/28 bench
@@ -297,9 +318,14 @@ export function _exitClassDiagnostic(exitCode, stderr) {
         const cmd = _missingCommandFrom(stderr);
         if (cmd) {
             const hits = _pathPrefixExecutables(cmd);
-            return hits.length
+            const runtimes = _availableRuntimeExecutables(cmd);
+            const runtimeFact = runtimes.length
+                ? `; available runtimes on PATH: ${runtimes.join(', ')}`
+                : '';
+            return (hits.length
                 ? ` — '${cmd}' is not on PATH; PATH does have: ${hits.join(', ')}`
-                : ` — '${cmd}' is not on PATH and no '${cmd}*' executable exists on PATH`;
+                : ` — '${cmd}' is not on PATH and no '${cmd}*' executable exists on PATH`)
+                + runtimeFact;
         }
     }
     if (exitCode === 126) return ' — 126: command found but not executable (permission or format)';
@@ -501,32 +527,9 @@ export async function executeBashTool(args, workDir, options = {}) {
         }
     }
 
-    // Sleep-chain auto-promotion: a leading `sleep N && …` / `Start-Sleep N; …`
-    // used to be DENIED preflight (CC detectBlockedSleepPattern parity).
-    // Measured over 10 days the deny fired 46× and every hit was a wasted
-    // turn, so the command is promoted to a background task instead — the
-    // exact remedy the deny message pointed at, without the failure. Only
-    // possible while background tasks are enabled; with them disabled the
-    // command runs foreground as before (the deny never fired there either).
     const _bgTasksDisabled = /^(1|true|yes|on)$/i.test(
         String(process.env.MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS || '').trim(),
     );
-    let autoAsyncReason = '';
-    if (!runInBackground && !_bgTasksDisabled) {
-        // Long-foreground shapes (watch-like dev servers/watchers, 30s+ sleeps
-        // anywhere in the chain) used to hard-fail via foregroundLongCommandHint
-        // (~22 wasted turns/14d measured). Promote them to a background task —
-        // the exact remedy the deny message pointed at — same as sleep chains.
-        // Every explicit leading sleep chain covered by the blocking policy is
-        // detached instead of first failing preflight. This preserves the live
-        // process and returns a task_id in the original call; callers that need
-        // an inline pacing delay can keep it below the policy's two-second floor.
-        const _blockedSleep = detectBlockedSleepPattern(command) || detectLongForegroundReason(command);
-        if (_blockedSleep) {
-            runInBackground = true;
-            autoAsyncReason = _blockedSleep;
-        }
-    }
 
     let shellEffects;
     let combinedBashAbort = null;
@@ -601,7 +604,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     if (longForegroundHint) return formatShellToolFailure(longForegroundHint);
     // Main-agent blocking budget. A timeout is the command's total deadline,
     // not permission to hold the conversation open for that whole duration:
-    // after 15 s a still-running command becomes a tracked background task and
+    // after 10 s a still-running command becomes a tracked background task and
     // completion is pushed to the owner. Explicit timeouts keep their remaining
     // deadline after promotion. Never applies to run_in_background (already
     // detached), persistent sessions, or commands barred from backgrounding.
@@ -611,7 +614,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     const DEFAULT_AUTO_BACKGROUND_MS = (_autoBgEnvRaw != null && String(_autoBgEnvRaw).trim() !== ''
       && Number.isFinite(_autoBgEnvMs) && _autoBgEnvMs >= 0)
       ? Math.floor(_autoBgEnvMs)
-      : 15_000;
+      : DEFAULT_SHELL_AUTO_BACKGROUND_MS;
     // Gate on backgroundOnTimeout rather than just `runInBackground`: it already
     // encodes "promotion is available for this command" (not detached, background
     // tasks enabled, command shape allows it), so the soft threshold can never
@@ -629,10 +632,28 @@ export async function executeBashTool(args, workDir, options = {}) {
         scrubRuntimeRootVars(spawnEnv);
         let wrappedCommand;
         let _teePlan = null;
+        let execShell = shell;
+        let execShellArg = shellArg;
+        let execShellArgs = shellArgs;
+        let directArgv = null;
+        const directPlan = !runInBackground
+            ? planDirectExeSpawn(command, {
+                shellType,
+                cwd: bashWorkDir,
+                pathValue: spawnEnv.PATH,
+                env: spawnEnv,
+            })
+            : null;
         // PowerShell UTF-8 prefix is PS-only: the Windows Git Bash path
         // (shellType==='posix') must NOT receive it. Snapshot wrapper stays
         // POSIX-host-only for now — no snapshot for Windows Git Bash initially.
-        if (process.platform === 'win32' && shellType === 'powershell') {
+        if (directPlan) {
+            wrappedCommand = command;
+            execShell = directPlan.exe;
+            execShellArg = '';
+            execShellArgs = [];
+            directArgv = directPlan.argv;
+        } else if (process.platform === 'win32' && shellType === 'powershell') {
             // Filter-swallow rescue (sync path only): tee the unfiltered
             // producer stream of an exactly-recognized filter pipeline so a
             // failing run can attach the original output tail in THIS call
@@ -737,10 +758,11 @@ export async function executeBashTool(args, workDir, options = {}) {
                         clientHostPid: options?.clientHostPid,
                     });
                 } catch { /* watcher arm is best-effort; never blocks the spawn */ }
-                const _autoAsyncNote = autoAsyncReason
-                    ? `[auto-async] ${autoAsyncReason} — promoted to a background task; act on its completion notification instead of blocking (do not poll).\n`
-                    : '';
-                return _prependDestructiveWarning(command, _autoAsyncNote + renderBackgroundTask(task));
+                return _prependDestructiveWarning(command, [
+                    renderBackgroundTask(task),
+                    '',
+                    'You will be notified when it completes; do not poll.',
+                ].join('\n'));
             } catch (error) {
                 if (job?.jobId && !job.error) {
                     try { killShellJob(job.jobId); } catch {}
@@ -764,7 +786,9 @@ export async function executeBashTool(args, workDir, options = {}) {
         // MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS env. Never applies to
         // run_in_background (already detached, handled above).
         const result = await execShellCommand({
-            shell, shellArg, shellArgs, command: wrappedCommand,
+            shell: execShell, shellArg: execShellArg, shellArgs: execShellArgs,
+            command: wrappedCommand,
+            directArgv,
             env: spawnEnv,
             cwd: bashWorkDir,
             timeoutMs: timeout,
@@ -793,6 +817,9 @@ export async function executeBashTool(args, workDir, options = {}) {
             // the MCP onProgress label stream.
             onOutputTail: typeof options?.onOutputTail === 'function' ? options.onOutputTail : null,
         });
+        const stdout = stripAnsi(result.stdout || '');
+        const stderr = stripAnsi(result.stderr || '');
+        recordShellCaptureTelemetry(options?.resultTelemetry, result, stdout, stderr);
         // Auto-backgrounded: the command outlived autoBackgroundMs and is
         // still running, now adopted as a tracked shell-job. Surface the
         // task_id + partial output for manual task control instead of
@@ -834,19 +861,18 @@ export async function executeBashTool(args, workDir, options = {}) {
                 } catch { /* best effort */ }
             }
             const partialOutput = renderBackgroundPartialOutput(
-                stripAnsi(result.stdout || ''),
-                stripAnsi(result.stderr || ''),
+                stdout,
+                stderr,
             );
             const lines = [
                 task ? renderBackgroundTask(task) : (result.jobId ? `[task_id: ${result.jobId}]` : null),
                 '',
                 result.backgroundMessage || 'auto-backgrounded; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.',
+                result.jobId ? 'You will be notified when it completes; do not poll.' : null,
                 partialOutput ? `\n${partialOutput}` : '',
             ].filter((l) => l !== null && l !== '');
             return _prependDestructiveWarning(command, lines.join('\n'));
         }
-        const stdout = stripAnsi(result.stdout || '');
-        const stderr = stripAnsi(result.stderr || '');
         const failureStatus = _shellFailureStatus(result, timeout);
         const { signal, exitCode, shellToolFailed } = failureStatus;
         // The shell tool succeeded once it spawned and observed the process to
@@ -894,22 +920,6 @@ export async function executeBashTool(args, workDir, options = {}) {
         const completionNote = legitExit
             ? '\n[completed: shell executed the command; its non-zero exit code and output are command results, not a tool failure]'
             : '';
-        if (mergeStderr) {
-            // Post-exit concatenation. True chunk-level interleaving would
-            // require shell-level `2>&1` redirection (bash) or `*>&1`
-            // (PowerShell) inside wrappedCommand, or an in-process ordered
-            // merged stream in shell-command.mjs. Current implementation
-            // preserves stdout/stderr ordering within each stream but loses
-            // cross-stream interleaving. Acceptable for most diagnostic
-            // outputs; flag in shell-command if exact interleaving is required.
-            const merged = stdout + stderr;
-            if (statusMarker) return _finalizeShellResult(legitExit, _prependDestructiveWarning(command, errorPrefix + smartMiddleTruncate(`${statusMarker}${completionNote}\n\n${merged || '(no output)'}`) + _rescueNote + _driftNote));
-            return _prependDestructiveWarning(command, smartMiddleTruncate(merged || '(no output)') + _driftNote);
-        }
-        const truncatedStdout = smartMiddleTruncate(stdout);
-        const truncatedStderr = stderr ? smartMiddleTruncate(stderr) : '';
-        const body = truncatedStdout || (truncatedStderr ? '' : '(no output)');
-        const stderrBlock = truncatedStderr ? `\n\n[stderr]\n${truncatedStderr}` : '';
         let spillBlock = '';
         if (result.stdoutPath) {
             const sizeKb = Math.round((result.stdoutFileSize || 0) / 1024);
@@ -926,7 +936,32 @@ export async function executeBashTool(args, workDir, options = {}) {
             wmicRewrite?.note || '',
             shellRescueNote,
         ].filter(Boolean).join('\n');
-        const payload = `${body}${stderrBlock}${spillBlock}${_rescueNote}${_driftNote}`;
+        const losslessCompaction = compactShellOutputLosslessly({
+            command,
+            rawStdout: result.stdout || '',
+            rawStderr: result.stderr || '',
+            stdout,
+            stderr,
+            exitCode,
+            signal,
+            timedOut: result.timedOut,
+            hasExistingRecovery: Boolean(result.stdoutPath || result.stderrPath),
+        });
+        const visibleStdout = losslessCompaction?.stdout ?? stdout;
+        const visibleStderr = losslessCompaction?.stderr ?? stderr;
+        const compactHint = renderLosslessRecoveryHint(losslessCompaction, normalizeOutputPath);
+        if (mergeStderr) {
+            const merged = visibleStdout + visibleStderr;
+            const compactBlock = compactHint ? `\n\n${compactHint}` : '';
+            if (statusMarker) return _finalizeShellResult(legitExit, _prependDestructiveWarning(command, errorPrefix + smartMiddleTruncate(`${statusMarker}${completionNote}\n\n${merged || '(no output)'}`) + compactBlock + _rescueNote + _driftNote));
+            return _prependDestructiveWarning(command, smartMiddleTruncate(merged || '(no output)') + compactBlock + _driftNote);
+        }
+        const compactedStdout = smartMiddleTruncate(visibleStdout);
+        const compactedStderr = visibleStderr ? smartMiddleTruncate(visibleStderr) : '';
+        const compactedBody = compactedStdout || (compactedStderr ? '' : '(no output)');
+        const compactedStderrBlock = compactedStderr ? `\n\n[stderr]\n${compactedStderr}` : '';
+        const compactBlock = compactHint ? `\n\n${compactHint}` : '';
+        const payload = `${compactedBody}${compactedStderrBlock}${spillBlock}${compactBlock}${_rescueNote}${_driftNote}`;
         if (statusMarker) return _finalizeShellResult(legitExit, _prependDestructiveWarning(command, _composeShellFailure(`${statusMarker}${completionNote}`, errorPrefix, warningBlock, payload)));
         return _prependDestructiveWarning(command, warningBlock ? `${warningBlock}\n${payload}` : payload);
     }

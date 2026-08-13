@@ -36,7 +36,7 @@ export function defaultQueuePriority(mode) {
 
 export function isQueuedEntryEditable(entry) {
   const mode = entry?.mode || 'prompt';
-  return mode !== 'task-notification' && mode !== 'pending-resume';
+  return mode !== 'task-notification' && mode !== 'pending-resume' && entry?.isMeta !== true;
 }
 
 export function isQueuedEntryVisible(entry) {

@@ -60,6 +60,7 @@ import {
     runResultCacheInFlight,
     statPathsForMtime,
 } from './cache-layers.mjs';
+import { recordLocalSearchCacheHit } from './local-search-telemetry.mjs';
 import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX, hasUnsupportedRipgrepRegex } from './arg-guard.mjs';
 import {
     buildGrepChunkMergePrefix,
@@ -934,7 +935,10 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     // that result was cached. Recording a fresh whole-file snapshot here would
     // mismatch what the caller actually saw (stale cached lines) and defeat
     // drift detection. So only the fresh-compute path (below) records a read.
-    if (cached !== null) return cached;
+    if (cached !== null) {
+        recordLocalSearchCacheHit('result');
+        return cached;
+    }
 
     return await runResultCacheInFlight(cacheKey, async () => {
     let grepStat;
@@ -1553,7 +1557,10 @@ export async function executeGlobTool(args, workDir, options = {}) {
         .join('\x01');
     const cacheKey = buildGlobCacheKey({ patterns, basePath: cacheBasePath, headLimit, offset, extraIgnore: extraIgnoreGlobs, sort: sortMode, patternCapTotal: globPatternCapTotal });
     const cached = cacheGet(cacheKey);
-    if (cached !== null) return cached;
+    if (cached !== null) {
+        recordLocalSearchCacheHit('result');
+        return cached;
+    }
 
     return await runResultCacheInFlight(cacheKey, async () => {
     const globGroups = [...groups.entries()];
@@ -1565,9 +1572,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
     let rgStdoutPartial = false;
     let rgWindowIncomplete = false;
     const accumCap = 50000;
-    const canWindowNatural = globGroups.length === 1
-        && sortMode === 'natural'
-        && headLimit !== Infinity;
+    const canWindowNatural = sortMode === 'natural' && headLimit !== Infinity;
     const groupRuns = await Promise.all(globGroups.map(async ([root, rels]) => {
         const rgArgs = ['--files', '--hidden'];
         for (const ex of DEFAULT_IGNORE_GLOBS) rgArgs.push('--glob', ex);

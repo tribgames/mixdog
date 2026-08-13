@@ -38,6 +38,7 @@ function modelOption(value: unknown): DesktopModelOption | null {
       : {}),
     ...(typeof option.family === 'string' ? { family: option.family } : {}),
     ...(typeof option.latest === 'boolean' ? { latest: option.latest } : {}),
+    ...(typeof option.description === 'string' ? { description: option.description } : {}),
     effortOptions: effortOptions(option.effortOptions),
     fastCapable: option.fastCapable === true,
     fastPreferred: option.fastPreferred === true,

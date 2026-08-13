@@ -16,6 +16,7 @@ import type {
   DesktopModelSelection,
   DesktopProjectSummary,
   DesktopPromptContent,
+  DesktopSessionSummary,
   DesktopSubmitOptions,
   DesktopUpdaterState,
   DesktopWorkflowState,
@@ -1741,7 +1742,7 @@ export function App() {
       applySessionLaneResult(sessionId, result.snapshot);
       return;
     }
-    void requestSessionPeek(sessionId, { reconcile: true });
+    void requestSessionPeek(sessionId);
   }, [invokeResult]);
   const openDesktopUpdate = useCallback(() => {
     if (updaterState.status === "ready") setUpdateDialogOpen(true);
@@ -1782,6 +1783,7 @@ export function App() {
   const {
     sessions,
     setSessions,
+    stageCreatedSession,
     refreshSessions,
     pendingRenames: pendingSessionRenames,
     pendingArchives: pendingSessionArchives,
@@ -2335,6 +2337,7 @@ export function App() {
           if (resultSessionId !== startedSessionId) {
             throw new Error("New task session returned a mismatched session snapshot.");
           }
+          applySessionLaneResult(startedSessionId, result.snapshot);
         }
         if (result.accepted && draftStillSelected()) {
           clearNewTaskPreferences(routeSelection);
@@ -2357,6 +2360,26 @@ export function App() {
         if (activeSessionId) {
           const title = promptTitle(content, options?.displayText || "") || "New task";
           const sessionSelection = { kind: "session", id: activeSessionId } as const;
+          const submittedAt = Number(options?.submittedAt);
+          const activityAt = Number.isFinite(submittedAt) && submittedAt > 0
+            ? submittedAt
+            : Date.now();
+          // One commit owns both visible changes: the draft pane promotes and
+          // its keyed Recent row appears. The host catalog later reconciles
+          // metadata onto this row instead of inserting/removing it around the
+          // first prompt acknowledgement.
+          stageCreatedSession({
+            id: activeSessionId,
+            preview: title,
+            title,
+            updatedAt: activityAt,
+            activityAt,
+            messageCount: 1,
+            cwd: submittedProjectPath,
+            classification: submittedProjectPath ? "project" : "task",
+            projectPath: submittedProjectPath || null,
+            working: true,
+          } satisfies DesktopSessionSummary);
           if (draftStillSelected()) {
             navigationEpoch.current += 1;
             activateSelection(sessionSelection, title, draftKey);
@@ -2379,6 +2402,7 @@ export function App() {
     promoteSelectionInLeaf,
     registerWorkspaceSelection,
     resolvedDraftPrefsFor,
+    stageCreatedSession,
   ]);
   const submitFromRouteRef = useRef(submitFromRoute);
   submitFromRouteRef.current = submitFromRoute;
@@ -4106,7 +4130,6 @@ export function App() {
             <div className="session-header-status">
               <PaneHeaderStatus sessionId={paneSessionId}
                 hidden={false}
-                reconcileOnMount={paneSessionId !== requestedSessionId}
                 draftRemoteEnabled={focused && draftKey ? newTaskRemoteMode === "on" : undefined}
                 onOpen={() => {
                   setCommandSurfaceSessionId(paneSessionId);
@@ -4195,6 +4218,7 @@ export function App() {
       </div>
     </div>
   );
+  const activatedFileKeys = useRef(new Set<string>());
   const paneFileEditors = (
     leaf: PaneLeaf,
     focused: boolean,
@@ -4202,10 +4226,20 @@ export function App() {
   ) => {
     const active = paneActiveSelection(leaf);
     const paneActiveFileKey = active?.kind === "file" ? navigationKey(active) : "";
+    if (paneActiveFileKey) activatedFileKeys.current.add(paneActiveFileKey);
+    const openFileKeys = new Set(
+      leaf.tabs
+        .filter((selection) => selection.kind === "file")
+        .map((selection) => navigationKey(selection)),
+    );
+    for (const key of [...activatedFileKeys.current]) {
+      if (!openFileKeys.has(key)) activatedFileKeys.current.delete(key);
+    }
     return leaf.tabs
       .filter((paneSelection): paneSelection is Extract<NavigationSelection, { kind: "file" }> => (
         paneSelection.kind === "file"
-        && navigationKey(paneSelection) === paneActiveFileKey
+        && (navigationKey(paneSelection) === paneActiveFileKey
+          || activatedFileKeys.current.has(navigationKey(paneSelection)))
       ))
       .map((fileSelection) => {
         const key = navigationKey(fileSelection);
@@ -4222,7 +4256,7 @@ export function App() {
           onPointerUpCapture={focused ? undefined : (event) => {
             if (event.button === 0) window.setTimeout(focusPane, 0);
           }}>
-          <DeferredPersistentSurface active={fileActive}
+          <DeferredPersistentSurface active={fileActive || activatedFileKeys.current.has(key)}
               startupDelayMs={EDITOR_STARTUP_DELAY_MS}
               fallback={<DesktopLoadingSurface label="Loading editor…" />}>
             <ReadyEditorPane projectPath={fileSelection.project} relPath={fileSelection.rel}

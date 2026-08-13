@@ -371,7 +371,15 @@ class MixdogAgent(BaseInstalledAgent):
         return "mixdog"
 
     def get_version_command(self) -> str | None:
-        return "mixdog --help >/dev/null 2>&1 && echo mixdog-" + self._mixdog_version
+        # BaseInstalledAgent calls this after install(). Do not boot the full
+        # Mixdog CLI a second time just to discover its version: resolve the
+        # installed bin symlink and read the adjacent package metadata.
+        return (
+            "node -e \"const fs=require('fs'),path=require('path'),"
+            "bin=fs.realpathSync(process.argv[1]),"
+            "pkg=require(path.resolve(path.dirname(bin),'../package.json'));"
+            "console.log('mixdog-'+pkg.version)\" \"$(command -v mixdog)\""
+        )
 
     def _required_providers(self) -> set[str]:
         routes = self._route_profile["routes"]
@@ -455,6 +463,9 @@ class MixdogAgent(BaseInstalledAgent):
                             "for dep in rg node timeout tar grep; do "
                             "command -v \"$dep\" >/dev/null 2>&1 || { echo \"tool-dep missing: $dep\" >&2; exit 1; }; "
                             "done; echo 'tool-dep preflight ok: rg node timeout tar grep'; "
+                            "if /root/.local/bin/uv --version 2>/dev/null | grep -q '^uv 0\\.9\\.5$' && "
+                            "/root/.local/bin/uvx --version 2>/dev/null | grep -q '^uvx 0\\.9\\.5$'; then "
+                            "echo MIXDOG_PREBAKE_UV_READY; else echo MIXDOG_PREBAKE_UV_MISSING; fi; "
                             "if command -v curl >/dev/null 2>&1 && [ -s /etc/ssl/certs/ca-certificates.crt ]; then "
                             "echo CURL_READY; else echo CURL_MISSING; fi"
                     )
@@ -503,13 +514,16 @@ class MixdogAgent(BaseInstalledAgent):
                         ),
                         env={"DEBIAN_FRONTEND": "noninteractive"},
                     ))
-                # uv 0.9.5 rides the prebake tar (root/.local/bin), so this
-                # hits the "already available" fast path (~1s, no network);
-                # older tars without uv fall back to the bounded download.
-                await _timed("uv", self.exec_as_root(
-                    environment,
-                    command=_uv_provision_command(),
-                ))
+                # Current prebakes prove both uv binaries inside the stage
+                # command, avoiding another container exec on every trial.
+                # Older/incomplete tars retain the bounded recovery path.
+                if "MIXDOG_PREBAKE_UV_READY" not in (
+                    getattr(stage_result, "stdout", "") or ""
+                ):
+                    await _timed("uv-fallback", self.exec_as_root(
+                        environment,
+                        command=_uv_provision_command(),
+                    ))
                 print(
                     "[setup-timing] "
                     + " ".join(f"{k}={v:.1f}s" for k, v in timings.items()),

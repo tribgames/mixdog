@@ -6,7 +6,7 @@ import { loadSession, saveSessionAsync, setLiveSession, evictLiveSession, listSt
 import { estimateMessagesTokens, estimateTranscriptContextUsage } from '../context-utils.mjs';
 import { normalizeCompactType, DEFAULT_COMPACT_TYPE, SUMMARY_PREFIX } from '../compact.mjs';
 import { runSessionCompaction } from './compaction-runner.mjs';
-import { hasUserConversationMessage, promptContentText } from './prompt-utils.mjs';
+import { hasUserConversationMessage, promptContentText, resetSessionBp3Environment } from './prompt-utils.mjs';
 import { getProvider } from '../../providers/registry.mjs';
 import { isSessionCompactionBlocked, getSessionAbortSignal, _runtimeEntries } from './runtime-liveness.mjs';
 import { mintSessionId } from './session-id.mjs';
@@ -227,7 +227,7 @@ export async function clearSessionMessages(sessionId, options = {}) {
         }
     }
     session.messages = keep;
-    session.sessionStartMetaInjected = false;
+    resetSessionBp3Environment(session);
     session.totalInputTokens = 0;
     session.totalOutputTokens = 0;
     session.totalCachedReadTokens = 0;

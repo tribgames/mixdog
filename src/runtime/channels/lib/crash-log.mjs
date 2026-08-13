@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { DATA_DIR } from "./config.mjs";
-import { localTimestamp } from "./boot-profile.mjs";
+import { utcTimestamp } from "./boot-profile.mjs";
 
 // Crash logging + degraded-state tracking for the channels worker.
 // Extracted verbatim from channels/index.mjs (behavior-preserving).
@@ -51,7 +51,7 @@ function _writeCrashLine(crashLog, line) {
 function logCrash(label, err) {
   if (crashLogging) return;
   crashLogging = true;
-  const msg = `[${localTimestamp()}] mixdog: ${label}: ${err}
+  const msg = `[${utcTimestamp()}] mixdog: ${label}: ${err}
 ${err instanceof Error ? err.stack : ""}
 `;
   if (!_stderrBroken) {
@@ -69,7 +69,7 @@ ${err instanceof Error ? err.stack : ""}
     _crashRepeatCount += 1;
   } else {
     if (_crashRepeatCount > 0) {
-      _writeCrashLine(crashLog, `[${localTimestamp()}] mixdog: previous error repeated ${_crashRepeatCount} more time(s)\n`);
+      _writeCrashLine(crashLog, `[${utcTimestamp()}] mixdog: previous error repeated ${_crashRepeatCount} more time(s)\n`);
       _crashRepeatCount = 0;
     }
     _lastCrashSig = sig;

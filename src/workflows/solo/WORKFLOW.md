@@ -11,6 +11,7 @@ Consult the user and build the plan together. Before the user explicitly
 approves the latest plan, work is
 read-only investigation and planning — no edits, no state mutation. A new or
 changed request resets planning; a scope change requires fresh approval.
+Explicit read-only requests proceed immediately; approval precedes edits or state mutation.
 
 On approval, Lead executes all work itself — never spawn, send, or delegate
 to agents. Complete in-scope fixes without reapproval.

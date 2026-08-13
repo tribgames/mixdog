@@ -145,14 +145,6 @@ export function createWarmupSchedulers({
       void warmCatalogsInBackground()
         .then(() => bootProfile('model-catalog:warm-ready'))
         .catch((error) => bootProfile('model-catalog:warm-failed', { error: error?.message || String(error) }));
-      // Resident native search server: pre-resolve the binary and start the
-      // warm process so the session's FIRST grep/glob already skips the rg
-      // spawn instead of racing the async binary resolution. Best-effort;
-      // honors MIXDOG_SEARCH_SERVER=0 inside the warm call.
-      void import('../runtime/agent/orchestrator/tools/builtin/native-search-client.mjs')
-        .then((mod) => mod.warmNativeSearchServer?.())
-        .then((up) => bootProfile('native-search:warm', { up: up === true }))
-        .catch(() => {});
     }, delayMs);
     timers.modelCatalogWarmupTimer.unref?.();
   }

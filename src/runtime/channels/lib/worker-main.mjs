@@ -51,7 +51,7 @@ import {
   RUNTIME_ROOT
 } from "./runtime-paths.mjs";
 import { invalidateConfigReadCache } from "../../shared/config.mjs";
-import { bootProfile, localTimestamp } from "./boot-profile.mjs";
+import { bootProfile, utcTimestamp } from "./boot-profile.mjs";
 import {
   isChannelsDegraded,
   logCrash,
@@ -127,7 +127,7 @@ const {
 // One-shot log rotation at worker boot (10 MB threshold, .1 suffix overwrite).
 if (isMixdogDebug()) {
   try { if (fs.statSync(_bootLogEarly).size > 10 * 1024 * 1024) fs.renameSync(_bootLogEarly, _bootLogEarly + '.1') } catch {}
-  fs.appendFileSync(_bootLogEarly, `[${localTimestamp()}] bootstrap start pid=${process.pid}
+  fs.appendFileSync(_bootLogEarly, `[${utcTimestamp()}] bootstrap start pid=${process.pid}
 `);
 }
 let config = await loadConfig();

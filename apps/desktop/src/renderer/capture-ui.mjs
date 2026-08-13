@@ -414,32 +414,77 @@ try {
       ]) {
         const pass = summary[key] || {};
         assert.equal(pass.clicked, true, `${key}: no tool card was toggled.`);
-        // Pinned: the added/removed summary row moves the bottom-anchored
-        // card by its own height ONCE. Any reversal is the flicker.
-        // The rAF sampler may force the new layout before ResizeObserver's
-        // same-paint bottom lock. Permit that one unpainted correction pair;
-        // final follow ownership and bottom distance below are authoritative.
-        assert.ok(Number(pass.motion?.reversals) <= 1,
+        assert.equal(pass.openAfter, pass.targetExpanded ? "true" : "false",
+          `${key}: the tool disclosure did not reach its target state.`);
+        // The disclosure's DOM row, virtual spacer and scroll position must
+        // advance in one pre-paint transaction. Waiting for ResizeObserver
+        // leaves these values describing different layouts for one frame and
+        // can make the follow hook interpret the correction as reader intent.
+        assert.ok(Math.abs(Number(pass.rowGeometryError)) <= 1,
+          `${key}: the virtual row height missed the card delta by ${pass.rowGeometryError}px.`);
+        assert.ok(Math.abs(Number(pass.spaceGeometryError)) <= 1,
+          `${key}: the virtual spacer missed the card delta by ${pass.spaceGeometryError}px.`);
+        assert.ok(Math.abs(Number(pass.scrollError)) <= 1,
+          `${key}: bottom scrollTop missed the height delta by ${pass.scrollError}px.`);
+        assert.equal(Number(pass.motion?.reversals), 0,
           `${key}: the toggle bounced ${pass.motion?.reversals} times.`);
-        assert.ok(Number(pass.motion?.movingFrames) <= 2,
+        assert.ok(Number(pass.motion?.movingFrames) <= 1,
           `${key}: the toggle moved the transcript across ${pass.motion?.movingFrames} frames.`);
-        assert.ok(Number(pass.motion?.offBottomFrames) <= 1,
+        assert.equal(Number(pass.motion?.offBottomFrames), 0,
           `${key}: the toggle stayed off-bottom for ${pass.motion?.offBottomFrames} samples.`);
         assert.equal(pass.followingAfter, true,
           `${key}: a pinned tool toggle released transcript auto-follow.`);
         assert.ok(Math.abs(Number(pass.finalDistance)) <= 8,
           `${key}: a pinned tool toggle finished ${pass.finalDistance}px off bottom.`);
       }
+      const assertDisclosureRoundTrip = (label, first, second) => {
+        assert.equal(first.subjectKey, second.subjectKey,
+          `${label}: the return toggle targeted a different virtual row.`);
+        for (const metric of [
+          "scrollDelta",
+          "scrollHeightDelta",
+          "spaceHeightDelta",
+          "rowHeightDelta",
+          "cardHeightDelta",
+        ]) {
+          const error = Number(first[metric]) + Number(second[metric]);
+          assert.ok(Math.abs(error) <= 1,
+            `${label}: ${metric} returned with ${error}px error.`);
+        }
+      };
+      assertDisclosureRoundTrip(
+        "pinned tool disclosure round trip",
+        summary.toolTogglePinnedCollapse || {},
+        summary.toolTogglePinnedExpandAgain || {},
+      );
+      const pinnedAppend = summary.toolTogglePinnedAppend || {};
+      assert.equal(pinnedAppend.followingAfter, true,
+        "output appended after a tool toggle did not retain auto-follow.");
+      assert.ok(Math.abs(Number(pinnedAppend.finalDistance)) <= 8,
+        `output appended after a tool toggle finished ${pinnedAppend.finalDistance}px off bottom.`);
       for (const key of ["toolToggleExpand", "toolToggleCollapse"]) {
         const pass = summary[key] || {};
         assert.equal(pass.clicked, true, `${key}: no tool card was toggled.`);
+        assert.equal(pass.openAfter, pass.targetExpanded ? "true" : "false",
+          `${key}: the tool disclosure did not reach its target state.`);
         assert.ok(Math.abs(Number(pass.cardShift)) <= 2,
           `${key}: the toggled tool card moved ${pass.cardShift}px while reading.`);
+        assert.ok(Math.abs(Number(pass.scrollError)) <= 1,
+          `${key}: the reading scrollTop moved ${pass.scrollError}px.`);
+        assert.ok(Math.abs(Number(pass.rowGeometryError)) <= 1,
+          `${key}: the virtual row height missed the card delta by ${pass.rowGeometryError}px.`);
+        assert.ok(Math.abs(Number(pass.spaceGeometryError)) <= 1,
+          `${key}: the virtual spacer missed the card delta by ${pass.spaceGeometryError}px.`);
         assert.equal(Number(pass.motion?.reversals), 0,
           `${key}: the toggle bounced back and forth.`);
         assert.equal(pass.followingAfter, false,
           `${key}: an off-bottom tool toggle unexpectedly resumed auto-follow.`);
       }
+      assertDisclosureRoundTrip(
+        "reading tool disclosure round trip",
+        summary.toolToggleExpand || {},
+        summary.toolToggleCollapse || {},
+      );
     } else {
     assert.equal(summary.reversals, 0, "followed transcript must not reverse direction while streaming.");
     assert.equal(summary.offBottomFrames, 0, "followed transcript must remain pinned to the bottom.");

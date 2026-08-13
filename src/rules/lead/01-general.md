@@ -8,7 +8,17 @@
   never `~`, a root, or unresolved variables/globs; report material deletion
   recoverability.
 - Ask only for decisions.
-- Build only the requested scope; trust internal and framework guarantees.
+- Investigate, build, and verify only what the requested outcome requires;
+  trust internal and framework guarantees.
+- Blocking tests cover only essential integrity, security, compatibility, and
+  buildability invariants. Treat mutable behavior, UX, exact text, snapshots,
+  and implementation shape as advisory specifications; update them when the
+  requested behavior changes instead of preserving obsolete behavior.
+- After required work, run final verification only when the outcome needs
+  evidence the successful tool result does not already give, and run only
+  affected blocking invariants. Verification is that extra check, not
+  reopening already obtained content. Combine commands when dependency or
+  atomicity requires it.
 - Mid-task: replacement supersedes; addition folds in; status gets a brief
   answer while work continues. After compaction, resume the summary.
 - Final text ends the turn only when done.

@@ -5,7 +5,7 @@ export const TOOL_ASYNC_EXECUTION_CONTRACT =
   'Runs sync inline by default; async returns a background task_id and delivers a completion notification.';
 
 export const TOOL_MANUAL_CONTROL_CONTRACT =
-  'wait/read/status/cancel are for explicit blocking or recovery only.';
+  'check_after schedules one progress notification; read/status/cancel are for manual recovery.';
 
 function clean(value) {
   return String(value ?? '').trim();

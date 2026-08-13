@@ -9,15 +9,15 @@ import { resolve as resolvePath, isAbsolute } from 'path';
 import { canonicalizeBuiltinToolName, isBuiltinTool } from '../tools/builtin.mjs';
 import { takeApplyPatchUiDiff } from '../tools/patch.mjs';
 import { compressToolResult } from '../tools/result-compression.mjs';
-import { appendAgentTrace, traceAgentTool, traceAgentToolFailure } from '../agent-trace.mjs';
+import { appendAgentTrace, traceAgentShellOutput, traceAgentTool, traceAgentToolFailure } from '../agent-trace.mjs';
 import { markSessionToolCall, updateSessionStage } from './manager.mjs';
 import { resolveToolSelfDeadlineMs } from '../agent-runtime/agent-progress-watchdog.mjs';
 import { classifyResultKind } from './result-classification.mjs';
 import { normalizeToolEnvelope } from './tool-envelope.mjs';
-import { maybeOffloadToolResultBatch } from './tool-result-offload.mjs';
+import { isOffloadedToolResultText, maybeOffloadToolResultBatch } from './tool-result-offload.mjs';
 import {
-    tryReadCached, setReadCached, invalidatePathForSession, markPostEdit,
-    consumePostEditMark, clearReadDedupSession, extractTouchedPathsFromPatch,
+    tryReadCached, setReadCached, invalidatePathForSession,
+    clearReadDedupSession, extractTouchedPathsFromPatch,
     tryScopedToolCached, setScopedToolCached, clearScopedToolsForSession,
     clearScopedToolsForSessionPaths, invalidatePrefetchCache,
 } from './read-dedup.mjs';
@@ -199,6 +199,8 @@ export async function processToolBatch(ctx) {
             let result;
             let toolStartedAt;
             let toolEndedAt;
+            let _localSearchTelemetry = null;
+            let _resultTelemetry = {};
             const toolKind = getToolKind(call.name);
             // Cross-turn read dedup: if the path's stat tuple (mtime/size/ino/dev)
             // is unchanged since a prior read in THIS session, return the cached
@@ -274,6 +276,8 @@ export async function processToolBatch(ctx) {
                 }
                 if (eager !== undefined) {
                     toolStartedAt = eager.startedAt;
+                    _localSearchTelemetry = eager.localSearchTelemetry || null;
+                    _resultTelemetry = eager.resultTelemetry || {};
                     const settled = await eager.promise;
                     if (!settled.ok) throw settled.error;
                     result = settled.value;
@@ -307,7 +311,8 @@ export async function processToolBatch(ctx) {
                         _resultKind = 'error';
                     } else {
                         await opts.beforeToolExecution?.();
-                        result = await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: iterations });
+                        _localSearchTelemetry = {};
+                        result = await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: iterations, localSearchTelemetry: _localSearchTelemetry, resultTelemetry: _resultTelemetry });
                         toolEndedAt = Date.now();
                         // Boundary: tool-return string convention → structural kind.
                         // The only prefix check in this codebase; downstream layers
@@ -409,37 +414,11 @@ export async function processToolBatch(ctx) {
             // exactly what's stored — no phantom full body.
             if (sessionId && _executeOk && _resultKind === 'normal') {
                 const _toolBare = _stripMcpPrefix(call.name);
-                if (_readCacheHit === null && _isReadTool(call.name)) {
-                    // Post-patch advisory: handle BOTH scalar and array forms
-                    // of args.path. The array form (path:[a,b,c] or
-                    // path:[{path:a},{path:b}]) was a coverage gap in R1 —
-                    // an LLM that patches X then reads [X,Y] should still see
-                    // the advisory for X.
-                    const _argsPath = call.arguments?.path;
-                    const _pathList = [];
-                    if (typeof _argsPath === 'string') {
-                        _pathList.push(_argsPath);
-                    } else if (typeof call.arguments?.file_path === 'string') {
-                        _pathList.push(call.arguments.file_path);
-                    } else if (Array.isArray(_argsPath)) {
-                        for (const _item of _argsPath) {
-                            if (typeof _item === 'string') _pathList.push(_item);
-                            else if (_item && typeof _item === 'object') {
-                                const _itemPath = typeof _item.path === 'string' ? _item.path : _item.file_path;
-                                if (typeof _itemPath === 'string') _pathList.push(_itemPath);
-                            }
-                        }
-                    }
-                    const _marks = [];
-                    for (const _p of _pathList) {
-                        const _m = consumePostEditMark({ sessionId, path: _p, cwd });
-                        if (_m) _marks.push({ path: _p, mark: _m });
-                    }
-                } else if (_toolBare === 'apply_patch') {
+                if (_toolBare === 'apply_patch') {
                     // apply_patch's args are a unified-diff text in `patch`
                     // (resolved against `base_path` or cwd). Parse the diff
                     // headers (`--- a/path` / `+++ b/path`) to extract the
-                    // touched paths and invalidate / mark each one. Falls
+                    // touched paths and invalidate each one. Falls
                     // back to a full session clear only when no paths could
                     // be parsed (malformed diff or unknown format).
                     const _argsBase = call.arguments?.base_path;
@@ -450,7 +429,6 @@ export async function processToolBatch(ctx) {
                     if (_touched.length > 0) {
                         for (const _p of _touched) {
                             invalidatePathForSession(sessionId, _p, _patchBase);
-                            markPostEdit({ sessionId, path: _p, cwd: _patchBase, toolName: 'apply_patch' });
                             // R20: cross-dispatch prefetch cache invalidation.
                             invalidatePrefetchCache(_p, _patchBase);
                         }
@@ -513,6 +491,8 @@ export async function processToolBatch(ctx) {
                 executeOk: _executeOk,
                 readCacheHit: _readCacheHit,
                 scopedCacheHit: _scopedCacheHit,
+                localSearchTelemetry: _localSearchTelemetry,
+                resultTelemetry: _resultTelemetry,
                 crossTurnSig: _ctSig,
                 mutationEpoch: epoch.mutation,
                 nativeToolSearch: null,
@@ -558,8 +538,28 @@ export async function processToolBatch(ctx) {
             try {
                 if (completed.postError) throw completed.postError;
                 if (_offloadStates[completedIndex]?.error) throw _offloadStates[completedIndex].error;
+                const _preOffloadBytes = typeof completed.result === 'string'
+                    ? Buffer.byteLength(completed.result, 'utf8')
+                    : 0;
                 result = _offloadStates[completedIndex]?.result;
+                const _offloaded = isOffloadedToolResultText(result);
+                const _postOffloadBytes = typeof result === 'string'
+                    ? Buffer.byteLength(result, 'utf8')
+                    : 0;
                 result = compressToolResult(call.name, call.arguments, result, { sessionId, toolKind });
+                if (_isShellTool(call.name)) {
+                    traceAgentShellOutput({
+                        sessionId,
+                        toolName: call.name,
+                        toolCallId: call.id,
+                        telemetry: completed.resultTelemetry,
+                        preOffloadBytes: _preOffloadBytes,
+                        postOffloadBytes: _postOffloadBytes,
+                        modelVisibleBytes: typeof result === 'string' ? Buffer.byteLength(result, 'utf8') : 0,
+                        offloaded: _offloaded,
+                        resultKind: _resultKind,
+                    });
+                }
                 traceAgentTool({
                     sessionId,
                     iteration: iterations,
@@ -571,6 +571,7 @@ export async function processToolBatch(ctx) {
                     model: sessionRef?.model || null,
                     resultKind: _resultKind,
                     resultText: result,
+                    localSearchTelemetry: completed.localSearchTelemetry,
                     cwd,
                 });
                 // Deferred writes that predate a later mutation are skipped;

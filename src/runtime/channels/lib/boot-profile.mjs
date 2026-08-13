@@ -1,6 +1,7 @@
 import { performance } from "perf_hooks";
+import { formatUtcTimestamp } from "../../shared/time-format.mjs";
 
-// Boot-timing instrumentation + shared local timestamp helper.
+// Boot-timing instrumentation + shared UTC timestamp helper.
 // Extracted verbatim from channels/index.mjs (behavior-preserving).
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ""));
 const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
@@ -16,8 +17,8 @@ function bootProfile(event, fields = {}) {
   try { process.stderr.write(`${parts.join(" ")}\n`); } catch {}
 }
 
-function localTimestamp() {
-  return (/* @__PURE__ */ new Date()).toLocaleString("sv-SE", { hour12: false });
+function utcTimestamp() {
+  return formatUtcTimestamp();
 }
 
-export { BOOT_PROFILE_ENABLED, BOOT_PROFILE_START, bootProfile, localTimestamp };
+export { BOOT_PROFILE_ENABLED, BOOT_PROFILE_START, bootProfile, utcTimestamp };

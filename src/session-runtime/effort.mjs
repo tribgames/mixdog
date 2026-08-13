@@ -20,8 +20,9 @@ export const EFFORT_OPTIONS_BY_PROVIDER = {
   'openai-oauth': ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   anthropic: ['low', 'medium', 'high', 'xhigh', 'max'],
   'anthropic-oauth': ['low', 'medium', 'high', 'xhigh', 'max'],
-  xai: ['none', 'low', 'medium', 'high'],
-  'grok-oauth': ['none', 'low', 'medium', 'high'],
+  // xAI Grok 4.6+: low/medium/high/xhigh. Reasoning cannot be disabled.
+  xai: ['low', 'medium', 'high', 'xhigh'],
+  'grok-oauth': ['low', 'medium', 'high', 'xhigh'],
   'opencode-go': ['high', 'max'],
 };
 export const EFFORT_BY_FAMILY = {
@@ -36,7 +37,7 @@ export const EFFORT_BY_FAMILY = {
   'gpt-mini': ['none', 'low', 'medium', 'high', 'xhigh'],
   'gpt-nano': ['none', 'low', 'medium', 'high'],
   'gpt-codex': ['none', 'low', 'medium', 'high'],
-  grok: ['none', 'low', 'medium', 'high'],
+  grok: ['low', 'medium', 'high', 'xhigh'],
 };
 export const EFFORT_FALLBACKS = {
   ultra: ['ultra', 'max', 'xhigh', 'high', 'medium', 'low'],
@@ -68,10 +69,22 @@ export function effortOptionsFor(provider, model) {
     const unique = [...new Set((values || []).map(clean).filter(Boolean))];
     return providerAllowed ? unique.filter((v) => providerAllowed.includes(v)) : unique;
   };
+  const family = clean(model?.family).toLowerCase();
+  const reasoningOptionEffort = Array.isArray(model?.reasoningOptions)
+    ? model.reasoningOptions.find((option) => clean(option?.type).toLowerCase() === 'effort')
+    : null;
+  const reasoningOptionValues = Array.isArray(reasoningOptionEffort?.values)
+    ? reasoningOptionEffort.values.map(clean).filter(Boolean)
+    : [];
+  // Grok/xAI: models.dev + native /models publish reasoningOptions. Prefer
+  // that over the hardcoded reasoningLevels grok-oauth used to stamp, so a
+  // catalog refresh (e.g. grok-4.6 adding xhigh) wins without a code bump.
+  if ((provider === 'xai' || provider === 'grok-oauth') && reasoningOptionValues.length) {
+    return filterProvider(reasoningOptionValues);
+  }
   const declared = Array.isArray(model?.reasoningLevels)
     ? model.reasoningLevels.map(clean).filter(Boolean)
     : [];
-  const family = clean(model?.family).toLowerCase();
   if (Array.isArray(model?.reasoningLevels)) {
     if (declared.length) return filterProvider(declared);
     if (Object.prototype.hasOwnProperty.call(EFFORT_BY_FAMILY, family)) {
@@ -83,12 +96,6 @@ export function effortOptionsFor(provider, model) {
     // no levels (haiku) stay empty via their explicit EFFORT_BY_FAMILY entry.
     return providerAllowed || [];
   }
-  const reasoningOptionEffort = Array.isArray(model?.reasoningOptions)
-    ? model.reasoningOptions.find((option) => clean(option?.type).toLowerCase() === 'effort')
-    : null;
-  const reasoningOptionValues = Array.isArray(reasoningOptionEffort?.values)
-    ? reasoningOptionEffort.values.map(clean).filter(Boolean)
-    : [];
   if (reasoningOptionValues.length) return filterProvider(reasoningOptionValues);
   if (Object.prototype.hasOwnProperty.call(EFFORT_BY_FAMILY, family)) {
     return filterProvider(EFFORT_BY_FAMILY[family]);

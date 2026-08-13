@@ -26,20 +26,15 @@
 import { spawn } from 'node:child_process';
 import { basename } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
-import { availableParallelism, freemem } from 'node:os';
 import {
     killProcessTree,
     windowsPidDescendants,
     windowsPidHasDescendants,
 } from '../builtin/shell-job-process.mjs';
 
-const MB = 1024 * 1024;
-
 export function _resolvePwshPoolTarget({
     env = process.env,
     platform = process.platform,
-    parallelism = null,
-    freeMemoryBytes = null,
 } = {}) {
     const configured = env?.MIXDOG_PWSH_STANDBY_POOL;
     if (configured != null && configured !== '') {
@@ -47,39 +42,22 @@ export function _resolvePwshPoolTarget({
         if (Number.isFinite(n) && n >= 0) return Math.min(8, n);
     }
     if (platform !== 'win32') return 0;
-    // Tools now execute in the machine-global daemon. Keep client/test
-    // processes at zero by default, but let that ONE host maintain a short-lived
-    // warm burst sized to the machine instead of making every shell call pay the
-    // ~300ms pwsh startup cost.
-    if (env?.MIXDOG_DAEMON_HOST !== '1') return 0;
-    let cores = Number(parallelism);
-    if (!Number.isFinite(cores) || cores < 1) {
-        try { cores = availableParallelism(); } catch { cores = 1; }
-    }
-    let free = freeMemoryBytes == null ? Number.NaN : Number(freeMemoryBytes);
-    if (!Number.isFinite(free) || free < 0) {
-        try { free = freemem(); } catch { free = 0; }
-    }
-    const cpuTarget = Math.max(1, Math.min(4, Math.floor(cores) - 1 || 1));
-    if (free < 768 * MB) return 0;
-    if (free < 1536 * MB) return Math.min(1, cpuTarget);
-    if (free < 3072 * MB) return Math.min(2, cpuTarget);
-    if (free < 6144 * MB) return Math.min(4, cpuTarget);
-    return cpuTarget;
+    // Windows CreateProcess + AV blocks the event loop. Keep several warm
+    // pwsh processes so a parallel shell burst does not stall graph/patch.
+    return 4;
 }
 
 function _poolTarget() {
     return _resolvePwshPoolTarget();
 }
-const POOL_TARGET = _poolTarget();
 const _envIdleMs = Math.floor(Number(process.env.MIXDOG_PWSH_STANDBY_IDLE_MS));
 const STANDBY_IDLE_MS = Number.isFinite(_envIdleMs) && _envIdleMs >= 0
     ? _envIdleMs
-    : 60_000;
+    : 0;
 const _envBurstWaitMs = Math.floor(Number(process.env.MIXDOG_PWSH_STANDBY_BURST_WAIT_MS));
 const STANDBY_BURST_WAIT_MS = Number.isFinite(_envBurstWaitMs) && _envBurstWaitMs >= 0
     ? _envBurstWaitMs
-    : 2_000;
+    : 0;
 const EXPECTED_ARGS = Object.freeze(['-NoLogo', '-NoProfile', '-NonInteractive', '-Command']);
 
 // Marker-loop bootstrap: the standby serves MANY commands over its lifetime.
@@ -351,7 +329,7 @@ function _poolSizeForSignature(sig) {
 }
 
 function _topUp(shell, env, sig) {
-    while (_poolSizeForSignature(sig) < POOL_TARGET) _spawnStandby(shell, env, sig);
+    while (_poolSizeForSignature(sig) < _poolTarget()) _spawnStandby(shell, env, sig);
 }
 
 function _releaseTaken(entry) {
@@ -366,7 +344,7 @@ function _releaseTaken(entry) {
  * wires its stdio/exit handlers FIRST and then calls feed() exactly once.
  */
 export function takePwshStandby({ shell, shellArgs, env }) {
-    if (process.platform !== 'win32' || POOL_TARGET === 0) return null;
+    if (process.platform !== 'win32' || _poolTarget() === 0) return null;
     const stem = basename(String(shell || '')).toLowerCase();
     if (stem !== 'pwsh' && stem !== 'pwsh.exe') return null;
     if (!Array.isArray(shellArgs)
@@ -381,7 +359,6 @@ export function takePwshStandby({ shell, shellArgs, env }) {
         for (const entry of _idle.splice(0)) _killEntry(entry);
         _envSig = sig;
     }
-    _topUp(shell, env, sig);
     let entry = null;
     for (let i = 0; i < _idle.length; i += 1) {
         const cand = _idle[i];
@@ -392,7 +369,9 @@ export function takePwshStandby({ shell, shellArgs, env }) {
         entry = cand;
         break;
     }
-    if (!entry) return null;
+    if (!entry) {
+        return null;
+    }
     entry.taken = true;
     entry.consumed = false;
     _taken.add(entry);
@@ -406,7 +385,6 @@ export function takePwshStandby({ shell, shellArgs, env }) {
         entry.child.stdout?.ref?.();
         entry.child.stderr?.ref?.();
     } catch { /* best-effort */ }
-    _topUp(shell, env, sig);
     // Fresh token per command: DONE markers are only valid when they echo
     // this token, so any straggler marker from a previous command on the
     // same entry (same nonce) is inert for this capture.
@@ -465,7 +443,7 @@ export function takePwshStandby({ shell, shellArgs, env }) {
                 } catch { dirty = true; }
             }
             if (dirty || !alive() || !c.stdin || c.stdin.destroyed
-                || _idle.length >= POOL_TARGET || _envSig !== entry.sig) {
+                || _idle.length >= _poolTarget() || _envSig !== entry.sig) {
                 _releaseTaken(entry);
                 try { killProcessTree(c.pid, 'SIGKILL'); } catch { /* already down */ }
                 _killEntry(entry);
@@ -504,17 +482,15 @@ export function takePwshStandby({ shell, shellArgs, env }) {
 }
 
 /**
- * Burst-aware adoption for real shell calls. A saturated warm pool gets a
- * short bounded chance to return a standby before the caller cold-spawns
- * another pwsh. Long commands still fall back after the deadline, so this is
- * not a fixed shell-concurrency cap.
+ * Optional diagnostic wait override. Production defaults to zero: a saturated
+ * singleton standby immediately falls through to a cold pwsh spawn.
  */
 export async function takePwshStandbyBurst(spec, {
     waitMs = STANDBY_BURST_WAIT_MS,
     signal = null,
 } = {}) {
     let standby = takePwshStandby(spec);
-    if (standby || !(waitMs > 0) || process.platform !== 'win32' || POOL_TARGET === 0) {
+    if (standby || !(waitMs > 0) || process.platform !== 'win32' || _poolTarget() === 0) {
         return standby;
     }
     const deadline = Date.now() + waitMs;
@@ -533,7 +509,7 @@ export async function takePwshStandbyBurst(spec, {
  * startup cost. Best-effort; returns true when standbys were ensured.
  */
 export function prewarmPwshStandbyPool({ shell, shellArgs, env }) {
-    if (process.platform !== 'win32' || POOL_TARGET === 0) return false;
+    if (process.platform !== 'win32' || _poolTarget() === 0) return false;
     const stem = basename(String(shell || '')).toLowerCase();
     if (stem !== 'pwsh' && stem !== 'pwsh.exe') return false;
     if (!Array.isArray(shellArgs)
@@ -548,4 +524,23 @@ export function prewarmPwshStandbyPool({ shell, shellArgs, env }) {
     }
     _topUp(shell, env, sig);
     return true;
+}
+
+function _readyIdleCount() {
+    return _idle.filter((entry) => entry.ready
+        && entry.child.exitCode === null
+        && entry.child.signalCode === null).length;
+}
+
+export async function waitPwshStandbysReady({
+    min = _poolTarget(),
+    timeoutMs = 4_000,
+} = {}) {
+    if (process.platform !== 'win32' || _poolTarget() === 0) return 0;
+    const want = Math.max(0, Math.min(_poolTarget(), Math.floor(Number(min) || 0)));
+    const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+    while (_readyIdleCount() < want && Date.now() < deadline) {
+        await _waitForStandbyChange(Math.max(1, deadline - Date.now()));
+    }
+    return _readyIdleCount();
 }

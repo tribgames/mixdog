@@ -44,10 +44,12 @@ import {
     _withLoadedProviderCtorForTest,
     _withRegisteredProviderForTest,
     providerCatalogRevision,
+    refreshCatalogs,
     refreshProviderCatalogsOnStartup,
 } from '../src/runtime/agent/orchestrator/providers/registry.mjs';
 import { providerCachedModelMetadataSync } from '../src/runtime/agent/orchestrator/providers/provider-catalog-cache.mjs';
 import { readRuntimeTunables } from '../src/session-runtime/runtime-tunables.mjs';
+import { effortOptionsFor } from '../src/session-runtime/effort.mjs';
 import {
     consumeOpenAICodexResetCredit,
     fetchOpenAICodexResetCredits,
@@ -86,6 +88,9 @@ test('startup provider catalog refresh runs once for every session runtime in th
         return [first, second];
     });
     await Promise.all(requests);
+    assert.equal(refreshes, 1);
+    assert.equal(providerCatalogRevision(), before + 1);
+    await _withRegisteredProviderForTest('catalog-startup-test', new CatalogProvider(), () => refreshCatalogs());
     assert.equal(refreshes, 1);
     assert.equal(providerCatalogRevision(), before + 1);
 });
@@ -328,6 +333,43 @@ test('Grok provider cache never reports a derived context-sized output ceiling',
         const meta = providerCachedModelMetadataSync('grok-oauth', 'grok-output-regression');
         assert.equal(meta.contextWindow, 500000);
         assert.equal(meta.outputTokens, null);
+    } finally {
+        unlinkSync(cacheFile);
+    }
+});
+
+test('Grok catalog reasoningOptions replace stale hardcoded effort levels', async () => {
+    const cacheFile = join(process.env.MIXDOG_DATA_DIR, 'grok-oauth-models.json');
+    writeFileSync(cacheFile, JSON.stringify({
+        version: 1,
+        fetchedAt: Date.now(),
+        models: [{
+            id: 'grok-4.6',
+            provider: 'grok-oauth',
+            family: 'grok',
+            reasoningLevels: ['none', 'low', 'medium', 'high'],
+            reasoningOptions: [{ type: 'effort', values: ['low', 'medium', 'high', 'xhigh'] }],
+            contextWindow: 500000,
+            created: Date.now() / 1000,
+            mode: 'chat',
+        }],
+    }));
+    try {
+        const models = await new GrokOAuthProvider({ preconnect: false }).listModels();
+        const grok = models.find((model) => model.id === 'grok-4.6');
+        assert.deepEqual(grok.reasoningLevels, ['low', 'medium', 'high', 'xhigh']);
+        assert.deepEqual(
+            effortOptionsFor('grok-oauth', grok),
+            ['low', 'medium', 'high', 'xhigh'],
+        );
+        assert.deepEqual(
+            effortOptionsFor('grok-oauth', {
+                family: 'grok',
+                reasoningLevels: ['none', 'low', 'medium', 'high'],
+                reasoningOptions: [{ type: 'effort', values: ['low', 'medium', 'high', 'xhigh'] }],
+            }),
+            ['low', 'medium', 'high', 'xhigh'],
+        );
     } finally {
         unlinkSync(cacheFile);
     }
@@ -668,6 +710,10 @@ test('provider-specific thinking fields do not leak across compat contracts', ()
     assert.deepEqual(
         applyCompatProviderChatOptions({}, 'xai', { effort: 'high' }),
         { reasoning_effort: 'high' },
+    );
+    assert.deepEqual(
+        applyCompatProviderChatOptions({}, 'xai', { effort: 'xhigh' }),
+        { reasoning_effort: 'xhigh' },
     );
     assert.deepEqual(applyCompatProviderChatOptions({}, 'deepseek'), {});
 });

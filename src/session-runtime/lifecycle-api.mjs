@@ -246,6 +246,10 @@ export function createLifecycleApi(deps) {
         clearTimeout(prewarmTimers.codeGraphPrewarmTimer);
         prewarmTimers.codeGraphPrewarmTimer = null;
       }
+      if (prewarmTimers.searchRuntimeWarmupTimer) {
+        clearTimeout(prewarmTimers.searchRuntimeWarmupTimer);
+        prewarmTimers.searchRuntimeWarmupTimer = null;
+      }
       for (const timerKey of ['statuslineUsageWarmupTimer', 'statuslineUsageRefreshTimer']) {
         if (warmupTimers[timerKey]) {
           clearTimeout(warmupTimers[timerKey]);

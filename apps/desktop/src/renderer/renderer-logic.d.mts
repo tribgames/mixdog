@@ -47,6 +47,7 @@ export function shouldNavigatePromptHistory(input?: {
   metaKey?: boolean;
   altKey?: boolean;
   historyActive?: boolean;
+  allowNonEmpty?: boolean;
 }): boolean;
 export function shouldRestoreInterruptedPrompt(input?: {
   hasDraft?: boolean;
@@ -61,6 +62,15 @@ export function shouldBlockPromptSubmit(input?: {
   submitting?: boolean;
   draftMode?: boolean;
   slashCommand?: boolean;
+}): boolean;
+export function hasSendablePromptContent(input?: {
+  text?: string;
+  attachments?: Array<{ token?: string; chipOnly?: boolean }>;
+}): boolean;
+export function shouldStopComposerGeneration(input?: {
+  turnBusy?: boolean;
+  text?: string;
+  attachments?: Array<{ token?: string; chipOnly?: boolean }>;
 }): boolean;
 export function mergeModelCatalog<T extends { provider?: string; model?: string }>(
   current: T[] | undefined,

@@ -142,6 +142,10 @@ export class SessionHost implements DesktopService {
   private readonly sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
   private readonly sessionProjections = new Map<string, SessionProjection>();
   private readonly visibleSessionIds = new Set<string>();
+  /** A new runtime exists on disk before its first prompt/title is accepted.
+   *  Keep watcher scans from exposing that half-created row ahead of the
+   *  renderer's atomic draft promotion. */
+  private readonly pendingCatalogSessionIds = new Set<string>();
   private readonly projects: DesktopProjectRegistry;
   private readonly sessionMetadata: DesktopSessionMetadata;
   private readonly sessionClient: SessionClient;
@@ -633,7 +637,10 @@ export class SessionHost implements DesktopService {
         : [];
       this.sessionCatalogLoaded = true;
       this.ensureStoreWatcher();
-      return this.sessionCatalog();
+      const sessions = this.sessionCatalog();
+      return this.pendingCatalogSessionIds.size === 0
+        ? sessions
+        : sessions.filter((session) => !this.pendingCatalogSessionIds.has(session.id));
     })();
     this.sessionCatalogPromise = pending;
     try {
@@ -779,6 +786,7 @@ export class SessionHost implements DesktopService {
       this.callOptions(`session-create:${process.pid}:${randomUUID()}`),
     );
     const sessionId = sessionIdOf(created.sessionId);
+    this.pendingCatalogSessionIds.add(sessionId);
     this.applySessionResult(sessionId, created);
     try {
       if (draft.workflowId) {
@@ -792,10 +800,13 @@ export class SessionHost implements DesktopService {
           ...(typeof draft.route.fast === 'boolean' ? { fast: draft.route.fast } : {}),
           applyToCurrentSession: true,
         }]);
-        // setRoute already persists and projects fast. Keep setFast(true)'s
-        // strict unsupported-model contract: setRoute normally clamps an
-        // unsupported explicit fast request to false instead of throwing.
-        if (draft.route.fast === true && routeResult.snapshot?.fast !== true) {
+        const resolvedRoute = routeResult.value && typeof routeResult.value === 'object'
+          ? routeResult.value as Record<string, unknown>
+          : null;
+        // Validate against setRoute's authoritative result. Its projected
+        // snapshot is delivered independently and may still describe the
+        // pre-route state during the first task after startup.
+        if (draft.route.fast === true && resolvedRoute?.fast !== true) {
           throw new Error(
             `fast mode is not available for ${draft.route.provider}/${draft.route.model}`,
           );
@@ -835,6 +846,7 @@ export class SessionHost implements DesktopService {
       if (draft.remote === true) {
         void this.invokeSession(sessionId, 'claimRemote').catch(() => undefined);
       }
+      this.pendingCatalogSessionIds.delete(sessionId);
       void this.publishCatalogs();
       return { accepted: true, sessionId, snapshot };
     } catch (error) {
@@ -842,6 +854,8 @@ export class SessionHost implements DesktopService {
         await this.sessionClient.unsubscribe({ sessionId }, this.callOptions());
       } catch {}
       throw error;
+    } finally {
+      this.pendingCatalogSessionIds.delete(sessionId);
     }
   }
 
@@ -1009,8 +1023,11 @@ export class SessionHost implements DesktopService {
 
   private publishSessionCatalog(sessions: DesktopSessionSummary[]): void {
     if (this.disposed) return;
+    const visible = this.pendingCatalogSessionIds.size === 0
+      ? sessions
+      : sessions.filter((session) => !this.pendingCatalogSessionIds.has(session.id));
     for (const listener of [...this.sessionListeners]) {
-      try { listener(sessions); } catch {}
+      try { listener(visible); } catch {}
     }
   }
 

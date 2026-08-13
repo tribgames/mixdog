@@ -541,7 +541,19 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
             (kept) => _locatorBudgetFooter(toolName, args, kept, _locatorCap),
         )
         : _withNotices;
-    return capToolOutput(_budgetedResult, _capOptions);
+    const _finalResult = capToolOutput(_budgetedResult, _capOptions);
+    if (
+        toolName === 'shell'
+        && options?.resultTelemetry
+        && typeof options.resultTelemetry === 'object'
+        && Number.isFinite(options.resultTelemetry.commandOutputBytes)
+        && typeof _toolResult === 'string'
+        && typeof _finalResult === 'string'
+    ) {
+        options.resultTelemetry.shellResultBytes = Buffer.byteLength(_toolResult, 'utf8');
+        options.resultTelemetry.toolResultBytes = Buffer.byteLength(_finalResult, 'utf8');
+    }
+    return _finalResult;
 }
 
 // Surface arg-guard clamp notices (args._clampNotices, see pushClampNotice in

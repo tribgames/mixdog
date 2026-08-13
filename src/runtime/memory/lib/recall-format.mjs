@@ -1,4 +1,5 @@
 import { cleanMemoryText } from './memory.mjs'
+import { formatRecallTimestamp, localTimestampParts } from '../../shared/time-format.mjs'
 
 // Recall query/format helpers extracted verbatim from index.mjs
 // (behavior-preserving). Pure string/date logic plus row rendering.
@@ -101,12 +102,17 @@ export function parsePeriod(period, hasQuery) {
   return null
 }
 
-export function formatTs(tsMs) {
+export function formatTs(tsMs, options = {}) {
   const n = Number(tsMs)
   if (Number.isFinite(n) && n > 1e12) {
-    return new Date(n).toLocaleString('sv-SE').slice(0, 16)
+    return formatRecallTimestamp(n, options)
   }
   return String(tsMs ?? '').slice(0, 16)
+}
+
+function formatLocalMinute(tsMs) {
+  const parts = localTimestampParts(Number(tsMs))
+  return parts ? `${parts.date} ${parts.time.slice(0, 5)}` : String(tsMs ?? '').slice(0, 16)
 }
 
 const CORE_RECALL_STOPWORDS = new Set([
@@ -358,8 +364,8 @@ function collectGroupTs(groupRows) {
 // Activity-span header suffix: `(MM-DD HH:mm ~ HH:mm, n entries)`; the end keeps the
 // MM-DD prefix only when it falls on a different calendar day than the start.
 function spanHeaderSuffix(minTs, maxTs, n) {
-  const min = formatTs(minTs) // "YYYY-MM-DD HH:mm"
-  const max = formatTs(maxTs)
+  const min = formatLocalMinute(minTs) // "YYYY-MM-DD HH:mm"
+  const max = formatLocalMinute(maxTs)
   const startPart = min.slice(5) // "MM-DD HH:mm"
   const endPart = min.slice(0, 10) === max.slice(0, 10) ? max.slice(11) : max.slice(5)
   return `(${startPart} ~ ${endPart}, ${n} entries)`

@@ -1,5 +1,6 @@
 import { readdirSync, watch } from 'fs';
 import { basename, isAbsolute, relative } from 'path';
+import { spawn } from 'node:child_process';
 import {
     coerceReadFamilyPathArg,
     extractGlobBaseDirectory,
@@ -35,9 +36,13 @@ import {
     LOCATOR_OUTPUT_MAX_BYTES,
     TOOL_OUTPUT_MAX_BYTES,
 } from './tool-output-limit.mjs';
-import { runRg } from './rg-runner.mjs';
+import { runRg, runRgWindowedLines } from './rg-runner.mjs';
 import { hasSpareCapacity as childSpawnHasSpareCapacity } from '../../../../shared/child-spawn-gate.mjs';
-import { fuzzyRank } from './fuzzy-match.mjs';
+import { fuzzyRank, prepareFuzzyItems } from './fuzzy-match.mjs';
+import {
+    recordLocalSearchCacheHit,
+    recordLocalSearchIndex,
+} from './local-search-telemetry.mjs';
 import { assertPathReachable } from './fs-reachability.mjs';
 import { listGuardPath, normalizeListHeadLimit, readFamilyPathEnoentOrError } from './lib/list-helpers.mjs';
 
@@ -414,7 +419,7 @@ export async function executeTreeTool(args, workDir, options = {}) {
 // key with in-flight promise dedup (N concurrent callers share ONE sweep)
 // plus a short TTL for serial reuse. Truncated/partial sweeps are
 // known-incomplete and are NEVER cached.
-const FIND_ENUM_CACHE = new Map(); // key -> { files, expiresAt, gen }
+const FIND_ENUM_CACHE = new Map(); // key -> { files, items, expiresAt, gen }
 const FIND_ENUM_INFLIGHT = new Map(); // key -> { promise, controller, subscribers }
 const FIND_TARGETED_BATCHES_BY_RUNNER = new WeakMap();
 const FIND_ENUM_ROOT_GEN = new Map();
@@ -563,6 +568,85 @@ function parseRgFileList(stdout) {
         .map((p) => normalizeOutputPath(p.replace(/^\.[/\\]/, '')));
 }
 
+const GIT_INVENTORY_TIMEOUT_MS = 5_000;
+
+function filterGitInventoryPaths(files, { hidden, depth, includeNoise }) {
+    const out = [];
+    const noiseOnWin = process.platform === 'win32';
+    for (const raw of files) {
+        const rel = normalizeOutputPath(String(raw || '').replace(/^\.[/\\]/, ''));
+        if (!rel) continue;
+        const parts = rel.split('/');
+        if (!hidden && parts.some((part) => part.startsWith('.'))) continue;
+        if (depth != null && parts.length > depth) continue;
+        if (!includeNoise && parts.some((part) => (
+            NOISE_DIR_NAMES.has(part) || (noiseOnWin && NOISE_DIR_NAMES.has(part.toLowerCase()))
+        ))) continue;
+        out.push(rel);
+    }
+    return out;
+}
+
+function listGitInventory(cwd, { hidden, depth, includeNoise, signal } = {}) {
+    if (process.env.MIXDOG_FIND_ENUM_GIT === '0') return Promise.resolve(null);
+    return new Promise((resolve) => {
+        let settled = false;
+        let child = null;
+        let onAbort = null;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            if (onAbort && signal) {
+                try { signal.removeEventListener('abort', onAbort); } catch { /* ignore */ }
+            }
+            resolve(value);
+        };
+        const timer = setTimeout(() => {
+            try { child?.kill(); } catch { /* ignore */ }
+            finish(null);
+        }, GIT_INVENTORY_TIMEOUT_MS);
+        timer.unref?.();
+        try {
+            child = spawn('git', [
+                '-c', 'core.quotepath=false',
+                'ls-files', '--cached', '--others', '--exclude-standard', '-z',
+            ], {
+                cwd,
+                windowsHide: true,
+                stdio: ['ignore', 'pipe', 'ignore'],
+            });
+        } catch {
+            finish(null);
+            return;
+        }
+        const chunks = [];
+        onAbort = () => {
+            try { child.kill(); } catch { /* ignore */ }
+            finish(null);
+        };
+        if (signal?.aborted) {
+            onAbort();
+            return;
+        }
+        signal?.addEventListener?.('abort', onAbort, { once: true });
+        child.stdout?.on('data', (chunk) => { chunks.push(chunk); });
+        child.on('error', () => finish(null));
+        child.on('close', (code) => {
+            if (code !== 0) {
+                finish(null);
+                return;
+            }
+            const files = filterGitInventoryPaths(
+                Buffer.concat(chunks).toString('utf8').split('\0'),
+                { hidden, depth, includeNoise },
+            );
+            files.sort();
+            finish(files);
+        });
+    });
+}
+
 function findEnumerationAbortError(signal) {
     const reason = signal?.reason;
     return reason instanceof Error ? reason : new Error(String(reason || 'find canceled'));
@@ -619,7 +703,8 @@ async function getBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMo
     if (ttl > 0) {
         const hit = FIND_ENUM_CACHE.get(key);
         if (hit && hit.gen === FIND_ENUM_GEN && hit.rootGen === rootGen && hit.expiresAt > Date.now()) {
-            return { files: hit.files, truncated: false, partial: false };
+            recordLocalSearchIndex('hit', hit.files.length);
+            return { files: hit.files, items: hit.items, truncated: false, partial: false };
         }
         if (hit) FIND_ENUM_CACHE.delete(key); // expired
     }
@@ -634,18 +719,56 @@ async function getBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMo
     // spawn when the gate has no spare capacity, returning a known-incomplete
     // result — and skipping BEFORE registering FIND_ENUM_INFLIGHT so a real
     // caller is never attached to (or cache-poisoned by) a skipped warm.
+    const allowGit = process.env.MIXDOG_FIND_ENUM_GIT !== '0'
+        && ignoreMode === 'git'
+        && runRgImpl === runRg;
     if (bestEffort && !childSpawnHasSpareCapacity()) {
-        return { files: [], truncated: false, partial: true };
+        return { files: [], items: [], truncated: false, partial: true };
     }
     const genAtStart = FIND_ENUM_GEN;
     const rootGenAtStart = rootGen;
     const controller = new AbortController();
     const entry = { promise: null, controller, subscribers: new Set() };
     entry.promise = (async () => {
-        const stdout = await runRgImpl(rgArgs, { cwd, signal: controller.signal });
-        const truncated = Boolean(stdout && typeof stdout === 'object' && stdout.truncated);
-        const partial = Boolean(stdout && typeof stdout === 'object' && stdout.partial);
-        const files = parseRgFileList(stdout);
+        if (allowGit) {
+            const gitFiles = await listGitInventory(cwd, {
+                hidden, depth, includeNoise, signal: controller.signal,
+            });
+            if (Array.isArray(gitFiles)) {
+                const items = prepareFuzzyItems(gitFiles);
+                recordLocalSearchIndex('build', gitFiles.length);
+                if (ttl > 0 && FIND_ENUM_GEN === genAtStart
+                    && findEnumerationRootGeneration(root) === rootGenAtStart) {
+                    const watched = ensureFindEnumerationWatcher(root);
+                    FIND_ENUM_CACHE.set(key, {
+                        files: gitFiles,
+                        items,
+                        expiresAt: watched ? Number.MAX_SAFE_INTEGER : Date.now() + ttl,
+                        gen: genAtStart,
+                        rootGen: rootGenAtStart,
+                    });
+                }
+                return { files: gitFiles, items, truncated: false, partial: false };
+            }
+        }
+        let truncated = false;
+        let partial = false;
+        let files;
+        if (runRgImpl === runRg) {
+            const served = await runRgWindowedLines(rgArgs, {
+                cwd, timeout: 10_000, signal: controller.signal,
+            }, { offset: 0, limit: 50_000 });
+            files = parseRgFileList(served.lines.join('\n'));
+            truncated = served.complete !== true || served.truncated === true;
+            partial = served.partial === true || served.timeout === true;
+        } else {
+            const stdout = await runRgImpl(rgArgs, { cwd, signal: controller.signal });
+            truncated = Boolean(stdout && typeof stdout === 'object' && stdout.truncated);
+            partial = Boolean(stdout && typeof stdout === 'object' && stdout.partial);
+            files = parseRgFileList(stdout);
+        }
+        const items = prepareFuzzyItems(files);
+        recordLocalSearchIndex('build', files.length);
         // Never cache a truncated/partial sweep — it is known-incomplete, so a
         // later query with a larger head_limit must re-run the enumeration.
         // Also never let an in-flight prewarm/real sweep repopulate after a
@@ -656,12 +779,13 @@ async function getBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMo
             const watched = ensureFindEnumerationWatcher(root);
             FIND_ENUM_CACHE.set(key, {
                 files,
+                items,
                 expiresAt: watched ? Number.MAX_SAFE_INTEGER : Date.now() + ttl,
                 gen: genAtStart,
                 rootGen: rootGenAtStart,
             });
         }
-        return { files, truncated, partial };
+        return { files, items, truncated, partial };
     })();
     FIND_ENUM_INFLIGHT.set(key, entry);
     const cleanup = () => {
@@ -694,22 +818,14 @@ export async function prewarmFindEnumeration(root) {
         if (!root || typeof root !== 'string') return;
         const hidden = true, includeNoise = false, depth = null;
         const common = ['--files', '--no-require-git', '--hidden'];
-        const all = ['--files', '--no-ignore', '--hidden'];
         for (const ex of DEFAULT_IGNORE_GLOBS) {
             common.push('--glob', ex);
-            all.push('--glob', ex);
         }
         common.push('.');
-        all.push('.');
         await getBroadEnumeration({
             root: normalizeOutputPath(root),
             hidden, depth, includeNoise, ignoreMode: 'git',
             rgArgs: common, cwd: root, bestEffort: true,
-        });
-        await getBroadEnumeration({
-            root: normalizeOutputPath(root),
-            hidden, depth, includeNoise, ignoreMode: 'targeted-all',
-            rgArgs: all, cwd: root, bestEffort: true,
         });
     } catch { /* best-effort warm; never surface */ }
 }
@@ -741,7 +857,7 @@ async function getTargetedFindEnumeration({
         hidden,
         depth,
         includeNoise,
-        ignoreMode: 'targeted-all',
+        ignoreMode: includeNoise ? 'all' : 'git',
     });
     if (inventory) {
         const lowerTerms = terms.map((term) => term.toLowerCase());
@@ -771,7 +887,7 @@ async function getTargetedFindEnumeration({
         setImmediate(async () => {
             if (batches.get(batchKey) === batch) batches.delete(batchKey);
             if (batch.waiters.size === 0) return;
-            const rgArgs = ['--files', '--no-ignore'];
+            const rgArgs = ['--files', includeNoise ? '--no-ignore' : '--no-require-git'];
             if (hidden) rgArgs.push('--hidden');
             if (depth != null) rgArgs.push('--max-depth', String(depth));
             for (const query of batch.terms) {
@@ -936,7 +1052,10 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
         _findOutputBudgetBytes(options),
         () => `... [find result budget reached for query=${JSON.stringify(query)}; narrow path/limit]`,
     );
-    if (cached !== null) return capFindResult(cached);
+    if (cached !== null) {
+        recordLocalSearchCacheHit('result');
+        return capFindResult(cached);
+    }
     // Common discovery respects .gitignore even outside a Git repository.
     // include_noise deliberately retains the old hardened --no-ignore behavior.
     // Noise dirs stay excluded via DEFAULT_IGNORE_GLOBS below.
@@ -990,18 +1109,12 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     let rgTruncated = broadEnum.truncated;
     let rgPartial = broadEnum.partial;
     const batchContext = options?.__findBatchContext;
-    let passOneItems = batchContext?.itemsByFiles?.get(broadEnum.files);
+    let passOneItems = broadEnum.items || batchContext?.itemsByFiles?.get(broadEnum.files);
     if (!passOneItems) {
-        passOneItems = broadEnum.files.map((path) => ({ path }));
+        passOneItems = prepareFuzzyItems(broadEnum.files);
         batchContext?.itemsByFiles?.set(broadEnum.files, passOneItems);
     }
-    // Any single path segment is an exact-name candidate, including names with
-    // spaces, extensionless names, and literal glob characters. The comparison
-    // below is direct, so glob syntax has no special meaning in this decision.
-    const exactFilenameQuery = !/[\\/]/.test(query);
     const queryLower = query.toLowerCase();
-    const passOneHasExactBasename = !exactFilenameQuery || broadEnum.files.some((path) =>
-        path.slice(path.lastIndexOf('/') + 1).toLowerCase() === queryLower);
     const rankLimit = headLimit > 0 ? headLimit + 1 : headLimit;
     const passOneRanked = fuzzyRank(query, passOneItems, rankLimit);
     const passOneHasCandidate = passOneRanked.length > 0;
@@ -1010,7 +1123,7 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     // A full --no-ignore enumeration can exceed 20MB, then trigger one more
     // whole-tree narrowed pass PER query. Probe only requested names instead,
     // unioning every query in this find batch into one rg process.
-    if (rgTruncated || rgPartial || (!includeNoise && (!passOneHasCandidate || !passOneHasExactBasename))) {
+    if (rgTruncated || rgPartial || !passOneHasCandidate) {
         try {
             const targeted = await getTargetedFindEnumeration({
                 context: batchContext,
@@ -1034,15 +1147,17 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     // Merge common + targeted results, preserving common-path order.
     const seen = new Set();
     const items = [];
-    for (const p of broadEnum.files) {
+    for (const item of passOneItems) {
+        const p = item.path;
         if (seen.has(p)) continue;
         seen.add(p);
-        items.push({ path: p });
+        items.push(item);
     }
-    for (const p of targetedPaths) {
+    for (const item of prepareFuzzyItems(targetedPaths)) {
+        const p = item.path;
         if (seen.has(p)) continue;
         seen.add(p);
-        items.push({ path: p });
+        items.push(item);
     }
     const rankedRaw = targetedPaths.length > 0
         ? fuzzyRank(query, items, rankLimit)

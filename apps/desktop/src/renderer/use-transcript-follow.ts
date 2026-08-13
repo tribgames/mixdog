@@ -10,10 +10,11 @@ import {
 /**
  * Transcript auto-scroll + session scroll-gesture grammar.
  *
- * The hook owns userScrolled, the 250ms gesture window, auto-write suppression,
- * the 10px return band, and the content ResizeObserver. TranscriptList owns
- * virtual row geometry, append following, and measured-size anchoring. No
- * pane-width or viewport observer adapter sits between those two owners.
+ * The hook owns userScrolled, the 250ms gesture window, the 10px return band,
+ * and the content ResizeObserver. TranscriptList owns EVERY scroll write:
+ * virtual row geometry, append following, and measured-size anchoring.
+ * This hook asks for scrollToEnd only on an explicit resume or a viewport
+ * resize that the core cannot see.
  */
 const GESTURE_WINDOW_MS = 250;
 // Keep reader ownership alive between native wheel/touch/scrollbar frames.
@@ -32,6 +33,7 @@ const SCROLL_KEYS = ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"
 // reader intent; the reference implementation never sees it because it does not
 // virtualize (user: 병렬 작업 중 타이핑하면 스크롤이 계속 풀린다).
 const RELEASE_MOVE_PX = 1;
+const POINTER_DRAG_PX = 4;
 // Programmatic writes arrive in BURSTS: one measurement commit can move the
 // offset several times (core adjustment, spacer growth, end re-pin) before a
 // single scroll event lands. Remembering only the last one made every earlier
@@ -68,6 +70,45 @@ export function grewWhileAtBottom({
   if (!Number.isFinite(distanceBefore) || !Number.isFinite(growth)) return false;
   if (growth <= 0) return false;
   return distanceBefore < threshold;
+}
+
+/** Scrollbar / empty padding: the event target IS the overflow root. */
+export function isTranscriptChromeTarget(
+  root: EventTarget | null,
+  target: EventTarget | null,
+): boolean {
+  return root != null && target === root;
+}
+
+/** Click, caret, and in-place selection stay armed. Only an upward leave
+ *  from the tail unlocks follow (and with it end-anchored wrap). */
+export function pointerShouldReleaseFollow({
+  distance,
+  upwardMove,
+  threshold = BOTTOM_THRESHOLD_PX,
+}: {
+  distance: number;
+  upwardMove: number;
+  threshold?: number;
+}): boolean {
+  if (!Number.isFinite(distance) || !Number.isFinite(upwardMove)) return false;
+  if (distance < threshold) return false;
+  return upwardMove > RELEASE_MOVE_PX;
+}
+
+/** Follow releases only on a real reader leave: wheel, scrollbar, or key.
+ *  Tool resize and content clicks change scrollTop but are not a leave. */
+export function readerScrollShouldReleaseFollow({
+  programmatic,
+  chromePointer,
+  upwardMove,
+}: {
+  programmatic: boolean;
+  chromePointer: boolean;
+  upwardMove: number;
+}): boolean {
+  if (programmatic || !chromePointer) return false;
+  return upwardMove > RELEASE_MOVE_PX;
 }
 
 function reportRelease(reason: string, element: HTMLElement, previousTop: number): void {
@@ -157,6 +198,7 @@ export interface TranscriptFollow {
   handleWheel(event: WheelLike): void;
   handlePointerDown(event: PointerLike): void;
   handlePointerMove(event: PointerLike): void;
+  handlePointerUp(): void;
   handleTouchStart(event: TouchLike): void;
   handleTouchMove(event: TouchLike): void;
   handleTouchEnd(): void;
@@ -175,6 +217,7 @@ export function useTranscriptFollow({
   sessionKey,
   contentMounted = true,
   setAnchorBottomRef,
+  scrollToEndRef,
 }: {
   viewport: RefObject<HTMLDivElement | null>;
   content: RefObject<HTMLDivElement | null>;
@@ -187,6 +230,9 @@ export function useTranscriptFollow({
    *  core's end anchor rolls back every frame it still owns — a wheel notch
    *  inside the core's end band was reversed before the release could land. */
   setAnchorBottomRef?: MutableRefObject<(bottom: boolean) => void>;
+  /** Bottom correction requests cross this boundary; the hook never writes
+   *  scrollTop itself. TranscriptList resolves them through virtual-core. */
+  scrollToEndRef?: MutableRefObject<(behavior?: ScrollBehavior) => void>;
 }): TranscriptFollow {
   const [following, setFollowing] = useState(true);
   const [showJump, setShowJump] = useState(false);
@@ -195,8 +241,10 @@ export function useTranscriptFollow({
   const readerMotionAt = useRef(0);
   const touchGesture = useRef<number | undefined>(undefined);
   const pointerGesture = useRef<{ x: number; y: number } | undefined>(undefined);
-  const auto = useRef<{ top: number; time: number } | undefined>(undefined);
-  const autoTimer = useRef(0);
+  const chromeScroll = useRef(false);
+  // A content press is not a scroll gesture. A drag that has moved far enough
+  // MAY become one if Chromium autoscrolls the transcript up.
+  const pointerDragging = useRef(false);
   const scrollStateFrame = useRef(0);
   const scrollStateTarget = useRef<HTMLDivElement | null>(null);
   // Offsets WRITTEN by the virtual timeline (append follow, measured-size
@@ -239,28 +287,6 @@ export function useTranscriptFollow({
     [hasGesture],
   );
 
-  const markAuto = useCallback((element: HTMLElement) => {
-    auto.current = {
-      top: Math.max(0, element.scrollHeight - element.clientHeight),
-      time: Date.now(),
-    };
-    window.clearTimeout(autoTimer.current);
-    autoTimer.current = window.setTimeout(() => {
-      auto.current = undefined;
-      autoTimer.current = 0;
-    }, 1_500);
-  }, []);
-
-  const isAuto = useCallback((element: HTMLElement) => {
-    const value = auto.current;
-    if (!value) return false;
-    if (Date.now() - value.time > 1_500) {
-      auto.current = undefined;
-      return false;
-    }
-    return Math.abs(element.scrollTop - value.top) < 2;
-  }, []);
-
   const markProgrammaticScroll = useCallback((top: number, intended?: number) => {
     const time = Date.now();
     const queue = programmatic.current.filter(
@@ -284,29 +310,14 @@ export function useTranscriptFollow({
     return queue.some((entry) => Math.abs(top - entry.top) < 2);
   }, []);
 
-  const scrollToBottomNow = useCallback((
-    element: HTMLElement,
-    behavior: ScrollBehavior,
-  ) => {
-    markAuto(element);
-    if (behavior === "smooth") {
-      element.scrollTo({ top: element.scrollHeight, behavior });
-      return;
-    }
-    element.scrollTop = element.scrollHeight;
-  }, [markAuto]);
-
   const scrollToBottom = useCallback((force: boolean) => {
     const element = viewport.current;
     if (!element) return;
     if (force && !followingRef.current) publish(true);
     if (!force && !followingRef.current) return;
-    if (distanceFromBottom(element) < 2) {
-      markAuto(element);
-      return;
-    }
-    scrollToBottomNow(element, "auto");
-  }, [markAuto, publish, scrollToBottomNow, viewport]);
+    if (distanceFromBottom(element) < 2) return;
+    scrollToEndRef?.current?.("auto");
+  }, [publish, scrollToEndRef, viewport]);
 
   const stop = useCallback((reason = "gesture", previousTop = 0) => {
     const element = viewport.current;
@@ -340,30 +351,6 @@ export function useTranscriptFollow({
       if (target) updateScrollState(target);
     });
   }, [updateScrollState]);
-
-  const handleAutoScroll = useCallback((previousTop: number): boolean => {
-    const element = viewport.current;
-    if (!element) return false;
-    if (!canScroll(element)) {
-      if (!followingRef.current) publish(true);
-      return false;
-    }
-    if (distanceFromBottom(element) < BOTTOM_THRESHOLD_PX) {
-      if (!followingRef.current) publish(true);
-      return false;
-    }
-    if (followingRef.current && isAuto(element)) {
-      scrollToBottom(false);
-      return false;
-    }
-    // The timeline's own write is not a gesture, and neither is a scroll that
-    // did not move UP: append-follow and reflow corrections keep the reader at
-    // the tail, so only an actual upward move carries release intent.
-    if (isProgrammatic(element)) return false;
-    if (previousTop - element.scrollTop <= RELEASE_MOVE_PX) return false;
-    stop("scroll", previousTop);
-    return true;
-  }, [isAuto, isProgrammatic, publish, scrollToBottom, stop, viewport]);
 
   const handleScroll = useCallback(() => {
     const element = viewport.current;
@@ -407,19 +394,25 @@ export function useTranscriptFollow({
       }
       return;
     }
-    if (!hasGesture()) return;
-    // Only a scroll actually attributed to the reader keeps the gesture window
-    // alive; a stream of timeline writes must not hold it open forever.
-    if (handleAutoScroll(previousTop)) markGesture();
+    // A content click must not open the gesture window: a stream wobble in
+    // the next 250ms would then unlock follow (user: 스크립트 클릭하면
+    // 오토스크롤·줄바꿈이 풀린다). Selection autoscroll is the exception —
+    // pointerDragging is armed only after a real 4px drag.
+    if (readerScrollShouldReleaseFollow({
+      programmatic: programmaticScroll,
+      chromePointer: chromeScroll.current,
+      upwardMove: previousTop - element.scrollTop,
+    })) {
+      stop("scroll", previousTop);
+    }
   }, [
-    handleAutoScroll,
-    hasGesture,
     hasReaderScroll,
     isProgrammatic,
     markGesture,
     markReaderMotion,
     publish,
     scheduleScrollState,
+    stop,
     viewport,
   ]);
 
@@ -441,30 +434,38 @@ export function useTranscriptFollow({
   }, [markGesture, stop]);
 
   const handlePointerDown = useCallback((event: PointerLike) => {
-    if (boundaryTarget(event.currentTarget, event.target) === event.currentTarget) {
-      markGesture();
-      pointerGesture.current = event.clientX === undefined || event.clientY === undefined
-        ? undefined
-        : { x: event.clientX, y: event.clientY };
-    } else {
-      pointerGesture.current = undefined;
-    }
+    const root = event.currentTarget;
+    pointerDragging.current = false;
+    chromeScroll.current = isTranscriptChromeTarget(root, event.target);
+    if (chromeScroll.current) markGesture();
+    pointerGesture.current = event.clientX === undefined || event.clientY === undefined
+      ? undefined
+      : { x: event.clientX, y: event.clientY };
   }, [markGesture]);
 
   const handlePointerMove = useCallback((event: PointerLike) => {
     if (event.buttons !== 1) return;
-    if (boundaryTarget(event.currentTarget, event.target) === event.currentTarget) {
-      markGesture();
-      const start = pointerGesture.current;
-      if (start && event.clientX !== undefined && event.clientY !== undefined
-        && Math.hypot(event.clientX - start.x, event.clientY - start.y) >= 4) {
-        pointerGesture.current = undefined;
-        // A live append must not scroll the transcript underneath Chromium's
-        // native text range while the reader is extending it.
-        stop("selection", lastTop.current);
-      }
+    const root = event.currentTarget;
+    const start = pointerGesture.current;
+    if (start && event.clientX !== undefined && event.clientY !== undefined
+      && Math.hypot(event.clientX - start.x, event.clientY - start.y) >= POINTER_DRAG_PX) {
+      pointerDragging.current = true;
+      pointerGesture.current = undefined;
     }
+    if (!pointerDragging.current) return;
+    if (!pointerShouldReleaseFollow({
+      distance: distanceFromBottom(root),
+      upwardMove: lastTop.current - root.scrollTop,
+    })) return;
+    markGesture();
+    stop("selection", lastTop.current);
   }, [markGesture, stop]);
+
+  const handlePointerUp = useCallback(() => {
+    pointerDragging.current = false;
+    pointerGesture.current = undefined;
+    chromeScroll.current = false;
+  }, []);
 
   const handleTouchStart = useCallback((event: TouchLike) => {
     touchGesture.current = event.touches[0]?.clientY;
@@ -488,8 +489,9 @@ export function useTranscriptFollow({
   }, []);
 
   const handleInteraction = useCallback(() => {
-    if (window.getSelection()?.toString()) stop("selection", lastTop.current);
-  }, [stop]);
+    // Click and in-place selection are not scroll intent. Releasing here
+    // unlocked wrap/follow whenever the reader copied a live script line.
+  }, []);
 
   const handleKeyDown = useCallback((event: {
     key: string;
@@ -500,7 +502,10 @@ export function useTranscriptFollow({
     const root = event.currentTarget ?? viewport.current;
     if (!root || boundaryTarget(root, event.target ?? root) !== root) return;
     markGesture();
-  }, [markGesture, viewport]);
+    if (event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home") {
+      stop("key", lastTop.current);
+    }
+  }, [markGesture, stop, viewport]);
 
   const resume = useCallback(() => {
     publish(true);
@@ -595,15 +600,10 @@ export function useTranscriptFollow({
       // the virtual timeline: its end anchor absorbs every rewrap delta
       // pre-paint. Writing scrollTop here too made two scroll authorities race
       // mid-drag — exactly the up/down bounce while narrowing.
-      // CONTENT growth is the other half of this rule. The streaming tail
-      // grows inside its own selector-driven row, so no append and no rows
-      // commit run while it does, and virtual-core re-pins only while the
-      // offset sits inside its own end band: one tall row in a short split
-      // pane leaves that band and the rest of the turn piles up below the fold
-      // with follow still armed (user: 어시스턴트 턴에 자동 스크롤이 안 된다).
-      // A timeline that KEPT its promise leaves the distance at zero, so this
-      // re-pin writes nothing unless the tail was actually lost.
-      if (!viewportHeightChanged && distance < BOTTOM_THRESHOLD_PX) return;
+      // Content growth while following is followOnAppend + wasAtEnd. A second
+      // scrollToEnd here raced the core. Viewport height (composer/pane) is
+      // the one change the core does not own.
+      if (!viewportHeightChanged) return;
       scrollToBottom(false);
     });
     // Virtual-core still owns append and measured-row anchoring; the guard
@@ -627,7 +627,6 @@ export function useTranscriptFollow({
   ]);
 
   useEffect(() => () => {
-    window.clearTimeout(autoTimer.current);
     if (scrollStateFrame.current) window.cancelAnimationFrame(scrollStateFrame.current);
   }, []);
 
@@ -640,6 +639,7 @@ export function useTranscriptFollow({
     handleWheel,
     handlePointerDown,
     handlePointerMove,
+    handlePointerUp,
     handleTouchStart,
     handleTouchMove,
     handleTouchEnd,

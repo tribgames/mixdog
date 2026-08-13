@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { __applyStandaloneToolDefaultsForTest, __renderToolSearchForTest, compactToolSearchDescription, defaultDeferredToolNames, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../src/mixdog-session-runtime.mjs';
-import { applyInitialDeferredToolManifestToBp1, buildDeferredToolManifest } from '../src/runtime/agent/orchestrator/context/collect.mjs';
+import { applyInitialDeferredToolManifestToBp2, buildDeferredToolManifest } from '../src/runtime/agent/orchestrator/context/collect.mjs';
+import { refreshSessionBp3Environment, resetSessionBp3Environment } from '../src/runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { AGENT_TOOL, createStandaloneAgent } from '../src/standalone/agent-tool.mjs';
 import { parseHeadlessRoleCommand } from '../src/app.mjs';
 import { buildHeadlessSpawnArgs } from '../src/headless-role.mjs';
@@ -988,32 +989,148 @@ if (!/^Error[\s:[]/.test(String(shellArgFailOut)) || !/\[shell-tool-failed\]/.te
   throw new Error(`shell tool/preflight failures must be classified as shell-tool-failed Error:\n${shellArgFailOut}`);
 }
 
-// Auto-promotion: a sync foreground command still running past the (soft)
-// promotion budget is detached into a tracked background task and returns the
-// same task_id envelope as explicit async — including when the caller supplied
-// a long total timeout. Shrink the budget so the smoke stays fast.
+function shellTaskId(text) {
+  return (/task_id:\s*(\S+)/i.exec(String(text)) || [])[1] || '';
+}
+function shellNotifyOptions(events, suffix) {
+  const sessionId = `sess_shell_notify_${suffix}_${Date.now()}`;
+  return {
+    sessionId,
+    callerSessionId: sessionId,
+    routingSessionId: sessionId,
+    notifyFn: (text, meta) => {
+      events.push({ text: String(text), meta });
+      return true;
+    },
+  };
+}
+function assertBackgroundStart(label, output) {
+  const text = String(output);
+  const taskId = shellTaskId(text);
+  if (!taskId || !/You will be notified when it completes; do not poll\./i.test(text)) {
+    throw new Error(`${label} must return task_id plus the completion-notification contract:\n${text}`);
+  }
+  return taskId;
+}
+async function assertSingleShellCompletion(events, taskId, label) {
+  await waitForSmoke(
+    () => events.some((event) => event.text.includes(taskId) && event.meta?.type !== 'shell_task_progress'),
+    `${label} completion notification`,
+    5000,
+  );
+  await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+  const matches = events.filter((event) => event.text.includes(taskId) && event.meta?.type !== 'shell_task_progress');
+  if (matches.length !== 1) {
+    throw new Error(`${label} must notify exactly once, got ${matches.length}: ${JSON.stringify(events)}`);
+  }
+}
+
+// Explicit async starts detached and notifies exactly once.
+const shellExplicitNotifyEvents = [];
+const shellExplicitNotifyOptions = shellNotifyOptions(shellExplicitNotifyEvents, 'explicit');
+const shellExplicitAsyncOut = await executeBuiltinTool('shell', {
+  command: 'node -e "setTimeout(() => console.log(\'tool-smoke-explicit-done\'), 300)"',
+  cwd: root,
+  shell: 'powershell',
+  mode: 'async',
+  timeout: 5000,
+}, root, shellExplicitNotifyOptions);
+const shellExplicitTaskId = assertBackgroundStart('shell explicit async', shellExplicitAsyncOut);
+await assertSingleShellCompletion(shellExplicitNotifyEvents, shellExplicitTaskId, 'shell explicit async');
+
+// A one-shot check_after returns immediately, pushes one progress snapshot,
+// and leaves the normal completion notification armed.
+const shellCheckEvents = [];
+const shellCheckOptions = shellNotifyOptions(shellCheckEvents, 'check_after');
+const shellCheckOut = await executeBuiltinTool('shell', {
+  command: 'node -e "console.log(\'tool-smoke-check-after-progress\'); setTimeout(() => console.log(\'tool-smoke-check-after-done\'), 600)"',
+  cwd: root,
+  shell: 'powershell',
+  mode: 'async',
+  timeout: 5000,
+}, root, shellCheckOptions);
+const shellCheckTaskId = assertBackgroundStart('shell check-after start', shellCheckOut);
+const shellImplicitStatus = await executeBuiltinTool('task', {
+  task_id: shellCheckTaskId,
+}, root, shellCheckOptions);
+if (!/status:\s*running/i.test(String(shellImplicitStatus))) {
+  throw new Error(`task_id alone must default to non-blocking status:\n${shellImplicitStatus}`);
+}
+const shellMissingAfterMs = await executeBuiltinTool('task', {
+  action: 'check_after',
+  task_id: shellCheckTaskId,
+}, root, shellCheckOptions);
+if (!/^Error[\s:[]/.test(String(shellMissingAfterMs)) || !/requires explicit "after_ms"/i.test(String(shellMissingAfterMs))) {
+  throw new Error(`task check_after without after_ms must fail explicitly:\n${shellMissingAfterMs}`);
+}
+const shellCheckScheduled = await executeBuiltinTool('task', {
+  action: 'check_after',
+  task_id: shellCheckTaskId,
+  after_ms: 50,
+}, root, shellCheckOptions);
+if (!/progress_check_scheduled:\s*true/i.test(String(shellCheckScheduled))) {
+  throw new Error(`task check_after must schedule without blocking:\n${shellCheckScheduled}`);
+}
+await waitForSmoke(
+  () => shellCheckEvents.some((event) => event.meta?.type === 'shell_task_progress' && event.text.includes(shellCheckTaskId)),
+  'shell check-after progress notification',
+  3000,
+);
+const progressEvent = shellCheckEvents.find((event) => event.meta?.type === 'shell_task_progress' && event.text.includes(shellCheckTaskId));
+if (!/tool-smoke-check-after-progress/.test(String(progressEvent?.text))) {
+  throw new Error(`task check_after progress must include current shell output:\n${JSON.stringify(shellCheckEvents)}`);
+}
+await assertSingleShellCompletion(shellCheckEvents, shellCheckTaskId, 'shell check-after completion');
+const progressMatches = shellCheckEvents.filter((event) => event.meta?.type === 'shell_task_progress' && event.text.includes(shellCheckTaskId));
+if (progressMatches.length !== 1) {
+  throw new Error(`task check_after must notify progress exactly once, got ${progressMatches.length}: ${JSON.stringify(shellCheckEvents)}`);
+}
+
+// Completion before the reserved time cancels the pending progress snapshot.
+const shellEarlyDoneEvents = [];
+const shellEarlyDoneOptions = shellNotifyOptions(shellEarlyDoneEvents, 'check_after_early_done');
+const shellEarlyDoneOut = await executeBuiltinTool('shell', {
+  command: 'node -e "setTimeout(() => console.log(\'tool-smoke-check-after-early-done\'), 50)"',
+  cwd: root,
+  shell: 'powershell',
+  mode: 'async',
+  timeout: 5000,
+}, root, shellEarlyDoneOptions);
+const shellEarlyDoneTaskId = assertBackgroundStart('shell check-after early completion', shellEarlyDoneOut);
+await executeBuiltinTool('task', {
+  action: 'check_after',
+  task_id: shellEarlyDoneTaskId,
+  after_ms: 3000,
+}, root, shellEarlyDoneOptions);
+await assertSingleShellCompletion(shellEarlyDoneEvents, shellEarlyDoneTaskId, 'shell check-after early completion');
+await new Promise((resolveWait) => setTimeout(resolveWait, 3050));
+if (shellEarlyDoneEvents.some((event) => event.meta?.type === 'shell_task_progress' && event.text.includes(shellEarlyDoneTaskId))) {
+  throw new Error(`completed task must cancel its pending progress check: ${JSON.stringify(shellEarlyDoneEvents)}`);
+}
+
+// Auto-promotion: a sync foreground command still running past the soft budget
+// returns the same notification contract as explicit async.
 const _priorAutoBgBudget = process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
-process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = '800';
+process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = '50';
+const shellAutoNotifyEvents = [];
+const shellAutoNotifyOptions = shellNotifyOptions(shellAutoNotifyEvents, 'auto');
 let shellAutoPromoteOut;
 try {
   shellAutoPromoteOut = await executeBuiltinTool('shell', {
-    command: 'node -e "setTimeout(() => console.log(\'tool-smoke-autopromote-done\'), 6000)"',
+    command: 'node -e "setTimeout(() => console.log(\'tool-smoke-autopromote-done\'), 600)"',
     cwd: root,
     shell: 'powershell',
-    timeout: 10_000,
-  }, root);
+    timeout: 5000,
+  }, root, shellAutoNotifyOptions);
 } finally {
   if (_priorAutoBgBudget === undefined) delete process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
   else process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = _priorAutoBgBudget;
 }
-if (!/auto-backgrounded/i.test(String(shellAutoPromoteOut)) || !/task_id:\s*\S+/i.test(String(shellAutoPromoteOut))) {
+if (!/auto-backgrounded/i.test(String(shellAutoPromoteOut))) {
   throw new Error(`shell auto-promotion must return a background task envelope (task_id + auto-backgrounded):\n${shellAutoPromoteOut}`);
 }
-// Clean up the promoted job so it doesn't outlive the smoke as an orphan.
-const _autoPromoteTaskId = (/task_id:\s*(\S+)/i.exec(String(shellAutoPromoteOut)) || [])[1];
-if (_autoPromoteTaskId) {
-  try { await executeBuiltinTool('task', { action: 'cancel', task_id: _autoPromoteTaskId }, root); } catch {}
-}
+const shellAutoPromoteTaskId = assertBackgroundStart('shell auto-promotion', shellAutoPromoteOut);
+await assertSingleShellCompletion(shellAutoNotifyEvents, shellAutoPromoteTaskId, 'shell auto-promotion');
 
 const legacyEscapedAlternationErr = validateBuiltinArgs('grep', { pattern: 'state\\.items\\.map\\|items\\.map', path: root });
 if (legacyEscapedAlternationErr) {
@@ -1112,6 +1229,16 @@ const batchedReadLineErr = validateBuiltinArgs('read', batchedReadLineArgs);
 if (batchedReadLineErr || batchedReadLineArgs.path[0].offset !== 7 || batchedReadLineArgs.path[0].limit !== 5) {
   throw new Error(`read guard must losslessly convert batched legacy line/context args to offset/limit: err=${batchedReadLineErr} args=${JSON.stringify(batchedReadLineArgs)}`);
 }
+const negativeReadOffsetArgs = { path: 'scripts/smoke.mjs', offset: -80 };
+const negativeReadOffsetErr = validateBuiltinArgs('read', negativeReadOffsetArgs);
+if (negativeReadOffsetErr || negativeReadOffsetArgs.mode !== 'tail' || negativeReadOffsetArgs.n !== 80 || 'offset' in negativeReadOffsetArgs) {
+  throw new Error(`read guard must absorb negative offset as tail: err=${negativeReadOffsetErr} args=${JSON.stringify(negativeReadOffsetArgs)}`);
+}
+const negativeReadRegionArgs = { path: [{ path: 'scripts/smoke.mjs', offset: -80 }] };
+const negativeReadRegionErr = validateBuiltinArgs('read', negativeReadRegionArgs);
+if (negativeReadRegionErr || negativeReadRegionArgs.path[0].mode !== 'tail' || negativeReadRegionArgs.path[0].n !== 80 || 'offset' in negativeReadRegionArgs.path[0]) {
+  throw new Error(`read guard must absorb region negative offset as tail: err=${negativeReadRegionErr} args=${JSON.stringify(negativeReadRegionArgs)}`);
+}
 const pathLineWithLimit = normaliseReadLineWindowArgs({ path: 'scripts/smoke.mjs#L10', limit: 5 }, root);
 if (pathLineWithLimit.offset !== 9 || pathLineWithLimit.limit !== 5) {
   throw new Error(`read path#line compatibility must anchor offset when limit is explicit: ${JSON.stringify(pathLineWithLimit)}`);
@@ -1208,8 +1335,8 @@ if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not
     agentRules: '# Tool Use',
     skillManifest: '',
   });
-  if (!heavyPrompt.stableSystemContext.includes('## heavy-worker')) {
-    throw new Error(`heavy-worker AGENT.md must be included in scoped role instructions: ${heavyPrompt.stableSystemContext}`);
+  if (!heavyPrompt.sessionMarker.includes('## heavy-worker')) {
+    throw new Error(`heavy-worker AGENT.md must be included in BP3 scoped role instructions: ${heavyPrompt.sessionMarker}`);
   }
   const workerPrompt = composeSystemPrompt({
     agent: 'worker',
@@ -1217,8 +1344,71 @@ if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not
     agentRules: '# Tool Use',
     skillManifest: '',
   });
-  if (!workerPrompt.stableSystemContext.includes('## worker')) {
-    throw new Error(`worker AGENT.md must be included in scoped role instructions: ${workerPrompt.stableSystemContext}`);
+  if (!workerPrompt.sessionMarker.includes('## worker')) {
+    throw new Error(`worker AGENT.md must be included in BP3 scoped role instructions: ${workerPrompt.sessionMarker}`);
+  }
+}
+{
+  const layeredPrompt = composeSystemPrompt({
+    skipRoleCatalog: true,
+    agentRules: 'BP1_TOOL_POLICY',
+    metaContext: 'BP2_PROFILE',
+    skillManifest: 'BP2_SKILLS',
+    deferredToolManifest: 'BP2_DEFERRED_MCP',
+    workflowContext: 'BP3_WORKFLOW',
+    roleRules: 'BP3_ROLE',
+    userPrompt: 'BP3_SYSTEM',
+    coreMemoryContext: 'BP3_MEMORY',
+    sessionStartContext: 'BP3_SESSION',
+    projectInstructionsContext: 'BP3_PROJECT',
+    environmentContext: 'BP3_ENVIRONMENT',
+  });
+  if (layeredPrompt.baseRules !== 'BP1_TOOL_POLICY') {
+    throw new Error(`BP1 must contain only shared tool policy: ${layeredPrompt.baseRules}`);
+  }
+  if (!layeredPrompt.stableSystemContext.includes('BP2_PROFILE')
+    || !layeredPrompt.stableSystemContext.includes('BP2_SKILLS')
+    || !layeredPrompt.stableSystemContext.includes('BP2_DEFERRED_MCP')
+    || /BP3_/.test(layeredPrompt.stableSystemContext)) {
+    throw new Error(`BP2 must contain profile, skills, and deferred/MCP only: ${layeredPrompt.stableSystemContext}`);
+  }
+  const bp3Order = ['BP3_WORKFLOW', 'BP3_ROLE', 'BP3_SYSTEM', 'BP3_MEMORY', 'BP3_SESSION', 'BP3_PROJECT', 'BP3_ENVIRONMENT']
+    .map((value) => layeredPrompt.sessionMarker.indexOf(value));
+  if (bp3Order.some((index) => index < 0) || bp3Order.some((index, i) => i > 0 && index <= bp3Order[i - 1])) {
+    throw new Error(`BP3 workflow/role and environment order is invalid: ${layeredPrompt.sessionMarker}`);
+  }
+  if (layeredPrompt.sessionMarkerCore.includes('BP3_SESSION')
+    || layeredPrompt.sessionMarkerCore.includes('BP3_PROJECT')
+    || layeredPrompt.sessionMarkerCore.includes('BP3_ENVIRONMENT')) {
+    throw new Error(`BP3 core must exclude the refreshable session/project/environment suffix: ${layeredPrompt.sessionMarkerCore}`);
+  }
+  const refreshableSession = {
+    owner: 'cli',
+    model: 'tool-smoke-model',
+    effort: 'high',
+    fast: true,
+    workflow: { name: 'Solo' },
+    bp3CoreContext: 'BP3_CORE',
+    bp3EnvironmentContext: 'BP3_EXISTING_ENVIRONMENT',
+    messages: [
+      { role: 'system', content: 'BP1' },
+      { role: 'system', content: 'BP2' },
+      { role: 'system', content: 'BP3_CORE\n\n---\n\nBP3_EXISTING_ENVIRONMENT', cacheTier: 'tier3' },
+    ],
+  };
+  if (!refreshSessionBp3Environment(refreshableSession, 'C:\\BP3_CURRENT_CWD')) {
+    throw new Error('BP3 first-turn environment refresh must update the tier3 system block');
+  }
+  const refreshedBp3 = refreshableSession.messages[2].content;
+  if (!/Cwd: C:\\BP3_CURRENT_CWD/.test(refreshedBp3)
+    || refreshedBp3.indexOf('# Session') > refreshedBp3.indexOf('BP3_EXISTING_ENVIRONMENT')
+    || refreshableSession.sessionStartMetaInjected !== true) {
+    throw new Error(`BP3 first-turn environment refresh is invalid: ${refreshedBp3}`);
+  }
+  resetSessionBp3Environment(refreshableSession);
+  if (refreshableSession.messages[2].content !== 'BP3_CORE\n\n---\n\nBP3_EXISTING_ENVIRONMENT'
+    || refreshableSession.sessionStartMetaInjected !== false) {
+    throw new Error(`BP3 clear reset must restore the refreshable suffix: ${refreshableSession.messages[2].content}`);
   }
 }
 {
@@ -1287,6 +1477,7 @@ const prevDaemonHost = process.env.MIXDOG_DAEMON_HOST;
 const prevRuntimeRoot = process.env.MIXDOG_RUNTIME_ROOT;
 const prevEnvOut = process.env.SMOKE_CHANNEL_ENV_OUT;
 const prevDaemonEntry = process.env.MIXDOG_DAEMON_ENTRY;
+const prevSupervisorPid = process.env.MIXDOG_SUPERVISOR_PID;
 try {
   // Daemon-mode worker env coverage: start() spawn-or-attaches the machine
   // -global daemon (the stub daemon entry — no Discord token) instead of
@@ -1301,10 +1492,12 @@ try {
   process.env.MIXDOG_RUNTIME_ROOT = runtimeDir;
   process.env.SMOKE_CHANNEL_ENV_OUT = envOut;
   process.env.MIXDOG_DAEMON_ENTRY = stubEntry;
+  process.env.MIXDOG_SUPERVISOR_PID = '2147483647';
   channelEnvWorker = createStandaloneChannelWorker({
     rootDir: root,
     dataDir,
     cwd: root,
+    leadPid: process.pid,
   });
   await channelEnvWorker.start();
   const childEnv = JSON.parse(readFileSync(envOut, 'utf8'));
@@ -1313,6 +1506,13 @@ try {
   }
   if (childEnv.cliOwned !== '0') {
     throw new Error(`channel service must advertise owner HTTP (MIXDOG_CLI_OWNED=0), got ${childEnv.cliOwned}`);
+  }
+  if (Number(childEnv.supervisorPid) !== process.pid) {
+    throw new Error(`channel service must replace a stale inherited supervisor PID with its live runtime PID, got ${childEnv.supervisorPid}`);
+  }
+  const identityProbe = await channelEnvWorker.execute('reload_config', {});
+  if (Number(identityProbe?.leadPid) !== process.pid) {
+    throw new Error(`channel client must register its live runtime PID, got ${identityProbe?.leadPid}`);
   }
 } finally {
   try { await channelEnvWorker?.stop?.('channel-worker-env-smoke', { force: true }); } catch {}
@@ -1324,6 +1524,8 @@ try {
   else process.env.SMOKE_CHANNEL_ENV_OUT = prevEnvOut;
   if (prevDaemonEntry == null) delete process.env.MIXDOG_DAEMON_ENTRY;
   else process.env.MIXDOG_DAEMON_ENTRY = prevDaemonEntry;
+  if (prevSupervisorPid == null) delete process.env.MIXDOG_SUPERVISOR_PID;
+  else process.env.MIXDOG_SUPERVISOR_PID = prevSupervisorPid;
   // Detach only ends OUR attachment; the stub daemon self-shuts after its
   // client-grace window. Give it that window before deleting its tmp root.
   await new Promise((resolveWait) => setTimeout(resolveWait, 700));
@@ -1452,6 +1654,11 @@ setInternalToolsProvider({
       if (!/available-skills/i.test(visible) || !/demo-skill/i.test(visible) || !/Skill\(\{"name":"<skill-name>"\}\)/.test(visible)) {
         throw new Error(`lead skill manifest missing compact skill listing: ${visible.slice(0, 1200)}`);
       }
+      if ((visible.match(/(^|\n)- Shell: /g) || []).length !== 1
+        || (visible.match(/Shell startup environment/g) || []).length !== 1
+        || /(^|\n)# Environment\n/i.test(visible)) {
+        throw new Error(`Lead BP3 must relocate each existing shell payload exactly once without a new heading: ${visible.slice(0, 1200)}`);
+      }
       const skillToolNames = (skillSession.tools || []).map((tool) => tool?.name).filter(Boolean);
       if (!skillToolNames.includes('Skill')) {
         throw new Error(`lead skill manifest session must expose Skill loader: ${skillToolNames.join(', ')}`);
@@ -1468,20 +1675,26 @@ setInternalToolsProvider({
       permission: 'read-write',
     });
     try {
-      const systemVisible = (agentSkillSession.messages || [])
-        .filter((m) => m?.role === 'system')
+      const systemLayers = (agentSkillSession.messages || []).filter((m) => m?.role === 'system');
+      const systemVisible = systemLayers
         .map((m) => String(m.content || ''))
         .join('\n');
       // Agent (Pool B/C) sessions FREEZE the Skill meta-tool into the schema
       // unconditionally so the tool bytes stay bit-identical across roles/cwds
-      // (provider cache shard stability). The BP1 manifest rides alongside it
+      // (provider cache shard stability). The BP2 manifest rides alongside it
       // so the model knows which Skill names exist — a loader without the
       // manifest cannot be targeted. Both must be present together.
       if (!/available-skills/i.test(systemVisible) || !/demo-skill/i.test(systemVisible) || !/Skill\(\{"name":"<skill-name>"\}\)/.test(systemVisible)) {
-        throw new Error(`agent BP1 must carry the compact skill manifest alongside the frozen Skill tool: ${systemVisible.slice(0, 1200)}`);
+        throw new Error(`agent BP2 must carry the compact skill manifest alongside the frozen Skill tool: ${systemVisible.slice(0, 1200)}`);
       }
       if (!/# Tool Use/i.test(systemVisible) || !/# Agent Constraints/i.test(systemVisible)) {
-        throw new Error(`agent system layers must carry BP1 tool policy and BP2 role rules: ${systemVisible.slice(0, 1200)}`);
+        throw new Error(`agent system layers must carry BP1 tool policy and BP3 role rules: ${systemVisible.slice(0, 1200)}`);
+      }
+      if (!/# Tool Use/i.test(systemLayers[0]?.content || '')
+        || /available-skills/i.test(systemLayers[0]?.content || '')
+        || !/available-skills/i.test(systemLayers[1]?.content || '')
+        || !/# Agent Constraints/i.test(systemLayers[2]?.content || '')) {
+        throw new Error(`agent prompt layers must place tool policy in BP1, skills in BP2, and role in BP3: ${JSON.stringify(systemLayers)}`);
       }
       const agentSkillToolNames = (agentSkillSession.tools || []).map((tool) => tool?.name).filter(Boolean);
       if (!agentSkillToolNames.includes('Skill')) {
@@ -1518,10 +1731,13 @@ setInternalToolsProvider({
       throw new Error(`agent context must not repeat task brief: ${visible.slice(0, 1200)}`);
     }
     if (/available-skills/i.test(userReminderVisible)) {
-      throw new Error(`agent skill manifest must stay in system BP1, not user reminders: ${userReminderVisible.slice(0, 1200)}`);
+      throw new Error(`agent skill manifest must stay in system BP2, not user reminders: ${userReminderVisible.slice(0, 1200)}`);
     }
-    if (/(^|\n)# environment/i.test(visible)) {
-      throw new Error(`agent context must not inject environment reminder: ${visible.slice(0, 1200)}`);
+    if (!/Shell startup environment/i.test(visible) || /(^|\n)# environment/i.test(visible)) {
+      throw new Error(`agent BP3 must relocate the existing startup payload without adding an Environment heading: ${visible.slice(0, 1200)}`);
+    }
+    if (/(^|\n)- Shell: /i.test(visible)) {
+      throw new Error(`agent BP3 must not add the Lead-only shell preference: ${visible.slice(0, 1200)}`);
     }
     const workerToolNames = (workerSession.tools || []).map((tool) => tool?.name).filter(Boolean);
     if (workerToolNames.includes('load_tool')) {
@@ -1711,8 +1927,11 @@ setInternalToolsProvider({
       if (/available-skills|Skill\(/i.test(systemVisible)) {
         throw new Error(`hidden agent ${agent} must not carry Skill manifest without Skill tool`);
       }
-      if (/effective-cwd|Override cwd|# environment|# task-brief/i.test(systemVisible)) {
-        throw new Error(`hidden agent ${agent} must not carry cwd/environment/task-brief injection`);
+      if (/effective-cwd|Override cwd|# task-brief/i.test(systemVisible)) {
+        throw new Error(`hidden agent ${agent} must not carry legacy cwd/task-brief injection`);
+      }
+      if (/(^|\n)# Environment\n/i.test(systemVisible)) {
+        throw new Error(`hidden agent ${agent} BP3 must not add an Environment heading`);
       }
     } finally {
       closeSession(session.id, 'tool-smoke');
@@ -1745,7 +1964,7 @@ if (/exact current context|roll ?back/i.test(JSON.stringify(patchTool))) {
   throw new Error(`apply_patch contract must not carry context/rollback model guidance: ${JSON.stringify(patchTool)}`);
 }
 const OAI_V4A_APPLY_PATCH_FREEFORM_DESCRIPTION =
-  'OAI V4A patch: *** Begin Patch, Add/Delete/Update File sections, *** End Patch. FREEFORM input; no JSON.';
+  'OAI V4A patch: *** Begin Patch, Add/Delete/Update File sections, *** End Patch. Add File creates parents. FREEFORM input; no JSON.';
 if (patchTool?.freeformDescription !== OAI_V4A_APPLY_PATCH_FREEFORM_DESCRIPTION
     || patchTool?.freeform?.type !== 'grammar'
     || patchTool?.freeform?.syntax !== 'lark') {
@@ -2349,20 +2568,26 @@ if (/[<>]/.test(manifestText.replace(/<\/?available-deferred-tools>/g, ''))) {
 if (buildDeferredToolManifest([]) !== '') {
   throw new Error('empty deferred pool must yield an empty manifest');
 }
-const bp1ManifestSession = {
-  messages: [{ role: 'system', content: 'BASE PROMPT' }],
+const bp2ManifestSession = {
+  messages: [
+    { role: 'system', content: 'BP1 BASE' },
+    { role: 'system', content: 'BP2 PROFILE' },
+    { role: 'system', content: 'BP3 SESSION', cacheTier: 'tier3' },
+  ],
   deferredToolCatalog: [
     { name: 'shell', description: 'Run commands.' },
     { name: 'recall', description: 'Recall prior work.' },
   ],
 };
-applyInitialDeferredToolManifestToBp1(bp1ManifestSession, ['shell', 'recall']);
-const bp1ManifestText = bp1ManifestSession.messages[0].content;
-if (!/- shell: Run commands\./.test(bp1ManifestText) || !/- recall: Recall prior work\./.test(bp1ManifestText)) {
-  throw new Error(`BP1 deferred manifest must carry catalog descriptions: ${bp1ManifestText}`);
+applyInitialDeferredToolManifestToBp2(bp2ManifestSession, ['shell', 'recall']);
+const bp2ManifestText = bp2ManifestSession.messages[1].content;
+if (!/- shell: Run commands\./.test(bp2ManifestText) || !/- recall: Recall prior work\./.test(bp2ManifestText)) {
+  throw new Error(`BP2 deferred manifest must carry catalog descriptions: ${bp2ManifestText}`);
 }
-if (bp1ManifestSession.deferredToolBp1Applied !== true) {
-  throw new Error('BP1 deferred manifest injection must mark deferredToolBp1Applied');
+if (bp2ManifestSession.messages[0].content !== 'BP1 BASE'
+  || bp2ManifestSession.messages[2].content !== 'BP3 SESSION'
+  || bp2ManifestSession.deferredToolBp2Applied !== true) {
+  throw new Error(`BP2 deferred manifest injection must preserve BP1/BP3: ${JSON.stringify(bp2ManifestSession.messages)}`);
 }
 if (CHANNEL_TOOL_DEFS.some((tool) => tool.name === 'reply' || tool.name === 'fetch')) {
   throw new Error('channel reply/fetch must stay removed from the model-facing surface');
@@ -2377,10 +2602,10 @@ const grepContextDescription = grepTool?.inputSchema?.properties?.context?.descr
 if (!/pattern\[\] batches exact query literals and identifier variants/i.test(grepPatternDescription) || !/File\/dir scope/i.test(grepPathDescription)) {
   throw new Error('grep schema must keep compact pattern/path guidance');
 }
-// Contract-only description: routing/verification policy lives in
-// src/rules/shared/01-tool.md.
-if (!/\bFile-content literal\/regex\b/i.test(grepTool?.description || '')) {
-  throw new Error('grep description must state its literal/regex content-search contract');
+if (!/\bFile-content literal\/regex\b/i.test(grepTool?.description || '')
+    || !/unknown source locations/i.test(grepTool?.description || '')
+    || !/read only omitted lines/i.test(grepTool?.description || '')) {
+  throw new Error('grep description must state its search and returned-span reuse contract');
 }
 if (!/Glob filter/i.test(grepGlobDescription)) {
   throw new Error('grep glob schema must describe scope narrowing');
@@ -2420,6 +2645,13 @@ if (!/Known-directory immediate entries/i.test(listTool?.description || '')
 }
 const codeGraphModeDescription = codeGraphProps.mode?.description || '';
 const codeGraphSymbolsDescription = codeGraphProps.symbols?.description || '';
+const codeGraphBodyDescription = codeGraphProps.body?.description || '';
+if (!/find_symbol returns declaration\/body/i.test(codeGraphDescription)
+    || !/references\/callers\/callees return locations/i.test(codeGraphDescription)
+    || !/find_symbol only/i.test(codeGraphBodyDescription)
+    || !/default true/i.test(codeGraphBodyDescription)) {
+  throw new Error('code_graph descriptions must distinguish declaration bodies from relation locations');
+}
 assertCodeGraphDescriptionContract({
   description: codeGraphDescription,
   modeDescription: codeGraphModeDescription,

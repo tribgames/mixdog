@@ -13,8 +13,9 @@
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use ignore::overrides::OverrideBuilder;
 use ignore::WalkBuilder;
@@ -24,6 +25,142 @@ use regex::Regex;
 use serde::Deserialize;
 
 const CANCELLED: &str = "cancelled";
+const FILE_LIST_CACHE_MAX: usize = 8;
+
+fn file_list_ttl() -> Option<Duration> {
+    match std::env::var("MIXDOG_SEARCH_FILELIST_TTL_MS") {
+        Ok(raw) if raw.trim() == "0" => None,
+        Ok(raw) => raw
+            .parse::<u64>()
+            .ok()
+            .filter(|ms| *ms > 0)
+            .map(Duration::from_millis),
+        Err(_) => Some(Duration::from_millis(30_000)),
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct WalkKey {
+    operand: PathBuf,
+    hidden: bool,
+    no_ignore: bool,
+    no_require_git: bool,
+    max_depth: Option<usize>,
+    globs: Vec<String>,
+    iglobs: Vec<String>,
+}
+
+fn walk_key(operand: &Path, parsed: &ParsedArgs) -> WalkKey {
+    let mut globs = parsed.globs.clone();
+    globs.sort();
+    let mut iglobs = parsed.iglobs.clone();
+    iglobs.sort();
+    WalkKey {
+        operand: operand.to_path_buf(),
+        hidden: parsed.hidden,
+        no_ignore: parsed.no_ignore,
+        no_require_git: parsed.no_require_git,
+        max_depth: parsed.max_depth,
+        globs,
+        iglobs,
+    }
+}
+
+struct ReadyEntry {
+    files: Arc<Vec<PathBuf>>,
+    expires_at: Instant,
+}
+
+enum LiveState {
+    Running,
+    Done(Arc<Vec<PathBuf>>),
+    Abandoned,
+    Failed(String),
+}
+
+struct LiveWalk {
+    files: Mutex<Vec<PathBuf>>,
+    state: Mutex<LiveState>,
+    cond: Condvar,
+    waiters: AtomicUsize,
+}
+
+struct FileListStore {
+    ready: Mutex<HashMap<WalkKey, ReadyEntry>>,
+    live: Mutex<HashMap<WalkKey, Arc<LiveWalk>>>,
+}
+
+impl FileListStore {
+    fn new() -> Self {
+        Self {
+            ready: Mutex::new(HashMap::new()),
+            live: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn take_ready(&self, key: &WalkKey) -> Option<Arc<Vec<PathBuf>>> {
+        let mut ready = self.ready.lock().unwrap_or_else(|e| e.into_inner());
+        let now = Instant::now();
+        ready.retain(|_, entry| entry.expires_at > now);
+        ready.get(key).map(|entry| Arc::clone(&entry.files))
+    }
+
+    fn remember(&self, key: WalkKey, files: Arc<Vec<PathBuf>>) {
+        let Some(ttl) = file_list_ttl() else { return };
+        let mut ready = self.ready.lock().unwrap_or_else(|e| e.into_inner());
+        let now = Instant::now();
+        ready.retain(|_, entry| entry.expires_at > now);
+        if ready.len() >= FILE_LIST_CACHE_MAX {
+            if let Some(oldest) = ready
+                .iter()
+                .min_by_key(|(_, entry)| entry.expires_at)
+                .map(|(k, _)| k.clone())
+            {
+                ready.remove(&oldest);
+            }
+        }
+        ready.insert(
+            key,
+            ReadyEntry {
+                files,
+                expires_at: now + ttl,
+            },
+        );
+    }
+
+    fn begin_live(&self, key: WalkKey) -> (Arc<LiveWalk>, bool) {
+        let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(existing) = live.get(&key) {
+            existing.waiters.fetch_add(1, Ordering::Relaxed);
+            return (Arc::clone(existing), false);
+        }
+        let created = Arc::new(LiveWalk {
+            files: Mutex::new(Vec::new()),
+            state: Mutex::new(LiveState::Running),
+            cond: Condvar::new(),
+            waiters: AtomicUsize::new(1),
+        });
+        live.insert(key, Arc::clone(&created));
+        (created, true)
+    }
+
+    fn finish_live(&self, key: WalkKey, live: &LiveWalk, result: Result<Arc<Vec<PathBuf>>, Option<String>>) {
+        {
+            let mut live_map = self.live.lock().unwrap_or_else(|e| e.into_inner());
+            live_map.remove(&key);
+        }
+        let mut state = live.state.lock().unwrap_or_else(|e| e.into_inner());
+        *state = match result {
+            Ok(files) => {
+                self.remember(key, Arc::clone(&files));
+                LiveState::Done(files)
+            }
+            Err(Some(err)) => LiveState::Failed(err),
+            Err(None) => LiveState::Abandoned,
+        };
+        live.cond.notify_all();
+    }
+}
 
 #[derive(Deserialize)]
 struct ServeRequest {
@@ -299,6 +436,81 @@ fn collect_files(
     Ok(files)
 }
 
+fn walk_files_sorted<F>(
+    operand: &Path,
+    parsed: &ParsedArgs,
+    cancelled: &AtomicBool,
+    mut visit: F,
+) -> Result<(), String>
+where
+    F: FnMut(PathBuf) -> Result<bool, String>,
+{
+    if cancelled.load(Ordering::Relaxed) {
+        return Err(CANCELLED.to_string());
+    }
+    if operand.is_file() {
+        visit(operand.to_path_buf()).map(|_| ())?;
+        return Ok(());
+    }
+    if !operand.is_dir() {
+        return Err(format!("no such path {}", operand.display()));
+    }
+    let mut over = OverrideBuilder::new(operand);
+    for g in &parsed.globs {
+        over.add(g).map_err(|e| format!("glob: {e}"))?;
+    }
+    let over = over.build().map_err(|e| format!("glob: {e}"))?;
+    let iglob_over = if parsed.iglobs.is_empty() {
+        None
+    } else {
+        let mut builder = OverrideBuilder::new(operand);
+        builder
+            .case_insensitive(true)
+            .map_err(|e| format!("iglob: {e}"))?;
+        for g in &parsed.iglobs {
+            builder.add(g).map_err(|e| format!("iglob: {e}"))?;
+        }
+        Some(builder.build().map_err(|e| format!("iglob: {e}"))?)
+    };
+    let mut walk = WalkBuilder::new(operand);
+    walk.hidden(!parsed.hidden).overrides(over);
+    if parsed.no_ignore {
+        walk.ignore(false)
+            .git_ignore(false)
+            .git_global(false)
+            .git_exclude(false);
+    } else if parsed.no_require_git {
+        walk.require_git(false);
+    }
+    if let Some(max_depth) = parsed.max_depth {
+        walk.max_depth(Some(max_depth));
+    }
+    walk.sort_by_file_name(|left, right| left.cmp(right));
+    for entry in walk.build() {
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(CANCELLED.to_string());
+        }
+        let Ok(entry) = entry else { continue };
+        if !entry
+            .file_type()
+            .map(|kind| kind.is_file())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        if iglob_over
+            .as_ref()
+            .is_some_and(|matcher| !matcher.matched(entry.path(), false).is_whitelist())
+        {
+            continue;
+        }
+        if !visit(entry.into_path())? {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
 fn clamp_line(text: &str, max_columns: usize) -> String {
     if max_columns == 0 || text.len() <= max_columns {
         return text.to_string();
@@ -398,7 +610,303 @@ fn display_path(operand: &str, operand_path: &Path, file: &Path) -> String {
     format!("{trimmed}{sep}{rel}")
 }
 
-fn handle(req: &ServeRequest, cancelled: &AtomicBool) -> Result<serde_json::Value, String> {
+fn append_scanned_matches(
+    files: &[PathBuf],
+    operand: &str,
+    operand_path: &Path,
+    use_prefix: bool,
+    re: &Regex,
+    parsed: &ParsedArgs,
+    cancelled: &AtomicBool,
+    all_lines: &mut Vec<String>,
+    emitted_blocks: &mut usize,
+    collect_until: usize,
+) -> bool {
+    if files.is_empty() || all_lines.len() >= collect_until {
+        return all_lines.len() >= collect_until;
+    }
+    let per_file: Vec<Option<Vec<String>>> = files
+        .par_iter()
+        .map(|file| {
+            let prefix = if use_prefix {
+                display_path(operand, operand_path, file)
+            } else {
+                String::new()
+            };
+            scan_file(file, &prefix, re, parsed, cancelled)
+        })
+        .collect();
+    for block in per_file.into_iter().flatten() {
+        if *emitted_blocks > 0
+            && (parsed.before > 0 || parsed.after > 0)
+            && !parsed.files_with_matches
+        {
+            all_lines.push("--".to_string());
+        }
+        *emitted_blocks += 1;
+        all_lines.extend(block);
+        if all_lines.len() >= collect_until {
+            all_lines.truncate(collect_until);
+            return true;
+        }
+    }
+    all_lines.len() >= collect_until
+}
+
+fn publish_live_files(live: &LiveWalk, files: &[PathBuf]) {
+    if files.is_empty() {
+        return;
+    }
+    if let Ok(mut guard) = live.files.lock() {
+        guard.extend(files.iter().cloned());
+    }
+    live.cond.notify_all();
+}
+
+fn wait_live_complete(live: &LiveWalk) -> Result<Option<Arc<Vec<PathBuf>>>, String> {
+    let mut state = live.state.lock().unwrap_or_else(|e| e.into_inner());
+    loop {
+        match &*state {
+            LiveState::Running => {
+                state = live.cond.wait(state).unwrap_or_else(|e| e.into_inner());
+            }
+            LiveState::Done(files) => return Ok(Some(Arc::clone(files))),
+            LiveState::Abandoned => return Ok(None),
+            LiveState::Failed(err) => return Err(err.clone()),
+        }
+    }
+}
+
+fn complete_operand_files(
+    store: &FileListStore,
+    operand_path: &Path,
+    parsed: &ParsedArgs,
+    cancelled: &AtomicBool,
+) -> Result<Arc<Vec<PathBuf>>, String> {
+    let key = walk_key(operand_path, parsed);
+    if let Some(hit) = store.take_ready(&key) {
+        return Ok(hit);
+    }
+    let (live, owner) = store.begin_live(key.clone());
+    if owner {
+        match collect_files(operand_path, parsed, cancelled, None) {
+            Ok(files) => {
+                let files = Arc::new(files);
+                publish_live_files(&live, files.as_slice());
+                store.finish_live(key, &live, Ok(Arc::clone(&files)));
+                Ok(files)
+            }
+            Err(err) => {
+                store.finish_live(key, &live, Err(Some(err.clone())));
+                Err(err)
+            }
+        }
+    } else {
+        match wait_live_complete(&live)? {
+            Some(files) => Ok(files),
+            None => collect_files(operand_path, parsed, cancelled, None).map(Arc::new),
+        }
+    }
+}
+
+fn take_live_delta(live: &LiveWalk, next: &mut usize) -> Result<Option<Vec<PathBuf>>, String> {
+    let mut files = live.files.lock().unwrap_or_else(|e| e.into_inner());
+    loop {
+        if files.len() > *next {
+            let extra = files[*next..].to_vec();
+            *next = files.len();
+            return Ok(Some(extra));
+        }
+        let state = live.state.lock().unwrap_or_else(|e| e.into_inner());
+        match &*state {
+            LiveState::Running => {
+                drop(state);
+                files = live.cond.wait(files).unwrap_or_else(|e| e.into_inner());
+            }
+            LiveState::Done(all) => {
+                if *next < all.len() {
+                    let extra = all[*next..].to_vec();
+                    *next = all.len();
+                    return Ok(Some(extra));
+                }
+                return Ok(Some(Vec::new()));
+            }
+            LiveState::Abandoned => return Ok(None),
+            LiveState::Failed(err) => return Err(err.clone()),
+        }
+    }
+}
+
+fn scan_limited_operand(
+    store: &FileListStore,
+    operand: &str,
+    operand_path: &Path,
+    parsed: &ParsedArgs,
+    re: &Regex,
+    cancelled: &AtomicBool,
+    chunk_size: usize,
+    use_prefix: bool,
+    all_lines: &mut Vec<String>,
+    emitted_blocks: &mut usize,
+    collect_until: usize,
+) -> Result<bool, String> {
+    let key = walk_key(operand_path, parsed);
+    if let Some(files) = store.take_ready(&key) {
+        for chunk in files.chunks(chunk_size) {
+            if cancelled.load(Ordering::Relaxed) {
+                return Err(CANCELLED.to_string());
+            }
+            if append_scanned_matches(
+                chunk,
+                operand,
+                operand_path,
+                use_prefix,
+                re,
+                parsed,
+                cancelled,
+                all_lines,
+                emitted_blocks,
+                collect_until,
+            ) {
+                return Ok(true);
+            }
+        }
+        return Ok(false);
+    }
+    let (live, owner) = store.begin_live(key.clone());
+    if owner {
+        let mut collected = Vec::new();
+        let mut batch = Vec::new();
+        let mut filled = false;
+        let mut stopped_early = false;
+        let walk_res = walk_files_sorted(operand_path, parsed, cancelled, |file| {
+            collected.push(file.clone());
+            batch.push(file);
+            if batch.len() < chunk_size {
+                return Ok(true);
+            }
+            publish_live_files(&live, &batch);
+            if !filled {
+                filled = append_scanned_matches(
+                    &batch,
+                    operand,
+                    operand_path,
+                    use_prefix,
+                    re,
+                    parsed,
+                    cancelled,
+                    all_lines,
+                    emitted_blocks,
+                    collect_until,
+                );
+            }
+            batch.clear();
+            if filled && live.waiters.load(Ordering::Relaxed) <= 1 {
+                stopped_early = true;
+                return Ok(false);
+            }
+            Ok(true)
+        });
+        if let Err(err) = walk_res {
+            store.finish_live(key, &live, Err(Some(err.clone())));
+            return Err(err);
+        }
+        if !batch.is_empty() {
+            publish_live_files(&live, &batch);
+            if !filled {
+                filled = append_scanned_matches(
+                    &batch,
+                    operand,
+                    operand_path,
+                    use_prefix,
+                    re,
+                    parsed,
+                    cancelled,
+                    all_lines,
+                    emitted_blocks,
+                    collect_until,
+                );
+            }
+        }
+        if cancelled.load(Ordering::Relaxed) {
+            store.finish_live(key, &live, Err(Some(CANCELLED.to_string())));
+            return Err(CANCELLED.to_string());
+        }
+        if stopped_early || (filled && live.waiters.load(Ordering::Relaxed) <= 1) {
+            store.finish_live(key, &live, Err(None));
+        } else {
+            store.finish_live(key, &live, Ok(Arc::new(collected)));
+        }
+        return Ok(filled);
+    }
+    let mut next = 0usize;
+    loop {
+        match take_live_delta(&live, &mut next)? {
+            Some(delta) if delta.is_empty() => return Ok(false),
+            Some(delta) => {
+                if append_scanned_matches(
+                    &delta,
+                    operand,
+                    operand_path,
+                    use_prefix,
+                    re,
+                    parsed,
+                    cancelled,
+                    all_lines,
+                    emitted_blocks,
+                    collect_until,
+                ) {
+                    return Ok(true);
+                }
+            }
+            None => {
+                let mut batch = Vec::new();
+                let mut filled = false;
+                walk_files_sorted(operand_path, parsed, cancelled, |file| {
+                    batch.push(file);
+                    if batch.len() < chunk_size {
+                        return Ok(true);
+                    }
+                    filled = append_scanned_matches(
+                        &batch,
+                        operand,
+                        operand_path,
+                        use_prefix,
+                        re,
+                        parsed,
+                        cancelled,
+                        all_lines,
+                        emitted_blocks,
+                        collect_until,
+                    );
+                    batch.clear();
+                    Ok(!filled)
+                })?;
+                if !filled && !batch.is_empty() {
+                    filled = append_scanned_matches(
+                        &batch,
+                        operand,
+                        operand_path,
+                        use_prefix,
+                        re,
+                        parsed,
+                        cancelled,
+                        all_lines,
+                        emitted_blocks,
+                        collect_until,
+                    );
+                }
+                return Ok(filled);
+            }
+        }
+    }
+}
+
+fn handle(
+    req: &ServeRequest,
+    cancelled: &AtomicBool,
+    store: &FileListStore,
+) -> Result<serde_json::Value, String> {
     let parsed = parse_args(&req.args)?;
     let collect_until = if req.limit > 0 {
         req.offset.saturating_add(req.limit).saturating_add(1)
@@ -421,7 +929,14 @@ fn handle(req: &ServeRequest, cancelled: &AtomicBool) -> Result<serde_json::Valu
             };
             let remaining = collect_until.saturating_sub(all_lines.len());
             let max_files = (collect_until != usize::MAX).then_some(remaining);
-            for file in collect_files(&operand_path, &parsed, cancelled, max_files)? {
+            let files = if let Some(cached) = store.take_ready(&walk_key(&operand_path, &parsed)) {
+                cached
+            } else if max_files.is_none() {
+                complete_operand_files(store, &operand_path, &parsed, cancelled)?
+            } else {
+                Arc::new(collect_files(&operand_path, &parsed, cancelled, max_files)?)
+            };
+            for file in files.iter().take(remaining) {
                 all_lines.push(display_path(operand, &operand_path, &file));
                 if all_lines.len() >= collect_until {
                     break;
@@ -461,36 +976,46 @@ fn handle(req: &ServeRequest, cancelled: &AtomicBool) -> Result<serde_json::Valu
         } else {
             cwd.join(operand)
         };
-        let files = collect_files(&operand_path, &parsed, cancelled, None)?;
         let use_prefix = parsed.with_filename || multi_target || operand_path.is_dir();
+        if collect_until != usize::MAX {
+            if scan_limited_operand(
+                store,
+                operand,
+                &operand_path,
+                &parsed,
+                &re,
+                cancelled,
+                chunk_size,
+                use_prefix,
+                &mut all_lines,
+                &mut emitted_blocks,
+                collect_until,
+            )? {
+                break 'operands;
+            }
+            if all_lines.len() >= collect_until {
+                break 'operands;
+            }
+            continue;
+        }
+        let files = complete_operand_files(store, &operand_path, &parsed, cancelled)?;
         for file_chunk in files.chunks(chunk_size) {
             if cancelled.load(Ordering::Relaxed) {
                 return Err(CANCELLED.to_string());
             }
-            let per_file: Vec<Option<Vec<String>>> = file_chunk
-                .par_iter()
-                .map(|file| {
-                    let prefix = if use_prefix {
-                        display_path(operand, &operand_path, file)
-                    } else {
-                        String::new()
-                    };
-                    scan_file(file, &prefix, &re, &parsed, cancelled)
-                })
-                .collect();
-            for block in per_file.into_iter().flatten() {
-                if emitted_blocks > 0
-                    && (parsed.before > 0 || parsed.after > 0)
-                    && !parsed.files_with_matches
-                {
-                    all_lines.push("--".to_string());
-                }
-                emitted_blocks += 1;
-                all_lines.extend(block);
-                if all_lines.len() >= collect_until {
-                    all_lines.truncate(collect_until);
-                    break 'operands;
-                }
+            if append_scanned_matches(
+                file_chunk,
+                operand,
+                &operand_path,
+                use_prefix,
+                &re,
+                &parsed,
+                cancelled,
+                &mut all_lines,
+                &mut emitted_blocks,
+                collect_until,
+            ) {
+                break 'operands;
             }
         }
     }
@@ -666,6 +1191,7 @@ pub fn run() {
     write_response(&serde_json::json!({ "ready": true }));
     let pool = search_pool();
     let bulk_pool = bulk_search_pool();
+    let file_lists = Arc::new(FileListStore::new());
     let cancellations: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>> =
         Arc::new(Mutex::new(HashMap::new()));
     let stdin = std::io::stdin();
@@ -698,13 +1224,14 @@ pub fn run() {
                     map.insert(id, Arc::clone(&cancelled));
                 }
                 let request_cancellations = Arc::clone(&cancellations);
+                let file_lists = Arc::clone(&file_lists);
                 let worker_pool = if is_bulk_file_enumeration(&req) {
                     &bulk_pool
                 } else {
                     &pool
                 };
                 worker_pool.spawn(move || {
-                    let response = match handle(&req, &cancelled) {
+                    let response = match handle(&req, &cancelled, &file_lists) {
                         Ok(value) => Some(value),
                         Err(reason) if reason == CANCELLED || cancelled.load(Ordering::Relaxed) => {
                             None

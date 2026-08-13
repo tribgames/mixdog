@@ -236,6 +236,7 @@ export function execShellCommand({
   promotedTimeoutMs = 0,
   backgroundDeadlineMs = 0,
   admission = resourceAdmission,
+  directArgv = null,
 }) {
   return new Promise(async (resolve) => {
     let resultResolved = false;
@@ -385,10 +386,13 @@ export function execShellCommand({
         );
         return;
       }
-      const _spawnCommand = _maybeEncodePowerShellCommand(command);
-      const argv = Array.isArray(shellArgs) && shellArgs.length > 0
-        ? [...shellArgs, _spawnCommand]
-        : [shellArg, _spawnCommand];
+      const _useDirectArgv = Array.isArray(directArgv);
+      const _spawnCommand = _useDirectArgv ? String(command ?? '') : _maybeEncodePowerShellCommand(command);
+      const argv = _useDirectArgv
+        ? [...directArgv]
+        : (Array.isArray(shellArgs) && shellArgs.length > 0
+          ? [...shellArgs, _spawnCommand]
+          : [shellArg, _spawnCommand]);
       const _onChildError = (err) => {
         spawnError = spawnError || err;
         failurePhase = 'tool';
@@ -403,10 +407,12 @@ export function execShellCommand({
       // output can be produced before the capture handlers are attached.
       // Standby children always use pipe capture — identical to the win32
       // default (SHELL_DIRECT_CAPTURE is false on win32).
-      _standby = await takePwshStandbyBurst(
-        { shell, shellArgs, env },
-        { signal: abortSignal || null },
-      );
+      _standby = _useDirectArgv
+        ? null
+        : await takePwshStandbyBurst(
+          { shell, shellArgs, env },
+          { signal: abortSignal || null },
+        );
       if (_standby) {
         child = _standby.child;
         child.on('error', _onChildError);
@@ -424,6 +430,13 @@ export function execShellCommand({
       const _releaseSpawnSlot = await acquireChildSpawnSlot(abortSignal || null, 'process-spawn', {
         ownerKey: ownerSessionId,
       });
+      // Gate drain can grant several waiters in one tick. Yield so CreateProcess
+      // + AV does not freeze graph/patch/search callbacks in that same turn.
+      await new Promise((resolve) => setImmediate(resolve));
+      if (abortSignal?.aborted) {
+        try { _releaseSpawnSlot(); } catch { /* idempotent */ }
+        throw abortSignal.reason || new Error('aborted');
+      }
       let spawned;
       try {
         spawned = await _spawnShellWithRetry({
@@ -952,7 +965,7 @@ export function execShellCommand({
           jobId,
           backgroundTimeoutMs: adoptedTimeoutMs,
           backgroundMessage: jobId
-            ? `${_verb}; still running. Waiting is a decision, not a default: judge from the partial output whether this will finish within your remaining budget — if progress looks slow or stalled, diagnose the cause and pursue an alternative instead of waiting. Completion will be delivered as a background task notification; use task with task_id:${jobId} only for manual wait/status/read/cancel.`
+            ? `${_verb}; still running.`
             : `${_verb}; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.`,
         }),
       );

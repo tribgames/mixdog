@@ -1,19 +1,9 @@
-// token-binary-fetcher.mjs — fetches the prebuilt mixdog-token native binary
-// from the GitHub release manifest. Token counting has an in-process WASM
-// fallback, so callers treat fetch failures as a soft degrade (never a tool
-// error). Caches under <dataDir>/token-bin/. Mirrors graph-binary-fetcher.mjs.
-//
-// Public API:
-//   ensureTokenBinary(dataDir) -> absolute path to the verified binary.
-//     Throws on no-asset / download / verify failure.
-//   findCachedTokenBinary(dataDir) -> path | null (sync, no network).
-// Both accept an optional dependency object used by deterministic tests:
-//   { bundledManifest, download }.
-
+// Fetch and verify the platform-specific mixdog-token Node-API addon.
+// Failures remain a soft degrade because context counting has a WASM fallback.
 import { createHash } from 'node:crypto';
 import {
-  chmodSync, createWriteStream, existsSync, mkdirSync,
-  readFileSync, readdirSync, renameSync, rmSync,
+  createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync,
+  renameSync, rmSync,
 } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -22,10 +12,7 @@ import { pipeline } from 'node:stream/promises';
 
 const BUNDLED_MANIFEST_PATH = fileURLToPath(new URL('./token-manifest.json', import.meta.url));
 const MANIFEST_URL = 'https://raw.githubusercontent.com/tribgames/mixdog/main/src/runtime/agent/orchestrator/tools/token-manifest.json';
-
-function binSuffix() {
-  return process.platform === 'win32' ? '.exe' : '';
-}
+const ADDON_SUFFIX = '.node';
 
 function platformKey() {
   const os = process.platform === 'win32' ? 'win32' : process.platform;
@@ -60,12 +47,12 @@ function validSha256(value) {
   return typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value);
 }
 
-function validCachedUpgrade(manifest, pkey) {
+function validAddonManifest(manifest, pkey) {
   if (!manifestVersion(manifest)) return false;
   const asset = manifest.assets?.[pkey];
   if (!asset || !validSha256(asset.sha256) || typeof asset.url !== 'string') return false;
   const expectedUrl = `https://github.com/tribgames/mixdog/releases/download/token-v${manifest.version}`
-    + `/mixdog-token-${pkey}${binSuffix()}`;
+    + `/mixdog-token-${pkey}${ADDON_SUFFIX}`;
   return asset.url === expectedUrl;
 }
 
@@ -76,25 +63,25 @@ function bundledManifest(options) {
 
 function selectLocalManifest(dataDir, options = {}) {
   const bundled = bundledManifest(options);
-  const cached = join(tokenBinDir(dataDir), 'manifest.json');
-  const cachedManifest = existsSync(cached) ? readJson(cached) : null;
+  const cachedPath = join(tokenBinDir(dataDir), 'manifest.json');
+  const cached = existsSync(cachedPath) ? readJson(cachedPath) : null;
+  const pkey = platformKey();
   if (bundled) {
-    // The installed manifest is the minimum policy. A cache may advance it,
-    // but only with a strict newer semver and a trusted, fully hashed asset.
-    if (compareManifestVersions(cachedManifest, bundled) === 1
-      && validCachedUpgrade(cachedManifest, platformKey())) {
-      return cachedManifest;
+    if (compareManifestVersions(cached, bundled) === 1 && validAddonManifest(cached, pkey)) {
+      return cached;
     }
-    return bundled;
+    return validAddonManifest(bundled, pkey) ? bundled : null;
   }
-  return validCachedUpgrade(cachedManifest, platformKey()) ? cachedManifest : null;
+  return validAddonManifest(cached, pkey) ? cached : null;
 }
 
 async function loadManifest(dataDir, options = {}) {
   const local = selectLocalManifest(dataDir, options);
   if (local) return local;
-  const fetchFn = options.fetch || fetch;
-  const res = await fetchFn(MANIFEST_URL, { signal: AbortSignal.timeout(30_000) });
+  const res = await (options.fetch || fetch)(
+    MANIFEST_URL,
+    { signal: AbortSignal.timeout(30_000) },
+  );
   if (!res.ok) {
     throw new Error(`[token-fetcher] manifest fetch failed: ${res.status} ${res.statusText}`);
   }
@@ -107,7 +94,7 @@ async function sha256File(filePath) {
 
 async function downloadWithRetry(url, destPath) {
   const delays = [1000, 3000, 9000];
-  let lastErr;
+  let lastError;
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(180_000) });
@@ -117,16 +104,19 @@ async function downloadWithRetry(url, destPath) {
       if (!res.ok) throw new Error(`[token-fetcher] asset HTTP ${res.status} — ${url}`);
       await pipeline(res.body, createWriteStream(destPath));
       return;
-    } catch (err) {
-      lastErr = err;
-      if (String(err?.message || '').includes('(terminal)')) throw err;
+    } catch (error) {
+      lastError = error;
+      if (String(error?.message || '').includes('(terminal)')) throw error;
       if (attempt < 3) {
-        process.stderr.write(`[token-fetcher] download attempt ${attempt + 1} failed (${err?.message}), retrying in ${delays[attempt]}ms…\n`);
-        await new Promise((r) => setTimeout(r, delays[attempt]));
+        process.stderr.write(
+          `[token-fetcher] download attempt ${attempt + 1} failed (${error?.message}), `
+          + `retrying in ${delays[attempt]}ms…\n`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
       }
     }
   }
-  throw lastErr;
+  throw lastError;
 }
 
 function gcTokenBin(dir, keepFile) {
@@ -140,14 +130,13 @@ function gcTokenBin(dir, keepFile) {
   } catch { /* dir may not exist yet */ }
 }
 
-export function findCachedTokenBinary(dataDir, options = {}) {
+export function findCachedTokenAddon(dataDir, options = {}) {
   try {
     const dir = tokenBinDir(dataDir);
     const manifest = selectLocalManifest(dataDir, options);
     const asset = manifest?.assets?.[platformKey()];
-    const version = manifestVersion(manifest);
-    if (!version || !validSha256(asset?.sha256)) return null;
-    const fileName = `mixdog-token-${manifest.version}${binSuffix()}`;
+    if (!validAddonManifest(manifest, platformKey())) return null;
+    const fileName = `mixdog-token-${manifest.version}${ADDON_SUFFIX}`;
     const hit = join(dir, fileName);
     if (!existsSync(hit)) return null;
     const actual = createHash('sha256').update(readFileSync(hit)).digest('hex');
@@ -157,45 +146,44 @@ export function findCachedTokenBinary(dataDir, options = {}) {
   }
 }
 
-let _inflight = null;
+let inflight = null;
 
-export function ensureTokenBinary(dataDir, options = {}) {
-  if (_inflight) return _inflight;
-  _inflight = (async () => {
+export function ensureTokenAddon(dataDir, options = {}) {
+  if (inflight) return inflight;
+  inflight = (async () => {
     const manifest = await loadManifest(dataDir, options);
     const pkey = platformKey();
-    const asset = manifest.assets?.[pkey];
-    if (!asset || !asset.url || !validSha256(asset.sha256) || !manifestVersion(manifest)) {
-      // Unsupported platform/arch, or no token-v release published yet. The
-      // caller degrades to the in-process WASM worker, so the message only
-      // needs to explain why the accelerator is absent.
-      const supported = Object.keys(manifest.assets || {}).join(', ') || '(none)';
+    if (!validAddonManifest(manifest, pkey)) {
+      const supported = Object.keys(manifest?.assets || {}).join(', ') || '(none)';
       throw new Error(
-        `[token-fetcher] no prebuilt mixdog-token binary for platform ${pkey} `
+        `[token-fetcher] no Node-API mixdog-token addon for platform ${pkey} `
         + `(token counting degrades to the in-process WASM worker). `
-        + `Manifest platforms: ${supported}. `
-        + `Build it locally: cargo build --release in native/mixdog-token.`,
+        + `Manifest platforms: ${supported}.`,
       );
     }
-    const version = String(manifest.version || '0');
+    const asset = manifest.assets[pkey];
+    const version = String(manifest.version);
     const dir = tokenBinDir(dataDir);
     mkdirSync(dir, { recursive: true });
-    const fileName = `mixdog-token-${version}${binSuffix()}`;
+    const fileName = `mixdog-token-${version}${ADDON_SUFFIX}`;
     const destPath = join(dir, fileName);
     if (existsSync(destPath)) {
-      try { if (await sha256File(destPath) === asset.sha256.toLowerCase()) return destPath; } catch { /* re-download */ }
+      try {
+        if (await sha256File(destPath) === asset.sha256.toLowerCase()) return destPath;
+      } catch { /* re-download */ }
     }
     const tmpPath = `${destPath}.tmp-${process.pid}-${Date.now()}`;
     await (options.download || downloadWithRetry)(asset.url, tmpPath);
     const actual = await sha256File(tmpPath);
     if (actual !== asset.sha256.toLowerCase()) {
       try { rmSync(tmpPath, { force: true }); } catch { /* best-effort */ }
-      throw new Error(`[token-fetcher] sha256 mismatch for ${pkey}: expected ${asset.sha256}, got ${actual}`);
+      throw new Error(
+        `[token-fetcher] sha256 mismatch for ${pkey}: expected ${asset.sha256}, got ${actual}`,
+      );
     }
     renameSync(tmpPath, destPath);
-    if (process.platform !== 'win32') { try { chmodSync(destPath, 0o755); } catch { /* best-effort */ } }
     gcTokenBin(dir, fileName);
     return destPath;
-  })().finally(() => { _inflight = null; });
-  return _inflight;
+  })().finally(() => { inflight = null; });
+  return inflight;
 }

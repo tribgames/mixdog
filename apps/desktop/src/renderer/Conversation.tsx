@@ -49,11 +49,12 @@ import {
 import {
   nextDraftTranscriptNamespace,
   rememberTranscriptRowNamespace,
+  readTranscriptVirtualSnapshot,
   transcriptRowNamespace,
 } from "./transcript-virtual-cache";
 import { LiveActivity, resetToolDisclosureScope, TranscriptRow } from "./TranscriptView";
 import { TurnReviewBar } from "./TurnReview";
-import { BOTTOM_THRESHOLD_PX, useTranscriptFollow } from "./use-transcript-follow";
+import { useTranscriptFollow } from "./use-transcript-follow";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { classifyToolCategory } from "../../../../src/runtime/shared/tool-surface.mjs";
 
@@ -302,6 +303,7 @@ export function Conversation({
     handleWheel: handleTranscriptWheel,
     handlePointerDown: handleTranscriptPointerDown,
     handlePointerMove: handleTranscriptPointerMove,
+    handlePointerUp: handleTranscriptPointerUp,
     handleTouchStart: handleTranscriptTouchStart,
     handleTouchMove: handleTranscriptTouchMove,
     handleTouchEnd: handleTranscriptTouchEnd,
@@ -318,6 +320,7 @@ export function Conversation({
       : String(routeSnapshot.sessionId || "new-task"),
     contentMounted: !transcriptPending,
     setAnchorBottomRef: setTranscriptAnchorBottomRef,
+    scrollToEndRef,
   });
   const [optimisticPrompts, setOptimisticPrompts] = useState<PendingPromptItem[]>([]);
   // A first submit already replaced the blank watermark with its optimistic
@@ -442,7 +445,9 @@ export function Conversation({
       transcriptIdentity.current = transcriptSessionKey === 'new-task'
         ? nextDraftTranscriptNamespace()
         : transcriptRowNamespace(transcriptSessionKey);
-      timelineMounted.current = false;
+      timelineMounted.current = Boolean(
+        readTranscriptVirtualSnapshot(transcriptSessionKey)?.measurements?.length,
+      );
     }
   }
   const showTranscriptTimeline = !transcriptPending || timelineMounted.current;
@@ -691,7 +696,6 @@ export function Conversation({
   }, [currentCompletionAnimationKeys, transcriptSessionKey, transcriptHydrated]);
   const jumpToLatest = useCallback(() => {
     resumeFollow();
-    scrollToEndRef.current();
   }, [resumeFollow]);
   // A session route change resumes at the latest row. Measurement
   // snapshots survive re-entry, but a stale per-session scroll offset does not.
@@ -714,17 +718,15 @@ export function Conversation({
   // only re-arms on a scroll event or a VIEWPORT resize, and a compaction
   // shrinks the CONTENT, so auto-scroll stayed released for the rest of the
   // session (user: 컴팩트 상황에서 자동스크롤이 풀린다).
-  const transcriptSwapRef = useRef({ sessionKey: "", count: 0, headId: "" });
+  const transcriptSwapRef = useRef({ sessionKey: "", count: 0 });
   useLayoutEffect(() => {
     const count = settledItems.length;
-    const headId = count > 0 ? String(settledItems[0]?.id ?? "") : "";
     const previous = transcriptSwapRef.current;
-    transcriptSwapRef.current = { sessionKey: transcriptSessionKey, count, headId };
-    // Session entry owns its own arm; a transient empty or id-less frame during
-    // a snapshot source swap (live route ↔ session lane) is not a swap.
+    transcriptSwapRef.current = { sessionKey: transcriptSessionKey, count };
+    // Session entry owns its own arm. A same-length head-id change is a lane
+    // republish, not compaction — that used to fire a second scrollToEnd.
     if (previous.sessionKey !== transcriptSessionKey) return;
-    if (!previous.count || !count || !previous.headId || !headId) return;
-    if (count > previous.count || headId === previous.headId) return;
+    if (!previous.count || !count || count >= previous.count) return;
     armFollow();
     scrollToEndRef.current();
   }, [armFollow, settledItems, transcriptSessionKey]);
@@ -740,26 +742,10 @@ export function Conversation({
     if (element.scrollHeight - element.clientHeight > 1) return;
     armFollow();
   }, [armFollow, following, transcriptRows, viewport]);
-  // Opencode parity (createAutoScroll's content observer: every content resize
-  // re-pins while following). Virtual-core's followOnAppend owns the normal
-  // path, but it only follows while the offset sits inside its 80px
-  // scrollEndThreshold: one tall row landing in a SHORT split pane overshoots
-  // that band, the core stops following, and new output then piles up below
-  // the fold with follow still armed (user: 스크롤이 안 되고 아래로 묻힌다).
-  // The re-pin goes through the timeline's own scrollToEnd, so virtual-core
-  // stays the single scroll authority — this never writes scrollTop itself.
-  useLayoutEffect(() => {
-    if (!following) return;
-    const element = viewport.current;
-    if (!element) return;
-    const distance = element.scrollHeight - element.clientHeight - element.scrollTop;
-    if (distance <= BOTTOM_THRESHOLD_PX) return;
-    scrollToEndRef.current();
-  }, [following, transcriptRows, viewport]);
   const shouldAnchorTranscriptBottom = following
     || armedFollowSessionKey.current !== transcriptSessionKey;
-  // Submit resumes scrolling: re-arm auto-scroll, then ask the
-  // virtual timeline—not the DOM observer—to resolve the final row.
+  // Submit re-arms follow. The new row is an append, so virtual-core's
+  // followOnAppend is the only end write.
   const armFollowOnSubmitRef = useRef(armFollow);
   armFollowOnSubmitRef.current = armFollow;
   const composerSubmit = useCallback(async (
@@ -791,7 +777,6 @@ export function Conversation({
     ]);
     window.mixdogDesktop?.perfLog?.(`prompt-submit phase=renderer-queued id=${submissionId}`);
     armFollowOnSubmitRef.current();
-    scrollToEndRef.current();
     const acceptedStartedAt = performance.now();
     let accepted: unknown;
     try {
@@ -957,6 +942,8 @@ export function Conversation({
         onWheel={handleTranscriptWheel}
         onPointerDown={handleTranscriptPointerDown}
         onPointerMove={handleTranscriptPointerMove}
+        onPointerUp={handleTranscriptPointerUp}
+        onPointerCancel={handleTranscriptPointerUp}
         onTouchStart={handleTranscriptTouchStart}
         onTouchMove={handleTranscriptTouchMove}
         onTouchEnd={handleTranscriptTouchEnd}

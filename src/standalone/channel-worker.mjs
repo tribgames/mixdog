@@ -59,6 +59,7 @@ export function createStandaloneChannelWorker({
   rootDir,
   dataDir,
   cwd = process.cwd(),
+  leadPid = null,
   onNotify,
 } = {}) {
   if (!rootDir) throw new Error('channels runtime rootDir is required');
@@ -127,7 +128,12 @@ export function createStandaloneChannelWorker({
     };
   }
 
-  const daemonLeadPid = Number(process.env.MIXDOG_SUPERVISOR_PID) || process.pid;
+  // Daemon-hosted session shards inherit the PID of the process that first
+  // spawned the machine daemon. That process may be gone after daemon recovery,
+  // so callers that own a live runtime can override the inherited identity.
+  const daemonLeadPid = Number(leadPid)
+    || Number(process.env.MIXDOG_SUPERVISOR_PID)
+    || process.pid;
   const discoveryPath = join(runtimeRoot(), 'daemon.json');
   const discoverChannel = () => readChannelDiscovery(discoveryPath);
   const daemonDelay = (ms) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
@@ -153,7 +159,7 @@ export function createStandaloneChannelWorker({
       MIXDOG_WORKER_MODE: '1',
       MIXDOG_DAEMON_HOST: '1',
       MIXDOG_CLI_OWNED: '0',
-      MIXDOG_SUPERVISOR_PID: process.env.MIXDOG_SUPERVISOR_PID || String(process.pid),
+      MIXDOG_SUPERVISOR_PID: String(daemonLeadPid),
       MIXDOG_QUIET_SESSION_LOG: process.env.MIXDOG_QUIET_SESSION_LOG ?? '1',
     };
   }

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { tryNativeSpawn } from './native-spawn-client.mjs';
 
 let activeShellSpawns = 0;
 
@@ -14,6 +15,28 @@ export async function spawnShellWithRetry({ shell, argv, spawnOptions, shellArg,
     let attempt = 0;
     for (;;) {
       try {
+        const native = tryNativeSpawn({ shell, argv, spawnOptions, cwd });
+        if (native) {
+          await new Promise((resolveSpawn, rejectSpawn) => {
+            const timer = setTimeout(() => {
+              try { native.child.kill(); } catch {}
+              rejectSpawn(Object.assign(new Error('native spawn timeout'), { code: 'ETIMEDOUT' }));
+            }, 15_000);
+            const onSpawn = () => {
+              clearTimeout(timer);
+              native.child.removeListener('error', onError);
+              resolveSpawn();
+            };
+            const onError = (err) => {
+              clearTimeout(timer);
+              native.child.removeListener('spawn', onSpawn);
+              rejectSpawn(err);
+            };
+            native.child.once('spawn', onSpawn);
+            native.child.once('error', onError);
+          });
+          return native;
+        }
         const child = spawn(shell, argv, spawnOptions);
         let bufferedError = null;
         const guardError = (err) => { bufferedError = bufferedError || err; };

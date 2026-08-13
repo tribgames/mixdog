@@ -28,6 +28,9 @@ const FALLBACK_POLL_INTERVAL_MS = 15_000;
 export interface SessionCatalog {
   sessions: DesktopSessionSummary[];
   setSessions: Dispatch<SetStateAction<DesktopSessionSummary[]>>;
+  /** Publish a newly accepted draft in the same React commit as its pane
+   *  promotion, then retain that keyed row until the durable catalog sees it. */
+  stageCreatedSession: (session: DesktopSessionSummary) => void;
   refreshSessions: () => Promise<DesktopSessionSummary[]>;
   /** Sessions renamed locally but not yet reconciled with the engine. */
   pendingRenames: React.MutableRefObject<Map<string, { title: string }>>;
@@ -52,16 +55,21 @@ export function useSessionCatalog(
   const pendingRenames = useRef(new Map<string, { title: string }>());
   const pendingArchives = useRef(new Map<string, { archived: boolean }>());
   const pendingDeletes = useRef(new Set<string>());
+  const pendingCreates = useRef(new Map<string, DesktopSessionSummary>());
   const refreshVersion = useRef(0);
 
   const invalidateInFlight = useCallback(() => { refreshVersion.current += 1; }, []);
 
   // Engine rows carry no knowledge of a local mutation still in flight, so the
   // optimistic title/archive/removal is re-applied on top of every catalog.
-  const projectSessionRows = useCallback((next: DesktopSessionSummary[] | null | undefined) => (
-    (Array.isArray(next) ? next : [])
+  const projectSessionRows = useCallback((next: DesktopSessionSummary[] | null | undefined) => {
+    const rows = (Array.isArray(next) ? next : [])
       .filter((session) => !pendingDeletes.current.has(session.id))
       .map((session) => {
+        // The first durable sighting takes over the already-mounted optimistic
+        // row by id. Until then, an early watcher scan that still omits the
+        // just-created file may not blink the row back out.
+        pendingCreates.current.delete(session.id);
         const rename = pendingRenames.current.get(session.id);
         const archive = pendingArchives.current.get(session.id);
         if (!rename && !archive) return session;
@@ -70,8 +78,16 @@ export function useSessionCatalog(
           ...(rename ? { title: rename.title } : {}),
           ...(archive ? { archived: archive.archived } : {}),
         };
-      })
-  ), []);
+      });
+    const durableIds = new Set(rows.map((session) => session.id));
+    const pending: DesktopSessionSummary[] = [];
+    for (const session of pendingCreates.current.values()) {
+      if (!durableIds.has(session.id) && !pendingDeletes.current.has(session.id)) {
+        pending.push(session);
+      }
+    }
+    return pending.length === 0 ? rows : [...pending, ...rows];
+  }, []);
 
   const setSessions = useCallback<Dispatch<SetStateAction<DesktopSessionSummary[]>>>((update) => {
     const current = sessionsRef.current;
@@ -84,6 +100,19 @@ export function useSessionCatalog(
     setSessionsState(merged);
   }, []);
 
+  const stageCreatedSession = useCallback((session: DesktopSessionSummary) => {
+    if (!session.id) return;
+    refreshVersion.current += 1;
+    setSessions((current) => {
+      const existing = current.find((row) => row.id === session.id);
+      const staged = existing ? { ...existing, ...session } : session;
+      pendingCreates.current.set(session.id, staged);
+      return existing
+        ? current.map((row) => row.id === session.id ? staged : row)
+        : [staged, ...current];
+    });
+  }, [setSessions]);
+
   const commitProjectedRows = useCallback((
     rows: DesktopSessionSummary[],
     lowPriority: boolean,
@@ -94,7 +123,11 @@ export function useSessionCatalog(
       : mergeSessionCatalogRows(current, rows);
     if (merged === current) return current;
     sessionsRef.current = merged;
-    scheduleCachedSessionCatalogWrite(merged);
+    // A renderer-staged create is presentation state, not durable startup
+    // truth. It enters the cache only after a host catalog confirms the id.
+    scheduleCachedSessionCatalogWrite(merged.filter(
+      (session) => !pendingCreates.current.has(session.id),
+    ));
     const publish = () => setSessionsState(() => sessionsRef.current);
     if (lowPriority) startTransition(publish);
     else publish();
@@ -156,6 +189,7 @@ export function useSessionCatalog(
   return {
     sessions,
     setSessions,
+    stageCreatedSession,
     refreshSessions,
     pendingRenames,
     pendingArchives,

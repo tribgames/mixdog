@@ -113,15 +113,24 @@ function coldHistoryItems(count: number, stamp: number): Array<Record<string, un
 interface RowSample {
   t: number;
   st: number;
+  sh?: number;
+  ch?: number;
+  space?: number;
   dist: number;
   following?: boolean;
   bands?: number[];
   plain?: number;
+  queueHeight?: number;
   review?: {
     height: number;
     overlap: number;
     thinkingGap: number | null;
     composerGap: number | null;
+  } | null;
+  subject?: {
+    open: boolean;
+    rowHeight: number;
+    cardHeight: number;
   } | null;
   rows: Array<{ i: number; top: number }>;
 }
@@ -1795,6 +1804,8 @@ export async function runJitterProbe({
           st: Math.round(el.scrollTop),
           sh: Math.round(el.scrollHeight),
           ch: Math.round(el.clientHeight),
+          space: Math.round(el.querySelector('.transcript-virtual-space')
+            ?.getBoundingClientRect().height || 0),
           // Layout bands around the transcript: a band that appears AFTER
           // entry shrinks the viewport and drags the pinned content with it.
           bands: [
@@ -1807,6 +1818,8 @@ export async function runJitterProbe({
           dist: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight),
           following: el.getAttribute('data-following') === 'true',
           plain: el.querySelectorAll('.markdown-plain').length,
+          queueHeight: Math.round((el.closest('.conversation') || document)
+            .querySelector('.queue-list')?.getBoundingClientRect().height || 0),
           review: (() => {
             const shell = el.closest('.conversation') || document;
             const review = shell.querySelector('.turn-review-bar');
@@ -1821,6 +1834,16 @@ export async function runJitterProbe({
               overlap: Math.max(0, Math.round(box.bottom - reviewBox.top)),
               thinkingGap: activityBox ? Math.round(reviewBox.top - activityBox.bottom) : null,
               composerGap: composerBox ? Math.round(composerBox.top - reviewBox.bottom) : null,
+            };
+          })(),
+          subject: (() => {
+            const card = w.__entryCard;
+            const row = card?.closest('.transcript-virtual-row');
+            if (!card || !row || !row.isConnected) return null;
+            return {
+              open: card.getAttribute('data-open') === 'true',
+              rowHeight: Math.round(row.getBoundingClientRect().height),
+              cardHeight: Math.round(card.getBoundingClientRect().height),
             };
           })(),
           composer: (() => {
@@ -1878,6 +1901,13 @@ diff --git a/src/probe.ts b/src/probe.ts
   const delayedReviewSnapshot = {
     ...coldSnapshot,
     items: delayedReviewItems,
+  };
+  const queuedSnapshot = {
+    ...delayedReviewSnapshot,
+    queued: [{
+      id: `cold-${coldStamp}-queued-followup`,
+      text: 'queued follow-up geometry probe',
+    }],
   };
   prepareColdResume(coldSnapshot);
   await window.webContents.executeJavaScript(install);
@@ -2020,6 +2050,35 @@ diff --git a/src/probe.ts b/src/probe.ts
   };
   const reviewExpand = await toggleReview('review-expand', true);
   const reviewCollapse = await toggleReview('review-collapse', false);
+  const toggleQueue = async (
+    label: string,
+    nextSnapshot: Record<string, unknown>,
+    targetVisible: boolean,
+  ) => {
+    await window.webContents.executeJavaScript(install);
+    await sleep(100);
+    send(nextSnapshot);
+    await sleep(700);
+    const samples = await window.webContents.executeJavaScript(stop) as RowSample[];
+    const baseline = samples.slice(0, Math.min(5, samples.length));
+    const settled = samples.slice(-5);
+    const visibleBefore = baseline.some((sample) => Number(sample.queueHeight || 0) > 0);
+    const visibleAfter = settled.some((sample) => Number(sample.queueHeight || 0) > 0);
+    return {
+      label,
+      targetVisible,
+      transitioned: targetVisible
+        ? !visibleBefore && visibleAfter
+        : visibleBefore && !visibleAfter,
+      finalHeight: Number(samples.at(-1)?.queueHeight || 0),
+      followingAfter: samples.at(-1)?.following ?? null,
+      finalDistance: samples.at(-1)?.dist ?? null,
+      motion: contentMotion(samples),
+      samples,
+    };
+  };
+  const queueMount = await toggleQueue('queue-mount', queuedSnapshot, true);
+  const queueUnmount = await toggleQueue('queue-unmount', delayedReviewSnapshot, false);
   prepareColdResume(delayedReviewSnapshot);
 
   // Re-entry: leave the session and come back. Everything the first visit
@@ -2047,7 +2106,7 @@ diff --git a/src/probe.ts b/src/probe.ts
   // ── Phase B: tool-card expand / collapse ────────────────────────────────
   // The toggled card's own top must not move, and neither may the rest of
   // the visible transcript (user: 도구 사용 표기 펼침/접힘도 같은 출렁임).
-  const toggle = async (label: string, pinned: boolean) => {
+  const toggle = async (label: string, pinned: boolean, targetExpanded: boolean) => {
     // Select (and if needed scroll to) the subject card BEFORE sampling, so
     // the recorded frames contain only the toggle's own motion.
     const prepared = await window.webContents.executeJavaScript(`(async () => {
@@ -2080,28 +2139,102 @@ diff --git a/src/probe.ts b/src/probe.ts
       if (!el || !header || !header.isConnected) return null;
       const box = el.getBoundingClientRect();
       const card = header.closest('.tool-card');
-      const before = Math.round(card.getBoundingClientRect().top - box.top);
+      const row = card.closest('.transcript-virtual-row');
+      const space = el.querySelector('.transcript-virtual-space');
+      const before = {
+        top: Math.round(card.getBoundingClientRect().top - box.top),
+        scrollTop: Math.round(el.scrollTop),
+        scrollHeight: Math.round(el.scrollHeight),
+        spaceHeight: Math.round(space?.getBoundingClientRect().height || 0),
+        rowHeight: Math.round(row?.getBoundingClientRect().height || 0),
+        cardHeight: Math.round(card.getBoundingClientRect().height),
+      };
       window.__entryCard = card;
-      header.click();
-      return { before, open: card.getAttribute('data-open') };
-    })()`) as { before: number; open: string } | null;
+      const open = card.getAttribute('data-open') === 'true';
+      if (open !== ${targetExpanded ? 'true' : 'false'}) {
+        header.dispatchEvent(new PointerEvent('pointerdown', {
+          bubbles: true, button: 0, buttons: 1, pointerId: 1,
+        }));
+        header.dispatchEvent(new PointerEvent('pointerup', {
+          bubbles: true, button: 0, buttons: 0, pointerId: 1,
+        }));
+        header.click();
+      }
+      return { before, open };
+    })()`) as {
+      before: {
+        top: number;
+        scrollTop: number;
+        scrollHeight: number;
+        spaceHeight: number;
+        rowHeight: number;
+        cardHeight: number;
+      };
+      open: boolean;
+    } | null;
     await sleep(1_000);
     const samples = await window.webContents.executeJavaScript(stop) as RowSample[];
     const card = await window.webContents.executeJavaScript(`(() => {
       const el = ${pickTranscript};
       const card = window.__entryCard;
       if (!el || !card || !card.isConnected) return null;
+      const row = card.closest('.transcript-virtual-row');
+      const space = el.querySelector('.transcript-virtual-space');
       return {
         top: Math.round(card.getBoundingClientRect().top - el.getBoundingClientRect().top),
         open: card.getAttribute('data-open'),
+        subjectKey: row?.getAttribute('data-timeline-key') || '',
+        scrollTop: Math.round(el.scrollTop),
+        scrollHeight: Math.round(el.scrollHeight),
+        spaceHeight: Math.round(space?.getBoundingClientRect().height || 0),
+        rowHeight: Math.round(row?.getBoundingClientRect().height || 0),
+        cardHeight: Math.round(card.getBoundingClientRect().height),
       };
-    })()`) as { top: number; open: string } | null;
+    })()`) as {
+      top: number;
+      open: string;
+      subjectKey: string;
+      scrollTop: number;
+      scrollHeight: number;
+      spaceHeight: number;
+      rowHeight: number;
+      cardHeight: number;
+    } | null;
+    const scrollDelta = clicked && card ? card.scrollTop - clicked.before.scrollTop : null;
+    const scrollHeightDelta = clicked && card
+      ? card.scrollHeight - clicked.before.scrollHeight
+      : null;
+    const spaceHeightDelta = clicked && card
+      ? card.spaceHeight - clicked.before.spaceHeight
+      : null;
+    const rowHeightDelta = clicked && card
+      ? card.rowHeight - clicked.before.rowHeight
+      : null;
+    const cardHeightDelta = clicked && card
+      ? card.cardHeight - clicked.before.cardHeight
+      : null;
     return {
       label,
       prepared,
       clicked: Boolean(clicked),
-      cardShift: clicked && card ? card.top - clicked.before : null,
+      targetExpanded,
+      subjectKey: card?.subjectKey ?? null,
+      cardShift: clicked && card ? card.top - clicked.before.top : null,
       openAfter: card?.open ?? null,
+      scrollDelta,
+      scrollHeightDelta,
+      spaceHeightDelta,
+      rowHeightDelta,
+      cardHeightDelta,
+      scrollError: scrollDelta === null || scrollHeightDelta === null
+        ? null
+        : scrollDelta - (pinned ? scrollHeightDelta : 0),
+      rowGeometryError: rowHeightDelta === null || cardHeightDelta === null
+        ? null
+        : rowHeightDelta - cardHeightDelta,
+      spaceGeometryError: spaceHeightDelta === null || cardHeightDelta === null
+        ? null
+        : spaceHeightDelta - cardHeightDelta,
       followingAfter: samples.at(-1)?.following ?? null,
       finalDistance: samples.at(-1)?.dist ?? null,
       motion: contentMotion(samples),
@@ -2110,7 +2243,7 @@ diff --git a/src/probe.ts b/src/probe.ts
   };
   // Pinned pass first (the common case: the newest tool card at the bottom of
   // a followed transcript), then the scrolled-up reading case.
-  const pinnedExpand = await toggle('pinned-expand', true);
+  const pinnedExpand = await toggle('pinned-expand', true, true);
   await window.webContents.executeJavaScript(`(async () => {
     const link = document.querySelector('button[aria-label="New task"]');
     if (link instanceof HTMLElement) link.click();
@@ -2132,8 +2265,27 @@ diff --git a/src/probe.ts b/src/probe.ts
   const expandedReentryOpenTools = await window.webContents.executeJavaScript(
     `document.querySelectorAll('.tool-card[data-open="true"]').length`,
   ) as number;
-  const pinnedExpandAgain = await toggle('pinned-expand-again', true);
-  const pinnedCollapse = await toggle('pinned-collapse', true);
+  const pinnedCollapse = await toggle('pinned-collapse', true, false);
+  const pinnedExpandAgain = await toggle('pinned-expand-again', true, true);
+  await window.webContents.executeJavaScript(install);
+  send({
+    ...delayedReviewSnapshot,
+    items: [
+      ...delayedReviewItems,
+      {
+        id: `cold-${coldStamp}-append-after-toggle`,
+        kind: 'assistant',
+        text: 'follow remains pinned after a tool disclosure changes height',
+      },
+    ],
+  });
+  await sleep(700);
+  const pinnedAppendSamples = await window.webContents.executeJavaScript(stop) as RowSample[];
+  const pinnedAppend = {
+    followingAfter: pinnedAppendSamples.at(-1)?.following ?? null,
+    finalDistance: pinnedAppendSamples.at(-1)?.dist ?? null,
+    motion: contentMotion(pinnedAppendSamples),
+  };
   await window.webContents.executeJavaScript(`(async () => {
     const el = ${pickTranscript};
     if (!el) return false;
@@ -2142,13 +2294,14 @@ diff --git a/src/probe.ts b/src/probe.ts
     await new Promise((resolve) => setTimeout(resolve, 500));
     return true;
   })()`);
-  const expand = await toggle('expand', false);
-  const collapse = await toggle('collapse', false);
+  const expand = await toggle('expand', false, true);
+  const collapse = await toggle('collapse', false, false);
   const toggleSamples = {
     reviewExpand: reviewExpand.samples,
     reviewCollapse: reviewCollapse.samples,
     pinnedExpand: pinnedExpand.samples,
     pinnedCollapse: pinnedCollapse.samples,
+    pinnedAppend: pinnedAppendSamples,
     expand: expand.samples,
     collapse: collapse.samples,
   };
@@ -2159,12 +2312,16 @@ diff --git a/src/probe.ts b/src/probe.ts
     const { samples: _c, ...collapseOnly } = collapse;
     const { samples: _re, ...reviewExpandOnly } = reviewExpand;
     const { samples: _rc, ...reviewCollapseOnly } = reviewCollapse;
+    const { samples: _qm, ...queueMountOnly } = queueMount;
+    const { samples: _qu, ...queueUnmountOnly } = queueUnmount;
     const entrySummary = {
       coldEntry: entry,
       coldReentry: reentry,
       delayedReview,
       reviewExpand: reviewExpandOnly,
       reviewCollapse: reviewCollapseOnly,
+      queueMount: queueMountOnly,
+      queueUnmount: queueUnmountOnly,
       coldEntryDiag: entryDiag,
       expandedToolReentry: {
         motion: expandedReentry,
@@ -2176,6 +2333,7 @@ diff --git a/src/probe.ts b/src/probe.ts
         return rest;
       })(),
       toolTogglePinnedCollapse: pinnedCollapseOnly,
+      toolTogglePinnedAppend: pinnedAppend,
       toolToggleExpand: expandOnly,
       toolToggleCollapse: collapseOnly,
     };
@@ -2185,6 +2343,8 @@ diff --git a/src/probe.ts b/src/probe.ts
       entrySamples,
       reentrySamples,
       expandedReentrySamples,
+      queueMountSamples: queueMount.samples,
+      queueUnmountSamples: queueUnmount.samples,
       toggleSamples,
     }, null, 1));
     console.log(`[jitter-probe] ${JSON.stringify(entrySummary)}`);
@@ -2196,6 +2356,8 @@ diff --git a/src/probe.ts b/src/probe.ts
         expandedReentry.reversals,
         reviewExpand.motion.reversals,
         reviewCollapse.motion.reversals,
+        queueMount.motion.reversals,
+        queueUnmount.motion.reversals,
         pinnedExpand.motion.reversals,
         pinnedExpandAgain.motion.reversals,
         pinnedCollapse.motion.reversals,

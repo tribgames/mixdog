@@ -25,7 +25,7 @@ concurrency:
 env:
   CARGO_INCREMENTAL: "0"
   MANIFEST: src/runtime/agent/orchestrator/tools/token-manifest.json
-  RUST_VERSION: "1.85.1"
+  RUST_VERSION: "1.88.0"
 
 jobs:
   gate:
@@ -136,7 +136,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ needs.gate.outputs.source_sha }}"
-          test "$(rustc --version)" = "rustc ${RUST_VERSION} (4eb161250 2025-03-15)"
+          test "$(rustc --version)" = "rustc ${RUST_VERSION} (6b00bc388 2025-06-23)"
           cargo test --locked --manifest-path native/mixdog-token/Cargo.toml
 
   build:
@@ -146,11 +146,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: windows-2022,     target: x86_64-pc-windows-msvc,    pkey: win32-x64,    ext: .exe, rustflags: "-C link-arg=/Brepro" }
-          - { runner: ubuntu-22.04,     target: x86_64-unknown-linux-gnu,  pkey: linux-x64,    ext: "",   rustflags: "-C link-arg=-Wl,--build-id=sha1" }
-          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, pkey: linux-arm64,  ext: "",   rustflags: "-C link-arg=-Wl,--build-id=sha1" }
-          - { runner: macos-15-intel,   target: x86_64-apple-darwin,       pkey: darwin-x64,   ext: "",   rustflags: "-C link-arg=-Wl,-no_uuid" }
-          - { runner: macos-14,         target: aarch64-apple-darwin,      pkey: darwin-arm64, ext: "",   rustflags: "-C link-arg=-Wl,-no_uuid" }
+          - { runner: windows-2022,     target: x86_64-pc-windows-msvc,    pkey: win32-x64,    lib: mixdog_token.dll,      rustflags: "-C link-arg=/Brepro" }
+          - { runner: ubuntu-22.04,     target: x86_64-unknown-linux-gnu,  pkey: linux-x64,    lib: libmixdog_token.so,    rustflags: "-C link-arg=-Wl,--build-id=sha1" }
+          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, pkey: linux-arm64,  lib: libmixdog_token.so,    rustflags: "-C link-arg=-Wl,--build-id=sha1" }
+          - { runner: macos-15-intel,   target: x86_64-apple-darwin,       pkey: darwin-x64,    lib: libmixdog_token.dylib, rustflags: "-C link-arg=-Wl,-no_uuid" }
+          - { runner: macos-14,         target: aarch64-apple-darwin,      pkey: darwin-arm64, lib: libmixdog_token.dylib, rustflags: "-C link-arg=-Wl,-no_uuid" }
     runs-on: ${{ matrix.runner }}
     env:
       RUSTFLAGS: ${{ matrix.rustflags }}
@@ -171,15 +171,15 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ needs.gate.outputs.source_sha }}"
-          test "$(rustc --version)" = "rustc ${RUST_VERSION} (4eb161250 2025-03-15)"
+          test "$(rustc --version)" = "rustc ${RUST_VERSION} (6b00bc388 2025-06-23)"
           echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
 
       - name: Build primary reproducible binary
         shell: bash
         run: |
           set -euo pipefail
-          BIN="native/mixdog-token/target/${{ matrix.target }}/release/mixdog-token${{ matrix.ext }}"
-          ASSET="mixdog-token-${{ matrix.pkey }}${{ matrix.ext }}"
+          BIN="native/mixdog-token/target/${{ matrix.target }}/release/${{ matrix.lib }}"
+          ASSET="mixdog-token-${{ matrix.pkey }}.node"
           sha256() {
             node -e "const {createHash}=require('node:crypto');const {readFileSync}=require('node:fs');process.stdout.write(createHash('sha256').update(readFileSync(process.argv[1])).digest('hex'))" "$1"
           }
@@ -217,8 +217,8 @@ jobs:
         with:
           name: token-${{ matrix.pkey }}-${{ github.run_attempt }}
           path: |
-            _asset/mixdog-token-${{ matrix.pkey }}${{ matrix.ext }}
-            _asset/mixdog-token-${{ matrix.pkey }}${{ matrix.ext }}.provenance.json
+            _asset/mixdog-token-${{ matrix.pkey }}.node
+            _asset/mixdog-token-${{ matrix.pkey }}.node.provenance.json
           if-no-files-found: error
           retention-days: 1
 
@@ -231,11 +231,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: windows-2022,     target: x86_64-pc-windows-msvc,    pkey: win32-x64,    ext: .exe, rustflags: "-C link-arg=/Brepro" }
-          - { runner: ubuntu-22.04,     target: x86_64-unknown-linux-gnu,  pkey: linux-x64,    ext: "",   rustflags: "-C link-arg=-Wl,--build-id=sha1" }
-          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, pkey: linux-arm64,  ext: "",   rustflags: "-C link-arg=-Wl,--build-id=sha1" }
-          - { runner: macos-15-intel,   target: x86_64-apple-darwin,       pkey: darwin-x64,   ext: "",   rustflags: "-C link-arg=-Wl,-no_uuid" }
-          - { runner: macos-14,         target: aarch64-apple-darwin,      pkey: darwin-arm64, ext: "",   rustflags: "-C link-arg=-Wl,-no_uuid" }
+          - { runner: windows-2022,     target: x86_64-pc-windows-msvc,    pkey: win32-x64,    lib: mixdog_token.dll,      rustflags: "-C link-arg=/Brepro" }
+          - { runner: ubuntu-22.04,     target: x86_64-unknown-linux-gnu,  pkey: linux-x64,    lib: libmixdog_token.so,    rustflags: "-C link-arg=-Wl,--build-id=sha1" }
+          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, pkey: linux-arm64,  lib: libmixdog_token.so,    rustflags: "-C link-arg=-Wl,--build-id=sha1" }
+          - { runner: macos-15-intel,   target: x86_64-apple-darwin,       pkey: darwin-x64,    lib: libmixdog_token.dylib, rustflags: "-C link-arg=-Wl,-no_uuid" }
+          - { runner: macos-14,         target: aarch64-apple-darwin,      pkey: darwin-arm64, lib: libmixdog_token.dylib, rustflags: "-C link-arg=-Wl,-no_uuid" }
     runs-on: ${{ matrix.runner }}
     env:
       RUSTFLAGS: ${{ matrix.rustflags }}
@@ -256,10 +256,10 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ needs.gate.outputs.source_sha }}"
-          test "$(rustc --version)" = "rustc ${RUST_VERSION} (4eb161250 2025-03-15)"
+          test "$(rustc --version)" = "rustc ${RUST_VERSION} (6b00bc388 2025-06-23)"
           export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
-          BIN="native/mixdog-token/target/${{ matrix.target }}/release/mixdog-token${{ matrix.ext }}"
-          ASSET="mixdog-token-${{ matrix.pkey }}${{ matrix.ext }}"
+          BIN="native/mixdog-token/target/${{ matrix.target }}/release/${{ matrix.lib }}"
+          ASSET="mixdog-token-${{ matrix.pkey }}.node"
           cargo clean --manifest-path native/mixdog-token/Cargo.toml
           cargo build --locked --release --target "${{ matrix.target }}" --manifest-path native/mixdog-token/Cargo.toml
           mkdir _repro
@@ -268,7 +268,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: rebuild-token-${{ matrix.pkey }}-${{ github.run_attempt }}
-          path: _repro/mixdog-token-${{ matrix.pkey }}${{ matrix.ext }}
+          path: _repro/mixdog-token-${{ matrix.pkey }}.node
           if-no-files-found: error
           retention-days: 1
 
@@ -304,11 +304,11 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           expected=(
-            mixdog-token-darwin-arm64
-            mixdog-token-darwin-x64
-            mixdog-token-linux-arm64
-            mixdog-token-linux-x64
-            mixdog-token-win32-x64.exe
+            mixdog-token-darwin-arm64.node
+            mixdog-token-darwin-x64.node
+            mixdog-token-linux-arm64.node
+            mixdog-token-linux-x64.node
+            mixdog-token-win32-x64.node
           )
           expected_inputs=()
           for asset in "${expected[@]}"; do
@@ -326,11 +326,11 @@ jobs:
           const { readFileSync, writeFileSync } = require('node:fs');
           const { createHash } = require('node:crypto');
           const files = {
-            'darwin-arm64': 'mixdog-token-darwin-arm64',
-            'darwin-x64': 'mixdog-token-darwin-x64',
-            'linux-arm64': 'mixdog-token-linux-arm64',
-            'linux-x64': 'mixdog-token-linux-x64',
-            'win32-x64': 'mixdog-token-win32-x64.exe',
+            'darwin-arm64': 'mixdog-token-darwin-arm64.node',
+            'darwin-x64': 'mixdog-token-darwin-x64.node',
+            'linux-arm64': 'mixdog-token-linux-arm64.node',
+            'linux-x64': 'mixdog-token-linux-x64.node',
+            'win32-x64': 'mixdog-token-win32-x64.node',
           };
           const targets = {
             'darwin-arm64': 'aarch64-apple-darwin',
@@ -345,7 +345,7 @@ jobs:
             if (record.platform !== platform || record.target !== targets[platform]
                 || record.asset !== file || record.assetDigest !== digest
                 || record.sourceSha !== process.env.SOURCE_SHA
-                || record.rustc !== 'rustc 1.85.1 (4eb161250 2025-03-15)') {
+                || record.rustc !== 'rustc 1.88.0 (6b00bc388 2025-06-23)') {
               throw new Error(`Invalid provenance for ${platform}`);
             }
             return record;
@@ -354,7 +354,7 @@ jobs:
             tokenVersion: process.env.TOKEN_VERSION,
             tag: process.env.TOKEN_TAG,
             sourceSha: process.env.SOURCE_SHA,
-            rustc: 'rustc 1.85.1 (4eb161250 2025-03-15)',
+            rustc: 'rustc 1.88.0 (6b00bc388 2025-06-23)',
             platforms: provenance,
           }) + '\n');
           const sums = Object.fromEntries(Object.values(files).map(file => [
@@ -458,11 +458,11 @@ jobs:
           RELEASE_ID=$(cat /tmp/release-id)
           UPLOAD_URL=$(cat /tmp/release-upload-url)
           expected=(
-            mixdog-token-darwin-arm64
-            mixdog-token-darwin-x64
-            mixdog-token-linux-arm64
-            mixdog-token-linux-x64
-            mixdog-token-win32-x64.exe
+            mixdog-token-darwin-arm64.node
+            mixdog-token-darwin-x64.node
+            mixdog-token-linux-arm64.node
+            mixdog-token-linux-x64.node
+            mixdog-token-win32-x64.node
             SHA256SUMS
             mixdog-token-provenance.json
           )
@@ -610,11 +610,11 @@ jobs:
           cmp _generated/token-manifest.json /tmp/main-manifest.json
 
           mkdir _expected
-          cp _builds/mixdog-token-darwin-arm64 _expected/
-          cp _builds/mixdog-token-darwin-x64 _expected/
-          cp _builds/mixdog-token-linux-arm64 _expected/
-          cp _builds/mixdog-token-linux-x64 _expected/
-          cp _builds/mixdog-token-win32-x64.exe _expected/
+          cp _builds/mixdog-token-darwin-arm64.node _expected/
+          cp _builds/mixdog-token-darwin-x64.node _expected/
+          cp _builds/mixdog-token-linux-arm64.node _expected/
+          cp _builds/mixdog-token-linux-x64.node _expected/
+          cp _builds/mixdog-token-win32-x64.node _expected/
           cp _generated/SHA256SUMS _generated/mixdog-token-provenance.json _expected/
 
           gh api --paginate --slurp \
@@ -635,11 +635,11 @@ jobs:
           NODE
           )
           expected=(
-            mixdog-token-darwin-arm64
-            mixdog-token-darwin-x64
-            mixdog-token-linux-arm64
-            mixdog-token-linux-x64
-            mixdog-token-win32-x64.exe
+            mixdog-token-darwin-arm64.node
+            mixdog-token-darwin-x64.node
+            mixdog-token-linux-arm64.node
+            mixdog-token-linux-x64.node
+            mixdog-token-win32-x64.node
             SHA256SUMS
             mixdog-token-provenance.json
           )

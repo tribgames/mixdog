@@ -7,9 +7,9 @@
  * rely on provider-managed prefix routing or provider-local cache objects.
  *
  * Anthropic 4-BP layout:
- *   BP_1  system#1  (1h)  — shared tool policy + compact skill manifest
- *   BP_2  system#2  (1h)  — role/system rules (Lead / agent / hidden role)
- *   BP_3  system#3  (1h)  — stable memory/meta marker (sessionMarker system block; tier3)
+ *   BP_1  system#1  (1h)  — shared tool policy
+ *   BP_2  system#2  (1h)  — profile/settings + skills + deferred/MCP catalog
+ *   BP_3  system#3  (1h)  — workflow/role + memory + session/project environment
  *   BP_4  messages  (1h public/hidden agents; Lead linked to autoClear,
  *                    whose Anthropic default is 1h — see below) —
  *         sliding tool_result / prior user-text tail
@@ -19,8 +19,8 @@
  * the preceding tool prefix via Anthropic prefix caching semantics. Keeping
  * agent worker tool schemas byte-stable is therefore still load-bearing.
  *
- * Tier 3 gets its own BP because memory/meta context is stable within the
- * session. The sliding 1h messages BP handles tool_result accumulation and
+ * Tier 3 gets its own BP because role and environment context are stable within
+ * the session. The sliding 1h messages BP handles tool_result accumulation and
  * per-call task/event data while isolating volatile text from stable prefix BPs.
  *
  * Non-breakpoint providers:

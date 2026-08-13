@@ -18,8 +18,8 @@ param(
     [string]$Effort = "",
     # Complete per-role routing table, applied to the disposable config copy.
     [string]$RouteProfile = "",
-    # Explicit workflow override; empty preserves the stock default.
-    [string]$Workflow = "",
+    # Benchmark runs default to delegation-free Solo Bench; explicit values override it.
+    [string]$Workflow = "solo-bench",
     # Auto-retry count for trials that die before/around the agent run
     # (RuntimeError, NonZeroAgentExitCodeError, docker daemon death, ...).
     # Harbor's default exclude list keeps AgentTimeout/Verifier errors OUT of

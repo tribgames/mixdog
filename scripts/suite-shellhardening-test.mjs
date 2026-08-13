@@ -5,14 +5,30 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { _isBenignSearchExitOne } from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
-import { preflightPowerShellHygiene } from '../src/runtime/agent/orchestrator/tools/builtin/shell-analysis.mjs';
+import { createHash } from 'node:crypto';
+import {
+  DEFAULT_SHELL_AUTO_BACKGROUND_MS,
+  _exitClassDiagnostic,
+  _isBenignSearchExitOne,
+} from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
+import {
+  foregroundLongCommandHint,
+  preflightPowerShellHygiene,
+} from '../src/runtime/agent/orchestrator/tools/builtin/shell-analysis.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
+import { executionModeSchemaDescription } from '../src/runtime/shared/background-tasks.mjs';
+import {
+    appendShellStartupPolicy,
+    describeShellStartupPolicy,
+} from '../src/runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs';
 import { checkExecPolicyMessage } from '../src/runtime/agent/orchestrator/tools/bash-policy-scan.mjs';
 import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { classifyToolFailure } from '../src/runtime/agent/orchestrator/agent-trace-format.mjs';
+import {
+  buildShellOutputTelemetryPayload,
+  classifyToolFailure,
+} from '../src/runtime/agent/orchestrator/agent-trace-format.mjs';
 import { ExecResult, execShellCommand } from '../src/runtime/agent/orchestrator/tools/shell-command.mjs';
 import { _composeShellFailure, _shellFailureStatus } from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
 import { isShellFailureResult } from '../src/runtime/agent/orchestrator/session/result-classification.mjs';
@@ -20,7 +36,7 @@ import { shellCommandExitCode } from '../src/tui/session/tool-result-status.mjs'
 import { stripShellExitHeader } from '../src/tui/session/tool-result-text.mjs';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
   childGuardianSpawnEnv,
@@ -28,8 +44,18 @@ import {
 } from '../src/runtime/shared/child-guardian.mjs';
 import {
   BACKGROUND_PARTIAL_OUTPUT_MAX_BYTES,
+  recordShellCaptureTelemetry,
   renderBackgroundPartialOutput,
 } from '../src/runtime/agent/orchestrator/tools/builtin/shell-output.mjs';
+import {
+  compactShellOutputLosslessly,
+  planLosslessShellCompaction,
+  renderLosslessRecoveryHint,
+} from '../src/runtime/agent/orchestrator/tools/builtin/shell-lossless-compact.mjs';
+import {
+  ensureTokenAddon,
+  findCachedTokenAddon,
+} from '../src/runtime/agent/orchestrator/tools/token-addon-fetcher.mjs';
 
 // ==== from shell-hardening-test.mjs ====
 // Regression + integration tests for three recent shell hardening changes:
@@ -108,6 +134,246 @@ test('auto-background partial output shares one strict UTF-8 byte budget', () =>
     assert.equal(rendered.includes('\uFFFD'), false);
 });
 
+test('shell execution policy matches sync-first background-task parity', () => {
+    assert.equal(DEFAULT_SHELL_AUTO_BACKGROUND_MS, 10_000);
+    assert.equal(
+        foregroundLongCommandHint('npm run dev', 120_000, {}, { backgroundTasksDisabled: false }),
+        '',
+    );
+    assert.match(
+        foregroundLongCommandHint('sleep 5', 120_000, {}, { backgroundTasksDisabled: false }),
+        /mode:"async".*completion notification/,
+    );
+    assert.equal(
+        foregroundLongCommandHint('sleep 5', 120_000, { run_in_background: true }, { backgroundTasksDisabled: false }),
+        '',
+    );
+    assert.match(
+        executionModeSchemaDescription('sync'),
+        /sync = inline result.*may auto-background.*async = immediate task_id.*Default sync/,
+    );
+    const taskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
+    assert.match(taskTool.description, /normal completion arrives by notification/);
+    assert.deepEqual(taskTool.inputSchema.properties.action.enum, ['list', 'status', 'read', 'check_after', 'cancel']);
+    assert.match(taskTool.inputSchema.properties.action.description, /task_id alone defaults to non-blocking status.*check_after schedules one non-blocking progress notification/);
+    assert.match(taskTool.inputSchema.properties.after_ms.description, /Required explicitly for check_after.*one-shot delay.*not the task deadline/);
+});
+
+test('shell output telemetry measures spill-backed raw bytes without retaining output', () => {
+    const telemetry = {};
+    recordShellCaptureTelemetry(
+        telemetry,
+        {
+            stdout: 'bounded preview',
+            stderr: '',
+            stdoutPath: '/tmp/stdout',
+            stdoutFileSize: 120,
+            stderrPath: null,
+            stderrFileSize: 0,
+        },
+        'bounded preview',
+        '',
+    );
+    telemetry.shellResultBytes = 80;
+    telemetry.toolResultBytes = 70;
+    assert.deepEqual(telemetry, {
+        commandOutputBytes: 120,
+        capturedPreviewBytes: 15,
+        spilled: true,
+        shellResultBytes: 80,
+        toolResultBytes: 70,
+    });
+
+    const payload = buildShellOutputTelemetryPayload({
+        toolCallId: 'call_shell_1',
+        telemetry,
+        preOffloadBytes: 70,
+        postOffloadBytes: 30,
+        modelVisibleBytes: 20,
+        offloaded: true,
+        resultKind: 'normal',
+    });
+    assert.equal(payload.command_output_bytes, 120);
+    assert.equal(payload.model_visible_bytes, 20);
+    assert.equal(payload.byte_delta, 100);
+    assert.equal(payload.reduction_pct, 83);
+    assert.equal(payload.offloaded, true);
+    assert.equal('stdout' in payload, false);
+});
+
+test('lossless shell compaction summarizes successful pytest and preserves exact capture', () => {
+    const originalDataDir = process.env.MIXDOG_DATA_DIR;
+    const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-shell-compact-'));
+    process.env.MIXDOG_DATA_DIR = dataDir;
+    try {
+        const stdout = [
+            '============================= test session starts =============================',
+            'collected 367 items',
+            '',
+            ...Array.from({ length: 367 }, (_, i) => `test/test_${i}.py PASSED`),
+            '',
+            '============================= 367 passed in 1.25s =============================',
+            '',
+        ].join('\n');
+        const compacted = compactShellOutputLosslessly({
+            command: 'pytest -rA',
+            rawStdout: stdout,
+            rawStderr: '',
+            stdout,
+            stderr: '',
+            exitCode: 0,
+            signal: null,
+            timedOut: false,
+        });
+        assert.equal(compacted.stdout, 'Pytest: 367 passed in 1.25s');
+        assert.equal(compacted.kind, 'command-success');
+        assert.equal(compacted.recovery.length, 1);
+        const capture = compacted.recovery[0];
+        assert.equal(readFileSync(capture.path, 'utf8'), stdout);
+        assert.equal(capture.bytes, Buffer.byteLength(stdout, 'utf8'));
+        assert.equal(capture.sha256, createHash('sha256').update(stdout).digest('hex'));
+        assert.match(renderLosslessRecoveryHint(compacted), /full captured output preserved/);
+        assert.match(renderLosslessRecoveryHint(compacted), /use read to recover/);
+    } finally {
+        if (originalDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+        else process.env.MIXDOG_DATA_DIR = originalDataDir;
+        rmSync(dataDir, { recursive: true, force: true });
+    }
+});
+
+test('lossless shell compaction fails open for failures, heredocs, warnings, and existing recovery', () => {
+    const output = `${'test_x PASSED\n'.repeat(80)}80 passed in 1.0s\n`;
+    for (const input of [
+        { command: 'pytest', exitCode: 1 },
+        { command: "python3 - <<'PY'\nprint('x')\nPY", exitCode: 0 },
+        { command: 'pytest', exitCode: 0, stdout: `${output}1 warning\n` },
+        { command: 'pytest', exitCode: 0, hasExistingRecovery: true },
+    ]) {
+        assert.equal(planLosslessShellCompaction({
+            command: input.command,
+            stdout: input.stdout ?? output,
+            stderr: '',
+            exitCode: input.exitCode,
+            signal: null,
+            timedOut: false,
+            hasExistingRecovery: input.hasExistingRecovery,
+        }), null);
+    }
+});
+
+test('lossless shell compaction folds only worthwhile consecutive duplicates', () => {
+    const repeated = `${'same log line\n'.repeat(120)}done\n`;
+    const compacted = planLosslessShellCompaction({
+        command: 'node worker.mjs',
+        stdout: repeated,
+        stderr: '',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+    });
+    assert.equal(compacted.kind, 'consecutive-duplicates');
+    assert.match(compacted.stdout, /^same log line\n\.\.\. \[previous line repeated 119 more times\]\ndone\n$/);
+    assert.equal(planLosslessShellCompaction({
+        command: 'node worker.mjs',
+        stdout: 'same log line\n'.repeat(5),
+        stderr: '',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+    }), null);
+});
+
+test('lossless shell compaction preserves JSON lexemes while removing only insignificant whitespace', () => {
+    const pretty = `{
+  "large": 9007199254740993,
+  "text": "spaces stay here",
+  "nested": [
+    true,
+    null
+  ]
+}${' '.repeat(700)}`;
+    const compacted = planLosslessShellCompaction({
+        command: 'tool --json',
+        stdout: pretty,
+        stderr: '',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+    });
+    assert.equal(compacted.kind, 'structured-json');
+    assert.equal(
+        compacted.stdout,
+        '{"large":9007199254740993,"text":"spaces stay here","nested":[true,null]}',
+    );
+});
+
+test('lossless shell compaction summarizes successful test runners only with complete zero-risk counts', () => {
+    const tap = [
+        'TAP version 13',
+        ...Array.from({ length: 80 }, (_, i) => `# Subtest: case ${i}`),
+        '1..80',
+        '# tests 80',
+        '# suites 0',
+        '# pass 80',
+        '# fail 0',
+        '# cancelled 0',
+        '# skipped 0',
+        '# todo 0',
+        '# duration_ms 42.5',
+        '',
+    ].join('\n');
+    const nodePlan = planLosslessShellCompaction({
+        command: 'npm run test:unit',
+        stdout: tap,
+        stderr: '',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+    });
+    assert.equal(nodePlan.stdout, 'Node tests: 80 passed in 42.5ms');
+
+    const cargo = `${'test case ... ok\n'.repeat(80)}test result: ok. 80 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s\n`;
+    const cargoPlan = planLosslessShellCompaction({
+        command: 'cargo test',
+        stdout: cargo,
+        stderr: '',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+    });
+    assert.equal(cargoPlan.stdout, 'Cargo test: 80 passed in 1 suites (0.42s)');
+
+    assert.equal(planLosslessShellCompaction({
+        command: 'npm test',
+        stdout: tap.replace('# fail 0', '# fail 1'),
+        stderr: '',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+    }), null);
+});
+
+test('lossless shell compaction folds overwritten progress frames but never diagnostics', () => {
+    const progress = `${Array.from({ length: 240 }, (_, i) => `${i}%`).join('\r')}\r100%\n`;
+    const compacted = planLosslessShellCompaction({
+        command: 'builder',
+        stdout: progress,
+        stderr: '',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+    });
+    assert.match(compacted.stdout, /^100%\n\n\.\.\. \[240 overwritten progress frames omitted\]$/);
+    assert.equal(planLosslessShellCompaction({
+        command: 'builder',
+        stdout: `${progress}warning: unstable output\n`,
+        stderr: '',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+    }), null);
+});
+
 // ---------------------------------------------------------------------------
 // B) preflightPowerShellHygiene — unit
 // ---------------------------------------------------------------------------
@@ -155,10 +421,13 @@ test('B: POSIX host is a strict no-op', () => {
 test('C: shell surface keeps execution contract separate from the platform command cheat', (t) => {
     const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
     assert.ok(shellTool, 'shell tool must exist');
-    assert.match(shellTool.description, /^Run a shell command; async returns task_id and sends a completion notification\. Executable\/runtime\/state evidence only — never file exploration in any command segment: NOT ls\/find\/cat\/head\/tail\/grep\/rg\/sed; dedicated file tools cover those\.$/);
-    assert.doesNotMatch(shellTool.description, /PowerShell:/);
+    assert.match(shellTool.description, /^Run executable\/runtime\/state operations or generate computed artifacts\. Never explore files with shell \(NOT ls\/find\/cat\/head\/tail\/grep\/rg\/sed\); use file tools\.$/);
+    assert.doesNotMatch(shellTool.description, /Shell startup environment:|available=|unavailable=/);
     assert.equal(shellTool.inputSchema?.properties?.shell?.description, 'Force shell.');
+    assert.equal(shellTool.inputSchema?.properties?.commands, undefined);
+    assert.deepEqual(shellTool.inputSchema?.required, ['command']);
     const commandDescription = shellTool.inputSchema?.properties?.command?.description || '';
+    assert.doesNotMatch(commandDescription, /PATH (?:available|unavailable)|Startup environment:/);
     if (process.platform !== 'win32') {
         assert.equal(/Select-String/.test(commandDescription), false,
             'non-win32 must NOT carry the PS cheat');
@@ -166,6 +435,66 @@ test('C: shell surface keeps execution contract separate from the platform comma
     }
     assert.match(commandDescription, /PowerShell:/);
     assert.match(commandDescription, /\$PID is reserved/);
+});
+
+test('C: shell startup policy reports environment and PATH candidates in fixed order', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mixdog-shell-runtime-capabilities-'));
+    try {
+        const nodeName = process.platform === 'win32' ? 'node.exe' : 'node';
+        const perlName = process.platform === 'win32' ? 'perl.exe' : 'perl';
+        for (const name of [nodeName, perlName]) {
+            const file = join(dir, name);
+            writeFileSync(file, '');
+            if (process.platform !== 'win32') chmodSync(file, 0o755);
+        }
+        assert.equal(
+            describeShellStartupPolicy({
+                candidates: ['node', 'python3', 'perl'],
+                pathValue: dir,
+                platform: process.platform,
+                os: 'test-os',
+                shell: 'test-shell',
+            }),
+            '- Shell startup environment: OS=test-os; shell=test-shell; available=node, perl; unavailable=python3. For shell commands, treat every unavailable entry as absent. Invoke one only if the same command first installs it or exposes it on PATH.',
+        );
+        assert.match(
+            appendShellStartupPolicy('# Tool Use', [{ name: 'shell' }], {
+                candidates: ['node', 'python3', 'perl'],
+                pathValue: dir,
+                platform: process.platform,
+                os: 'test-os',
+                shell: 'test-shell',
+            }),
+            /^# Tool Use\n- Shell startup environment:/,
+        );
+        assert.equal(appendShellStartupPolicy('# Tool Use', [{ name: 'read' }]), '# Tool Use');
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('C: command-not-found diagnostic lists only verified fallback runtimes', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mixdog-shell-runtime-hints-'));
+    const priorPath = process.env.PATH;
+    try {
+        const nodeName = process.platform === 'win32' ? 'node.exe' : 'node';
+        const perlName = process.platform === 'win32' ? 'perl.exe' : 'perl';
+        for (const name of [nodeName, perlName]) {
+            const file = join(dir, name);
+            writeFileSync(file, '');
+            if (process.platform !== 'win32') chmodSync(file, 0o755);
+        }
+        process.env.PATH = dir;
+        const detail = _exitClassDiagnostic(127, 'python3: command not found');
+        assert.match(detail, /available runtimes on PATH:/);
+        assert.match(detail, /node/);
+        assert.match(detail, /perl/);
+        assert.doesNotMatch(detail, /ruby/);
+    } finally {
+        if (priorPath == null) delete process.env.PATH;
+        else process.env.PATH = priorPath;
+        rmSync(dir, { recursive: true, force: true });
+    }
 });
 
 // ---------------------------------------------------------------------------
@@ -785,10 +1114,101 @@ test('child guardians re-exec Electron as Node without forwarding secrets', () =
   });
 });
 
-test('persistent token helper relies on stdio ownership without an Electron guardian', () => {
+test('daemon-owned token addon uses a Worker thread while shards relay over IPC', () => {
   const tokenNative = source('src/runtime/agent/orchestrator/session/token-native.mjs');
+  const tokenWorker = source('src/runtime/agent/orchestrator/session/token-native-worker.mjs');
+  const runtimePool = source('src/standalone/session-runtime-pool.mjs');
+  const runtimeWorker = source('src/standalone/session-runtime-worker.mjs');
   assert.doesNotMatch(tokenNative, /startChildGuardian/);
-  assert.match(tokenNative, /stdio:\s*\['pipe', 'pipe', 'ignore'\]/);
+  assert.doesNotMatch(tokenNative, /node:child_process/);
+  assert.match(tokenNative, /new Worker\(/);
+  assert.match(tokenNative, /execArgv: process\.execArgv\.filter/);
+  assert.match(tokenNative, /owner\.pending\.size === 0[\s\S]*worker\.unref\(\)/);
+  assert.match(tokenNative, /worker\.once\('exit'[\s\S]*_workerFailed = false/);
+  assert.match(tokenWorker, /createRequire\(import\.meta\.url\)/);
+  assert.match(tokenWorker, /addon\.countTokens/);
+  assert.match(tokenNative, /isSessionShardProcess\(\)/);
+  assert.match(runtimePool, /message\.type === 'token-native-count'/);
+  assert.match(runtimePool, /countTokensNative\(String\(message\.text \?\? ''\)\)/);
+  assert.match(runtimePool, /try \{ prewarmNativeTokenCounter\(\); \}/);
+  assert.match(runtimeWorker, /message\.type === 'token-native-result'/);
+});
+
+test('token addon cache accepts only canonical versioned .node assets', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-token-addon-'));
+  const bytes = Buffer.from('native-addon-fixture');
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const pkey = `${process.platform === 'win32' ? 'win32' : process.platform}-${process.arch}`;
+  const manifest = {
+    version: '9.8.7',
+    assets: {
+      [pkey]: {
+        url: `https://github.com/tribgames/mixdog/releases/download/token-v9.8.7/mixdog-token-${pkey}.node`,
+        sha256,
+      },
+    },
+  };
+  try {
+    const path = await ensureTokenAddon(root, {
+      bundledManifest: manifest,
+      download: async (_url, destination) => writeFileSync(destination, bytes),
+    });
+    assert.equal(path, join(root, 'token-bin', 'mixdog-token-9.8.7.node'));
+    assert.equal(findCachedTokenAddon(root, { bundledManifest: manifest }), path);
+    const invalid = structuredClone(manifest);
+    invalid.assets[pkey].url = invalid.assets[pkey].url.replace(/\.node$/, '.exe');
+    assert.equal(findCachedTokenAddon(root, { bundledManifest: invalid }), null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('session shard token client reuses its daemon owner', { timeout: 10_000 }, async () => {
+  const moduleUrl = pathToFileURL(join(
+    root,
+    'src/runtime/agent/orchestrator/session/token-native.mjs',
+  )).href;
+  const child = spawn(process.execPath, ['--input-type=module', '--eval', `
+    process.env.MIXDOG_SESSION_SHARD = '1';
+    process.env.MIXDOG_SESSION_SHARD_PID = String(process.pid);
+    const token = await import(${JSON.stringify(moduleUrl)});
+    const warmed = token.prewarmNativeTokenCounter();
+    const count = await token.countTokensNative('daemon-owned-token-counter');
+    process.stdout.write(JSON.stringify({ warmed, count }), () => process.exit(count === 42 ? 0 : 1));
+  `], {
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    windowsHide: true,
+    env: {
+      ...process.env,
+      MIXDOG_TOKEN_NATIVE: '1',
+    },
+  });
+  let stdout = '';
+  let stderr = '';
+  const messages = [];
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => { stdout += chunk; });
+  child.stderr.on('data', (chunk) => { stderr += chunk; });
+  child.on('message', (message) => {
+    messages.push(message);
+    if (message?.type !== 'token-native-count') return;
+    child.send({
+      type: 'token-native-result',
+      tokenRequestId: message.tokenRequestId,
+      count: 42,
+    });
+  });
+  const exit = await new Promise((resolveExit, rejectExit) => {
+    child.once('error', rejectExit);
+    child.once('exit', (code, signal) => resolveExit({ code, signal }));
+  });
+  assert.equal(exit.code, 0, stderr || `signal=${exit.signal}`);
+  assert.deepEqual(JSON.parse(stdout), { warmed: true, count: 42 });
+  assert.deepEqual(messages.map((message) => message.type), [
+    'token-native-prewarm',
+    'token-native-count',
+  ]);
 });
 
 test('command-scoped child guardians can stop without killing a reusable child', { timeout: 10_000 }, async () => {

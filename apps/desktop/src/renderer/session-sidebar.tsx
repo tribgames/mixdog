@@ -33,6 +33,7 @@ import {
 } from "./boot-metrics";
 import type { NavigationSelection } from "./nav-types";
 import { publishTabDrag } from "./tab-drag-bus";
+import { sessionListInsertedAtTop, sessionListKeepsExistingTopInsert } from "./first-submit-stability";
 
 const SESSION_PREFETCH_INTENT_DELAY_MS = 40;
 const RECENT_SESSION_INITIAL_ROWS = 24;
@@ -264,6 +265,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const recentScrollerRef = useRef<HTMLDivElement | null>(null);
   const recentSentinelRef = useRef<HTMLDivElement | null>(null);
   const recentScrollAnchorRef = useRef<{ sessionId: string; offset: number } | null>(null);
+  const recentRowIdsRef = useRef<string[]>([]);
   const hasMoreRecentRows = visibleRecentRows.length < rows.length;
   const visibleRecentRowCount = visibleRecentRows.length;
   const captureRecentScrollAnchor = useCallback(() => {
@@ -337,6 +339,17 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   useLayoutEffect(() => {
     if (!open || panelActive) return;
     const scroller = recentScrollerRef.current;
+    const previousIds = recentRowIdsRef.current;
+    const nextIds = rows.map((session) => session.id);
+    recentRowIdsRef.current = nextIds;
+    if (scroller && scroller.scrollTop <= 1 && sessionListInsertedAtTop(previousIds, nextIds)) {
+      recentScrollAnchorRef.current = null;
+      return;
+    }
+    if (scroller && scroller.scrollTop <= 1 && sessionListKeepsExistingTopInsert(previousIds, nextIds)) {
+      recentScrollAnchorRef.current = null;
+      return;
+    }
     const anchor = recentScrollAnchorRef.current;
     if (scroller && anchor && scroller.scrollTop > 1) {
       const row = [...scroller.querySelectorAll<HTMLElement>(".session-row[data-session-id]")]
@@ -364,6 +377,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     panelActive,
     recentOpen,
     remoteOpen,
+    rows,
     visibleRecentRowCount,
   ]);
   useLayoutEffect(() => {

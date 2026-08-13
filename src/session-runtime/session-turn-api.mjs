@@ -39,7 +39,7 @@ export function createSessionTurnApi(deps) {
     getRemoteEnabled, getCloseRequested,
     getPendingSessionReset, setPendingSessionReset,
     getTranscriptWriter, getTwKey, getLastAppendedAssistant, setLastAppendedAssistant,
-    scheduleCodeGraphPrewarm, scheduleToolRuntimeWarmup, refreshSessionForCwdIfNeeded, createCurrentSession,
+    scheduleCodeGraphPrewarm, scheduleToolRuntimeWarmup, scheduleSearchRuntimeWarmup, refreshSessionForCwdIfNeeded, createCurrentSession,
     ensureSessionTranscriptWriter, ensureRemoteTranscriptWriter, channelsEnabled, invokeChannelStart, channels,
     pushTranscriptRebind, flushPendingTranscriptRebind,
     hooks, hookCommonPayload, mgr, notifyFnForSession, bootProfile,
@@ -131,6 +131,7 @@ export function createSessionTurnApi(deps) {
       startTurnSnapshot(getSession()?.id || getReservedSessionId?.());
       let routeWaitMs = 0;
       setActiveTurnCount(getActiveTurnCount() + 1);
+      try { scheduleSearchRuntimeWarmup?.(0); } catch { /* search warmup is best-effort */ }
       let mcpWaitMs = 0;
       let providerStartedAt = 0;
       let turnTimingStatus = 'error';
@@ -235,7 +236,7 @@ export function createSessionTurnApi(deps) {
           // process-wide firstTurnCompleted): an MCP server may have finished its
           // handshake BETWEEN session-create and this first send. Re-fold the
           // LIVE registry into the INITIAL provider-visible surface (sync,
-          // in-place, idempotent). Native providers rebuild BP1 and pre-mark the
+          // in-place, idempotent). Native providers rebuild BP2 and pre-mark the
           // names announced; canonical providers extend their fixed active tool
           // snapshot without introducing manifest/reminder semantics. One-shot:
           // cleared before
@@ -252,7 +253,7 @@ export function createSessionTurnApi(deps) {
           // AFTER FIRST TURN: fold in MCP tools whose servers finished their
           // handshake after this session was created, and announce the newly
           // available deferred tool names via ONE appended, persistent
-          // system-reminder (append-only — never rewrites BP1 or touches the
+          // system-reminder (append-only — never rewrites BP2 or touches the
           // active tool surface, so the prompt-cache prefix stays intact).
           // Context-switch gate: a desktop project switch (and any cwd change)
           // now starts its MCP reset in the background instead of blocking the

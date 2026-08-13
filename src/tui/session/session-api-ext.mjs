@@ -849,10 +849,10 @@ export function createSessionApiB(bag) {
         // `applyToCurrentSession: true` rewrites the live session in place.
         const applyToCurrentSession = routeOpts.applyToCurrentSession === true;
         const { applyToCurrentSession: _drop, ...nextRoute } = routeOpts;
-        await runtime.setRoute(nextRoute, { applyToCurrentSession });
+        const resolvedRoute = await runtime.setRoute(nextRoute, { applyToCurrentSession });
         if (applyToCurrentSession) syncContextStats({ allowEstimated: true });
         set({ ...routeState(), stats: { ...getState().stats } });
-        return true;
+        return resolvedRoute;
       } finally {
         set({ commandBusy: false });
       }

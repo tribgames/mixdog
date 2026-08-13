@@ -836,12 +836,9 @@ export async function analyzeShellCommandEffects(command, cwd) {
 // its deadline. Only the first top-level segment is considered — sleeps inside
 // pipelines/subshells/scripts are legitimate pacing and pass through. Float
 // durations (sleep 0.5) are allowed, mirroring the reference CLI.
-// Exported: bash-tool promotes a detected sleep-chain to a background task
-// BEFORE foregroundLongCommandHint runs, so in the one-shot shell path this
-// deny only survives for callers that do not promote (task-tool preflight).
-// `minSecs` lets the promoting caller raise the bar: a short (2-29s) leading
-// sleep chain is cheaper run sync than round-tripped through a background
-// task + completion notification.
+// Explicit async execution bypasses this validation. Sync callers receive the
+// same corrective direction as the reference CLI instead of being silently
+// changed to a different execution mode.
 export function detectBlockedSleepPattern(command, minSecs = 2) {
     const cmd = String(command || '').trim();
     if (!cmd) return null;
@@ -906,31 +903,6 @@ export function extractShellApplyPatchInvocation(command) {
     return { error: 'apply_patch requires the patch text (heredoc or single argument)' };
 }
 
-// Watch-like / long-blocking-sleep detection shared by bash-tool's auto-async
-// promotion and foregroundLongCommandHint. Returns a short human reason when
-// the command would block the foreground for a long time (dev server, watcher,
-// or a 30s+ sleep anywhere in the chain), else null. bash-tool promotes these
-// to a background task instead of failing the call — measured 2026-08: the
-// old hard deny fired ~22×/14d and every hit was a wasted turn.
-export function detectLongForegroundReason(command) {
-    const cmd = String(command || '').trim();
-    if (!cmd) return null;
-    const watchLike = /^\s*gh\s+run\s+watch(?:\s|$)/i.test(cmd)
-        || /^\s*(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|watch|serve)(?:\s|$)/i.test(cmd)
-        || /^\s*(?:vite|webpack-dev-server|next|nuxt|astro)\s+(?:dev|start)(?:\s|$)/i.test(cmd);
-    if (watchLike) return 'watch-like long-running command (dev server / watcher)';
-    const longPowerShellSleep = [...cmd.matchAll(/\bStart-Sleep\b([^;&|\r\n]*)/gi)].some((m) => {
-        const part = String(m[1] || '');
-        const ms = part.match(/-(?:Milliseconds|m)\s+(\d+)/i);
-        if (ms) return Number(ms[1]) >= 30000;
-        const sec = part.match(/-(?:Seconds|s)\s+(\d+)/i) || part.match(/^\s+(\d+)/);
-        return sec ? Number(sec[1]) >= 30 : false;
-    });
-    const longSleep = /\bsleep\s+(?:[3-9]\d|\d{3,}|\d+[mh])\b/i.test(cmd) || longPowerShellSleep;
-    if (longSleep) return 'long blocking sleep (30s+) in command';
-    return null;
-}
-
 export function foregroundLongCommandHint(command, timeoutMs, args = {}, opts = {}) {
     if (args.run_in_background === true) return '';
     const cmd = String(command || '').trim();
@@ -940,11 +912,10 @@ export function foregroundLongCommandHint(command, timeoutMs, args = {}, opts = 
     if (opts.backgroundTasksDisabled !== true) {
         const blocked = detectBlockedSleepPattern(cmd);
         if (blocked) {
-            return `Error: blocked — ${blocked}. Run blocking commands as a background task (mode:"async") and act on the completion notification, or use task wait on an existing task_id. If you genuinely need a delay (rate limiting, pacing), keep it under 2 seconds.`;
+            return `Error: blocked — ${blocked}. Run blocking commands as a background task (mode:"async") and act on the completion notification. If you genuinely need a delay (rate limiting, pacing), keep it under 2 seconds.`;
         }
     }
-    if (!detectLongForegroundReason(cmd)) return '';
-    return 'Error: long foreground command detected. Use mode:"async" (background task) or task wait instead of blocking sleeps/watch loops.';
+    return '';
 }
 
 // Commands that must NOT be promoted to background on a foreground timeout —

@@ -110,6 +110,36 @@ function normalizeForContains(s) {
     return String(s || '').toLowerCase().replace(/[\/\\_.\-\s]+/g, '');
 }
 
+function fuzzyAsciiMask(value) {
+    let lo = 0;
+    let hi = 0;
+    const text = String(value || '');
+    for (let index = 0; index < text.length; index++) {
+        let code = text.charCodeAt(index);
+        if (code >= 65 && code <= 90) code += 32;
+        let bit = -1;
+        if (code >= 48 && code <= 57) bit = code - 48;
+        else if (code >= 97 && code <= 122) bit = code - 97 + 10;
+        if (bit < 0) continue;
+        if (bit < 32) lo |= (1 << bit);
+        else hi |= (1 << (bit - 32));
+    }
+    return { lo: lo >>> 0, hi: hi >>> 0 };
+}
+
+export function prepareFuzzyItems(paths) {
+    return (paths || []).map((path) => {
+        const value = String(path || '');
+        const mask = fuzzyAsciiMask(value);
+        return {
+            path: value,
+            _fuzzyMaskLo: mask.lo,
+            _fuzzyMaskHi: mask.hi,
+            _fuzzyLastSep: Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\')),
+        };
+    });
+}
+
 function compareRanked(a, b) {
     return (b.score - a.score)
         || (a.item.path < b.item.path ? -1 : a.item.path > b.item.path ? 1 : 0);
@@ -166,6 +196,7 @@ function retainTopRanked(heap, entry, ordinal, limit) {
  */
 export function fuzzyRank(query, items, limit = 0) {
     const normQuery = normalizeForContains(query);
+    const queryMask = fuzzyAsciiMask(normQuery);
     const score = prepareFuzzyScore(query);
     // Floor scales with query length: a scattered subsequence earns ~1 point
     // per char, while any contiguous run (+5/char) or word-boundary hit
@@ -178,7 +209,13 @@ export function fuzzyRank(query, items, limit = 0) {
     for (let ordinal = 0; ordinal < items.length; ordinal++) {
         const item = items[ordinal];
         const p = String(item.path || '');
-        const lastSep = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+        if (Number.isInteger(item._fuzzyMaskLo)
+            && (((item._fuzzyMaskLo >>> 0) & queryMask.lo) >>> 0) !== queryMask.lo) continue;
+        if (Number.isInteger(item._fuzzyMaskHi)
+            && (((item._fuzzyMaskHi >>> 0) & queryMask.hi) >>> 0) !== queryMask.hi) continue;
+        const lastSep = Number.isInteger(item._fuzzyLastSep)
+            ? item._fuzzyLastSep
+            : Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
         const base = p.slice(lastSep + 1);
         const pathScore = typeof score === 'function' ? score(p) : score;
         const baseScore = typeof score === 'function' ? score(base) : score;

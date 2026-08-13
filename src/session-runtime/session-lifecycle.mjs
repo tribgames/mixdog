@@ -254,7 +254,7 @@ export function createSessionLifecycle({
       rt.sessionNeedsCwdRefresh = false;
       attachSessionHooks(rt.session, { hooks, hookCommonPayload, getCwd: () => rt.currentCwd });
       // Every-create MCP fold (NO blocking): seed the INITIAL provider-visible
-      // surface (and native BP1 manifest) from MCP servers connected at create
+      // surface (and native BP2 manifest) from MCP servers connected at create
       // time. There is no await — a boot connect still mid-handshake is caught on
       // the first user turn by refreshInitialDeferredMcpSurface (session-turn-api),
       // which re-folds the live registry into the first-turn surface before the
@@ -271,7 +271,7 @@ export function createSessionLifecycle({
       );
       // Session-local one-shot: mark this FRESH session eligible for the
       // first-turn deferred-surface refresh (session-turn-api). A resumed
-      // session (prior transcript) is NEVER marked, so its already-baked BP1 is
+      // session (prior transcript) is NEVER marked, so its already-baked BP2 is
       // never rebuilt or re-announced — the gate is per-session, not the
       // process-wide firstTurnCompleted.
       rt.session.deferredInitialRefreshPending = !/resume/i.test(String(reason || ''));
@@ -372,6 +372,7 @@ export function createSessionLifecycle({
   const {
     scheduleCodeGraphPrewarm,
     scheduleToolRuntimeWarmup,
+    scheduleSearchRuntimeWarmup,
     invokeChannelStart,
     scheduleChannelStart,
   } = createPrewarmSchedulers({
@@ -425,6 +426,7 @@ export function createSessionLifecycle({
     scheduleStatuslineUsageRefresh,
     scheduleCodeGraphPrewarm,
     scheduleToolRuntimeWarmup,
+    scheduleSearchRuntimeWarmup,
     invokeChannelStart,
     scheduleChannelStart,
     refreshRouteEffort,

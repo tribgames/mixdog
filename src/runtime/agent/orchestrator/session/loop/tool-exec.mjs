@@ -24,6 +24,7 @@ import {
 import { isOnDeferredToolSurface, prepareDeferredToolCallThrough } from './deferred-call-through.mjs';
 import { preDispatchDenyForSession, routeWebFetchCall } from './pre-dispatch-deny.mjs';
 import { runWithToolExecutionOwner } from '../../../../shared/tool-execution-owner.mjs';
+import { runWithLocalSearchTelemetry } from '../../tools/builtin/local-search-telemetry.mjs';
 
 let codeGraphRuntimePromise = null;
 async function executeCodeGraphToolLazy(name, args, cwd, signal = null, options = {}) {
@@ -59,7 +60,8 @@ export function _scopedCacheOutcomeForCall(sessionRef, toolCallId, toolName, cal
 
 export function executeTool(name, args, cwd, callerSessionId, sessionRef, executeOpts = {}) {
     return runWithToolExecutionOwner(callerSessionId, () =>
-        executeToolOwned(name, args, cwd, callerSessionId, sessionRef, executeOpts));
+        runWithLocalSearchTelemetry(executeOpts.localSearchTelemetry, () =>
+            executeToolOwned(name, args, cwd, callerSessionId, sessionRef, executeOpts)));
 }
 
 async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, executeOpts = {}) {

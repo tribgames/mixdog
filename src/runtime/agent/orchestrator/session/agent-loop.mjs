@@ -17,7 +17,7 @@ import {
 import { isContextOverflowError } from '../providers/retry-classifier.mjs';
 import { stripSoftWarns } from '../tool-loop-guard.mjs';
 import { maybeOffloadToolResult } from './tool-result-offload.mjs';
-import { tryReadCached, setReadCached, invalidatePathForSession, markPostEdit, consumePostEditMark, clearReadDedupSession, extractTouchedPathsFromPatch, tryScopedToolCached, setScopedToolCached, clearScopedToolsForSession, clearScopedToolsForSessionPaths, invalidatePrefetchCache } from './read-dedup.mjs';
+import { tryReadCached, setReadCached, invalidatePathForSession, clearReadDedupSession, extractTouchedPathsFromPatch, tryScopedToolCached, setScopedToolCached, clearScopedToolsForSession, clearScopedToolsForSessionPaths, invalidatePrefetchCache } from './read-dedup.mjs';
 import { isInvalidToolArgsMarker, formatInvalidToolArgsResult } from '../providers/openai-compat-stream.mjs';
 
 import {

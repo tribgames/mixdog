@@ -14,10 +14,12 @@ import { ModelSelector } from "./model-controls";
 import { MxIcon } from "./MxIcon";
 import { ProgressSpinner } from "./ProgressSpinner";
 import {
+  hasSendablePromptContent,
   shouldBlockPromptSubmit,
   shouldInterruptPrompt,
   shouldNavigatePromptHistory,
   shouldRestoreInterruptedPrompt,
+  shouldStopComposerGeneration,
 } from "./renderer-logic.mjs";
 import {
   desktopSlashCommandDescription,
@@ -28,10 +30,14 @@ import {
 } from "./slash-commands";
 import { TURN_LOCKED_SLASH_COMMANDS, asRecord, oneLine } from "./text-format";
 import { registerImagePreview } from "./transcript-metrics";
-// @ts-expect-error Shared prompt policies are plain ESM modules.
 import { classifyPromptEscape, PROMPT_ESCAPE_HINT_TIMEOUT_MS } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
-// @ts-expect-error Shared prompt policies are plain ESM modules.
-import { mergeQueuedRestoreDraft } from "../../../../src/tui/components/prompt-input/restore-policy.mjs";
+import {
+  mergeQueuedRestoreDraft,
+  paletteOwnsPromptVerticalArrow,
+  queuedRestorePrefix,
+  queuedRestoreProjection,
+  replaceQueuedRestorePrefix,
+} from "../../../../src/tui/components/prompt-input/restore-policy.mjs";
 
 
 // Project-context pill, attachment budget, prompt history and the queued
@@ -908,19 +914,65 @@ export const Composer = memo(function Composer({
     // Capture the projection before the daemon round trip. A newly queued
     // prompt that arrives while restore settles must not be retired with the
     // older entries the user actually reclaimed.
-    const requestedIds = (Array.isArray(queued) ? queued : [])
-      .map((entry) => asRecord(entry)?.id)
-      .filter((id) => id !== undefined && id !== null)
-      .map(String)
-      .filter((id) => !queuedId || id === queuedId);
+    const projection = queuedRestoreProjection(queued, queuedId);
+    const requestedIds = projection.ids;
+    const before = {
+      value: draftRef.current,
+      cursor: textarea.current?.selectionStart ?? draftRef.current.length,
+      selectionAnchor: null,
+    };
+    const optimistic = mergeQueuedRestoreDraft(projection.text, before);
+    const optimisticPrefix = queuedRestorePrefix(projection.text, before.value);
+    if (requestedIds.length) {
+      setLocallyHiddenQueueIds((current) => [
+        ...current,
+        ...requestedIds.filter((id) => !current.includes(id)),
+      ]);
+    }
+    if (optimisticPrefix) {
+      draftRef.current = optimistic.value;
+      setDraft(optimistic.value);
+      historyNavigation.current = { index: -1, seed: '' };
+      window.setTimeout(() => {
+        textarea.current?.focus();
+        textarea.current?.setSelectionRange(optimistic.cursor, optimistic.cursor);
+      }, 0);
+    }
+    const revealRequested = () => {
+      if (!requestedIds.length) return;
+      const ids = new Set(requestedIds);
+      setLocallyHiddenQueueIds((current) => current.filter((id) => !ids.has(id)));
+    };
+    const reconcile = (authoritativeText = '') => {
+      const current = draftRef.current;
+      const currentCursor = textarea.current?.selectionStart ?? current.length;
+      const authoritativePrefix = queuedRestorePrefix(authoritativeText, before.value);
+      const next = replaceQueuedRestorePrefix(optimisticPrefix, authoritativePrefix, {
+        value: current,
+        cursor: currentCursor,
+        selectionAnchor: null,
+      });
+      if (!next.replaced) return false;
+      draftRef.current = next.value;
+      setDraft(next.value);
+      window.setTimeout(() => {
+        textarea.current?.focus();
+        textarea.current?.setSelectionRange(next.cursor, next.cursor);
+      }, 0);
+      return true;
+    };
     queueRestoreInFlightRef.current = true;
     setRestoring(true);
     try {
       const args = queuedId ? ['', queuedId] : [''];
       const value = await invokeCapability<RecordValue>('restoreQueued', args);
-      if (value) {
-        const restored = restoredAttachments(value, String(value.text || ''));
-        const queuedText = mergeRestoredAttachments(restored.attachments, restored.text);
+      if (!value) {
+        reconcile('');
+        revealRequested();
+        return value;
+      }
+      const restored = restoredAttachments(value, String(value.text || ''));
+      const queuedText = mergeRestoredAttachments(restored.attachments, restored.text);
         // Latch the projection ONLY for a restore that actually popped
         // entries. Marking an empty answer as "already restored" left
         // ArrowUp/Esc permanently disarmed for every queued message that
@@ -930,6 +982,8 @@ export const Composer = memo(function Composer({
           ? restoredCount > 0
           : Boolean(queuedText || restored.attachments.length);
         if (!restoredAnything) {
+          reconcile('');
+          revealRequested();
           showComposerNotice('No queued messages to restore');
           return value;
         }
@@ -937,29 +991,12 @@ export const Composer = memo(function Composer({
           ? value.ids.map(String).filter(Boolean)
           : requestedIds;
         restoredQueueProjectionRef.current = queuedProjectionKey;
-        const current = draftRef.current;
-        const currentCursor = textarea.current?.selectionStart ?? current.length;
-        const next = mergeQueuedRestoreDraft(queuedText, {
-          value: current,
-          cursor: currentCursor,
-          selectionAnchor: null,
-        });
-        // Commit the editor side of the handoff before retiring either the
-        // daemon row or its optimistic twin. Parent reconciliation can unmount
-        // the queue row immediately; the reclaimed text must already have a
-        // local owner when that happens.
-        draftRef.current = next.value;
-        setDraft(next.value);
+        reconcile(queuedText);
         historyNavigation.current = { index: -1, seed: '' };
-        window.setTimeout(() => {
-          textarea.current?.focus();
-          textarea.current?.setSelectionRange(next.cursor, next.cursor);
-        }, 0);
         // The engine queue is authoritative, but Conversation also holds a
         // local optimistic twin until durable settlement. Retire that twin
         // after a successful pop so it cannot resurrect the reserved row.
         onQueuedRestored?.(restoredIds);
-      }
       return value;
     } finally {
       queueRestoreInFlightRef.current = false;
@@ -1175,7 +1212,7 @@ export const Composer = memo(function Composer({
       showComposerNotice(`Fast mode ${nextFast ? 'on' : 'off'}`);
     } else if (name === 'model' && argument) {
       if (argument.toLowerCase() === 'refresh') {
-        const models = await invokeResult(() => window.mixdogDesktop.listProviderModels({ force: true }));
+        const models = await invokeResult(() => window.mixdogDesktop.listProviderModels({ quick: false }));
         if (models === undefined) return false;
         onOpenSettings('model');
         return true;
@@ -1229,12 +1266,9 @@ export const Composer = memo(function Composer({
     const submittedDraft = textarea.current?.value ?? draftRef.current;
     const submittedAttachments = [...attachmentsRef.current];
     const text = (slashOverride || submittedDraft).trim();
-    // Chip-only attachments (images, pasted text) leave no token in the
-    // draft, so an attachment-only send legitimately has empty text.
-    const chipOnlyAttachments = submittedAttachments
-      .some((attachment) => !attachment.token || attachment.chipOnly === true);
     const serializedSubmit = Boolean(draftMode || text.startsWith('/'));
-    if ((!text && !chipOnlyAttachments) || transitioningRef.current || shouldBlockPromptSubmit({
+    if (!hasSendablePromptContent({ text, attachments: submittedAttachments })
+      || transitioningRef.current || shouldBlockPromptSubmit({
       submitting: submittingRef.current,
       draftMode,
       slashCommand: text.startsWith('/'),
@@ -1409,6 +1443,8 @@ export const Composer = memo(function Composer({
       return true;
     }
     if (!mentionResults.length) return false;
+    if ((event.key === 'ArrowUp' || event.key === 'ArrowDown')
+      && !paletteOwnsPromptVerticalArrow(mentionResults.length)) return false;
     if (event.key === 'Enter' || event.key === 'Tab') {
       event.preventDefault();
       selectMention(mentionResults[mentionIndex] || mentionResults[0]);
@@ -1431,6 +1467,8 @@ export const Composer = memo(function Composer({
   };
   const navigateSlashPalette = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (!slashOpen || slashCommands.length === 0) return false;
+    if ((event.key === 'ArrowUp' || event.key === 'ArrowDown')
+      && !paletteOwnsPromptVerticalArrow(slashCommands.length)) return false;
     const last = slashCommands.length - 1;
     if (event.key === 'Tab') {
       event.preventDefault();
@@ -1601,6 +1639,7 @@ export const Composer = memo(function Composer({
       }
       return;
     }
+    const queueAvailable = hasRestorableQueuedMessages();
     const historyIntent = shouldNavigatePromptHistory({
       key: event.key,
       value: draft,
@@ -1611,12 +1650,13 @@ export const Composer = memo(function Composer({
       metaKey: event.metaKey,
       altKey: event.altKey,
       historyActive: historyNavigation.current.index >= 0,
+      allowNonEmpty: event.key === 'ArrowUp' && queueAvailable,
     });
     // TUI parity: ArrowUp reclaims queued follow-ups even with a draft in
     // progress (caret at start) — the engine merges queued text above the
     // current draft, exactly like the terminal's up-arrow restore.
     if (event.key === 'ArrowUp' && historyIntent && !event.altKey &&
-      hasRestorableQueuedMessages()) {
+      queueAvailable) {
       event.preventDefault();
       void restoreQueue();
       return;
@@ -1712,6 +1752,11 @@ export const Composer = memo(function Composer({
       return id === undefined || id === null || !hiddenQueueIdSet.has(String(id));
     })
     : queued;
+  const stopOnly = shouldStopComposerGeneration({
+    turnBusy,
+    text: draft,
+    attachments,
+  });
   return (
     <>
       <QueueList queued={visibleQueued} restoring={restoring}
@@ -1897,21 +1942,21 @@ export const Composer = memo(function Composer({
           onClick={() => void toggleDictation()}>
           {dictationState === 'transcribing' ? <ProgressSpinner className="composer-mic-spinner" size={16} /> : <Mic size={16} />}
         </button>
-        <button type={turnBusy && !draft.trim() ? "button" : "submit"}
-          className={`send-button${turnBusy && !draft.trim() ? " stop" : ""}`}
-          onClick={turnBusy && !draft.trim() ? () => void stop() : undefined}
-          disabled={turnBusy && !draft.trim() ? false
+        <button type={stopOnly ? "button" : "submit"}
+          className={`send-button${stopOnly ? " stop" : ""}`}
+          onClick={stopOnly ? () => void stop() : undefined}
+          disabled={stopOnly ? false
             : (!draft.trim() && !attachments.some((attachment) => !attachment.token || attachment.chipOnly === true))
               || (submitting && Boolean(draftMode)) || transitioning}
-          aria-label={turnBusy && !draft.trim() ? t("Stop generation")
+          aria-label={stopOnly ? t("Stop generation")
             : submitting ? (hasConversation ? t("Sending message") : t("Starting session"))
               : turnBusy ? t("Queue or steer active turn")
                 : commandBusy ? t("Queue after current command") : t("Send message")}
-          data-tooltip={turnBusy && !draft.trim() ? t("Stop")
+          data-tooltip={stopOnly ? t("Stop")
             : turnBusy ? t("Queue or steer · Enter")
               : commandBusy ? t("Queue after command · Enter") : t("Send · Enter")}
           data-tooltip-side="top">
-          {turnBusy && !draft.trim()
+          {stopOnly
             ? <MxIcon name="stop" size={16} />
             : submitting
               ? <ProgressSpinner className="composer-mic-spinner" size={16} />

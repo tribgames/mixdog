@@ -77,6 +77,7 @@ import {
 import { buildAnthropicBetaHeaders } from '../src/runtime/agent/orchestrator/providers/anthropic-betas.mjs';
 import { PATCH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
+import { normalizeGrokToolSchemas } from '../src/runtime/agent/orchestrator/providers/lib/grok-tool-schema.mjs';
 import { sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs';
 import {
     OpenAIOAuthProvider,
@@ -1727,6 +1728,45 @@ test('openai-oauth-ws (tool_search): valid args / object / empty preserved', () 
 // Its tool_call extraction therefore goes through the exact
 // parseToolCalls / parseResponsesToolCalls already asserted in block 1 — no
 // duplicate test. (Documented as shared in the report.)
+
+test('Grok schema flatten keeps grep pattern required', () => {
+    const grep = BUILTIN_TOOLS.find((tool) => tool.name === 'grep');
+    assert.deepEqual(grep?.inputSchema?.required, ['pattern']);
+    const [normalized] = normalizeGrokToolSchemas([grep]);
+    assert.equal(normalized.inputSchema.anyOf, undefined);
+    assert.equal(normalized.inputSchema.oneOf, undefined);
+    assert.deepEqual(normalized.inputSchema.required, ['pattern']);
+});
+
+test('Grok schema flatten promotes the first XOR required-only anyOf key', () => {
+    const [normalized] = normalizeGrokToolSchemas([{
+        name: 'grep',
+        inputSchema: {
+            type: 'object',
+            properties: { pattern: { type: 'string' }, glob: { type: 'string' } },
+            anyOf: [{ required: ['pattern'] }, { required: ['glob'] }],
+            additionalProperties: false,
+        },
+    }]);
+    assert.equal(normalized.inputSchema.anyOf, undefined);
+    assert.deepEqual(normalized.inputSchema.required, ['pattern']);
+});
+
+test('Grok schema flatten promotes the first XOR object-branch required key', () => {
+    const [normalized] = normalizeGrokToolSchemas([{
+        name: 'searchish',
+        inputSchema: {
+            type: 'object',
+            properties: { pattern: { type: 'string' }, glob: { type: 'string' } },
+            anyOf: [
+                { type: 'object', required: ['pattern'] },
+                { type: 'object', required: ['glob'] },
+            ],
+        },
+    }]);
+    assert.equal(normalized.inputSchema.anyOf, undefined);
+    assert.deepEqual(normalized.inputSchema.required, ['pattern']);
+});
 
 // === 6. OpenAI leaked tool-call recovery ===================================
 // The model sometimes emits a tool call as PLAIN TEXT (XML `<invoke>` family

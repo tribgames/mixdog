@@ -133,10 +133,10 @@ export async function runRecallFastTrackCompact({ sessionRef, messages, compactB
         const browsed = await executeInternalTool('memory', {
             action: 'search',
             sessionId,
-            limit: positiveTokenInt(sessionRef?.compaction?.recallDigestLimit) || 30,
+            limit: positiveTokenInt(sessionRef?.compaction?.recallDigestLimit) || 100,
             includeMembers: true,
             includeRaw: true,
-            compactDigest: true,
+            compactHandoff: true,
         }, callerCtx);
         digestBody = typeof browsed === 'string' ? browsed : String(browsed?.text ?? browsed ?? '');
         if (!isUsableRecallDigestText(digestBody)) {
@@ -188,6 +188,7 @@ export async function runRecallFastTrackCompact({ sessionRef, messages, compactB
         query,
         querySha,
         cwd: sessionRef?.cwd,
+        sessionId,
         // Empty/sentinel browse output was rejected above, so the handoff always
         // contains real stored session context.
         allowEmptyRecall: false,

@@ -31,6 +31,13 @@ import {
 import { PaneSurfaceCover } from "./PaneSurfaceGate";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store";
 import { asRecord } from "./text-format";
+import {
+  conversationCoverIdentity,
+  conversationSwitchPaintGate,
+  nextConversationCoverId,
+  conversationPresentedSessionId,
+} from "./first-submit-stability";
+import { readTranscriptVirtualSnapshot } from "./transcript-virtual-cache";
 import { ContextUsageIndicator, LiveWorkStatus, TranscriptRow } from "./TranscriptView";
 import { UtilityDock } from "./UtilityDock";
 
@@ -147,18 +154,71 @@ export const PaneConversation = memo(function PaneConversation({
     desktopConversationShellSnapshotsEqual,
     !hidden,
   );
+  const markdownPending = transcriptPending
+    && !readTranscriptVirtualSnapshot(sessionId)?.measurements?.length;
   useLayoutEffect(() => {
-    // Every mounted session reconciles once per mount/session change, even if
-    // an eager startup lane already exists. That lane can predate dead-owner
-    // checkpoint recovery and must never suppress the host handshake.
-    // A successful focused resume already crossed the same recovery boundary
-    // and placed its authoritative result in this lane before revealing it.
-    if (sessionId && reconcileOnMount) requestSessionPeek(sessionId, { reconcile: true });
+    // Fill a cold lane once. A session that already has rows is skipped
+    // inside requestSessionPeek; a focused resume already filled its target.
+    if (sessionId && reconcileOnMount) requestSessionPeek(sessionId);
   }, [reconcileOnMount, sessionId]);
-  const routeSnapshot = sessionId ? lane ?? EMPTY_SNAPSHOT : EMPTY_SNAPSHOT;
+  const coverIdRef = useRef(sessionId || "draft");
+  const laneReady = hidden || !sessionId || (!markdownPending && lane !== null);
+  const { coverKey, promotingFromDraft } = conversationCoverIdentity(
+    coverIdRef.current,
+    sessionId,
+    laneReady,
+  );
+  useLayoutEffect(() => {
+    coverIdRef.current = nextConversationCoverId(coverIdRef.current, sessionId, laneReady);
+  }, [laneReady, sessionId]);
+  // A first-prompt promotion already painted this conversation as New Task.
+  // Changing the cover key (or waiting on a one-frame-late lane) replayed
+  // "Loading conversation…" over the live composer.
+  const contentReady = hidden || !sessionId || promotingFromDraft
+    || (!markdownPending && lane !== null);
+  const incomingPaintId = sessionId || "draft";
+  const [heldPaintId, setHeldPaintId] = useState(incomingPaintId);
+  const presentedSessionId = conversationPresentedSessionId(
+    heldPaintId === "draft" ? "" : heldPaintId,
+    sessionId,
+    {
+      hidden,
+      promotingFromDraft,
+      incomingReady: contentReady,
+    },
+  );
+  const presentedLane = useSessionLane(
+    presentedSessionId,
+    defaultSessionLaneStore,
+    desktopConversationShellSnapshotsEqual,
+    !hidden,
+  );
+  const routeSnapshot = presentedSessionId
+    ? (presentedSessionId === sessionId ? lane : presentedLane) ?? EMPTY_SNAPSHOT
+    : EMPTY_SNAPSHOT;
   const paneSnapshot = hidden ? EMPTY_SNAPSHOT : routeSnapshot;
-  const surfaceReady = hidden || !sessionId
-    || (!transcriptPending && lane !== null);
+  const paintGate = conversationSwitchPaintGate(heldPaintId, incomingPaintId, {
+    hidden,
+    promotingFromDraft,
+    contentReady,
+  });
+  useLayoutEffect(() => {
+    if (paintGate.adoptNow) {
+      if (heldPaintId !== incomingPaintId) setHeldPaintId(incomingPaintId);
+      return undefined;
+    }
+    if (!contentReady) return undefined;
+    const frame = window.requestAnimationFrame(() => setHeldPaintId(incomingPaintId));
+    return () => window.cancelAnimationFrame(frame);
+  }, [contentReady, heldPaintId, incomingPaintId, paintGate.adoptNow]);
+  // Sidebar session registration remounts the virtualizer. Keep the sheet
+  // cover up until the incoming lane exists and one frame has committed it.
+  const surfaceReady = paintGate.reveal;
+  const showingIncoming = presentedSessionId === sessionId;
+  const timelinePending = showingIncoming && (
+    markdownPending
+    || Boolean(sessionId && !hidden && lane === null && !promotingFromDraft)
+  );
   const bootKey = sessionId || "new-task";
   // Chromium may discard the raster for a layout-retained Markdown subtree
   // while New Task is visible. Keep the New Task watermark over a warm session
@@ -193,9 +253,9 @@ export const PaneConversation = memo(function PaneConversation({
     <Conversation
       snapshot={paneSnapshot}
       routeSnapshot={routeSnapshot}
-      sessionAddress={sessionId}
+      sessionAddress={presentedSessionId}
       draftMode={draftMode}
-      transcriptPending={transcriptPending}
+      transcriptPending={timelinePending}
       reviewActive={focused && !hidden}
       warmPaintHandoff={warmDraftHandoff}
       liveWork={<PaneLiveWork
@@ -210,7 +270,7 @@ export const PaneConversation = memo(function PaneConversation({
       {...props}
     />
     <PaneSurfaceCover ready={surfaceReady} label="Loading conversation…"
-      transitionKey={sessionId || "new-task"} />
+      transitionKey={coverKey} showSpinner={false} />
   </>;
 });
 
@@ -223,10 +283,14 @@ const sessionPeeksInFlight = new Map<string, Promise<boolean>>();
 const MAX_SESSION_PEEK_ATTEMPTS = 3;
 export function requestSessionPeek(
   sessionId: string,
-  { reconcile = false }: { reconcile?: boolean } = {},
 ): Promise<boolean> {
   if (!sessionId) return Promise.resolve(false);
-  if (!reconcile && defaultSessionLaneStore.get(sessionId)) return Promise.resolve(true);
+  const existing = defaultSessionLaneStore.get(sessionId);
+  // A lane that already has rows is the live truth. Re-peeking republished
+  // the same session after first paint and the transcript rebuilt.
+  if (existing && Array.isArray(existing.items) && existing.items.length > 0) {
+    return Promise.resolve(true);
+  }
   const inFlight = sessionPeeksInFlight.get(sessionId);
   if (inFlight) return inFlight;
   const peekSession = window.mixdogDesktop?.peekSession;
@@ -260,7 +324,6 @@ export function requestSessionPeek(
 export function PaneHeaderStatus({
   sessionId,
   hidden,
-  reconcileOnMount = true,
   draftRemoteEnabled,
   onOpen,
   onOpenAgents,
@@ -268,7 +331,6 @@ export function PaneHeaderStatus({
 }: {
   sessionId: string;
   hidden: boolean;
-  reconcileOnMount?: boolean;
   draftRemoteEnabled?: boolean;
   onOpen(): void;
   onOpenAgents?(): void;
@@ -280,13 +342,6 @@ export function PaneHeaderStatus({
     desktopHeaderSnapshotsEqual,
     !hidden && Boolean(sessionId),
   );
-  useLayoutEffect(() => {
-    // Header state is independently foreground-owned. Reconcile even when a
-    // cached lane exists: a cold lane can predate the latest durable context
-    // projection, and a pane that has never been focused must still show its
-    // own current usage rather than waiting for Conversation or resume.
-    if (sessionId && reconcileOnMount) requestSessionPeek(sessionId, { reconcile: true });
-  }, [reconcileOnMount, sessionId]);
   const visibleSnapshot = hidden
     ? EMPTY_SNAPSHOT
     : lane ?? EMPTY_SNAPSHOT;
@@ -341,7 +396,7 @@ export const AgentSessionConversation = memo(function AgentSessionConversation({
     if (!sessionId) return undefined;
     let current = true;
     setPeekFailed(false);
-    void requestSessionPeek(sessionId, { reconcile: true }).then((accepted) => {
+    void requestSessionPeek(sessionId).then((accepted) => {
       if (current && !accepted && !defaultSessionLaneStore.get(sessionId)) {
         setPeekFailed(true);
       }

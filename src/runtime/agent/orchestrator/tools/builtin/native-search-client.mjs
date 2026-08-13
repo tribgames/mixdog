@@ -18,6 +18,7 @@ const REQUEST_TIMEOUT_MS = 20_000;
 let _server = null; // { child, pending: Map, sequence }
 let _binaryPath = undefined; // undefined = unresolved, null = unavailable
 let _lastFailureAt = 0;
+let _binaryResolveStarted = false;
 
 function _setServerReferenced(server, referenced) {
   const method = referenced ? 'ref' : 'unref';
@@ -33,15 +34,21 @@ function _resolveBinary() {
     _binaryPath = explicit;
     return _binaryPath;
   }
-  _binaryPath = null;
-  // Reuse the code-graph binary resolution lazily; resolver shape is duck-
-  // typed so a refactor there degrades to "server unavailable", never throws.
-  void import('../code-graph/graph-binary.mjs').then((mod) => {
-    try {
-      const candidate = mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
-      if (candidate && existsSync(candidate)) _binaryPath = candidate;
-    } catch { /* stay unavailable */ }
-  }).catch(() => {});
+  if (!_binaryResolveStarted) {
+    _binaryResolveStarted = true;
+    // Reuse the code-graph binary resolution lazily; resolver shape is duck-
+    // typed so a refactor there degrades to "server unavailable", never throws.
+    void import('../code-graph/graph-binary.mjs').then((mod) => {
+      try {
+        const candidate = mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
+        _binaryPath = (candidate && existsSync(candidate)) ? candidate : null;
+      } catch {
+        _binaryPath = null;
+      }
+    }).catch(() => {
+      _binaryPath = null;
+    });
+  }
   return _binaryPath;
 }
 
@@ -102,10 +109,11 @@ function _ensureServer() {
 export async function warmNativeSearchServer() {
   try {
     if (process.env.MIXDOG_SEARCH_SERVER === '0') return false;
-    if (_resolveBinary() === null) {
+    if (!_resolveBinary()) {
       const mod = await import('../code-graph/graph-binary.mjs');
       const candidate = mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
       if (candidate && existsSync(candidate)) _binaryPath = candidate;
+      else if (_binaryPath === undefined) _binaryPath = null;
     }
     return Boolean(_ensureServer());
   } catch {
@@ -151,7 +159,11 @@ export async function tryNativeProcessSnapshot({ timeoutMs = 750 } = {}) {
 
 export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
   if (process.env.MIXDOG_SEARCH_SERVER === '0') return null;
-  const server = _ensureServer();
+  let server = _ensureServer();
+  // Do not start the resident server on the first grep. ask() already races
+  // that CreateProcess against the first tool wave; waiting here made the
+  // card sit on "Searching 1 pattern" for several seconds. If the helper is
+  // already up, use it. Otherwise the caller falls through to rg.
   if (!server) return null;
   const id = ++server.sequence;
   // Honor the caller's rg deadline: the resident server must never wait
@@ -227,4 +239,5 @@ export function _resetNativeSearchClientForTest() {
   _teardown(new Error('test reset'));
   _binaryPath = undefined;
   _lastFailureAt = 0;
+  _binaryResolveStarted = false;
 }

@@ -112,7 +112,13 @@ export function createEagerDispatcher({
             // serial path below. If any role/permission guard would reject
             // this call there, never start it eagerly here.
             if (preDispatchDenyForSession(sessionRef, call, toolKind) !== null) return null;
-            const entry = { startedAt: Date.now(), endedAt: null, mutationEpoch: epoch.mutation };
+            const entry = {
+                startedAt: Date.now(),
+                endedAt: null,
+                mutationEpoch: epoch.mutation,
+                localSearchTelemetry: {},
+                resultTelemetry: {},
+            };
             const precedingPatches = _isShellTool(call.name) ? patchBarrier : null;
             if (_dedupEligible) _eagerInFlightSigs.set(_sig, call.id);
             entry.promise = (async () => {
@@ -128,7 +134,7 @@ export function createEagerDispatcher({
                         }
                     }
                     await opts.beforeToolExecution?.();
-                    return { ok: true, value: await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: getNextIteration() }) };
+                    return { ok: true, value: await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: getNextIteration(), localSearchTelemetry: entry.localSearchTelemetry, resultTelemetry: entry.resultTelemetry }) };
                 } catch (error) {
                     return { ok: false, error };
                 }

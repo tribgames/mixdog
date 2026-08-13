@@ -283,7 +283,7 @@ export function OnboardingWizard({ api, onDone }: {
       // The provider-model catalog is the slow read (remote catalogs); it must
       // not hold the reveal gate — the Models step sits two steps in and its
       // options fill in as they arrive (user: 처음 들어가면 검정 빈 화면).
-      void api.listProviderModels({ quick: false, ...(force ? { force: true } : {}) })
+      void api.listProviderModels({ quick: false })
         .then(setModels)
         .catch(() => { /* the Models step keeps its empty select; reload retries */ });
       const [readResults, snapshotResult] = await Promise.all([

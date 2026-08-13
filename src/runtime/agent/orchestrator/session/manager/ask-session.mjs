@@ -23,8 +23,7 @@ import {
     prefixUserTurnContent,
     prefixSessionStartContent,
     buildCurrentTimeBlock,
-    buildSessionStartBlock,
-    buildProjectInstructionsBlock,
+    refreshSessionBp3Environment,
     hasUserConversationMessage,
 } from './prompt-utils.mjs';
 import {
@@ -398,7 +397,6 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             _turnCheckpointTimer = null;
             cancelPendingTurnCheckpoint(sessionId);
         };
-        const _sessionStartMetaInjectedBeforeTurn = preSession.sessionStartMetaInjected === true;
         let _interruptionSnapshot = null;
         const _prepareCloseSnapshot = (abortReason) => {
             if (_interruptionSnapshot) return _interruptionSnapshot;
@@ -418,8 +416,6 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     // A non-user detach keeps the provisional prompt but makes
                     // the opaque provider continuation unsafe to reuse.
                     activeSession.providerState = undefined;
-                } else {
-                    activeSession.sessionStartMetaInjected = _sessionStartMetaInjectedBeforeTurn;
                 }
             } else {
                 activeSession.providerState = undefined;
@@ -491,6 +487,11 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             if (explicitPrefetchResult) {
                 _contextBlock += `# Prefetch\n${_capCtx(explicitPrefetchResult)}\n\n`;
             }
+            const effectiveCwd = cwdOverride || session.cwd;
+            if (session.sessionStartMetaInjected !== true
+                && !hasUserConversationMessage(session.messages)) {
+                refreshSessionBp3Environment(session, effectiveCwd);
+            }
             const historyMessages = filterModelVisibleSessionMessages(session.messages);
             const beforeCount = historyMessages.length + 1;
             const promptTextForMetrics = promptContentText(prompt);
@@ -502,27 +503,12 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             if (promptTokenEstimate > softBudget * 0.7) {
                 process.stderr.write(`[session] Warning: prompt is very large (est. ${Math.round(promptTokenEstimate)} tokens vs ${softBudget} soft budget)\n`);
             }
-            const effectiveCwd = cwdOverride || session.cwd;
-            const shouldInjectSessionStart = session.sessionStartMetaInjected !== true
-                && !hasUserConversationMessage(historyMessages);
-            const _sessionStartBlock = shouldInjectSessionStart
-                ? buildSessionStartBlock(session, effectiveCwd)
-                : '';
-            // Project instructions ride the same once-per-session gate as the
-            // `# Session` block (Lead only — agent-owned sessions return '').
-            const _projectInstructionsBlock = _sessionStartBlock
-                ? buildProjectInstructionsBlock(effectiveCwd)
-                : '';
             const _currentTimeBlock = buildCurrentTimeBlock(prompt);
             const _turnReminderBlock = _currentTimeBlock
                 ? `<system-reminder>\n# Current Time\n${_currentTimeBlock}\n</system-reminder>`
                 : '';
-            const _turnPrefixBlock = [_sessionStartBlock, _projectInstructionsBlock, _turnReminderBlock].filter(Boolean).join('\n\n');
             const _baseUserTurnContent = prefixUserTurnContent(prompt, _contextBlock);
-            const _userTurnContent = prefixSessionStartContent(_baseUserTurnContent, _turnPrefixBlock);
-            if (shouldInjectSessionStart && _sessionStartBlock) {
-                session.sessionStartMetaInjected = true;
-            }
+            const _userTurnContent = prefixSessionStartContent(_baseUserTurnContent, _turnReminderBlock);
             cancelledUserTurnContent = _userTurnContent;
             const outgoing = [...historyMessages, {
                 role: 'user',

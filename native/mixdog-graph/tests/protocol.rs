@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -172,5 +172,125 @@ fn manifest_files_walk_and_search_remain_jsonl() {
     assert_eq!(hits.len(), 3);
     assert!(hits.iter().all(|v| v["rel"].as_str().unwrap().ends_with(".ts")));
 
+    fs::remove_dir_all(root).unwrap();
+}
+
+fn serve_search(root: &std::path::Path, request: serde_json::Value) -> serde_json::Value {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-graph"))
+        .arg(root)
+        .arg("--serve-search")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut stdin = child.stdin.take().unwrap();
+    let mut ready = String::new();
+    stdout.read_line(&mut ready).unwrap();
+    let ready_json: serde_json::Value = serde_json::from_str(ready.trim()).unwrap();
+    assert_eq!(ready_json["ready"], true);
+    writeln!(stdin, "{request}").unwrap();
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    drop(stdin);
+    let _ = child.wait();
+    serde_json::from_str(line.trim()).unwrap()
+}
+
+#[test]
+fn serve_search_limited_grep_returns_window_without_full_scan() {
+    let root = fixture();
+    for index in 0..8 {
+        fs::write(
+            root.join("src").join(format!("hit-{index}.ts")),
+            "export const needle = true;\n",
+        )
+        .unwrap();
+    }
+    let response = serve_search(
+        &root,
+        serde_json::json!({
+            "id": 7,
+            "cwd": root,
+            "args": [
+                "--color", "never",
+                "--hidden",
+                "--no-heading",
+                "-H",
+                "--line-number",
+                "-e", "needle",
+                "--",
+                "."
+            ],
+            "offset": 0,
+            "limit": 3
+        }),
+    );
+    assert_eq!(response["id"], 7);
+    let lines = response["lines"].as_array().unwrap();
+    assert_eq!(lines.len(), 3);
+    assert!(lines.iter().all(|line| line.as_str().unwrap().contains("needle")));
+    assert_eq!(response["complete"], false);
+    assert!(response["totalSeen"].as_u64().unwrap() >= 3);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn serve_search_reuses_file_list_across_requests() {
+    let root = fixture();
+    for index in 0..6 {
+        fs::write(
+            root.join("src").join(format!("hit-{index}.ts")),
+            "export const needle = true;\nexport const other = false;\n",
+        )
+        .unwrap();
+    }
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-graph"))
+        .arg(&root)
+        .arg("--serve-search")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut stdin = child.stdin.take().unwrap();
+    let mut ready = String::new();
+    stdout.read_line(&mut ready).unwrap();
+    let request = |id: u64, pattern: &str| {
+        serde_json::json!({
+            "id": id,
+            "cwd": root,
+            "args": [
+                "--color", "never",
+                "--hidden",
+                "--no-heading",
+                "-H",
+                "--line-number",
+                "-e", pattern,
+                "--",
+                "."
+            ],
+            "offset": 0,
+            "limit": if id == 1 { 0 } else { 2 }
+        })
+    };
+    writeln!(stdin, "{}", request(1, "needle")).unwrap();
+    let mut first = String::new();
+    stdout.read_line(&mut first).unwrap();
+    let first_json: serde_json::Value = serde_json::from_str(first.trim()).unwrap();
+    writeln!(stdin, "{}", request(2, "other")).unwrap();
+    let mut second = String::new();
+    stdout.read_line(&mut second).unwrap();
+    let second_json: serde_json::Value = serde_json::from_str(second.trim()).unwrap();
+    drop(stdin);
+    let _ = child.wait();
+    assert_eq!(first_json["id"], 1);
+    assert_eq!(second_json["id"], 2);
+    assert!(first_json["lines"].as_array().unwrap().len() >= 6);
+    assert_eq!(second_json["lines"].as_array().unwrap().len(), 2);
+    assert!(first_json["lines"].as_array().unwrap().iter().all(|line| line.as_str().unwrap().contains("needle")));
+    assert!(second_json["lines"].as_array().unwrap().iter().all(|line| line.as_str().unwrap().contains("other")));
     fs::remove_dir_all(root).unwrap();
 }

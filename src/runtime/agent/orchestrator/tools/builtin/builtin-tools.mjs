@@ -32,7 +32,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Known-file contents or line ranges; images render for viewing; not directories. Replaces cat/head/tail.',
+        description: 'Known-file contents or line ranges absent from prior output; never pair with same-span search. Images render for viewing; not directories. Replaces cat/head/tail.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -65,7 +65,7 @@ export const BUILTIN_TOOLS = [
                     description: 'File path, string[] files, [path,offset,limit?] range, or range[].',
                 },
                 offset: { type: 'number', minimum: 0, description: 'Lines to skip.' },
-                limit: { type: 'number', minimum: 1, description: 'Max lines; default 2000.' },
+                limit: { type: 'number', minimum: 1, description: 'Max lines; default 800.' },
             },
             required: ['path'],
             additionalProperties: false,
@@ -75,7 +75,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Mixdog Shell',
         annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: 'Run a shell command; async returns task_id and sends a completion notification. Executable/runtime/state evidence only — never file exploration in any command segment: NOT ls/find/cat/head/tail/grep/rg/sed; dedicated file tools cover those.',
+        description: 'Run executable/runtime/state operations or generate computed artifacts. Never explore files with shell (NOT ls/find/cat/head/tail/grep/rg/sed); use file tools.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -96,13 +96,13 @@ export const BUILTIN_TOOLS = [
         name: 'task',
         title: 'Background Task Control',
         annotations: { title: 'Background Task Control', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        description: 'Control a shell background task_id; not session or agent ids.',
+        description: 'Schedule one progress check or manually inspect/cancel a shell background task_id; normal completion arrives by notification. Not for session or agent ids.',
         inputSchema: {
             type: 'object',
             properties: {
                 task_id: { type: 'string', description: 'Shell task_id.' },
-                action: { type: 'string', enum: ['list', 'status', 'read', 'wait', 'cancel'], description: 'Default list; with task_id: wait.' },
-                timeout_ms: { type: 'number', description: 'Wait timeout (ms).' },
+                action: { type: 'string', enum: ['list', 'status', 'read', 'check_after', 'cancel'], description: 'Default list; task_id alone defaults to non-blocking status. check_after schedules one non-blocking progress notification.' },
+                after_ms: { type: 'number', description: 'Required explicitly for check_after; one-shot delay before the progress snapshot, not the task deadline.' },
             },
             required: [],
             additionalProperties: false,
@@ -112,7 +112,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'File-content literal/regex search; returns contextual path:line blocks. Replaces grep/rg.',
+        description: 'File-content literal/regex search for unknown source locations; contextual path:line blocks are directly usable—read only omitted lines. Replaces grep/rg.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -142,10 +142,7 @@ export const BUILTIN_TOOLS = [
                 offset: { type: 'number', minimum: 0, description: 'Result offset.' },
                 context: { type: 'number', minimum: 0, description: 'Omit for automatic context; 0 for matches only.' },
             },
-            anyOf: [
-                { required: ['pattern'] },
-                { required: ['glob'] },
-            ],
+            required: ['pattern'],
             additionalProperties: false,
         },
     },

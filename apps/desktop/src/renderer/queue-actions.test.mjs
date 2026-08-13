@@ -7,14 +7,24 @@ import { JSDOM } from "jsdom";
 
 import { QueueList } from "./composer-support.tsx";
 import {
+  hasSendablePromptContent,
   shouldBlockPromptSubmit,
   shouldInterruptPrompt,
   shouldNavigatePromptHistory,
   shouldRestoreInterruptedPrompt,
+  shouldStopComposerGeneration,
 } from "./renderer-logic.mjs";
 import { paneSessionTabIds } from "./pane-layout.ts";
+import { usePromptQueueHistory } from "../../../../src/tui/app/use-prompt-queue-history.mjs";
 import { classifyPromptEscape } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
-import { mergeQueuedRestoreDraft } from "../../../../src/tui/components/prompt-input/restore-policy.mjs";
+import {
+  mergeQueuedRestoreDraft,
+  paletteOwnsPromptVerticalArrow,
+  queuedRestorePrefix,
+  queuedRestoreProjection,
+  replaceQueuedRestorePrefix,
+} from "../../../../src/tui/components/prompt-input/restore-policy.mjs";
+import { isQueuedEntryEditable } from "../../../../src/tui/session/queue-helpers.mjs";
 
 function installDom() {
   const dom = new JSDOM("<!doctype html><html><body><div id=\"root\"></div></body></html>", {
@@ -127,6 +137,61 @@ test("queued follow-up Escape behavior matches Claude Code priority and handoff"
   }), false, "New task materialization keeps its separate submit ownership");
 });
 
+test("queued restore paints before a daemon acknowledgement and reconciles without duplication", async () => {
+  const dom = installDom();
+  let restoreQueuedToPrompt;
+  let resolveRestore;
+  let latestDraft = { value: "current draft", cursor: 7, selectionAnchor: null };
+  const overrides = [];
+  const promptValueRef = { current: latestDraft.value };
+  const store = {
+    restoreQueued: () => new Promise((resolve) => { resolveRestore = resolve; }),
+  };
+  function Harness() {
+    ({ restoreQueuedToPrompt } = usePromptQueueHistory({
+      store,
+      state: { queued: [{ id: "queued-1", displayText: "queued follow-up" }] },
+      exit: () => {},
+      exitRequestedRef: { current: false },
+      setExiting: () => {},
+      promptValueRef,
+      promptDraft: latestDraft.value,
+      showPromptHint: () => {},
+      clearPromptHint: () => {},
+      installPastedImages: () => {},
+      installPastedTexts: () => {},
+      syncPromptLayoutRows: () => {},
+      setPromptDraftOverride: (next) => {
+        latestDraft = next;
+        promptValueRef.current = next.value;
+        overrides.push(next);
+      },
+      promptHistoryNavRef: { current: {} },
+    }));
+    return null;
+  }
+  try {
+    await act(async () => { dom.root.render(React.createElement(Harness)); });
+    let accepted = false;
+    act(() => {
+      accepted = restoreQueuedToPrompt({
+        showHint: false,
+        getCurrentDraft: () => latestDraft,
+      });
+    });
+    assert.equal(accepted, true);
+    assert.equal(overrides.at(-1)?.value, "queued follow-up\ncurrent draft");
+    await act(async () => {
+      resolveRestore({ count: 1, ids: ["queued-1"], text: "queued follow-up" });
+      await Promise.resolve();
+    });
+    assert.equal(overrides.at(-1)?.value, "queued follow-up\ncurrent draft");
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
 test("existing-session Enter does not wait for the previous host acknowledgement", () => {
   assert.equal(shouldBlockPromptSubmit({
     submitting: true,
@@ -145,6 +210,21 @@ test("existing-session Enter does not wait for the previous host acknowledgement
   }), true);
 });
 
+test("an image-only composer submit remains sendable during an active turn", () => {
+  const image = { token: "", kind: "image" };
+  assert.equal(hasSendablePromptContent({ text: "", attachments: [image] }), true);
+  assert.equal(shouldStopComposerGeneration({
+    turnBusy: true,
+    text: "",
+    attachments: [image],
+  }), false, "the send control must not turn into Stop while an image is queued");
+  assert.equal(shouldStopComposerGeneration({
+    turnBusy: true,
+    text: "",
+    attachments: [],
+  }), true);
+});
+
 test("prompt arrows enter history only from an empty draft", () => {
   assert.equal(shouldNavigatePromptHistory({
     key: "ArrowUp",
@@ -158,6 +238,12 @@ test("prompt arrows enter history only from an empty draft", () => {
   }), true, "an empty draft may enter prompt history");
   assert.equal(shouldNavigatePromptHistory({
     key: "ArrowUp",
+    value: "current draft",
+    selectionStart: 0,
+    allowNonEmpty: true,
+  }), true, "queued restore may reclaim above a non-empty first-line draft");
+  assert.equal(shouldNavigatePromptHistory({
+    key: "ArrowUp",
     value: "history entry",
     selectionStart: 0,
     historyActive: true,
@@ -168,6 +254,33 @@ test("prompt arrows enter history only from an empty draft", () => {
     selectionStart: 13,
     historyActive: true,
   }), true, "active history navigation may continue toward the seed");
+});
+
+test("queue parity helpers preserve order, rollback exact prefixes, and guard meta entries", () => {
+  assert.deepEqual(queuedRestoreProjection([
+    { id: "one", displayText: "first" },
+    { id: "two", text: "second" },
+  ]), {
+    count: 2,
+    ids: ["one", "two"],
+    text: "first\nsecond",
+  });
+  const optimisticPrefix = queuedRestorePrefix("queued", "draft");
+  assert.equal(optimisticPrefix, "queued\n");
+  assert.deepEqual(replaceQueuedRestorePrefix(
+    optimisticPrefix,
+    "confirmed\n",
+    { value: "queued\ndraft plus", cursor: 17, selectionAnchor: null },
+  ), {
+    value: "confirmed\ndraft plus",
+    cursor: 20,
+    selectionAnchor: null,
+    replaced: true,
+  });
+  assert.equal(paletteOwnsPromptVerticalArrow(1), false);
+  assert.equal(paletteOwnsPromptVerticalArrow(2), true);
+  assert.equal(isQueuedEntryEditable({ mode: "prompt", isMeta: true }), false);
+  assert.equal(isQueuedEntryEditable({ mode: "prompt" }), true);
 });
 
 test("PANE prewarm includes restored inactive session tabs with active sessions first", () => {
