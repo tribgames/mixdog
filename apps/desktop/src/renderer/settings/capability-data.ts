@@ -226,7 +226,6 @@ async function readAllCapabilitySettings(
       try {
         publish('models', await api.listProviderModels?.({
           quick: false,
-          ...(force ? { force: true } : {}),
         }) || []);
       } catch (reason) {
         publish('models', previous?.data.models || []);

@@ -379,7 +379,19 @@ export function createSessionService({
   /** Advance the session runtime's published revision one step. */
   function advance(entry) {
     const snapshot = snapshotOf(entry);
-    indexSessionEntry(entry, snapshot?.sessionId);
+    const projectedSessionId = String(snapshot?.sessionId || '');
+    const addressedSessionId = String(entry.addressedSessionId || '');
+    if (addressedSessionId
+      && projectedSessionId
+      && projectedSessionId !== addressedSessionId) {
+      throw new Error(
+        `session ${addressedSessionId} changed its durable address to ${projectedSessionId}`,
+      );
+    }
+    if (!addressedSessionId && projectedSessionId) {
+      entry.addressedSessionId = projectedSessionId;
+    }
+    indexSessionEntry(entry, projectedSessionId);
     updateEntryBusy(entry, snapshot);
     const previous = entry.publishedSnapshot;
     const previousRevision = entry.revision || 0;
@@ -529,7 +541,8 @@ export function createSessionService({
     const entry = {
       runtime, cwd: params.cwd || process.cwd(), timer: null, disposed: false,
       unsubscribe: null, subscribers: new Set(), reservedOnly: false, lastPublishedAt: 0,
-      indexedSessionId: '', busy: null, headless: !subscriberToken(ctx), retainedAt: null,
+      indexedSessionId: '', addressedSessionId: '', busy: null,
+      headless: !subscriberToken(ctx), retainedAt: null,
       revision: revisionEpoch,
       agentSession: Boolean(params.agentSession && typeof params.agentSession === 'object'),
     };

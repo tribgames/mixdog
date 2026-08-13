@@ -48,6 +48,7 @@ export function renderAppView(ctx) {
       // before instead of dead-ending in the palette accept path.
       commandPaletteActive={slashPaletteOpen && slashCommands.length > 0}
       commandPaletteOpen={slashPaletteOpen}
+      commandPaletteOptionCount={slashCommands.length}
       onCommandPaletteNavigate={(direction) => {
         setSlashIndex((index) => {
           const total = slashCommands.length;

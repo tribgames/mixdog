@@ -105,9 +105,9 @@ function usedPercent(window: UsageRecord): number | null {
 }
 
 /** Rail pin mode (user: 핀모드): one entry per brand that has quota data —
- *  its icon plus one window's usage, picked by display priority
- *  5H → weekly (7D/W) → monthly (M); anything else (EXTRA…) is a fallback
- *  shown only when none of those windows exist (user: 우선순위 5H > 주 > 월). */
+ *  its icon plus the final quota window's usage, picked by longest period:
+ *  monthly (M) → weekly (7D/W) → daily/hourly. Unknown windows fall back
+ *  to the provider's final entry. */
 export interface UsagePinEntry {
   key: string;
   label: string;
@@ -116,9 +116,9 @@ export interface UsagePinEntry {
 }
 
 const PIN_WINDOW_PRIORITY = [
-  /^5H$/i,
-  /^(?:7D|W|WK|WEEK|WEEKLY)$/i,
   /^(?:M|MO|MON|MONTH|MONTHLY)$/i,
+  /^(?:7D|W|WK|WEEK|WEEKLY)$/i,
+  /^(?:\d+H|\d+D|D|DAY|DAILY)$/i,
 ];
 
 function pinPercent(windows: UsageRecord[]): number | null {
@@ -131,7 +131,7 @@ function pinPercent(windows: UsageRecord[]): number | null {
     const hit = candidates.find((candidate) => pattern.test(candidate.label));
     if (hit) return hit.percent;
   }
-  return Math.max(...candidates.map((candidate) => candidate.percent));
+  return candidates[candidates.length - 1].percent;
 }
 
 export function usagePinEntries(dashboard: unknown): UsagePinEntry[] {

@@ -178,10 +178,10 @@ async function runRecallFastTrackForSession(session, messages, opts = {}) {
         const browsed = await callMemoryColdStart({
             action: 'search',
             sessionId,
-            limit: positiveContextWindow(session?.compaction?.recallDigestLimit) || 30,
+            limit: positiveContextWindow(session?.compaction?.recallDigestLimit) || 100,
             includeMembers: true,
             includeRaw: true,
-            compactDigest: true,
+            compactHandoff: true,
         }, callerCtx, memoryTimeoutMs);
         recallText = typeof browsed === 'string' ? browsed : String(browsed?.text ?? browsed ?? '');
         if (!isUsableRecallDigestText(recallText)) {
@@ -312,10 +312,11 @@ export async function runSessionCompaction(session, opts = {}) {
                 // The stored-memory browse above returned real session context;
                 // empty/sentinel output already threw into semantic fallback.
                 allowEmptyRecall: false,
-                tailTurns: positiveContextWindow(session.compaction?.tailTurns) || 2,
+                tailTurns: positiveContextWindow(session.compaction?.tailTurns) || 1,
                 keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
                 preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),
                 recallTokenCap,
+                sessionId,
             });
             if (Array.isArray(recallFastTrackResult?.messages)) {
                 compacted = recallFastTrackResult.messages;

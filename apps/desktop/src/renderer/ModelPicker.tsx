@@ -321,6 +321,7 @@ export function ModelPicker({
   const renderModelOption = (option: DesktopModelOption, scope = '') => {
     const active = option.provider === provider && option.model === model;
     const key = modelKey(option, scope);
+    const description = modelOptionDescription(option);
     return <button type="button" className="model-option-row" role="option"
       aria-selected={active} key={key} data-row-key={key}
       data-active={activeRowKey === key} tabIndex={activeRowKey === key ? 0 : -1}
@@ -331,7 +332,7 @@ export function ModelPicker({
         <span className="model-row-title">
           <strong>{modelDisplayName(option.model, option.provider, option.display)}</strong>
         </span>
-        <small>{modelOptionDescription(option)}</small>
+        {description && <small>{description}</small>}
       </span>
       {active && <span className="list-item-selected-icon" data-slot="list-item-selected-icon">
         <Check size={16} aria-hidden="true" />
@@ -448,8 +449,6 @@ export function ModelPicker({
                       {options.map((option) => renderModelOption(option))}
                     </div>
                   </section>)}
-                {catalogRefreshing && renderedKeys.length > 0 &&
-                  <p className="model-loading" role="status">{t('Updating model catalog…')}</p>}
               </div>
             </div>
             </PaneSurfaceGate>

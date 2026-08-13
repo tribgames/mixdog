@@ -320,7 +320,7 @@ function sanitizeDeferredToolManifestName(name) {
     return text;
 }
 
-function bp1HasDeferredToolManifestBlock(text) {
+function hasDeferredToolManifestBlock(text) {
     const raw = String(text || '');
     return /<available-deferred-tools>[\s\S]*?<\/available-deferred-tools>/i.test(raw)
         || /<mcp-instructions>[\s\S]*?<\/mcp-instructions>/i.test(raw);
@@ -377,7 +377,7 @@ function sanitizeMcpInstructionText(text, max = MCP_INSTRUCTION_MAX_CHARS) {
  * Emits ONLY the server heading + instruction body: the per-server tool names
  * are deliberately NOT repeated here — every pool tool is already listed once
  * (with its description) in <available-deferred-tools>, and re-listing ~30
- * names per server doubled the MCP share of the BP1 prefix (2026-08-05 audit).
+ * names per server doubled the MCP share of the BP2 prefix (2026-08-05 audit).
  * Server membership stays evident from the mcp__<server>__ name prefix.
  */
 function buildMcpInstructionsManifest(mcpServerInstructions, poolNames) {
@@ -421,7 +421,7 @@ export function stripDeferredToolManifestBlock(text) {
 
 // Rebuild path: replace the FIRST previously-injected <available-deferred-tools>
 // block (with its leading `---` separator) with the fresh manifest IN PLACE, so
-// the block keeps its original position and no sibling BP1 block (skills
+// the block keeps its original position and no sibling BP2 block (skills
 // manifest, agent rules, …) is reordered or dropped. The fresh manifest already
 // carries the mcp-instructions companion, so any pre-existing standalone one is
 // removed first to avoid duplication.
@@ -441,16 +441,16 @@ function rebuildDeferredToolManifestBlock(text, manifest) {
 }
 
 /**
- * Inject the skill-style deferred pool (name + description) into BP1 at session
+ * Inject the skill-style deferred pool (name + description) into BP2 at session
  * start. Normally once; with `{ rebuild: true }` it strips any existing
  * <available-deferred-tools>/<mcp-instructions> block and re-injects the fresh
  * pool in place (used by the first-turn MCP refresh, before the prompt renders,
  * so late-connected MCP tools land in the INITIAL manifest — never duplicated).
  */
-export function applyInitialDeferredToolManifestToBp1(session, poolNames, options = {}) {
+export function applyInitialDeferredToolManifestToBp2(session, poolNames, options = {}) {
     const rebuild = options?.rebuild === true;
     if (!session || !Array.isArray(session.messages)) return false;
-    if (session.deferredToolBp1Applied && !rebuild) return false;
+    if (session.deferredToolBp2Applied && !rebuild) return false;
     const pool = Array.isArray(poolNames) ? poolNames : [];
     const descByName = new Map();
     for (const tool of Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []) {
@@ -464,35 +464,66 @@ export function applyInitialDeferredToolManifestToBp1(session, poolNames, option
     const mcpManifest = buildMcpInstructionsManifest(session.mcpServerInstructions, pool);
     if (mcpManifest) parts.push(mcpManifest);
     const manifest = parts.join('\n\n');
-    let idx = -1;
-    for (let i = 0; i < session.messages.length; i++) {
-        if (session.messages[i]?.role === 'system') {
-            idx = i;
-            break;
+    if (!manifest) {
+        for (const message of session.messages) {
+            if (message?.role === 'system' && typeof message.content === 'string') {
+                message.content = stripDeferredToolManifestBlock(message.content);
+            }
         }
-    }
-    if (idx === -1) return false;
-    const raw = typeof session.messages[idx].content === 'string' ? session.messages[idx].content : '';
-    if (bp1HasDeferredToolManifestBlock(raw) && !rebuild) {
-        session.deferredToolBp1Applied = true;
+        session.messages = session.messages.filter((message) => (
+            message?.role !== 'system' || String(message.content || '').trim()
+        ));
+        session.deferredToolBp2Applied = true;
+        delete session.deferredToolBp1Applied;
+        session.updatedAt = Date.now();
         return true;
     }
-    if (manifest) {
-        if (rebuild && bp1HasDeferredToolManifestBlock(raw)) {
-            // Anchored in-place rebuild: swap the previously injected manifest
-            // block for the fresh one at its EXISTING position.
-            session.messages[idx].content = rebuildDeferredToolManifestBlock(raw, manifest);
-        } else {
-            const base = stripDeferredToolManifestBlock(raw);
-            session.messages[idx].content = base
-                ? `${base}\n\n---\n\n${manifest}`
-                : manifest;
-        }
+
+    const existingMessage = session.messages.find((message) => (
+        message?.role === 'system'
+        && typeof message.content === 'string'
+        && hasDeferredToolManifestBlock(message.content)
+    ));
+    const systemIndexes = session.messages
+        .map((message, index) => (message?.role === 'system' ? index : -1))
+        .filter((index) => index >= 0);
+    if (!systemIndexes.length) return false;
+    const tier3Index = systemIndexes.find((index) => session.messages[index]?.cacheTier === 'tier3');
+    let idx = systemIndexes.length >= 2 && systemIndexes[1] !== tier3Index
+        ? systemIndexes[1]
+        : -1;
+    if (idx < 0) {
+        idx = tier3Index >= 0 ? tier3Index : systemIndexes[0] + 1;
+        session.messages.splice(idx, 0, { role: 'system', content: '' });
     }
-    session.deferredToolBp1Applied = true;
+    if (existingMessage === session.messages[idx] && !rebuild) {
+        session.deferredToolBp2Applied = true;
+        delete session.deferredToolBp1Applied;
+        return true;
+    }
+    for (let i = 0; i < session.messages.length; i++) {
+        if (i === idx || session.messages[i]?.role !== 'system' || typeof session.messages[i].content !== 'string') continue;
+        session.messages[i].content = stripDeferredToolManifestBlock(session.messages[i].content);
+    }
+    const raw = typeof session.messages[idx].content === 'string' ? session.messages[idx].content : '';
+    if (rebuild && hasDeferredToolManifestBlock(raw)) {
+        // Anchored in-place rebuild: swap the previously injected manifest
+        // block for the fresh one at its EXISTING position.
+        session.messages[idx].content = rebuildDeferredToolManifestBlock(raw, manifest);
+    } else {
+        const base = stripDeferredToolManifestBlock(raw);
+        session.messages[idx].content = base
+            ? `${base}\n\n---\n\n${manifest}`
+            : manifest;
+    }
+    session.deferredToolBp2Applied = true;
+    delete session.deferredToolBp1Applied;
     session.updatedAt = Date.now();
     return true;
 }
+
+// Compatibility for external callers compiled against the old layer name.
+export const applyInitialDeferredToolManifestToBp1 = applyInitialDeferredToolManifestToBp2;
 
 /**
  * Build the fixed skill loader meta-tool.
@@ -760,9 +791,9 @@ export function loadScopedRoleInstructions(agent, provider = null) {
 // --- Compose system prompt — 4-BP cache layout ---
 // Returns { baseRules, stableSystemContext, sessionMarker, volatileTail } mapping
 // directly to the breakpoint plan:
-//   BP1 (1h, system block #1) = baseRules — shared tool policy + compact skill manifest
-//   BP2 (1h, system block #2) = stableSystemContext — Lead/agent/hidden role system
-//   BP3 (1h, system block #3) = sessionMarker — stable memory/meta context
+//   BP1 (1h, system block #1) = baseRules — shared tool policy
+//   BP2 (1h, system block #2) = stableSystemContext — profile, skills, deferred/MCP
+//   BP3 (1h, system block #3) = sessionMarker — workflow/role, memory, session/project environment
 //   BP4 (5m/1h, messages tail) = live user/task/tool message tail
 //
 // Dynamic schedule/webhook/task payloads stay in normal user messages so
@@ -774,49 +805,54 @@ export function composeSystemPrompt(opts) {
     const profile = opts.profile || null;
     const _skip = profile?.skip || {};
 
-    // ── BP1: shared tool/skill layer ────────────────────────────────────
+    // ── BP1: globally shared tool policy ────────────────────────────────
     const baseParts = [];
     if (opts.agentRules) baseParts.push(opts.agentRules);
-    if (!_skip.skills && opts.skillManifest && typeof opts.skillManifest === 'string' && opts.skillManifest.trim()) {
-        baseParts.push(opts.skillManifest.trim());
-    }
-    // deferredToolManifest: optional BP1 slice; production path is applyInitialDeferredToolManifestToBp1 once after applyDeferredToolSurface.
-    if (opts.deferredToolManifest && typeof opts.deferredToolManifest === 'string' && opts.deferredToolManifest.trim()) {
-        baseParts.push(opts.deferredToolManifest.trim());
-    }
     const baseRules = baseParts.join('\n\n---\n\n');
 
-    // ── BP2: role/system layer ─────────────────────────────────────────
+    // ── BP2: persistent profile/tool catalog layer ──────────────────────
+    const stableSystemParts = [];
+    if (opts.metaContext && typeof opts.metaContext === 'string' && opts.metaContext.trim()) {
+        stableSystemParts.push(opts.metaContext.trim());
+    }
+    if (!_skip.skills && opts.skillManifest && typeof opts.skillManifest === 'string' && opts.skillManifest.trim()) {
+        stableSystemParts.push(opts.skillManifest.trim());
+    }
+    // deferredToolManifest: optional BP2 slice; production path is
+    // applyInitialDeferredToolManifestToBp2 once after applyDeferredToolSurface.
+    if (opts.deferredToolManifest && typeof opts.deferredToolManifest === 'string' && opts.deferredToolManifest.trim()) {
+        stableSystemParts.push(opts.deferredToolManifest.trim());
+    }
+    const stableSystemContext = stableSystemParts.join('\n\n---\n\n');
+
+    // ── BP3: workflow/role + session environment layer ─────────────────
     const roleInstructionContext = opts.skipRoleCatalog
         ? ''
         : loadScopedRoleInstructions(opts.agent || null, opts.provider || null);
-    const stableSystemParts = [];
-    // Active workflow contract leads the role layer: it must outrank the
-    // generic role/tool guidance below it, not trail the profile/meta block
-    // in BP3 (observed: leads deprioritized delegation rules that sat behind
-    // ~3KB of profile/output-style text).
-    if (opts.workflowContext && typeof opts.workflowContext === 'string' && opts.workflowContext.trim()) {
-        stableSystemParts.push(opts.workflowContext.trim());
-    }
-    if (opts.roleRules) stableSystemParts.push(opts.roleRules);
-    if (opts.userPrompt) stableSystemParts.push(opts.userPrompt);
-    if (roleInstructionContext) stableSystemParts.push(roleInstructionContext);
-    const stableSystemContext = stableSystemParts.join('\n\n---\n\n');
-
-    // ── BP3: stable memory/meta layer ──────────────────────────────────
-    // sessionMarker is injected by session/manager as its own `system` role
-    // block (the 3rd system block). It carries the tier3 1h cache_control on
-    // the Anthropic providers and pins language/name (Profile Preferences)
-    // instructions as a real system directive rather than a user reminder.
     const sessionMarkerParts = [];
-    if (opts.metaContext && typeof opts.metaContext === 'string' && opts.metaContext.trim()) {
-        sessionMarkerParts.push(opts.metaContext.trim());
+    // Keep the active workflow first within BP3 so it leads the role and
+    // environment material that varies with the session.
+    if (opts.workflowContext && typeof opts.workflowContext === 'string' && opts.workflowContext.trim()) {
+        sessionMarkerParts.push(opts.workflowContext.trim());
     }
+    if (opts.roleRules) sessionMarkerParts.push(opts.roleRules);
+    if (opts.userPrompt) sessionMarkerParts.push(opts.userPrompt);
+    if (roleInstructionContext) sessionMarkerParts.push(roleInstructionContext);
     if (!_skip.memory && opts.coreMemoryContext && typeof opts.coreMemoryContext === 'string' && opts.coreMemoryContext.trim()) {
         sessionMarkerParts.push('# Core Memory\n' + opts.coreMemoryContext.trim());
     }
+    const sessionMarkerCore = sessionMarkerParts.length
+        ? sessionMarkerParts.join('\n\n---\n\n')
+        : '';
+    for (const value of [
+        opts.sessionStartContext,
+        opts.projectInstructionsContext,
+        opts.environmentContext,
+    ]) {
+        if (typeof value === 'string' && value.trim()) sessionMarkerParts.push(value.trim());
+    }
     const sessionMarker = sessionMarkerParts.length
-        ? sessionMarkerParts.join('\n\n')
+        ? sessionMarkerParts.join('\n\n---\n\n')
         : '';
 
     // ── BP4: live message tail ─────────────────────────────────────────
@@ -825,15 +861,14 @@ export function composeSystemPrompt(opts) {
     // enforced structurally, and the task body is sent as the actual user turn
     // by askSession().
     const volatileParts = [];
-    // workspaceContext (current cwd + discovered project list) is intentionally
-    // NOT injected: it inlines the cwd/project layout into the prompt, which the
-    // model does not need (tools read the live cwd at call time) and which would
-    // otherwise re-fragment the cache / go stale after an in-place cwd switch.
+    // workspaceContext's discovered-project list is intentionally not injected:
+    // BP3 already carries the scoped session/project environment, while the
+    // full layout would add redundant cache fragmentation.
     const volatileTail = volatileParts.length > 0
         ? volatileParts.join('\n\n')
         : '';
 
-    return { baseRules, stableSystemContext, sessionMarker, volatileTail };
+    return { baseRules, stableSystemContext, sessionMarkerCore, sessionMarker, volatileTail };
 }
 // --- Helpers ---
 function readSafe(path) {

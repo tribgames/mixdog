@@ -337,7 +337,8 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
               }} />
             {selected && selected.effortOptions.length > 0 && <OpenSelect variant="route"
               ariaLabel={t("Schedule reasoning effort")}
-              value={effortValue} disabled={busy} options={selected.effortOptions} onChange={setEffort} />}
+              value={effortValue} disabled={busy} localizeLabels={false}
+              options={selected.effortOptions} onChange={setEffort} />}
             {selected?.fastCapable && <FastModeToggle ariaLabel={t("Schedule fast mode")}
               enabled={fast} disabled={busy} onChange={setFast} />}
             {/* Same flat, right-aligned workflow control as the chat

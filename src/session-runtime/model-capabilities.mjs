@@ -1,5 +1,7 @@
 // Provider/model capability probes: fast-tier + hosted web-search support, and
-// model-settings persistence. Pure except saveModelSettings (takes cfgMod).
+// in-memory model-settings updates. saveModelSettings returns the next config;
+// callers persist via saveConfigAndAdopt so a new-task setWorkflow debounce
+// never collides with a sync mixdog-config lock (ELOCKCONTENDED).
 import { clean, hasOwn } from './session-text.mjs';
 
 const FAST_CAPABLE_PROVIDERS = new Set(['anthropic', 'anthropic-oauth', 'openai', 'openai-oauth']);
@@ -127,6 +129,5 @@ export function saveModelSettings(cfgMod, route, { fastCapable = true, baseConfi
   delete fastModels[key];
 
   const savedConfig = { ...nextConfig, modelSettings, fastModels };
-  cfgMod.saveConfig(savedConfig);
   return savedConfig;
 }

@@ -88,7 +88,10 @@ export function QuietSelectRow({ title, value, disabled, options, kind, onChange
     <span className="mixdog-settings__row-title">{displayTitle}</span>
   </div><div className="settings-row-control"><div className={`${kind}-control`}>
     <OpenSelect ariaLabel={displayTitle} value={value} disabled={disabled}
-      options={normalized.map((entry) => ({ ...entry, label: t(entry.label) }))} onChange={onChange} />
+      localizeLabels={kind !== 'effort'}
+      options={kind === 'effort'
+        ? normalized
+        : normalized.map((entry) => ({ ...entry, label: t(entry.label) }))} onChange={onChange} />
   </div></div></div>;
 }
 
@@ -193,7 +196,7 @@ export function RouteEditor({ title, description: _description, route, models, d
       {modelSelect}
       {selected && selected.effortOptions.length > 0 && <div className="effort-control">
         <OpenSelect variant="route" ariaLabel={`${title} effort`} value={effort} disabled={disabled}
-          options={selected.effortOptions}
+          localizeLabels={false} options={selected.effortOptions}
           onChange={(value) => onChange(selectionFor(selected, { effort: value }))} />
       </div>}
       {selected?.fastCapable && <div className="fast-control">

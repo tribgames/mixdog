@@ -143,7 +143,11 @@ function stripV4AMovePathHeader(line) {
 }
 
 export function isV4AEndOfFileMarker(rawLine) {
-  return String(rawLine || '').trim() === V4A_EOF_MARKER;
+  const text = String(rawLine || '').trim();
+  if (text === V4A_EOF_MARKER) return true;
+  // Models close the marker like Begin/End Patch (`*** End of File ***`).
+  return text.startsWith(V4A_EOF_MARKER)
+    && /^[\s*]*$/.test(text.slice(V4A_EOF_MARKER.length));
 }
 
 function v4aEnsureUpdateHunk(current, pendingAnchors) {

@@ -977,6 +977,14 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         self.assertEqual(agent._workflow, "default")
         self.assertFalse(hasattr(module, "HEADLESS_BENCH_MANDATE"))
 
+    def test_version_probe_reads_package_metadata_without_booting_cli(self) -> None:
+        module = self.load_adapter_module()
+        command = module.MixdogAgent().get_version_command()
+
+        self.assertIn("package.json", command)
+        self.assertIn("fs.realpathSync", command)
+        self.assertNotIn("mixdog --help", command)
+
     def test_installer_uses_latest_dependency_shell_unless_explicitly_overridden(self) -> None:
         module = self.load_adapter_module()
         commands = []
@@ -1626,6 +1634,42 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
 
         self.assertEqual(len(commands), 3)
         self.assertEqual(commands[1], module._uv_provision_command())
+
+    def test_prebake_fast_path_skips_redundant_uv_provision_exec(self) -> None:
+        module = self.load_adapter_module()
+        commands = []
+
+        class Environment:
+            async def upload_file(self, source, destination):
+                return None
+
+        async def exec_as_root(environment, *, command, env=None):
+            commands.append(command)
+            if "command -v apt-get" in command:
+                return types.SimpleNamespace(stdout="apt\n")
+            if "MIXDOG_PREBAKE_UV_READY" in command:
+                return types.SimpleNamespace(
+                    stdout="MIXDOG_PREBAKE_UV_READY\nCURL_READY\n"
+                )
+            return types.SimpleNamespace(stdout="")
+
+        with tempfile.TemporaryDirectory(prefix="mixdog-prebake-fast-path-") as temp:
+            tar_path = Path(temp) / "mixdog-node-prebake.tar.gz"
+            tar_path.touch()
+            tar_path.with_name("mixdog-node-prebake.tar.zst").touch()
+            tar_path.with_name("zstd-amd64").touch()
+            agent = module.MixdogAgent.__new__(module.MixdogAgent)
+            agent._mixdog_version = "fixture"
+            agent.exec_as_root = exec_as_root
+            with mock.patch.object(module, "DEFAULT_PREBAKE_TAR", tar_path):
+                asyncio.run(agent.install(Environment()))
+
+        self.assertFalse(
+            any(command == module._uv_provision_command() for command in commands)
+        )
+        self.assertTrue(
+            any("MIXDOG_PREBAKE_UV_READY" in command for command in commands)
+        )
 
     def _run_uv_provision_fixture(
         self,
@@ -3111,7 +3155,7 @@ class LauncherDryRunTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines()[0], EXPECTED_AUDIT_LINE)
         self.assertIn("--ak route_profile=fable-xhigh", result.stdout)
-        self.assertNotIn("workflow=", result.stdout)
+        self.assertIn("--ak workflow=solo-bench", result.stdout)
         self.assertNotIn("--verifier-env", result.stdout)
 
     def test_launcher_rejects_unknown_profile_and_conflicts(self) -> None:

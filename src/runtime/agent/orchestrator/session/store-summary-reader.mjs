@@ -16,8 +16,10 @@ import { probePath, readTextFile, PROBE_PRESENT, PROBE_ABSENT } from './store/fs
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-scan.mjs';
 
 const SESSION_SUMMARY_INDEX_VERSION = 2;
-const TERMINAL_AGENT_STATUS = /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
-const ACTIVE_AGENT_STATUS = /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
+const DEAD_AGENT_STATUS =
+    /^(?:done|complete|completed|success|closed|error|fail|failed|cancelled|canceled|killed|timeout)$/i;
+const LIVING_AGENT_STATUS =
+    /^(?:idle|connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
 const AGENT_POOL_HEARTBEAT_FRESH_MS = 2 * 60 * 1000;
 
 // Mirror of lifecycle-api.mjs listLeadSessions visibility: the cold catalog
@@ -164,8 +166,8 @@ function activeAgentWorker(row) {
         .map(cleanValue)
         .filter((status, index, values) => Boolean(status) && values.indexOf(status) === index);
     return statuses.length > 0
-        && !statuses.some((status) => TERMINAL_AGENT_STATUS.test(status))
-        && statuses.some((status) => ACTIVE_AGENT_STATUS.test(status));
+        && !statuses.some((status) => DEAD_AGENT_STATUS.test(status))
+        && statuses.some((status) => LIVING_AGENT_STATUS.test(status));
 }
 
 export function storedAgentWorkerIndexPath() {
@@ -175,8 +177,8 @@ export function storedAgentWorkerIndexPath() {
 /** Process-global active agent pool. Fresh child heartbeat sidecars are the
  * cross-process running source even when their durable session is detached
  * (`closed`) and a terminal reaper has already removed the worker-index row.
- * The index remains additive for active rows published before the heartbeat or
- * by runtimes without a sidecar. No runtime starts. */
+ * The index remains additive for living rows (running or idle) published before
+ * the heartbeat or by runtimes without a sidecar. No runtime starts. */
 export function listStoredAgentWorkers() {
     let parsed = null;
     try {
@@ -212,6 +214,8 @@ export function listStoredAgentWorkers() {
             agent: cleanValue(row.agent || session?.agent) || null,
             provider: cleanValue(row.provider || session?.provider) || null,
             model: cleanValue(row.model || session?.model) || null,
+            effort: cleanValue(row.effort || session?.effort) || null,
+            fast: row.fast === true || session?.fast === true,
             status: cleanValue(row.status) || 'running',
             stage: cleanValue(row.stage || row.status) || 'running',
             startedAt: row.startedAt || row.createdAt || session?.createdAt || null,
@@ -251,6 +255,8 @@ export function listStoredAgentWorkers() {
             agent: agent || current.agent || null,
             provider: cleanValue(session?.provider) || current.provider || null,
             model: cleanValue(session?.model) || current.model || null,
+            effort: cleanValue(session?.effort) || current.effort || null,
+            fast: session?.fast === true || current.fast === true,
             // The sidecar is the live lease. Durable child sessions are
             // intentionally detached/closed while their external owner runs.
             status: 'running',

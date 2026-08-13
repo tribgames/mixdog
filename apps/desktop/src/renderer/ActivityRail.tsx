@@ -246,7 +246,7 @@ export function ActivityRail({
               const percent = Math.round(entry.percent);
               // Glanceable readout (user: 프로그래스 중간에): icon, then the
               // flyout's meter grammar in miniature, then the number — bar
-              // and number turn warning/danger as the worst window fills up.
+              // and number reflect the provider's final quota window.
               const tone = entry.percent >= 90 ? " tone-danger"
                 : entry.percent >= 70 ? " tone-warning" : "";
               return <span className={`rail-usage-pin-brand${tone}`}

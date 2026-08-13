@@ -24,6 +24,7 @@ import { existsSync, mkdirSync, renameSync, statSync, writeFileSync } from 'node
 const ROTATE_CHECK_BYTE_STRIDE = 64 * 1024;
 import { dirname, join, resolve } from 'node:path';
 import { appendBuffered, drainPathSync, hasInFlightWrite } from './buffered-appender.mjs';
+import { formatUtcTimestamp } from './time-format.mjs';
 
 // Rotate the JSONL transcript once it exceeds this size, keeping one prior
 // generation (`<path>.1`). Checked on each append; the check itself is a
@@ -135,7 +136,10 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
     ensureProjectDir();
     rotateIfNeeded();
     try {
-      const line = `${JSON.stringify(entry)}\n`;
+      const stampedEntry = entry?.timestamp != null || entry?.ts != null
+        ? entry
+        : { ...entry, timestamp: formatUtcTimestamp() };
+      const line = `${JSON.stringify(stampedEntry)}\n`;
       appendBuffered(transcriptPath, line);
       bytesSinceCheck += Buffer.byteLength(line);
     } catch (err) {

@@ -19,6 +19,7 @@ import {
 } from "./streaming-markdown";
 import StreamingMarkdownBody from "./StreamingMarkdownBody";
 import { asRecord, copyTextToClipboard, formatElapsed, oneLine, publicThinkingSummary } from "./text-format";
+import { requestTranscriptRowMeasure } from "./transcript-measure";
 import { imagePreviewCache, imagePreviewKey } from "./transcript-metrics";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { classifyToolCategory, formatToolSurface } from "../../../../src/runtime/shared/tool-surface.mjs";
@@ -955,6 +956,13 @@ export function ToolCard({
   useLayoutEffect(() => {
     setOpen(disclosureKey ? toolDisclosureStates.get(disclosureKey) ?? false : false);
   }, [disclosureKey]);
+  const cardRef = useRef<HTMLElement>(null);
+  const measuredOpen = useRef(open);
+  useLayoutEffect(() => {
+    if (measuredOpen.current === open) return;
+    measuredOpen.current = open;
+    requestTranscriptRowMeasure(cardRef.current);
+  }, [open]);
   const contentId = useId();
   const done = item.completedAt != null || (item.completedCount === undefined
     ? item.result != null || item.rawResult != null
@@ -1026,10 +1034,12 @@ export function ToolCard({
   // tails never auto-grow the transcript.
   const detailRowVisible = Boolean(model.detailLine) && open;
   return (
-    <article className={`tool-card ${failure ? "failed" : ""} ${warning ? "warning" : ""} ${failureArrived ? "failure-arrived" : ""} ${done ? "settled" : ""}`}
+    <article ref={cardRef}
+      className={`tool-card ${failure ? "failed" : ""} ${warning ? "warning" : ""} ${failureArrived ? "failure-arrived" : ""} ${done ? "settled" : ""}`}
       data-category={category} data-kind={errorCard ? "tool-error-card" : undefined}
       data-open={open ? "true" : "false"}>
       <button className="tool-header" disabled={!hasDetails}
+        onPointerDown={(event) => event.stopPropagation()}
         onClick={() => setOpen((value) => {
           const next = !value;
           rememberToolDisclosure(disclosureKey, next);

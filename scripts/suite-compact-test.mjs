@@ -22,6 +22,12 @@ import {
   compactDigestRows,
   renderEntryLines,
 } from '../src/runtime/memory/lib/recall-format.mjs';
+import {
+  collectToolOutcomeLines,
+  collectWorkingFiles,
+  composeRecallHandoff,
+  conversationLinesFromMemoryText,
+} from '../src/runtime/agent/orchestrator/session/compact/handoff.mjs';
 import { createQueryHandlers } from '../src/runtime/memory/lib/query-handlers.mjs';
 
 // ==== from compact-file-reattach-test.mjs ====
@@ -52,20 +58,15 @@ function transcript() {
   return msgs;
 }
 
-// 1) fasttrack: A re-attached, B (in tail) skipped, huge+missing skipped
+// 1) fasttrack: path index only, last-turn files stay for continuity
 {
   const r = recallFastTrackCompactMessages(transcript(), 4000, { force: true, recallText: 'digest', allowEmptyRecall: true, tailTurns: 2, keepTokens: 2000, cwd: dir });
-  const ref = r.messages.find((m) => m.role === 'user' && typeof m.content === 'string' && m.content.startsWith('Reference files:'));
-  assert.ok(ref, 'fasttrack: reference-files message injected');
-  assert.ok(ref.content.includes(fileA), 'fileA re-attached');
-  assert.ok(ref.content.includes('export const A'), 'fileA fresh content present');
-  assert.ok(!ref.content.includes(fileHuge), 'huge file skipped');
-  assert.ok(!ref.content.includes('missing.mjs'), 'missing file skipped');
-  assert.ok(!ref.content.includes(fileB) || !ref.content.includes('export const B'), 'tail-surviving fileB not re-attached');
-  const refIdx = r.messages.indexOf(ref);
-  assert.equal(r.messages[refIdx + 1]?.role, 'assistant', 'ack follows reference message');
+  const summary = r.messages.find((m) => m.role === 'user' && typeof m.content === 'string' && m.content.includes('## Working files'));
+  assert.ok(summary, 'fasttrack: working-files section present');
+  assert.ok(summary.content.includes('a.mjs'), 'fileA path listed');
+  assert.ok(!summary.content.includes('export const A'), 'file bodies are not re-attached');
   assert.equal(JSON.stringify(sanitizeToolPairs(r.messages)), JSON.stringify(r.messages), 'pairing valid');
-  assert.equal(r.diagnostics.fileReattached, true, 'diagnostics flag set');
+  assert.equal(r.diagnostics.fileReattached, false, 'file body reattach stays off');
 }
 // 2) semantic path with fake provider
 {
@@ -100,6 +101,45 @@ function transcript() {
 }
 rmSync(dir, { recursive: true, force: true });
 console.log('compact file-reattach test passed \u2713');
+
+{
+  const mem = [
+    '[2026-08-13 16:40] a: later answer #2',
+    '[2026-08-13 16:39] u: later question #1',
+    '[2026-08-13 16:10] a: first answer #4',
+    '[2026-08-13 16:09] u: first question #3',
+  ].join('\n');
+  const lines = conversationLinesFromMemoryText(mem);
+  assert.equal(lines[0], 'u: first question');
+  assert.equal(lines[3], 'a: later answer');
+  const files = collectWorkingFiles([
+    { role: 'assistant', toolCalls: [{ name: 'read', arguments: { path: 'src/a.mjs' } }] },
+    { role: 'assistant', toolCalls: [{ name: 'grep', arguments: { path: 'src' } }] },
+    { role: 'assistant', toolCalls: [{ name: 'apply_patch', arguments: { patch: '*** Update File: src/b.mjs\n' } }] },
+  ]);
+  assert.deepEqual(files, ['src/b.mjs', 'src/a.mjs']);
+  const tools = collectToolOutcomeLines([
+    { role: 'assistant', toolCalls: [{ id: 'p1', name: 'apply_patch', arguments: { patch: '*** Update File: src/b.mjs\n' } }] },
+    { role: 'tool', toolCallId: 'p1', content: 'ok' },
+    { role: 'assistant', toolCalls: [{ id: 's1', name: 'shell', arguments: { command: 'node --test scripts/x.mjs' } }] },
+    { role: 'tool', toolCallId: 's1', content: '# tests 6\n# pass 6\n# fail 0' },
+    { role: 'assistant', toolCalls: [{ id: 'g1', name: 'grep', arguments: { pattern: 'x' } }] },
+    { role: 'tool', toolCallId: 'g1', content: 'lots of hits' },
+  ]);
+  assert.ok(tools.some((line) => /apply_patch src\/b.mjs → ok/.test(line)));
+  assert.ok(tools.some((line) => /shell .* → tests /.test(line)));
+  assert.ok(!tools.some((line) => /grep/.test(line)));
+  const body = composeRecallHandoff({
+    sessionId: 'sess_x',
+    conversationLines: lines,
+    toolLines: tools,
+    workingFiles: files,
+  });
+  assert.match(body, /## Previous conversation/);
+  assert.match(body, /## Tool results/);
+  assert.match(body, /## Working files/);
+  console.log('compact handoff shaping passed \u2713');
+}
 
 // ==== from compact-prior-context-flatten-test.mjs ====
 // Regression test for the repeated-compaction prior-context invariant: every

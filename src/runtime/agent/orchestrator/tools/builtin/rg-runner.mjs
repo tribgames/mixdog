@@ -10,6 +10,7 @@ import {
     snapshot as childSpawnSnapshot,
 } from '../../../../shared/child-spawn-gate.mjs';
 import { tryServeSearch } from './native-search-client.mjs';
+import { recordLocalSearchBackend } from './local-search-telemetry.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -586,22 +587,39 @@ export async function runRg(argsList, execOptions = {}) {
     // buffered content grep share the spawn-dominated cost. Unsupported args
     // answer null and fall through to the real spawn. Only a COMPLETE served
     // result substitutes for the buffered-stdout contract.
+    const nativeStartedAt = performance.now();
     try {
         const served = await tryServeSearch(argsList, execOptions, { offset: 0, limit: 0 });
-        if (served && served.complete) return served.lines.join('\n');
-    } catch { /* server is an accelerator only */ }
-    await assertRgAvailable();
-    try {
-        return await spawnRg(argsList, execOptions);
-    } catch (err) {
-        const msg = String(err?.message || err?.stderr || '');
-        // Retry single-threaded on EAGAIN. Skip only when the caller already
-        // pinned threads AND that pin is already -j 1 (nothing to gain); any
-        // other pin (-j8/--threads=N) is rewritten to a clean -j 1 by
-        // _rgEagainRetryArgs so we never emit conflicting thread flags.
-        if (/EAGAIN/i.test(msg) && !_isRgSingleThreadPinned(argsList)) {
-            return spawnRg(_rgEagainRetryArgs(argsList), execOptions);
+        if (served && served.complete) {
+            recordLocalSearchBackend('native', performance.now() - nativeStartedAt, 'hit');
+            return served.lines.join('\n');
         }
+        recordLocalSearchBackend('native', performance.now() - nativeStartedAt, 'miss');
+    } catch {
+        recordLocalSearchBackend('native', performance.now() - nativeStartedAt, 'error');
+    }
+    const fallbackStartedAt = performance.now();
+    try {
+        await assertRgAvailable();
+        let result;
+        try {
+            result = await spawnRg(argsList, execOptions);
+        } catch (err) {
+            const msg = String(err?.message || err?.stderr || '');
+            // Retry single-threaded on EAGAIN. Skip only when the caller already
+            // pinned threads AND that pin is already -j 1 (nothing to gain); any
+            // other pin (-j8/--threads=N) is rewritten to a clean -j 1 by
+            // _rgEagainRetryArgs so we never emit conflicting thread flags.
+            if (/EAGAIN/i.test(msg) && !_isRgSingleThreadPinned(argsList)) {
+                result = await spawnRg(_rgEagainRetryArgs(argsList), execOptions);
+            } else {
+                throw err;
+            }
+        }
+        recordLocalSearchBackend('fallback', performance.now() - fallbackStartedAt, 'hit');
+        return result;
+    } catch (err) {
+        recordLocalSearchBackend('fallback', performance.now() - fallbackStartedAt, 'error');
         throw err;
     }
 }
@@ -828,18 +846,35 @@ export async function runRgWindowedLines(argsList, execOptions = {}, opts = {}) 
     // Resident native search first: a warm in-process scan replaces the
     // ~100ms win32 spawn+AV fixed cost. Unsupported/unavailable/error all
     // fall through to the real rg spawn unchanged.
+    const nativeStartedAt = performance.now();
     try {
         const served = await tryServeSearch(argsList, execOptions, opts);
-        if (served) return served;
-    } catch { /* server is an accelerator only */ }
-    await assertRgAvailable();
-    try {
-        return await spawnRgWindowedLines(argsList, execOptions, opts);
-    } catch (err) {
-        const msg = String(err?.message || err?.stderr || '');
-        if (/EAGAIN/i.test(msg) && !_isRgSingleThreadPinned(argsList)) {
-            return spawnRgWindowedLines(_rgEagainRetryArgs(argsList), execOptions, opts);
+        if (served) {
+            recordLocalSearchBackend('native', performance.now() - nativeStartedAt, 'hit');
+            return served;
         }
+        recordLocalSearchBackend('native', performance.now() - nativeStartedAt, 'miss');
+    } catch {
+        recordLocalSearchBackend('native', performance.now() - nativeStartedAt, 'error');
+    }
+    const fallbackStartedAt = performance.now();
+    try {
+        await assertRgAvailable();
+        let result;
+        try {
+            result = await spawnRgWindowedLines(argsList, execOptions, opts);
+        } catch (err) {
+            const msg = String(err?.message || err?.stderr || '');
+            if (/EAGAIN/i.test(msg) && !_isRgSingleThreadPinned(argsList)) {
+                result = await spawnRgWindowedLines(_rgEagainRetryArgs(argsList), execOptions, opts);
+            } else {
+                throw err;
+            }
+        }
+        recordLocalSearchBackend('fallback', performance.now() - fallbackStartedAt, 'hit');
+        return result;
+    } catch (err) {
+        recordLocalSearchBackend('fallback', performance.now() - fallbackStartedAt, 'error');
         throw err;
     }
 }

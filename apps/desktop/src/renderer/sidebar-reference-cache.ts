@@ -53,7 +53,7 @@ export const SIDEBAR_REFERENCE_KEYS: readonly SidebarReferenceKey[] = [
 // out-of-app edits, not the primary freshness mechanism.
 const TTL_MS: Record<SidebarReferenceKey, number> = {
   channelSetup: 20_000,
-  quickProviderModels: 300_000,
+  quickProviderModels: 24 * 60 * 60_000,
   projects: 60_000,
   workflows: 120_000,
   agents: 120_000,
@@ -152,7 +152,7 @@ const LOADERS: { [K in SidebarReferenceKey]: Loader<K> } = {
   channelSetup: async (api) => record(await capability(api, 'getChannelSetup')),
   quickProviderModels: async (api) => {
     if (!api.listProviderModels) return [];
-    const models = await api.listProviderModels({ quick: true });
+    const models = await api.listProviderModels({ quick: false });
     return Array.isArray(models) ? models : [];
   },
   projects: async (api) => {

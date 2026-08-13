@@ -75,3 +75,24 @@ export function capShellOutput(content) {
     if (s.length <= SHELL_OUTPUT_MAX_CHARS && countSplitLines(s) <= SMART_BASH_MAX_LINES) return s;
     return smartMiddleTruncate(s);
 }
+
+function capturedStreamBytes(path, size, text) {
+    const fileBytes = Number(size);
+    if (path && Number.isFinite(fileBytes) && fileBytes > 0) return Math.trunc(fileBytes);
+    return Buffer.byteLength(String(text ?? ''), 'utf8');
+}
+
+// Record byte counts only; never retain command output in telemetry. Spill file
+// sizes recover the true child-output volume when stdout/stderr are already a
+// bounded head+tail preview by the time bash-tool renders the result.
+export function recordShellCaptureTelemetry(target, result, visibleStdout, visibleStderr) {
+    if (!target || typeof target !== 'object' || !result || typeof result !== 'object') return;
+    const stdoutBytes = capturedStreamBytes(result.stdoutPath, result.stdoutFileSize, result.stdout);
+    const stderrBytes = capturedStreamBytes(result.stderrPath, result.stderrFileSize, result.stderr);
+    target.commandOutputBytes = stdoutBytes + stderrBytes;
+    target.capturedPreviewBytes = Buffer.byteLength(
+        `${String(visibleStdout ?? '')}${String(visibleStderr ?? '')}`,
+        'utf8',
+    );
+    target.spilled = Boolean(result.stdoutPath || result.stderrPath);
+}

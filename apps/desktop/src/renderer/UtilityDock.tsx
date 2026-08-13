@@ -435,7 +435,7 @@ export const UtilityDock = memo(function UtilityDock({
     : null, [dockProjectOptions.length, dockProjectPath, dockProjectSelectOptions, selectDockProject]);
   const projectKey = dockProjectPath;
   const surfaceKeys: Record<UtilityDockTab, string> = {
-    agents: `agents:${activeSessionIds.join(",") || "idle"}`,
+    agents: "agents",
     search: `search:${projectKey}`,
     "source-control": `source-control:${dockProjectPath}`,
     "pull-requests": `pull-requests:${dockProjectPath}`,

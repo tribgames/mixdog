@@ -49,6 +49,16 @@ function daemonEntry() {
   return fileURLToPath(new URL('./daemon.mjs', import.meta.url));
 }
 
+export function daemonShouldDetach({
+  platform = process.platform,
+  processType = process.type,
+} = {}) {
+  // Keep the daemon in the packaged Desktop's Windows process tree so Task
+  // Manager presents one Mixdog group. CLI/TUI launchers still detach the
+  // machine-global daemon from their terminal lifetime.
+  return !(platform === 'win32' && processType === 'browser');
+}
+
 // Data calls and lifecycle control must never share a socket pool. A burst of
 // long /call requests can occupy every data socket; health/register/deregister
 // still need a reserved lane so a new terminal can always attach or recover.
@@ -256,10 +266,7 @@ function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000 }) {
       child = fork(daemonEntry(), [], {
         cwd,
         stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
-        // The machine-global daemon must not share Electron's Windows process
-        // lifetime. A GPU/Crashpad failure in the desktop must leave this Node
-        // host and every live session untouched.
-        detached: true,
+        detached: daemonShouldDetach(),
         windowsHide: true,
         env: {
           ...process.env,

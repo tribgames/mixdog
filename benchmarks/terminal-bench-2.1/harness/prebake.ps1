@@ -37,12 +37,20 @@ mixdog --help >/dev/null 2>&1 && echo "mixdog ok"
 MIXDOG_PKG="$(npm root -g)/mixdog"
 rm -rf "$MIXDOG_PKG/node_modules/onnxruntime-node" \
   "$MIXDOG_PKG/node_modules/onnxruntime-web" \
-  "$MIXDOG_PKG/node_modules/@huggingface"
+  "$MIXDOG_PKG/node_modules/@huggingface" \
+  "$MIXDOG_PKG/node_modules/@img/sharp-wasm32"
+# The benchmark runtime executes JavaScript only and never enables Node source
+# maps. Type declarations and source-map payloads are 53MB raw and cannot
+# affect runtime module resolution; keep licenses and executable JS intact.
+find "$MIXDOG_PKG/node_modules" -type f \
+  \( -name '*.d.ts' -o -name '*.d.mts' -o -name '*.d.cts' -o -name '*.map' \) \
+  -delete
 # Warm the V8 compile cache for the whole import graph while proving the
 # runtime still imports. Published deps are immutable across runs, so their
 # cache entries stay valid per trial; only overlaid src files recompile.
 mkdir -p /opt/mixdog-v8-cache
 NODE_COMPILE_CACHE=/opt/mixdog-v8-cache node --input-type=module -e "await import('$MIXDOG_PKG/src/mixdog-session-runtime.mjs'); console.log('runtime import ok after prune')"
+(cd "$MIXDOG_PKG" && node --input-type=module -e "await Promise.all([import('@anthropic-ai/sdk'),import('openai'),import('sharp'),import('tiktoken')]); console.log('provider/native imports ok after prune')")
 chmod -R a+rwX /opt/mixdog-v8-cache
 # Static curl + CA bundle ride the tar so trials never pay the apt leg (the
 # apt-get update on curl-less task images was the 18-20s setup critical
@@ -53,9 +61,9 @@ curl -fsSL -o /opt/static-curl/curl https://github.com/moparisthebest/static-cur
 chmod 0755 /opt/static-curl/curl
 /opt/static-curl/curl --version | head -n 1
 cp /etc/ssl/certs/ca-certificates.crt /opt/static-curl/ca-certificates.crt
-# uv 0.9.5 rides the tar too: install() re-runs the uv provision command in
-# every trial, and its "already available" fast path turns the per-trial
-# network bootstrap (astral.sh download, 5-15s + flake risk) into a ~1s no-op.
+# uv 0.9.5 rides the tar too: install() validates it in the extraction command
+# and only runs the network-capable provision fallback when either binary is
+# missing or has the wrong version.
 mkdir -p /root/.local/bin
 curl -fsSL https://astral.sh/uv/0.9.5/install.sh -o /tmp/uv-install.sh
 UV_INSTALL_DIR=/root/.local/bin sh /tmp/uv-install.sh

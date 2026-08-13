@@ -253,6 +253,26 @@ function maybeZipPathWindowArrays(a) {
     delete a.limit;
 }
 
+// Cursor/Codex spelling: offset:-N means last N lines. Rewrite to mode:tail
+// before the >=0 check; a leftover offset/limit would also drop tail later.
+function absorbNegativeReadOffset(obj) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj) || !isPresent(obj, 'offset')) return;
+    let value = obj.offset;
+    if (typeof value === 'string') {
+        const coerced = coerceIntegerString(value);
+        if (coerced !== null) {
+            value = coerced;
+            obj.offset = coerced;
+        }
+    }
+    if (!isFiniteInt(value) || value >= 0) return;
+    const n = Math.min(MAX_INT, Math.abs(value));
+    if (!isPresent(obj, 'mode')) obj.mode = 'tail';
+    if (!isPresent(obj, 'n')) obj.n = n;
+    delete obj.offset;
+    delete obj.limit;
+}
+
 // Mutates a[field] in place when it is a lossless integer string, then
 // validates the (possibly coerced) value against [min, max].
 function checkIntInRange(a, field, min, max, opts = {}) {
@@ -569,6 +589,14 @@ function guardRead(a) {
     // Absorb: parallel/JSON-stringified offset+limit arrays paired with a
     // path[] batch — zip them into per-file region objects before validation.
     maybeZipPathWindowArrays(a);
+    absorbNegativeReadOffset(a);
+    if (Array.isArray(a.path)) {
+        for (const entry of a.path) {
+            if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+                absorbNegativeReadOffset(entry);
+            }
+        }
+    }
     // path can be string | string[] | object[]; file_path is string
     if (hasOwn(a, 'path')) {
         const p = a.path;
@@ -681,9 +709,11 @@ function guardShell(a) {
 }
 
 function guardTask(a) {
-    const action = typeof a.action === 'string' ? a.action.trim().toLowerCase() : (hasOwn(a, 'action') ? a.action : '');
-    if (hasOwn(a, 'action') && !['list', 'status', 'read', 'wait', 'cancel'].includes(action)) {
-        return `Error: task arg "action" must be one of list|status|read|wait|cancel (got ${JSON.stringify(a.action)})`;
+    const action = typeof a.action === 'string'
+        ? a.action.trim().toLowerCase()
+        : (hasOwn(a, 'action') ? a.action : (hasOwn(a, 'task_id') ? 'status' : 'list'));
+    if (hasOwn(a, 'action') && !['list', 'status', 'read', 'check_after', 'wait', 'cancel'].includes(action)) {
+        return `Error: task arg "action" must be one of list|status|read|check_after|cancel (got ${JSON.stringify(a.action)})`;
     }
     if (action === 'list') return null;
     if (!hasOwn(a, 'task_id')) {
@@ -691,6 +721,18 @@ function guardTask(a) {
     }
     if (typeof a.task_id !== 'string' || a.task_id.trim().length === 0) {
         return `Error: task arg "task_id" must be a non-empty string (got ${describeType(a.task_id)})`;
+    }
+    if (action === 'wait') {
+        if (!hasOwn(a, 'timeout_ms')) {
+            return 'Error: task action "wait" requires explicit "timeout_ms"';
+        }
+        return checkIntInRange(a, 'timeout_ms', 1, 2_147_483_647);
+    }
+    if (action === 'check_after') {
+        if (!hasOwn(a, 'after_ms')) {
+            return 'Error: task action "check_after" requires explicit "after_ms"';
+        }
+        return checkIntInRange(a, 'after_ms', 1, 2_147_483_647);
     }
     return null;
 }
@@ -829,6 +871,18 @@ function guardCodeGraph(a) {
     if (Array.isArray(a.file)) {
         a.files = Array.isArray(a.files) ? [...a.file, ...a.files] : a.file;
         delete a.file;
+    }
+    const hasFiles = (Array.isArray(a.files) && a.files.some((v) => String(v || '').trim()))
+        || (typeof a.files === 'string' && a.files.trim())
+        || (typeof a.file === 'string' && a.file.trim());
+    const hasSymbols = (Array.isArray(a.symbols) && a.symbols.some((v) => String(v || '').trim()))
+        || (typeof a.symbols === 'string' && a.symbols.trim())
+        || (typeof a.symbol === 'string' && a.symbol.trim());
+    if (mode === 'symbols' && hasFiles && hasSymbols) {
+        a.mode = 'find_symbol';
+    } else if (['overview', 'imports', 'dependents', 'related', 'impact', 'symbols'].includes(mode)) {
+        delete a.symbol;
+        delete a.symbols;
     }
     return null;
 }

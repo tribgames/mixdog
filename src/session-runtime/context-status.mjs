@@ -23,7 +23,7 @@ import { scopedProviderRequestTools } from './provider-request-tools.mjs';
 
 // Mirrors the tool-list portion of the Anthropic adapters without changing
 // their wire serialization. Other native-deferred providers expose the
-// catalog through BP1/system content, which is already metered there.
+// catalog through BP2/system content, which is already metered there.
 export function requestSerializedToolsForContext(
   session,
   provider,

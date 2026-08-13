@@ -419,7 +419,7 @@ test('remote session ownership stays global when another session publishes focus
   }
 });
 
-test('new-task route applies fast once and preserves unsupported-fast failure', async () => {
+test('new-task route trusts its authoritative result over a stale projected snapshot', async () => {
   const run = async (fastCapable) => {
     const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-new-task-route-'));
     const sessionId = fastCapable ? 'session_fast' : 'session_no_fast';
@@ -466,8 +466,8 @@ test('new-task route applies fast once and preserves unsupported-fast failure', 
         return {
           sessionId,
           revision: 1,
-          value: route,
-          full: snapshot(route.fast === true && fastCapable),
+          value: { ...route, fast: route.fast === true && fastCapable },
+          full: snapshot(false),
         };
       },
       async close() {},
@@ -522,4 +522,77 @@ test('new-task route applies fast once and preserves unsupported-fast failure', 
   assert.deepEqual(unsupported.actions.map(({ action }) => action), ['setRoute']);
   assert.equal(unsupported.submitCalls, 0);
   assert.equal(unsupported.unsubscribeCalls, 1);
+});
+
+test('a new task stays out of the session catalog until its first prompt is accepted', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-new-task-catalog-'));
+  const sessionId = 'first_prompt_catalog';
+  const row = {
+    id: sessionId,
+    preview: 'catalog handoff',
+    title: 'catalog handoff',
+    updatedAt: Date.now(),
+    lastUsedAt: Date.now(),
+    messageCount: 1,
+    cwd: join(userDataPath, 'workspace', 'unclassified'),
+    desktopSession: { classification: 'task', projectPath: null },
+  };
+  let host;
+  let submitStarted = false;
+  let resolveSubmit;
+  const submitResult = new Promise((resolve) => { resolveSubmit = resolve; });
+  const unsupported = async () => { throw new Error('unsupported'); };
+  const client = {
+    async list() { return { sessions: [row] }; },
+    async create() {
+      return {
+        sessionId,
+        revision: 0,
+        full: { sessionId, items: [], queued: [] },
+      };
+    },
+    read: unsupported,
+    subscribe: unsupported,
+    async unsubscribe() { return {}; },
+    async submit() {
+      submitStarted = true;
+      return submitResult;
+    },
+    abort: unsupported,
+    approve: unsupported,
+    configure: unsupported,
+    async close() {},
+  };
+  try {
+    host = await SessionHost.create({
+      userDataPath,
+      packaged: false,
+      resourcesPath: userDataPath,
+      appPath: userDataPath,
+    }, {
+      async attachSessionClient() { return client; },
+      loadProjects: unsupported,
+      async loadSessionStore() {
+        return { listStoredAgentWorkers: () => [] };
+      },
+      loadStatuslineSegments: unsupported,
+      executeCodeGraphTool: unsupported,
+    });
+
+    const submission = host.submitNewTask('catalog handoff');
+    await waitFor(() => submitStarted);
+    assert.deepEqual(await host.listSessions(), []);
+
+    resolveSubmit({
+      sessionId,
+      revision: 1,
+      accepted: true,
+      full: { sessionId, items: [{ kind: 'user', text: 'catalog handoff' }], queued: [] },
+    });
+    assert.equal((await submission).accepted, true);
+    assert.deepEqual((await host.listSessions()).map((session) => session.id), [sessionId]);
+  } finally {
+    await host?.dispose();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
 });

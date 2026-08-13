@@ -194,10 +194,10 @@ export function formatContextWindow(tokens: number): string {
 }
 
 export function modelOptionDescription(model: DesktopModelOption): string {
-  // Chat models describe themselves by context window; media models have none,
-  // so an explicit description (the provider lane) wins over the "-" filler.
+  // Prefer provider-authoritative limits, then the provider's own description.
+  // An unknown secondary field stays absent instead of rendering a naked "-".
   const context = formatContextWindow(modelContextWindow(model));
-  const primary = context || String(model.description || "").trim() || "-";
+  const primary = context || String(model.description || "").trim();
   return [primary, model.fastCapable ? t("Fast Available") : ""].filter(Boolean).join(" · ");
 }
 

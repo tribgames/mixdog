@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isInternalRuntimeNotificationText as contractIsInternalRuntimeNotificationText } from '../../../../shared/tool-execution-contract.mjs';
+import { formatLocalAndUtcTimestamp } from '../../../../shared/time-format.mjs';
 import { SUMMARY_PREFIX } from '../compact.mjs';
 import { attachmentTextForPart, isAttachmentReference } from '../../../../attachments/store.mjs';
 
@@ -48,23 +49,6 @@ export function prefixSessionStartContent(content, sessionBlock) {
     return `${sessionBlock}\n\n${content}`;
 }
 
-function localIsoDate(date = new Date()) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
-
-function localDateTimeWithZone(date = new Date()) {
-    const datePart = localIsoDate(date);
-    const hh = String(date.getHours()).padStart(2, '0');
-    const mm = String(date.getMinutes()).padStart(2, '0');
-    const ss = String(date.getSeconds()).padStart(2, '0');
-    let zone = '';
-    try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch {}
-    return zone ? `${datePart} ${hh}:${mm}:${ss} ${zone}` : `${datePart} ${hh}:${mm}:${ss}`;
-}
-
 function temporalPromptText(content) {
     const text = promptContentText(content)
         .replace(/\s+/g, ' ')
@@ -88,7 +72,7 @@ function promptNeedsTimeReminder(content) {
 export function buildCurrentTimeBlock(content) {
     const needsTime = promptNeedsTimeReminder(content);
     if (!needsTime && !promptNeedsDateReminder(content)) return '';
-    return localDateTimeWithZone(new Date());
+    return formatLocalAndUtcTimestamp(new Date());
 }
 
 function sessionModelDisplay(model) {
@@ -117,11 +101,9 @@ export function buildSessionStartBlock(session, cwd) {
 }
 
 // Project-scoped user instructions (<project>/.mixdog/instructions.md),
-// injected once per session right after the `# Session` block — BP4 head, so
-// the BP1–3 system prefix stays byte-identical across projects and the block
-// sits in the stable message prefix for same-project cache reuse. Missing or
-// empty file → '' (nothing injected). Best-effort: unreadable files never
-// break a turn.
+// injected into the BP3 session/project environment after the `# Session`
+// block. Missing or empty file → '' (nothing injected). Best-effort:
+// unreadable files never break session creation.
 const PROJECT_INSTRUCTIONS_MAX_CHARS = 16_000;
 export function buildProjectInstructionsBlock(cwd) {
     const dir = String(cwd || '').trim();
@@ -138,6 +120,42 @@ export function buildProjectInstructionsBlock(cwd) {
     } catch {
         return '';
     }
+}
+
+const BP3_PART_SEPARATOR = '\n\n---\n\n';
+
+function bp3SystemMessage(session) {
+    return (Array.isArray(session?.messages) ? session.messages : []).find((message) => (
+        message?.role === 'system' && message.cacheTier === 'tier3'
+    )) || null;
+}
+
+export function refreshSessionBp3Environment(session, cwd) {
+    const target = bp3SystemMessage(session);
+    if (!target || typeof session?.bp3CoreContext !== 'string') return false;
+    const sessionBlock = buildSessionStartBlock(session, cwd);
+    const projectBlock = sessionBlock ? buildProjectInstructionsBlock(cwd) : '';
+    target.content = [
+        session.bp3CoreContext,
+        sessionBlock,
+        projectBlock,
+        session.bp3EnvironmentContext,
+    ].filter((value) => typeof value === 'string' && value.trim())
+        .map((value) => value.trim())
+        .join(BP3_PART_SEPARATOR);
+    session.sessionStartMetaInjected = true;
+    return true;
+}
+
+export function resetSessionBp3Environment(session) {
+    const target = bp3SystemMessage(session);
+    if (!target || typeof session?.bp3CoreContext !== 'string') return false;
+    target.content = [session.bp3CoreContext, session.bp3EnvironmentContext]
+        .filter((value) => typeof value === 'string' && value.trim())
+        .map((value) => value.trim())
+        .join(BP3_PART_SEPARATOR);
+    session.sessionStartMetaInjected = false;
+    return true;
 }
 
 export function isReferenceFilesMessage(message) {

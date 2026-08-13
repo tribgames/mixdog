@@ -1,38 +1,40 @@
-// Native mixdog-token client: persistent stdio server (transport lifecycle
-// modeled on tools/patch/native-server.mjs) that serves precise o200k BPE
-// counts ~5-12x faster than the in-process tiktoken WASM worker.
+// Native mixdog-token client: a Node Worker owns the in-process Node-API addon
+// so CPU-heavy counting never blocks the daemon event loop. Session shards
+// relay to this single owner over their existing IPC channel.
 //
-// Wire format: length-prefixed BINARY frames (raw utf8 payload, no JSON
-// escape/parse on either side — that overhead dominated once the encoder
-// went linear-time):
-//   request  : u8 op (1=ping, 2=count) | u32le id | u32le byteLen | payload
-//   response : u8 op                   | u32le id | u64le count
-// A stale JSON-only server never answers a binary ping, so the ready probe
-// times out and this module degrades to the WASM worker path.
-//
-// Strictly a best-effort accelerator behind context-utils' async count path:
-// unavailable binary / dead server / timeout all resolve `null`, and the
-// caller falls back to the JS worker thread. Kill switch:
+// Unavailable addon / dead worker / timeout all resolve `null`, and callers
+// fall back to the WASM worker path. Kill switch:
 // MIXDOG_TOKEN_NATIVE=0 (mode `auto` is the default; MIXDOG_TOKEN_NATIVE_BIN
-// overrides binary resolution).
+// remains a compatible override for the addon path).
 import { existsSync } from 'node:fs';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolve as pathResolve, dirname as pathDirname, join as pathJoin } from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { getPluginData } from '../config.mjs';
-import { ensureTokenBinary, findCachedTokenBinary } from '../tools/token-binary-fetcher.mjs';
+import { ensureTokenAddon, findCachedTokenAddon } from '../tools/token-addon-fetcher.mjs';
+import { safeIpcSend } from '../../../shared/safe-ipc-send.mjs';
 
 const PLUGIN_ROOT = process.env.MIXDOG_ROOT
     || pathResolve(pathDirname(fileURLToPath(import.meta.url)), '../../../../..');
-const BIN_NAME = process.platform === 'win32' ? 'mixdog-token.exe' : 'mixdog-token';
-const LOCAL_BIN = pathJoin(PLUGIN_ROOT, 'native/mixdog-token/target/release', BIN_NAME);
+const LOCAL_ADDON = pathJoin(
+    PLUGIN_ROOT,
+    'native/mixdog-token/target/release/mixdog-token.node',
+);
 const READY_TIMEOUT_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 30_000;
-const OP_PING = 1;
-const OP_COUNT = 2;
-const RESPONSE_FRAME_BYTES = 13;
-const UNKNOWN_OP_SENTINEL = 0xFFFF_FFFF_FFFF_FFFFn;
-const EMPTY_PAYLOAD = Buffer.alloc(0);
+const SHARD_PREWARM_MESSAGE = 'token-native-prewarm';
+const SHARD_COUNT_MESSAGE = 'token-native-count';
+const SHARD_RESULT_MESSAGE = 'token-native-result';
+
+function isSessionShardProcess() {
+    return process.env.MIXDOG_SESSION_SHARD_PID === String(process.pid);
+}
+
+function sessionShardClientEnabled() {
+    return isSessionShardProcess()
+        && typeof process.send === 'function'
+        && process.connected === true;
+}
 
 function nativeTokenMode() {
     return String(process.env.MIXDOG_TOKEN_NATIVE || 'auto').toLowerCase();
@@ -42,143 +44,243 @@ function nativeTokenModeEnabled() {
     return !/^(0|false|no|off|js)$/i.test(nativeTokenMode());
 }
 
-let _binPath; // undefined = not resolved, null = none found
-function _resolveBinary() {
-    if (_binPath !== undefined) return _binPath;
+let _addonPath; // undefined = not resolved, null = none found
+function _resolveAddon() {
+    if (_addonPath !== undefined) return _addonPath;
     const candidates = [
+        String(process.env.MIXDOG_TOKEN_NATIVE_ADDON || '').trim() || null,
         String(process.env.MIXDOG_TOKEN_NATIVE_BIN || '').trim() || null,
-        LOCAL_BIN,
+        LOCAL_ADDON,
     ].filter(Boolean);
-    _binPath = candidates.find((candidate) => {
+    _addonPath = candidates.find((candidate) => {
         try { return existsSync(candidate); } catch { return false; }
     }) || null;
-    if (!_binPath) {
+    if (!_addonPath) {
         // Release-supply cache (sha256-verified against the bundled manifest).
-        try { _binPath = findCachedTokenBinary(getPluginData()) || null; } catch { _binPath = null; }
+        try { _addonPath = findCachedTokenAddon(getPluginData()) || null; } catch { _addonPath = null; }
     }
-    return _binPath;
+    return _addonPath;
 }
 
-let _server = null; // { child, pending: Map, seq, ready }  null after hard failure
-let _serverFailed = false;
+let _workerOwner = null; // { worker, pending, seq, ready, resolveReady, readyTimer }
+let _workerFailed = false;
+let _shardSequence = 0;
+let _shardListenerInstalled = false;
+const _shardPending = new Map();
 
-function _dropServer(error) {
-    const server = _server;
-    _server = null;
-    if (!server) return;
-    const reason = error instanceof Error ? error : new Error(String(error || 'mixdog-token server closed'));
-    for (const [, entry] of server.pending) {
+function _dropShardRequests() {
+    for (const entry of _shardPending.values()) {
+        clearTimeout(entry.timer);
+        entry.resolve(null);
+    }
+    _shardPending.clear();
+}
+
+function _ensureShardResponseListener() {
+    if (_shardListenerInstalled) return;
+    _shardListenerInstalled = true;
+    process.on('message', (message) => {
+        if (!message || message.type !== SHARD_RESULT_MESSAGE) return;
+        const tokenRequestId = String(message.tokenRequestId || '');
+        const entry = _shardPending.get(tokenRequestId);
+        if (!entry) return;
+        _shardPending.delete(tokenRequestId);
+        clearTimeout(entry.timer);
+        const count = Number(message.count);
+        entry.resolve(Number.isFinite(count) && count >= 0 ? count : null);
+    });
+    process.once('disconnect', _dropShardRequests);
+}
+
+function _requestShardTokenCount(text, timeoutMs = REQUEST_TIMEOUT_MS) {
+    if (!sessionShardClientEnabled()) return Promise.resolve(null);
+    _ensureShardResponseListener();
+    const tokenRequestId = `token-${process.pid}-${++_shardSequence}`;
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+            if (!_shardPending.delete(tokenRequestId)) return;
+            resolve(null);
+        }, timeoutMs);
+        timer.unref?.();
+        _shardPending.set(tokenRequestId, { resolve, timer });
+        if (!safeIpcSend(process, {
+            type: SHARD_COUNT_MESSAGE,
+            tokenRequestId,
+            text: String(text ?? ''),
+        }, {
+            onError: () => {
+                const entry = _shardPending.get(tokenRequestId);
+                if (!entry) return;
+                _shardPending.delete(tokenRequestId);
+                clearTimeout(entry.timer);
+                entry.resolve(null);
+            },
+        })) {
+            const entry = _shardPending.get(tokenRequestId);
+            if (entry) {
+                _shardPending.delete(tokenRequestId);
+                clearTimeout(entry.timer);
+                entry.resolve(null);
+            }
+        }
+    });
+}
+
+function _dropWorker(error) {
+    const owner = _workerOwner;
+    _workerOwner = null;
+    if (!owner) return;
+    if (owner.readyTimer) clearTimeout(owner.readyTimer);
+    owner.resolveReady(false);
+    const reason = error instanceof Error ? error : new Error(String(error || 'token worker closed'));
+    for (const entry of owner.pending.values()) {
         clearTimeout(entry.timer);
         entry.resolve(null);
         void reason;
     }
-    server.pending.clear();
-    try { server.child.kill(); } catch { /* already down */ }
+    owner.pending.clear();
+    try { void owner.worker.terminate(); } catch { /* already down */ }
 }
 
-function _ensureServer() {
-    if (_server || _serverFailed || !nativeTokenModeEnabled()) return _server;
-    const bin = _resolveBinary();
-    if (!bin) { _serverFailed = true; return null; }
-    let child;
+function _ensureWorker() {
+    if (_workerOwner || _workerFailed || !nativeTokenModeEnabled()) return _workerOwner;
+    const addonPath = _resolveAddon();
+    if (!addonPath) return null;
+    let worker;
     try {
-        child = spawn(bin, [], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+        worker = new Worker(new URL('./token-native-worker.mjs', import.meta.url), {
+            workerData: { addonPath },
+            // `--input-type` is valid only for eval/stdin and makes a file URL
+            // Worker fail before loading. Preserve all other runtime flags.
+            execArgv: process.execArgv.filter((arg) => !arg.startsWith('--input-type')),
+        });
     } catch {
-        _serverFailed = true;
+        _workerFailed = true;
         return null;
     }
-    const server = { child, pending: new Map(), seq: 0, ready: null };
-    let inbox = EMPTY_PAYLOAD;
-    child.stdout.on('data', (chunk) => {
-        inbox = inbox.length ? Buffer.concat([inbox, chunk]) : chunk;
-        while (inbox.length >= RESPONSE_FRAME_BYTES) {
-            const id = inbox.readUInt32LE(1);
-            const count = inbox.readBigUInt64LE(5);
-            inbox = inbox.subarray(RESPONSE_FRAME_BYTES);
-            const entry = server.pending.get(id);
-            if (!entry) continue;
-            server.pending.delete(id);
-            clearTimeout(entry.timer);
-            entry.resolve(count === UNKNOWN_OP_SENTINEL ? null : Number(count));
+    let resolveReady;
+    const ready = new Promise((resolve) => { resolveReady = resolve; });
+    const owner = {
+        worker,
+        pending: new Map(),
+        seq: 0,
+        ready,
+        resolveReady,
+        readyTimer: null,
+    };
+    _workerOwner = owner;
+    owner.readyTimer = setTimeout(() => {
+        if (_workerOwner !== owner) return;
+        _workerFailed = true;
+        _dropWorker('ready timeout');
+    }, READY_TIMEOUT_MS);
+    owner.readyTimer.unref?.();
+    worker.on('message', (message) => {
+        if (_workerOwner !== owner || !message || typeof message !== 'object') return;
+        if (message.type === 'ready') {
+            if (owner.readyTimer) clearTimeout(owner.readyTimer);
+            owner.readyTimer = null;
+            owner.resolveReady(true);
+            _workerFailed = false;
+            if (owner.pending.size === 0) owner.worker.unref();
+            return;
         }
+        if (message.type === 'fatal') {
+            _workerFailed = true;
+            _dropWorker(String(message.error || 'addon initialization failed'));
+            return;
+        }
+        if (message.type !== 'result') return;
+        const entry = owner.pending.get(Number(message.id));
+        if (!entry) return;
+        owner.pending.delete(Number(message.id));
+        clearTimeout(entry.timer);
+        const count = Number(message.count);
+        _workerFailed = false;
+        entry.resolve(Number.isFinite(count) && count >= 0 ? count : null);
+        if (owner.pending.size === 0) owner.worker.unref();
     });
-    child.on('error', () => { _serverFailed = true; _dropServer('spawn error'); });
-    child.on('exit', () => { _dropServer('exited'); });
-    // Best-effort accelerator: never keeps the process alive. Unref the
-    // stdio PIPES too — child.unref() alone leaves the socket handles ref'd,
-    // which kept short-lived hosts (node --test suites) from ever exiting.
-    child.unref();
-    child.stdin?.unref?.();
-    child.stdout?.unref?.();
-    child.stdin?.on?.('error', () => { /* EPIPE on teardown */ });
-    // The native server exits when its stdio owner closes. A second Electron
-    // guardian duplicated that same ownership signal while retaining ~100 MB.
-    server.ready = _request(server, OP_PING, null, READY_TIMEOUT_MS).then((count) => count !== null);
-    _server = server;
-    return server;
+    worker.once('error', (reason) => {
+        if (_workerOwner !== owner) return;
+        // A recoverable Worker exit is recreated on the next count;
+        // initialization failures report `fatal` and stay off.
+        _workerFailed = false;
+        _dropWorker(reason);
+    });
+    worker.once('exit', () => {
+        if (_workerOwner !== owner) return;
+        _workerFailed = false;
+        _dropWorker('exited');
+    });
+    return owner;
 }
 
-function _request(server, op, text, timeoutMs = REQUEST_TIMEOUT_MS) {
+function _requestWorker(owner, text, timeoutMs = REQUEST_TIMEOUT_MS) {
     return new Promise((resolve) => {
-        const id = ++server.seq;
+        owner.worker.ref();
+        const id = ++owner.seq;
         const timer = setTimeout(() => {
-            server.pending.delete(id);
+            owner.pending.delete(id);
             resolve(null);
+            if (owner.pending.size === 0 && !owner.readyTimer) owner.worker.unref();
         }, timeoutMs);
         timer.unref?.();
-        server.pending.set(id, { resolve, timer });
+        owner.pending.set(id, { resolve, timer });
         try {
-            const payload = text ? Buffer.from(text, 'utf8') : EMPTY_PAYLOAD;
-            const header = Buffer.allocUnsafe(9);
-            header[0] = op;
-            header.writeUInt32LE(id >>> 0, 1);
-            header.writeUInt32LE(payload.length >>> 0, 5);
-            const stdin = server.child.stdin;
-            stdin.cork();
-            stdin.write(header);
-            if (payload.length) stdin.write(payload);
-            stdin.uncork();
+            owner.worker.postMessage({ type: 'count', id, text: String(text ?? '') });
         } catch {
-            server.pending.delete(id);
+            owner.pending.delete(id);
             clearTimeout(timer);
             resolve(null);
+            if (owner.pending.size === 0 && !owner.readyTimer) owner.worker.unref();
         }
     });
 }
 
-/** True when the native counter can be attempted (mode on + binary present). */
+/** True when the native counter can be attempted (mode on + addon present). */
 export function nativeTokenCounterEnabled() {
-    return nativeTokenModeEnabled() && !_serverFailed && Boolean(_resolveBinary());
+    if (isSessionShardProcess()) {
+        return nativeTokenModeEnabled() && sessionShardClientEnabled();
+    }
+    return nativeTokenModeEnabled() && !_workerFailed && Boolean(_resolveAddon());
 }
 
-/** Precise o200k count via the native server; null on any unavailability. */
+/** Precise o200k count via the daemon-owned addon worker. */
 export async function countTokensNative(text) {
-    const server = _ensureServer();
-    if (!server) return null;
-    const ready = await server.ready;
-    if (!ready) { _serverFailed = true; _dropServer('ready failed'); return null; }
-    const count = await _request(server, OP_COUNT, String(text ?? ''));
+    if (isSessionShardProcess()) {
+        if (!nativeTokenModeEnabled()) return null;
+        return _requestShardTokenCount(text);
+    }
+    const owner = _ensureWorker();
+    if (!owner) return null;
+    const ready = await owner.ready;
+    if (!ready) return null;
+    const count = await _requestWorker(owner, text);
     return Number.isFinite(count) && count >= 0 ? count : null;
 }
 
 let _fetchAttempted = false;
 
-/** Boot prewarm: spawn the server + build the encoder off the first estimate.
- *  With no local/env/cached binary, kick ONE background manifest fetch; on
+/** Boot prewarm: start the worker and build the encoder off the first estimate.
+ *  With no local/env/cached addon, kick ONE background manifest fetch; on
  *  success the resolution cache resets so the next estimate adopts it. */
 export function prewarmNativeTokenCounter() {
-    const server = _ensureServer();
-    if (!server) {
-        if (!_fetchAttempted && nativeTokenModeEnabled() && !_resolveBinary()) {
+    if (isSessionShardProcess()) {
+        if (!nativeTokenModeEnabled() || !sessionShardClientEnabled()) return false;
+        return safeIpcSend(process, { type: SHARD_PREWARM_MESSAGE }, { onError: () => {} });
+    }
+    const owner = _ensureWorker();
+    if (!owner) {
+        if (!_fetchAttempted && nativeTokenModeEnabled() && !_resolveAddon()) {
             _fetchAttempted = true;
-            void ensureTokenBinary(getPluginData()).then((path) => {
+            void ensureTokenAddon(getPluginData()).then((path) => {
                 if (!path) return;
-                _binPath = undefined;
-                _serverFailed = false;
+                _addonPath = undefined;
+                _workerFailed = false;
             }).catch(() => { /* soft degrade — WASM worker path remains */ });
         }
         return false;
     }
-    server.ready?.catch?.(() => {});
+    owner.ready.catch(() => {});
     return true;
 }

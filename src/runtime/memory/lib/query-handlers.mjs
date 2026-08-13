@@ -104,9 +104,13 @@ export function createQueryHandlers({
     if (!sessionId) return { text: '(no current session)' }
     const limit = Math.max(1, Math.min(100, Number(args.limit) || 20))
     const compactDigest = args.compactDigest === true
+    const compactHandoff = args.compactHandoff === true
+    const skipInFlightCutoff = compactDigest || compactHandoff
     // Over-fetch before compact-only dedupe so duplicated legacy rows cannot
     // consume the requested page and hide distinct older context.
-    const fetchLimit = compactDigest ? Math.min(100, Math.max(limit, limit * 4)) : limit
+    const fetchLimit = compactDigest && !compactHandoff
+      ? Math.min(100, Math.max(limit, limit * 4))
+      : limit
     const terms = sessionRecallTerms(args.query)
     const params = [sessionId]
     // Roots + not-yet-chunked leaves only. Once cycle1 turns raw leaves into
@@ -129,7 +133,7 @@ export function createQueryHandlers({
     // freshness cutoff there could silently drop the newest finalized turn.
     const IN_FLIGHT_TURN_FRESHNESS_MS = 5 * 60 * 1000
     let excludeSourceTurnId = null
-    if (!compactDigest && terms.length === 0) {
+    if (!skipInFlightCutoff && terms.length === 0) {
       try {
         const r = await db.query(
           `SELECT source_turn t, MAX(ts) last_ts FROM entries
@@ -144,7 +148,7 @@ export function createQueryHandlers({
         }
       } catch {}
     }
-    if (!compactDigest && Number.isFinite(excludeSourceTurnId)) {
+    if (!skipInFlightCutoff && Number.isFinite(excludeSourceTurnId)) {
       params.push(excludeSourceTurnId)
       where.push(`NOT (chunk_root IS NULL AND source_turn = $${params.length})`)
     }
@@ -170,7 +174,7 @@ export function createQueryHandlers({
       const fillLimit = Math.max(0, fetchLimit - rows.length)
       const fillWhere = ['session_id = $1', 'id <> ALL($2::bigint[])', '(is_root = 1 OR chunk_root IS NULL OR chunk_root = id)']
       const fillParams = [sessionId, [...seen]]
-      if (!compactDigest && Number.isFinite(excludeSourceTurnId)) {
+      if (!skipInFlightCutoff && Number.isFinite(excludeSourceTurnId)) {
         fillParams.push(excludeSourceTurnId)
         fillWhere.push(`NOT (chunk_root IS NULL AND source_turn = $${fillParams.length})`)
       }
@@ -210,8 +214,8 @@ export function createQueryHandlers({
         }
       }
     }
-    if (compactDigest) rows = compactDigestRows(rows, limit)
-    return { text: renderEntryLines(rows, { pendingMarks: !compactDigest }) }
+    if (compactDigest && !compactHandoff) rows = compactDigestRows(rows, limit)
+    return { text: renderEntryLines(rows, { pendingMarks: !compactDigest && !compactHandoff }) }
   }
 
   async function recallCoreRows(query, { projectScope, category, limit } = {}) {

@@ -106,6 +106,10 @@ export function stripAnsi(s) {
 // swallowed.
 export function treeKill(child) {
   if (!child) return;
+  if (child.__nativeSpawn && typeof child.kill === 'function') {
+    try { child.kill(); } catch {}
+    return;
+  }
   // Track close/exit via the standard child fields (set by Node when
   // the corresponding events fire) instead of `child.killed`, which is
   // true the moment any signal is delivered — even before the child has

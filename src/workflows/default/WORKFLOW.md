@@ -11,6 +11,7 @@ Before the user explicitly approves the latest plan, work is read-only
 investigation and planning — no edits, no state mutation, no delegation.
 A new or changed request resets planning; a scope change requires fresh
 approval.
+Explicit read-only requests proceed immediately; approval precedes edits, state mutation, or delegation.
 
 On approval, delegate maximally: one agent per independent scope, fit to the
 situation, all spawned in one turn; only a scope that depends on another's

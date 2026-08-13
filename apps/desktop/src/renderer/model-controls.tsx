@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DesktopApi, DesktopModelOption, DesktopModelSelection, SessionSnapshot } from "../shared/contract";
-import { schedulePostInteractionIdle } from "./app-idle-warmup";
 import {
   beginBootSurface,
   reportBootSurfaceReady,
@@ -55,42 +54,33 @@ export function invalidateWorkflowOptionsCache() {
 
 type SharedModelCatalogRequest = {
   api: DesktopApi;
-  force: boolean;
   startedAt: number;
-  quick: Promise<DesktopModelOption[]>;
   full: Promise<DesktopModelOption[]>;
   setup: Promise<unknown>;
 };
 
-const SHARED_MODEL_CATALOG_MAX_AGE_MS = 300_000;
+const SHARED_MODEL_CATALOG_MAX_AGE_MS = 24 * 60 * 60_000;
 let sharedModelCatalogRequest: SharedModelCatalogRequest | null = null;
 
-function requestModelCatalog(api: DesktopApi, force: boolean): SharedModelCatalogRequest {
+function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest {
   const current = sharedModelCatalogRequest;
   if (current
     && current.api === api
-    && current.force === force
     && Date.now() - current.startedAt < SHARED_MODEL_CATALOG_MAX_AGE_MS) {
     return current;
   }
-  const quick = Promise.resolve().then(() =>
-    api.listProviderModels?.({ quick: true }) ?? []);
-  const full = quick.catch(() => []).then(() =>
-    api.listProviderModels?.(force
-      ? { force: true, quick: false }
-      : { quick: false }) ?? [])
+  const full = Promise.resolve().then(() =>
+    api.listProviderModels?.({ quick: false }) ?? [])
     .then((models) => writeCachedModelCatalog(Array.isArray(models) ? models : []).models);
   const setup = api.invokeCapability
     ? Promise.resolve().then(() => api.invokeCapability<unknown>({
         capability: "getProviderSetup",
-        args: force ? [{ refresh: true }] : [],
+        args: [],
       })).then((result) => result.value)
     : Promise.resolve(null);
   const request = {
     api,
-    force,
     startedAt: Date.now(),
-    quick,
     full,
     setup,
   };
@@ -225,9 +215,7 @@ export const ModelSelector = memo(function ModelSelector({
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [routing, setRouting] = useState(false);
   const [optimisticFast, setOptimisticFast] = useState<boolean | null>(null);
-  const automaticCatalogAttempted = useRef(false);
   const catalogInFlight = useRef<Promise<void> | null>(null);
-  const catalogLoadedAt = useRef(cachedCatalog.updatedAt);
   const routingGuard = useRef(false);
   const restoreAfterRoute = useRef<HTMLElement | null>(null);
   const restoreFastAfterDisabled = useRef(false);
@@ -275,7 +263,7 @@ export const ModelSelector = memo(function ModelSelector({
       ? modelDisplayName(model, provider)
       : t("Select model");
 
-  const loadCatalog = useCallback(async (force = false) => {
+  const loadCatalog = useCallback(async () => {
     if (catalogInFlight.current) return catalogInFlight.current;
     const api = window.mixdogDesktop;
     if (!api?.listProviderModels) {
@@ -289,7 +277,7 @@ export const ModelSelector = memo(function ModelSelector({
         setCatalogRefreshing(true);
         setCatalogError("");
         setProviderSetupError("");
-        const shared = requestModelCatalog(api, force);
+        const shared = requestModelCatalog(api);
         const setupRequest = shared.setup
             .then((setup) => { setProviderSetup(setup); })
             .catch((reason) => {
@@ -298,25 +286,11 @@ export const ModelSelector = memo(function ModelSelector({
             })
         ;
         try {
-          const quick = await shared.quick;
-          if (Array.isArray(quick) && quick.length > 0) {
-            setModels(quick);
-            setCatalogLoaded(true);
-          }
-        } catch (reason) {
-          failures.push(reason instanceof Error ? reason.message : String(reason || "Quick model catalog failed."));
-        }
-        // The session service seeds its authoritative full request before servicing the
-        // advisory quick read. Await quick here so the picker remains instant;
-        // the host-side seed protects the catalog from the warmup race.
-        try {
           const full = await shared.full;
           if (Array.isArray(full)) {
-            // The full catalog is authoritative. Replacing the advisory quick
-            // rows prevents retired or disconnected models from surviving a
-            // refresh forever; an open picker freezes its first rendered set.
+            // Only complete catalog snapshots reach the picker. The previous
+            // complete snapshot remains visible while boot/24h refresh runs.
             setModels(full);
-            catalogLoadedAt.current = Date.now();
           }
         } catch (reason) {
           failures.push(reason instanceof Error ? reason.message : String(reason || "Model catalog failed."));
@@ -334,22 +308,24 @@ export const ModelSelector = memo(function ModelSelector({
   }, [invokeResult]);
 
   useEffect(() => {
-    if (!automaticCatalogAttempted.current && (provider || model)) {
-      automaticCatalogAttempted.current = true;
-      if (cachedCatalog.models.length === 0) {
-        void loadCatalog();
-        return;
-      }
-      // Persisted rows are sufficient for the first usable frame. Refresh only
-      // after the window is visible and idle; every mounted pane then joins the
-      // same module-level request instead of duplicating provider/setup work.
-      return schedulePostInteractionIdle(
-        () => { void loadCatalog(); },
-        2_500,
-        500,
-      );
-    }
-  }, [cachedCatalog.models.length, loadCatalog, model, provider]);
+    let cancelled = false;
+    let refreshTimer: number | null = null;
+    const scheduleRefresh = () => {
+      if (cancelled) return;
+      refreshTimer = window.setTimeout(async () => {
+        await loadCatalog();
+        scheduleRefresh();
+      }, SHARED_MODEL_CATALOG_MAX_AGE_MS);
+    };
+    void loadCatalog().then(scheduleRefresh);
+    return () => {
+      cancelled = true;
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+    };
+    // One boot request and one 24h timer per mounted control. The module-level
+    // request and daemon catalog epoch deduplicate panes and sessions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (model && !startupCatalogSettled) return;
@@ -504,15 +480,13 @@ export const ModelSelector = memo(function ModelSelector({
       catalogLoaded={catalogLoaded} catalogRefreshing={catalogRefreshing}
       catalogError={catalogError} providerSetupError={providerSetupError}
       tooltip={catalogLoaded && selectableModels.length === 0 ? t("Add a provider to load models") : t("Choose model")}
-      onOpen={() => {
-        if (!catalogLoaded || Date.now() - catalogLoadedAt.current > 300_000) void loadCatalog(catalogLoaded);
-      }}
       onSelect={chooseModel}
       onOpenProviders={() => onOpenSettings("providers")} />
     {known && known.effortOptions.length > 0 && (
       <div ref={effortControl} className="effort-control">
         <OpenSelect variant="route" ariaLabel={t("Reasoning effort")}
           disabled={tuningUnavailable} value={selectedEffort?.value || ""}
+          localizeLabels={false}
           onChange={(value) => void changeEffort(value)} options={[
             ...(!selectedEffort ? [{ value: '', label: 'Effort', disabled: true }] : []),
             ...known.effortOptions,

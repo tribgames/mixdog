@@ -139,7 +139,7 @@ const TOOL_ARG_KEYS = {
     search: ['query', 'limit', 'cwd'],
     code_graph: ['mode', 'file', 'files', 'symbol', 'symbols', 'body', 'language', 'limit', 'depth', 'page', 'cwd'],
     shell: ['command', 'cwd', 'timeout', 'mode', 'run_in_background', 'persistent', 'session_id'],
-    task: ['task_id', 'action', 'timeout_ms', 'poll_ms'],
+    task: ['task_id', 'action', 'after_ms', 'timeout_ms', 'poll_ms'],
     edit: ['path', 'replace_all', 'edits'],
     edit_many: ['edits'],
     write: ['path'],
@@ -414,7 +414,7 @@ function traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolM
     }
 }
 
-function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, agent, resultKind, model, resultText, cwd }) {
+function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, agent, resultKind, model, resultText, localSearchTelemetry = null, cwd }) {
     const nextCallCount = countJsonNextCalls(resultText);
     const resultBytesEst = typeof resultText === 'string' ? Buffer.byteLength(resultText, 'utf8') : 0;
     const resultLinesEst = typeof resultText === 'string' && resultText.length > 0 ? resultText.split('\n').length : 0;
@@ -462,6 +462,9 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
         result_bytes_est: resultBytesEst,
         result_lines_est: resultLinesEst,
         grep_coverage: grepCoverage,
+        local_search: localSearchTelemetry && Object.keys(localSearchTelemetry).length > 0
+            ? { ...localSearchTelemetry }
+            : null,
         cwd: cwd || null,
     });
     if (
@@ -488,6 +491,9 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
                 result_next_call_count: nextCallCount,
                 result_bytes_est: resultBytesEst,
                 result_lines_est: resultLinesEst,
+                local_search: localSearchTelemetry && Object.keys(localSearchTelemetry).length > 0
+                    ? { ...localSearchTelemetry }
+                    : null,
                 cwd: cwd || null,
             },
         });
@@ -516,6 +522,67 @@ export function traceAgentCompress({ sessionId, toolName, before, after }) {
             bytes_after: after,
             savings_pct: before > 0 ? Math.round((1 - after / before) * 100) : 0,
         },
+    });
+}
+
+export function buildShellOutputTelemetryPayload({
+    toolCallId,
+    telemetry,
+    preOffloadBytes,
+    postOffloadBytes,
+    modelVisibleBytes,
+    offloaded,
+    resultKind,
+}) {
+    const commandOutputBytes = Number(telemetry?.commandOutputBytes);
+    if (!Number.isFinite(commandOutputBytes) || commandOutputBytes < 0) return null;
+    const visibleBytes = Math.max(0, Math.trunc(Number(modelVisibleBytes) || 0));
+    const byteDelta = Math.trunc(commandOutputBytes) - visibleBytes;
+    return {
+        tool_call_id: toolCallId || null,
+        result_kind: resultKind || null,
+        command_output_bytes: Math.trunc(commandOutputBytes),
+        captured_preview_bytes: Math.max(0, Math.trunc(Number(telemetry?.capturedPreviewBytes) || 0)),
+        shell_result_bytes: Math.max(0, Math.trunc(Number(telemetry?.shellResultBytes) || 0)),
+        tool_result_bytes: Math.max(0, Math.trunc(Number(telemetry?.toolResultBytes) || 0)),
+        pre_offload_bytes: Math.max(0, Math.trunc(Number(preOffloadBytes) || 0)),
+        post_offload_bytes: Math.max(0, Math.trunc(Number(postOffloadBytes) || 0)),
+        model_visible_bytes: visibleBytes,
+        byte_delta: byteDelta,
+        reduction_pct: commandOutputBytes > 0
+            ? Math.round((1 - visibleBytes / commandOutputBytes) * 100)
+            : null,
+        spilled: telemetry?.spilled === true,
+        offloaded: offloaded === true,
+    };
+}
+
+export function traceAgentShellOutput({
+    sessionId,
+    toolName,
+    toolCallId,
+    telemetry,
+    preOffloadBytes,
+    postOffloadBytes,
+    modelVisibleBytes,
+    offloaded,
+    resultKind,
+}) {
+    const payload = buildShellOutputTelemetryPayload({
+        toolCallId,
+        telemetry,
+        preOffloadBytes,
+        postOffloadBytes,
+        modelVisibleBytes,
+        offloaded,
+        resultKind,
+    });
+    if (!sessionId || !payload) return;
+    appendAgentTrace({
+        sessionId,
+        kind: 'shell_output',
+        tool_name: toolName || 'shell',
+        payload,
     });
 }
 

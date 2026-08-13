@@ -96,13 +96,14 @@ export function shouldNavigatePromptHistory({
   metaKey = false,
   altKey = false,
   historyActive = false,
+  allowNonEmpty = false,
 } = {}) {
   if (key !== 'ArrowUp' && key !== 'ArrowDown') return false;
   if (shiftKey || ctrlKey || metaKey || altKey || selectionStart !== selectionEnd) return false;
   const text = String(value || '');
   const start = Math.max(0, Number(selectionStart) || 0);
   const end = Math.max(start, Number(selectionEnd) || start);
-  if (!historyActive && text.length > 0) return false;
+  if (!historyActive && !allowNonEmpty && text.length > 0) return false;
   if (key === 'ArrowUp') {
     return text.lastIndexOf('\n', Math.max(0, start - 1)) === -1;
   }
@@ -136,6 +137,23 @@ export function shouldBlockPromptSubmit({
   // immediately. Only draft materialization and slash commands need a single
   // acknowledgement owner.
   return Boolean(submitting && (draftMode || slashCommand));
+}
+
+export function hasSendablePromptContent({
+  text = '',
+  attachments = [],
+} = {}) {
+  return Boolean(String(text || '').trim()
+    || (Array.isArray(attachments) && attachments.some((attachment) =>
+      attachment && (!attachment.token || attachment.chipOnly === true))));
+}
+
+export function shouldStopComposerGeneration({
+  turnBusy = false,
+  text = '',
+  attachments = [],
+} = {}) {
+  return Boolean(turnBusy && !hasSendablePromptContent({ text, attachments }));
 }
 
 export function mergeModelCatalog(current, incoming) {

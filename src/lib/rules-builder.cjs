@@ -5,16 +5,16 @@
  *
  * Exported surfaces:
  *   - buildSharedToolContent            — BP1: shared tool policy
- *   - buildLeadRoleContent              — BP2: Lead role/system rules
- *   - buildAgentRoleContent             — BP2: agent role/system rules
- *   - buildAgentRetrievalInjectionContent — BP2: narrow read-only retrieval role
- *   - buildLeadMetaContent              — BP3: Lead memory/meta context
+ *   - buildLeadRoleContent              — BP3: Lead role/system rules
+ *   - buildAgentRoleContent             — BP3: agent role/system rules
+ *   - buildAgentRetrievalInjectionContent — BP3: narrow read-only retrieval role
+ *   - buildLeadMetaContent              — BP2: Lead profile/settings context
  *   - buildInjectionContent             — legacy joined Lead session content
  *
  * 4-BP cache layout (composeSystemPrompt):
- *   BP1 = shared tool policy + compact skill manifest
- *   BP2 = role/system rules (Lead / agent / hidden role)
- *   BP3 = stable memory/meta context
+ *   BP1 = shared tool policy
+ *   BP2 = profile/settings + compact skills + deferred/MCP catalog
+ *   BP3 = workflow/role + memory + session/project environment
  *   BP4 = live user/task messages and compacted tail
  *
  * Source files (rules/):
@@ -23,8 +23,8 @@
  *   - lead/lead-brief.md            — Lead brief contract (delegating workflows only)
  *   - lead/01-general.md             — Lead general
  *   - output-styles/<name>.md        — Lead output style, selected by config outputStyle
- *   - agent/00-core.md               — universal agent constraints (BP2, all profiles)
- *   - agent/00-common.md             — public-agent-only extras (BP2 full profile)
+ *   - agent/00-core.md               — universal agent constraints (BP3, all profiles)
+ *   - agent/00-common.md             — public-agent-only extras (BP3 full profile)
  *   - agent/10..50-*.md              — per-hidden-agent bodies (consumed by loadScopedRoleInstructions)
  *
  * Core memory snapshot is injected separately from the memory worker (pgdata)
@@ -131,9 +131,7 @@ function buildProfilePreferencesContent(dataDir) {
     lines.push(`- User title: ${profile.title}.`);
     lines.push(`- Use "${profile.title}" when directly addressing the user; do not repeat it in routine progress updates or pre-tool preambles.`);
   }
-  const shell = process.platform === 'win32' ? 'PowerShell' : 'Bash';
-  lines.push(`- Shell: ${shell}. Use ${shell} syntax unless the user specifies otherwise.`);
-  return lines.length ? `# Profile Preferences\n\n${lines.join('\n')}` : '';
+  return `# Profile Preferences${lines.length ? `\n\n${lines.join('\n')}` : ''}`;
 }
 
 function buildLanguageSection(dataDir) {
@@ -251,7 +249,7 @@ function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
 
 /**
  * Legacy joined agent injection. New sessions consume shared tool policy as
- * BP1 and buildAgentRoleContent() as BP2; this export remains for older smoke
+ * BP1 and buildAgentRoleContent() as BP3; this export remains for older smoke
  * tests / callers that expect the combined shape.
  *
  * @param {object} opts

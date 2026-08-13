@@ -88,9 +88,20 @@ export function createPrewarmSchedulers({
     }
     const timer = setTimeout(() => void (async () => {
       if (isCloseRequested()) return;
+      const turnBusy = getActiveTurnCount() > 0 || Boolean(getSessionCreatePromise());
       try {
+        if (turnBusy) {
+          bootProfile('tool-runtime:shell-standby-deferred', { reason: 'turn-active' });
+        } else {
         const { prewarmShellStandbys } = await import('../runtime/agent/orchestrator/tools/builtin/bash-tool.mjs');
-        bootProfile('tool-runtime:shell-standby', { warmed: prewarmShellStandbys() === true });
+        const warmed = prewarmShellStandbys() === true;
+        let ready = 0;
+        if (warmed) {
+          const { waitPwshStandbysReady } = await import('../runtime/agent/orchestrator/tools/lib/pwsh-standby-pool.mjs');
+          ready = await waitPwshStandbysReady({ timeoutMs: 2_500 });
+        }
+        bootProfile('tool-runtime:shell-standby', { warmed, ready });
+        }
       } catch (error) {
         bootProfile('tool-runtime:shell-standby-failed', { error: error?.message || String(error) });
       }
@@ -100,16 +111,42 @@ export function createPrewarmSchedulers({
       } catch (error) {
         bootProfile('tool-runtime:token-estimator-failed', { error: error?.message || String(error) });
       }
-      try {
-        const { prewarmFindEnumeration } = await import('../runtime/agent/orchestrator/tools/builtin/list-tool.mjs');
-        const startedAt = performance.now();
-        await prewarmFindEnumeration(getCurrentCwd());
-        bootProfile('tool-runtime:path-index', { warmed: true, ms: (performance.now() - startedAt).toFixed(1) });
-      } catch (error) {
-        bootProfile('tool-runtime:path-index-failed', { error: error?.message || String(error) });
-      }
     })(), delayMs);
     timer.unref?.();
+  }
+
+  // Search warmup overlaps session/provider prep so the first grep/find does
+  // not wait for the resident server spawn. Kept off the first-token path
+  // that still owns PowerShell and code-graph workers.
+  function scheduleSearchRuntimeWarmup(delayMs = 0) {
+    if (envFlag('MIXDOG_DISABLE_TOOL_PREWARM')) {
+      bootProfile('search-runtime:prewarm-skipped');
+      return;
+    }
+    if (timers.searchRuntimeWarmupTimer || timers.searchRuntimeWarmupStarted) return;
+    timers.searchRuntimeWarmupStarted = true;
+    const start = () => void (async () => {
+      timers.searchRuntimeWarmupTimer = null;
+      if (isCloseRequested()) return;
+      try {
+        const { warmNativeSearchServer } = await import('../runtime/agent/orchestrator/tools/builtin/native-search-client.mjs');
+        bootProfile('native-search:warm', { up: await warmNativeSearchServer() === true });
+      } catch (error) {
+        bootProfile('native-search:warm-failed', { error: error?.message || String(error) });
+      }
+      try {
+        const { warmNativeSpawnServer } = await import('../runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs');
+        bootProfile('native-spawn:warm', { up: await warmNativeSpawnServer() === true });
+      } catch (error) {
+        bootProfile('native-spawn:warm-failed', { error: error?.message || String(error) });
+      }
+    });
+    if (delayMs <= 0) {
+      start();
+      return;
+    }
+    timers.searchRuntimeWarmupTimer = setTimeout(start, delayMs);
+    timers.searchRuntimeWarmupTimer.unref?.();
   }
 
   function invokeChannelStart() {
@@ -163,6 +200,7 @@ export function createPrewarmSchedulers({
   return {
     scheduleCodeGraphPrewarm,
     scheduleToolRuntimeWarmup,
+    scheduleSearchRuntimeWarmup,
     invokeChannelStart,
     scheduleChannelStart,
   };

@@ -49,6 +49,22 @@ function mergeObjectBranchProperties(objectBranches) {
     return properties;
 }
 
+function requiredKeys(schema) {
+    return schema && typeof schema === 'object' && !Array.isArray(schema) && Array.isArray(schema.required)
+        ? schema.required.filter((key) => typeof key === 'string' && key)
+        : [];
+}
+
+// Grok cannot keep XOR anyOf. Promote the first alternative's required keys
+// so a flatten never advertises an optional-only tool that the runtime rejects.
+function firstExclusiveRequired(branches) {
+    for (const branch of branches) {
+        const keys = requiredKeys(branch);
+        if (keys.length) return keys;
+    }
+    return [];
+}
+
 function normalizeGrokToolSchema(schema) {
     if (!schema || typeof schema !== 'object' || Array.isArray(schema)
         || (!Array.isArray(schema.anyOf) && !Array.isArray(schema.oneOf))) {
@@ -63,9 +79,14 @@ function normalizeGrokToolSchema(schema) {
             || (branch.properties && typeof branch.properties === 'object')));
 
     if (!objectBranches.length) {
+        const required = [...new Set([
+            ...requiredKeys(root),
+            ...firstExclusiveRequired(branches),
+        ])];
         return {
             ...root,
             type: 'object',
+            ...(required.length ? { required } : {}),
             ...(!Object.prototype.hasOwnProperty.call(root, 'additionalProperties')
                 ? { additionalProperties: true }
                 : {}),
@@ -81,8 +102,9 @@ function normalizeGrokToolSchema(schema) {
     const branchRequiredInEvery = (Array.isArray(objectBranches[0].required) ? objectBranches[0].required : [])
         .filter(key => objectBranches.every(branch => Array.isArray(branch.required) && branch.required.includes(key)));
     const required = [...new Set([
-        ...(Array.isArray(root.required) ? root.required : []),
+        ...requiredKeys(root),
         ...branchRequiredInEvery,
+        ...(branchRequiredInEvery.length ? [] : firstExclusiveRequired(objectBranches)),
     ])];
     const { properties: _rootProperties, required: _rootRequired, ...rootWithoutPropertiesOrRequired } = root;
     const mergedObjectBranches = Object.assign({}, ...objectBranches);

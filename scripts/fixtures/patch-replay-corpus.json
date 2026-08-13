@@ -94,5 +94,37 @@
     "expect_error": "\"patch\" is required",
     "file_snapshots": {},
     "args": { "base_path": null }
+  },
+  {
+    "id": "eof-star-as-context",
+    "note": "observed: models close the EOF marker as *** End of File ***; that used to become a fake old line",
+    "expect": "applied",
+    "expect_content": { "a.txt": "one\nTWO\nthree\n" },
+    "file_snapshots": { "a.txt": "one\ntwo\nthree\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n one\n-two\n+TWO\n three\n*** End of File ***\n*** End Patch\n" }
+  },
+  {
+    "id": "opcode-dash-list-item",
+    "note": "observed: markdown/list line `- Plan` sent as a delete of ` Plan`",
+    "expect": "applied",
+    "expect_content": { "a.md": "- Plan keep\n  new body\ntail\n" },
+    "file_snapshots": { "a.md": "- Plan keep\n  old body\ntail\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: a.md\n@@\n- Plan keep\n-  old body\n+  new body\n*** End Patch\n" }
+  },
+  {
+    "id": "indent-only-unique-window",
+    "note": "observed (tool-failures indent-only): same text, 2-space vs 4-space; unique window must apply",
+    "expect": "applied",
+    "expect_content": { "a.js": "    // landed thumbnail (each restart re-rendered the whole grid).\n    const generating = true;\n" },
+    "file_snapshots": { "a.js": "    // landed thumbnail (each restart re-rendered the whole grid).\n    const generating = false;\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n  // landed thumbnail (each restart re-rendered the whole grid).\n-    const generating = false;\n+    const generating = true;\n*** End Patch\n" }
+  },
+  {
+    "id": "indent-only-ambiguous-brace",
+    "note": "guard: indent-only `});` must not pick a window when it occurs twice",
+    "expect": "rejected",
+    "expect_error": "context not found",
+    "file_snapshots": { "a.js": "function a() {\n  });\n}\nfunction b() {\n  });\n}\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n});\n*** End Patch\n" }
   }
 ]

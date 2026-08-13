@@ -22,15 +22,15 @@ eof_line: "*** End of File" LF
 
 // Public contract: apply_patch is the PRIMARY edit tool and takes
 // a raw freeform V4A patch (no JSON envelope) on providers that support custom
-// grammar tools. No prior `read` is required or implied — send the patch as
-// soon as the target and content are known. The JSON schema below is only the
+// grammar tools. No extra fetch once the target body is already obtained —
+// send the patch as soon as the target and content are known. The JSON schema below is only the
 // fallback for providers that cannot carry freeform/custom tools, so it exposes
 // the patch string and an optional explicit base; runtime-only knobs stay off
 // the model surface.
 // Batching stays a rules-level policy: every new edit goes in one patch, with
 // one file block per target.
 const APPLY_PATCH_FREEFORM_DESCRIPTION =
-  'OAI V4A patch: *** Begin Patch, Add/Delete/Update File sections, *** End Patch. FREEFORM input; no JSON.';
+  'OAI V4A patch: *** Begin Patch, Add/Delete/Update File sections, *** End Patch. Add File creates parents. FREEFORM input; no JSON.';
 
 // JSON-schema fallback providers (Anthropic and other non-grammar surfaces)
 // get the full V4A instructions inline: without a grammar the model has
@@ -44,10 +44,10 @@ const APPLY_PATCH_JSON_DESCRIPTION = [
   '[optional *** Root: <path> for out-of-session writes]',
   '[file sections]',
   '*** End Patch',
-  'Each section starts with exactly one: *** Add File: <path> (+ lines), *** Delete File: <path> (header only), or *** Update File: <path> (optional *** Move to: <new path>).',
+  'Each section starts with exactly one: *** Add File: <path> (+ lines; creates parents), *** Delete File: <path> (header only), or *** Update File: <path> (optional *** Move to: <new path>).',
   'Hunks start with @@ or @@ <symbol|1-based line>; lines start space, -, or +; every Update hunk needs >=1 +/- line; optional *** End of File.',
-  'Use 3 verbatim context lines from newest output (post-patch body after edits); avoid overlap; stack @@ only if ambiguous.',
-  '+ prefixes every added line. Never send compacted-history markers; re-read first.',
+  'Use 3 verbatim context lines from already obtained text (post-edit = pre-image plus this patch; a failed excerpt is current for the lines it quotes). Avoid overlap; stack @@ only if ambiguous.',
+  '+ prefixes every added line. Never send compacted-history markers; recover live lines from already obtained text.',
 ].join('\n');
 
 export const PATCH_TOOL_DEFS = [

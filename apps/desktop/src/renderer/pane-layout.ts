@@ -753,14 +753,12 @@ export function setPaneSplitRatio(root: PaneNode, path: string, ratio: number): 
 
   // A visual grid is represented as independent binary stacks (for example,
   // root row → left column + right column). Sashes that were already aligned
-  // must remain one continuous grid line when either side is dragged. Only
-  // matching ratios are linked, so intentionally staggered/T-junction layouts
-  // keep their independent geometry.
-  const referenceRatio = clampPaneRatio(target.ratio);
+  // must remain one continuous grid line when either side is dragged.
   const alignParallel = (node: PaneNode): PaneNode => {
     if (node.type === "leaf") return node;
     if (node.direction === target.direction) {
-      if (Math.abs(clampPaneRatio(node.ratio) - referenceRatio) > 1e-6) return node;
+      // A 2×2 is two independent stacks. The shared grid line must move as
+      // one, even after a prior local drag left the ratios a few px apart.
       return node.ratio === nextRatio ? node : { ...node, ratio: nextRatio };
     }
     const first = alignParallel(node.first);

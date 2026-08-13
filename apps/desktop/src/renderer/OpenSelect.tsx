@@ -32,6 +32,8 @@ interface OpenSelectProps {
   displayValue?: string;
   leading?: React.ReactNode;
   onChange?: (value: string) => void;
+  /** Catalog labels (effort levels) stay in English; generic keys like Medium collide. */
+  localizeLabels?: boolean;
 }
 
 type MenuPosition = CSSProperties & { transformOrigin?: string };
@@ -49,6 +51,7 @@ export function OpenSelect({
   displayValue,
   leading,
   onChange,
+  localizeLabels = true,
 }: OpenSelectProps) {
   const controlled = value !== undefined;
   const [internalValue, setInternalValue] = useState(defaultValue);
@@ -81,6 +84,9 @@ export function OpenSelect({
   const contextPillStyle = className.split(/\s+/).includes('context-pill-select')
     || className.split(/\s+/).includes('project-context-select');
   const activeOption = options[active]?.disabled ? undefined : options[active];
+  const triggerLabel = displayValue || selected?.label || options[0]?.label || 'Select…';
+  const shownLabel = (label: string) => localizeLabels ? t(label) : label;
+  const skipI18n = localizeLabels ? undefined : '';
 
   const readPosition = useCallback((): MenuPosition | null => {
     const rect = trigger.current?.getBoundingClientRect();
@@ -324,7 +330,7 @@ export function OpenSelect({
       onPointerCancel={clickGuard.clearPointerActivation}
       onKeyDown={onKeyDown}>
       {leading && <span className="mx-select-leading">{leading}</span>}
-      <span className="mx-select-value">{t(displayValue || selected?.label || options[0]?.label || 'Select…')}</span>
+      <span className="mx-select-value" data-i18n-skip={skipI18n}>{shownLabel(triggerLabel)}</span>
       {routeStyle
         ? <MxIcon name="chevron-down" size={14} />
         : settingsStyle
@@ -333,12 +339,12 @@ export function OpenSelect({
     </button>
     {menuOpen && createPortal(<div ref={menu} id={listboxId} className="mx-menu" role="listbox"
       data-trigger-style={routeStyle ? 'route' : settingsStyle ? 'settings' : 'default'}
-      aria-label={ariaLabel} style={position} onKeyDown={onKeyDown}>
+      data-i18n-skip={skipI18n} aria-label={ariaLabel} style={position} onKeyDown={onKeyDown}>
       {options.map((option, index) => <button type="button" role="option" className="mx-menu-item"
         id={`${listboxId}-option-${index}`} disabled={option.disabled}
         aria-selected={option.value === current} data-active={index === active} tabIndex={index === active ? 0 : -1}
         key={option.value} onMouseEnter={() => setActive(index)} onClick={() => select(option.value)}>
-        <span>{t(option.label)}</span>{option.value === current && <MxIcon name="check-small" size={16} />}
+        <span>{shownLabel(option.label)}</span>{option.value === current && <MxIcon name="check-small" size={16} />}
       </button>)}
     </div>, document.body)}
   </div>;

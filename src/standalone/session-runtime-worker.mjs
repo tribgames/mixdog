@@ -171,6 +171,8 @@ async function stopAll(reason = 'session shard shutdown') {
 
 process.on('message', (message) => {
   if (!message || typeof message !== 'object') return;
+  // token-native.mjs owns daemon-relayed token count responses.
+  if (message.type === 'token-native-result') return;
   const requestId = String(message.requestId || '');
   void (async () => {
     if (message.type === 'create') return createRuntime(message);

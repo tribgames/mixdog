@@ -51,7 +51,7 @@ export function executionModeSchemaDescription(defaultMode = 'sync') {
   if (defaultMode === 'async') {
     return 'sync = inline result; async = task_id + completion notification. Default async.';
   }
-  return 'Default sync.';
+  return 'sync = inline result and may auto-background after the blocking budget; async = immediate task_id + completion notification. Default sync.';
 }
 
 export function taskIdFromArgs(args = {}) {
@@ -333,6 +333,10 @@ export function completeBackgroundTask(taskId, {
   const task = getBackgroundTask(taskId);
   if (!task) return null;
   if (TERMINAL_STATUSES.has(task.status)) return task;
+  if (task.progressCheckTimer) {
+    try { clearTimeout(task.progressCheckTimer); } catch {}
+    task.progressCheckTimer = null;
+  }
   const now = Date.now();
   task.status = normalizeStatus(status);
   task.finishedAtMs = now;
@@ -501,9 +505,6 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
     lines.push(`${key}: ${value}`);
   }
   if (logsBase) lines.push(`logs: ${logsBase}.{stdout,stderr}.log`);
-  if (task.status === 'running') {
-    lines.push('notification: completion is pushed to the owner session; poll only for recovery.');
-  }
   if (includeResult) {
     const body = resultTextForTask(task);
     if (body) {

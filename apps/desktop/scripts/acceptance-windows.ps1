@@ -118,7 +118,7 @@ try {
   }
 
   if (-not $SkipBuild) {
-    Invoke-AcceptanceStep 'renderer-regression' 'npm run verify:renderer' {
+    Invoke-AcceptanceStep 'renderer-invariants' 'npm run verify:renderer' {
       Invoke-CheckedNative -File 'npm.cmd' -Arguments @('run', 'verify:renderer')
       return 'renderer tests, DOM verification, and strict renderer typecheck passed'
     } | Out-Null

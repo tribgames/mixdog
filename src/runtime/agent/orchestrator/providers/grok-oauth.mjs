@@ -54,6 +54,49 @@ function _grokModelSupportsEffort(id) {
     return text.includes('reasoning') || /^grok-\d/.test(text);
 }
 
+// Pre-catalog fallback matches Grok 4.5 (low/medium/high). Grok 4.6 adds
+// xhigh via models.dev reasoningOptions or native /models reasoningEfforts.
+const GROK_EFFORT_FALLBACK = Object.freeze(['low', 'medium', 'high']);
+const GROK_KNOWN_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+
+function _grokEffortValue(entry) {
+    const text = typeof entry === 'string' ? entry : (entry?.value ?? entry?.id);
+    return String(text || '').trim().toLowerCase();
+}
+
+function _uniqueKnownGrokEfforts(values) {
+    const out = [];
+    for (const entry of values || []) {
+        const effort = _grokEffortValue(entry);
+        if (GROK_KNOWN_EFFORTS.has(effort) && !out.includes(effort)) out.push(effort);
+    }
+    return out;
+}
+
+function _grokApiEffortValues(model) {
+    const raw = model?.reasoningEfforts
+        ?? model?.reasoning_efforts
+        ?? model?._meta?.reasoningEfforts
+        ?? model?._meta?.reasoning_efforts;
+    return Array.isArray(raw) ? _uniqueKnownGrokEfforts(raw) : [];
+}
+
+function _grokCatalogEffortValues(model) {
+    const option = Array.isArray(model?.reasoningOptions)
+        ? model.reasoningOptions.find((entry) => String(entry?.type || '').trim().toLowerCase() === 'effort')
+        : null;
+    return Array.isArray(option?.values) ? _uniqueKnownGrokEfforts(option.values) : [];
+}
+
+function _grokReasoningLevels(id, model) {
+    if (!_grokModelSupportsEffort(id)) return [];
+    const catalog = _grokCatalogEffortValues(model);
+    if (catalog.length) return catalog;
+    const api = _grokApiEffortValues(model);
+    if (api.length) return api;
+    return [...GROK_EFFORT_FALLBACK];
+}
+
 function _grokApiContextWindow(model) {
     const id = String(model?.id || model?.model || model || '').trim();
     const native = Number(model?.context_window ?? model?.context_length ?? model?.contextWindow ?? 0);
@@ -88,13 +131,16 @@ function _normalizeGrokModel(m) {
     const id = m?.id;
     if (!id) return null;
     const contextWindow = _grokApiContextWindow(m);
+    const apiEfforts = _grokApiEffortValues(m);
+    const reasoningOptions = apiEfforts.length ? [{ type: 'effort', values: apiEfforts }] : undefined;
     return {
         id,
         name: id,
         display: _displayGrokModel(m),
         provider: 'grok-oauth',
         family: _normalizeGrokFamily(id),
-        reasoningLevels: _grokModelSupportsEffort(id) ? ['none', 'low', 'medium', 'high'] : [],
+        reasoningLevels: _grokReasoningLevels(id, { ...m, reasoningOptions }),
+        ...(reasoningOptions ? { reasoningOptions } : {}),
         tier: 'version',
         latest: false,
         // API/proxy model catalogs provide context_length/context_window. Only
@@ -111,7 +157,7 @@ function _sanitizeGrokModels(models) {
         let out = m;
         const display = _displayGrokModel(m);
         const family = _normalizeGrokFamily(m?.id);
-        const reasoningLevels = _grokModelSupportsEffort(m?.id) ? ['none', 'low', 'medium', 'high'] : [];
+        const reasoningLevels = _grokReasoningLevels(m?.id, out);
         // api.x.ai /models does not expose a max-output field. Historical
         // enrichment could persist contextWindow as outputTokens (for example
         // 500k/500k); clear it rather than advertise an invented request cap.

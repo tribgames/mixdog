@@ -49,10 +49,19 @@ import {
     RECALL_TAIL_SHORT_TRUNCATION_MARKER,
 } from './summary.mjs';
 import { buildPostCompactFileAttachment } from './file-reattach.mjs';
+import {
+    collectToolOutcomeLines,
+    collectWorkingFiles,
+    composeRecallHandoff,
+    fitRecallHandoffText,
+    conversationLinesFromMemoryText,
+    excludeTailFromConversation,
+} from './handoff.mjs';
 
 // Post-compact file re-attachment (claude-code parity): re-inject fresh reads
 // of files the summarized-away head was working with, when they still fit the
-// budget. Applied identically by the semantic and recall-fasttrack paths.
+// budget. Semantic compact still uses this; recall-fasttrack lists paths
+// instead of file bodies.
 // Follows the `Reference files:` + assistant `.` ack convention from
 // session-lifecycle.mjs so provider turn alternation and ingest exclusion
 // both hold. Best-effort: on any failure the plain result stands.
@@ -536,17 +545,13 @@ export function recallFastTrackCompactMessages(messages, budgetTokens, opts = {}
 // state is not silently dropped.
 //
 // Turns are anchored on user-role boundaries: each turn = a user message plus
-// the assistant/tool/system/developer messages that follow it (a leading run of
-// non-user messages before the first user boundary is treated as its own
-// partial turn so nothing is lost). We keep the newest RECALL_TAIL_USER_MAX
-// turns; if the kept set exceeds RECALL_TAIL_TOKEN_CAP we drop whole oldest
-// turns first, then middle-truncate the oldest surviving messages' string
-// content so the set fits while leaving the newest message whole.
+// the assistant/tool/system/developer messages that follow it. Recall-fasttrack
+// keeps the newest live turn verbatim. Older conversation comes from memory.
 //
 // Partial tool_call/tool_result pairs that truncation might leave behind are
 // repaired by sanitizeToolPairs/reconcileDedupStubs in the caller, so pairing
 // stays valid even after trimming.
-const RECALL_TAIL_USER_MAX = 2;
+const RECALL_TAIL_USER_MAX = 1;
 const RECALL_TAIL_TOKEN_CAP = DEFAULT_COMPACTION_KEEP_TOKENS; // 8k
 // A caller may request a cap smaller than one structurally valid message. Keep
 // the cap strict above this unavoidable floor while retaining a real anchor.
@@ -696,6 +701,31 @@ function recallTailStartIndex(live, tail) {
     return Math.max(0, live.length - tail.length);
 }
 
+function messageText(m) {
+    if (typeof m?.content === 'string') return m.content;
+    if (Array.isArray(m?.content)) {
+        return m.content.map((p) => (typeof p === 'string' ? p : p?.text || '')).join('');
+    }
+    return '';
+}
+
+function proseOnlyTurn(turn) {
+    const out = [];
+    for (const m of Array.isArray(turn) ? turn : []) {
+        if (!m || m.role === 'tool') continue;
+        if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length) {
+            const text = messageText(m).trim();
+            if (!text) continue;
+            const copy = { ...m };
+            delete copy.toolCalls;
+            out.push(copy);
+            continue;
+        }
+        out.push(m);
+    }
+    return out;
+}
+
 function selectRecallPreservedTail(live, opts = {}) {
     const msgs = (Array.isArray(live) ? live : []).filter((m) => m && !isSummaryMessage(m));
     if (msgs.length === 0) return { tail: [], head: [], tailStartIdx: 0 };
@@ -712,11 +742,15 @@ function selectRecallPreservedTail(live, opts = {}) {
         kept = kept.slice(1);
     }
 
+    const lastTurn = kept[kept.length - 1] || [];
+    const older = kept.slice(0, -1).map(proseOnlyTurn);
+    const shaped = [...older.flat(), ...lastTurn];
+
     let tail;
-    if (estimateMessagesTokens(kept.flat()) <= cap) {
-        tail = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(kept.flat())));
+    if (estimateMessagesTokens(shaped) <= cap) {
+        tail = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(shaped)));
     } else {
-        tail = fitSingleRecallTurnToCap(kept[kept.length - 1], cap);
+        tail = fitSingleRecallTurnToCap(lastTurn, cap);
     }
     if (estimateMessagesTokens(tail) > cap) tail = truncateTailToCap(tail, cap);
 
@@ -724,9 +758,12 @@ function selectRecallPreservedTail(live, opts = {}) {
     // assistant/tool structure recently. Mirror the semantic cut-point model —
     // preserve the recent structured turn(s) verbatim without demanding a user
     // anchor rather than throwing. tool-pairing is already reconciled above.
-    const tailStartIdx = recallTailStartIndex(msgs, tail);
+    const lastTurnStartIdx = recallTailStartIndex(msgs, lastTurn);
+    const tailStartIdx = kept.length > 1
+        ? recallTailStartIndex(msgs, kept[0])
+        : lastTurnStartIdx;
     const head = msgs.slice(0, tailStartIdx);
-    return { tail, head, tailStartIdx };
+    return { tail, head, tailStartIdx, lastTurnStartIdx };
 }
 
 function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
@@ -756,9 +793,19 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
     const { system: safeSystem, live, previousSummary } = splitLiveCompactionContext(sanitized);
     const recallTailOpts = {
         maxUsers: opts.recallTailMaxUsers ?? opts.tailTurns ?? RECALL_TAIL_USER_MAX,
-        tokenCap: opts.recallTailTokenCap ?? preserveRecentBudget(budget, opts),
+        tokenCap: (() => {
+            const keepCap = opts.recallTailTokenCap ?? preserveRecentBudget(budget, opts);
+            const envelope = Number(opts.recallTokenCap);
+            return (Number.isFinite(envelope) && envelope > 0)
+                ? Math.max(keepCap, envelope)
+                : keepCap;
+        })(),
     };
-    const { tail: recallTail, head: recallHead } = selectRecallPreservedTail(live, recallTailOpts);
+    const {
+        tail: recallTail,
+        head: recallHead,
+        lastTurnStartIdx = recallHead.length,
+    } = selectRecallPreservedTail(live, recallTailOpts);
     const recallFit = splitRecallFitInputs(opts.recallText, previousSummary);
     if (recallHead.length === 0 && !previousSummary
         && !(recallFit.recall || recallFit.prior || opts.allowEmptyRecall === true)) {
@@ -788,15 +835,32 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
     // preserving current uncapped behavior otherwise.
     const recallRoomUncapped = budget - mandatoryCost;
     const recallTokenCap = Number(opts.recallTokenCap);
+    const tailTokens = safeEstimateMessagesTokens(recallTail) || 0;
     const recallRoom = (Number.isFinite(recallTokenCap) && recallTokenCap > 0)
-        ? Math.min(recallRoomUncapped, recallTokenCap)
+        ? Math.min(recallRoomUncapped, Math.max(512, recallTokenCap - tailTokens))
         : recallRoomUncapped;
+    const toolLines = collectToolOutcomeLines(live);
+    const workingFiles = collectWorkingFiles(live, 20, { cwd: opts.cwd });
+    const conversationLines = excludeTailFromConversation(
+        conversationLinesFromMemoryText(recallFit.recall),
+        recallTail,
+    );
+    const composedRecall = composeRecallHandoff({
+        sessionId: opts.sessionId || '',
+        conversationLines,
+        toolLines,
+        workingFiles,
+    });
+    const fittedRecall = fitRecallHandoffText(composedRecall, Math.max(256, recallRoom - 400));
+    const priorPart = conversationLines.length > 0
+        ? ''
+        : recallFit.prior;
     const summaryMessage = fitRecallFastTrackSummaryMessage(
         oldHistory,
-        recallFit.recall,
+        fittedRecall,
         recallRoom,
         recallMeta,
-        recallFit.prior,
+        priorPart,
     );
     if (!summaryMessage) {
         throw new Error(`recallFastTrackCompactMessages: summary cannot fit remaining budget=${recallRoom}`);
@@ -808,7 +872,9 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
     if (finalTokens > budget) {
         throw new Error(`recallFastTrackCompactMessages: compacted result exceeds budget=${budget} (result=${finalTokens})`);
     }
-    const reattach = withFileReattachment(result, finalTokens, budget, recallHead, recallTail, opts.cwd);
+    const reattach = opts.fileReattach === true
+        ? withFileReattachment(result, finalTokens, budget, recallHead, recallTail, opts.cwd)
+        : { result, finalTokens, reattached: false };
     result = reattach.result;
     finalTokens = reattach.finalTokens;
     const summaryContent = String(summaryMessage?.content || '');

@@ -50,6 +50,7 @@ async function main() {
       writeFileSync(process.env.SMOKE_CHANNEL_ENV_OUT, JSON.stringify({
         cliOwned: process.env.MIXDOG_CLI_OWNED,
         host: process.env.MIXDOG_DAEMON_HOST,
+        supervisorPid: process.env.MIXDOG_SUPERVISOR_PID,
       }));
     } catch { /* smoke-only, best-effort */ }
   }

@@ -41,6 +41,9 @@ let _lastAppliedSig = null;
 let _providerCatalogRevision = 0;
 let _startupCatalogRefreshPromise = null;
 let _catalogRefreshPromise = null;
+const CATALOG_REFRESH_INTERVAL_MS = 24 * 60 * 60_000;
+let _catalogRefreshNotBefore = 0;
+let _catalogRefreshTimer = null;
 
 // Deterministic structural signature of a provider config. Recursively sorts
 // object keys so signature equality reflects config-value equality regardless
@@ -367,18 +370,24 @@ function warmupCatalogs() {
     }
 }
 
-// Force-refresh each provider's /models catalog once per daemon.
-// lifetime. Every session runtime joins this process-global promise and then
-// reads the same provider-instance caches. Unlike
-// warmupCatalogs (which calls listModels() and so respects the 24h provider
-// TTL → no-op when the cache is fresh), this bypasses the TTL via
-// _refreshModelCache so a model released since the last refresh is picked up
-// at startup instead of waiting for TTL expiry. Deliberately does NOT touch
-// the shared LiteLLM metadata catalog (refreshMetadataCatalog) — pricing /
-// context metadata stays on its own 24h TTL. Fire-and-forget: never awaited,
-// per-provider failures logged to stderr like warmupCatalogs.
+function armNextCatalogRefresh(startedAt = Date.now()) {
+    _catalogRefreshNotBefore = startedAt + CATALOG_REFRESH_INTERVAL_MS;
+    if (_catalogRefreshTimer) clearTimeout(_catalogRefreshTimer);
+    _catalogRefreshTimer = setTimeout(() => {
+        _catalogRefreshTimer = null;
+        void refreshCatalogs();
+    }, Math.max(1, _catalogRefreshNotBefore - Date.now()));
+    _catalogRefreshTimer.unref?.();
+}
+
+// Force-refresh each provider's /models catalog once at daemon boot. Every
+// session runtime joins this process-global promise and reads the same
+// provider-instance caches. The next network refresh is armed for 24h later;
+// view entry, search, settings, and explicit refresh requests inside that
+// window only reuse the completed catalog epoch.
 export function refreshProviderCatalogsOnStartup() {
     if (_startupCatalogRefreshPromise) return _startupCatalogRefreshPromise;
+    armNextCatalogRefresh();
     const pending = [];
     for (const [name, provider] of providers) {
         const refreshFn = typeof provider?._refreshModelCache === 'function'
@@ -402,12 +411,18 @@ export function refreshProviderCatalogsOnStartup() {
     return _startupCatalogRefreshPromise;
 }
 
-// Force-refresh provider catalogs after an operator changes model/provider
-// configuration. This bypasses the 24h provider TTL where supported and warms
-// the shared LiteLLM metadata cache first so context/pricing metadata follows
-// newly released models without waiting for the next process restart.
+// Refresh the complete catalog at most once per 24h process window. The timer
+// above calls this automatically when the window expires; manual/UI callers
+// inside the window receive the current epoch without network work.
 export function refreshCatalogs() {
     if (_catalogRefreshPromise) return _catalogRefreshPromise;
+    if (Date.now() < _catalogRefreshNotBefore) {
+        if (!_catalogRefreshTimer) {
+            armNextCatalogRefresh(_catalogRefreshNotBefore - CATALOG_REFRESH_INTERVAL_MS);
+        }
+        return _startupCatalogRefreshPromise || Promise.resolve([]);
+    }
+    armNextCatalogRefresh();
     const pending = [];
     const metadataReady = Promise.resolve()
         .then(() => refreshMetadataCatalog())

@@ -40,13 +40,10 @@ function PaneResizeHandle({ direction, firstMinimum, secondMinimum, onRatioChang
     handle.setPointerCapture(event.pointerId);
     const isRow = direction === "row";
     const rect = container.getBoundingClientRect();
-    const first = handle.previousElementSibling as HTMLElement | null;
-    const second = handle.nextElementSibling as HTMLElement | null;
     let pendingRatio: number | null = null;
     const applyPreview = (): void => {
       if (pendingRatio === null) return;
-      if (first) first.style.flex = `${pendingRatio} 1 0%`;
-      if (second) second.style.flex = `${1 - pendingRatio} 1 0%`;
+      onRatioChange(pendingRatio);
     };
     const onPointerMove = (moveEvent: PointerEvent): void => {
       if (!handle.hasPointerCapture(event.pointerId)) return;

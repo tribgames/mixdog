@@ -12,7 +12,7 @@ import { WORKER_INDEX_FILE } from './tool-def.mjs';
 import { agentTagOf, clean, positiveInt, rowMatchesContext } from './helpers.mjs';
 import {
   applyWorkerRowUpsert,
-  isTerminalWorkerStatus,
+  isDeadWorkerStatus,
   normalizeTagTombstones,
   tagTombstoneKey,
   workerRowKey,
@@ -38,7 +38,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     if (!clean(row.tag) || !clean(row.sessionId)) return false;
     const t = workerRowTime(row);
     if (!t) return true;
-    if (!isTerminalWorkerStatus(row.status || row.stage)) return true;
+    if (!isDeadWorkerStatus(row.status || row.stage)) return true;
     const reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig(), row.provider);
     return reapMs == null || Date.now() - t < reapMs;
   }

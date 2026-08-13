@@ -123,38 +123,35 @@ test("two session task indicators update independently without focus routing", a
 test("Agents groups every active session and renders each session's live agents", async () => {
   const dom = installDom();
   const opened = [];
-  defaultSessionLaneStore.apply({
-    sessionId: "lead-a",
-    frameSource: "live",
-    snapshot: {
-      sessionId: "lead-a",
-      busy: true,
-      provider: "openai",
-      model: "gpt-5.6",
-      agentWorkers: [{
-        tag: "research",
-        agent: "researcher",
-        status: "running",
-        sessionId: "child-a",
-        ownerSessionId: "lead-a",
-      }],
+  window.mixdogDesktop = {
+    async listAgentPool() {
+      return [
+        {
+          tag: "research",
+          agent: "researcher",
+          status: "running",
+          stage: "running",
+          sessionId: "child-a",
+          ownerSessionId: "lead-a",
+          model: "gpt-5.6",
+          provider: "openai",
+        },
+        {
+          tag: "review",
+          agent: "reviewer",
+          status: "idle",
+          stage: "idle",
+          sessionId: "child-b",
+          ownerSessionId: "lead-b",
+          model: "gpt-5.6",
+          provider: "openai",
+        },
+      ];
     },
-  });
-  defaultSessionLaneStore.apply({
-    sessionId: "lead-b",
-    frameSource: "live",
-    snapshot: {
-      sessionId: "lead-b",
-      busy: true,
-      agentWorkers: [{
-        tag: "review",
-        agent: "reviewer",
-        status: "running",
-        sessionId: "child-b",
-        ownerSessionId: "lead-b",
-      }],
+    subscribeAgentPool() {
+      return () => {};
     },
-  });
+  };
   try {
     await act(async () => {
       dom.root.render(React.createElement(AgentActivityPane, {
@@ -176,7 +173,6 @@ test("Agents groups every active session and renders each session's live agents"
             projectPath: null,
           },
         ],
-        activeSessionIds: ["lead-a", "lead-b"],
         onOpenLeadSession: (sessionId) => opened.push(["lead", sessionId]),
         onOpenSession: (sessionId, title, ownerSessionId) =>
           opened.push(["agent", sessionId, title, ownerSessionId]),
@@ -186,6 +182,7 @@ test("Agents groups every active session and renders each session's live agents"
     assert.equal(document.querySelectorAll("[data-agent-owner-session-id]").length, 2);
     assert.match(document.body.textContent, /First task/);
     assert.match(document.body.textContent, /Second task/);
+    assert.match(document.body.textContent, /Idle/);
     assert.doesNotMatch(document.body.textContent, /Idle task/);
     assert.ok(document.querySelector('[data-agent-session-id="child-a"]'));
     assert.ok(document.querySelector('[data-agent-session-id="child-b"]'));
@@ -198,7 +195,6 @@ test("Agents groups every active session and renders each session's live agents"
     ]);
   } finally {
     await act(async () => dom.root.unmount());
-    defaultSessionLaneStore.clear();
     dom.close();
   }
 });

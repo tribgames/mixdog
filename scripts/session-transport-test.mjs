@@ -31,7 +31,7 @@ const {
 } = await import('../src/runtime/shared/background-tasks.mjs');
 const {
   attachSession, createSession, probeSessionHealth,
-  sessionDaemonCompatibility,
+  daemonShouldDetach, sessionDaemonCompatibility,
 } =
   await import('../src/standalone/session-client.mjs');
 const { createProjectPicker } = await import('../src/tui/app/project-picker.mjs');
@@ -175,6 +175,12 @@ test('protocol stays at 1 while revision then app build chooses the daemon', () 
     version: '1.2.3',
     capabilityFingerprint: '0000000000000000',
   }, { revision: 1, version: '1.2.3' }).capabilityMismatch, true);
+});
+
+test('Windows Desktop daemon stays in one Mixdog process tree while CLI daemons detach', () => {
+  assert.equal(daemonShouldDetach({ platform: 'win32', processType: 'browser' }), false);
+  assert.equal(daemonShouldDetach({ platform: 'win32', processType: undefined }), true);
+  assert.equal(daemonShouldDetach({ platform: 'linux', processType: 'browser' }), true);
 });
 
 test('a 2k-item tool-card update sends only the changed transcript suffix', () => {
@@ -1566,6 +1572,52 @@ test('session faults answer as call errors and non-serializable values are dropp
     assert.deepEqual(described.value, { ok: true, when: '1970-01-01T00:00:00.000Z' });
     await client.close('test');
   });
+});
+
+test('an addressed session action cannot silently move to another id', async () => {
+  const sessionFactory = async () => {
+    let state = { sessionId: '', items: [], queued: [], busy: false };
+    const listeners = new Set();
+    const publish = () => {
+      for (const listener of [...listeners]) listener();
+    };
+    return {
+      getState: () => state,
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      reserveSession(id) {
+        state = { ...state, sessionId: String(id) };
+        publish();
+        return true;
+      },
+      setRoute() {
+        state = { ...state, sessionId: 'silently-rebound-session' };
+        publish();
+        return true;
+      },
+      async dispose() {},
+    };
+  };
+
+  await withDaemon(async ({ discovery }) => {
+    const client = await attachSession({ discovery, cwd: process.cwd() });
+    const created = await client.call('session.create', {
+      sessionId: 'addressed-session',
+      cwd: process.cwd(),
+    });
+    assert.equal(created.sessionId, 'addressed-session');
+    await assert.rejects(
+      () => client.call('session.configure', {
+        sessionId: created.sessionId,
+        action: 'setRoute',
+        args: [{ model: 'test-model', applyToCurrentSession: true }],
+      }),
+      /session addressed-session changed its durable address to silently-rebound-session/,
+    );
+    await client.close('address invariant verified');
+  }, { sessionFactory });
 });
 
 test('a retried call with the same id runs exactly one runtime mutation', async () => {

@@ -110,12 +110,10 @@ export function createCwdPlugins({
     const session = getSession();
     if (session) session.cwd = currentCwd;
     // cwd changes NEVER recreate the session: a mid-conversation cwd switch must
-    // preserve the full message history (and the BP1–BP3 prompt cache). We only
-    // retarget the live session's cwd in place; tool execution already reads the
-    // current cwd per turn. `cwd` is intentionally absent from the prompt
-    // context (see composeSystemPrompt), so there is nothing prompt-side to
-    // refresh either. `markRefresh`/`changed` are kept only for signature
-    // compatibility with existing callers.
+    // preserve the full message history. We retarget the live execution cwd in
+    // place; the BP3 session snapshot remains the session-start environment.
+    // `markRefresh`/`changed` are kept only for signature compatibility with
+    // existing callers.
     void markRefresh;
     // Lazy mode: before the first turn (e.g. the initial project-selection
     // cwd set), do NOT prewarm — that is exactly the post-first-frame freeze

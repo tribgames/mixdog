@@ -10,6 +10,10 @@ import {
   snapshot as machineSpawnSnapshot,
 } from '../runtime/shared/child-spawn-gate.mjs';
 import {
+  countTokensNative,
+  prewarmNativeTokenCounter,
+} from '../runtime/agent/orchestrator/session/token-native.mjs';
+import {
   SESSION_CONFIGURE_ACTIONS,
   SESSION_READ_ACTIONS,
 } from './session-protocol.mjs';
@@ -147,7 +151,7 @@ class SessionShard {
       const text = String(chunk || '').trimEnd();
       if (text) this.log(`session shard ${this.index}: ${text}`);
     });
-    child.on('message', (message) => this.onMessage(message));
+    child.on('message', (message) => this.onMessage(message, child));
     child.on('error', (error) => this.handleChildFailure(child, error));
     child.on('exit', (code, signal) => {
       if (this.child === child) this.child = null;
@@ -159,8 +163,16 @@ class SessionShard {
     return child;
   }
 
-  onMessage(message) {
+  onMessage(message, child = this.child) {
     if (!message || typeof message !== 'object') return;
+    if (message.type === 'token-native-prewarm') {
+      if (child === this.child) prewarmNativeTokenCounter();
+      return;
+    }
+    if (message.type === 'token-native-count') {
+      void this.handleTokenNativeCount(child, message);
+      return;
+    }
     if (message.type === 'spawn-lease') {
       void this.grantSpawnLease(message);
       return;
@@ -187,6 +199,21 @@ class SessionShard {
     } else {
       request.resolve(message.value);
     }
+  }
+
+  async handleTokenNativeCount(child, message) {
+    const tokenRequestId = String(message.tokenRequestId || '');
+    if (!tokenRequestId || child !== this.child || child?.killed) return;
+    let count = null;
+    try {
+      count = await countTokensNative(String(message.text ?? ''));
+    } catch {}
+    if (child !== this.child || child?.killed) return;
+    safeIpcSend(child, {
+      type: 'token-native-result',
+      tokenRequestId,
+      count: Number.isFinite(count) && count >= 0 ? count : null,
+    }, { onError: () => {} });
   }
 
   rejectPending(error) {
@@ -506,6 +533,10 @@ export function createSessionRuntimePool({
     env,
     log,
   }));
+  // One machine-global native counter stays warm in the daemon. Session
+  // shards relay requests over their existing IPC channel and never spawn
+  // their own helper process.
+  try { prewarmNativeTokenCounter(); } catch { /* JS/WASM fallback remains */ }
   let roundRobin = 0;
   let closed = false;
   // Warm-but-EMPTY peer shards hold ~120-150MB RSS each. After this idle

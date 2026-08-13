@@ -23,7 +23,10 @@ import {
   TRANSCRIPT_ROW_ESTIMATE,
   TRANSCRIPT_VIRTUAL_OVERSCAN,
 } from "./transcript-virtual-cache";
-import { scheduleConnectedMeasure } from "./transcript-measure";
+import {
+  scheduleConnectedMeasure,
+  TRANSCRIPT_ROW_MEASURE_EVENT,
+} from "./transcript-measure";
 
 /**
  * The virtualized transcript timeline.
@@ -57,6 +60,39 @@ function logicalScrollOffset(
     (instance as unknown as { scrollAdjustments?: number }).scrollAdjustments,
   ) || 0;
   return (instance.scrollOffset ?? 0) + adjustments;
+}
+
+type SelectionPoint = { node: Node; offset: number };
+
+function firstTextPoint(element: Element): SelectionPoint {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    if (node.textContent) return { node, offset: 0 };
+  }
+  return { node: element, offset: 0 };
+}
+
+function lastTextPoint(element: Element): SelectionPoint {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  let last: Node | null = null;
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    if (node.textContent) last = node;
+  }
+  if (!last) return { node: element, offset: element.childNodes.length };
+  return { node: last, offset: last.textContent?.length ?? 0 };
+}
+
+function caretPointFromPointer(x: number, y: number): SelectionPoint | null {
+  const doc = document as Document & {
+    caretPositionFromPoint?(cx: number, cy: number): { offsetNode: Node; offset: number } | null;
+    caretRangeFromPoint?(cx: number, cy: number): Range | null;
+  };
+  const position = doc.caretPositionFromPoint?.(x, y);
+  if (position) return { node: position.offsetNode, offset: position.offset };
+  const range = doc.caretRangeFromPoint?.(x, y);
+  return range ? { node: range.startContainer, offset: range.startOffset } : null;
 }
 
 export function TranscriptList({
@@ -161,19 +197,15 @@ export function TranscriptList({
     () => readTranscriptVirtualSnapshot(sessionKey),
     [sessionKey],
   );
-  const coldBottomMount = !restored?.measurements?.length && shouldAnchorBottom;
-  const [renderOverscan, setRenderOverscan] = useState(
-    () => (restored?.measurements?.length || coldBottomMount ? 6 : TRANSCRIPT_VIRTUAL_OVERSCAN),
-  );
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: rows.length,
     getScrollElement: () => viewport.current,
     estimateSize: () => TRANSCRIPT_ROW_ESTIMATE,
     getItemKey: (index) => rowsRef.current[index]?.key ?? `row:${index}`,
     measureElement: measureTranscriptRow,
-    overscan: 50,
+    overscan: TRANSCRIPT_VIRTUAL_OVERSCAN,
     rangeExtractor: (range) => {
-      const indexes = defaultRangeExtractor({ ...range, overscan: renderOverscan });
+      const indexes = defaultRangeExtractor({ ...range, overscan: TRANSCRIPT_VIRTUAL_OVERSCAN });
       return [...new Set([
         ...resizePinned.current,
         ...selectionPinnedIndexes(),
@@ -189,6 +221,9 @@ export function TranscriptList({
     // append or row measurement even after the follow hook had detached.
     anchorTo: shouldAnchorBottom ? "end" : "start",
     followOnAppend: shouldAnchorBottom,
+    // While the tail is owned, every append and measured-size delta is an
+    // end pin. An 80px band lost tall rows in a short split and invited a
+    // second scrollToEnd writer. Reader release flips followOnAppend off.
     scrollEndThreshold: 80,
     paddingEnd: TRANSCRIPT_BOTTOM_SPACER,
     // The virtual core commits its state to the DOM in the same task as every
@@ -270,6 +305,42 @@ export function TranscriptList({
     if (resizeFlushFrame.current) return;
     resizeFlushFrame.current = window.requestAnimationFrame(pumpDeferredResizes);
   }, [pumpDeferredResizes]);
+  const virtualizerRef = useRef(virtualizer);
+  virtualizerRef.current = virtualizer;
+  const scrollToEndQueued = useRef(false);
+  const pinFollowEnd = useRef(() => {});
+  pinFollowEnd.current = () => {
+    // ONE end: the native wheel stop. Wrap, streamed script, and new rows
+    // all land here. Same-tick callers share the write so a measure after
+    // append cannot pin again and walk the tail down.
+    if (hasScrollGestureRef.current() || scrollToEndQueued.current) return;
+    scrollToEndQueued.current = true;
+    queueMicrotask(() => {
+      scrollToEndQueued.current = false;
+      if (hasScrollGestureRef.current()) return;
+      const instance = virtualizerRef.current;
+      if (spacer.current) spacer.current.style.height = `${instance.getTotalSize()}px`;
+      const element = viewport.current;
+      if (!element) return;
+      const max = Math.max(0, element.scrollHeight - element.clientHeight);
+      const core = instance as unknown as {
+        scrollOffset: number | null;
+        scrollAdjustments: number;
+        _iosDeferredAdjustment: number;
+        _deferredFlushTimerId: number | null;
+        targetWindow: (Window & typeof globalThis) | null;
+      };
+      if (core._deferredFlushTimerId != null && core.targetWindow) {
+        core.targetWindow.clearTimeout(core._deferredFlushTimerId);
+        core._deferredFlushTimerId = null;
+      }
+      core._iosDeferredAdjustment = 0;
+      core.scrollAdjustments = 0;
+      core.scrollOffset = max;
+      if (Math.abs(element.scrollTop - max) >= 1) element.scrollTop = max;
+      markProgrammaticScrollRef.current?.(element.scrollTop, max);
+    });
+  };
   // React re-renders reuse one virtualizer instance. Patch resizeItem exactly
   // once instead of wrapping the previous wrapper again on every render.
   const patchedVirtualizer = useRef<Virtualizer<HTMLDivElement, HTMLDivElement> | null>(null);
@@ -277,6 +348,9 @@ export function TranscriptList({
     patchedVirtualizer.current = virtualizer;
     const resizeItem = virtualizer.resizeItem;
     baseResizeItem.current = resizeItem;
+    virtualizer.scrollToEnd = (options) => {
+      pinFollowEnd.current();
+    };
     virtualizer.resizeItem = (index, size) => {
       const element = viewport.current;
       const measured = virtualizer.measurementsCache[index];
@@ -311,6 +385,9 @@ export function TranscriptList({
         });
       }
       resizeItem(index, size);
+      if (virtualizer.options.followOnAppend || virtualizer.options.anchorTo === "end") {
+        pinFollowEnd.current();
+      }
     };
   }
   // Rows measured above an IDLE reading offset keep the reader's content
@@ -330,18 +407,6 @@ export function TranscriptList({
     return item.end <= logicalScrollOffset(instance);
   };
   virtualizer.shouldDeferScrollAdjustment = () => hasScrollGestureRef.current();
-  const virtualizerRef = useRef(virtualizer);
-  virtualizerRef.current = virtualizer;
-  const overscanFrame = useRef(0);
-  const bottomAnchorFrame = useRef(0);
-  const bottomAnchorSession = useRef("");
-  // Prepend anchor: when rows are inserted ABOVE the reader (older
-  // history, cold restore growth), keep the previously visible top row still
-  // by correcting scrollTop against its key + viewport offset.
-  const readingAnchor = useRef<{ key: string; offset: number } | null>(null);
-  const prependAnchorFrame = useRef(0);
-  const prevFirstKey = useRef<string | number | null>(rows[0]?.key ?? null);
-  const prevRowCount = useRef(rows.length);
   const measureRow = useCallback((element: HTMLDivElement | null) => {
     if (!element) return;
     // The FIRST measurement of a row rides the SAME commit that appended it.
@@ -363,6 +428,24 @@ export function TranscriptList({
     virtualizerRef.current.containerRef(element);
   }, [content]);
 
+  useLayoutEffect(() => {
+    const root = spacer.current;
+    if (!root) return undefined;
+    const measureDisclosureRow = (event: Event) => {
+      const row = event.target instanceof HTMLElement
+        ? event.target.closest<HTMLDivElement>(".transcript-virtual-row")
+        : null;
+      if (!row || row.parentElement !== root) return;
+      // Tool disclosure commits already changed the natural DOM height. Feed
+      // that exact box to the virtualizer before paint, so its row cache,
+      // spacer height, scrollTop correction, and follow ownership advance as
+      // one transaction rather than an observer frame apart.
+      virtualizerRef.current.measureElement(row);
+    };
+    root.addEventListener(TRANSCRIPT_ROW_MEASURE_EVENT, measureDisclosureRow);
+    return () => root.removeEventListener(TRANSCRIPT_ROW_MEASURE_EVENT, measureDisclosureRow);
+  }, [sessionKey]);
+
   useLayoutEffect(() => () => {
     // Pending gesture-deferred sizes are part of the truth this snapshot
     // promises to replay on re-entry.
@@ -374,8 +457,8 @@ export function TranscriptList({
   }, [flushDeferredResizes, sessionKey, viewport]);
 
   useLayoutEffect(() => {
-    const scrollToEnd = (behavior: ScrollBehavior = "auto") => {
-      virtualizerRef.current.scrollToEnd({ behavior });
+    const scrollToEnd = () => {
+      pinFollowEnd.current();
     };
     scrollToEndRef.current = scrollToEnd;
     return () => {
@@ -391,8 +474,15 @@ export function TranscriptList({
       anchorOverride.current = bottom;
       const instance = virtualizerRef.current;
       const anchorTo = bottom ? "end" : "start";
-      if (instance.options.anchorTo === anchorTo) return;
-      instance.setOptions({ ...instance.options, anchorTo, followOnAppend: bottom });
+      if (instance.options.anchorTo === anchorTo
+        && instance.options.followOnAppend === bottom
+        && instance.options.scrollEndThreshold === 80) return;
+      instance.setOptions({
+        ...instance.options,
+        anchorTo,
+        followOnAppend: bottom,
+        scrollEndThreshold: 80,
+      });
     };
     setAnchorBottomRef.current = setAnchorBottom;
     return () => {
@@ -402,139 +492,16 @@ export function TranscriptList({
     };
   }, [setAnchorBottomRef]);
 
-  useLayoutEffect(() => {
-    // Warm the full overscan once per session entry. A follow release/reattach
-    // must not schedule another pair of end writes: a small wheel movement can
-    // re-enter the bottom band after its native scroll event, and those stale
-    // frames would roll that movement back. Read the live core anchor at
-    // delivery time so reader intent also cancels an entry frame already
-    // waiting in the queue.
-    overscanFrame.current = window.requestAnimationFrame(() => {
-      if (virtualizerRef.current.options.anchorTo === "end") {
-        virtualizerRef.current.scrollToEnd();
-      }
-      overscanFrame.current = window.requestAnimationFrame(() => {
-        overscanFrame.current = 0;
-        setRenderOverscan((current) =>
-          current < TRANSCRIPT_VIRTUAL_OVERSCAN ? TRANSCRIPT_VIRTUAL_OVERSCAN : current);
-        if (virtualizerRef.current.options.anchorTo === "end") {
-          virtualizerRef.current.scrollToEnd();
-        }
-      });
-    });
-    return () => {
-      if (!overscanFrame.current) return;
-      window.cancelAnimationFrame(overscanFrame.current);
-      overscanFrame.current = 0;
-    };
-  }, [sessionKey]);
-
-  useLayoutEffect(() => {
-    // Session entry resets the prepend-reading bookkeeping so a prior visit's
-    // top-row anchor never corrects a different timeline.
-    readingAnchor.current = null;
-    prevFirstKey.current = rows[0]?.key ?? null;
-    prevRowCount.current = rows.length;
-    if (prependAnchorFrame.current) {
-      window.cancelAnimationFrame(prependAnchorFrame.current);
-      prependAnchorFrame.current = 0;
-    }
-  }, [sessionKey]);
-
-  useLayoutEffect(() => {
-    // Bottom anchor: one entry anchor per session key, the first
-    // time the timeline has rows. Live appends are followed by the core's
-    // followOnAppend — re-running this on every rows change added a second,
-    // one-frame-late scroll writer.
-    if (bottomAnchorSession.current === sessionKey || rows.length === 0) return undefined;
-    bottomAnchorSession.current = sessionKey;
-    if (!shouldAnchorBottom) return undefined;
-    bottomAnchorFrame.current = window.requestAnimationFrame(() => {
-      bottomAnchorFrame.current = 0;
-      virtualizerRef.current.scrollToEnd();
-    });
-    return () => {
-      if (!bottomAnchorFrame.current) return;
-      window.cancelAnimationFrame(bottomAnchorFrame.current);
-      bottomAnchorFrame.current = 0;
-    };
-  }, [rows.length, sessionKey, shouldAnchorBottom]);
-
-  useLayoutEffect(() => {
-    const root = viewport.current;
-    const firstKey = rows[0]?.key ?? null;
-    const count = rows.length;
-    const prepended = prevRowCount.current > 0
-      && count > prevRowCount.current
-      && firstKey != null
-      && firstKey !== prevFirstKey.current
-      && !shouldAnchorBottom;
-    prevFirstKey.current = firstKey;
-    prevRowCount.current = count;
-    if (!prepended || !root || !readingAnchor.current) return undefined;
-    const anchor = readingAnchor.current;
-    if (prependAnchorFrame.current) window.cancelAnimationFrame(prependAnchorFrame.current);
-    let frames = 0;
-    let stable = 0;
-    const apply = () => {
-      prependAnchorFrame.current = 0;
-      const element = root.querySelector<HTMLElement>(
-        `[data-timeline-key="${CSS.escape(String(anchor.key))}"]`,
-      );
-      if (element) {
-        const delta = element.getBoundingClientRect().top
-          - root.getBoundingClientRect().top
-          - anchor.offset;
-        if (Math.abs(delta) > 0.5) {
-          root.scrollTop += delta;
-          markProgrammaticScroll?.(root.scrollTop);
-          stable = 0;
-        } else {
-          stable += 1;
-        }
-      }
-      frames += 1;
-      if (stable >= 8 || frames >= 60) return;
-      prependAnchorFrame.current = window.requestAnimationFrame(apply);
-    };
-    prependAnchorFrame.current = window.requestAnimationFrame(apply);
-    return () => {
-      if (!prependAnchorFrame.current) return;
-      window.cancelAnimationFrame(prependAnchorFrame.current);
-      prependAnchorFrame.current = 0;
-    };
-  }, [markProgrammaticScroll, rows, shouldAnchorBottom, viewport]);
-
-  useEffect(() => {
-    const root = viewport.current;
-    if (!root || shouldAnchorBottom) {
-      readingAnchor.current = null;
-      return undefined;
-    }
-    const capture = () => {
-      const view = root.getBoundingClientRect();
-      const candidates = [...root.querySelectorAll<HTMLElement>("[data-timeline-key]")]
-        .map((element) => ({ element, rect: element.getBoundingClientRect() }))
-        .filter((item) => item.rect.bottom > view.top && item.rect.top < view.bottom)
-        .sort((a, b) => a.rect.top - b.rect.top);
-      const top = candidates[0];
-      const key = top?.element.dataset.timelineKey;
-      if (!top || !key) return;
-      readingAnchor.current = {
-        key,
-        offset: top.rect.top - view.top,
-      };
-    };
-    capture();
-    root.addEventListener("scroll", capture, { passive: true });
-    return () => root.removeEventListener("scroll", capture);
-  }, [shouldAnchorBottom, sessionKey, viewport]);
-
   useEffect(() => {
     const root = viewport.current;
     if (!root) return undefined;
     let selecting = false;
     let seed: SelectionEndpoint | null = null;
+    let restoring = false;
+    let seedPoint: SelectionPoint | null = null;
+    let seedY = 0;
+    let lastGood: { anchor: SelectionPoint; focus: SelectionPoint } | null = null;
+    let lastPointer = { x: 0, y: 0 };
     const endpointForNode = (node: Node | null): SelectionEndpoint | null => {
       const element = node instanceof Element ? node : node?.parentElement;
       const row = element?.closest<HTMLElement>(".transcript-virtual-row");
@@ -543,15 +510,92 @@ export function TranscriptList({
       const key = rowsRef.current[index]?.key;
       return Number.isInteger(index) && key !== undefined ? { key, index } : null;
     };
+    const markSelecting = (active: boolean) => {
+      if (active) document.documentElement.dataset.transcriptSelecting = "true";
+      else delete document.documentElement.dataset.transcriptSelecting;
+    };
+    const rowElement = (index: number) =>
+      root.querySelector<HTMLElement>(`.transcript-virtual-row[data-index="${index}"]`);
+    const pointerOverTranscriptRow = () => {
+      const el = document.elementFromPoint(lastPointer.x, lastPointer.y);
+      const row = el instanceof Element ? el.closest(".transcript-virtual-row") : null;
+      return Boolean(row && root.contains(row));
+    };
+    const rememberGood = (selection: Selection) => {
+      if (!selection.anchorNode || !selection.focusNode) return;
+      if (!root.contains(selection.anchorNode) || !root.contains(selection.focusNode)) return;
+      if (selection.isCollapsed) return;
+      lastGood = {
+        anchor: { node: selection.anchorNode, offset: selection.anchorOffset },
+        focus: { node: selection.focusNode, offset: selection.focusOffset },
+      };
+    };
+    const applyRange = (anchor: SelectionPoint, focus: SelectionPoint) => {
+      const selection = window.getSelection();
+      if (!selection) return;
+      if (selection.anchorNode === anchor.node && selection.anchorOffset === anchor.offset
+        && selection.focusNode === focus.node && selection.focusOffset === focus.offset) {
+        return;
+      }
+      restoring = true;
+      try {
+        selection.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset);
+      } catch {
+        restoring = false;
+      }
+    };
+    const clampOutside = () => {
+      if (!selecting || !seed) return;
+      if (lastGood && root.contains(lastGood.anchor.node) && root.contains(lastGood.focus.node)) {
+        applyRange(lastGood.anchor, lastGood.focus);
+        return;
+      }
+      const goingDown = lastPointer.y >= seedY;
+      const pin = selectionPinned.current;
+      const otherIndex = pin
+        ? (goingDown
+          ? Math.max(seed.index, pin.focus.index, pin.anchor.index)
+          : Math.min(seed.index, pin.focus.index, pin.anchor.index))
+        : seed.index;
+      const seedRow = rowElement(seed.index);
+      const otherRow = rowElement(otherIndex) ?? seedRow;
+      const start = seedPoint && root.contains(seedPoint.node)
+        ? seedPoint
+        : (seedRow ? (goingDown ? firstTextPoint(seedRow) : lastTextPoint(seedRow)) : null);
+      const end = otherRow
+        ? (goingDown ? lastTextPoint(otherRow) : firstTextPoint(otherRow))
+        : null;
+      if (start && end) applyRange(start, end);
+    };
+    const selectionCrossedSeed = (
+      anchor: SelectionEndpoint | null,
+      focus: SelectionEndpoint | null,
+    ) => {
+      if (!seed || !anchor || !focus) return false;
+      const goingDown = lastPointer.y >= seedY;
+      const lo = Math.min(anchor.index, focus.index);
+      const hi = Math.max(anchor.index, focus.index);
+      return goingDown ? lo < seed.index : hi > seed.index;
+    };
     const syncSelectionPin = () => {
+      if (restoring) {
+        restoring = false;
+        return;
+      }
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
         if (!selecting) setSelectionPin(null);
+        else if (!pointerOverTranscriptRow()) clampOutside();
         return;
       }
       const anchor = endpointForNode(selection.anchorNode);
       const focus = endpointForNode(selection.focusNode);
+      if (selecting && (selectionCrossedSeed(anchor, focus) || !pointerOverTranscriptRow())) {
+        clampOutside();
+        return;
+      }
       if (anchor && focus) {
+        rememberGood(selection);
         setSelectionPin({ anchor, focus });
         return;
       }
@@ -559,7 +603,7 @@ export function TranscriptList({
       // viewport. Preserve the last in-transcript boundary until it re-enters.
       const inside = anchor ?? focus;
       if (selecting && seed && inside) setSelectionPin({ anchor: seed, focus: inside });
-      else if (!anchor && !focus) setSelectionPin(null);
+      else if (!selecting && !anchor && !focus) setSelectionPin(null);
     };
     const handlePointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
@@ -567,39 +611,64 @@ export function TranscriptList({
       if (!endpoint) {
         selecting = false;
         seed = null;
+        seedPoint = null;
+        seedY = 0;
+        lastGood = null;
+        markSelecting(false);
         return;
       }
       selecting = true;
       seed = endpoint;
+      seedY = event.clientY;
+      lastPointer = { x: event.clientX, y: event.clientY };
+      seedPoint = caretPointFromPointer(event.clientX, event.clientY);
+      lastGood = null;
+      markSelecting(true);
       // Seed synchronously, before native autoscroll can move the first row
       // outside the virtual range.
       setSelectionPin({ anchor: endpoint, focus: endpoint });
+    };
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!selecting) return;
+      lastPointer = { x: event.clientX, y: event.clientY };
+      if (!pointerOverTranscriptRow()) clampOutside();
+    };
+    const handleSelectStart = (event: Event) => {
+      if (!selecting) return;
+      const target = event.target as Node | null;
+      if (target && !root.contains(target)) event.preventDefault();
     };
     const finishSelection = () => {
       if (!selecting) return;
       syncSelectionPin();
       selecting = false;
       seed = null;
+      seedPoint = null;
+      seedY = 0;
+      lastGood = null;
+      markSelecting(false);
       if (window.getSelection()?.isCollapsed !== false) setSelectionPin(null);
     };
     root.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("pointermove", handlePointerMove, true);
+    document.addEventListener("selectstart", handleSelectStart, true);
     document.addEventListener("selectionchange", syncSelectionPin);
     document.addEventListener("pointerup", finishSelection, true);
     document.addEventListener("pointercancel", finishSelection, true);
     return () => {
       root.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("pointermove", handlePointerMove, true);
+      document.removeEventListener("selectstart", handleSelectStart, true);
       document.removeEventListener("selectionchange", syncSelectionPin);
       document.removeEventListener("pointerup", finishSelection, true);
       document.removeEventListener("pointercancel", finishSelection, true);
+      markSelecting(false);
       selectionPinned.current = null;
     };
   }, [sessionKey, setSelectionPin, viewport]);
 
   useEffect(() => () => {
     if (resizePinFrame.current) window.cancelAnimationFrame(resizePinFrame.current);
-    if (overscanFrame.current) window.cancelAnimationFrame(overscanFrame.current);
-    if (bottomAnchorFrame.current) window.cancelAnimationFrame(bottomAnchorFrame.current);
-    if (prependAnchorFrame.current) window.cancelAnimationFrame(prependAnchorFrame.current);
     if (resizeFlushFrame.current) window.cancelAnimationFrame(resizeFlushFrame.current);
   }, []);
 

@@ -546,6 +546,7 @@ export async function createMixdogSessionRuntime({
   const prewarmTimers = {
     codeGraphPrewarmTimer: null,
     channelStartTimer: null,
+    searchRuntimeWarmupTimer: null,
   };
   const prewarmState = {
     codeGraphPrewarmInFlight: false,
@@ -786,6 +787,10 @@ export async function createMixdogSessionRuntime({
     rootDir: STANDALONE_ROOT,
     dataDir: cfgMod.getPluginData(),
     cwd,
+    // A daemon session shard can outlive the process that originally spawned
+    // the daemon. Bind channel liveness to this runtime host, never that stale
+    // inherited supervisor PID.
+    leadPid: process.pid,
     onNotify: (msg) => {
       // Single-holder remote: the worker reports it lost the bridge seat to a
       // newer remote session. Drop remote mode entirely on this session (no
@@ -1210,6 +1215,7 @@ export async function createMixdogSessionRuntime({
     scheduleStatuslineUsageRefresh,
     scheduleCodeGraphPrewarm,
     scheduleToolRuntimeWarmup,
+    scheduleSearchRuntimeWarmup,
     invokeChannelStart,
     scheduleChannelStart,
     refreshRouteEffort,
@@ -1637,6 +1643,7 @@ export async function createMixdogSessionRuntime({
     setLastAppendedAssistant: (v) => { rt._lastAppendedAssistant = v; },
     scheduleCodeGraphPrewarm,
     scheduleToolRuntimeWarmup,
+    scheduleSearchRuntimeWarmup,
     refreshSessionForCwdIfNeeded,
     createCurrentSession,
     ensureSessionTranscriptWriter,

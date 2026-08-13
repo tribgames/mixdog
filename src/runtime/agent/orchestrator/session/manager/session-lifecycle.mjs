@@ -38,6 +38,7 @@ import {
     IMPLICIT_APPROVAL_MODE,
     workflowContextForApprovalMode,
 } from '../approval-mode.mjs';
+import { describeShellStartupPolicy } from '../../tools/builtin/runtime-capabilities.mjs';
 
 function buildSessionProviderCacheOpts(providerName, sessionId, agent = null) {
     // Keep this in sync with createSession's provider-cache policy: only
@@ -204,8 +205,8 @@ export function createSession(opts) {
     // loader is available.
     const skills = (opts.skipSkills || hiddenAgent) ? [] : collectPromptSkillsCached(opts.cwd);
 
-    // BP1 is shared tool policy (+ compact skill manifest in compose). BP2 is
-    // role/system rules. Automation prompts ride as normal user context.
+    // BP1 is shared tool policy. BP2 holds persistent profile/tool catalogs;
+    // BP3 holds workflow/role and session/project environment.
     const agentRulesProfile = isRetrievalAgent ? 'retrieval' : 'full';
     const skipAgentRules = opts.skipAgentRules === true;
     // BP1 shared tool policy ships to EVERY role (Lead, workers, retrieval,
@@ -270,7 +271,37 @@ export function createSession(opts) {
         toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, toolPermission, resolvedAgent);
     }
 
-    const { baseRules, stableSystemContext, sessionMarker, volatileTail } = composeSystemPrompt({
+    const workflowMeta = opts.workflow && typeof opts.workflow === 'object' && String(opts.workflow.id || '').trim()
+        ? {
+            id: String(opts.workflow.id || '').trim(),
+            name: String(opts.workflow.name || opts.workflow.id || '').trim(),
+            description: String(opts.workflow.description || '').trim(),
+            source: String(opts.workflow.source || '').trim(),
+        }
+        : null;
+    const hasCallerAllow = Array.isArray(opts.schemaAllowedTools);
+    const tools = finalizeSessionToolList(toolsForRouting, {
+        schemaAllowedTools: hasCallerAllow ? opts.schemaAllowedTools : null,
+        disallowedTools: [
+            ...(Array.isArray(opts.disallowedTools) ? opts.disallowedTools : []),
+            ...(hiddenAgent ? ['Skill'] : []),
+            ...(!ownerIsAgent && workflowDisallowsAgentTool(opts.workflow) ? ['agent'] : []),
+        ],
+        ownerIsAgent,
+        resolvedAgent,
+    });
+    // Preserve the exact pre-layout environment payload: Lead carried the
+    // shell preference in Profile Preferences, while any routing surface with
+    // shell carried the startup capability line in BP1.
+    const shellEnvironmentContext = [
+        !ownerIsAgent
+            ? `- Shell: ${process.platform === 'win32' ? 'PowerShell' : 'Bash'}. Use ${process.platform === 'win32' ? 'PowerShell' : 'Bash'} syntax unless the user specifies otherwise.`
+            : '',
+        toolsForRouting.some((tool) => tool?.name === 'shell')
+            ? describeShellStartupPolicy()
+            : '',
+    ].filter(Boolean).join('\n');
+    const { baseRules, stableSystemContext, sessionMarkerCore, sessionMarker, volatileTail } = composeSystemPrompt({
         userPrompt: opts.systemPrompt,
         agentRules: injectedRules || undefined,
         roleRules: roleRules || undefined,
@@ -279,24 +310,17 @@ export function createSession(opts) {
         profile: profile || undefined,
         agent: resolvedAgent,
         workflowContext: workflowContextForApprovalMode(opts.workflowContext, opts.approvalMode),
-        workspaceContext: opts.workspaceContext || null,
         coreMemoryContext: opts.coreMemoryContext || null,
         skillManifest: buildSkillManifest(skills),
-        tools: toolsForRouting,
-        bashIsPersistent: ownerIsAgent && toolsForRouting.some(t => t?.name === 'shell'),
-        // Effective cwd rides in tier3Reminder so locator tools know
-        // their search root without needing to shove "Override cwd:" into
-        // the user message body (that used to fragment the shard prefix).
-        cwd: opts.cwd || null,
+        environmentContext: shellEnvironmentContext,
         provider: providerName || null,
     });
     // 4-BP layout (see composeSystemPrompt docs):
-    //   system block #1 = baseRules — BP1 (1h) shared tool policy + skills
-    //   system block #2 = stableSystemContext — BP2 (1h) role/system rules
-    //   system block #3 = sessionMarker — BP3 (1h) memory/meta + Profile
-    //     Preferences (language/name). It rides as a real `system` block so
-    //     locale/name directives are pinned firmly and do not drift to English
-    //     after a few turns the way a `user <system-reminder>` reminder did.
+    //   system block #1 = baseRules — BP1 (1h) shared tool policy
+    //   system block #2 = stableSystemContext — BP2 (1h) profile + skills +
+    //     deferred/MCP catalog
+    //   system block #3 = sessionMarker — BP3 (1h) workflow/role + memory +
+    //     session/project environment
     //   later normal messages        = BP4/tail (task, role data, tool history)
     // Anthropic multi-block system pins each block with cache_control (BP3 is
     // the 3rd system block and carries the tier3 1h marker). OpenAI/xAI get
@@ -326,18 +350,6 @@ export function createSession(opts) {
         messages.push({ role: 'user', content: `Reference files:\n\n${fileContext}` });
         messages.push({ role: 'assistant', content: '.' });
     }
-    const hasCallerAllow = Array.isArray(opts.schemaAllowedTools);
-    const tools = finalizeSessionToolList(toolsForRouting, {
-        schemaAllowedTools: hasCallerAllow ? opts.schemaAllowedTools : null,
-        disallowedTools: [
-            ...(Array.isArray(opts.disallowedTools) ? opts.disallowedTools : []),
-            ...(hiddenAgent ? ['Skill'] : []),
-            ...(!ownerIsAgent && workflowDisallowsAgentTool(opts.workflow) ? ['agent'] : []),
-        ],
-        ownerIsAgent,
-        resolvedAgent,
-    });
-
     // Unified-shard policy — no broad role-specific schema filter. Keep
     // agent schemas shared unless a hidden-role schema profile explicitly
     // passes schemaAllowedTools for a small specialist; broad role
@@ -346,14 +358,6 @@ export function createSession(opts) {
         process.stderr.write(`[session] agent=${resolvedAgent} permission=${permission || 'full'} toolPermission=${toolPermission || 'full'} tools=${tools.length}\n`);
     }
     const contextMeta = resolveSessionContextMeta(provider, modelName);
-    const workflowMeta = opts.workflow && typeof opts.workflow === 'object' && String(opts.workflow.id || '').trim()
-        ? {
-            id: String(opts.workflow.id || '').trim(),
-            name: String(opts.workflow.name || opts.workflow.id || '').trim(),
-            description: String(opts.workflow.description || '').trim(),
-            source: String(opts.workflow.source || '').trim(),
-        }
-        : null;
     const session = {
         id,
         provider: providerName,
@@ -377,6 +381,9 @@ export function createSession(opts) {
         fast,
         agent: opts.agent,
         owner: opts.owner || 'user',
+        bp3CoreContext: sessionMarkerCore,
+        bp3EnvironmentContext: shellEnvironmentContext,
+        sessionStartMetaInjected: false,
         ...(opts.approvalMode === IMPLICIT_APPROVAL_MODE
             ? { approvalMode: IMPLICIT_APPROVAL_MODE }
             : {}),

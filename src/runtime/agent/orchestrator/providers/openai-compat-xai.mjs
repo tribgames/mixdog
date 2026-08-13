@@ -122,10 +122,9 @@ export function xaiResponsesCacheRouting(opts, params, rawTools, model) {
 
 export function normalizeXaiReasoningEffort(value) {
     const effort = String(value || '').trim().toLowerCase();
-    // Grok 4.5 accepts low/medium/high. Omit unsupported values (notably
-    // `none`) to retain xAI's authoritative model default rather than sending
-    // a value the API rejects.
-    return ['low', 'medium', 'high'].includes(effort) ? effort : null;
+    // Grok 4.5: low/medium/high. Grok 4.6 adds xhigh (4.5 remaps xhigh→high).
+    // Omit unsupported values (notably `none`) so xAI keeps its model default.
+    return ['low', 'medium', 'high', 'xhigh'].includes(effort) ? effort : null;
 }
 
 function opencodeGoReasoningEffortValues(modelInfo) {

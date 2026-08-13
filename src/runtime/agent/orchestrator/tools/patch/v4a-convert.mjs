@@ -444,6 +444,79 @@ function uniqueExactSequenceStart(sourceLines, pattern) {
   return found;
 }
 
+function trimLeadingWs(value) {
+  return String(value ?? '').replace(/^[\t ]*/, '');
+}
+
+// Observed (tool-failures): same text, wrong leading indent. Accept only a
+// unique whole-window trim-start match so `});` cannot land on a guess.
+function findIndentNormalizedWindow(sourceLines, oldLines) {
+  const n = (oldLines || []).length;
+  if (n === 0) return null;
+  const starts = [];
+  for (let i = 0; i + n <= sourceLines.length; i++) {
+    let ok = true;
+    let changed = false;
+    for (let k = 0; k < n; k++) {
+      const pat = String(oldLines[k] ?? '');
+      const src = String(sourceLines[i + k] ?? '');
+      if (trimLeadingWs(pat) !== trimLeadingWs(src)) {
+        ok = false;
+        break;
+      }
+      if (pat !== src) changed = true;
+    }
+    if (ok && changed) starts.push(i);
+  }
+  return starts.length === 1 ? { start: starts[0] } : null;
+}
+
+// A leading '-' or '+' on a source line was eaten as the hunk opcode
+// (`- Plan` parsed as delete of ` Plan`). Restore when the dashed form is
+// the unique window. Mixed hunks keep that line (it was context); delete-only
+// hunks still delete the dashed file line.
+function restoreOpcodePrefixWindow(sourceLines, hunk) {
+  const stats = v4AHunkLineStats(hunk);
+  const oldLines = stats.oldLines;
+  if (!oldLines.length) return null;
+  const starts = [];
+  for (let i = 0; i + oldLines.length <= sourceLines.length; i++) {
+    let ok = true;
+    for (let k = 0; k < oldLines.length; k++) {
+      const src = sourceLines[i + k];
+      const pat = oldLines[k];
+      if (src !== pat && src !== `-${pat}` && src !== `+${pat}`) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) starts.push(i);
+  }
+  if (starts.length !== 1) return null;
+  const start = starts[0];
+  const restoredOld = oldLines.map((_, k) => sourceLines[start + k]);
+  if (!restoredOld.some((src, k) => src !== oldLines[k])) return null;
+  const hadPlus = (hunk.lines || []).some((line) => line[0] === '+');
+  const restoredNew = [];
+  let oldIdx = 0;
+  for (const raw of hunk.lines || []) {
+    if (!raw) continue;
+    const tag = raw[0];
+    const body = raw.slice(1);
+    if (tag === ' ') {
+      restoredNew.push(restoredOld[oldIdx]);
+      oldIdx += 1;
+    } else if (tag === '-') {
+      const restored = restoredOld[oldIdx];
+      if (hadPlus && restored !== body) restoredNew.push(restored);
+      oldIdx += 1;
+    } else if (tag === '+') {
+      restoredNew.push(body);
+    }
+  }
+  return { start, oldLines: restoredOld, newLines: restoredNew };
+}
+
 function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {}) {
   const stats = v4AHunkLineStats(hunk);
   if (stats.oldCount === 0 && stats.newCount === 0) return { skip: true };
@@ -552,6 +625,34 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
     }
   }
   if (oldStartIdx < 0 && fuzzy && oldLinesPattern.length > 0) {
+    const restored = restoreOpcodePrefixWindow(sourceLines, hunk);
+    if (restored) {
+      oldStartIdx = restored.start;
+      oldLinesPattern = restored.oldLines;
+      newLinesPattern = restored.newLines;
+      if (eof) eofSignalIgnored = true;
+    }
+  }
+  if (oldStartIdx < 0 && fuzzy && oldLinesPattern.length > 0) {
+    const indent = findIndentNormalizedWindow(sourceLines, oldLinesPattern);
+    if (indent) {
+      const remapped = new Map();
+      let ambiguous = false;
+      for (let k = 0; k < oldLinesPattern.length; k++) {
+        const pat = oldLinesPattern[k];
+        const src = sourceLines[indent.start + k];
+        if (remapped.has(pat) && remapped.get(pat) !== src) { ambiguous = true; break; }
+        remapped.set(pat, src);
+      }
+      if (!ambiguous) {
+        newLinesPattern = newLinesPattern.map((line) => remapped.get(line) ?? line);
+        oldLinesPattern = oldLinesPattern.map((_, k) => sourceLines[indent.start + k]);
+        oldStartIdx = indent.start;
+        if (eof) eofSignalIgnored = true;
+      }
+    }
+  }
+  if (oldStartIdx < 0 && fuzzy && oldLinesPattern.length > 0) {
     if (eof) eofSignalIgnored = true;
     const from = Math.max(0, anchorLine - 1);
     const alt = findLineSequenceEscapeEquiv(sourceLines, oldLinesPattern, from, from);
@@ -635,6 +736,23 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
         oldLinesPattern = oldLinesPattern.map((_, k) => sourceLines[near.start + k]);
         oldStartIdx = near.start;
       }
+    }
+  }
+  // Fuzzy locate can accept indent/trim-equivalent lines, then emit the
+  // patch's context bytes. Remap to the file so native apply stays exact.
+  if (oldStartIdx >= 0 && oldLinesPattern.length > 0) {
+    const remapped = new Map();
+    let ambiguous = false;
+    for (let k = 0; k < oldLinesPattern.length; k++) {
+      const pat = oldLinesPattern[k];
+      const src = sourceLines[oldStartIdx + k];
+      if (pat === src) continue;
+      if (remapped.has(pat) && remapped.get(pat) !== src) { ambiguous = true; break; }
+      remapped.set(pat, src);
+    }
+    if (!ambiguous && remapped.size > 0) {
+      newLinesPattern = newLinesPattern.map((line) => remapped.get(line) ?? line);
+      oldLinesPattern = oldLinesPattern.map((_, k) => sourceLines[oldStartIdx + k]);
     }
   }
   if (oldStartIdx < 0) {

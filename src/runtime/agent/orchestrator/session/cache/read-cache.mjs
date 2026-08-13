@@ -2,7 +2,6 @@
 // Scoped per sessionId; write-class tools explicitly invalidate touched paths.
 import { _normalizeAbs, _statTuple, _statEqual } from './util.mjs';
 import { clearScopedToolsForSession, clearScopedCounters } from './scoped-cache.mjs';
-import { clearPostEditMarks } from './post-edit-marks.mjs';
 import { registerSessionPurgeHook } from '../store.mjs';
 import { releaseReadSnapshotScope } from '../../tools/builtin/snapshot-store.mjs';
 
@@ -251,13 +250,12 @@ export function invalidatePathForSession(sessionId, path, cwd) {
 
 /**
  * Drop everything for a session. Called when the session closes.
- * Also clears scoped cache, counters, and post-edit marks for the session.
+ * Also clears scoped cache and counters for the session.
  */
 export function clearReadDedupSession(sessionId) {
     if (!sessionId) return;
     _bySession.delete(sessionId);
     _reverseIdx.delete(sessionId);
-    clearPostEditMarks(sessionId);
     clearScopedToolsForSession(sessionId);
     clearScopedCounters(sessionId);
 }

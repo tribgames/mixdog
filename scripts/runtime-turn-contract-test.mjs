@@ -5,10 +5,23 @@ import { runAbortable } from '../src/runtime/shared/abort-race.mjs';
 import { SessionClosedError } from '../src/runtime/agent/orchestrator/session/manager/session-errors.mjs';
 import { acquireSessionLock } from '../src/runtime/agent/orchestrator/session/manager/session-lock.mjs';
 import { settleAskCleanup } from '../src/runtime/agent/orchestrator/session/manager/ask-session.mjs';
+import { shouldRecreateEmptySessionForRouteChange } from '../src/session-runtime/model-route-api.mjs';
 import { createSessionTurnApi } from '../src/session-runtime/session-turn-api.mjs';
+
+const advisoryTest = process.env.MIXDOG_TEST_ADVISORY === '1' ? test : test.skip;
 
 const failAfter = (ms, message) => new Promise((_, reject) => {
   setTimeout(() => reject(new Error(message)), ms);
+});
+
+advisoryTest('an explicitly addressed route change preserves an empty session id', () => {
+  const empty = { id: 'reserved-session', messages: [], liveTurnMessages: [] };
+  assert.equal(shouldRecreateEmptySessionForRouteChange(empty, true), false);
+  assert.equal(shouldRecreateEmptySessionForRouteChange(empty, false), true);
+  assert.equal(shouldRecreateEmptySessionForRouteChange({
+    ...empty,
+    messages: [{ role: 'user', content: 'already started' }],
+  }, false), false);
 });
 
 function makeTurnHarness({

@@ -100,6 +100,7 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
     const contextWindow = Number(row.contextWindow);
     const releaseDate = typeof row.releaseDate === 'string' ? row.releaseDate.trim() : '';
     const family = typeof row.family === 'string' ? row.family.trim() : '';
+    const description = typeof row.description === 'string' ? row.description.trim() : '';
     const savedEffort = typeof row.savedEffort === 'string' &&
       effortOptions.some((option) => option.value === row.savedEffort)
       ? row.savedEffort
@@ -114,6 +115,7 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
       ...(Number.isFinite(contextWindow) && contextWindow > 0 ? { contextWindow } : {}),
       ...(family ? { family } : {}),
       ...(row.latest === true ? { latest: true } : {}),
+      ...(description ? { description } : {}),
       effortOptions,
       fastCapable,
       fastPreferred: fastCapable && (row.fastPreferred === true || row.savedFast === true),

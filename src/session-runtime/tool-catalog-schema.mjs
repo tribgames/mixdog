@@ -2,7 +2,7 @@
 import { clean, LATE_TOOL_ANNOUNCEMENT_SENTINEL } from './session-text.mjs';
 import { estimateToolSchemaTokens, toolSchemaSignature } from '../runtime/agent/orchestrator/session/context-utils.mjs';
 import {
-  applyInitialDeferredToolManifestToBp1,
+  applyInitialDeferredToolManifestToBp2,
   buildDeferredToolManifest,
   stripDeferredToolManifestBlock,
 } from '../runtime/agent/orchestrator/context/collect.mjs';

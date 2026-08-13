@@ -147,9 +147,28 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   const installer = await readFile(new URL('../../build/installer.nsh', import.meta.url), 'utf8');
   const progressDriver = await readFile(new URL('../../build/progress-driver.ps1', import.meta.url), 'utf8');
   const iconGenerator = await readFile(new URL('../../scripts/generate-brand-icons.mjs', import.meta.url), 'utf8');
+  const devUpdate = await readFile(new URL('../../scripts/dev-update-windows.ps1', import.meta.url), 'utf8');
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
   assert.match(builder, /protocols:\s+name:\s*Mixdog\s+schemes:\s+-\s*mixdog/);
   assert.match(packageJson.scripts['build:win'], /electron-builder --win --x64 --publish never$/);
+  assert.match(packageJson.scripts['update:dev'], /dev-update-windows\.ps1 -ViaUpdater$/);
+  assert.match(packageJson.scripts['update:dev:fast'], /dev-update-windows\.ps1 -FastDirect$/);
+  assert.match(packageJson.scripts['update:dev:reinstall'], /dev-update-windows\.ps1$/);
+  assert.match(packageJson.scripts['update:dev:plan'], /dev-update-windows\.ps1 -ViaUpdater -DryRun$/);
+  assert.match(devUpdate, /electron-builder --dir --win --x64 --publish never/);
+  assert.match(devUpdate, /fast deploy failed; restoring the previous installation/);
+  assert.match(devUpdate, /FastDirectWorker/);
+  assert.match(devUpdate, /Invoke-CimMethod -ClassName Win32_Process -MethodName Create/);
+  assert.match(devUpdate, /-WindowStyle Hidden/);
+  assert.match(devUpdate, /function Start-DetachedMixdogApp/);
+  assert.match(devUpdate, /explorer\.exe/);
+  assert.match(devUpdate, /function Install-LocalTokenAddon/);
+  assert.match(devUpdate, /build-token-addon\.mjs'\) --build --release/);
+  assert.match(devUpdate, /mixdog-token-\$version\.node/);
+  assert.match(devUpdate, /Wait-ForFreshDaemon[\s\S]*DetachedRelaunch/);
+  assert.match(devUpdate, /fast deploy handed to detached worker/);
+  assert.match(devUpdate, /Stop-InstalledMixdogProcess/);
+  assert.match(devUpdate, /Leaving the\s+# installation directory itself in place/);
   assert.match(builder, /oneClick:\s*true/);
   assert.match(builder, /perMachine:\s*false/);
   assert.match(builder, /createDesktopShortcut:\s*always/);
@@ -182,6 +201,8 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   assert.match(progressDriver, /SetLayeredWindowAttributes\(\$installer,\s*0,\s*255,\s*2\)/);
   assert.match(progressDriver, /GetProp\(\$progress,\s*'MixdogProgressComplete'\)/);
   assert.doesNotMatch(progressDriver, /System\.Windows\.Forms|CreateWindowEx|SetParent/);
+  assert.match(devUpdate, /function Wait-ForVisibleAppWindow[\s\S]*MainWindowHandle/);
+  assert.match(devUpdate, /activating the installed app window[\s\S]*Wait-ForVisibleAppWindow -TimeoutSeconds 30/);
   await assert.rejects(
     access(new URL('../../build/progress-overlay.ps1', import.meta.url)),
     (error) => error?.code === 'ENOENT',
