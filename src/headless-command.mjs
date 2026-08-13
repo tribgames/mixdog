@@ -1,7 +1,7 @@
 const VALUE_OPTIONS = new Set(['--provider', '--model', '--effort', '--workflow']);
 const FLAG_OPTIONS = new Set([
   '--readonly', '--help', '-h', '--plain', '--react', '--remote', '--onboarding', '--fast',
-  '--web-search', '--memory',
+  '--web-search', '--memory', '--json',
 ]);
 const EXEC_UNSUPPORTED_FLAGS = new Set([
   '--readonly', '--remote', '--onboarding', '--web-search', '--memory',
@@ -101,6 +101,7 @@ export function classifyCliInvocation(argv = []) {
     fast: argv.includes('--fast'),
     webSearch: argv.includes('--web-search'),
     memory: argv.includes('--memory'),
+    json: argv.includes('--json'),
     toolMode: argv.includes('--readonly') ? 'readonly' : 'full',
     remote: argv.includes('--remote'),
     forceOnboarding: argv.includes('--onboarding'),
@@ -129,6 +130,13 @@ export function classifyCliInvocation(argv = []) {
       };
     }
     return { kind: 'exec', exec, options, skipHostPrelude: true };
+  }
+  if (argv.includes('--json')) {
+    return {
+      kind: 'error',
+      error: 'option --json is only supported for mixdog exec',
+      skipHostPrelude: true,
+    };
   }
   return { kind: 'general', options };
 }

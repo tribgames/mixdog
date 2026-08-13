@@ -163,7 +163,13 @@ host behavioral config and personal state out of the run:
 ```bash
 mixdog exec --provider anthropic-oauth --model claude-opus-5 "fix the failing test"
 mixdog exec --provider openai-oauth --model gpt-5.6-sol --effort xhigh --fast "review the current diff"
+mixdog exec --provider openai-oauth --model gpt-5.6-sol --json "fix the failing test"
 ```
+
+`--json` emits timestamped JSONL. The stream contains thread/turn lifecycle,
+provider request timing, reasoning and assistant messages, tool start/completion
+with arguments/output/duration, background notifications, final usage, and a
+terminal success/error result. Without `--json`, stdout remains final text only.
 
 ## TUI basics
 
