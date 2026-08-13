@@ -1,5 +1,26 @@
 {
   "version": "0.1.0",
-  "_comment": "Bootstrap marker. The spawn-v0.1.0 release must replace this empty asset set before an application release can pass its native asset gate.",
-  "assets": {}
+  "_comment": "Synced from immutable spawn-v release assets.",
+  "assets": {
+    "darwin-arm64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.0/mixdog-spawn-darwin-arm64",
+      "sha256": "b2d62caaf1d22571b3caf163ca191293a41c87d1e8ded7607ff0ff6a065611ac"
+    },
+    "darwin-x64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.0/mixdog-spawn-darwin-x64",
+      "sha256": "6afc058b34f7e66e79b5801f65d4ac7d6b16255567bf40d4eab3f61b9e3e9fde"
+    },
+    "linux-arm64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.0/mixdog-spawn-linux-arm64",
+      "sha256": "d2ff41711e3308b77c066b541626ba0954508d89e3dd9d764ef4f5bcce6b6b18"
+    },
+    "linux-x64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.0/mixdog-spawn-linux-x64",
+      "sha256": "a974829899e3dccdeeeabdc208ad02ea8e93a36364b1cbd53ba02a6080ccab03"
+    },
+    "win32-x64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.0/mixdog-spawn-win32-x64.exe",
+      "sha256": "6820e7e10990ad45808d33a85ceb9643d9d582fbff02e9e65fe902b36ca13813"
+    }
+  }
 }
