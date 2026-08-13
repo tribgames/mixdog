@@ -137,7 +137,7 @@ export const BUILTIN_TOOLS = [
                     ],
                     description: 'Glob filter.',
                 },
-                mode: { type: 'string', enum: ['content', 'files', 'count'], description: 'content default; files/count for existence.' },
+                mode: { type: 'string', enum: ['content', 'files', 'count'], description: 'content default; files lists matching paths; count totals all patterns together per file.' },
                 limit: { type: 'number', minimum: 0, description: 'Max results; default 250; 0 unlimited.' },
                 offset: { type: 'number', minimum: 0, description: 'Result offset.' },
                 context: { type: 'number', minimum: 0, description: 'Omit for automatic context; 0 for matches only.' },

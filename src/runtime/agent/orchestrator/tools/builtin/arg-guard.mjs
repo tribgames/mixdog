@@ -872,15 +872,7 @@ function guardCodeGraph(a) {
         a.files = Array.isArray(a.files) ? [...a.file, ...a.files] : a.file;
         delete a.file;
     }
-    const hasFiles = (Array.isArray(a.files) && a.files.some((v) => String(v || '').trim()))
-        || (typeof a.files === 'string' && a.files.trim())
-        || (typeof a.file === 'string' && a.file.trim());
-    const hasSymbols = (Array.isArray(a.symbols) && a.symbols.some((v) => String(v || '').trim()))
-        || (typeof a.symbols === 'string' && a.symbols.trim())
-        || (typeof a.symbol === 'string' && a.symbol.trim());
-    if (mode === 'symbols' && hasFiles && hasSymbols) {
-        a.mode = 'find_symbol';
-    } else if (['overview', 'imports', 'dependents', 'related', 'impact', 'symbols'].includes(mode)) {
+    if (['overview', 'imports', 'dependents', 'related', 'impact'].includes(mode)) {
         delete a.symbol;
         delete a.symbols;
     }

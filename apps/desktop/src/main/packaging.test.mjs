@@ -105,13 +105,13 @@ test('production desktop uses only the packaged daemon service adapter', async (
   assert.match(main, /moduleUrl\.searchParams\.set\('build', artifact\)/);
   assert.doesNotMatch(vite, /engine-worker/);
   assert.doesNotMatch(vite, /terminal-worker/);
-  assert.doesNotMatch(main, /startRemoteBridge|startRemoteRelay|rotateRemoteToken|rotateRemoteDevice/);
+  assert.doesNotMatch(main, /startRemoteRelay|rotatePairingToken|rotateRemoteDevice/);
   assert.doesNotMatch(
     main.slice(main.indexOf('registerDesktopIpc('), main.indexOf("diagnostics?.write('window-created'")),
     /\bsettingsStore\b/,
     'product IPC settings use the daemon operation service',
   );
-  assert.match(service, /startRemoteBridge/);
+  assert.doesNotMatch(service, /startRemoteBridge|resolveRemoteBridgePort|remoteBridge/);
   assert.match(service, /startRemoteRelay/);
   assert.doesNotMatch(ipc, /import \* as .* from ['"]electron['"]/);
   assert.doesNotMatch(ipc, /from ['"]\.\/window-options['"];/);

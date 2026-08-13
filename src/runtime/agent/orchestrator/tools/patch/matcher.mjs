@@ -345,10 +345,20 @@ export function normalizeTypographic(s) {
 }
 
 export function splitTextLinesForPatch(text) {
-  const body = String(text ?? '').replace(/\r\n/g, '\n');
+  const raw = String(text ?? '');
+  let lf = 0;
+  let crlf = 0;
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] !== '\n') continue;
+    lf++;
+    if (i > 0 && raw[i - 1] === '\r') crlf++;
+  }
+  const eol = lf > 0 && crlf * 2 >= lf ? '\r\n' : '\n';
+  const body = raw.replace(/\r\n/g, '\n');
   if (body.length === 0) {
     const empty = [];
     empty.hasFinalNewline = true;
+    empty.eol = eol;
     return empty;
   }
   const lines = body.split('\n');
@@ -356,6 +366,7 @@ export function splitTextLinesForPatch(text) {
   if (lines[lines.length - 1] === '') lines.pop();
   else hasFinalNewline = false;
   lines.hasFinalNewline = hasFinalNewline;
+  lines.eol = eol;
   return lines;
 }
 
@@ -463,7 +474,8 @@ export function findLineSequence(lines, needle, fromLine, preferredLine = 0, opt
     : [
       (a, b) => a === b,
     ];
-  for (const eq of tiers) {
+  for (let tierIdx = 0; tierIdx < tiers.length; tierIdx++) {
+    const eq = tiers[tierIdx];
     const starts = [];
     for (let i = minStart; i <= lines.length - needle.length; i++) {
       let ok = true;
@@ -472,6 +484,10 @@ export function findLineSequence(lines, needle, fromLine, preferredLine = 0, opt
       }
       if (ok) starts.push(i);
     }
+    if (!starts.length) continue;
+    // Exact (tier 0) keeps V4A first-match. Fuzzy whitespace/typo tiers only
+    // accept a UNIQUE window so `});` cannot land on a guess.
+    if (tierIdx > 0 && starts.length !== 1) continue;
     if (starts.length) {
       starts.sort((a, b) => Math.abs(a - preferred) - Math.abs(b - preferred) || a - b);
       return starts[0];
@@ -549,10 +565,7 @@ export function findLineSequenceEscapeEquiv(sourceLines, pattern, minStart, pref
     }
     if (usedEquiv) starts.push(i);
   }
-  if (starts.length === 0) return -1;
-  const pref = Number.isFinite(preferred) && preferred >= 0 ? preferred : 0;
-  starts.sort((a, b) => Math.abs(a - pref) - Math.abs(b - pref) || a - b);
-  return starts[0];
+  return starts.length === 1 ? starts[0] : -1;
 }
 
 export function firstMeaningfulPatchLine(lines) {

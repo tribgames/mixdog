@@ -12,10 +12,8 @@ import type {
 
 import { randomUUID } from 'node:crypto';
 import {
-  mkdir as fsMkdir,
   readFile as fsReadFile,
   stat as fsStat,
-  writeFile as fsWriteFile,
 } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import {
@@ -58,6 +56,13 @@ import {
 } from '../shared/contract';
 import { localFileMimeTypeForPath } from '../shared/local-files';
 import { requiredSessionId } from './desktop-state';
+import { readSecretFile, writeSecretFile } from './secret-file';
+import {
+  MAX_SELECTED_FILE_GRANTS,
+  parseSelectedFileGrants,
+  selectedFileGrantKey,
+  serializeSelectedFileGrants,
+} from './selected-file-grants';
 import type { TerminalSpawnProfile } from './terminal-contract';
 import type { DesktopService } from './desktop-service-contract';
 import { registerFilePreview } from './file-preview';
@@ -819,13 +824,17 @@ export function registerDesktopIpc(
     selectedFileGrantsLoaded = true;
     if (!selectedFileGrantStore) return;
     try {
-      const rows = JSON.parse(await fsReadFile(selectedFileGrantStore, 'utf8')) as unknown;
-      if (!Array.isArray(rows)) return;
-      for (const row of rows.slice(-100)) {
-        if (!row || typeof row !== 'object') continue;
-        const token = String((row as Record<string, unknown>).token || '');
-        const file = String((row as Record<string, unknown>).file || '');
-        if (token && pathIsAbsolute(file)) selectedFileGrants.set(token, resolvePath(file));
+      const parsed = parseSelectedFileGrants(
+        await readSecretFile(selectedFileGrantStore) ?? '[]',
+      );
+      for (const [tokenHash, file] of parsed.grants) {
+        selectedFileGrants.set(tokenHash, file);
+      }
+      if (parsed.migrated) {
+        await writeSecretFile(
+          selectedFileGrantStore,
+          serializeSelectedFileGrants(selectedFileGrants),
+        );
       }
     } catch {
       // No grant store yet, or a corrupt convenience file: start empty.
@@ -833,10 +842,10 @@ export function registerDesktopIpc(
   };
   const persistSelectedFileGrants = async (): Promise<void> => {
     if (!selectedFileGrantStore) return;
-    const rows = [...selectedFileGrants.entries()].slice(-100)
-      .map(([token, file]) => ({ token, file }));
-    await fsMkdir(pathDirname(selectedFileGrantStore), { recursive: true });
-    await fsWriteFile(selectedFileGrantStore, JSON.stringify(rows), 'utf8');
+    await writeSecretFile(
+      selectedFileGrantStore,
+      serializeSelectedFileGrants(selectedFileGrants),
+    );
   };
   const describeLocalPaths = async (value: unknown): Promise<DesktopLocalPathEntry[]> => {
     if (!Array.isArray(value) || value.length === 0 || value.length > 100) {
@@ -871,7 +880,7 @@ export function registerDesktopIpc(
           row.relPath = pathRelative(owner.root, absolutePath).replace(/\\/g, '/');
         } else {
           const accessToken = randomUUID();
-          selectedFileGrants.set(accessToken, absolutePath);
+          selectedFileGrants.set(selectedFileGrantKey(accessToken), absolutePath);
           row.projectPath = pathDirname(absolutePath);
           row.relPath = pathBasename(absolutePath);
           row.accessToken = accessToken;
@@ -880,7 +889,7 @@ export function registerDesktopIpc(
       }
       rows.push(row);
     }
-    while (selectedFileGrants.size > 100) {
+    while (selectedFileGrants.size > MAX_SELECTED_FILE_GRANTS) {
       const oldest = selectedFileGrants.keys().next().value;
       if (!oldest) break;
       selectedFileGrants.delete(oldest);
@@ -896,7 +905,7 @@ export function registerDesktopIpc(
   ): Promise<{ root: string; rel: string; absolute: string }> => {
     await loadSelectedFileGrants();
     const token = requiredString(accessToken, 'file access token', 128);
-    const granted = selectedFileGrants.get(token);
+    const granted = selectedFileGrants.get(selectedFileGrantKey(token));
     if (!granted) throw new Error('The selected-file permission is unavailable.');
     const requested = resolvePath(
       requiredString(projectPath, 'projectPath'),

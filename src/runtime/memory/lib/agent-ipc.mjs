@@ -8,8 +8,8 @@
  */
 import http from 'node:http'
 import { readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
+import { resolveRuntimeRoot } from '../../shared/runtime-root.mjs'
 
 const brokerAgent = new http.Agent({
   keepAlive: true,
@@ -24,9 +24,7 @@ function nextCallId() {
 }
 
 function runtimeRoot() {
-  return process.env.MIXDOG_RUNTIME_ROOT
-    ? resolve(process.env.MIXDOG_RUNTIME_ROOT)
-    : join(tmpdir(), 'mixdog')
+  return resolveRuntimeRoot()
 }
 
 function isPidAlive(value) {

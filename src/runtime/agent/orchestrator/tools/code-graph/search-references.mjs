@@ -23,6 +23,7 @@ import {
   _toByteColumn,
   _byteColToCharCol,
   _nearestEnclosingSymbol,
+  _symbolPathForPosition,
 } from './text-columns.mjs';
 import {
   _keywordSymbolSortKey,
@@ -205,7 +206,8 @@ export function _findSymbolAcrossGraph(graph, symbol, cwd, { language = null, li
       ? '# best declaration candidate (GRAPH TRUNCATED — may not be canonical; re-run with a narrower cwd to confirm)'
       : '# best declaration candidate');
     const multi = declCount > 1 ? `, declarations=${declCount}` : '';
-    lines.push(`${_formatSymbolHitLocation(primary)} (${primary.lang}, matches=${primary.matchCount}${multi})`);
+    const namePath = primary.namePath ? `, path=${primary.namePath}` : '';
+    lines.push(`${_formatSymbolHitLocation(primary)} (${primary.lang}, matches=${primary.matchCount}${multi}${namePath})`);
     let bodyEmitted = false;
     if (body === true && Number.isFinite(Number(primary.line))) {
       const node = graph.nodes.get(primary.rel);
@@ -251,7 +253,8 @@ export function _findSymbolAcrossGraph(graph, symbol, cwd, { language = null, li
   lines.push(...topHits.map((hit, idx) => {
     const kind = hit.declarationLike ? 'decl' : 'ref';
     const suffix = hit.content ? ` — ${hit.content.slice(0, 100)}` : '';
-    return `${idx + 1}. ${_formatSymbolHitLocation(hit)} [${kind}, ${hit.lang}, matches=${hit.matchCount}]${suffix}`;
+    const namePath = hit.namePath ? ` path=${hit.namePath}` : '';
+    return `${idx + 1}. ${_formatSymbolHitLocation(hit)} [${kind}, ${hit.lang}, matches=${hit.matchCount}]${namePath}${suffix}`;
   }));
   if (declCount === 0 && hits.length > 0) {
     lines.push('');
@@ -326,14 +329,29 @@ function _collectCallerEntries(graph, symbol, referenceText) {
     }
     const _encByteCol = _toByteColumn(sourceLines[entry.line - 1] || '', entry.col);
     const enclosing = _nearestEnclosingSymbol(node, sourceText, entry.line, _encByteCol);
+    const owner = _symbolPathForPosition(node, sourceText, entry.line, _encByteCol);
     detailed.push({
       ...entry,
       kind,
-      caller: kind === 'call' ? (enclosing?.name || '') : '',
+      caller: kind === 'call' ? (owner || enclosing?.name || '') : '',
+      owner,
       lineText: line,
     });
   }
   return detailed;
+}
+
+export function _formatReferenceDetails(graph, symbol, referenceText, { limit = 200 } = {}) {
+  const detailed = _collectCallerEntries(graph, symbol, referenceText)
+    .filter((entry) => entry.kind !== 'declaration' && entry.kind !== 'import');
+  if (!detailed.length) return '(no references)';
+  const shown = detailed.slice(0, limit);
+  const rows = shown.map((entry) => {
+    const owner = entry.owner ? `\towner=${entry.owner}` : '';
+    return `${entry.file}:${entry.line}:${entry.col}\t${entry.kind}${owner}\t${entry.lineText.slice(0, 80)}`;
+  });
+  if (detailed.length > shown.length) rows.push(`... +${detailed.length - shown.length} more references`);
+  return rows.join('\n');
 }
 
 export function _formatCallerReferences(graph, symbol, referenceText, { limit = 200 } = {}) {

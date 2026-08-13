@@ -1,13 +1,11 @@
 import { readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { execFileSync } from "child_process";
-import { tmpdir } from "os";
-import { basename, join, resolve } from "path";
+import { basename, join } from "path";
 import { ensureDir, readJsonFile, removeFileIfExists, writeJsonFile } from "./state-file.mjs";
 import { updateJsonAtomicSync, withFileLockSync } from "../../shared/atomic-file.mjs";
 import { resolvePluginData, mixdogRoot } from "../../shared/plugin-paths.mjs";
-const RUNTIME_ROOT = process.env.MIXDOG_RUNTIME_ROOT
-  ? resolve(process.env.MIXDOG_RUNTIME_ROOT)
-  : join(tmpdir(), "mixdog");
+import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from "../../shared/runtime-root.mjs";
+const RUNTIME_ROOT = resolveRuntimeRoot();
 const OWNER_DIR = join(RUNTIME_ROOT, "owners");
 const ACTIVE_INSTANCE_FILE = join(RUNTIME_ROOT, "active-instance.json");
 const RUNTIME_STALE_TTL = 24 * 60 * 60 * 1e3;
@@ -25,7 +23,7 @@ function forEachFile(dirPath, visit) {
   }
 }
 function ensureRuntimeDirs() {
-  ensureDir(RUNTIME_ROOT);
+  ensurePrivateRuntimeRoot(RUNTIME_ROOT);
   ensureDir(OWNER_DIR);
 }
 function makeInstanceId(pid = process.pid) {

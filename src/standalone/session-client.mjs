@@ -25,11 +25,10 @@ import {
   SESSION_READ_ACTION_SET,
 } from './session-protocol.mjs';
 import { readSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
+import { resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 
 function runtimeRoot() {
-  return process.env.MIXDOG_RUNTIME_ROOT
-    ? path.resolve(process.env.MIXDOG_RUNTIME_ROOT)
-    : path.join(os.tmpdir(), 'mixdog');
+  return resolveRuntimeRoot();
 }
 
 export function sessionDiscoveryPath() {
@@ -272,6 +271,7 @@ function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000 }) {
           ...process.env,
           ELECTRON_RUN_AS_NODE: '1',
           MIXDOG_DAEMON_HOST: '1',
+          MIXDOG_RUNTIME_ROOT: runtimeRoot(),
           // Session-only spawn: the daemon stays dormant on the channels side
           // until a channels client registers.
           MIXDOG_DAEMON_SPAWNED_FOR: 'session',

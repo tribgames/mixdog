@@ -23,13 +23,13 @@ import {
   renameSync, statSync, mkdirSync,
 }                                             from 'node:fs';
 import { join, resolve }                      from 'node:path';
-import { tmpdir }                             from 'node:os';
 import {
   discoveryPath as _pgDiscoveryPath,
   readServiceAdvert as _readPgServiceAdvert,
   writeServiceAdvert as _writePgServiceAdvert,
 } from '../../../shared/service-discovery.mjs';
 import { withFileLockSync } from '../../../shared/atomic-file.mjs';
+import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../../../shared/runtime-root.mjs';
 
 // ── pg-process interface (Track A) ───────────────────────────────────────────
 // Dynamic import so this module loads even before Track A's file exists.
@@ -176,12 +176,10 @@ function rotateLogIfNeeded(logPath) {
 
 // ── active-instance.json patch ───────────────────────────────────────────────
 // Atomic read-modify-write using the same tmp+rename pattern as server.mjs.
-// Lives in MIXDOG_RUNTIME_ROOT or os.tmpdir()/mixdog/
+// Lives in the configured or per-user runtime root
 // (see src/channels/lib/runtime-paths.mjs).
 
-const _RUNTIME_ROOT = process.env.MIXDOG_RUNTIME_ROOT
-  ? resolve(process.env.MIXDOG_RUNTIME_ROOT)
-  : join(tmpdir(), 'mixdog');
+const _RUNTIME_ROOT = resolveRuntimeRoot();
 const _ACTIVE_FILE = join(_RUNTIME_ROOT, 'active-instance.json');
 // Single-writer PG advert. Port discovery (pg_port et al.) moved OUT of the
 // shared, lock-guarded active-instance.json into discovery/pg.json, written by
@@ -224,6 +222,7 @@ function _applyActiveInstancePatch(fields, timeoutMs) {
   // lost cross-process updates. Guard it with pg.json's OWN private lock —
   // supervisor-only contention, so it never recreates the shared
   // active-instance.json bottleneck (memory.json stays lock-free).
+  ensurePrivateRuntimeRoot(_RUNTIME_ROOT);
   const file = _pgDiscoveryPath(_PG_DISCOVERY);
   withFileLockSync(`${file}.lock`, () => {
     const cur = _readPgServiceAdvert(_PG_DISCOVERY) ?? {};
@@ -258,6 +257,7 @@ function _applyActiveInstancePatch(fields, timeoutMs) {
 // DIFFERENT live owner has since taken it. It touches only pg_owner_pid — never
 // rewriting other fields from the stale snapshot.
 function _restampReuseOwner({ pgdata, port }) {
+  ensurePrivateRuntimeRoot(_RUNTIME_ROOT);
   const file = _pgDiscoveryPath(_PG_DISCOVERY);
   try {
     withFileLockSync(`${file}.lock`, () => {

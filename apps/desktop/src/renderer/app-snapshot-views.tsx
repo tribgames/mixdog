@@ -36,6 +36,8 @@ import {
   conversationSwitchPaintGate,
   nextConversationCoverId,
   conversationPresentedSessionId,
+  nextConversationOriginSessionId,
+  conversationMarkdownPending,
 } from "./first-submit-stability";
 import { readTranscriptVirtualSnapshot } from "./transcript-virtual-cache";
 import { ContextUsageIndicator, LiveWorkStatus, TranscriptRow } from "./TranscriptView";
@@ -154,14 +156,18 @@ export const PaneConversation = memo(function PaneConversation({
     desktopConversationShellSnapshotsEqual,
     !hidden,
   );
-  const markdownPending = transcriptPending
-    && !readTranscriptVirtualSnapshot(sessionId)?.measurements?.length;
+  const coverIdRef = useRef(sessionId || "draft");
+  const originSessionRef = useRef(sessionId || "");
+  const markdownPending = conversationMarkdownPending({
+    transcriptPending,
+    coverId: coverIdRef.current,
+    hasMeasurements: Boolean(readTranscriptVirtualSnapshot(sessionId)?.measurements?.length),
+  });
   useLayoutEffect(() => {
     // Fill a cold lane once. A session that already has rows is skipped
     // inside requestSessionPeek; a focused resume already filled its target.
     if (sessionId && reconcileOnMount) requestSessionPeek(sessionId);
   }, [reconcileOnMount, sessionId]);
-  const coverIdRef = useRef(sessionId || "draft");
   const laneReady = hidden || !sessionId || (!markdownPending && lane !== null);
   const { coverKey, promotingFromDraft } = conversationCoverIdentity(
     coverIdRef.current,
@@ -169,7 +175,16 @@ export const PaneConversation = memo(function PaneConversation({
     laneReady,
   );
   useLayoutEffect(() => {
-    coverIdRef.current = nextConversationCoverId(coverIdRef.current, sessionId, laneReady);
+    originSessionRef.current = nextConversationOriginSessionId(
+      originSessionRef.current,
+      sessionId,
+    );
+    coverIdRef.current = nextConversationCoverId(
+      coverIdRef.current,
+      sessionId,
+      laneReady,
+      originSessionRef.current,
+    );
   }, [laneReady, sessionId]);
   // A first-prompt promotion already painted this conversation as New Task.
   // Changing the cover key (or waiting on a one-frame-late lane) replayed
@@ -215,9 +230,9 @@ export const PaneConversation = memo(function PaneConversation({
   // cover up until the incoming lane exists and one frame has committed it.
   const surfaceReady = paintGate.reveal;
   const showingIncoming = presentedSessionId === sessionId;
-  const timelinePending = showingIncoming && (
+  const timelinePending = showingIncoming && !promotingFromDraft && (
     markdownPending
-    || Boolean(sessionId && !hidden && lane === null && !promotingFromDraft)
+    || Boolean(sessionId && !hidden && lane === null)
   );
   const bootKey = sessionId || "new-task";
   // Chromium may discard the raster for a layout-retained Markdown subtree

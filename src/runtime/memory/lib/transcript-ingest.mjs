@@ -11,11 +11,20 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { normalizeIngestRole, sessionMessageContentForIngest, shouldExcludeIngestMessage } from './session-ingest.mjs'
 
-// Pure: coerce a transcript timestamp (seconds, ms, or ISO string) to ms.
-export function parseTsToMs(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) return value < 1e12 ? value * 1000 : value
+// Pure: coerce a transcript timestamp (seconds, ms, or ISO string) to ms and
+// preserve whether it came from the source or was synthesized at collection.
+export function parseTsWithSource(value, fallbackMs = Date.now()) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return { tsMs: value < 1e12 ? value * 1000 : value, timeSource: 'recorded' }
+  }
   const parsed = Date.parse(String(value))
-  return Number.isFinite(parsed) ? parsed : Date.now()
+  return Number.isFinite(parsed)
+    ? { tsMs: parsed, timeSource: 'recorded' }
+    : { tsMs: fallbackMs, timeSource: 'collected' }
+}
+
+export function parseTsToMs(value) {
+  return parseTsWithSource(value).tsMs
 }
 
 // Pure: extract cwd from the transcript file's JSONL rows. Mixdog embeds the
@@ -212,16 +221,16 @@ export function createTranscriptIngest({
         lastGoodLineIndex = index
         continue
       }
-      const tsMs = parseTsToMs(parsed.timestamp ?? parsed.ts ?? Date.now())
+      const { tsMs, timeSource } = parseTsWithSource(parsed.timestamp ?? parsed.ts)
       const sourceRef = generation > 0
         ? `transcript:${sessionUuid}#${index}@g${generation}`
         : `transcript:${sessionUuid}#${index}`
       try {
         const result = await db.query(
-          `INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+          `INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT DO NOTHING`,
-          [tsMs, role, cleaned, sourceRef, sessionUuid, index, projectId]
+          [tsMs, role, cleaned, sourceRef, sessionUuid, index, projectId, timeSource]
         )
         if (Number(result.rowCount ?? result.affectedRows ?? 0) > 0) count += 1
         lastGoodBytes += consumedBytes

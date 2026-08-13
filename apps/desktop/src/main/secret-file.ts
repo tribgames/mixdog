@@ -2,10 +2,12 @@
 // device identity). Both grant full remote control, so every read clamps the
 // mode of installs created before the hardening and every write lands at 0600
 // instead of the writer default.
+import { randomUUID } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import { dirname } from 'node:path';
 
 const SECRET_FILE_MODE = 0o600;
+const secretWrites = new Map<string, Promise<void>>();
 
 async function clamp(path: string): Promise<void> {
   // Windows ignores POSIX bits (userData already inherits a user-scoped ACL),
@@ -24,9 +26,39 @@ export async function readSecretFile(path: string): Promise<string | null> {
   }
 }
 
-/** Create the parent directory and write owner-only. */
-export async function writeSecretFile(path: string, data: string): Promise<void> {
-  await fsp.mkdir(dirname(path), { recursive: true });
-  await fsp.writeFile(path, data, { encoding: 'utf8', mode: SECRET_FILE_MODE });
-  await clamp(path);
+async function writeSecretFileAtomic(path: string, data: string): Promise<void> {
+  const directory = dirname(path);
+  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  let handle: Awaited<ReturnType<typeof fsp.open>> | null = null;
+  await fsp.mkdir(directory, { recursive: true });
+  try {
+    handle = await fsp.open(temporary, 'wx', SECRET_FILE_MODE);
+    await handle.writeFile(data, { encoding: 'utf8' });
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await fsp.rename(temporary, path);
+    await clamp(path);
+    // Persist the directory entry where supported; Windows rejects directory
+    // handles, but the atomic rename still preserves the previous file there.
+    const directoryHandle = await fsp.open(directory, 'r').catch(() => null);
+    if (directoryHandle) {
+      await directoryHandle.sync().catch(() => {});
+      await directoryHandle.close().catch(() => {});
+    }
+  } catch (error) {
+    await handle?.close().catch(() => {});
+    await fsp.rm(temporary, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+/** Create the parent directory and atomically replace with an owner-only file. */
+export function writeSecretFile(path: string, data: string): Promise<void> {
+  const previous = secretWrites.get(path) ?? Promise.resolve();
+  const pending = previous.catch(() => {}).then(() => writeSecretFileAtomic(path, data));
+  secretWrites.set(path, pending);
+  return pending.finally(() => {
+    if (secretWrites.get(path) === pending) secretWrites.delete(path);
+  });
 }

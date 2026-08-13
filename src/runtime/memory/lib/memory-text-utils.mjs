@@ -10,21 +10,58 @@ const MEMORY_TOKEN_STOPWORDS = new Set([
   'your', 'unless', 'with',
   'user', 'assistant', 'requested', 'request', 'asked', 'ask', 'stated', 'state', 'reported', 'report',
   'mentioned', 'mention', 'clarified', 'clarify', 'explicitly', 'currently',
-  '\uC0AC\uC6A9\uC790', '\uC720\uC800', '\uC694\uCCAD', '\uC9C8\uBB38', '\uB2F5\uBCC0', '\uC5B8\uAE09', '\uB9D0\uC500', '\uC124\uBA85', '\uBCF4\uACE0', '\uBB34\uC2A8', '\uBB50\uC57C', '\uD588\uC9C0', 'user', 'asks', 'asked', 'request', 'requested', 'question', 'answer', 'reply', 'said', 'mentioned', 'explained', 'reported', 'what', 'huh',
+  'asks', 'question', 'answer', 'reply', 'said', 'explained', 'huh',
 ])
 
-function normalizeMemoryToken(token) {
-  let normalized = String(token ?? '').trim().toLowerCase()
-  if (!normalized) return ''
+const MIXED_SCRIPT_KOREAN_PARTICLES = [
+  '으로부터', '에게서', '한테서', '께서는', '에서는', '으로는', '에게는', '한테는',
+  '께서', '에서', '으로', '에게', '한테', '처럼', '보다', '부터', '까지',
+  '은', '는', '이', '가', '을', '를', '에', '로', '와', '과', '의', '도', '만',
+]
 
-  // Korean suffix stripping: basic particles + compound endings
-  if (/[\uAC00-\uD7AF]/.test(normalized) && normalized.length > 2) {
-    const stripped = normalized
-      .replace(/(\uD588\uC5C8\uC9C0|\uD588\uB354\uB77C|\uB410\uC5C8\uB098|\uB410\uB358\uAC00|\uD588\uB294\uC9C0|\uC600\uB294\uC9C0|\uC778\uAC74\uAC00|\uD558\uB824\uBA74|\uC5D0\uC11C\uB294|\uC774\uB77C\uC11C|\uC600\uB354\uB77C|\uC5D0\uC11C\uB3C4|\uC774\uC5C8\uC9C0|\uC73C\uB85C\uB3C4|\uAC70\uC600\uC9C0|\uD55C\uAC74\uC9C0|\uC774\uC5C8\uB098)$/u, '')
-      .replace(/(\uD588\uB358|\uD588\uC9C0|\uB410\uB358|\uB410\uC9C0|\uD558\uAC8C|\uB418\uB358|\uC774\uB77C|\uC5D0\uC11C|\uC73C\uB85C|\uD558\uB294|\uC5C6\uB294|\uC788\uB294|\uC5C8\uB358|\uD558\uC790|\uC54A\uAC8C|\uD560\uB54C|\uC778\uC9C0|\uC778\uB370|\uC778\uAC74|\uC774\uACE0|\uBCF4\uB2E4|\uCC98\uB7FC|\uAE4C\uC9C0|\uBD80\uD130|\uB9C8\uB2E4|\uBC16\uC5D0|\uC5C6\uC774)$/u, '')
-      .replace(/(\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uB791|\uACFC|\uC640|\uB3C4|\uC5D0|\uC758|\uB85C|\uB9CC|\uBA70|\uB098|\uACE0|\uC11C|\uC790|\uC694)$/u, '')
-    if (stripped.length >= 2) normalized = stripped
+function hangulFinalConsonantIndex(text) {
+  const point = String(text ?? '').codePointAt(String(text ?? '').length - 1)
+  if (!Number.isFinite(point) || point < 0xAC00 || point > 0xD7A3) return null
+  return (point - 0xAC00) % 28
+}
+
+function stripFallbackKoreanParticle(token) {
+  const value = String(token ?? '').trim()
+  if (!value) return ''
+
+  const mixed = value.match(/^([a-z0-9_./:-]{2,})([\p{Script=Hangul}]+)$/iu)
+  if (mixed && MIXED_SCRIPT_KOREAN_PARTICLES.includes(mixed[2])) return mixed[1]
+  if (!/^[\p{Script=Hangul}]+$/u.test(value)) return value
+
+  for (const suffix of ['으로부터', '에게서', '한테서', '께서는', '에서는', '에게는', '한테는', '께서', '에서', '에게', '한테', '부터', '까지']) {
+    const stem = value.slice(0, -suffix.length)
+    if (stem.length >= 2 && value.endsWith(suffix)) return stem
   }
+
+  const pairs = [
+    ['으로', (jong) => jong !== 0 && jong !== 8],
+    ['은', (jong) => jong !== 0],
+    ['는', (jong) => jong === 0],
+    ['이', (jong) => jong !== 0],
+    ['가', (jong) => jong === 0],
+    ['을', (jong) => jong !== 0],
+    ['를', (jong) => jong === 0],
+    ['과', (jong) => jong !== 0],
+    ['와', (jong) => jong === 0],
+  ]
+  for (const [suffix, accepts] of pairs) {
+    if (!value.endsWith(suffix)) continue
+    const stem = value.slice(0, -suffix.length)
+    if (stem.length < 2) continue
+    const jong = hangulFinalConsonantIndex(stem)
+    if (jong != null && accepts(jong)) return stem
+  }
+  return value
+}
+
+function normalizeMemoryToken(token) {
+  let normalized = stripFallbackKoreanParticle(String(token ?? '').trim().toLowerCase())
+  if (!normalized) return ''
 
   if (/^[a-z][a-z0-9_-]+$/i.test(normalized)) {
     if (normalized.length > 5 && normalized.endsWith('ing')) normalized = normalized.slice(0, -3)
@@ -36,27 +73,73 @@ function normalizeMemoryToken(token) {
   return normalized
 }
 
-function tokenizeMemoryText(text) {
+function rawRecallTokens(text) {
   return cleanMemoryText(text)
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}_]+/u)
+    .match(/-{0,2}[\p{L}\p{N}_][\p{L}\p{N}_./:-]*/gu) || []
+}
+
+function isIdentifierToken(token) {
+  return /[_./:-]/u.test(token)
+    || /\p{N}/u.test(token)
+    || /^[A-Z][A-Z0-9_-]{1,}$/u.test(token)
+}
+
+function isEntityConcept(token) {
+  return !/\p{Script=Hangul}/u.test(token)
+    || isIdentifierToken(token)
+}
+
+function isConceptCompound(token, concepts) {
+  const normalized = normalizeMemoryToken(token)
+  if (!normalized) return false
+  const parts = concepts.map(normalizeMemoryToken).filter(Boolean)
+  for (let start = 0; start < parts.length; start += 1) {
+    let joined = ''
+    for (let index = start; index < parts.length; index += 1) {
+      joined += parts[index]
+      if (joined === normalized) return index > start
+      if (!normalized.startsWith(joined)) break
+    }
+  }
+  return false
+}
+
+export function mergeRecallConceptTokens(text, conceptTokens, limit = 24) {
+  const cap = Math.max(1, Math.min(64, Math.floor(Number(limit) || 24)))
+  const raw = rawRecallTokens(text)
+  const concepts = Array.isArray(conceptTokens)
+    ? conceptTokens.map((token) => String(token ?? '').trim()).filter(Boolean)
+    : []
+  const entityConcepts = concepts.filter(isEntityConcept)
+  const useEntityConcepts = entityConcepts.some(isIdentifierToken) || entityConcepts.length > 1
+  const source = concepts.length > 0
+    ? [
+        ...raw.filter(token => isIdentifierToken(token) || isConceptCompound(token, concepts)),
+        ...(useEntityConcepts ? entityConcepts : concepts),
+      ]
+    : raw
+  return [...new Set(source
     .map(token => normalizeMemoryToken(token))
-    .filter(token => token.length >= 2)
-    .filter(token => !MEMORY_TOKEN_STOPWORDS.has(token))
-    .slice(0, 24)
+    .filter(token => token.length >= 2 || /^\d$/u.test(token))
+    .filter(token => !MEMORY_TOKEN_STOPWORDS.has(token)))]
+    .slice(0, cap)
+}
+
+export function tokenizeRecallQuery(text, limit = 24) {
+  return mergeRecallConceptTokens(text, koMorphStems(text), limit)
 }
 
 export function buildFtsQuery(text) {
-  const tokens = tokenizeMemoryText(text)
+  const tokens = tokenizeRecallQuery(text)
   if (tokens.length === 0) return ''
-  // Include 2-char Korean tokens (they carry meaning unlike 2-char English)
-  const ftsTokens = [...new Set(tokens)].filter(t => t.length >= 3 || (t.length === 2 && /[\uAC00-\uD7AF]/.test(t)))
+  const ftsTokens = [...new Set(tokens)].filter((token) => (
+    Array.from(token).length >= 3
+    || (Array.from(token).length >= 2 && /[^\p{ASCII}]/u.test(token))
+  ))
   if (ftsTokens.length === 0) return ''
   // websearch_to_tsquery handles tokenization + OR/AND/quoting itself; pass plain tokens space-joined.
   return ftsTokens.map(t => t.replace(/["']/g, '')).filter(t => t.length > 0).join(' ')
 }
-
-const HANGUL_RE = /[\uAC00-\uD7AF]/
 
 // Sanitize a single lexeme for embedding inside a to_tsquery string. Strips the
 // tsquery operator characters so a raw token can never inject syntax.
@@ -73,28 +156,19 @@ function sanitizeLexeme(t) {
 // Returns { query, prefix:true } on success, or null.
 export function buildFtsPrefixQuery(text) {
   if (!koMorphReady()) return null
-  const tokens = tokenizeMemoryText(text)
+  const tokens = tokenizeRecallQuery(text)
   if (tokens.length === 0) return null
-  const ftsTokens = [...new Set(tokens)].filter(t => t.length >= 3 || (t.length === 2 && HANGUL_RE.test(t)))
+  const ftsTokens = [...new Set(tokens)].filter((token) => (
+    Array.from(token).length >= 3
+    || (Array.from(token).length >= 2 && /[^\p{ASCII}]/u.test(token))
+  ))
   if (ftsTokens.length === 0) return null
 
   const lexemes = []
   const seen = new Set()
   for (const tok of ftsTokens) {
-    if (HANGUL_RE.test(tok)) {
-      // Analyze against the ORIGINAL token (pre suffix-strip) so Kiwi sees the
-      // real inflection; normalizeMemoryToken already ran, so also feed the
-      // stripped form — union of both keeps recall high.
-      const st = koMorphStems(tok)
-      const forms = (st && st.length > 0) ? st : [tok]
-      for (const f of forms) {
-        const lex = sanitizeLexeme(f)
-        if (lex.length >= 1 && !seen.has(lex)) { seen.add(lex); lexemes.push(lex) }
-      }
-    } else {
-      const lex = sanitizeLexeme(tok)
-      if (lex.length >= 1 && !seen.has(lex)) { seen.add(lex); lexemes.push(lex) }
-    }
+    const lex = sanitizeLexeme(tok)
+    if (lex.length >= 1 && !seen.has(lex)) { seen.add(lex); lexemes.push(lex) }
   }
   if (lexemes.length === 0) return null
   const query = lexemes.map(l => `${l}:*`).join(' & ')

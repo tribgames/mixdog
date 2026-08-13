@@ -46,6 +46,7 @@ import {
   _prewarmSourceTextNodes,
   _prewarmReferenceSourceText,
   _cheapReferenceSearch,
+  _formatReferenceDetails,
   _formatCallerReferences,
   _formatTransitiveCallers,
   _augmentNoHitDiagnostic,
@@ -102,6 +103,17 @@ function _collectGraphSymbolList(args) {
     ...(typeof args?.symbol === 'string' ? split(args.symbol) : []),
   ])];
   return list;
+}
+
+function _filterSymbolOutline(outline, args) {
+  const keywords = _collectGraphSymbolList(args);
+  if (!keywords.length) return outline;
+  const needles = keywords.map((keyword) => keyword.toLowerCase());
+  const lines = String(outline || '').split('\n')
+    .filter((line) => needles.some((needle) => line.toLowerCase().includes(needle)));
+  return lines.length
+    ? lines.join('\n')
+    : `(no symbols matching ${keywords.map((keyword) => JSON.stringify(keyword)).join(', ')})`;
 }
 
 const _AGGREGATE_FILE_WILDCARD_RE = /[*?[\]{}]/;
@@ -306,7 +318,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
       if (signal?.aborted) throw new Error('aborted');
       try {
         const text = await readFile(abs, { encoding: 'utf8', signal: signal || undefined });
-        return _extractSymbolsCheap(text, lang);
+        return _filterSymbolOutline(_extractSymbolsCheap(text, lang), args);
       } catch (error) {
         if (signal?.aborted) throw new Error('aborted');
         if (error?.code !== 'ENOENT' && error?.code !== 'EISDIR') throw error;
@@ -340,7 +352,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
 
   if (mode === 'overview') {
     if (rel && !node) return _appendSameBasenameHint(`Error: code_graph overview: file not found in graph: ${normFile}`, normFile, graph);
-    if (node) return _buildExplainerFileSummary(node, graph, cwd);
+    if (node) return _buildExplainerFileSummary(node, graph, cwd, { depth: args?.depth });
     const byLang = new Map();
     for (const node of graph.nodes.values()) {
       byLang.set(node.lang, (byLang.get(node.lang) || 0) + 1);
@@ -504,7 +516,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     await _prewarmSourceTextNodes(graph, [node], { signal });
     const cached = graph._sourceTextCache?.get(node.rel);
     return cached && cached.fingerprint === (node.fingerprint || '')
-      ? _extractSymbolsCheap(cached.text, node.lang)
+      ? _filterSymbolOutline(_extractSymbolsCheap(cached.text, node.lang), args)
       : '(no symbols)';
   }
 
@@ -586,7 +598,15 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
       : null;
     const _refNodes = await _prewarmReferenceSourceText(graph, symbol, lang, { signal });
     const refResult = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, limit: userLimit, fileRel: rel, scopeRelPrefix, nodes: _refNodes });
-    return narrowedByCaller ? refResult : _augmentNoHitDiagnostic(refResult, '(no references)', graph, cwd, symbol);
+    const detailedReferences = _formatReferenceDetails(graph, symbol, refResult, userLimit ? { limit: userLimit } : undefined);
+    const references = narrowedByCaller ? detailedReferences : _augmentNoHitDiagnostic(detailedReferences, '(no references)', graph, cwd, symbol);
+    const declaration = _findSymbolAcrossGraph(graph, symbol, cwd, {
+      language: lang,
+      limit: 1,
+      fileRel: rel,
+      body: args?.body === true,
+    });
+    return `# declaration\n${declaration}\n\n# references\n${references}`;
   }
 
   if (mode === 'callers') {

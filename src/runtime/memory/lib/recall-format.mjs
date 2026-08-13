@@ -1,5 +1,7 @@
 import { cleanMemoryText } from './memory.mjs'
 import { formatRecallTimestamp, localTimestampParts } from '../../shared/time-format.mjs'
+import { compareRecallNewestFirst } from './recall-order.mjs'
+import { tokenizeRecallQuery } from './memory-text-utils.mjs'
 
 // Recall query/format helpers extracted verbatim from index.mjs
 // (behavior-preserving). Pure string/date logic plus row rendering.
@@ -102,6 +104,34 @@ export function parsePeriod(period, hasQuery) {
   return null
 }
 
+export function inferRecallPeriod(query) {
+  const text = String(query ?? '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
+  if (!text) return undefined
+
+  const explicitRange = text.match(/\b(\d{4}-\d{2}-\d{2}~\d{4}-\d{2}-\d{2})\b/)
+  if (explicitRange) return explicitRange[1]
+  const explicitDate = text.match(/\b(\d{4}-\d{2}-\d{2})\b/)
+  if (explicitDate) return explicitDate[1]
+
+  if (/(?:지난|저번)\s*주|last\s+week/.test(text)) return 'last_week'
+  if (/이번\s*주|this\s+week/.test(text)) return 'this_week'
+  if (/어제|yesterday/.test(text)) return 'yesterday'
+  if (/오늘|today/.test(text)) return 'today'
+  if (/방금(?:\s*전)?|just\s+now/.test(text)) return '3h'
+
+  const koRelative = text.match(/(?:최근|지난)\s*(\d+)\s*(분|시간|일)(?:\s*(?:동안|이내|전))?/)
+  if (koRelative) {
+    const unit = koRelative[2] === '분' ? 'm' : koRelative[2] === '시간' ? 'h' : 'd'
+    return `${Number(koRelative[1])}${unit}`
+  }
+  const enRelative = text.match(/(?:last|past)\s*(\d+)\s*(minutes?|hours?|days?)/)
+  if (enRelative) {
+    const unit = enRelative[2].startsWith('minute') ? 'm' : enRelative[2].startsWith('hour') ? 'h' : 'd'
+    return `${Number(enRelative[1])}${unit}`
+  }
+  return undefined
+}
+
 export function formatTs(tsMs, options = {}) {
   const n = Number(tsMs)
   if (Number.isFinite(n) && n > 1e12) {
@@ -117,11 +147,12 @@ function formatLocalMinute(tsMs) {
 
 const CORE_RECALL_STOPWORDS = new Set([
   'about', 'after', 'again', 'before', 'check', 'color', 'decision', 'decided',
-  'earlier', 'memory', 'previous', 'routing', 'stored', 'tell', 'what',
+  'earlier', 'memory', 'previous', 'routing', 'stored', 'tell',
 ])
 
 export function coreRecallTerms(query) {
-  return [...new Set(String(query || '').toLowerCase().match(/[\p{L}\p{N}_-]{4,}/gu) || [])]
+  return [...new Set(tokenizeRecallQuery(query, 12))]
+    .filter((term) => Array.from(term).length >= 3 || /[\uAC00-\uD7AF]/u.test(term) || /[_./:-]/.test(term))
     .filter((term) => !CORE_RECALL_STOPWORDS.has(term))
     .slice(0, 8)
 }
@@ -134,9 +165,7 @@ export function normalizeRecallProjectScope(projectScope) {
 }
 
 export function sessionRecallTerms(query) {
-  return [...new Set(String(query || '').toLowerCase().match(/[\p{L}\p{N}_./:-]{2,}/gu) || [])]
-    .filter((term) => !CORE_RECALL_STOPWORDS.has(term))
-    .slice(0, 12)
+  return [...new Set(tokenizeRecallQuery(query, 12))]
 }
 
 export function interleaveRawRows(hybridRows, rawRows) {
@@ -163,6 +192,13 @@ export function renderEntryLines(rows, { recencyOrder = false, pendingMarks = tr
   // this global re-sort a multi-member chunk would emit oldest-first lines and
   // break a strict newest-first contract (bench: recency-today).
   const units = []
+  const timeSourceMark = (row) => {
+    if (row?.time_source === 'collected') return ' [time=collected]'
+    if (row?.time_source == null && /^(?:transcript|session):/i.test(String(row?.source_ref || ''))) {
+      return ' [time=legacy; event-time=unverified]'
+    }
+    return ''
+  }
   // No line-count cap here: the orchestrator enforces a global tool-output KB
   // cap (builtin.mjs tool_output_token_limit), so recall need not self-truncate.
   // recencyOrder still collects every unit first so the ts sort sees the full
@@ -175,7 +211,13 @@ export function renderEntryLines(rows, { recencyOrder = false, pendingMarks = tr
     // id-lookup follow-up can still fetch the full body; never rendered for
     // id-lookup output (those rows never carry _dupStub).
     if (r && r._dupStub) {
-      units.push({ ts: Number(r.ts) || 0, text: `[${formatTs(r.ts)}] (near-duplicate of #${r._dupOf} — collapsed) #${r.id}` })
+      units.push({
+        id: r.id,
+        ts: Number(r.ts) || 0,
+        source_turn: r.source_turn,
+        session_id: r.session_id,
+        text: `[${formatTs(r.ts)}] (near-duplicate of #${r._dupOf} — collapsed)${timeSourceMark(r)} #${r.id}`,
+      })
       continue
     }
     const hasMembers = Array.isArray(r.members) && r.members.length > 0
@@ -187,7 +229,13 @@ export function renderEntryLines(rows, { recencyOrder = false, pendingMarks = tr
         const mTs = formatTs(m.ts)
         const role = m.role === 'user' ? 'u' : m.role === 'assistant' ? 'a' : (m.role || '?')
         const content = cleanMemoryText(String(m.content ?? '')).slice(0, 8000)
-        units.push({ ts: Number(m.ts) || 0, text: `[${mTs}] ${role}: ${content} #${m.id}` })
+        units.push({
+          id: m.id,
+          ts: Number(m.ts) || 0,
+          source_turn: m.source_turn,
+          session_id: m.session_id,
+          text: `[${mTs}] ${role}: ${content}${timeSourceMark(m)} #${m.id}`,
+        })
       }
     } else {
       // No chunks (root not yet chunked by cycle1, or orphan leaf): emit
@@ -209,13 +257,17 @@ export function renderEntryLines(rows, { recencyOrder = false, pendingMarks = tr
       // Unchunked raw leaf (cycle1 hasn't classified it yet): mark it so
       // callers can tell fresh-but-unprocessed rows from chunked memory.
       const pendingMark = pendingMarks && (r.is_root === 0 && r.chunk_root == null) ? ' [pending]' : ''
-      units.push({ ts: Number(r.ts) || 0, text: `[${ts}] ${rolePrefix}${body.slice(0, 8000)}${pendingMark} #${r.id}` })
+      units.push({
+        id: r.id,
+        ts: Number(r.ts) || 0,
+        source_turn: r.source_turn,
+        session_id: r.session_id,
+        text: `[${ts}] ${rolePrefix}${body.slice(0, 8000)}${pendingMark}${timeSourceMark(r)} #${r.id}`,
+      })
     }
   }
   if (recencyOrder) {
-    // Array.sort is stable in V8, so units sharing the same ts keep their
-    // insertion (root/member) order; only cross-unit ts breaks are corrected.
-    units.sort((a, b) => b.ts - a.ts)
+    units.sort(compareRecallNewestFirst)
   }
   return units.map((u) => u.text).join('\n')
 }
@@ -335,6 +387,54 @@ export function compactDigestRows(rows, limit = 30) {
   return collapseNearDuplicateRows(collapseExactDuplicateRows(rows))
     .filter((row) => !row?._dupStub)
     .slice(0, cap)
+}
+
+export function compactHandoffRows(rows, limit = 100) {
+  const cap = Math.max(1, Math.floor(Number(limit) || 100))
+  const deduped = collapseNearDuplicateRows(collapseExactDuplicateRows(Array.isArray(rows) ? rows : []))
+    .filter((row) => !row?._dupStub)
+  const roots = []
+  const raw = []
+  for (const row of deduped) {
+    if (Number(row?.is_root) === 1) {
+      const { members: _members, ...summaryRow } = row
+      roots.push(summaryRow)
+    } else if (row?.chunk_root == null || Number(row.chunk_root) === Number(row.id)) {
+      raw.push(row)
+    }
+  }
+
+  raw.sort((a, b) => (
+    (Number(a?.source_turn) || 0) - (Number(b?.source_turn) || 0)
+    || (Number(a?.ts) || 0) - (Number(b?.ts) || 0)
+    || (Number(a?.id) || 0) - (Number(b?.id) || 0)
+  ))
+  const endpoints = []
+  let userRow = null
+  let assistantRow = null
+  let fallbackRow = null
+  const flushEvent = () => {
+    if (assistantRow || fallbackRow) endpoints.push(assistantRow || fallbackRow)
+    if (userRow) endpoints.push(userRow)
+    userRow = null
+    assistantRow = null
+    fallbackRow = null
+  }
+  for (const row of raw) {
+    if (row?.role === 'user') {
+      flushEvent()
+      userRow = row
+    } else if (row?.role === 'assistant') {
+      assistantRow = row
+    } else {
+      fallbackRow = row
+    }
+  }
+  flushEvent()
+
+  const selected = [...roots, ...endpoints]
+  selected.sort(compareRecallNewestFirst)
+  return compactDigestRows(selected, cap)
 }
 
 // Compact session label for group headers: keep short ids verbatim, shorten

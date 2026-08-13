@@ -1,5 +1,5 @@
 // Hybrid-recall scoring constants and pure helpers, extracted from memory-recall-store.mjs.
-import { buildFtsQuery, buildFtsPrefixQuery } from './memory-text-utils.mjs'
+import { buildFtsQuery, buildFtsPrefixQuery, tokenizeRecallQuery } from './memory-text-utils.mjs'
 import { VALID_CATEGORY, embeddingToSql } from './memory.mjs'
 import { freshnessFactor } from './memory-score.mjs'
 import { buildRecallScopeFilter } from './memory-recall-scope-filter.mjs'
@@ -84,11 +84,7 @@ export const RARE_DF_MAX = 0.34
 // Capped at 12 (mirrors buildExactTerms) so a paragraph-length query can't
 // turn the per-row DF scan into O(tokens × candidateWindow) on display text.
 export function queryTokensLower(query) {
-  const clean = String(query ?? '').replace(/\s+/g, ' ').trim()
-  const toks = (clean.match(/[\p{L}\p{N}_./:-]+/gu) || [])
-    .map(t => t.toLowerCase())
-    .filter(t => Array.from(t).length >= 2)
-  return [...new Set(toks)].slice(0, 12)
+  return [...new Set(tokenizeRecallQuery(query, 12))]
 }
 
 // The text that actually renders as a result LINE for a row: element+summary
@@ -120,13 +116,19 @@ export function buildExactTerms(query) {
       .replace(/^[^\p{L}\p{N}_./:-]+|[^\p{L}\p{N}_./:-]+$/gu, '')
     if (!term) return
     const hasIdentifierShape = /[_./:-]/.test(term)
-    if (!hasIdentifierShape && /^[\d\s]+$/.test(term)) return
+    // Numeric-only recall is rejected by searchRelevantHybrid before this
+    // helper runs; numeric terms inside a mixed query carry command flags,
+    // worker counts, versions, and other useful work identifiers.
     const symbolCount = Array.from(term).length
     if (!hasIdentifierShape && symbolCount < 2) return
     terms.push(term.slice(0, 80))
   }
-  if (clean.length <= 80) add(clean)
-  const tokens = clean.match(/[\p{L}\p{N}_./:-]+/gu) || []
+  const tokens = tokenizeRecallQuery(clean, 12)
+  // A long natural-language sentence appearing verbatim in memory is commonly
+  // a quoted/repeated question. Keep full-text exactness for short lookups,
+  // but let concept tokens and adjacent concept pairs represent longer
+  // questions so query echoes do not outrank the event they refer to.
+  if (tokens.length <= 2 && clean.length <= 80) add(clean)
   for (const token of tokens) add(token)
   for (let i = 0; i < tokens.length - 1; i++) {
     add(`${tokens[i]} ${tokens[i + 1]}`)
@@ -135,16 +137,13 @@ export function buildExactTerms(query) {
 }
 
 export function countQueryTokens(query) {
-  const clean = String(query ?? '').replace(/\s+/g, ' ').trim()
-  if (!clean) return 0
-  return (clean.match(/[\p{L}\p{N}_./:-]+/gu) || [])
-    .filter(token => String(token ?? '').trim().length > 0)
-    .length
+  return tokenizeRecallQuery(query, 12).length
 }
 
 export function hasFullQueryTextMatch(query, row) {
   const clean = String(query ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
   if (!clean || clean.length > 160) return false
+  if (tokenizeRecallQuery(clean, 12).length > 2) return false
   const element = String(row?.element ?? '').toLowerCase()
   const summary = String(row?.summary ?? '').toLowerCase()
   const content = String(row?.content ?? '').toLowerCase()
@@ -172,9 +171,11 @@ export function exactTextBoost(query, row, exactHits) {
   const summary = String(row?.summary ?? '').toLowerCase()
   const content = String(row?.content ?? '').toLowerCase()
   let boost = 0
-  if (element && element.includes(clean)) boost += 0.035
-  if (summary && summary.includes(clean)) boost += 0.025
-  if (content && content.includes(clean)) boost += 0.015
+  if (tokenizeRecallQuery(clean, 12).length <= 2) {
+    if (element && element.includes(clean)) boost += 0.035
+    if (summary && summary.includes(clean)) boost += 0.025
+    if (content && content.includes(clean)) boost += 0.015
+  }
   const hits = Number(exactHits)
   if (Number.isFinite(hits) && hits > 0) boost += Math.min(0.03, hits * 0.008)
   return boost

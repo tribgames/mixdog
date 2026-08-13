@@ -8,7 +8,7 @@ function capRecallText(text) {
   return capLineOrientedToolOutput(
     text,
     RECALL_OUTPUT_MAX_BYTES,
-    (kept, lines) => `... [recall output capped at ${Math.round(RECALL_OUTPUT_MAX_BYTES / 1024)}KB after ${kept.length} of ${lines.length} lines; narrow query[]/category/period or page with limit/offset for the rest]`,
+    (kept, lines) => `... [recall output capped at ${Math.round(RECALL_OUTPUT_MAX_BYTES / 1024)}KB after ${kept.length} of ${lines.length} lines; narrow query[]/category/period or page with the returned cursor]`,
   )
 }
 
@@ -39,6 +39,7 @@ export function createToolCallHandler({ handleSearch, handleMemoryAction }) {
           ...(a.period ? { period: a.period } : {}),
           ...(a.limit !== undefined ? { limit: a.limit } : {}),
           ...(a.offset !== undefined ? { offset: a.offset } : {}),
+          ...(a.cursor ? { cursor: a.cursor } : {}),
           ...(a.sort !== undefined ? { sort: a.sort } : {}),
           ...(a.category !== undefined ? { category: a.category } : {}),
           ...(a.includeArchived !== undefined ? { includeArchived: a.includeArchived } : {}),

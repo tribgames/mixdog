@@ -39,6 +39,7 @@ export function createWorkflowAgentsApi(deps) {
     loadWorkflowPack, workflowSummary, listCustomAgentIds,
     getOutputStyleStatusCached, seedOutputStyleStatusCache, scheduleOutputStyleSave,
     recreateCurrentSessionIfReady, notifyFnForSession, invalidateContextStatusCache,
+    invalidatePreSessionToolSurface, refreshEmptySessionToolPolicy,
   } = deps;
   return {
     async completeOnboarding(payload = {}) {
@@ -216,7 +217,9 @@ export function createWorkflowAgentsApi(deps) {
       const nextConfig = { ...getConfig() };
       nextConfig.workflow = { ...(nextConfig.workflow || {}), active: id };
       saveConfigAndAdopt(nextConfig);
-      return workflowSummary(pack);
+      const applied = await refreshEmptySessionToolPolicy?.();
+      invalidatePreSessionToolSurface?.();
+      return { ...workflowSummary(pack), appliedToCurrentSession: applied?.appliedToCurrentSession !== false };
     },
     // Workflow editor surface (desktop Workflows page): full pack read/write.
     // User packs live at <dataDir>/workflows/<id>/WORKFLOW.md; saving a

@@ -1,10 +1,10 @@
 import { fork } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, rmSync, writeFile } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appendBuffered } from '../runtime/shared/buffered-appender.mjs';
+import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { detachedSpawnOpts } from '../runtime/shared/spawn-flags.mjs';
 import { scrubLoaderVars } from '../runtime/agent/orchestrator/tools/env-scrub.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
@@ -49,12 +49,6 @@ function registerChannelWorkerExitCleanup(cleanup) {
   return () => { CHANNEL_WORKER_EXIT_CLEANUPS.delete(cleanup); };
 }
 
-function runtimeRoot() {
-  return process.env.MIXDOG_RUNTIME_ROOT
-    ? resolve(process.env.MIXDOG_RUNTIME_ROOT)
-    : join(tmpdir(), 'mixdog');
-}
-
 export function createStandaloneChannelWorker({
   rootDir,
   dataDir,
@@ -76,7 +70,8 @@ export function createStandaloneChannelWorker({
   const logPath = join(dataDir, 'daemon.log');
   rotateBoundedLog(logPath, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES);
 
-  const clientDir = join(runtimeRoot(), 'channel-clients');
+  const runtimeDir = ensurePrivateRuntimeRoot(resolveRuntimeRoot());
+  const clientDir = join(runtimeDir, 'channel-clients');
   const clientPath = join(clientDir, `${process.pid}.json`);
   let clientHeartbeatTimer = null;
   let clientHeartbeatExitCleanup = null;
@@ -134,7 +129,7 @@ export function createStandaloneChannelWorker({
   const daemonLeadPid = Number(leadPid)
     || Number(process.env.MIXDOG_SUPERVISOR_PID)
     || process.pid;
-  const discoveryPath = join(runtimeRoot(), 'daemon.json');
+  const discoveryPath = join(runtimeDir, 'daemon.json');
   const discoverChannel = () => readChannelDiscovery(discoveryPath);
   const daemonDelay = (ms) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 
@@ -155,6 +150,7 @@ export function createStandaloneChannelWorker({
       ...env,
       MIXDOG_ROOT: rootDir,
       MIXDOG_DATA_DIR: dataDir,
+      MIXDOG_RUNTIME_ROOT: runtimeDir,
       MIXDOG_STANDALONE: '1',
       MIXDOG_WORKER_MODE: '1',
       MIXDOG_DAEMON_HOST: '1',

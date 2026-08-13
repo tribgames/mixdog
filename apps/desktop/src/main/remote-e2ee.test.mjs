@@ -15,6 +15,10 @@ import {
   rotateRelayE2EEIdentity,
 } from './remote-e2ee';
 import { buildRemoteAccessInfo } from './remote-access-window';
+import {
+  loadOrCreatePairingToken,
+  rotatePairingToken,
+} from './remote-pairing-token';
 
 test('authenticates, encrypts both directions, and rejects replay', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-e2ee-'));
@@ -60,7 +64,6 @@ test('persists and rotates identity, keeping browser secret in the fragment', as
   assert.notEqual(rotated.pairingSecret, first.pairingSecret);
 
   const info = await buildRemoteAccessInfo({
-    bridge: null,
     relay: {
       clientUrl: 'https://relay.example/?token=route',
       token: 'route-token',
@@ -70,4 +73,14 @@ test('persists and rotates identity, keeping browser secret in the fragment', as
   const browser = new URL(info.relayBrowserUrl);
   assert.equal(browser.searchParams.has('e2eeSecret'), false);
   assert.equal(new URLSearchParams(browser.hash.slice(1)).get('e2eeSecret'), rotated.pairingSecret);
+});
+
+test('persists and rotates the relay routing token', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-token-'));
+  const first = await loadOrCreatePairingToken(dir);
+  assert.match(first, /^[0-9a-f]{48}$/);
+  assert.equal(await loadOrCreatePairingToken(dir), first);
+  const rotated = await rotatePairingToken(dir);
+  assert.notEqual(rotated, first);
+  assert.equal(await loadOrCreatePairingToken(dir), rotated);
 });

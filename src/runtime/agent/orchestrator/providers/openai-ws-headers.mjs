@@ -150,7 +150,7 @@ export function _dumpHandshakeHeaders(url, headers) {
     const dir = _wsDumpDir();
     if (!dir) return;
     try {
-        mkdirSync(dir, { recursive: true });
+        mkdirSync(dir, { recursive: true, mode: 0o700 });
         const redacted = {};
         for (const [k, v] of Object.entries(headers || {})) redacted[k] = _redactHeaderValue(k, v);
         const rec = {
@@ -162,15 +162,28 @@ export function _dumpHandshakeHeaders(url, headers) {
             headers: redacted,
         };
         const stamp = `${Date.now()}-${randomBytes(4).toString('hex')}`;
-        writeFileSync(join(dir, `handshake-${stamp}.json`), JSON.stringify(rec, null, 2));
+        writeFileSync(
+            join(dir, `handshake-${stamp}.json`),
+            JSON.stringify(rec, null, 2),
+            { encoding: 'utf8', mode: 0o600 },
+        );
     } catch {}
+}
+
+export function _formatRedactedHeaders(headers, maxValueLength = 120) {
+    return Object.entries(headers || {})
+        .map(([key, value]) => {
+            const redacted = _redactHeaderValue(key, value);
+            return `${key}: ${redacted.slice(0, maxValueLength)}`;
+        })
+        .join(' | ');
 }
 
 export function _dumpFrame(payload) {
     const dir = _wsDumpDir();
     if (!dir) return;
     try {
-        mkdirSync(dir, { recursive: true });
+        mkdirSync(dir, { recursive: true, mode: 0o700 });
         const stamp = `${Date.now()}-${randomBytes(4).toString('hex')}`;
         // Persist the serialized response.create bytes for codex byte-diff,
         // but never dump x-codex-turn-state in clear. That token is a
@@ -185,7 +198,11 @@ export function _dumpFrame(payload) {
                 out = JSON.stringify(frame);
             }
         } catch {}
-        writeFileSync(join(dir, `frame-${stamp}.json`), out);
+        writeFileSync(
+            join(dir, `frame-${stamp}.json`),
+            out,
+            { encoding: 'utf8', mode: 0o600 },
+        );
     } catch {}
 }
 

@@ -9,6 +9,7 @@ import { resolveVoiceRuntime } from "./voice-runtime-fetcher.mjs";
 import { ensureReady, stopVoiceWhisperServer } from "./whisper-server.mjs";
 import { loadConfig as loadAgentConfig } from "../../agent/orchestrator/config.mjs";
 import { captureOriginalUserCwd, readLastSessionCwd } from "../../shared/user-cwd.mjs";
+import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from "../../shared/runtime-root.mjs";
 import { initProviders } from "../../agent/orchestrator/providers/registry.mjs";
 import { Scheduler } from "./scheduler.mjs";
 import { startSnapshotWriter, stopSnapshotWriter, recordFetchedMessages } from "./status-snapshot.mjs";
@@ -116,7 +117,7 @@ if (process.env.MIXDOG_CHANNELS_NO_CONNECT) {
 }
 const _isWorkerMode = process.env.MIXDOG_WORKER_MODE === '1'
 const _bootLogEarly = path.join(
-  DATA_DIR || path.join(os.tmpdir(), "mixdog"),
+  DATA_DIR || ensurePrivateRuntimeRoot(resolveRuntimeRoot()),
   "boot.log"
 );
 const {
@@ -160,7 +161,7 @@ const {
 let channelBridgeActive = false;
 function writeBridgeState(active) {
   try {
-    const stateFile = path.join(os.tmpdir(), "mixdog", "bridge-state.json");
+    const stateFile = path.join(ensurePrivateRuntimeRoot(resolveRuntimeRoot()), "bridge-state.json");
     fs.mkdirSync(path.dirname(stateFile), { recursive: true });
     fs.writeFileSync(stateFile, JSON.stringify({ active, ts: Date.now() }));
   } catch {

@@ -1,9 +1,6 @@
 // Relay client for the installable web app: the desktop dials OUT to
-// the relay server (apps/relay/server.mjs) and answers the same RPC frames
-// the LAN bridge answers, so a phone anywhere on the internet reaches this
-// machine without port forwarding. The phone-leg wire protocol is identical
-// to remote-bridge.ts; the relay only adds a client-multiplexing envelope on
-// this desktop leg.
+// apps/relay/server.mjs and answers browser RPC frames, so a phone anywhere
+// on the internet reaches this machine without port forwarding.
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream, statSync, type ReadStream } from 'node:fs';
 import { join } from 'node:path';
@@ -11,7 +8,7 @@ import { join } from 'node:path';
 import WebSocket from 'ws';
 
 import { mediaResponsePlan } from '../../../relay/lib/media-http.mjs';
-import { loadOrCreateToken } from './remote-bridge';
+import { loadOrCreatePairingToken } from './remote-pairing-token';
 import {
   acceptRelayE2EEClientHello,
   createRelayE2EEChallenge,
@@ -34,6 +31,9 @@ import { createSnapshotDeltaEncoder, isStateResyncFrame } from './state-delta';
 const MAX_WS_PAYLOAD_BYTES = 64 * 1024 * 1024;
 const REVOKE_TIMEOUT_MS = 5_000;
 const E2EE_HANDSHAKE_TIMEOUT_MS = 10_000;
+export const MAX_ACTIVE_REMOTE_CLIENTS = 32;
+export const MAX_PENDING_REMOTE_FRAMES = 256;
+export const MAX_PENDING_REMOTE_FRAME_BYTES = MAX_WS_PAYLOAD_BYTES;
 // Media chunk size and the socket backlog that pauses the read. Bigger frames
 // waste memory on the relay, smaller ones waste round trips; 256 KB keeps a
 // clip flowing while a phone that stalls stops the pump within a few frames.
@@ -45,11 +45,29 @@ const MEDIA_SOCKET_BACKLOG_BYTES = 4 * 1024 * 1024;
  *  MIXDOG_RELAY_URL=<wss url> overrides; 0/false/off disables. */
 const DEFAULT_RELAY_URL = 'wss://192-255-139-161.sslip.io';
 
+function validatedRelayUrl(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new TypeError('MIXDOG_RELAY_URL is invalid.');
+  }
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const loopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  if (url.protocol !== 'wss:' && !(url.protocol === 'ws:' && loopback)) {
+    throw new TypeError('MIXDOG_RELAY_URL must use wss://; ws:// is allowed only for loopback development.');
+  }
+  if (url.username || url.password) {
+    throw new TypeError('MIXDOG_RELAY_URL must not contain credentials.');
+  }
+  return url.toString();
+}
+
 export function resolveRelayUrl(env: NodeJS.ProcessEnv): string | null {
   const raw = (env.MIXDOG_RELAY_URL || '').trim();
   const flag = raw.toLowerCase();
   if (flag === '0' || flag === 'false' || flag === 'off') return null;
-  return raw || DEFAULT_RELAY_URL;
+  return validatedRelayUrl(raw || DEFAULT_RELAY_URL);
 }
 
 export interface RemoteRelayOptions extends RemoteMethodDependencies {
@@ -74,9 +92,18 @@ export interface RemoteRelayHandle {
   close(): Promise<void>;
 }
 
-interface DeviceIdentity {
+export interface DeviceIdentity {
   deviceId: string;
   deviceSecret: string;
+}
+
+export function remoteFrameBudgetAvailable(
+  pendingFrames: number,
+  pendingBytes: number,
+  nextBytes: number,
+): boolean {
+  return pendingFrames < MAX_PENDING_REMOTE_FRAMES
+    && pendingBytes + nextBytes <= MAX_PENDING_REMOTE_FRAME_BYTES;
 }
 
 const DEVICE_IDENTITY_FILE = 'relay-device.json';
@@ -159,16 +186,34 @@ async function removeQueuedRevocation(userDataPath: string, deviceId: string): P
   });
 }
 
+export function relayDeviceSocketOptions(
+  relayUrl: string,
+  identity: DeviceIdentity,
+): { url: string; headers: Record<string, string> } {
+  const target = new URL(validatedRelayUrl(relayUrl));
+  target.pathname = '/desktop';
+  target.search = '';
+  target.hash = '';
+  return {
+    url: target.toString(),
+    headers: {
+      Authorization: `Basic ${Buffer.from(
+        `${identity.deviceId}:${identity.deviceSecret}`,
+        'utf8',
+      ).toString('base64')}`,
+    },
+  };
+}
+
 function revokeIdentity(
   relayUrl: string,
   identity: DeviceIdentity,
   sockets: Set<WebSocket>,
 ): Promise<boolean> {
   return new Promise((resolve) => {
-    const target = new URL(relayUrl);
-    target.pathname = '/desktop';
-    target.search = `device=${encodeURIComponent(identity.deviceId)}&secret=${encodeURIComponent(identity.deviceSecret)}`;
-    const ws = new WebSocket(target.toString(), {
+    const connection = relayDeviceSocketOptions(relayUrl, identity);
+    const ws = new WebSocket(connection.url, {
+      headers: connection.headers,
       maxPayload: MAX_WS_PAYLOAD_BYTES,
       perMessageDeflate: true,
     });
@@ -213,7 +258,8 @@ function relayClientUrl(relayUrl: string, token: string): string {
 }
 
 export async function startRemoteRelay(options: RemoteRelayOptions): Promise<RemoteRelayHandle> {
-  const token = await loadOrCreateToken(options.userDataPath);
+  const relayUrl = validatedRelayUrl(options.relayUrl);
+  const token = await loadOrCreatePairingToken(options.userDataPath);
   const { deviceId, deviceSecret } = await loadOrCreateDevice(options.userDataPath);
   const e2eeIdentity = await loadOrCreateRelayE2EEIdentity(options.userDataPath);
   const pairing = relayE2EEPairingMaterial(e2eeIdentity);
@@ -237,6 +283,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     challenge: RelayE2EEChallenge;
     channel: RelayE2EEChannel | null;
     handshakeTimer: NodeJS.Timeout;
+    frameQueue: Promise<void>;
+    pendingFrames: number;
+    pendingBytes: number;
   }
   const activeClients = new Map<string, RelayClientState>();
   const notifyClientCount = (): void => options.onClientCountChanged?.();
@@ -309,7 +358,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         // A failed identity-file rotation may leave the current identity in the
         // queue. Never let cleanup revoke the live registration in that case.
         if (identity.deviceId === deviceId) continue;
-        const removed = await revokeIdentity(options.relayUrl, identity, revocationSockets);
+        const removed = await revokeIdentity(relayUrl, identity, revocationSockets);
         if (removed) await removeQueuedRevocation(options.userDataPath, identity.deviceId);
       }
     } finally {
@@ -406,10 +455,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
 
   const connect = (): void => {
     if (closed) return;
-    const target = new URL(options.relayUrl);
-    target.pathname = '/desktop';
-    target.search = `device=${encodeURIComponent(deviceId)}&secret=${encodeURIComponent(deviceSecret)}`;
-    const ws = new WebSocket(target.toString(), {
+    const connection = relayDeviceSocketOptions(relayUrl, { deviceId, deviceSecret });
+    const ws = new WebSocket(connection.url, {
+      headers: connection.headers,
       maxPayload: MAX_WS_PAYLOAD_BYTES,
       perMessageDeflate: true,
     });
@@ -463,6 +511,15 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         }
         if (envelope.type === 'client-open') {
           if (typeof envelope.clientId === 'string') {
+            if (!activeClients.has(envelope.clientId)
+              && activeClients.size >= MAX_ACTIVE_REMOTE_CLIENTS) {
+              sendEnvelope({
+                type: 'close-client',
+                clientId: envelope.clientId,
+                reason: 'remote client limit reached',
+              });
+              return;
+            }
             removeClient(envelope.clientId);
             const challenge = createRelayE2EEChallenge();
             const handshakeTimer = setTimeout(() => {
@@ -473,6 +530,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
               challenge,
               channel: null,
               handshakeTimer,
+              frameQueue: Promise.resolve(),
+              pendingFrames: 0,
+              pendingBytes: 0,
             });
             notifyClientCount();
             sendEnvelope({
@@ -500,50 +560,71 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         const client = activeClients.get(envelope.clientId);
         if (!client) return;
         const frame = String(envelope.data ?? '');
-        if (!client.channel) {
-          let hello: unknown;
-          try { hello = JSON.parse(frame); } catch {
-            closeClient(envelope.clientId, 'relay encryption handshake required');
+        const frameBytes = Buffer.byteLength(frame);
+        if (!remoteFrameBudgetAvailable(
+          client.pendingFrames,
+          client.pendingBytes,
+          frameBytes,
+        )) {
+          closeClient(envelope.clientId, 'remote client backlog exceeded');
+          return;
+        }
+        client.pendingFrames += 1;
+        client.pendingBytes += frameBytes;
+        const processFrame = async (): Promise<void> => {
+          if (activeClients.get(envelope.clientId as string) !== client) return;
+          if (!client.channel) {
+            let hello: unknown;
+            try { hello = JSON.parse(frame); } catch {
+              closeClient(envelope.clientId as string, 'relay encryption handshake required');
+              return;
+            }
+            if (!isRelayE2EEHello(hello)) {
+              closeClient(envelope.clientId as string, 'relay encryption handshake required');
+              return;
+            }
+            try {
+              client.channel = await acceptRelayE2EEClientHello(
+                e2eeIdentity,
+                client.challenge,
+                hello,
+              );
+              clearTimeout(client.handshakeTimer);
+              await sendEncryptedFrame(
+                envelope.clientId as string,
+                { type: 'e2ee-ready', version: 1 },
+              );
+              deltaEncoder.reset();
+              broadcastState(options.host.getSnapshot(), true);
+            } catch {
+              closeClient(envelope.clientId as string, 'relay encryption authentication failed');
+            }
             return;
           }
-          if (!isRelayE2EEHello(hello)) {
-            closeClient(envelope.clientId, 'relay encryption handshake required');
-            return;
-          }
+          let clearFrame: string;
           try {
-            client.channel = await acceptRelayE2EEClientHello(
-              e2eeIdentity,
-              client.challenge,
-              hello,
-            );
-            clearTimeout(client.handshakeTimer);
-            await sendEncryptedFrame(
-              envelope.clientId,
-              { type: 'e2ee-ready', version: 1 },
-            );
+            clearFrame = JSON.stringify(await client.channel.decryptJson(frame));
+          } catch {
+            closeClient(envelope.clientId as string, 'invalid encrypted relay frame');
+            return;
+          }
+          if (isStateResyncFrame(clearFrame)) {
             deltaEncoder.reset();
             broadcastState(options.host.getSnapshot(), true);
-          } catch {
-            closeClient(envelope.clientId, 'relay encryption authentication failed');
+            return;
           }
-          return;
-        }
-        let clearFrame: string;
-        try {
-          clearFrame = JSON.stringify(await client.channel.decryptJson(frame));
-        } catch {
-          closeClient(envelope.clientId, 'invalid encrypted relay frame');
-          return;
-        }
-        if (isStateResyncFrame(clearFrame)) {
-          deltaEncoder.reset();
-          broadcastState(options.host.getSnapshot(), true);
-          return;
-        }
-        const response = await executeRemoteFrame(methods, clearFrame);
-        if (response !== undefined) {
-          await sendEncryptedFrame(envelope.clientId, response);
-        }
+          const response = await executeRemoteFrame(methods, clearFrame);
+          if (response !== undefined) {
+            await sendEncryptedFrame(envelope.clientId as string, response);
+          }
+        };
+        client.frameQueue = client.frameQueue
+          .then(processFrame, processFrame)
+          .catch(() => closeClient(envelope.clientId as string, 'remote frame processing failed'))
+          .finally(() => {
+            client.pendingFrames = Math.max(0, client.pendingFrames - 1);
+            client.pendingBytes = Math.max(0, client.pendingBytes - frameBytes);
+          });
       })();
     });
     ws.on('error', () => { /* connection errors surface as close */ });
@@ -581,7 +662,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   }) ?? (() => {});
 
   return {
-    clientUrl: relayClientUrl(options.relayUrl, token),
+    clientUrl: relayClientUrl(relayUrl, token),
     token,
     pairing,
     get clientCount() { return activeClients.size; },

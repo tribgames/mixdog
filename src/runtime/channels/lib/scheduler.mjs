@@ -1,11 +1,11 @@
 import { readFileSync, writeFileSync, appendFileSync, unlinkSync } from "fs";
 import { appendFile as _appendFile } from "fs";
 import { join, isAbsolute } from "path";
-import { tmpdir } from "os";
 import { randomUUID } from "crypto";
 import { DATA_DIR } from "./config.mjs";
 import { ensureNopluginDir } from "./executor.mjs";
 import { withFileLockSync } from "../../shared/atomic-file.mjs";
+import { resolveRuntimeRoot } from "../../shared/runtime-root.mjs";
 import { markFired, markDone, setDeferred, setSkippedUntil } from "../../shared/schedules-db.mjs";
 import { runScheduleSession } from "../../shared/schedule-session-run.mjs";
 
@@ -240,7 +240,7 @@ class Scheduler {
 
 ${prompt}`;
   }
-  static SCHEDULER_LOCK = join(tmpdir(), "mixdog-scheduler.lock");
+  static SCHEDULER_LOCK = join(resolveRuntimeRoot(), "scheduler.lock");
   static INSTANCE_UUID = randomUUID();
   static _exitHookInstalled = false;
   start() {

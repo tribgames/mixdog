@@ -1,6 +1,6 @@
 // Media transport shared by every phone-facing surface: the desktop's LAN
-// bridge, the relay, and (through the same header rules) the Electron
-// `mixdog-media://` protocol.
+// relay and (through the same header rules) the Electron `mixdog-media://`
+// protocol.
 //
 // Gallery bytes are files, not RPC payloads. Serving them over HTTP is what
 // buys the browser cache, parallel fetches and Range seeking that a base64
@@ -62,9 +62,8 @@ export function parseRange(header, size) {
 /**
  * Status + headers + byte window for one media answer.
  *
- * Pure: the LAN bridge answers from it directly, and the relay leg ships the
- * same plan across the desktop socket so BOTH surfaces cache and seek by the
- * identical rules.
+ * Pure: the relay leg ships this plan across the desktop socket while the
+ * Electron media protocol uses the same cache and range rules.
  */
 export function mediaResponsePlan({ size, mime, assetId, variant, rangeHeader, ifNoneMatch }) {
   const etag = mediaEtag(assetId, variant, size);

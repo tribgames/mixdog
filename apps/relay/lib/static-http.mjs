@@ -1,9 +1,7 @@
 // Static asset serving shared by the two browser-facing HTTP surfaces: the
-// relay (apps/relay/server.mjs, plain node on the VPS) and the desktop LAN
-// bridge (apps/desktop/src/main/remote-bridge.ts). Both serve the same
-// renderer build behind the same pairing-token gate, so the MIME table, the
-// path-escape guard, the SPA fallback rule, gzip negotiation and the pairing
-// cookie live here once instead of drifting in two copies.
+// relay (apps/relay/server.mjs, plain node on the VPS). The MIME table,
+// path-escape guard, SPA fallback rule, gzip negotiation and pairing cookie
+// live here outside the server entrypoint.
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
 import { createGzip } from 'node:zlib';
@@ -33,6 +31,30 @@ export const PAIRING_COOKIE_NAME = 'mixdog_token';
 // (gzip would only burn CPU).
 const COMPRESSIBLE_TYPE = /^(?:text\/|application\/(?:json|wasm)|image\/svg)/;
 const COMPRESS_MIN_BYTES = 1024;
+export const BROWSER_SECURITY_HEADERS = Object.freeze({
+  'Content-Security-Policy': [
+    "default-src 'self'",
+    "script-src 'self'",
+    "connect-src 'self' ws: wss:",
+    "img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com",
+    "media-src 'self' data: blob:",
+    "frame-src 'self' blob:",
+    "worker-src 'self' blob:",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self' data:",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+  ].join('; '),
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+  'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=(), payment=(), usb=()',
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+});
 
 /** Entry navigation carries ?token=; the cookie then authorizes asset
  *  requests that follow with no query string. */
@@ -85,6 +107,7 @@ export function sendStaticFile(request, response, target, extraHeaders = {}) {
     && size > COMPRESS_MIN_BYTES
     && /\bgzip\b/i.test(String(request.headers['accept-encoding'] || ''));
   const headers = {
+    ...BROWSER_SECURITY_HEADERS,
     'Content-Type': type,
     'Cache-Control': target.endsWith('index.html')
       || target.endsWith('manifest.webmanifest')

@@ -37,6 +37,7 @@ import { fileURLToPath } from 'node:url';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 import { inspect } from 'node:util';
 import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
+import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { ensureProcessListenerHeadroom } from '../runtime/shared/process-listener-headroom.mjs';
 import { claimSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
 import { PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
@@ -72,13 +73,7 @@ import {
 
 ensureProcessListenerHeadroom(64);
 
-function runtimeRoot() {
-  return process.env.MIXDOG_RUNTIME_ROOT
-    ? path.resolve(process.env.MIXDOG_RUNTIME_ROOT)
-    : path.join(os.tmpdir(), 'mixdog');
-}
-
-const RUNTIME_ROOT = runtimeRoot();
+const RUNTIME_ROOT = resolveRuntimeRoot();
 const DATA_DIR = process.env.MIXDOG_DATA_DIR
   ? path.resolve(process.env.MIXDOG_DATA_DIR)
   : path.join(process.env.MIXDOG_HOME || path.join(os.homedir(), '.mixdog'), 'data');
@@ -386,10 +381,9 @@ function requestDaemonReplacement({ protocol, revision, version } = {}) {
 
 async function main() {
   const startedAt = performance.now();
-  // 0o700 matters where the runtime root is a SHARED temp dir: the discovery
-  // files under it carry the loopback tokens for both front doors. (No-op for
-  // an existing directory, and advisory on win32 — its temp root is per-user.)
-  try { mkdirSync(RUNTIME_ROOT, { recursive: true, mode: 0o700 }); } catch {}
+  // The discovery file carries both privileged loopback tokens. POSIX roots
+  // are per-user and fail closed if another account owns the configured path.
+  ensurePrivateRuntimeRoot(RUNTIME_ROOT);
 
   // Pid-verified singleton claim (claimSingletonOwner reclaims a dead-pid owner
   // file and refuses only a LIVE peer). Loser exits so the spawner attaches to
@@ -670,7 +664,7 @@ async function main() {
       channel: { port, token },
       session: { port: sessionEndpoint.port, token: sessionEndpoint.token },
     },
-  }, { compact: true });
+  }, { compact: true, secret: true });
   log(`session front door on 127.0.0.1:${sessionEndpoint.port}`);
 
   // Ready handshake for the spawner first. Transport is already listening;

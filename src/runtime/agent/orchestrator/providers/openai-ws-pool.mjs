@@ -10,7 +10,7 @@ import WebSocket from 'ws';
 import { errText } from '../../../shared/err-text.mjs';
 import { createHash, randomBytes } from 'crypto';
 import { performance } from 'node:perf_hooks';
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { codexOriginator, codexUserAgent, codexVersionHeader } from './codex-client-meta.mjs';
 import {
@@ -25,7 +25,7 @@ import {
 
 // Human-readable transport label for handshake/acquire error messages. Shared
 // with openai-oauth-ws.mjs (stream-side errors use the same labels).
-import { _envOn, _codexUuidIdParity, _codexDashedId, _codexTurnStateGate, _codexDashedIdV7, _codexBetaFeatures, _dumpHandshakeHeaders, _dumpFrame, _cfCookieHeader, _cfCookieCapture } from './openai-ws-headers.mjs';
+import { _envOn, _codexUuidIdParity, _codexDashedId, _codexTurnStateGate, _codexDashedIdV7, _codexBetaFeatures, _dumpHandshakeHeaders, _dumpFrame, _formatRedactedHeaders, _cfCookieHeader, _cfCookieCapture } from './openai-ws-headers.mjs';
 export function _wsErrLabel(p) {
     if (p === 'xai') return 'xAI WS';
     if (p === 'openai-direct' || p === 'openai') return 'OpenAI WS';
@@ -490,7 +490,7 @@ function _openSocket({ auth, sessionToken, turnState, externalSignal, cacheKey, 
                 // see what the server actually issues (turn-state investigation).
                 if (process.env.MIXDOG_WS_UPGRADE_HEADER_PROBE) {
                     const all = res?.headers && typeof res.headers === 'object'
-                        ? Object.entries(res.headers).map(([k, v]) => `${k}: ${String(v).slice(0, 120)}`).join(' | ')
+                        ? _formatRedactedHeaders(res.headers)
                         : '(none)';
                     const line = `[ws-upgrade-probe] ts=${new Date().toISOString()} status=${res?.statusCode} headers={ ${all} }\n`;
                     process.stderr.write(line);
@@ -501,7 +501,8 @@ function _openSocket({ auth, sessionToken, turnState, externalSignal, cacheKey, 
                         const probePath = process.env.MIXDOG_WS_UPGRADE_HEADER_PROBE !== '1'
                             ? process.env.MIXDOG_WS_UPGRADE_HEADER_PROBE
                             : `${process.env.TEMP || process.env.TMPDIR || '.'}/mixdog-ws-upgrade-probe.log`;
-                        appendFileSync(probePath, line);
+                        appendFileSync(probePath, line, { encoding: 'utf8', mode: 0o600 });
+                        try { chmodSync(probePath, 0o600); } catch {}
                     } catch {}
                 }
             } catch {}

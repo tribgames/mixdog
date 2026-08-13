@@ -10,9 +10,7 @@ interface ConnectionInfoCacheEntry {
 
 const connectionInfoCache = new WeakMap<object, ConnectionInfoCacheEntry>();
 
-/** True once the relay QRs exist — the pairing card can paint without any
- *  fallback note. Relay-less info (bridge up, relay leg missing) counts as
- *  incomplete: pairing is relay-only by user decision. */
+/** True once the relay QR exists and the pairing card can paint. */
 export function connectionInfoReady(
   value: DesktopRemoteAccessInfo | null | undefined,
 ): value is DesktopRemoteAccessInfo {
@@ -45,9 +43,8 @@ export function preloadConnectionInfo(
   api: ConnectionInfoApi,
 ): Promise<DesktopRemoteAccessInfo | null> {
   const entry = cacheEntry(api);
-  // Only a complete card (relay QRs present) is final. Null or relay-less
-  // results stay cached for instant paint but are refetched on the next call,
-  // so a slow bridge/relay start never sticks as an empty or QR-less card.
+  // Null results stay cached for instant paint but are refetched on the next
+  // call, so a slow relay start never sticks as an empty card.
   if (connectionInfoReady(entry.value)) return Promise.resolve(entry.value);
   if (entry.promise) return entry.promise;
   if (!api.getRemoteAccessInfo) {

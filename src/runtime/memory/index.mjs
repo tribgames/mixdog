@@ -134,10 +134,9 @@ import {
   readServiceAdvert as _readServiceAdvert,
   writeServiceAdvert as _writeServiceAdvert,
 } from '../shared/service-discovery.mjs'
+import { resolveRuntimeRoot } from '../shared/runtime-root.mjs'
 
-const RUNTIME_ROOT = process.env.MIXDOG_RUNTIME_ROOT
-  ? path.resolve(process.env.MIXDOG_RUNTIME_ROOT)
-  : path.join(os.tmpdir(), 'mixdog')
+const RUNTIME_ROOT = resolveRuntimeRoot()
 
 const MEMORY_SERVER_PID = parsePositivePid(process.env.MIXDOG_SERVER_PID) ?? process.pid
 const _isPidAliveLocal = isPidAliveLocal

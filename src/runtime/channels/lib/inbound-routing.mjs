@@ -1,7 +1,7 @@
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
 import { ensureDir, removeFileIfExists } from "./state-file.mjs";
+import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from "../../shared/runtime-root.mjs";
 
 // Inbound message routing / dedup / ownership helpers. Extracted verbatim
 // from channels/index.mjs (behavior-preserving). Bound to live getters
@@ -10,7 +10,7 @@ import { ensureDir, removeFileIfExists } from "./state-file.mjs";
 function createInboundRouting({ getConfig, getInstanceId, getChannelOwnerPath }) {
   const INBOUND_DEDUP_TTL = 5 * 6e4;
   const inboundSeen = /* @__PURE__ */ new Map();
-  const INBOUND_DEDUP_DIR = path.join(os.tmpdir(), "mixdog-inbound");
+  const INBOUND_DEDUP_DIR = path.join(ensurePrivateRuntimeRoot(resolveRuntimeRoot()), "inbound");
   ensureDir(INBOUND_DEDUP_DIR);
 
   function writeChannelOwner(channelId) {

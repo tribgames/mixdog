@@ -1,6 +1,6 @@
-// Browser-mode DesktopApi: when this page is served by the desktop remote
-// bridge (phone/tablet browser — no Electron preload), install a WebSocket-
-// backed implementation of window.mixdogDesktop before any module reads it.
+// Browser-mode DesktopApi: when the Relay serves this page to a phone/tablet,
+// install a WebSocket-backed implementation of window.mixdogDesktop before
+// any module reads it.
 // Inside Electron the preload bridge already exists and this is a no-op.
 import type {
   DesktopApi,
@@ -77,7 +77,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       e2eePublicKey = localStorage.getItem(E2EE_PUBLIC_KEY_STORAGE_KEY) || '';
       e2eeSecret = localStorage.getItem(E2EE_SECRET_STORAGE_KEY) || '';
     }
-  } catch { /* token stays empty; the bridge refuses the socket */ }
+  } catch { /* token stays empty; the relay refuses the socket */ }
   let e2eePairing: RelayE2EEPairingMaterial | null =
     e2eePublicKey && e2eeSecret
       ? { version: 1, serverPublicKey: e2eePublicKey, pairingSecret: e2eeSecret }
@@ -682,7 +682,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         // A new connection starts a fresh delta lane; a stale base revision
         // must never accidentally match the new encoder's numbering.
         deltaRevision = -1;
-        const failure = new Error('mixdog remote bridge disconnected.');
+        const failure = new Error('Mixdog relay disconnected.');
         for (const entry of [...pending.values()]) entry.reject(failure);
         pending.clear();
         if (!opened) reject(failure);
@@ -753,7 +753,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
 
   const api: DesktopApi = {
     // Desktop-only OS integrations become inert or degrade to browser
-    // equivalents; everything else forwards over the bridge socket.
+// equivalents; everything else forwards over the relay socket.
     chooseProject: () => Promise.resolve(null),
     chooseFile: () => Promise.resolve(null),
     chooseFiles: () => Promise.resolve(null),

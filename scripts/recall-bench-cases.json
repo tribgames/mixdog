@@ -1,11 +1,11 @@
 [
-  { "id": "browse-last", "label": "query-less recent browse (period=last)", "args": { "period": "last", "limit": 10 }, "expect": "browse" },
-  { "id": "last-query-topic", "label": "topic inside recent sessions (period=last + query)", "args": { "query": "last", "period": "last", "limit": 5 }, "expect": { "kind": "results", "topNContains": ["last"], "topN": 10, "recencyOrdered": true } },
-  { "id": "period-24h", "label": "period window 24h", "args": { "period": "24h", "limit": 10 }, "expect": "browse" },
-  { "id": "period-7d", "label": "period window 7d", "args": { "period": "7d", "limit": 10 }, "expect": "browse" },
+  { "id": "browse-last", "label": "query-less recent browse (period=last)", "args": { "period": "last", "projectScope": "mixdog", "limit": 10 }, "expect": { "kind": "browse", "recencyOrdered": true } },
+  { "id": "scope-common-exact", "label": "common-scope exact historical query", "args": { "query": "buildRecallFastTrackQuery", "period": "all", "projectScope": "common", "limit": 5 }, "expect": { "kind": "results", "topNContains": ["buildRecallFastTrackQuery"], "topN": 3 } },
+  { "id": "period-24h", "label": "period window 24h", "args": { "period": "24h", "projectScope": "mixdog", "limit": 10 }, "expect": { "kind": "browse", "recencyOrdered": true, "withinPeriod": true } },
+  { "id": "period-7d", "label": "period window 7d", "args": { "period": "7d", "projectScope": "mixdog", "limit": 10 }, "expect": { "kind": "browse", "recencyOrdered": true, "withinPeriod": true } },
   { "id": "scope-all", "label": "all-scope query", "args": { "query": "recall", "projectScope": "all", "limit": 10 }, "expect": "results" },
-  { "id": "recent-dryrun-delta", "label": "recent-work topical: dryrun delta sum", "args": { "query": "\uB4DC\uB77C\uC774\uB7F0 \uB378\uD0C0 \uD569\uC0B0", "limit": 10 }, "expect": { "kind": "results", "topNContains": ["\uB4DC\uB77C\uC774\uB7F0"], "topN": 5 } },
-  { "id": "recent-remote-singleton", "label": "recent-work topical: remote singleton seat", "args": { "query": "remote \uC2F1\uAE00\uD1A4 \uC88C\uC11D", "limit": 10 }, "expect": { "kind": "results", "topNContains": ["\uC2F1\uAE00\uD1A4"], "topN": 5 } },
-  { "id": "recency-today", "label": "query+period recency: today's work (24h)", "args": { "query": "\uC624\uB298 \uC9C4\uD589\uD55C \uC791\uC5C5", "period": "24h", "limit": 10 }, "expect": { "kind": "results", "recencyOrdered": true } },
+  { "id": "historical-dryrun-delta", "label": "common historical topic: dryrun delta sum", "args": { "query": "\uB4DC\uB77C\uC774\uB7F0 \uB378\uD0C0 \uD569\uC0B0", "period": "all", "projectScope": "common", "limit": 10 }, "expect": { "kind": "results", "topNContains": ["\uB4DC\uB77C\uC774\uB7F0"], "topN": 5 } },
+  { "id": "historical-remote-singleton", "label": "common historical topic: remote singleton seat", "args": { "query": "remote \uC2F1\uAE00\uD1A4 \uC88C\uC11D", "period": "all", "projectScope": "common", "limit": 10 }, "expect": { "kind": "results", "topNContains": ["\uC2F1\uAE00\uD1A4"], "topN": 5 } },
+  { "id": "recency-today", "label": "query+period recency: current RAG work", "args": { "query": "RAG recall", "period": "24h", "projectScope": "mixdog", "sort": "date", "limit": 10 }, "expect": { "kind": "results", "topNContains": ["RAG"], "topN": 10, "recencyOrdered": true, "withinPeriod": true } },
   { "id": "xlang-embedding-crash", "label": "cross-language: embedding worker crash (strict topN)", "args": { "query": "embedding worker crash", "limit": 10 }, "expect": { "kind": "results", "topNContains": ["embedding"], "topN": 3 } }
 ]

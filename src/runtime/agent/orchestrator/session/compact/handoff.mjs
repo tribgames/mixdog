@@ -1,6 +1,6 @@
 import { estimateTokens } from '../context-utils.mjs';
 
-const CONVERSATION_LINE_CHARS = 240;
+const CONVERSATION_LINE_CHARS = 800;
 const WORKING_FILE_CAP = 20;
 const TOOL_OUTCOME_CHARS = 80;
 
@@ -141,22 +141,39 @@ export function collectToolOutcomeLines(messages) {
 
 export function conversationLinesFromMemoryText(text) {
     const rows = [];
+    let current = null;
+    const flush = () => {
+        if (!current) return;
+        let body = current.parts.join(' ').replace(/\s+/g, ' ').trim();
+        body = body
+            .replace(/\s+\[time=(?:unknown|collected)\]\s*#\d+\s*$/, '')
+            .replace(/\s+#\d+\s*$/, '')
+            .trim();
+        if (body && body !== '.' && body !== '…') {
+            rows.push(`${current.role}: ${body.slice(0, CONVERSATION_LINE_CHARS)}`);
+        }
+        current = null;
+    };
     for (const raw of String(text || '').split('\n')) {
         const line = raw.trim();
         if (!line || line === '(no results)') continue;
         const stamped = /^\[.*?\]\s+(u|a|user|assistant|\?):?\s+(.*)$/i.exec(line);
         const bare = /^(u|a):\s+(.*)$/i.exec(line);
-        const hit = stamped || bare;
-        if (!hit) continue;
+        const stampedRoot = /^\[.*?\]\s+(.*)$/i.exec(line);
+        const hit = stamped || bare || (stampedRoot ? ['', 'a', stampedRoot[1]] : null);
+        if (!hit) {
+            if (current) current.parts.push(line);
+            continue;
+        }
+        flush();
         const roleRaw = String(hit[1] || '').toLowerCase();
         if (roleRaw === '?' ) continue;
         const role = roleRaw === 'a' || roleRaw === 'assistant' ? 'a' : 'u';
-        let body = String(hit[2] || '').replace(/\s+#\d+\s*$/, '').replace(/\s+/g, ' ').trim();
+        const body = String(hit[2] || '').trim();
         if (!body) continue;
-        if (body === '.' || body === '…') continue;
-        body = body.slice(0, CONVERSATION_LINE_CHARS);
-        rows.push(`${role}: ${body}`);
+        current = { role, parts: [body] };
     }
+    flush();
     return rows.reverse();
 }
 

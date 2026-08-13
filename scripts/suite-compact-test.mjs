@@ -20,6 +20,7 @@ import {
 } from '../src/runtime/agent/orchestrator/session/compact/summary.mjs';
 import {
   compactDigestRows,
+  compactHandoffRows,
   renderEntryLines,
 } from '../src/runtime/memory/lib/recall-format.mjs';
 import {
@@ -105,13 +106,15 @@ console.log('compact file-reattach test passed \u2713');
 {
   const mem = [
     '[2026-08-13 16:40] a: later answer #2',
+    '- final detail',
     '[2026-08-13 16:39] u: later question #1',
     '[2026-08-13 16:10] a: first answer #4',
     '[2026-08-13 16:09] u: first question #3',
   ].join('\n');
   const lines = conversationLinesFromMemoryText(mem);
   assert.equal(lines[0], 'u: first question');
-  assert.equal(lines[3], 'a: later answer');
+  assert.equal(lines[3], 'a: later answer #2 - final detail');
+  assert.match(lines[3], /final detail/);
   const files = collectWorkingFiles([
     { role: 'assistant', toolCalls: [{ name: 'read', arguments: { path: 'src/a.mjs' } }] },
     { role: 'assistant', toolCalls: [{ name: 'grep', arguments: { path: 'src' } }] },
@@ -403,6 +406,18 @@ assert.equal(compact.filter((row) => row.content === longPlan).length, 0, 'older
 assert.ok(compact.some((row) => row.content === nearPlan), 'newest near-duplicate plan is retained');
 assert.ok(compact.some((row) => row.content === 'distinct completed result'), 'distinct state survives');
 
+const handoffRows = compactHandoffRows([
+  { id: 10, ts: 600, is_root: 1, element: 'classified decision', members: [{ id: 99 }] },
+  { id: 9, ts: 500, source_turn: 5, role: 'assistant', content: 'second final', is_root: 0, chunk_root: null },
+  { id: 8, ts: 450, source_turn: 4, role: 'assistant', content: 'second progress', is_root: 0, chunk_root: null },
+  { id: 7, ts: 400, source_turn: 3, role: 'user', content: 'second question', is_root: 0, chunk_root: null },
+  { id: 6, ts: 300, source_turn: 2, role: 'assistant', content: 'first final', is_root: 0, chunk_root: null },
+  { id: 5, ts: 250, source_turn: 1, role: 'assistant', content: 'first progress', is_root: 0, chunk_root: null },
+  { id: 4, ts: 200, source_turn: 0, role: 'user', content: 'first question', is_root: 0, chunk_root: null },
+], 20);
+assert.deepEqual(handoffRows.map((row) => row.id), [10, 9, 7, 6, 4], 'handoff keeps roots and event endpoints');
+assert.equal(Object.hasOwn(handoffRows[0], 'members'), false, 'handoff renders classified roots as summaries');
+
 const normalText = renderEntryLines(compact);
 assert.match(normalText, /\[pending\]/, 'normal recall keeps raw-row pipeline status');
 const digestText = renderEntryLines(compact, { pendingMarks: false });
@@ -504,7 +519,7 @@ function createLastBrowseDb(rawRow, seenQueries) {
     },
     async query(sql, params = []) {
       seenQueries.push({ sql, params });
-      if (/GROUP BY session_id/.test(sql)) {
+      if (/GROUP BY (?:e\.)?session_id/.test(sql)) {
         return {
           rows: [{
             session_id: rawRow.session_id,
@@ -555,7 +570,7 @@ const allCategoryBrowse = await createLastBrowseHandlers(
 });
 assert.match(allCategoryBrowse.text, /fresh pending restart context/, 'all categories keep fresh unclassified raw turns');
 assert.doesNotMatch(allCategoryBrowse.text, /0 entries/, 'all-category browse never emits an empty selected session');
-const allCategorySelection = allCategoryQueries.find(({ sql }) => /GROUP BY session_id/.test(sql));
+const allCategorySelection = allCategoryQueries.find(({ sql }) => /GROUP BY (?:e\.)?session_id/.test(sql));
 assert.ok(allCategorySelection, 'all-category browse selects recent sessions');
 assert.doesNotMatch(allCategorySelection.sql, /coalesce\(category/, 'all categories normalize to an unrestricted session query');
 
@@ -579,9 +594,9 @@ const subsetCategoryBrowse = await createLastBrowseHandlers(
   projectScope: 'mixdog',
 });
 assert.match(subsetCategoryBrowse.text, /fresh decision restart context/, 'subset category keeps matching raw turns');
-const subsetCategorySelection = subsetCategoryQueries.find(({ sql }) => /GROUP BY session_id/.test(sql));
+const subsetCategorySelection = subsetCategoryQueries.find(({ sql }) => /GROUP BY (?:e\.)?session_id/.test(sql));
 assert.ok(subsetCategorySelection, 'subset-category browse selects recent sessions');
-assert.match(subsetCategorySelection.sql, /lower\(coalesce\(category, ''\)\) IN/, 'subset category filters session selection');
+assert.match(subsetCategorySelection.sql, /lower\(coalesce\((?:e\.)?category, ''\)\) IN/, 'subset category filters session selection');
 assert.ok(subsetCategorySelection.params.includes('decision'), 'subset category selection binds the requested category');
 
 console.log('compact recall digest test passed \u2713');

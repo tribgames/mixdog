@@ -43,3 +43,37 @@ export function _nearestEnclosingSymbol(node, sourceText, lineNumber, col = null
   const fn = candidates.find((item) => FUNCTION_LIKE.has(String(item.kind || '').toLowerCase()));
   return fn || candidates[0] || null;
 }
+
+function _rangeContainsSymbol(outer, inner) {
+  const outerStart = Number(outer?.startLine ?? outer?.line);
+  const outerEnd = Number(outer?.endLine);
+  const innerStart = Number(inner?.startLine ?? inner?.line);
+  const innerEnd = Number(inner?.endLine);
+  if (![outerStart, outerEnd, innerStart, innerEnd].every(Number.isFinite)) return false;
+  if (outerStart > innerStart || outerEnd < innerEnd) return false;
+  if (outerStart === innerStart && outerEnd === innerEnd) {
+    const outerCol = Number(outer?.startCol) || 0;
+    const innerCol = Number(inner?.startCol) || 0;
+    return outerCol < innerCol;
+  }
+  return outerStart < innerStart || outerEnd > innerEnd;
+}
+
+export function _symbolPathForSymbol(node, symbol) {
+  if (!symbol?.name) return '';
+  const ancestors = (Array.isArray(node?.symbols) ? node.symbols : [])
+    .filter((candidate) => candidate !== symbol && candidate?.name && _rangeContainsSymbol(candidate, symbol))
+    .sort((a, b) => {
+      const aStart = Number(a.startLine ?? a.line) || 0;
+      const bStart = Number(b.startLine ?? b.line) || 0;
+      const aEnd = Number(a.endLine) || aStart;
+      const bEnd = Number(b.endLine) || bStart;
+      return (aStart - bStart) || (bEnd - aEnd) || ((Number(a.startCol) || 0) - (Number(b.startCol) || 0));
+    });
+  return [...ancestors, symbol].map((item) => item.name).join('/');
+}
+
+export function _symbolPathForPosition(node, sourceText, lineNumber, col = null) {
+  const symbol = _nearestEnclosingSymbol(node, sourceText, lineNumber, col);
+  return symbol ? _symbolPathForSymbol(node, symbol) : '';
+}

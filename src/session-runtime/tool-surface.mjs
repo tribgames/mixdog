@@ -68,6 +68,7 @@ export function createToolSurface({
     const tools = filterDisallowedTools(previewTools, [
       ...LEAD_DISALLOWED_TOOLS,
       ...getFeatureDisallowedTools(),
+      ...(workflowAllowsAgents() ? [] : [...agentToolNames]),
     ]);
     const surface = { tools: Array.isArray(tools) ? tools.slice() : [], mcpScopeId: getMcpScopeId() };
     applyDeferredToolSurface(surface, deferredSurfaceModeForLead(mode), modelStandaloneTools(), {

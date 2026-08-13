@@ -12,17 +12,51 @@ export function conversationCoverIdentity(
   return { coverKey: nextId, promotingFromDraft: false };
 }
 
-/** Hold the draft cover id until the promoted lane can stay revealed. */
+/** Keep the draft cover for the first promoted session, even after settle. */
 export function nextConversationCoverId(
   previousCoverId: string,
   sessionId: string,
   surfaceSettled: boolean,
+  originSessionId = "",
 ): string {
   const nextId = String(sessionId || "").trim() || "draft";
-  if ((!previousCoverId || previousCoverId === "draft") && nextId !== "draft" && !surfaceSettled) {
-    return previousCoverId || "draft";
+  const previous = String(previousCoverId || "").trim() || "draft";
+  const origin = String(originSessionId || "").trim();
+  if (previous === "draft") {
+    // First promotion keeps the draft cover after settle. A later switch to a
+    // different session leaves draft so session-to-session still covers.
+    if (nextId === "draft") return "draft";
+    if (!origin || origin === nextId) return "draft";
+    return nextId;
   }
+  if (nextId !== "draft" && !surfaceSettled) return previous;
   return nextId;
+}
+
+/** Remember the session this draft promoted into until the pane leaves it. */
+export function nextConversationOriginSessionId(
+  originSessionId: string,
+  sessionId: string,
+): string {
+  const nextId = String(sessionId || "").trim();
+  if (!nextId) return "";
+  const origin = String(originSessionId || "").trim();
+  return origin || nextId;
+}
+
+/** First-promoted lanes already painted as New Task. Markdown readiness must
+ *  not unmount that timeline or replay the conversation cover. */
+export function conversationMarkdownPending({
+  transcriptPending,
+  coverId,
+  hasMeasurements,
+}: {
+  transcriptPending: boolean;
+  coverId: string;
+  hasMeasurements: boolean;
+}): boolean {
+  if (!transcriptPending || hasMeasurements) return false;
+  return Boolean(coverId) && coverId !== "draft";
 }
 
 /** Session-to-session pane registration stays covered until the incoming
@@ -42,7 +76,7 @@ export function conversationSwitchPaintGate(
 ): { adoptNow: boolean; reveal: boolean } {
   const incoming = String(incomingId || "").trim() || "draft";
   const held = String(heldId || "").trim() || "draft";
-  if (hidden || promotingFromDraft || incoming === "draft") {
+  if (hidden || promotingFromDraft || incoming === "draft" || held === "draft") {
     return { adoptNow: true, reveal: true };
   }
   if (!contentReady) return { adoptNow: false, reveal: false };

@@ -88,6 +88,34 @@ export function normalizeWorkflowId(value, fallback = '') {
   return /^[a-z0-9][a-z0-9_.-]*$/.test(id) ? id : fallback;
 }
 
+// Persist the delegation bit onto session.workflow. createSession used to
+// keep only id/name/description/source, so Solo sessions lost
+// delegatesAgents:false and the agent tool leaked back onto the surface.
+export function toSessionWorkflowMeta(workflow) {
+  if (!workflow || typeof workflow !== 'object') return null;
+  const id = String(workflow.id || '').trim();
+  if (!id) return null;
+  return {
+    id,
+    name: String(workflow.name || id).trim(),
+    description: String(workflow.description || '').trim(),
+    source: String(workflow.source || '').trim(),
+    delegatesAgents: workflow.delegatesAgents !== false,
+  };
+}
+
+// A workflow that delegates to NOBODY (`delegation: none` — e.g. Solo)
+// must not put the `agent` tool in the session tool list: policy rejects
+// every call, so a schema-visible tool is a guaranteed error turn plus dead
+// schema weight. Field source: workflowSummary() carries delegatesAgents;
+// older persisted sessions carry the legacy roster fields or nothing (safe).
+export function workflowDisallowsAgentTool(workflow) {
+  if (!workflow || typeof workflow !== 'object') return false;
+  if (workflow.delegatesAgents === false) return true;
+  return Boolean(workflow.agentsConfigured === true
+      && Array.isArray(workflow.agents) && workflow.agents.length === 0);
+}
+
 function internalIdFromName(value, fallbackPrefix) {
   const name = clean(value);
   const readable = name

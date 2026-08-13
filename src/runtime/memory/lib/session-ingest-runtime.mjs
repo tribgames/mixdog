@@ -340,7 +340,10 @@ export function createSessionIngestRuntime({
     ordinalState.snapshot = currentSnapshot
     ordinalState.seeded = true
     for (const { m, role, content, occurrence, index } of prepared) {
-      const tsMs = parseTsToMs(m.ts ?? m.timestamp ?? (Date.now() - (messages.length - index)))
+      const fallbackTs = Date.now() - (messages.length - index)
+      const rawTimestamp = m.ts ?? m.timestamp
+      const timeSource = untimestamped ? 'collected' : 'recorded'
+      const tsMs = untimestamped ? fallbackTs : parseTsToMs(rawTimestamp)
       // Assign the next monotonic turn BEFORE building the source_ref so identical
       // untimestamped repeats get distinct identities (peekNext is stable until a
       // row is actually inserted → next()).
@@ -354,11 +357,11 @@ export function createSessionIngestRuntime({
       // monotonic ordinal is folded in so genuine repeats persist (not collapsed).
       const sourceRef = stableSessionSourceRef(sessionId, m, role, content, occurrence)
       const result = await db.query(`
-        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT DO NOTHING
         RETURNING id
-      `, [tsMs, role, content, sourceRef, sessionId, assignedTurn, projectId])
+      `, [tsMs, role, content, sourceRef, sessionId, assignedTurn, projectId, timeSource])
       const rowInserted = Number(result.rowCount ?? result.affectedRows ?? 0) || 0
       if (rowInserted > 0) {
         inserted += rowInserted

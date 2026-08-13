@@ -41,7 +41,10 @@ export async function searchRelevantHybrid(db, query, options = {}) {
   if (/^\d+$/.test(clean)) return []
 
   const limit = Math.max(1, Math.floor(Number(options?.limit ?? 8)))
-  const candidateWindow = Math.max(40, limit * 8)
+  // Retrieval quality must not depend on the caller's display page size.
+  // Work/event queries often have many same-topic progress rows; a limit=10
+  // page still needs a broad pool so the final decision can outrank them.
+  const candidateWindow = Math.max(240, limit * 8)
   const includeMembers = Boolean(options.includeMembers)
   const writeBackMemberHits = options.writeBackMemberHits !== false
   // Pre-filter knobs. Without them, FTS/vec rank the whole tree and a
@@ -166,7 +169,12 @@ export async function searchRelevantHybrid(db, query, options = {}) {
   const ftsPrefixMode = Boolean(ftsPrefix)
   const exactTerms = buildExactTerms(clean)
   const queryTokenCount = countQueryTokens(clean)
-  const minExactHits = exactTerms.length >= 8 ? 3 : exactTerms.length >= 4 ? 2 : 1
+  // Candidate generation is recall-oriented: one concept may be the only
+  // distinctive event identifier in a natural-language question. Precision is
+  // enforced after retrieval through semantic support, token coverage, and
+  // candidate-local document frequency rather than by requiring several query
+  // concepts to co-occur before the row can even be scored.
+  const minExactHits = 1
 
   // $5 onward are the filter params for the entries legs (non-MV path).
   // Each CTE leg duplicates the same positional params because they live in
@@ -308,10 +316,11 @@ trgm AS (
 ),`
 
   const exactCte = exactTerms.length > 0 ? `
-exact AS (
+exact_matches AS (
   SELECT ee.id,
-         COUNT(*)::float8 AS exact_hits,
-         ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC, ee.ts DESC) AS exact_rank
+         ee.ts,
+         q.term,
+         COUNT(*) OVER (PARTITION BY q.term)::float8 AS term_df
   FROM entries ee
   JOIN LATERAL unnest($${exactTermsParam}::text[]) AS q(term) ON (
        ee.content ILIKE '%' || q.term || '%'
@@ -321,12 +330,39 @@ exact AS (
   WHERE true
     ${exactFilterClause}
     ${lexScanBound('ee')}
-  GROUP BY ee.id, ee.ts
+),
+exact AS (
+  SELECT id,
+         COUNT(*)::float8 AS exact_hits,
+         COUNT(*) FILTER (WHERE POSITION(' ' IN term) > 0)::float8 AS exact_phrase_hits,
+         SUM(
+           (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)
+           / SQRT(GREATEST(term_df, 1))
+         )::float8 AS exact_rarity,
+         ROW_NUMBER() OVER (
+           ORDER BY SUM(
+                      (CASE WHEN term ~ '[A-Za-z0-9_./:-]' THEN 3.0 ELSE 1.0 END)
+                      / SQRT(GREATEST(term_df, 1))
+                    ) DESC,
+                    COUNT(*) DESC,
+                    MAX(ts) DESC
+         ) AS exact_rank
+  FROM exact_matches
+  GROUP BY id
   HAVING COUNT(*) >= ${minExactHits}
-  ORDER BY exact_hits DESC, ee.ts DESC
+  ORDER BY exact_rarity DESC, exact_hits DESC, MAX(ts) DESC
   LIMIT $4
 ),` : `
-exact AS (SELECT NULL::bigint AS id, NULL::float8 AS exact_hits, NULL::bigint AS exact_rank WHERE false),`
+exact_matches AS (
+  SELECT NULL::bigint AS id, NULL::bigint AS ts, NULL::text AS term, NULL::float8 AS term_df
+  WHERE false
+),
+exact AS (
+  SELECT NULL::bigint AS id, NULL::float8 AS exact_hits,
+         NULL::float8 AS exact_phrase_hits, NULL::float8 AS exact_rarity,
+         NULL::bigint AS exact_rank
+  WHERE false
+),`
 
   const hybridSql = `
 WITH
@@ -352,6 +388,8 @@ SELECT
   t.trg_sim,
   t.trgm_rank,
   x.exact_hits,
+  x.exact_phrase_hits,
+  x.exact_rarity,
   x.exact_rank
 FROM combined c
 JOIN   entries e ON e.id = c.id
@@ -436,7 +474,7 @@ LEFT JOIN exact  x ON x.id = c.id`
       ? W_DENSE * Math.max(0, sim - SIM_FLOOR) / (1 - SIM_FLOOR) * freshness
       : 0
     const windowRecency = hasTsFilter ? W_WINDOW_RECENCY * windowRecencyFactor(row.ts, tsFrom, tsTo, nowMs) : 0
-    return { id, row, rrf, freshness, retrievalScore: (rrf * freshness) + boost + rareBoost + denseTerm + windowRecency }
+    return { id, row, rrf, freshness, rareBoost, retrievalScore: (rrf * freshness) + boost + rareBoost + denseTerm + windowRecency }
   })
   let semanticOnlyDropped = 0
   let weakTextDropped = 0
@@ -446,7 +484,7 @@ LEFT JOIN exact  x ON x.id = c.id`
   // 0.70-0.74 band; when lexical evidence exists elsewhere, keep demanding
   // lexical corroboration (or the stricter above-noise floor) per row.
   const setHasLexicalLeg = scoredAll.some(({ row }) => row.sparse_rank != null || row.exact_rank != null)
-  const scored = scoredAll.filter(({ row }) => {
+  const scored = scoredAll.filter(({ row, rareBoost }) => {
     const hasTextSupport = row.sparse_rank != null || row.trgm_rank != null || row.exact_rank != null
     const sim = Number(row.dense_sim)
     const denseRankNum = row.dense_rank != null ? Number(row.dense_rank) : null
@@ -512,6 +550,13 @@ LEFT JOIN exact  x ON x.id = c.id`
     // multi-token lexical recall until warmup finished. Token coverage alone
     // carries the filter in that degraded mode.
     const semanticLegActive = vecSql != null
+    const display = rowDisplayText(row)
+    const hasIdentifierMatch = qTokens.some((token) => (
+      (/[^\p{Script=Hangul}]/u.test(token) || /[_./:-]/u.test(token) || /\p{N}/u.test(token))
+      && display.includes(token)
+    ))
+    if (hasLexicalLeg && (hasIdentifierMatch || Number(row.exact_phrase_hits) > 0)) return true
+    if (hasLexicalLeg && rareBoost > 0) return true
     if ((!semanticLegActive || hasSemanticSupport) && hasQueryTokenCoverage(row, queryTokenCount)) return true
     weakTextDropped += 1
     return false
@@ -554,7 +599,7 @@ LEFT JOIN exact  x ON x.id = c.id`
     const { clause: rootScopeClause, params: rootScopeParams } = buildScopeClause(2)
     const { rows: rootRows } = await recallReadQuery(
       db,
-      `SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
+      `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
               element, category, summary, project_id, status, score, last_seen_at
        FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 1 ${rootScopeClause}`,
       [memberRootIds, ...rootScopeParams],
@@ -634,13 +679,13 @@ LEFT JOIN exact  x ON x.id = c.id`
     const [a, b] = await Promise.all([
       nonExempt.length > 0
         ? recallReadQuery(db,
-            `SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
+            `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
                     element, category, summary, project_id, status, score, last_seen_at
              FROM entries WHERE id = ANY($1::bigint[]) ${winFilter}`,
             [nonExempt, ...winParams])
         : Promise.resolve({ rows: [] }),
       recallReadQuery(db,
-        `SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
+        `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
                 element, category, summary, project_id, status, score, last_seen_at
          FROM entries WHERE id = ANY($1::bigint[]) ${statusFilter}`,
         [memberHitExemptIds, ...statusParams]),
@@ -649,7 +694,7 @@ LEFT JOIN exact  x ON x.id = c.id`
   } else {
     const { clause: winFilter, params: winParams } = buildFilterClause(2)
     const r = await recallReadQuery(db,
-      `SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
+      `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
               element, category, summary, project_id, status, score, last_seen_at
        FROM entries WHERE id = ANY($1::bigint[]) ${winFilter}`,
       [topIds, ...winParams])
@@ -670,7 +715,7 @@ LEFT JOIN exact  x ON x.id = c.id`
     if (rootIds.length > 0) {
       const { rows: memberRows } = await recallReadQuery(
         db,
-        `SELECT id, ts, role, content, session_id, source_turn, project_id, chunk_root
+        `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, project_id, chunk_root
          FROM entries WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
          ORDER BY ts ASC, id ASC`,
         [rootIds],

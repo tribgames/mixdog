@@ -50,7 +50,8 @@ export const TOOL_DEFS = [
         id: { anyOf: [{ type: 'number' }, { type: 'array', items: { type: 'number' }, minItems: 1 }], description: 'Exact #id(s) from recall. Do not invent ids.' },
         period: { type: 'string', description: PERIOD_DESCRIPTION },
         limit: { type: 'number', description: 'Max entries.' },
-        offset: { type: 'number', description: 'Skip entries.' },
+        offset: { type: 'number', description: 'Legacy static skip. For period=last paging, use the returned cursor instead.' },
+        cursor: { type: 'string', description: 'Opaque period=last continuation cursor returned by the previous page.' },
         sort: { type: 'string', enum: ['importance', 'date'], description: 'importance or date.' },
         // Categories are listed once here instead of twice as enums; the
         // handler validates against VALID_CATEGORY.
@@ -78,7 +79,8 @@ export const TOOL_DEFS = [
         sort: { type: 'string', enum: ['date', 'importance'], description: 'date or importance.' },
         category: { anyOf: [{ type: 'string', enum: ['rule','constraint','decision','fact','goal','preference','task','issue'] }, { type: 'array', items: { type: 'string', enum: ['rule','constraint','decision','fact','goal','preference','task','issue'] }, minItems: 1 }], description: 'Category filter.' },
         limit: { type: 'number', default: 30, description: 'Max entries.' },
-        offset: { type: 'number', default: 0, description: 'Skip entries.' },
+        offset: { type: 'number', default: 0, description: 'Legacy static skip.' },
+        cursor: { type: 'string', description: 'Opaque period=last continuation cursor.' },
         includeMembers: { type: 'boolean', description: 'Include chunk members in output; does not widen the search pool.' },
         includeRaw: { type: 'boolean', description: 'Include unchunked raw/episode rows.' },
         sessionOnly: { type: 'boolean', description: 'Search this session only.' },

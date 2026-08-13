@@ -46,6 +46,7 @@ export function createSettingsApi({
   // side-effect callbacks
   invalidateContextStatusCache,
   invalidatePreSessionToolSurface,
+  refreshEmptySessionToolPolicy,
   scheduleChannelStart,
   channels,
   clearChannelStartTimer,
@@ -231,15 +232,15 @@ export function createSettingsApi({
         memory: { enabled: memoryToolsEnabledFn() },
       };
     },
-    setWebSearchEnabled(enabled) {
+    async setWebSearchEnabled(enabled) {
       const config = getConfig();
       saveConfigAndAdopt(setModuleEnabledInConfig({ ...config }, 'search', enabled !== false));
-      // A live session keeps its frozen schema; stale calls are rejected by
-      // the executor immediately, and the next new session gets this surface.
-      invalidatePreSessionToolSurface();
+      // Empty/reserved sessions rebuild now so session entry does not still
+      // advertise search. A conversation keeps its frozen schema.
+      await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
     },
-    setMemoryToolsEnabled(enabled) {
+    async setMemoryToolsEnabled(enabled) {
       const config = getConfig();
       const memoryEnabled = enabled !== false;
       // General → Memory is the user-facing master: model tools, core-memory
@@ -249,8 +250,8 @@ export function createSettingsApi({
         memoryEnabled,
       );
       saveConfigAndAdopt(nextConfig);
-      invalidatePreSessionToolSurface();
       invalidateContextStatusCache();
+      await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
     },
     getChannelSettings(options = {}) {

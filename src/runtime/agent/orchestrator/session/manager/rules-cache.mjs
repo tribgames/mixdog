@@ -25,25 +25,40 @@ const _rulesBuilder = (() => {
 // I/O when warm.
 let _sharedRulesCache = null;
 let _sharedRulesMtime = 0;
+const _sharedRulesCacheByOmit = new Map();
 const _agentRulesCacheByProfile = new Map();
 const _leadRulesCacheByDelegation = new Map();
 let _leadMetaCache = null;
 let _leadMetaMtime = 0;
 
-export function _buildSharedRules() {
+function omitToolsKey(omitTools) {
+    return [...new Set((Array.isArray(omitTools) ? omitTools : [])
+        .map((name) => String(name || '').toLowerCase())
+        .filter(Boolean))].sort().join(',');
+}
+
+export function _buildSharedRules({ omitTools = [] } = {}) {
     if (!_rulesBuilder || typeof _rulesBuilder.buildSharedToolContent !== 'function') return '';
     const PLUGIN_ROOT = mixdogRoot();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
     const mtime = maxMtimeRecursive([
         join(RULES_DIR, 'shared'),
     ]);
-    if (_sharedRulesCache !== null && mtime <= _sharedRulesMtime) {
-        return _sharedRulesCache;
-    }
-    try {
-        const built = _rulesBuilder.buildSharedToolContent({ PLUGIN_ROOT, DATA_DIR: resolvePluginData() });
-        _sharedRulesCache = built;
+    if (mtime > _sharedRulesMtime) {
+        _sharedRulesCacheByOmit.clear();
+        _sharedRulesCache = null;
         _sharedRulesMtime = mtime;
+    }
+    const key = omitToolsKey(omitTools);
+    if (_sharedRulesCacheByOmit.has(key)) return _sharedRulesCacheByOmit.get(key);
+    try {
+        const built = _rulesBuilder.buildSharedToolContent({
+            PLUGIN_ROOT,
+            DATA_DIR: resolvePluginData(),
+            omitTools,
+        });
+        _sharedRulesCacheByOmit.set(key, built);
+        if (!key) _sharedRulesCache = built;
         return built;
     } catch (e) {
         throw new Error(`[session] shared tool rules build failed: ${e.message}`);
