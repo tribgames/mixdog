@@ -240,10 +240,35 @@ function createJsonLifecycle({
       entry = pendingTools.get(callId);
     }
     if (!entry) return;
+    if (message?.__earlyNotify === true) {
+      entry.earlyCompletedAt = at;
+      entry.earlyTiming = message?.toolTiming || null;
+      return;
+    }
     pendingTools.delete(callId);
     completedTools.add(callId);
     const failed = message?.isError === true || message?.toolKind === 'error';
     const skipped = message?.toolKind === 'skipped';
+    const rawTiming = message?.toolTiming || entry.earlyTiming || {};
+    const dispatchStartedAt = nonNegativeNumber(rawTiming.dispatchStartedAt || entry.startedAt);
+    const executionStartedAt = nonNegativeNumber(
+      rawTiming.executionStartedAt || dispatchStartedAt,
+    );
+    const executionCompletedAt = nonNegativeNumber(
+      rawTiming.executionCompletedAt || entry.earlyCompletedAt || at,
+    );
+    const postprocessStartedAt = nonNegativeNumber(
+      rawTiming.postprocessStartedAt || executionCompletedAt,
+    );
+    const resultCompletedAt = nonNegativeNumber(rawTiming.resultCompletedAt || at);
+    const timing = {
+      queue_ms: Math.max(0, dispatchStartedAt - entry.startedAt),
+      dispatch_ms: Math.max(0, executionStartedAt - dispatchStartedAt),
+      execution_ms: Math.max(0, executionCompletedAt - executionStartedAt),
+      batch_wait_ms: Math.max(0, postprocessStartedAt - executionCompletedAt),
+      postprocess_ms: Math.max(0, resultCompletedAt - postprocessStartedAt),
+      total_ms: Math.max(0, resultCompletedAt - entry.startedAt),
+    };
     emit({
       type: 'item.completed',
       thread_id: threadId,
@@ -257,7 +282,8 @@ function createJsonLifecycle({
         status: failed ? 'failed' : (skipped ? 'skipped' : 'completed'),
         started_at: entry.startedAtIso,
         completed_at: nowIso(at),
-        duration_ms: Math.max(0, at - entry.startedAt),
+        duration_ms: timing.total_ms,
+        timing,
       },
     }, at);
   }

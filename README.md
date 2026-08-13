@@ -168,7 +168,8 @@ mixdog exec --provider openai-oauth --model gpt-5.6-sol --json "fix the failing 
 
 `--json` emits timestamped JSONL. The stream contains thread/turn lifecycle,
 provider request timing, reasoning and assistant messages, tool start/completion
-with arguments/output/duration, background notifications, final usage, and a
+with arguments/output and queue/dispatch/execution/batch-wait/postprocess timing,
+background notifications, final usage, and a
 terminal success/error result. Without `--json`, stdout remains final text only.
 In JSON mode stdout is JSONL-only; runtime diagnostics remain on stderr.
 

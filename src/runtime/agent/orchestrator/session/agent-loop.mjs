@@ -636,13 +636,12 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         opts.onToolCall = _capFinalToolsDisabled
             ? undefined
             : (call) => {
-                const result = eager.onToolCall(call);
                 try {
                     opts.onAssistantToolCallObserved?.(call, {
-                        eagerStarted: !!call?.id && eager.pending.has(call.id),
+                        eagerStarted: false,
                     });
                 } catch {}
-                return result;
+                return eager.onToolCall(call);
             };
         const sendStartedAt = Date.now();
         const preSendMs = sendStartedAt - _iterT0;

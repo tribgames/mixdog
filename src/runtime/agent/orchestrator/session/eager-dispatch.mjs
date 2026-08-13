@@ -112,8 +112,11 @@ export function createEagerDispatcher({
             // serial path below. If any role/permission guard would reject
             // this call there, never start it eagerly here.
             if (preDispatchDenyForSession(sessionRef, call, toolKind) !== null) return null;
+            const dispatchedAt = Date.now();
             const entry = {
-                startedAt: Date.now(),
+                startedAt: dispatchedAt,
+                dispatchStartedAt: dispatchedAt,
+                executionStartedAt: null,
                 endedAt: null,
                 mutationEpoch: epoch.mutation,
                 localSearchTelemetry: {},
@@ -134,6 +137,7 @@ export function createEagerDispatcher({
                         }
                     }
                     await opts.beforeToolExecution?.();
+                    entry.executionStartedAt = Date.now();
                     return { ok: true, value: await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: getNextIteration(), localSearchTelemetry: entry.localSearchTelemetry, resultTelemetry: entry.resultTelemetry }) };
                 } catch (error) {
                     return { ok: false, error };
@@ -182,6 +186,11 @@ export function createEagerDispatcher({
                             content: _earlyContent,
                             isError: !(settled && settled.ok),
                             __earlyNotify: true,
+                            toolTiming: {
+                                dispatchStartedAt: entry.dispatchStartedAt,
+                                executionStartedAt: entry.executionStartedAt ?? entry.endedAt,
+                                executionCompletedAt: entry.endedAt,
+                            },
                         });
                     } catch { /* best-effort — UI notify must never break the eager path */ }
                     // Intentionally do NOT delete _sig here — see the block

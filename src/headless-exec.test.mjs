@@ -133,11 +133,30 @@ test('headless exec emits a timestamped JSONL lifecycle and exact tool count', a
           options.onAssistantToolCallObserved(call);
           await options.onToolCall(1, [call]);
           options.onToolPhaseStarted();
+          const toolClock = Date.now();
+          options.onToolResult({
+            role: 'tool',
+            toolCallId: 'call_1',
+            content: 'ok\n',
+            __earlyNotify: true,
+            toolTiming: {
+              dispatchStartedAt: toolClock,
+              executionStartedAt: toolClock + 2,
+              executionCompletedAt: toolClock + 5,
+            },
+          });
           options.onToolResult({
             role: 'tool',
             toolCallId: 'call_1',
             content: 'ok\n',
             toolKind: 'normal',
+            toolTiming: {
+              dispatchStartedAt: toolClock,
+              executionStartedAt: toolClock + 2,
+              executionCompletedAt: toolClock + 5,
+              postprocessStartedAt: toolClock + 6,
+              resultCompletedAt: toolClock + 8,
+            },
           });
           options.onToolPhaseCompleted({ iteration: 1, calls: 1, elapsedMs: 2 });
           notificationListener?.({
@@ -176,6 +195,13 @@ test('headless exec emits a timestamped JSONL lifecycle and exact tool count', a
     assert.equal(toolCompleted.item.output, 'ok\n');
     assert.equal(toolCompleted.item.status, 'completed');
     assert.ok(toolCompleted.item.duration_ms >= 0);
+    assert.equal(toolCompleted.item.timing.dispatch_ms, 2);
+    assert.equal(toolCompleted.item.timing.execution_ms, 3);
+    assert.equal(toolCompleted.item.timing.batch_wait_ms, 1);
+    assert.equal(toolCompleted.item.timing.postprocess_ms, 2);
+    assert.equal(events.filter(
+      (event) => event.type === 'item.completed' && event.item?.id === 'call_1',
+    ).length, 1);
     assert.ok(events.some((event) => event.type === 'notification'));
     assert.equal(events.filter((event) => event.type === 'model.request.completed').length, 2);
     const terminal = events.at(-1);
