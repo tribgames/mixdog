@@ -126,5 +126,45 @@
     "expect_error": "context not found",
     "file_snapshots": { "a.js": "function a() {\n  });\n}\nfunction b() {\n  });\n}\n" },
     "args": { "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n});\n*** End Patch\n" }
+  },
+  {
+    "id": "opcode-plus-list-item",
+    "note": "observed: markdown/diff line `+ TODO` sent as an add of ` TODO`",
+    "expect": "applied",
+    "expect_content": { "a.md": "+ TODO keep\n  new body\ntail\n" },
+    "file_snapshots": { "a.md": "+ TODO keep\n  old body\ntail\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: a.md\n@@\n+ TODO keep\n-  old body\n+  new body\n*** End Patch\n" }
+  },
+  {
+    "id": "opcode-plus-after-context",
+    "note": "observed: `+ TODO` after a real context line must stay context, not insert",
+    "expect": "applied",
+    "expect_content": { "a.md": "keep\n+ TODO keep\n  new body\ntail\n" },
+    "file_snapshots": { "a.md": "keep\n+ TODO keep\n  old body\ntail\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: a.md\n@@\n keep\n+ TODO keep\n-  old body\n+  new body\n*** End Patch\n" }
+  },
+  {
+    "id": "escape-equiv-unique",
+    "note": "file stores literal \\uXXXX; unique window must apply the real-character patch",
+    "expect": "applied",
+    "expect_content": { "a.js": "const a = \"x\";\nmid\n" },
+    "file_snapshots": { "a.js": "const a = \"\\u00e9\";\nmid\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n-const a = \"é\";\n+const a = \"x\";\n*** End Patch\n" }
+  },
+  {
+    "id": "escape-equiv-two-windows",
+    "note": "guard: escape-equivalence must not pick a window when it occurs twice",
+    "expect": "rejected",
+    "expect_error": "context not found",
+    "file_snapshots": { "a.js": "const label = \"\\u00e9\";\nmid\nconst label = \"\\u00e9\";\n" },
+    "args": { "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n-const label = \"é\";\n+const label = \"x\";\n*** End Patch\n" }
+  },
+  {
+    "id": "crlf-rename",
+    "note": "V4A rename must keep the source file's CRLF endings",
+    "expect": "applied",
+    "expect_content": { "new.js": "line1\r\nLINE2\r\n" },
+    "file_snapshots": { "old.js": "line1\r\nline2\r\n" },
+    "args": { "mode": "atomic", "patch": "*** Begin Patch\n*** Update File: old.js\n*** Move to: new.js\n@@\n line1\n-line2\n+LINE2\n*** End Patch\n" }
   }
 ]

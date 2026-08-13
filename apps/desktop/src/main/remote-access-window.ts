@@ -9,25 +9,11 @@ import type { DesktopRemoteAccessInfo } from '../shared/contract';
 import type { RelayE2EEPairingMaterial } from '../shared/remote-e2ee';
 
 export interface RemoteAccessDescriptor {
-  bridge: {
-    port: number;
-    token: string;
-    urls: string[];
-  } | null;
   relay: {
     clientUrl: string;
     token: string;
     pairing: RelayE2EEPairingMaterial;
-  } | null;
-}
-
-function preferredUrl(urls: string[]): string {
-  // Home-router LAN addresses first: Tailscale/VPN interfaces only work when
-  // the phone runs the same overlay network.
-  return urls.find((url) => url.includes('//192.168.'))
-    || urls.find((url) => url.includes('//10.'))
-    || urls[0]
-    || '';
+  };
 }
 
 const qrSvg = (value: string): Promise<string> =>
@@ -36,32 +22,18 @@ const qrSvg = (value: string): Promise<string> =>
 export async function buildRemoteAccessInfo(
   descriptor: RemoteAccessDescriptor,
 ): Promise<DesktopRemoteAccessInfo> {
-  const { bridge, relay } = descriptor;
-  // The LAN leg is optional: when another mixdog instance owns the bridge
-  // port (live + dev app side by side) relay-only pairing still works, so
-  // the LAN fields simply stay empty instead of failing the whole card.
-  const origin = bridge ? preferredUrl(bridge.urls) : '';
-  const browserUrl = bridge ? `${origin}/?token=${encodeURIComponent(bridge.token)}` : '';
-  const info: DesktopRemoteAccessInfo = {
-    port: bridge?.port ?? 0,
-    urls: bridge?.urls ?? [],
-    browserUrl,
-    browserQrSvg: '',
+  const { relay } = descriptor;
+  // The relay-visible token only routes the socket. E2EE material stays in
+  // the browser fragment so it never reaches HTTP logs.
+  const relayOrigin = new URL(relay.clientUrl).origin;
+  const key = encodeURIComponent(relay.pairing.serverPublicKey);
+  const secret = encodeURIComponent(relay.pairing.pairingSecret);
+  const relayBrowserUrl = `${relayOrigin}/?token=${encodeURIComponent(relay.token)}`
+    + `#e2eeKey=${key}&e2eeSecret=${secret}`;
+  return {
+    relayBrowserUrl,
+    relayBrowserQrSvg: await qrSvg(relayBrowserUrl),
   };
-  if (bridge) {
-    info.browserQrSvg = await qrSvg(browserUrl);
-  }
-  if (relay) {
-    // The relay-visible token only routes the socket. E2EE material stays in
-    // the browser fragment so it never reaches HTTP logs.
-    const relayOrigin = new URL(relay.clientUrl).origin;
-    const key = encodeURIComponent(relay.pairing.serverPublicKey);
-    const secret = encodeURIComponent(relay.pairing.pairingSecret);
-    info.relayBrowserUrl = `${relayOrigin}/?token=${encodeURIComponent(relay.token)}`
-      + `#e2eeKey=${key}&e2eeSecret=${secret}`;
-    info.relayBrowserQrSvg = await qrSvg(info.relayBrowserUrl);
-  }
-  return info;
 }
 
 export async function showRemoteAccessWindow(

@@ -2,7 +2,8 @@
 import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { executePatchTool, takeApplyPatchUiDiff } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
 import { beginTurnSnapshot, getTurnReviewDiff } from '../src/runtime/shared/turn-snapshot.mjs';
@@ -220,6 +221,36 @@ try {
   assertOk('apply_patch after the native server died', revived);
   assert(readFileSync(revivedPath, 'utf8') === 'after respawn\n',
     'apply_patch did not respawn the native server after its death');
+
+  const corpusPath = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'patch-replay-corpus.json');
+  const corpus = JSON.parse(readFileSync(corpusPath, 'utf8'));
+  for (const rec of corpus) {
+    const caseDir = mkdtempSync(join(tmpdir(), `mixdog-patch-corpus-${rec.id}-`));
+    try {
+      for (const [rel, content] of Object.entries(rec.file_snapshots || {})) {
+        if (content == null) continue;
+        const abs = join(caseDir, rel);
+        mkdirSync(dirname(abs), { recursive: true });
+        writeFileSync(abs, content);
+      }
+      const result = await executePatchTool('apply_patch', { ...(rec.args || {}), base_path: caseDir }, caseDir, {});
+      const failed = /^Error[\s:]/.test(String(result || '').trimStart());
+      if (rec.expect === 'applied') {
+        assert(!failed, `corpus ${rec.id} should apply:\n${result}`);
+        for (const [rel, want] of Object.entries(rec.expect_content || {})) {
+          assert(readFileSync(join(caseDir, rel), 'utf8') === want, `corpus ${rec.id} content mismatch ${rel}`);
+        }
+      } else {
+        assert(failed, `corpus ${rec.id} should reject:\n${result}`);
+        if (rec.expect_error) {
+          assert(new RegExp(rec.expect_error, 'i').test(String(result)),
+            `corpus ${rec.id} error mismatch:\n${result}`);
+        }
+      }
+    } finally {
+      rmSync(caseDir, { recursive: true, force: true });
+    }
+  }
 
   process.stdout.write('apply_patch edit smoke passed\n');
 } finally {

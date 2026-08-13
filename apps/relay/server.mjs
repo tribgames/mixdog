@@ -4,9 +4,7 @@
 // Topology: the desktop keeps ONE outbound WebSocket to this relay (so no
 // port-forwarding/NAT work on the user side), phones connect here with the
 // pairing token, and the relay forwards frames between them verbatim. The
-// phone-side wire protocol is IDENTICAL to the desktop's LAN bridge
-// (apps/desktop/src/main/remote-bridge.ts), so the renderer's remote shim
-// works unchanged whether it talks to the LAN bridge or to this relay.
+// phone-side wire protocol is implemented by the renderer's remote shim.
 //
 // Envelope protocol on the desktop leg (JSON, one object per message):
 //   relay -> desktop: { type: 'client-open',  clientId }
@@ -20,10 +18,17 @@
 // id + secret, hashes persisted under DATA_DIR); phones present the client
 // token the desktop registered. Payloads are relayed without inspection.
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer } from 'node:http';
 import { createServer as createTlsServer } from 'node:https';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { WebSocketServer } from 'ws';
@@ -101,7 +106,12 @@ const REGISTER_RATE_WINDOW_MS = 10 * 60_000;
 const UNAUTHORIZED_RATE_LIMIT = 60;
 const UNAUTHORIZED_RATE_WINDOW_MS = 60_000;
 const MAX_REGISTERED_DEVICES = 5000;
+export const MAX_PHONE_CLIENTS_PER_DEVICE = 32;
 export const MAX_RATE_KEYS = 10_000;
+
+export function phoneClientCapacityAvailable(clientCount) {
+  return Number(clientCount) < MAX_PHONE_CLIENTS_PER_DEVICE;
+}
 
 export class RateLimiter {
   constructor(limit, windowMs, maxKeys = MAX_RATE_KEYS) {
@@ -468,14 +478,51 @@ function hashesMatch(expectedHex, candidate) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-class DeviceStore {
+export function readDeviceCredentials(request, url) {
+  const authorization = String(request.headers?.authorization || '');
+  const match = /^Basic\s+([A-Za-z0-9+/]+={0,2})$/i.exec(authorization);
+  if (match) {
+    try {
+      const decoded = Buffer.from(match[1], 'base64').toString('utf8');
+      const divider = decoded.indexOf(':');
+      if (divider > 0) {
+        return {
+          deviceId: decoded.slice(0, divider),
+          secret: decoded.slice(divider + 1),
+        };
+      }
+    } catch { /* fall through to legacy query authentication */ }
+  }
+  return {
+    deviceId: url.searchParams.get('device') || '',
+    secret: url.searchParams.get('secret') || '',
+  };
+}
+
+export class DeviceStore {
   constructor(dataDir) {
     this.path = join(dataDir, 'devices.json');
     this.devices = new Map();
     try {
       const parsed = JSON.parse(readFileSync(this.path, 'utf8'));
-      for (const [id, row] of Object.entries(parsed)) this.devices.set(id, row);
-    } catch { /* first run */ }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new TypeError('device store root is invalid');
+      }
+      for (const [id, row] of Object.entries(parsed)) {
+        if (!/^[0-9a-f-]{8,64}$/.test(id)
+          || !row || typeof row !== 'object' || Array.isArray(row)
+          || !/^[0-9a-f]{64}$/.test(String(row.secretHash || ''))
+          || (row.clientTokenHash && !/^[0-9a-f]{64}$/.test(String(row.clientTokenHash)))) {
+          throw new TypeError('device store row is invalid');
+        }
+        if (!row.clientTokenHash) row.clientTokenHash = '';
+        this.devices.set(id, row);
+      }
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        throw new Error(`failed to load device store: ${error.message}`, { cause: error });
+      }
+    }
     // sha256(token) hex -> deviceId. Phone auth is on the hot path of every
     // /ws upgrade and static GET; a linear scan over all devices would decay
     // with fleet size. Indexing by digest keeps lookup O(1) and leaks nothing
@@ -490,12 +537,23 @@ class DeviceStore {
   save() {
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
     const plain = Object.fromEntries(this.devices);
+    const directory = dirname(this.path);
+    const temporary = join(directory, `.devices-${process.pid}-${randomUUID()}.tmp`);
     try {
-      mkdirSync(resolve(this.path, '..'), { recursive: true });
-      // Secret/token digests: owner-only, never group/world readable.
-      writeFileSync(this.path, JSON.stringify(plain, null, 2), { encoding: 'utf8', mode: 0o600 });
+      mkdirSync(directory, { recursive: true });
+      // Write-then-rename keeps the previous authentication database intact
+      // across interruption; the replacement itself is owner-only.
+      writeFileSync(temporary, JSON.stringify(plain, null, 2), {
+        encoding: 'utf8',
+        mode: 0o600,
+      });
+      chmodSync(temporary, 0o600);
+      renameSync(temporary, this.path);
+      chmodSync(this.path, 0o600);
     } catch (error) {
       console.error('[relay] failed to persist device store:', error.message);
+    } finally {
+      rmSync(temporary, { force: true });
     }
   }
 
@@ -691,8 +749,8 @@ export async function startRelay({
       rawSocket.destroy();
       return;
     }
-    const reject = () => {
-      rawSocket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+    const reject = (status = 401, reason = 'Unauthorized') => {
+      rawSocket.write(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\n\r\n`);
       rawSocket.destroy();
     };
     // Trust-on-first-use keeps setup zero-config, but only a bounded number of
@@ -700,8 +758,7 @@ export async function startRelay({
     const registrationAllowed = (deviceId) =>
       store.isKnown(deviceId) || registerLimiter.allow(clientIp(request));
     if (url.pathname === '/desktop') {
-      const deviceId = url.searchParams.get('device') || '';
-      const secret = url.searchParams.get('secret') || '';
+      const { deviceId, secret } = readDeviceCredentials(request, url);
       if (!/^[0-9a-f-]{8,64}$/.test(deviceId) || secret.length < 16
         || !registrationAllowed(deviceId) || !store.authenticate(deviceId, secret)) {
         reject();
@@ -719,14 +776,17 @@ export async function startRelay({
         reject();
         return;
       }
+      if (!phoneClientCapacityAvailable(entry.clients.size)) {
+        reject(429, 'Too Many Requests');
+        return;
+      }
       wss.handleUpgrade(request, rawSocket, head, (socket) => runClientLeg(entry, sendJson, socket));
       return;
     }
     if (url.pathname === '/hookleg') {
       // Channel-worker webhook tunnel: same trust-on-first-use device model
       // as the desktop leg (worker mints its own id/secret pair).
-      const deviceId = url.searchParams.get('device') || '';
-      const secret = url.searchParams.get('secret') || '';
+      const { deviceId, secret } = readDeviceCredentials(request, url);
       if (!/^[0-9a-f-]{8,64}$/.test(deviceId) || secret.length < 16
         || !registrationAllowed(deviceId) || !store.authenticate(deviceId, secret)) {
         reject();

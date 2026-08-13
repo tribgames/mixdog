@@ -16,6 +16,7 @@ import {
   defaultEffectiveContextWindowPercent,
 } from '../src/gateway/route-meta.mjs';
 import { getModelMetadataSync } from '../../../runtime/agent/orchestrator/providers/model-catalog.mjs';
+import { resolveRuntimeRoot } from '../../../runtime/shared/runtime-root.mjs';
 
 function positiveInt(value) {
   const n = parseInt(String(value || ''), 10);
@@ -39,9 +40,7 @@ function isPidAlive(pid) {
 }
 
 function runtimeRoot() {
-  return process.env.MIXDOG_RUNTIME_ROOT
-    ? path.resolve(process.env.MIXDOG_RUNTIME_ROOT)
-    : path.join(os.tmpdir(), 'mixdog');
+  return resolveRuntimeRoot();
 }
 
 function claudeConfigDir() {

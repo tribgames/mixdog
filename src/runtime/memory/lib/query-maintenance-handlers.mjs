@@ -8,7 +8,7 @@ export function createQueryMaintenanceHandlers({ getDb }) {
     const includeRaw = args.includeRaw !== false
     const limit = Math.max(1, Math.min(1000, Number(args.limit) || 1000))
     const rootRows = (await db.query(`
-      SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
+      SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
              element, category, summary, status, score, last_seen_at, project_id
       FROM entries
       WHERE session_id = $1 AND is_root = 1
@@ -19,7 +19,7 @@ export function createQueryMaintenanceHandlers({ getDb }) {
     const rootIds = roots.map((r) => Number(r.id)).filter((id) => Number.isFinite(id))
     const memberRows = rootIds.length > 0
       ? (await db.query(`
-          SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root, project_id
+          SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root, project_id
           FROM entries
           WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
           ORDER BY chunk_root ASC, COALESCE(source_turn, 2147483647) ASC, ts ASC, id ASC
@@ -33,7 +33,7 @@ export function createQueryMaintenanceHandlers({ getDb }) {
     let rawRows = []
     if (includeRaw) {
       rawRows = (await db.query(`
-        SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root, project_id
+        SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root, project_id
         FROM entries
         WHERE session_id = $1
           AND is_root = 0

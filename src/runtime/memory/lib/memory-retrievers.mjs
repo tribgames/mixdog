@@ -1,6 +1,7 @@
 import { recallReadQuery } from './memory-recall-read-query.mjs'
 
 import { buildPromotedExclusionClauses } from './memory-recall-scope-filter.mjs'
+import { compareRecallNewestFirst } from './recall-order.mjs'
 
 const VALID_CATEGORIES_SET = new Set([
   'rule', 'constraint', 'decision', 'fact', 'goal', 'preference', 'task', 'issue',
@@ -84,11 +85,11 @@ export async function retrieveEntries(db, filters = {}) {
   const offset = Math.max(0, Number(filters.offset ?? 0))
   const sort = String(filters.sort ?? 'importance').trim().toLowerCase()
   const orderBy = sort === 'date'
-    ? 'ts DESC, id DESC'
+    ? 'ts DESC, source_turn DESC NULLS LAST, id DESC'
     : 'score DESC NULLS LAST, ts DESC, id DESC'
 
   params.push(limit, offset)
-  const sql = `SELECT id, ts, role, content, source_ref, session_id, source_turn,
+  const sql = `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,
                       chunk_root, is_root, element, category, summary, project_id,
                       status, score, last_seen_at
                FROM entries
@@ -97,12 +98,13 @@ export async function retrieveEntries(db, filters = {}) {
                LIMIT $${params.length - 1} OFFSET $${params.length}`
 
   const rows = (await recallReadQuery(db, sql, params)).rows
+  if (sort === 'date') rows.sort(compareRecallNewestFirst)
 
   if (filters.includeMembers && rows.length > 0) {
     const rootIds = rows.map(r => r.id)
     const memRes = (await recallReadQuery(
       db,
-      `SELECT id, ts, role, content, session_id, source_turn, project_id, chunk_root
+      `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, project_id, chunk_root
        FROM entries WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
        ORDER BY chunk_root, ts ASC, id ASC`,
       [rootIds],
@@ -111,7 +113,7 @@ export async function retrieveEntries(db, filters = {}) {
     for (const m of memRes) {
       const rid = Number(m.chunk_root)
       if (!byRoot.has(rid)) byRoot.set(rid, [])
-      byRoot.get(rid).push({ id: m.id, ts: m.ts, role: m.role, content: m.content, session_id: m.session_id, source_turn: m.source_turn, project_id: m.project_id })
+      byRoot.get(rid).push({ id: m.id, ts: m.ts, role: m.role, content: m.content, source_ref: m.source_ref, session_id: m.session_id, source_turn: m.source_turn, time_source: m.time_source, project_id: m.project_id })
     }
     for (const r of rows) r.members = byRoot.get(Number(r.id)) || []
   }

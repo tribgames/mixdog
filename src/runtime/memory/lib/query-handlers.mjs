@@ -12,6 +12,7 @@
 
 import {
   parsePeriod,
+  inferRecallPeriod,
   coreRecallTerms,
   normalizeRecallProjectScope,
   sessionRecallTerms,
@@ -20,11 +21,15 @@ import {
   renderSessionGroupedLines,
   collapseNearDuplicateRows,
   compactDigestRows,
+  compactHandoffRows,
 } from './recall-format.mjs'
 import { searchRelevantHybrid } from './memory-recall-store.mjs'
 import { fetchEntriesByIdsScoped } from './memory-recall-id-patch.mjs'
 import { retrieveEntries } from './memory-retrievers.mjs'
 import { buildPromotedExclusionClauses } from './memory-recall-scope-filter.mjs'
+import { compareRecallNewestFirst } from './recall-order.mjs'
+import { decodeRecallPageCursor, encodeRecallPageCursor } from './recall-page-cursor.mjs'
+import { expandRecallEventContext } from './recall-event-context.mjs'
 import { insertTraceEvents } from './trace-store.mjs'
 import { createQueryMaintenanceHandlers } from './query-maintenance-handlers.mjs'
 import {
@@ -33,6 +38,128 @@ import {
   isEmbeddingModelReady,
   warmupEmbeddingProvider,
 } from './embedding-provider.mjs'
+
+function hasRecallEntity(text) {
+  return /[A-Za-z0-9_./:-]/u.test(String(text ?? ''))
+}
+
+const LATEST_RECALL_CONTEXT_TERMS = new Set([
+  'latest', 'current', 'recent', 'most', 'now', 'final', 'result', 'status', 'statu',
+  'decision', 'complete', 'completed',
+  '최신', '현재', '최근', '지금', '최종', '결과', '상태', '값', '확정값', '결정', '완료',
+])
+
+export function hasLatestRecallIntent(text) {
+  const value = String(text ?? '').normalize('NFKC').toLowerCase()
+  return /최신|현재|최근|latest|current|most\s+recent/.test(value)
+}
+
+export function latestRecallTopicTerms(text) {
+  return sessionRecallTerms(text)
+    .filter((term) => !LATEST_RECALL_CONTEXT_TERMS.has(term))
+    .filter((term) => !/^\d{4}-\d{2}-\d{2}(?:~\d{4}-\d{2}-\d{2})?$/u.test(term))
+    .filter((term) => !/^\d{1,2}:\d{2}(?:~\d{1,2}:\d{2})?$/u.test(term))
+    .filter((term) => !/^\d{1,4}(?:년|월|일|시|분)$/u.test(term))
+}
+
+export function latestRecallSearchTerms(text) {
+  const topicTerms = latestRecallTopicTerms(text)
+  const attachedAsciiTerms = [...String(text ?? '').matchAll(/([A-Za-z0-9_./:-]{2,})(?=\p{Script=Hangul})/gu)]
+    .flatMap((match) => sessionRecallTerms(match[1]))
+  const attachedSet = new Set(attachedAsciiTerms)
+  const identifiers = topicTerms.filter((term) => (
+    /[_./:-]|\d/u.test(term)
+    || attachedSet.has(term)
+    || (attachedSet.size > 0 && /^[a-z][a-z0-9_-]*$/u.test(term))
+  ))
+  return identifiers.length > 0 ? identifiers : topicTerms
+}
+
+function recallRowTopicText(row) {
+  const members = Array.isArray(row?.members) ? row.members : []
+  return [
+    row?.content,
+    row?.element,
+    row?.summary,
+    ...members.flatMap((member) => [member?.content, member?.element, member?.summary]),
+  ].filter(Boolean).join(' ').normalize('NFKC').toLowerCase()
+}
+
+export function rankLatestRecallRows(rows, query) {
+  const terms = latestRecallTopicTerms(query)
+  const normalizedQuery = String(query ?? '').normalize('NFKC').trim().toLowerCase()
+  const score = (row) => {
+    const value = Number(row?.retrievalScore ?? row?.rrf ?? row?.score ?? 0)
+    return Number.isFinite(value) ? value : 0
+  }
+  const annotated = [...(Array.isArray(rows) ? rows : [])]
+    .map((row, index) => {
+      const text = recallRowTopicText(row)
+      return {
+        row,
+        index,
+        coverage: terms.reduce((count, term) => count + (text.includes(term) ? 1 : 0), 0),
+        selfEcho: String(row?.content ?? '').normalize('NFKC').trim().toLowerCase() === normalizedQuery,
+      }
+    })
+  const maxCoverage = annotated.reduce((max, candidate) => Math.max(max, candidate.coverage), 0)
+  const latestCoverageFloor = maxCoverage > 1 ? maxCoverage - 1 : maxCoverage
+  return annotated
+    .sort((a, b) => {
+      if (a.selfEcho !== b.selfEcho) return a.selfEcho ? 1 : -1
+      const aLatestTopic = a.coverage >= latestCoverageFloor
+      const bLatestTopic = b.coverage >= latestCoverageFloor
+      if (aLatestTopic !== bLatestTopic) return aLatestTopic ? -1 : 1
+      if (aLatestTopic && bLatestTopic) {
+        return compareRecallNewestFirst(a.row, b.row)
+          || (b.coverage - a.coverage)
+          || (score(b.row) - score(a.row))
+          || (a.index - b.index)
+      }
+      return (b.coverage - a.coverage)
+        || (score(b.row) - score(a.row))
+        || compareRecallNewestFirst(a.row, b.row)
+        || (a.index - b.index)
+    })
+    .map(({ row }) => row)
+}
+
+function hasTimelineIntent(text) {
+  const value = String(text ?? '').normalize('NFKC').toLowerCase()
+  return /처음(?:부터)?|나중|변천|히스토리|과정|history|timeline|from\s+the\s+start/.test(value)
+}
+
+function sampleRecallTimeline(rows, limit) {
+  const cap = Math.max(1, Math.floor(Number(limit) || 10))
+  const sorted = [...rows].sort(compareRecallNewestFirst)
+  if (sorted.length <= cap) return sorted
+  const selected = new Set()
+  const score = (row) => {
+    const value = Number(row?.retrievalScore ?? row?.rrf ?? row?.score ?? 0)
+    return Number.isFinite(value) ? value : 0
+  }
+  const byRelevance = sorted
+    .map((row, index) => ({ index, score: score(row) }))
+    .sort((a, b) => (b.score - a.score) || (a.index - b.index))
+  const relevanceCount = Math.max(1, Math.ceil(cap / 2))
+  for (const candidate of byRelevance) {
+    selected.add(candidate.index)
+    if (selected.size >= relevanceCount) break
+  }
+  const coverageCount = cap - relevanceCount
+  for (let slot = 0; slot < coverageCount; slot += 1) {
+    const ratio = coverageCount === 1 ? 0 : slot / (coverageCount - 1)
+    selected.add(Math.round(ratio * (sorted.length - 1)))
+  }
+  for (const candidate of byRelevance) {
+    if (selected.size >= cap) break
+    selected.add(candidate.index)
+  }
+  for (let index = 0; selected.size < cap && index < sorted.length; index += 1) {
+    selected.add(index)
+  }
+  return [...selected].sort((a, b) => a - b).slice(0, cap).map((index) => sorted[index])
+}
 
 export function createQueryHandlers({
   getDb,
@@ -59,6 +186,7 @@ export function createQueryHandlers({
       // apply identically to both pools).
       const where = ['chunk_root IS NULL', 'is_root = 0', 'ts >= $1', 'ts <= $2']
       const params = [tsFromMs ?? 0, tsToMs ?? Date.now()]
+      let termOrder = ''
       if (projectScope === 'common') {
         where.push('project_id IS NULL')
       } else if (projectScope && projectScope !== 'all') {
@@ -84,14 +212,19 @@ export function createQueryHandlers({
         const minHits = Number.isFinite(Number(minHitsOverride))
           ? Math.max(1, Math.floor(Number(minHitsOverride)))
           : (terms.length >= 3 ? 2 : 1)
-        where.push(`(${clauses.join(' + ')}) >= ${minHits}`)
+        const matchSum = clauses.join(' + ')
+        where.push(`(${matchSum}) >= ${minHits}`)
+        // Rank raw rows by evidence before recency. Token order is deliberate:
+        // query normalization puts identifiers and preserved compounds first,
+        // so a distinctive term wins ties over a newer broad-term coincidence.
+        termOrder = `${matchSum} DESC, ${clauses.map(clause => `${clause} DESC`).join(', ')}, `
       }
       params.push(hardLimit)
-      const sql = `SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
+      const sql = `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
                 element, category, summary, status, score, last_seen_at, project_id
          FROM entries
          WHERE ${where.join(' AND ')}
-         ORDER BY ts DESC
+         ORDER BY ${termOrder}ts DESC, source_turn DESC NULLS LAST, id DESC
          LIMIT $${params.length}`
       const rows = (await db.query(sql, params)).rows
       return rows.map(r => ({ ...r, retrievalScore: 0, rrf: 0 }))
@@ -108,9 +241,11 @@ export function createQueryHandlers({
     const skipInFlightCutoff = compactDigest || compactHandoff
     // Over-fetch before compact-only dedupe so duplicated legacy rows cannot
     // consume the requested page and hide distinct older context.
-    const fetchLimit = compactDigest && !compactHandoff
-      ? Math.min(100, Math.max(limit, limit * 4))
-      : limit
+    const fetchLimit = compactHandoff
+      ? Math.min(1000, Math.max(limit, limit * 10))
+      : compactDigest
+        ? Math.min(100, Math.max(limit, limit * 4))
+        : limit
     const terms = sessionRecallTerms(args.query)
     const params = [sessionId]
     // Roots + not-yet-chunked leaves only. Once cycle1 turns raw leaves into
@@ -162,11 +297,11 @@ export function createQueryHandlers({
     }
     params.push(fetchLimit)
     let rows = (await db.query(`
-      SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
+      SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
              element, category, summary, status, score, last_seen_at, project_id
       FROM entries
       WHERE ${where.join(' AND ')}
-      ORDER BY ts DESC, id DESC
+      ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC
       LIMIT $${params.length}
     `, params)).rows
     if (rows.length < fetchLimit) {
@@ -181,24 +316,24 @@ export function createQueryHandlers({
       fillParams.push(fillLimit)
       const fillRows = fillLimit > 0
         ? (await db.query(`
-            SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
+            SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
                    element, category, summary, status, score, last_seen_at, project_id
             FROM entries
             WHERE ${fillWhere.join(' AND ')}
-            ORDER BY ts DESC, id DESC
+            ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC
             LIMIT $${fillParams.length}
           `, fillParams)).rows
         : []
       if (fillRows.length > 0) rows = [...rows, ...fillRows]
     }
-    if (args.includeMembers === true) {
+    if (args.includeMembers === true && !compactHandoff) {
       const rootIds = rows
         .filter((row) => Number(row.is_root) === 1)
         .map((row) => Number(row.id))
         .filter((id) => Number.isFinite(id))
       if (rootIds.length > 0) {
         const members = (await db.query(`
-          SELECT id, ts, role, content, session_id, source_turn, project_id, chunk_root
+          SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, project_id, chunk_root
           FROM entries
           WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
           ORDER BY chunk_root ASC, COALESCE(source_turn, 2147483647) ASC, ts ASC, id ASC
@@ -214,11 +349,12 @@ export function createQueryHandlers({
         }
       }
     }
-    if (compactDigest && !compactHandoff) rows = compactDigestRows(rows, limit)
+    if (compactHandoff) rows = compactHandoffRows(rows, limit)
+    else if (compactDigest) rows = compactDigestRows(rows, limit)
     return { text: renderEntryLines(rows, { pendingMarks: !compactDigest && !compactHandoff }) }
   }
 
-  async function recallCoreRows(query, { projectScope, category, limit } = {}) {
+  async function recallCoreRows(query, { projectScope, category, limit, tsFrom, tsTo } = {}) {
     const db = getDb()
     const terms = coreRecallTerms(query)
     if (terms.length === 0) return []
@@ -243,6 +379,15 @@ export function createQueryHandlers({
         })
         where.push(`category IN (${placeholders.join(', ')})`)
       }
+    }
+    const coreTsExpr = 'COALESCE(updated_at, created_at)'
+    if (tsFrom != null && Number.isFinite(Number(tsFrom))) {
+      params.push(Number(tsFrom))
+      where.push(`${coreTsExpr} >= $${params.length}`)
+    }
+    if (tsTo != null && Number.isFinite(Number(tsTo))) {
+      params.push(Number(tsTo))
+      where.push(`${coreTsExpr} <= $${params.length}`)
     }
 
     const textExpr = `lower(coalesce(element, '') || ' ' || coalesce(summary, ''))`
@@ -330,7 +475,7 @@ export function createQueryHandlers({
       const memberLeafIds = new Set()
       if (rootIds.length > 0) {
         const { rows: memberRows } = await db.query(
-          `SELECT id, ts, role, content, chunk_root
+          `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root
            FROM entries WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
            ORDER BY ts ASC, id ASC`,
           [rootIds],
@@ -418,19 +563,27 @@ export function createQueryHandlers({
       return { text: header + parts.join('\n\n') }
     }
     const query = String(args.query ?? '').trim()
-    // Kiwi is a large optional analyzer. A Korean query starts it lazily, but
-    // this request keeps the lightweight lexical path instead of waiting for
-    // WASM/model construction. Later queries use it once ready.
+    // Concept extraction must be ready before a Unicode-script query is
+    // tokenized. The analyzer is lazy and cached; secondary mode returns false
+    // and keeps the language-neutral lexical fallback.
     if (query && /[\uAC00-\uD7AF]/u.test(query)) {
-      void Promise.resolve(ensureKoMorph?.()).catch((err) => {
+      await Promise.resolve(ensureKoMorph?.()).catch((err) => {
         log(`[memory-service] lazy kiwi init failed; recall stays lexical: ${err?.message || err}\n`)
       })
     }
-    let period = String(args.period ?? '').trim() || undefined
-    // Period and sort are caller-supplied only. Lead is responsible for
-    // mapping vague time phrases / chronological intent into the period
-    // argument before calling; the engine does not infer them from query
-    // text.
+    const queryPeriod = inferRecallPeriod(query)
+    let period = String(args.period ?? '').trim() || queryPeriod
+    const timelineMode = args.sort == null && hasTimelineIntent(query)
+    const latestIntent = hasLatestRecallIntent(query) || queryPeriod === '3h'
+    const latestTopicTerms = latestIntent ? latestRecallTopicTerms(query) : []
+    const latestSearchTerms = latestIntent ? latestRecallSearchTerms(query) : []
+    const retrievalQuery = latestSearchTerms.length > 0 ? latestSearchTerms.join(' ') : query
+    const latestEntityMode = args.sort == null && latestIntent && hasRecallEntity(query)
+    const latestRootMode = args.sort == null
+      && !timelineMode
+      && !latestEntityMode
+      && ((Boolean(queryPeriod) && !hasRecallEntity(query)) || latestIntent)
+    const structuredTimeMode = timelineMode || latestRootMode
     const RECALL_LIMIT_CAP = 100
     const RECALL_OFFSET_CAP = 500
     const requestedLimit = Number(args.limit)
@@ -475,13 +628,10 @@ export function createQueryHandlers({
     const includeArchived = args.includeArchived !== false
     const category = args.category
     const temporal = parsePeriod(period, Boolean(query))
-    // Bounded-period query recall reads as a timeline ("today's work"), not a
-    // relevance ranking: when the caller EXPLICITLY supplied a period that
-    // resolves to a real time window and did NOT pin sort, force newest-first
-    // so the page is strictly chronological (bench: recency-today). Gated on
-    // the explicit `period` string — the implicit 30d default a bare query
-    // gets must keep importance ranking (else topical query recall regresses).
-    if (args.sort == null && query && period && temporal && temporal.startMs != null) sort = 'date'
+    // A period bounds the candidate set; it does not imply chronology. Topic
+    // queries keep relevance ordering even inside a date window, while
+    // query-less browsing stays newest-first through the default above.
+    // Callers asking for a timeline can pin sort:'date' explicitly.
 
     // Derive projectScope from caller cwd (falls back to process.cwd()).
     // Explicit args.projectScope (string) takes priority so callers can
@@ -498,7 +648,7 @@ export function createQueryHandlers({
     // so within-period ranking doesn't downgrade Mon entries vs Sun.
     const CALENDAR_PERIODS = new Set(['yesterday', 'today', 'this_week', 'last_week'])
     const isCalendarPeriod = period != null
-      && (CALENDAR_PERIODS.has(period) || /^\d{4}-\d{2}-\d{2}/.test(period) || /^\d{1,2}:\d{2}~/.test(period))
+      && (period === 'all' || CALENDAR_PERIODS.has(period) || /^\d{4}-\d{2}-\d{2}/.test(period) || /^\d{1,2}:\d{2}~/.test(period))
     const applyFreshness = !isCalendarPeriod
 
     // period='last': no time window and no session exclusion — 'last' is a
@@ -514,7 +664,7 @@ export function createQueryHandlers({
       if (signal?.aborted) throw signal.reason ?? new Error('aborted')
       let queryVector = null
       if (isEmbeddingModelReady()) {
-        queryVector = await embedText(query, { priority: true })
+        queryVector = await embedText(retrievalQuery, { priority: true })
       } else if (embeddingWarmupCanStart()) {
         // Never turn a cold model into an 8-second foreground lock. Start the
         // isolated worker and return lexical results now; the next recall gets
@@ -537,7 +687,7 @@ export function createQueryHandlers({
       if (signal?.aborted) throw signal.reason ?? new Error('aborted')
       const _t1 = Date.now()
       if (process.env.MIXDOG_DEBUG_MEMORY) {
-        log(`[search-time] embed=${_t1 - _t0}ms query="${query.slice(0, 60)}"\n`)
+        log(`[search-time] embed=${_t1 - _t0}ms query="${retrievalQuery.slice(0, 60)}"\n`)
       }
       // Push ts and status filters into the hybrid candidate query so FTS / vec
       // rank inside the requested window, not the whole tree. The previous post-
@@ -546,10 +696,11 @@ export function createQueryHandlers({
       // Recall is history-first: archived roots hold most prior work. Callers
       // that need only live invariants can pass includeArchived:false.
       const excludeStatuses = includeArchived ? [] : ['archived']
-      const results = await searchRelevantHybrid(db, query, {
-        limit: limit + offset,
+      const retrievalLimit = Math.min(RECALL_LIMIT_CAP, Math.max(limit + offset, (limit + offset) * 3))
+      const results = await searchRelevantHybrid(db, retrievalQuery, {
+        limit: retrievalLimit,
         queryVector: Array.isArray(queryVector) ? queryVector : null,
-        includeMembers,
+        includeMembers: structuredTimeMode ? false : includeMembers,
         ts_from: temporal?.startMs,
         ts_to: temporal?.endMs,
         applyFreshness,
@@ -572,10 +723,11 @@ export function createQueryHandlers({
         useHotActive: false,
       })
       let filtered = results
+      let promoteLatestRaw = false
       if (sort === 'date') {
         // R11 reviewer L5: NaN guard — entries with null/undefined ts default
         // to 0 so the comparator stays numeric and stable.
-        filtered.sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0))
+        filtered.sort(compareRecallNewestFirst)
       } else {
         filtered.sort((a, b) => {
           const sa = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0 }
@@ -584,6 +736,16 @@ export function createQueryHandlers({
             || (sa(b.ts ?? 0) - sa(a.ts ?? 0))
             || (Number(a.id ?? 0) - Number(b.id ?? 0))
         })
+      }
+      if (structuredTimeMode) {
+        const rootRows = filtered.filter((row) => Number(row?.is_root) === 1)
+        const roots = latestIntent
+          ? rankLatestRecallRows(rootRows, retrievalQuery)
+          : rootRows.sort(compareRecallNewestFirst)
+        const other = filtered.filter((row) => Number(row?.is_root) !== 1)
+        filtered = [...roots, ...other]
+      } else if (latestEntityMode) {
+        filtered = rankLatestRecallRows(filtered, retrievalQuery)
       }
       if (includeRaw) {
         // Raw rows (chunk_root IS NULL) carry no retrievalScore, so a naive
@@ -595,13 +757,13 @@ export function createQueryHandlers({
         // so every offset page gets its proportional share instead of only
         // page 0. Same projectScope/ts window as the hybrid leg — filter
         // parity (item 3) is deliberate, not accidental.
-        const RAW_FETCH = Math.min(500, Math.max(20, limit + offset))
+        const RAW_FETCH = Math.min(500, Math.max(20, retrievalLimit))
         const rawRows = await readRawRowsInWindow(
           db,
           temporal?.startMs ?? null,
           temporal?.endMs ?? Date.now(),
           RAW_FETCH,
-          { projectScope, terms: sessionRecallTerms(query) },
+          { projectScope, terms: sessionRecallTerms(retrievalQuery) },
         )
         const seenIds = new Set(filtered.map(r => r.id))
         let newRaw = rawRows.filter(r => !seenIds.has(r.id))
@@ -610,7 +772,7 @@ export function createQueryHandlers({
         // single common token still get stride-interleaved into a ranked
         // result set and push real hits down the page. In the query branch,
         // keep only raw rows whose body actually contains >=1 query term.
-        const rawTerms = sessionRecallTerms(query)
+        const rawTerms = sessionRecallTerms(retrievalQuery)
         if (rawTerms.length > 0) {
           newRaw = newRaw.filter((r) => {
             const hay = `${r.content ?? ''} ${r.element ?? ''} ${r.summary ?? ''}`.toLowerCase()
@@ -619,23 +781,65 @@ export function createQueryHandlers({
         }
         if (sort === 'date') {
           for (const r of newRaw) filtered.push(r)
-          filtered.sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0))
+          filtered.sort(compareRecallNewestFirst)
         } else {
-          // sort=importance: interleave raw rows at a fixed stride through the
-          // full (pre-slice) hybrid list instead of appending at the tail, so
-          // offset > 0 pages also draw from the raw pool proportionally.
-          filtered = interleaveRawRows(filtered, newRaw)
+          // The hybrid entries-table legs already rank indexed raw rows. This
+          // auxiliary SQL window only backfills rows not yet present there, so
+          // it must not stride unscored progress narration through ranked
+          // decisions. Append it as a recall fallback after scored candidates.
+          filtered = [...filtered, ...newRaw]
         }
       }
-      const coreRows = await recallCoreRows(query, { projectScope, category, limit })
+      const coreRows = structuredTimeMode ? [] : await recallCoreRows(retrievalQuery, {
+        projectScope,
+        category,
+        limit: retrievalLimit,
+        tsFrom: temporal?.startMs,
+        tsTo: temporal?.endMs,
+      })
       if (coreRows.length > 0) {
-        filtered = [...coreRows, ...filtered]
+        filtered = interleaveRawRows(filtered, coreRows)
+      }
+      // Promote fresh unclassified turns only when they cover more of the
+      // requested topic than every classified root. Vague latest-work queries
+      // must keep their root-only summaries, while a specific fresh setting or
+      // identifier can still surface before cycle1 classifies it.
+      if (sort !== 'date' && latestIntent) {
+        const terms = latestRecallTopicTerms(retrievalQuery)
+        const coverage = (row) => {
+          const text = recallRowTopicText(row)
+          return terms.reduce((count, term) => count + (text.includes(term) ? 1 : 0), 0)
+        }
+        const rawCoverage = filtered
+          .filter((row) => Number(row?.is_root) === 0 && row?.chunk_root == null)
+          .reduce((max, row) => Math.max(max, coverage(row)), -1)
+        const rootCoverage = filtered
+          .filter((row) => Number(row?.is_root) === 1)
+          .reduce((max, row) => Math.max(max, coverage(row)), -1)
+        promoteLatestRaw = rawCoverage > rootCoverage
+        if (promoteLatestRaw) filtered = rankLatestRecallRows(filtered, retrievalQuery)
       }
       // Core rows are prepended by relevance and carry updated_at as ts, so on
       // the chronological (date) path they'd break strict newest-first. Re-sort
       // the merged list by ts desc before slicing so the timeline stays intact.
       if (sort === 'date') {
-        filtered.sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0) || (Number(b.id) || 0) - (Number(a.id) || 0))
+        filtered.sort(compareRecallNewestFirst)
+      }
+      if (sort !== 'date' && includeRaw && (!structuredTimeMode || promoteLatestRaw)) {
+        filtered = await expandRecallEventContext(db, filtered, {
+          query: retrievalQuery,
+          limit: retrievalLimit,
+          tsFrom: temporal?.startMs,
+          tsTo: temporal?.endMs,
+          excludeStatuses,
+          category,
+          projectScope,
+          dedupeEvents: latestIntent,
+        })
+      }
+      if (timelineMode) {
+        const roots = filtered.filter((row) => Number(row?.is_root) === 1)
+        filtered = sampleRecallTimeline(roots.length > 1 ? roots : filtered, limit + offset)
       }
       const sliced = filtered.slice(offset, offset + limit)
       const _t2 = Date.now()
@@ -709,44 +913,86 @@ export function createQueryHandlers({
       // it as a restrictive filter drops fresh unclassified raw turns before
       // cycle1 assigns a category, which can hide the immediately prior chat.
       const catList = requestedCats.length === VALID_LAST_CATS.size ? [] : requestedCats
-      // 1) rank sessions by most-recent activity (MAX(ts)) over the SAME pool
-      //    the fill draws from — roots (status-filtered) + unchunked raw
-      //    leaves, member rows excluded — so a session ranked here can never
-      //    fill empty (e.g. an archived-root session whose only surviving rows
-      //    are members). projectScope + excludeStatuses + promoted
-      //    exclusion all match the fill filters below.
+      // 1) Rank sessions by the timestamps the renderer actually exposes.
+      //    A root with members renders those members instead of its own ts, so
+      //    ranking by root MAX(ts) can disagree with the visible group head and
+      //    invert adjacent sessions/pages. Roots without members and raw leaves
+      //    keep their own ts. projectScope + excludeStatuses + promoted
+      //    exclusion still match the fill filters below.
       const selWhere = [
-        'session_id IS NOT NULL',
-        "btrim(session_id) <> ''",
-        '(is_root = 1 OR chunk_root IS NULL OR chunk_root = id)',
+        'e.session_id IS NOT NULL',
+        "btrim(e.session_id) <> ''",
+        includeRaw ? '(e.is_root = 1 OR e.chunk_root IS NULL OR e.chunk_root = e.id)' : 'e.is_root = 1',
       ]
       const selParams = []
       if (projectScope === 'common') {
-        selWhere.push('project_id IS NULL')
+        selWhere.push('e.project_id IS NULL')
       } else if (typeof projectScope === 'string' && projectScope && projectScope !== 'all') {
         selParams.push(projectScope)
-        selWhere.push(`(project_id IS NULL OR project_id = $${selParams.length})`)
+        selWhere.push(`(e.project_id IS NULL OR e.project_id = $${selParams.length})`)
       }
       if (catList.length > 0) {
         const ph = catList.map((c) => { selParams.push(c); return `$${selParams.length}` }).join(',')
-        selWhere.push(`lower(coalesce(category, '')) IN (${ph})`)
+        selWhere.push(`lower(coalesce(e.category, '')) IN (${ph})`)
       }
       if (excludeStatuses.length > 0) {
         const ph = excludeStatuses.map((s) => { selParams.push(s); return `$${selParams.length}` }).join(',')
-        selWhere.push(`(status IS NULL OR status NOT IN (${ph}))`)
+        selWhere.push(`(e.status IS NULL OR e.status NOT IN (${ph}))`)
       }
-      for (const c of buildPromotedExclusionClauses()) selWhere.push(c)
-      selParams.push(sessionCount, offset)
-      // Deterministic tie-breaker: equal MAX(ts) across sessions would let the
-      // LIMIT/OFFSET window skip or duplicate a session between offset pages
-      // without a stable secondary sort.
-      const sessSql = `SELECT session_id, MIN(ts) AS first_ts, MAX(ts) AS last_ts
-                       FROM entries
+      for (const c of buildPromotedExclusionClauses('e')) selWhere.push(c)
+      const cursorContext = {
+        query,
+        projectScope,
+        categories: catList,
+        includeArchived,
+        includeMembers,
+        includeRaw,
+      }
+      const pageCursor = args.cursor ? decodeRecallPageCursor(args.cursor, cursorContext) : null
+      // Deterministic tie-breaker: equal visible activity timestamps use
+      // session_id DESC. The cursor carries that exact pair, so newly-created
+      // sessions ahead of page 1 cannot shift page 2.
+      const visibleFirstTs = includeMembers ? `CASE WHEN e.is_root = 1
+                              THEN coalesce(member_span.first_ts, e.ts)
+                              ELSE e.ts END` : 'e.ts'
+      const visibleLastTs = includeMembers ? `CASE WHEN e.is_root = 1
+                             THEN coalesce(member_span.last_ts, e.ts)
+                             ELSE e.ts END` : 'e.ts'
+      let cursorHaving = ''
+      if (pageCursor) {
+        selParams.push(pageCursor.lastTs, pageCursor.sessionId)
+        const tsParam = `$${selParams.length - 1}`
+        const sidParam = `$${selParams.length}`
+        cursorHaving = `HAVING (MAX(${visibleLastTs}) < ${tsParam}
+                          OR (MAX(${visibleLastTs}) = ${tsParam} AND e.session_id < ${sidParam}))`
+      }
+      const fetchSessionCount = sessionCount + 1
+      selParams.push(fetchSessionCount, pageCursor ? 0 : offset)
+      const sessSql = `SELECT e.session_id,
+                              MIN(${visibleFirstTs}) AS first_ts,
+                              MAX(${visibleLastTs}) AS last_ts
+                       FROM entries e
+                       LEFT JOIN LATERAL (
+                         SELECT MIN(m.ts) AS first_ts, MAX(m.ts) AS last_ts
+                         FROM entries m
+                         WHERE e.is_root = 1 AND m.is_root = 0 AND m.chunk_root = e.id
+                       ) member_span ON true
                        WHERE ${selWhere.join(' AND ')}
-                       GROUP BY session_id
-                       ORDER BY last_ts DESC, session_id DESC
+                       GROUP BY e.session_id
+                       ${cursorHaving}
+                       ORDER BY last_ts DESC, e.session_id DESC
                        LIMIT $${selParams.length - 1} OFFSET $${selParams.length}`
-      const sessRows = (await db.query(sessSql, selParams)).rows
+      const selectedSessionRows = (await db.query(sessSql, selParams)).rows
+      const hasMoreSessions = selectedSessionRows.length > sessionCount
+      const sessRows = selectedSessionRows.slice(0, sessionCount)
+      const lastSession = sessRows.at(-1)
+      const nextCursor = hasMoreSessions && lastSession
+        ? encodeRecallPageCursor({
+            lastTs: Number(lastSession.last_ts),
+            sessionId: lastSession.session_id,
+            context: cursorContext,
+          })
+        : null
       // 2) per selected session, fetch its newest rows (roots+members, sort by
       //    date) plus the fresh raw window, capped at PER_SESSION_ROW_CAP.
       const allRows = []
@@ -801,7 +1047,7 @@ export function createQueryHandlers({
           }
           if (newRaw.length > 0) {
             merged = [...sRows, ...newRaw]
-            merged.sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0) || (Number(b.id) || 0) - (Number(a.id) || 0))
+            merged.sort(compareRecallNewestFirst)
           }
         }
         const fetchedCount = merged.length
@@ -829,12 +1075,13 @@ export function createQueryHandlers({
         for (const r of merged) allRows.push(r)
       }
       const _currentSessionHint = String(args?.currentSessionId || '').trim()
-      return { text: recallCapPrefix + renderSessionGroupedLines(allRows, {
+      const cursorPrefix = nextCursor ? `[nextCursor: ${nextCursor}]\n` : ''
+      return { text: recallCapPrefix + cursorPrefix + renderSessionGroupedLines(allRows, {
         currentSessionId: _currentSessionHint,
         recencyOrder: true,
         spanHeaders: true,
         sessionMeta,
-      }) }
+      }), nextCursor }
     }
 
     const filters = { limit: limit + offset }
@@ -867,7 +1114,7 @@ export function createQueryHandlers({
       const newRaw = rawRows.filter(r => !seenIds.has(Number(r.id)))
       if (newRaw.length > 0) {
         merged = [...rows, ...newRaw]
-        merged.sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0) || (Number(b.id) || 0) - (Number(a.id) || 0))
+        merged.sort(compareRecallNewestFirst)
       }
     }
     const sliced = merged.slice(offset, offset + limit)

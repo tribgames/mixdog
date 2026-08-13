@@ -8,18 +8,14 @@ process.env.MIXDOG_WORKER_MODE = process.env.MIXDOG_WORKER_MODE || '1';
 
 import os from 'node:os';
 import path from 'node:path';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import { writeJsonAtomicSync } from '../src/runtime/shared/atomic-file.mjs';
+import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../src/runtime/shared/runtime-root.mjs';
 import { claimSingletonOwner, releaseSingletonOwner } from '../src/runtime/shared/singleton-owner.mjs';
 import { safeIpcSend } from '../src/runtime/shared/safe-ipc-send.mjs';
 import { createChannelTransport } from '../src/standalone/channel-transport.mjs';
 
-function runtimeRoot() {
-  return process.env.MIXDOG_RUNTIME_ROOT
-    ? path.resolve(process.env.MIXDOG_RUNTIME_ROOT)
-    : path.join(os.tmpdir(), 'mixdog');
-}
-const RUNTIME_ROOT = runtimeRoot();
+const RUNTIME_ROOT = resolveRuntimeRoot();
 const DATA_DIR = process.env.MIXDOG_DATA_DIR ? path.resolve(process.env.MIXDOG_DATA_DIR) : RUNTIME_ROOT;
 const DISCOVERY_PATH = path.join(RUNTIME_ROOT, 'daemon.json');
 const OWNER_PATH = path.join(DATA_DIR, 'daemon-owner.json');
@@ -38,7 +34,7 @@ async function shutdown(reason, code = 0) {
 }
 
 async function main() {
-  try { mkdirSync(RUNTIME_ROOT, { recursive: true }); } catch {}
+  ensurePrivateRuntimeRoot(RUNTIME_ROOT);
   const claim = claimSingletonOwner(OWNER_PATH, { kind: 'mixdog-daemon', pid: process.pid, meta: { cwd: process.cwd() } });
   if (!claim.owned) { process.exit(0); } // race loser → spawner attaches to winner
   process.on('exit', () => { try { releaseSingletonOwner(OWNER_PATH, process.pid); } catch {} });
@@ -76,7 +72,7 @@ async function main() {
     pid: process.pid,
     startedAt: Date.now(),
     endpoints: { channel: { port, token } },
-  }, { compact: true });
+  }, { compact: true, secret: true });
   safeIpcSend(process, { type: 'ready', port, token });
   log(`ready port=${port} pid=${process.pid}`);
 }

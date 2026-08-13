@@ -306,8 +306,7 @@ const SearchPane = memo(function SearchPane({
           active={active}
           readinessKey={`search-files:${projectPath}`}
           onReadyChange={ignoreFilesReadyChange}
-          onOpenFile={onOpenFile}
-          showRootHeader />
+          onOpenFile={onOpenFile} />
     }
   </div>;
 });

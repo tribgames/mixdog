@@ -2601,7 +2601,7 @@ export function App() {
   const transcriptRendererPending = navigationSelection.kind === "session"
     && !markdownBodyReadyForTranscript;
   useEffect(() => {
-    if (!paneTranscriptRendererPending) return undefined;
+    if (markdownBodyReadyForTranscript) return undefined;
     let active = true;
     void preloadMarkdownBody()
       .catch(() => undefined)
@@ -2609,7 +2609,7 @@ export function App() {
         if (active) setMarkdownBodyReadyForTranscript(true);
       });
     return () => { active = false; };
-  }, [paneTranscriptRendererPending]);
+  }, [markdownBodyReadyForTranscript]);
   // Subscribe to a requested session while its lane is being opened.
   useSessionLane(requestedSessionId, defaultSessionLaneStore, () => true);
   const [fileReveal, setFileReveal] = useState<{ key: string; line: number; nonce: number } | null>(null);

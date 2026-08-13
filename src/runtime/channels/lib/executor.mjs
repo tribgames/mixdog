@@ -1,10 +1,10 @@
 import { spawn } from "child_process";
 import { existsSync, mkdirSync, appendFileSync, appendFile as _appendFileAsync } from "fs";
 import { join, normalize, extname, sep } from "path";
-import { tmpdir } from "os";
 import { DATA_DIR } from "./config.mjs";
+import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from "../../shared/runtime-root.mjs";
 const SCRIPTS_DIR = join(DATA_DIR, "scripts");
-const NOPLUGIN_DIR = join(tmpdir(), "mixdog-noplugin");
+const NOPLUGIN_DIR = join(resolveRuntimeRoot(), "noplugin");
 const EVENT_LOG = join(DATA_DIR, "event.log");
 // Buffered async logger — coalesces per-line appends into batched writes.
 let _eventLogBuf = [];
@@ -108,6 +108,7 @@ function applyTemplate(template, data) {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => data[key] ?? "");
 }
 function ensureNopluginDir() {
+  ensurePrivateRuntimeRoot();
   mkdirSync(NOPLUGIN_DIR, { recursive: true });
 }
 function runScript(name, scriptName, onResult) {

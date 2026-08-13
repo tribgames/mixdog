@@ -748,12 +748,60 @@ if (cgStringifiedFileErr || 'file' in cgStringifiedFileArgs
   || cgStringifiedFileArgs.files[0] !== 'a.mjs' || cgStringifiedFileArgs.files[1] !== 'b.mjs') {
   throw new Error(`code_graph guard must parse JSON-stringified file array: err=${cgStringifiedFileErr} args=${JSON.stringify(cgStringifiedFileArgs)}`);
 }
+const cgFilteredOutlineArgs = { mode: 'symbols', files: ['a.mjs'], symbols: ['guard'] };
+const cgFilteredOutlineErr = validateBuiltinArgs('code_graph', cgFilteredOutlineArgs);
+if (cgFilteredOutlineErr || cgFilteredOutlineArgs.mode !== 'symbols'
+  || cgFilteredOutlineArgs.symbols?.[0] !== 'guard') {
+  throw new Error(`code_graph guard must preserve symbols[] file-outline filters: err=${cgFilteredOutlineErr} args=${JSON.stringify(cgFilteredOutlineArgs)}`);
+}
 
 const graphOut = await executeCodeGraphTool('code_graph', {
   mode: 'symbols',
   file: 'scripts/smoke.mjs',
 }, root);
 assertOk('code_graph', graphOut, /binding|spawnSync|symbol/i);
+const graphFilteredOut = await executeCodeGraphTool('code_graph', {
+  mode: 'symbols',
+  file: 'scripts/tool-smoke.mjs',
+  symbols: ['validateBuiltinArgs'],
+}, root);
+const graphFilteredLines = String(graphFilteredOut).split('\n').filter(Boolean);
+if (!graphFilteredLines.length
+  || graphFilteredLines.some((line) => !/validateBuiltinArgs/i.test(line))) {
+  throw new Error(`code_graph symbols[] file-outline filtering failed:\n${graphFilteredOut}`);
+}
+const graphNamePathOut = await executeCodeGraphTool('code_graph', {
+  mode: 'find_symbol',
+  file: 'src/runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs',
+  symbol: 'AgentStallAbortError/constructor',
+  body: false,
+}, root);
+if (!/path=AgentStallAbortError\/constructor/.test(String(graphNamePathOut))) {
+  throw new Error(`code_graph find_symbol name-path lookup failed:\n${graphNamePathOut}`);
+}
+const graphHierarchyOut = await executeCodeGraphTool('code_graph', {
+  mode: 'overview',
+  file: 'src/runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs',
+  depth: 1,
+}, root);
+if (!/outline:/.test(String(graphHierarchyOut))
+  || !/\n  method constructor\b/.test(String(graphHierarchyOut))) {
+  throw new Error(`code_graph hierarchical overview failed:\n${graphHierarchyOut}`);
+}
+const graphOwnedReferenceOut = await executeCodeGraphTool('code_graph', {
+  mode: 'references',
+  file: 'src/runtime/agent/orchestrator/tools/code-graph/dispatch.mjs',
+  symbol: '_filterSymbolOutline',
+  limit: 20,
+}, root);
+if (!/owner=codeGraph/.test(String(graphOwnedReferenceOut))) {
+  throw new Error(`code_graph reference owner lookup failed:\n${graphOwnedReferenceOut}`);
+}
+if (!/^# declaration$/m.test(String(graphOwnedReferenceOut))
+  || !/dispatch\.mjs:\d+/.test(String(graphOwnedReferenceOut))
+  || (String(graphOwnedReferenceOut).match(/^# references$/gm) || []).length !== 1) {
+  throw new Error(`code_graph reference declaration contract failed:\n${graphOwnedReferenceOut}`);
+}
 const graphStringSymbolOut = await executeCodeGraphTool('code_graph', {
   mode: 'symbols',
   symbols: 'executeBuiltinTool',
@@ -2610,8 +2658,10 @@ if (!/\bFile-content literal\/regex\b/i.test(grepTool?.description || '')
 if (!/Glob filter/i.test(grepGlobDescription)) {
   throw new Error('grep glob schema must describe scope narrowing');
 }
-if (!/files\/count/i.test(grepModeDescription) || !/content/i.test(grepModeDescription)) {
-  throw new Error('grep mode schema must name its compact output shapes');
+if (!/files lists matching paths/i.test(grepModeDescription)
+    || !/count totals all patterns together per file/i.test(grepModeDescription)
+    || !/content/i.test(grepModeDescription)) {
+  throw new Error('grep mode schema must name its compact output shapes and count aggregation');
 }
 if (grepTool?.inputSchema?.properties?.limit?.minimum !== 0 || !/Max results/i.test(grepLimitDescription)) {
   throw new Error('grep limit schema must keep locator caps explicit');
@@ -2647,10 +2697,11 @@ const codeGraphModeDescription = codeGraphProps.mode?.description || '';
 const codeGraphSymbolsDescription = codeGraphProps.symbols?.description || '';
 const codeGraphBodyDescription = codeGraphProps.body?.description || '';
 if (!/find_symbol returns declaration\/body/i.test(codeGraphDescription)
-    || !/references\/callers\/callees return locations/i.test(codeGraphDescription)
-    || !/find_symbol only/i.test(codeGraphBodyDescription)
-    || !/default true/i.test(codeGraphBodyDescription)) {
-  throw new Error('code_graph descriptions must distinguish declaration bodies from relation locations');
+    || !/references returns declaration\/usages plus optional body.*no grep/i.test(codeGraphDescription)
+    || !/callers\/callees return locations/i.test(codeGraphDescription)
+    || !/find_symbol defaults true/i.test(codeGraphBodyDescription)
+    || !/references is opt-in/i.test(codeGraphBodyDescription)) {
+  throw new Error('code_graph descriptions must distinguish declarations, usages, and relation locations');
 }
 assertCodeGraphDescriptionContract({
   description: codeGraphDescription,

@@ -2306,7 +2306,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   min-width: 0;
   display: flex;
   align-items: center;
-  padding: 4px 8px 9px;
+  min-height: 30px;
+  padding: 1px 8px 7px;
   border-bottom: 1px solid var(--mx-border-muted);
 }
 .sidebar-usage-heading > b {
@@ -2343,7 +2344,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: grid;
   gap: 0;
   min-width: 0;
-  padding: 3px 0;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 8px;
 }
 .sidebar-usage > .pane-surface-gate {
   min-height: 180px;
@@ -2354,6 +2358,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .sidebar-usage-content {
   min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding-top: 6px;
 }
 /* One calm provider section: identity and reset on top, then strict
    period | meter | percentage columns underneath. */
@@ -2361,13 +2368,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   position: relative;
   min-width: 0;
   display: grid;
-  gap: 7px;
-  padding: 9px 8px 10px;
+  gap: 6px;
+  padding: 8px;
   border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--mx-border-muted) 72%, transparent);
   border-radius: 0;
   color: var(--mx-text);
-  background: transparent;
+  background: color-mix(in srgb, var(--mx-bg-layer-2) 48%, transparent);
   text-align: left;
 }
 .sidebar-usage-row:last-child { border-bottom: 0; }
@@ -2380,7 +2387,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .sidebar-usage-provider-icon { width: 20px; height: 20px; flex: 0 0 20px; }
 .sidebar-usage-provider-icon svg { width: var(--mx-icon-md); height: var(--mx-icon-md); }
-.sidebar-usage-line { min-width: 0; display: flex; align-items: center; gap: 5px; }
+.sidebar-usage-line { min-width: 0; min-height: 20px; display: flex; align-items: center; gap: 6px; }
 .sidebar-usage-line > b {
   min-width: 0;
   flex: 1;
@@ -2412,7 +2419,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    length across rows. */
 .sidebar-usage-meters {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   /* Start the period column under the provider name (20px icon + 5px gap)
      so labels never poke out past the logo (user: 로고보다 기간이 더 앞). */
   padding-left: 25px;
@@ -2420,9 +2427,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .sidebar-usage-meter {
   min-width: 0;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 34px;
+  grid-template-columns: 24px minmax(0, 1fr) 32px;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
 }
 .sidebar-usage-meter > small {
   min-width: 0;
@@ -2441,7 +2448,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   overflow: hidden;
   width: 100%;
   min-width: 0;
-  height: 6px;
+  height: 5px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--mx-text) 13%, transparent);
 }
@@ -2478,16 +2485,18 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: grid;
   gap: 0;
   margin: 0;
-  padding: 8px 8px 3px;
-  border-top: 1px solid var(--mx-border-muted);
+  padding: 8px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mx-bg-layer-2) 48%, transparent);
 }
 .sidebar-usage-reset-heading {
   min-width: 0;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 0 0 6px;
+  padding: 0 0 7px;
 }
 .sidebar-usage-reset-heading > b {
   color: var(--mx-text);
@@ -2496,7 +2505,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   line-height: var(--mx-line-meta);
 }
 .sidebar-usage-reset-heading > small {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
   color: var(--mx-text-muted);
+  background: var(--mx-hover);
   font-size: var(--mx-font-micro);
   line-height: var(--mx-line-micro);
 }
@@ -2506,8 +2519,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px 12px;
-  padding: 7px 0;
+  gap: 7px 10px;
+  padding: 7px 0 0;
   border-top: 1px solid color-mix(in srgb, var(--mx-border-muted) 68%, transparent);
 }
 .sidebar-usage-reset-summary {
@@ -2548,7 +2561,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .sidebar-usage-reset-actions { display: flex; justify-content: flex-end; gap: 6px; margin-left: auto; }
 .sidebar-usage-reset-actions button:last-child { color: var(--mx-text-accent); background: var(--mx-pressed); }
 .sidebar-usage-reset-credit button:disabled { opacity: var(--mx-op-disabled); }
-.sidebar-usage-reset-notice { margin: 0 8px; padding: 6px 0 3px; }
+.sidebar-usage-reset-notice { margin: 0 2px; padding: 2px 0; }
 .sidebar-update-loader {
   position: relative;
   z-index: 1;
@@ -7031,6 +7044,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   line-height: 1;
 }
 .schedules-dialog input:focus { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
+.schedules-dialog input:disabled {
+  color: var(--mx-text-muted);
+  -webkit-text-fill-color: var(--mx-text-muted);
+  cursor: default;
+  opacity: 1;
+}
+.schedules-dialog input:disabled:focus { box-shadow: inset 0 0 0 .5px var(--mx-border-muted); }
 .schedules-composer {
   display: grid;
   border-radius: 12px;
@@ -7436,20 +7456,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .workflows-section-head h2 { margin: 0; }
 .workflows-dialog-route { display: flex; }
 .workflows-dialog-route .workflows-route-controls { margin-left: 0; justify-content: flex-start; }
-.workflows-readonly-field { gap: 6px; }
-.workflows-readonly-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.workflows-readonly-label small {
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-regular);
-}
-.workflows-readonly-value {
-  min-height: 18px;
-  margin: 0;
-  color: var(--mx-text);
-  font-size: var(--mx-font-ui);
-  line-height: var(--mx-line-minor);
-}
 .workflows-delete-dialog-body { padding: 16px 20px 4px; color: var(--mx-text-muted); font-size: var(--mx-font-ui); }
 .workflows-delete-dialog-body p { margin: 0 0 10px; line-height: var(--mx-line-ui); }
 .workflows-delete-dialog-body b { color: var(--mx-text); font-weight: var(--mx-weight-semibold); }

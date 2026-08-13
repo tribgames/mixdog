@@ -772,14 +772,8 @@ export type DesktopSessionClassification = 'task' | 'project' | null;
 /** Pairing card data for Settings → Connection (QRs pre-rendered as SVG in
  *  the main process so the renderer needs no QR dependency). */
 export interface DesktopRemoteAccessInfo {
-  port: number;
-  urls: string[];
-  browserUrl: string;
-  browserQrSvg: string;
-  /** Relay pairing (set while the desktop is connected to a public relay):
-   *  these work from anywhere, not just the LAN. */
-  relayBrowserUrl?: string;
-  relayBrowserQrSvg?: string;
+  relayBrowserUrl: string;
+  relayBrowserQrSvg: string;
 }
 
 export interface DesktopSessionSummary {

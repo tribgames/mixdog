@@ -2,11 +2,11 @@
 // These read process.env and the on-disk config section each call so runtime
 // toggles (recap, secondary mode, cycle kill-switches) take effect without a
 // daemon restart. No module-level mutable state; safe to import anywhere.
-import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
 import { readSection } from '../../shared/config.mjs'
 import { readServiceAdvert } from '../../shared/service-discovery.mjs'
+import { resolveRuntimeRoot } from '../../shared/runtime-root.mjs'
 
 export function readMainConfig() {
   return readSection('memory')
@@ -69,9 +69,7 @@ export function memoryCyclesEnabled() {
 
 export function secondaryPgAdvertised(dataDir) {
   if (!memorySecondaryMode()) return true
-  const runtimeRoot = process.env.MIXDOG_RUNTIME_ROOT
-    ? path.resolve(process.env.MIXDOG_RUNTIME_ROOT)
-    : path.join(os.tmpdir(), 'mixdog')
+  const runtimeRoot = resolveRuntimeRoot()
   // Prefer the single-writer PG discovery advert (discovery/pg.json); fall back
   // to the legacy active-instance.json pg_* fields for cross-version compat.
   const readAdvert = () => {

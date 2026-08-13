@@ -152,6 +152,24 @@ function stripFrontmatter(markdown) {
   return String(markdown || '').replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, '').trim();
 }
 
+const SEARCH_ROUTE_RE = /web\/current→`search`;\s*returned URL body→`web_fetch`;\s*/g;
+const RECALL_ROUTE_RE = /prior work→`recall`\s*\(history only, never current local state\);\s*/g;
+const MEMORY_ROUTE_RE = /durable compact English memory→`memory`;\s*/g;
+
+function omitKeySet(omitTools) {
+  return new Set((Array.isArray(omitTools) ? omitTools : []).map((name) => String(name || '').toLowerCase()).filter(Boolean));
+}
+
+/** Drop routing clauses for tools that are not on the session surface. */
+function omitToolRoutes(text, omitTools = []) {
+  const deny = omitKeySet(omitTools);
+  let out = String(text || '');
+  if (deny.has('search') || deny.has('web_fetch')) out = out.replace(SEARCH_ROUTE_RE, '');
+  if (deny.has('recall')) out = out.replace(RECALL_ROUTE_RE, '');
+  if (deny.has('memory')) out = out.replace(MEMORY_ROUTE_RE, '');
+  return out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+}
+
 function normalizeOutputStyleName(value) {
   const name = String(value || 'simple').trim();
   return /^[A-Za-z0-9_.-]+$/.test(name) ? name : 'simple';
@@ -182,9 +200,9 @@ function loadOutputStyle({ PLUGIN_ROOT, DATA_DIR }) {
   return '';
 }
 
-function buildSharedToolContent({ PLUGIN_ROOT }) {
+function buildSharedToolContent({ PLUGIN_ROOT, omitTools = [] } = {}) {
   const SHARED_DIR = path.join(PLUGIN_ROOT, 'rules', 'shared');
-  return readOptional(path.join(SHARED_DIR, '01-tool.md'));
+  return omitToolRoutes(readOptional(path.join(SHARED_DIR, '01-tool.md')), omitTools);
 }
 
 function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR, includeLeadBrief = true }) {
@@ -306,4 +324,5 @@ module.exports = {
   buildInjectionContent,
   buildAgentInjectionContent,
   buildAgentRetrievalInjectionContent,
+  omitToolRoutes,
 };

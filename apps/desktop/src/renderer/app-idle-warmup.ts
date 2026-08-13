@@ -126,11 +126,12 @@ export function startSidebarReferencePrewarm(delayMs = 250): () => void {
 export function scheduleRendererWarmups(): () => void {
   let stopped = false;
   let cancelPrewarm: (() => void) | undefined;
+  // First chat needs Markdown before idle. Studio/rail chunks stay deferred.
+  void preloadMarkdownBody().catch(() => undefined);
+  void preloadStreamingMarkdownBody().catch(() => undefined);
   const cancelIdle = schedulePostInteractionIdle(
     () => {
       void Promise.allSettled([
-        preloadMarkdownBody(),
-        preloadStreamingMarkdownBody(),
         loadStudioViewModule(),
         import("./SchedulesView"),
         import("./WebhooksView"),

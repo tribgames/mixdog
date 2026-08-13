@@ -35,8 +35,6 @@ import { markBootStage } from "./boot-metrics";
 import { scheduleFontWarmup } from "./font-warmup";
 import { preloadMarkdownBody } from "./TranscriptView";
 import { defaultSessionLaneStore } from "./session-lane-store";
-import { readStoredPaneLayout } from "./pane-workspace-state";
-import { paneActiveSelection, paneLeaves } from "./pane-layout";
 import { installAutoDomI18n } from "./auto-dom-i18n";
 
 // VPS/LAN browser surfaces are installable PWAs. Electron never registers this
@@ -72,20 +70,7 @@ window.addEventListener("beforeunload", () => {
 // Listen before React mounts. Persisted pane session ids are not registered
 // here: usePaneWorkspace first authorizes them against the durable catalog.
 defaultSessionLaneStore.start();
-try {
-  const restored = readStoredPaneLayout(window.localStorage);
-  const visibleSessionIds = restored
-    ? [...new Set(paneLeaves(restored.layout).flatMap((leaf) => {
-      const active = paneActiveSelection(leaf);
-      return active?.kind === "session" ? [active.id] : [];
-    }))]
-    : [];
-  if (visibleSessionIds.length > 0) {
-    void preloadMarkdownBody().catch(() => undefined);
-  }
-} catch {
-  // Corrupt/unavailable layout storage falls back to App's normal empty boot.
-}
+void preloadMarkdownBody().catch(() => undefined);
 
 // Kick the webfont fetches BEFORE the first layout: lazily-triggered loads
 // made the first paint render fallback glyphs and then swap (user: the

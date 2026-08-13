@@ -271,13 +271,38 @@ function firstV4ADivergenceHint(sourceLines, oldLines, anchorLine) {
 }
 
 function joinTextLinesForPatch(lines) {
-  const body = (lines || []).join('\n');
-  return lines?.hasFinalNewline !== false ? `${body}\n` : body;
+  const eol = lines?.eol || '\n';
+  const body = (lines || []).join(eol);
+  return lines?.hasFinalNewline !== false ? `${body}${eol}` : body;
+}
+
+function emitUnifiedReplacement(oldLines, newLines) {
+  const old = Array.isArray(oldLines) ? oldLines : [];
+  const neu = Array.isArray(newLines) ? newLines : [];
+  const body = [];
+  let a = 0;
+  let b = 0;
+  while (a < old.length && b < neu.length && old[a] === neu[b]) {
+    body.push(` ${old[a]}`);
+    a += 1;
+    b += 1;
+  }
+  let oldEnd = old.length - 1;
+  let newEnd = neu.length - 1;
+  while (oldEnd >= a && newEnd >= b && old[oldEnd] === neu[newEnd]) {
+    oldEnd -= 1;
+    newEnd -= 1;
+  }
+  for (let i = a; i <= oldEnd; i++) body.push(`-${old[i]}`);
+  for (let i = b; i <= newEnd; i++) body.push(`+${neu[i]}`);
+  for (let i = oldEnd + 1; i < old.length; i++) body.push(` ${old[i]}`);
+  return body;
 }
 
 function cloneTextLinesForPatch(sourceLines) {
   const lines = [...(sourceLines || [])];
   lines.hasFinalNewline = sourceLines?.hasFinalNewline !== false;
+  lines.eol = sourceLines?.eol || '\n';
   return lines;
 }
 
@@ -517,6 +542,43 @@ function restoreOpcodePrefixWindow(sourceLines, hunk) {
   return { start, oldLines: restoredOld, newLines: restoredNew };
 }
 
+// A '+' line was eaten as an addition (`+ TODO` parsed as insert of ` TODO`)
+// when the file line is `+ TODO`. Peel those pluses into the unique old
+// window so they stay context instead of a duplicate insert.
+function restorePlusAsContext(sourceLines, hunk) {
+  const stats = v4AHunkLineStats(hunk);
+  if (!stats.oldCount) return null;
+  const body = (hunk.lines || []).filter(
+    (line) => typeof line === 'string' && line.length > 0 && !isV4AEndOfFileMarker(line),
+  );
+  const windowOld = [];
+  const windowNew = [];
+  let peeled = 0;
+  for (const raw of body) {
+    const tag = raw[0];
+    const rest = raw.slice(1);
+    if (tag === ' ') {
+      windowOld.push(rest);
+      windowNew.push(rest);
+    } else if (tag === '-') {
+      windowOld.push(rest);
+    } else if (tag === '+') {
+      const asFile = `+${rest}`;
+      if (sourceLines.includes(asFile)) {
+        windowOld.push(asFile);
+        windowNew.push(asFile);
+        peeled += 1;
+      } else {
+        windowNew.push(rest);
+      }
+    }
+  }
+  if (!peeled || !windowOld.length) return null;
+  const start = uniqueExactSequenceStart(sourceLines, windowOld);
+  if (start < 0) return null;
+  return { start, oldLines: windowOld, newLines: windowNew };
+}
+
 function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {}) {
   const stats = v4AHunkLineStats(hunk);
   if (stats.oldCount === 0 && stats.newCount === 0) return { skip: true };
@@ -630,6 +692,15 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
       oldStartIdx = restored.start;
       oldLinesPattern = restored.oldLines;
       newLinesPattern = restored.newLines;
+      if (eof) eofSignalIgnored = true;
+    }
+  }
+  if (fuzzy) {
+    const plusRestored = restorePlusAsContext(sourceLines, hunk);
+    if (plusRestored) {
+      oldStartIdx = plusRestored.start;
+      oldLinesPattern = plusRestored.oldLines;
+      newLinesPattern = plusRestored.newLines;
       if (eof) eofSignalIgnored = true;
     }
   }
@@ -1203,75 +1274,14 @@ export async function convertV4ASectionsToUnifiedPatch(sections, basePath, optio
         continue;
       }
       const tail = (hunk.anchors || []).filter(Boolean).join(' ');
-      let dropOldAt = -1;
-      let dropNewAt = -1;
-      if (loc.trimmedTrailing) {
-        for (let i = hunk.lines.length - 1; i >= 0; i--) {
-          const ln = hunk.lines[i];
-          if (isV4AEndOfFileMarker(ln)) continue;
-          const p = ln[0];
-          if (dropOldAt < 0 && (p === ' ' || p === '-')) dropOldAt = i;
-          if (dropNewAt < 0 && loc.trimmedTrailingNew && (p === ' ' || p === '+')) dropNewAt = i;
-          if (dropOldAt >= 0 && (!loc.trimmedTrailingNew || dropNewAt >= 0)) break;
-        }
-      }
-      const droppedOuterContext = new Set();
-      let leadingToDrop = loc.trimmedLeadingContext || 0;
-      for (let i = 0; i < hunk.lines.length && leadingToDrop > 0; i++) {
-        const line = hunk.lines[i];
-        if (isV4AEndOfFileMarker(line)) continue;
-        if (!line || line[0] !== ' ') break;
-        droppedOuterContext.add(i);
-        leadingToDrop--;
-      }
-      let trailingToDrop = loc.trimmedTrailingContext || 0;
-      for (let i = hunk.lines.length - 1; i >= 0 && trailingToDrop > 0; i--) {
-        const line = hunk.lines[i];
-        if (isV4AEndOfFileMarker(line)) continue;
-        if (!line || line[0] !== ' ') break;
-        droppedOuterContext.add(i);
-        trailingToDrop--;
-      }
-      // Emit the body FIRST and derive the header counts from what was
-      // actually emitted: the trailing-newline sentinel drop can remove a line
-      // from one side only, so a header computed from the raw hunk stats can
-      // disagree with the body and make the emitted unified patch unparseable.
-      const bodyLines = [];
-      let emittedOld = 0;
-      let emittedNew = 0;
-      let srcIdx = loc.oldStartIdx;
-      const srcEnd = loc.oldStartIdx + loc.matchLen;
-      for (let i = 0; i < hunk.lines.length; i++) {
-        const line = hunk.lines[i];
-        if (droppedOuterContext.has(i)) continue;
-        if (isV4AEndOfFileMarker(line)) continue;
-        const prefix = line[0];
-        if (prefix === ' ' || prefix === '-') {
-          if (i === dropOldAt) {
-            // The sentinel line leaves the OLD side. When it is a context line
-            // that the new side still keeps (the new slice is only trimmed
-            // when it ends with the sentinel), it survives as an addition.
-            if (prefix === ' ' && i !== dropNewAt) {
-              bodyLines.push(`+${line.slice(1)}`);
-              emittedNew++;
-            }
-            continue;
-          }
-          if (i === dropNewAt) continue;
-          if (srcIdx < srcEnd && srcIdx < sourceLines.length) {
-            bodyLines.push(prefix + sourceLines[srcIdx]);
-          } else {
-            bodyLines.push(line);
-          }
-          emittedOld++;
-          if (prefix === ' ') emittedNew++;
-          srcIdx++;
-        } else {
-          if (i === dropNewAt) continue;
-          bodyLines.push(line);
-          emittedNew++;
-        }
-      }
+      // Emit from the remapped old/new window, not the original hunk tags.
+      // Recovery tiers (opcode-prefix restore, indent, outer-trim) may keep a
+      // parsed '-' line as context; walking hunk.lines would still delete it.
+      const oldLines = loc.matchLen === 0 ? [] : (loc.pattern || []);
+      const newLines = loc.newLines || [];
+      const bodyLines = emitUnifiedReplacement(oldLines, newLines);
+      const emittedOld = oldLines.length;
+      const emittedNew = newLines.length;
       // A zero-length old range is an insertion: its header start is the 0-based
       // insertion index (`-N,0` inserts after source line N), while a real
       // replacement starts at the 1-based first replaced line.

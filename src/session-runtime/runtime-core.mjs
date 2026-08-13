@@ -257,6 +257,7 @@ import { createRemoteTranscript } from './remote-transcript.mjs';
 import { createRemoteControl } from './remote-control.mjs';
 import { createNotificationBus } from './notification-bus.mjs';
 import { createToolSurface } from './tool-surface.mjs';
+import { createToolPolicyRefresh } from './tool-policy-refresh.mjs';
 import { readRuntimeTunables } from './runtime-tunables.mjs';
 import { createSessionTurnApi } from './session-turn-api.mjs';
 import { providerInitCacheKey } from './provider-init-key.mjs';
@@ -1387,6 +1388,19 @@ export async function createMixdogSessionRuntime({
   // compaction, recap/memory, channels, systemShell, update settings, channel
   // token save/forget, setChannelProvider). Extracted to session-runtime/settings-api.mjs
   // and SPREAD into the API object below so the external surface is unchanged.
+  const { refreshEmptySessionToolPolicy } = createToolPolicyRefresh({
+    getSession: () => rt.session,
+    getRoute: () => rt.route,
+    getMode: () => rt.mode,
+    getConfig: () => rt.config,
+    getDataDir: () => cfgMod.getPluginData?.() || STANDALONE_DATA_DIR,
+    modelStandaloneTools,
+    featureDisallowedTools,
+    memoryToolsEnabled: memoryToolsEnabledFn,
+    loadCoreMemoryContext,
+    activeWorkflowContext,
+    invalidatePreSessionToolSurface,
+  });
   const settingsApi = createSettingsApi({
     getConfig: () => rt.config,
     getRoute: () => rt.route,
@@ -1422,6 +1436,7 @@ export async function createMixdogSessionRuntime({
     getUpdateProcessState: () => selfUpdate.getProcessState(),
     invalidateContextStatusCache: (...a) => invalidateContextStatusCache(...a),
     invalidatePreSessionToolSurface: (...a) => invalidatePreSessionToolSurface(...a),
+    refreshEmptySessionToolPolicy,
     scheduleChannelStart: (...a) => scheduleChannelStart(...a),
     channels,
     clearChannelStartTimer: () => {
@@ -1616,6 +1631,8 @@ export async function createMixdogSessionRuntime({
     recreateCurrentSessionIfReady,
     notifyFnForSession,
     invalidateContextStatusCache,
+    invalidatePreSessionToolSurface,
+    refreshEmptySessionToolPolicy,
   });
   const sessionTurnApi = createSessionTurnApi({
     getSession: () => rt.session,

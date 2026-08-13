@@ -112,8 +112,8 @@ function ShortcutsPanel() {
 // Settings → Connection: pairing card for the installable web app. Data and
 // the pre-rendered QR SVG come from the main process; the remote shim omits
 // the API, so a browser session reports its current connection instead.
-// Until the relay QRs exist the card polls (each read also makes the main
-// process retry a failed bridge/relay leg) and keeps a QR-sized loading
+// Until the relay QR exists the card polls (each read also makes the main
+// process retry a failed relay leg) and keeps a QR-sized loading
 // shell, so the panel heals in place instead of flashing notes.
 const CONNECTION_RETRY_MS = 2_000;
 // ~10s of polling before the explanatory notes replace the loading card.
@@ -156,7 +156,7 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
     }
     return <Group title="Web app">
       <p className="settings-connection-note">
-        {t('Remote access is unavailable in this session. On the desktop it is on by default; restart without MIXDOG_REMOTE_BRIDGE=0 to enable pairing.')}
+        {t('Connecting to the Mixdog relay… this card refreshes automatically. If this persists, check this PC’s internet connection.')}
       </p>
     </Group>;
   }
@@ -165,7 +165,7 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
       if (info === null) {
         return <Group title="Web app">
           <p className="settings-connection-note">
-            {t('Remote access could not start in this session. On the desktop it is on by default; restart without MIXDOG_REMOTE_BRIDGE=0 to enable pairing.')}
+            {t('Connecting to the Mixdog relay… this card refreshes automatically. If this persists, check this PC’s internet connection.')}
           </p>
         </Group>;
       }
@@ -189,9 +189,8 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
       </div>
     </Group>;
   }
-  // Relay-only pairing (user decision: Anywhere only, no LAN fallback) — the
-  // LAN bridge stays a transport detail and never surfaces here. The web app
-  // is the only remote client and can be installed directly by the browser.
+  // Relay-only pairing: the web app is the only remote client and can be
+  // installed directly by the browser.
   const browserQrSvg = info.relayBrowserQrSvg || '';
   return <Group title="Web app"
     description="Works on any network. Scan or open the secure browser link.">

@@ -22,6 +22,7 @@ import {
 } from './gpu-recovery';
 import { registerDesktopIpc } from './ipc';
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
+import { desktopPermissionAllowed } from './permission-policy';
 import { installNativeMenu } from './menu';
 import { DesktopSettingsStore } from './settings-store';
 import { desktopUpdater, startAutoUpdater } from './updater';
@@ -49,8 +50,8 @@ const desktopProcessStartedAt = Date.now();
 for (const stream of [process.stdout, process.stderr]) {
   stream?.on?.('error', () => { /* dead stdio pipe: logging is best-effort */ });
 }
-// V8 compile cache for the main process's dynamic imports (remote bridge/
-// relay, dialogs) and the daemon service adapter. Best-effort no-op when the
+// V8 compile cache for the main process's dynamic imports (remote access,
+// dialogs) and the daemon service adapter. Best-effort no-op when the
 // running Node build lacks the API.
 try {
   (nodeModule as { enableCompileCache?: () => unknown }).enableCompileCache?.();
@@ -990,15 +991,24 @@ if (!app.requestSingleInstanceLock()) {
     // Gallery bytes leave the RPC lane here: tiles and clips become ordinary
     // cacheable, range-able resources fetched straight by the DOM.
     registerMediaProtocol(host);
-    // Push-to-talk dictation records via getUserMedia. Grant `media`
-    // deterministically and
-    // log any other permission request so future surfaces fail loudly instead
-    // of depending on Electron's default-allow behavior.
-    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-      if (permission !== 'media') {
+    // Push-to-talk and pairing use getUserMedia. Only the trusted desktop
+    // renderer receives that permission; every other permission fails closed.
+    const trustedPermissionSender = () => {
+      const window = mainWindow;
+      return window && !window.isDestroyed() ? window.webContents : null;
+    };
+    session.defaultSession.setPermissionCheckHandler((webContents, permission) =>
+      desktopPermissionAllowed(permission, webContents, trustedPermissionSender()));
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      const allowed = desktopPermissionAllowed(
+        permission,
+        webContents,
+        trustedPermissionSender(),
+      );
+      if (!allowed) {
         diagnostics?.write('permission-request', { permission });
       }
-      callback(true);
+      callback(allowed);
     });
     await createWindow();
     if (pendingPrimaryActivation) activatePrimaryWindow();

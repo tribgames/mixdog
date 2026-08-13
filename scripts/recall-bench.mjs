@@ -14,6 +14,18 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parsePeriod } from '../src/runtime/memory/lib/recall-format.mjs';
+import {
+  evaluateCase,
+  parseRecallOutput,
+  scoreAllContain,
+  scoreRecencyOrdered,
+  scorePageAfter,
+  scoreTopNContains,
+  scoreWithinPeriod,
+  textOfResult,
+  topItems,
+} from './lib/recall-bench-eval.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dir, '..');
@@ -27,8 +39,6 @@ function argValue(name, fallback = null) {
   return hit ? hit.slice(pref.length) : fallback;
 }
 function hasFlag(name) { return process.argv.includes(`--${name}`); }
-
-const WARN_LATENCY_MS = 3000;
 
 const DEFAULT_CASES = [
   { id: 'kw-ko', label: 'keyword query (ko)', args: { query: '\uBA54\uBAA8\uB9AC \uC7AC\uD604' }, expect: 'results' },
@@ -58,166 +68,20 @@ function loadCases(path) {
   return DEFAULT_CASES;
 }
 
-function textOfResult(result) {
-  if (result && typeof result === 'object' && Array.isArray(result.content)) {
-    return result.content.map((p) => (p?.type === 'text' ? p.text || '' : JSON.stringify(p))).join('\n');
-  }
-  if (result && typeof result === 'object' && typeof result.text === 'string') return result.text;
-  if (typeof result === 'string') return result;
-  return JSON.stringify(result ?? '');
-}
-
-function countEntryLines(text) {
-  return resultLines(text).length;
-}
-
-function topN(text, n = 3, maxLen = 140) {
-  return resultLines(text)
-    .slice(0, n)
-    .map((line) => (line.length > maxLen ? `${line.slice(0, maxLen - 1)}…` : line));
-}
-
-// Full ordered list of result lines (no slice), used for topNContains rank
-// scoring. Same filtering rule as countEntryLines/topN.
-function resultLines(text) {
-  const t = String(text || '').trim();
-  if (!t || t === '(no results)' || t === '(no valid ids)') return [];
-  return t.split('\n').filter((line) => {
-    const trimmed = line.trim();
-    return trimmed
-      && !trimmed.startsWith('[recall truncated')
-      && !trimmed.startsWith('note:')
-      && !/^\[[^\]]+\]$/.test(trimmed);
-  });
-}
-
-// Score expect.topNContains: for each expected substring, find the 1-indexed
-// rank of the first result line containing it (case-insensitive), over the
-// FULL result list (not just the topN cutoff) so we can tell "missed
-// entirely" from "present but ranked below cutoff". hit@N/MRR are then
-// computed against the topN cutoff.
-function scoreTopNContains(lines, substrings, n) {
-  const lower = lines.map((l) => l.toLowerCase());
-  const perSubstring = substrings.map((needle) => {
-    const hay = String(needle || '').toLowerCase();
-    let rank = null;
-    for (let i = 0; i < lower.length; i++) {
-      if (hay && lower[i].includes(hay)) { rank = i + 1; break; }
-    }
-    const hit = rank !== null && rank <= n;
-    return { needle, rank, hit, rr: hit ? 1 / rank : 0 };
-  });
-  const total = perSubstring.length || 1;
-  const hitAtN = perSubstring.reduce((s, p) => s + (p.hit ? 1 : 0), 0) / total;
-  const mrr = perSubstring.reduce((s, p) => s + p.rr, 0) / total;
-  return { perSubstring, hitAtN, mrr, n };
-}
-
-// Parse leading "[YYYY-MM-DD HH:MM]" timestamps from result lines and check
-// they are non-increasing (newest-first). Returns null when fewer than 2
-// lines carry a parseable timestamp (nothing to order).
-function scoreRecencyOrdered(lines) {
-  const tsRe = /^\s*\[(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2})/;
-  const headerRe = /^\s*##\s/;
-  const parse = (raw) => Date.parse(raw.replace(' ', 'T'));
-  // Non-increasing check within a single ordered list of {raw,ts}. Returns
-  // the first {prev,cur} pair where cur is newer than prev, else null.
-  const firstBreak = (stamps) => {
-    for (let i = 1; i < stamps.length; i++) {
-      if (Number.isFinite(stamps[i].ts) && Number.isFinite(stamps[i - 1].ts) && stamps[i].ts > stamps[i - 1].ts) {
-        return { prev: stamps[i - 1].raw, cur: stamps[i].raw };
-      }
-    }
-    return null;
+async function runCase(memoryModule, kase, priorRows = new Map()) {
+  const expectObj = kase.expect && typeof kase.expect === 'object' ? kase.expect : null;
+  const cursorPrior = expectObj?.cursorFrom ? priorRows.get(expectObj.cursorFrom) : null;
+  const callArgs = {
+    ...(kase.args || {}),
+    ...(expectObj?.cursorFrom ? { cursor: cursorPrior?.nextCursor } : {}),
   };
-  const hasSessions = lines.some((l) => headerRe.test(l));
-  if (!hasSessions) {
-    // Ungrouped: single global non-increasing check over all timestamped lines.
-    const stamps = [];
-    for (const line of lines) {
-      const m = tsRe.exec(line);
-      if (m) stamps.push({ raw: m[1], ts: parse(m[1]) });
-    }
-    if (stamps.length < 2) return { parsed: stamps.length, groups: 0, ordered: true, firstViolation: null };
-    const b = firstBreak(stamps);
-    return { parsed: stamps.length, groups: 0, ordered: b === null, firstViolation: b };
-  }
-  // Session-grouped: partition timestamped lines by their "## session" header.
-  // Timestamps only compared WITHIN a group; groups themselves must descend by
-  // their first line's timestamp.
-  const groups = [];
-  let cur = null;
-  for (const line of lines) {
-    if (headerRe.test(line)) { cur = { stamps: [] }; groups.push(cur); continue; }
-    const m = tsRe.exec(line);
-    if (m && cur) cur.stamps.push({ raw: m[1], ts: parse(m[1]) });
-  }
-  const nonEmpty = groups.filter((g) => g.stamps.length);
-  const parsed = nonEmpty.reduce((s, g) => s + g.stamps.length, 0);
-  let firstViolation = null;
-  for (const g of nonEmpty) {
-    const b = firstBreak(g.stamps);
-    if (b) { firstViolation = { ...b, scope: 'within-session' }; break; }
-  }
-  if (!firstViolation) {
-    const heads = nonEmpty.map((g) => g.stamps[0]);
-    const b = firstBreak(heads);
-    if (b) firstViolation = { ...b, scope: 'across-sessions' };
-  }
-  return { parsed, groups: nonEmpty.length, ordered: firstViolation === null, firstViolation };
-}
-
-// Score expect.allContain: every result line must contain at least one of the
-// given substrings (case-insensitive). Returns offending lines (matching none).
-// Use for negative cases where rows legitimately mention the term.
-function scoreAllContain(lines, substrings) {
-  const needles = substrings.map((s) => String(s || '').toLowerCase()).filter(Boolean);
-  const offenders = lines.filter((line) => {
-    const l = line.toLowerCase();
-    return !needles.some((n) => l.includes(n));
-  });
-  return { needles: substrings, offenders, ok: offenders.length === 0 };
-}
-
-function evaluateCase(kase, { count, ms, isError }, quality, recency, allContain) {
-  const warnings = [];
-  if (isError) warnings.push('error result');
-  if (ms > WARN_LATENCY_MS) warnings.push(`latency ${ms}ms > ${WARN_LATENCY_MS}ms`);
-  if ((kase.expect === 'browse' || kase.expect === 'idlookup') && count === 0) {
-    warnings.push('0 results for a browse/id-lookup case (expected data present)');
-  }
-  if (kase.expect === 'empty' && count > 0) {
-    warnings.push(`expected empty but got ${count} result(s) — possible filler/unrelated match`);
-  }
-  if (allContain) {
-    for (const line of allContain.offenders) {
-      warnings.push(`allContain miss: result line contains none of [${allContain.needles.join(', ')}]: "${line}"`);
-    }
-  }
-  if (quality) {
-    for (const p of quality.perSubstring) {
-      if (!p.hit) {
-        warnings.push(p.rank === null
-          ? `topNContains miss: "${p.needle}" not found in results`
-          : `topNContains miss: "${p.needle}" found at rank ${p.rank} > topN ${quality.n}`);
-      }
-    }
-  }
-  if (recency && !recency.ordered && recency.firstViolation) {
-    const v = recency.firstViolation;
-    warnings.push(`recencyOrdered violation (${v.scope || 'global'}): ${v.cur} newer than prior ${v.prev}`);
-  }
-  const status = warnings.length ? 'WARN' : 'PASS';
-  return { status, warnings };
-}
-
-async function runCase(memoryModule, kase) {
   const started = Date.now();
   let result;
   let isError = false;
   let errMsg = null;
   try {
-    result = await memoryModule.handleToolCall('search_memories', kase.args || {});
+    if (expectObj?.cursorFrom && !callArgs.cursor) throw new Error(`missing cursor from ${expectObj.cursorFrom}`);
+    result = await memoryModule.handleToolCall('search_memories', callArgs);
     isError = Boolean(result?.isError);
   } catch (e) {
     isError = true;
@@ -226,18 +90,30 @@ async function runCase(memoryModule, kase) {
   }
   const ms = Date.now() - started;
   const text = textOfResult(result);
-  const count = countEntryLines(text);
+  const parsed = parseRecallOutput(text);
+  const count = parsed.items.length;
   // expect stays a plain string for legacy cases ('results'/'browse'/'idlookup').
   // New quality cases use an object: { kind?, topNContains: [...], topN? }.
-  const expectObj = kase.expect && typeof kase.expect === 'object' ? kase.expect : null;
   const expectKind = expectObj ? expectObj.kind : kase.expect;
   const topNContains = expectObj && Array.isArray(expectObj.topNContains) ? expectObj.topNContains : null;
   const cutoffN = expectObj && Number.isInteger(expectObj.topN) ? expectObj.topN : 5;
-  const quality = topNContains ? scoreTopNContains(resultLines(text), topNContains, cutoffN) : null;
-  const recency = expectObj && expectObj.recencyOrdered ? scoreRecencyOrdered(resultLines(text)) : null;
+  const quality = topNContains ? scoreTopNContains(parsed.items, topNContains, cutoffN) : null;
+  const recency = expectObj && expectObj.recencyOrdered ? scoreRecencyOrdered(parsed.items) : null;
   const allContainNeedles = expectObj && Array.isArray(expectObj.allContain) ? expectObj.allContain : null;
-  const allContain = allContainNeedles ? scoreAllContain(resultLines(text), allContainNeedles) : null;
-  const evalResult = evaluateCase({ ...kase, expect: expectKind }, { count, ms, isError }, quality, recency, allContain);
+  const allContain = allContainNeedles ? scoreAllContain(parsed.items, allContainNeedles) : null;
+  const temporal = expectObj?.withinPeriod ? parsePeriod(String(kase.args?.period || ''), Boolean(kase.args?.query)) : null;
+  const withinPeriod = temporal?.startMs != null ? scoreWithinPeriod(parsed.items, temporal) : null;
+  const prior = expectObj?.pageAfter ? priorRows.get(expectObj.pageAfter) : null;
+  const pageOrder = prior ? scorePageAfter(prior.parsed, parsed) : null;
+  const evalResult = evaluateCase(
+    { ...kase, expect: expectObj ? { ...expectObj, kind: expectKind } : expectKind },
+    { count, ms, isError },
+    quality,
+    recency,
+    allContain,
+    withinPeriod,
+    pageOrder,
+  );
   return {
     id: kase.id,
     label: kase.label,
@@ -246,10 +122,14 @@ async function runCase(memoryModule, kase) {
     ms,
     isError,
     errMsg,
-    top3: topN(text, 3),
+    top3: topItems(parsed.items, 3),
     quality,
     recency,
     allContain,
+    withinPeriod,
+    pageOrder,
+    parsed,
+    nextCursor: result?.nextCursor || null,
     status: evalResult.status,
     warnings: evalResult.warnings,
   };
@@ -267,6 +147,12 @@ function printCase(row) {
   }
   if (row.recency) {
     process.stdout.write(`  recency: ${row.recency.ordered ? 'ordered' : 'OUT-OF-ORDER'} (${row.recency.parsed} timestamped lines)\n`);
+  }
+  if (row.withinPeriod) {
+    process.stdout.write(`  period: ${row.withinPeriod.ok ? 'in-range' : 'OUT-OF-RANGE'} (${row.withinPeriod.checked} timestamped items)\n`);
+  }
+  if (row.pageOrder) {
+    process.stdout.write(`  page order: ${row.pageOrder.ok ? 'ordered, distinct' : 'INVALID'}\n`);
   }
   if (row.top3.length) {
     for (const line of row.top3) process.stdout.write(`    - ${line}\n`);
@@ -326,10 +212,12 @@ async function main() {
   }
 
   const rows = [];
+  const rowsById = new Map();
   try {
     for (const kase of cases) {
-      const row = await runCase(memoryModule, kase);
+      const row = await runCase(memoryModule, kase, rowsById);
       rows.push(row);
+      rowsById.set(row.id, row);
       if (!jsonMode) printCase(row);
     }
   } finally {
@@ -342,7 +230,7 @@ async function main() {
   }
 
   if (jsonMode) {
-    process.stdout.write(JSON.stringify({ cases: rows }, null, 2) + '\n');
+    process.stdout.write(JSON.stringify({ cases: rows.map(({ parsed, ...row }) => row) }, null, 2) + '\n');
   } else {
     printSummary(rows);
   }

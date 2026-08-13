@@ -77,6 +77,8 @@
     "bench:corpus": "node scripts/routing-corpus.mjs",
     "bench:run": "node scripts/bench-run.mjs",
     "bench:recall": "node scripts/recall-bench.mjs",
+    "bench:recall:strict": "node scripts/recall-bench.mjs --strict",
+    "test:recall-validator": "node --test scripts/recall-bench-test.mjs",
     "bench:tui-load": "node scripts/tui-runtime-load-bench.mjs",
     "bench:output-style": "node scripts/output-style-bench.mjs",
     "bench:session-context": "node scripts/session-context-bench.mjs",

@@ -1,12 +1,10 @@
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { getStandaloneMemoryRuntime } from '../../../standalone/memory-runtime-proxy.mjs'
+import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../../shared/runtime-root.mjs'
 
-const RUNTIME_ROOT = process.env.MIXDOG_RUNTIME_ROOT
-  ? path.resolve(process.env.MIXDOG_RUNTIME_ROOT)
-  : path.join(os.tmpdir(), 'mixdog')
+const RUNTIME_ROOT = resolveRuntimeRoot()
 let _memoryRuntimePromise = null
 const MEMORY_ENTRY = fileURLToPath(new URL('../../memory/index.mjs', import.meta.url))
 
@@ -131,6 +129,7 @@ function seedDedupeIndex(kind) {
 
 function bufferToDisk(kind, payload, { dedupeKey = null } = {}) {
   try {
+    ensurePrivateRuntimeRoot(RUNTIME_ROOT)
     fs.mkdirSync(BUFFER_DIR, { recursive: true })
     if (dedupeKey != null) {
       // In-memory index (seeded once from disk) replaces the per-event O(N)

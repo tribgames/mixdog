@@ -122,5 +122,6 @@ export function formatLocalAndUtcTimestamp(value = new Date(), options = {}) {
 export function formatRecallTimestamp(value, options = {}) {
   const parts = localTimestampParts(value, options);
   if (!parts) return '';
-  return `${parts.date} ${parts.time.slice(0, 5)} ${parts.timeZone} (${parts.offset}; UTC ${parts.utc.slice(0, 16).replace('T', ' ')}Z)`;
+  const localMilliseconds = parts.utc.slice(20, 23);
+  return `${parts.date} ${parts.time}.${localMilliseconds} ${parts.timeZone} (${parts.offset}; UTC ${parts.utc.replace('T', ' ')})`;
 }

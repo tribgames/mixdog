@@ -1,4 +1,4 @@
-// Transport-neutral method table for the remote (LAN/WebSocket) bridge: the
+// Transport-neutral method table for the remote Relay client: the
 // same desktop service surface registerDesktopIpc exposes, minus desktop-only OS
 // integrations (dialogs, shell reveal/open, zoom, updater, quit). Validation
 // reuses the ipc.ts validators so the remote surface can never accept a shape
@@ -40,10 +40,9 @@ import {
   requiredRepositoryCwd,
 } from './git-contract.mjs';
 
-// Secrets and OAuth flows stay desktop-local: tokens must not transit the
-// bridge link until end-to-end encryption lands, and OAuth logins open a
-// browser on the desktop machine where the phone cannot complete them.
-const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set([
+// Secrets and OAuth flows stay desktop-local even over E2EE, and OAuth logins
+// open a browser on the desktop machine where the phone cannot complete them.
+export const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set([
   'saveProviderApiKey',
   'authenticateProvider',
   'saveOpenAIUsageSessionKey',
@@ -61,9 +60,9 @@ const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set([
   'resolveMediaFile',
 ]);
 
-function assertRemoteCapability(capability: string): void {
+export function assertRemoteCapability(capability: string): void {
   if (REMOTE_BLOCKED_CAPABILITIES.has(capability)) {
-    throw new TypeError(`capability ${capability} is not available over the remote bridge.`);
+    throw new TypeError(`capability ${capability} is not available over remote access.`);
   }
 }
 
@@ -88,7 +87,7 @@ export function createRemoteMethods(
   const invokeDesktopOperation = (name: string, args: unknown[]): Promise<unknown> =>
     host.invokeDesktopOperation(name, args);
   const operation = (name: string) => (...args: unknown[]) => invokeDesktopOperation(name, args);
-  // Remote bridge/relay are transport clients, not another service. Keep their
+  // Remote access is a transport client, not another service. Keep its
   // existing validation grammar while every Git mutation executes in the same
   // daemon operation service as Electron IPC.
   const {
@@ -374,8 +373,8 @@ export interface RemoteFrameResponse {
   errorCode?: string;
 }
 
-// Shared RPC frame executor for the LAN bridge and the relay client: parses
-// one wire frame and returns the response payload, or undefined when no
+// Relay RPC frame executor: parses one wire frame and returns the response
+// payload, or undefined when no
 // response frame is owed (fire-and-forget lane or an unparseable frame).
 export async function executeRemoteFrame(
   methods: Record<string, RemoteMethod>,

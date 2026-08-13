@@ -7,6 +7,7 @@ import {
 } from './lang-predicates.mjs';
 import { _getSourceTextForNode } from './source-access.mjs';
 import { _graphRel } from './source-access.mjs';
+import { _symbolPathForSymbol } from './text-columns.mjs';
 
 // Unicode-aware word-boundary wrapper for an already-regex-escaped
 // symbol. JS `\b` only fires at ASCII [A-Za-z0-9_] transitions, so
@@ -92,6 +93,27 @@ export function _lookupCandidateNodes(graph, symbol, language = null) {
 export function _extractSymbolsCheap(text, lang) {
   const all = _collectCheapSymbols(text, lang).map((item) => `${item.kind} ${item.name} (L${item.line})`);
   return all.length ? _capGraphList(all).join('\n') : '(no symbols)';
+}
+
+function _symbolHierarchyLines(node, depth = 1) {
+  const symbols = Array.isArray(node?.symbols) ? node.symbols : [];
+  const maxDepth = Math.max(0, Math.min(5, Math.floor(Number(depth) || 0)));
+  return symbols
+    .map((symbol) => ({ symbol, path: _symbolPathForSymbol(node, symbol) }))
+    .filter(({ path }) => path && path.split('/').length - 1 <= maxDepth)
+    .sort((a, b) => {
+      const aLine = Number(a.symbol.startLine ?? a.symbol.line) || 0;
+      const bLine = Number(b.symbol.startLine ?? b.symbol.line) || 0;
+      return (aLine - bLine) || ((Number(a.symbol.startCol) || 0) - (Number(b.symbol.startCol) || 0));
+    })
+    .slice(0, 120)
+    .map(({ symbol, path }) => {
+      const level = path.split('/').length - 1;
+      const start = Number(symbol.startLine ?? symbol.line);
+      const end = Number(symbol.endLine);
+      const range = Number.isFinite(end) && end > start ? `${start}-${end}` : `${start}`;
+      return `${'  '.repeat(level)}${symbol.kind} ${symbol.name} (L${range})`;
+    });
 }
 
 // Control-flow keywords that the bare `name(args) {?$` patterns below
@@ -242,7 +264,7 @@ export function _capGraphList(arr, cap = 200) {
     : arr;
 }
 
-export function _buildExplainerFileSummary(node, graph, cwd) {
+export function _buildExplainerFileSummary(node, graph, cwd, { depth = 1 } = {}) {
   const topTypes = Array.isArray(node?.topLevelTypes) ? node.topLevelTypes.slice(0, 8) : [];
   const importsAll = Array.isArray(node?.resolvedImports) ? node.resolvedImports.map((p) => _graphRel(p, cwd)) : [];
   const imports = importsAll.slice(0, 8);
@@ -254,6 +276,7 @@ export function _buildExplainerFileSummary(node, graph, cwd) {
     ? [...new Set(node.symbols.map((s) => s.name))]
     : tokensAll;
   const symbolNames = symbolsAll.slice(0, hasNativeSymbols ? 30 : 20);
+  const hierarchy = hasNativeSymbols ? _symbolHierarchyLines(node, depth) : [];
   const anchors = _extractExplainerAnchorLines(node, graph);
   const sourceHead = _getSourceTextForNode(graph, node)
     .split(/\r?\n/)
@@ -266,15 +289,17 @@ export function _buildExplainerFileSummary(node, graph, cwd) {
     `language: ${node.lang}`,
   ];
   if (topTypes.length) parts.push(`top-level: ${topTypes.join(', ')}`);
-  if (symbolNames.length) {
+  if (hierarchy.length) {
+    parts.push(`outline:\n${hierarchy.join('\n')}`);
+  } else if (symbolNames.length) {
     const more = symbolsAll.length - symbolNames.length;
-    parts.push(`symbols: ${symbolNames.join(', ')}${more > 0 ? `, … +${more} more (mode:symbols for full list)` : ''}`);
+    parts.push(`symbols: ${symbolNames.join(', ')}${more > 0 ? `, … +${more} more (use symbol_search for keywords)` : ''}`);
   }
   if (imports.length) {
     const more = importsAll.length - imports.length;
     parts.push(`imports: ${imports.join(', ')}${more > 0 ? `, … +${more} more (mode:imports for full list)` : ''}`);
   }
-  if (anchors.length) parts.push(`anchors:\n${anchors.join('\n')}`);
-  if (sourceHead) parts.push(`head:\n${sourceHead}`);
+  if (!hierarchy.length && anchors.length) parts.push(`anchors:\n${anchors.join('\n')}`);
+  if (!hierarchy.length && sourceHead) parts.push(`head:\n${sourceHead}`);
   return parts.join('\n');
 }

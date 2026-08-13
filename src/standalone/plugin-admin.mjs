@@ -5,11 +5,11 @@ import {
   readFileSync,
   renameSync,
   rmSync,
-  writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
+import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 
 const REGISTRY_VERSION = 1;
@@ -40,7 +40,11 @@ function readJsonSafe(path) {
 
 function writeJson(path, data) {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
+  writeJsonAtomicSync(path, data, {
+    lock: true,
+    secret: true,
+    fsyncDir: true,
+  });
 }
 
 function loadRegistry(dataDir = resolvePluginData()) {

@@ -186,9 +186,9 @@ function WorkflowEditorDialog({ pack, deletable, busy, error = '', onCancel, onS
           <input name="workflow-name" defaultValue={String(pack?.name || '')}
             placeholder={t("Workflow name")} required autoFocus={!editing} disabled={busy} maxLength={64} />
         </label>
-        <label className="schedules-field">{t('Description')}
+        <label className="schedules-field" data-i18n-skip>When to use
           <input name="workflow-description" defaultValue={String(pack?.description || '')}
-            placeholder={t("One-line summary")} disabled={busy} maxLength={160} />
+            placeholder="When Mixdog should use this" disabled={busy} maxLength={160} />
         </label>
         <div className="schedules-field">
           <span>{t('Agents')}</span>
@@ -280,9 +280,9 @@ function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCance
           <input name="agent-name" defaultValue={String(agent?.name || '')}
             placeholder={t("Agent name")} required autoFocus={!editing} disabled={busy} maxLength={64} />
         </label>
-        <label className="schedules-field">{t('Description')}
+        <label className="schedules-field" data-i18n-skip>When to use
           <input name="agent-description" defaultValue={String(agent?.description || '')}
-            placeholder={t("One-line summary")} disabled={busy} maxLength={160} />
+            placeholder="When Mixdog should use this" disabled={busy} maxLength={160} />
         </label>
         <div className="schedules-field">
           <span>{t('Model')}</span>
@@ -346,20 +346,12 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
         onSave(route);
       }}>
         {target.readOnlyDefinition && <>
-          <div className="schedules-field workflows-readonly-field">
-            <div className="workflows-readonly-label">
-              <span>{t('Name')}</span><small>{t('Read-only')}</small>
-            </div>
-            <p className="workflows-readonly-value"
-              data-i18n-skip={target.id === 'web-search' ? '' : undefined}>{target.label}</p>
-          </div>
-          <div className="schedules-field workflows-readonly-field">
-            <div className="workflows-readonly-label">
-              <span>{t('Description')}</span><small>{t('Read-only')}</small>
-            </div>
-            <p className="workflows-readonly-value"
-              data-i18n-skip={target.id === 'web-search' ? '' : undefined}>{target.description}</p>
-          </div>
+          <label className="schedules-field">{t('Name')}
+            <input value={t(target.label)} readOnly disabled tabIndex={-1} />
+          </label>
+          <label className="schedules-field" title={t(target.description)}>{t('When to use')}
+            <input value={t(target.description)} readOnly disabled tabIndex={-1} />
+          </label>
         </>}
         <div className="schedules-field">
           <span>{t('Model')}</span>
@@ -486,7 +478,7 @@ export function WorkflowsPane({
   const agentRoster = useMemo<AgentSummary[]>(() => agents.map((agent) => ({
     id: String(agent.id || ''),
     label: String(agent.label || record(agent.definition).name || agent.id || ''),
-    description: String(agent.description || record(agent.definition).description || ''),
+    description: String(record(agent.definition).description || agent.description || ''),
     custom: agent.custom === true,
     userOverride: agent.userOverride === true,
   })).filter((agent) => agent.id), [agents]);
@@ -623,14 +615,14 @@ export function WorkflowsPane({
           <div className="schedules-row workflows-agent-summary-row workflows-default-agent-summary-row">
             <span className="projects-row-icon"><Globe size={16} aria-hidden="true" /></span>
             <button type="button" className="schedules-row-copy projects-row-open"
-              title="Search-tool requests"
+              title={t('Use when Mixdog runs the search tool.')}
               onClick={() => setRouteEditor({
                 id: 'web-search',
                 label: 'Web Search',
                 route: searchRoute,
                 capability: 'setSearchRoute',
                 modelKind: 'search',
-                description: 'Search-tool requests',
+                description: 'Use when Mixdog runs the search tool.',
                 readOnlyDefinition: true,
               })}>
               <b>{t('Web Search')}</b>
@@ -644,7 +636,7 @@ export function WorkflowsPane({
                 route: searchRoute,
                 capability: 'setSearchRoute',
                 modelKind: 'search',
-                description: 'Search-tool requests',
+                description: 'Use when Mixdog runs the search tool.',
                 readOnlyDefinition: true,
               })}>
               <ChevronRight size={16} aria-hidden="true" />

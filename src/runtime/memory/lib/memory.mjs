@@ -97,6 +97,7 @@ export async function init(db, dims) {
       session_id    TEXT,
       project_id    TEXT,
       source_turn   INTEGER,
+      time_source   TEXT,
       chunk_root    BIGINT REFERENCES entries(id) ON DELETE SET NULL,
       is_root       SMALLINT NOT NULL DEFAULT 0,
       element       TEXT,
@@ -121,7 +122,6 @@ export async function init(db, dims) {
       ) STORED
     )
   `)
-
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_chunk_root  ON entries(chunk_root) WHERE chunk_root IS NOT NULL`)
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_ts_desc     ON entries(ts DESC)`)
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_session_ts  ON entries(session_id, ts DESC) WHERE session_id IS NOT NULL`)
@@ -506,8 +506,7 @@ export async function ensureCurrentSchemaExtensions(db, dims) {
     await db.exec(`CREATE INDEX IF NOT EXISTS core_entries_embedding_hnsw ON core_entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL`)
   }
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS core_summary text`)
-
-
+  await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS time_source text`)
 
   // Core-candidate promotion pipeline (proposal mode): active entries the
   // cycle2 nomination pass flags as strong core-memory candidates. Never

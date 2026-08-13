@@ -7,6 +7,8 @@ import {
   sessionListKeepsExistingTopInsert,
   conversationSwitchPaintGate,
   conversationPresentedSessionId,
+  nextConversationOriginSessionId,
+  conversationMarkdownPending,
 } from "./first-submit-stability.ts";
 import { mergeSessionCatalogRows } from "../shared/session-catalog.ts";
 
@@ -25,7 +27,9 @@ test("a late lane keeps the draft cover across the promotion rAF", () => {
   assert.equal(nextConversationCoverId("draft", "sess_1", false), "draft");
   const ready = conversationCoverIdentity("draft", "sess_1", true);
   assert.deepEqual(ready, { coverKey: "draft", promotingFromDraft: false });
-  assert.equal(nextConversationCoverId("draft", "sess_1", true), "sess_1");
+  assert.equal(nextConversationCoverId("draft", "sess_1", true), "draft");
+  assert.equal(nextConversationCoverId("draft", "sess_1", true, "sess_1"), "draft");
+  assert.equal(nextConversationCoverId("draft", "sess_2", true, "sess_1"), "sess_2");
 });
 
 test("switching to another session uses a new cover key", () => {
@@ -52,6 +56,35 @@ test("draft promotion and New Task skip the session-switch cover hold", () => {
   assert.deepEqual(conversationSwitchPaintGate("sess_1", "draft", { contentReady: false }), {
     adoptNow: true, reveal: true,
   });
+});
+
+test("a settled first-submit keeps the draft cover and stays revealed", () => {
+  assert.deepEqual(conversationSwitchPaintGate("draft", "sess_1", {
+    promotingFromDraft: false, contentReady: false,
+  }), { adoptNow: true, reveal: true });
+  assert.deepEqual(conversationSwitchPaintGate("draft", "sess_1", {
+    promotingFromDraft: false, contentReady: true,
+  }), { adoptNow: true, reveal: true });
+});
+
+test("a draft origin stays until the pane leaves that first session", () => {
+  assert.equal(nextConversationOriginSessionId("", ""), "");
+  assert.equal(nextConversationOriginSessionId("", "sess_1"), "sess_1");
+  assert.equal(nextConversationOriginSessionId("sess_1", "sess_1"), "sess_1");
+  assert.equal(nextConversationOriginSessionId("sess_1", "sess_2"), "sess_1");
+  assert.equal(nextConversationOriginSessionId("sess_1", ""), "");
+});
+
+test("first-submit markdown pending does not unmount a draft-painted timeline", () => {
+  assert.equal(conversationMarkdownPending({
+    transcriptPending: true, coverId: "draft", hasMeasurements: false,
+  }), false);
+  assert.equal(conversationMarkdownPending({
+    transcriptPending: true, coverId: "sess_2", hasMeasurements: false,
+  }), true);
+  assert.equal(conversationMarkdownPending({
+    transcriptPending: true, coverId: "sess_2", hasMeasurements: true,
+  }), false);
 });
 
 test("an incoming session keeps the outgoing transcript until its lane is ready", () => {

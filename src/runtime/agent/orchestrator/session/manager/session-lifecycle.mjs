@@ -13,6 +13,7 @@ import { getHiddenAgent } from '../../internal-agents.mjs';
 import { loadConfig } from '../../config.mjs';
 import { buildProviderCacheOpts, cacheCapabilityForProvider } from '../../agent-runtime/cache-strategy.mjs';
 import { normalizeAutoClearConfig, resolveAutoClearIdleMs } from '../../../../../session-runtime/config-helpers.mjs';
+import { toSessionWorkflowMeta, workflowDisallowsAgentTool } from '../../../../../session-runtime/workflow.mjs';
 import {
     _buildSharedRules,
     _buildAgentRules,
@@ -214,7 +215,12 @@ export function createSession(opts) {
     // repeat equivalent patterns/scopes, plausible hit → stop) are exactly
     // what narrow retrieval roles need. Role docs
     // override role-inapplicable entries.
-    const injectedRules = skipAgentRules ? '' : _buildSharedRules();
+    const sessionDeny = [
+        ...(Array.isArray(opts.disallowedTools) ? opts.disallowedTools : []),
+        ...(hiddenAgent ? ['Skill'] : []),
+        ...(!ownerIsAgent && workflowDisallowsAgentTool(opts.workflow) ? ['agent'] : []),
+    ];
+    const injectedRules = skipAgentRules ? '' : _buildSharedRules({ omitTools: sessionDeny });
     const delegationFree = !ownerIsAgent && workflowDisallowsAgentTool(opts.workflow);
     const roleRules = skipAgentRules
         ? ''
@@ -271,22 +277,11 @@ export function createSession(opts) {
         toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, toolPermission, resolvedAgent);
     }
 
-    const workflowMeta = opts.workflow && typeof opts.workflow === 'object' && String(opts.workflow.id || '').trim()
-        ? {
-            id: String(opts.workflow.id || '').trim(),
-            name: String(opts.workflow.name || opts.workflow.id || '').trim(),
-            description: String(opts.workflow.description || '').trim(),
-            source: String(opts.workflow.source || '').trim(),
-        }
-        : null;
+    const workflowMeta = toSessionWorkflowMeta(opts.workflow);
     const hasCallerAllow = Array.isArray(opts.schemaAllowedTools);
     const tools = finalizeSessionToolList(toolsForRouting, {
         schemaAllowedTools: hasCallerAllow ? opts.schemaAllowedTools : null,
-        disallowedTools: [
-            ...(Array.isArray(opts.disallowedTools) ? opts.disallowedTools : []),
-            ...(hiddenAgent ? ['Skill'] : []),
-            ...(!ownerIsAgent && workflowDisallowsAgentTool(opts.workflow) ? ['agent'] : []),
-        ],
+        disallowedTools: sessionDeny,
         ownerIsAgent,
         resolvedAgent,
     });
@@ -396,6 +391,7 @@ export function createSession(opts) {
         // their persisted shape and classification behavior remain unchanged.
         desktopSession: normalizeDesktopSessionMetadata(opts.desktopSession, opts.cwd),
         workflow: workflowMeta,
+        disallowedTools: sessionDeny.map((name) => String(name)),
         createdAt: Date.now(),
         updatedAt: Date.now(),
         lastHeartbeatAt: null,
@@ -525,18 +521,6 @@ const ACTIVE_OWNER_HB_FRESH_MS = 2 * 60 * 1000; // heartbeat freshness window
 const PREPARED_RESUME_LIMIT = 8;
 const _preparedResumes = new Map();
 
-// A workflow that delegates to NOBODY (`delegation: none` — e.g. Solo)
-// must not put the `agent` tool in the session tool list: policy rejects
-// every call, so a schema-visible tool is a guaranteed error turn plus dead
-// schema weight. Field source: workflowSummary() carries delegatesAgents;
-// older persisted sessions carry the legacy roster fields or nothing (safe).
-function workflowDisallowsAgentTool(workflow) {
-    if (!workflow || typeof workflow !== 'object') return false;
-    if (workflow.delegatesAgents === false) return true;
-    return Boolean(workflow.agentsConfigured === true
-        && Array.isArray(workflow.agents) && workflow.agents.length === 0);
-}
-
 function _prepareResumeTools(session, preset) {
     const ownerIsAgent = isAgentOwner(session);
     const skills = ownerIsAgent ? [] : collectPromptSkillsCached(session.cwd);
@@ -563,6 +547,7 @@ function _prepareResumeTools(session, preset) {
         tools: finalizeSessionToolList(toolsForRouting, {
             schemaAllowedTools: Array.isArray(session.schemaAllowedTools) ? session.schemaAllowedTools : null,
             disallowedTools: [
+                ...(Array.isArray(session.disallowedTools) ? session.disallowedTools : []),
                 ...(getHiddenAgent(session.agent || null) ? ['Skill'] : []),
                 ...(!isAgentOwner(session) && workflowDisallowsAgentTool(session.workflow) ? ['agent'] : []),
             ],

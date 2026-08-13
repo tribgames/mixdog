@@ -3,10 +3,10 @@ import { detachedSpawnOpts } from '../runtime/shared/spawn-flags.mjs';
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import { dirname, join, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { claimSingletonOwner, handoffSingletonOwner, readSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
 import { readLiveServiceAdvert } from '../runtime/shared/service-discovery.mjs';
+import { resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { scrubLoaderVars } from '../runtime/agent/orchestrator/tools/env-scrub.mjs';
 import { projectSessionMessagesForIngest } from '../runtime/memory/lib/session-ingest.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
@@ -19,7 +19,7 @@ function logLine(path, line) {
 }
 
 function runtimeRoot() {
-  return process.env.MIXDOG_RUNTIME_ROOT ? resolve(process.env.MIXDOG_RUNTIME_ROOT) : join(tmpdir(), 'mixdog');
+  return resolveRuntimeRoot();
 }
 
 function activeInstancePath() {
@@ -453,6 +453,7 @@ export function createStandaloneMemoryRuntime({
         env: {
           ...daemonEnv,
           MIXDOG_DATA_DIR: dataDir,
+          MIXDOG_RUNTIME_ROOT: runtimeRoot(),
           MIXDOG_WORKER_MODE: '1',
           MIXDOG_STANDALONE: '1',
           MIXDOG_SERVER_PID: '',

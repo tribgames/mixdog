@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 export declare const MIME_TYPES: Record<string, string>;
 export declare const PAIRING_COOKIE_NAME: string;
+export declare const BROWSER_SECURITY_HEADERS: Readonly<Record<string, string>>;
 export declare function parseCookieToken(header: string | undefined): string;
 export declare function pairingCookieHeaders(
   queryToken: string,

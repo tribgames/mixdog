@@ -24,6 +24,7 @@ import {
   _toByteColumn,
   _byteColToCharCol,
   _nearestEnclosingSymbol,
+  _symbolPathForSymbol,
 } from './text-columns.mjs';
 import {
   _keywordSymbolSortKey,
@@ -31,7 +32,7 @@ import {
   _keywordMatchesSymbolName,
 } from './keyword-match.mjs';
 
-export { _formatRelated, _formatImpact, _impactSourceNodes, _findSymbolAcrossGraph, _resolveReferenceLanguageNode, _formatCallerReferences, _formatTransitiveCallers } from './search-references.mjs';
+export { _formatRelated, _formatImpact, _impactSourceNodes, _findSymbolAcrossGraph, _resolveReferenceLanguageNode, _formatReferenceDetails, _formatCallerReferences, _formatTransitiveCallers } from './search-references.mjs';
 export function _extractCallees(graph, declHit, _cwd, { cap = 200, callerSymbol = null, language = null } = {}) {
   if (!declHit || !_CALLEES_BRACE_LANGS.has(declHit.lang)) return [];
   const declNode = graph.nodes.get(declHit.rel);
@@ -419,7 +420,36 @@ function _sortSymbolHits(hits) {
 export function _findSymbolHits(graph, symbol, { language = null } = {}) {
   const cleanSymbol = String(symbol || '').trim();
   if (!cleanSymbol) return [];
-  const candidateNodes = _lookupCandidateNodes(graph, cleanSymbol, language);
+  const namePath = cleanSymbol.replace(/^\/+|\/+$/g, '');
+  const leaf = namePath.split('/').at(-1) || '';
+  const candidateNodes = _lookupCandidateNodes(graph, leaf, language);
+  if (cleanSymbol.includes('/')) {
+    const absolute = cleanSymbol.startsWith('/');
+    const hits = [];
+    for (const node of candidateNodes) {
+      const sourceLines = _getSourceLinesForNode(graph, node);
+      for (const nativeSymbol of (Array.isArray(node.symbols) ? node.symbols : [])) {
+        if (nativeSymbol?.name !== leaf) continue;
+        const nativePath = _symbolPathForSymbol(node, nativeSymbol);
+        if (nativePath !== namePath && (absolute || !nativePath.endsWith(`/${namePath}`))) continue;
+        const line = Number(nativeSymbol.startLine ?? nativeSymbol.line);
+        const endLine = Number(nativeSymbol.endLine);
+        hits.push({
+          rel: node.rel,
+          lang: node.lang,
+          line,
+          col: Number(nativeSymbol.startCol) || 1,
+          ...(Number.isFinite(endLine) && endLine >= line ? { endLine } : {}),
+          declarationLike: true,
+          matchCount: 1,
+          namePath: nativePath,
+          content: String(sourceLines[line - 1] || '').trim(),
+          context: sourceLines.slice(line - 1, line + 2).map((item) => String(item || '').trim()).filter(Boolean),
+        });
+      }
+    }
+    return _sortSymbolHits(hits);
+  }
   return _findSymbolHitsOnNodes(graph, cleanSymbol, candidateNodes, { language });
 }
 

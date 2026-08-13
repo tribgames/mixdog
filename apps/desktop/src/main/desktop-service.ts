@@ -29,12 +29,7 @@ import {
   type SnapshotDeltaEncoder,
 } from './state-delta';
 import { createDesktopOperations } from './desktop-operations';
-import {
-  resolveRemoteBridgePort,
-  rotateRemoteToken,
-  startRemoteBridge,
-  type RemoteBridgeHandle,
-} from './remote-bridge';
+import { rotatePairingToken } from './remote-pairing-token';
 import {
   resolveRelayUrl,
   rotateRemoteDevice,
@@ -106,22 +101,16 @@ export async function createDesktopService(
       return typeof value === 'function' ? value.bind(target) : value;
     },
   }) as unknown as DesktopService;
-  let remoteBridge: RemoteBridgeHandle | null = null;
   let remoteRelay: RemoteRelayHandle | null = null;
   let remoteServicesPromise: Promise<void> | null = null;
   const remoteDescriptor = () => {
-    if (!remoteBridge && !remoteRelay) return null;
+    if (!remoteRelay) return null;
     return {
-      bridge: remoteBridge ? {
-        port: remoteBridge.port,
-        token: remoteBridge.token,
-        urls: remoteBridge.urls,
-      } : null,
-      relay: remoteRelay ? {
+      relay: {
         clientUrl: remoteRelay.clientUrl,
         token: remoteRelay.token,
         pairing: remoteRelay.pairing,
-      } : null,
+      },
     };
   };
   const remoteOptions = {
@@ -138,48 +127,22 @@ export async function createDesktopService(
   const startRemoteServices = async (): Promise<void> => {
     if (remoteServicesPromise) return remoteServicesPromise;
     remoteServicesPromise = (async () => {
-      await Promise.all([
-        (async () => {
-          if (remoteBridge) return;
-          const port = resolveRemoteBridgePort(process.env);
-          if (port === null || !options.rendererDir) return;
-          try {
-            remoteBridge = await startRemoteBridge({
-              ...remoteOptions,
-              port,
-              rendererDir: options.rendererDir,
-            });
-          } catch (error) {
-            emit({
-              kind: 'desktop-event',
-              name: 'remote-access-status',
-              value: {
-                leg: 'bridge',
-                status: 'failed',
-                error: error instanceof Error ? error.message : String(error),
-              },
-            });
-          }
-        })(),
-        (async () => {
-          if (remoteRelay) return;
-          const relayUrl = resolveRelayUrl(process.env);
-          if (!relayUrl) return;
-          try {
-            remoteRelay = await startRemoteRelay({ ...remoteOptions, relayUrl });
-          } catch (error) {
-            emit({
-              kind: 'desktop-event',
-              name: 'remote-access-status',
-              value: {
-                leg: 'relay',
-                status: 'failed',
-                error: error instanceof Error ? error.message : String(error),
-              },
-            });
-          }
-        })(),
-      ]);
+      if (remoteRelay) return;
+      try {
+        const relayUrl = resolveRelayUrl(process.env);
+        if (!relayUrl) return;
+        remoteRelay = await startRemoteRelay({ ...remoteOptions, relayUrl });
+      } catch (error) {
+        emit({
+          kind: 'desktop-event',
+          name: 'remote-access-status',
+          value: {
+            leg: 'relay',
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
+      }
     })();
     try {
       await remoteServicesPromise;
@@ -189,16 +152,13 @@ export async function createDesktopService(
   };
   const rotateRemoteAccess = async () => {
     await startRemoteServices();
-    const bridge = remoteBridge;
     const relay = remoteRelay;
     await Promise.all([
-      rotateRemoteToken(options.userDataPath),
+      rotatePairingToken(options.userDataPath),
       rotateRemoteDevice(options.userDataPath),
       rotateRelayE2EEIdentity(options.userDataPath),
     ]);
-    remoteBridge = null;
     remoteRelay = null;
-    try { await bridge?.close(); } catch {}
     try { await relay?.close(); } catch {}
     await startRemoteServices();
     return remoteDescriptor();
@@ -266,7 +226,7 @@ export async function createDesktopService(
 
   return {
     get clientCount() {
-      return (remoteBridge?.clientCount ?? 0) + (remoteRelay?.clientCount ?? 0);
+      return remoteRelay?.clientCount ?? 0;
     },
     async invoke(method, args): Promise<unknown> {
       if (!rpcMethods.has(method)) {
@@ -343,9 +303,7 @@ export async function createDesktopService(
       latestSessionStates.clear();
       latestSessionProvenance.clear();
       visibleSessionIds.clear();
-      try { await remoteBridge?.close(); } catch {}
       try { await remoteRelay?.close(); } catch {}
-      remoteBridge = null;
       remoteRelay = null;
       await operations.dispose();
       await host.dispose();

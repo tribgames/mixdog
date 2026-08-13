@@ -11,6 +11,7 @@ import { classifyResultKind } from '../session/result-classification.mjs';
 import { createKeyedSingleflight } from './reconnect-singleflight.mjs';
 import { createOwnerFairGate } from '../../../shared/owner-fair-gate.mjs';
 import { currentToolExecutionOwner } from '../../../shared/tool-execution-owner.mjs';
+import { resolveRuntimeRoot } from '../../../shared/runtime-root.mjs';
 // --- Types ---
 /** Known auto-detect targets: port file path relative to tmpdir.
  *  Note: `mixdog` used to self-loopback via active-instance.json's
@@ -603,8 +604,8 @@ async function connectServer(name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID, genAtSta
         if (port && spec.discovery) _autoDetectAdvert = { service: spec.discovery, port };
         let portFile = null;
         if (!port && spec.file) {
-          portFile = spec.dir === 'mixdog' && process.env.MIXDOG_RUNTIME_ROOT
-            ? join(process.env.MIXDOG_RUNTIME_ROOT, spec.file)
+          portFile = spec.dir === 'mixdog'
+            ? join(resolveRuntimeRoot(), spec.file)
             : join(tmpdir(), spec.dir, spec.file);
           if (!existsSync(portFile)) {
             throw new Error(`autoDetect server "${name}": port file missing (${portFile})`);

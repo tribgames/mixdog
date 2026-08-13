@@ -1,6 +1,7 @@
 'use strict';
 
 const { spawn, spawnSync } = require('child_process');
+const { randomBytes } = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const { resolvePluginData } = require('./plugin-paths.cjs');
@@ -197,6 +198,35 @@ function secretsDir() {
 
 function dpApiFile(account) {
     return path.join(secretsDir(), account + '.dpapi');
+}
+
+function writeOwnerOnlyAtomicSync(file, text) {
+    const dir = path.dirname(file);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const temporary = path.join(
+        dir,
+        `.${path.basename(file)}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`,
+    );
+    let descriptor = null;
+    try {
+        descriptor = fs.openSync(temporary, 'wx', 0o600);
+        fs.writeFileSync(descriptor, String(text), 'utf8');
+        fs.fsyncSync(descriptor);
+        fs.closeSync(descriptor);
+        descriptor = null;
+        fs.renameSync(temporary, file);
+        try { fs.chmodSync(file, 0o600); } catch {}
+        try {
+            const directoryDescriptor = fs.openSync(dir, 'r');
+            try { fs.fsyncSync(directoryDescriptor); } finally { fs.closeSync(directoryDescriptor); }
+        } catch {}
+    } catch (error) {
+        if (descriptor !== null) {
+            try { fs.closeSync(descriptor); } catch {}
+        }
+        try { fs.rmSync(temporary, { force: true }); } catch {}
+        throw error;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -439,7 +469,7 @@ function prewarmSecrets() {
 
 function win32Set(account, value) {
     const dir = secretsDir();
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     // Pass value as a PS argument via -Command inline to avoid shell injection;
     // value is embedded as a PS single-quoted string literal with ' escaped.
     const escaped = value.replace(/'/g, "''");
@@ -447,7 +477,7 @@ function win32Set(account, value) {
     if (r.status !== 0) throw new Error(`[keychain] DPAPI encrypt failed (exit ${r.status}): ${r.stderr || r.stdout}`);
     const out = (r.stdout || '').trim();
     if (!out) throw new Error(`[keychain] DPAPI encrypt returned empty output (stderr: ${(r.stderr || '').trim()})`);
-    fs.writeFileSync(dpApiFile(account), out, 'utf8');
+    writeOwnerOnlyAtomicSync(dpApiFile(account), out);
 }
 
 function win32Delete(account) {

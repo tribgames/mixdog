@@ -24,11 +24,11 @@ test('time displays pair local zone and UTC', () => {
   );
   assert.equal(
     formatRecallTimestamp(instant, { timeZone: 'Asia/Seoul' }),
-    '2026-08-13 20:43 Asia/Seoul (UTC+09:00; UTC 2026-08-13 11:43Z)',
+    '2026-08-13 20:43:30.000 Asia/Seoul (UTC+09:00; UTC 2026-08-13 11:43:30.000Z)',
   );
   assert.equal(
     formatTs(instant.getTime(), { timeZone: 'Asia/Seoul' }),
-    '2026-08-13 20:43 Asia/Seoul (UTC+09:00; UTC 2026-08-13 11:43Z)',
+    '2026-08-13 20:43:30.000 Asia/Seoul (UTC+09:00; UTC 2026-08-13 11:43:30.000Z)',
   );
 });
 

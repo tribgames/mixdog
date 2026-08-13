@@ -294,6 +294,9 @@ export function Conversation({
   // Reader intent must reach the virtual timeline's anchor in the same task it
   // is decided in; React state gets there a render later.
   const setTranscriptAnchorBottomRef = useRef<(bottom: boolean) => void>(() => {});
+  // Latched once this identity has painted its timeline. A promotion whose
+  // Markdown-readiness flag lags one tick must not unmount measured rows.
+  const timelineMounted = useRef(false);
   // Auto-scroll + message-gesture split.
   const {
     following,
@@ -318,7 +321,7 @@ export function Conversation({
     sessionKey: draftMode
       ? "new-task"
       : String(routeSnapshot.sessionId || "new-task"),
-    contentMounted: !transcriptPending,
+    contentMounted: !transcriptPending || timelineMounted.current,
     setAnchorBottomRef: setTranscriptAnchorBottomRef,
     scrollToEndRef,
   });
@@ -430,7 +433,6 @@ export function Conversation({
   // has painted its timeline, it must never be unmounted again — a promotion
   // whose Markdown-readiness flag lags one tick would otherwise discard every
   // measured row exactly like a remount.
-  const timelineMounted = useRef(false);
   if (transcriptIdentitySource.current !== transcriptSessionKey) {
     const ownPromotion = transcriptIdentitySource.current === 'new-task'
       && transcriptSessionKey !== 'new-task'

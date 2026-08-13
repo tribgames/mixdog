@@ -11,15 +11,12 @@
 // discovery file (validating the owner pid is still alive) and callers may fall
 // back to the legacy active-instance fields for cross-version compat.
 import { readFileSync, unlinkSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { writeJsonAtomicSync } from './atomic-file.mjs'
+import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from './runtime-root.mjs'
 
 function discoveryRoot() {
-  const root = process.env.MIXDOG_RUNTIME_ROOT
-    ? resolve(process.env.MIXDOG_RUNTIME_ROOT)
-    : join(tmpdir(), 'mixdog')
-  return join(root, 'discovery')
+  return join(resolveRuntimeRoot(), 'discovery')
 }
 
 export function discoveryPath(service) {
@@ -138,6 +135,7 @@ export function readServicePort(service, opts) {
 // Single-writer full-replace advert. Plain atomic rename, NO .lock. Always
 // stamps updatedAt; callers pass port/pid + any extra metadata fields.
 export function writeServiceAdvert(service, fields = {}) {
+  ensurePrivateRuntimeRoot()
   const file = discoveryPath(service)
   writeJsonAtomicSync(
     file,
