@@ -288,7 +288,19 @@ jobs:
             local enabled="$1" tag="$2"
             if [[ "$enabled" != true ]]; then return; fi
             if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
-              echo "${tag} already exists; resuming its worker."
+              local remote release_state
+              remote=$(git ls-remote --tags origin "refs/tags/${tag}" | awk 'NR == 1 { print $1 }')
+              release_state=$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null || echo missing)
+              if [[ "$remote" == "$(git rev-parse HEAD)" ]]; then
+                echo "${tag} already points at the release commit; resuming its worker."
+              elif [[ "$release_state" == "false" ]]; then
+                echo "::error::Published tag ${tag} is immutable and does not match the release commit."
+                exit 1
+              else
+                echo "Moving unpublished recovery tag ${tag} to the release commit."
+                git tag --force "$tag"
+                git push --force origin "refs/tags/${tag}"
+              fi
             else
               git tag "$tag"
               git push origin "refs/tags/${tag}"
