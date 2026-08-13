@@ -5,6 +5,15 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Shell and background-task execution now use one hash-pinned native process
+  manager across Windows, Linux, and macOS, with no environment, local-build,
+  file-registry, standby-shell, or Node process fallback.
+- Native search, patch, download, media, recall, webhook, and session paths now
+  enforce bounded resources, stricter ownership, and hardened transport and
+  release-supply-chain checks.
+- Desktop project, terminal, update, remote pairing, relay, and pane behavior
+  now include the consolidated security, recovery, and responsive-layout fixes.
+
 ## v0.9.124 - 2026-08-12
 
 - Desktop agent activity now groups every active session independently of the
