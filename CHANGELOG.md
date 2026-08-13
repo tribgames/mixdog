@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.125 - 2026-08-13
+
 - Shell and background-task execution now use one hash-pinned native process
   manager across Windows, Linux, and macOS, with no environment, local-build,
   file-registry, standby-shell, or Node process fallback.
