@@ -62,6 +62,7 @@
     "test:providers": "node --test scripts/provider-toolcall-test.mjs scripts/provider-contract-test.mjs scripts/provider-stream-outcome-test.mjs",
     "test:embedding-runtime:warmup": "node scripts/verify-embedding-runtime.mjs --warmup",
     "test:release-assets": "node --check scripts/verify-release-assets.mjs && node --check scripts/release-gate-test.mjs && node --test scripts/release-gate-test.mjs",
+    "test:native-edit-wire": "node scripts/native-edit-wire-test.mjs",
     "test:release-focused": "npm run test:release-critical && npm run test:compact && npm run test:shellhardening && npm run test:tool-contracts && npm run test:session && npm run test:session-transport",
     "test:release-critical": "npm run test:release-assets && npm run smoke:patch && npm run test:providers",
     "test:spec-advisory": "node scripts/advisory-spec-test.mjs && npm run test:spec-advisory --prefix apps/desktop",
