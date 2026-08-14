@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.129 - 2026-08-14
+
 - Headless exec now runs a true solo surface by default: web search and
   memory tools stay off unless --web-search / --memory opt back in, shell
   child processes inherit an enforced no-egress proxy (loopback stays
