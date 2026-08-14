@@ -90,6 +90,9 @@ jobs:
         shell: bash
         working-directory: apps/desktop
         run: npx --no-install electron-builder --${{ inputs.target }} --${{ inputs.arch }} --publish never
+      - name: Verify packaged updater metadata
+        run: npm run verify:update-metadata
+        working-directory: apps/desktop
       - name: Verify packaged desktop runtime
         run: npm run test:packaging
         working-directory: apps/desktop

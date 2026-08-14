@@ -358,6 +358,8 @@ function Invoke-Build {
     if ($LASTEXITCODE -ne 0) { throw "brand:win exited with $LASTEXITCODE" }
     & npx.cmd electron-builder --win --x64 --publish never "-c.extraMetadata.version=$OverrideVersion"
     if ($LASTEXITCODE -ne 0) { throw "electron-builder exited with $LASTEXITCODE" }
+    & npm.cmd run verify:update-metadata
+    if ($LASTEXITCODE -ne 0) { throw "verify:update-metadata exited with $LASTEXITCODE" }
   } finally {
     Pop-Location
   }
@@ -376,6 +378,14 @@ function Install-UnpackedBuild {
   $sourceExe = Join-Path $unpackedDir 'Mixdog.exe'
   $sourceResources = Join-Path $unpackedDir 'resources'
   $installedResources = Join-Path $InstallDir 'resources'
+  $sourceUpdateMetadata = Join-Path $sourceResources 'app-update.yml'
+  $installedUpdateMetadata = Join-Path $installedResources 'app-update.yml'
+  if (-not (Test-Path -LiteralPath $sourceUpdateMetadata -PathType Leaf) -and
+      (Test-Path -LiteralPath $installedUpdateMetadata -PathType Leaf)) {
+    Copy-Item -LiteralPath $installedUpdateMetadata -Destination $sourceUpdateMetadata -Force
+  }
+  & node (Join-Path $PSScriptRoot 'verify-update-metadata.mjs') "--dist=$distDir"
+  if ($LASTEXITCODE -ne 0) { throw "verify-update-metadata exited with $LASTEXITCODE" }
   $backupExe = Join-Path $backupDir 'Mixdog.exe'
   $backupResources = Join-Path $backupDir 'resources'
   $resourcesReplaced = $false
