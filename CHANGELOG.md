@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.126 - 2026-08-14
+
 - Native search now handles the complete internal grep/find contract, preserves
   regex recovery errors, and overlaps first-turn search and code-graph warmup.
 
