@@ -153,12 +153,15 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   const devUpdate = await readFile(new URL('../../scripts/dev-update-windows.ps1', import.meta.url), 'utf8');
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
   assert.match(builder, /protocols:\s+name:\s*Mixdog\s+schemes:\s+-\s*mixdog/);
-  assert.match(packageJson.scripts['build:win'], /electron-builder --win --x64 --publish never$/);
+  assert.match(packageJson.scripts['build:win'],
+    /electron-builder --win --x64 --publish never && npm run verify:update-metadata$/);
   assert.match(packageJson.scripts['update:dev'], /dev-update-windows\.ps1 -ViaUpdater$/);
   assert.match(packageJson.scripts['update:dev:fast'], /dev-update-windows\.ps1 -FastDirect$/);
   assert.match(packageJson.scripts['update:dev:reinstall'], /dev-update-windows\.ps1$/);
   assert.match(packageJson.scripts['update:dev:plan'], /dev-update-windows\.ps1 -ViaUpdater -DryRun$/);
   assert.match(devUpdate, /electron-builder --dir --win --x64 --publish never/);
+  assert.match(devUpdate,
+    /installedUpdateMetadata[\s\S]*Copy-Item[\s\S]*verify-update-metadata\.mjs/);
   assert.match(devUpdate, /fast deploy failed; restoring the previous installation/);
   assert.match(devUpdate, /FastDirectWorker/);
   assert.match(devUpdate, /Invoke-CimMethod -ClassName Win32_Process -MethodName Create/);
