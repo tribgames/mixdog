@@ -438,6 +438,9 @@ advisoryTest('application release overlaps gates and publishes one exact hidden 
   assert.match(release, /deploy-relay:[\s\S]*needs:\s*\[publish,\s*desktop-build\]/);
   assert.match(release, /publish:[\s\S]*Publish staged npm package[\s\S]*Publish one complete GitHub release[\s\S]*deploy-relay:/);
   assert.match(release, /name:\s*Atomically deploy and verify production/);
+  assert.ok(release.includes("awk '{print \\$1}'"),
+    'the remote hash command must preserve awk $1 without expanding a shell positional parameter');
+  assert.equal(release.includes("awk '{print \\\\$1}'"), false);
   assert.match(release, /secrets\.RELAY_SSH_KEY/);
   assert.match(release, /vars\.RELAY_DOMAIN/);
   assert.match(release, /release-timings:[\s\S]*Record timing and warn on material regressions/);

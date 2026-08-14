@@ -504,7 +504,7 @@ jobs:
             "set -euo pipefail; rm -rf '$REMOTE_DIR'; mkdir -p '$REMOTE_DIR'; tar -xzf '$ARCHIVE' -C '$REMOTE_DIR'; bash '$REMOTE_DIR/deploy/deploy-release.sh' '$RELAY_DOMAIN' '$RELEASE_TAG'; rm -rf '$REMOTE_DIR' '$ARCHIVE'"
           EXPECTED=$(sha256sum apps/relay/renderer/index.html | awk '{print $1}')
           ACTUAL=$(ssh -p "$RELAY_PORT" "$RELAY_USER@$RELAY_HOST" \
-            "sha256sum /opt/mixdog-relay/renderer/index.html | awk '{print \\$1}'")
+            "sha256sum /opt/mixdog-relay/renderer/index.html | awk '{print \$1}'")
           test "$EXPECTED" = "$ACTUAL"
           curl --fail --silent --show-error "https://$RELAY_DOMAIN/healthz" | grep -q '"status":"ok"'
 
