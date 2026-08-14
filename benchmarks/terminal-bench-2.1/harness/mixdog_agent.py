@@ -459,9 +459,6 @@ class MixdogAgent(BaseInstalledAgent):
                             "cp /opt/static-curl/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt; fi; "
                             "timeout --version | grep -q 'GNU coreutils'; node --version; "
                             "mixdog --help >/dev/null 2>&1 && echo 'mixdog installed (prebaked)'; "
-                            "if [ -f \"$(npm root -g)/mixdog/scripts/verify-installed-native-assets.mjs\" ]; then "
-                            "node \"$(npm root -g)/mixdog/scripts/verify-installed-native-assets.mjs\"; "
-                            "else echo MIXDOG_PREBAKE_NATIVE_MISSING; fi; "
                             "for dep in rg node timeout tar grep; do "
                             "command -v \"$dep\" >/dev/null 2>&1 || { echo \"tool-dep missing: $dep\" >&2; exit 1; }; "
                             "done; echo 'tool-dep preflight ok: rg node timeout tar grep'; "
@@ -526,17 +523,6 @@ class MixdogAgent(BaseInstalledAgent):
                         environment,
                         command=_uv_provision_command(),
                     ))
-                if "MIXDOG_PREBAKE_NATIVE_MISSING" in (
-                    getattr(stage_result, "stdout", "") or ""
-                ):
-                    await _timed("mixdog-native-refresh", self.exec_as_root(
-                        environment,
-                        command=(
-                            "set -eu; "
-                            f"npm install -g mixdog@{self._mixdog_version}; "
-                            "node \"$(npm root -g)/mixdog/scripts/verify-installed-native-assets.mjs\""
-                        ),
-                    ))
                 print(
                     "[setup-timing] "
                     + " ".join(f"{k}={v:.1f}s" for k, v in timings.items()),
@@ -579,13 +565,13 @@ class MixdogAgent(BaseInstalledAgent):
             environment,
             command=_uv_provision_command(),
         )
-        # Install mixdog globally (root). Its postinstall verifies the required
-        # platform-native package; no tool may download a binary at runtime.
+        # Install mixdog globally (root). --ignore-scripts avoids the package's
+        # prepack/TUI build; the headless worker path does not need the TUI bundle.
         await self.exec_as_root(
             environment,
             command=(
                 "set -eu; "
-                f"npm install -g mixdog@{self._mixdog_version}; "
+                f"npm install -g --ignore-scripts mixdog@{self._mixdog_version}; "
                 "mixdog --help >/dev/null 2>&1 && echo 'mixdog installed'"
             ),
         )

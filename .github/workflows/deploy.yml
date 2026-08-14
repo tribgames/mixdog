@@ -358,69 +358,9 @@ jobs:
       tag: ${{ needs.plan.outputs.token_tag }}
     secrets: inherit
 
-  native-packages:
-    name: publish-required-native-packages
-    needs: [plan, prepare-native, patch, graph, spawn, token]
-    if: >-
-      ${{
-        always()
-        && needs.plan.result == 'success'
-        && needs.prepare-native.result == 'success'
-        && (needs.patch.result == 'success' || needs.patch.result == 'skipped')
-        && (needs.graph.result == 'success' || needs.graph.result == 'skipped')
-        && (needs.spawn.result == 'success' || needs.spawn.result == 'skipped')
-        && (needs.token.result == 'success' || needs.token.result == 'skipped')
-      }}
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Restore immutable native package assets
-        uses: actions/cache@v6
-        with:
-          path: .cache/native-packages
-          key: >-
-            native-packages-${{ needs.plan.outputs.patch_version }}-${{
-            needs.plan.outputs.graph_version }}-${{ needs.plan.outputs.spawn_version }}-${{
-            needs.plan.outputs.token_version }}
-
-      - name: Stage platform packages from released native assets
-        run: >-
-          node scripts/stage-native-packages.mjs
-          --version=${{ needs.plan.outputs.app_version }}
-          --output=staged-native
-          --cache=.cache/native-packages
-
-      - name: Publish required platform packages
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          CI: "true"
-        shell: bash
-        run: |
-          set -euo pipefail
-          for directory in staged-native/*; do
-            name=$(node -p "require('./${directory}/package.json').name")
-            version=$(node -p "require('./${directory}/package.json').version")
-            if npm view "${name}@${version}" version --silent 2>/dev/null | grep -qxF "$version"; then
-              echo "${name}@${version} already published; reusing."
-            else
-              npm publish "./$directory" --provenance --access public
-            fi
-          done
-
   prepare-app:
     name: prepare-app-release
-    needs: [plan, prepare-native, runtime, patch, graph, spawn, token, native-packages]
+    needs: [plan, prepare-native, runtime, patch, graph, spawn, token]
     if: >-
       ${{
         always()
@@ -431,7 +371,6 @@ jobs:
         && (needs.graph.result == 'success' || needs.graph.result == 'skipped')
         && (needs.spawn.result == 'success' || needs.spawn.result == 'skipped')
         && (needs.token.result == 'success' || needs.token.result == 'skipped')
-        && needs.native-packages.result == 'success'
       }}
     runs-on: ubuntu-22.04
     outputs:
@@ -465,15 +404,7 @@ jobs:
           fi
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs';
-          import { nativePackageNameForPlatformKey } from './src/runtime/shared/native-assets.mjs';
           const version = process.env.VERSION;
-          const packagePath = 'package.json';
-          const packageJson = JSON.parse(readFileSync(packagePath, 'utf8'));
-          packageJson.optionalDependencies = Object.fromEntries(
-            ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64']
-              .map((key) => [nativePackageNameForPlatformKey(key), version]),
-          );
-          writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
           const date = new Date().toISOString().slice(0, 10);
           let text = readFileSync('CHANGELOG.md', 'utf8');
           const versionHeading = `## v${version}`;
@@ -492,7 +423,6 @@ jobs:
             writeFileSync('CHANGELOG.md', text);
           }
           NODE
-          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json CHANGELOG.md \

@@ -38,6 +38,10 @@ extraResources:
   # restore Electron's exact ASAR-unpacked layout at the destination.
   - from: .runtime/native-modules
     to: runtime.asar.unpacked/node_modules
+  # Product-native executables stay canonical GitHub release assets. Desktop
+  # preparation downloads, verifies, and embeds only this platform's set.
+  - from: .runtime/native-tools
+    to: native-tools
   # License obligations travel with the installed app: MIT requires its
   # permission notice alongside the derived files, Apache-2.0 the license
   # text plus the upstream NOTICE.

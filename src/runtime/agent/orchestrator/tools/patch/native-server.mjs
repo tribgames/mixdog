@@ -13,7 +13,8 @@ import { fileURLToPath } from 'node:url';
 import { resolve as pathResolve, dirname as pathDirname, join as pathJoin } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { startChildGuardian } from '../../../../shared/child-guardian.mjs';
-import { installedNativeAssetPath } from '../../../../shared/native-assets.mjs';
+import { getPluginData } from '../../config.mjs';
+import { ensurePatchBinary, findCachedPatchBinary } from '../patch-binary-fetcher.mjs';
 
 const PLUGIN_ROOT = process.env.MIXDOG_ROOT
   // This module lives at src/runtime/agent/orchestrator/tools/patch/, so the
@@ -76,13 +77,12 @@ function nativePatchPersistent() {
 
 export function nativePatchBinPath(options = {}) {
   if (process.env.MIXDOG_PATCH_NATIVE_BIN) return process.env.MIXDOG_PATCH_NATIVE_BIN;
-  // Local cargo build first, then the required installed platform package.
-  // There is no runtime fetch/cache fallback.
+  // Local cargo build first, then a fetched/cached prebuilt; absence is
+  // a hard error at dispatch (no JS fallback in native-only mode).
   const defaultBin = options.defaultBin || NATIVE_PATCH_DEFAULT_BIN;
   if (existsSync(defaultBin)) return defaultBin;
-  return installedNativeAssetPath('patch', {
-    packageRoot: options.packageRoot,
-  }) || defaultBin;
+  const dataDir = options.dataDir || getPluginData();
+  return findCachedPatchBinary(dataDir, options.fetcherOptions) || defaultBin;
 }
 
 export async function ensureNativePatchBinaryAvailable(options = {}) {
@@ -94,10 +94,18 @@ export async function ensureNativePatchBinaryAvailable(options = {}) {
   if (process.env.MIXDOG_PATCH_NATIVE_BIN) {
     throw new Error(`apply_patch: native patch binary not found at MIXDOG_PATCH_NATIVE_BIN=${current}.`);
   }
-  throw new Error(
-    `apply_patch: required native patch asset is missing at ${current}; `
-    + 'reinstall Mixdog or build native/mixdog-patch locally.',
-  );
+  try {
+    const fetched = await ensurePatchBinary(
+      options.dataDir || getPluginData(),
+      options.fetcherOptions,
+    );
+    if (fetched && existsSync(fetched)) return fetched;
+  } catch (err) {
+    throw new Error(`apply_patch: native patch binary unavailable — ${err?.message || String(err)}`);
+  }
+  const resolved = nativePatchBinPath(options);
+  if (existsSync(resolved)) return resolved;
+  throw new Error(`apply_patch: native patch binary not found at ${resolved}.`);
 }
 
 // Decode the hex-encoded failures payload that accompanies OK_PARTIAL:
@@ -442,6 +450,13 @@ export function scheduleNativePatchPrewarm() {
       _nativePatchPrewarmTimer = null;
       const started = performance.now();
       try {
+        // Ensure the native binary is present (local build or fetched
+        // prebuilt) before starting the server. Best-effort: failures
+        // surface as a hard error at dispatch (no JS fallback in the
+        // native-only path).
+        if (!existsSync(nativePatchBinPath())) {
+          try { await ensurePatchBinary(getPluginData()); } catch { /* surfaces at dispatch */ }
+        }
         await getNativePatchServer().ping();
         if (!nativePatchPersistent() && (_nativePatchServer?.waiters?.length || 0) === 0) {
           _nativePatchServer?.unref();

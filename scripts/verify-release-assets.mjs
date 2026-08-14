@@ -309,7 +309,6 @@ export async function verifyReleaseAssets({
   spawnCargoPath = SPAWN_CARGO_PATH,
   packagePath = PACKAGE_PATH,
   downloadOptions,
-  verifyDownloads = true,
 } = {}) {
   const [patchSource, cargoToml, runtimeSource, graphSource, spawnSource, spawnCargo, packageSource] = await Promise.all([
     readFile(patchManifestPath, 'utf8'),
@@ -324,20 +323,16 @@ export async function verifyReleaseAssets({
   const runtimeManifest = validateRuntimeManifest(JSON.parse(runtimeSource));
   const graphManifest = validateGraphManifest(JSON.parse(graphSource), JSON.parse(packageSource));
   const spawnManifest = validateSpawnManifest(JSON.parse(spawnSource), spawnCargo);
-  if (verifyDownloads) {
-    await verifyAssetDownloads(patchManifest.assets, downloadOptions);
-    console.log(`Verified all bundled patch assets for patch-v${patchManifest.version}.`);
-    await verifyAssetDownloads(runtimeManifest.assets, downloadOptions);
-    console.log(`Verified all bundled runtime assets for ${runtimeManifest.release_tag}.`);
-    await verifyAssetDownloads(graphManifest.assets, downloadOptions);
-    console.log(`Verified all bundled graph assets for graph-v${graphManifest.version}.`);
-    await verifyAssetDownloads(spawnManifest.assets, downloadOptions);
-    console.log(`Verified all bundled spawn assets for spawn-v${spawnManifest.version}.`);
-  }
+  await verifyAssetDownloads(patchManifest.assets, downloadOptions);
+  console.log(`Verified all bundled patch assets for patch-v${patchManifest.version}.`);
+  await verifyAssetDownloads(runtimeManifest.assets, downloadOptions);
+  console.log(`Verified all bundled runtime assets for ${runtimeManifest.release_tag}.`);
+  await verifyAssetDownloads(graphManifest.assets, downloadOptions);
+  console.log(`Verified all bundled graph assets for graph-v${graphManifest.version}.`);
+  await verifyAssetDownloads(spawnManifest.assets, downloadOptions);
+  console.log(`Verified all bundled spawn assets for spawn-v${spawnManifest.version}.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await verifyReleaseAssets({
-    verifyDownloads: !process.argv.includes('--metadata-only'),
-  });
+  await verifyReleaseAssets();
 }

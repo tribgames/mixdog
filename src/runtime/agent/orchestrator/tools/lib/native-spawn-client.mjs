@@ -3,7 +3,8 @@ import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { EventEmitter } from 'node:events';
 import { hiddenSpawnOpts } from '../../../../shared/spawn-flags.mjs';
-import { resolveNativeAssetPath } from '../../../../shared/native-assets.mjs';
+import { getPluginData } from '../../config.mjs';
+import { ensureSpawnBinary, findCachedSpawnBinary } from '../spawn-binary-fetcher.mjs';
 
 const RESTART_BACKOFF_MS = 30_000;
 
@@ -122,7 +123,7 @@ function _resolveBinary() {
     _binaryPath = explicit;
     return _binaryPath;
   }
-  _binaryPath = resolveNativeAssetPath('spawn');
+  _binaryPath = findCachedSpawnBinary(getPluginData());
   return _binaryPath;
 }
 
@@ -201,13 +202,10 @@ export async function warmNativeSpawnServer() {
 
 export async function ensureNativeSpawnServer() {
   if (_server) return true;
-  const binary = _resolveBinary();
+  let binary = _resolveBinary();
   if (!binary) {
-    throw Object.assign(new Error(
-      'required mixdog-spawn asset is missing; reinstall Mixdog or build native/mixdog-spawn locally',
-    ), {
-      code: 'NATIVE_SPAWN_UNAVAILABLE',
-    });
+    binary = await ensureSpawnBinary(getPluginData());
+    _binaryPath = binary;
   }
   if (!_ensureServer()) {
     throw Object.assign(new Error('verified native spawn server could not be started'), {
