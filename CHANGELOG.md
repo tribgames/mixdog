@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.130 - 2026-08-14
+
 - Provider and session recovery now classifies transient stream failures
   consistently, retries image-rejected turns without losing user intent, and
   preserves interruption, summary, and terminal outcome state across Gemini
