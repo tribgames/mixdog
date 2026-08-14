@@ -191,11 +191,27 @@ fn serve_search(root: &std::path::Path, request: serde_json::Value) -> serde_jso
     let ready_json: serde_json::Value = serde_json::from_str(ready.trim()).unwrap();
     assert_eq!(ready_json["ready"], true);
     writeln!(stdin, "{request}").unwrap();
-    let mut line = String::new();
-    stdout.read_line(&mut line).unwrap();
+    let response = read_search_response(&mut stdout, request["id"].as_u64().unwrap());
     drop(stdin);
     let _ = child.wait();
-    serde_json::from_str(line.trim()).unwrap()
+    response
+}
+
+fn read_search_message<R: BufRead>(stdout: &mut R) -> serde_json::Value {
+    loop {
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        let response: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        if response["event"] != "invalidate" {
+            return response;
+        }
+    }
+}
+
+fn read_search_response<R: BufRead>(stdout: &mut R, id: u64) -> serde_json::Value {
+    let response = read_search_message(stdout);
+    assert_eq!(response["id"], id, "{response}");
+    response
 }
 
 #[test]
@@ -310,13 +326,9 @@ fn serve_search_reuses_file_list_across_requests() {
         })
     };
     writeln!(stdin, "{}", request(1, "needle")).unwrap();
-    let mut first = String::new();
-    stdout.read_line(&mut first).unwrap();
-    let first_json: serde_json::Value = serde_json::from_str(first.trim()).unwrap();
+    let first_json = read_search_response(&mut stdout, 1);
     writeln!(stdin, "{}", request(2, "other")).unwrap();
-    let mut second = String::new();
-    stdout.read_line(&mut second).unwrap();
-    let second_json: serde_json::Value = serde_json::from_str(second.trim()).unwrap();
+    let second_json = read_search_response(&mut stdout, 2);
     drop(stdin);
     let _ = child.wait();
     assert_eq!(first_json["id"], 1);
@@ -359,6 +371,38 @@ fn serve_search_shared_inventory_preserves_request_globs() {
         let line = line.as_str().unwrap();
         line.contains(".ts:") && !line.contains("filter-hit.rs")
     }));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn serve_search_exact_file_uses_parent_as_glob_root() {
+    let root = fixture();
+    let target = root.join("src/dep.ts");
+    let response = serve_search(
+        &root,
+        serde_json::json!({
+            "id": 9,
+            "cwd": root,
+            "args": [
+                "--color", "never",
+                "--hidden",
+                "--no-heading",
+                "-H",
+                "--line-number",
+                "--glob", "*.ts",
+                "-e", "answer",
+                "--",
+                target
+            ],
+            "offset": 0,
+            "limit": 20
+        }),
+    );
+    let lines = response["lines"].as_array().unwrap();
+    assert!(!lines.is_empty());
+    assert!(lines
+        .iter()
+        .all(|line| line.as_str().is_some_and(|line| line.contains("dep.ts:"))));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -529,9 +573,7 @@ fn serve_search_accepts_hundreds_of_parallel_requests() {
 
     let mut ids = std::collections::HashSet::new();
     for _ in 0..REQUESTS {
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let response: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        let response = read_search_message(&mut stdout);
         ids.insert(response["id"].as_u64().unwrap());
         assert_eq!(response["class"], "interactive");
         assert!(response["queueMs"].as_u64().is_some());
@@ -603,9 +645,7 @@ fn serve_search_watcher_invalidates_the_shared_inventory() {
         })
     };
     writeln!(stdin, "{}", request(1)).unwrap();
-    let mut first = String::new();
-    stdout.read_line(&mut first).unwrap();
-    let first: serde_json::Value = serde_json::from_str(first.trim()).unwrap();
+    let first = read_search_response(&mut stdout, 1);
     assert!(first["matches"].as_array().unwrap().is_empty());
 
     fs::write(root.join("src/watcher-created.rs"), "fn watched() {}\n").unwrap();

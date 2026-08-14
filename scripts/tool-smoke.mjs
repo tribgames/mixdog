@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import './native-spawn-test-runtime.mjs';
 // Deterministic tool contracts use injected managers/providers and no network.
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,7 +35,12 @@ import { executeFuzzyFindTool } from '../src/runtime/agent/orchestrator/tools/bu
 import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX, validateBuiltinArgs } from '../src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs';
 import { normaliseReadLineWindowArgs } from '../src/runtime/agent/orchestrator/tools/builtin/read-args.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
-import { runResultCacheInFlight } from '../src/runtime/agent/orchestrator/tools/builtin/cache-layers.mjs';
+import {
+  invalidateBuiltinResultCache,
+  runRawContentInFlight,
+  runReadOnlyStatInFlight,
+  runResultCacheInFlight,
+} from '../src/runtime/agent/orchestrator/tools/builtin/cache-layers.mjs';
 import { executeCodeGraphTool } from '../src/runtime/agent/orchestrator/tools/code-graph.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs';
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
@@ -59,6 +64,17 @@ import { getHiddenAgent, resolveAgentSessionPermission } from '../src/runtime/ag
 import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const localGraphBin = join(
+  root,
+  'native',
+  'mixdog-graph',
+  'target',
+  'debug',
+  process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph',
+);
+if (!process.env.MIXDOG_GRAPH_BIN && existsSync(localGraphBin)) {
+  process.env.MIXDOG_GRAPH_BIN = localGraphBin;
+}
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -149,6 +165,42 @@ function assertOk(name, result, pattern = null) {
   ]);
   assert(computes === 1, `in-flight result cache should compute once, computed ${computes}`);
   assert(a === 'shared-result' && b === 'shared-result', 'in-flight result cache should share the first result');
+}
+
+{
+  const virtualPath = join(tmpdir(), `tool-smoke-stat-inflight-${process.pid}-${Date.now()}`);
+  let computes = 0;
+  const values = await Promise.all(Array.from({ length: 8 }, () => runReadOnlyStatInFlight(
+    virtualPath,
+    async () => {
+      computes += 1;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return { size: 7 };
+    },
+  )));
+  assert(computes === 1, `cross-call stat single-flight should compute once, computed ${computes}`);
+  assert(values.every((value) => value.size === 7), 'cross-call stat single-flight should share the result');
+}
+
+{
+  const virtualPath = join(tmpdir(), `tool-smoke-read-inflight-${process.pid}-${Date.now()}`);
+  let computes = 0;
+  const values = await Promise.all(Array.from({ length: 8 }, () => runRawContentInFlight(
+    virtualPath,
+    async () => {
+      computes += 1;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return Buffer.from('shared-read');
+    },
+  )));
+  assert(computes === 1, `cross-call read single-flight should compute once, computed ${computes}`);
+  assert(values.every((value) => value.toString() === 'shared-read'), 'cross-call read single-flight should share bytes');
+  invalidateBuiltinResultCache([virtualPath]);
+  await runRawContentInFlight(virtualPath, async () => {
+    computes += 1;
+    return Buffer.from('fresh-read');
+  });
+  assert(computes === 2, 'path invalidation should start a fresh read generation');
 }
 
 {
@@ -549,6 +601,155 @@ if (!/must be a string/.test(String(findPathArrayErr))) {
   } finally {
     if (previousFindEnumCacheTtl === undefined) delete process.env.MIXDOG_FIND_ENUM_CACHE_TTL_MS;
     else process.env.MIXDOG_FIND_ENUM_CACHE_TTL_MS = previousFindEnumCacheTtl;
+  }
+}
+
+// Shared exploration fixture: CC/Grok parity boundaries across all six local
+// retrieval tools. It intentionally combines exact-file operands, glob/type
+// filters, hidden/noise handling, Unicode + spaces, windows, and no-match/ENOENT.
+{
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'mixdog-exploration-tools-'));
+  try {
+    mkdirSync(join(fixtureRoot, 'src', '공백 폴더'), { recursive: true });
+    mkdirSync(join(fixtureRoot, 'node_modules', 'noise'), { recursive: true });
+    writeFileSync(join(fixtureRoot, 'package.json'), '{"type":"module"}\n', 'utf8');
+    writeFileSync(
+      join(fixtureRoot, 'src', 'alpha.mjs'),
+      'export const needleAlpha = 1;\nsecond line\n',
+      'utf8',
+    );
+    writeFileSync(
+      join(fixtureRoot, 'src', '공백 폴더', '한글 파일.mjs'),
+      'export const unicodeNeedle = 2;\n',
+      'utf8',
+    );
+    writeFileSync(
+      join(fixtureRoot, 'src', '.hidden.mjs'),
+      'export const hiddenNeedle = 3;\n',
+      'utf8',
+    );
+    writeFileSync(
+      join(fixtureRoot, 'node_modules', 'noise', 'noise.mjs'),
+      'export const noiseNeedle = 4;\n',
+      'utf8',
+    );
+
+    const defaultList = await executeBuiltinTool('list', {
+      path: join(fixtureRoot, 'src'),
+      hidden: false,
+      head_limit: 0,
+    }, fixtureRoot);
+    if (/\.hidden\.mjs/.test(String(defaultList)) || !/alpha\.mjs/.test(String(defaultList))) {
+      throw new Error(`list hidden=false contract failed:\n${defaultList}`);
+    }
+    const hiddenList = await executeBuiltinTool('list', {
+      path: join(fixtureRoot, 'src'),
+      hidden: true,
+      head_limit: 0,
+    }, fixtureRoot);
+    assertOk('list hidden fixture', hiddenList, /\.hidden\.mjs/);
+
+    const unicodeGlob = await executeBuiltinTool('glob', {
+      pattern: '**/한글 파일.mjs',
+      path: fixtureRoot,
+      head_limit: 10,
+    }, fixtureRoot);
+    assertOk('glob unicode + space', unicodeGlob, /공백 폴더[\\/]한글 파일\.mjs/);
+    const noiseGlob = await executeBuiltinTool('glob', {
+      pattern: '**/noise.mjs',
+      path: fixtureRoot,
+      head_limit: 10,
+    }, fixtureRoot);
+    assertOk(
+      'glob explicit pattern overrides dependency noise exclusion',
+      noiseGlob,
+      /node_modules[\\/]noise[\\/]noise\.mjs/,
+    );
+
+    const exactFile = join(fixtureRoot, 'src', 'alpha.mjs');
+    const exactGlobGrep = await executeBuiltinTool('grep', {
+      pattern: 'needleAlpha',
+      path: exactFile,
+      glob: '*.mjs',
+      output_mode: 'content',
+      head_limit: 10,
+    }, fixtureRoot);
+    assertOk('grep exact file + glob', exactGlobGrep, /needleAlpha/);
+    const exactTypeGrep = await executeBuiltinTool('grep', {
+      pattern: 'needleAlpha',
+      path: exactFile,
+      type: 'js',
+      output_mode: 'content',
+      head_limit: 10,
+    }, fixtureRoot);
+    assertOk('grep exact file + type', exactTypeGrep, /needleAlpha/);
+    const noMatchGrep = await executeBuiltinTool('grep', {
+      pattern: 'definitelyAbsentNeedle',
+      path: exactFile,
+      glob: '*.mjs',
+      output_mode: 'content',
+      head_limit: 10,
+    }, fixtureRoot);
+    if (!/^\(no matches\)/.test(String(noMatchGrep)) || /^Error/.test(String(noMatchGrep))) {
+      throw new Error(`grep no-match must remain a successful empty result:\n${noMatchGrep}`);
+    }
+    const invalidRegexFallback = await executeBuiltinTool('grep', {
+      pattern: '(',
+      path: exactFile,
+      output_mode: 'content',
+      head_limit: 10,
+    }, fixtureRoot);
+    if (!/^\[regex parse fallback: fixed-string terms\]\n\(no matches\)/.test(String(invalidRegexFallback))) {
+      throw new Error(`grep invalid-regex fallback must retain its no-match body:\n${invalidRegexFallback}`);
+    }
+
+    const unicodeFind = await executeBuiltinTool('find', {
+      query: '한글 파일',
+      path: fixtureRoot,
+      head_limit: 10,
+    }, fixtureRoot);
+    assertOk('find unicode + space', unicodeFind, /공백 폴더[\\/]한글 파일\.mjs/);
+    const quietNoiseFind = await executeBuiltinTool('find', {
+      query: 'noise.mjs',
+      path: fixtureRoot,
+      include_noise: false,
+      head_limit: 10,
+    }, fixtureRoot);
+    if (/node_modules[\\/]noise[\\/]noise\.mjs/.test(String(quietNoiseFind))) {
+      throw new Error(`find include_noise=false leaked dependency noise:\n${quietNoiseFind}`);
+    }
+    const noisyFind = await executeBuiltinTool('find', {
+      query: 'noise.mjs',
+      path: fixtureRoot,
+      include_noise: true,
+      head_limit: 10,
+    }, fixtureRoot);
+    assertOk('find include_noise=true', noisyFind, /node_modules[\\/]noise[\\/]noise\.mjs/);
+
+    const readWindow = await executeBuiltinTool('read', {
+      path: exactFile,
+      offset: 0,
+      limit: 1,
+    }, fixtureRoot);
+    if (!/^1→export const needleAlpha/m.test(String(readWindow))
+      || /second line/.test(String(readWindow))) {
+      throw new Error(`read line window contract failed:\n${readWindow}`);
+    }
+    const missingRead = await executeBuiltinTool('read', {
+      path: join(fixtureRoot, 'missing.mjs'),
+    }, fixtureRoot);
+    if (!/^Error/.test(String(missingRead)) || !/ENOENT|does not exist|not found/i.test(String(missingRead))) {
+      throw new Error(`read ENOENT contract failed:\n${missingRead}`);
+    }
+
+    const graphUnicode = await executeCodeGraphTool('code_graph', {
+      mode: 'find_symbol',
+      files: ['src/공백 폴더/한글 파일.mjs'],
+      symbols: ['unicodeNeedle'],
+    }, fixtureRoot);
+    assertOk('code_graph unicode path', graphUnicode, /unicodeNeedle/);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
   }
 }
 

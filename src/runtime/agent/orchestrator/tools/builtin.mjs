@@ -90,6 +90,7 @@ import {
     invalidateBuiltinResultCache,
     rawContentCacheGet as _rawContentCacheGet,
     rawContentCacheSet as _rawContentCacheSet,
+    runRawContentInFlight as _runRawContentInFlight,
     seedRawContentCacheAfterWrite as _seedRawContentCacheAfterWrite,
 } from './builtin/cache-layers.mjs';
 import {
@@ -241,6 +242,7 @@ const _readToolHelpers = {
     _rangeHashesFromRenderedReadText,
     _rawContentCacheGet,
     _rawContentCacheSet,
+    _runRawContentInFlight,
     _readEntryLineWindow,
     _recordReadSnapshot,
 };

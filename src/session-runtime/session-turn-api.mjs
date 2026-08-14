@@ -276,6 +276,13 @@ export function createSessionTurnApi(deps) {
           catch { /* MCP delta must never break the turn */ }
         }
         hooks.emit('turn:start', { sessionId: session0.id, prompt, cwd: getCurrentCwd() });
+        try {
+          agentTool?.upsertLeadSession?.(session0, {
+            status: 'running',
+            stage: 'running',
+            turnStartedAt: new Date().toISOString(),
+          });
+        } catch { /* lead pool must never break the turn */ }
         // UserPromptSubmit: a hook FAILURE must not block the turn, but blocked===true MUST throw.
         let promptDispatch = null;
         try {
@@ -436,6 +443,10 @@ export function createSessionTurnApi(deps) {
           }
         }
         try { unregisterTurnAbort?.(); } catch {}
+        try {
+          const lead = getSession() || session0;
+          agentTool?.upsertLeadSession?.(lead, { status: 'idle', stage: 'idle' });
+        } catch { /* lead pool must never break turn teardown */ }
         setActiveTurnCount(Math.max(0, getActiveTurnCount() - 1));
         if (!isFirstTurnCompleted()) {
           setFirstTurnCompleted(true);

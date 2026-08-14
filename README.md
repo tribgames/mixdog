@@ -4,27 +4,19 @@
 ![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
-**Mixdog Desktop:** [Download for Windows (x64)](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe)
-· [macOS / Linux preview builds](https://github.com/tribgames/mixdog/releases/latest)
+Mixdog is a standalone coding agent for orchestrated, multi-provider workflows.
+Use it from a full-screen terminal UI or the Windows desktop app.
 
-Windows is the primary manually tested desktop platform. macOS and Linux
-packages are built on native CI runners and pass packaged-runtime smoke tests,
-but remain preview builds. Desktop packages are currently unsigned, so Windows
-SmartScreen or macOS Gatekeeper may show a security warning.
+## Get started
 
-Standalone coding agent that runs an orchestrated, multi-provider agent
-workflow from one terminal — or from a full desktop workbench — built to
-get the same quality out of the same models with less time, cost, and
-context.
+### Windows desktop
 
-Mixdog combines an Ink-based terminal UI, per-role model routing across
-providers, workflow agents, MCP/plugin/skill/hook support, lightweight
-memory, web search, channel integrations, and repo-native tools for reading,
-editing, testing, and reviewing code. Mixdog Desktop wraps the same runtime
-in an Electron workbench with editor, git, terminal, file-explorer, media,
-and automation surfaces.
+[Download Mixdog Desktop for Windows (x64)](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe)
 
-## Quick start
+The desktop package is currently unsigned, so Windows SmartScreen may show a
+security warning during installation.
+
+### CLI
 
 Requires Node.js >= 22.
 
@@ -33,132 +25,66 @@ npm install -g mixdog
 mixdog
 ```
 
-First run walks you through onboarding: provider auth, model pick, and
+First run guides you through provider authentication, model selection, and
 workflow setup.
 
-## Terminal-Bench 2.1 — controlled full-run comparisons
+## Highlights
 
-**Same model, same quality — in a fraction of the time, context, and
-cost.** On the same 89 tasks, mixdog scored on par with both native
-harnesses — **78/89** vs Claude Code's **77/89** (within single-run noise)
-and **75/89** matching Codex CLI — while finishing faster, ending leaner,
-and costing less.
+- **Multi-provider routing** — assign different providers and models by role.
+- **Efficient context** — cache-aware prompts, compaction, resumable sessions,
+  and focused repo-native tools.
+- **Complete coding surface** — read, search, edit, test, review, web search,
+  MCP, skills, hooks, and plugins.
+- **Local memory** — semantic and lexical recall with project-scoped context
+  and multilingual retrieval.
+- **Remote workflows** — optional web relay, Discord, Telegram, voice, and cron
+  schedules.
+- **Windows desktop app** — agent panes, Monaco editor, git, terminal, file
+  explorer, Studio, automation, and settings in one workbench.
 
-The published mixdog runs are strict single-model benchmarks: one primary
-model, one session, no sub-agent delegation or helper-model lookups. Each
-comparison matches the primary model and reasoning level against the native
-harness's standard run. Results are self-reported single runs (`k=1`,
-2026-08), not leaderboard submissions.
+## Providers
 
-#### Claude Opus 5 vs Claude Code
+Mixdog supports subscription OAuth and API-key routes, including:
 
-![Terminal-Bench 2.1 comparison of mixdog with Claude Opus 5 and Claude Code](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-opus-vs-claude-code.svg)
+- Anthropic and Claude accounts
+- OpenAI and ChatGPT/Codex accounts
+- Google Gemini
+- xAI Grok
+- DeepSeek and OpenCode Go
+- OpenAI-compatible APIs
+- Ollama and LM Studio
 
-#### GPT-5.6 Sol xhigh vs Codex CLI
-
-![Terminal-Bench 2.1 comparison of mixdog with GPT-5.6 Sol xhigh and Codex CLI](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-sol-vs-codex.svg)
-
-- Speed: **1.43×** vs Claude Code, **1.27×** vs Codex CLI
-  (baseline elapsed agent time ÷ mixdog elapsed agent time)
-- Final context: **40–47% smaller** at task end (median tokens, measured
-  from both harnesses' session logs)
-- Priced cost: **29% lower** vs Claude Code, **at least 39.7% lower** vs
-  Codex CLI (mixdog $54.50–$58.84 vs Codex's recorded $97.54)
-
-Both sides run their standard single-agent loop. Anthropic cost includes
-measured cache writes; the archived OpenAI runs did not retain
-`cache_write_tokens`, so the Codex cost delta is a lower bound. Raw
-artifacts, the exact run commands, and the metric scripts that recompute
-every number above live under `benchmarks/terminal-bench-2.1/`.
-
-## Why mixdog
-
-**Maximum performance at minimum cost**
-
-- Orchestrated agent workflow that mixes providers and models per role, so
-  each step runs on the cheapest model that can do the job well.
-- Cache-aware prompt layout and aggressive context savings across turns.
-- Lean output policy plus fine-grained session management: compaction,
-  resumable sessions, and usage dashboards.
-- A custom harness with tool-call routing tuned for the fewest, most
-  effective calls (`code_graph`, batched `read`/`grep`, windowed reads).
-
-**Any provider**
-
-- Sign in with the subscriptions you already pay for: OAuth device flows for
-  Claude and ChatGPT/Codex accounts work alongside plain API keys.
-- Anthropic, OpenAI, Google/Gemini, xAI/Grok, DeepSeek, OpenCode Go,
-  OpenAI-compatible APIs, Ollama, and LM Studio/local endpoints.
-- Live model catalog from provider `/models` endpoints, enriched with
-  LiteLLM/models.dev metadata for context windows, output limits, pricing,
-  tool support, reasoning, and recency.
-- Customizable web search and repo exploration tools.
-
-**Any environment**
-
-- Full-screen TUI with slash commands, provider setup, model/workflow
-  pickers, statusline integration, and detailed tool cards — plus `exec`
-  mode for headless scripting.
-- Mixdog Desktop: a full agent workbench for Windows/macOS/Linux (see
-  below).
-- Installable web app over relay pairing — scan a QR code to open your
-  running sessions in a phone browser and keep going from any network.
-- Optional Discord/Telegram channels and cron schedules with quiet hours for
-  remote/event-driven workflows; channel voice messages are transcribed
-  locally with a managed Whisper server.
-- First-class Windows support: ConPTY terminals, PowerShell-aware shell
-  profiles, and a one-click desktop installer.
-
-**Memory**
-
-- Every session is ingested into a local memory store in the background, so
-  prior work, decisions, and fixes stay recallable across sessions via the
-  `recall` tool and `/memory`.
-- Semantic + lexical recall with local embeddings, time-window queries, and
-  project-scoped pools — multilingual, including Korean morphology.
-- A multi-pass consolidation cycle promotes important memories into a
-  compact core set — and demotes them when stale — so memory stays small
-  and current instead of growing without bound.
-
-**Agent-ecosystem compatible**
-
-- Skills, MCP servers, hooks, and plugins load through standard-compatible
-  interfaces.
-- Built-in Web Search and Maintainer services, plus editable starter agents
-  (`worker`, `heavy-worker`, `reviewer`) and user-authored custom roles.
+The model picker combines live provider catalogs with model metadata for
+context limits, pricing, tool support, reasoning, and recency.
 
 ## Run
 
-For local development from this checkout:
-
 ```bash
-npm install
-npm start
-```
-
-```bash
-# Start the TUI in the current project
+# Start in the current project
 mixdog
 
-# Start with an explicit route
+# Select a provider and model
 mixdog --provider anthropic-oauth --model claude-haiku-4-5-20251001
 
-# Start with a specific workflow active
+# Select a workflow
 mixdog --workflow solo
 
-# Read-only tool surface
+# Use read-only tools
 mixdog --readonly
 
-# Enable remote/channel mode for this session
+# Enable remote and channel features
 mixdog --remote
 
-# Re-run the first-run setup wizard
+# Run onboarding again
 mixdog --onboarding
 ```
 
-Headless `exec` is also supported. It runs one non-interactive primary-model
-session and requires an explicit provider/model pair. Ephemeral config keeps
-host behavioral config and personal state out of the run:
+Run `mixdog --help` for the complete option reference.
+
+## Headless exec
+
+`mixdog exec` runs one non-interactive, single-model session with ephemeral
+configuration. It requires an explicit provider and model:
 
 ```bash
 mixdog exec --provider anthropic-oauth --model claude-opus-5 "fix the failing test"
@@ -166,155 +92,117 @@ mixdog exec --provider openai-oauth --model gpt-5.6-sol --effort xhigh --fast "r
 mixdog exec --provider openai-oauth --model gpt-5.6-sol --json "fix the failing test"
 ```
 
-`--json` emits timestamped JSONL. The stream contains thread/turn lifecycle,
-provider request timing, reasoning and assistant messages, tool start/completion
-with arguments/output and queue/dispatch/execution/batch-wait/postprocess timing,
-background notifications, final usage, and a
-terminal success/error result. Without `--json`, stdout remains final text only.
-In JSON mode stdout is JSONL-only; runtime diagnostics remain on stderr.
-
-## TUI basics
-
-Common slash commands:
-
-```text
-/providers         configure provider auth and local endpoints
-/model             choose the main provider/model (/effort, /fast tune it)
-/workflow          choose the active workflow
-/agents            show workflow agents and per-agent model overrides
-/project           switch working directory (project)
-/resume            resume a saved chat
-/usage             show total provider quota / balance
-/context           show the current context surface
-/memory            list and edit core memories
-/setting           open the runtime settings hub
-/mcp               manage MCP servers and tools
-/skills            choose a skill for the next request
-/channels          manage Discord, Telegram, and voice
-/compact           compact older conversation context
-/autoclear         reduce cache-miss cost after long idle gaps
-/theme             change the TUI color theme
-/clear             reset the conversation and screen
-/OutputStyle       show or switch Lead output style
-/update            check version and update mixdog
-/doctor            diagnose installation health
-```
-
-Run `mixdog --help` for the full command and option reference.
-
-Use `/providers` first if no model is configured, then `/model` to pick the
-route. The model picker warms the provider catalog in the background and keeps
-Claude families such as Opus, Sonnet, Haiku, and Fable separate when filtering
-current Anthropic models.
-
-Workflows and agents are Markdown definition packs (`WORKFLOW.md`,
-`AGENT.md`). Built-ins ship with mixdog; custom packs live under the data
-directory (`workflows/<id>/`, `agents/<id>/`) and are edited on the desktop
-app's Workflows page. Schedules are managed in the desktop app as well.
-
-## Desktop app
-
-Mixdog Desktop (Electron) runs the same runtime as the CLI inside a full
-agent workbench. Installers are published on GitHub Releases (Windows
-one-click NSIS, macOS dmg/zip, Linux AppImage), and a guided onboarding
-wizard covers first-run setup. For development run `npm run dev` inside
-`apps/desktop`.
-
-- **Workbench shell** — VS Code-style activity rail and tab strip,
-  drag-and-drop tabs across pane groups, and unlimited splits that run
-  parallel agent sessions side by side — every pane hosts a live session
-  surface with its own draft and model controls — plus a command surface,
-  bottom panel, and problems view.
-- **Sessions and projects** — project-scoped session lists, resumable
-  sessions with per-pane route restore, live agent-activity indicators, and
-  usage dashboards in the sidebar.
-- **Editor and review** — Monaco editor pane with LSP integration, git and
-  inline diff viewers, and turn-by-turn review of agent edits with approval
-  cards.
-- **Source control** — git dock for staging, commits, and branches, with
-  auto-generated commit messages.
-- **File explorer** — Windows-Explorer-grade folder pane: breadcrumbs and
-  path box, ribbon toolbar, places/drives/tree sidebar, grouped grid and
-  details views with shell icons and thumbnails, rubber-band selection,
-  clipboard and OS drag-and-drop, preview pane, and file properties.
-- **Terminal** — integrated terminal tabs on the native shell (ConPTY on
-  Windows) with shell-profile detection, isolated in a worker process so a
-  runaway shell never takes the app down.
-- **Studio** — media studio for image and video generation over
-  authenticated provider lanes, with a persistent local gallery, reference
-  images, and per-model resolution/aspect/duration controls.
-- **Automation** — visual editors for workflow and agent packs, plus cron
-  schedules.
-- **Settings hub** — provider auth, capability sweep, git identity, and
-  QR device pairing for the installable web app, preloaded so every
-  category opens instantly.
-
-## Scripts
+Web search and memory are disabled by default in headless runs. Enable them
+per run when needed:
 
 ```bash
-npm run smoke                # fast core feature smoke
-npm run smoke:all            # feature-surface smoke suite
-npm run test:tool-contracts  # optional tool contract suite
-npm run build:tui            # build the bundled Ink TUI
-npm run audit:models         # inspect model catalog metadata
+mixdog exec --provider openai-oauth --model gpt-5.6-sol --web-search "research this issue"
+mixdog exec --provider openai-oauth --model gpt-5.6-sol --memory "continue the previous work"
 ```
 
-Additional diagnostics and benchmarks live under `scripts/`.
+Without `--web-search`, shell child processes use an offline network policy
+while loopback remains available. `--json` emits timestamped JSONL events to
+stdout; diagnostics remain on stderr.
+
+## TUI commands
+
+```text
+/providers   configure provider authentication and local endpoints
+/model       choose the main provider and model
+/workflow    choose the active workflow
+/agents      inspect agents and model overrides
+/project     switch the current project
+/resume      resume a saved session
+/memory      inspect and edit core memory
+/mcp         manage MCP servers and tools
+/skills      select a skill
+/channels    manage remote channels
+/compact     compact older context
+/setting     open settings
+/update      check for updates
+/doctor      diagnose installation health
+```
+
+Workflows and agents are Markdown definition packs (`WORKFLOW.md`, `AGENT.md`).
+Built-in packs ship with Mixdog; custom packs live under the Mixdog data
+directory.
+
+## Windows desktop app
+
+Mixdog Desktop runs the same agent runtime as the CLI in an Electron
+workbench:
+
+- Split panes for parallel, independently routed agent sessions
+- Monaco editor, LSP integration, diffs, and turn-by-turn edit review
+- Git staging, commits, branches, and generated commit messages
+- Windows file explorer with previews, thumbnails, and drag-and-drop
+- Integrated PowerShell and ConPTY terminal tabs
+- Image and video generation Studio with a persistent local gallery
+- Visual workflow, agent, and schedule editors
+- Provider setup, usage, git identity, and remote pairing settings
+
+For desktop development:
+
+```bash
+cd apps/desktop
+npm run dev
+```
+
+## Terminal-Bench 2.1
+
+Controlled single-model runs on the same 89 tasks produced:
+
+- **78/89** with Claude Opus 5 vs Claude Code's **77/89**
+- **75/89** with GPT-5.6 Sol xhigh, matching Codex CLI
+- **1.43×** faster vs Claude Code and **1.27×** faster vs Codex CLI
+- **40–47%** smaller median final context
+- **29%** lower priced cost vs Claude Code and at least **39.7%** lower vs
+  Codex CLI
+
+These are self-reported single runs (`k=1`, 2026-08), not leaderboard
+submissions. Raw artifacts, commands, comparison charts, and metric scripts
+live under [`benchmarks/terminal-bench-2.1/`](benchmarks/terminal-bench-2.1/).
 
 ## Data and configuration
 
-Mixdog uses `~/.mixdog` as its home root. Runtime data lives in
-`~/.mixdog/data` by default.
+Mixdog uses `~/.mixdog` as its home root and `~/.mixdog/data` for runtime data
+by default.
 
 ```bash
 MIXDOG_HOME=/path/to/home mixdog
 MIXDOG_DATA_DIR=/path/to/data mixdog
 ```
 
-Useful environment toggles:
+Useful environment variables:
 
-- `MIXDOG_TUI_MOUSE=0` — use terminal-native mouse behavior instead of the TUI
-  mouse/selection layer.
-- `MIXDOG_DISABLE_MODEL_PREFETCH=1` — disable background provider model prefetch.
-- `MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS=<ms>` — tune model-catalog warmup delay.
-- `MIXDOG_MODEL_STALE_MONTHS=<months>` — tune catalog staleness filtering.
-- `MIXDOG_MODE=ship|dev` — explicit shipping/dev mode. Shipping disables
-  best-effort diagnostic trace/log file IO (agent-trace.jsonl,
-  tool-failures.jsonl) by default; dev/debug opts back in. Default is `dev`
-  from a git checkout and `ship` for a published install.
-- `MIXDOG_DIAGNOSTICS=1` — force diagnostic trace/log file IO on even under
-  shipping mode.
+- `MIXDOG_TUI_MOUSE=0` — use terminal-native mouse behavior.
+- `MIXDOG_DISABLE_MODEL_PREFETCH=1` — disable provider model prefetch.
+- `MIXDOG_MODE=ship|dev` — select shipping or development diagnostics.
+- `MIXDOG_DIAGNOSTICS=1` — force diagnostic trace and log output.
 
-## Project layout
+## Development
 
-```text
-src/
-  cli.mjs        # CLI entry point (bin: mixdog)
-  app.mjs        # CLI/TUI/headless mode wiring
-  help.mjs       # command help text
-  runtime/       # providers, tools, memory, channels, session runtime
-  session-runtime/
-                 # model routing, catalog rows, workflow/session helpers
-  tui/           # canonical Ink TUI
-  agents/        # workflow agent definitions
-  workflows/     # workflow definitions
-  rules/         # Lead and agent instructions
-apps/
-  desktop/       # Mixdog Desktop — Electron workbench (main/preload/renderer)
-  relay/         # relay server for remote web-app access
-scripts/
-  smoke*.mjs     # smoke checks
-  *test.mjs      # focused node:test checks
-  build-tui.mjs  # esbuild bundle for the React TUI
-vendor/
-  ink/           # Mixdog Ink renderer
+```bash
+npm install
+npm start
+
+npm run smoke
+npm run smoke:all
+npm run test:tool-contracts
+npm run build:tui
+npm run audit:models
 ```
 
-## Published package contents
+Main directories:
 
-The npm tarball ships the README, notices and licenses, runtime sources,
-vendored runtime code, and selected scripts. `package.json#files` is the
-canonical package-content list.
+```text
+src/            CLI, TUI, runtime, workflows, agents, and rules
+apps/desktop/   Windows desktop workbench
+apps/relay/     remote web relay
+native/         native process, search, patch, and support binaries
+scripts/        tests, diagnostics, benchmarks, and build scripts
+vendor/         vendored runtime components
+```
 
 ## License
 

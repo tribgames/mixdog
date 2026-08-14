@@ -1,7 +1,13 @@
 'use strict';
 
-import { getDestructiveCommandWarning, stripQuotedAndHeredoc } from './destructive-warning.mjs';
-import { isBlockedCommand, WRAPPER_NAMES } from './shell-policy.mjs';
+import {
+  extractHeredocBodies,
+  extractShellCInner,
+  getDestructiveCommandWarning,
+  stripQuotedAndHeredoc,
+} from './destructive-warning.mjs';
+import { extractPowerShellCommandInner } from './shell-command.mjs';
+import { decodePowerShellEncodedCommand, isBlockedCommand, WRAPPER_NAMES } from './shell-policy.mjs';
 
 /** @typedef {'allow'|'warn-prompt'|'deny'} ExecPolicyDecision */
 
@@ -42,7 +48,17 @@ function _firstCommandName(command) {
 function classifyExecPolicy(command) {
   const text = String(command || '');
   if (!text.trim()) return { decision: 'allow', reason: '' };
-  if (isBlockedCommand(text)) {
+  // Scan executable syntax, not quoted log/search text. Recursively preserve
+  // actual shell, PowerShell, heredoc, and encoded-command payload coverage.
+  const executableTargets = [
+    stripQuotedAndHeredoc(text),
+    ...extractShellCInner(text).map(stripQuotedAndHeredoc),
+    ...extractPowerShellCommandInner(text).map(stripQuotedAndHeredoc),
+    ...extractHeredocBodies(text).map(stripQuotedAndHeredoc),
+  ];
+  const decodedPowerShell = decodePowerShellEncodedCommand(text);
+  if (decodedPowerShell) executableTargets.push(stripQuotedAndHeredoc(decodedPowerShell));
+  if (executableTargets.some((target) => isBlockedCommand(target))) {
     return { decision: 'deny', reason: 'destructive or system-destabilising pattern (hard block)' };
   }
   // Hard-deny only real executable syntax. The policy scanner also sees user

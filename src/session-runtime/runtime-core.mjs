@@ -1273,6 +1273,7 @@ export async function createMixdogSessionRuntime({
     channelStartDelayMs,
     codeGraphPrewarmEnabled,
     prewarmState,
+    agentTool,
   });
   const ensureSessionTranscriptWriter = () => remoteTranscript.ensureSessionTranscriptWriter();
   const ensureRemoteTranscriptWriter = () => remoteTranscript.ensureRemoteTranscriptWriter();

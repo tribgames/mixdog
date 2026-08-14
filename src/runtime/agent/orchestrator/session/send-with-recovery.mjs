@@ -10,8 +10,14 @@ import {
     isContextOverflowError,
     isNonTerminalStreamClose,
     isRetryableWireErrorEvent,
+    isRetryableStreamErrorEvent,
     jitterDelayMs,
 } from '../providers/retry-classifier.mjs';
+import {
+    promptHasInlineImages,
+    shouldStripImagesForRetry,
+    stripInlineImages,
+} from './image-strip-recovery.mjs';
 import { setTimeout as sleepMs } from 'timers/promises';
 import { readStreamOutcome } from '../providers/lib/stream-outcome.mjs';
 import { resolveWorkerCompactPolicy } from './loop/compact-policy.mjs';
@@ -85,7 +91,7 @@ export async function sendWithRecovery(ctx) {
     const {
         provider, messages, model, sendTools, tools, opts,
         sessionId, sessionRef, nextIteration, contextOverflowRetryUsed,
-        transportRetriesUsed = 0, signal,
+        transportRetriesUsed = 0, imageStripUsed = false, signal,
     } = ctx;
     let response;
     // Bench-only turn timing (MIXDOG_TURN_TIMING=1): one stderr line per
@@ -202,15 +208,23 @@ export async function sendWithRecovery(ctx) {
                 if (Number(outcome.toolCallsDispatched) > 0) return false;
                 if (Number(outcome.toolCallsComplete) > 0) return false;
                 if (relayWitness.toolCallsDispatched > 0) return false;
-                if (typeof opts?.onTextReset !== 'function') return false;
                 const chars = Math.max(0, Number(outcome.textObservedChars) || 0)
                     || (typeof sendErr.partialContent === 'string' ? sendErr.partialContent.length : 0);
-                if (chars <= 0) return false;
-                let acked = false;
-                try {
-                    acked = await opts.onTextReset({ chars, reason: 'loop-transport-retraction' }) === true;
-                } catch { acked = false; }
-                if (!acked) return false;
+                const reasoningOnly = outcome.reasoningEmitted === true && chars <= 0;
+                if (chars <= 0 && !reasoningOnly) return false;
+                if (typeof opts?.onTextReset === 'function') {
+                    let acked = false;
+                    try {
+                        acked = await opts.onTextReset({
+                            chars,
+                            reasoning: outcome.reasoningEmitted === true,
+                            reason: 'loop-transport-retraction',
+                        }) === true;
+                    } catch { acked = false; }
+                    if (!acked && !reasoningOnly) return false;
+                } else if (!reasoningOnly) {
+                    return false;
+                }
                 relayWitness.textEmitted = false;
                 return true;
             };
@@ -410,6 +424,7 @@ export async function sendWithRecovery(ctx) {
                             // (response.failed server_error & co.): exposed
                             // text is retracted, then the send is replayed.
                             || isRetryableWireErrorEvent(sendErr)
+                            || isRetryableStreamErrorEvent(sendErr)
                             || isNonTerminalStreamClose(sendErr))
                         && await retractExposedTextForReplay()
                     )
@@ -441,6 +456,57 @@ export async function sendWithRecovery(ctx) {
                 );
                 await sleepMs(waitMs, undefined, signal ? { signal } : undefined);
                 return { action: 'retry_transport' };
+            } else
+            // Grok Build RetryWithImageStrip: drop inline images and replay
+            // once. Safe only when no tool was dispatched. Text exposure must
+            // be retracted first; reasoning-only high-effort streams can retry
+            // without a text reset.
+            if (
+                transportRetriesUsed < TRANSPORT_RETRY_MAX
+                && (
+                    shouldStripImagesForRetry(sendErr, {
+                        hasImages: promptHasInlineImages(messages),
+                        alreadyStripped: imageStripUsed === true,
+                    })
+                    || (
+                        imageStripUsed !== true
+                        && promptHasInlineImages(messages)
+                        && isRetryableStreamErrorEvent(sendErr)
+                    )
+                )
+                && outcome.sideEffectDispatched !== true
+                && Number(outcome.toolCallsDispatched) === 0
+                && Number(outcome.toolCallsComplete) === 0
+                && relayWitness.toolCallsDispatched === 0
+                && (outcome.replaySafe === true || await retractExposedTextForReplay())
+            ) {
+                const stripped = stripInlineImages(messages);
+                if (stripped.stripped > 0) {
+                    try {
+                        process.stderr.write(
+                            '[loop] image-strip retry (sess=' + String(sessionId || 'unknown')
+                            + ' iter=' + String(nextIteration)
+                            + ' stripped=' + String(stripped.stripped)
+                            + '); transport retry ' + String(transportRetriesUsed + 1)
+                            + '/' + String(TRANSPORT_RETRY_MAX) + '\n',
+                        );
+                    } catch { /* best-effort */ }
+                    try {
+                        appendAgentTrace({
+                            kind: 'image_strip_retry',
+                            sessionId: sessionId || null,
+                            iteration: nextIteration,
+                            attempt: transportRetriesUsed + 1,
+                            stripped: stripped.stripped,
+                        });
+                    } catch { /* best-effort */ }
+                    emitLoopReconnectProgress(
+                        transportRetriesUsed + 1,
+                        0,
+                        'image_strip',
+                    );
+                    return { action: 'retry_image_strip', messages: stripped.messages };
+                }
             } else
             // Context-window-exceeded is a deterministic refusal from the API.
             // Recover context overflow reactively by compacting and retrying

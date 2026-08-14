@@ -165,9 +165,13 @@ export function isReferenceFilesMessage(message) {
 }
 
 export function isProtectedContextUserMessage(message) {
-    return message?.role === 'user'
-        && typeof message.content === 'string'
-        && message.content.trimStart().startsWith('<system-reminder>');
+    if (message?.role !== 'user' || typeof message.content !== 'string') return false;
+    const content = message.content.trim();
+    if (!content.toLowerCase().startsWith('<system-reminder>')) return false;
+    const closingTag = '</system-reminder>';
+    const closingIndex = content.toLowerCase().indexOf(closingTag);
+    return closingIndex < 0
+        || content.slice(closingIndex + closingTag.length).trim() === '';
 }
 
 // Compact summary messages (role:'user', content startsWith SUMMARY_PREFIX)

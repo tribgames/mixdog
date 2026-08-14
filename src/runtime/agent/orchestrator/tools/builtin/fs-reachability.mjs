@@ -11,6 +11,7 @@
 // This is a preflight gate, not a full sync->async rewrite: the existing sync
 // logic is unchanged; we only refuse to enter it when the path is unreachable.
 import { stat } from 'node:fs/promises';
+import { runReadOnlyStatInFlight } from './cache-layers.mjs';
 
 const FS_REACHABILITY_DEADLINE_MS = 5000;
 // Under burst load the libuv threadpool can queue a healthy local stat past
@@ -31,7 +32,7 @@ export async function assertPathReachable(path, deadlineMs = FS_REACHABILITY_DEA
     // Resolve to the Stats on success so a caller can seed its stat cache and
     // avoid an immediate redundant synchronous re-stat of the same path; a
     // clean FS rejection (ENOENT/EACCES) resolves to null (still "reachable").
-    const probe = stat(path).then((s) => s, () => null);
+    const probe = runReadOnlyStatInFlight(path, stat).then((s) => s, () => null);
     const deadline = new Promise((resolve) => {
         timer = setTimeout(() => resolve('TIMEOUT'), ms);
     });

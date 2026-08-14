@@ -41,6 +41,7 @@ import {
     MIDSTREAM_RETRY_POLICY,
     sleepWithAbort,
     STREAM_STALL_RETRY_BUDGET_MS,
+    shouldDropPreviousResponseId,
 } from './retry-classifier.mjs';
 import { stampStreamOutcome, STREAM_TRANSPORTS } from './lib/stream-outcome.mjs';
 import {
@@ -1112,6 +1113,10 @@ export async function sendViaWebSocket({
                 // Retry-eligible: stash the first-attempt error, emit progress,
                 // and loop. The subsequent acquire uses forceFresh so no socket
                 // is shared between attempts.
+                if (shouldDropPreviousResponseId(err)) {
+                    carryForwardCache = null;
+                    try { entry.lastResponseId = null; } catch {}
+                }
                 firstAttemptError = err;
                 firstAttemptClassifier = classifier;
                 try { err.midstreamClassifier = classifier; } catch {}

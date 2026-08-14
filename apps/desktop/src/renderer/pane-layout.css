@@ -33,6 +33,10 @@
   overflow: hidden;
   position: relative;
   isolation: isolate;
+  /* Every leaf follows the same inset/column ladder from ITS width, not
+     the outer workbench (user: 데스크탑앱 전체 해상도대응). */
+  container-name: mixdog-pane;
+  container-type: inline-size;
 }
 .pane-resize-handle {
   position: relative;

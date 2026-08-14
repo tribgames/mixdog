@@ -8,6 +8,7 @@ import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
 const INTERRUPT_MESSAGE = '[Request interrupted by user]';
 const INTERRUPT_MESSAGE_FOR_TOOL_USE = '[Request interrupted by user for tool use]';
 const PROCESS_RESTART_INTERRUPT_MESSAGE = '[Request interrupted by process restart]';
+const SESSION_INTERRUPT_MESSAGE = '[Request interrupted]';
 // Short tool_result body for any unfinished call closed by
 // cancel/crash. UI maps this (and legacy long reject bodies) to Cancelled.
 const INTERRUPTED_TOOL_RESULT = 'Cancelled';
@@ -171,9 +172,9 @@ function finalizeInterruptedTurn({
             role: 'user',
             content: abortReason === 'process-crash'
                 ? PROCESS_RESTART_INTERRUPT_MESSAGE
-                : (phase === 'tools'
-                    ? INTERRUPT_MESSAGE_FOR_TOOL_USE
-                    : INTERRUPT_MESSAGE),
+                : userCancelled
+                    ? (phase === 'tools' ? INTERRUPT_MESSAGE_FOR_TOOL_USE : INTERRUPT_MESSAGE)
+                    : SESSION_INTERRUPT_MESSAGE,
         });
     }
     return { messages: pairedMessages, responsePreserved: true, userTurnPreserved: true };

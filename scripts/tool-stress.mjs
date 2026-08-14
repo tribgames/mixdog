@@ -14,6 +14,8 @@ import { executeCodeGraphTool } from '../src/runtime/agent/orchestrator/tools/co
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
 import { warmNativeSpawnServer } from '../src/runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs';
+import { warmNativeSearchServer } from '../src/runtime/agent/orchestrator/tools/builtin/native-search-client.mjs';
+import { prewarmFindEnumeration } from '../src/runtime/agent/orchestrator/tools/builtin/list-tool.mjs';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const SESSIONS = 8;
@@ -51,36 +53,44 @@ function pct(list, p) {
 
 const tmp = mkdtempSync(join(tmpdir(), 'mixdog-tool-stress-'));
 const t0 = Date.now();
+let prewarmMs = 0;
 try {
-  await warmNativeSpawnServer();
+  const prewarmStarted = Date.now();
+  await Promise.all([
+    warmNativeSpawnServer(),
+    warmNativeSearchServer(),
+    prewarmFindEnumeration(root),
+  ]);
+  prewarmMs = Date.now() - prewarmStarted;
   // ── Phase A+C: concurrent multi-session waves (search/read/graph/shell +
   // per-session patch integrity riding the same load) ──────────────────────
   for (let wave = 0; wave < WAVES; wave++) {
     const calls = [];
+    const metric = (tool) => wave === 0 ? `cold-${tool}` : tool;
     for (let s = 0; s < SESSIONS; s++) {
       const opts = { sessionId: `stress-s${s}` };
       const marker = `stress_w${wave}_s${s}`;
       calls.push(
-        timed('grep', /path-string|paths only|grep|\(no matches\)|Fuzzy/i, () => executeBuiltinTool('grep', {
-          pattern: ['Fuzzy filename', 'paths only'], path: 'src/runtime/agent/orchestrator/tools/builtin', glob: '*.mjs', limit: 20, context: 0,
+        timed(metric('grep'), /path-string|paths only|grep|\(no matches\)|Fuzzy/i, () => executeBuiltinTool('grep', {
+          pattern: 'Fuzzy filename|paths only', path: 'src/runtime/agent/orchestrator/tools/builtin', glob: '*.mjs', limit: 20, context: 0,
         }, root, opts)),
-        timed('glob', /tool-defs\.mjs|\.mjs/, () => executeBuiltinTool('glob', {
+        timed(metric('glob'), /tool-defs\.mjs|\.mjs/, () => executeBuiltinTool('glob', {
           pattern: '**/*.mjs', path: 'src/session-runtime', limit: 40,
         }, root, opts)),
-        timed('find', /tool-defs|no fuzzy match/, () => executeBuiltinTool('find', {
+        timed(metric('find'), /tool-defs|no fuzzy match/, () => executeBuiltinTool('find', {
           query: 'tool-defs', limit: 8,
         }, root, opts)),
-        timed('list', /01-tool\.md|file/, () => executeBuiltinTool('list', {
+        timed(metric('list'), /01-tool\.md|file/, () => executeBuiltinTool('list', {
           path: 'src/rules/shared',
         }, root, opts)),
-        timed('read', /Tool Use|read/, () => executeBuiltinTool('read', {
+        timed(metric('read'), /Tool Use|read/, () => executeBuiltinTool('read', {
           path: [['src/rules/shared/01-tool.md', 0, 10], ['package.json', 0, 5]],
         }, root, opts)),
-        timed('code_graph', /symbol|binding|files|edges/i, () => executeCodeGraphTool('code_graph', {
+        timed(metric('code_graph'), /symbol|binding|files|edges/i, () => executeCodeGraphTool('code_graph', {
           mode: 'symbols', files: 'scripts/smoke.mjs',
         }, root)),
-        timed('shell', /55350/, () => executeBuiltinTool('shell', {
-          command: 'node -e "console.log(123*450)"', timeout: 60_000,
+        timed(metric('shell'), /55350/, () => executeBuiltinTool('shell', {
+          command: 'node -e "console.log(123*450)"', timeout_ms: 60_000,
         }, root, opts)),
         (async () => {
           const patch = [
@@ -89,8 +99,8 @@ try {
             `+payload ${marker}`,
             '*** End Patch',
           ].join('\n');
-          await timed('apply_patch', /applied|OK/i, () => executePatchTool('apply_patch', { patch, base_path: tmp }, tmp, opts));
-          const back = await timed('read-verify', new RegExp(`payload ${marker}`), () => executeBuiltinTool('read', { path: `${marker}.txt` }, tmp, opts));
+          await timed(metric('apply_patch'), /applied|OK/i, () => executePatchTool('apply_patch', { patch, base_path: tmp }, tmp, opts));
+          const back = await timed(metric('read-verify'), new RegExp(`payload ${marker}`), () => executeBuiltinTool('read', { path: `${marker}.txt` }, tmp, opts));
           if (!String(back || '').includes(`payload ${marker}`)) failures.push(`patch integrity lost for ${marker}`);
         })(),
       );
@@ -134,15 +144,19 @@ try {
 
 // ── Report ──────────────────────────────────────────────────────────────────
 let errTotal = 0;
+let warmTailPass = true;
 for (const [tool, s] of [...stats.entries()].sort()) {
   errTotal += s.errs.length;
+  const p95 = pct(s.lat, 95);
+  if (['grep', 'glob', 'find', 'list', 'read'].includes(tool) && p95 > 150) warmTailPass = false;
   console.log(
     `${tool.padEnd(14)} n=${String(s.n).padStart(3)} errs=${s.errs.length}`
-    + ` p50=${pct(s.lat, 50)}ms p95=${pct(s.lat, 95)}ms max=${Math.max(...s.lat)}ms`,
+    + ` p50=${pct(s.lat, 50)}ms p95=${p95}ms max=${Math.max(...s.lat)}ms`,
   );
   for (const e of s.errs.slice(0, 3)) console.log(`  ! ${e}`);
 }
 for (const f of failures) console.log(`FAIL ${f}`);
 const calls = [...stats.values()].reduce((a, s) => a + s.n, 0);
+console.log(`tool prewarm cold=${prewarmMs}ms; warm search/read/list p95<=150ms ${warmTailPass ? 'passed' : 'missed'}`);
 console.log(`tool stress ${failures.length || errTotal ? 'FAILED' : 'passed'} calls=${calls} errors=${errTotal} failures=${failures.length} elapsed=${Math.round((Date.now() - t0) / 1000)}s`);
 process.exit(failures.length || errTotal ? 1 : 0);

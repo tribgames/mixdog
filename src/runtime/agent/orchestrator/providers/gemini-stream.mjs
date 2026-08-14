@@ -38,6 +38,26 @@ export function geminiTimeoutError(label, timeoutMs) {
     return err;
 }
 
+const GEMINI_RPC_CODES = new Set([
+    'UNAVAILABLE', 'DEADLINE_EXCEEDED', 'ABORTED', 'INTERNAL', 'RESOURCE_EXHAUSTED',
+]);
+
+/**
+ * Copy a typed Gemini/gRPC status onto the error so classifyError can retry
+ * UNAVAILABLE/DEADLINE_EXCEEDED/ABORTED/INTERNAL without an HTTP status.
+ */
+export function stampGeminiRpcError(err) {
+    if (!err || typeof err !== 'object') return err;
+    if (typeof err.geminiStatus === 'string' && err.geminiStatus) return err;
+    for (const field of [err.status, err.error?.status, err.cause?.status, err.cause?.geminiStatus]) {
+        if (typeof field === 'string' && GEMINI_RPC_CODES.has(field.toUpperCase())) {
+            err.geminiStatus = field.toUpperCase();
+            return err;
+        }
+    }
+    return err;
+}
+
 function geminiTruncatedStreamError(message) {
     return Object.assign(
         new Error(message),
@@ -75,9 +95,10 @@ function isGeminiSdkStreamParseError(err) {
 }
 
 function normalizeGeminiSdkStreamError(err, label) {
-    return isGeminiSdkStreamParseError(err)
-        ? geminiStreamCorruptionError(`${label} corrupt SDK SSE JSON`, err)
-        : err;
+    const stamped = stampGeminiRpcError(err);
+    return isGeminiSdkStreamParseError(stamped)
+        ? geminiStreamCorruptionError(`${label} corrupt SDK SSE JSON`, stamped)
+        : stamped;
 }
 
 // CC-rule safety stamp for Gemini stream failures (provider-stall audit):

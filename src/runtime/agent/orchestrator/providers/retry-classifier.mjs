@@ -25,6 +25,7 @@ import {
   createTimeoutSignal,
 } from '../stall-policy.mjs'
 import { readStreamOutcome } from './lib/stream-outcome.mjs'
+import { recycleLlmDispatcher } from '../../../shared/llm/http-agent.mjs'
 
 export { readStreamOutcome, stampStreamOutcome, isReplaySafe, isReplayUnsafe, canPromoteToSuccess, hasObservedOutput, hasDispatchedToolCalls, STREAM_TRANSPORTS } from './lib/stream-outcome.mjs'
 
@@ -33,7 +34,7 @@ export { readStreamOutcome, stampStreamOutcome, isReplaySafe, isReplayUnsafe, ca
 //   500/502/503/504 — server errors (overload / bad gateway / timeout)
 //   429 is handled separately by withRetry(): only the affected request waits
 //   with jitter; provider/account admission concurrency remains fixed.
-const TRANSIENT_STATUSES = new Set([408, 409])
+const TRANSIENT_STATUSES = new Set([408, 409, 425])
 
 // HTTP statuses that mean "permanent: stop retrying, surface to caller".
 //   401/403 — auth issue
@@ -41,6 +42,26 @@ const TRANSIENT_STATUSES = new Set([408, 409])
 //   400/422 — bad request (deterministic)
 const AUTH_STATUSES = new Set([401, 403])
 const PERMANENT_STATUSES = new Set([400, 404, 405, 410, 415, 422])
+// Cloudflare origin-TLS pages never clear on retry (grok-build edge_client).
+const TERMINAL_EDGE_STATUSES = new Set([525, 526])
+const GEMINI_TRANSIENT_RPC_CODES = new Set([
+  'UNAVAILABLE', 'DEADLINE_EXCEEDED', 'ABORTED', 'INTERNAL',
+])
+const PREVIOUS_RESPONSE_NOT_FOUND = 'previous_response_not_found'
+const WEBSOCKET_CONNECTION_LIMIT = 'websocket_connection_limit_reached'
+const RATE_LIMIT_EXCEEDED = 'rate_limit_exceeded'
+const CONTEXT_OVERFLOW_CODES = new Set([
+  'context_length_exceeded', 'context_window_exceeded', 'request_too_large',
+])
+const TRANSIENT_SDK_NAMES = new Set([
+  'APIConnectionError',
+  'APIConnectionTimeoutError',
+  'ConnectTimeoutError',
+  'HeadersTimeoutError',
+  'BodyTimeoutError',
+])
+const ANTHROPIC_RESET_HEADER = 'anthropic-ratelimit-unified-reset'
+const ANTHROPIC_RESET_CAP_MS = 300_000
 
 // Structured status fields a provider error / wire event may carry. A value is
 // accepted only when it is a real numeric HTTP status; string codes
@@ -94,6 +115,11 @@ export function classifyError(err) {
   // Current typed HTTP status outranks stale stream/connection annotations.
   const status = Number(err.httpStatus || err.status || err.response?.status || 0) || 0
   if (AUTH_STATUSES.has(status)) return 'auth'
+  // Stale previous_response_id is recoverable by dropping the chain and
+  // re-issuing a full frame (codex maps it to ApiError::Retryable). A typed
+  // 400 here is not a deterministic payload refusal.
+  if (shouldDropPreviousResponseId(err)) return 'transient'
+  if (typedErrorCode(err) === WEBSOCKET_CONNECTION_LIMIT) return 'transient'
   if (status === 429) return 'permanent'
   if (PERMANENT_STATUSES.has(status)
     || (status >= 400 && status < 500 && !TRANSIENT_STATUSES.has(status))) return 'permanent'
@@ -103,6 +129,7 @@ export function classifyError(err) {
   // A current permanent/auth status and cancellation were checked above.
   if (err.truncatedStream === true || err.code === 'TRUNCATED_STREAM') return 'transient'
 
+  if (TERMINAL_EDGE_STATUSES.has(status)) return 'permanent'
   if (TRANSIENT_STATUSES.has(status) || (status >= 500 && status < 600)) return 'transient'
   // A stream that closed WITHOUT its terminal frame is a transport symptom,
   // not a model verdict: the socket carries no HTTP status and no Node errno,
@@ -117,10 +144,11 @@ export function classifyError(err) {
   // Socket-level codes (Node errno) — DNS / reset / refused / timeout are all
   // transient: we can retry the same request and may succeed.
   if (chain.some((item) => TRANSIENT_ERROR_CODES.has(String(item?.code || '')))) return 'transient'
-  // The Anthropic SDK uses APIConnectionError for transport failures which
-  // may not carry a Node errno. Native fetch wraps its errno in cause.code,
+  // Anthropic/OpenAI SDK connection + timeout classes, plus undici timeout
+  // names, may not carry a Node errno. Native fetch wraps errno in cause.code,
   // which the bounded chain check above already covers.
-  if (String(err.name || '') === 'APIConnectionError') return 'transient'
+  if (chain.some((item) => TRANSIENT_SDK_NAMES.has(String(item?.name || '')))) return 'transient'
+  if (isGeminiTransientRpc(err)) return 'transient'
 
   // Bare fetch transport failures carry NO status and NO errno; their only
   // signal is the runtime's message ('fetch failed' Node, 'Failed to fetch'
@@ -156,6 +184,12 @@ const TRANSIENT_ERROR_CODES = new Set([
   'ECONNRESET', 'ETIMEDOUT', 'ESOCKETTIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND',
   'EAI_NODATA', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE',
   'EPROVIDERTIMEOUT', 'EGEMINITIMEOUT', 'ESTREAMSTALL', 'EWSACQUIRETIMEOUT',
+  'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT', 'UND_ERR_CONNECT', 'EPROTO',
+  'UND_ERR_DESTROYED', 'UND_ERR_CLOSED',
+  'ECONNABORTED', 'ENETRESET', 'ERR_STREAM_DESTROYED',
+  'ERR_HTTP2_STREAM_ERROR', 'ERR_HTTP2_SESSION_ERROR', 'ERR_HTTP2_INVALID_SESSION',
+  'ERR_SOCKET_CONNECTION_TIMEOUT',
 ])
 
 // WebSocket close codes that can end a Responses stream BEFORE its terminal
@@ -253,6 +287,10 @@ const CONTEXT_OVERFLOW_PATTERNS = [
  */
 export function isContextOverflowError(err, _depth = 0) {
   if (!err || _depth > 2) return false
+  const status = Number(err?.httpStatus || err?.status || err?.response?.status || 0) || 0
+  if (status === 413) return true
+  const code = typedErrorCode(err)
+  if (code && CONTEXT_OVERFLOW_CODES.has(code)) return true
   const msg = (err instanceof Error ? err.message : (typeof err === 'string' ? err : err?.message)) || ''
   if (msg && CONTEXT_OVERFLOW_PATTERNS.some((re) => re.test(msg))) return true
   if (err.cause != null && err.cause !== err) return isContextOverflowError(err.cause, _depth + 1)
@@ -307,11 +345,31 @@ export function retryAfterMsFromError(err) {
       }
     }
   }
+  const resetHeader = _headerValue(headers, ANTHROPIC_RESET_HEADER)
+  if (resetHeader != null && resetHeader !== '') {
+    const resetUnixSec = Number(resetHeader)
+    if (Number.isFinite(resetUnixSec) && resetUnixSec > 0) {
+      const delayMs = Math.ceil(resetUnixSec * 1000 - Date.now())
+      if (delayMs > 0) return Math.min(delayMs, ANTHROPIC_RESET_CAP_MS)
+    }
+  }
+  // Codex parses the server-supplied window from a TYPED rate_limit_exceeded
+  // payload. Message text never decides whether to retry — only how long to
+  // wait after the typed code is already in hand. Headers / RetryInfo win.
+  if (typedErrorCode(err) === RATE_LIMIT_EXCEEDED) {
+    const delay = rateLimitRetryAfterMsFromMessage(err)
+    if (delay != null) return delay
+  }
   return null
 }
 
 function isPermanentQuotaError(err) {
-  const permanentCodes = new Set(['insufficient_quota', 'quota_exceeded', 'resource_exhausted'])
+  const status = Number(err?.httpStatus || err?.status || err?.response?.status || 0) || 0
+  // Gemini uses RESOURCE_EXHAUSTED for both daily quota and per-minute
+  // rate limits. A 429 is request-local (Google/LiteLLM retry); without a
+  // 429 the same code stays a deterministic quota refusal.
+  const permanentCodes = new Set(['insufficient_quota', 'quota_exceeded'])
+  if (status !== 429) permanentCodes.add('resource_exhausted')
   for (const item of boundedCauseChain(err)) {
     const codes = [item?.code, item?.error?.code]
     if (codes.some((code) => permanentCodes.has(String(code || '').toLowerCase()))) return true
@@ -341,10 +399,64 @@ const WIRE_ERROR_FATAL_CODES = new Set([
 function wireErrorCode(err) {
   const failed = err?.responseFailed
   const detail = failed?.response?.error || failed?.error || err?.providerError || failed || null
-  for (const field of [detail?.code, detail?.type, err?.providerErrorCode]) {
+  for (const field of [detail?.code, detail?.type, err?.providerErrorCode, err?.code, err?.error?.code]) {
     if (typeof field === 'string' && field.trim()) return field.trim().toLowerCase()
   }
   return ''
+}
+
+function typedErrorCode(err) {
+  return wireErrorCode(err)
+}
+
+/**
+ * True when the typed wire/SDK code is previous_response_not_found.
+ * Callers drop lastResponseId / previous_response_id and re-issue a full frame.
+ */
+export function shouldDropPreviousResponseId(err) {
+  return typedErrorCode(err) === PREVIOUS_RESPONSE_NOT_FOUND
+}
+
+function isGeminiTransientRpc(err) {
+  for (const item of boundedCauseChain(err)) {
+    for (const field of [item?.geminiStatus, item?.error?.status]) {
+      if (typeof field !== 'string') continue
+      const key = field.toUpperCase()
+      if (GEMINI_TRANSIENT_RPC_CODES.has(key) || key === 'RESOURCE_EXHAUSTED') return true
+    }
+    if (typeof item?.status === 'string') {
+      const key = item.status.toUpperCase()
+      if (GEMINI_TRANSIENT_RPC_CODES.has(key)) return true
+    }
+    const code = item?.code
+    if (typeof code === 'string' && GEMINI_TRANSIENT_RPC_CODES.has(code.toUpperCase())) return true
+  }
+  return false
+}
+
+function isStaleKeepAliveError(err) {
+  return boundedCauseChain(err).some((item) => {
+    const code = String(item?.code || '')
+    return code === 'ECONNRESET' || code === 'EPIPE' || code === 'UND_ERR_SOCKET'
+  })
+}
+
+const RATE_LIMIT_RETRY_AFTER_RE = /try again in\s*(\d+(?:\.\d+)?)\s*(ms|s|seconds?)\b/i
+
+function rateLimitRetryAfterMsFromMessage(err) {
+  const failed = err?.responseFailed
+  const detail = failed?.response?.error || failed?.error || err?.providerError || err?.error || null
+  const messages = [detail?.message, err?.message]
+  for (const message of messages) {
+    if (typeof message !== 'string' || !message) continue
+    const match = message.match(RATE_LIMIT_RETRY_AFTER_RE)
+    if (!match) continue
+    const value = Number(match[1])
+    if (!Number.isFinite(value) || value < 0) continue
+    const unit = String(match[2] || '').toLowerCase()
+    return unit === 'ms' ? Math.ceil(value) : Math.ceil(value * 1000)
+  }
+  return null
 }
 
 // 'transient' | 'permanent' for errors born from a provider wire error event;
@@ -363,18 +475,36 @@ function classifyWireErrorEvent(err) {
  * reports 'permanent' the moment output was exposed, so the loop names this
  * symptom directly, exactly like stall/truncated/non-terminal-close.
  */
-export function isRetryableWireErrorEvent(err) {
+ export function isRetryableWireErrorEvent(err) {
   return classifyWireErrorEvent(err) === 'transient'
-}
+ }
 
-/**
+ /**
+ * Grok Build StreamError: a mid-stream wire fault is retryable even when the
+ * envelope type is invalid_request_error, unless a typed 4xx status or a
+ * deterministic refusal code (quota/context/auth) is present.
+ */
+ export function isRetryableStreamErrorEvent(err) {
+  if (classifyWireErrorEvent(err) === 'transient') return true
+  if (!err || err.providerWireError !== true) return false
+  const status = Number(err.httpStatus || err.status || err.response?.status || 0) || 0
+  if (status && status >= 400 && status < 500 && !TRANSIENT_STATUSES.has(status)) return false
+  const code = wireErrorCode(err)
+  if (code && WIRE_ERROR_FATAL_CODES.has(code)
+    && code !== 'invalid_request' && code !== 'invalid_request_error') {
+    return false
+  }
+  return true
+ }
+
+ /**
  * Convenience predicate: should this error be retried at the request level?
  * Wraps classifyError() with the standard "transient = retry, otherwise no"
  * policy. Callers that have provider-specific retry budgets (e.g. anthropic-
  * oauth's MAX_ATTEMPTS, openai-oauth-ws's mid-stream classifier) still gate
  * on attempt count separately; this helper only answers the kind question.
  */
-function isRetryable(err) {
+ function isRetryable(err) {
   return classifyError(err) === 'transient'
 }
 
@@ -575,6 +705,7 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
   const status = Number(err?.httpStatus || 0)
   if (status === 401 || status === 403 || status === 429) return null
   if (status >= 500 && status < 600) {
+    if (TERMINAL_EDGE_STATUSES.has(status)) return null
     return _allowMidstream(`http_${status}`, attemptIndex, policy)
   }
 
@@ -610,6 +741,7 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
     const detail = failed?.response?.error || failed?.error || failed
     const failedStatus = typedStatusFrom(detail, failed?.response, failed)
     if (failedStatus >= 500 && failedStatus < 600) {
+      if (TERMINAL_EDGE_STATUSES.has(failedStatus)) return null
       return _allowMidstream(`http_${failedStatus}`, attemptIndex, policy)
     }
     for (const field of [detail?.code, detail?.type]) {
@@ -637,6 +769,8 @@ const RESPONSE_FAILED_CODE_CLASSIFIERS = new Map([
   ['network_error', 'response_failed_network'],
   ['auth_context_expired', 'response_failed_auth_expired'],
   ['auth_expired', 'response_failed_auth_expired'],
+  ['previous_response_not_found', 'previous_response_not_found'],
+  ['websocket_connection_limit_reached', 'websocket_connection_limit'],
 ])
 
 // SSE classification consumes the provider's stream-state signals.
@@ -651,7 +785,10 @@ function _classifyMidstreamSse(err, state, attemptIndex, policy) {
   const status = Number(err?.httpStatus || err?.status || err?.response?.status || 0)
   if (status === 401 || status === 403) return null
   if (status === 429) return 'http_429'
-  if (status >= 500 && status < 600) return `http_${status}`
+  if (status >= 500 && status < 600) {
+    if (TERMINAL_EDGE_STATUSES.has(status)) return null
+    return `http_${status}`
+  }
 
   const name = err?.name || ''
   if (name === 'AgentStallAbortError') return 'agent_stall'
@@ -685,6 +822,12 @@ const TRANSPORT_FALLBACK_CLASSIFIERS = new Set([
 const TRANSPORT_FALLBACK_ERRNO = new Set([
   'EWSACQUIRETIMEOUT', 'ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET', 'EAI_AGAIN',
   'ENOTFOUND', 'EAI_NODATA', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE',
+  'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT', 'UND_ERR_CONNECT', 'EPROTO',
+  'UND_ERR_DESTROYED', 'UND_ERR_CLOSED',
+  'ECONNABORTED', 'ENETRESET', 'ERR_STREAM_DESTROYED',
+  'ERR_HTTP2_STREAM_ERROR', 'ERR_HTTP2_SESSION_ERROR', 'ERR_HTTP2_INVALID_SESSION',
+  'ERR_SOCKET_CONNECTION_TIMEOUT',
 ])
 
 export function shouldFallbackTransport(err, { signal, enabled = true } = {}) {
@@ -700,6 +843,7 @@ export function shouldFallbackTransport(err, { signal, enabled = true } = {}) {
   // (408/409/5xx) — an arbitrary nonzero status is not fallback evidence.
   if (status === 401) return false
   if (status === 426) return true
+  if (TERMINAL_EDGE_STATUSES.has(status)) return false
   if (TRANSIENT_STATUSES.has(status) || (status >= 500 && status < 600)) return true
   if (status > 0) return false
   const code = String(err?.code || '')
@@ -815,6 +959,7 @@ export function classifyHandshakeError(err, { retry429 = true } = {}) {
     // is a deterministic decision: spending the retry budget on it cannot
     // change the answer.
     if (status === 429 || TRANSIENT_STATUSES.has(status) || (status >= 500 && status < 600)) {
+      if (TERMINAL_EDGE_STATUSES.has(status)) return null
       return `http_${status}`
     }
     return null
@@ -826,6 +971,15 @@ export function classifyHandshakeError(err, { retry429 = true } = {}) {
   if (code === 'ETIMEDOUT' || code === 'ESOCKETTIMEDOUT') return 'timeout'
   if (code === 'EWSACQUIRETIMEOUT') return 'acquire_timeout'
   if (code === 'ENETUNREACH' || code === 'EHOSTUNREACH' || code === 'EPIPE') return 'network'
+  if (TRANSIENT_ERROR_CODES.has(String(code))) {
+    if (code === 'UND_ERR_SOCKET' || code === 'EPROTO') return 'network'
+    if (code === 'UND_ERR_DESTROYED' || code === 'UND_ERR_CLOSED' || code === 'ERR_STREAM_DESTROYED') return 'reset'
+    if (code === 'ECONNABORTED' || code === 'ENETRESET') return 'reset'
+    if (String(code).startsWith('ERR_HTTP2_')) return 'reset'
+    if (code === 'UND_ERR_CONNECT' || code === 'UND_ERR_CONNECT_TIMEOUT') return 'timeout'
+    if (code === 'UND_ERR_HEADERS_TIMEOUT' || code === 'UND_ERR_BODY_TIMEOUT') return 'timeout'
+    if (code === 'ERR_SOCKET_CONNECTION_TIMEOUT') return 'timeout'
+  }
 
   return null
 }
@@ -906,6 +1060,14 @@ export async function withRetry(fn, opts = {}) {
       // an eligible failure is actually retried remains the typed question
       // resolved by classifyError()/status below.
       if (readStreamOutcome(caught).replaySafe !== true) throw caught
+      if (isStaleKeepAliveError(caught)) {
+        try { recycleLlmDispatcher() } catch { /* never let pool recycle break retry */ }
+      }
+      // Grok rebuilds the HTTP client on the first 5xx to escape a poisoned
+      // HTTP/2 keep-alive pool (CF 522/523/524 included). 525/526 stay fatal.
+      else if (status >= 500 && status < 600 && !TERMINAL_EDGE_STATUSES.has(status)) {
+        try { recycleLlmDispatcher() } catch { /* never let pool recycle break retry */ }
+      }
       // x-should-retry:false is an explicit server veto on retrying and is
       // honored as-is.
       // Keep this ahead of status defaults, including the request-local 429 path.

@@ -5,6 +5,7 @@ import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCate
 import { applyUsageDelta } from './session-stats.mjs';
 import { pickVerb, pickDoneVerb, compactEventLabel, compactEventDetail } from './labels.mjs';
 import { toolResultText, toolErrorDisplay, stripShellExitHeader } from './tool-result-text.mjs';
+import { isCancelLikeError } from '../../runtime/shared/err-text.mjs';
 import { toolCallId, toolResultCallId, toolCallName, toolCallArgs } from './tool-call-fields.mjs';
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { TUI_FRAME_MS, yieldToRenderer } from './render-timing.mjs';
@@ -1035,10 +1036,15 @@ export function createRunTurn(bag) {
           if (thinkingLastEndedAt) _pendingThinkingLastEndedAt = thinkingLastEndedAt;
           scheduleStreamFlush();
         },
-        onTextReset: ({ chars } = {}) => {
+        onTextReset: ({ chars, reasoning } = {}) => {
           if (!isCurrentTurn()) return false;
           const count = Math.max(0, Number(chars) || 0);
-          if (!count) return false;
+          if (reasoning) {
+            closeThinkingSegment();
+            _pendingThinkFlush = false;
+            if (getState().thinking) { set({ thinking: null }); _publishedThinkingActive = false; }
+          }
+          if (!count) return reasoning === true;
           flushStreamBatch();
           assistantText = assistantText.slice(0, Math.max(0, assistantText.length - count));
           currentAssistantText = currentAssistantText.slice(
@@ -1181,7 +1187,7 @@ export function createRunTurn(bag) {
         cancelled = true;
       } else {
         flushStreamBatch(); // ensure any batched text lands before the error notice
-        if (error?.name === 'SessionClosedError') {
+        if (isCancelLikeError(error)) {
           cancelled = true;
           // Tool boundaries already sealed prior progress segments into their
           // own rows. On abort, preserve only the still-open segment; replaying

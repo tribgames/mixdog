@@ -929,9 +929,9 @@ export function StudioPane({
   const detailSections = (asset: MediaAsset) => <>
     <section className="studio-detail-block studio-detail-block--prompt">
       <div className="studio-detail-block-head">
-        <span>PROMPT</span>
+        <span>{t('PROMPT')}</span>
         <button type="button" onClick={() => void copyPrompt(asset)}>
-          <Copy size={12} aria-hidden="true" />{copied ? 'Copied' : 'Copy'}
+          <Copy size={12} aria-hidden="true" />{copied ? t('Copied') : t('Copy')}
         </button>
       </div>
       <p className="studio-detail-prompt" data-open={promptOpen ? 'true' : undefined}
@@ -1401,32 +1401,6 @@ export function StudioPane({
           </div>)}
         </div>
       </div>
-      {selected && <div className="studio-detail" role="dialog" aria-label={t('Generated media detail')}
-        onClick={() => setSelected(null)}>
-        <div className="studio-detail-card" onClick={(event) => event.stopPropagation()}>
-        <div className="studio-detail-stage">
-          {selected.kind === 'video'
-            ? <video key={mediaForeground ? 'foreground' : 'suspended'}
-              src={mediaForeground ? assetUrl(selected.id, 'original') || previewUrl : undefined}
-              poster={assetUrl(selected.id, 'thumb') || thumbs[selected.id] || undefined}
-              controls={mediaForeground} autoPlay={mediaForeground} playsInline
-              preload={mediaForeground ? 'metadata' : 'none'}
-              onError={() => markUrlBroken(selected.id, 'original')} />
-            : <img src={assetUrl(selected.id, 'display') || previewUrl || thumbs[selected.id] || ''}
-              alt={selected.prompt} onError={() => markUrlBroken(selected.id, 'display')} />}
-          <button type="button" className="studio-detail-stage-close" aria-label={t('Close preview')}
-            onClick={() => setSelected(null)}><X size={16} aria-hidden="true" /></button>
-        </div>
-        <aside className="studio-detail-side">
-          <header>
-            <b>{selected.kind === 'video' ? t('Video') : t('Image')}</b>
-            <button type="button" className="studio-detail-close" aria-label={t('Close preview')}
-              onClick={() => setSelected(null)}><X size={16} aria-hidden="true" /></button>
-          </header>
-          {detailSections(selected)}
-        </aside>
-        </div>
-      </div>}
       </div>
       <div className="studio-dock">
         {/* Progress AND job failures live on the pending tile; the banner is
@@ -1531,6 +1505,32 @@ export function StudioPane({
           </div>
         </div>
       </div>
+      {selected && <div className="studio-detail" role="dialog" aria-label={t('Generated media detail')}
+        onClick={() => setSelected(null)}>
+        <div className="studio-detail-card" onClick={(event) => event.stopPropagation()}>
+        <div className="studio-detail-stage">
+          {selected.kind === 'video'
+            ? <video key={mediaForeground ? 'foreground' : 'suspended'}
+              src={mediaForeground ? assetUrl(selected.id, 'original') || previewUrl : undefined}
+              poster={assetUrl(selected.id, 'thumb') || thumbs[selected.id] || undefined}
+              controls={mediaForeground} autoPlay={mediaForeground} playsInline
+              preload={mediaForeground ? 'metadata' : 'none'}
+              onError={() => markUrlBroken(selected.id, 'original')} />
+            : <img src={assetUrl(selected.id, 'display') || previewUrl || thumbs[selected.id] || ''}
+              alt={selected.prompt} onError={() => markUrlBroken(selected.id, 'display')} />}
+          <button type="button" className="studio-detail-stage-close" aria-label={t('Close preview')}
+            onClick={() => setSelected(null)}><X size={16} aria-hidden="true" /></button>
+        </div>
+        <aside className="studio-detail-side">
+          <header>
+            <b>{selected.kind === 'video' ? t('Video') : t('Image')}</b>
+            <button type="button" className="studio-detail-close" aria-label={t('Close preview')}
+              onClick={() => setSelected(null)}><X size={16} aria-hidden="true" /></button>
+          </header>
+          {detailSections(selected)}
+        </aside>
+        </div>
+      </div>}
     </div>
     </div>
   </div>;

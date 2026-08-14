@@ -105,6 +105,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
         _rangeHashesFromRenderedReadText,
         _rawContentCacheGet,
         _rawContentCacheSet,
+        _runRawContentInFlight,
         _recordReadSnapshot,
     } = helpers;
     const _readMaxOutputBytes = Number(options?.readOutputBudgetBytes) > 0
@@ -453,7 +454,11 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             _prefetchedRawBuf = _cachedRaw;
             _prefetchedRawFromCache = true;
         } else {
-            try { _prefetchedRawBuf = await readFile(fullPath); } catch { _prefetchedRawBuf = null; }
+            try {
+                _prefetchedRawBuf = _runRawContentInFlight
+                    ? await _runRawContentInFlight(fullPath, readFile)
+                    : await readFile(fullPath);
+            } catch { _prefetchedRawBuf = null; }
         }
     }
     const _readEnc = _prefetchedRawBuf

@@ -4,7 +4,7 @@
 // the delayed reap timers. The maps are returned by reference so the
 // remaining agent-tool closure keeps its original direct reads.
 import { agentTagOf, clean, clearAgentStatuslineRoute, positiveInt, rowMatchesContext, sessionMatchesContext } from './helpers.mjs';
-import { TAG_TOMBSTONE_TTL_MS, isTerminalWorkerStatus, tagTombstoneKey, workerRowTime, workerRowToSession } from './worker-rows.mjs';
+import { TAG_TOMBSTONE_TTL_MS, isLeadPoolAgent, isTerminalWorkerStatus, tagTombstoneKey, workerRowTime, workerRowToSession } from './worker-rows.mjs';
 import { resolveAgentTerminalReapMs } from '../../session-runtime/config-helpers.mjs';
 import { createWorkerIndex } from './worker-index.mjs';
 export function createTagRegistry({
@@ -28,6 +28,7 @@ export function createTagRegistry({
     flushWorkerIndexMutations,
     upsertWorkerSession,
     upsertWorkerSessionDeferred,
+    upsertLeadSession,
     removeWorkerRow,
     refreshTagsFromIndex,
   } = createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCwds });
@@ -90,6 +91,7 @@ export function createTagRegistry({
       const tag = clean(row?.tag);
       const sessionId = clean(row?.sessionId);
       if (!tag || !sessionId || !rowMatchesContext(row, context)) return;
+      if (isLeadPoolAgent(row.agent)) return;
       if (seen.has(sessionId)) return;
       // Collision/resolution enumeration only: a row that is in a terminal
       // (or idle-but-finished) state AND has no live session behind it is a
@@ -271,6 +273,7 @@ export function createTagRegistry({
 
   function transitionStaleNonterminalRows(context = {}) {
     const staleRows = readWorkerRows(context).filter((row) => {
+      if (isLeadPoolAgent(row.agent)) return false;
       if (isTerminalWorkerStatus(row.status || row.stage)) return false;
       if (getLiveSession(clean(row.sessionId))) return false;
       const rowTime = workerRowTime(row);
@@ -318,6 +321,7 @@ export function createTagRegistry({
     flushWorkerIndexMutations,
     upsertWorkerSession,
     upsertWorkerSessionDeferred,
+    upsertLeadSession,
     removeWorkerRow,
     refreshTagsFromIndex,
     tags,

@@ -7,6 +7,15 @@ export function workerRowKey(row = {}) {
   return clean(row.sessionId) || clean(row.tag);
 }
 
+export function leadPoolTag(sessionId) {
+  const id = clean(sessionId);
+  return id ? `lead:${id}` : '';
+}
+
+export function isLeadPoolAgent(value) {
+  return clean(value).toLowerCase() === 'lead';
+}
+
 export function workerRowTime(row = {}) {
   return Date.parse(row.updatedAt || row.finishedAt || row.lastUsedAt || row.createdAt || '') || 0;
 }

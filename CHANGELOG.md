@@ -12,6 +12,16 @@ the Unreleased section is empty, and stamps it with the released version.
   child processes inherit an enforced no-egress proxy (loopback stays
   reachable), and the session environment line states network=offline so
   models never attempt web access.
+- Provider and session recovery now classifies transient stream failures
+  consistently, retries image-rejected turns without losing user intent, and
+  preserves interruption, summary, and terminal outcome state across Gemini
+  and OpenAI transports.
+- Tool failures are persisted without test-trace pollution, shell policy avoids
+  quoted-script false positives, and native search/read/list/stat paths share
+  cancellable work while preserving fresh watcher invalidation and exact-file
+  grep/glob behavior under load.
+- Desktop Studio, usage, agent activity, pane layout, localization, and worker
+  tag presentation now stay aligned across restored and live sessions.
 
 ## v0.9.128 - 2026-08-14
 

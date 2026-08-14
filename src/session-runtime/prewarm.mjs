@@ -126,31 +126,28 @@ export function createPrewarmSchedulers({
     const start = () => void (async () => {
       timers.searchRuntimeWarmupTimer = null;
       if (isCloseRequested()) return;
-      try {
+      const root = getCurrentCwd();
+      const nativeSearchWarm = (async () => {
         const { warmNativeSearchServer } = await import('../runtime/agent/orchestrator/tools/builtin/native-search-client.mjs');
         bootProfile('native-search:warm', { up: await warmNativeSearchServer() === true });
-      } catch (error) {
+      })().catch((error) => {
         bootProfile('native-search:warm-failed', { error: error?.message || String(error) });
-      }
-      try {
+      });
+      const findIndexWarm = (async () => {
         const { prewarmFindEnumeration } = await import('../runtime/agent/orchestrator/tools/builtin/list-tool.mjs');
-        const root = getCurrentCwd();
         bootProfile('find-index:prewarm-scheduled', { cwd: root });
-        void prewarmFindEnumeration(root)
-          .then(() => bootProfile('find-index:prewarm-complete', { cwd: root }))
-          .catch((error) => bootProfile('find-index:prewarm-failed', {
-            cwd: root,
-            error: error?.message || String(error),
-          }));
-      } catch (error) {
+        await prewarmFindEnumeration(root);
+        bootProfile('find-index:prewarm-complete', { cwd: root });
+      })().catch((error) => {
         bootProfile('find-index:prewarm-failed', { error: error?.message || String(error) });
-      }
-      try {
+      });
+      const nativeSpawnWarm = (async () => {
         const { warmNativeSpawnServer } = await import('../runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs');
         bootProfile('native-spawn:warm', { up: await warmNativeSpawnServer() === true });
-      } catch (error) {
+      })().catch((error) => {
         bootProfile('native-spawn:warm-failed', { error: error?.message || String(error) });
-      }
+      });
+      await Promise.all([nativeSearchWarm, findIndexWarm, nativeSpawnWarm]);
     });
     if (delayMs <= 0) {
       start();

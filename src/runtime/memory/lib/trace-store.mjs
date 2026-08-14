@@ -56,6 +56,9 @@ async function init(client) {
       model              TEXT,
       tool_name          TEXT,
       tool_ms            INTEGER,
+      result_kind        TEXT,
+      result_error_category TEXT,
+      result_error_first_line TEXT,
       input_tokens       INTEGER,
       output_tokens      INTEGER,
       cached_tokens      INTEGER,
@@ -153,7 +156,13 @@ async function migrateSchemaDrift(client) {
   try {
     await client.query('BEGIN')
     await client.query(`SET LOCAL lock_timeout = '5s'`)
-    await client.query(`ALTER TABLE IF EXISTS trace_events   ADD COLUMN IF NOT EXISTS agent TEXT`)
+    await client.query(`ALTER TABLE IF EXISTS trace_events ADD COLUMN IF NOT EXISTS agent TEXT`)
+    await client.query(`ALTER TABLE IF EXISTS trace_events ADD COLUMN IF NOT EXISTS result_kind TEXT`)
+    await client.query(`ALTER TABLE IF EXISTS trace_events ADD COLUMN IF NOT EXISTS result_error_category TEXT`)
+    await client.query(`ALTER TABLE IF EXISTS trace_events ADD COLUMN IF NOT EXISTS result_error_first_line TEXT`)
+    await client.query(`ALTER TABLE IF EXISTS agent_calls ADD COLUMN IF NOT EXISTS result_kind TEXT`)
+    await client.query(`ALTER TABLE IF EXISTS agent_calls ADD COLUMN IF NOT EXISTS result_error_category TEXT`)
+    await client.query(`ALTER TABLE IF EXISTS agent_calls ADD COLUMN IF NOT EXISTS result_error_first_line TEXT`)
     await client.query(`ALTER TABLE IF EXISTS agent_sessions ADD COLUMN IF NOT EXISTS agent TEXT`)
     await client.query('COMMIT')
   } catch (err) {
@@ -184,12 +193,16 @@ async function initAgentTables(client) {
       tool_name    TEXT,
       tool_kind    TEXT,
       tool_ms      INT,
-      tool_args    JSONB
+      tool_args    JSONB,
+      result_kind  TEXT,
+      result_error_category TEXT,
+      result_error_first_line TEXT
     )
   `)
   await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_session   ON agent_calls (session_id, iteration)`)
   await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_ts        ON agent_calls USING BRIN (ts)`)
   await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_tool_name ON agent_calls (tool_name)`)
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_errors_ts ON agent_calls (ts DESC) WHERE result_kind = 'error'`)
   // Expression indexes covering the two actual query patterns (md5 dedup + path lookup).
   // The old GIN index had no @> callers and was write-heavy; dropped in favour of these.
   await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_args_md5  ON agent_calls (session_id, tool_name, md5(tool_args::text))`)
@@ -271,7 +284,21 @@ export async function insertAgentCalls(db, events) {
       const tool_kind = ev.tool_kind ?? ev.toolKind ?? null
       const tool_ms   = ev.tool_ms   ?? ev.toolMs   ?? null
       const tool_args = ev.tool_args ?? ev.toolArgs  ?? null
-      toolRows.push({ session_id: sid, iteration: iter, ts: tsIso, tool_name, tool_kind, tool_ms: tool_ms != null ? Number(tool_ms) : null, tool_args: _capToolArgsSync(tool_args) })
+      const result_kind = ev.result_kind ?? ev.resultKind ?? null
+      const result_error_category = ev.result_error_category ?? ev.resultErrorCategory ?? null
+      const result_error_first_line = ev.result_error_first_line ?? ev.resultErrorFirstLine ?? null
+      toolRows.push({
+        session_id: sid,
+        iteration: iter,
+        ts: tsIso,
+        tool_name,
+        tool_kind,
+        tool_ms: tool_ms != null ? Number(tool_ms) : null,
+        tool_args: _capToolArgsSync(tool_args),
+        result_kind,
+        result_error_category,
+        result_error_first_line,
+      })
     } else if (ev.kind === 'usage_raw' || (ev.input_tokens != null && ev.output_tokens != null)) {
       llmRows.push({ session_id: sid, iteration: iter, ts: tsIso, model: ev.model ?? null,
         input_tokens:        ev.input_tokens        ?? ev.inputTokens        ?? null,
@@ -294,11 +321,12 @@ export async function insertAgentCalls(db, events) {
 
   if (toolRows.length > 0) {
     await client.query(
-      `INSERT INTO agent_calls (session_id,iteration,ts,tool_name,tool_kind,tool_ms,tool_args)
+      `INSERT INTO agent_calls (session_id,iteration,ts,tool_name,tool_kind,tool_ms,tool_args,result_kind,result_error_category,result_error_first_line)
        SELECT u.session_id, u.iteration::int, u.ts::timestamptz,
-              u.tool_name, u.tool_kind, u.tool_ms::int, u.tool_args::jsonb
-       FROM unnest($1::text[],$2::int[],$3::text[],$4::text[],$5::text[],$6::int[],$7::text[])
-            AS u(session_id,iteration,ts,tool_name,tool_kind,tool_ms,tool_args)`,
+              u.tool_name, u.tool_kind, u.tool_ms::int, u.tool_args::jsonb,
+              u.result_kind, u.result_error_category, u.result_error_first_line
+       FROM unnest($1::text[],$2::int[],$3::text[],$4::text[],$5::text[],$6::int[],$7::text[],$8::text[],$9::text[],$10::text[])
+            AS u(session_id,iteration,ts,tool_name,tool_kind,tool_ms,tool_args,result_kind,result_error_category,result_error_first_line)`,
       [
         toolRows.map(r => r.session_id),
         toolRows.map(r => r.iteration),
@@ -307,6 +335,9 @@ export async function insertAgentCalls(db, events) {
         toolRows.map(r => r.tool_kind),
         toolRows.map(r => r.tool_ms),
         toolRows.map(r => r.tool_args != null ? JSON.stringify(r.tool_args) : null),
+        toolRows.map(r => r.result_kind),
+        toolRows.map(r => r.result_error_category),
+        toolRows.map(r => r.result_error_first_line),
       ],
     )
   }
@@ -672,7 +703,8 @@ export async function openTraceDatabase(dataDir) {
 
 const TRACE_COLS = [
   'ts', 'session_id', 'iteration', 'kind', 'agent', 'model',
-  'tool_name', 'tool_ms', 'input_tokens', 'output_tokens',
+  'tool_name', 'tool_ms', 'result_kind', 'result_error_category',
+  'result_error_first_line', 'input_tokens', 'output_tokens',
   'cached_tokens', 'cache_write_tokens', 'duration_ms',
   'error_message', 'payload', 'parent_span_id', 'entry_id',
 ]
@@ -935,6 +967,9 @@ export async function insertTraceEvents(db, events) {
       ev.model ?? null,
       ev.tool_name ?? null,
       ev.tool_ms != null ? Number(ev.tool_ms) : null,
+      ev.result_kind ?? ev.resultKind ?? null,
+      ev.result_error_category ?? ev.resultErrorCategory ?? null,
+      ev.result_error_first_line ?? ev.resultErrorFirstLine ?? null,
       ev.input_tokens != null ? Number(ev.input_tokens) : null,
       ev.output_tokens != null ? Number(ev.output_tokens) : null,
       ev.cached_tokens != null ? Number(ev.cached_tokens) : null,

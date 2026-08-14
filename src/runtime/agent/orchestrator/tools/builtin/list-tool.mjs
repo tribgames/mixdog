@@ -18,6 +18,7 @@ import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outc
 import {
     cacheGet,
     cacheSet,
+    runResultCacheInFlight,
     lstatPathsForMtime,
     statCacheSet,
     statPathsForMtime,
@@ -139,6 +140,17 @@ export async function executeListTool(args, workDir, options = {}) {
     });
     const cached = cacheGet(cacheKey);
     if (cached !== null) return cached;
+    if (options?._listSingleFlightKey !== cacheKey) {
+        return await runResultCacheInFlight(
+            cacheKey,
+            ({ signal }) => executeListTool(
+                { ...args },
+                workDir,
+                { ...options, signal, _listSingleFlightKey: cacheKey },
+            ),
+            { signal: options?.signal || options?.abortSignal || null },
+        );
+    }
     let _preStat;
     try { _preStat = await assertPathReachable(fullPath); }
     catch (err) { return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`; }
@@ -597,7 +609,6 @@ async function getBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMo
     // instead of spawning N identical enumerations.
     const inflight = FIND_ENUM_INFLIGHT.get(key);
     if (inflight) return subscribeToFindEnumeration(key, inflight, signal);
-    void bestEffort;
     const genAtStart = FIND_ENUM_GEN;
     const rootGenAtStart = rootGen;
     const controller = new AbortController();
@@ -609,7 +620,14 @@ async function getBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMo
         if (runRgImpl === runRg) {
             const served = await runRgWindowedLines(rgArgs, {
                 cwd, timeout: 10_000, signal: controller.signal,
-            }, { offset: 0, limit: 50_000, nativeInventory: true });
+            }, {
+                offset: 0,
+                limit: 50_000,
+                nativeInventory: true,
+                // Only explicit boot/prewarm work may finish an inventory after
+                // its caller leaves. Normal find calls cancel on last waiter.
+                keepWarm: bestEffort,
+            });
             files = parseRgFileList(served.lines.join('\n'));
             truncated = served.complete !== true || served.truncated === true;
             partial = served.partial === true || served.timeout === true;

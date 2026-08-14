@@ -259,7 +259,13 @@ export function basePathDiagnostic(basePaths, workDir, statCache = null) {
         const cached = statCache && statCache.get(resolved);
         if (cached) { st = cached.st; err = cached.err; }
         else { try { st = statSync(resolved); } catch (e) { err = e; } }
-        if (!err) {
+        // Older/in-flight cache entries may be Promises rather than settled
+        // {st,err} records. Fall back to a direct stat instead of dereferencing
+        // an undefined `st` in an empty-result diagnostic.
+        if (!err && !st) {
+            try { st = statSync(resolved); } catch (e) { err = e; }
+        }
+        if (!err && st) {
             return `${normalizeOutputPath(basePath)}: ${st.isDirectory() ? 'path exists (dir)' : 'path exists (file)'}`;
         }
         return `${normalizeOutputPath(basePath)}: path does not exist (${err?.code || 'ENOENT'})`

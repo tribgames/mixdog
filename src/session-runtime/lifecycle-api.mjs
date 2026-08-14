@@ -528,6 +528,9 @@ export function createLifecycleApi(deps) {
         closeSurfaceSession(prev, 'cli-resume', { tombstone });
       }
       setSession(resumed);
+      try {
+        agentTool?.upsertLeadSession?.(resumed, { status: 'idle', stage: 'idle' });
+      } catch { /* lead pool must never break resume */ }
       applyResolvedCwd(resolveResumeCwd(resumed, getCurrentCwd()), { markRefresh: false });
       // Cwd application is synchronous even though MCP reconnect may continue
       // in the background. Commit it before returning the resume transcript.
