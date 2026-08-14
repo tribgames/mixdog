@@ -34,12 +34,24 @@ export function createPrewarmSchedulers({
     }
     if (isCloseRequested()) return;
     state.codeGraphPrewarmQueuedCwd = getCurrentCwd();
-    if (timers.codeGraphPrewarmTimer) return;
+    if (timers.codeGraphPrewarmTimer) {
+      // Upgrade a pending idle/cwd warm when the first visible provider token
+      // arrives. Keeping the older timer would preserve its non-overlap reason
+      // and defer the graph until after the active turn.
+      if (reason !== 'first-visible') return;
+      clearTimeout(timers.codeGraphPrewarmTimer);
+      timers.codeGraphPrewarmTimer = null;
+    }
     timers.codeGraphPrewarmTimer = setTimeout(() => {
       timers.codeGraphPrewarmTimer = null;
       if (isCloseRequested()) return;
-      if (getActiveTurnCount() > 0 || getSessionCreatePromise()) {
-        bootProfile('code-graph:prewarm-deferred', { reason: getActiveTurnCount() > 0 ? 'turn-active' : 'session-create' });
+      const activeTurn = getActiveTurnCount() > 0;
+      // first-visible is armed only after TTFT. Let that warm overlap the
+      // provider's remaining generation instead of retrying until the turn
+      // ends, which made first-turn code_graph calls pay the full cold build.
+      const canOverlapActiveTurn = reason === 'first-visible';
+      if ((activeTurn && !canOverlapActiveTurn) || getSessionCreatePromise()) {
+        bootProfile('code-graph:prewarm-deferred', { reason: activeTurn ? 'turn-active' : 'session-create' });
         scheduleCodeGraphPrewarm(backgroundBusyRetryMs, 'busy');
         return;
       }

@@ -550,7 +550,6 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
     };
     let mut i = 0usize;
     let mut options = true;
-    let mut saw_glob = false;
     let take = |i: &mut usize, args: &[String]| -> Result<String, String> {
         *i += 1;
         args.get(*i)
@@ -591,13 +590,9 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
             "--type" => p.file_types.push(take(&mut i, args)?),
             "-e" => p.patterns.push(take(&mut i, args)?),
             "--glob" => {
-                saw_glob = true;
                 p.globs.push(take(&mut i, args)?);
             }
             "--iglob" => {
-                if saw_glob {
-                    return Err("--iglob after --glob".to_string());
-                }
                 p.iglobs.push(take(&mut i, args)?);
             }
             "--max-depth" => {
@@ -649,7 +644,7 @@ fn build_matcher(parsed: &ParsedArgs) -> Result<CompiledMatcher, String> {
         return builder
             .build_many(&parsed.patterns)
             .map(CompiledMatcher::Pcre)
-            .map_err(|error| format!("regex: {error}"));
+            .map_err(|error| format!("regex parse error: {error}"));
     }
     let mut builder = grep::regex::RegexMatcherBuilder::new();
     builder
@@ -663,7 +658,7 @@ fn build_matcher(parsed: &ParsedArgs) -> Result<CompiledMatcher, String> {
     builder
         .build_many(&parsed.patterns)
         .map(CompiledMatcher::Rust)
-        .map_err(|error| format!("regex: {error}"))
+        .map_err(|error| format!("regex parse error: {error}"))
 }
 
 struct CancelSink<'a, S> {

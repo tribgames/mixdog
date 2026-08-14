@@ -29,7 +29,14 @@ function _setServerReferenced(server, referenced) {
 
 function _resolveBinary() {
   if (_binaryPath !== undefined) return _binaryPath;
-  const explicit = String(process.env.MIXDOG_SEARCH_SERVER_BIN || '').trim();
+  // The graph and resident-search protocols ship in the same executable.
+  // Honor either override synchronously so a first grep never races the lazy
+  // graph module import while an explicitly injected binary already exists.
+  const explicit = String(
+    process.env.MIXDOG_SEARCH_SERVER_BIN
+    || process.env.MIXDOG_GRAPH_BIN
+    || '',
+  ).trim();
   if (explicit && existsSync(explicit)) {
     _binaryPath = explicit;
     return _binaryPath;
@@ -305,7 +312,12 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
       ? Math.floor(Number(opts.limit))
       : 0,
   }, execOptions, requestDeadlineMs);
-  if (!response || response.unsupported || response.error) return null;
+  if (!response) return null;
+  if (response.unsupported || response.error) {
+    const rejected = new Error(String(response.error || response.unsupported));
+    rejected.code = response.error ? 'NATIVE_SEARCH_ERROR' : 'NATIVE_SEARCH_UNSUPPORTED';
+    throw rejected;
+  }
   if (!Array.isArray(response.lines)) return null;
   return {
     lines: response.lines,
