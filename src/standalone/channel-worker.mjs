@@ -54,6 +54,7 @@ export function createStandaloneChannelWorker({
   dataDir,
   cwd = process.cwd(),
   leadPid = null,
+  getSessionId = () => null,
   onNotify,
 } = {}) {
   if (!rootDir) throw new Error('channels runtime rootDir is required');
@@ -218,6 +219,7 @@ export function createStandaloneChannelWorker({
       discovery,
       leadPid: daemonLeadPid,
       cwd,
+      restoreSessionId: typeof getSessionId === 'function' ? getSessionId() : null,
       onNotify: (message) => { try { onNotify?.(message); } catch {} },
       onFatal: () => {
         fatalDuringAttach = true;
@@ -321,7 +323,7 @@ export function createStandaloneChannelWorker({
     throw lastError || new Error('channel service call failed');
   }
 
-  function stop(reason = 'standalone shutdown') {
+  function stop(reason = 'standalone shutdown', options = {}) {
     stopRequested = true;
     stopClientHeartbeat();
     if (stopPromise) return stopPromise;
@@ -332,7 +334,9 @@ export function createStandaloneChannelWorker({
     attachPromise = null;
     daemonPid = null;
     stopPromise = Promise.all([
-      client ? client.close(reason).then(() => true).catch(() => true) : Promise.resolve(false),
+      client ? client.close(reason, {
+        preserveRemoteIntent: options.preserveRemoteIntent === true,
+      }).then(() => true).catch(() => true) : Promise.resolve(false),
       Promise.resolve(inFlightAttach).catch(() => null),
     ]).then(([detached]) => detached).finally(() => { stopPromise = null; });
     return stopPromise;

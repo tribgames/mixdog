@@ -1,6 +1,5 @@
 // Budget math, tool-output pruning, cycle1 draining, and preserved-fact
 // extraction. Extracted verbatim from compact.mjs (behavior-preserving).
-import { createHash } from 'node:crypto';
 import {
     sanitizeToolPairs,
     dedupToolResultBodies,
@@ -10,6 +9,7 @@ import {
     DEFAULT_COMPACTION_KEEP_TOKENS,
 } from '../context-utils.mjs';
 import { extractText, summarizeToolCall, redactRawSecretString, TOOL_CALL_FACT_ARGS_MAX_CHARS } from './text-utils.mjs';
+import { compactOffloadedToolResultText } from '../tool-result-offload.mjs';
 
 // Floor for the reserve-adjusted compact budget. When the tool-schema/request
 // reserve rivals the whole budget (huge agent tool surfaces), subtracting the
@@ -34,8 +34,6 @@ export function effectiveBudget(budgetTokens, opts) {
 }
 
 const PRUNE_TOOL_OUTPUT_MAX_CHARS = 2_000;
-const PRUNE_TOOL_OUTPUT_HEAD_CHARS = 1_000;
-const PRUNE_TOOL_OUTPUT_TAIL_CHARS = 600;
 const PRUNE_TAIL_TURNS = 2;
 const MIN_PRESERVE_RECENT_TOKENS = 2_000;
 const PRESERVED_FACTS_MAX_CHARS = 600;
@@ -136,17 +134,9 @@ function protectedTailStart(messages, tailTurns = PRUNE_TAIL_TURNS) {
 }
 
 function pruneToolOutputText(text, maxChars, toolCallId) {
-    const value = String(text ?? '').replace(/\r\n/g, '\n');
+    const value = String(text ?? '');
     if (value.length <= maxChars) return value;
-    const hash = createHash('sha256').update(value).digest('hex').slice(0, 16);
-    const head = value.slice(0, PRUNE_TOOL_OUTPUT_HEAD_CHARS);
-    const tail = value.slice(-PRUNE_TOOL_OUTPUT_TAIL_CHARS);
-    return [
-        `[mixdog pruned old tool output: ${value.length} chars, sha256:${hash}${toolCallId ? `, tool_use_id=${toolCallId}` : ''}]`,
-        head,
-        '... [old tool output omitted during worker compaction] ...',
-        tail,
-    ].join('\n');
+    return compactOffloadedToolResultText(value);
 }
 
 export function pruneToolOutputs(messages, budgetTokens, opts = {}) {
@@ -172,9 +162,11 @@ export function pruneToolOutputs(messages, budgetTokens, opts = {}) {
     candidates.sort((a, b) => b.length - a.length);
     for (const c of candidates) {
         const m = result[c.index];
+        const content = pruneToolOutputText(m.content, maxChars, m.toolCallId);
+        if (content === m.content) continue;
         const pruned = {
             ...m,
-            content: pruneToolOutputText(m.content, maxChars, m.toolCallId),
+            content,
             compacted: true,
             compactedKind: 'tool_output_prune',
         };
@@ -185,16 +177,12 @@ export function pruneToolOutputs(messages, budgetTokens, opts = {}) {
     return reconcileDedupStubs(result);
 }
 
-// Anchor-independent tool-output prune (loop overflow safety net).
+// Anchor-independent artifact-preview prune (loop overflow safety net).
 //
 // pruneToolOutputs protects the most-recent tailTurns of USER-anchored history,
 // so a single-turn transcript with no user boundary yields protectFrom=0 and
-// prunes nothing. This variant needs no user anchor: it middle-truncates the
-// OLDEST oversized tool_result bodies first, walking forward, until the
-// transcript fits the budget. The newest tool_result is truncated last (and
-// only if still necessary) so fresh state is preserved as long as possible.
-// Structure/pairing is preserved (only string content shrinks), and the result
-// is re-reconciled so tool pairing stays provider-valid.
+// prunes nothing. This variant needs no user anchor, but may compact only
+// artifact-backed previews; raw tool output is never destructively shortened.
 export function pruneToolOutputsUnanchored(messages, budgetTokens, opts = {}) {
     const budget = effectiveBudget(budgetTokens, opts);
     let result = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
@@ -208,9 +196,11 @@ export function pruneToolOutputsUnanchored(messages, budgetTokens, opts = {}) {
         const m = result[i];
         if (m?.role !== 'tool' || typeof m.content !== 'string') continue;
         if (m.content.length <= maxChars) continue;
+        const content = pruneToolOutputText(m.content, maxChars, m.toolCallId);
+        if (content === m.content) continue;
         const pruned = {
             ...m,
-            content: pruneToolOutputText(m.content, maxChars, m.toolCallId),
+            content,
             compacted: true,
             compactedKind: 'tool_output_prune',
         };

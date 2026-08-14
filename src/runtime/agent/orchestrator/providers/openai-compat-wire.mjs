@@ -15,7 +15,7 @@ import {
     normalizeContentForOpenAIChat,
     normalizeContentForOpenAIResponses,
     splitToolContentForOpenAIChat,
-    splitToolContentForOpenAIResponses,
+    splitToolContentForXaiResponses,
 } from './media-normalization.mjs';
 import {
     customToolCallFromResponseItem,
@@ -281,7 +281,7 @@ export function collectCompatResponseSearchSources(response) {
 
 function toResponsesInputMessage(m, pendingToolMedia = null, customToolCallNameById = null) {
     if (m.role === 'tool') {
-        const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
+        const { output, mediaContent } = splitToolContentForXaiResponses(m.content);
         // xai path: never emit `custom_tool_call_output` (the `custom` variant
         // is rejected by grok). Replay prior tool outputs — including old
         // native tool_search outputs after /model switches — as the standard

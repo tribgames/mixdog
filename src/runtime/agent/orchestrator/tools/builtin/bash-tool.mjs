@@ -47,7 +47,6 @@ import { resolveShellFor } from './shell-runtime.mjs';
 import {
     recordShellCaptureTelemetry,
     renderBackgroundPartialOutput,
-    smartMiddleTruncate,
 } from './shell-output.mjs';
 import {
     compactShellOutputLosslessly,
@@ -680,7 +679,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         if (_teePlan) {
             const _rescueTail = consumeFilterTeeCapture(_teePlan.teePath);
             if (isReallyErrored && _rescueTail && !stdout.trim() && !stderr.trim()) {
-                _rescueNote = `\n\n[filter-swallowed output rescue] the command failed but its trailing filter(s) matched nothing, so the visible output was empty. Unfiltered pipeline output (tail):\n${smartMiddleTruncate(_rescueTail)}`;
+                _rescueNote = `\n\n[filter-swallowed output rescue] the command failed but its trailing filter(s) matched nothing, so the visible output was empty. Unfiltered pipeline output (tail):\n${_rescueTail}`;
             }
         }
         const _driftNote = '';
@@ -729,6 +728,8 @@ export async function executeBashTool(args, workDir, options = {}) {
             signal,
             timedOut: result.timedOut,
             hasExistingRecovery: Boolean(result.stdoutPath || result.stderrPath),
+            sessionId: options?.sessionId,
+            toolCallId: options?.toolCallId,
         });
         const visibleStdout = losslessCompaction?.stdout ?? stdout;
         const visibleStderr = losslessCompaction?.stderr ?? stderr;
@@ -736,11 +737,11 @@ export async function executeBashTool(args, workDir, options = {}) {
         if (mergeStderr) {
             const merged = visibleStdout + visibleStderr;
             const compactBlock = compactHint ? `\n\n${compactHint}` : '';
-            if (statusMarker) return _finalizeShellResult(legitExit, _prependDestructiveWarning(command, errorPrefix + smartMiddleTruncate(`${statusMarker}${completionNote}\n\n${merged || '(no output)'}`) + compactBlock + _rescueNote + _driftNote));
-            return _prependDestructiveWarning(command, smartMiddleTruncate(merged || '(no output)') + compactBlock + _driftNote);
+            if (statusMarker) return _finalizeShellResult(legitExit, _prependDestructiveWarning(command, errorPrefix + `${statusMarker}${completionNote}\n\n${merged || '(no output)'}` + compactBlock + _rescueNote + _driftNote));
+            return _prependDestructiveWarning(command, (merged || '(no output)') + compactBlock + _driftNote);
         }
-        const compactedStdout = smartMiddleTruncate(visibleStdout);
-        const compactedStderr = visibleStderr ? smartMiddleTruncate(visibleStderr) : '';
+        const compactedStdout = visibleStdout;
+        const compactedStderr = visibleStderr;
         const compactedBody = compactedStdout || (compactedStderr ? '' : '(no output)');
         const compactedStderrBlock = compactedStderr ? `\n\n[stderr]\n${compactedStderr}` : '';
         const compactBlock = compactHint ? `\n\n${compactHint}` : '';

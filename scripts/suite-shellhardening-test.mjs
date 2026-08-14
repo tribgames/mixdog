@@ -332,6 +332,8 @@ test('lossless shell compaction summarizes successful pytest and preserves exact
             exitCode: 0,
             signal: null,
             timedOut: false,
+            sessionId: 'session-lossless-shell',
+            toolCallId: 'call-lossless-shell',
         });
         assert.equal(compacted.stdout, 'Pytest: 367 passed in 1.25s');
         assert.equal(compacted.kind, 'command-success');

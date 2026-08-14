@@ -13,6 +13,7 @@ import {
     traceAgentToolFailure,
     traceAgentCompress,
     traceAgentShellOutput,
+    traceAgentToolOutput,
     traceAgentBatch,
 } from './agent-trace-format.mjs';
 
@@ -342,6 +343,7 @@ export {
     grokCacheChainTraceFields,
     traceAgentCompress,
     traceAgentShellOutput,
+    traceAgentToolOutput,
     traceAgentBatch,
     traceStreamAborted,
     traceStreamStalled,

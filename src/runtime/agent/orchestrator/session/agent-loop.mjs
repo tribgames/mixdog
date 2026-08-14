@@ -16,7 +16,6 @@ import {
 } from './compact.mjs';
 import { isContextOverflowError } from '../providers/retry-classifier.mjs';
 import { stripSoftWarns } from '../tool-loop-guard.mjs';
-import { maybeOffloadToolResult } from './tool-result-offload.mjs';
 import { tryReadCached, setReadCached, invalidatePathForSession, clearReadDedupSession, extractTouchedPathsFromPatch, tryScopedToolCached, setScopedToolCached, clearScopedToolsForSession, clearScopedToolsForSessionPaths, invalidatePrefetchCache } from './read-dedup.mjs';
 import { isInvalidToolArgsMarker, formatInvalidToolArgsResult } from '../providers/openai-compat-stream.mjs';
 
@@ -34,7 +33,8 @@ import { executeTool, _scopedCacheOutcomeForCall, resolveLiveToolCwd } from './l
 
 // classifyResultKind is imported from result-classification.mjs at the top of
 // this file; import it from there directly rather than via this module.
-import { compressToolResult, recordToolBatch } from '../tools/result-compression.mjs';
+import { recordToolBatch } from '../tools/tool-batch-trace.mjs';
+import { projectProviderEvidence } from './evidence-union.mjs';
 
 
 import { resolve as resolvePath, isAbsolute } from 'path';
@@ -650,11 +650,47 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         const toolResumeMs = _lastToolBatchEndedAt
             ? sendStartedAt - _lastToolBatchEndedAt
             : null;
+        const _providerMessageSource = _sendMessages || messages;
+        const _evidenceUnionDisabled = /^(?:1|true|yes|on)$/i.test(
+            String(process.env.MIXDOG_DISABLE_EVIDENCE_UNION || '').trim(),
+        );
+        const _evidenceUnionShadow = /^(?:1|true|yes|on)$/i.test(
+            String(process.env.MIXDOG_EVIDENCE_UNION_SHADOW || '').trim(),
+        );
+        const _evidenceProjection = projectProviderEvidence(_providerMessageSource, {
+            enabled: !_evidenceUnionDisabled,
+            apply: !_evidenceUnionShadow,
+        });
+        const _providerMessages = _evidenceProjection.messages;
+        if (_evidenceProjection.stats.reusedRows > 0
+            || _evidenceProjection.stats.exactResultRefs > 0) {
+            try {
+                const _evidencePayload = {
+                    shadow: _evidenceUnionShadow,
+                    before_bytes: _evidenceProjection.stats.beforeBytes,
+                    after_bytes: _evidenceProjection.stats.afterBytes,
+                    evidence_rows: _evidenceProjection.stats.evidenceRows,
+                    reused_rows: _evidenceProjection.stats.reusedRows,
+                    reference_groups: _evidenceProjection.stats.referenceGroups,
+                    changed_tool_results: _evidenceProjection.stats.changedToolResults,
+                    exact_result_refs: _evidenceProjection.stats.exactResultRefs,
+                    exact_result_bytes_saved: _evidenceProjection.stats.exactResultBytesSaved,
+                };
+                appendAgentTrace({
+                    sessionId,
+                    iteration: nextIteration,
+                    kind: 'evidence_union',
+                    ..._evidencePayload,
+                    payload: _evidencePayload,
+                });
+            } catch { /* best-effort */ }
+        }
         try { opts.onProviderSendStarted?.(); } catch {}
         const _sendResult = await runWithProviderRequestToolsScope(
             requestToolScope,
             () => sendWithRecovery({
-                provider, messages: _sendMessages || messages, model, sendTools, tools: sendTools, opts,
+                provider, messages: _providerMessages, recoveryMessages: _providerMessageSource,
+                model, sendTools, tools: sendTools, opts,
                 sessionId, sessionRef, nextIteration, contextOverflowRetryUsed,
                 transportRetriesUsed: _transportRetriesUsed,
                 imageStripUsed: _imageStripUsed, signal,
@@ -717,7 +753,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 toolResumeMs,
                 messageCount: Array.isArray(messages) ? messages.length : 0,
                 bodyBytesEst: _traceVerbose
-                    ? estimateProviderPayloadBytes(messages, model, sendTools)
+                    ? estimateProviderPayloadBytes(_providerMessages, model, sendTools)
                     : undefined,
                 agent: sessionAgent || null,
             });

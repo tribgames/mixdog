@@ -797,6 +797,7 @@ export async function createMixdogSessionRuntime({
     // the daemon. Bind channel liveness to this runtime host, never that stale
     // inherited supervisor PID.
     leadPid: process.pid,
+    getSessionId: () => rt.session?.id || null,
     onNotify: (msg) => {
       // Single-holder remote: the worker reports it lost the bridge seat to a
       // newer remote session. Drop remote mode entirely on this session (no
