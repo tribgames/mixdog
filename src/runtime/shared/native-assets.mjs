@@ -30,8 +30,13 @@ export function nativePlatformKey(platform = process.platform, arch = process.ar
   return `${platform}-${arch}`;
 }
 
+export function nativePackageNameForPlatformKey(platformKey) {
+  const packagePlatformKey = platformKey === 'win32-x64' ? 'windows-x64' : platformKey;
+  return `mixdog-native-${packagePlatformKey}`;
+}
+
 export function nativePackageName(platform = process.platform, arch = process.arch) {
-  return `mixdog-native-${nativePlatformKey(platform, arch)}`;
+  return nativePackageNameForPlatformKey(nativePlatformKey(platform, arch));
 }
 
 export function nativeAssetFileName(kind, platform = process.platform) {

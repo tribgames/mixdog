@@ -465,12 +465,13 @@ jobs:
           fi
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs';
+          import { nativePackageNameForPlatformKey } from './src/runtime/shared/native-assets.mjs';
           const version = process.env.VERSION;
           const packagePath = 'package.json';
           const packageJson = JSON.parse(readFileSync(packagePath, 'utf8'));
           packageJson.optionalDependencies = Object.fromEntries(
             ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64']
-              .map((key) => [`mixdog-native-${key}`, version]),
+              .map((key) => [nativePackageNameForPlatformKey(key), version]),
           );
           writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
           const date = new Date().toISOString().slice(0, 10);

@@ -19,6 +19,7 @@ import {
   REQUIRED_NATIVE_ASSETS,
   SUPPORTED_NATIVE_PLATFORM_KEYS,
   nativeAssetFileName,
+  nativePackageNameForPlatformKey,
 } from '../src/runtime/shared/native-assets.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -30,10 +31,6 @@ const DEFAULT_MANIFEST_PATHS = Object.freeze({
 });
 const STRICT_VERSION = /^\d+\.\d+\.\d+$/;
 const SHA256 = /^[a-f0-9]{64}$/;
-
-function packageName(platformKey) {
-  return `mixdog-native-${platformKey}`;
-}
 
 function platformParts(platformKey) {
   const split = platformKey.lastIndexOf('-');
@@ -109,7 +106,7 @@ export async function verifyNativePackageDirectory(packageDir, {
   if (expectedPlatformKey && manifest.platformKey !== expectedPlatformKey) {
     throw new Error(`Native package platform mismatch: ${manifest.platformKey} != ${expectedPlatformKey}`);
   }
-  if (packageJson.name !== packageName(manifest.platformKey)
+  if (packageJson.name !== nativePackageNameForPlatformKey(manifest.platformKey)
       || packageJson.version !== manifest.packageVersion) {
     throw new Error(`Native package identity mismatch in ${packageDir}`);
   }
@@ -154,7 +151,7 @@ export async function stageNativePackages({
       throw new Error(`Unsupported native platform key: ${platformKey}`);
     }
     const { platform, arch } = platformParts(platformKey);
-    const directory = join(output, `mixdog-native-${platformKey}`);
+    const directory = join(output, nativePackageNameForPlatformKey(platformKey));
     const binDir = join(directory, 'bin');
     await mkdir(binDir, { recursive: true });
     const assets = {};
@@ -181,7 +178,7 @@ export async function stageNativePackages({
       assets,
     };
     const packageJson = {
-      name: packageName(platformKey),
+      name: nativePackageNameForPlatformKey(platformKey),
       version,
       description: `Required Mixdog native runtime assets for ${platformKey}`,
       license: 'MIT',

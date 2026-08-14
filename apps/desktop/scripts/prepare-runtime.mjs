@@ -11,6 +11,7 @@ import {
   pruneEmbeddingRuntime,
 } from '../../../scripts/prune-embedding-runtime.mjs';
 import { runtimeDependencyCacheIdentity } from '../../../scripts/runtime-dependency-cache-key.mjs';
+import { nativePackageName } from '../../../src/runtime/shared/native-assets.mjs';
 
 const execFileAsync = promisify(execFile);
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -304,7 +305,10 @@ async function prepareRuntime(manifest, fingerprint) {
     const embeddingNapiRoot = `/${ortArchiveRoot}/bin/napi-v3`;
     const embeddingPlatformRoot = `${embeddingNapiRoot}/${embeddingTarget.platform}`;
     const embeddingBinaryRoot = `/${ortArchiveRoot}/bin/napi-v3/${embeddingTarget.platform}/${embeddingTarget.arch}`;
-    const nativePackageRoot = `/node_modules/mixdog-native-${embeddingTarget.key}`;
+    const nativePackageRoot = `/node_modules/${nativePackageName(
+      embeddingTarget.platform,
+      embeddingTarget.arch,
+    )}`;
     const executableSuffix = embeddingTarget.platform === 'win32' ? '.exe' : '';
     for (const required of [
       '/package.json',
