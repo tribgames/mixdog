@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.128 - 2026-08-14
+
 - Exploration tools now finish at the search round: grep spends its output
   budget on ranked source blocks (rare-branch matches first), find drops
   noise-only fuzzy results, and code_graph symbol outlines filter before
