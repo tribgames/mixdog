@@ -15,6 +15,11 @@ import {
   stageNativePackages,
   verifyNativePackageDirectory,
 } from './stage-native-packages.mjs';
+import { nativePackageName } from '../src/runtime/shared/native-assets.mjs';
+
+test('native package names use a registry-safe Windows platform label', () => {
+  assert.equal(nativePackageName('win32', 'x64'), 'mixdog-native-windows-x64');
+});
 
 test('native package staging includes and verifies all four required assets', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-native-package-'));
