@@ -78,6 +78,22 @@ if (process.env.MIXDOG_DESKTOP_USER_DATA) {
   app.setPath('userData', join(app.getPath('appData'), PACKAGED_USER_DATA_DIRECTORY));
 }
 
+if (app.isPackaged) {
+  const nativeToolsDir = join(process.resourcesPath, 'native-tools');
+  const executableSuffix = process.platform === 'win32' ? '.exe' : '';
+  const graphPath = join(nativeToolsDir, `mixdog-graph${executableSuffix}`);
+  const nativeOverrides = {
+    MIXDOG_GRAPH_BIN: graphPath,
+    MIXDOG_SEARCH_SERVER_BIN: graphPath,
+    MIXDOG_PATCH_NATIVE_BIN: join(nativeToolsDir, `mixdog-patch${executableSuffix}`),
+    MIXDOG_SPAWN_SERVER_BIN: join(nativeToolsDir, `mixdog-spawn${executableSuffix}`),
+    MIXDOG_TOKEN_NATIVE_BIN: join(nativeToolsDir, 'mixdog-token.node'),
+  };
+  for (const [name, path] of Object.entries(nativeOverrides)) {
+    if (!process.env[name] && existsSync(path)) process.env[name] = path;
+  }
+}
+
 const gpuFallbackEnvironment: GpuFallbackEnvironment = {
   appVersion: app.getVersion(),
   electronVersion: process.versions.electron || '',

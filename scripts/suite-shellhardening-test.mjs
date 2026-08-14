@@ -53,6 +53,11 @@ import {
   planLosslessShellCompaction,
   renderLosslessRecoveryHint,
 } from '../src/runtime/agent/orchestrator/tools/builtin/shell-lossless-compact.mjs';
+import {
+  ensureTokenAddon,
+  findCachedTokenAddon,
+} from '../src/runtime/agent/orchestrator/tools/token-addon-fetcher.mjs';
+
 // ==== from shell-hardening-test.mjs ====
 // Regression + integration tests for three recent shell hardening changes:
 //   A) benign exit-1 detection for search-style / `git diff --exit-code`
@@ -1128,6 +1133,35 @@ test('daemon-owned token addon uses a Worker thread while shards relay over IPC'
   assert.match(runtimePool, /countTokensNative\(String\(message\.text \?\? ''\)\)/);
   assert.match(runtimePool, /try \{ prewarmNativeTokenCounter\(\); \}/);
   assert.match(runtimeWorker, /message\.type === 'token-native-result'/);
+});
+
+test('token addon cache accepts only canonical versioned .node assets', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-token-addon-'));
+  const bytes = Buffer.from('native-addon-fixture');
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const pkey = `${process.platform === 'win32' ? 'win32' : process.platform}-${process.arch}`;
+  const manifest = {
+    version: '9.8.7',
+    assets: {
+      [pkey]: {
+        url: `https://github.com/tribgames/mixdog/releases/download/token-v9.8.7/mixdog-token-${pkey}.node`,
+        sha256,
+      },
+    },
+  };
+  try {
+    const path = await ensureTokenAddon(root, {
+      bundledManifest: manifest,
+      download: async (_url, destination) => writeFileSync(destination, bytes),
+    });
+    assert.equal(path, join(root, 'token-bin', 'mixdog-token-9.8.7.node'));
+    assert.equal(findCachedTokenAddon(root, { bundledManifest: manifest }), path);
+    const invalid = structuredClone(manifest);
+    invalid.assets[pkey].url = invalid.assets[pkey].url.replace(/\.node$/, '.exe');
+    assert.equal(findCachedTokenAddon(root, { bundledManifest: invalid }), null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('session shard token client reuses its daemon owner', { timeout: 10_000 }, async () => {

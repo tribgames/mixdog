@@ -5,9 +5,9 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
-- Mixdog now installs graph, search, process, patch, and token native engines
-  as one required platform package; product runtimes never download tool
-  binaries, while app releases reuse cached immutable native assets.
+- Native binaries now have one canonical home in GitHub Releases: npm ships
+  only the CLI, while CLI runs verify and cache assets on demand and Desktop
+  builds embed the same verified platform assets.
 
 ## v0.9.126 - 2026-08-14
 

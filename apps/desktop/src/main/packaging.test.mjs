@@ -118,6 +118,9 @@ test('production desktop uses only the packaged daemon service adapter', async (
   assert.match(builder, /files:\s+-\s*out\/\*\*/);
   assert.match(builder, /asarUnpack:[\s\S]*out\/main\/daemon\.cjs/);
   assert.match(builder, /asarUnpack:[\s\S]*out\/renderer\/\*\*/);
+  assert.match(builder, /from:\s*\.runtime\/native-tools\s+to:\s*native-tools/);
+  assert.match(main, /MIXDOG_GRAPH_BIN:\s*graphPath/);
+  assert.match(main, /MIXDOG_SPAWN_SERVER_BIN:/);
 });
 
 test('plain Node can import the standalone daemon service artifact', async () => {
@@ -391,6 +394,11 @@ test('runtime preparation reuses prepared output and persistent validated depend
   assert.match(preparation, /Cached runtime dependencies failed validation/);
   assert.match(preparation, /await rename\(temporaryCacheDir,\s*dependencyCacheDir\)/);
   assert.match(preparation, /timed\('npm-ci'/);
+  assert.match(preparation, /timed\('native-tools'/);
+  assert.match(preparation, /ensureGraphBinary\(downloadDataDir\)/);
+  assert.match(preparation, /ensurePatchBinary\(downloadDataDir\)/);
+  assert.match(preparation, /ensureSpawnBinary\(downloadDataDir\)/);
+  assert.match(preparation, /ensureTokenAddon\(downloadDataDir\)/);
   assert.match(preparation, /timed\('asar-create'/);
   assert.match(preparation, /finally\s*\{[\s\S]*rm\(stagingDir/);
   assert.match(preparation, /if\s*\(ownsNpmCache\)\s*\{[\s\S]*rm\(npmCacheDir/);

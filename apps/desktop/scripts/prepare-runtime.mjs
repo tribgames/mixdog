@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { access, cp, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, cp, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +11,10 @@ import {
   pruneEmbeddingRuntime,
 } from '../../../scripts/prune-embedding-runtime.mjs';
 import { runtimeDependencyCacheIdentity } from '../../../scripts/runtime-dependency-cache-key.mjs';
-import { nativePackageName } from '../../../src/runtime/shared/native-assets.mjs';
+import { ensureGraphBinary } from '../../../src/runtime/agent/orchestrator/tools/graph-binary-fetcher.mjs';
+import { ensurePatchBinary } from '../../../src/runtime/agent/orchestrator/tools/patch-binary-fetcher.mjs';
+import { ensureSpawnBinary } from '../../../src/runtime/agent/orchestrator/tools/spawn-binary-fetcher.mjs';
+import { ensureTokenAddon } from '../../../src/runtime/agent/orchestrator/tools/token-addon-fetcher.mjs';
 
 const execFileAsync = promisify(execFile);
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,8 +25,15 @@ const runtimePackageDir = join(stagingDir, 'node_modules', 'mixdog');
 const runtimeArchive = join(runtimeDir, 'runtime.asar');
 const runtimeSidecar = `${runtimeArchive}.unpacked`;
 const builderNativeModulesDir = join(runtimeDir, 'native-modules');
+const desktopNativeToolsDir = join(runtimeDir, 'native-tools');
 const runtimeManifestPath = join(runtimeDir, 'manifest.json');
 const preparedRuntimeSchema = 1;
+const DESKTOP_NATIVE_FILES = Object.freeze({
+  graph: process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph',
+  patch: process.platform === 'win32' ? 'mixdog-patch.exe' : 'mixdog-patch',
+  spawn: process.platform === 'win32' ? 'mixdog-spawn.exe' : 'mixdog-spawn',
+  token: 'mixdog-token.node',
+});
 const configuredNpmCacheDir = String(process.env.MIXDOG_RUNTIME_NPM_CACHE ?? '').trim();
 const npmCacheDir = configuredNpmCacheDir
   ? resolve(configuredNpmCacheDir)
@@ -140,6 +150,7 @@ async function canReusePreparedRuntime(fingerprint) {
     await Promise.all([
       access(runtimeSidecar),
       access(builderNativeModulesDir),
+      ...Object.values(DESKTOP_NATIVE_FILES).map((file) => access(join(desktopNativeToolsDir, file))),
     ]);
     return true;
   } catch (error) {
@@ -148,6 +159,35 @@ async function canReusePreparedRuntime(fingerprint) {
     }
     return false;
   }
+}
+
+async function prepareDesktopNativeTools() {
+  if (embeddingTarget.platform !== process.platform || embeddingTarget.arch !== process.arch) {
+    throw new Error(
+      `Desktop native tools require a matching build runner: target=${embeddingTarget.key}, `
+      + `host=${process.platform}-${process.arch}.`,
+    );
+  }
+  const downloadDataDir = join(runtimeDir, 'native-downloads');
+  const resolved = await Promise.all([
+    ensureGraphBinary(downloadDataDir),
+    ensurePatchBinary(downloadDataDir),
+    ensureSpawnBinary(downloadDataDir),
+    ensureTokenAddon(downloadDataDir),
+  ]);
+  await rm(desktopNativeToolsDir, { recursive: true, force: true });
+  await mkdir(desktopNativeToolsDir, { recursive: true });
+  for (const [kind, source] of Object.entries({
+    graph: resolved[0],
+    patch: resolved[1],
+    spawn: resolved[2],
+    token: resolved[3],
+  })) {
+    const destination = join(desktopNativeToolsDir, DESKTOP_NATIVE_FILES[kind]);
+    await cp(source, destination);
+    if (process.platform !== 'win32' && kind !== 'token') await chmod(destination, 0o755);
+  }
+  await rm(downloadDataDir, { recursive: true, force: true });
 }
 
 async function restoreRuntimeDependencies() {
@@ -224,6 +264,7 @@ async function prepareRuntime(manifest, fingerprint) {
   let prepared = false;
 
   try {
+    await timed('native-tools', () => prepareDesktopNativeTools());
     for (const fileName of ['package.json', 'package-lock.json']) {
       await cp(join(rootDir, fileName), join(stagingDir, fileName));
     }
@@ -295,7 +336,7 @@ async function prepareRuntime(manifest, fingerprint) {
       // @electron/asar matches this against absolute Windows paths with
       // matchBase enabled. A basename glob is therefore portable; **/*.node is
       // not, because minimatch treats Windows separators differently.
-      unpack: '{*.{node,dll,dylib,so,so.*,exe},mixdog-{graph,spawn,patch}}',
+      unpack: '*.{node,dll,dylib,so,so.*}',
     }));
 
     const archiveEntries = new Set(
@@ -305,11 +346,6 @@ async function prepareRuntime(manifest, fingerprint) {
     const embeddingNapiRoot = `/${ortArchiveRoot}/bin/napi-v3`;
     const embeddingPlatformRoot = `${embeddingNapiRoot}/${embeddingTarget.platform}`;
     const embeddingBinaryRoot = `/${ortArchiveRoot}/bin/napi-v3/${embeddingTarget.platform}/${embeddingTarget.arch}`;
-    const nativePackageRoot = `/node_modules/${nativePackageName(
-      embeddingTarget.platform,
-      embeddingTarget.arch,
-    )}`;
-    const executableSuffix = embeddingTarget.platform === 'win32' ? '.exe' : '';
     for (const required of [
       '/package.json',
       '/node_modules/mixdog/package.json',
@@ -319,11 +355,6 @@ async function prepareRuntime(manifest, fingerprint) {
       '/node_modules/@huggingface/transformers/dist/transformers.node.mjs',
       `/${ortArchiveRoot}/package.json`,
       `${embeddingBinaryRoot}/onnxruntime_binding.node`,
-      `${nativePackageRoot}/native-manifest.json`,
-      `${nativePackageRoot}/bin/mixdog-graph${executableSuffix}`,
-      `${nativePackageRoot}/bin/mixdog-spawn${executableSuffix}`,
-      `${nativePackageRoot}/bin/mixdog-patch${executableSuffix}`,
-      `${nativePackageRoot}/bin/mixdog-token.node`,
     ]) {
       if (!archiveEntries.has(required)) {
         throw new Error(`Runtime archive is incomplete: missing ${required}`);
@@ -341,17 +372,9 @@ async function prepareRuntime(manifest, fingerprint) {
     if ([...archiveEntries].some((entry) => /\/onnxruntime-web\/(?:dist|lib)\//.test(entry))) {
       throw new Error('Runtime archive contains unused onnxruntime-web payloads.');
     }
-    const foreignNativePackage = [...archiveEntries].find((entry) => (
-      entry.startsWith('/node_modules/mixdog-native-')
-      && !entry.startsWith(`${nativePackageRoot}/`)
-    ));
-    if (foreignNativePackage) {
-      throw new Error(`Runtime archive contains a foreign native package: ${foreignNativePackage}`);
-    }
 
     const nativeBinaryEntries = [...archiveEntries].filter(
-      (entry) => /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(entry)
-        || entry.startsWith(`${nativePackageRoot}/bin/`),
+      (entry) => /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(entry),
     );
     await timed('native-module-mirror', async () => {
       for (const entry of nativeBinaryEntries) {
