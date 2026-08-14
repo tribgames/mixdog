@@ -5,6 +5,16 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Exploration tools now finish at the search round: grep spends its output
+  budget on ranked source blocks (rare-branch matches first), find drops
+  noise-only fuzzy results, and code_graph symbol outlines filter before
+  capping and honor body requests.
+- Agent guidance batches one best-routed call per unknown instead of
+  speculative multi-tool fanout, cutting benchmark token use by a third with
+  no pass-rate change.
+- Session recovery and runtime resilience hardening across native search,
+  shell contract, and read/list tooling.
+
 ## v0.9.127 - 2026-08-14
 
 - Native binaries now have one canonical home in GitHub Releases: npm ships
