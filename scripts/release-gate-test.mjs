@@ -386,6 +386,9 @@ advisoryTest('application release overlaps gates and publishes one exact hidden 
     ));
   }
   assert.match(desktopRuntime, /name:\s*Stage prepared platform runtime[\s\S]*desktop-runtime-\$\{\{ inputs\.platform \}\}-\$\{\{ inputs\.arch \}\}/);
+  assert.match(desktopRuntime,
+    /name:\s*Stage prepared platform runtime[\s\S]*include-hidden-files:\s*true/,
+    'the hidden .runtime directory must be included in the staged artifact');
   assert.match(release,
     /prepare-github-release:[\s\S]*needs:\s*\[validate,\s*release-invariants\][\s\S]*draft:\s*true/);
   assert.match(desktopPackage, /name:\s*Download common desktop output[\s\S]*actions\/download-artifact@v8/);
