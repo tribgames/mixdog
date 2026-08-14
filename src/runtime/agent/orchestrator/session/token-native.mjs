@@ -10,9 +10,8 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve as pathResolve, dirname as pathDirname, join as pathJoin } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { getPluginData } from '../config.mjs';
-import { ensureTokenAddon, findCachedTokenAddon } from '../tools/token-addon-fetcher.mjs';
 import { safeIpcSend } from '../../../shared/safe-ipc-send.mjs';
+import { installedNativeAssetPath } from '../../../shared/native-assets.mjs';
 
 const PLUGIN_ROOT = process.env.MIXDOG_ROOT
     || pathResolve(pathDirname(fileURLToPath(import.meta.url)), '../../../../..');
@@ -55,10 +54,7 @@ function _resolveAddon() {
     _addonPath = candidates.find((candidate) => {
         try { return existsSync(candidate); } catch { return false; }
     }) || null;
-    if (!_addonPath) {
-        // Release-supply cache (sha256-verified against the bundled manifest).
-        try { _addonPath = findCachedTokenAddon(getPluginData()) || null; } catch { _addonPath = null; }
-    }
+    if (!_addonPath) _addonPath = installedNativeAssetPath('token');
     return _addonPath;
 }
 
@@ -259,28 +255,15 @@ export async function countTokensNative(text) {
     return Number.isFinite(count) && count >= 0 ? count : null;
 }
 
-let _fetchAttempted = false;
-
 /** Boot prewarm: start the worker and build the encoder off the first estimate.
- *  With no local/env/cached addon, kick ONE background manifest fetch; on
- *  success the resolution cache resets so the next estimate adopts it. */
+ *  The addon is a required install asset; prewarm performs no download. */
 export function prewarmNativeTokenCounter() {
     if (isSessionShardProcess()) {
         if (!nativeTokenModeEnabled() || !sessionShardClientEnabled()) return false;
         return safeIpcSend(process, { type: SHARD_PREWARM_MESSAGE }, { onError: () => {} });
     }
     const owner = _ensureWorker();
-    if (!owner) {
-        if (!_fetchAttempted && nativeTokenModeEnabled() && !_resolveAddon()) {
-            _fetchAttempted = true;
-            void ensureTokenAddon(getPluginData()).then((path) => {
-                if (!path) return;
-                _addonPath = undefined;
-                _workerFailed = false;
-            }).catch(() => { /* soft degrade — WASM worker path remains */ });
-        }
-        return false;
-    }
+    if (!owner) return false;
     owner.ready.catch(() => {});
     return true;
 }
