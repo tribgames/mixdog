@@ -82,6 +82,7 @@ export function createTagRegistry({
     const add = (session, fallbackTag = '') => {
       const tag = agentTagOf(session) || clean(fallbackTag);
       if (!tag || !session?.id || session.closed === true) return;
+      if (isLeadPoolAgent(session.agent)) return;
       if (!sessionMatchesContext(session, context)) return;
       if (seen.has(session.id)) return;
       seen.add(session.id);
@@ -158,6 +159,7 @@ export function createTagRegistry({
     }
     if (!scanSessions) return;
     for (const session of mgr.listSessions({ includeClosed: false }) || []) {
+      if (isLeadPoolAgent(session?.agent)) continue;
       const tag = agentTagOf(session);
       if (!tag || tags.has(tag)) continue;
       if (!sessionMatchesContext(session, context)) continue;

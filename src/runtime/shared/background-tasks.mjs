@@ -320,10 +320,6 @@ export function completeBackgroundTask(taskId, {
   const task = getBackgroundTask(taskId);
   if (!task) return null;
   if (TERMINAL_STATUSES.has(task.status)) return task;
-  if (task.progressCheckTimer) {
-    try { clearTimeout(task.progressCheckTimer); } catch {}
-    task.progressCheckTimer = null;
-  }
   const now = Date.now();
   task.status = normalizeStatus(status);
   task.finishedAtMs = now;

@@ -5,6 +5,17 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Release gates now run automatically with incremental path selection, desktop
+  platform runtimes prepare ahead of packaging, native graph builds use a
+  faster reproducible profile, and production web/relay deployment includes
+  atomic rollback plus hash and health verification.
+- Desktop release lanes now package as soon as their matching runtime is ready,
+  graph compiler caches stay isolated between reproducibility builds, relay
+  installs are lockfile-pinned, and release timing warns on 10% regressions.
+- Agent cleanup no longer mistakes Lead pool projections for child workers, so
+  disposing another runtime cannot close the active desktop conversation or
+  discard an accepted follow-up message.
+
 ## v0.9.130 - 2026-08-14
 
 - Provider and session recovery now classifies transient stream failures

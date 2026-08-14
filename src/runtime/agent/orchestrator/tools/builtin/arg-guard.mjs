@@ -633,10 +633,10 @@ function guardRead(a) {
 }
 
 function guardShell(a) {
-    const allowed = new Set(['command', 'timeout_ms', 'run_in_background']);
+    const allowed = new Set(['command', 'timeout_ms']);
     const unsupported = Object.keys(a).find((key) => !allowed.has(key));
     if (unsupported) {
-        return `Error: shell arg "${unsupported}" is unsupported; use only command, timeout_ms, and run_in_background`;
+        return `Error: shell arg "${unsupported}" is unsupported; use only command and timeout_ms`;
     }
     if (!hasOwn(a, 'command')) {
         return 'Error: shell requires "command"';
@@ -650,18 +650,18 @@ function guardShell(a) {
     if (hasOwn(a, 'timeout_ms') && (typeof a.timeout_ms !== 'number' || !Number.isFinite(a.timeout_ms) || a.timeout_ms < 0)) {
         return `Error: shell arg "timeout_ms" must be a non-negative number (got ${describeType(a.timeout_ms)})`;
     }
-    if (hasOwn(a, 'run_in_background') && typeof a.run_in_background !== 'boolean') {
-        return `Error: shell arg "run_in_background" must be a boolean (got ${describeType(a.run_in_background)})`;
-    }
     return null;
 }
 
 function guardTask(a) {
     const action = typeof a.action === 'string'
         ? a.action.trim().toLowerCase()
-        : (hasOwn(a, 'action') ? a.action : (hasOwn(a, 'task_id') ? 'status' : 'list'));
-    if (hasOwn(a, 'action') && !['list', 'status', 'read', 'check_after', 'cancel'].includes(action)) {
-        return `Error: task arg "action" must be one of list|status|read|check_after|cancel (got ${JSON.stringify(a.action)})`;
+        : (hasOwn(a, 'action') ? a.action : '');
+    if (!hasOwn(a, 'action')) {
+        return 'Error: task requires explicit "action"';
+    }
+    if (!['list', 'read', 'cancel'].includes(action)) {
+        return `Error: task arg "action" must be one of list|read|cancel (got ${JSON.stringify(a.action)})`;
     }
     if (action === 'list') return null;
     if (!hasOwn(a, 'task_id')) {
@@ -669,12 +669,6 @@ function guardTask(a) {
     }
     if (typeof a.task_id !== 'string' || a.task_id.trim().length === 0) {
         return `Error: task arg "task_id" must be a non-empty string (got ${describeType(a.task_id)})`;
-    }
-    if (action === 'check_after') {
-        if (!hasOwn(a, 'after_ms')) {
-            return 'Error: task action "check_after" requires explicit "after_ms"';
-        }
-        return checkIntInRange(a, 'after_ms', 1, 2_147_483_647);
     }
     return null;
 }

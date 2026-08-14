@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { runAbortable } from '../src/runtime/shared/abort-race.mjs';
 import { SessionClosedError } from '../src/runtime/agent/orchestrator/session/manager/session-errors.mjs';
@@ -13,6 +16,8 @@ import {
 import { resolveTuiRuntimeNotificationDelivery } from '../src/tui/session/notification-plan.mjs';
 import { shouldRecreateEmptySessionForRouteChange } from '../src/session-runtime/model-route-api.mjs';
 import { createSessionTurnApi } from '../src/session-runtime/session-turn-api.mjs';
+import { createTagRegistry } from '../src/standalone/agent-tool/tag-registry.mjs';
+import { WORKER_INDEX_FILE } from '../src/standalone/agent-tool/tool-def.mjs';
 import { presentErrorText, isCancelLikeError } from '../src/runtime/shared/err-text.mjs';
 import { finalizeTurnInterruptionSnapshot } from '../src/runtime/agent/orchestrator/session/manager/turn-interruption.mjs';
 import { toolErrorDisplay as frameToolError } from '../src/tui/session/tool-result-text.mjs';
@@ -21,6 +26,66 @@ const advisoryTest = process.env.MIXDOG_TEST_ADVISORY === '1' ? test : test.skip
 
 const failAfter = (ms, message) => new Promise((_, reject) => {
   setTimeout(() => reject(new Error(message)), ms);
+});
+
+test('Lead pool rows never enter the agent-tool closeAll registry', () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-lead-pool-'));
+  const lead = {
+    id: 'sess_lead',
+    agentTag: 'lead:sess_lead',
+    agent: 'lead',
+    status: 'idle',
+    closed: false,
+  };
+  const worker = {
+    id: 'sess_worker',
+    agentTag: 'worker1',
+    agent: 'worker',
+    status: 'idle',
+    closed: false,
+  };
+  try {
+    writeFileSync(join(dataDir, WORKER_INDEX_FILE), JSON.stringify({
+      version: 2,
+      workers: {
+        [lead.id]: {
+          tag: lead.agentTag,
+          sessionId: lead.id,
+          ownerSessionId: lead.id,
+          agent: lead.agent,
+          status: lead.status,
+        },
+        [worker.id]: {
+          tag: worker.agentTag,
+          sessionId: worker.id,
+          ownerSessionId: lead.id,
+          agent: worker.agent,
+          status: worker.status,
+        },
+      },
+    }));
+    const sessions = new Map([[lead.id, lead], [worker.id, worker]]);
+    const registry = createTagRegistry({
+      dataDir,
+      cfgMod: { loadConfig: () => ({}) },
+      mgr: {
+        getSession: (sessionId) => sessions.get(sessionId) || null,
+        listSessions: () => [...sessions.values()],
+      },
+      emitSubagentEvent: () => {},
+    });
+
+    registry.refreshTagsFromSessions();
+
+    assert.equal(registry.tags.has(lead.agentTag), false);
+    assert.equal(registry.tags.get(worker.agentTag), worker.id);
+    assert.deepEqual(
+      registry.agentSessionEntries().map(({ session }) => session.id),
+      [worker.id],
+    );
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });
 
 advisoryTest('an explicitly addressed route change preserves an empty session id', () => {

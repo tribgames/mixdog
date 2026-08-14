@@ -1,0 +1,150 @@
+name: desktop-package
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+      tag:
+        required: true
+        type: string
+      release_id:
+        required: true
+        type: string
+      runner:
+        required: true
+        type: string
+      platform:
+        required: true
+        type: string
+      arch:
+        required: true
+        type: string
+      artifact_arch:
+        required: true
+        type: string
+      target:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: desktop-${{ inputs.platform }}-${{ inputs.arch }}
+    runs-on: ${{ inputs.runner }}
+    env:
+      ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.cache/electron-builder
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Restore Electron downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ env.ELECTRON_CACHE }}
+            ${{ env.ELECTRON_BUILDER_CACHE }}
+          key: desktop-electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/desktop/package-lock.json') }}
+          restore-keys: desktop-electron-${{ runner.os }}-${{ runner.arch }}-
+      - name: Resolve desktop npm cache key
+        id: desktop-npm
+        shell: bash
+        run: |
+          echo "npm_key=$(node scripts/dependency-lock-cache-key.mjs \
+            apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
+          echo "npm_cache=$(npm config get cache)" >> "$GITHUB_OUTPUT"
+      - name: Restore stable desktop npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.desktop-npm.outputs.npm_cache }}
+          key: desktop-npm-${{ runner.os }}-${{ runner.arch }}-${{ steps.desktop-npm.outputs.npm_key }}
+      - name: Install desktop dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+        working-directory: apps/desktop
+      - name: Download common desktop output
+        uses: actions/download-artifact@v8
+        with:
+          name: desktop-out
+          path: apps/desktop/out
+      - name: Download prepared platform runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: desktop-runtime-${{ inputs.platform }}-${{ inputs.arch }}
+          path: apps/desktop/.runtime
+      - name: Build Windows installer
+        if: inputs.platform == 'win32'
+        shell: pwsh
+        working-directory: apps/desktop
+        run: |
+          npm run brand:win
+          npx --no-install electron-builder --win --x64 --publish never
+      - name: Build Unix desktop package
+        if: inputs.platform != 'win32'
+        shell: bash
+        working-directory: apps/desktop
+        run: npx --no-install electron-builder --${{ inputs.target }} --${{ inputs.arch }} --publish never
+      - name: Verify packaged desktop runtime
+        run: npm run test:packaging
+        working-directory: apps/desktop
+      - name: Smoke packaged desktop memory runtime
+        run: npm run verify:packaged-runtime
+        working-directory: apps/desktop
+      - name: Upload verified Windows assets to hidden draft
+        if: inputs.platform == 'win32'
+        timeout-minutes: 6
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $assets = @(
+            'apps/desktop/dist/mixdog-desktop-win-x64.exe',
+            'apps/desktop/dist/mixdog-desktop-win-x64.exe.blockmap',
+            'apps/desktop/dist/latest.yml'
+          )
+          foreach ($asset in $assets) {
+            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) {
+              throw "Missing Windows release asset: $asset"
+            }
+          }
+          gh release upload $env:RELEASE_TAG @assets --clobber
+          if ($LASTEXITCODE -ne 0) { throw "gh release upload exited with $LASTEXITCODE" }
+      - name: Upload verified macOS assets to hidden draft
+        if: inputs.platform == 'darwin'
+        timeout-minutes: 7
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_ID: ${{ inputs.release_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets=(
+            "apps/desktop/dist/mixdog-desktop-mac-${{ inputs.artifact_arch }}.dmg"
+            "apps/desktop/dist/mixdog-desktop-mac-${{ inputs.artifact_arch }}.zip"
+          )
+          for asset in "${assets[@]}"; do test -f "$asset"; done
+          if [[ "${{ inputs.arch }}" == x64 ]]; then
+            bash .github/scripts/upload-release-assets.sh "${assets[@]}"
+          else
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          fi
+      - name: Upload verified Linux asset to hidden draft
+        if: inputs.platform == 'linux'
+        timeout-minutes: 6
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="apps/desktop/dist/mixdog-desktop-linux-${{ inputs.artifact_arch }}.AppImage"
+          test -f "$asset"
+          gh release upload "$RELEASE_TAG" "$asset" --clobber

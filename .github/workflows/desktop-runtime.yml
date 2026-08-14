@@ -1,0 +1,75 @@
+name: desktop-runtime
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+      runner:
+        required: true
+        type: string
+      platform:
+        required: true
+        type: string
+      arch:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: prepare-runtime-${{ inputs.platform }}-${{ inputs.arch }}
+    runs-on: ${{ inputs.runner }}
+    env:
+      MIXDOG_RUNTIME_DEPENDENCY_CACHE: >-
+        ${{ github.workspace }}/.cache/runtime-dependencies/${{ inputs.platform }}-${{ inputs.arch }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Resolve runtime dependency cache key
+        id: runtime-dependencies
+        shell: bash
+        run: |
+          echo "key=$(node scripts/runtime-dependency-cache-key.mjs \
+            --platform=${{ inputs.platform }} --arch=${{ inputs.arch }})" >> "$GITHUB_OUTPUT"
+          echo "npm_key=$(node scripts/dependency-lock-cache-key.mjs \
+            apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
+          echo "npm_cache=$(npm config get cache)" >> "$GITHUB_OUTPUT"
+      - name: Restore stable desktop npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.runtime-dependencies.outputs.npm_cache }}
+          key: desktop-npm-${{ runner.os }}-${{ runner.arch }}-${{ steps.runtime-dependencies.outputs.npm_key }}
+      - name: Restore pruned runtime dependencies
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.MIXDOG_RUNTIME_DEPENDENCY_CACHE }}
+          key: desktop-${{ steps.runtime-dependencies.outputs.key }}
+      - name: Restore prepared runtime archive
+        uses: actions/cache@v6
+        with:
+          path: apps/desktop/.runtime
+          key: desktop-prepared-runtime-v1-${{ steps.runtime-dependencies.outputs.key }}-${{ hashFiles('package.json', 'package-lock.json', 'README.md', 'NOTICE.md', 'LICENSES/**', 'scripts/**', 'src/**', 'vendor/**', 'apps/desktop/package-lock.json', 'apps/desktop/scripts/prepare-runtime.mjs') }}
+      - name: Install desktop dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+        working-directory: apps/desktop
+      - name: Prepare platform runtime
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          MIXDOG_RUNTIME_NPM_CACHE="$(npm config get cache)" \
+          npm run prepare:runtime -- --platform=${{ inputs.platform }} --arch=${{ inputs.arch }}
+      - name: Stage prepared platform runtime
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-runtime-${{ inputs.platform }}-${{ inputs.arch }}
+          path: apps/desktop/.runtime
+          if-no-files-found: error
+          retention-days: 2

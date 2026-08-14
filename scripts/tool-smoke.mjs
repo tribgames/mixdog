@@ -1125,20 +1125,18 @@ const shellFailOutPromise = executeBuiltinTool('shell', {
 
 const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
 const shellDescription = shellTool?.description || '';
-if (!/Run programs and runtime\/state operations/i.test(shellDescription)
-    || !/perform calculations, transform data, generate computed files/i.test(shellDescription)
-    || !/ordinary file-content inspection/i.test(shellDescription)
-    || !/Tracked sync\/async commands belong to the current run/i.test(shellDescription)
-    || !/service explicitly required after the run exits.*nohup/i.test(shellDescription)) {
+if (!/Run programs, runtime\/state operations/i.test(shellDescription)
+    || !/calculations, transformations, file generation/i.test(shellDescription)
+    || !/After 10s.*task_id.*notification/i.test(shellDescription)) {
   throw new Error(`shell description must use ordinary execution/computation/file-role concepts: ${shellDescription}`);
 }
 const shellProps = shellTool?.inputSchema?.properties || {};
-if (JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms', 'run_in_background'])) {
-  throw new Error(`shell schema must expose only command, timeout_ms, and run_in_background: ${JSON.stringify(shellProps)}`);
+if (JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms'])) {
+  throw new Error(`shell schema must expose only command and timeout_ms: ${JSON.stringify(shellProps)}`);
 }
-for (const retired of ['timeout', 'cwd', 'workdir', 'mode', 'shell', 'persistent', 'session_id', 'merge_stderr']) {
+for (const retired of ['timeout', 'cwd', 'workdir', 'mode', 'shell', 'persistent', 'session_id', 'merge_stderr', 'run_in_background']) {
   const err = validateBuiltinArgs('shell', { command: 'node --version', [retired]: retired === 'mode' ? 'async' : true });
-  if (!/unsupported.*command, timeout_ms, and run_in_background/i.test(err || '')) {
+  if (!/unsupported.*command and timeout_ms/i.test(err || '')) {
     throw new Error(`shell retired arg must be rejected (${retired}): ${err}`);
   }
 }
@@ -1156,16 +1154,26 @@ if (shellZeroTimeoutErr || !/non-negative number/.test(String(shellNegativeTimeo
 }
 const publicTaskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
 const publicTaskProps = publicTaskTool?.inputSchema?.properties || {};
-if (publicTaskProps.action?.enum?.includes('wait') || publicTaskProps.timeout_ms || publicTaskProps.poll_ms) {
-  throw new Error('task schema must not expose the retired synchronous wait contract');
+if (JSON.stringify(publicTaskProps.action?.enum) !== JSON.stringify(['list', 'read', 'cancel'])
+  || publicTaskProps.timeout_ms || publicTaskProps.after_ms || publicTaskProps.poll_ms) {
+  throw new Error('task schema must expose only list/read/cancel with no wait or polling parameters');
+}
+if (JSON.stringify(publicTaskTool?.inputSchema?.required) !== JSON.stringify(['action'])) {
+  throw new Error('task schema must require an explicit action');
 }
 const taskWaitOut = await executeBuiltinTool('task', {
   action: 'wait',
   task_id: 'task_hidden_wait_smoke',
   timeout_ms: 1,
 }, root);
-if (!/^Error[\s:[]/.test(String(taskWaitOut)) || !/list\|status\|read\|check_after\|cancel/i.test(String(taskWaitOut))) {
+if (!/^Error[\s:[]/.test(String(taskWaitOut)) || !/list\|read\|cancel/i.test(String(taskWaitOut))) {
   throw new Error(`task wait must be rejected by the runtime contract:\n${taskWaitOut}`);
+}
+const taskImplicitActionOut = await executeBuiltinTool('task', {
+  task_id: 'task_implicit_action_smoke',
+}, root);
+if (!/^Error[\s:[]/.test(String(taskImplicitActionOut)) || !/explicit "action"/i.test(String(taskImplicitActionOut))) {
+  throw new Error(`task must reject an implicit status action:\n${taskImplicitActionOut}`);
 }
 
 const shellProjectCwdSession = `tool-smoke-project-cwd-${process.pid}`;
@@ -1259,82 +1267,46 @@ async function assertSingleShellCompletion(events, taskId, label) {
   }
 }
 
-// Explicit async starts detached and notifies exactly once.
-const shellExplicitNotifyEvents = [];
-const shellExplicitNotifyOptions = shellNotifyOptions(shellExplicitNotifyEvents, 'explicit');
-const shellExplicitAsyncOut = await executeBuiltinTool('shell', {
-  command: 'node -e "setTimeout(() => console.log(\'tool-smoke-explicit-done\'), 300)"',
-  run_in_background: true,
+// Short commands complete inline and never create a task or notification.
+const shellShortNotifyEvents = [];
+const shellShortNotifyOptions = shellNotifyOptions(shellShortNotifyEvents, 'short_inline');
+const shellShortOut = await executeBuiltinTool('shell', {
+  command: 'node -e "setTimeout(() => console.log(\'tool-smoke-short-inline-done\'), 300)"',
   timeout_ms: 5000,
-}, root, shellExplicitNotifyOptions);
-const shellExplicitTaskId = assertBackgroundStart('shell explicit async', shellExplicitAsyncOut);
-await assertSingleShellCompletion(shellExplicitNotifyEvents, shellExplicitTaskId, 'shell explicit async');
+}, root, shellShortNotifyOptions);
+if (!/tool-smoke-short-inline-done/.test(String(shellShortOut)) || shellTaskId(shellShortOut)) {
+  throw new Error(`short shell command must complete inline without task_id:\n${shellShortOut}`);
+}
+if (shellShortNotifyEvents.length !== 0) {
+  throw new Error(`short inline shell command must not notify asynchronously: ${JSON.stringify(shellShortNotifyEvents)}`);
+}
 
-// A one-shot check_after returns immediately, pushes one progress snapshot,
-// and leaves the normal completion notification armed.
+// A single read returns the current snapshot without scheduling model wakeups.
 const shellCheckEvents = [];
-const shellCheckOptions = shellNotifyOptions(shellCheckEvents, 'check_after');
-const shellCheckOut = await executeBuiltinTool('shell', {
-  command: 'node -e "console.log(\'tool-smoke-check-after-progress\'); setTimeout(() => console.log(\'tool-smoke-check-after-done\'), 600)"',
-  run_in_background: true,
-  timeout_ms: 5000,
-}, root, shellCheckOptions);
-const shellCheckTaskId = assertBackgroundStart('shell check-after start', shellCheckOut);
-const shellImplicitStatus = await executeBuiltinTool('task', {
+const shellCheckOptions = shellNotifyOptions(shellCheckEvents, 'snapshot_read');
+const _priorSnapshotAutoBg = process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
+process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = '50';
+let shellCheckOut;
+try {
+  shellCheckOut = await executeBuiltinTool('shell', {
+    command: 'node -e "console.log(\'tool-smoke-snapshot-read-progress\'); setTimeout(() => console.log(\'tool-smoke-snapshot-read-done\'), 600)"',
+    timeout_ms: 5000,
+  }, root, shellCheckOptions);
+} finally {
+  if (_priorSnapshotAutoBg === undefined) delete process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
+  else process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = _priorSnapshotAutoBg;
+}
+const shellCheckTaskId = assertBackgroundStart('shell snapshot-read start', shellCheckOut);
+const shellSnapshotRead = await executeBuiltinTool('task', {
+  action: 'read',
   task_id: shellCheckTaskId,
 }, root, shellCheckOptions);
-if (!/status:\s*running/i.test(String(shellImplicitStatus))) {
-  throw new Error(`task_id alone must default to non-blocking status:\n${shellImplicitStatus}`);
+if (!/status:\s*running/i.test(String(shellSnapshotRead))
+  || !/"status":\s*"running"/i.test(String(shellSnapshotRead))
+  || !/do not poll or call task again/i.test(String(shellSnapshotRead))) {
+  throw new Error(`task read must return one guarded running snapshot:\n${shellSnapshotRead}`);
 }
-const shellMissingAfterMs = await executeBuiltinTool('task', {
-  action: 'check_after',
-  task_id: shellCheckTaskId,
-}, root, shellCheckOptions);
-if (!/^Error[\s:[]/.test(String(shellMissingAfterMs)) || !/requires explicit "after_ms"/i.test(String(shellMissingAfterMs))) {
-  throw new Error(`task check_after without after_ms must fail explicitly:\n${shellMissingAfterMs}`);
-}
-const shellCheckScheduled = await executeBuiltinTool('task', {
-  action: 'check_after',
-  task_id: shellCheckTaskId,
-  after_ms: 50,
-}, root, shellCheckOptions);
-if (!/progress_check_scheduled:\s*true/i.test(String(shellCheckScheduled))) {
-  throw new Error(`task check_after must schedule without blocking:\n${shellCheckScheduled}`);
-}
-await waitForSmoke(
-  () => shellCheckEvents.some((event) => event.meta?.type === 'shell_task_progress' && event.text.includes(shellCheckTaskId)),
-  'shell check-after progress notification',
-  3000,
-);
-const progressEvent = shellCheckEvents.find((event) => event.meta?.type === 'shell_task_progress' && event.text.includes(shellCheckTaskId));
-if (!/tool-smoke-check-after-progress/.test(String(progressEvent?.text))) {
-  throw new Error(`task check_after progress must include current shell output:\n${JSON.stringify(shellCheckEvents)}`);
-}
-await assertSingleShellCompletion(shellCheckEvents, shellCheckTaskId, 'shell check-after completion');
-const progressMatches = shellCheckEvents.filter((event) => event.meta?.type === 'shell_task_progress' && event.text.includes(shellCheckTaskId));
-if (progressMatches.length !== 1) {
-  throw new Error(`task check_after must notify progress exactly once, got ${progressMatches.length}: ${JSON.stringify(shellCheckEvents)}`);
-}
-
-// Completion before the reserved time cancels the pending progress snapshot.
-const shellEarlyDoneEvents = [];
-const shellEarlyDoneOptions = shellNotifyOptions(shellEarlyDoneEvents, 'check_after_early_done');
-const shellEarlyDoneOut = await executeBuiltinTool('shell', {
-  command: 'node -e "setTimeout(() => console.log(\'tool-smoke-check-after-early-done\'), 50)"',
-  run_in_background: true,
-  timeout_ms: 5000,
-}, root, shellEarlyDoneOptions);
-const shellEarlyDoneTaskId = assertBackgroundStart('shell check-after early completion', shellEarlyDoneOut);
-await executeBuiltinTool('task', {
-  action: 'check_after',
-  task_id: shellEarlyDoneTaskId,
-  after_ms: 3000,
-}, root, shellEarlyDoneOptions);
-await assertSingleShellCompletion(shellEarlyDoneEvents, shellEarlyDoneTaskId, 'shell check-after early completion');
-await new Promise((resolveWait) => setTimeout(resolveWait, 3050));
-if (shellEarlyDoneEvents.some((event) => event.meta?.type === 'shell_task_progress' && event.text.includes(shellEarlyDoneTaskId))) {
-  throw new Error(`completed task must cancel its pending progress check: ${JSON.stringify(shellEarlyDoneEvents)}`);
-}
+await assertSingleShellCompletion(shellCheckEvents, shellCheckTaskId, 'shell snapshot read');
 
 // Auto-promotion: a sync foreground command still running past the soft budget
 // returns the same notification contract as explicit async.

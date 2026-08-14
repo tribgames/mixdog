@@ -3,7 +3,6 @@ import { assertPathReachable, assertPathsReachable } from './fs-reachability.mjs
 import { isAbsolute, join, resolve } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { WRAPPER_NAMES } from '../shell-policy.mjs';
 import {
     cwdRelativePath,
     normalizeInputPath,
@@ -830,36 +829,6 @@ export async function analyzeShellCommandEffects(command, cwd) {
     return { mutationMode: 'none', paths: [], finalCwd: localCwd };
 }
 
-// CC detectBlockedSleepPattern parity: a LEADING integer `sleep N` (or the
-// PowerShell `Start-Sleep`/`sleep` alias forms) of 2s or more is blocked
-// preflight with an instructive error instead of running and being killed at
-// its deadline. Only the first top-level segment is considered — sleeps inside
-// pipelines/subshells/scripts are legitimate pacing and pass through. Float
-// durations (sleep 0.5) are allowed, mirroring the reference CLI.
-// Explicit async execution bypasses this validation. Sync callers receive the
-// same corrective direction as the reference CLI instead of being silently
-// changed to a different execution mode.
-export function detectBlockedSleepPattern(command, minSecs = 2) {
-    const cmd = String(command || '').trim();
-    if (!cmd) return null;
-    const sep = cmd.match(/&&|\|\||;|\|/);
-    const first = (sep ? cmd.slice(0, sep.index) : cmd).trim();
-    let secs = null;
-    const posix = /^sleep\s+(\d+)\s*$/.exec(first);
-    if (posix) secs = Number.parseInt(posix[1], 10);
-    if (secs == null) {
-        const ps = /^(?:start-sleep|sleep)\s+(?:-(?:seconds|s)\s+)?(\d+)\s*$/i.exec(first);
-        if (ps) secs = Number.parseInt(ps[1], 10);
-    }
-    if (secs == null) {
-        const psMs = /^start-sleep\s+-(?:milliseconds|m)\s+(\d+)\s*$/i.exec(first);
-        if (psMs) secs = Math.floor(Number.parseInt(psMs[1], 10) / 1000);
-    }
-    if (secs == null || secs < minSecs) return null;
-    const rest = sep ? cmd.slice(sep.index).replace(/^(?:&&|\|\||;|\|)\s*/, '').trim() : '';
-    return rest ? `sleep ${secs} followed by: ${rest.slice(0, 80)}` : `standalone sleep ${secs}`;
-}
-
 // Shell interception: patch-trained models type `apply_patch <<'EOF' … EOF`
 // INTO THE SHELL. No
 // such binary exists here, so the invocation is extracted and routed to the
@@ -901,81 +870,6 @@ export function extractShellApplyPatchInvocation(command) {
         return { error: 'apply_patch argument did not contain a V4A patch (expected "*** Begin Patch")' };
     }
     return { error: 'apply_patch requires the patch text (heredoc or single argument)' };
-}
-
-export function foregroundLongCommandHint(command, timeoutMs, args = {}, opts = {}) {
-    if (args.run_in_background === true) return '';
-    const cmd = String(command || '').trim();
-    if (!cmd) return '';
-    // CC validateInput parity: block only while background tasks are enabled —
-    // the remedy we point at (background execution / completion notification) must exist.
-    if (opts.backgroundTasksDisabled !== true) {
-        const blocked = detectBlockedSleepPattern(cmd);
-        if (blocked) {
-            return `Error: blocked — ${blocked}. Set run_in_background:true and act on the completion notification. If you genuinely need a delay (rate limiting, pacing), keep it under 2 seconds.`;
-        }
-    }
-    return '';
-}
-
-// Commands that must NOT be promoted to background on a foreground timeout —
-// they run in the foreground and are killed at their deadline instead. Mirrors
-// the reference CLI DISALLOWED_AUTO_BACKGROUND_COMMANDS: `sleep` on posix,
-// `start-sleep`/`sleep` (the PS built-in alias) on PowerShell. A `sleep`/
-// `Start-Sleep` the caller wants to survive must be launched with
-// run_in_background:true explicitly.
-const _DISALLOWED_AUTO_BACKGROUND_POSIX = ['sleep'];
-const _DISALLOWED_AUTO_BACKGROUND_PS = ['start-sleep', 'sleep'];
-
-// Whether one shell segment reaches a disallowed sleep-like command. Strips a
-// leading subshell/paren/brace/`&`, then walks tokens skipping VAR=val and
-// option flags (quotes stripped so `'Start-Sleep'` resolves). A disallowed base
-// name found anywhere reachable blocks promotion. Once a command-runner wrapper
-// (env/sudo/timeout/nice/…, shell-policy.mjs's WRAPPER_NAMES) has been seen we
-// do NOT model that wrapper's flag arity — we keep scanning EVERY later bare
-// token for a hidden `sleep`, so `sudo -u nobody sleep 5` / `setpriv --reuid
-// user sleep` are caught (erring toward NOT promoting). Without a wrapper the
-// first real command token decides the segment.
-function _segmentDisallowed(segment, disallowed) {
-    const stripped = String(segment || '').replace(/^[\s(){}&]+/, '');
-    const tokens = stripped.split(/\s+/).filter(Boolean);
-    let sawWrapper = false;
-    for (let tok of tokens) {
-        tok = tok.replace(/^['"]+|['"]+$/g, '');
-        if (!tok) continue;
-        if (/^[A-Za-z_]\w*=/.test(tok)) continue;            // VAR=val assignment
-        if (tok.startsWith('-')) continue;                    // option flag
-        const stem = tok.toLowerCase().replace(/^.*[\\/]/, '').replace(/\.exe$/, '');
-        if (disallowed.includes(stem)) return true;           // sleep reachable here
-        if (WRAPPER_NAMES.has(stem)) { sawWrapper = true; continue; }
-        if (/^\d+(?:\.\d+)?[smhd]?$/i.test(tok)) continue;    // numeric/duration arg
-        // First real command token. Without a preceding wrapper it IS the base
-        // command and it wasn't disallowed → segment is safe. With a wrapper,
-        // this may be a wrapper value arg (`sudo -u nobody …`); keep scanning
-        // for a hidden sleep instead of stopping here.
-        if (!sawWrapper) return false;
-    }
-    return false;
-}
-
-// Whether a still-running foreground one-shot may be promoted to a background
-// job when it hits its timeout (CC isAutobackgroundingAllowed analogue).
-// Scans EVERY segment of a &&/||/;/|/& chain and, per segment, peels wrappers
-// before reading the base command — so a sleep-like hidden behind a chain
-// (`cd x && sleep 5`) or a runner wrapper (`timeout 5 sleep`, `env sleep`) is
-// still caught. Errs toward NOT promoting: any disallowed base command in any
-// segment blocks promotion. shellType 'powershell' uses the PS disallow list.
-export function isAutobackgroundingAllowed(command, shellType) {
-    const cmd = String(command || '').trim();
-    if (!cmd) return true;
-    const disallowed = shellType === 'powershell'
-        ? _DISALLOWED_AUTO_BACKGROUND_PS
-        : _DISALLOWED_AUTO_BACKGROUND_POSIX;
-    const segments = cmd.split(/(?:&&|\|\||[;\n|&])/);
-    for (const seg of segments) {
-        if (_segmentDisallowed(seg, disallowed)) return false;
-    }
-    return true;
 }
 
 // ---------------------------------------------------------------------------

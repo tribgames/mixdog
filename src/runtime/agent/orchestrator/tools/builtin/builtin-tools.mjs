@@ -12,8 +12,8 @@ const _shellSyntaxCheat =
 export const BUILTIN_TOOLS = [
     {
         name: 'read',
-        title: 'Mixdog Read',
-        annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
+        title: 'Read',
+        annotations: { title: 'Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
         description: 'Known-file contents or line ranges. Images render for viewing; not directories. Replaces cat/head/tail.',
         inputSchema: {
             type: 'object',
@@ -39,9 +39,9 @@ export const BUILTIN_TOOLS = [
     },
     {
         name: 'shell',
-        title: 'Mixdog Shell',
-        annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: 'Run programs and runtime/state operations; perform calculations, transform data, generate computed files, or inspect formats unsupported by file tools. Do not use for ordinary file-content inspection. A command that may alter source evidence may run only after a separate completed tool round has preserved the original or established verified read-only access. Tracked sync/async commands belong to the current run; only a service explicitly required after the run exits should be shell-detached (for example, nohup ... &).',
+        title: 'Shell',
+        annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
+        description: 'Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. After 10s, a running command returns task_id and completes by notification.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -50,7 +50,6 @@ export const BUILTIN_TOOLS = [
                     type: 'number',
                     description: 'Optional total deadline.',
                 },
-                run_in_background: { type: 'boolean', description: 'Run immediately as a tracked background task; returns task_id and sends a completion notification.' },
             },
             required: ['command'],
             additionalProperties: false,
@@ -58,24 +57,23 @@ export const BUILTIN_TOOLS = [
     },
     {
         name: 'task',
-        title: 'Background Task Control',
-        annotations: { title: 'Background Task Control', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        description: 'Schedule one progress check or manually inspect/cancel a shell background task_id; normal completion arrives by notification. Not for session or agent ids.',
+        title: 'Task',
+        annotations: { title: 'Task', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        description: 'List shell tasks, read one current output snapshot, or cancel by task_id; completion arrives by notification.',
         inputSchema: {
             type: 'object',
             properties: {
-                task_id: { type: 'string', description: 'Shell task_id.' },
-                action: { type: 'string', enum: ['list', 'status', 'read', 'check_after', 'cancel'], description: 'Default list; task_id alone defaults to non-blocking status. check_after schedules one non-blocking progress notification.' },
-                after_ms: { type: 'number', description: 'Required explicitly for check_after; one-shot delay before the progress snapshot, not the task deadline.' },
+                task_id: { type: 'string', description: 'Shell task_id; required for read/cancel.' },
+                action: { type: 'string', enum: ['list', 'read', 'cancel'], description: 'list all; read snapshot; cancel task.' },
             },
-            required: [],
+            required: ['action'],
             additionalProperties: false,
         },
     },
     {
         name: 'grep',
-        title: 'Mixdog Grep',
-        annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
+        title: 'Grep',
+        annotations: { title: 'Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
         description: 'Search file contents for literal or regex matches; contextual path:line blocks are directly usable—read only omitted lines. Replaces grep/rg.',
         inputSchema: {
             type: 'object',
@@ -103,8 +101,8 @@ export const BUILTIN_TOOLS = [
     },
     {
         name: 'glob',
-        title: 'Mixdog Glob',
-        annotations: { title: 'Mixdog Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
+        title: 'Glob',
+        annotations: { title: 'Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
         description: 'Return wildcard-matching paths under a known base when those paths are needed. Replaces find -name.',
         inputSchema: {
             type: 'object',
@@ -126,8 +124,8 @@ export const BUILTIN_TOOLS = [
     },
     {
         name: 'find',
-        title: 'Mixdog Find Files',
-        annotations: { title: 'Mixdog Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
+        title: 'Find Files',
+        annotations: { title: 'Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
         description: 'Fuzzy filename/directory path lookup when the location itself is unknown; returns paths only. No source-content, symbol, value, or line search.',
         inputSchema: {
             type: 'object',
@@ -146,8 +144,8 @@ export const BUILTIN_TOOLS = [
     },
     {
         name: 'list',
-        title: 'Mixdog List Directory',
-        annotations: { title: 'Mixdog List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
+        title: 'List Directory',
+        annotations: { title: 'List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
         description: "Return a known directory's immediate entries (path + type) when the entry list itself is needed; not a prerequisite for another tool on that directory. No wildcard; meta:true adds size/mtime/mode.",
         inputSchema: {
             type: 'object',

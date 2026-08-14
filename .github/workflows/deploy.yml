@@ -427,7 +427,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json CHANGELOG.md \
             apps/desktop/package.json apps/desktop/package-lock.json \
-            apps/relay/package.json
+            apps/relay/package.json apps/relay/package-lock.json
           if ! git diff --cached --quiet; then
             git commit -m "mixdog ${TAG}"
             git push origin "HEAD:${DEFAULT_BRANCH}"

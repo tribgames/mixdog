@@ -11,7 +11,6 @@ import {
     cancelBackgroundTask,
     completeBackgroundTask,
     getBackgroundTask,
-    notifyBackgroundTaskProgress,
     renderBackgroundTask,
     renderBackgroundTaskList,
 } from '../../../../shared/background-tasks.mjs';
@@ -54,38 +53,9 @@ function renderTaskCancelSuccess(taskId, task) {
     ].join('\n');
 }
 
-function scheduleShellProgressCheck(task, afterMs) {
-    const replaced = Boolean(task.progressCheckTimer);
-    if (task.progressCheckTimer) {
-        try { clearTimeout(task.progressCheckTimer); } catch {}
-    }
-    const scheduledAt = Date.now();
-    const timer = setTimeout(() => {
-        const current = getBackgroundTask(task.taskId);
-        if (!current || current.progressCheckTimer !== timer) return;
-        current.progressCheckTimer = null;
-        if (current.status !== 'running') return;
-        const job = peekShellJob(task.taskId);
-        if (!job || job.status !== 'running') return;
-        const snapshot = shellJobPublicTaskResult(job);
-        notifyBackgroundTaskProgress(current, {
-            text: [
-                renderBackgroundTask(current),
-                '',
-                JSON.stringify(snapshot, null, 2),
-            ].join('\n'),
-            resultType: 'shell_task_progress',
-            instruction: `The scheduled progress check for shell task ${task.taskId} is ready; inspect this snapshot and schedule another check_after only if needed.`,
-            key: `scheduled-progress-${scheduledAt}`,
-        });
-    }, afterMs);
-    if (typeof timer.unref === 'function') timer.unref();
-    task.progressCheckTimer = timer;
-    return replaced;
-}
-
 export async function executeTaskTool(args, options = {}) {
-    const action = typeof args.action === 'string' ? args.action.toLowerCase() : (args.task_id ? 'status' : 'list');
+    const action = typeof args.action === 'string' ? args.action.toLowerCase() : '';
+    if (!action) return 'Error: task action is required';
     if (action === 'list') return renderBackgroundTaskList({ context: options });
 
     const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : '';
@@ -102,10 +72,16 @@ export async function executeTaskTool(args, options = {}) {
     if (!task) return `Error: task not found: ${taskId}`;
     const isShellTask = task.surface === 'shell';
 
-    if (action === 'status' || action === 'read') {
-        if (isShellTask) refreshShellTask(taskId, { includeRunning: action === 'read' });
+    if (action === 'read') {
+        if (isShellTask) refreshShellTask(taskId, { includeRunning: true });
         const latest = getBackgroundTask(taskId, { context: options }) || task;
-        return renderBackgroundTask(latest, { includeResult: action === 'read' });
+        const rendered = renderBackgroundTask(latest, { includeResult: true });
+        if (latest.status !== 'running') return rendered;
+        return [
+            rendered,
+            '',
+            'Still running. Completion will be delivered automatically; do not poll or call task again unless the user explicitly asks for another snapshot.',
+        ].join('\n');
     }
 
     if (action === 'cancel') {
@@ -120,26 +96,5 @@ export async function executeTaskTool(args, options = {}) {
         return renderTaskCancelSuccess(taskId, getBackgroundTask(taskId, { context: options }) || task);
     }
 
-    if (action === 'check_after') {
-        if (!Number.isInteger(args.after_ms) || args.after_ms <= 0 || args.after_ms > 2_147_483_647) {
-            return 'Error: task action "check_after" requires explicit positive integer "after_ms"';
-        }
-        if (!isShellTask) return 'Error: task action "check_after" supports shell task_id values only';
-        const job = peekShellJob(taskId);
-        if (!job) return buildJobNotFoundMessage(taskId);
-        if (job.status !== 'running') {
-            refreshShellTask(taskId);
-            return renderBackgroundTask(getBackgroundTask(taskId, { context: options }) || task, { includeResult: true });
-        }
-        const replaced = scheduleShellProgressCheck(task, args.after_ms);
-        return [
-            'status: running',
-            `task_id: ${taskId}`,
-            'progress_check_scheduled: true',
-            `after_ms: ${args.after_ms}`,
-            replaced ? 'replaced_previous_check: true' : null,
-        ].filter(Boolean).join('\n');
-    }
-
-    return `Error: task action must be one of list|status|read|check_after|cancel (got ${JSON.stringify(args.action)})`;
+    return `Error: task action must be one of list|read|cancel (got ${JSON.stringify(args.action)})`;
 }
