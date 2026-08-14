@@ -374,6 +374,7 @@ fn serve_search_embedded_ripgrep_modes_preserve_contracts() {
     let request = |id: u64, extra: &[&str], pattern: &str| {
         let mut args = vec![
             "--color", "never", "--hidden", "--no-heading", "-H", "--line-number",
+            "--max-columns=500", "--max-columns-preview",
         ];
         args.extend_from_slice(extra);
         args.extend_from_slice(&["-e", pattern, "--", "."]);
@@ -413,6 +414,70 @@ fn serve_search_embedded_ripgrep_modes_preserve_contracts() {
     let pcre = request(24, &["-P"], "(?<=needle )value");
     assert!(pcre["lines"].as_array().unwrap().iter().any(|line| {
         line.as_str().is_some_and(|line| line.contains("needle value"))
+    }));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn serve_search_preserves_regex_parse_errors_for_native_recovery() {
+    let root = fixture();
+    let response = serve_search(
+        &root,
+        serde_json::json!({
+            "id": 26,
+            "cwd": root,
+            "args": [
+                "--color", "never",
+                "--hidden",
+                "--no-heading",
+                "-H",
+                "--line-number",
+                "-e", "except (",
+                "--",
+                "."
+            ],
+            "offset": 0,
+            "limit": 20
+        }),
+    );
+    assert!(response["unsupported"]
+        .as_str()
+        .is_some_and(|message| message.contains("regex parse error")));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn serve_search_accepts_internal_find_files_glob_order() {
+    let root = fixture();
+    fs::write(root.join("src/engine-target.ts"), "export const needle = true;\n").unwrap();
+    fs::write(root.join("src/other.ts"), "export const other = true;\n").unwrap();
+    let response = serve_search(
+        &root,
+        serde_json::json!({
+            "id": 25,
+            "cwd": root,
+            "args": [
+                "--files",
+                "--directories",
+                "--no-ignore",
+                "--hidden",
+                "--glob", "!**/.git/**",
+                "--iglob", "*engine*",
+                "."
+            ],
+            "offset": 0,
+            "limit": 0
+        }),
+    );
+    assert!(response.get("unsupported").is_none());
+    let lines = response["lines"].as_array().unwrap();
+    assert!(lines.iter().any(|line| {
+        line.as_str()
+            .is_some_and(|line| line.replace('\\', "/").ends_with("src/engine-target.ts"))
+    }));
+    assert!(!lines.iter().any(|line| {
+        line.as_str()
+            .is_some_and(|line| line.replace('\\', "/").ends_with("src/other.ts"))
     }));
     fs::remove_dir_all(root).unwrap();
 }
