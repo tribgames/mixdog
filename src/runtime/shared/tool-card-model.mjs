@@ -374,6 +374,7 @@ function backgroundTaskMetaFromArgs(args = {}) {
     startedAt: args.startedAt || args.started || '',
     finishedAt: args.finishedAt || args.finished || '',
     error: args.error || '',
+    type: args.type || args.action || '',
     body: '',
     hasResponse: false,
   };
@@ -442,7 +443,11 @@ export function backgroundTaskResultTitle(normalizedName, meta = {}) {
 
 export function backgroundTaskActionTitle(normalizedName, meta = {}) {
   const display = backgroundTaskDisplayName(normalizedName, meta);
-  if (/^(running|pending|queued)$/i.test(meta.status || '')) return `Started ${display}`;
+  if (/^(running|pending|queued)$/i.test(meta.status || '')) {
+    return String(meta.type || '').toLowerCase() === 'progress'
+      ? `${display} progress`
+      : `Started ${display}`;
+  }
   if (meta.hasResponse) return backgroundTaskResultTitle(normalizedName, meta);
   return `${display} status`;
 }
@@ -469,6 +474,7 @@ export function isBackgroundTaskResponseArgs(normalizedName, args = {}) {
   if (!isBackgroundTaskTool(normalizedName)) return false;
   const type = String(args?.type || args?.action || '').toLowerCase();
   const status = String(args?.status || '').toLowerCase();
+  if (/^(running|pending|queued)$/i.test(status)) return false;
   return type === 'result' || type === 'completion' || (/^(completed|cancelled|canceled)$/i.test(status) && Boolean(args?.task_id));
 }
 

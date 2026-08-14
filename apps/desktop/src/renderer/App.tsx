@@ -2426,25 +2426,11 @@ export function App() {
   ): Promise<unknown> => {
     const host = window.mixdogDesktop;
     if (!host) return false;
-    // Watchdog: a session-addressed submit that never acknowledges must fail
-    // loudly — the composer then restores the exact draft — instead of eating
-    // the prompt behind an endless "Requesting" state.
-    const PANE_SUBMIT_ACK_TIMEOUT_MS = 15_000;
-    let watchdog: number | undefined;
-    let accepted: unknown;
-    try {
-      accepted = await Promise.race([
-        host.submitToSession(sessionId, content, options),
-        new Promise<never>((_, reject) => {
-          watchdog = window.setTimeout(() => reject(new Error(
-            "The session did not acknowledge the prompt in time. Your message was restored — try again.",
-          )), PANE_SUBMIT_ACK_TIMEOUT_MS);
-        }),
-      ]);
-    } finally {
-      if (watchdog !== undefined) window.clearTimeout(watchdog);
-    }
-    return accepted;
+    // The service transport owns the authoritative request deadline. A shorter
+    // renderer watchdog raced valid auto-clear/session-recovery intake: it
+    // restored the draft while the same submission was accepted moments later,
+    // inviting a duplicate retry.
+    return await host.submitToSession(sessionId, content, options);
   }, []);
   // Stable per-session submit identity so memoised pane trees do not
   // re-render from a fresh closure on every App commit.

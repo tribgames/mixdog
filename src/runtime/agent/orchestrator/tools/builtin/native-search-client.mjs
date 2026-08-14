@@ -74,6 +74,16 @@ function _teardown(error) {
   try { server.child.kill(); } catch {}
 }
 
+export function _bindNativeSearchServerLifecycle(child, { onError, onExit } = {}) {
+  if (!child?.on) return;
+  child.on('error', onError);
+  child.on('exit', onExit);
+  // ChildProcess stdin emits write failures asynchronously. A sync try/catch
+  // around stdin.write cannot catch EPIPE; without this listener the session
+  // shard itself terminates and every active/queued turn is crash-recovered.
+  child.stdin?.on?.('error', onError);
+}
+
 function _ensureServer() {
   if (_server) return _server;
   if (Date.now() - _lastFailureAt < RESTART_BACKOFF_MS) return null;
@@ -120,8 +130,10 @@ function _ensureServer() {
     server.timeoutStreak = 0;
     pending.resolve(message);
   });
-  child.on('error', (error) => { if (_server === server) _teardown(error); });
-  child.on('exit', () => { if (_server === server) _teardown(); });
+  _bindNativeSearchServerLifecycle(child, {
+    onError: (error) => { if (_server === server) _teardown(error); },
+    onExit: () => { if (_server === server) _teardown(); },
+  });
   // A detached child can still pin a one-shot CLI/test through its pipe
   // handles. Keep the resident server idle-unreferenced, then ref all handles
   // only while a request is awaiting a response.

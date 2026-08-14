@@ -120,11 +120,12 @@ export function parseBackgroundTaskEnvelope(text) {
   if (agentResult) return { ...agentResult, rawResult: value };
   const errorOnlyBody = isBackgroundErrorOnlyBody(body, errorText);
   const resultBody = body && !errorOnlyBody ? body : '';
+  const nonTerminal = /^(running|pending|queued)$/i.test(status);
   return {
     name,
     label: status || 'notification',
     args: {
-      type: body ? 'result' : (fields.operation || 'status'),
+      type: body ? (nonTerminal ? 'progress' : 'result') : (fields.operation || 'status'),
       status,
       task_id: taskId || undefined,
       surface,

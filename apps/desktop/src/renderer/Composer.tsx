@@ -73,6 +73,20 @@ export {
   readPromptHistory
 };
 
+let composerSubmissionSequence = 0;
+
+function nextComposerSubmissionId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  return `desktop-submit-${uuid || `${Date.now()}-${++composerSubmissionSequence}`}`;
+}
+
+function submissionRetryKey(text: string, attachments: readonly ComposerAttachment[]): string {
+  return JSON.stringify([
+    text,
+    attachments.map((attachment) => String(attachment.id)),
+  ]);
+}
+
 export const Composer = memo(function Composer({
   turnBusy,
   commandBusy,
@@ -152,6 +166,10 @@ export const Composer = memo(function Composer({
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
+  // A failed transport acknowledgement may still have landed in the session.
+  // Reuse the same id when the exact restored payload is retried so daemon-side
+  // idempotency acknowledges it instead of posting a duplicate user message.
+  const submissionRetryRef = useRef<{ key: string; id: string } | null>(null);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState('');
   const [dictationState, setDictationState] = useState<'idle' | 'recording' | 'transcribing'>('idle');
@@ -1381,6 +1399,11 @@ export const Composer = memo(function Composer({
       // Enter never looks ignored; a rejected submit restores the exact draft
       // and attachments without creating a session ahead of user intent.
       const committedAttachments = [...used];
+      const retryKey = submissionRetryKey(expandedText, committedAttachments);
+      const priorRetry = submissionRetryRef.current;
+      const submissionId = priorRetry?.key === retryKey
+        ? priorRetry.id
+        : nextComposerSubmissionId();
       setDraft((current) => current === submittedDraft ? '' : current);
       removeAttachments(new Set(committedAttachments.map((attachment) => attachment.id)));
       historyNavigation.current = { index: -1, seed: '' };
@@ -1394,17 +1417,23 @@ export const Composer = memo(function Composer({
       let accepted: unknown;
       try {
         accepted = await submit(content, {
+          id: submissionId,
           ...(used.length ? { displayText: expandedText.trim() } : {}),
           ...(Object.keys(pastedImages).length ? { pastedImages } : {}),
           ...(Object.keys(pastedTexts).length ? { pastedTexts } : {}),
         });
       } catch (error) {
+        submissionRetryRef.current = { key: retryKey, id: submissionId };
         restoreSubmitted();
         throw error;
       }
       if (accepted === true) {
+        if (submissionRetryRef.current?.id === submissionId) submissionRetryRef.current = null;
         rememberPrompt(expandedText, committedAttachments);
-      } else restoreSubmitted();
+      } else {
+        submissionRetryRef.current = { key: retryKey, id: submissionId };
+        restoreSubmitted();
+      }
     } finally {
       if (serializedSubmit) {
         submittingRef.current = false;

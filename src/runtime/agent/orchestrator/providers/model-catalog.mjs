@@ -8,10 +8,10 @@
  *
  * Source: https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
  *
- * The catalog is cached on disk for 24h. On fetch failure, providers fall
- * back to whatever metadata their native endpoint exposed (usually nothing
- * beyond the id). Pricing stays null in that case; UI shows "-" instead of
- * a stale number.
+ * Overlay catalogs (LiteLLM + models.dev) are fetched once per process.
+ * Disk is a stale-ok fallback when the remote fetch fails. On fetch
+ * failure with no disk copy, providers keep whatever metadata their
+ * native endpoint exposed (usually nothing beyond the id).
  */
 
 import { existsSync, readFileSync } from 'fs';
@@ -25,14 +25,13 @@ import {
 
 const CATALOG_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
 const CATALOG_CACHE_FILE = 'litellm-catalog.json';
-const CATALOG_TTL_MS = 24 * 60 * 60_000;
 
 // Second auto pricing source: models.dev publishes per-PROVIDER model
 // catalogs (cost in $/M) for 140+ providers — including ones LiteLLM does not
 // track yet (e.g. opencode-go). Because it is keyed provider→model, a
 // provider-scoped lookup is collision-free: deepseek-v4-pro under `deepseek`
-// and under `opencode-go` resolve to their own distinct rates. Same 24h TTL
-// + disk cache shape as the LiteLLM catalog above.
+// and under `opencode-go` resolve to their own distinct rates. Same
+// process-lifetime fetch + disk fallback as the LiteLLM catalog above.
 const MODELSDEV_URL = 'https://models.dev/api.json';
 const MODELSDEV_CACHE_FILE = 'modelsdev-catalog.json';
 
@@ -193,28 +192,28 @@ const PRICING_OVERRIDES = {
 
 let _memCache = null;
 let _memCacheAt = 0;
+// Disk warm must not count as "fetched this process" — otherwise a sync
+// lookup before startup refresh would pin a stale overlay for the whole run.
+let _catalogFetchedRemote = false;
 // Single-flight: concurrent loadCatalog callers share the same in-flight
-// Promise so a cold cache only triggers one disk read + one remote fetch.
+// Promise so a cold process only triggers one remote fetch.
 let _loadPromise = null;
 
 function cachePath() {
     return join(getPluginData(), CATALOG_CACHE_FILE);
 }
 
-async function _loadCatalogImpl(fetchFn = fetch, force = false) {
-    // Disk cache first
+function readDiskCatalog(filePath) {
     try {
-        if (force) throw new Error('forced refresh');
-        if (existsSync(cachePath())) {
-            const raw = JSON.parse(readFileSync(cachePath(), 'utf-8'));
-            if (raw?.fetchedAt && (Date.now() - raw.fetchedAt) < CATALOG_TTL_MS && raw.data) {
-                _memCache = raw.data;
-                _memCacheAt = raw.fetchedAt;
-                return _memCache;
-            }
-        }
-    } catch { /* fall through */ }
-    // Remote fetch
+        if (!existsSync(filePath)) return null;
+        const raw = JSON.parse(readFileSync(filePath, 'utf-8'));
+        return raw?.data ? raw : null;
+    } catch {
+        return null;
+    }
+}
+
+async function _loadCatalogImpl(fetchFn = fetch) {
     try {
         const res = await fetchFn(CATALOG_URL, { signal: AbortSignal.timeout(10_000) });
         if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -224,14 +223,23 @@ async function _loadCatalogImpl(fetchFn = fetch, force = false) {
         } catch { /* cache is best-effort */ }
         _memCache = data;
         _memCacheAt = Date.now();
+        _catalogFetchedRemote = true;
         return data;
     } catch (err) {
         process.stderr.write(`[model-catalog] fetch failed: ${err.message}\n`);
+        const raw = readDiskCatalog(cachePath());
+        if (raw?.data) {
+            _memCache = raw.data;
+            _memCacheAt = raw.fetchedAt || Date.now();
+            _catalogFetchedRemote = true;
+            return _memCache;
+        }
         if (fetchFn !== fetch) {
             _memCache = _memCache || {};
             _memCacheAt = Date.now();
+            _catalogFetchedRemote = true;
         }
-        return {};
+        return _memCache || {};
     }
 }
 
@@ -250,9 +258,9 @@ export async function loadCatalog({ fetchFn, force = false } = {}) {
     if (typeof fetchFn === 'function' && fetchFn !== fetch) {
         return _loadCatalogInjected(fetchFn);
     }
-    if (!force && _memCache && (Date.now() - _memCacheAt) < CATALOG_TTL_MS) return _memCache;
+    if (!force && _catalogFetchedRemote && _memCache) return _memCache;
     if (_loadPromise) return _loadPromise;
-    _loadPromise = _loadCatalogImpl(fetchFn, force).finally(() => { _loadPromise = null; });
+    _loadPromise = _loadCatalogImpl(fetchFn).finally(() => { _loadPromise = null; });
     return _loadPromise;
 }
 
@@ -271,21 +279,11 @@ function warmFromDiskSync() {
 let _mdCache = null;
 let _mdCacheAt = 0;
 let _mdLoadPromise = null;
+let _mdFetchedRemote = false;
 function mdCachePath() {
     return join(getPluginData(), MODELSDEV_CACHE_FILE);
 }
-async function _loadModelsDevImpl(fetchFn = fetch, force = false) {
-    try {
-        if (force) throw new Error('forced refresh');
-        if (existsSync(mdCachePath())) {
-            const raw = JSON.parse(readFileSync(mdCachePath(), 'utf-8'));
-            if (raw?.fetchedAt && (Date.now() - raw.fetchedAt) < CATALOG_TTL_MS && raw.data) {
-                _mdCache = raw.data;
-                _mdCacheAt = raw.fetchedAt;
-                return _mdCache;
-            }
-        }
-    } catch { /* fall through to remote */ }
+async function _loadModelsDevImpl(fetchFn = fetch) {
     try {
         const res = await fetchFn(MODELSDEV_URL, { signal: AbortSignal.timeout(10_000) });
         if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -295,12 +293,21 @@ async function _loadModelsDevImpl(fetchFn = fetch, force = false) {
         } catch { /* cache is best-effort */ }
         _mdCache = data;
         _mdCacheAt = Date.now();
+        _mdFetchedRemote = true;
         return data;
     } catch (err) {
         process.stderr.write(`[model-catalog] models.dev fetch failed: ${err.message}\n`);
+        const raw = readDiskCatalog(mdCachePath());
+        if (raw?.data) {
+            _mdCache = raw.data;
+            _mdCacheAt = raw.fetchedAt || Date.now();
+            _mdFetchedRemote = true;
+            return _mdCache;
+        }
         if (fetchFn !== fetch) {
             _mdCache = _mdCache || {};
             _mdCacheAt = Date.now();
+            _mdFetchedRemote = true;
         }
         return _mdCache || {};
     }
@@ -319,9 +326,9 @@ export async function loadModelsDevCatalog({ fetchFn, force = false } = {}) {
     if (typeof fetchFn === 'function' && fetchFn !== fetch) {
         return _loadModelsDevInjected(fetchFn);
     }
-    if (!force && _mdCache && (Date.now() - _mdCacheAt) < CATALOG_TTL_MS) return _mdCache;
+    if (!force && _mdFetchedRemote && _mdCache) return _mdCache;
     if (_mdLoadPromise) return _mdLoadPromise;
-    _mdLoadPromise = _loadModelsDevImpl(fetchFn, force).finally(() => { _mdLoadPromise = null; });
+    _mdLoadPromise = _loadModelsDevImpl(fetchFn).finally(() => { _mdLoadPromise = null; });
     return _mdLoadPromise;
 }
 function warmModelsDevFromDiskSync() {
@@ -598,13 +605,15 @@ export async function enrichModels(models, { fetchFn, force = false } = {}) {
 /**
  * Force-refresh the catalog by ignoring cached data and re-fetching.
  * Exposed so a user-initiated "refresh catalog" action in the UI can
- * bypass the 24h TTL.
+ * bypass the process-lifetime overlay cache.
  */
 export async function refreshCatalog() {
     _memCache = null;
     _memCacheAt = 0;
+    _catalogFetchedRemote = false;
     _mdCache = null;
     _mdCacheAt = 0;
+    _mdFetchedRemote = false;
     try {
         if (existsSync(cachePath())) {
             const fs = await import('fs');
@@ -626,7 +635,7 @@ export async function warmModelMetadataCatalogs() {
     return litellm;
 }
 
-/** Fire-and-forget warm of both in-memory catalog caches (disk-first, then remote). */
+/** Fire-and-forget warm of both overlay catalogs (remote once per process). */
 export async function warmCatalogsInBackground() {
     try {
         await Promise.all([loadCatalog(), loadModelsDevCatalog()]);

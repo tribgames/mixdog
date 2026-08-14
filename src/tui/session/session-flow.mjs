@@ -302,7 +302,9 @@ export function createSessionFlow(bag) {
     // first attempt landed but the response was lost) must not double-post.
     if (submissionId && acceptedSubmissionIds.has(submissionId)) {
       tuiDebug(`prompt-duplicate id=${submissionId} ignored`);
-      return false;
+      // This is an idempotent success, not a rejected submit. Returning false
+      // makes Desktop restore and retry a message that is already queued.
+      return true;
     }
     const entry = makeQueueEntry(text, options);
     if (entry.mode === 'task-notification' && entry.key) {
@@ -311,9 +313,11 @@ export function createSessionFlow(bag) {
     }
     rememberSubmissionId(submissionId);
     pending.push(entry);
-    if (getState().busy && shouldMirrorSteeringEntry(entry)) {
-      appendTuiSteeringPersist(leadSessionId(), entry);
-    }
+    const needsDurableSteering = (getState().busy || getState().commandBusy || flags.autoClearRunning)
+      && shouldMirrorSteeringEntry(entry);
+    const persistence = needsDurableSteering
+      ? appendTuiSteeringPersist(leadSessionId(), entry)
+      : null;
     if (isQueuedEntryVisible(entry)) {
       set({ queued: [...getState().queued, entry] });
       if (isQueuedEntryEditable(entry)) flushEmitImmediate?.();
@@ -322,6 +326,16 @@ export function createSessionFlow(bag) {
     tuiDebug(`prompt-queued id=${String(entry.id)} busy=${getState().busy ? 1 : 0} ageMs=${queueAgeMs}`);
     if (getState().busy) tuiDebug(`busy-queue enqueue mode=${entry.mode} pending=${pending.length}`);
     void drain();
+    if (options.awaitPersistence === true && persistence) {
+      return Promise.resolve(persistence).then((persisted) => {
+        if (persisted !== false) return true;
+        const index = pending.indexOf(entry);
+        if (index >= 0) pending.splice(index, 1);
+        removeQueuedEntries([entry]);
+        if (submissionId) acceptedSubmissionIds.delete(submissionId);
+        return false;
+      });
+    }
     return true;
   }
 
@@ -389,10 +403,13 @@ export function createSessionFlow(bag) {
       // disk write). Replaying it is the classic double-booked queue.
       if (row.steeringPersistId && livePersistIds.has(row.steeringPersistId)) continue;
       const entry = makeQueueEntry(row.text, {
+        id: row.submissionId || undefined,
+        submittedAt: row.submittedAt || undefined,
         steeringPersistRestored: true,
         steeringPersistId: row.steeringPersistId || undefined,
       });
       pending.push(entry);
+      if (row.submissionId) rememberSubmissionId(row.submissionId);
       if (entry.steeringPersistId) livePersistIds.add(entry.steeringPersistId);
       if (isQueuedEntryVisible(entry)) restored.push(entry);
     }

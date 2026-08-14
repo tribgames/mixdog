@@ -71,7 +71,9 @@ import {
 } from './runtime-capabilities.mjs';
 import { planDirectExeSpawn } from './shell-direct-exe.mjs';
 
-export const DEFAULT_SHELL_AUTO_BACKGROUND_MS = 10_000;
+// Claude Code assistant-mode parity: short foreground commands stay inline;
+// only work still running after the 15 s coordination budget is promoted.
+export const DEFAULT_SHELL_AUTO_BACKGROUND_MS = 15_000;
 
 // Post-exec drift detection. After a foreground shell command, compare the
 // live mtime+size of files mixdog has already read this session against their
@@ -544,7 +546,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     if (longForegroundHint) return formatShellToolFailure(longForegroundHint);
     // Main-agent blocking budget. A timeout is the command's total deadline,
     // not permission to hold the conversation open for that whole duration:
-    // after 10 s a still-running command becomes a tracked background task and
+    // after 15 s a still-running command becomes a tracked background task and
     // completion is pushed to the owner. Explicit timeouts keep their remaining
     // deadline after promotion. Never applies to run_in_background (already
     // detached), persistent sessions, or commands barred from backgrounding.
@@ -725,6 +727,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         // base commands (isAutobackgroundingAllowed), (b) the truthy
         // MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS env. Never applies to
         // run_in_background (already detached, handled above).
+        const foregroundStartedAtMs = Date.now();
         const result = await execShellCommand({
             shell: execShell, shellArg: execShellArg, shellArgs: execShellArgs,
             command: wrappedCommand,
@@ -770,6 +773,7 @@ export async function executeBashTool(args, workDir, options = {}) {
                 try {
                     task = registerBackgroundTask({
                         taskId: result.jobId,
+                        startedAtMs: foregroundStartedAtMs,
                         surface: 'shell',
                         operation: 'shell',
                         label: String(command).replace(/\s+/g, ' ').slice(0, 120),

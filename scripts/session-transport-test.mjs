@@ -36,6 +36,12 @@ const {
   await import('../src/standalone/session-client.mjs');
 const { createProjectPicker } = await import('../src/tui/app/project-picker.mjs');
 const { createSessionApiA } = await import('../src/tui/session/session-api.mjs');
+const { createSessionApiB } = await import('../src/tui/session/session-api-ext.mjs');
+const { chooseShardIndex } = await import('../src/standalone/session-runtime-pool.mjs');
+const {
+  appendTuiSteeringPersist,
+  drainTuiSteeringPersist,
+} = await import('../src/tui/session/tui-steering-persist.mjs');
 const { createSessionOAuthFlowRegistry } =
   await import('../src/tui/session/oauth-flows.mjs');
 const {
@@ -1024,9 +1030,10 @@ test('health and registration bypass a burst of synchronous session call starts'
   });
 });
 
-test('targeted abort reclaims an actual-session submit before its busy projection', async () => {
+test('session submit ACK does not wait for auto-clear and remains reclaimable', async () => {
   const clearGate = Promise.withResolvers();
   let enqueued = 0;
+  const queued = [];
   let state = { busy: false, commandBusy: false };
   const api = createSessionApiA({
     runtime: { abort: () => true },
@@ -1039,19 +1046,32 @@ test('targeted abort reclaims an actual-session submit before its busy projectio
     set: (patch) => { state = { ...state, ...patch }; },
     routeState: () => ({}),
     autoClearBeforeSubmit: () => clearGate.promise,
-    enqueue: () => { enqueued += 1; return true; },
-    restoreQueued: () => ({
-      count: 0,
-      ids: [],
-      text: '',
-      pastedImages: null,
-      pastedTexts: null,
-    }),
+    enqueue: (text, options) => {
+      enqueued += 1;
+      queued.push({ text, id: options.id });
+      return true;
+    },
+    restoreQueued: (_current, selectedId) => {
+      const index = queued.findIndex((entry) => entry.id === selectedId);
+      if (index < 0) return {
+        count: 0, ids: [], text: '', pastedImages: null, pastedTexts: null,
+      };
+      const [entry] = queued.splice(index, 1);
+      return {
+        count: 1,
+        ids: [entry.id],
+        text: entry.text,
+        pastedImages: null,
+        pastedTexts: null,
+      };
+    },
   });
 
   const submitting = api.submitAsync('recover before busy', {
     id: 'actual-session-idle-1',
   });
+  assert.equal(await submitting, true, 'queue intake ACKs before compaction settles');
+  assert.equal(enqueued, 1);
   const restored = api.abort({
     restorePrompt: true,
     submissionId: 'actual-session-idle-1',
@@ -1061,8 +1081,89 @@ test('targeted abort reclaims an actual-session submit before its busy projectio
   assert.deepEqual(restored.restoredSubmissionIds, ['actual-session-idle-1']);
 
   clearGate.resolve();
-  assert.equal(await submitting, false);
-  assert.equal(enqueued, 0, 'a reclaimed intake never reaches the engine queue');
+  assert.equal(queued.length, 0, 'targeted abort reclaims the acknowledged queue entry');
+});
+
+test('shard placement spills a live hash shard at its resident cap', () => {
+  const shards = [
+    { alive: true, resident: 4, busy: 0 },
+    { alive: true, resident: 1, busy: 1 },
+    { alive: true, resident: 2, busy: 0 },
+  ];
+  assert.equal(chooseShardIndex({
+    hashIndex: 0,
+    shards,
+    residentCap: 4,
+    busyCap: 2,
+  }), 2, 'a capped hash shard must spill to the least-busy live peer');
+  assert.equal(chooseShardIndex({
+    hashIndex: 0,
+    shards: shards.map((shard) => ({ ...shard, resident: 4 })),
+    residentCap: 4,
+    busyCap: 2,
+  }), 0, 'the hash shard remains the overflow fallback when every peer is capped');
+});
+
+test('persisted steering keeps the desktop submission identity across recovery', async () => {
+  const sessionId = `steering-recovery-${Date.now()}`;
+  const entry = {
+    id: 'desktop-submit-retry-1',
+    text: 'ship it',
+    submittedAt: Date.now() - 50,
+  };
+  await appendTuiSteeringPersist(sessionId, entry);
+  const restored = await drainTuiSteeringPersist(sessionId);
+  assert.equal(restored.length, 1);
+  assert.equal(restored[0].text, entry.text);
+  assert.equal(restored[0].submissionId, entry.id);
+  assert.equal(restored[0].submittedAt, entry.submittedAt);
+});
+
+test('process-restart resume restores queued steering before releasing commandBusy', async () => {
+  const restoreStarted = Promise.withResolvers();
+  const restoreGate = Promise.withResolvers();
+  let restored = false;
+  let sequence = 0;
+  let state = { commandBusy: false, stats: {} };
+  const releaseStates = [];
+  const api = createSessionApiB({
+    runtime: {
+      resume: async (id) => ({ id, messages: [] }),
+    },
+    nextId: () => `resume-item-${++sequence}`,
+    flags: {},
+    lifecycle: {},
+    listeners: new Set(),
+    getState: () => state,
+    set: (patch) => {
+      if (patch.commandBusy === false) releaseStates.push(restored);
+      state = { ...state, ...patch };
+    },
+    flushEmitImmediate: () => {},
+    replaceItems: (items) => items,
+    clearToastTimers: () => {},
+    routeState: () => ({}),
+    resetStatsAndSyncContext: () => state.stats,
+    restoreLeadSteeringFromDisk: () => {
+      restoreStarted.resolve();
+      return restoreGate.promise.then(() => { restored = true; });
+    },
+  });
+
+  let settled = false;
+  const resuming = api.resume('restart-session', { quiet: true }).then((value) => {
+    settled = true;
+    return value;
+  });
+  await restoreStarted.promise;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(state.commandBusy, true);
+  assert.equal(settled, false, 'resume must keep the command gate until steering is durable in memory');
+
+  restoreGate.resolve();
+  assert.equal(await resuming, true);
+  assert.equal(state.commandBusy, false);
+  assert.deepEqual(releaseStates, [true], 'the release-triggered drain must see restored steering');
 });
 
 test('abort starts immediately while ordinary session calls remain in flight', async () => {
@@ -1850,6 +1951,26 @@ test('an unwatched runtime retains its CC-style background task until completion
       surface: 'shell',
     });
   }
+});
+
+test('auto-background task elapsed time includes its foreground phase', () => {
+  const taskId = `shell-total-elapsed-${Date.now()}`;
+  const startedAtMs = Date.now() - 16_000;
+  const task = registerBackgroundTask({
+    taskId,
+    startedAtMs,
+    surface: 'shell',
+    operation: 'shell',
+    label: 'foreground then background',
+  });
+  assert.equal(task.startedAtMs, startedAtMs);
+  assert.equal(Date.parse(task.startedAt), startedAtMs);
+  completeBackgroundTask(taskId, {
+    status: 'completed',
+    resultText: 'done',
+    notify: false,
+  });
+  cleanupBackgroundTasks({ force: true, surface: 'shell' });
 });
 
 test('session retention exposes no RSS growth ceiling', async () => {

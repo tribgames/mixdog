@@ -5,6 +5,9 @@ import { runAbortable } from '../src/runtime/shared/abort-race.mjs';
 import { SessionClosedError } from '../src/runtime/agent/orchestrator/session/manager/session-errors.mjs';
 import { acquireSessionLock } from '../src/runtime/agent/orchestrator/session/manager/session-lock.mjs';
 import { settleAskCleanup } from '../src/runtime/agent/orchestrator/session/manager/ask-session.mjs';
+import { deriveToolCardModel } from '../src/runtime/shared/tool-card-model.mjs';
+import { parseBackgroundTaskEnvelope } from '../src/tui/session/agent-envelope.mjs';
+import { resolveTuiRuntimeNotificationDelivery } from '../src/tui/session/notification-plan.mjs';
 import { shouldRecreateEmptySessionForRouteChange } from '../src/session-runtime/model-route-api.mjs';
 import { createSessionTurnApi } from '../src/session-runtime/session-turn-api.mjs';
 
@@ -215,4 +218,59 @@ test('local main turns persist user and assistant conversation without Remote', 
     ['user', 'local prompt'],
     ['assistant', 'local reply'],
   ]);
+});
+
+test('running shell output is progress until the terminal completion arrives', () => {
+  const runningText = [
+    'background task',
+    'task_id: shell-1',
+    'surface: shell',
+    'status: running',
+    '',
+    '[stdout preview]',
+    'building...',
+  ].join('\n');
+  const running = parseBackgroundTaskEnvelope(runningText);
+  assert.equal(running.args.type, 'progress');
+  const runningCard = deriveToolCardModel({
+    name: running.name,
+    args: running.args,
+    result: running.result,
+    count: 1,
+    completedCount: 1,
+  });
+  assert.equal(runningCard.labelText, 'Shell progress');
+  assert.equal(runningCard.isBackgroundResponse, false);
+  const runningDelivery = resolveTuiRuntimeNotificationDelivery({
+    content: runningText,
+    meta: {
+      execution_id: 'shell-1',
+      execution_surface: 'shell',
+      status: 'running',
+    },
+  }, runningText);
+  assert.equal(runningDelivery.action, 'execution-ui');
+  assert.equal(runningDelivery.modelContent, '');
+
+  const completedText = runningText.replace('status: running', 'status: completed');
+  const completed = parseBackgroundTaskEnvelope(completedText);
+  assert.equal(completed.args.type, 'result');
+  const completedCard = deriveToolCardModel({
+    name: completed.name,
+    args: completed.args,
+    result: completed.result,
+    count: 1,
+    completedCount: 1,
+  });
+  assert.equal(completedCard.labelText, 'Shell output');
+  assert.equal(completedCard.isBackgroundResponse, true);
+  const completedDelivery = resolveTuiRuntimeNotificationDelivery({
+    content: completedText,
+    meta: {
+      execution_id: 'shell-1',
+      execution_surface: 'shell',
+      status: 'completed',
+    },
+  }, completedText);
+  assert.match(completedDelivery.modelContent, /^Async shell shell-1 completed finished\./i);
 });

@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import {
   DEFAULT_SHELL_AUTO_BACKGROUND_MS,
   _exitClassDiagnostic,
@@ -39,6 +40,7 @@ import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { _bindNativeSearchServerLifecycle } from '../src/runtime/agent/orchestrator/tools/builtin/native-search-client.mjs';
 import {
   childGuardianSpawnEnv,
   startChildGuardian,
@@ -136,7 +138,7 @@ test('auto-background partial output shares one strict UTF-8 byte budget', () =>
 });
 
 test('shell execution policy matches sync-first background-task parity', () => {
-    assert.equal(DEFAULT_SHELL_AUTO_BACKGROUND_MS, 10_000);
+    assert.equal(DEFAULT_SHELL_AUTO_BACKGROUND_MS, 15_000);
     assert.equal(
         foregroundLongCommandHint('npm run dev', 120_000, {}, { backgroundTasksDisabled: false }),
         '',
@@ -158,6 +160,19 @@ test('shell execution policy matches sync-first background-task parity', () => {
     assert.deepEqual(taskTool.inputSchema.properties.action.enum, ['list', 'status', 'read', 'check_after', 'cancel']);
     assert.match(taskTool.inputSchema.properties.action.description, /task_id alone defaults to non-blocking status.*check_after schedules one non-blocking progress notification/);
     assert.match(taskTool.inputSchema.properties.after_ms.description, /Required explicitly for check_after.*one-shot delay.*not the task deadline/);
+});
+
+test('resident native search consumes asynchronous stdin EPIPE', () => {
+    const child = new EventEmitter();
+    child.stdin = new EventEmitter();
+    let observed = null;
+    _bindNativeSearchServerLifecycle(child, {
+        onError: (error) => { observed = error; },
+        onExit: () => {},
+    });
+    const error = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
+    child.stdin.emit('error', error);
+    assert.equal(observed, error);
 });
 
 test('shell output telemetry measures spill-backed raw bytes without retaining output', () => {

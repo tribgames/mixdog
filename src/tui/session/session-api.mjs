@@ -113,14 +113,18 @@ export function createSessionApiA(bag) {
   const submitAsync = async (text, options = {}) => {
     const intake = submission(text, options);
     if (!intake) return false;
+    intake.queueOptions.awaitPersistence = true;
     // Daemon intake needs an acknowledgement boundary stronger than the TUI's
     // synchronous submit(): by the time this Promise resolves, the prompt is
     // present either as a visible queue entry or as the first durable user row.
-    // Provider execution still runs detached through drain().
+    // Start idle auto-clear first so commandBusy is raised synchronously, then
+    // queue and ACK without waiting up to 60 s for compaction. drain() remains
+    // blocked by commandBusy until the clear settles, so the new prompt still
+    // runs only against the cleared conversation.
     if (!flags.autoClearRunning && !getState().commandBusy && !getState().busy) {
-      await autoClearBeforeSubmit().catch(() => {});
+      void Promise.resolve(autoClearBeforeSubmit()).catch(() => {});
     }
-    return enqueueSubmission(intake) !== false;
+    return await Promise.resolve(enqueueSubmission(intake)) !== false;
   };
   return {
     getState: () => getPublishedState(),
