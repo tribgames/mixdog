@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.131 - 2026-08-14
+
 - Release gates now run automatically with incremental path selection, desktop
   platform runtimes prepare ahead of packaging, native graph builds use a
   faster reproducible profile, and production web/relay deployment includes
