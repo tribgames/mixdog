@@ -32,7 +32,7 @@ import {
     typedStatusFrom,
 } from './retry-classifier.mjs';
 import { stampStreamOutcome, readStreamOutcome, STREAM_TRANSPORTS } from './lib/stream-outcome.mjs';
-import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
+import { getLlmDispatcher, recycleLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
 import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './anthropic-leaked-toolcall.mjs';
 import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
@@ -325,6 +325,12 @@ export async function sendViaHttpSse({
             && !externalSignal?.aborted
             && !totalTimeout.signal?.aborted;
         if (attempt < CODEX_REQUEST_MAX_RETRIES && (retryableStatus || retryableTransport)) {
+            if (retryableTransport && requestError) {
+                const code = String(requestError.code || requestError.cause?.code || '');
+                if (code === 'ECONNRESET' || code === 'EPIPE' || code === 'UND_ERR_SOCKET') {
+                    try { recycleLlmDispatcher(); } catch {}
+                }
+            }
             // Reissuing the POST is a REPLAY: allowed for a typed transient
             // failure of the initial request, denied once the failure carries
             // exposure evidence (relayed output / dispatched tool call).

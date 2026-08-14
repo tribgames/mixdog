@@ -120,6 +120,7 @@ export function isBackgroundErrorOnlyBody(body, error = '') {
 function subjectForSurface(surface) {
   const value = String(surface || '').toLowerCase();
   if (value.includes('search') || value.includes('web')) return 'web search agent';
+  if (value === 'turn' || value.includes('request')) return 'request';
   if (value.includes('agent') || value.includes('task')) return 'agent';
   return 'tool';
 }
@@ -130,11 +131,26 @@ function capText(value, max) {
   return text.length > limit ? `${text.slice(0, Math.max(1, limit - 3))}...` : text;
 }
 
+export function isCancelLikeError(error) {
+  if (error == null) return false;
+  if (typeof error === 'object') {
+    if (error.cancelled === true) return true;
+    const name = String(error.name || '');
+    if (name === 'SessionClosedError' || name === 'AbortError' || name === 'APIUserAbortError') return true;
+  }
+  const text = errText(error);
+  return /aborted by session close/i.test(text)
+    || /withRetry:\s*(?:sleep )?aborted/i.test(text)
+    || /^sleep aborted$/i.test(text);
+}
+
 export function presentErrorText(error, options = {}) {
   const surface = options.surface || options.tool || '';
   const subject = subjectForSurface(surface);
   const max = options.max ?? 240;
   let text = errText(error);
+  const name = error && typeof error === 'object' ? String(error.name || '') : '';
+  const code = error && typeof error === 'object' ? String(error.code || '') : '';
   const jsonError = extractJsonError(text);
   if (jsonError) text = jsonError;
   const embeddedError = extractEmbeddedError(text);
@@ -157,6 +173,27 @@ export function presentErrorText(error, options = {}) {
     // surface that path instead of leaving only the wait option.
     const hint = /cooldown/i.test(text) ? ' Re-login or switch the provider account to continue now.' : '';
     return `${provider} quota/rate limit hit${quotaRetry?.[1] ? `; retry after ${quotaRetry[1]}` : ''}.${hint}`;
+  }
+
+  if (isCancelLikeError(error) || name === 'SessionClosedError') {
+    return subject === 'request' ? 'Cancelled' : `${subject[0].toUpperCase()}${subject.slice(1)} was cancelled.`;
+  }
+
+  const inactivity = /timed out after (\d+)ms of inactivity/i.exec(text);
+  if (name === 'StreamStalledError' || name === 'StreamStalledAbortError' || code === 'ESTREAMSTALL' || inactivity) {
+    const ms = inactivity ? Number(inactivity[1]) : 0;
+    return Number.isFinite(ms) && ms > 0 ? `No progress ${formatDurationMs(ms)}.` : 'No progress.';
+  }
+
+  const firstByte = /first byte timed out after (\d+)ms/i.exec(text);
+  if (name === 'ProviderTimeoutError' || code === 'EPROVIDERTIMEOUT' || firstByte) {
+    const ms = firstByte ? Number(firstByte[1]) : 0;
+    return Number.isFinite(ms) && ms > 0 ? `No first response ${formatDurationMs(ms)}.` : 'No first response.';
+  }
+
+  const firstTransport = /first (?:transport|semantic response) stale\s*\((\d+)ms\)/i.exec(text);
+  if (firstTransport) {
+    return `No first response ${formatDurationMs(firstTransport[1])}.`;
   }
 
   const firstResponse = /(?:agent\s+)?first response stale\s*\((\d+)ms\)/i.exec(text);

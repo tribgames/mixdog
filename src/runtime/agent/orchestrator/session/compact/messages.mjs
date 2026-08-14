@@ -29,7 +29,12 @@ export function isSummaryMessage(m) {
 
 export function isProtectedContextUserMessage(m) {
     if (m?.role !== 'user' || typeof m.content !== 'string') return false;
-    return m.content.trimStart().startsWith('<system-reminder>');
+    const content = m.content.trim();
+    if (!content.toLowerCase().startsWith('<system-reminder>')) return false;
+    const closingTag = '</system-reminder>';
+    const closingIndex = content.toLowerCase().indexOf(closingTag);
+    return closingIndex < 0
+        || content.slice(closingIndex + closingTag.length).trim() === '';
 }
 
 // An injected Skill-body user message (the general newMessages channel carries

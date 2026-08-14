@@ -13,6 +13,9 @@ import {
 import { resolveTuiRuntimeNotificationDelivery } from '../src/tui/session/notification-plan.mjs';
 import { shouldRecreateEmptySessionForRouteChange } from '../src/session-runtime/model-route-api.mjs';
 import { createSessionTurnApi } from '../src/session-runtime/session-turn-api.mjs';
+import { presentErrorText, isCancelLikeError } from '../src/runtime/shared/err-text.mjs';
+import { finalizeTurnInterruptionSnapshot } from '../src/runtime/agent/orchestrator/session/manager/turn-interruption.mjs';
+import { toolErrorDisplay as frameToolError } from '../src/tui/session/tool-result-text.mjs';
 
 const advisoryTest = process.env.MIXDOG_TEST_ADVISORY === '1' ? test : test.skip;
 
@@ -308,4 +311,49 @@ test('fallback shell completion wrapper remains renderable as one UI card', () =
   });
   assert.equal(card.labelText, 'Shell output');
   assert.equal(card.isBackgroundResponse, true);
+});
+
+test('interrupt display: stall/timeout/abort copy and non-user markers', () => {
+  const stall = Object.assign(new Error('OpenAI OAuth WS stream timed out after 120000ms of inactivity'), {
+    name: 'StreamStalledError',
+    code: 'ESTREAMSTALL',
+  });
+  assert.equal(presentErrorText(stall, { surface: 'turn' }), 'No progress 2m.');
+  assert.equal(frameToolError(stall, 'turn'), 'No progress 2m.');
+
+  const firstByte = Object.assign(new Error('Gemini REST first byte timed out after 60000ms'), {
+    name: 'ProviderTimeoutError',
+    code: 'EPROVIDERTIMEOUT',
+  });
+  assert.equal(presentErrorText(firstByte, { surface: 'turn' }), 'No first response 1m.');
+  assert.equal(frameToolError(firstByte, 'turn'), 'No first response 1m.');
+
+  const abort = new Error('OpenAI OAuth WS aborted by session close');
+  assert.equal(isCancelLikeError(abort), true);
+  assert.equal(presentErrorText(abort, { surface: 'turn' }), 'Cancelled');
+  assert.equal(frameToolError(abort, 'turn'), 'Cancelled');
+
+  const closed = new SessionClosedError('sess_x', 'user-cancel', 'user-cancel');
+  assert.equal(isCancelLikeError(closed), true);
+
+  const snapshot = {
+    responseStarted: true,
+    partialAssistantContent: 'half',
+    phase: 'streaming',
+  };
+  const user = finalizeTurnInterruptionSnapshot({
+    turnOutgoing: [{ role: 'user', content: 'hi' }],
+    currentUserContent: 'hi',
+    snapshot,
+    abortReason: 'user-cancel',
+  });
+  assert.equal(user.messages.at(-1)?.content, '[Request interrupted by user]');
+
+  const idle = finalizeTurnInterruptionSnapshot({
+    turnOutgoing: [{ role: 'user', content: 'hi' }],
+    currentUserContent: 'hi',
+    snapshot,
+    abortReason: 'idle-sweep',
+  });
+  assert.equal(idle.messages.at(-1)?.content, '[Request interrupted]');
 });

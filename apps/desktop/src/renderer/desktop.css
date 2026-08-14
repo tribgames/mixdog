@@ -2686,6 +2686,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .workspace > .session-header,
   .conversation { --pane-inset: 12px; }
 }
+@container chat-pane (min-width: 640px) {
+  .workspace > .session-header,
+  .conversation { --pane-inset: 24px; }
+}
 @container chat-pane (min-width: 768px) {
   .workspace > .session-header,
   .conversation {
@@ -2704,6 +2708,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 @container studio-pane (max-width: 419px) {
   .studio-shell { --pane-inset: 12px; }
 }
+@container studio-pane (min-width: 640px) {
+  .studio-shell { --pane-inset: 24px; }
+}
 @container studio-pane (min-width: 768px) {
   .studio-shell {
     --pane-inset: 24px;
@@ -2713,6 +2720,31 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   }
 }
 @container studio-pane (min-width: 1536px) {
+  .studio-shell { --pane-column: 1000px; }
+}
+@container mixdog-pane (max-width: 419px) {
+  .workspace > .session-header,
+  .conversation,
+  .studio-shell { --pane-inset: 12px; }
+}
+@container mixdog-pane (min-width: 640px) {
+  .workspace > .session-header,
+  .conversation,
+  .studio-shell { --pane-inset: 24px; }
+}
+@container mixdog-pane (min-width: 768px) {
+  .workspace > .session-header,
+  .conversation,
+  .studio-shell {
+    --pane-inset: 24px;
+    --pane-column: 800px;
+    --pane-scroll-column: calc(var(--pane-column) - var(--mx-scrollbar-size));
+    --pane-card: calc(var(--pane-column) - 2 * var(--pane-inset));
+  }
+}
+@container mixdog-pane (min-width: 1536px) {
+  .workspace > .session-header,
+  .conversation,
   .studio-shell { --pane-column: 1000px; }
 }
 .session-header { flex-basis: 48px; min-height: 48px; border-bottom: 0; background: var(--mx-workspace-sheet); }
@@ -6340,14 +6372,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex: 0 0 auto;
   width: min(100%, var(--pane-column));
   margin: 0 auto;
-  padding: 0 var(--pane-inset) 8px;
+  /* Same floor gap as .composer-region so a 2×2 split lines the cards up. */
+  padding: 0 var(--pane-inset) 16px;
   /* Anchor for the floating density overlay above the composer. */
   position: relative;
   z-index: 5;
   display: grid;
   gap: 6px;
 }
-.studio-status { min-height: 16px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+.studio-status { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
 .studio-status-error { color: var(--mx-danger); }
 .studio-composer {
   /* Match the session form's block flow. Its inline textarea line box plus
@@ -6367,14 +6400,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   field-sizing: content;
   max-height: 180px;
   overflow-y: auto;
-  padding: 16px 16px 8px;
+  padding: 16px var(--composer-text-inset) 8px;
   border: 0;
   color: var(--mx-text);
   background: transparent;
   font-family: var(--mx-font-prose);
   font-size: var(--mx-font-body);
-  font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-emphasis);
+  font-weight: var(--mx-weight-body);
+  line-height: var(--mx-line-body);
+  letter-spacing: 0;
   resize: none;
   outline: none;
 }
@@ -6398,6 +6432,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   /* Chat footer parity: tools sit nearly flush like + · model · effort. */
   gap: 2px;
   height: 44px;
+  min-height: 0;
+  box-sizing: border-box;
   padding: 0 8px;
   /* Mode switch must not reflow the dock: one line, fixed height, whether the
      model exposes two controls or four (user: "너무 심하게 튄다"). */
@@ -6650,47 +6686,63 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .studio-detail {
   position: absolute;
   inset: 0;
-  z-index: 4;
+  z-index: 6;
   display: grid;
-  place-items: center;
-  padding: 28px;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
   container-name: studio-detail;
   container-type: size;
   isolation: isolate;
-  /* One even veil over the whole pane (grid + dock) instead of a hard black
-     wall next to a bright rail, plus a short settle so it does not snap in. */
-  background: color-mix(in srgb, var(--mx-bg-base) 78%, transparent);
-  /* No backdrop-filter: compositing it while another layer repaints (the
-     duration slider drag) blacked out the whole window on Windows GPU. */
+  /* Same scrim as other dialogs. No backdrop-filter: it blacked out the
+     window on Windows GPU during slider drags. Gallery stays hidden so
+     tiles cannot ghost through the veil. */
+  background: var(--mx-scrim);
   animation: studio-detail-in 140ms ease-out;
+}
+.studio-shell:has(.studio-detail) .studio-results,
+.studio-shell:has(.studio-detail) .studio-topbar {
+  visibility: hidden;
 }
 /* The preview is a square media/details frame: no nested rounded thumbnail. */
 .studio-detail-card {
   box-sizing: border-box;
-  width: min(100%, 1040px);
-  height: min(100%, 720px);
+  min-width: 0;
+  min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   border-radius: 0;
   background: var(--mx-workspace-sheet);
-  box-shadow: var(--mx-raised);
-  animation: studio-stage-in 160ms ease-out;
 }
-.studio-detail-stage { display: grid; place-items: center; padding: 32px; }
-.studio-detail-stage img, .studio-detail-stage video {
+.studio-detail-stage {
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 16px;
+}
+.studio-detail-stage img,
+.studio-detail-stage video {
   max-width: 100%;
-  max-height: min(76vh, 100%);
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  object-fit: contain;
   border-radius: 0;
-  box-shadow: 0 24px 60px var(--mx-alpha-dark-45);
   animation: studio-stage-in 160ms ease-out;
 }
 .studio-detail-side {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
+  min-height: 0;
   padding: 16px;
-  overflow-y: auto;
+  overflow: hidden;
   background: var(--mx-bg-base);
   box-shadow: inset .5px 0 0 var(--mx-border-muted);
   animation: studio-side-in 160ms ease-out;
@@ -6710,7 +6762,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 @media (prefers-reduced-motion: reduce) {
   .studio-detail, .studio-detail-stage img, .studio-detail-stage video, .studio-detail-side { animation: none; }
 }
-.studio-detail-side > header { display: flex; align-items: center; justify-content: space-between; }
+.studio-detail-side > header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
 .studio-detail-side > header b { font-size: var(--mx-font-ui); }
 .studio-detail-close {
   display: grid;
@@ -6726,6 +6783,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .studio-detail-block {
   display: grid;
   gap: 8px;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
   padding: 12px;
   border-radius: var(--mx-radius-lg);
   background: var(--mx-bg-layer-1);
@@ -6785,7 +6845,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   white-space: nowrap;
   font-size: var(--mx-font-meta);
 }
-.studio-detail-actions { display: grid; gap: 6px; margin-top: auto; }
+.studio-detail-actions { display: grid; flex: 0 0 auto; gap: 6px; margin-top: auto; }
 .studio-detail-actions button {
   display: inline-flex;
   align-items: center;
@@ -6806,12 +6866,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* Stage close shows when the detail card stacks (narrow pane). */
 .studio-detail-stage-close { display: none; }
 
-@container studio-detail (max-width: 759px) {
+/* Stack in a split pane: a short-but-wide 2×2 still clips a side rail. */
+@container studio-detail (max-width: 899px) or (max-height: 559px) {
   .studio-detail-card {
-    width: 100%;
-    height: 100%;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(140px, 1fr) minmax(180px, 42%);
+    grid-template-rows: minmax(0, 1fr) auto;
     border-radius: 0;
     background: var(--mx-bg-base);
     box-shadow: none;
@@ -6819,12 +6878,19 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .studio-detail-stage {
     position: relative;
     min-height: 0;
+    min-width: 0;
+    overflow: hidden;
     padding: 8px;
   }
   .studio-detail-stage img,
   .studio-detail-stage video {
     max-width: 100%;
     max-height: 100%;
+    min-width: 0;
+    min-height: 0;
+    width: auto;
+    height: auto;
+    object-fit: contain;
     border-radius: 0;
     box-shadow: none;
   }
@@ -6843,10 +6909,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     background: var(--mx-media-scrim);
   }
   .studio-detail-side {
+    position: relative;
+    z-index: 1;
     min-height: 0;
     gap: 10px;
     max-height: none;
-    overflow-y: auto;
+    overflow: hidden;
     padding: 14px;
     border-radius: var(--mx-radius-sheet) var(--mx-radius-sheet) 0 0;
     box-shadow: inset 0 .5px 0 var(--mx-border-muted);
@@ -6912,6 +6980,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+@container mixdog-pane (max-width: 640px) {
+  .schedules-page { padding: 24px 16px 40px; }
 }
 /* justify-content matters: this inline-flex overrides .session-panel-action's
    centering grid, and an uncentered glyph drifted ~8px left of the ⋯ column
@@ -8761,6 +8832,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     font-size: 16px;
   }
   .composer-footer { height: 48px; }
+  .studio-composer { min-height: 108px; }
+  .studio-composer textarea {
+    min-height: 72px;
+    padding: 14px 16px 10px;
+    font-size: 16px;
+  }
+  .studio-composer-bar { height: 48px; }
   /* Pickers become bottom sheets (system grammar) instead of centered
      desktop dialogs floating over a phone keyboard. */
   @keyframes mx-sheet-up { from { transform: translateY(24px); opacity: 0; } }
@@ -9843,6 +9921,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 
 @media (max-width: 640px) {
   .composer textarea { padding-inline: 12px; }
+  .studio-composer textarea { padding-inline: 12px; }
   .route-controls { max-width: calc(100% - 56px); }
   .model-trigger { max-width: 150px; }
   .command-surface .mixdog-settings__body { padding: 20px 16px 24px; }

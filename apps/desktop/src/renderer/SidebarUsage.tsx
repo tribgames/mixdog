@@ -427,10 +427,8 @@ export function SidebarUsage({
           </div>;
         })}
       </div>
-      {/* A known offer always states its count — orca shows "N rate-limit
-          resets available" and only gates the redeem itself, so an account at
-          zero reads as "none left" instead of the feature disappearing. */}
-      {codexResetOffer && <section className="sidebar-usage-reset-credit">
+      {/* Hide the reset-ticket surface when the account has none available. */}
+      {codexResetOffer && codexResetCount > 0 && <section className="sidebar-usage-reset-credit">
         <header className="sidebar-usage-reset-heading">
           <b>{t("Codex reset credits")}</b>
           <small>{t("{{count}} available", { count: codexResetCount })}</small>

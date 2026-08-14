@@ -63,6 +63,7 @@ export function createSessionLifecycle({
   channelStartDelayMs,
   codeGraphPrewarmEnabled,
   prewarmState,
+  agentTool,
 }) {
   async function resolveMissingRouteModelForFirstTurn(signal = null) {
     if (routeHasModel()) return rt.route;
@@ -281,6 +282,9 @@ export function createSessionLifecycle({
       rt.session.deferredInitialRefreshPending = !/resume/i.test(String(reason || ''));
       applyPreSessionToolSelection();
       writeStatuslineRoute(statusRoutes, rt.session, rt.route);
+      try {
+        agentTool?.upsertLeadSession?.(rt.session, { status: 'idle', stage: 'idle' });
+      } catch { /* lead pool must never break session create */ }
       hooks.emit('session:create', { sessionId: rt.session.id, provider: rt.route.provider, model: rt.route.model, toolMode: rt.mode, cwd: rt.currentCwd });
       // SessionStart: bridge to the standard project hook bus. Best-effort;
       // a hook error must never break session creation. additionalContext is

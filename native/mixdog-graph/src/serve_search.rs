@@ -236,6 +236,8 @@ struct LiveWalk {
     state: Mutex<LiveState>,
     cond: Condvar,
     waiters: AtomicUsize,
+    cancelled: AtomicBool,
+    keep_warm: AtomicBool,
     generation: u64,
 }
 
@@ -246,6 +248,18 @@ struct FileListStore {
     generations: Mutex<HashMap<PathBuf, u64>>,
     watcher: Mutex<Option<RecommendedWatcher>>,
     watched_roots: Mutex<HashMap<PathBuf, Instant>>,
+}
+
+struct LiveWaiterGuard<'a> {
+    store: &'a FileListStore,
+    key: WalkKey,
+    live: Arc<LiveWalk>,
+}
+
+impl Drop for LiveWaiterGuard<'_> {
+    fn drop(&mut self) {
+        self.store.release_live(&self.key, &self.live);
+    }
 }
 
 impl FileListStore {
@@ -273,9 +287,8 @@ impl FileListStore {
         left == right || left.starts_with(right) || right.starts_with(left)
     }
 
-    fn invalidate_paths(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
-        let roots: Vec<PathBuf> = self
-            .watched_roots
+    fn affected_roots(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
+        self.watched_roots
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .keys()
@@ -283,7 +296,11 @@ impl FileListStore {
                 paths.is_empty() || paths.iter().any(|path| Self::paths_overlap(root, path))
             })
             .cloned()
-            .collect();
+            .collect()
+    }
+
+    fn invalidate_paths(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
+        let roots = self.affected_roots(paths);
         if roots.is_empty() {
             return roots;
         }
@@ -328,8 +345,18 @@ impl FileListStore {
             stale
         };
         for live in stale {
-            *live.state.lock().unwrap_or_else(|e| e.into_inner()) = LiveState::Abandoned;
-            live.cond.notify_all();
+            // Cache invalidation applies to future searches. Existing waiters
+            // still receive the snapshot they started; it simply cannot be
+            // cached under the newer generation.
+            live.keep_warm.store(false, Ordering::Release);
+            if live.waiters.load(Ordering::Acquire) == 0 {
+                live.cancelled.store(true, Ordering::Release);
+                let mut state = live.state.lock().unwrap_or_else(|e| e.into_inner());
+                if matches!(&*state, LiveState::Running) {
+                    *state = LiveState::Abandoned;
+                }
+                live.cond.notify_all();
+            }
         }
         roots
     }
@@ -345,19 +372,23 @@ impl FileListStore {
             let created =
                 notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
                     let Some(store) = weak.upgrade() else { return };
-                    let changed = match event {
-                        Ok(event)
-                            if !matches!(
-                                event.kind,
-                                EventKind::Create(_)
-                                    | EventKind::Modify(ModifyKind::Data(_) | ModifyKind::Name(_))
-                                    | EventKind::Remove(_)
-                            ) =>
-                        {
-                            return;
+                    let (paths, inventory_changed) = match event {
+                        Ok(event) => {
+                            let Some(inventory_changed) = inventory_changed_by_event(&event.kind)
+                            else {
+                                return;
+                            };
+                            (event.paths, inventory_changed)
                         }
-                        Ok(event) => store.invalidate_paths(&event.paths),
-                        Err(_) => store.invalidate_paths(&[]),
+                        Err(_) => (Vec::new(), true),
+                    };
+                    let changed = if inventory_changed {
+                        store.invalidate_paths(&paths)
+                    } else {
+                        // Content/metadata changes invalidate JS grep and mtime
+                        // result caches, but the file-name inventory is still
+                        // current and remains reusable.
+                        store.affected_roots(&paths)
                     };
                     if !changed.is_empty() {
                         write_response(&serde_json::json!({
@@ -523,9 +554,12 @@ impl FileListStore {
         corpus
     }
 
-    fn begin_live(&self, key: WalkKey) -> (Arc<LiveWalk>, bool) {
+    fn begin_live(&self, key: WalkKey, keep_warm: bool) -> (Arc<LiveWalk>, bool) {
         let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = live.get(&key) {
+            if keep_warm {
+                existing.keep_warm.store(true, Ordering::Release);
+            }
             existing.waiters.fetch_add(1, Ordering::Relaxed);
             return (Arc::clone(existing), false);
         }
@@ -534,10 +568,48 @@ impl FileListStore {
             state: Mutex::new(LiveState::Running),
             cond: Condvar::new(),
             waiters: AtomicUsize::new(1),
+            cancelled: AtomicBool::new(false),
+            keep_warm: AtomicBool::new(keep_warm),
             generation: self.generation(&key.operand),
         });
         live.insert(key, Arc::clone(&created));
         (created, true)
+    }
+
+    fn waiter_guard<'a>(&'a self, key: WalkKey, live: Arc<LiveWalk>) -> LiveWaiterGuard<'a> {
+        LiveWaiterGuard {
+            store: self,
+            key,
+            live,
+        }
+    }
+
+    fn release_live(&self, key: &WalkKey, live: &Arc<LiveWalk>) {
+        let previous = live.waiters.fetch_sub(1, Ordering::AcqRel);
+        debug_assert!(previous > 0, "live inventory waiter underflow");
+        if previous != 1 || live.keep_warm.load(Ordering::Acquire) {
+            return;
+        }
+        let should_cancel = {
+            let mut live_map = self.live.lock().unwrap_or_else(|e| e.into_inner());
+            let same = live_map
+                .get(key)
+                .is_some_and(|current| Arc::ptr_eq(current, live));
+            let idle = live.waiters.load(Ordering::Acquire) == 0
+                && !live.keep_warm.load(Ordering::Acquire);
+            if same && idle {
+                live_map.remove(key);
+            }
+            idle
+        };
+        if should_cancel {
+            live.cancelled.store(true, Ordering::Release);
+            let mut state = live.state.lock().unwrap_or_else(|e| e.into_inner());
+            if matches!(&*state, LiveState::Running) {
+                *state = LiveState::Abandoned;
+            }
+            live.cond.notify_all();
+        }
     }
 
     fn finish_live(
@@ -546,7 +618,7 @@ impl FileListStore {
         live: &Arc<LiveWalk>,
         result: Result<Arc<Vec<PathBuf>>, Option<String>>,
     ) -> bool {
-        let stable = {
+        let cacheable = {
             let mut live_map = self.live.lock().unwrap_or_else(|e| e.into_inner());
             let same = live_map
                 .get(&key)
@@ -557,20 +629,28 @@ impl FileListStore {
             same && self.generation(&key.operand) == live.generation
         };
         let mut state = live.state.lock().unwrap_or_else(|e| e.into_inner());
-        *state = if !stable {
-            LiveState::Abandoned
-        } else {
-            match result {
-                Ok(files) => {
+        *state = match result {
+            Ok(files) => {
+                if cacheable {
                     self.remember(key, Arc::clone(&files), live.generation);
-                    LiveState::Done(files)
                 }
-                Err(Some(err)) => LiveState::Failed(err),
-                Err(None) => LiveState::Abandoned,
+                LiveState::Done(files)
             }
+            Err(Some(err)) => LiveState::Failed(err),
+            Err(None) => LiveState::Abandoned,
         };
         live.cond.notify_all();
-        stable
+        cacheable
+    }
+}
+
+fn inventory_changed_by_event(kind: &EventKind) -> Option<bool> {
+    match kind {
+        EventKind::Create(_) | EventKind::Modify(ModifyKind::Name(_)) | EventKind::Remove(_) => {
+            Some(true)
+        }
+        EventKind::Modify(_) => Some(false),
+        _ => None,
     }
 }
 
@@ -586,6 +666,8 @@ struct ServeRequest {
     limit: usize,
     #[serde(default, rename = "deadlineMs")]
     deadline_ms: Option<u64>,
+    #[serde(default, rename = "keepWarm")]
+    keep_warm: bool,
     #[serde(default)]
     fuzzy: Option<String>,
     #[serde(default)]
@@ -648,7 +730,16 @@ struct PathFilter {
 
 impl PathFilter {
     fn new(root: &Path, parsed: &ParsedArgs) -> Result<Self, String> {
-        let mut globs = OverrideBuilder::new(root);
+        // `OverrideBuilder` requires a directory root. When rg's positional
+        // operand is an exact file, using that file as the root makes its
+        // relative path empty, so ordinary filters such as `*.mjs` reject the
+        // file. Match ripgrep by evaluating file operands from their parent.
+        let filter_root = if root.is_file() {
+            root.parent().unwrap_or(root)
+        } else {
+            root
+        };
+        let mut globs = OverrideBuilder::new(filter_root);
         for glob in &parsed.globs {
             globs.add(glob).map_err(|error| format!("glob: {error}"))?;
         }
@@ -656,7 +747,7 @@ impl PathFilter {
         let iglobs = if parsed.iglobs.is_empty() {
             None
         } else {
-            let mut builder = OverrideBuilder::new(root);
+            let mut builder = OverrideBuilder::new(filter_root);
             builder
                 .case_insensitive(true)
                 .map_err(|error| format!("iglob: {error}"))?;
@@ -1253,9 +1344,65 @@ fn inventory_pool() -> &'static ThreadPool {
     })
 }
 
+fn inventory_walk_threads() -> usize {
+    std::env::var("MIXDOG_SEARCH_INVENTORY_THREADS")
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .filter(|threads| *threads > 0)
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(usize::from)
+                .unwrap_or(2)
+        })
+        .clamp(2, 4)
+}
+
 struct CollectedWalk {
     files: Vec<PathBuf>,
-    published: usize,
+}
+
+struct WorkerWalkBatch<'a> {
+    collected: &'a Mutex<CollectedWalk>,
+    live: &'a LiveWalk,
+    files: Vec<PathBuf>,
+    capacity: usize,
+}
+
+impl<'a> WorkerWalkBatch<'a> {
+    fn new(collected: &'a Mutex<CollectedWalk>, live: &'a LiveWalk, capacity: usize) -> Self {
+        Self {
+            collected,
+            live,
+            files: Vec::with_capacity(capacity),
+            capacity,
+        }
+    }
+
+    fn push(&mut self, path: PathBuf) {
+        self.files.push(path);
+        if self.files.len() >= self.capacity {
+            self.flush();
+        }
+    }
+
+    fn flush(&mut self) {
+        if self.files.is_empty() {
+            return;
+        }
+        if let Ok(mut collected) = self.collected.lock() {
+            let start = collected.files.len();
+            collected.files.append(&mut self.files);
+            publish_live_files(self.live, &collected.files[start..]);
+        } else {
+            self.files.clear();
+        }
+    }
+}
+
+impl Drop for WorkerWalkBatch<'_> {
+    fn drop(&mut self) {
+        self.flush();
+    }
 }
 
 fn start_live_walk(
@@ -1276,7 +1423,8 @@ fn start_live_walk(
                 return Err(format!("no such path {}", operand.display()));
             }
             let mut walk = WalkBuilder::new(&operand);
-            walk.hidden(!parsed.hidden).threads(2);
+            walk.hidden(!parsed.hidden)
+                .threads(inventory_walk_threads());
             if parsed.no_ignore {
                 walk.ignore(false)
                     .git_ignore(false)
@@ -1288,19 +1436,15 @@ fn start_live_walk(
             if let Some(max_depth) = parsed.max_depth {
                 walk.max_depth(Some(max_depth));
             }
-            let collected = Mutex::new(CollectedWalk {
-                files: Vec::new(),
-                published: 0,
-            });
+            let collected = Mutex::new(CollectedWalk { files: Vec::new() });
             let publish_batch = inventory_publish_batch();
             walk.build_parallel().run(|| {
                 let collected = &collected;
-                let store = &store;
-                let key = &key;
                 let live = &live;
                 let operand = &operand;
+                let mut batch = WorkerWalkBatch::new(collected, live, publish_batch);
                 Box::new(move |entry| {
-                    if store.generation(&key.operand) != live.generation {
+                    if live.cancelled.load(Ordering::Acquire) {
                         return ignore::WalkState::Quit;
                     }
                     let Ok(entry) = entry else {
@@ -1317,28 +1461,16 @@ fn start_live_walk(
                         return ignore::WalkState::Continue;
                     }
                     let path = entry.into_path();
-                    if let Ok(mut collected) = collected.lock() {
-                        collected.files.push(path);
-                        if collected.files.len().saturating_sub(collected.published)
-                            >= publish_batch
-                        {
-                            publish_live_files(live, &collected.files[collected.published..]);
-                            collected.published = collected.files.len();
-                        }
-                    }
+                    batch.push(path);
                     ignore::WalkState::Continue
                 })
             });
-            if store.generation(&key.operand) != live.generation {
+            if live.cancelled.load(Ordering::Acquire) {
                 return Err(CANCELLED.to_string());
             }
-            let mut collected = collected
+            let collected = collected
                 .into_inner()
                 .map_err(|_| "parallel file collector poisoned".to_string())?;
-            if collected.published < collected.files.len() {
-                publish_live_files(&live, &collected.files[collected.published..]);
-                collected.published = collected.files.len();
-            }
             let mut files = collected.files;
             files.sort();
             Ok(Arc::new(files))
@@ -1391,6 +1523,7 @@ fn complete_operand_files(
     parsed: &ParsedArgs,
     cancelled: &AtomicBool,
     deadline_at: Option<Instant>,
+    keep_warm: bool,
 ) -> Result<(Arc<Vec<PathBuf>>, bool), String> {
     store.watch_root(operand_path);
     loop {
@@ -1398,7 +1531,8 @@ fn complete_operand_files(
         if let Some(hit) = store.take_ready(&key) {
             return Ok((hit, true));
         }
-        let (live, owner) = store.begin_live(key.clone());
+        let (live, owner) = store.begin_live(key.clone(), keep_warm);
+        let _waiter = store.waiter_guard(key.clone(), Arc::clone(&live));
         if owner {
             start_live_walk(
                 Arc::clone(store),
@@ -1429,6 +1563,7 @@ fn scan_limited_operand(
     matcher: &CompiledMatcher,
     cancelled: &AtomicBool,
     deadline_at: Option<Instant>,
+    keep_warm: bool,
     _chunk_size: usize,
     use_prefix: bool,
     all_lines: &mut Vec<String>,
@@ -1458,7 +1593,8 @@ fn scan_limited_operand(
         let timed_out = deadline_at.is_some_and(|deadline| Instant::now() >= deadline);
         return Ok((reached_limit, timed_out));
     }
-    let (live, owner) = store.begin_live(key.clone());
+    let (live, owner) = store.begin_live(key.clone(), keep_warm);
+    let _waiter = store.waiter_guard(key.clone(), Arc::clone(&live));
     if owner {
         start_live_walk(
             Arc::clone(store),
@@ -1592,7 +1728,7 @@ fn handle_fuzzy(
     let key = fuzzy_key(root, &parsed);
     let filter = PathFilter::new(root, &parsed)?;
     let (files, inventory_complete) =
-        complete_operand_files(store, root, &parsed, cancelled, deadline_at)?;
+        complete_operand_files(store, root, &parsed, cancelled, deadline_at, req.keep_warm)?;
     let corpus = if inventory_complete {
         store.fuzzy_corpus(&key, &files, root, &filter)
     } else {
@@ -1710,8 +1846,14 @@ fn handle(
             store.watch_root(&operand_path);
             let filter = PathFilter::new(&operand_path, &parsed)?;
             if collect_until == usize::MAX {
-                let (files, complete) =
-                    complete_operand_files(store, &operand_path, &parsed, cancelled, deadline_at)?;
+                let (files, complete) = complete_operand_files(
+                    store,
+                    &operand_path,
+                    &parsed,
+                    cancelled,
+                    deadline_at,
+                    req.keep_warm,
+                )?;
                 for file in files.iter().filter(|file| filter.allows(file)) {
                     all_lines.push(display_path(operand, &operand_path, file));
                 }
@@ -1728,7 +1870,8 @@ fn handle(
                         }
                     }
                 } else {
-                    let (live, owner) = store.begin_live(key.clone());
+                    let (live, owner) = store.begin_live(key.clone(), req.keep_warm);
+                    let _waiter = store.waiter_guard(key.clone(), Arc::clone(&live));
                     if owner {
                         start_live_walk(
                             Arc::clone(store),
@@ -1840,6 +1983,7 @@ fn handle(
                 &matcher,
                 cancelled,
                 deadline_at,
+                req.keep_warm,
                 chunk_size,
                 use_prefix,
                 &mut all_lines,
@@ -1858,8 +2002,14 @@ fn handle(
             }
             continue;
         }
-        let (files, complete) =
-            complete_operand_files(store, &operand_path, &parsed, cancelled, deadline_at)?;
+        let (files, complete) = complete_operand_files(
+            store,
+            &operand_path,
+            &parsed,
+            cancelled,
+            deadline_at,
+            req.keep_warm,
+        )?;
         for file_chunk in files.chunks(chunk_size) {
             if cancelled.load(Ordering::Relaxed) {
                 return Err(CANCELLED.to_string());
@@ -2456,6 +2606,24 @@ fn dispatch_searches(inner: Arc<SchedulerInner>) {
     }
 }
 
+fn response_for_handler_result(
+    id: u64,
+    result: Result<serde_json::Value, String>,
+    request_cancelled: bool,
+) -> Option<serde_json::Value> {
+    if request_cancelled {
+        return None;
+    }
+    match result {
+        Ok(value) => Some(value),
+        Err(reason) if reason == CANCELLED => Some(serde_json::json!({
+            "id": id,
+            "error": "native inventory abandoned without request cancellation",
+        })),
+        Err(reason) => Some(serde_json::json!({ "id": id, "unsupported": reason })),
+    }
+}
+
 fn execute_scheduled_search(
     inner: Arc<SchedulerInner>,
     class: SearchClass,
@@ -2476,11 +2644,8 @@ fn execute_scheduled_search(
         let deadline_at = req
             .deadline_ms
             .map(|deadline_ms| queued_at + Duration::from_millis(deadline_ms));
-        match handle(&req, &cancelled, &inner.file_lists, deadline_at) {
-            Ok(value) => Some(value),
-            Err(reason) if reason == CANCELLED || cancelled.load(Ordering::Relaxed) => None,
-            Err(reason) => Some(serde_json::json!({ "id": req.id, "unsupported": reason })),
-        }
+        let handled = handle(&req, &cancelled, &inner.file_lists, deadline_at);
+        response_for_handler_result(req.id, handled, cancelled.load(Ordering::Relaxed))
     };
     let handler_elapsed = handler_started.elapsed();
     let handler_ms = handler_elapsed.as_millis();
@@ -2717,6 +2882,7 @@ mod tests {
             offset: 0,
             limit,
             deadline_ms: None,
+            keep_warm: false,
             fuzzy: None,
             hidden: false,
             include_noise: false,
@@ -2755,12 +2921,42 @@ mod tests {
     }
 
     #[test]
+    fn watcher_preserves_inventory_for_content_changes_only() {
+        assert_eq!(
+            inventory_changed_by_event(&EventKind::Modify(ModifyKind::Any)),
+            Some(false)
+        );
+        assert_eq!(
+            inventory_changed_by_event(&EventKind::Modify(ModifyKind::Name(
+                notify::event::RenameMode::Any,
+            ))),
+            Some(true)
+        );
+        assert_eq!(
+            inventory_changed_by_event(&EventKind::Create(notify::event::CreateKind::Any)),
+            Some(true)
+        );
+        assert_eq!(
+            inventory_changed_by_event(&EventKind::Remove(notify::event::RemoveKind::Any)),
+            Some(true)
+        );
+        assert_eq!(inventory_changed_by_event(&EventKind::Other), None);
+    }
+
+    #[test]
+    fn inventory_walk_parallelism_stays_bounded() {
+        assert!((2..=4).contains(&inventory_walk_threads()));
+    }
+
+    #[test]
     fn complete_inventory_wait_honors_request_cancellation() {
         let live = LiveWalk {
             files: Mutex::new(Vec::new()),
             state: Mutex::new(LiveState::Running),
             cond: Condvar::new(),
             waiters: AtomicUsize::new(0),
+            cancelled: AtomicBool::new(false),
+            keep_warm: AtomicBool::new(false),
             generation: 0,
         };
         let cancelled = AtomicBool::new(true);
@@ -2777,6 +2973,8 @@ mod tests {
             state: Mutex::new(LiveState::Running),
             cond: Condvar::new(),
             waiters: AtomicUsize::new(0),
+            cancelled: AtomicBool::new(false),
+            keep_warm: AtomicBool::new(false),
             generation: 0,
         };
         let cancelled = AtomicBool::new(false);
@@ -2789,6 +2987,94 @@ mod tests {
             .unwrap_err(),
             SOFT_TIMEOUT
         );
+    }
+
+    #[test]
+    fn last_waiter_cancels_normal_inventory_but_explicit_prewarm_survives() {
+        let store = FileListStore::new();
+        let parsed = parse_args(&request(&["--files", "."], 20).args).unwrap();
+        let key = walk_key(Path::new("."), &parsed);
+        let (live, owner) = store.begin_live(key.clone(), false);
+        assert!(owner);
+        let (joined, owner) = store.begin_live(key.clone(), false);
+        assert!(!owner);
+        assert!(Arc::ptr_eq(&live, &joined));
+        store.release_live(&key, &live);
+        assert!(!live.cancelled.load(Ordering::Acquire));
+        store.release_live(&key, &joined);
+        assert!(live.cancelled.load(Ordering::Acquire));
+        assert!(matches!(
+            &*live.state.lock().unwrap_or_else(|e| e.into_inner()),
+            LiveState::Abandoned
+        ));
+        assert!(store
+            .live
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&key)
+            .is_none());
+
+        let warm_key = walk_key(Path::new("warm"), &parsed);
+        let (warm, owner) = store.begin_live(warm_key.clone(), true);
+        assert!(owner);
+        store.release_live(&warm_key, &warm);
+        assert!(!warm.cancelled.load(Ordering::Acquire));
+        assert!(store
+            .live
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&warm_key)
+            .is_some());
+    }
+
+    #[test]
+    fn invalidation_detaches_active_snapshot_without_dropping_its_waiter() {
+        let store = FileListStore::new();
+        let root = PathBuf::from("mutable-root");
+        store
+            .watched_roots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(root.clone(), Instant::now());
+        let parsed = parse_args(&request(&["--files", "."], 20).args).unwrap();
+        let key = walk_key(&root, &parsed);
+        let (live, owner) = store.begin_live(key.clone(), false);
+        assert!(owner);
+
+        assert_eq!(
+            store.invalidate_paths(&[root.join("changed.log")]),
+            vec![root.clone()]
+        );
+        assert!(!live.cancelled.load(Ordering::Acquire));
+        assert!(matches!(
+            &*live.state.lock().unwrap_or_else(|e| e.into_inner()),
+            LiveState::Running
+        ));
+        assert!(store
+            .live
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&key)
+            .is_none());
+
+        let snapshot = Arc::new(vec![root.join("snapshot.log")]);
+        assert!(!store.finish_live(key.clone(), &live, Ok(snapshot)));
+        assert!(matches!(
+            &*live.state.lock().unwrap_or_else(|e| e.into_inner()),
+            LiveState::Done(files) if files.len() == 1
+        ));
+        assert!(store.take_ready(&key).is_none());
+        store.release_live(&key, &live);
+    }
+
+    #[test]
+    fn internal_abandonment_returns_an_error_instead_of_silence() {
+        let response = response_for_handler_result(7, Err(CANCELLED.to_string()), false).unwrap();
+        assert_eq!(response["id"], 7);
+        assert!(response["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("without request cancellation")));
+        assert!(response_for_handler_result(7, Err(CANCELLED.to_string()), true).is_none());
     }
 
     #[test]

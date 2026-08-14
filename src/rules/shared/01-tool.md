@@ -41,7 +41,9 @@
   before the next round. `code_graph references` supplies the declaration and
   scoped usages and ends that facet; values/locations end at the context grep returns; `read`
   covers only what returned spans cannot, as an anchored offset/limit
-  window. Each follow-up may address only facts left unresolved or changed by
+  window. Already obtained hunk text is any visible span — `grep`,
+  `code_graph`, `shell`, system/reminder text, or `read` — not only `read`.
+  Each follow-up may address only facts left unresolved or changed by
   prior results; never re-query or re-verify established facts. Evidence that
   determines the answer, edit, or deliverable ends retrieval — patch if needed.
 - A successful verification closes the task unless later changes affect it.

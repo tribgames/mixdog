@@ -127,6 +127,16 @@ test("Agents groups every active session and renders each session's live agents"
     async listAgentPool() {
       return [
         {
+          tag: "lead:lead-a",
+          agent: "lead",
+          status: "running",
+          stage: "running",
+          sessionId: "lead-a",
+          ownerSessionId: "lead-a",
+          model: "grok-4.6",
+          provider: "xai",
+        },
+        {
           tag: "research",
           agent: "researcher",
           status: "running",
@@ -184,6 +194,8 @@ test("Agents groups every active session and renders each session's live agents"
     assert.match(document.body.textContent, /Second task/);
     assert.match(document.body.textContent, /Idle/);
     assert.doesNotMatch(document.body.textContent, /Idle task/);
+    assert.match(document.body.textContent, /Lead/);
+    assert.ok(document.querySelector('[data-agent-session-id="lead-a"]'));
     assert.ok(document.querySelector('[data-agent-session-id="child-a"]'));
     assert.ok(document.querySelector('[data-agent-session-id="child-b"]'));
 

@@ -52,7 +52,10 @@ function timeoutError(request, deadlineMs) {
 }
 
 function softDeadlineMs(hardDeadlineMs) {
-  const margin = Math.min(500, Math.max(25, Math.floor(hardDeadlineMs * 0.05)));
+  // Leave enough of the caller's total budget for response serialization,
+  // transport, and JS-side ranking. The old 500ms ceiling raced the outer
+  // 20s read-only deadline and discarded a valid native partial response.
+  const margin = Math.min(2_000, Math.max(250, Math.floor(hardDeadlineMs * 0.075)));
   return Math.max(1, hardDeadlineMs - margin);
 }
 
@@ -426,7 +429,10 @@ async function requestNative(server, request, execOptions, deadlineMs) {
   return response;
 }
 
-export { requestNative as _requestNativeForTest };
+export {
+  requestNative as _requestNativeForTest,
+  softDeadlineMs as _softDeadlineMsForTest,
+};
 
 async function requestNativeWithRestart(buildRequest, execOptions, deadlineMs) {
   const startedAt = Date.now();
@@ -435,7 +441,7 @@ async function requestNativeWithRestart(buildRequest, execOptions, deadlineMs) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const remaining = Math.max(1, deadlineMs - (Date.now() - startedAt));
     try {
-      return await requestNative(server, buildRequest(server), execOptions, remaining);
+      return await requestNative(server, buildRequest(server, remaining), execOptions, remaining);
     } catch (error) {
       if (error?.code !== 'NATIVE_SEARCH_PROCESS_EXIT' || attempt > 0) throw error;
       server = await _readyServer(Math.min(remaining, SERVER_READY_TIMEOUT_MS));
@@ -452,7 +458,7 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
     ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
     : REQUEST_TIMEOUT_MS;
   const response = await requestNativeWithRestart(
-    (server) => ({
+    (server, remaining) => ({
       id: ++server.sequence,
       cwd: String(execOptions.cwd || process.cwd()),
       args: argsList.map(String),
@@ -460,7 +466,8 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
       limit: Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0
         ? Math.floor(Number(opts.limit))
         : 0,
-      deadlineMs: softDeadlineMs(deadlineMs),
+      deadlineMs: softDeadlineMs(remaining),
+      keepWarm: opts.keepWarm === true,
     }),
     execOptions,
     deadlineMs,
@@ -491,7 +498,7 @@ export async function tryServeFuzzySearch(args, execOptions = {}) {
     ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
     : REQUEST_TIMEOUT_MS;
   const response = await requestNativeWithRestart(
-    (server) => ({
+    (server, remaining) => ({
       id: ++server.sequence,
       cwd: String(args?.cwd || execOptions.cwd || process.cwd()),
       fuzzy: String(args?.query || ''),
@@ -502,7 +509,7 @@ export async function tryServeFuzzySearch(args, execOptions = {}) {
         ? { maxDepth: Math.floor(Number(args.maxDepth)) }
         : {}),
       exclude: Array.isArray(args?.exclude) ? args.exclude.map(String) : [],
-      deadlineMs: softDeadlineMs(deadlineMs),
+      deadlineMs: softDeadlineMs(remaining),
     }),
     execOptions,
     deadlineMs,

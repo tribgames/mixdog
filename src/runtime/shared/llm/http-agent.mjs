@@ -110,6 +110,25 @@ export function getLlmDispatcher() {
   return _globalInstalled ? undefined : _agent
 }
 
+/**
+ * Drop the shared keep-alive pool after a stale-socket failure (ECONNRESET /
+ * EPIPE / UND_ERR_SOCKET). The next getLlmDispatcher() call opens a fresh
+ * Agent so the retry does not reuse the dead connection. No-op under a proxy.
+ */
+export function recycleLlmDispatcher() {
+  if (proxyConfigured()) return false
+  const old = _agent
+  _agent = null
+  _globalInstalled = false
+  _preconnectedAt.clear()
+  if (!old) return false
+  try {
+    if (typeof old.destroy === 'function') old.destroy()
+    else if (typeof old.close === 'function') old.close()
+  } catch { /* never let recycle throw into a retry path */ }
+  return true
+}
+
 // Origins warmed (or warming) recently, with the timestamp of the last warm.
 // A time-based gate (instead of a permanent Set) lets us RE-warm a socket once
 // the kept-alive window has lapsed: a one-shot warm at provider construction

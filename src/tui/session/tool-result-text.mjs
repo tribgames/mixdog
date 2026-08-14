@@ -119,7 +119,7 @@ export function toolGroupedDisplayFallback(resultText, text, rawText) {
 
 export function toolErrorDisplay(value, surface = 'tool') {
   const text = presentErrorText(value, { surface });
-  if (/^(?:Search failed|Fetch failed|No first response|The .+ went stale|(?:Web search agent|Agent|Tool) (?:stopped|was cancelled))/i.test(text)) {
+  if (/^(?:Search failed|Fetch failed|No first response|No progress|Cancelled|The .+ went stale|(?:Web search agent|Agent|Tool|Request) (?:stopped|was cancelled))/i.test(text)) {
     return text;
   }
   return /^error\s*:/i.test(text) ? text : `Error: ${text}`;

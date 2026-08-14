@@ -248,6 +248,9 @@ function restoredUserTranscriptItems(message, nextId) {
   if (/^\[request interrupted by process restart\]$/i.test(text)) {
     return [{ kind: 'turndone', id: nextId(), status: 'cancelled', elapsedMs: 0 }];
   }
+  if (/^\[request interrupted\]$/i.test(text)) {
+    return [{ kind: 'turndone', id: nextId(), status: 'cancelled', elapsedMs: 0 }];
+  }
   const synthetic = parseSyntheticAgentMessage(text);
   if (!synthetic) {
     return [{ kind: 'user', id: nextId(), text, ...restoredTranscriptMetadata(message) }];

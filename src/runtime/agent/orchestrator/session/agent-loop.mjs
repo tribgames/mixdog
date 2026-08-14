@@ -420,6 +420,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // retries per stream call. A per-ask budget instead let one early blip in
     // a long turn leave every later iteration with zero replays.
     let _transportRetriesUsed = 0;
+    let _imageStripUsed = false;
+    let _sendMessages = null;
     // Queued prompt/task notifications are attached after a
     // tool batch, before the continuation provider send. Normal batches drain
     // up to 'next'; a Sleep-like tool grants a 'later' flush.
@@ -652,9 +654,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         const _sendResult = await runWithProviderRequestToolsScope(
             requestToolScope,
             () => sendWithRecovery({
-                provider, messages, model, sendTools, tools: sendTools, opts,
+                provider, messages: _sendMessages || messages, model, sendTools, tools: sendTools, opts,
                 sessionId, sessionRef, nextIteration, contextOverflowRetryUsed,
-                transportRetriesUsed: _transportRetriesUsed, signal,
+                transportRetriesUsed: _transportRetriesUsed,
+                imageStripUsed: _imageStripUsed, signal,
             }),
         );
         const _sendEndedAt = Date.now();
@@ -671,6 +674,15 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             _transportRetriesUsed += 1;
             continue;
         }
+        if (_sendResult.action === 'retry_image_strip') {
+            _transportRetriesUsed += 1;
+            _imageStripUsed = true;
+            if (Array.isArray(_sendResult.messages)) {
+                messages.splice(0, messages.length, ..._sendResult.messages);
+                _sendMessages = null;
+            }
+            continue;
+        }
         response = _sendResult.response;
         opts.onToolCall = undefined;
         delete opts.cacheBreakIntent;
@@ -679,6 +691,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // iteration is a fresh request and must get the full replay budget
         // again (mirrors contextOverflowRetryUsed above).
         _transportRetriesUsed = 0;
+        _imageStripUsed = false;
+        _sendMessages = null;
         // Capture opaque state for the next turn only when the provider
         // explicitly returned the field. Absence means "no update"; an own
         // property with null/undefined means "clear".

@@ -21,6 +21,7 @@ import {
     createGeminiTextLeakGuard,
     consumeGeminiRestStreamResponse,
     consumeGeminiSdkStream,
+    stampGeminiRpcError,
 } from './gemini-stream.mjs';
 import {
     toGeminiTools,
@@ -90,7 +91,9 @@ function geminiRestError(res, text, label) {
         // RESOURCE_EXHAUSTED without a server retry window is deterministic
         // quota exhaustion. With Retry-After present, leave it request-local
         // so withRetry can honor the mandated delay.
-        if (detail.status && (retryAfter == null || retryAfter === '')) {
+        // A 429 RESOURCE_EXHAUSTED is a request-local rate limit even without
+        // Retry-After (Google/LiteLLM retry). Do not stamp it as a quota code.
+        if (detail.status && (retryAfter == null || retryAfter === '') && res.status !== 429) {
             err.code = detail.status;
         }
     }
@@ -789,7 +792,7 @@ export class GeminiProvider {
                                         ? reqController.signal.reason
                                         : err;
                                 }
-                                throw err;
+                                throw stampGeminiRpcError(err);
                             }
                             // First byte / headers received: drop the connect-phase
                             // timer but KEEP the parent link attached so a later

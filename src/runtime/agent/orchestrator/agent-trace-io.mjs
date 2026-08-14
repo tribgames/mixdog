@@ -105,6 +105,9 @@ function _resolveLocalTracePath() {
     if (process.env.MIXDOG_AGENT_TRACE_LOCAL_DISABLE === '1') return null;
     if (_localTracePath) return _localTracePath;
     const explicit = process.env.MIXDOG_AGENT_TRACE_PATH;
+    // Node test workers intentionally exercise failure paths. Keep those rows
+    // out of the user's implicit trace, while explicit per-test paths still work.
+    if (!explicit && process.env.NODE_TEST_CONTEXT) return null;
     // Ship-mode default: skip diagnostic local trace file IO unless dev/debug,
     // MIXDOG_DIAGNOSTICS, or an explicit trace path opts back in. In-memory
     // buffer + memory-service flush (session metrics) are unaffected.
@@ -326,6 +329,7 @@ async function drainAgentTrace() {
 function appendAgentTrace(record = {}) {
     // Test isolation — when run-all-tests.mjs sets this env, skip entirely.
     if (process.env.MIXDOG_AGENT_TRACE_DISABLE === '1') return;
+    if (process.env.NODE_TEST_CONTEXT && !process.env.MIXDOG_AGENT_TRACE_PATH) return;
     try {
         // Coerce ts to epoch ms integer at enqueue time
         let ts = record.ts || Date.now();
@@ -363,9 +367,8 @@ function _resolveToolFailurePath() {
     // (patch ordering, arg guards, ...). Without an explicit path those rows
     // land in the user's real failure log and read as production incidents.
     if (!explicit && process.env.NODE_TEST_CONTEXT) return null;
-    // Ship-mode default: skip diagnostic tool-failure log file IO unless
-    // dev/debug, MIXDOG_DIAGNOSTICS, or an explicit path opts back in.
-    if (!explicit && !isDiagnosticIOEnabled()) return null;
+    // Keep the compact failure-only log in ship mode. The full local trace
+    // remains diagnostic-only, but failures must stay queryable in production.
     try {
         _toolFailurePath = explicit
             || join(getPluginData(), 'history', 'tool-failures.jsonl');

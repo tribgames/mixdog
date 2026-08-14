@@ -280,6 +280,13 @@ export function AgentActivityPane({
       }
       group.agents.push(agent);
     }
+    for (const group of byOwner.values()) {
+      group.agents.sort((left, right) => {
+        const leftLead = String(left.agent || '').toLowerCase() === 'lead' ? 0 : 1;
+        const rightLead = String(right.agent || '').toLowerCase() === 'lead' ? 0 : 1;
+        return leftLead - rightLead;
+      });
+    }
     return [...byOwner.values()].sort((left, right) => {
       const leftTime = Number(left.session?.activityAt || left.session?.updatedAt) || 0;
       const rightTime = Number(right.session?.activityAt || right.session?.updatedAt) || 0;

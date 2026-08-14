@@ -174,6 +174,41 @@ export function storedAgentWorkerIndexPath() {
     return join(dataDir(), 'agent-workers.json');
 }
 
+function mergeLeadSessionsIntoPool(bySessionId, now) {
+    let summaries = [];
+    try { summaries = listStoredSessionSummaries(); }
+    catch { return; }
+    for (const row of summaries) {
+        const sessionId = cleanValue(row?.id);
+        if (!sessionId || !/^[A-Za-z0-9_-]+$/.test(sessionId)) continue;
+        const current = bySessionId.get(sessionId);
+        const currentAgent = cleanValue(current?.agent).toLowerCase();
+        if (current && currentAgent && currentAgent !== 'lead') continue;
+        const heartbeatAt = positiveNumber(row.heartbeatAt, 0);
+        const running = heartbeatAt > 0 && now - heartbeatAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
+        const status = running ? 'running' : 'idle';
+        bySessionId.set(sessionId, {
+            tag: cleanValue(current?.tag) || `lead:${sessionId}`,
+            sessionId,
+            ownerSessionId: sessionId,
+            agent: 'lead',
+            provider: cleanValue(row.provider || current?.provider) || null,
+            model: cleanValue(row.model || current?.model) || null,
+            effort: cleanValue(row.effort || current?.effort) || null,
+            fast: row.fast === true || current?.fast === true,
+            status,
+            stage: status,
+            startedAt: row.createdAt || current?.startedAt || null,
+            turnStartedAt: running ? (current?.turnStartedAt || heartbeatAt) : null,
+            createdAt: row.createdAt || current?.createdAt || null,
+            updatedAt: row.updatedAt || current?.updatedAt || heartbeatAt || null,
+            cwd: cleanValue(row.cwd || current?.cwd) || null,
+            clientHostPid: positiveNumber(row.clientHostPid || current?.clientHostPid, 0) || null,
+            taskId: cleanValue(current?.taskId) || null,
+        });
+    }
+}
+
 /** Process-global active agent pool. Fresh child heartbeat sidecars are the
  * cross-process running source even when their durable session is detached
  * (`closed`) and a terminal reaper has already removed the worker-index row.
@@ -272,6 +307,7 @@ export function listStoredAgentWorkers() {
                 || current.taskId || null,
         });
     }
+    mergeLeadSessionsIntoPool(bySessionId, now);
     const rows = [...bySessionId.values()];
     return rows.sort((left, right) => {
         const leftTime = Date.parse(String(left.startedAt || '')) || 0;

@@ -1346,7 +1346,8 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                                 : '\n[warning] rg exit 2 (partial fixed-string fallback results)';
                         }
                     }
-                    const body = formatGrepOutput({
+                    const fallbackPrefix = patternCapNote + '[regex parse fallback: fixed-string terms]\n';
+                    let body = formatGrepOutput({
                         windowed,
                         totalWindowed,
                         totalKnown,
@@ -1363,8 +1364,11 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                         globPatterns: normalizedGlobPatterns,
                         fileType,
                         filenameOmitted,
-                        prefix: patternCapNote + '[regex parse fallback: fixed-string terms]\n',
-                    }) || `(no matches) fixed_terms=${JSON.stringify(fixedPatterns)} path=${searchPath}`;
+                        prefix: fallbackPrefix,
+                    });
+                    if (!body || (windowed.length === 0 && totalWindowed === 0)) {
+                        body = `${fallbackPrefix}(no matches) fixed_terms=${JSON.stringify(fixedPatterns)} path=${searchPath}`;
+                    }
                     return body + rgPartialSuffix;
                 } catch { /* fall through to the original rg error */ }
             }
@@ -1456,11 +1460,13 @@ export async function executeGlobTool(args, workDir, options = {}) {
     // stats it a third time. Memoize by resolved path so each root is stat'd once.
     const statCache = new Map();
     const statCached = async (resolvedPath) => {
-        if (statCache.has(resolvedPath)) return statCache.get(resolvedPath);
+        if (statCache.has(resolvedPath)) return await statCache.get(resolvedPath);
         const pending = statReachable(resolvedPath)
             .then((st) => ({ st, err: null }), (err) => ({ st: null, err }));
         statCache.set(resolvedPath, pending);
-        return await pending;
+        const settled = await pending;
+        if (statCache.get(resolvedPath) === pending) statCache.set(resolvedPath, settled);
+        return settled;
     };
     if (!options._enoentRedirectFrom) {
         for (const only of basePaths) {
@@ -1614,7 +1620,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
             if (canWindowNatural) {
                 const served = await runRgWindowedLines(
                     rgArgs,
-                    { cwd: rgCwd, timeout: 10000, signal: options.signal },
+                    { cwd: rgCwd, signal: options.signal },
                     { offset: 0, limit: offset + headLimit + 1 },
                 );
                 return {
@@ -1626,7 +1632,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
                     windowIncomplete: served.complete !== true,
                 };
             }
-            const stdout = await runRg(rgArgs, { cwd: rgCwd, timeout: 10000, signal: options.signal });
+            const stdout = await runRg(rgArgs, { cwd: rgCwd, signal: options.signal });
             const stdoutTruncated = Boolean(stdout && typeof stdout === 'object' && stdout.truncated);
             const stdoutPartial = Boolean(stdout && typeof stdout === 'object' && stdout.partial);
             const paths = [];

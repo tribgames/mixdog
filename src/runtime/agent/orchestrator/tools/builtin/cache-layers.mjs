@@ -5,7 +5,7 @@ import { deleteReadRangeIndexForPath } from './read-range-index.mjs';
 import { resolveAgainstCwd } from './path-utils.mjs';
 
 const RESULT_CACHE = new Map(); // key → { ts, value, paths, scopes, readSnapshotMeta, contentPrefixHash, bytes }
-const RESULT_CACHE_INFLIGHT = new Map(); // key → Promise<value>
+const RESULT_CACHE_INFLIGHT = new Map(); // key → { promise, controller, subscribers, settled }
 const RESULT_CACHE_TTL_MS = 30_000;
 const RESULT_CACHE_MAX_ENTRIES = 200;
 const RESULT_CACHE_MAX_BYTES = (() => {
@@ -34,11 +34,13 @@ const STAT_CACHE = new Map(); // fullPath → { ts, stat }
 const STAT_CACHE_TTL_MS = 5_000;
 const STAT_CACHE_MAX_ENTRIES = 2_000;
 const RAW_CONTENT_CACHE = new Map(); // fullPath → { ts, mtimeMs, ctimeMs, size, rawBuf }
+const RAW_CONTENT_INFLIGHT = new Map(); // canonical path → { generation, promise }
 const RAW_CONTENT_CACHE_TTL_MS = 30_000;
 const RAW_CONTENT_CACHE_MAX_ENTRIES = 16;
 const PATH_MUTATION_GENERATIONS = new Map(); // canonical path/root → monotonic generation
 const PATH_MUTATION_GENERATION_MAX_ENTRIES = 4096;
 let PATH_MUTATION_GLOBAL_GENERATION = 0;
+const READ_ONLY_STAT_INFLIGHT = new Map(); // kind + canonical path → { generation, promise }
 const RAW_CONTENT_CACHE_MAX_BYTES = (() => {
     const rawBytes = Number(process.env.MIXDOG_RAW_CONTENT_CACHE_MAX_BYTES);
     if (Number.isFinite(rawBytes) && rawBytes > 0) return Math.trunc(rawBytes);
@@ -141,19 +143,100 @@ export function cacheSet(key, value, meta = {}) {
     }
 }
 
-export async function runResultCacheInFlight(key, compute) {
+function inFlightAbortError() {
+    const error = new Error('operation aborted');
+    error.name = 'AbortError';
+    error.code = 'ABORT_ERR';
+    return error;
+}
+
+async function subscribeResultCacheInFlight(entry, signal) {
+    const subscriber = {};
+    entry.subscribers.add(subscriber);
+    const release = () => {
+        if (!entry.subscribers.delete(subscriber)) return;
+        if (!entry.settled && entry.subscribers.size === 0) entry.controller.abort();
+    };
+    if (!signal) {
+        try { return await entry.promise; }
+        finally { release(); }
+    }
+    if (signal.aborted) {
+        release();
+        throw inFlightAbortError();
+    }
+    return await new Promise((resolve, reject) => {
+        let done = false;
+        const finish = (fn, value) => {
+            if (done) return;
+            done = true;
+            signal.removeEventListener('abort', onAbort);
+            release();
+            fn(value);
+        };
+        const onAbort = () => finish(reject, inFlightAbortError());
+        signal.addEventListener('abort', onAbort, { once: true });
+        entry.promise.then(
+            (value) => finish(resolve, value),
+            (error) => finish(reject, error),
+        );
+    });
+}
+
+export async function runResultCacheInFlight(key, compute, options = {}) {
     const cached = cacheGet(key);
     if (cached !== null) return cached;
-    const existing = RESULT_CACHE_INFLIGHT.get(key);
-    if (existing) return await existing;
+    let entry = RESULT_CACHE_INFLIGHT.get(key);
+    if (!entry) {
+        const controller = new AbortController();
+        entry = { promise: null, controller, subscribers: new Set(), settled: false };
+        const promise = Promise.resolve()
+            .then(() => compute({ signal: controller.signal }))
+            .finally(() => {
+                entry.settled = true;
+                if (RESULT_CACHE_INFLIGHT.get(key) === entry) {
+                    RESULT_CACHE_INFLIGHT.delete(key);
+                }
+            });
+        entry.promise = promise;
+        RESULT_CACHE_INFLIGHT.set(key, entry);
+    }
+    return await subscribeResultCacheInFlight(
+        entry,
+        options?.signal || options?.abortSignal || null,
+    );
+}
+
+export async function runRawContentInFlight(fullPath, loader = fsPromises.readFile) {
+    const key = canonicalCachePath(fullPath);
+    const generation = getPathMutationGeneration(key);
+    const existing = RAW_CONTENT_INFLIGHT.get(key);
+    if (existing?.generation === generation) return await existing.promise;
     const promise = Promise.resolve()
-        .then(() => compute())
+        .then(() => loader(fullPath))
         .finally(() => {
-            if (RESULT_CACHE_INFLIGHT.get(key) === promise) {
-                RESULT_CACHE_INFLIGHT.delete(key);
+            if (RAW_CONTENT_INFLIGHT.get(key)?.promise === promise) {
+                RAW_CONTENT_INFLIGHT.delete(key);
             }
         });
-    RESULT_CACHE_INFLIGHT.set(key, promise);
+    RAW_CONTENT_INFLIGHT.set(key, { generation, promise });
+    return await promise;
+}
+
+export async function runReadOnlyStatInFlight(fullPath, loader = fsPromises.stat, kind = 'stat') {
+    const canonicalPath = canonicalCachePath(fullPath);
+    const key = `${kind}|${canonicalPath}`;
+    const generation = getPathMutationGeneration(canonicalPath);
+    const existing = READ_ONLY_STAT_INFLIGHT.get(key);
+    if (existing?.generation === generation) return await existing.promise;
+    const promise = Promise.resolve()
+        .then(() => loader(fullPath))
+        .finally(() => {
+            if (READ_ONLY_STAT_INFLIGHT.get(key)?.promise === promise) {
+                READ_ONLY_STAT_INFLIGHT.delete(key);
+            }
+        });
+    READ_ONLY_STAT_INFLIGHT.set(key, { generation, promise });
     return await promise;
 }
 
@@ -372,6 +455,7 @@ function runExtraInvalidationListeners(affectedPaths = null) {
 }
 
 function cacheInvalidateAll() {
+    for (const entry of RESULT_CACHE_INFLIGHT.values()) entry.controller?.abort();
     RESULT_CACHE.clear();
     RESULT_CACHE_INFLIGHT.clear();
     RESULT_CACHE_BYTES = 0;
@@ -389,6 +473,7 @@ function cacheInvalidatePaths(paths) {
         cacheInvalidateAll();
         return;
     }
+    for (const entry of RESULT_CACHE_INFLIGHT.values()) entry.controller?.abort();
     RESULT_CACHE_INFLIGHT.clear();
     for (const [key, entry] of RESULT_CACHE) {
         if (cacheEntryOverlapsPaths(entry, affectedPaths)) {

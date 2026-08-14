@@ -12,6 +12,7 @@ import { extractPowerShellCommandInner } from './shell-command.mjs';
 
 export function stripQuotedAndHeredoc(s) { return _stripQuotedSpans(s); }
 export function extractShellCInner(s) { return _extractShellCInner(s); }
+export function extractHeredocBodies(s) { return _extractHeredocBodies(s); }
 
 function _stripQuotedSpans(s) {
   return String(s || '')

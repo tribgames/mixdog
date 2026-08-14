@@ -56,6 +56,7 @@ import { createAgentShardSpread } from './agent-tool/shard-spread.mjs';
 import { resolveAgentSpawnPreset } from './agent-tool/spawn-preset.mjs';
 import {
   TAG_TOMBSTONE_TTL_MS,
+  isLeadPoolAgent,
   isTerminalWorkerStatus,
   tagTombstoneKey,
   workerRowTime,
@@ -154,6 +155,7 @@ export function createStandaloneAgent({
       flushWorkerIndexMutations,
       upsertWorkerSession,
       upsertWorkerSessionDeferred,
+      upsertLeadSession,
       removeWorkerRow,
       refreshTagsFromIndex,
     } = createTagRegistry({
@@ -505,7 +507,9 @@ export function createStandaloneAgent({
     tagCwds.clear();
     flushWorkerIndexMutations();
     writeWorkerRows((byKey, tombstonesByKey) => {
-      byKey.clear();
+      for (const [key, row] of [...byKey.entries()]) {
+        if (!isLeadPoolAgent(row.agent)) byKey.delete(key);
+      }
       tombstonesByKey.clear();
     });
     return { closed, failed };
@@ -710,6 +714,7 @@ export function createStandaloneAgent({
       refreshTagsFromSessions({ scanSessions: true, context: scopedContext });
       return list({ scanSessions: false, context: scopedContext });
     },
+    upsertLeadSession,
     closeAll,
   };
 }

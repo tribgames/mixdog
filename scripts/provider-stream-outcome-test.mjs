@@ -32,6 +32,10 @@ import {
     classifyMidstreamError,
     shouldFallbackTransport,
     withRetry,
+    retryAfterMsFromError,
+    shouldDropPreviousResponseId,
+    classifyHandshakeError,
+    isContextOverflowError,
 } from '../src/runtime/agent/orchestrator/providers/retry-classifier.mjs';
 import { parseSSEStream } from '../src/runtime/agent/orchestrator/providers/anthropic-sse.mjs';
 import { consumeGeminiRestStreamResponse } from '../src/runtime/agent/orchestrator/providers/gemini-stream.mjs';
@@ -1523,4 +1527,133 @@ test('anthropic SSE: error events take their status from the typed error type on
         assert.equal(error.status, undefined);
         assert.equal(classifyError(error), 'transient');
     }
+});
+
+// ── Provider retry gaps vs refs (codex / grok-build / Gemini / undici) ──────
+
+test('classifyError: Cloudflare origin-TLS 525/526 are permanent', () => {
+    assert.equal(classifyError(err('origin tls', { httpStatus: 525 })), 'permanent');
+    assert.equal(classifyError(err('invalid cert', { httpStatus: 526 })), 'permanent');
+    assert.equal(classifyHandshakeError(err('origin tls', { httpStatus: 525 })), null);
+    assert.equal(shouldFallbackTransport(err('origin tls', { httpStatus: 525 })), false);
+    assert.equal(classifyError(err('overloaded', { httpStatus: 529 })), 'transient');
+});
+
+test('classifyError: undici/TLS transport codes are transient', () => {
+    for (const code of [
+        'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+        'UND_ERR_BODY_TIMEOUT', 'UND_ERR_CONNECT', 'EPROTO',
+    ]) {
+        assert.equal(classifyError(err('transport', { code })), 'transient', code);
+        assert.equal(shouldFallbackTransport(err('transport', { code })), true, code);
+    }
+    assert.equal(classifyHandshakeError(err('socket', { code: 'UND_ERR_SOCKET' })), 'network');
+});
+
+test('classifyError: Gemini gRPC UNAVAILABLE/DEADLINE/ABORTED/INTERNAL retry without HTTP', () => {
+    assert.equal(classifyError(err('unavailable', { geminiStatus: 'UNAVAILABLE' })), 'transient');
+    assert.equal(classifyError(err('deadline', { status: 'DEADLINE_EXCEEDED' })), 'transient');
+    assert.equal(classifyError(err('aborted', { code: 'ABORTED' })), 'transient');
+    assert.equal(classifyError(err('internal', { error: { status: 'INTERNAL' } })), 'transient');
+    assert.equal(classifyError(err('quota', { code: 'RESOURCE_EXHAUSTED' })), 'unknown');
+    assert.equal(classifyError(err('quota', { geminiStatus: 'RESOURCE_EXHAUSTED' })), 'transient');
+});
+
+test('withRetry: Gemini 429 RESOURCE_EXHAUSTED without Retry-After is retried', async () => {
+    let calls = 0;
+    const out = await withRetry(async () => {
+        calls += 1;
+        if (calls === 1) {
+            throw err('RESOURCE_EXHAUSTED', {
+                httpStatus: 429,
+                status: 429,
+                code: 'RESOURCE_EXHAUSTED',
+                geminiStatus: 'RESOURCE_EXHAUSTED',
+            });
+        }
+        return 'ok';
+    }, { maxAttempts: 3, backoffMs: [0, 0, 0] });
+    assert.equal(out, 'ok');
+    assert.equal(calls, 2);
+});
+
+test('retryAfterMsFromError: typed rate_limit_exceeded parses try-again delay', () => {
+    const openai = err('Rate limit reached. Please try again in 11.054s.', {
+        responseFailed: { response: { error: { code: 'rate_limit_exceeded', message: 'Please try again in 11.054s.' } } },
+    });
+    assert.equal(retryAfterMsFromError(openai), 11054);
+    const azure = err('Rate limit exceeded. Try again in 35 seconds.', {
+        providerErrorCode: 'rate_limit_exceeded',
+        responseFailed: { error: { code: 'rate_limit_exceeded', message: 'Try again in 35 seconds.' } },
+    });
+    assert.equal(retryAfterMsFromError(azure), 35_000);
+    const millis = err('try again in 28ms', {
+        code: 'rate_limit_exceeded',
+        responseFailed: { error: { code: 'rate_limit_exceeded', message: 'Please try again in 28ms.' } },
+    });
+    assert.equal(retryAfterMsFromError(millis), 28);
+    assert.equal(
+        retryAfterMsFromError(err('Please try again in 11.054s.')),
+        null,
+        'untyped message text never yields a delay',
+    );
+});
+
+test('retryAfterMsFromError: anthropic-ratelimit-unified-reset is honored and capped', () => {
+    const resetUnix = Math.floor(Date.now() / 1000) + 12;
+    const headers = { get: (name) => String(name).toLowerCase() === 'anthropic-ratelimit-unified-reset' ? String(resetUnix) : null };
+    const delay = retryAfterMsFromError(err('rate limited', { httpStatus: 429, headers }));
+    assert.ok(delay >= 10_000 && delay <= 12_000, `expected ~12s, got ${delay}`);
+    const far = Math.floor(Date.now() / 1000) + 3600;
+    const farHeaders = { get: (name) => String(name).toLowerCase() === 'anthropic-ratelimit-unified-reset' ? String(far) : null };
+    assert.equal(retryAfterMsFromError(err('rate limited', { httpStatus: 429, headers: farHeaders })), 300_000);
+});
+
+test('previous_response_not_found: typed 400 is transient and midstream-retryable', () => {
+    const wire = err('Previous response was not found', {
+        httpStatus: 400,
+        providerErrorCode: 'previous_response_not_found',
+        responseFailed: { error: { code: 'previous_response_not_found' } },
+    });
+    assert.equal(shouldDropPreviousResponseId(wire), true);
+    assert.equal(classifyError(wire), 'transient');
+    assert.equal(
+        classifyMidstreamError(wire, { attemptIndex: 0, sawResponseCreated: true }, WS_POLICY),
+        'previous_response_not_found',
+    );
+    const sdk = err('Previous response was not found', {
+        httpStatus: 400,
+        code: 'previous_response_not_found',
+    });
+    assert.equal(shouldDropPreviousResponseId(sdk), true);
+    assert.equal(classifyError(sdk), 'transient');
+});
+
+test('classifyError: SDK timeout names, 425, HTTP/2, and WS connection-limit', () => {
+    assert.equal(classifyError(err('timed out', { name: 'APIConnectionTimeoutError' })), 'transient');
+    assert.equal(classifyError(err('connect', { name: 'ConnectTimeoutError' })), 'transient');
+    assert.equal(classifyError(err('too early', { httpStatus: 425 })), 'transient');
+    assert.equal(classifyError(err('h2', { code: 'ERR_HTTP2_STREAM_ERROR' })), 'transient');
+    assert.equal(classifyError(err('destroyed', { code: 'UND_ERR_DESTROYED' })), 'transient');
+    assert.equal(shouldFallbackTransport(err('h2', { code: 'ERR_HTTP2_SESSION_ERROR' })), true);
+    const limit = err('connection limit', {
+        httpStatus: 400,
+        providerErrorCode: 'websocket_connection_limit_reached',
+        responseFailed: { error: { code: 'websocket_connection_limit_reached' } },
+    });
+    assert.equal(classifyError(limit), 'transient');
+    assert.equal(
+        classifyMidstreamError(limit, { attemptIndex: 0, sawResponseCreated: true }, WS_POLICY),
+        'websocket_connection_limit',
+    );
+});
+
+test('isContextOverflowError: typed 413 and request_too_large/context codes', () => {
+    assert.equal(isContextOverflowError(err('too big', { httpStatus: 413 })), true);
+    assert.equal(isContextOverflowError(err('too big', {
+        providerErrorCode: 'request_too_large',
+        responseFailed: { error: { type: 'request_too_large' } },
+    })), true);
+    assert.equal(isContextOverflowError(err('too big', { code: 'context_length_exceeded' })), true);
+    assert.equal(isContextOverflowError(err('bad json', { httpStatus: 400 })), false);
 });
