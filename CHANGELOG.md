@@ -5,13 +5,6 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
-## v0.9.129 - 2026-08-14
-
-- Headless exec now runs a true solo surface by default: web search and
-  memory tools stay off unless --web-search / --memory opt back in, shell
-  child processes inherit an enforced no-egress proxy (loopback stays
-  reachable), and the session environment line states network=offline so
-  models never attempt web access.
 - Provider and session recovery now classifies transient stream failures
   consistently, retries image-rejected turns without losing user intent, and
   preserves interruption, summary, and terminal outcome state across Gemini
@@ -22,6 +15,14 @@ the Unreleased section is empty, and stamps it with the released version.
   grep/glob behavior under load.
 - Desktop Studio, usage, agent activity, pane layout, localization, and worker
   tag presentation now stay aligned across restored and live sessions.
+
+## v0.9.129 - 2026-08-14
+
+- Headless exec now runs a true solo surface by default: web search and
+  memory tools stay off unless --web-search / --memory opt back in, shell
+  child processes inherit an enforced no-egress proxy (loopback stays
+  reachable), and the session environment line states network=offline so
+  models never attempt web access.
 
 ## v0.9.128 - 2026-08-14
 
