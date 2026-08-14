@@ -62,17 +62,16 @@
   execution, runtime/state operations, calculations, data transformation, file
   generation, or formats unsupported by file tools. Do not use `shell` instead
   of an available file tool for ordinary file-content inspection.
-- Start shell commands in the foreground. Set `run_in_background:true` only when their result is not needed
-  immediately and completion notification is sufficient. Tracked sync/async
-  commands belong to the current run. Only when the request explicitly requires
+- Shell commands start in the foreground. If still running after 10 seconds,
+  the call returns a tracked `task_id` and completion arrives by notification.
+  Only when the request explicitly requires
   a service to survive after the run exits, detach it at shell level (for
   example, `nohup ... &`); never detach ordinary jobs merely to avoid tracking.
   A sync call may return a `task_id` and partial output after its blocking
   budget. Do not poll: completion resumes automatically. When intermediate output must drive
-  decisions or the user requests monitoring, use `task check_after` with an
-  explicit `after_ms` to schedule one non-blocking progress snapshot: normally
-  10–30s for active progress and 30–60s for long downloads/builds. Schedule
-  another only after inspecting that snapshot; completion cancels a pending
-  check.
+  decisions or the user explicitly requests monitoring, call `task read` once
+  to return the current status and output snapshot. If it is still running,
+  await the completion notification; do not
+  call `task` again unless the user explicitly asks for another snapshot.
   Omit timeout by default, including for long jobs; set it only for a real total
   deadline, since it kills even async jobs.

@@ -282,6 +282,17 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     const rows = readWorkerRows(context);
     for (const row of rows) {
       if (!row.tag || !row.sessionId) continue;
+      if (isLeadPoolAgent(row.agent)) {
+        // Lead pool rows are status projections, not agent-tool children.
+        // Purge a projection left by older code so closeAll cannot mistake
+        // the owning desktop session for a worker and close it.
+        if (tags.get(row.tag) === row.sessionId) {
+          tags.delete(row.tag);
+          tagAgents.delete(row.tag);
+          tagCwds.delete(row.tag);
+        }
+        continue;
+      }
       tags.set(row.tag, row.sessionId);
       if (row.agent) tagAgents.set(row.tag, row.agent);
       if (row.cwd) tagCwds.set(row.tag, row.cwd);

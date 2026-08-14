@@ -5,7 +5,7 @@ import { delimiter as pathDelimiter } from 'node:path';
 import { join as pathJoin } from 'node:path';
 import { isLegitimateShellExit } from '../../session/result-classification.mjs';
 import { makeToolEnvelope } from '../../session/tool-envelope.mjs';
-import { acquireShellLeaseBounded, execShellCommand, stripAnsi } from '../shell-command.mjs';
+import { execShellCommand, stripAnsi } from '../shell-command.mjs';
 import { wrapCommandWithSnapshot } from '../shell-snapshot.mjs';
 import { getDestructiveCommandWarning } from '../destructive-warning.mjs';
 import { maybeRewriteWmicProcessCommand } from '../shell-policy.mjs';
@@ -13,7 +13,6 @@ import { buildBashPolicyScanTargets, checkExecPolicyMessage } from '../bash-poli
 import { markCodeGraphDirtyPaths, drainCodeGraphCache } from '../code-graph-state.mjs';
 import {
     buildJobNotFoundMessage,
-    startBackgroundShellJob,
     waitForShellJob,
     peekShellJob,
     killShellJob,
@@ -23,16 +22,13 @@ import {
     endShellJobWait,
     clearShellJobNotifyCtx,
     shellJobPublicTaskResult,
-    attachShellJobResourceLease,
 } from './shell-jobs.mjs';
 import {
     analyzeShellCommandEffects,
     buildPowerShellFilterTeePlan,
     consumeFilterTeeCapture,
     extractShellApplyPatchInvocation,
-    foregroundLongCommandHint,
     hasPowerShellOnlySyntax,
-    isAutobackgroundingAllowed,
     planInlineScriptHoist,
     preflightPowerShellHygiene,
     shellSplitSegments,
@@ -41,7 +37,6 @@ import {
     stripShellProbeWrappers,
 } from './shell-analysis.mjs';
 import {
-    cancelBackgroundTask,
     completeBackgroundTask,
     getBackgroundTask,
     registerBackgroundTask,
@@ -62,16 +57,15 @@ import { normalizeOutputPath } from './path-utils.mjs';
 import { normalizeErrorMessage } from './path-diagnostics.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { applyShellEgressPolicy, scrubLoaderVars, scrubProviderSecrets, scrubRuntimeRootVars } from '../env-scrub.mjs';
-import { resourceAdmission } from '../../../../shared/resource-admission.mjs';
 import {
     findPathExecutable,
     SHELL_RUNTIME_CANDIDATES,
 } from './runtime-capabilities.mjs';
 import { planDirectExeSpawn } from './shell-direct-exe.mjs';
 
-// Claude Code assistant-mode parity: short foreground commands stay inline;
-// only work still running after the 15 s coordination budget is promoted.
-export const DEFAULT_SHELL_AUTO_BACKGROUND_MS = 15_000;
+// Commands start in the foreground. Only work still running after the
+// 10 s coordination budget is promoted to a tracked background task.
+export const DEFAULT_SHELL_AUTO_BACKGROUND_MS = 10_000;
 
 // Post-exec drift detection. After a foreground shell command, compare the
 // live mtime+size of files mixdog has already read this session against their
@@ -351,8 +345,6 @@ export async function executeBashTool(args, workDir, options = {}) {
     // never creates a second session cwd authority beside the dedicated cwd tool.
     const bashWorkDir = workDir;
     const _readStateScope = options?.readStateScope ?? options?.sessionId ?? null;
-    let runInBackground = args?.run_in_background === true;
-
     // Run hard-block policy before any shell dispatch.
     const _rawCmd = String(args && args.command != null ? args.command : '');
     // `apply_patch` typed into the shell (heredoc/argument/bare
@@ -428,25 +420,22 @@ export async function executeBashTool(args, workDir, options = {}) {
     if (_execPolicyBlock) {
         return formatShellToolFailure(_execPolicyBlock);
     }
-    // Inline-script hoisting (sync runs only — a background job would outlive
-    // the temp file). The body is written verbatim and the invocation becomes a
+    // Inline-script hoisting. The body is written verbatim and the invocation becomes a
     // file run, so the host shell never has to carry the script through its
     // quoting layer. planInlineScriptHoist refuses every case where file
     // semantics would differ, so this is a transport change only.
     let _inlineHoistPath = null;
-    if (!runInBackground) {
-        const hoist = planInlineScriptHoist(command);
-        if (hoist) {
-            try {
-                const file = pathJoin(
-                    tmpdir(),
-                    `mixdog-inline-${process.pid}-${Date.now().toString(36)}${hoist.extension}`,
-                );
-                writeFileSync(file, hoist.body, 'utf8');
-                _inlineHoistPath = file;
-                command = hoist.replace(file.replace(/\\/g, '/'));
-            } catch { _inlineHoistPath = null; }
-        }
+    const hoist = planInlineScriptHoist(command);
+    if (hoist) {
+        try {
+            const file = pathJoin(
+                tmpdir(),
+                `mixdog-inline-${process.pid}-${Date.now().toString(36)}${hoist.extension}`,
+            );
+            writeFileSync(file, hoist.body, 'utf8');
+            _inlineHoistPath = file;
+            command = hoist.replace(file.replace(/\\/g, '/'));
+        } catch { _inlineHoistPath = null; }
     }
 
     const _bgTasksDisabled = /^(1|true|yes|on)$/i.test(
@@ -468,11 +457,6 @@ export async function executeBashTool(args, workDir, options = {}) {
     // bound the blocking window when timeout promotion is available.
     const _envDefaultTimeout = parseInt(process.env.BASH_DEFAULT_TIMEOUT_MS ?? '', 10);
     const DEFAULT_BASH_TIMEOUT_MS = _envDefaultTimeout > 0 ? _envDefaultTimeout : 120_000;
-    // Background (async / run_in_background) jobs get NO omitted default: 0
-    // means "unlimited" and flows unchanged through startBackgroundShellJob →
-    // task meta (detail.timeoutMs 0). An explicit args.timeout_ms is still honored
-    // and enforced exactly as before. Sync path keeps the 120s omitted default.
-    const DEFAULT_BACKGROUND_BASH_TIMEOUT_MS = 0;
     const _envMaxTimeout = parseInt(process.env.BASH_MAX_TIMEOUT_MS ?? '', 10);
     // Foreground blocking cap when timeout promotion is available. 600s let a
     // caller-supplied 10-15 min timeout hold the conversation synchronously
@@ -481,14 +465,10 @@ export async function executeBashTool(args, workDir, options = {}) {
     // detaches as a tracked job with the REMAINDER of the explicit timeout as
     // its background deadline (user decision: 2 minutes).
     const MAX_BASH_TIMEOUT_MS = Math.max(_envMaxTimeout > 0 ? _envMaxTimeout : 120_000, DEFAULT_BASH_TIMEOUT_MS);
-    const defaultTimeoutMs = runInBackground
-        ? DEFAULT_BACKGROUND_BASH_TIMEOUT_MS
-        : DEFAULT_BASH_TIMEOUT_MS;
+    const defaultTimeoutMs = DEFAULT_BASH_TIMEOUT_MS;
     const hasExplicitTimeout = typeof args.timeout_ms === 'number' && args.timeout_ms > 0;
     const timeoutMs = hasExplicitTimeout ? args.timeout_ms : defaultTimeoutMs;
-    const backgroundOnTimeout = !runInBackground
-        && !_bgTasksDisabled
-        && isAutobackgroundingAllowed(command, resolvedSpec.shellType);
+    const backgroundOnTimeout = !_bgTasksDisabled;
     // Explicit caller timeout remains the total deadline. When promotion is
     // available, cap only its foreground blocking portion at MAX.
     // JS timers (setTimeout) and PS WaitForExit(ms) are 32-bit: a delay above
@@ -514,19 +494,11 @@ export async function executeBashTool(args, workDir, options = {}) {
     const promoteAtTimeout = backgroundOnTimeout
         && (!hasExplicitTimeout || promotedTimeoutMs > 0);
     const mergeStderr = true;
-    const longForegroundHint = foregroundLongCommandHint(
-        command,
-        timeout,
-        { run_in_background: runInBackground },
-        { backgroundTasksDisabled: _bgTasksDisabled },
-    );
-    if (longForegroundHint) return formatShellToolFailure(longForegroundHint);
     // Main-agent blocking budget. A timeout is the command's total deadline,
     // not permission to hold the conversation open for that whole duration:
-    // after 15 s a still-running command becomes a tracked background task and
+    // after 10 s a still-running command becomes a tracked background task and
     // completion is pushed to the owner. Explicit timeouts keep their remaining
-    // deadline after promotion. Never applies to run_in_background (already
-    // detached) or commands barred from backgrounding.
+    // deadline after promotion.
     // MIXDOG_SHELL_AUTO_BACKGROUND_MS overrides; an explicit 0 disables.
     const _autoBgEnvRaw = process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
     const _autoBgEnvMs = Number(_autoBgEnvRaw);
@@ -534,10 +506,7 @@ export async function executeBashTool(args, workDir, options = {}) {
       && Number.isFinite(_autoBgEnvMs) && _autoBgEnvMs >= 0)
       ? Math.floor(_autoBgEnvMs)
       : DEFAULT_SHELL_AUTO_BACKGROUND_MS;
-    // Gate on backgroundOnTimeout rather than just `runInBackground`: it already
-    // encodes "promotion is available for this command" (not detached, background
-    // tasks enabled, command shape allows it), so the soft threshold can never
-    // promote something the hard timeout would refuse to.
+    // Gate on backgroundOnTimeout so disabled background tasks remain foreground.
     const autoBackgroundMs = (!backgroundOnTimeout || DEFAULT_AUTO_BACKGROUND_MS <= 0)
       ? 0
       : Math.min(DEFAULT_AUTO_BACKGROUND_MS, timeout);
@@ -556,14 +525,12 @@ export async function executeBashTool(args, workDir, options = {}) {
         let execShellArg = shellArg;
         let execShellArgs = shellArgs;
         let directArgv = null;
-        const directPlan = !runInBackground
-            ? planDirectExeSpawn(command, {
-                shellType,
-                cwd: bashWorkDir,
-                pathValue: spawnEnv.PATH,
-                env: spawnEnv,
-            })
-            : null;
+        const directPlan = planDirectExeSpawn(command, {
+            shellType,
+            cwd: bashWorkDir,
+            pathValue: spawnEnv.PATH,
+            env: spawnEnv,
+        });
         // PowerShell UTF-8 prefix is PS-only: the Windows Git Bash path
         // (shellType==='posix') must NOT receive it. Snapshot wrapper stays
         // POSIX-host-only for now — no snapshot for Windows Git Bash initially.
@@ -574,14 +541,12 @@ export async function executeBashTool(args, workDir, options = {}) {
             execShellArgs = [];
             directArgv = directPlan.argv;
         } else if (process.platform === 'win32' && shellType === 'powershell') {
-            // Filter-swallow rescue (sync path only): tee the unfiltered
+            // Filter-swallow rescue: tee the unfiltered
             // producer stream of an exactly-recognized filter pipeline so a
             // failing run can attach the original output tail in THIS call
             // instead of returning `[exit code: N]` + `(no output)`. Any
             // ambiguity yields a null plan and the command runs untouched.
-            if (!runInBackground) {
-                try { _teePlan = buildPowerShellFilterTeePlan(command); } catch { _teePlan = null; }
-            }
+            try { _teePlan = buildPowerShellFilterTeePlan(command); } catch { _teePlan = null; }
             wrappedCommand = _prefixPowerShellUtf8(_teePlan ? _teePlan.command : command);
         } else if (process.platform !== 'win32' && (shell.includes('bash') || shell.includes('zsh'))) {
             try {
@@ -592,108 +557,6 @@ export async function executeBashTool(args, workDir, options = {}) {
         } else {
             wrappedCommand = command;
         }
-        if (runInBackground) {
-            let asyncAbortSignal = null;
-            try { asyncAbortSignal = (await getAbortSignalForSession(options?.sessionId)) || null; }
-            catch { asyncAbortSignal = null; }
-            const combinedAsyncAbort = _combineAbortSignals(asyncAbortSignal, options?.abortSignal || null);
-            let asyncLease = null;
-            let job;
-            try {
-                asyncLease = await acquireShellLeaseBounded(options?.resourceAdmission || resourceAdmission, {
-                    abortSignal: combinedAsyncAbort.signal,
-                    label: String(command).replace(/\s+/g, ' ').slice(0, 120),
-                    dependency: 'detached',
-                    ownerKey: options?.callerSessionId || options?.sessionId || null,
-                });
-                if (combinedAsyncAbort.signal?.aborted) {
-                    throw combinedAsyncAbort.signal.reason || new Error('shell background task cancelled before spawn');
-                }
-                job = await startBackgroundShellJob({
-                    command: wrappedCommand,
-                    timeoutMs: timeout,
-                    workDir: bashWorkDir,
-                    mergeStderr,
-                    spawnEnv,
-                    shell,
-                    shellArg,
-                    shellArgs,
-                    shellType,
-                    // Per-terminal session stamp: the dispatching terminal's
-                    // claude.exe pid (server-main threads callerSession.clientHostPid).
-                    clientHostPid: options?.clientHostPid,
-                    // Dispatching session: hosts that pool many sessions in one
-                    // process (desktop) scope the job to its own pane with this.
-                    ownerSessionId: options?.callerSessionId || options?.sessionId || null,
-                    ...(options?.shellJobRuntime || {}),
-                });
-                if (job && job.error) {
-                    if (job.rollbackPending && attachShellJobResourceLease(job.jobId, asyncLease, { allowUnpersisted: true })) {
-                        asyncLease = null;
-                    }
-                    return formatShellToolFailure(job.error);
-                }
-                if (combinedAsyncAbort.signal?.aborted) {
-                    try { killShellJob(job.jobId); } catch {}
-                    throw combinedAsyncAbort.signal.reason || new Error('shell background task cancelled before registration');
-                }
-                if (job && !job.error && attachShellJobResourceLease(job.jobId, asyncLease)) {
-                    asyncLease = null;
-                }
-                const task = registerBackgroundTask({
-                    taskId: job.jobId,
-                    surface: 'shell',
-                    operation: 'shell',
-                    label: String(command).replace(/\s+/g, ' ').slice(0, 120),
-                    input: { command, cwd: bashWorkDir },
-                    context: {
-                        notifyFn: typeof options?.notifyFn === 'function' ? options.notifyFn : null,
-                        callerSessionId: options?.callerSessionId || options?.sessionId || null,
-                        routingSessionId: options?.routingSessionId || options?.sessionId || null,
-                        clientHostPid: options?.clientHostPid,
-                    },
-                    meta: {
-                        task_id: job.jobId,
-                        pid: job.pid,
-                        stdout: normalizeOutputPath(job.stdoutPath),
-                        stderr: mergeStderr ? null : normalizeOutputPath(job.stderrPath),
-                        cwd: bashWorkDir,
-                        timeoutMs: timeout,
-                    },
-                    resultType: 'shell_task_result',
-                    cancel: () => killShellJob(job.jobId),
-                });
-                if (combinedAsyncAbort.signal?.aborted) {
-                    try { killShellJob(job.jobId); } catch {}
-                    cancelBackgroundTask(job.jobId, 'cancelled before background registration completed');
-                    throw combinedAsyncAbort.signal.reason || new Error('shell background task cancelled during registration');
-                }
-                // Wire a one-shot completion push so the dispatching session learns
-                // the background task finished (no polling tool is auto-driven).
-                try {
-                    watchBackgroundShellJob(job.jobId, {
-                        notifyFn: typeof options?.notifyFn === 'function' ? options.notifyFn : null,
-                        callerSessionId: options?.callerSessionId || options?.sessionId,
-                        routingSessionId: options?.routingSessionId,
-                        clientHostPid: options?.clientHostPid,
-                    });
-                } catch { /* watcher arm is best-effort; never blocks the spawn */ }
-                return _prependDestructiveWarning(command, [
-                    renderBackgroundTask(task),
-                    '',
-                    'You will be notified when it completes; do not poll.',
-                ].join('\n'));
-            } catch (error) {
-                if (job?.jobId && !job.error) {
-                    try { killShellJob(job.jobId); } catch {}
-                }
-                return formatShellToolFailure(normalizeErrorMessage(error instanceof Error ? error.message : String(error)));
-            } finally {
-                combinedAsyncAbort.cleanup();
-                try { await asyncLease?.release(); } catch {}
-            }
-        }
-
         let bashAbortSignal = null;
         try { bashAbortSignal = (await getAbortSignalForSession(options?.sessionId)) || null; }
         catch { bashAbortSignal = null; }
@@ -701,10 +564,8 @@ export async function executeBashTool(args, workDir, options = {}) {
         // Promote-at-timeout (CC shouldAutoBackground parity). When a
         // foreground one-shot hits its timeout and is still running, adopt it
         // as a background job (task_id + notify) instead of tree-killing it.
-        // Opt-outs restore the old kill behavior: (a) disallowed sleep-like
-        // base commands (isAutobackgroundingAllowed), (b) the truthy
-        // MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS env. Never applies to
-        // run_in_background (already detached, handled above).
+        // The truthy MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS env restores the old
+        // foreground-only behavior.
         const foregroundStartedAtMs = Date.now();
         const result = await execShellCommand({
             shell: execShell, shellArg: execShellArg, shellArgs: execShellArgs,

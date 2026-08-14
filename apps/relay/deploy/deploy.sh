@@ -18,7 +18,7 @@ fi
 
 id -u mixdog-relay >/dev/null 2>&1 || useradd --system --home /var/lib/mixdog-relay --shell /usr/sbin/nologin mixdog-relay
 mkdir -p /opt/mixdog-relay /var/lib/mixdog-relay
-cp "$SRC_DIR/server.mjs" "$SRC_DIR/package.json" /opt/mixdog-relay/
+cp "$SRC_DIR/server.mjs" "$SRC_DIR/package.json" "$SRC_DIR/package-lock.json" /opt/mixdog-relay/
 # Shared HTTP helpers the server imports (also used by the desktop LAN bridge).
 rm -rf /opt/mixdog-relay/lib
 cp -r "$SRC_DIR/lib" /opt/mixdog-relay/lib
@@ -28,7 +28,7 @@ if [[ -d "$SRC_DIR/renderer" ]]; then
   rm -rf /opt/mixdog-relay/renderer
   cp -r "$SRC_DIR/renderer" /opt/mixdog-relay/renderer
 fi
-cd /opt/mixdog-relay && npm install --omit=dev --no-audit --no-fund
+cd /opt/mixdog-relay && npm ci --omit=dev --no-audit --no-fund
 chown -R mixdog-relay:mixdog-relay /var/lib/mixdog-relay
 
 if [[ ! -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
@@ -45,7 +45,8 @@ chmod +x /etc/letsencrypt/renewal-hooks/deploy/mixdog-relay
 
 sed "s/RELAY_DOMAIN/$DOMAIN/g" "$SRC_DIR/deploy/mixdog-relay.service" > /etc/systemd/system/mixdog-relay.service
 systemctl daemon-reload
-systemctl enable --now mixdog-relay
+systemctl enable mixdog-relay
+systemctl restart mixdog-relay
 sleep 1
 systemctl --no-pager status mixdog-relay | head -5
 echo "[deploy] relay live: https://$DOMAIN/healthz  (desktop: MIXDOG_RELAY_URL=wss://$DOMAIN)"

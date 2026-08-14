@@ -450,6 +450,9 @@ export function createStandaloneAgent({
       }
       throw new Error(`agent close: target "${target}" not found`);
     }
+    if (isLeadPoolAgent(getLiveSession(sessionId)?.agent)) {
+      throw new Error(`agent close: target "${target}" is a Lead session`);
+    }
     cancelReap(sessionId);
     const tag = tagForSession(sessionId);
     forgetTerminalSession(tag, sessionId);

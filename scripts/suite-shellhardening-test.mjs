@@ -13,10 +13,7 @@ import {
   _exitClassDiagnostic,
   _isBenignSearchExitOne,
 } from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
-import {
-  foregroundLongCommandHint,
-  preflightPowerShellHygiene,
-} from '../src/runtime/agent/orchestrator/tools/builtin/shell-analysis.mjs';
+import { preflightPowerShellHygiene } from '../src/runtime/agent/orchestrator/tools/builtin/shell-analysis.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
 import {
     appendShellStartupPolicy,
@@ -144,28 +141,19 @@ test('auto-background partial output shares one strict UTF-8 byte budget', () =>
 });
 
 test('shell execution policy matches sync-first background-task parity', () => {
-    assert.equal(DEFAULT_SHELL_AUTO_BACKGROUND_MS, 15_000);
-    assert.equal(
-        foregroundLongCommandHint('npm run dev', 120_000, {}, { backgroundTasksDisabled: false }),
-        '',
-    );
-    assert.match(
-        foregroundLongCommandHint('sleep 5', 120_000, {}, { backgroundTasksDisabled: false }),
-        /run_in_background:true.*completion notification/,
-    );
-    assert.equal(
-        foregroundLongCommandHint('sleep 5', 120_000, { run_in_background: true }, { backgroundTasksDisabled: false }),
-        '',
-    );
+    assert.equal(DEFAULT_SHELL_AUTO_BACKGROUND_MS, 10_000);
     const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
-    assert.deepEqual(Object.keys(shellTool.inputSchema.properties), ['command', 'timeout_ms', 'run_in_background']);
+    assert.deepEqual(Object.keys(shellTool.inputSchema.properties), ['command', 'timeout_ms']);
     assert.equal(shellTool.inputSchema.properties.timeout_ms.description, 'Optional total deadline.');
-    assert.match(shellTool.inputSchema.properties.run_in_background.description, /tracked background task.*task_id.*completion notification/);
+    assert.match(shellTool.description, /After 10s.*task_id.*notification/i);
     const taskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
-    assert.match(taskTool.description, /normal completion arrives by notification/);
-    assert.deepEqual(taskTool.inputSchema.properties.action.enum, ['list', 'status', 'read', 'check_after', 'cancel']);
-    assert.match(taskTool.inputSchema.properties.action.description, /task_id alone defaults to non-blocking status.*check_after schedules one non-blocking progress notification/);
-    assert.match(taskTool.inputSchema.properties.after_ms.description, /Required explicitly for check_after.*one-shot delay.*not the task deadline/);
+    assert.equal(taskTool.title, 'Task');
+    assert.match(taskTool.description, /List shell tasks.*snapshot.*cancel.*notification/i);
+    assert.deepEqual(taskTool.inputSchema.properties.action.enum, ['list', 'read', 'cancel']);
+    assert.deepEqual(taskTool.inputSchema.required, ['action']);
+    assert.equal(taskTool.inputSchema.properties.timeout_ms, undefined);
+    assert.equal(taskTool.inputSchema.properties.action.description, 'list all; read snapshot; cancel task.');
+    assert.equal(taskTool.inputSchema.properties.task_id.description, 'Shell task_id; required for read/cancel.');
 });
 
 test('resident native search consumes asynchronous stdin EPIPE', () => {

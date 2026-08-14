@@ -1,0 +1,141 @@
+name: Release Gate
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - "apps/desktop/**"
+      - "apps/relay/**"
+      - "native/**"
+      - "scripts/**"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - "apps/desktop/**"
+      - "apps/relay/**"
+      - "native/**"
+      - "scripts/**"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      desktop: ${{ steps.paths.outputs.desktop }}
+      graph: ${{ steps.paths.outputs.graph }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Select incremental gates
+        id: paths
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=$PUSH_BASE
+          if [[ "$EVENT_NAME" == pull_request ]]; then BASE=$PR_BASE; fi
+          if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            git ls-files > /tmp/changed
+          else
+            git diff --name-only "$BASE" "$GITHUB_SHA" > /tmp/changed
+          fi
+          if grep -Eq '^(apps/desktop/|src/|vendor/|LICENSES/|README\.md$|NOTICE\.md$|package(-lock)?\.json$)' /tmp/changed; then
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "desktop=false" >> "$GITHUB_OUTPUT"
+          fi
+          if grep -Eq '^native/mixdog-graph/' /tmp/changed; then
+            echo "graph=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "graph=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  runtime:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install
+        run: npm ci --prefer-offline --no-audit --no-fund
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - name: Build TUI
+        run: npm run build:tui
+      - name: Verify release, session, trace, time, and shell contracts
+        run: |
+          npm run test:release-critical
+          npm run test:session
+          node --test src/runtime/memory/lib/trace-store.test.mjs scripts/time-contract-test.mjs
+          npm run test:shellhardening
+          bash -n apps/relay/deploy/deploy.sh apps/relay/deploy/deploy-release.sh
+
+  desktop:
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: ubuntu-22.04
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
+      - name: Install
+        run: |
+          npm ci --prefer-offline --no-audit --no-fund
+          npm ci --prefix apps/desktop --prefer-offline --no-audit --no-fund
+      - name: Build desktop
+        run: npm run build --prefix apps/desktop
+
+  graph:
+    needs: changes
+    if: needs.changes.outputs.graph == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: "1.85.1"
+      - run: cargo test --locked --manifest-path native/mixdog-graph/Cargo.toml
+
+  complete:
+    if: always()
+    needs: [runtime, desktop, graph]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require every selected gate
+        env:
+          RUNTIME: ${{ needs.runtime.result }}
+          DESKTOP: ${{ needs.desktop.result }}
+          GRAPH: ${{ needs.graph.result }}
+        run: |
+          test "$RUNTIME" = success
+          [[ "$DESKTOP" == success || "$DESKTOP" == skipped ]]
+          [[ "$GRAPH" == success || "$GRAPH" == skipped ]]

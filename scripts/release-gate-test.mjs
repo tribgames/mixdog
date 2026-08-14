@@ -21,6 +21,7 @@ import { readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildReleaseTimingReport } from './release-timing-report.mjs';
 
 // Product/workflow shape is intentionally non-blocking. Opt in from the
 // advisory runner when reviewing a deliberate specification change.
@@ -352,10 +353,19 @@ advisoryTest('Deploy is the one-click release entry with incremental native work
 });
 
 advisoryTest('application release overlaps gates and publishes one exact hidden draft', async () => {
-  const [release, uploadScript] = await Promise.all([
+  const [release, automaticGate, desktopRuntime, desktopPackage, relayDeploy, uploadScript] = await Promise.all([
     workflow('release.yml'),
+    workflow('release-gate.yml'),
+    workflow('desktop-runtime.yml'),
+    workflow('desktop-package.yml'),
+    readFile(new URL('../apps/relay/deploy/deploy-release.sh', import.meta.url), 'utf8'),
     readFile(new URL('../.github/scripts/upload-release-assets.sh', import.meta.url), 'utf8'),
   ]);
+  assert.match(automaticGate, /pull_request:[\s\S]*push:[\s\S]*branches:\s*\[main\]/);
+  assert.match(automaticGate, /name:\s*Select incremental gates/);
+  assert.match(automaticGate, /\^\(apps\/desktop\/\|src\/\|vendor\//);
+  assert.match(automaticGate, /needs\.changes\.outputs\.desktop == 'true'/);
+  assert.match(automaticGate, /needs\.changes\.outputs\.graph == 'true'/);
   assert.match(release, /validate:[\s\S]*fetch-depth:\s*0/);
   assert.match(release,
     /release-invariants:[\s\S]*npm run test:release-critical/,
@@ -367,38 +377,43 @@ advisoryTest('application release overlaps gates and publishes one exact hidden 
   assert.doesNotMatch(release, /name:\s*Execute code graph from a clean cache/);
   assert.match(release, /Restore unchanged desktop output[\s\S]*desktop-out-v1-\$\{\{ hashFiles/);
   assert.match(release, /name:\s*Stage common desktop output[\s\S]*actions\/upload-artifact@v7/);
+  assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-runtime\.yml/g) || []).length, 5);
+  assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-package\.yml/g) || []).length, 5);
+  for (const platform of ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64']) {
+    const packageJob = platform === 'win32-x64' ? 'windows' : platform;
+    assert.match(release, new RegExp(
+      `desktop-${packageJob}:[\\s\\S]*?needs:\\s*\\[[^\\]]*desktop-runtime-${platform}[^\\]]*\\][\\s\\S]*?uses:\\s*\\.\\/\\.github\\/workflows\\/desktop-package\\.yml`,
+    ));
+  }
+  assert.match(desktopRuntime, /name:\s*Stage prepared platform runtime[\s\S]*desktop-runtime-\$\{\{ inputs\.platform \}\}-\$\{\{ inputs\.arch \}\}/);
   assert.match(release,
     /prepare-github-release:[\s\S]*needs:\s*\[validate,\s*release-invariants\][\s\S]*draft:\s*true/);
-  assert.match(release,
-    /desktop-windows:[\s\S]*needs:\s*\[validate,\s*release-invariants,\s*desktop-build,\s*prepare-github-release\]/);
-  assert.match(release,
-    /desktop-unix:[\s\S]*needs:\s*\[validate,\s*release-invariants,\s*desktop-build,\s*prepare-github-release\]/);
-  assert.match(release, /name:\s*Download common desktop output[\s\S]*actions\/download-artifact@v8/);
-  assert.match(release, /name:\s*Restore Electron downloads[\s\S]*ELECTRON_BUILDER_CACHE/);
-  assert.equal((release.match(/name:\s*Resolve runtime dependency cache key/g) || []).length, 2);
-  assert.equal((release.match(/name:\s*Restore pruned runtime dependencies/g) || []).length, 2);
-  assert.equal((release.match(/name:\s*Restore prepared runtime archive/g) || []).length, 2);
-  assert.equal((release.match(/desktop-prepared-runtime-v1-/g) || []).length, 2);
-  assert.equal((release.match(/name:\s*Restore stable desktop npm downloads/g) || []).length, 2);
-  assert.equal((release.match(/dependency-lock-cache-key\.mjs/g) || []).length, 2);
-  assert.equal((release.match(/desktop-npm-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}/g) || []).length, 2);
-  assert.match(release, /runtime-dependency-cache-key\.mjs[\s\S]*--platform=win32 --arch=x64/);
-  assert.match(release, /MIXDOG_RUNTIME_DEPENDENCY_CACHE/);
-  assert.match(release, /key:\s*desktop-\$\{\{ steps\.runtime-dependencies\.outputs\.key \}\}/);
-  assert.match(release, /MIXDOG_RUNTIME_NPM_CACHE="?\$\(npm config get cache\)"?/);
+  assert.match(desktopPackage, /name:\s*Download common desktop output[\s\S]*actions\/download-artifact@v8/);
+  assert.match(desktopPackage, /name:\s*Restore Electron downloads[\s\S]*ELECTRON_BUILDER_CACHE/);
+  assert.match(desktopRuntime, /name:\s*Resolve runtime dependency cache key/);
+  assert.match(desktopRuntime, /name:\s*Restore pruned runtime dependencies/);
+  assert.match(desktopRuntime, /name:\s*Restore prepared runtime archive/);
+  assert.match(desktopRuntime, /desktop-prepared-runtime-v1-/);
+  assert.match(desktopRuntime, /name:\s*Restore stable desktop npm downloads/);
+  assert.match(desktopPackage, /name:\s*Restore stable desktop npm downloads/);
+  assert.match(desktopRuntime, /dependency-lock-cache-key\.mjs/);
+  assert.match(desktopPackage, /dependency-lock-cache-key\.mjs/);
+  assert.match(desktopRuntime, /runtime-dependency-cache-key\.mjs[\s\S]*--platform=\$\{\{ inputs\.platform \}\} --arch=\$\{\{ inputs\.arch \}\}/);
+  assert.match(desktopRuntime, /MIXDOG_RUNTIME_DEPENDENCY_CACHE/);
+  assert.match(desktopRuntime, /key:\s*desktop-\$\{\{ steps\.runtime-dependencies\.outputs\.key \}\}/);
+  assert.match(desktopRuntime, /MIXDOG_RUNTIME_NPM_CACHE="?\$\(npm config get cache\)"?/);
   assert.equal((release.match(/npm run build --prefix apps\/desktop/g) || []).length, 1);
-  assert.doesNotMatch(release, /name:\s*Verify platform embedding runtime/);
-  assert.doesNotMatch(release, /name:\s*Install runtime dependencies/);
+  assert.doesNotMatch(desktopRuntime, /name:\s*Verify platform embedding runtime/);
+  assert.doesNotMatch(desktopRuntime, /name:\s*Install runtime dependencies/);
   assert.match(release, /npm ci --prefix apps\/desktop --prefer-offline --no-audit --no-fund/);
-  assert.match(release,
-    /platform:\s*darwin,\s*arch:\s*x64,\s*artifact_arch:\s*x64,\s*runner:\s*macos-15-intel/);
+  assert.match(release, /desktop-darwin-x64:[\s\S]*runner:\s*macos-15-intel[\s\S]*artifact_arch:\s*x64/);
   assert.match(release, /name:\s*Stage npm package[\s\S]*actions\/upload-artifact/);
-  assert.doesNotMatch(release, /name:\s*Stage (?:Windows|macOS|Linux)/);
+  assert.doesNotMatch(desktopPackage, /name:\s*Stage (?:Windows|macOS|Linux)/);
   assert.doesNotMatch(release, /name:\s*Download staged desktop packages/);
-  assert.equal((release.match(/^\s*gh release upload/gm) || []).length, 3);
-  assert.match(release,
-    /matrix\.arch \}\}" == x64[\s\S]*upload-release-assets\.sh[\s\S]*gh release upload/);
-  assert.match(release, /RELEASE_ID:\s*\$\{\{ needs\.prepare-github-release\.outputs\.release_id \}\}/);
+  assert.equal((desktopPackage.match(/^\s*gh release upload/gm) || []).length, 3);
+  assert.match(desktopPackage,
+    /inputs\.arch \}\}" == x64[\s\S]*upload-release-assets\.sh[\s\S]*gh release upload/);
+  assert.match(desktopPackage, /RELEASE_ID:\s*\$\{\{ inputs\.release_id \}\}/);
   assert.match(uploadScript, /--http1\.1/);
   assert.match(uploadScript, /--max-time 150/);
   assert.match(uploadScript, /--speed-limit 1024 --speed-time 20/);
@@ -417,7 +432,41 @@ advisoryTest('application release overlaps gates and publishes one exact hidden 
   );
   assert.match(release, /npm publish \.\/staged-npm\/\*\.tgz --provenance --access public/);
   assert.match(release, /-F draft=false -f make_latest=true/);
-  assert.doesNotMatch(release, /actions\/(?:upload|download)-artifact@v4/);
+  assert.match(release, /deploy-relay:[\s\S]*needs:\s*\[publish,\s*desktop-build\]/);
+  assert.match(release, /publish:[\s\S]*Publish staged npm package[\s\S]*Publish one complete GitHub release[\s\S]*deploy-relay:/);
+  assert.match(release, /name:\s*Atomically deploy and verify production/);
+  assert.match(release, /secrets\.RELAY_SSH_KEY/);
+  assert.match(release, /vars\.RELAY_DOMAIN/);
+  assert.match(release, /release-timings:[\s\S]*Record timing and warn on material regressions/);
+  assert.match(release, /release-timing-report\.mjs/);
+  assert.match(relayDeploy, /mv "\$INSTALL_DIR" "\$BACKUP_DIR"/);
+  assert.match(relayDeploy, /trap rollback ERR/);
+  assert.match(relayDeploy, /sha256sum "\$INSTALL_DIR\/renderer\/index\.html"/);
+  assert.match(relayDeploy, /package-lock\.json/);
+  assert.match(relayDeploy, /npm ci --omit=dev/);
+  for (const worker of [release, desktopRuntime, desktopPackage]) {
+    assert.doesNotMatch(worker, /actions\/(?:upload|download)-artifact@v4/);
+  }
+});
+
+test('release timing report flags material regressions and renders the slowest steps', () => {
+  const jobs = (seconds) => ({
+    jobs: [{
+      name: 'release / desktop-darwin-x64',
+      started_at: '2026-01-01T00:00:00Z',
+      completed_at: `2026-01-01T00:01:${String(seconds).padStart(2, '0')}Z`,
+      steps: [{
+        name: 'Build desktop package',
+        started_at: '2026-01-01T00:00:00Z',
+        completed_at: `2026-01-01T00:00:${String(seconds).padStart(2, '0')}Z`,
+      }],
+    }],
+  });
+  const report = buildReleaseTimingReport(jobs(40), jobs(20));
+  assert.equal(report.regressions.length, 1);
+  assert.equal(report.regressions[0].percent, 100);
+  assert.match(report.markdown, /Build desktop package/);
+  assert.match(report.markdown, /\+100%/);
 });
 
 advisoryTest('desktop production dependencies contain only main-process runtime externals', async () => {
@@ -462,6 +511,9 @@ advisoryTest('native release workflows are reusable and unchanged runtime platfo
   assert.match(patch, /pattern:\s*patch-\*-\$\{\{ github\.run_attempt \}\}/);
   assert.match(graph, /workflow_dispatch\|workflow_call/);
   assert.equal((graph.match(/cargo test --locked --manifest-path native\/mixdog-graph\/Cargo\.toml/g) || []).length, 1);
+  assert.equal((graph.match(/mozilla-actions\/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba/g) || []).length, 2);
+  assert.match(graph, /SCCACHE_GHA_VERSION:\s*graph-primary-v1-\$\{\{ matrix\.pkey \}\}/);
+  assert.match(graph, /SCCACHE_GHA_VERSION:\s*graph-comparison-v1-\$\{\{ matrix\.pkey \}\}/);
   for (const [name, worker] of [['graph', graph], ['spawn', spawn], ['token', token]]) {
     assert.match(worker, /rebuild:[\s\S]*name:\s*build-\$\{\{ matrix\.pkey \}\}-comparison/);
     assert.match(worker, /prepare:[\s\S]*needs:\s*\[gate,\s*test,\s*build,\s*rebuild\]/);
@@ -503,6 +555,7 @@ test('project versions stay synchronized and the development protocol is valid',
     'apps/desktop/package.json',
     'apps/desktop/package-lock.json',
     'apps/relay/package.json',
+    'apps/relay/package-lock.json',
   ].map((relativePath) => ({
     relativePath,
     value: JSON.parse(readFileSync(join(ROOT, relativePath), 'utf8')),
