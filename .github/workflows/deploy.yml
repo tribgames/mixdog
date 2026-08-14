@@ -414,7 +414,7 @@ jobs:
             if npm view "${name}@${version}" version --silent 2>/dev/null | grep -qxF "$version"; then
               echo "${name}@${version} already published; reusing."
             else
-              npm publish "$directory" --provenance --access public
+              npm publish "./$directory" --provenance --access public
             fi
           done
 
