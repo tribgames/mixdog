@@ -5,6 +5,9 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Native search now handles the complete internal grep/find contract, preserves
+  regex recovery errors, and overlaps first-turn search and code-graph warmup.
+
 ## v0.9.125 - 2026-08-13
 
 - Shell and background-task execution now use one hash-pinned native process
