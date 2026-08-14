@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.127 - 2026-08-14
+
 - Native binaries now have one canonical home in GitHub Releases: npm ships
   only the CLI, while CLI runs verify and cache assets on demand and Desktop
   builds embed the same verified platform assets.
