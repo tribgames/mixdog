@@ -1,18 +1,18 @@
-import { closeSync, openSync, readSync } from 'fs';
+import { open } from 'fs/promises';
 import { hashText } from './hash-utils.mjs';
 import { displayLineForRead } from './read-lines.mjs';
 import { READ_LARGE_TAIL_MAX_BYTES } from './read-constants.mjs';
 
-export function readLargeTailWindowSync(fullPath, st, n) {
+export async function readLargeTailWindowSync(fullPath, st, n) {
     const targetLines = Math.max(1, Math.trunc(n || 20));
-    const fd = openSync(fullPath, 'r');
+    const fh = await open(fullPath, 'r');
     let tailBytes = Math.min(st.size, Math.max(4096, targetLines * 256));
     let buf = Buffer.allocUnsafe(0);
     let bytesRead = 0;
     try {
         while (true) {
             buf = Buffer.allocUnsafe(tailBytes);
-            bytesRead = readSync(fd, buf, 0, tailBytes, st.size - tailBytes);
+            ({ bytesRead } = await fh.read(buf, 0, tailBytes, st.size - tailBytes));
             let lfCount = 0;
             for (let i = 0; i < bytesRead; i++) {
                 if (buf[i] === 10) lfCount++;
@@ -21,7 +21,7 @@ export function readLargeTailWindowSync(fullPath, st, n) {
             tailBytes = Math.min(st.size, READ_LARGE_TAIL_MAX_BYTES, tailBytes * 2);
         }
     } finally {
-        closeSync(fd);
+        await fh.close();
     }
     const readWindow = buf.subarray(0, bytesRead);
     const approximate = tailBytes < st.size;
@@ -51,9 +51,9 @@ export function readLargeTailWindowSync(fullPath, st, n) {
     };
 }
 
-export function readLargeHeadWindowSync(fullPath, st, n) {
+export async function readLargeHeadWindowSync(fullPath, st, n) {
     const targetLines = Math.max(1, Math.trunc(n || 20));
-    const fd = openSync(fullPath, 'r');
+    const fh = await open(fullPath, 'r');
     let headBytes = Math.min(st.size, Math.max(65536, targetLines * 256));
     let buf = Buffer.allocUnsafe(0);
     let bytesRead = 0;
@@ -61,7 +61,7 @@ export function readLargeHeadWindowSync(fullPath, st, n) {
     try {
         while (true) {
             buf = Buffer.allocUnsafe(headBytes);
-            bytesRead = readSync(fd, buf, 0, headBytes, 0);
+            ({ bytesRead } = await fh.read(buf, 0, headBytes, 0));
             if (!prefixHash && bytesRead > 0) {
                 prefixHash = hashText(buf.subarray(0, Math.min(bytesRead, 65536)));
             }
@@ -73,7 +73,7 @@ export function readLargeHeadWindowSync(fullPath, st, n) {
             headBytes = Math.min(st.size, READ_LARGE_TAIL_MAX_BYTES, headBytes * 2);
         }
     } finally {
-        closeSync(fd);
+        await fh.close();
     }
     if (headBytes < st.size && bytesRead > 0 && buf.subarray(0, bytesRead).indexOf(10) === -1) {
         return { lines: [], prefixHash, capped: true };

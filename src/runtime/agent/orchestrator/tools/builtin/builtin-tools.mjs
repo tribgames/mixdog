@@ -3,24 +3,6 @@
 // CANONICAL SOURCE for built-in tool schemas and annotations (compressible,
 // readOnlyHint, destructiveHint, etc.). Descriptions carry the tool CONTRACT
 // only (behavior + argument shapes); usage policy lives in rules/shared/01-tool.md.
-import {
-    executionModeSchemaDescription,
-} from '../../../../shared/background-tasks.mjs';
-
-// Shell timeout envelope surfaced in the tool schema. Reference-CLI parity:
-// default 120 s when omitted; an explicit timeout is honored uncapped.
-// BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS env overrides only bound the
-// omitted default (max floored at default). Keep in sync with
-// builtin/bash-tool.mjs.
-function _shellDefaultTimeoutMs() {
-    const parsed = parseInt(process.env.BASH_DEFAULT_TIMEOUT_MS ?? '', 10);
-    return parsed > 0 ? parsed : 120_000;
-}
-function _shellMaxTimeoutMs() {
-    const parsed = parseInt(process.env.BASH_MAX_TIMEOUT_MS ?? '', 10);
-    return Math.max(parsed > 0 ? parsed : 600_000, _shellDefaultTimeoutMs());
-}
-
 // Platform-specific command syntax belongs next to the command argument.
 const _shellSyntaxCheat =
     process.platform === 'win32'
@@ -36,38 +18,22 @@ export const BUILTIN_TOOLS = [
         inputSchema: {
             type: 'object',
             properties: {
-                path: {
-                    anyOf: [
-                        { type: 'string' },
-                        {
-                            type: 'array',
-                            items: {
-                                anyOf: [
-                                    { type: 'string' },
-                                    { type: 'number' },
-                                    {
-                                        type: 'array',
-                                        items: {
-                                            anyOf: [
-                                                { type: 'string' },
-                                                { type: 'number' },
-                                            ],
-                                        },
-                                        minItems: 2,
-                                        maxItems: 3,
-                                        description: '[path,offset,limit?].',
-                                    },
-                                ],
-                            },
-                            minItems: 1,
-                        },
-                    ],
-                    description: 'File path, string[] files, [path,offset,limit?] range, or range[].',
+                file_path: {
+                    type: 'string',
+                    description: 'Known file path.',
                 },
-                offset: { type: 'number', minimum: 0, description: 'Lines to skip.' },
-                limit: { type: 'number', minimum: 1, description: 'Max lines; default 800.' },
+                offset: {
+                    type: 'integer',
+                    minimum: 0,
+                    description: '1-based start line; default 1.',
+                },
+                limit: {
+                    type: 'integer',
+                    minimum: 1,
+                    description: 'Maximum lines to return; default 800.',
+                },
             },
-            required: ['path'],
+            required: ['file_path'],
             additionalProperties: false,
         },
     },
@@ -75,18 +41,16 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Mixdog Shell',
         annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: 'Run programs and runtime/state operations; perform calculations, transform data, generate computed files, or inspect formats unsupported by file tools. Do not use for ordinary file-content inspection. Tracked sync/async commands belong to the current run; only a service explicitly required after the run exits should be shell-detached (for example, nohup ... &).',
+        description: 'Run programs and runtime/state operations; perform calculations, transform data, generate computed files, or inspect formats unsupported by file tools. Do not use for ordinary file-content inspection. A command that may alter source evidence may run only after a separate completed tool round has preserved the original or established verified read-only access. Tracked sync/async commands belong to the current run; only a service explicitly required after the run exits should be shell-detached (for example, nohup ... &).',
         inputSchema: {
             type: 'object',
             properties: {
                 command: { type: 'string', description: `Command.${_shellSyntaxCheat}` },
-                cwd: { type: 'string', description: 'Omit to use the current Project root; use a project-relative subdir or explicit external path for this call only.' },
-                timeout: {
+                timeout_ms: {
                     type: 'number',
-                    description: `Total deadline ms. Omit for sync default ${_shellDefaultTimeoutMs()}; omit for unlimited async. Explicit values kill at deadline; sync may return task_id.`,
+                    description: 'Optional total deadline.',
                 },
-                mode: { type: 'string', enum: ['sync', 'async'], description: executionModeSchemaDescription('sync') },
-                shell: { type: 'string', enum: ['bash', 'powershell'], description: 'Force shell.' },
+                run_in_background: { type: 'boolean', description: 'Run immediately as a tracked background task; returns task_id and sends a completion notification.' },
             },
             required: ['command'],
             additionalProperties: false,
@@ -117,24 +81,15 @@ export const BUILTIN_TOOLS = [
             type: 'object',
             properties: {
                 pattern: {
-                    anyOf: [
-                        { type: 'string' },
-                        { type: 'array', items: { type: 'string' }, minItems: 1 },
-                    ],
-                    description: 'Text/regex; pattern[] batches exact query literals and identifier variants.',
+                    type: 'string',
+                    description: 'Text/regex.',
                 },
                 path: {
-                    anyOf: [
-                        { type: 'string' },
-                        { type: 'array', items: { type: 'string' }, minItems: 1 },
-                    ],
-                    description: 'File/dir scope(s).',
+                    type: 'string',
+                    description: 'File/dir scope.',
                 },
                 glob: {
-                    anyOf: [
-                        { type: 'string' },
-                        { type: 'array', items: { type: 'string' }, minItems: 1 },
-                    ],
+                    type: 'string',
                     description: 'Glob filter.',
                 },
                 mode: { type: 'string', enum: ['content', 'files', 'count'], description: 'content default; files lists matching paths; count totals all patterns together per file.' },
@@ -155,18 +110,12 @@ export const BUILTIN_TOOLS = [
             type: 'object',
             properties: {
                 pattern: {
-                    anyOf: [
-                        { type: 'string' },
-                        { type: 'array', items: { type: 'string' }, minItems: 1 },
-                    ],
-                    description: 'Glob(s); pattern[] batches.',
+                    type: 'string',
+                    description: 'Glob.',
                 },
                 path: {
-                    anyOf: [
-                        { type: 'string' },
-                        { type: 'array', items: { type: 'string' }, minItems: 1 },
-                    ],
-                    description: 'Base dir(s); path[] batches.',
+                    type: 'string',
+                    description: 'Base dir.',
                 },
                 limit: { type: 'number', description: 'Max entries; default 100; 0 unlimited.' },
                 offset: { type: 'number', minimum: 0, description: 'Entry offset.' },
@@ -184,11 +133,8 @@ export const BUILTIN_TOOLS = [
             type: 'object',
             properties: {
                 query: {
-                    anyOf: [
-                        { type: 'string' },
-                        { type: 'array', items: { type: 'string' }, minItems: 1 },
-                    ],
-                    description: 'Filename or directory path fragments matched against path strings; query[] batches.',
+                    type: 'string',
+                    description: 'Filename or directory path fragments matched against path strings.',
                 },
                 path: { type: 'string', description: 'Base path.' },
                 limit: { type: 'number', description: 'Max paths; default 25; 0 unlimited.' },
@@ -207,11 +153,8 @@ export const BUILTIN_TOOLS = [
             type: 'object',
             properties: {
                 path: {
-                    anyOf: [
-                        { type: 'string' },
-                        { type: 'array', items: { type: 'string' }, minItems: 1 },
-                    ],
-                    description: 'Directory; path[] batches.',
+                    type: 'string',
+                    description: 'Directory.',
                 },
                 hidden: { type: 'boolean', description: 'Include dotfiles.' },
                 meta: { type: 'boolean', description: 'Per-entry size bytes, UTC mtime, octal mode.' },

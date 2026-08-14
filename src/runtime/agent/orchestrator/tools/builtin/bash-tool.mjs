@@ -47,7 +47,6 @@ import {
     registerBackgroundTask,
     renderBackgroundTask,
     renderBackgroundTaskList,
-    resolveExecutionMode,
 } from '../../../../shared/background-tasks.mjs';
 import { resolveShellFor } from './shell-runtime.mjs';
 import {
@@ -62,7 +61,6 @@ import {
 import { normalizeOutputPath } from './path-utils.mjs';
 import { normalizeErrorMessage } from './path-diagnostics.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
-import { resolveOptionalCwd } from './cwd-utils.mjs';
 import { scrubLoaderVars, scrubProviderSecrets, scrubRuntimeRootVars } from '../env-scrub.mjs';
 import { resourceAdmission } from '../../../../shared/resource-admission.mjs';
 import {
@@ -349,16 +347,11 @@ function scheduleInlineHoistCleanup(file) {
 }
 
 export async function executeBashTool(args, workDir, options = {}) {
-    const requestedCwd = args.cwd ?? args.workdir;
-    const cwdResult = resolveOptionalCwd(requestedCwd, workDir);
-    if (cwdResult.error) return formatShellToolFailure(cwdResult.error);
-    // One-shot shell calls always start from the current Project root unless
-    // this call supplies cwd/workdir. A command-local `cd` must not create a
-    // second session cwd authority beside the dedicated cwd tool.
-    const bashWorkDir = cwdResult.cwd;
+    // Every call starts from the current Project root. A command-local `cd`
+    // never creates a second session cwd authority beside the dedicated cwd tool.
+    const bashWorkDir = workDir;
     const _readStateScope = options?.readStateScope ?? options?.sessionId ?? null;
-    const executionMode = resolveExecutionMode(args || {}, args?.run_in_background === true ? 'async' : 'sync');
-    let runInBackground = executionMode === 'async';
+    let runInBackground = args?.run_in_background === true;
 
     // Run hard-block policy before any shell dispatch.
     const _rawCmd = String(args && args.command != null ? args.command : '');
@@ -382,25 +375,14 @@ export async function executeBashTool(args, workDir, options = {}) {
         if (_policyBlock) return formatShellToolFailure(_policyBlock);
     }
 
-    if (args.persistent === true || (typeof args.session_id === 'string' && args.session_id.trim().length > 0)) {
-        return formatShellToolFailure('persistent/session_id shell mode was removed; use independent native shell calls.');
-    }
-
     let command = args.command;
     if (!command) return formatShellToolFailure('command is required');
 
-    // Resolve the shell up front so shell-type-specific handling (PS-only wmic
-    // rewrite, PS UTF-8 prefix) can gate on it. kind 'default' is byte-identical
-    // to today's resolveShell(); kind 'bash' on Windows resolves Git Bash, and a
-    // null spec means it is genuinely not installed — surface a clear error with
-    // NO silent fallback to the other shell.
-    const shellKind = args.shell === 'bash' || args.shell === 'powershell' ? args.shell : 'default';
-    let resolvedSpec = resolveShellFor(shellKind);
+    // Resolve the configured default shell up front so shell-type-specific
+    // handling (PS-only wmic rewrite, PS UTF-8 prefix) can gate on it.
+    let resolvedSpec = resolveShellFor('default');
     if (!resolvedSpec) {
-        if (shellKind === 'bash') {
-            return formatShellToolFailure("Git Bash not found — install Git for Windows or omit shell:'bash'.");
-        }
-        return formatShellToolFailure("pwsh (PowerShell) not found — install PowerShell or omit shell:'powershell'.");
+        return formatShellToolFailure('No supported system shell was found.');
     }
 
     // wmic→PowerShell rewrite is PowerShell-only; never mangle a command bound
@@ -428,10 +410,8 @@ export async function executeBashTool(args, workDir, options = {}) {
         // bash (unix filter heads, `&&`) and it carries no PowerShell-only
         // construct — running it in Git Bash is exactly what the caller meant,
         // byte-for-byte. A mixed command ($env:, cmdlets, `2>$null`) or a
-        // PowerShell-specific violation stays a hard block, and an explicit
-        // shell:'powershell' is never overridden.
+        // PowerShell-specific violation stays a hard block.
         const bashSpec = psHygiene.bashOnly
-            && shellKind === 'default'
             && !hasPowerShellOnlySyntax(psHygiene.original ?? command)
             ? resolveShellFor('bash')
             : null;
@@ -439,7 +419,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         // The MSYS rewrite targets PowerShell; bash gets the original text.
         command = psHygiene.original ?? command;
         resolvedSpec = bashSpec;
-        shellRescueNote = "note: bash-only syntax on a PowerShell host — ran it in Git Bash (pass shell:'bash' to make that explicit).";
+        shellRescueNote = 'note: bash-only syntax on a PowerShell host — ran it in Git Bash.';
     } else {
         command = psHygiene.command;
     }
@@ -454,7 +434,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     // quoting layer. planInlineScriptHoist refuses every case where file
     // semantics would differ, so this is a transport change only.
     let _inlineHoistPath = null;
-    if (!runInBackground && args.persistent !== true) {
+    if (!runInBackground) {
         const hoist = planInlineScriptHoist(command);
         if (hoist) {
             try {
@@ -490,7 +470,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     const DEFAULT_BASH_TIMEOUT_MS = _envDefaultTimeout > 0 ? _envDefaultTimeout : 120_000;
     // Background (async / run_in_background) jobs get NO omitted default: 0
     // means "unlimited" and flows unchanged through startBackgroundShellJob →
-    // task meta (detail.timeoutMs 0). An explicit args.timeout is still honored
+    // task meta (detail.timeoutMs 0). An explicit args.timeout_ms is still honored
     // and enforced exactly as before. Sync path keeps the 120s omitted default.
     const DEFAULT_BACKGROUND_BASH_TIMEOUT_MS = 0;
     const _envMaxTimeout = parseInt(process.env.BASH_MAX_TIMEOUT_MS ?? '', 10);
@@ -504,8 +484,8 @@ export async function executeBashTool(args, workDir, options = {}) {
     const defaultTimeoutMs = runInBackground
         ? DEFAULT_BACKGROUND_BASH_TIMEOUT_MS
         : DEFAULT_BASH_TIMEOUT_MS;
-    const hasExplicitTimeout = typeof args.timeout === 'number' && args.timeout > 0;
-    const timeoutMs = hasExplicitTimeout ? args.timeout : defaultTimeoutMs;
+    const hasExplicitTimeout = typeof args.timeout_ms === 'number' && args.timeout_ms > 0;
+    const timeoutMs = hasExplicitTimeout ? args.timeout_ms : defaultTimeoutMs;
     const backgroundOnTimeout = !runInBackground
         && !_bgTasksDisabled
         && isAutobackgroundingAllowed(command, resolvedSpec.shellType);
@@ -533,14 +513,11 @@ export async function executeBashTool(args, workDir, options = {}) {
     // adopting the child with timeoutMs=0, which means unlimited to shell-jobs.
     const promoteAtTimeout = backgroundOnTimeout
         && (!hasExplicitTimeout || promotedTimeoutMs > 0);
-    // Provider schema intentionally omits this low-value toggle; all observed
-    // live calls requested merged output, which is also the useful default for
-    // in-turn diagnostics. Internal callers may still opt out explicitly.
-    const mergeStderr = args.merge_stderr !== false;
+    const mergeStderr = true;
     const longForegroundHint = foregroundLongCommandHint(
         command,
         timeout,
-        { ...args, run_in_background: runInBackground },
+        { run_in_background: runInBackground },
         { backgroundTasksDisabled: _bgTasksDisabled },
     );
     if (longForegroundHint) return formatShellToolFailure(longForegroundHint);
@@ -549,7 +526,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     // after 15 s a still-running command becomes a tracked background task and
     // completion is pushed to the owner. Explicit timeouts keep their remaining
     // deadline after promotion. Never applies to run_in_background (already
-    // detached), persistent sessions, or commands barred from backgrounding.
+    // detached) or commands barred from backgrounding.
     // MIXDOG_SHELL_AUTO_BACKGROUND_MS overrides; an explicit 0 disables.
     const _autoBgEnvRaw = process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
     const _autoBgEnvMs = Number(_autoBgEnvRaw);

@@ -1,4 +1,4 @@
-import { statSync } from 'fs';
+import { stat } from 'node:fs/promises';
 import { createHash } from 'crypto';
 import { isAbsolute, resolve } from 'path';
 import { trueCasePath } from './path-utils.mjs';
@@ -81,6 +81,7 @@ import {
     isRedundantAllFilesGlob,
     parseGrepCountLine,
 } from './lib/search-input-helpers.mjs';
+import { assertPathReachable } from './fs-reachability.mjs';
 
 // A single glob string may pack multiple filters
 // separated by whitespace or commas, e.g. "*.ts,*.tsx" or "*.ts *.tsx". Split
@@ -101,6 +102,10 @@ import {
     GREP_CONTEXT_CHAR_BUDGET_DEFAULT,
 } from './lib/grep-context-expander.mjs';
 
+async function statReachable(path) {
+    const reachable = await assertPathReachable(path);
+    return reachable || await stat(path);
+}
 
 // Default grep result cap when head_limit is unspecified. 250 is the common
 // harness default; the tool-result offload layer still bounds oversized
@@ -193,10 +198,10 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                     const resolved = resolveSearchScope(cleaned, workDir);
                     if (isUncOrSmbPath(cleaned) || isUncOrSmbPath(resolved)) break combinedPaths;
                     let st;
-                    try { st = statSync(resolved); } catch { break combinedPaths; }
+                    try { st = await statReachable(resolved); } catch { break combinedPaths; }
                     roots.push({
                         arg: p,
-                        abs: normalizeOutputPath(isAbsolute(resolved) ? trueCasePath(resolved) : resolved),
+                        abs: normalizeOutputPath(isAbsolute(resolved) ? await trueCasePath(resolved) : resolved),
                         isDir: st.isDirectory(),
                     });
                 }
@@ -576,10 +581,10 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             try {
                 let preSpawnCwd = workDir;
                 let preSearchPath = searchPath;
-                const preStat = statSync(grepResolvedPath);
+                const preStat = await statReachable(grepResolvedPath);
                 if (!preStat.isDirectory()) return null;
                 if (isAbsolute(preSearchPath)) {
-                    preSearchPath = trueCasePath(preSearchPath);
+                    preSearchPath = await trueCasePath(preSearchPath);
                     preSpawnCwd = preSearchPath;
                 }
                 const prefilterArgs = buildGrepRgArgs({
@@ -628,12 +633,12 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                 jsRegexps = patterns.map((p) => new RegExp(p, caseInsensitive ? 'i' : ''));
             } catch { break combined; }
             let preStat;
-            try { preStat = statSync(grepResolvedPath); } catch { break combined; }
+            try { preStat = await statReachable(grepResolvedPath); } catch { break combined; }
             if (!preStat.isDirectory()) break combined;
             let rgCwd = workDir;
             let rgSearchPath = searchPath;
             if (isAbsolute(rgSearchPath)) {
-                rgSearchPath = trueCasePath(rgSearchPath);
+                rgSearchPath = await trueCasePath(rgSearchPath);
                 rgCwd = rgSearchPath;
             }
             const combinedArgs = buildGrepRgArgs({
@@ -938,7 +943,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
 
     return await runResultCacheInFlight(cacheKey, async () => {
     let grepStat;
-    try { grepStat = statSync(grepResolvedPath); }
+    try { grepStat = await statReachable(grepResolvedPath); }
     catch (err) {
         const enoentCache = {};
         const redirected = await tryReadFamilyEnoentRedirect({
@@ -973,7 +978,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     // workDir cwd (both sides already share workDir's casing).
     let rgSpawnCwd = workDir;
     if (isAbsolute(searchPath)) {
-        searchPath = trueCasePath(searchPath);
+        searchPath = await trueCasePath(searchPath);
         if (grepStat.isDirectory()) rgSpawnCwd = searchPath;
     }
 
@@ -1450,18 +1455,17 @@ export async function executeGlobTool(args, workDir, options = {}) {
     // rg runs re-stat the same resolved cwd, and the empty-result diagnostic
     // stats it a third time. Memoize by resolved path so each root is stat'd once.
     const statCache = new Map();
-    const statCached = (resolvedPath) => {
+    const statCached = async (resolvedPath) => {
         if (statCache.has(resolvedPath)) return statCache.get(resolvedPath);
-        let entry;
-        try { entry = { st: statSync(resolvedPath), err: null }; }
-        catch (err) { entry = { st: null, err }; }
-        statCache.set(resolvedPath, entry);
-        return entry;
+        const pending = statReachable(resolvedPath)
+            .then((st) => ({ st, err: null }), (err) => ({ st: null, err }));
+        statCache.set(resolvedPath, pending);
+        return await pending;
     };
     if (!options._enoentRedirectFrom) {
         for (const only of basePaths) {
             const resolvedOnly = resolveSearchScope(only, workDir);
-            const pre = statCached(resolvedOnly);
+            const pre = await statCached(resolvedOnly);
             if (pre.err) {
                 const redirected = await tryReadFamilyEnoentRedirect({
                     workDir,
@@ -1576,7 +1580,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
         for (const rel of rels) rgArgs.push('--glob', rel);
         const rgCwd = resolvedForSearchRoot(root);
         rgArgs.push('.');
-        const cwdStat = statCached(rgCwd);
+        const cwdStat = await statCached(rgCwd);
         if (cwdStat.err) {
             const err = cwdStat.err;
             // One shared ENOENT scan cache for the redirect probe + not-found
@@ -1618,7 +1622,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
                     paths: served.lines.map((line) =>
                         isAbsolute(line) ? line : resolveAgainstCwd(line, rgCwd)),
                     stdoutTruncated: false,
-                    stdoutPartial: false,
+                    stdoutPartial: served.partial === true,
                     windowIncomplete: served.complete !== true,
                 };
             }

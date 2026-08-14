@@ -131,30 +131,6 @@ function hasMultipleAbsoluteWindowsPaths(value) {
     return Array.isArray(matches) && matches.length > 1;
 }
 
-// Rescue for hasMultipleAbsoluteWindowsPaths: a single string arg that packs
-// multiple absolute Windows paths together (space/comma/semicolon separated,
-// e.g. "C:\a\b C:\c\d" or "C:\a\b, C:\c\d") is a common model mistake meaning
-// two separate search roots, not one malformed path. Split on each drive-
-// letter boundary and trim separator debris instead of hard-erroring;
-// executeGrepTool's own array fan-out (search-tool.mjs) already knows how to
-// run one grep per path and join the results. Returns null when the value
-// does not cleanly resolve to 2+ non-empty segments.
-function splitMultipleAbsoluteWindowsPaths(value) {
-    if (typeof value !== 'string') return null;
-    const starts = [];
-    const re = /[A-Za-z]:[\\/]/g;
-    let m;
-    while ((m = re.exec(value)) !== null) starts.push(m.index);
-    if (starts.length < 2) return null;
-    const parts = [];
-    for (let i = 0; i < starts.length; i++) {
-        const end = i + 1 < starts.length ? starts[i + 1] : value.length;
-        const part = value.slice(starts[i], end).trim().replace(/[,;]+$/, '').trim();
-        if (part) parts.push(part);
-    }
-    return parts.length > 1 ? parts : null;
-}
-
 function hasWindowsDrivePath(value) {
     return typeof value === 'string' && /[A-Za-z]:[\\/]/.test(value);
 }
@@ -385,9 +361,7 @@ function guardGrep(a) {
     for (const k of patternKeys) {
         if (hasOwn(a, k)) {
             const value = coercePatternStringValues(a[k]);
-            a[k] = Array.isArray(value)
-                ? value.map(stripTrailingPatternArtifacts)
-                : stripTrailingPatternArtifacts(value);
+            a[k] = stripTrailingPatternArtifacts(value);
         }
     }
 
@@ -397,8 +371,8 @@ function guardGrep(a) {
         return 'Error: grep requires pattern (or alias query/regex/needle) or glob.';
     }
     for (const k of patternKeys) {
-        if (hasOwn(a, k) && !isStringOrStringArray(a[k])) {
-            return `Error: grep arg "${k}" must be string or string[] (got ${describeType(a[k])})`;
+        if (hasOwn(a, k) && !isString(a[k])) {
+            return `Error: grep arg "${k}" must be string (got ${describeType(a[k])})`;
         }
     }
     // Lookaround/backreference patterns are no longer hard-rejected here:
@@ -407,33 +381,17 @@ function guardGrep(a) {
     // falling back to this same error text only when PCRE2 is unavailable.
     for (const k of globKeys) {
         if (hasOwn(a, k)) a[k] = coercePatternStringValues(a[k]);
-        if (hasOwn(a, k) && !isStringOrStringArray(a[k])) {
-            return `Error: grep arg "${k}" must be string or string[] (got ${describeType(a[k])})`;
+        if (hasOwn(a, k) && !isString(a[k])) {
+            return `Error: grep arg "${k}" must be string (got ${describeType(a[k])})`;
         }
     }
-    // path/root (optional, string or string[])
+    // path/root (optional scalar string)
     for (const k of ['path', 'root']) {
-        // Absorb JSON-stringified arrays ('["src","docs"]') like the read
-        // family does; an empty array ('[]' or []) means "no path filter" —
-        // drop the key so the search defaults to cwd instead of handing rg a
-        // literal "[]" path (parsed as an unclosed character class).
-        if (hasOwn(a, k) && typeof a[k] === 'string') {
-            const c = coerceShapeFlex(a[k].trim());
-            if (Array.isArray(c)) a[k] = c;
-        }
-        if (hasOwn(a, k) && Array.isArray(a[k]) && a[k].length === 0) {
-            delete a[k];
-            continue;
-        }
-        if (hasOwn(a, k) && !isStringOrStringArray(a[k])) {
-            return `Error: grep arg "${k}" must be string or string[] (got ${describeType(a[k])})`;
+        if (hasOwn(a, k) && !isString(a[k])) {
+            return `Error: grep arg "${k}" must be string (got ${describeType(a[k])})`;
         }
         if (hasOwn(a, k) && hasMultipleAbsoluteWindowsPaths(a[k])) {
-            const split = splitMultipleAbsoluteWindowsPaths(a[k]);
-            if (!split) {
-                return `Error: grep arg "${k}" contains multiple absolute paths in one string. Use one common parent path plus glob, or separate grep calls.`;
-            }
-            a[k] = split;
+            return `Error: grep arg "${k}" contains multiple absolute paths in one string. Use one common parent path plus glob, or separate grep calls.`;
         }
     }
     for (const k of ['head_limit', 'offset']) {
@@ -675,6 +633,11 @@ function guardRead(a) {
 }
 
 function guardShell(a) {
+    const allowed = new Set(['command', 'timeout_ms', 'run_in_background']);
+    const unsupported = Object.keys(a).find((key) => !allowed.has(key));
+    if (unsupported) {
+        return `Error: shell arg "${unsupported}" is unsupported; use only command, timeout_ms, and run_in_background`;
+    }
     if (!hasOwn(a, 'command')) {
         return 'Error: shell requires "command"';
     }
@@ -684,26 +647,11 @@ function guardShell(a) {
     if (a.command.length === 0) {
         return 'Error: shell arg "command" must be a non-empty string';
     }
-    if (process.platform === 'win32' && !hasOwn(a, 'shell') && hasWindowsDrivePath(a.command)) {
-        // A Windows drive path (C:\...) is unambiguous evidence the caller
-        // wants the Windows shell; default it losslessly instead of forcing
-        // a retry turn just to add shell:'powershell'.
-        a.shell = 'powershell';
+    if (hasOwn(a, 'timeout_ms') && (typeof a.timeout_ms !== 'number' || !Number.isFinite(a.timeout_ms) || a.timeout_ms < 0)) {
+        return `Error: shell arg "timeout_ms" must be a non-negative number (got ${describeType(a.timeout_ms)})`;
     }
-    for (const k of ['cwd', 'workdir']) {
-        if (hasOwn(a, k) && (a[k] === undefined || a[k] === null || a[k] === '')) {
-            delete a[k];
-            continue;
-        }
-        if (hasOwn(a, k) && !isNonEmptyString(a[k])) {
-            return `Error: shell arg "${k}" must be a non-empty string (got ${describeType(a[k])})`;
-        }
-    }
-    if (hasOwn(a, 'cwd') && hasOwn(a, 'workdir') && a.cwd !== a.workdir) {
-        return 'Error: shell args "cwd" and "workdir" conflict; use one working directory.';
-    }
-    if (hasOwn(a, 'shell') && a.shell !== undefined && a.shell !== null && a.shell !== 'bash' && a.shell !== 'powershell') {
-        return `Error: shell arg "shell" must be bash or powershell (got ${JSON.stringify(a.shell)})`;
+    if (hasOwn(a, 'run_in_background') && typeof a.run_in_background !== 'boolean') {
+        return `Error: shell arg "run_in_background" must be a boolean (got ${describeType(a.run_in_background)})`;
     }
     return null;
 }
@@ -732,8 +680,8 @@ function guardTask(a) {
 }
 
 function guardList(a) {
-    if (hasOwn(a, 'path') && !isStringOrStringArray(a.path)) {
-        return `Error: list arg "path" must be string or string[] (got ${describeType(a.path)})`;
+    if (hasOwn(a, 'path') && !isString(a.path)) {
+        return `Error: list arg "path" must be string (got ${describeType(a.path)})`;
     }
     if (hasOwn(a, 'pattern') && !isStringOrStringArray(a.pattern)) {
         return `Error: list arg "pattern" must be string or string[] (got ${describeType(a.pattern)})`;
@@ -754,27 +702,11 @@ function guardList(a) {
 }
 
 function guardFind(a) {
-    // query accepts string or string[] (query[] fans out per-lookup downstream).
-    const queryOk = hasOwn(a, 'query') && (
-        (typeof a.query === 'string' && a.query.trim().length > 0)
-        || (Array.isArray(a.query) && a.query.length > 0 && a.query.every((q) => typeof q === 'string' && q.trim().length > 0))
-    );
+    const queryOk = hasOwn(a, 'query') && typeof a.query === 'string' && a.query.trim().length > 0;
     if (!queryOk) {
-        return `Error: find requires non-empty string (or string[]) "query" (got ${describeType(a.query)})`;
-    }
-    if (hasOwn(a, 'path')) {
-        // Absorb: a JSON-stringified array ('["apps/desktop"]') or a
-        // single-entry batch (['apps/desktop']). find takes ONE base
-        // directory, and a lone entry IS that directory — no ambiguity.
-        const coerced = coerceShapeFlex(a.path);
-        a.path = (Array.isArray(coerced) && coerced.length === 1 && isString(coerced[0]))
-            ? coerced[0]
-            : coerced;
+        return `Error: find requires non-empty string "query" (got ${describeType(a.query)})`;
     }
     if (hasOwn(a, 'path') && !isString(a.path)) {
-        if (Array.isArray(a.path)) {
-            return `Error: find arg "path" must be a single base directory (got ${a.path.length}) — run find once per base, or widen "query".`;
-        }
         return `Error: find arg "path" must be a string (got ${describeType(a.path)})`;
     }
     if (hasOwn(a, 'head_limit') && a.head_limit !== undefined && a.head_limit !== null) {
@@ -793,31 +725,29 @@ function guardFind(a) {
 function guardGlob(a) {
     // path alias root; pattern aliases glob/name/file_pattern
     const globPatternKeys = ['pattern', 'glob', 'name', 'file_pattern'];
+    for (const k of ['path', 'root']) {
+        if (hasOwn(a, k) && !isString(a[k])) {
+            return `Error: glob arg "${k}" must be string (got ${describeType(a[k])})`;
+        }
+    }
+    for (const k of globPatternKeys) {
+        if (hasOwn(a, k)) a[k] = coercePatternStringValues(a[k]);
+        if (hasOwn(a, k) && !isString(a[k])) {
+            return `Error: glob arg "${k}" must be string (got ${describeType(a[k])})`;
+        }
+    }
     const hasAnyPattern = globPatternKeys.some((k) => isNonEmptyPresent(a, k));
     // Skip the default when `path` itself carries glob magic (*?[{) — that
     // shape means "path IS the pattern" and is handled by executeGlobTool's
     // own path-magic fallback (splitting path into baseDir + pattern).
     // Injecting pattern:'*' here would override that fallback and silently
     // change "src/**/*.mjs" into "match everything under src/**/*.mjs".
-    const pathHasGlobMagic = Array.isArray(a.path)
-        ? a.path.some((p) => hasGlobMagic(p))
-        : hasGlobMagic(a.path);
+    const pathHasGlobMagic = hasGlobMagic(a.path);
     if (!hasAnyPattern && isNonEmptyPresent(a, 'path') && !pathHasGlobMagic) {
         // Missing pattern with a real path is an unambiguous "match
         // everything under this path" request; default it instead of
         // erroring out via globMissingPatternMessage() downstream.
         a.pattern = '*';
-    }
-    for (const k of ['path', 'root']) {
-        if (hasOwn(a, k) && !isStringOrStringArray(a[k])) {
-            return `Error: glob arg "${k}" must be string or string[] (got ${describeType(a[k])})`;
-        }
-    }
-    for (const k of globPatternKeys) {
-        if (hasOwn(a, k)) a[k] = coercePatternStringValues(a[k]);
-        if (hasOwn(a, k) && !isStringOrStringArray(a[k])) {
-            return `Error: glob arg "${k}" must be string or string[] (got ${describeType(a[k])})`;
-        }
     }
     if (hasOwn(a, 'head_limit') && a.head_limit !== undefined && a.head_limit !== null) {
         const coerced = coerceIntegerString(a.head_limit);

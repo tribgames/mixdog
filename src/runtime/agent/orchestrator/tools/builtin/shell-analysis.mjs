@@ -908,11 +908,11 @@ export function foregroundLongCommandHint(command, timeoutMs, args = {}, opts = 
     const cmd = String(command || '').trim();
     if (!cmd) return '';
     // CC validateInput parity: block only while background tasks are enabled —
-    // the remedy we point at (async mode / completion notification) must exist.
+    // the remedy we point at (background execution / completion notification) must exist.
     if (opts.backgroundTasksDisabled !== true) {
         const blocked = detectBlockedSleepPattern(cmd);
         if (blocked) {
-            return `Error: blocked — ${blocked}. Run blocking commands as a background task (mode:"async") and act on the completion notification. If you genuinely need a delay (rate limiting, pacing), keep it under 2 seconds.`;
+            return `Error: blocked — ${blocked}. Set run_in_background:true and act on the completion notification. If you genuinely need a delay (rate limiting, pacing), keep it under 2 seconds.`;
         }
     }
     return '';
@@ -923,7 +923,7 @@ export function foregroundLongCommandHint(command, timeoutMs, args = {}, opts = 
 // the reference CLI DISALLOWED_AUTO_BACKGROUND_COMMANDS: `sleep` on posix,
 // `start-sleep`/`sleep` (the PS built-in alias) on PowerShell. A `sleep`/
 // `Start-Sleep` the caller wants to survive must be launched with
-// run_in_background/async explicitly.
+// run_in_background:true explicitly.
 const _DISALLOWED_AUTO_BACKGROUND_POSIX = ['sleep'];
 const _DISALLOWED_AUTO_BACKGROUND_PS = ['start-sleep', 'sleep'];
 

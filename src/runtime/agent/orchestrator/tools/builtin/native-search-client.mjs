@@ -11,22 +11,90 @@ import { hiddenSpawnOpts } from '../../../../shared/spawn-flags.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { getPluginData } from '../../config.mjs';
 import { ensureGraphBinary } from '../graph-binary-fetcher.mjs';
+import { fuzzyRank, prepareFuzzyItems } from './fuzzy-match.mjs';
 
 const RESTART_BACKOFF_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 20_000;
 const SERVER_READY_TIMEOUT_MS = 1_000;
+const CANCEL_GRACE_MS = 1_000;
+const PROCESS_FAILURES_BEFORE_BACKOFF = 2;
 
 let _server = null; // { child, pending: Map, sequence }
 let _binaryPath = undefined; // undefined = unresolved, null = unavailable
 let _lastFailureAt = 0;
+let _lastFailure = null;
+let _consecutiveProcessFailures = 0;
 let _binaryResolveStarted = false;
 let _warmPromise = null;
+
+function codedError(code, message, cause = null) {
+  const error = new Error(message);
+  error.code = code;
+  if (cause) error.cause = cause;
+  return error;
+}
+
+function requestKind(request) {
+  if (request?.processSnapshot) return 'process snapshot';
+  if (request?.fuzzy != null) return 'fuzzy';
+  return request?.args?.includes?.('--files') ? 'file inventory' : 'content';
+}
+
+function timeoutError(request, deadlineMs) {
+  const kind = requestKind(request);
+  const detail = kind === 'fuzzy'
+    ? ' Fuzzy ranking requires a complete file inventory; narrow cwd or set max depth.'
+    : '';
+  return codedError(
+    'NATIVE_SEARCH_TIMEOUT',
+    `native ${kind} search timed out after ${deadlineMs}ms.${detail}`,
+  );
+}
+
+function softDeadlineMs(hardDeadlineMs) {
+  const margin = Math.min(500, Math.max(25, Math.floor(hardDeadlineMs * 0.05)));
+  return Math.max(1, hardDeadlineMs - margin);
+}
+
+function processFailure(error, server, detail = '') {
+  if (error?.code === 'NATIVE_SEARCH_PROCESS_EXIT') return error;
+  const stderr = String(server?.stderrTail || '').trim();
+  const cause = error instanceof Error
+    ? `${error.code ? `${error.code}: ` : ''}${error.message}`
+    : '';
+  const suffix = [detail, cause, stderr ? `stderr: ${stderr}` : ''].filter(Boolean).join('; ');
+  return codedError(
+    'NATIVE_SEARCH_PROCESS_EXIT',
+    `native search server exited${suffix ? ` (${suffix})` : ''}`,
+    error instanceof Error ? error : null,
+  );
+}
+
+function noteProcessFailure(error) {
+  _lastFailure = error;
+  _consecutiveProcessFailures += 1;
+  if (_consecutiveProcessFailures >= PROCESS_FAILURES_BEFORE_BACKOFF) {
+    _lastFailureAt = Date.now();
+  }
+}
+
+function clearProcessFailures() {
+  _lastFailure = null;
+  _lastFailureAt = 0;
+  _consecutiveProcessFailures = 0;
+}
+
+function unavailableError() {
+  const detail = _lastFailure?.message ? ` Last process failure: ${_lastFailure.message}` : '';
+  return codedError('NATIVE_SEARCH_UNAVAILABLE', `native search server unavailable.${detail}`);
+}
 
 function _setServerReferenced(server, referenced) {
   const method = referenced ? 'ref' : 'unref';
   try { server?.child?.[method]?.(); } catch {}
   try { server?.child?.stdin?.[method]?.(); } catch {}
   try { server?.child?.stdout?.[method]?.(); } catch {}
+  try { server?.child?.stderr?.[method]?.(); } catch {}
 }
 
 function _resolveBinary() {
@@ -61,15 +129,18 @@ function _resolveBinary() {
   return _binaryPath;
 }
 
-function _teardown(error) {
+function _teardown(error, { countFailure = true, detail = '' } = {}) {
   const server = _server;
   _server = null;
-  _lastFailureAt = Date.now();
   if (!server) return;
+  const failure = processFailure(error, server, detail);
+  if (countFailure) noteProcessFailure(failure);
   for (const pending of server.pending.values()) {
-    try { pending.reject(error || new Error('native search server exited')); } catch {}
+    try { pending.reject(failure); } catch {}
   }
   server.pending.clear();
+  for (const timer of server.cancelWatchdogs?.values?.() || []) clearTimeout(timer);
+  server.cancelWatchdogs?.clear?.();
   try { server.resolveReady?.(false); } catch {}
   try { server.child.kill(); } catch {}
 }
@@ -86,17 +157,20 @@ export function _bindNativeSearchServerLifecycle(child, { onError, onExit } = {}
 
 function _ensureServer() {
   if (_server) return _server;
-  if (Date.now() - _lastFailureAt < RESTART_BACKOFF_MS) return null;
+  if (
+    _consecutiveProcessFailures >= PROCESS_FAILURES_BEFORE_BACKOFF
+    && Date.now() - _lastFailureAt < RESTART_BACKOFF_MS
+  ) return null;
   const binary = _resolveBinary();
   if (!binary) return null;
   let child;
   try {
     child = spawn(binary, [process.cwd(), '--serve-search'], {
-      stdio: ['pipe', 'pipe', 'ignore'],
+      stdio: ['pipe', 'pipe', 'pipe'],
       ...hiddenSpawnOpts,
     });
-  } catch {
-    _lastFailureAt = Date.now();
+  } catch (error) {
+    noteProcessFailure(processFailure(error, null, 'spawn failed'));
     return null;
   }
   let resolveReady;
@@ -104,13 +178,17 @@ function _ensureServer() {
   const server = {
     child,
     pending: new Map(),
+    cancelWatchdogs: new Map(),
     sequence: 0,
-    timeoutStreak: 0,
+    stderrTail: '',
     ready,
     readyState: false,
     readyWaiters: 0,
     resolveReady,
   };
+  child.stderr?.on?.('data', (chunk) => {
+    server.stderrTail = `${server.stderrTail}${String(chunk || '')}`.slice(-8192);
+  });
   const lines = createInterface({ input: child.stdout });
   lines.on('line', (line) => {
     let message;
@@ -124,15 +202,27 @@ function _ensureServer() {
       invalidateBuiltinResultCache(message.paths.map(String));
       return;
     }
+    if (message?.event === 'cancelled') {
+      completeNativeCancellation(server, Number(message?.id));
+      clearProcessFailures();
+      return;
+    }
     const pending = server.pending.get(Number(message?.id));
     if (!pending) return;
     server.pending.delete(Number(message.id));
-    server.timeoutStreak = 0;
+    clearProcessFailures();
     pending.resolve(message);
   });
   _bindNativeSearchServerLifecycle(child, {
     onError: (error) => { if (_server === server) _teardown(error); },
-    onExit: () => { if (_server === server) _teardown(); },
+    onExit: (code, signal) => {
+      if (_server === server) {
+        _teardown(null, {
+          countFailure: true,
+          detail: `exit code=${code ?? 'null'} signal=${signal ?? 'null'}`,
+        });
+      }
+    },
   });
   // A detached child can still pin a one-shot CLI/test through its pipe
   // handles. Keep the resident server idle-unreferenced, then ref all handles
@@ -179,6 +269,41 @@ async function _awaitWithin(promise, timeoutMs) {
     if (timer) clearTimeout(timer);
   }
 }
+
+function cancelGraceMs() {
+  const configured = Number(process.env.MIXDOG_SEARCH_CANCEL_GRACE_MS);
+  return Number.isFinite(configured) && configured > 0
+    ? Math.max(1, Math.floor(configured))
+    : CANCEL_GRACE_MS;
+}
+
+function completeNativeCancellation(server, id) {
+  const timer = server?.cancelWatchdogs?.get?.(id);
+  if (timer) clearTimeout(timer);
+  server?.cancelWatchdogs?.delete?.(id);
+}
+
+function armNativeCancellationWatchdog(server, request) {
+  if (!(server.cancelWatchdogs instanceof Map)) server.cancelWatchdogs = new Map();
+  completeNativeCancellation(server, request.id);
+  const graceMs = cancelGraceMs();
+  const timer = setTimeout(() => {
+    server.cancelWatchdogs.delete(request.id);
+    const error = codedError(
+      'NATIVE_SEARCH_CANCEL_STALLED',
+      `native ${requestKind(request)} search did not stop within ${graceMs}ms after cancellation`,
+    );
+    if (_server === server) {
+      _teardown(error, { countFailure: false, detail: 'cancellation grace expired' });
+    } else {
+      try { server.child.kill(); } catch {}
+    }
+  }, graceMs);
+  timer.unref?.();
+  server.cancelWatchdogs.set(request.id, timer);
+}
+
+export { completeNativeCancellation as _ackNativeSearchCancellationForTest };
 
 /** Returns a runRgWindowedLines-shaped result, or null when the native server
  *  is unavailable or the request shape is unsupported. */
@@ -229,45 +354,31 @@ async function _readyServer(timeoutMs = SERVER_READY_TIMEOUT_MS) {
  *  the binary is unavailable or the request misses its short deadline. */
 export async function tryNativeProcessSnapshot({ timeoutMs = 750 } = {}) {
   if (process.platform !== 'win32' || process.env.MIXDOG_SEARCH_SERVER === '0') return null;
-  const server = await _readyServer(Math.max(1, Number(timeoutMs) || 750));
-  if (!server) return null;
-  const id = ++server.sequence;
-  _setServerReferenced(server, true);
-  const response = await new Promise((resolve) => {
-    let settled = false;
-    const settle = (value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(value);
-      if (server.pending.size === 0) _setServerReferenced(server, false);
-    };
-    const timer = setTimeout(() => {
-      server.pending.delete(id);
-      settle(null);
-    }, Math.max(1, Number(timeoutMs) || 750));
-    timer.unref?.();
-    server.pending.set(id, { resolve: settle, reject: () => settle(null) });
-    try {
-      server.child.stdin.write(`${JSON.stringify({ id, processSnapshot: true })}\n`);
-    } catch {
-      server.pending.delete(id);
-      settle(null);
-    }
-  });
+  const deadlineMs = Math.max(1, Number(timeoutMs) || 750);
+  let response;
+  try {
+    response = await requestNativeWithRestart(
+      (server) => ({ id: ++server.sequence, processSnapshot: true }),
+      {},
+      deadlineMs,
+    );
+  } catch {
+    return null;
+  }
   if (!response || response.error || !Array.isArray(response.rows)) return null;
   return response.rows;
 }
 
 async function requestNative(server, request, execOptions, deadlineMs) {
   _setServerReferenced(server, true);
-  const response = await new Promise((resolve) => {
+  const response = await new Promise((resolve, reject) => {
     let settled = false;
     let onAbort = null;
     const cancelServerWork = () => {
       try { server.child.stdin.write(`${JSON.stringify({ cancel: request.id })}\n`); } catch {}
+      armNativeCancellationWatchdog(server, request);
     };
-    const settle = (value, cancel = false) => {
+    const settle = (value, cancel = false, error = null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -276,22 +387,26 @@ async function requestNative(server, request, execOptions, deadlineMs) {
         onAbort = null;
       }
       if (cancel) cancelServerWork();
-      resolve(value);
+      if (error) reject(error);
+      else resolve(value);
       if (server.pending.size === 0) _setServerReferenced(server, false);
     };
     const timer = setTimeout(() => {
       server.pending.delete(request.id);
-      server.timeoutStreak += 1;
-      settle(null, true);
-      if (server.timeoutStreak >= 2 && _server === server) {
-        _teardown(new Error('native search server timed out repeatedly'));
-      }
+      settle(null, true, timeoutError(request, deadlineMs));
     }, deadlineMs);
     timer.unref?.();
-    server.pending.set(request.id, { resolve: settle, reject: () => settle(null) });
+    server.pending.set(request.id, {
+      resolve: settle,
+      reject: (error) => settle(null, false, processFailure(error, server)),
+    });
     onAbort = () => {
       server.pending.delete(request.id);
-      settle(null, true);
+      settle(
+        null,
+        true,
+        codedError('NATIVE_SEARCH_ABORTED', `native ${requestKind(request)} search aborted`),
+      );
     };
     if (execOptions.signal?.aborted) {
       onAbort();
@@ -300,12 +415,34 @@ async function requestNative(server, request, execOptions, deadlineMs) {
     execOptions.signal?.addEventListener?.('abort', onAbort, { once: true });
     try {
       server.child.stdin.write(`${JSON.stringify(request)}\n`);
-    } catch {
-      server.pending.delete(request.id);
-      settle(null);
+    } catch (error) {
+      if (_server === server) _teardown(error);
+      else {
+        server.pending.delete(request.id);
+        settle(null, false, processFailure(error, server, 'stdin write failed'));
+      }
     }
   });
   return response;
+}
+
+export { requestNative as _requestNativeForTest };
+
+async function requestNativeWithRestart(buildRequest, execOptions, deadlineMs) {
+  const startedAt = Date.now();
+  let server = await _readyServer(Math.min(deadlineMs, SERVER_READY_TIMEOUT_MS));
+  if (!server) throw unavailableError();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const remaining = Math.max(1, deadlineMs - (Date.now() - startedAt));
+    try {
+      return await requestNative(server, buildRequest(server), execOptions, remaining);
+    } catch (error) {
+      if (error?.code !== 'NATIVE_SEARCH_PROCESS_EXIT' || attempt > 0) throw error;
+      server = await _readyServer(Math.min(remaining, SERVER_READY_TIMEOUT_MS));
+      if (!server) throw unavailableError();
+    }
+  }
+  throw unavailableError();
 }
 
 export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
@@ -314,20 +451,20 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
   const deadlineMs = Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
     ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
     : REQUEST_TIMEOUT_MS;
-  const readyStartedAt = Date.now();
-  const server = await _readyServer(Math.min(deadlineMs, SERVER_READY_TIMEOUT_MS));
-  if (!server) return null;
-  const requestDeadlineMs = Math.max(1, deadlineMs - (Date.now() - readyStartedAt));
-  const response = await requestNative(server, {
-    id: ++server.sequence,
-    cwd: String(execOptions.cwd || process.cwd()),
-    args: argsList.map(String),
-    offset: Math.max(0, Math.floor(Number(opts.offset) || 0)),
-    limit: Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0
-      ? Math.floor(Number(opts.limit))
-      : 0,
-  }, execOptions, requestDeadlineMs);
-  if (!response) return null;
+  const response = await requestNativeWithRestart(
+    (server) => ({
+      id: ++server.sequence,
+      cwd: String(execOptions.cwd || process.cwd()),
+      args: argsList.map(String),
+      offset: Math.max(0, Math.floor(Number(opts.offset) || 0)),
+      limit: Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0
+        ? Math.floor(Number(opts.limit))
+        : 0,
+      deadlineMs: softDeadlineMs(deadlineMs),
+    }),
+    execOptions,
+    deadlineMs,
+  );
   if (response.unsupported || response.error) {
     const rejected = new Error(String(response.error || response.unsupported));
     rejected.code = response.error ? 'NATIVE_SEARCH_ERROR' : 'NATIVE_SEARCH_UNSUPPORTED';
@@ -338,6 +475,8 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
     lines: response.lines,
     complete: response.complete === true,
     totalSeen: Math.max(0, Math.floor(Number(response.totalSeen) || 0)),
+    partial: response.partial === true,
+    timeout: response.timeout === true,
     queueMs: Math.max(0, Number(response.queueMs) || 0),
     handlerMs: Math.max(0, Number(response.handlerMs) || 0),
     requestClass: response.class === 'bulk' ? 'bulk' : 'interactive',
@@ -351,29 +490,48 @@ export async function tryServeFuzzySearch(args, execOptions = {}) {
   const deadlineMs = Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
     ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
     : REQUEST_TIMEOUT_MS;
-  const readyStartedAt = Date.now();
-  const server = await _readyServer(Math.min(deadlineMs, SERVER_READY_TIMEOUT_MS));
-  if (!server) return null;
-  const requestDeadlineMs = Math.max(1, deadlineMs - (Date.now() - readyStartedAt));
-  const response = await requestNative(server, {
-    id: ++server.sequence,
-    cwd: String(args?.cwd || execOptions.cwd || process.cwd()),
-    fuzzy: String(args?.query || ''),
-    limit: Math.max(1, Math.min(1_000, Math.floor(Number(args?.limit) || 25))),
-    hidden: args?.hidden !== false,
-    includeNoise: args?.includeNoise === true,
-    ...(Number.isFinite(Number(args?.maxDepth)) && Number(args.maxDepth) > 0
-      ? { maxDepth: Math.floor(Number(args.maxDepth)) }
-      : {}),
-    exclude: Array.isArray(args?.exclude) ? args.exclude.map(String) : [],
-  }, execOptions, requestDeadlineMs);
-  if (!response || response.unsupported || response.error || !Array.isArray(response.matches)) return null;
+  const response = await requestNativeWithRestart(
+    (server) => ({
+      id: ++server.sequence,
+      cwd: String(args?.cwd || execOptions.cwd || process.cwd()),
+      fuzzy: String(args?.query || ''),
+      limit: Math.max(1, Math.min(1_000, Math.floor(Number(args?.limit) || 25))),
+      hidden: args?.hidden !== false,
+      includeNoise: args?.includeNoise === true,
+      ...(Number.isFinite(Number(args?.maxDepth)) && Number(args.maxDepth) > 0
+        ? { maxDepth: Math.floor(Number(args.maxDepth)) }
+        : {}),
+      exclude: Array.isArray(args?.exclude) ? args.exclude.map(String) : [],
+      deadlineMs: softDeadlineMs(deadlineMs),
+    }),
+    execOptions,
+    deadlineMs,
+  );
+  if (response?.unsupported) {
+    throw codedError('NATIVE_SEARCH_UNSUPPORTED', String(response.unsupported));
+  }
+  if (response?.error) {
+    throw codedError('NATIVE_SEARCH_ERROR', String(response.error));
+  }
+  if (!Array.isArray(response?.matches)) throw unavailableError();
+  // Parity with the JS scorer's noise floor: the native matcher scores any
+  // subsequence, so a query with no real hit returns scattered junk paths
+  // (hash-named artifacts and the like). Re-rank the returned window through
+  // fuzzyRank, which keeps contiguous/basename hits unconditionally and
+  // drops sub-floor subsequence-only matches instead of surfacing noise.
+  const query = String(args?.query || '');
+  const filtered = query
+    ? fuzzyRank(query, prepareFuzzyItems(response.matches.map(String)))
+      .map((entry) => entry.item.path)
+    : response.matches.map(String);
   return {
-    matches: response.matches.map(String),
+    matches: filtered,
     hasMore: response.hasMore === true,
     totalMatches: Math.max(0, Number(response.totalMatches) || 0),
     totalSeen: Math.max(0, Number(response.totalSeen) || 0),
     complete: response.complete === true,
+    partial: response.partial === true,
+    timeout: response.timeout === true,
     queueMs: Math.max(0, Number(response.queueMs) || 0),
     handlerMs: Math.max(0, Number(response.handlerMs) || 0),
     requestClass: response.class === 'fuzzy' ? 'fuzzy' : 'bulk',
@@ -382,9 +540,11 @@ export async function tryServeFuzzySearch(args, execOptions = {}) {
 }
 
 export function _resetNativeSearchClientForTest() {
-  _teardown(new Error('test reset'));
+  _teardown(new Error('test reset'), { countFailure: false });
   _binaryPath = undefined;
   _lastFailureAt = 0;
+  _lastFailure = null;
+  _consecutiveProcessFailures = 0;
   _binaryResolveStarted = false;
   _warmPromise = null;
 }

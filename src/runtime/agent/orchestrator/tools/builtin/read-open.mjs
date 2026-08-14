@@ -1,16 +1,15 @@
-import { closeSync, lstatSync, openSync, readSync, realpathSync, statSync } from 'fs';
-import { readFile } from 'fs/promises';
+import { lstat, open, readFile, realpath, stat } from 'fs/promises';
 import { dirname } from 'path';
 import {
     normalizeOutputPath,
     resolveAgainstCwd,
 } from './path-utils.mjs';
 import {
-    findSimilarFile,
-    listSiblings,
+    findSimilarFileAsync,
+    listSiblingsAsync,
     normalizeErrorMessage,
 } from './path-diagnostics.mjs';
-import { isBinaryFile } from './binary-file.mjs';
+import { inspectBinaryFile } from './binary-file.mjs';
 import { READ_MAX_SIZE_BYTES } from './read-constants.mjs';
 import { normalizePathAndStripLineCoordinate } from './read-args.mjs';
 import {
@@ -35,17 +34,17 @@ function detectReadEncodingFromBuffer(head) {
     return { encoding: 'utf8', bomLen: 0 };
 }
 
-export function detectReadEncoding(fullPath) {
-    let fd;
+export async function detectReadEncoding(fullPath) {
+    let fh;
     try {
-        fd = openSync(fullPath, 'r');
+        fh = await open(fullPath, 'r');
         const head = Buffer.alloc(3);
-        const n = readSync(fd, head, 0, 3, 0);
-        return detectReadEncodingFromBuffer(head.subarray(0, n));
+        const { bytesRead } = await fh.read(head, 0, 3, 0);
+        return detectReadEncodingFromBuffer(head.subarray(0, bytesRead));
     } catch {
         return { encoding: 'utf8', bomLen: 0 };
     } finally {
-        if (fd !== undefined) { try { closeSync(fd); } catch {} }
+        if (fh) { try { await fh.close(); } catch {} }
     }
 }
 
@@ -106,15 +105,15 @@ export function readPathStringGuardError(filePath, workDir) {
 }
 
 /** Post-stat / symlink guards. Returns error message or null. */
-function readPathStatGuardError(userPath, fullPath, st) {
+async function readPathStatGuardError(userPath, fullPath, st) {
     if (isSpecialFileStat(st)) {
         return `cannot read special file (FIFO / character / block device / socket): ${normalizeOutputPath(userPath)}`;
     }
     try {
-        const lst = lstatSync(fullPath);
+        const lst = await lstat(fullPath);
         if (lst?.isSymbolicLink?.()) {
             let realTarget = null;
-            try { realTarget = realpathSync(fullPath); } catch { realTarget = null; }
+            try { realTarget = await realpath(fullPath); } catch { realTarget = null; }
             if (realTarget && realTarget !== fullPath) {
                 if (isBlockedDevicePath(realTarget)) {
                     return `cannot read device file via symlink (would block or produce infinite output): ${normalizeOutputPath(userPath)} → ${normalizeOutputPath(realTarget)}`;
@@ -126,7 +125,7 @@ function readPathStatGuardError(userPath, fullPath, st) {
                     return `cannot read Windows device path via symlink (reserved name or raw-device namespace): ${normalizeOutputPath(userPath)} → ${normalizeOutputPath(realTarget)}`;
                 }
                 try {
-                    const rst = statSync(realTarget);
+                    const rst = await stat(realTarget);
                     if (isSpecialFileStat(rst)) {
                         return `cannot read special file via symlink (FIFO / character / block device / socket): ${normalizeOutputPath(userPath)} → ${normalizeOutputPath(realTarget)}`;
                     }
@@ -138,7 +137,7 @@ function readPathStatGuardError(userPath, fullPath, st) {
 }
 
 // Shared file-open prologue for read-flavoured tools (tail / wc / diff / modes).
-export function openTextPathForReadMeta(filePath, workDir, opts = {}) {
+export async function openTextPathForReadMeta(filePath, workDir, opts = {}) {
     const guardErr = readPathStringGuardError(filePath, workDir);
     if (guardErr) {
         throw Object.assign(new Error(guardErr), { code: 'EARG' });
@@ -146,16 +145,18 @@ export function openTextPathForReadMeta(filePath, workDir, opts = {}) {
     const norm = normalizePathAndStripLineCoordinate(filePath, workDir);
     const fullPath = resolveAgainstCwd(norm, workDir);
     let st;
-    try { st = statSync(fullPath); }
+    try { st = await stat(fullPath); }
     catch (err) {
-        const similar = findSimilarFile(fullPath);
-        const siblings = listSiblings(dirname(fullPath));
+        const [similar, siblings] = await Promise.all([
+            findSimilarFileAsync(fullPath),
+            listSiblingsAsync(dirname(fullPath)),
+        ]);
         const hint = (similar ? ` Did you mean "${normalizeOutputPath(similar)}"?` : '')
                    + ` Siblings: [${siblings.join(', ')}].`;
         const msg = normalizeErrorMessage(err instanceof Error ? err.message : String(err)) + hint;
         throw Object.assign(new Error(msg), { code: 'ENOENT' });
     }
-    const statGuard = readPathStatGuardError(filePath, fullPath, st);
+    const statGuard = await readPathStatGuardError(filePath, fullPath, st);
     if (statGuard) {
         throw Object.assign(new Error(statGuard), { code: 'ESPECIAL' });
     }
@@ -164,7 +165,7 @@ export function openTextPathForReadMeta(filePath, workDir, opts = {}) {
             new Error(`file size ${st.size} bytes exceeds ${READ_MAX_SIZE_BYTES}-byte cap`),
             { code: 'ETOOBIG', size: st.size, fullPath, st });
     }
-    if (opts.skipBinary !== true && isBinaryFile(fullPath, st.size)) {
+    if (opts.skipBinary !== true && (await inspectBinaryFile(fullPath, st.size)).isBinary) {
         throw Object.assign(
             new Error(`file appears to be binary (contains null bytes): ${normalizeOutputPath(norm)}`),
             { code: 'EBINARY' });
@@ -173,7 +174,7 @@ export function openTextPathForReadMeta(filePath, workDir, opts = {}) {
 }
 
 export async function openForRead(filePath, workDir, opts = {}) {
-    const meta = openTextPathForReadMeta(filePath, workDir, opts);
+    const meta = await openTextPathForReadMeta(filePath, workDir, opts);
     const rawBuf = await readFile(meta.fullPath);
     const enc = detectReadEncodingFromBuffer(rawBuf.subarray(0, Math.min(rawBuf.length, 3)));
     let content;

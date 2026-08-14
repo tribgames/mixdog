@@ -565,13 +565,13 @@ class MixdogAgent(BaseInstalledAgent):
             environment,
             command=_uv_provision_command(),
         )
-        # Install mixdog globally (root). --ignore-scripts avoids the package's
-        # prepack/TUI build; the headless worker path does not need the TUI bundle.
+        # Install mixdog globally (root). Production postinstall embeds every
+        # required release-native asset under the installed package.
         await self.exec_as_root(
             environment,
             command=(
                 "set -eu; "
-                f"npm install -g --ignore-scripts mixdog@{self._mixdog_version}; "
+                f"npm install -g mixdog@{self._mixdog_version}; "
                 "mixdog --help >/dev/null 2>&1 && echo 'mixdog installed'"
             ),
         )

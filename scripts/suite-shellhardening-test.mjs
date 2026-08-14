@@ -18,7 +18,6 @@ import {
   preflightPowerShellHygiene,
 } from '../src/runtime/agent/orchestrator/tools/builtin/shell-analysis.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
-import { executionModeSchemaDescription } from '../src/runtime/shared/background-tasks.mjs';
 import {
     appendShellStartupPolicy,
     describeShellStartupPolicy,
@@ -40,7 +39,12 @@ import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
-import { _bindNativeSearchServerLifecycle } from '../src/runtime/agent/orchestrator/tools/builtin/native-search-client.mjs';
+import {
+  _bindNativeSearchServerLifecycle,
+  _ackNativeSearchCancellationForTest,
+  _requestNativeForTest,
+} from '../src/runtime/agent/orchestrator/tools/builtin/native-search-client.mjs';
+import { _runReadOnlyIoWithDeadlineForTest } from '../src/runtime/agent/orchestrator/session/loop/tool-exec.mjs';
 import {
   childGuardianSpawnEnv,
   startChildGuardian,
@@ -145,16 +149,16 @@ test('shell execution policy matches sync-first background-task parity', () => {
     );
     assert.match(
         foregroundLongCommandHint('sleep 5', 120_000, {}, { backgroundTasksDisabled: false }),
-        /mode:"async".*completion notification/,
+        /run_in_background:true.*completion notification/,
     );
     assert.equal(
         foregroundLongCommandHint('sleep 5', 120_000, { run_in_background: true }, { backgroundTasksDisabled: false }),
         '',
     );
-    assert.match(
-        executionModeSchemaDescription('sync'),
-        /sync = inline result.*may auto-background.*async = immediate task_id.*Default sync/,
-    );
+    const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
+    assert.deepEqual(Object.keys(shellTool.inputSchema.properties), ['command', 'timeout_ms', 'run_in_background']);
+    assert.equal(shellTool.inputSchema.properties.timeout_ms.description, 'Optional total deadline.');
+    assert.match(shellTool.inputSchema.properties.run_in_background.description, /tracked background task.*task_id.*completion notification/);
     const taskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
     assert.match(taskTool.description, /normal completion arrives by notification/);
     assert.deepEqual(taskTool.inputSchema.properties.action.enum, ['list', 'status', 'read', 'check_after', 'cancel']);
@@ -173,6 +177,98 @@ test('resident native search consumes asynchronous stdin EPIPE', () => {
     const error = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
     child.stdin.emit('error', error);
     assert.equal(observed, error);
+});
+
+test('native search request timeout cancels only that request', async () => {
+    const writes = [];
+    const child = new EventEmitter();
+    child.stdin = new EventEmitter();
+    child.stdin.write = (line) => {
+        writes.push(String(line));
+        return true;
+    };
+    let killed = false;
+    child.kill = () => { killed = true; };
+    const server = {
+        child,
+        pending: new Map(),
+        sequence: 1,
+        stderrTail: '',
+    };
+    const keepAlive = setTimeout(() => {}, 50);
+    try {
+        await assert.rejects(
+            _requestNativeForTest(
+                server,
+                { id: 1, cwd: '.', fuzzy: 'needle', limit: 5 },
+                {},
+                5,
+            ),
+            (error) => error?.code === 'NATIVE_SEARCH_TIMEOUT'
+                && /complete file inventory/.test(error.message),
+        );
+    } finally {
+        clearTimeout(keepAlive);
+    }
+    assert.equal(killed, false);
+    assert.equal(server.pending.size, 0);
+    assert.equal(writes.some((line) => /"cancel":1/.test(line)), true);
+});
+
+test('native search cancellation acknowledgement disarms forced recycle', async () => {
+    const previous = process.env.MIXDOG_SEARCH_CANCEL_GRACE_MS;
+    process.env.MIXDOG_SEARCH_CANCEL_GRACE_MS = '10';
+    const child = new EventEmitter();
+    child.stdin = new EventEmitter();
+    child.stdin.write = () => true;
+    let killed = false;
+    child.kill = () => { killed = true; };
+    const server = {
+        child,
+        pending: new Map(),
+        cancelWatchdogs: new Map(),
+        sequence: 1,
+        stderrTail: '',
+    };
+    try {
+        await assert.rejects(
+            _requestNativeForTest(
+                server,
+                { id: 1, cwd: '.', args: ['--files', '.'], limit: 5 },
+                {},
+                2,
+            ),
+            (error) => error?.code === 'NATIVE_SEARCH_TIMEOUT',
+        );
+        assert.equal(server.cancelWatchdogs.has(1), true);
+        _ackNativeSearchCancellationForTest(server, 1);
+        await delay(20);
+        assert.equal(killed, false);
+    } finally {
+        if (previous === undefined) delete process.env.MIXDOG_SEARCH_CANCEL_GRACE_MS;
+        else process.env.MIXDOG_SEARCH_CANCEL_GRACE_MS = previous;
+    }
+});
+
+test('read-only I/O tools share one hard deadline and receive cancellation', async () => {
+    const previous = process.env.MIXDOG_IO_TOOL_TIMEOUT_MS;
+    process.env.MIXDOG_IO_TOOL_TIMEOUT_MS = '5';
+    let aborted = false;
+    try {
+        await assert.rejects(
+            _runReadOnlyIoWithDeadlineForTest('grep', null, (signal) => new Promise((resolve) => {
+                signal.addEventListener('abort', () => {
+                    aborted = true;
+                    resolve('cancelled');
+                }, { once: true });
+            })),
+            (error) => error?.code === 'READ_ONLY_IO_TIMEOUT',
+        );
+        assert.equal(aborted, true);
+    } finally {
+        if (previous === undefined) delete process.env.MIXDOG_IO_TOOL_TIMEOUT_MS;
+        else process.env.MIXDOG_IO_TOOL_TIMEOUT_MS = previous;
+    }
 });
 
 test('shell output telemetry measures spill-backed raw bytes without retaining output', () => {
@@ -437,9 +533,11 @@ test('B: POSIX host is a strict no-op', () => {
 test('C: shell surface keeps execution contract separate from the platform command cheat', (t) => {
     const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
     assert.ok(shellTool, 'shell tool must exist');
-    assert.match(shellTool.description, /^Run executable\/runtime\/state operations or generate computed artifacts\. Never explore files with shell \(NOT ls\/find\/cat\/head\/tail\/grep\/rg\/sed\); use file tools\.$/);
+    assert.match(shellTool.description, /^Run programs and runtime\/state operations;/);
     assert.doesNotMatch(shellTool.description, /Shell startup environment:|available=|unavailable=/);
-    assert.equal(shellTool.inputSchema?.properties?.shell?.description, 'Force shell.');
+    assert.equal(shellTool.inputSchema?.properties?.shell, undefined);
+    assert.equal(shellTool.inputSchema?.properties?.cwd, undefined);
+    assert.equal(shellTool.inputSchema?.properties?.mode, undefined);
     assert.equal(shellTool.inputSchema?.properties?.commands, undefined);
     assert.deepEqual(shellTool.inputSchema?.required, ['command']);
     const commandDescription = shellTool.inputSchema?.properties?.command?.description || '';

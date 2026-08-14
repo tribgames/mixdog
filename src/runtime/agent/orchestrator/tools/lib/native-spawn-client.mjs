@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { EventEmitter } from 'node:events';
 import { hiddenSpawnOpts } from '../../../../shared/spawn-flags.mjs';
+import { packageNativeToolPath } from '../../../../shared/native-tool-paths.mjs';
 import { getPluginData } from '../../config.mjs';
 import { ensureSpawnBinary, findCachedSpawnBinary } from '../spawn-binary-fetcher.mjs';
 
@@ -121,6 +122,11 @@ function _resolveBinary() {
   const explicit = String(process.env.MIXDOG_SPAWN_SERVER_BIN || '').trim();
   if (explicit && existsSync(explicit)) {
     _binaryPath = explicit;
+    return _binaryPath;
+  }
+  const installed = packageNativeToolPath('spawn');
+  if (existsSync(installed)) {
+    _binaryPath = installed;
     return _binaryPath;
   }
   _binaryPath = findCachedSpawnBinary(getPluginData());

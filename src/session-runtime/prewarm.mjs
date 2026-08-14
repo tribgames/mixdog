@@ -133,6 +133,19 @@ export function createPrewarmSchedulers({
         bootProfile('native-search:warm-failed', { error: error?.message || String(error) });
       }
       try {
+        const { prewarmFindEnumeration } = await import('../runtime/agent/orchestrator/tools/builtin/list-tool.mjs');
+        const root = getCurrentCwd();
+        bootProfile('find-index:prewarm-scheduled', { cwd: root });
+        void prewarmFindEnumeration(root)
+          .then(() => bootProfile('find-index:prewarm-complete', { cwd: root }))
+          .catch((error) => bootProfile('find-index:prewarm-failed', {
+            cwd: root,
+            error: error?.message || String(error),
+          }));
+      } catch (error) {
+        bootProfile('find-index:prewarm-failed', { error: error?.message || String(error) });
+      }
+      try {
         const { warmNativeSpawnServer } = await import('../runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs');
         bootProfile('native-spawn:warm', { up: await warmNativeSpawnServer() === true });
       } catch (error) {

@@ -28,8 +28,14 @@ export async function rgSupportsPcre2() {
 
 export async function runRg(argsList, execOptions = {}) {
     const result = await serve(argsList, execOptions, { offset: 0, limit: 0 });
-    if (!result.complete) throw unavailable(argsList);
-    return result.lines.join('\n');
+    if (!result.complete && !result.partial) throw unavailable(argsList);
+    const text = result.lines.join('\n');
+    if (!result.partial) return text;
+    return Object.assign(new String(text), {
+        partial: true,
+        timeout: result.timeout === true,
+        truncated: result.complete !== true,
+    });
 }
 
 export async function runRgWindowedLines(argsList, execOptions = {}, opts = {}) {

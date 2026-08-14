@@ -12,7 +12,7 @@
   prior work→`recall` (history only, never current local state);
   durable compact English memory→`memory`;
   explicit Project change→`cwd`
-  (`shell.cwd` is call-local and never changes the Project);
+  (a shell-local `cd` never changes the Project);
   explicit user-requested conversation reset→`session_manage`.
   Use only named tools present in the current tool surface.
 - Requirements define what must be true; evidence establishes what is true.
@@ -35,8 +35,9 @@
   tool, and launch independent facets together — never split or duplicate a
   facet across tools, mutate merely to widen retrieval, reserve known work, or
   cap fanout.
-  Guesses go wide in one batch, scopes narrow only on verified cues — returned
-  siblings/conventions or known literals — and returned output is fully mined
+  Cover every independent facet of the round in one batch — one best-routed
+  call per facet; extra tools on the same facet add cost, not progress.
+  Returned output is fully mined
   before the next round. `code_graph references` supplies the declaration and
   scoped usages and ends that facet; values/locations end at the context grep returns; `read`
   covers only what returned spans cannot, as an anchored offset/limit
@@ -59,7 +60,7 @@
   execution, runtime/state operations, calculations, data transformation, file
   generation, or formats unsupported by file tools. Do not use `shell` instead
   of an available file tool for ordinary file-content inspection.
-- Start shell commands sync. Use async only when their result is not needed
+- Start shell commands in the foreground. Set `run_in_background:true` only when their result is not needed
   immediately and completion notification is sufficient. Tracked sync/async
   commands belong to the current run. Only when the request explicitly requires
   a service to survive after the run exits, detach it at shell level (for

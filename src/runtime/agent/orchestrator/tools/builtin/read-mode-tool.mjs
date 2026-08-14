@@ -1,6 +1,7 @@
-import { createReadStream, openSync, readSync, closeSync, readFileSync } from 'fs';
+import { createReadStream } from 'fs';
+import { open, readFile } from 'fs/promises';
 import { createInterface } from 'readline';
-import { isBinaryFile } from './binary-file.mjs';
+import { inspectBinaryFile } from './binary-file.mjs';
 import { hashText } from './hash-utils.mjs';
 import { normalizeOutputPath, countDisplayLines } from './path-utils.mjs';
 import { normalizeErrorMessage } from './path-diagnostics.mjs';
@@ -37,17 +38,21 @@ function requireHelper(helpers, name) {
 // regular read path enforces. BE has no Node string encoding, so swap byte
 // pairs to LE (even length) then decode as utf16le — mirrors read-single-tool.
 // Returns null for non-UTF-16, { tooLarge:true } past the cap, or { content }.
-function decodeUtf16Mode(meta) {
-    const enc = detectReadEncoding(meta.fullPath);
+async function decodeUtf16Mode(meta) {
+    const enc = await detectReadEncoding(meta.fullPath);
     if (enc.encoding !== 'utf16le' && enc.encoding !== 'utf16be') return null;
     if ((meta.st.size ?? 0) > READ_MAX_SIZE_BYTES) return { tooLarge: true };
-    const rawBuf = readFileSync(meta.fullPath);
+    const rawBuf = await readFile(meta.fullPath);
     if (enc.encoding === 'utf16le') {
         return { content: rawBuf.subarray(enc.bomLen).toString('utf16le') };
     }
     const body = rawBuf.subarray(enc.bomLen);
     const even = body.length & ~1;
     return { content: Buffer.from(body.subarray(0, even)).swap16().toString('utf16le') };
+}
+
+async function isBinaryMode(meta) {
+    return (await inspectBinaryFile(meta.fullPath, meta.st.size ?? 0)).isBinary;
 }
 
 function utf16TooLargeError(meta) {
@@ -59,9 +64,9 @@ export async function executeHeadTool(args, workDir, readStateScope, helpers = {
     const recordReadSnapshot = requireHelper(helpers, 'recordReadSnapshot');
     const n = Math.max(1, Math.min(parseInt(args.n ?? 20, 10) || 20, 2000));
     let meta;
-    try { meta = openTextPathForReadMeta(args.path, workDir, { enforceSizeCap: false }); }
+    try { meta = await openTextPathForReadMeta(args.path, workDir, { enforceSizeCap: false }); }
     catch (err) { return `Error: ${err.message}`; }
-    const _u16 = decodeUtf16Mode(meta);
+    const _u16 = await decodeUtf16Mode(meta);
     if (_u16) {
         if (_u16.tooLarge) return utf16TooLargeError(meta);
         const lines = splitRawLinesForHeadTail(_u16.content);
@@ -86,7 +91,7 @@ export async function executeHeadTool(args, workDir, readStateScope, helpers = {
         // below relies on openForRead's ETOOBIG branch + the existing
         // small-file UTF-8 read, which already surfaces binary bytes
         // via the same isBinaryFile check.
-        if (isBinaryFile(meta.fullPath, meta.st.size ?? 0)) {
+        if (await isBinaryMode(meta)) {
             return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(meta.fullPath)}`;
         }
         try {
@@ -99,7 +104,7 @@ export async function executeHeadTool(args, workDir, readStateScope, helpers = {
     try { opened = await openForRead(args.path, workDir, {}); }
     catch (err) {
         if (err && err.code === 'ETOOBIG') {
-            if (err.fullPath && isBinaryFile(err.fullPath, err.size ?? 0)) {
+            if (err.fullPath && (await inspectBinaryFile(err.fullPath, err.size ?? 0)).isBinary) {
                 return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(err.fullPath)}`;
             }
             try {
@@ -154,9 +159,9 @@ export async function executeTailTool(args, workDir, readStateScope, helpers = {
     const recordReadSnapshot = requireHelper(helpers, 'recordReadSnapshot');
     const n = Math.max(1, Math.min(parseInt(args.n ?? 20, 10) || 20, 2000));
     let meta;
-    try { meta = openTextPathForReadMeta(args.path, workDir, { enforceSizeCap: false }); }
+    try { meta = await openTextPathForReadMeta(args.path, workDir, { enforceSizeCap: false }); }
     catch (err) { return `Error: ${err.message}`; }
-    const _u16 = decodeUtf16Mode(meta);
+    const _u16 = await decodeUtf16Mode(meta);
     if (_u16) {
         if (_u16.tooLarge) return utf16TooLargeError(meta);
         const lines = splitRawLinesForHeadTail(_u16.content);
@@ -177,20 +182,20 @@ export async function executeTailTool(args, workDir, readStateScope, helpers = {
     }
     if (meta.st.size > READ_MAX_SIZE_BYTES) {
         try {
-            if (isBinaryFile(meta.fullPath, meta.st.size ?? 0)) {
+            if (await isBinaryMode(meta)) {
                 return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(meta.fullPath)}`;
             }
-            return renderTailWindowSync(meta.fullPath, meta.st, n, readStateScope, { exactLineNumbers: false, source: 'read_tail_large' });
+            return await renderTailWindowSync(meta.fullPath, meta.st, n, readStateScope, { exactLineNumbers: false, source: 'read_tail_large' });
         } catch (err) {
             return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
         }
     }
     if (meta.st.size > READ_STREAM_RANGE_MIN_BYTES) {
-        if (isBinaryFile(meta.fullPath, meta.st.size ?? 0)) {
+        if (await isBinaryMode(meta)) {
             return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(meta.fullPath)}`;
         }
         try {
-            return renderTailWindowSync(meta.fullPath, meta.st, n, readStateScope, { exactLineNumbers: true, source: 'read_tail_window' });
+            return await renderTailWindowSync(meta.fullPath, meta.st, n, readStateScope, { exactLineNumbers: true, source: 'read_tail_window' });
         } catch (err) {
             return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
         }
@@ -201,10 +206,10 @@ export async function executeTailTool(args, workDir, readStateScope, helpers = {
         if (err && err.code === 'ETOOBIG') {
             try {
                 const { fullPath, st } = err;
-                if (isBinaryFile(fullPath, st.size ?? 0)) {
+                if ((await inspectBinaryFile(fullPath, st.size ?? 0)).isBinary) {
                     return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(fullPath)}`;
                 }
-                return renderTailWindowSync(fullPath, st, n, readStateScope, { exactLineNumbers: false, source: 'read_tail_large' });
+                return await renderTailWindowSync(fullPath, st, n, readStateScope, { exactLineNumbers: false, source: 'read_tail_large' });
             } catch (err2) {
                 return `Error: ${normalizeErrorMessage(err2 instanceof Error ? err2.message : String(err2))}`;
             }
@@ -234,9 +239,9 @@ export async function executeTailTool(args, workDir, readStateScope, helpers = {
 export async function executeWcTool(args, workDir, helpers = {}) {
     const countLogicalLinesBytesSync = requireHelper(helpers, 'countLogicalLinesBytesSync');
     let meta;
-    try { meta = openTextPathForReadMeta(args.path, workDir, { enforceSizeCap: false }); }
+    try { meta = await openTextPathForReadMeta(args.path, workDir, { enforceSizeCap: false }); }
     catch (err) { return `Error: ${err.message}`; }
-    const _u16 = decodeUtf16Mode(meta);
+    const _u16 = await decodeUtf16Mode(meta);
     if (_u16) {
         if (_u16.tooLarge) return utf16TooLargeError(meta);
         const lines = countDisplayLines(_u16.content);
@@ -244,11 +249,11 @@ export async function executeWcTool(args, workDir, helpers = {}) {
         return `lines\t${lines}\twords\t${words}\tbytes\t${meta.st.size}`;
     }
     if (meta.st.size > READ_MAX_SIZE_BYTES) {
-        if (isBinaryFile(meta.fullPath, meta.st.size ?? 0)) {
+        if (await isBinaryMode(meta)) {
             return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(meta.fullPath)}`;
         }
         try {
-            const lines = countLogicalLinesBytesSync(meta.fullPath, meta.st.size, meta.st);
+            const lines = await countLogicalLinesBytesSync(meta.fullPath, meta.st.size, meta.st);
             return `lines\t${lines}\twords\t-\tbytes\t${meta.st.size}\t(words skipped: file > cap)`;
         } catch (err) {
             return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
@@ -345,13 +350,13 @@ export async function executeSummaryTool(args, workDir, readStateScope, helpers 
     // cap costs nothing on small files and surfaces full outline on large.
     const limit = Math.max(1, Math.min(parseInt(args.n ?? args.limit ?? 200, 10) || 200, 1000));
     let meta;
-    try { meta = openTextPathForReadMeta(args.path, workDir, { enforceSizeCap: false }); }
+    try { meta = await openTextPathForReadMeta(args.path, workDir, { enforceSizeCap: false }); }
     catch (err) { return `Error: ${normalizeErrorMessage(err.message, workDir)}`; }
-    if (isBinaryFile(meta.fullPath, meta.st.size ?? 0)) {
+    if (await isBinaryMode(meta)) {
         return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(args.path || meta.fullPath)}`;
     }
 
-    const _u16 = decodeUtf16Mode(meta);
+    const _u16 = await decodeUtf16Mode(meta);
     if (_u16) {
         if (_u16.tooLarge) return utf16TooLargeError(meta);
         const stats = {
@@ -375,7 +380,7 @@ export async function executeSummaryTool(args, workDir, readStateScope, helpers 
     let stats;
     try {
         stats = meta.st.size > READ_MAX_SIZE_BYTES
-            ? { lines: countLogicalLinesBytesSync(meta.fullPath, meta.st.size, meta.st), words: '-', bytes: meta.st.size }
+            ? { lines: await countLogicalLinesBytesSync(meta.fullPath, meta.st.size, meta.st), words: '-', bytes: meta.st.size }
             : (meta.st.size > READ_STREAM_RANGE_MIN_BYTES
                 ? await countTextStatsStreaming(meta.fullPath, meta.st.size)
                 : null);
@@ -422,13 +427,13 @@ export async function executeHexTool(args, workDir, readStateScope, helpers = {}
     const n = Math.max(16, Math.min(parseInt(args.n ?? 256, 10) || 256, 8192));
     const offset = Math.max(0, parseInt(args.offset ?? 0, 10) || 0);
     let meta;
-    try { meta = openTextPathForReadMeta(args.path, workDir, { enforceSizeCap: false, skipBinary: true }); }
+    try { meta = await openTextPathForReadMeta(args.path, workDir, { enforceSizeCap: false, skipBinary: true }); }
     catch (err) { return `Error: ${err.message}`; }
-    let fd;
+    let fh;
     try {
-        fd = openSync(meta.fullPath, 'r');
+        fh = await open(meta.fullPath, 'r');
         const buf = Buffer.alloc(n);
-        const bytesRead = readSync(fd, buf, 0, n, offset);
+        const { bytesRead } = await fh.read(buf, 0, n, offset);
         const slice = buf.subarray(0, bytesRead);
         const lines = [
             `hex ${normalizeOutputPath(args.path || meta.fullPath)} offset=${offset} read=${bytesRead}/${meta.st.size}`,
@@ -450,6 +455,6 @@ export async function executeHexTool(args, workDir, readStateScope, helpers = {}
     } catch (err) {
         return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
     } finally {
-        if (fd !== undefined) try { closeSync(fd); } catch { /* fd may already be closed */ }
+        if (fh) try { await fh.close(); } catch { /* handle may already be closed */ }
     }
 }

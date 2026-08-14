@@ -13,6 +13,7 @@ import { Worker } from 'node:worker_threads';
 import { getPluginData } from '../config.mjs';
 import { ensureTokenAddon, findCachedTokenAddon } from '../tools/token-addon-fetcher.mjs';
 import { safeIpcSend } from '../../../shared/safe-ipc-send.mjs';
+import { packageNativeToolPath } from '../../../shared/native-tool-paths.mjs';
 
 const PLUGIN_ROOT = process.env.MIXDOG_ROOT
     || pathResolve(pathDirname(fileURLToPath(import.meta.url)), '../../../../..');
@@ -51,6 +52,7 @@ function _resolveAddon() {
         String(process.env.MIXDOG_TOKEN_NATIVE_ADDON || '').trim() || null,
         String(process.env.MIXDOG_TOKEN_NATIVE_BIN || '').trim() || null,
         LOCAL_ADDON,
+        packageNativeToolPath('token'),
     ].filter(Boolean);
     _addonPath = candidates.find((candidate) => {
         try { return existsSync(candidate); } catch { return false; }

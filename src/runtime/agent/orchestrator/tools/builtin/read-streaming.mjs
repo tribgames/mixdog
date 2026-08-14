@@ -1,4 +1,4 @@
-import { createReadStream, openSync, readSync, closeSync } from 'fs';
+import { createReadStream } from 'fs';
 import * as fsPromises from 'fs/promises';
 import { createInterface } from 'readline';
 import { capShellOutput } from './shell-output.mjs';
@@ -44,7 +44,7 @@ export async function streamReadRange(fullPath, offset, limit, stHint = null, ho
     const _displayPath = hooks.displayPath || fullPath;
     const traceStart = ioTraceStart();
     const stForIndex = stHint || await fsPromises.stat(fullPath).catch(() => null);
-    const rangeIndex = getReadRangeIndex(fullPath, stForIndex);
+    const rangeIndex = await getReadRangeIndex(fullPath, stForIndex);
     const anchor = nearestReadRangeAnchor(rangeIndex, offset);
     const fh = await fsPromises.open(fullPath, 'r');
     const CHUNK_BYTES = 1024 * 1024;
@@ -230,20 +230,20 @@ export async function streamReadRange(fullPath, offset, limit, stHint = null, ho
     return { text: out, firstEmitted, lastEmitted, prefixHash };
 }
 
-function tryWindowedSmartReadSummary(fullPath, st, source = 'read_smart_stream', hooks = {}) {
+async function tryWindowedSmartReadSummary(fullPath, st, source = 'read_smart_stream', hooks = {}) {
     const { ioTraceStart, ioTraceDone } = streamingHooks(hooks);
     const displayPath = hooks.displayPath || fullPath;
     const traceStart = ioTraceStart();
     try {
-        const totalLines = countLogicalLinesBytesSync(fullPath, st.size, st, hooks);
+        const totalLines = await countLogicalLinesBytesSync(fullPath, st.size, st, hooks);
         const headCount = Math.min(SMART_READ_HEAD_LINES, totalLines);
         const tailStartIdx = Math.max(headCount, totalLines - SMART_READ_TAIL_LINES);
         const elidedRows = tailStartIdx - headCount;
         if (elidedRows <= 0) return null;
 
-        const head = readLargeHeadWindowSync(fullPath, st, headCount);
+        const head = await readLargeHeadWindowSync(fullPath, st, headCount);
         if (head.capped || head.lines.length < headCount) return null;
-        const tail = readLargeTailWindowSync(fullPath, st, Math.min(SMART_READ_TAIL_LINES, totalLines - headCount));
+        const tail = await readLargeTailWindowSync(fullPath, st, Math.min(SMART_READ_TAIL_LINES, totalLines - headCount));
         if (tail.capped || tail.lines.length === 0) return null;
         const tailStartLine = Math.max(headCount + 1, totalLines - tail.lines.length + 1);
         const tailRaw = tail.lines.map((line, i) => displayLineForRead(line, tailStartLine + i - 1));
@@ -320,16 +320,16 @@ function tryWindowedSmartReadSummary(fullPath, st, source = 'read_smart_stream',
     }
 }
 
-export function renderTailWindowSync(fullPath, st, n, readStateScope, { exactLineNumbers = false, source = 'read_tail_window' } = {}, hooks = {}) {
+export async function renderTailWindowSync(fullPath, st, n, readStateScope, { exactLineNumbers = false, source = 'read_tail_window' } = {}, hooks = {}) {
     const { recordReadSnapshot } = streamingHooks(hooks);
-    const tail = readLargeTailWindowSync(fullPath, st, n);
+    const tail = await readLargeTailWindowSync(fullPath, st, n);
     // Always derive a sensible per-line numbering. With
     // exactLineNumbers:false we previously emitted `(approx)1│ ...`
     // for every line, which collides with editor coordinates. Omit
     // the prefix entirely when the line number isn't trustworthy and
     // surface a single header line so the caller knows numbers were
     // dropped on purpose.
-    const totalLines = exactLineNumbers ? countLogicalLinesBytesSync(fullPath, st.size, st, hooks) : 0;
+    const totalLines = exactLineNumbers ? await countLogicalLinesBytesSync(fullPath, st.size, st, hooks) : 0;
     const startLine = exactLineNumbers ? Math.max(1, totalLines - tail.lines.length + 1) : 0;
     const rendered = tail.lines.map((l, i) => {
         const line = truncateReadLineText(displayLineForRead(l, exactLineNumbers ? startLine + i - 1 : i));
@@ -360,12 +360,12 @@ export function renderTailWindowSync(fullPath, st, n, readStateScope, { exactLin
     return out;
 }
 
-export function countLogicalLinesBytesSync(fullPath, size, stHint = null, hooks = {}) {
+export async function countLogicalLinesBytesSync(fullPath, size, stHint = null, hooks = {}) {
     const { ioTraceStart, ioTraceDone } = streamingHooks(hooks);
     if (!size) return 0;
     const traceStart = ioTraceStart();
-    const rangeIndex = stHint ? getReadRangeIndex(fullPath, stHint) : null;
-    const fd = openSync(fullPath, 'r');
+    const rangeIndex = stHint ? await getReadRangeIndex(fullPath, stHint) : null;
+    const fh = await fsPromises.open(fullPath, 'r');
     const CHUNK_BYTES = 1024 * 1024;
     const buf = Buffer.allocUnsafe(Math.min(CHUNK_BYTES, size));
     let position = 0;
@@ -376,7 +376,7 @@ export function countLogicalLinesBytesSync(fullPath, size, stHint = null, hooks 
         while (position < size) {
             if (Date.now() > deadline) throw new Error(`read timed out after ${READ_STREAM_TIMEOUT_MS}ms`);
             const toRead = Math.min(buf.length, size - position);
-            const bytesRead = readSync(fd, buf, 0, toRead, position);
+            const { bytesRead } = await fh.read(buf, 0, toRead, position);
             if (bytesRead <= 0) break;
             let start = 0;
             while (start < bytesRead) {
@@ -390,7 +390,7 @@ export function countLogicalLinesBytesSync(fullPath, size, stHint = null, hooks 
             position += bytesRead;
         }
     } finally {
-        closeSync(fd);
+        await fh.close();
     }
     if (lastByte !== -1 && lastByte !== 10) lines++;
     if (rangeIndex && rangeIndex.totalLines !== lines) {
@@ -440,7 +440,7 @@ export async function streamHeadWindow(fullPath, st, n, readStateScope, source =
 }
 
 export async function streamSmartReadSummary(fullPath, st, source = 'read_smart_stream', hooks = {}) {
-    const windowed = tryWindowedSmartReadSummary(fullPath, st, source, hooks);
+    const windowed = await tryWindowedSmartReadSummary(fullPath, st, source, hooks);
     if (windowed) return windowed;
     const displayPath = hooks.displayPath || fullPath;
 

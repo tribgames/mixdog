@@ -640,3 +640,130 @@ fn serve_search_watcher_invalidates_the_shared_inventory() {
     assert!(found, "watcher did not invalidate the native inventory");
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn serve_search_parallel_load_keeps_one_server_responsive() {
+    let root = fixture();
+    for index in 0..512 {
+        fs::write(
+            root.join("src").join(format!("load-{index:04}.rs")),
+            format!("pub const NEEDLE_{index}: &str = \"needle\";\n"),
+        )
+        .unwrap();
+    }
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-graph"))
+        .arg(&root)
+        .arg("--serve-search")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut stdin = child.stdin.take().unwrap();
+    let mut ready = String::new();
+    stdout.read_line(&mut ready).unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(ready.trim()).unwrap()["ready"],
+        true
+    );
+
+    const REQUESTS: u64 = 96;
+    for id in 1..=REQUESTS {
+        let request = match id % 3 {
+            0 => serde_json::json!({
+                "id": id,
+                "cwd": root,
+                "args": [
+                    "--hidden", "--no-heading", "-H", "--line-number",
+                    "-e", "needle", "--", "."
+                ],
+                "offset": 0,
+                "limit": 8,
+                "deadlineMs": 30_000
+            }),
+            1 => serde_json::json!({
+                "id": id,
+                "cwd": root,
+                "args": ["--files", "--hidden", "--glob", "*.rs", "."],
+                "offset": 0,
+                "limit": 8,
+                "deadlineMs": 30_000
+            }),
+            _ => serde_json::json!({
+                "id": id,
+                "cwd": root,
+                "fuzzy": "load",
+                "hidden": true,
+                "includeNoise": false,
+                "limit": 8,
+                "deadlineMs": 30_000
+            }),
+        };
+        writeln!(stdin, "{request}").unwrap();
+    }
+    let cancel_id = REQUESTS + 1;
+    writeln!(
+        stdin,
+        "{}",
+        serde_json::json!({
+            "id": cancel_id,
+            "cwd": root,
+            "fuzzy": "load",
+            "hidden": true,
+            "includeNoise": false,
+            "limit": 8,
+            "deadlineMs": 30_000
+        })
+    )
+    .unwrap();
+    writeln!(stdin, "{}", serde_json::json!({ "cancel": cancel_id })).unwrap();
+    let cancel_started = std::time::Instant::now();
+    stdin.flush().unwrap();
+
+    let mut ids = std::collections::HashSet::new();
+    let mut classes = std::collections::HashSet::new();
+    let mut queue_ms = Vec::new();
+    let mut cancel_elapsed = None;
+    while ids.len() < REQUESTS as usize || cancel_elapsed.is_none() {
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        let response: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        if response["event"] == "invalidate" {
+            continue;
+        }
+        if response["id"] == cancel_id && response["event"] == "cancelled" {
+            cancel_elapsed = Some(cancel_started.elapsed());
+            continue;
+        }
+        assert!(response.get("error").is_none(), "{response}");
+        assert!(response.get("unsupported").is_none(), "{response}");
+        assert_ne!(response["timeout"], true, "{response}");
+        assert_ne!(response["partial"], true, "{response}");
+        let id = response["id"].as_u64().unwrap();
+        assert!((1..=REQUESTS).contains(&id), "{response}");
+        assert!(ids.insert(id), "duplicate response id {id}");
+        classes.insert(response["class"].as_str().unwrap().to_string());
+        queue_ms.push(response["queueMs"].as_u64().unwrap());
+    }
+    assert_eq!(
+        classes,
+        ["interactive", "fuzzy", "bulk"]
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+    );
+    queue_ms.sort_unstable();
+    let p95 = queue_ms[(queue_ms.len() * 95 / 100).min(queue_ms.len() - 1)];
+    assert!(p95 < 10_000, "queue p95 too high: {p95}ms");
+    assert!(child.try_wait().unwrap().is_none(), "search server exited under load");
+    assert!(
+        cancel_elapsed.unwrap() < std::time::Duration::from_secs(1),
+        "cancel acknowledgement exceeded 1s"
+    );
+
+    drop(stdin);
+    let status = child.wait().unwrap();
+    assert!(status.success());
+    fs::remove_dir_all(root).unwrap();
+}

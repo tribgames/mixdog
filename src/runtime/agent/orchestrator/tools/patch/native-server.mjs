@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve as pathResolve, dirname as pathDirname, join as pathJoin } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { startChildGuardian } from '../../../../shared/child-guardian.mjs';
+import { packageNativeToolPath } from '../../../../shared/native-tool-paths.mjs';
 import { getPluginData } from '../../config.mjs';
 import { ensurePatchBinary, findCachedPatchBinary } from '../patch-binary-fetcher.mjs';
 
@@ -81,6 +82,8 @@ export function nativePatchBinPath(options = {}) {
   // a hard error at dispatch (no JS fallback in native-only mode).
   const defaultBin = options.defaultBin || NATIVE_PATCH_DEFAULT_BIN;
   if (existsSync(defaultBin)) return defaultBin;
+  const installed = packageNativeToolPath('patch');
+  if (existsSync(installed)) return installed;
   const dataDir = options.dataDir || getPluginData();
   return findCachedPatchBinary(dataDir, options.fetcherOptions) || defaultBin;
 }
