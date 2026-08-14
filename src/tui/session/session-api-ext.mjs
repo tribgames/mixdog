@@ -1105,7 +1105,12 @@ export function createSessionApiB(bag) {
         // the visible transcript lurch. Connecting here makes the owner's
         // full frame land at the resume boundary, so entry paints settled.
         bag.ensureLiveShare?.();
-        void restoreLeadSteeringFromDisk();
+        // A shard/process restart recreates the runtime before resuming its
+        // durable session. Restore accepted steering while commandBusy is
+        // still held so the central release hook drains it exactly once after
+        // the transcript/session boundary is ready, rather than stranding the
+        // queued prompt behind a visible Cancelled recovery marker.
+        await restoreLeadSteeringFromDisk();
         return true;
       } finally {
         set({ commandBusy: false, commandStatus: null });

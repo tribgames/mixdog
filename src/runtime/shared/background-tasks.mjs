@@ -164,6 +164,7 @@ function pruneTasks(options = {}) {
 
 export function registerBackgroundTask({
   taskId,
+  startedAtMs,
   surface,
   operation = 'run',
   label,
@@ -181,7 +182,11 @@ export function registerBackgroundTask({
     if (explicitId) throw new Error(`background task already exists: ${id}`);
     while (tasks.has(id)) id = nextTaskId(surface);
   }
-  const now = Date.now();
+  const registeredAt = Date.now();
+  const requestedStart = Number(startedAtMs);
+  const now = Number.isFinite(requestedStart) && requestedStart > 0
+    ? Math.min(registeredAt, Math.floor(requestedStart))
+    : registeredAt;
   const notifyContext = normalizeToolNotifyContext(context);
   const task = {
     taskId: id,

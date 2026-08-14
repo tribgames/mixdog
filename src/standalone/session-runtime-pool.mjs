@@ -72,16 +72,17 @@ export function applyShardStateFrame(previous, frame) {
   return applySessionStatePatch(previous, patch);
 }
 
-// Placement caps. A live (prewarmed) shard absorbs cold-hash creates up to
-// these bounds; past either bound the hash shard takes over, because event-
-// loop isolation matters more than spawn latency once a shard is carrying a
-// real concurrent workload (a Lead plus its agents share ONE shard loop).
+// Placement caps. Every live shard, including the hash shard, absorbs creates
+// only up to these bounds while another live shard has room. This keeps one
+// hash bucket from accumulating enough resident runtimes to cross the process
+// memory supervisor threshold.
 const WARM_SHARD_SOFT_CAP = 4;
 const WARM_SHARD_BUSY_CAP = 2;
 
-/** Pure placement rule (unit-tested): a live hash shard always wins; a cold
- *  hash spills to the least-BUSY live shard under both caps; otherwise the
- *  hash shard boots. `shards` rows are { alive, resident, busy }.
+/** Pure placement rule (unit-tested): an eligible live hash shard wins; a
+ *  cold or capped hash spills to the least-BUSY live shard under both caps;
+ *  otherwise the hash shard boots/accepts the overflow.
+ *  `shards` rows are { alive, resident, busy }.
  *  `avoidIndex` (agent shard spread) excludes the caller's own shard when the
  *  pool has an alternative, so a Lead's workers never land back on its loop. */
 export function chooseShardIndex({
@@ -93,7 +94,10 @@ export function chooseShardIndex({
 } = {}) {
   const avoid = Number.isInteger(avoidIndex) && shards.length > 1 ? avoidIndex : -1;
   const hashShard = shards[hashIndex];
-  if (hashIndex !== avoid && hashShard?.alive) return hashIndex;
+  if (hashIndex !== avoid
+    && hashShard?.alive
+    && hashShard.resident < residentCap
+    && hashShard.busy < busyCap) return hashIndex;
   let best = -1;
   for (let index = 0; index < shards.length; index += 1) {
     const info = shards[index];

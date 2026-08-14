@@ -49,9 +49,19 @@ function normalizeTuiSteeringQueueEntry(entry) {
   if (typeof entry.text === 'string' && entry.text.trim()) {
     const text = entry.text.trim();
     const id = typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : null;
+    const submissionId = typeof entry.submissionId === 'string' && entry.submissionId.trim()
+      ? entry.submissionId.trim()
+      : null;
+    const submittedAt = Number(entry.submittedAt);
     if (!id) return text;
     const at = Number(entry.at);
-    return Number.isFinite(at) && at > 0 ? { id, text, at } : { id, text };
+    return {
+      id,
+      text,
+      ...(Number.isFinite(at) && at > 0 ? { at } : {}),
+      ...(submissionId ? { submissionId } : {}),
+      ...(Number.isFinite(submittedAt) && submittedAt > 0 ? { submittedAt } : {}),
+    };
   }
   return null;
 }
@@ -123,7 +133,15 @@ export function appendTuiSteeringPersist(leadSessionId, entry) {
   const key = tuiSteeringSessionKey(leadSessionId);
   if (!key) return Promise.resolve();
   if (!entry.steeringPersistId) entry.steeringPersistId = newSteeringPersistId();
-  const record = { id: entry.steeringPersistId, text, at: Date.now() };
+  const submissionId = typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : null;
+  const submittedAt = Number(entry.submittedAt);
+  const record = {
+    id: entry.steeringPersistId,
+    text,
+    at: Date.now(),
+    ...(submissionId ? { submissionId } : {}),
+    ...(Number.isFinite(submittedAt) && submittedAt > 0 ? { submittedAt } : {}),
+  };
   return _serialize(async () => {
     try {
       await updateJsonAtomic(pendingMessagesPath(), (raw) => {
@@ -136,8 +154,10 @@ export function appendTuiSteeringPersist(leadSessionId, entry) {
       touchPendingSessionEntry(next, key, now);
       return next;
       }, { compact: true, lock: true, mode: PENDING_MESSAGES_MODE, fsync: false });
+      return true;
     } catch (err) {
       try { process.stderr.write(`[tui] steering-queue append failed sessionId=${leadSessionId}: ${err?.message || err}\n`); } catch {}
+      return false;
     }
   });
 }
@@ -180,7 +200,12 @@ function drainedRowToRestore(row) {
     return { text: row, steeringPersistId: null };
   }
   if (row && typeof row === 'object' && typeof row.text === 'string') {
-    return { text: row.text, steeringPersistId: typeof row.id === 'string' ? row.id : null };
+    return {
+      text: row.text,
+      steeringPersistId: typeof row.id === 'string' ? row.id : null,
+      submissionId: typeof row.submissionId === 'string' ? row.submissionId : null,
+      submittedAt: Number.isFinite(Number(row.submittedAt)) ? Number(row.submittedAt) : null,
+    };
   }
   return null;
 }

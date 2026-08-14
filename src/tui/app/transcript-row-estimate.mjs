@@ -7,6 +7,7 @@ import { streamingLayoutText } from '../markdown/streaming-markdown.mjs';
 import { displayWidth } from '../display-width.mjs';
 import { formatToolSurface, normalizeToolName, parseToolArgs, summarizeAgentSurfaceBrief } from '../../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody } from '../../runtime/shared/err-text.mjs';
+import { isBackgroundTaskResponseArgs } from '../../runtime/shared/tool-card-model.mjs';
 import { formatExpandedResult, wrapExpandedResultLines } from '../components/tool-output-format.mjs';
 import {
   formatHookDenialDetail,
@@ -91,13 +92,6 @@ function parseBackgroundTaskResultForRows(value) {
     errorOnlyBody,
     hasResponse: Boolean(body) && !errorOnlyBody && !/^(running|pending|queued)$/i.test(status),
   };
-}
-
-function isBackgroundTaskResponseArgsForRows(normalizedName, args = {}) {
-  if (!isBackgroundTaskToolName(normalizedName)) return false;
-  const type = String(args?.type || args?.action || '').toLowerCase();
-  const status = String(args?.status || '').toLowerCase();
-  return type === 'result' || type === 'completion' || (/^(completed|cancelled|canceled)$/i.test(status) && Boolean(args?.task_id));
 }
 
 // ToolExecution derives its background-task classification from
@@ -200,7 +194,7 @@ function toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult) {
     return !agentSurfaceBriefNonempty;
   }
   if (!isBackgroundTaskToolName(normalizedName) || !bgArgs.task_id) return false;
-  if (isBackgroundTaskResponseArgsForRows(normalizedName, bgArgs)) return false;
+  if (isBackgroundTaskResponseArgs(normalizedName, bgArgs)) return false;
   const status = String(bgArgs.status || '').toLowerCase();
   return /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status);
 }
@@ -331,7 +325,7 @@ export function estimateTranscriptItemRows(item, columns, toolOutputExpanded, at
           : null;
         const isBackgroundResult = hasResult && isBackgroundTaskToolName(normalizedName);
         const isBackgroundResponse = isBackgroundResult
-          && (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgsForRows(normalizedName, backgroundArgsForRows(item.args)));
+          && (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgs(normalizedName, backgroundArgsForRows(item.args)));
         const isBackgroundMetadataResult = isBackgroundResult && !isBackgroundResponse && Boolean(backgroundMeta);
         if (isBackgroundMetadataResult) {
           const hasDisplayResult = toolHasDisplayResultForRows(item);
