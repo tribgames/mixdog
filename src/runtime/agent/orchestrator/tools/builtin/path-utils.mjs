@@ -1,6 +1,6 @@
 import { homedir } from 'os';
 import { isAbsolute, relative, resolve } from 'path';
-import { realpathSync, statSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import { isWSL } from '../../../../shared/wsl.mjs';
 import { statCacheSet } from './cache-layers.mjs';
 
@@ -10,9 +10,9 @@ import { statCacheSet } from './cache-layers.mjs';
 // spawn cwd and the walked root silently defeats every anchored glob.
 // realpathSync.native resolves the real casing; non-existent paths (and any
 // resolution failure) fall back to the input unchanged.
-export function trueCasePath(p) {
+export async function trueCasePath(p) {
     if (process.platform !== 'win32' || typeof p !== 'string' || !p) return p;
-    try { return realpathSync.native(p); } catch { return p; }
+    try { return await realpath(p); } catch { return p; }
 }
 
 export function posixPathToWindowsPath(posixPath) {

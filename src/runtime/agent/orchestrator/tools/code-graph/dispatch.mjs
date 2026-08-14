@@ -16,7 +16,12 @@ import {
 } from '../builtin/tool-output-limit.mjs';
 import { CODE_GRAPH_MAX_FILES } from './constants.mjs';
 import { _graphRel, _getSourceTextForNode, _appendSameBasenameHint } from './source-access.mjs';
-import { _extractSymbolsCheap, _buildExplainerFileSummary } from './symbol-index.mjs';
+import {
+  _extractSymbolsCheap,
+  _buildExplainerFileSummary,
+  _collectCheapSymbols,
+  _capGraphList,
+} from './symbol-index.mjs';
 import { _inferSpanEndByIndent } from './span.mjs';
 import {
   _PROJECT_ROOT_SENTINELS,
@@ -105,14 +110,20 @@ function _collectGraphSymbolList(args) {
   return list;
 }
 
-function _filterSymbolOutline(outline, args) {
+// Filter BEFORE capping: the outline of a symbol-dense file exceeds the
+// 200-entry cap, so filtering a pre-capped outline silently lost every
+// late-file symbol AND the truncation marker itself — a requested symbol
+// past the cap looked like "(no symbols matching …)" with no hint.
+function _filterSymbolOutline(text, lang, args) {
   const keywords = _collectGraphSymbolList(args);
-  if (!keywords.length) return outline;
+  const items = _collectCheapSymbols(text, lang)
+    .map((item) => `${item.kind} ${item.name} (L${item.line})`);
+  if (!items.length) return '(no symbols)';
+  if (!keywords.length) return _capGraphList(items).join('\n');
   const needles = keywords.map((keyword) => keyword.toLowerCase());
-  const lines = String(outline || '').split('\n')
-    .filter((line) => needles.some((needle) => line.toLowerCase().includes(needle)));
+  const lines = items.filter((line) => needles.some((needle) => line.toLowerCase().includes(needle)));
   return lines.length
-    ? lines.join('\n')
+    ? _capGraphList(lines).join('\n')
     : `(no symbols matching ${keywords.map((keyword) => JSON.stringify(keyword)).join(', ')})`;
 }
 
@@ -318,7 +329,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
       if (signal?.aborted) throw new Error('aborted');
       try {
         const text = await readFile(abs, { encoding: 'utf8', signal: signal || undefined });
-        return _filterSymbolOutline(_extractSymbolsCheap(text, lang), args);
+        return _filterSymbolOutline(text, lang, args);
       } catch (error) {
         if (signal?.aborted) throw new Error('aborted');
         if (error?.code !== 'ENOENT' && error?.code !== 'EISDIR') throw error;
@@ -516,7 +527,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     await _prewarmSourceTextNodes(graph, [node], { signal });
     const cached = graph._sourceTextCache?.get(node.rel);
     return cached && cached.fingerprint === (node.fingerprint || '')
-      ? _filterSymbolOutline(_extractSymbolsCheap(cached.text, node.lang), args)
+      ? _filterSymbolOutline(cached.text, node.lang, args)
       : '(no symbols)';
   }
 
@@ -995,6 +1006,15 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
   const _work = (() => {
     switch (name) {
       case 'code_graph': {
+        // `body:true` asks for declaration bodies, which the outline-only
+        // symbols mode cannot supply — it was silently ignored and models
+        // fell back to large reads. Honor it via find_symbol, which batches
+        // symbols[] and respects the file scope.
+        if (String(args?.mode || '').trim() === 'symbols'
+            && args?.body === true
+            && _collectGraphSymbolList(args).length) {
+          args = { ...args, mode: 'find_symbol' };
+        }
         const rawMode = String(args?.mode || '').trim();
         const batchMode = rawMode === 'search' ? 'symbol_search' : rawMode;
         const declModes = new Set(['symbol', 'find_symbol']);

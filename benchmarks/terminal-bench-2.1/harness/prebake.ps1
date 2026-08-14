@@ -27,14 +27,14 @@ apt-get update
 apt-get install -y curl ca-certificates ripgrep zstd
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
 apt-get install -y nodejs
-npm install -g --ignore-scripts mixdog@__VERSION__
+npm install -g mixdog@__VERSION__
+MIXDOG_PKG="$(npm root -g)/mixdog"
 node --version
 mixdog --help >/dev/null 2>&1 && echo "mixdog ok"
 # Bench containers never run local embeddings (memory features are disabled
 # by the pristine contract), and the ONNX/transformers stack is ~344MB of the
 # ~502MB dependency tree. Prune it from the bench-only shell, then prove the
 # session runtime still imports without it (all references are lazy).
-MIXDOG_PKG="$(npm root -g)/mixdog"
 rm -rf "$MIXDOG_PKG/node_modules/onnxruntime-node" \
   "$MIXDOG_PKG/node_modules/onnxruntime-web" \
   "$MIXDOG_PKG/node_modules/@huggingface" \

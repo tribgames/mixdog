@@ -23,6 +23,53 @@ import { preDispatchDenyForSession, routeWebFetchCall } from './pre-dispatch-den
 import { runWithToolExecutionOwner } from '../../../../shared/tool-execution-owner.mjs';
 import { runWithLocalSearchTelemetry } from '../../tools/builtin/local-search-telemetry.mjs';
 
+const READ_ONLY_IO_TOOL_NAMES = new Set([
+    'read', 'head', 'tail', 'wc', 'summary', 'hex',
+    'grep', 'glob', 'find', 'find_files', 'list', 'tree',
+]);
+const READ_ONLY_IO_TIMEOUT_MS = 20_000;
+
+function readOnlyIoTimeoutMs() {
+    const raw = String(process.env.MIXDOG_IO_TOOL_TIMEOUT_MS ?? '').trim();
+    if (raw === '0') return 0;
+    const configured = Number(raw);
+    return Number.isFinite(configured) && configured > 0
+        ? Math.max(1, Math.floor(configured))
+        : READ_ONLY_IO_TIMEOUT_MS;
+}
+
+async function runReadOnlyIoWithDeadline(name, parentSignal, run) {
+    if (!READ_ONLY_IO_TOOL_NAMES.has(name)) return await run(parentSignal || null);
+    const timeoutMs = readOnlyIoTimeoutMs();
+    if (timeoutMs <= 0) return await run(parentSignal || null);
+    const controller = new AbortController();
+    let rejectAbort;
+    const aborted = new Promise((_, reject) => { rejectAbort = reject; });
+    const abortWith = (reason) => {
+        if (controller.signal.aborted) return;
+        const error = reason instanceof Error ? reason : new Error(String(reason || `tool "${name}" aborted`));
+        rejectAbort(error);
+        controller.abort(error);
+    };
+    const onParentAbort = () => abortWith(parentSignal?.reason);
+    if (parentSignal?.aborted) onParentAbort();
+    else parentSignal?.addEventListener?.('abort', onParentAbort, { once: true });
+    const timeoutError = new Error(`read-only I/O tool "${name}" timed out after ${timeoutMs}ms; work was cancelled`);
+    timeoutError.code = 'READ_ONLY_IO_TIMEOUT';
+    const timer = setTimeout(() => abortWith(timeoutError), timeoutMs);
+    try {
+        return await Promise.race([
+            Promise.resolve().then(() => run(controller.signal)),
+            aborted,
+        ]);
+    } finally {
+        clearTimeout(timer);
+        parentSignal?.removeEventListener?.('abort', onParentAbort);
+    }
+}
+
+export { runReadOnlyIoWithDeadline as _runReadOnlyIoWithDeadlineForTest };
+
 let codeGraphRuntimePromise = null;
 async function executeCodeGraphToolLazy(name, args, cwd, signal = null, options = {}) {
     codeGraphRuntimePromise ??= import('../../tools/code-graph.mjs');
@@ -166,7 +213,12 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
         : sessionRef?.afterToolHook;
     const deferredPrep = prepareDeferredToolCallThrough(sessionRef, name, args);
     if (deferredPrep?.deny) return deferredPrep.deny;
-    const __result = await (async () => {
+    const __result = await runReadOnlyIoWithDeadline(name, executeOpts.signal || null, async (deadlineSignal) => {
+    if (deadlineSignal !== executeOpts.signal) {
+        executeOpts = { ...executeOpts, signal: deadlineSignal };
+        completionToolOpts.signal = deadlineSignal;
+    }
+    return await (async () => {
     if (name === 'Skill') {
         return viewSkill(cwd, args?.name);
     }
@@ -238,6 +290,7 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
     }
     return formatUnknownBuiltinToolMessage(name, args, 'tool');
     })();
+    });
     if (typeof afterToolHook === 'function') {
         try {
             // Tool outcome metadata is runtime-internal. Hooks receive the same

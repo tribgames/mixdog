@@ -356,6 +356,10 @@ function assertOk(name, result, pattern = null) {
 
 const listOut = await executeBuiltinTool('list', { path: 'scripts', head_limit: 20 }, root);
 assertOk('list', listOut, /smoke\.mjs/);
+const listArrayErr = validateBuiltinArgs('list', { path: ['scripts'] });
+if (!/must be string/.test(String(listArrayErr))) {
+  throw new Error(`list path array must be rejected: ${listArrayErr}`);
+}
 
 // list meta: opt-in stat columns (size bytes, UTC mtime, octal mode) close
 // the `ls -la` metadata gap while the default contract stays path + type.
@@ -374,21 +378,13 @@ if (/\.gitignore\tfile/.test(listRootDefaultOut)) {
 }
 
 const grepOut = await executeBuiltinTool('grep', {
-  pattern: ['standalone mixdog CLI/TUI coding agent', 'smoke passed'],
+  pattern: 'standalone mixdog CLI/TUI coding agent|smoke passed',
   path: 'scripts',
   glob: '*.mjs',
   output_mode: 'content_with_context',
   head_limit: 10,
 }, root);
 assertOk('grep', grepOut, /smoke\.mjs/);
-
-const grepBracketPathOut = await executeBuiltinTool('grep', {
-  pattern: 'tool-smoke',
-  path: '[]',
-  glob: '*.mjs',
-  head_limit: 5,
-}, root);
-assertOk('grep path [] coerces to cwd', grepBracketPathOut, /tool-smoke\.mjs/);
 
 const grepRedirectOut = await executeBuiltinTool('grep', {
   pattern: 'assertOk',
@@ -421,6 +417,14 @@ const explicitSrcGlobOut = await executeBuiltinTool('glob', {
 }, root);
 assertOk('glob explicit src', explicitSrcGlobOut, /src[\\/].*runner\.mjs/i);
 
+for (const [key, value] of [['pattern', ['*.mjs']], ['path', ['src']]]) {
+  const args = key === 'pattern' ? { pattern: value } : { pattern: '*.mjs', path: value };
+  const err = validateBuiltinArgs('glob', args);
+  if (!/must be string/.test(String(err))) {
+    throw new Error(`glob ${key} array must be rejected: ${err}`);
+  }
+}
+
 const globPathOnlyOut = await executeBuiltinTool('glob', {
   path: 'scripts',
   // scripts/ holds well over 200 entries and glob ordering tracks mtime, so a
@@ -435,24 +439,6 @@ const grepNoPatternGlobOut = await executeBuiltinTool('grep', {
   head_limit: 5,
 }, root);
 assertOk('grep without pattern routes to glob', grepNoPatternGlobOut, /tool-smoke\.mjs/i);
-
-const grepManyPatterns = [
-  'tool-smoke',
-  ...Array.from({ length: 20 }, (_, i) => `__tool_smoke_miss_${i}__`),
-];
-const grepManyPatternsOut = await executeBuiltinTool('grep', {
-  pattern: grepManyPatterns,
-  path: 'scripts',
-  glob: '*.mjs',
-  head_limit: 5,
-}, root);
-if (/exceeds the \d+-pattern cap/i.test(String(grepManyPatternsOut))) {
-  throw new Error(`grep should truncate oversized pattern[] instead of error:\n${grepManyPatternsOut.slice(0, 400)}`);
-}
-assertOk('grep >10 pattern cap keeps first patterns', grepManyPatternsOut, /tool-smoke\.mjs/i);
-if (!/\[capped at 10 of 21 patterns\]/.test(String(grepManyPatternsOut))) {
-  throw new Error(`grep >10 patterns should emit cap note:\n${grepManyPatternsOut.slice(0, 400)}`);
-}
 
 function grepCountTotalMatches(body) {
   const m = String(body).match(/\[total (\d+) match/i);
@@ -469,53 +455,29 @@ if (singleCountTotal == null || singleCountTotal < 1) {
   throw new Error(`grep count baseline failed:\n${grepCountSingleOut.slice(0, 400)}`);
 }
 
-const grepCountOverlapPatterns = [
-  'assertOk',
-  ...Array.from({ length: 8 }, (_, i) => `__count_overlap_a_${i}__`),
-  'assertOk',
-];
-const grepCountOverlapOut = await executeBuiltinTool('grep', {
-  pattern: grepCountOverlapPatterns,
-  path: 'scripts/tool-smoke.mjs',
-  output_mode: 'count',
-}, root);
-const overlapCountTotal = grepCountTotalMatches(grepCountOverlapOut);
-if (overlapCountTotal !== singleCountTotal) {
-  throw new Error(
-    `multi-pattern count must not double-count overlapping lines (single=${singleCountTotal} overlap=${overlapCountTotal}):\n${grepCountOverlapOut.slice(0, 600)}`,
-  );
-}
-
-const grepChunkContextPatterns = [
-  'grepCountTotalMatches',
-  ...Array.from({ length: 20 }, (_, i) => `__ctx_chunk_miss_${i}__`),
-];
 const grepChunkContextOut = await executeBuiltinTool('grep', {
-  pattern: grepChunkContextPatterns,
+  pattern: 'grepCountTotalMatches',
   path: 'scripts',
   glob: 'tool-smoke.mjs',
   '-C': 1,
   head_limit: 30,
 }, root);
-if (!/\[capped at 10 of 21 patterns\]/.test(String(grepChunkContextOut))) {
-  throw new Error(`oversized -C pattern[] should emit cap note:\n${grepChunkContextOut.slice(0, 500)}`);
-}
 if (!/^# scripts\/tool-smoke\.mjs:\d+ \[lines \d+-\d+\]$/m.test(String(grepChunkContextOut))) {
-  throw new Error(`capped -C must emit patch-ready range headers:\n${grepChunkContextOut.slice(0, 800)}`);
+  throw new Error(`scalar -C must emit patch-ready range headers:\n${grepChunkContextOut.slice(0, 800)}`);
 }
 const prefixedChunkContextLines = String(grepChunkContextOut)
   .split(/\r?\n/)
   .filter((line) => /^scripts\/tool-smoke\.mjs(?::\d+:|-\d+-)/.test(line));
 if (prefixedChunkContextLines.some((line) => !/\[lines \d+-\d+\]$/.test(line))) {
-  throw new Error(`capped -C must strip rg prefixes except compact anchors with neutral ranges:\n${grepChunkContextOut.slice(0, 800)}`);
+  throw new Error(`scalar -C must strip rg prefixes except compact anchors with neutral ranges:\n${grepChunkContextOut.slice(0, 800)}`);
 }
 const ctxBodyLines = String(grepChunkContextOut).split('\n').filter((l) => l && !/^\[/.test(l) && !/^\(no matches\)/.test(l));
 const orphanLineOnlyContext = ctxBodyLines.some((l) => /^\d+-/.test(l));
 if (orphanLineOnlyContext) {
-  throw new Error(`capped -C must not leave line-only context orphans:\n${grepChunkContextOut.slice(0, 800)}`);
+  throw new Error(`scalar -C must not leave line-only context orphans:\n${grepChunkContextOut.slice(0, 800)}`);
 }
 if (!/function grepCountTotalMatches/.test(String(grepChunkContextOut))) {
-  throw new Error(`capped -C should include match span:\n${grepChunkContextOut.slice(0, 800)}`);
+  throw new Error(`scalar -C should include match span:\n${grepChunkContextOut.slice(0, 800)}`);
 }
 
 const findOut = await executeBuiltinTool('find', {
@@ -525,25 +487,34 @@ const findOut = await executeBuiltinTool('find', {
 }, root);
 assertOk('find', findOut, /scripts[\\/]tool-smoke\.mjs/i);
 
-// End-to-end find query[] batch: fan-out must emit one section per query in
-// caller order.
-const findBatchOut = await executeBuiltinTool('find', {
-  query: ['tool smoke', 'smoke'],
-  path: '.',
-  head_limit: 5,
-}, root);
+const findQueryArrayErr = validateBuiltinArgs('find', { query: ['tool smoke', 'smoke'], path: '.' });
+if (!/non-empty string/.test(String(findQueryArrayErr))) {
+  throw new Error(`find query array must be rejected: ${findQueryArrayErr}`);
+}
+const findPathArrayErr = validateBuiltinArgs('find', { query: 'tool smoke', path: ['.'] });
+if (!/must be a string/.test(String(findPathArrayErr))) {
+  throw new Error(`find path array must be rejected: ${findPathArrayErr}`);
+}
+
 {
-  const s = String(findBatchOut);
-  const iA = s.indexOf('# find tool smoke');
-  const iB = s.indexOf('# find smoke');
-  if (iA < 0 || iB < 0) {
-    throw new Error(`find query[] must emit a section per query:\n${s.slice(0, 600)}`);
-  }
-  if (!(iA < iB)) {
-    throw new Error(`find query[] must preserve caller order:\n${s.slice(0, 600)}`);
-  }
-  if (!/scripts[\\/]tool-smoke\.mjs/i.test(s)) {
-    throw new Error(`find query[] sections must carry match bodies:\n${s.slice(0, 600)}`);
+  let broadEnumerationCalls = 0;
+  const timeout = Object.assign(
+    new Error('native fuzzy search timed out after 20000ms. Fuzzy ranking requires a complete file inventory; narrow cwd or set max depth.'),
+    { code: 'NATIVE_SEARCH_TIMEOUT' },
+  );
+  const out = await executeFuzzyFindTool(
+    { query: 'tool-smoke-timeout', path: '.', head_limit: 5 },
+    root,
+    {
+      __tryServeFuzzySearch: async () => { throw timeout; },
+      __runRg: async () => {
+        broadEnumerationCalls += 1;
+        return 'scripts/tool-smoke.mjs\n';
+      },
+    },
+  );
+  if (broadEnumerationCalls !== 0 || !/complete file inventory/.test(String(out))) {
+    throw new Error(`find fuzzy timeout must not repeat the same broad inventory walk:\n${out}`);
   }
 }
 
@@ -560,28 +531,20 @@ const findBatchOut = await executeBuiltinTool('find', {
   let broadEnumerationCalls = 0;
   process.env.MIXDOG_FIND_ENUM_CACHE_TTL_MS = '0';
   try {
-    const singleFlightOut = await executeFuzzyFindTool({
-      query: [firstQuery, secondQuery],
-      path: 'scripts/fixtures',
-      head_limit: 5,
-    }, root, {
-      __runRg: async () => {
+    const runRg = async () => {
         broadEnumerationCalls += 1;
         await new Promise((resolve) => setTimeout(resolve, 20));
         return `${firstPath}\n${secondPath}\n`;
-      },
-    });
-    const s = String(singleFlightOut);
-    const iA = s.indexOf(`# find ${firstQuery}`);
-    const iB = s.indexOf(`# find ${secondQuery}`);
+      };
+    const [firstOut, secondOut] = await Promise.all([
+      executeFuzzyFindTool({ query: firstQuery, path: 'scripts/fixtures', head_limit: 5 }, root, { __runRg: runRg }),
+      executeFuzzyFindTool({ query: secondQuery, path: 'scripts/fixtures', head_limit: 5 }, root, { __runRg: runRg }),
+    ]);
     if (broadEnumerationCalls !== 1) {
-      throw new Error(`find query[] must share exactly one broad enumeration, got ${broadEnumerationCalls}`);
+      throw new Error(`parallel scalar find calls must share exactly one broad enumeration, got ${broadEnumerationCalls}`);
     }
-    if (iA < 0 || iB < 0 || !(iA < iB)) {
-      throw new Error(`find query[] seam must preserve section order:\n${s}`);
-    }
-    if (!s.slice(iA, iB).includes(firstPath) || !s.slice(iB).includes(secondPath)) {
-      throw new Error(`find query[] seam must retain both exact-name bodies:\n${s}`);
+    if (!String(firstOut).includes(firstPath) || !String(secondOut).includes(secondPath)) {
+      throw new Error(`parallel scalar find calls must retain both exact-name bodies:\n${firstOut}\n${secondOut}`);
     }
   } finally {
     if (previousFindEnumCacheTtl === undefined) delete process.env.MIXDOG_FIND_ENUM_CACHE_TTL_MS;
@@ -951,23 +914,12 @@ assertOk('apply_patch keeps diff-line placeholder text', compactedFalsePositiveO
 
 const shellOutPromise = executeBuiltinTool('shell', {
   command: 'node --version',
-  cwd: root,
-  timeout: 30_000,
-  shell: 'powershell',
+  timeout_ms: 30_000,
 }, root);
 
 const shellFailOutPromise = executeBuiltinTool('shell', {
-  command: 'Write-Error "tool-smoke-bash-fail"; exit 7',
-  cwd: root,
-  timeout: 30_000,
-  shell: 'powershell',
-}, root);
-
-const shellWorkdirOutPromise = executeBuiltinTool('shell', {
-  command: 'Get-Location | Select-Object -ExpandProperty Path',
-  workdir: resolve(root, 'scripts'),
-  timeout: 30_000,
-  shell: 'powershell',
+  command: 'node -e "console.error(\'tool-smoke-bash-fail\'); process.exit(7)"',
+  timeout_ms: 30_000,
 }, root);
 
 const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
@@ -979,13 +931,27 @@ if (!/Run programs and runtime\/state operations/i.test(shellDescription)
     || !/service explicitly required after the run exits.*nohup/i.test(shellDescription)) {
   throw new Error(`shell description must use ordinary execution/computation/file-role concepts: ${shellDescription}`);
 }
-const shellCwdDescription = shellTool?.inputSchema?.properties?.cwd?.description || '';
-if (!/current Project root/i.test(shellCwdDescription) || !/for this call only/i.test(shellCwdDescription)) {
-  throw new Error(`shell cwd contract must distinguish the Project root from call-local cwd: ${shellCwdDescription}`);
+const shellProps = shellTool?.inputSchema?.properties || {};
+if (JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms', 'run_in_background'])) {
+  throw new Error(`shell schema must expose only command, timeout_ms, and run_in_background: ${JSON.stringify(shellProps)}`);
 }
-const shellTimeoutDescription = shellTool?.inputSchema?.properties?.timeout?.description || '';
-if (!/unlimited async/i.test(shellTimeoutDescription) || !/kill at deadline/i.test(shellTimeoutDescription)) {
-  throw new Error(`shell timeout contract must distinguish omitted async execution from an explicit deadline: ${shellTimeoutDescription}`);
+for (const retired of ['timeout', 'cwd', 'workdir', 'mode', 'shell', 'persistent', 'session_id', 'merge_stderr']) {
+  const err = validateBuiltinArgs('shell', { command: 'node --version', [retired]: retired === 'mode' ? 'async' : true });
+  if (!/unsupported.*command, timeout_ms, and run_in_background/i.test(err || '')) {
+    throw new Error(`shell retired arg must be rejected (${retired}): ${err}`);
+  }
+}
+const shellTimeoutDescription = shellTool?.inputSchema?.properties?.timeout_ms?.description || '';
+if (shellTimeoutDescription !== 'Optional total deadline.') {
+  throw new Error(`shell timeout_ms contract must use the approved optional deadline description: ${shellTimeoutDescription}`);
+}
+if (shellTool?.inputSchema?.properties?.timeout_ms?.minimum !== undefined) {
+  throw new Error('shell timeout_ms must follow CC by treating 0 as omitted instead of advertising a positive minimum');
+}
+const shellZeroTimeoutErr = validateBuiltinArgs('shell', { command: 'node --version', timeout_ms: 0 });
+const shellNegativeTimeoutErr = validateBuiltinArgs('shell', { command: 'node --version', timeout_ms: -1 });
+if (shellZeroTimeoutErr || !/non-negative number/.test(String(shellNegativeTimeoutErr))) {
+  throw new Error(`shell timeout_ms must absorb 0 and reject negatives: zero=${shellZeroTimeoutErr} negative=${shellNegativeTimeoutErr}`);
 }
 const publicTaskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
 const publicTaskProps = publicTaskTool?.inputSchema?.properties || {};
@@ -1003,18 +969,20 @@ if (!/^Error[\s:[]/.test(String(taskWaitOut)) || !/list\|status\|read\|check_aft
 
 const shellProjectCwdSession = `tool-smoke-project-cwd-${process.pid}`;
 const shellLocalCdOut = await executeBuiltinTool('shell', {
-  command: 'Set-Location scripts; Get-Location | Select-Object -ExpandProperty Path',
-  timeout: 30_000,
-  shell: 'powershell',
+  command: process.platform === 'win32'
+    ? 'Set-Location scripts; Get-Location | Select-Object -ExpandProperty Path'
+    : 'cd scripts && pwd',
+  timeout_ms: 30_000,
 }, root, { sessionId: shellProjectCwdSession });
 const shellLocalCdPath = String(normalizeToolEnvelope(shellLocalCdOut).result).trim();
 if (resolve(shellLocalCdPath) !== resolve(root, 'scripts')) {
   throw new Error(`shell command-local cd did not enter scripts: ${shellLocalCdOut}`);
 }
 const shellProjectResetOut = await executeBuiltinTool('shell', {
-  command: 'Get-Location | Select-Object -ExpandProperty Path',
-  timeout: 30_000,
-  shell: 'powershell',
+  command: process.platform === 'win32'
+    ? 'Get-Location | Select-Object -ExpandProperty Path'
+    : 'pwd',
+  timeout_ms: 30_000,
 }, root, { sessionId: shellProjectCwdSession });
 const shellProjectResetPath = String(normalizeToolEnvelope(shellProjectResetOut).result).trim();
 if (resolve(shellProjectResetPath) !== root) {
@@ -1022,7 +990,7 @@ if (resolve(shellProjectResetPath) !== root) {
 }
 
 const shellOut = await shellOutPromise;
-assertOk('bash explicit shell/cwd', shellOut, /v\d+\.\d+\.\d+/);
+assertOk('shell default runtime', shellOut, /v\d+\.\d+\.\d+/);
 
 const shellFailOut = await shellFailOutPromise;
 const normalizedShellFailOut = normalizeToolEnvelope(shellFailOut);
@@ -1041,9 +1009,7 @@ if (
 // it verifies timeout semantics, not admission/pool scheduling under fan-out.
 const shellTimeoutOut = await executeBuiltinTool('shell', {
   command: 'node -e "setTimeout(() => console.log(\'tool-smoke-timeout-missed\'), 1500)"',
-  cwd: root,
-  timeout: 500,
-  shell: 'powershell',
+  timeout_ms: 500,
 }, root);
 if (!/^Error[\s:[]/.test(String(shellTimeoutOut)) || !/\[shell-run-failed\]/.test(String(shellTimeoutOut)) || !/\[timeout: 500ms\b/.test(String(shellTimeoutOut))) {
   throw new Error(`bash timeout must be milliseconds and classified as shell-run-failed Error:\n${shellTimeoutOut}`);
@@ -1051,8 +1017,6 @@ if (!/^Error[\s:[]/.test(String(shellTimeoutOut)) || !/\[shell-run-failed\]/.tes
 
 const shellArgFailOut = await executeBuiltinTool('shell', {
   command: '',
-  cwd: root,
-  shell: 'powershell',
 }, root);
 if (!/^Error[\s:[]/.test(String(shellArgFailOut)) || !/\[shell-tool-failed\]/.test(String(shellArgFailOut))) {
   throw new Error(`shell tool/preflight failures must be classified as shell-tool-failed Error:\n${shellArgFailOut}`);
@@ -1099,10 +1063,8 @@ const shellExplicitNotifyEvents = [];
 const shellExplicitNotifyOptions = shellNotifyOptions(shellExplicitNotifyEvents, 'explicit');
 const shellExplicitAsyncOut = await executeBuiltinTool('shell', {
   command: 'node -e "setTimeout(() => console.log(\'tool-smoke-explicit-done\'), 300)"',
-  cwd: root,
-  shell: 'powershell',
-  mode: 'async',
-  timeout: 5000,
+  run_in_background: true,
+  timeout_ms: 5000,
 }, root, shellExplicitNotifyOptions);
 const shellExplicitTaskId = assertBackgroundStart('shell explicit async', shellExplicitAsyncOut);
 await assertSingleShellCompletion(shellExplicitNotifyEvents, shellExplicitTaskId, 'shell explicit async');
@@ -1113,10 +1075,8 @@ const shellCheckEvents = [];
 const shellCheckOptions = shellNotifyOptions(shellCheckEvents, 'check_after');
 const shellCheckOut = await executeBuiltinTool('shell', {
   command: 'node -e "console.log(\'tool-smoke-check-after-progress\'); setTimeout(() => console.log(\'tool-smoke-check-after-done\'), 600)"',
-  cwd: root,
-  shell: 'powershell',
-  mode: 'async',
-  timeout: 5000,
+  run_in_background: true,
+  timeout_ms: 5000,
 }, root, shellCheckOptions);
 const shellCheckTaskId = assertBackgroundStart('shell check-after start', shellCheckOut);
 const shellImplicitStatus = await executeBuiltinTool('task', {
@@ -1160,10 +1120,8 @@ const shellEarlyDoneEvents = [];
 const shellEarlyDoneOptions = shellNotifyOptions(shellEarlyDoneEvents, 'check_after_early_done');
 const shellEarlyDoneOut = await executeBuiltinTool('shell', {
   command: 'node -e "setTimeout(() => console.log(\'tool-smoke-check-after-early-done\'), 50)"',
-  cwd: root,
-  shell: 'powershell',
-  mode: 'async',
-  timeout: 5000,
+  run_in_background: true,
+  timeout_ms: 5000,
 }, root, shellEarlyDoneOptions);
 const shellEarlyDoneTaskId = assertBackgroundStart('shell check-after early completion', shellEarlyDoneOut);
 await executeBuiltinTool('task', {
@@ -1187,9 +1145,7 @@ let shellAutoPromoteOut;
 try {
   shellAutoPromoteOut = await executeBuiltinTool('shell', {
     command: 'node -e "setTimeout(() => console.log(\'tool-smoke-autopromote-done\'), 600)"',
-    cwd: root,
-    shell: 'powershell',
-    timeout: 5000,
+    timeout_ms: 5000,
   }, root, shellAutoNotifyOptions);
 } finally {
   if (_priorAutoBgBudget === undefined) delete process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
@@ -1216,8 +1172,15 @@ const literalBackslashPipeArray = validateBuiltinArgs('grep', {
   pattern: ['contains \\\\|', 'conflicting window args'],
   path: root,
 });
-if (literalBackslashPipeArray) {
-  throw new Error(`grep array literal \\| should be allowed: ${literalBackslashPipeArray}`);
+if (!/must be string/.test(String(literalBackslashPipeArray))) {
+  throw new Error(`grep pattern array must be rejected: ${literalBackslashPipeArray}`);
+}
+for (const [key, value] of [['path', [root]], ['glob', ['*.mjs']]]) {
+  const args = { pattern: 'smoke', [key]: value };
+  const err = validateBuiltinArgs('grep', args);
+  if (!/must be string/.test(String(err))) {
+    throw new Error(`grep ${key} array must be rejected: ${err}`);
+  }
 }
 
 const grepContextPolicyArgs = { pattern: 'smoke', path: root, context: GREP_CONTEXT_MAX + 999 };
@@ -1226,18 +1189,13 @@ if (grepContextPolicyArgs.context !== GREP_CONTEXT_MAX || Object.prototype.hasOw
   throw new Error(`grep context policy must canonicalize and clamp explicit context: ${JSON.stringify(grepContextPolicyArgs)}`);
 }
 
-// Multiple absolute paths in one string are now auto-split into a path array
-// (arg-guard splitMultipleAbsoluteWindowsPaths) instead of rejected.
 const multiGrepPathArgs = {
   pattern: 'providerStatus',
   path: 'C:\\Project\\mixdog\\src\\tui C:\\Project\\mixdog\\src\\mixdog-session-runtime.mjs',
 };
 const multiGrepPathErr = validateBuiltinArgs('grep', multiGrepPathArgs);
-if (multiGrepPathErr) {
-  throw new Error(`grep multi-path auto-split should pass validation: ${multiGrepPathErr}`);
-}
-if (!Array.isArray(multiGrepPathArgs.path) || multiGrepPathArgs.path.length !== 2) {
-  throw new Error(`grep multi-path auto-split should coerce to 2-element array: ${JSON.stringify(multiGrepPathArgs.path)}`);
+if (!/contains multiple absolute paths/.test(String(multiGrepPathErr)) || typeof multiGrepPathArgs.path !== 'string') {
+  throw new Error(`grep packed multi-path string must be rejected without array coercion: err=${multiGrepPathErr} path=${JSON.stringify(multiGrepPathArgs.path)}`);
 }
 
 // Lookaround/backrefs are no longer rejected at validation time: search-tool
@@ -1249,35 +1207,6 @@ const lookaroundGrepErr = validateBuiltinArgs('grep', {
 if (lookaroundGrepErr) {
   throw new Error(`grep lookaround pattern should pass validation (PCRE2 runtime routing): ${lookaroundGrepErr}`);
 }
-
-// Windows drive path + no explicit shell used to be rejected with a retry hint;
-// the guard now auto-coerces to shell:'powershell' (drive paths are a definitive
-// powershell signal — they can never work under Git Bash unconverted).
-const shellDrivePathArgs = {
-  command: 'cd C:\\Project\\mixdog && node scripts/build-tui.mjs',
-};
-const shellDrivePathErr = validateBuiltinArgs('shell', shellDrivePathArgs);
-if (process.platform === 'win32') {
-  if (shellDrivePathErr !== null) {
-    throw new Error(`shell Windows-path auto-coercion failed: ${shellDrivePathErr}`);
-  }
-  if (shellDrivePathArgs.shell !== 'powershell') {
-    throw new Error(`shell Windows-path auto-coercion did not set shell:'powershell' (got ${JSON.stringify(shellDrivePathArgs.shell)})`);
-  }
-}
-
-const invalidShellCwdAliasConflict = validateBuiltinArgs('shell', {
-  command: 'pwd',
-  cwd: root,
-  workdir: resolve(root, 'scripts'),
-  shell: 'powershell',
-});
-if (!/cwd.*workdir.*conflict/i.test(invalidShellCwdAliasConflict || '')) {
-  throw new Error(`shell cwd/workdir conflict guard failed: ${invalidShellCwdAliasConflict}`);
-}
-
-const shellWorkdirOut = await shellWorkdirOutPromise;
-assertOk('shell workdir alias', shellWorkdirOut, /scripts\s*$/i);
 
 const offsetReadWindow = {
   path: 'scripts/smoke.mjs',
@@ -2124,35 +2053,34 @@ for (const requiredGrammarLine of [
     throw new Error(`custom apply_patch SSE parser must eager-emit patch args: ${JSON.stringify(emitted)}`);
   }
 }
-const readPathSchema = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.inputSchema?.properties?.path || {};
-const readPathDescription = readPathSchema.description || '';
-// Path-convention prose (project-relative / absolute-outside) now lives only
-// in the shared BP1 rules; schemas carry tool-unique semantics.
-if (!/\[path,offset,limit\?\].*range/i.test(readPathDescription) || /absolute only outside/i.test(readPathDescription)) {
-  throw new Error('read schema must keep directory-vs-file guidance');
-}
-if (!/not director/i.test((BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.description) || '')) {
-  throw new Error('read description must keep directory-vs-file guidance');
-}
 const readTool = BUILTIN_TOOLS.find((tool) => tool.name === 'read');
 const readDescription = readTool?.description || '';
-const readProps = readTool?.inputSchema?.properties || {};
-const readArraySchema = readPathSchema.anyOf?.find((entry) => entry?.type === 'array');
-const readArrayItemAnyOf = readArraySchema?.items?.anyOf || [];
-if (!readArrayItemAnyOf.some((entry) => entry?.type === 'array' && entry?.minItems === 2 && entry?.maxItems === 3)) {
-  throw new Error('read schema must expose compact range tuples for batched spans');
+const readSchema = readTool?.inputSchema || {};
+const readProps = readSchema.properties || {};
+if (!/not director/i.test(readDescription)) {
+  throw new Error('read description must keep directory-vs-file guidance');
 }
 if (/line\+context/i.test(readDescription) || !/Known-file contents or line ranges/i.test(readDescription)) {
   throw new Error('read description must stay compact and file-oriented');
 }
-if (readProps.line || readProps.context) {
-  throw new Error('read schema must not expose legacy line/context window fields');
+if (readProps.file_path?.type !== 'string'
+  || readProps.file_path?.anyOf
+  || readProps.file_path?.description !== 'Known file path.'
+  || readProps.path
+  || JSON.stringify(readSchema.required) !== JSON.stringify(['file_path'])) {
+  throw new Error('read schema must expose only the canonical scalar file_path');
 }
-if (readProps.offset?.minimum !== 0 || !/Lines to skip/i.test(readProps.offset?.description || '') || !/Max lines/i.test(readProps.limit?.description || '')) {
-  throw new Error('read offset schema must describe Mixdog paging cursor semantics');
+if (readProps.offset?.type !== 'integer'
+  || readProps.offset?.minimum !== 0
+  || readProps.offset?.description !== '1-based start line; default 1.'
+  || readProps.limit?.type !== 'integer'
+  || readProps.limit?.minimum !== 1
+  || readProps.limit?.description !== 'Maximum lines to return; default 800.') {
+  throw new Error('read range args must use the CC scalar integer contract with Mixdog descriptions');
 }
-if (/line\/context/i.test(JSON.stringify(readTool?.inputSchema || {}))) {
-  throw new Error('read schema surface must not mention legacy line/context');
+if (Object.keys(readProps).some((key) => !['file_path', 'offset', 'limit'].includes(key))
+  || readSchema.additionalProperties !== false) {
+  throw new Error('read schema must not expose legacy or batch arguments');
 }
 {
   const benchRunSrc = readFileSync(resolve(root, 'scripts/bench-run.mjs'), 'utf8');
@@ -2675,8 +2603,15 @@ const grepGlobDescription = grepTool?.inputSchema?.properties?.glob?.description
 const grepModeDescription = grepTool?.inputSchema?.properties?.mode?.description || '';
 const grepLimitDescription = grepTool?.inputSchema?.properties?.limit?.description || '';
 const grepContextDescription = grepTool?.inputSchema?.properties?.context?.description || '';
-if (!/pattern\[\] batches exact query literals and identifier variants/i.test(grepPatternDescription) || !/File\/dir scope/i.test(grepPathDescription)) {
-  throw new Error('grep schema must keep compact pattern/path guidance');
+if (grepTool?.inputSchema?.properties?.pattern?.type !== 'string'
+    || grepTool?.inputSchema?.properties?.pattern?.anyOf
+    || grepTool?.inputSchema?.properties?.path?.type !== 'string'
+    || grepTool?.inputSchema?.properties?.path?.anyOf
+    || grepTool?.inputSchema?.properties?.glob?.type !== 'string'
+    || grepTool?.inputSchema?.properties?.glob?.anyOf
+    || !/Text\/regex/i.test(grepPatternDescription)
+    || !/File\/dir scope/i.test(grepPathDescription)) {
+  throw new Error('grep schema must expose scalar pattern/path/glob guidance');
 }
 if (!/\bSearch file contents for literal or regex matches\b/i.test(grepTool?.description || '')
     || !/read only omitted lines/i.test(grepTool?.description || '')) {
@@ -2707,6 +2642,12 @@ if (!/wildcard-matching paths under a known base/i.test(globTool?.description ||
     || !/when those paths are needed/i.test(globTool?.description || '')) {
   throw new Error('glob description must state its known-base wildcard path contract');
 }
+if (globTool?.inputSchema?.properties?.pattern?.type !== 'string'
+    || globTool?.inputSchema?.properties?.pattern?.anyOf
+    || globTool?.inputSchema?.properties?.path?.type !== 'string'
+    || globTool?.inputSchema?.properties?.path?.anyOf) {
+  throw new Error('glob schema must expose scalar pattern and path');
+}
 // Contract-only description: guessed-fragment/verified-root routing policy
 // lives in src/rules/shared/01-tool.md.
 if (!/Fuzzy filename\/directory path lookup when the location itself is unknown/i.test(findTool?.description || '') || !/returns paths only/i.test(findTool?.description || '')) {
@@ -2719,8 +2660,13 @@ if (!/known directory's immediate entries/i.test(listTool?.description || '')
     || !/entry list itself is needed/i.test(listTool?.description || '')
     || !/not a prerequisite for another tool/i.test(listTool?.description || '')
     || !/no wildcard/i.test(listTool?.description || '')
-    || !/path\[\]/i.test(listTool?.inputSchema?.properties?.path?.description || '')) {
+    || listTool?.inputSchema?.properties?.path?.type !== 'string'
+    || listTool?.inputSchema?.properties?.path?.anyOf) {
   throw new Error('list description must state its known-directory immediate-entry contract');
+}
+if (findTool?.inputSchema?.properties?.query?.type !== 'string'
+    || findTool?.inputSchema?.properties?.query?.anyOf) {
+  throw new Error('find schema must expose scalar query');
 }
 const codeGraphModeDescription = codeGraphProps.mode?.description || '';
 const codeGraphSymbolsDescription = codeGraphProps.symbols?.description || '';

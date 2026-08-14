@@ -119,7 +119,7 @@ try {
 
   // ── Phase D: cancellation under load ─────────────────────────────────────
   const bg = await timed('shell-async', /task_id/, () => executeBuiltinTool('shell', {
-    command: 'node -e "setTimeout(()=>{}, 30000)"', mode: 'async', timeout: 60_000,
+    command: 'node -e "setTimeout(()=>{}, 30000)"', run_in_background: true, timeout_ms: 60_000,
   }, root, { sessionId: 'stress-cancel' }));
   const bgId = (/task_id:\s*(\S+)/.exec(String(bg)) || [])[1];
   if (!bgId) failures.push('async shell did not return task_id');

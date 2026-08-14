@@ -113,13 +113,59 @@ function splitTopLevelAlternatives(pattern) {
     return parts;
 }
 
+// Patterns commonly arrive shell-wrapped — `(?i)(a|b|c)` — where no
+// top-level `|` exists, which used to disable branch ranking entirely and
+// leave raw blocks in file order (file-top noise first). Strip leading
+// inline flag groups and one fully-enclosing group so the alternation
+// becomes rankable; remember an inline `i` for branch compilation.
+function unwrapPatternShell(pattern) {
+    let source = String(pattern || '');
+    let ignoreCase = false;
+    for (let pass = 0; pass < 8; pass++) {
+        const flagGroup = source.match(/^\(\?([a-zA-Z]+(?:-[a-zA-Z]+)?)\)/);
+        if (flagGroup) {
+            if (flagGroup[1].split('-')[0].includes('i')) ignoreCase = true;
+            source = source.slice(flagGroup[0].length);
+            continue;
+        }
+        if (!(source.startsWith('(') && source.endsWith(')'))) break;
+        let depth = 0;
+        let escaped = false;
+        let inClass = false;
+        let wraps = true;
+        for (let index = 0; index < source.length; index++) {
+            const char = source[index];
+            if (escaped) { escaped = false; continue; }
+            if (char === '\\') { escaped = true; continue; }
+            if (inClass) { if (char === ']') inClass = false; continue; }
+            if (char === '[') { inClass = true; continue; }
+            if (char === '(') depth++;
+            else if (char === ')') {
+                depth--;
+                if (depth === 0 && index < source.length - 1) { wraps = false; break; }
+            }
+        }
+        if (!wraps || depth !== 0) break;
+        let inner = source.slice(1, -1);
+        if (inner.startsWith('?')) {
+            const groupPrefix = inner.match(/^\?(?:<[^=!][^>]*>|([a-zA-Z]+(?:-[a-zA-Z]+)?)?:)/);
+            if (!groupPrefix) break; // lookaround — keep wrapped
+            if (groupPrefix[1] && groupPrefix[1].split('-')[0].includes('i')) ignoreCase = true;
+            inner = inner.slice(groupPrefix[0].length);
+        }
+        source = inner;
+    }
+    return { source, ignoreCase };
+}
+
 function rankAnchors(anchors, patterns, caseInsensitive) {
     const branches = [];
     for (const pattern of Array.isArray(patterns) ? patterns : [patterns]) {
-        for (const branch of splitTopLevelAlternatives(pattern)) {
+        const shell = unwrapPatternShell(pattern);
+        for (const branch of splitTopLevelAlternatives(shell.source)) {
             if (!branch) continue;
             try {
-                branches.push(new RegExp(branch, caseInsensitive ? 'i' : ''));
+                branches.push(new RegExp(branch, (caseInsensitive || shell.ignoreCase) ? 'i' : ''));
             } catch {
                 // PCRE2/ripgrep syntax is not always valid JavaScript regex.
                 // Keep source order when a branch cannot be ranked safely.
@@ -128,13 +174,29 @@ function rankAnchors(anchors, patterns, caseInsensitive) {
         }
     }
     if (branches.length <= 1) return anchors;
-    return anchors.map((anchor) => ({
-        ...anchor,
-        priority: branches.findIndex((branch) => branch?.test(anchor.content)),
-    })).map((anchor) => ({
-        ...anchor,
-        priority: anchor.priority < 0 ? Number.MAX_SAFE_INTEGER : anchor.priority,
-    }));
+    // Rank by branch rarity, not branch order: with keyword-bag patterns the
+    // frequent branches (`header`, `invalid`) hit boilerplate all over the
+    // file while the rare branches mark the informative spots. An anchor
+    // inherits the hit count of its rarest matching branch, so rare-branch
+    // matches surface as raw blocks and frequent-branch noise stays anchored.
+    const matched = anchors.map((anchor) => {
+        const indices = [];
+        branches.forEach((branch, index) => {
+            if (branch?.test(anchor.content)) indices.push(index);
+        });
+        return indices;
+    });
+    const hitCounts = branches.map(() => 0);
+    for (const indices of matched) {
+        for (const index of indices) hitCounts[index] += 1;
+    }
+    return anchors.map((anchor, anchorIndex) => {
+        const indices = matched[anchorIndex];
+        const priority = indices.length
+            ? Math.min(...indices.map((index) => hitCounts[index]))
+            : Number.MAX_SAFE_INTEGER;
+        return { ...anchor, priority };
+    });
 }
 
 function selectAnchors(anchors, headLimit, offset) {
@@ -348,12 +410,27 @@ function anchorRangeHint(anchor, radius) {
     return `lines ${startLine}-${endLine}`;
 }
 
-function renderFocusedContext(selected, sources, radius, _budget, notice) {
+function renderFocusedContext(selected, sources, radius, budget, notice) {
     const ordered = [...selected].sort(anchorPriority);
     const rankedBlocks = mergeBlocks(ordered.map((anchor) => (
         sourceBlock(anchor, sources.get(anchor.absolutePath), radius)
     )));
-    const rawBlocks = rankedBlocks.slice(0, GREP_FOCUSED_RAW_BLOCKS);
+    // Budget-adaptive raw window: keep the historical floor of
+    // GREP_FOCUSED_RAW_BLOCKS clusters, then keep expanding further
+    // high-priority clusters while the raw text still fits the char budget.
+    // Spending already-paid-for budget on real source lines instead of bare
+    // anchors is what lets a grep round end without a follow-up read.
+    const rawBlocks = [];
+    let rawLength = 0;
+    for (const block of rankedBlocks) {
+        const blockLength = block.path.length + block.contents.reduce(
+            (sum, line) => sum + line.length + 1,
+            32,
+        );
+        if (rawBlocks.length >= GREP_FOCUSED_RAW_BLOCKS && rawLength + blockLength > budget) break;
+        rawBlocks.push(block);
+        rawLength += blockLength;
+    }
     const covered = (anchor) => rawBlocks.some((block) => (
         anchor.path === block.path
         && anchor.lineNo >= block.startLine

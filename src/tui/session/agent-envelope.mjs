@@ -148,6 +148,22 @@ export function parseBackgroundTaskEnvelope(text) {
   };
 }
 
+export function parseModelVisibleCompletionWrapper(text) {
+  const value = String(text ?? '').trim();
+  const split = /\n\nResult:\n/.exec(value);
+  if (!split) return null;
+  const preamble = value.slice(0, split.index).trim();
+  if (!/^The async \S+ task \S+ has finished\b[\s\S]*review this result in your next step\.?$/i.test(preamble)
+      && !/^Async \S+.* finished\.$/i.test(preamble)) {
+    return null;
+  }
+  const quotedLines = value.slice(split.index + split[0].length).split(/\r?\n/);
+  if (quotedLines.length === 0 || quotedLines.some((line) => line && !/^> /.test(line))) return null;
+  const unquoted = quotedLines.map((line) => line.replace(/^> ?/, '')).join('\n').trim();
+  const parsed = parseBackgroundTaskEnvelope(unquoted);
+  return parsed ? { ...parsed, rawResult: unquoted } : null;
+}
+
 export function isStatusOnlyAgentCompletionNotification(text) {
   const background = parseBackgroundTaskEnvelope(text);
   if (background?.name === 'agent' && /^(completed|cancelled|canceled)$/i.test(background.label || '')) {

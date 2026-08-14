@@ -6,7 +6,10 @@ import { SessionClosedError } from '../src/runtime/agent/orchestrator/session/ma
 import { acquireSessionLock } from '../src/runtime/agent/orchestrator/session/manager/session-lock.mjs';
 import { settleAskCleanup } from '../src/runtime/agent/orchestrator/session/manager/ask-session.mjs';
 import { deriveToolCardModel } from '../src/runtime/shared/tool-card-model.mjs';
-import { parseBackgroundTaskEnvelope } from '../src/tui/session/agent-envelope.mjs';
+import {
+  parseBackgroundTaskEnvelope,
+  parseModelVisibleCompletionWrapper,
+} from '../src/tui/session/agent-envelope.mjs';
 import { resolveTuiRuntimeNotificationDelivery } from '../src/tui/session/notification-plan.mjs';
 import { shouldRecreateEmptySessionForRouteChange } from '../src/session-runtime/model-route-api.mjs';
 import { createSessionTurnApi } from '../src/session-runtime/session-turn-api.mjs';
@@ -273,4 +276,36 @@ test('running shell output is progress until the terminal completion arrives', (
     },
   }, completedText);
   assert.match(completedDelivery.modelContent, /^Async shell shell-1 completed finished\./i);
+});
+
+test('fallback shell completion wrapper remains renderable as one UI card', () => {
+  const background = [
+    'background task',
+    'task_id: shell-fallback-1',
+    'surface: shell',
+    'status: completed',
+    '',
+    '[exit code: 0]',
+    'done',
+  ].join('\n');
+  const wrapper = [
+    'The async shell task shell-fallback-1 has finished (completed, exit 0) - review this result in your next step.',
+    '',
+    'Result:',
+    ...background.split('\n').map((line) => `> ${line}`),
+  ].join('\n');
+  const parsed = parseModelVisibleCompletionWrapper(wrapper);
+  assert.equal(parsed.name, 'shell');
+  assert.equal(parsed.args.task_id, 'shell-fallback-1');
+  assert.equal(parsed.args.type, 'result');
+  assert.equal(parsed.rawResult, background);
+  const card = deriveToolCardModel({
+    name: parsed.name,
+    args: parsed.args,
+    result: parsed.result,
+    count: 1,
+    completedCount: 1,
+  });
+  assert.equal(card.labelText, 'Shell output');
+  assert.equal(card.isBackgroundResponse, true);
 });

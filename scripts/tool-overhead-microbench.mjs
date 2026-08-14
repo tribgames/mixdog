@@ -1,12 +1,12 @@
 // Micro-bench: fixed per-call overhead of the shell tool path vs raw spawn.
-// Usage: node scripts/tool-overhead-microbench.mjs [bash|powershell] [N]
+// Usage: node scripts/tool-overhead-microbench.mjs [N]
 // Prints per-call ms for executeBashTool('echo hi') and raw child spawn,
 // so (tool - raw) isolates our tool-layer overhead (policy, wrappers, I/O).
 import { spawn } from 'node:child_process';
 import { executeBashTool } from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
 
-const shell = process.argv[2] || (process.platform === 'win32' ? 'powershell' : 'bash');
-const N = Number(process.argv[3] || 15);
+const shell = process.platform === 'win32' ? 'powershell' : 'bash';
+const N = Number(process.argv[2] || 15);
 
 const stats = (arr) => {
   const s = [...arr].sort((a, b) => a - b);
@@ -30,7 +30,7 @@ const rawOnce = () => new Promise((resolveDone, reject) => {
 });
 
 const toolOnce = async () => {
-  const out = await executeBashTool({ command: 'echo hi', shell }, process.cwd(), {});
+  const out = await executeBashTool({ command: 'echo hi' }, process.cwd(), {});
   return String(out);
 };
 

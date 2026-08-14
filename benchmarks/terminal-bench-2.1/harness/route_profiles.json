@@ -217,6 +217,40 @@
         }
       }
     },
+    "grok46-xhigh": {
+      "routes": {
+        "lead": {
+          "provider": "grok-oauth",
+          "model": "grok-4.6",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "worker": {
+          "provider": "grok-oauth",
+          "model": "grok-4.6",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "heavy-worker": {
+          "provider": "grok-oauth",
+          "model": "grok-4.6",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "reviewer": {
+          "provider": "grok-oauth",
+          "model": "grok-4.6",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "debugger": {
+          "provider": "grok-oauth",
+          "model": "grok-4.6",
+          "effort": "xhigh",
+          "fast": true
+        }
+      }
+    },
     "fable-xhigh": {
       "leadFallback": {
         "provider": "anthropic-oauth",

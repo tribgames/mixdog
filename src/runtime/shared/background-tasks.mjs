@@ -36,24 +36,6 @@ function compactText(value, max = 32_000) {
   return text.length > max ? `${text.slice(0, max)}\n\n[background task output truncated]` : text;
 }
 
-export function resolveExecutionMode(args = {}, defaultMode = 'sync') {
-  const explicit = clean(args.mode || args.executionMode || args.execution_mode).toLowerCase();
-  if (['async', 'background', 'detached'].includes(explicit)) return 'async';
-  if (['sync', 'foreground', 'inline', 'wait'].includes(explicit)) return 'sync';
-  if (args.async === true || args.background === true) return 'async';
-  if (args.async === false || args.background === false) return 'sync';
-  if (args.wait === true) return 'sync';
-  if (args.wait === false) return 'async';
-  return defaultMode === 'async' ? 'async' : 'sync';
-}
-
-export function executionModeSchemaDescription(defaultMode = 'sync') {
-  if (defaultMode === 'async') {
-    return 'sync = inline result; async = task_id + completion notification. Default async.';
-  }
-  return 'sync = inline result and may auto-background after the blocking budget; async = immediate task_id + completion notification. Default sync.';
-}
-
 export function taskIdFromArgs(args = {}) {
   return clean(args.task_id);
 }

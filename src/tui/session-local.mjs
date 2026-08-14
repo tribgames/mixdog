@@ -55,6 +55,7 @@ import {
 import {
   buildExecutionResponseToolItem,
   parseBackgroundTaskEnvelope,
+  parseModelVisibleCompletionWrapper,
   parseSyntheticAgentMessage,
   toolResultStatus,
   isErrorToolStatus,
@@ -646,7 +647,7 @@ export async function createLocalSessionRuntime({
     itemStateExtra: transcriptHistoryFlags,
   });
   const upsertSyntheticToolItem = (text, id = nextId(), parsed = null) => {
-    const synthetic = parseSyntheticAgentMessage(text);
+    const synthetic = parsed || parseSyntheticAgentMessage(text);
     if (!synthetic) return false;
     const label = synthetic.label || 'notification';
     const args = synthetic.args || {
@@ -672,6 +673,10 @@ export async function createLocalSessionRuntime({
     return true;
   };
   const pushUserOrSyntheticItem = (text, id = nextId(), origin = 'user', extra = null) => {
+    if (origin === 'injected') {
+      const completion = parseModelVisibleCompletionWrapper(text);
+      if (completion && upsertSyntheticToolItem(text, id, completion)) return;
+    }
     // The lenient shape-only wrapper check is display-suppression only and
     // must never hide a real, directly-typed/pasted user prompt just because
     // it happens to resemble "instruction + Result: + quoted body". Only

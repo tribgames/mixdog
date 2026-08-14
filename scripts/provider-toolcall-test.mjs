@@ -1732,6 +1732,10 @@ test('openai-oauth-ws (tool_search): valid args / object / empty preserved', () 
 test('Grok schema flatten keeps grep pattern required', () => {
     const grep = BUILTIN_TOOLS.find((tool) => tool.name === 'grep');
     assert.deepEqual(grep?.inputSchema?.required, ['pattern']);
+    for (const key of ['pattern', 'path', 'glob']) {
+        assert.equal(grep?.inputSchema?.properties?.[key]?.type, 'string');
+        assert.equal(grep?.inputSchema?.properties?.[key]?.anyOf, undefined);
+    }
     const [normalized] = normalizeGrokToolSchemas([grep]);
     assert.equal(normalized.inputSchema.anyOf, undefined);
     assert.equal(normalized.inputSchema.oneOf, undefined);

@@ -88,7 +88,11 @@ bench-tui-stutter-results-*.md
 # target/ is rebuilt locally and by .github/workflows/patch-release.yml)
 native/mixdog-patch/target/
 native/mixdog-graph/target/
+native/mixdog-graph/target-verify/
 native/mixdog-token/target/
+native/mixdog-spawn/target/
+/native-tools/
+/.native-tools-install-*/
 
 .tmp-voice/
 

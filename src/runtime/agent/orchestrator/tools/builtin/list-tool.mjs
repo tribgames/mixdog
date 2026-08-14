@@ -1,4 +1,5 @@
-import { readdirSync, watch } from 'fs';
+import { watch } from 'fs';
+import { readdir, stat } from 'fs/promises';
 import { basename, isAbsolute, relative } from 'path';
 import {
     coerceReadFamilyPathArg,
@@ -17,7 +18,6 @@ import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outc
 import {
     cacheGet,
     cacheSet,
-    getCachedReadOnlyStat,
     lstatPathsForMtime,
     statCacheSet,
     statPathsForMtime,
@@ -73,12 +73,6 @@ function _findOutputBudgetBytes(options = {}) {
     ));
 }
 
-function _splitFindBudget(total, count, index) {
-    if (!(count > 0)) return 0;
-    const base = Math.floor(total / count);
-    return base + (index < (total % count) ? 1 : 0);
-}
-
 // Entry paths render relative to the listed root — the caller supplied the
 // base via `path`, so repeating the absolute prefix on every row is pure
 // duplication (~2KB per 80 rows). Falls back to the absolute form when the
@@ -107,45 +101,6 @@ function _metaModeOctal(mode) {
 }
 
 export async function executeListTool(args, workDir, options = {}) {
-    args.path = coerceReadFamilyPathArg(args.path, workDir);
-    if (Array.isArray(args.path)) {
-        const list = [...new Set(args.path.map((p) => (typeof p === 'string' ? p.trim() : '')).filter((p) => p.length > 0))];
-        const targets = list;
-        if (targets.length > 1) {
-            // Full parallel fan-out: each target is an independent listing
-            // (own guard/cache/reachability), so run them concurrently instead
-            // of serially. Bodies land in a fixed-index array so the emitted
-            // section order still matches the caller's `path[]` order.
-            // Collapse semantic-duplicate targets: two spellings that resolve to
-            // the same directory (e.g. `foo` and `./foo`) are stat'd/walked ONCE.
-            // Each caller label keeps its own `# list <p>` section reusing the
-            // shared body, so output stays byte-identical — only the duplicate
-            // concurrent walk is eliminated.
-            const resolveKey = (p) => {
-                try { return normalizeOutputPath(resolveAgainstCwd(normalizeInputPath(p), workDir)); }
-                catch { return p; }
-            };
-            const keyByIndex = new Array(targets.length);
-            const uniqueKeys = [];
-            const repByKey = new Map();
-            for (let i = 0; i < targets.length; i++) {
-                const k = resolveKey(targets[i]);
-                keyByIndex[i] = k;
-                if (!repByKey.has(k)) { repByKey.set(k, targets[i]); uniqueKeys.push(k); }
-            }
-            const bodyByKey = new Map();
-            await Promise.all(uniqueKeys.map(async (k) => {
-                try {
-                    bodyByKey.set(k, await executeListTool({ ...args, path: repByKey.get(k) }, workDir, options));
-                } catch (err) {
-                    bodyByKey.set(k, `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`);
-                }
-            }));
-            const sections = targets.map((p, i) => `# list ${p}\n${bodyByKey.get(keyByIndex[i])}`);
-            return sections.join('\n\n');
-        }
-        args.path = targets[0];
-    }
     if (typeof args.fuzzy === 'string' && args.fuzzy.length > 0) {
         return executeFuzzyFindTool({ ...args, query: args.fuzzy }, workDir, options);
     }
@@ -191,7 +146,10 @@ export async function executeListTool(args, workDir, options = {}) {
     // stat'd once instead of immediately re-stat'd by getCachedReadOnlyStat.
     if (_preStat) statCacheSet(fullPath, _preStat);
     let st;
-    try { st = getCachedReadOnlyStat(fullPath); }
+    try {
+        st = _preStat || await stat(fullPath);
+        if (!_preStat) statCacheSet(fullPath, st);
+    }
     catch (err) {
         return await readFamilyPathEnoentOrError(workDir, fullPath, inputPath, args, options, err, executeListTool);
     }
@@ -290,7 +248,7 @@ export async function executeListTool(args, workDir, options = {}) {
         if (hidden === false) {
             let hasHidden = false;
             try {
-                const entries = readdirSync(fullPath, { withFileTypes: true });
+                const entries = await readdir(fullPath, { withFileTypes: true });
                 hasHidden = entries.some(e => e.name && e.name.startsWith('.'));
             } catch {}
             if (hasHidden) filterParts.push(`hidden=false (dotfiles present — pass hidden:true to include)`);
@@ -342,7 +300,10 @@ export async function executeTreeTool(args, workDir, options = {}) {
     catch (err) { return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`; }
     if (_preStat) statCacheSet(fullPath, _preStat);
     let st;
-    try { st = getCachedReadOnlyStat(fullPath); }
+    try {
+        st = _preStat || await stat(fullPath);
+        if (!_preStat) statCacheSet(fullPath, st);
+    }
     catch (err) {
         return await readFamilyPathEnoentOrError(workDir, fullPath, inputPath, args, options, err, executeListTool);
     }
@@ -632,7 +593,7 @@ async function getBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMo
     }
     // Single-flight is independent of the persistent TTL cache. Even when
     // MIXDOG_FIND_ENUM_CACHE_TTL_MS=0 disables reuse across calls, concurrent
-    // query[] fan-out should still share the one broad `rg --files` sweep
+    // scalar find calls should still share the one broad `rg --files` sweep
     // instead of spawning N identical enumerations.
     const inflight = FIND_ENUM_INFLIGHT.get(key);
     if (inflight) return subscribeToFindEnumeration(key, inflight, signal);
@@ -726,7 +687,6 @@ function escapeFindGlobLiteral(value) {
 }
 
 async function getTargetedFindEnumeration({
-    context,
     queries,
     root,
     hidden,
@@ -736,9 +696,6 @@ async function getTargetedFindEnumeration({
     signal,
 }) {
     const terms = [...new Set((queries || []).map((query) => String(query || '').trim()).filter(Boolean))];
-    const key = JSON.stringify([root, hidden, depth ?? '', includeNoise, terms]);
-    const runs = context?.targetedRuns;
-    if (runs?.has(key)) return runs.get(key);
     // Reuse a WARM broad inventory only (cache peek). A cold cache goes
     // straight to the cheap targeted --iglob batch below: front-running the
     // full `--no-ignore` sweep made cold finds stall behind the serve bulk
@@ -837,7 +794,6 @@ async function getTargetedFindEnumeration({
             else signal.addEventListener('abort', onAbort, { once: true });
         }
     });
-    if (runs) runs.set(key, run);
     return run;
 }
 
@@ -846,67 +802,6 @@ async function getTargetedFindEnumeration({
 // routes here for hidden backward compatibility, but the model-facing tool is
 // `find`.
 export async function executeFuzzyFindTool(args, workDir, options = {}) {
-    if (Array.isArray(args.query)) {
-        const list = [...new Set(args.query.map((q) => (typeof q === 'string' ? q.trim() : '')).filter((q) => q.length > 0))];
-        const targets = list;
-        if (targets.length > 1) {
-            // head_limit is one call-level result budget, not a multiplier per
-            // query. Split it deterministically in caller order; if it cannot
-            // fund one result per query, return the remaining queries exactly.
-            const totalHeadLimit = normalizeListHeadLimit(args.head_limit, _findDefaultHeadLimit(25));
-            const activeCount = totalHeadLimit > 0
-                ? Math.min(targets.length, totalHeadLimit)
-                : targets.length;
-            const activeTargets = targets.slice(0, activeCount);
-            const omittedByHeadLimit = targets.slice(activeCount);
-            const notes = [];
-            if (omittedByHeadLimit.length) {
-                notes.push(
-                    `... [limit ${totalHeadLimit} exhausted across query[]; `
-                    + `retry query=${JSON.stringify(omittedByHeadLimit)}]`,
-                );
-            }
-            const sectionHeaders = activeTargets.map((query) => `# find ${query}\n`);
-            const separatorBytes = Math.max(0, activeTargets.length + notes.length - 1) * 2;
-            const fixedBytes = sectionHeaders.reduce(
-                (sum, header) => sum + Buffer.byteLength(header, 'utf8'),
-                separatorBytes + notes.reduce((sum, note) => sum + Buffer.byteLength(note, 'utf8'), 0),
-            );
-            const bodyBudget = Math.max(activeTargets.length, _findOutputBudgetBytes(options) - fixedBytes);
-            // Full parallelism is intentional. All sections share one common
-            // broad enumeration and one unioned ignored/truncated targeted pass,
-            // while each query receives a fair share of the call-level count and
-            // byte budgets before any aggregate result is assembled.
-            const batchContext = {
-                queries: activeTargets,
-                targetedRuns: new Map(),
-                itemsByFiles: new WeakMap(),
-            };
-            const bodies = await Promise.all(activeTargets.map(async (query, index) => {
-                const queryHeadLimit = totalHeadLimit > 0
-                    ? _splitFindBudget(totalHeadLimit, activeTargets.length, index)
-                    : 0;
-                const nestedOptions = {
-                    ...options,
-                    __findBatchContext: batchContext,
-                    __findOutputBudgetBytes: _splitFindBudget(bodyBudget, activeTargets.length, index),
-                };
-                try {
-                    return await executeFuzzyFindTool(
-                        { ...args, query, head_limit: queryHeadLimit },
-                        workDir,
-                        nestedOptions,
-                    );
-                } catch (err) {
-                    return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
-                }
-            }));
-            const sections = activeTargets.map((q, i) => `${sectionHeaders[i]}${bodies[i]}`);
-            sections.push(...notes);
-            return sections.join('\n\n');
-        }
-        args.query = targets[0];
-    }
     const query = String(args.query ?? args.fuzzy ?? '').trim();
     if (!query) return 'Error: find requires query.';
     const inputPath = normalizeInputPath(args.path) || '.';
@@ -947,10 +842,19 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
         recordLocalSearchCacheHit('result');
         return capFindResult(cached);
     }
-    if (headLimit > 0 && typeof options?.__runRg !== 'function') {
+    const nativeFuzzyImpl = typeof options?.__tryServeFuzzySearch === 'function'
+        ? options.__tryServeFuzzySearch
+        : tryServeFuzzySearch;
+    if (
+        headLimit > 0
+        && (
+            typeof options?.__runRg !== 'function'
+            || typeof options?.__tryServeFuzzySearch === 'function'
+        )
+    ) {
         const nativeStartedAt = performance.now();
         try {
-            const served = await tryServeFuzzySearch({
+            const served = await nativeFuzzyImpl({
                 query,
                 cwd: fullPath,
                 limit: headLimit + 1,
@@ -977,10 +881,28 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
                 }
                 return capFindResult(result);
             }
+            if (served?.partial) {
+                recordNativeSearchTiming(served);
+                recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'hit');
+                const matches = served.matches.slice(0, headLimit);
+                const lines = matches.length === 0
+                    ? [`(no fuzzy match yet for "${query}")`]
+                    : matches;
+                lines.push('... [search timed out; partial results shown — narrow path/query for a complete result]');
+                if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
+                return capFindResult(lines.join('\n'));
+            }
             recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'miss');
         } catch (error) {
             recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'error');
             if (options.signal?.aborted) throw error;
+            // Native fuzzy and broad enumeration use the same complete
+            // inventory. Retrying the broad pass after a fuzzy timeout repeats
+            // the same expensive walk and used to turn one Find call into two
+            // consecutive timeouts that killed the shared search server.
+            if (error?.code !== 'NATIVE_SEARCH_UNSUPPORTED') {
+                return capFindResult(`Error: ${normalizeErrorMessage(error instanceof Error ? error.message : String(error))}`);
+            }
         }
     }
     // Common discovery respects .gitignore even outside a Git repository.
@@ -1035,12 +957,7 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     }
     let rgTruncated = broadEnum.truncated;
     let rgPartial = broadEnum.partial;
-    const batchContext = options?.__findBatchContext;
-    let passOneItems = broadEnum.items || batchContext?.itemsByFiles?.get(broadEnum.files);
-    if (!passOneItems) {
-        passOneItems = prepareFuzzyItems(broadEnum.files);
-        batchContext?.itemsByFiles?.set(broadEnum.files, passOneItems);
-    }
+    const passOneItems = broadEnum.items || prepareFuzzyItems(broadEnum.files);
     const queryLower = query.toLowerCase();
     const rankLimit = headLimit > 0 ? headLimit + 1 : headLimit;
     const passOneRanked = fuzzyRank(query, passOneItems, rankLimit);
@@ -1053,8 +970,7 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     if (rgTruncated || rgPartial || !passOneHasCandidate) {
         try {
             const targeted = await getTargetedFindEnumeration({
-                context: batchContext,
-                queries: batchContext?.queries || [query],
+                queries: [query],
                 root: fullPath,
                 hidden,
                 depth,
@@ -1223,7 +1139,10 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
     catch (err) { return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`; }
     if (_preStat) statCacheSet(fullPath, _preStat);
     let rootStat;
-    try { rootStat = getCachedReadOnlyStat(fullPath); }
+    try {
+        rootStat = _preStat || await stat(fullPath);
+        if (!_preStat) statCacheSet(fullPath, rootStat);
+    }
     catch (err) {
         return await readFamilyPathEnoentOrError(workDir, fullPath, inputPath, args, options, err, executeFindFilesTool);
     }

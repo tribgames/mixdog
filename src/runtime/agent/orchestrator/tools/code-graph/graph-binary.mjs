@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { getPluginData } from '../../config.mjs';
 import { ensureGraphBinary, findCachedGraphBinary } from '../graph-binary-fetcher.mjs';
 import { acquire as acquireChildSpawnSlot } from '../../../../shared/child-spawn-gate.mjs';
+import { packageNativeToolPath } from '../../../../shared/native-tool-paths.mjs';
 import { CODE_GRAPH_BINARY_TIMEOUT_MS, CODE_GRAPH_MAX_FILES } from './constants.mjs';
 
 // ── Native graph binary (mixdog-graph) — single source of truth for
@@ -30,6 +31,8 @@ function _graphBinaryPath() {
   // (code-graph → tools → orchestrator → agent → runtime → src → root).
   const localBuild = pathResolve(moduleDir, '../../../../../../native/mixdog-graph/target/release', binName);
   if (existsSync(localBuild)) return localBuild;
+  const installed = packageNativeToolPath('graph');
+  if (existsSync(installed)) return installed;
   try { return findCachedGraphBinary(getPluginData()); } catch { return null; }
 }
 

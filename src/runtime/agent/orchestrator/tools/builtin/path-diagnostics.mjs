@@ -1,4 +1,5 @@
 import { readdirSync, statSync } from 'fs';
+import { readdir } from 'fs/promises';
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'path';
 import { homedir } from 'os';
 import { resolvePluginData, mixdogRoot } from '../../../../shared/plugin-paths.mjs';
@@ -21,6 +22,19 @@ export function findSimilarFile(fullPath) {
     } catch { return null; }
 }
 
+export async function findSimilarFileAsync(fullPath) {
+    try {
+        const dir = dirname(fullPath);
+        const base = basename(fullPath);
+        const stem = basename(fullPath, extname(fullPath));
+        const entries = await readdir(dir);
+        const sameStem = entries.find((e) => e !== base && basename(e, extname(e)) === stem);
+        if (sameStem) return join(dir, sameStem);
+        const caseMatch = entries.find((e) => e !== base && e.toLowerCase() === base.toLowerCase());
+        return caseMatch ? join(dir, caseMatch) : null;
+    } catch { return null; }
+}
+
 // Sibling listing for ENOENT diagnostics. Pure information extension —
 // callers always receive the directory's existing entries (capped) inline
 // in the error hint, removing the recovery cost of a follow-up list/glob
@@ -29,6 +43,12 @@ export function findSimilarFile(fullPath) {
 export function listSiblings(dir, limit = 12) {
     try {
         return readdirSync(dir).filter((n) => !n.startsWith('.')).slice(0, limit);
+    } catch { return []; }
+}
+
+export async function listSiblingsAsync(dir, limit = 12) {
+    try {
+        return (await readdir(dir)).filter((n) => !n.startsWith('.')).slice(0, limit);
     } catch { return []; }
 }
 
