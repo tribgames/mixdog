@@ -4,7 +4,7 @@ const FLAG_OPTIONS = new Set([
   '--web-search', '--memory', '--json',
 ]);
 const EXEC_UNSUPPORTED_FLAGS = new Set([
-  '--readonly', '--remote', '--onboarding', '--web-search', '--memory',
+  '--readonly', '--remote', '--onboarding',
 ]);
 const HEADLESS_WORKFLOW_ERROR = 'option --workflow is not supported for mixdog exec';
 

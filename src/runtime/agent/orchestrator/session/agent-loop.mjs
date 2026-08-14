@@ -1009,6 +1009,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // server-side cache prefix stable.
         const _assistantTurnMsg = attachAssistantTranscriptMetadata({
             role: 'assistant',
+            createdAt: Date.now(),
             // Sub-agent tool-call turns carry only mid-turn preamble in
             // response.content (the real result rides the later final-answer
             // turn). Blank it so it never accumulates as input tokens.

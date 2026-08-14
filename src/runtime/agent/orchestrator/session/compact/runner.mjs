@@ -51,11 +51,12 @@ import {
 import { buildPostCompactFileAttachment } from './file-reattach.mjs';
 import {
     collectToolOutcomeLines,
-    collectWorkingFiles,
+    collectWorkingFileGroups,
     composeRecallHandoff,
     fitRecallHandoffText,
     conversationLinesFromMemoryText,
     excludeTailFromConversation,
+    stripWorkingFileSections,
 } from './handoff.mjs';
 
 // Post-compact file re-attachment (claude-code parity): re-inject fresh reads
@@ -839,22 +840,38 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
     const recallRoom = (Number.isFinite(recallTokenCap) && recallTokenCap > 0)
         ? Math.min(recallRoomUncapped, Math.max(512, recallTokenCap - tailTokens))
         : recallRoomUncapped;
-    const toolLines = collectToolOutcomeLines(live);
-    const workingFiles = collectWorkingFiles(live, 20, { cwd: opts.cwd });
+    const priorWithoutWorkingFiles = stripWorkingFileSections(recallFit.prior);
+    const priorLines = new Set(
+        priorWithoutWorkingFiles
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean),
+    );
+    const toolLines = collectToolOutcomeLines(live)
+        .filter((line) => !priorLines.has(String(line || '').trim()));
+    const workingFiles = collectWorkingFileGroups(live, undefined, {
+        cwd: opts.cwd,
+        previousSummary: recallFit.prior,
+        now: Date.now(),
+    });
     const conversationLines = excludeTailFromConversation(
         conversationLinesFromMemoryText(recallFit.recall),
         recallTail,
-    );
+    ).filter((line) => !priorLines.has(String(line || '').trim()));
     const composedRecall = composeRecallHandoff({
         sessionId: opts.sessionId || '',
         conversationLines,
         toolLines,
         workingFiles,
     });
-    const fittedRecall = fitRecallHandoffText(composedRecall, Math.max(256, recallRoom - 400));
-    const priorPart = conversationLines.length > 0
-        ? ''
-        : recallFit.prior;
+    const priorRoom = priorWithoutWorkingFiles
+        ? Math.max(256, Math.floor((recallRoom - 200) * 0.55))
+        : 0;
+    const currentRoom = Math.max(256, recallRoom - priorRoom - 200);
+    const fittedRecall = fitRecallHandoffText(composedRecall, currentRoom);
+    const priorPart = priorWithoutWorkingFiles
+        ? fitRecallHandoffText(priorWithoutWorkingFiles, priorRoom)
+        : '';
     const summaryMessage = fitRecallFastTrackSummaryMessage(
         oldHistory,
         fittedRecall,
@@ -911,7 +928,7 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
         recallEmpty: !recallFit.recall,
         priorEmpty: !recallFit.prior,
         recallTruncatedInSummary: !!recallFit.recall && !summaryContent.includes(recallFit.recall),
-        priorTruncatedInSummary: !!recallFit.prior && !summaryContent.includes(recallFit.prior),
+        priorTruncatedInSummary: !!priorPart && !summaryContent.includes(priorPart),
         tailTruncated: recallTail.some((m) => messageContentHasMarker(m, RECALL_TAIL_TRUNCATION_MARKER) || messageContentHasMarker(m, RECALL_TAIL_SHORT_TRUNCATION_MARKER)),
         fileReattached: reattach.reattached,
         tailOptions: recallTailOpts,

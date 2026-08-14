@@ -1,7 +1,6 @@
 import { estimateTokens } from '../context-utils.mjs';
 
 const CONVERSATION_LINE_CHARS = 800;
-const WORKING_FILE_CAP = 20;
 const TOOL_OUTCOME_CHARS = 80;
 
 function textOf(m) {
@@ -42,13 +41,15 @@ function normalizeWorkingPath(value, cwd) {
 
 function pathsFromTool(name, args) {
     const out = [];
-    const rawPath = args.path;
-    const candidates = Array.isArray(rawPath)
-        ? rawPath
-        : String(rawPath || '').split(',');
-    for (const item of candidates) {
-        const value = typeof item === 'string' ? item.trim() : '';
-        if (isFilePath(value)) out.push(value);
+    const rawPaths = [args.path, name === 'code_graph' ? args.files : null];
+    for (const rawPath of rawPaths) {
+        const candidates = Array.isArray(rawPath)
+            ? rawPath
+            : String(rawPath || '').split(',');
+        for (const item of candidates) {
+            const value = typeof item === 'string' ? item.trim() : '';
+            if (isFilePath(value)) out.push(value);
+        }
     }
     if (name === 'apply_patch' && typeof args.patch === 'string') {
         for (const line of args.patch.split('\n')) {
@@ -59,28 +60,206 @@ function pathsFromTool(name, args) {
     return out;
 }
 
-export function collectWorkingFiles(messages, cap = WORKING_FILE_CAP, { cwd } = {}) {
-    const limit = Math.max(1, Math.floor(Number(cap) || WORKING_FILE_CAP));
-    const seen = new Set();
-    const out = [];
-    for (let i = (messages || []).length - 1; i >= 0 && out.length < limit; i -= 1) {
+function normalizeEventTime(value) {
+    if (value == null || value === '') return null;
+    const millis = typeof value === 'number' ? value : Date.parse(String(value));
+    if (!Number.isFinite(millis) || millis <= 0) return null;
+    return new Date(millis).toISOString();
+}
+
+function newerEventTime(left, right) {
+    const leftMs = left ? Date.parse(left) : 0;
+    const rightMs = right ? Date.parse(right) : 0;
+    return rightMs > leftMs ? right : left;
+}
+
+function toolEventTime(message, toolCall, resultMessage, fallback) {
+    const candidates = [
+        resultMessage?.createdAt,
+        resultMessage?.timestamp,
+        toolCall?.createdAt,
+        toolCall?.timestamp,
+        message?.createdAt,
+        message?.timestamp,
+        message?.meta?.createdAt,
+        fallback,
+    ];
+    for (const candidate of candidates) {
+        const normalized = normalizeEventTime(candidate);
+        if (normalized) return normalized;
+    }
+    return null;
+}
+
+function parseWorkingEntry(value) {
+    const raw = String(value || '').trim();
+    const metadata = /\s+\[([^\]]+)\]\s*$/.exec(raw);
+    const path = metadata ? raw.slice(0, metadata.index).trim() : raw;
+    const fields = {};
+    for (const part of String(metadata?.[1] || '').split(';')) {
+        const hit = /^\s*(editedAt|seenAt)=(.+?)\s*$/.exec(part);
+        if (hit) fields[hit[1]] = normalizeEventTime(hit[2]);
+    }
+    return {
+        path,
+        editedAt: fields.editedAt || null,
+        seenAt: fields.seenAt || null,
+    };
+}
+
+function priorWorkingFileGroups(text, cwd) {
+    const modified = [];
+    const referenced = [];
+    let section = null;
+    for (const raw of String(text || '').split('\n')) {
+        const line = raw.trim();
+        if (line === '## Working files') {
+            section = 'referenced';
+            continue;
+        }
+        if (!section) continue;
+        if (line === '### Modified') {
+            section = 'modified';
+            continue;
+        }
+        if (line === '### Referenced') {
+            section = 'referenced';
+            continue;
+        }
+        if (/^##\s+/.test(line) || /^<\/?prior-compacted-context>$/.test(line)) {
+            section = null;
+            continue;
+        }
+        const hit = /^-\s+(.+)$/.exec(line);
+        if (!hit || hit[1] === '(none)' || /^\+\d+\s+omitted$/.test(hit[1])) continue;
+        const entry = parseWorkingEntry(hit[1]);
+        entry.path = normalizeWorkingPath(entry.path, cwd);
+        if (!isFilePath(entry.path)) continue;
+        if (section === 'modified') {
+            modified.push(entry);
+        } else {
+            referenced.push(entry);
+        }
+    }
+    return { modified, referenced };
+}
+
+function mergeWorkingEntries(current, prior, limit, cwd) {
+    const entries = new Map();
+    let order = 0;
+    const touch = (raw, kind) => {
+        const path = normalizeWorkingPath(raw?.path, cwd);
+        if (!isFilePath(path)) return;
+        const key = path.toLowerCase();
+        let entry = entries.get(key);
+        if (!entry) {
+            entry = {
+                path,
+                editedAt: null,
+                seenAt: null,
+                modified: false,
+                order: order++,
+            };
+            entries.set(key, entry);
+        }
+        entry.seenAt = newerEventTime(entry.seenAt, normalizeEventTime(raw?.seenAt));
+        if (kind === 'modified') {
+            entry.modified = true;
+            entry.editedAt = newerEventTime(entry.editedAt, normalizeEventTime(raw?.editedAt));
+        }
+    };
+    for (const entry of current.modified) touch(entry, 'modified');
+    for (const entry of current.referenced) touch(entry, 'referenced');
+    for (const entry of prior.modified) touch(entry, 'modified');
+    for (const entry of prior.referenced) touch(entry, 'referenced');
+    const sorted = [...entries.values()].sort((left, right) => {
+        const leftTime = Date.parse(left.editedAt || left.seenAt || '') || 0;
+        const rightTime = Date.parse(right.editedAt || right.seenAt || '') || 0;
+        return rightTime - leftTime || left.order - right.order;
+    });
+    const modified = sorted.filter((entry) => entry.modified);
+    const referenced = sorted.filter((entry) => !entry.modified);
+    if (!Number.isFinite(limit)) return { modified, referenced };
+    const keptModified = modified.slice(0, limit);
+    return {
+        modified: keptModified,
+        referenced: referenced.slice(0, Math.max(0, limit - keptModified.length)),
+    };
+}
+
+export function collectWorkingFileGroups(messages, cap = Number.POSITIVE_INFINITY, {
+    cwd,
+    previousSummary,
+    now = Date.now(),
+} = {}) {
+    const numericCap = Number(cap);
+    const limit = Number.isFinite(numericCap) && numericCap > 0
+        ? Math.floor(numericCap)
+        : Number.POSITIVE_INFINITY;
+    const results = indexToolResults(messages);
+    const resultMessages = indexToolResultMessages(messages);
+    const currentModified = [];
+    const currentReferenced = [];
+    const supported = new Set(['read', 'apply_patch', 'grep', 'glob', 'find', 'code_graph', 'list']);
+    for (let i = (messages || []).length - 1; i >= 0; i -= 1) {
         const m = messages[i];
         if (m?.role !== 'assistant' || !Array.isArray(m.toolCalls)) continue;
-        for (let j = m.toolCalls.length - 1; j >= 0 && out.length < limit; j -= 1) {
+        for (let j = m.toolCalls.length - 1; j >= 0; j -= 1) {
             const tc = m.toolCalls[j];
             const name = toolName(tc);
-            if (!['read', 'apply_patch', 'grep', 'glob', 'find'].includes(name)) continue;
+            if (!supported.has(name)) continue;
+            const resultMessage = resultMessages.get(String(tc.id || tc.toolCallId || ''));
+            if (name === 'apply_patch') {
+                const output = results.get(String(tc.id || tc.toolCallId || ''));
+                if (/Error:|failed|rejected/i.test(String(output || ''))) continue;
+            }
+            const eventTime = toolEventTime(m, tc, resultMessage, now);
             for (const p of pathsFromTool(name, parseArgs(tc))) {
-                const normalized = normalizeWorkingPath(p, cwd);
-                const key = normalized.toLowerCase();
-                if (seen.has(key)) continue;
-                seen.add(key);
-                out.push(normalized);
-                if (out.length >= limit) break;
+                const path = normalizeWorkingPath(p, cwd);
+                if (!path) continue;
+                if (name === 'apply_patch') {
+                    currentModified.push({
+                        path,
+                        editedAt: eventTime,
+                        seenAt: eventTime,
+                    });
+                } else {
+                    currentReferenced.push({
+                        path,
+                        editedAt: null,
+                        seenAt: eventTime,
+                    });
+                }
             }
         }
     }
-    return out;
+    const prior = priorWorkingFileGroups(previousSummary, cwd);
+    return mergeWorkingEntries({
+        modified: currentModified,
+        referenced: currentReferenced,
+    }, prior, limit, cwd);
+}
+
+export function collectWorkingFiles(messages, cap = Number.POSITIVE_INFINITY, options = {}) {
+    const groups = collectWorkingFileGroups(messages, cap, options);
+    return [...groups.modified, ...groups.referenced].map((entry) => entry.path);
+}
+
+export function stripWorkingFileSections(text) {
+    const out = [];
+    let skipping = false;
+    for (const raw of String(text || '').split('\n')) {
+        const line = raw.trim();
+        if (line === '## Working files') {
+            skipping = true;
+            continue;
+        }
+        if (skipping && (/^##\s+/.test(line) || /^<\/?prior-compacted-context>$/.test(line))) {
+            skipping = false;
+        }
+        if (!skipping) out.push(raw);
+    }
+    return out.join('\n').replace(/\n{3,}/g, '\n\n');
 }
 
 function indexToolResults(messages) {
@@ -89,6 +268,16 @@ function indexToolResults(messages) {
         if (m?.role !== 'tool') continue;
         const id = String(m.toolCallId || m.tool_call_id || '');
         if (id) map.set(id, textOf(m));
+    }
+    return map;
+}
+
+function indexToolResultMessages(messages) {
+    const map = new Map();
+    for (const message of messages || []) {
+        if (message?.role !== 'tool') continue;
+        const id = String(message.toolCallId || message.tool_call_id || '');
+        if (id) map.set(id, message);
     }
     return map;
 }
@@ -215,7 +404,31 @@ export function composeRecallHandoff({
         parts.push('', '## Tool results', ...toolLines);
     }
     parts.push('', '## Working files');
-    parts.push(...(workingFiles.length ? workingFiles.map((p) => `- ${p}`) : ['- (none)']));
+    const groups = Array.isArray(workingFiles)
+        ? {
+            modified: [],
+            referenced: workingFiles.map((entry) => (
+                typeof entry === 'string' ? { path: entry, seenAt: null } : entry
+            )),
+        }
+        : {
+            modified: Array.isArray(workingFiles?.modified) ? workingFiles.modified : [],
+            referenced: Array.isArray(workingFiles?.referenced) ? workingFiles.referenced : [],
+        };
+    const formatEntry = (entry, modified) => {
+        const normalized = typeof entry === 'string' ? { path: entry } : entry;
+        const fields = [];
+        if (modified) fields.push(`editedAt=${normalized?.editedAt || 'unknown'}`);
+        fields.push(`seenAt=${normalized?.seenAt || normalized?.editedAt || 'unknown'}`);
+        return `- ${normalized?.path || ''} [${fields.join('; ')}]`;
+    };
+    if (groups.modified.length) {
+        parts.push('### Modified', ...groups.modified.map((entry) => formatEntry(entry, true)));
+    }
+    if (groups.referenced.length) {
+        parts.push('### Referenced', ...groups.referenced.map((entry) => formatEntry(entry, false)));
+    }
+    if (!groups.modified.length && !groups.referenced.length) parts.push('- (none)');
     return parts.join('\n');
 }
 
@@ -240,8 +453,48 @@ export function fitRecallHandoffText(text, maxTokens) {
         candidate = `${prefix}${kept.join('\n')}${suffix}`;
     }
     if (estimateTokens(candidate) > cap && start >= lines.length) {
-        const withoutTools = candidate.replace(/\n## Tool results\n[\s\S]*?(?=\n## Working files)/, '\n');
-        if (estimateTokens(withoutTools) <= cap) return withoutTools;
+        candidate = candidate.replace(/\n## Tool results\n[\s\S]*?(?=\n## Working files)/, '\n');
+    }
+    if (estimateTokens(candidate) <= cap) return candidate;
+    const rows = candidate.split('\n');
+    const referencedAt = rows.findIndex((line) => line.trim() === '### Referenced');
+    if (referencedAt < 0) return candidate;
+    let referencedEnd = referencedAt + 1;
+    while (referencedEnd < rows.length && !/^#{2,3}\s+/.test(rows[referencedEnd].trim())) {
+        referencedEnd += 1;
+    }
+    const references = rows
+        .slice(referencedAt + 1, referencedEnd)
+        .filter((line) => /^-\s+/.test(line) && !/^\-\s+\+\d+\s+omitted$/.test(line));
+    const prefixRows = rows.slice(0, referencedAt + 1);
+    const suffixRows = rows.slice(referencedEnd);
+    let lo = 0;
+    let hi = references.length;
+    let best = -1;
+    while (lo <= hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        const omitted = references.length - mid;
+        const next = [
+            ...prefixRows,
+            ...references.slice(0, mid),
+            ...(omitted > 0 ? [`- +${omitted} omitted`] : []),
+            ...suffixRows,
+        ].join('\n');
+        if (estimateTokens(next) <= cap) {
+            best = mid;
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    if (best >= 0) {
+        const omitted = references.length - best;
+        return [
+            ...prefixRows,
+            ...references.slice(0, best),
+            ...(omitted > 0 ? [`- +${omitted} omitted`] : []),
+            ...suffixRows,
+        ].join('\n');
     }
     return candidate;
 }
