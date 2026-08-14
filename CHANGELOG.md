@@ -5,6 +5,12 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Headless exec now runs a true solo surface by default: web search and
+  memory tools stay off unless --web-search / --memory opt back in, shell
+  child processes inherit an enforced no-egress proxy (loopback stays
+  reachable), and the session environment line states network=offline so
+  models never attempt web access.
+
 ## v0.9.128 - 2026-08-14
 
 - Exploration tools now finish at the search round: grep spends its output
