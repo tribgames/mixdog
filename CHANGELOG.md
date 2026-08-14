@@ -5,6 +5,10 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Mixdog now installs graph, search, process, patch, and token native engines
+  as one required platform package; product runtimes never download tool
+  binaries, while app releases reuse cached immutable native assets.
+
 ## v0.9.126 - 2026-08-14
 
 - Native search now handles the complete internal grep/find contract, preserves

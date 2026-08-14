@@ -69,9 +69,12 @@ jobs:
           console.log(`Verified release identity ${tag}.`);
           NODE
 
-      # Validate every bundled native manifest before install or publish.
-      - name: Verify bundled release assets
-        run: node scripts/verify-release-assets.mjs
+      # Native package assembly below downloads and hash-verifies all four
+      # platform assets once behind a versioned cache. This gate validates
+      # metadata only, avoiding a duplicate all-platform download on every app
+      # release.
+      - name: Verify release asset metadata
+        run: node scripts/verify-release-assets.mjs --metadata-only
 
       - name: Install
         run: npm ci --prefer-offline --no-audit --no-fund

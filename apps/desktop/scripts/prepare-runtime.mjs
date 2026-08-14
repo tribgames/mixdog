@@ -294,7 +294,7 @@ async function prepareRuntime(manifest, fingerprint) {
       // @electron/asar matches this against absolute Windows paths with
       // matchBase enabled. A basename glob is therefore portable; **/*.node is
       // not, because minimatch treats Windows separators differently.
-      unpack: '*.{node,dll,dylib,so,so.*}',
+      unpack: '{*.{node,dll,dylib,so,so.*,exe},mixdog-{graph,spawn,patch}}',
     }));
 
     const archiveEntries = new Set(
@@ -304,6 +304,8 @@ async function prepareRuntime(manifest, fingerprint) {
     const embeddingNapiRoot = `/${ortArchiveRoot}/bin/napi-v3`;
     const embeddingPlatformRoot = `${embeddingNapiRoot}/${embeddingTarget.platform}`;
     const embeddingBinaryRoot = `/${ortArchiveRoot}/bin/napi-v3/${embeddingTarget.platform}/${embeddingTarget.arch}`;
+    const nativePackageRoot = `/node_modules/mixdog-native-${embeddingTarget.key}`;
+    const executableSuffix = embeddingTarget.platform === 'win32' ? '.exe' : '';
     for (const required of [
       '/package.json',
       '/node_modules/mixdog/package.json',
@@ -313,6 +315,11 @@ async function prepareRuntime(manifest, fingerprint) {
       '/node_modules/@huggingface/transformers/dist/transformers.node.mjs',
       `/${ortArchiveRoot}/package.json`,
       `${embeddingBinaryRoot}/onnxruntime_binding.node`,
+      `${nativePackageRoot}/native-manifest.json`,
+      `${nativePackageRoot}/bin/mixdog-graph${executableSuffix}`,
+      `${nativePackageRoot}/bin/mixdog-spawn${executableSuffix}`,
+      `${nativePackageRoot}/bin/mixdog-patch${executableSuffix}`,
+      `${nativePackageRoot}/bin/mixdog-token.node`,
     ]) {
       if (!archiveEntries.has(required)) {
         throw new Error(`Runtime archive is incomplete: missing ${required}`);
@@ -330,9 +337,17 @@ async function prepareRuntime(manifest, fingerprint) {
     if ([...archiveEntries].some((entry) => /\/onnxruntime-web\/(?:dist|lib)\//.test(entry))) {
       throw new Error('Runtime archive contains unused onnxruntime-web payloads.');
     }
+    const foreignNativePackage = [...archiveEntries].find((entry) => (
+      entry.startsWith('/node_modules/mixdog-native-')
+      && !entry.startsWith(`${nativePackageRoot}/`)
+    ));
+    if (foreignNativePackage) {
+      throw new Error(`Runtime archive contains a foreign native package: ${foreignNativePackage}`);
+    }
 
     const nativeBinaryEntries = [...archiveEntries].filter(
-      (entry) => /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(entry),
+      (entry) => /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(entry)
+        || entry.startsWith(`${nativePackageRoot}/bin/`),
     );
     await timed('native-module-mirror', async () => {
       for (const entry of nativeBinaryEntries) {

@@ -1,6 +1,6 @@
 {
   "version": "0.7.25",
-  "_comment": "Rewritten by .github/workflows/patch-release.yml on each tagged release. assets maps platformKey (process.platform-process.arch, e.g. win32-x64, linux-x64, darwin-arm64) to { url, sha256 } of the mixdog-patch binary on the GitHub release. A local cargo build under native/mixdog-patch/target/release always takes precedence; otherwise the binary is fetched per this manifest into the data dir (apply is native-only — no JS apply engine).",
+  "_comment": "Rewritten by .github/workflows/patch-release.yml on each tagged release. assets maps platformKey to the immutable binary used to assemble required platform-native npm packages. Runtime download fallback is forbidden.",
   "assets": {
     "darwin-arm64": {
       "url": "https://github.com/tribgames/mixdog/releases/download/patch-v0.7.25/mixdog-patch-darwin-arm64",

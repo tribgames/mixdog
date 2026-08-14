@@ -9,6 +9,7 @@ import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { hiddenSpawnOpts } from '../../../../shared/spawn-flags.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
+import { graphBinaryPath } from '../code-graph/graph-binary.mjs';
 
 const RESTART_BACKOFF_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -29,9 +30,9 @@ function _setServerReferenced(server, referenced) {
 
 function _resolveBinary() {
   if (_binaryPath !== undefined) return _binaryPath;
-  // The graph and resident-search protocols ship in the same executable.
-  // Honor either override synchronously so a first grep never races the lazy
-  // graph module import while an explicitly injected binary already exists.
+  // The graph and resident-search protocols ship in the same required
+  // platform package. Resolve synchronously: first grep must never race a
+  // dynamic import or a runtime download.
   const explicit = String(
     process.env.MIXDOG_SEARCH_SERVER_BIN
     || process.env.MIXDOG_GRAPH_BIN
@@ -41,21 +42,8 @@ function _resolveBinary() {
     _binaryPath = explicit;
     return _binaryPath;
   }
-  if (!_binaryResolveStarted) {
-    _binaryResolveStarted = true;
-    // Reuse the code-graph binary resolution lazily; resolver shape is duck-
-    // typed so a refactor there degrades to "server unavailable", never throws.
-    void import('../code-graph/graph-binary.mjs').then((mod) => {
-      try {
-        const candidate = mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
-        _binaryPath = (candidate && existsSync(candidate)) ? candidate : null;
-      } catch {
-        _binaryPath = null;
-      }
-    }).catch(() => {
-      _binaryPath = null;
-    });
-  }
+  const candidate = graphBinaryPath();
+  _binaryPath = (candidate && existsSync(candidate)) ? candidate : null;
   return _binaryPath;
 }
 
@@ -168,21 +156,14 @@ async function _awaitWithin(promise, timeoutMs) {
 
 /** Returns a runRgWindowedLines-shaped result, or null when the native server
  *  is unavailable or the request shape is unsupported. */
-// Boot-time prewarm: binary resolution is async (dynamic import), so the
-// first search of a cold session otherwise waits for startup. Long-lived hosts
-// call this fire-and-forget to have the resident
-// server up before the first tool call. Honors the same kill switch.
+// Boot-time prewarm starts the already-installed resident server before the
+// first tool call. It performs no network or package mutation.
 export async function warmNativeSearchServer(timeoutMs = 5_000) {
   if (process.env.MIXDOG_SEARCH_SERVER === '0') return false;
   if (!_warmPromise) {
     const warm = (async () => {
       try {
-        if (!_resolveBinary()) {
-          const mod = await import('../code-graph/graph-binary.mjs');
-          const candidate = mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
-          if (candidate && existsSync(candidate)) _binaryPath = candidate;
-          else if (_binaryPath === undefined) _binaryPath = null;
-        }
+        _resolveBinary();
         const server = _ensureServer();
         return await _waitServerReady(server);
       } catch {
@@ -370,6 +351,5 @@ export function _resetNativeSearchClientForTest() {
   _teardown(new Error('test reset'));
   _binaryPath = undefined;
   _lastFailureAt = 0;
-  _binaryResolveStarted = false;
   _warmPromise = null;
 }

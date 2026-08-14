@@ -6,9 +6,8 @@
 import { resolve as pathResolve, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { getPluginData } from '../../config.mjs';
-import { ensureGraphBinary, findCachedGraphBinary } from '../graph-binary-fetcher.mjs';
 import { acquire as acquireChildSpawnSlot } from '../../../../shared/child-spawn-gate.mjs';
+import { installedNativeAssetPath } from '../../../../shared/native-assets.mjs';
 import { CODE_GRAPH_BINARY_TIMEOUT_MS, CODE_GRAPH_MAX_FILES } from './constants.mjs';
 
 // ── Native graph binary (mixdog-graph) — single source of truth for
@@ -24,13 +23,14 @@ function _graphBinaryPath() {
   // spaces or non-ASCII characters.
   const moduleDir = dirname(fileURLToPath(import.meta.url));
   const binName = process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph';
-  // Prefer a local cargo build, then a previously fetched/cached prebuilt.
+  // Prefer a local cargo build for source development, then the required
+  // platform package installed with Mixdog. Runtime downloads are forbidden.
   // This module is one dir deeper than the legacy code-graph.mjs, so the
   // relative walk to repo-root native/ needs six `../` hops
   // (code-graph → tools → orchestrator → agent → runtime → src → root).
   const localBuild = pathResolve(moduleDir, '../../../../../../native/mixdog-graph/target/release', binName);
   if (existsSync(localBuild)) return localBuild;
-  try { return findCachedGraphBinary(getPluginData()); } catch { return null; }
+  return installedNativeAssetPath('graph');
 }
 
 // Public resolver for consumers outside the graph build (the resident
@@ -41,19 +41,12 @@ export function graphBinaryPath() {
 }
 
 async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null, signal = null) {
-  let binPath = _graphBinaryPath();
+  const binPath = _graphBinaryPath();
   if (!binPath) {
-    // No local build or cached binary — fetch the prebuilt from the release
-    // manifest (sha256-verified). No JS parse fallback: if the platform has
-    // no asset or the download fails, the build throws with a fixable error.
-    try {
-      binPath = await ensureGraphBinary(getPluginData());
-    } catch (err) {
-      throw new Error(
-        `[code-graph] mixdog-graph binary unavailable and could not be fetched: ${err?.message || err}. `
-        + 'Build it (cargo build --release in native/mixdog-graph) or check network/release manifest.',
-      );
-    }
+    throw new Error(
+      '[code-graph] required mixdog-graph asset is missing. '
+      + 'Reinstall Mixdog; source checkouts may build native/mixdog-graph locally.',
+    );
   }
   const { spawn } = await import('node:child_process');
   const timeoutMs = CODE_GRAPH_BINARY_TIMEOUT_MS;

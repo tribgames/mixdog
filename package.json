@@ -43,7 +43,7 @@
     "vendor/"
   ],
   "scripts": {
-    "postinstall": "node scripts/prune-embedding-runtime.mjs",
+    "postinstall": "node scripts/prune-embedding-runtime.mjs && node scripts/verify-installed-native-assets.mjs",
     "prepack": "npm run build:tui",
     "prepublishOnly": "node -e \"if(!process.env.CI){console.error('local npm publish is disabled — run npm run release:patch');process.exit(1)}\"",
     "start": "node src/cli.mjs",
@@ -61,7 +61,7 @@
     "test:shellhardening": "npm run build:spawn:test && node --test scripts/suite-shellhardening-test.mjs scripts/suite-shell-direct-exe-test.mjs",
     "test:providers": "node --test scripts/provider-toolcall-test.mjs scripts/provider-contract-test.mjs scripts/provider-stream-outcome-test.mjs",
     "test:embedding-runtime:warmup": "node scripts/verify-embedding-runtime.mjs --warmup",
-    "test:release-assets": "node --check scripts/verify-release-assets.mjs && node --check scripts/release-gate-test.mjs && node --test scripts/release-gate-test.mjs",
+    "test:release-assets": "node --check scripts/verify-release-assets.mjs && node --check scripts/stage-native-packages.mjs && node --check scripts/verify-installed-native-assets.mjs && node --check scripts/release-gate-test.mjs && node --test scripts/release-gate-test.mjs scripts/native-package-test.mjs",
     "test:native-edit-wire": "node scripts/native-edit-wire-test.mjs",
     "test:release-focused": "npm run test:release-critical && npm run test:compact && npm run test:shellhardening && npm run test:tool-contracts && npm run test:session && npm run test:session-transport",
     "test:release-critical": "npm run test:release-assets && npm run smoke:patch && npm run test:providers",
