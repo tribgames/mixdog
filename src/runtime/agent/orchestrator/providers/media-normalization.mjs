@@ -463,20 +463,49 @@ export function normalizeContentForGeminiParts(content) {
     return out;
 }
 
+const OPENAI_CHAT_MEDIA_TYPES = new Set(['image_url', 'file']);
+const OPENAI_RESPONSES_MEDIA_TYPES = new Set(['input_image', 'input_file']);
+
+function mediaPartsOnly(parts, allowedTypes) {
+    if (!Array.isArray(parts)) return [];
+    return parts.filter((part) => allowedTypes.has(part?.type));
+}
+
 export function splitToolContentForOpenAIChat(content) {
-    if (!contentHasImage(content)) return { output: contentToText(content, ''), mediaContent: null };
-    const mediaContent = normalizeContentForOpenAIChat(content, { role: 'user' });
+    const mediaContent = mediaPartsOnly(
+        normalizeContentForOpenAIChat(content, { role: 'user' }),
+        OPENAI_CHAT_MEDIA_TYPES,
+    );
+    if (!mediaContent.length) return { output: contentToText(content, ''), mediaContent: null };
     return {
-        output: contentToText(content, '[tool result included image content in the following user message]'),
-        mediaContent: Array.isArray(mediaContent) ? mediaContent : null,
+        output: contentToText(content, '[tool result included media content in the following user message]'),
+        mediaContent,
     };
 }
 
 export function splitToolContentForOpenAIResponses(content) {
-    if (!contentHasImage(content)) return { output: contentToText(content, ''), mediaContent: null };
+    const output = normalizeContentForOpenAIResponses(content, { role: 'user' });
+    const hasMedia = mediaPartsOnly(output, OPENAI_RESPONSES_MEDIA_TYPES).length > 0;
+    if (!hasMedia) return { output: contentToText(content, ''), mediaContent: null };
     return {
+        // Responses natively accepts ordered input_text/input_image/input_file
+        // items inside function_call_output.output.
+        output,
+        mediaContent: null,
+    };
+}
+
+export function splitToolContentForXaiResponses(content) {
+    const mediaContent = mediaPartsOnly(
+        normalizeContentForOpenAIResponses(content, { role: 'user' }),
+        new Set(['input_image']),
+    );
+    if (!mediaContent.length) return { output: contentToText(content, ''), mediaContent: null };
+    return {
+        // xAI documents function_call_output as text/JSON; media remains a
+        // following user input, without replaying the tool-result text there.
         output: contentToText(content, '[tool result included image content in the following user message]'),
-        mediaContent: normalizeContentForOpenAIResponses(content, { role: 'user' }),
+        mediaContent,
     };
 }
 

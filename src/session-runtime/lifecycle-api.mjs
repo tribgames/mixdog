@@ -265,7 +265,12 @@ export function createLifecycleApi(deps) {
             : { reason, notify: false });
         }
       } catch {}
-      const channelStop = channels.stop(reason, detach ? { waitForExit: false } : undefined);
+      const channelStop = channels.stop(reason, {
+        ...(detach ? { waitForExit: false } : {}),
+        // Runtime teardown/restart is not an explicit Remote OFF. Preserve the
+        // session-pinned intent so the resumed session can reclaim it.
+        preserveRemoteIntent: true,
+      });
       try { agentTool.closeAll(reason); } catch {}
       let mcpStop = null;
       try { mcpStop = mcpClient.disconnectAll?.({ scopeId: getMcpScopeId?.() }); } catch {}

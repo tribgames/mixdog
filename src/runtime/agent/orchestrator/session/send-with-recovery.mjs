@@ -90,6 +90,7 @@ function transportRetryWaitMs(attemptIndex) {
 export async function sendWithRecovery(ctx) {
     const {
         provider, messages, model, sendTools, tools, opts,
+        recoveryMessages = messages,
         sessionId, sessionRef, nextIteration, contextOverflowRetryUsed,
         transportRetriesUsed = 0, imageStripUsed = false, signal,
     } = ctx;
@@ -465,12 +466,12 @@ export async function sendWithRecovery(ctx) {
                 transportRetriesUsed < TRANSPORT_RETRY_MAX
                 && (
                     shouldStripImagesForRetry(sendErr, {
-                        hasImages: promptHasInlineImages(messages),
+                        hasImages: promptHasInlineImages(recoveryMessages),
                         alreadyStripped: imageStripUsed === true,
                     })
                     || (
                         imageStripUsed !== true
-                        && promptHasInlineImages(messages)
+                        && promptHasInlineImages(recoveryMessages)
                         && isRetryableStreamErrorEvent(sendErr)
                     )
                 )
@@ -480,7 +481,7 @@ export async function sendWithRecovery(ctx) {
                 && relayWitness.toolCallsDispatched === 0
                 && (outcome.replaySafe === true || await retractExposedTextForReplay())
             ) {
-                const stripped = stripInlineImages(messages);
+                const stripped = stripInlineImages(recoveryMessages);
                 if (stripped.stripped > 0) {
                     try {
                         process.stderr.write(

@@ -586,6 +586,60 @@ export function traceAgentShellOutput({
     });
 }
 
+export function buildToolOutputTelemetryPayload({
+    toolCallId,
+    preOffloadBytes,
+    postOffloadBytes,
+    modelVisibleBytes,
+    offloaded,
+    resultKind,
+}) {
+    const before = Number(preOffloadBytes);
+    const after = Number(postOffloadBytes);
+    if (!Number.isFinite(before) || before < 0 || !Number.isFinite(after) || after < 0) return null;
+    const visible = Math.max(0, Math.trunc(Number(modelVisibleBytes) || 0));
+    const saved = Math.max(0, Math.trunc(before) - visible);
+    return {
+        tool_call_id: toolCallId || null,
+        result_kind: resultKind || null,
+        pre_offload_bytes: Math.trunc(before),
+        post_offload_bytes: Math.trunc(after),
+        model_visible_bytes: visible,
+        saved_bytes: saved,
+        reduction_pct: before > 0
+            ? Math.round((1 - visible / before) * 100)
+            : null,
+        offloaded: offloaded === true,
+    };
+}
+
+export function traceAgentToolOutput({
+    sessionId,
+    toolName,
+    toolCallId,
+    preOffloadBytes,
+    postOffloadBytes,
+    modelVisibleBytes,
+    offloaded,
+    resultKind,
+}) {
+    const payload = buildToolOutputTelemetryPayload({
+        toolCallId,
+        preOffloadBytes,
+        postOffloadBytes,
+        modelVisibleBytes,
+        offloaded,
+        resultKind,
+    });
+    if (!sessionId || !payload || payload.offloaded !== true) return;
+    appendAgentTrace({
+        sessionId,
+        kind: 'tool_output',
+        tool_name: toolName || null,
+        payload,
+    });
+}
+
 // Per-turn batch shape — one row per assistant turn with the number of
 // tool calls observed. Lets a consumer compute Lead-side multi-tool
 // adoption ratio (calls > 1 / total turns) directly from trace rows

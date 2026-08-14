@@ -68,6 +68,16 @@ function splitGeminiToolContent(content) {
 
 const GEMINI_FUNCTION_RESPONSE_MIME = /^(?:image\/(?:png|jpeg|webp)|application\/pdf|text\/plain)$/i;
 
+function geminiFunctionCapabilities(model) {
+    const match = String(model || '').toLowerCase().match(/(?:^|\/)gemini(?:-live)?-(\d+)/);
+    const major = match ? Number.parseInt(match[1], 10) : null;
+    const modern = major == null || major >= 3;
+    return {
+        functionPartIds: modern,
+        multimodalFunctionResponse: modern,
+    };
+}
+
 function toGeminiFunctionResponseMedia(mediaParts) {
     const parts = [];
     const refs = [];
@@ -582,7 +592,30 @@ export function toGeminiToolConfig(toolChoice) {
     return undefined;
 }
 
-function toGeminiContent(message, toolNameByCallId) {
+function toGeminiToolContent(message, toolNameByCallId, capabilities) {
+    const functionName = (toolNameByCallId && toolNameByCallId.get(message.toolCallId))
+        || message.toolCallId
+        || '';
+    const { response, mediaParts } = splitGeminiToolContent(message.content);
+    const media = toGeminiFunctionResponseMedia(mediaParts);
+    if (media.refs.length) response.media = media.refs;
+    if (media.external.length) response.externalMedia = media.external;
+    if (media.omitted.length) response.omittedMediaTypes = media.omitted;
+    const functionResponse = { name: functionName, response };
+    if (capabilities.functionPartIds
+        && typeof message.toolCallId === 'string' && message.toolCallId) {
+        functionResponse.id = message.toolCallId;
+    }
+    if (capabilities.multimodalFunctionResponse && media.parts.length) {
+        functionResponse.parts = media.parts;
+    }
+    return {
+        content: { role: 'user', parts: [{ functionResponse }] },
+        trailingMediaParts: capabilities.multimodalFunctionResponse ? [] : media.parts,
+    };
+}
+
+function toGeminiContent(message, toolNameByCallId, capabilities) {
     if (!message || message.role === 'system') return null;
     if (message.role === 'assistant' && message.toolCalls?.length) {
         const parts = geminiThoughtPartsFromMetadata(message);
@@ -599,7 +632,8 @@ function toGeminiContent(message, toolNameByCallId) {
                 functionCall: {
                     name: tc.name,
                     args: tc.arguments,
-                    ...(typeof tc.id === 'string' && tc.id ? { id: tc.id } : {}),
+                    ...(capabilities.functionPartIds
+                        && typeof tc.id === 'string' && tc.id ? { id: tc.id } : {}),
                 },
             };
             if (typeof tc.thoughtSignature === 'string'
@@ -610,37 +644,7 @@ function toGeminiContent(message, toolNameByCallId) {
         }
         return { role: 'model', parts };
     }
-    if (message.role === 'tool') {
-        // Tool result content stays byte-identical for cache prefix stability.
-        // Gemini accepts functionResponse parts under role 'user' (per docs).
-        // Using 'user' keeps tool_result entries byte-identical between
-        // cachedContents.create (which rejects role:'function') and
-        // generateContent, so the cached prefix actually matches at runtime.
-        // functionResponse.name must be the FUNCTION name, not the synthetic
-        // toolCallId. Resolve it from the toolCallId->functionName map built
-        // from prior assistant tool_calls; fall back to the raw id only when
-        // no mapping exists.
-        const functionName = (toolNameByCallId && toolNameByCallId.get(message.toolCallId))
-            || message.toolCallId
-            || '';
-        const { response, mediaParts } = splitGeminiToolContent(message.content);
-        const media = toGeminiFunctionResponseMedia(mediaParts);
-        if (media.refs.length) response.media = media.refs;
-        if (media.external.length) response.externalMedia = media.external;
-        if (media.omitted.length) {
-            response.omittedMediaTypes = media.omitted;
-        }
-        const functionResponse = { name: functionName, response };
-        if (typeof message.toolCallId === 'string' && message.toolCallId) {
-            functionResponse.id = message.toolCallId;
-        }
-        if (media.parts.length) functionResponse.parts = media.parts;
-        const parts = [{ functionResponse }];
-        return {
-            role: 'user',
-            parts,
-        };
-    }
+    if (message.role === 'tool') return null;
     return {
         role: message.role === 'assistant' ? 'model' : 'user',
         parts: message.role === 'assistant'
@@ -689,8 +693,9 @@ function geminiThoughtPartsFromMetadata(message) {
     return normalized;
 }
 
-export function toGeminiContents(messages) {
+export function toGeminiContents(messages, model = '') {
     const contents = [];
+    const capabilities = geminiFunctionCapabilities(model);
     // Map synthetic toolCallId -> function name from prior assistant
     // tool_calls so each functionResponse part carries the real function name.
     const toolNameByCallId = new Map();
@@ -701,10 +706,35 @@ export function toGeminiContents(messages) {
             }
         }
     }
+    let pendingToolMediaParts = [];
+    const flushToolMedia = () => {
+        if (!pendingToolMediaParts.length) return;
+        contents.push({ role: 'user', parts: pendingToolMediaParts });
+        pendingToolMediaParts = [];
+    };
     for (const message of messages) {
-        const content = toGeminiContent(message, toolNameByCallId);
+        if (message?.role === 'tool') {
+            const { content, trailingMediaParts } = toGeminiToolContent(
+                message,
+                toolNameByCallId,
+                capabilities,
+            );
+            const last = contents[contents.length - 1];
+            if (last?.role === 'user'
+                && Array.isArray(last.parts) && last.parts.length
+                && last.parts.every((part) => part?.functionResponse)) {
+                last.parts.push(...content.parts);
+            } else {
+                contents.push(content);
+            }
+            pendingToolMediaParts.push(...trailingMediaParts);
+            continue;
+        }
+        flushToolMedia();
+        const content = toGeminiContent(message, toolNameByCallId, capabilities);
         if (content) contents.push(content);
     }
+    flushToolMedia();
     return contents;
 }
 

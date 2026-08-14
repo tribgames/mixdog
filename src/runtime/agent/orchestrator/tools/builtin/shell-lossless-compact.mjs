@@ -1,17 +1,5 @@
-import {
-    mkdirSync,
-    readdirSync,
-    statSync,
-    unlinkSync,
-    writeFileSync,
-} from 'node:fs';
-import { createHash, randomUUID } from 'node:crypto';
-import { join } from 'node:path';
-import { getPluginData } from '../../config.mjs';
+import { persistToolResultArtifactSync } from '../../session/tool-result-offload.mjs';
 
-const RECOVERY_DIR = 'shell-output-compact';
-const MAX_RECOVERY_FILES = 40;
-const MAX_RECOVERY_BYTES = 20 * 1024 * 1024;
 const MIN_RAW_BYTES = 512;
 const MIN_SAVED_BYTES = 384;
 const MIN_SAVED_RATIO = 0.2;
@@ -302,41 +290,14 @@ export function planLosslessShellCompaction({
     return null;
 }
 
-function cleanupRecoveryDir(dir) {
-    let entries;
-    try {
-        entries = readdirSync(dir)
-            .filter((name) => /^compact-\d+-[a-f0-9]+-(?:stdout|stderr)\.log$/i.test(name))
-            .map((name) => {
-                const path = join(dir, name);
-                const stat = statSync(path);
-                return { path, mtimeMs: stat.mtimeMs, size: stat.size };
-            })
-            .sort((a, b) => a.mtimeMs - b.mtimeMs);
-    } catch {
-        return;
-    }
-    let total = entries.reduce((sum, entry) => sum + entry.size, 0);
-    while (entries.length > MAX_RECOVERY_FILES || total > MAX_RECOVERY_BYTES) {
-        const entry = entries.shift();
-        if (!entry) break;
-        try {
-            unlinkSync(entry.path);
-            total -= entry.size;
-        } catch {}
-    }
-}
-
-function persistStream(dir, prefix, stream, content) {
+function persistStream(sessionId, toolCallId, stream, content) {
     if (!content) return null;
-    const path = join(dir, `${prefix}-${stream}.log`);
-    writeFileSync(path, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-    return {
-        stream,
-        path,
-        bytes: byteLength(content),
-        sha256: createHash('sha256').update(content, 'utf8').digest('hex'),
-    };
+    return persistToolResultArtifactSync({
+        sessionId,
+        toolCallId,
+        channel: stream,
+        content,
+    });
 }
 
 export function compactShellOutputLosslessly({
@@ -349,6 +310,8 @@ export function compactShellOutputLosslessly({
     signal,
     timedOut,
     hasExistingRecovery = false,
+    sessionId,
+    toolCallId,
 } = {}) {
     const plan = planLosslessShellCompaction({
         command,
@@ -361,23 +324,15 @@ export function compactShellOutputLosslessly({
     });
     if (!plan) return null;
 
-    const dir = join(getPluginData(), RECOVERY_DIR);
-    const prefix = `compact-${Date.now()}-${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     const recovery = [];
-    try {
-        mkdirSync(dir, { recursive: true });
-        const stdoutCapture = persistStream(dir, prefix, 'stdout', String(rawStdout ?? ''));
-        const stderrCapture = persistStream(dir, prefix, 'stderr', String(rawStderr ?? ''));
-        if (stdoutCapture) recovery.push(stdoutCapture);
-        if (stderrCapture) recovery.push(stderrCapture);
-        if (!recovery.length) return null;
-        cleanupRecoveryDir(dir);
-    } catch {
-        for (const item of recovery) {
-            try { unlinkSync(item.path); } catch {}
-        }
-        return null;
-    }
+    const rawOut = String(rawStdout ?? '');
+    const rawErr = String(rawStderr ?? '');
+    const stdoutCapture = persistStream(sessionId, toolCallId, 'stdout', rawOut);
+    const stderrCapture = persistStream(sessionId, toolCallId, 'stderr', rawErr);
+    if ((rawOut && !stdoutCapture) || (rawErr && !stderrCapture)) return null;
+    if (stdoutCapture) recovery.push(stdoutCapture);
+    if (stderrCapture) recovery.push(stderrCapture);
+    if (!recovery.length) return null;
     return { ...plan, recovery };
 }
 

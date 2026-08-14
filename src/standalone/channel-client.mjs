@@ -128,6 +128,7 @@ export async function attachChannel({
   discovery,
   leadPid = process.pid,
   cwd = process.cwd(),
+  restoreSessionId = null,
   onNotify = () => {},
   log = () => {},
   onFatal = () => {},
@@ -160,7 +161,7 @@ export async function attachChannel({
       path: '/client/register',
       // Channel attachment observes the current owner and never claims the
       // manual routing seat merely by opening the transport.
-      body: { leadPid, cwd, passive: true },
+      body: { leadPid, cwd, passive: true, restoreSessionId },
       timeoutMs: 3000,
       agent: controlAgent,
     });
@@ -193,14 +194,21 @@ export async function attachChannel({
   const MAX_RECONNECTS = 5;
   const STABLE_STREAM_MS = 5_000;
 
-  async function deregister(token, { registrationId = null, replaceToken = null } = {}) {
+  async function deregister(token, {
+    registrationId = null,
+    replaceToken = null,
+    preserveRemoteIntent = false,
+  } = {}) {
     if (!token) return;
     try {
       await request({
         port, token: serverToken, method: 'POST', path: '/client/deregister',
         body: {
           token,
-          ...(registrationId ? { registrationId, replaceToken, leadPid, cwd } : {}),
+          ...(registrationId ? {
+            registrationId, replaceToken, leadPid, cwd, restoreSessionId,
+          } : {}),
+          ...(preserveRemoteIntent ? { preserveRemoteIntent: true } : {}),
         },
         timeoutMs: 1500,
         agent: controlAgent,
@@ -329,7 +337,7 @@ export async function attachChannel({
         port, token: serverToken, method: 'POST', path: '/client/register',
         body: {
           leadPid, cwd, passive: true, replaceToken,
-          registrationId,
+          registrationId, restoreSessionId,
         }, timeoutMs: 3000,
         agent: controlAgent,
       }).then(async (r) => {
@@ -380,7 +388,7 @@ export async function attachChannel({
     return out?.result;
   }
 
-  async function close(reason = 'client close') {
+  async function close(reason = 'client close', options = {}) {
     if (closePromise) return closePromise;
     closed = true;
     lifecycle++;
@@ -394,7 +402,11 @@ export async function attachChannel({
     const replaceToken = reconnectReplaceToken;
     closePromise = (async () => {
       if (pendingRegistration) await pendingRegistration;
-      await deregister(clientToken, { registrationId, replaceToken });
+      await deregister(clientToken, {
+        registrationId,
+        replaceToken,
+        preserveRemoteIntent: options.preserveRemoteIntent === true,
+      });
       callAgent.destroy();
       controlAgent.destroy();
       log(`detached (${reason})`);

@@ -374,47 +374,6 @@ process.on('exit', flushReadRangeIndexesSync);
 
 configureReadRangeIndexTelemetry({ trace: _ioTrace, hashText: _hashText });
 
-// Uniform tool-output cap (`tool_output_token_limit` analogue): a SINGLE
-// optional knob that bounds EVERY builtin string result before it enters the
-// lead context, on top of each tool's own caps. Default 0 = OFF (per-tool caps
-// only, no behaviour change). Set MIXDOG_TOOL_OUTPUT_MAX_BYTES (or pass
-// options.toolOutputMaxBytes) to globally tighten lead-context cost.
-const _ENV_TOOL_OUTPUT_MAX_BYTES = (() => {
-    const v = Number(process.env.MIXDOG_TOOL_OUTPUT_MAX_BYTES);
-    return Number.isFinite(v) && v > 0 ? Math.trunc(v) : 0;
-})();
-
-function _sliceToBytesFromStart(s, maxBytes) {
-    let lo = 0, hi = s.length;
-    while (lo < hi) {
-        const mid = Math.ceil((lo + hi) / 2);
-        if (Buffer.byteLength(s.slice(0, mid), 'utf8') <= maxBytes) lo = mid; else hi = mid - 1;
-    }
-    return s.slice(0, lo);
-}
-function _sliceToBytesFromEnd(s, maxBytes) {
-    let lo = 0, hi = s.length;
-    while (lo < hi) {
-        const mid = Math.ceil((lo + hi) / 2);
-        if (Buffer.byteLength(s.slice(s.length - mid), 'utf8') <= maxBytes) lo = mid; else hi = mid - 1;
-    }
-    return s.slice(s.length - lo);
-}
-function capToolOutput(result, options = {}) {
-    const cap = Number(options?.toolOutputMaxBytes) > 0
-        ? Math.trunc(Number(options.toolOutputMaxBytes))
-        : _ENV_TOOL_OUTPUT_MAX_BYTES;
-    if (cap <= 0 || typeof result !== 'string') return result; // off, or media/structured → pass through
-    const bytes = Buffer.byteLength(result, 'utf8');
-    if (bytes <= cap) return result;
-    // Middle-truncate: keep head + tail (byte-accurate), drop the middle. Mirrors
-    // Middle truncation so the model still sees both ends of a runaway.
-    const half = Math.max(1, Math.floor(cap / 2) - 64);
-    const head = _sliceToBytesFromStart(result, half);
-    const tail = _sliceToBytesFromEnd(result, half);
-    return `${head}\n... [tool-output truncated: ${Math.round(bytes / 1024)} KB -> ${Math.round(cap / 1024)} KB cap (tool_output_token_limit)] ...\n${tail}`;
-}
-
 const _LOCATOR_BUDGET_TOOLS = new Set(['find', 'glob', 'list']);
 
 function _locatorTargets(toolName, args) {
@@ -524,11 +483,6 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
             return formatUnknownBuiltinToolMessage(name, args);
     }
     })();
-    // Read owns a call-level 50KB ceiling even when path[] aggregates several
-    // independently bounded child windows. Preserve explicit tighter caps.
-    const _capOptions = toolName === 'read' && !(Number(options?.toolOutputMaxBytes) > 0)
-        ? { ...options, toolOutputMaxBytes: READ_MAX_OUTPUT_BYTES }
-        : options;
     const _withNotices = _appendClampNotices(args, _toolResult);
     const _explicitCap = Number(options?.toolOutputMaxBytes) > 0
         ? Math.trunc(Number(options.toolOutputMaxBytes))
@@ -543,7 +497,9 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
             (kept) => _locatorBudgetFooter(toolName, args, kept, _locatorCap),
         )
         : _withNotices;
-    const _finalResult = capToolOutput(_budgetedResult, _capOptions);
+    // Any provider-facing reduction happens later, after the complete result
+    // has been durably persisted by tool-result-offload.
+    const _finalResult = _budgetedResult;
     if (
         toolName === 'shell'
         && options?.resultTelemetry

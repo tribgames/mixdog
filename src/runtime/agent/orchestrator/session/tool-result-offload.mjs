@@ -1,56 +1,28 @@
-import { existsSync, mkdirSync } from 'fs';
-import { readdir, rmdir, stat, unlink, writeFile } from 'fs/promises';
+import {
+    existsSync,
+    mkdirSync,
+    readFileSync,
+    readdirSync,
+    rmdirSync,
+    unlinkSync,
+    writeFileSync,
+} from 'fs';
+import { readdir, readFile, rmdir, stat, unlink, writeFile } from 'fs/promises';
+import { createHash } from 'crypto';
 import { join } from 'path';
 import { getPluginData } from '../config.mjs';
 import { normalizeOutputPath } from '../tools/builtin/path-utils.mjs';
 import { classifyResultKind } from './result-classification.mjs';
+import { registerSessionPurgeHook } from './store.mjs';
 
 const TOOL_RESULT_OFFLOAD_THRESHOLD_CHARS = 50_000;
-const TOOL_RESULT_PREVIEW_CHARS = 2_000;
+const TOOL_RESULT_PREVIEW_CHARS = 512;
 const TOOL_RESULT_SHELL_THRESHOLD_CHARS = 30_000;
 const TOOL_RESULT_SEARCH_THRESHOLD_CHARS = 50_000;
 const TOOL_RESULT_GREP_THRESHOLD_CHARS = 20_000;
 export const TOOL_RESULT_MESSAGE_MAX_CHARS = 200_000;
 const TOOL_RESULT_OFFLOAD_PREFIX = '[tool output offloaded:';
 const OFFLOAD_PRUNE_MIN_AGE_MS = 10 * 60 * 1000;
-// clearOffloadSession only runs on a CLEAN session close, so every killed
-// process leaves its tool-results/<session>/ sidecars behind forever. Sweep
-// directories whose NEWEST file is past the TTL (a session still writing must
-// survive), at most once per interval per process.
-const OFFLOAD_SESSION_STALE_MS = 24 * 60 * 60 * 1000;
-const OFFLOAD_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
-let _offloadSweptAt = 0;
-
-async function sweepStaleOffloadDirs() {
-    const root = join(getPluginData(), 'tool-results');
-    let names;
-    try { names = await readdir(root); } catch { return; }
-    const cutoff = Date.now() - OFFLOAD_SESSION_STALE_MS;
-    await Promise.all(names.map(async (name) => {
-        const dir = join(root, name);
-        try {
-            const dirStat = await stat(dir);
-            if (!dirStat.isDirectory()) return;
-            const entries = await readdir(dir);
-            let newest = dirStat.mtimeMs;
-            await Promise.all(entries.map(async (entry) => {
-                try {
-                    const fileStat = await stat(join(dir, entry));
-                    if (fileStat.mtimeMs > newest) newest = fileStat.mtimeMs;
-                } catch { /* vanished mid-sweep */ }
-            }));
-            if (newest >= cutoff) return;
-            await Promise.all(entries.map((entry) => unlink(join(dir, entry)).catch(() => {})));
-            await rmdir(dir).catch(() => { /* raced a live writer */ });
-        } catch { /* best-effort */ }
-    }));
-}
-
-function maybeSweepStaleOffloadDirs() {
-    if (Date.now() - _offloadSweptAt < OFFLOAD_SWEEP_INTERVAL_MS) return;
-    _offloadSweptAt = Date.now();
-    void sweepStaleOffloadDirs();
-}
 
 // Per-tool persistence limits are per-tool maxResultSizeChars values rather
 // than a single global value: grep persists at 20k, glob and list/find_* at
@@ -125,20 +97,17 @@ function safeSessionSegment(sessionId) {
 
 function ensureToolResultsDir(sessionId) {
     const dir = join(getPluginData(), 'tool-results', safeSessionSegment(sessionId));
-    // Fire-and-forget GC on the first offload of each interval — never awaited,
-    // so an offload write is not delayed by the reclaim walk.
-    maybeSweepStaleOffloadDirs();
     // R4 data-at-rest: offloaded tool output may contain secrets / file
     // contents; clamp dir to owner-only on POSIX (advisory on Windows).
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
     return dir;
 }
 
-// Map tool-call IDs to safe generated filenames. toolCallId arrives from
-// the provider and may contain path-unsafe characters (slashes, dots, etc.).
-// Use a monotonic counter keyed by sessionId so the sidecar path is
-// deterministic-ish within a session but never tainted by provider input.
-const _offloadCounters = new Map();
+function artifactIdentity(sha256) {
+    // Session-scoped content addressing lets result/stdout/stderr references
+    // share one verified file when their exact bytes are identical.
+    return `${sha256}.txt`;
+}
 
 function buildPreview(text, maxChars = TOOL_RESULT_PREVIEW_CHARS) {
     if (text.length <= maxChars) {
@@ -168,6 +137,64 @@ function countLines(text) {
     return lines;
 }
 
+function artifactMeta(sessionId, toolCallId, channel, content) {
+    if (!sessionId || !toolCallId || typeof content !== 'string') return null;
+    const sha256 = createHash('sha256').update(content, 'utf8').digest('hex');
+    const dir = ensureToolResultsDir(sessionId);
+    return {
+        stream: channel,
+        path: join(dir, artifactIdentity(sha256)),
+        bytes: Buffer.byteLength(content, 'utf8'),
+        chars: content.length,
+        lines: countLines(content),
+        sha256,
+    };
+}
+
+export function persistToolResultArtifactSync({
+    sessionId,
+    toolCallId,
+    channel = 'result',
+    content,
+} = {}) {
+    let meta;
+    try { meta = artifactMeta(sessionId, toolCallId, channel, content); } catch { return null; }
+    if (!meta) return null;
+    try {
+        writeFileSync(meta.path, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    } catch (error) {
+        if (error?.code !== 'EEXIST') return null;
+        try {
+            if (createHash('sha256').update(readFileSync(meta.path)).digest('hex') !== meta.sha256) return null;
+        } catch {
+            return null;
+        }
+    }
+    return meta;
+}
+
+async function persistToolResultArtifact({
+    sessionId,
+    toolCallId,
+    channel = 'result',
+    content,
+} = {}) {
+    let meta;
+    try { meta = artifactMeta(sessionId, toolCallId, channel, content); } catch { return null; }
+    if (!meta) return null;
+    try {
+        await writeFile(meta.path, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    } catch (error) {
+        if (error?.code !== 'EEXIST') return null;
+        try {
+            if (createHash('sha256').update(await readFile(meta.path)).digest('hex') !== meta.sha256) return null;
+        } catch {
+            return null;
+        }
+    }
+    return meta;
+}
+
 export async function maybeOffloadToolResult(sessionId, toolCallId, toolName, result, options = {}) {
     if (!sessionId || !toolCallId) return result;
     if (typeof result !== 'string') return result;
@@ -181,23 +208,23 @@ export async function maybeOffloadToolResult(sessionId, toolCallId, toolName, re
     if (!force && classifyResultKind(result) === 'error'
         && result.length <= TOOL_RESULT_OFFLOAD_THRESHOLD_CHARS) return result;
 
-    // Generate a safe filename — never trust toolCallId as a path component.
-    const count = (_offloadCounters.get(sessionId) ?? 0) + 1;
-    _offloadCounters.set(sessionId, count);
-    const safeId = `r${count}`;
-
-    const dir = ensureToolResultsDir(sessionId);
-    const filePath = join(dir, `${safeId}.txt`);
-
-    // Count lines while the string is in hand — single pass, no re-read.
-    const lines = countLines(result);
-    await writeFile(filePath, result, { encoding: 'utf-8', mode: 0o600 });
+    const artifact = await persistToolResultArtifact({
+        sessionId,
+        toolCallId,
+        channel: 'result',
+        content: result,
+    });
+    // Persistence is the reduction commit point. If it did not land and
+    // verify, preserve the complete inline result unchanged.
+    if (!artifact) return result;
 
     const { preview, truncated } = buildPreview(result);
     const sizeKb = Math.max(1, Math.round(result.length / 1024));
-    const displayPath = normalizeOutputPath(filePath);
-    const header = `${TOOL_RESULT_OFFLOAD_PREFIX} ${toolName} → ${displayPath} (${sizeKb} KB, ${lines} lines)]`;
-    const suffix = truncated ? '\n... [preview truncated — use read on the saved path for full output]' : '';
+    const displayPath = normalizeOutputPath(artifact.path);
+    const header = `${TOOL_RESULT_OFFLOAD_PREFIX} ${toolName} → ${displayPath} (${sizeKb} KB, ${artifact.lines} lines, sha256 ${artifact.sha256})]`;
+    const suffix = truncated
+        ? '\n[preview truncated; full output preserved at the artifact path above]'
+        : '';
     return `${header}\n\n${preview}${suffix}`;
 }
 
@@ -264,14 +291,10 @@ export async function maybeOffloadToolResultBatch(sessionId, entries, options = 
     return states;
 }
 
-// Drop a session's offload sidecars on session close. Unlinks every
-// tool-results/<sessionId>/*.txt entry, rmdirs the directory, and drops
-// the sessionId entry from the module-level counter Map so a long-running
-// mcp-server process doesn't accumulate per-session state across the
-// lifetime of the agent runtime.
+// Delete artifacts only after the durable session itself has been deleted.
+// Normal close/detach keeps the transcript resumable, so it must not call this.
 export async function clearOffloadSession(sessionId) {
     if (!sessionId) return;
-    _offloadCounters.delete(sessionId);
     const dir = join(getPluginData(), 'tool-results', safeSessionSegment(sessionId));
     if (!existsSync(dir)) return;
     try {
@@ -282,6 +305,23 @@ export async function clearOffloadSession(sessionId) {
         await rmdir(dir).catch(() => { /* best-effort: non-empty / already gone */ });
     } catch { /* best-effort */ }
 }
+
+export function clearOffloadSessionSync(sessionId) {
+    if (!sessionId) return;
+    const dir = join(getPluginData(), 'tool-results', safeSessionSegment(sessionId));
+    if (!existsSync(dir)) return;
+    try {
+        for (const name of readdirSync(dir)) {
+            if (!name.endsWith('.txt')) continue;
+            try { unlinkSync(join(dir, name)); } catch {}
+        }
+        try { rmdirSync(dir); } catch {}
+    } catch { /* hard-delete cleanup is best-effort */ }
+}
+
+// Canonical lifecycle boundary: normal close keeps resumable artifacts;
+// deleteSession runs purge hooks only after the session record is truly gone.
+registerSessionPurgeHook(clearOffloadSessionSync);
 
 // Remove sidecars that no longer occur in the live transcript. A serialized
 // path match is conservative: if messages cannot be serialized, or a path is
@@ -328,12 +368,12 @@ export function isOffloadedToolResultText(text) {
     return typeof text === 'string' && text.startsWith(TOOL_RESULT_OFFLOAD_PREFIX);
 }
 
-function compactOffloadedToolResultText(text) {
+export function compactOffloadedToolResultText(text) {
     if (!isOffloadedToolResultText(text)) return text;
     const value = String(text);
     const lineEnd = value.indexOf('\n');
     const firstLine = lineEnd === -1 ? value : value.slice(0, lineEnd);
-    return `${firstLine}\n[preview omitted — use read on the saved path if needed]`;
+    return `${firstLine}\n[preview omitted; full output preserved at the artifact path above]`;
 }
 
 export const _internals = {

@@ -1,15 +1,20 @@
 // Tool-call batch processor, extracted from agent-loop.mjs. Runs the whole
 // per-assistant-turn tool phase: intra-turn duplicate pre-pass, the serial
 // call loop (eager-result collection, cross-turn dedup, repeat-failure guard,
-// cache read/write, offload/compress, hooks, envelope newMessages), the
+// cache read/write, lossless offload, hooks, envelope newMessages), the
 // per-batch newMessages flush, PostToolBatch hook, and completion-first
 // steering. Mutable counters (dedupStubTotal/editCount) are threaded in/out;
 // crossTurnCalls/epoch/pending mutate by reference. Behavior identical.
 import { resolve as resolvePath, isAbsolute } from 'path';
 import { canonicalizeBuiltinToolName, isBuiltinTool } from '../tools/builtin.mjs';
 import { takeApplyPatchUiDiff } from '../tools/patch.mjs';
-import { compressToolResult } from '../tools/result-compression.mjs';
-import { appendAgentTrace, traceAgentShellOutput, traceAgentTool, traceAgentToolFailure } from '../agent-trace.mjs';
+import {
+    appendAgentTrace,
+    traceAgentShellOutput,
+    traceAgentTool,
+    traceAgentToolFailure,
+    traceAgentToolOutput,
+} from '../agent-trace.mjs';
 import { markSessionToolCall, updateSessionStage } from './manager.mjs';
 import { resolveToolSelfDeadlineMs } from '../agent-runtime/agent-progress-watchdog.mjs';
 import { classifyResultKind } from './result-classification.mjs';
@@ -347,7 +352,7 @@ export async function processToolBatch(ctx) {
             // CENTRAL ENVELOPE NORMALIZE (general newMessages channel).
             // executeTool (serial + eager) and cache/error paths above all
             // funnel into `result`. Split ONCE here: downstream post-processing
-            // (classifyResultKind / maybeOffloadToolResult / compressToolResult /
+            // (classifyResultKind / maybeOffloadToolResult /
             // traceAgentTool / cache writes / messages.push) sees ONLY the
             // model-visible `result`; the `newMessages` ride a per-batch buffer
             // flushed after the batch's last tool_result (never interleaved).
@@ -419,7 +424,7 @@ export async function processToolBatch(ctx) {
             // _resultKind==='normal' ensures cache-hit refs are never re-stored (structural,
             // no prefix sniffing).
             // NOTE: setReadCached / setScopedToolCached are deferred below (after
-            // compressToolResult) so the cache holds the same content as conversation
+            // lossless offload) so the cache holds the same content as conversation
             // history. Cache-hit refs point to a tool_use_id whose message body matches
             // exactly what's stored — no phantom full body.
             if (sessionId && _executeOk && _resultKind === 'normal') {
@@ -535,7 +540,7 @@ export async function processToolBatch(ctx) {
         } catch (error) {
             _offloadStates = _batchCompleted.map(() => ({ result: null, error }));
         }
-        // Assistant-message pipeline: offload → compress → trace → cache →
+        // Assistant-message pipeline: lossless offload → trace → cache →
         // push. The cache and transcript therefore receive the same body.
         for (let completedIndex = 0; completedIndex < _batchCompleted.length; completedIndex += 1) {
             const completed = _batchCompleted[completedIndex];
@@ -559,7 +564,6 @@ export async function processToolBatch(ctx) {
                 const _postOffloadBytes = typeof result === 'string'
                     ? Buffer.byteLength(result, 'utf8')
                     : 0;
-                result = compressToolResult(call.name, call.arguments, result, { sessionId, toolKind });
                 if (_isShellTool(call.name)) {
                     traceAgentShellOutput({
                         sessionId,
@@ -570,6 +574,17 @@ export async function processToolBatch(ctx) {
                         postOffloadBytes: _postOffloadBytes,
                         modelVisibleBytes: typeof result === 'string' ? Buffer.byteLength(result, 'utf8') : 0,
                         offloaded: _offloaded,
+                        resultKind: _resultKind,
+                    });
+                } else if (_offloaded) {
+                    traceAgentToolOutput({
+                        sessionId,
+                        toolName: call.name,
+                        toolCallId: call.id,
+                        preOffloadBytes: _preOffloadBytes,
+                        postOffloadBytes: _postOffloadBytes,
+                        modelVisibleBytes: _postOffloadBytes,
+                        offloaded: true,
                         resultKind: _resultKind,
                     });
                 }

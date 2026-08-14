@@ -6,7 +6,6 @@
 // without tombstoning.
 import { loadSession, markSessionClosed, bumpSessionGeneration, getSessionLifecycleCommitError } from '../store.mjs';
 import { clearReadDedupSession } from '../read-dedup.mjs';
-import { clearOffloadSession } from '../tool-result-offload.mjs';
 import { SessionClosedError } from './session-errors.mjs';
 import { _dropPendingMessageState } from './pending-messages.mjs';
 import { _stopToolActivityHeartbeat, _getRuntimeEntry, _clearSessionRuntime } from './runtime-liveness.mjs';
@@ -123,11 +122,9 @@ export function closeSession(id, reason = 'manual', opts = {}) {
     // entries across mcp-server lifetime.
     try { clearReadDedupSession(id); } catch { /* ignore */ }
     try { releaseReadSnapshotScope(id); } catch { /* ignore */ }
-    // Drop offload sidecars + module-level counter for this session so a
-    // long-running mcp-server doesn't leak disk (tool-results/<id>/*.txt)
-    // or Map entries across session lifetime. Fire-and-forget — close path
-    // should not await disk IO; errors are swallowed inside.
-    try { clearOffloadSession(id); } catch { /* ignore */ }
+    // Artifact lifetime follows the durable transcript, not the live runtime.
+    // Tombstone/explicit deletion cleanup removes it only after session data
+    // itself is gone.
     // Drop the in-memory pending-message queue and any buffered-persist entry
     // for this session — otherwise both Maps accumulate one entry per closed
     // session for the life of the mcp-server.

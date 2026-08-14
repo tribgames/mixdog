@@ -582,7 +582,7 @@ export class GeminiProvider {
             .map(m => m.content)
             .join('\n\n') || undefined;
         const chatMsgs = messages.filter(m => m.role !== 'system');
-        const contents = toGeminiContents(chatMsgs);
+        const contents = toGeminiContents(chatMsgs, useModel);
         if (!contents.length)
             throw new Error('No messages to send');
 

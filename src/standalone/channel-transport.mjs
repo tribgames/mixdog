@@ -151,7 +151,10 @@ export function createChannelTransport({
     if (!resolvedRemoteIntentPath) return null;
     try {
       const intent = normalizeRemoteIntent(JSON.parse(readFileSync(resolvedRemoteIntentPath, 'utf8')));
-      if (!intent || !isPidAlive(intent.ownerLeadPid)) {
+      // The owner PID is an ephemeral live-takeover guard, not the durable
+      // identity. A restarted session has a new PID and claims this intent by
+      // presenting the same sessionId + cwd below.
+      if (!intent) {
         try { rmSync(resolvedRemoteIntentPath, { force: true }); } catch {}
         return null;
       }
@@ -201,9 +204,13 @@ export function createChannelTransport({
   function maybeRestoreRemoteIntent(client) {
     const intent = remoteIntent;
     if (closed || remoteRestorePromise || pointerToken || remoteAcquired || !intent) return;
-    if (!isPidAlive(intent.ownerLeadPid)
-        || client.leadPid !== intent.ownerLeadPid
-        || (client.cwd || null) !== intent.cwd) return;
+    const sameLiveOwner = isPidAlive(intent.ownerLeadPid)
+      && client.leadPid === intent.ownerLeadPid;
+    const sameSessionClaim = client.restoreSessionId === intent.sessionId;
+    if ((client.cwd || null) !== intent.cwd || (!sameLiveOwner && !sameSessionClaim)) return;
+    // A live owner can only restore its own intent. Session pinning permits a
+    // new PID only after the old owner is gone, preventing live takeover.
+    if (isPidAlive(intent.ownerLeadPid) && client.leadPid !== intent.ownerLeadPid) return;
     const token = client.token;
     remoteRestorePromise = Promise.resolve().then(async () => {
       if (closed || pointerToken || remoteAcquired || remoteIntent !== intent
@@ -225,7 +232,8 @@ export function createChannelTransport({
           throw new Error(result?.content?.[0]?.text || 'restored activation failed');
         }
         if (pointerToken === token && remoteIntent === intent) {
-          log(`remote intent restored session=${intent.sessionId} lead=${intent.ownerLeadPid}`);
+          writeRemoteIntent(client, { transcriptPath: intent.transcriptPath }, intent.sessionId);
+          log(`remote intent restored session=${intent.sessionId} lead=${client.leadPid}`);
           publishRemoteOwnerState();
         }
       } catch (err) {
@@ -281,7 +289,7 @@ export function createChannelTransport({
       // it has not re-registered within a grace window. pid death is the
       // authoritative signal for client liveness.
       if (!isPidAlive(c.leadPid)) {
-        dropClient(token, 'pid dead');
+        dropClient(token, 'pid dead', { preserveRemoteIntent: true });
       }
     }
   }
@@ -294,7 +302,7 @@ export function createChannelTransport({
     return out;
   }
 
-  function dropClient(token, reason) {
+  function dropClient(token, reason, options = {}) {
     const c = clients.get(token);
     if (!c) return;
     const wasPointer = pointerToken === token;
@@ -308,10 +316,13 @@ export function createChannelTransport({
     if (wasPointer) {
       remoteAcquired = false;
       stickyRemoteFrame = null;
-      if (reason !== 'transport stop') clearRemoteIntent(`owner removed: ${reason}`, c);
+      if (reason !== 'transport stop' && options.preserveRemoteIntent !== true) {
+        clearRemoteIntent(`owner removed: ${reason}`, c);
+      }
     }
     publishRemoteOwnerState();
-    if (shouldDeactivate && !closed && typeof dispatchControl === 'function') {
+    if (shouldDeactivate && !closed && options.suppressDeactivate !== true
+        && typeof dispatchControl === 'function') {
       try {
         Promise.resolve()
           .then(() => dispatchControl(ACTIVATE_TOOL, {
@@ -330,7 +341,12 @@ export function createChannelTransport({
     if (drainingReason) return false;
     drainingReason = String(reason || 'daemon replacement');
     cancelGrace();
-    for (const token of [...clients.keys()]) dropClient(token, drainingReason);
+    for (const token of [...clients.keys()]) {
+      dropClient(token, drainingReason, {
+        preserveRemoteIntent: true,
+        suppressDeactivate: true,
+      });
+    }
     return true;
   }
 
@@ -379,13 +395,14 @@ export function createChannelTransport({
   // A response-loss close knows only its retired token + stable registration id.
   // Bind cancellation to every logical-client field before retiring the fresh
   // token; malformed/mismatched cancellation can never affect another client.
-  function cancelReplacementRegistration({ token, registrationId, replaceToken, leadPid, cwd }) {
+  function cancelReplacementRegistration({ token, registrationId, replaceToken, leadPid, cwd, restoreSessionId }) {
     const replayId = registrationId ? String(registrationId).slice(0, 200) : null;
     const replay = replayId ? registrationReplays.get(replayId) : null;
     if (!replay) return 'missing';
     const retiredToken = token ? String(token) : null;
     if (retiredToken !== replay.replaceToken || String(replaceToken || '') !== replay.replaceToken ||
-        parsePid(leadPid) !== replay.leadPid || (cwd || null) !== replay.cwd) return 'forbidden';
+        parsePid(leadPid) !== replay.leadPid || (cwd || null) !== replay.cwd
+        || String(restoreSessionId || '') !== String(replay.restoreSessionId || '')) return 'forbidden';
     dropClient(replay.token, 'replacement deregister');
     return 'cancelled';
   }
@@ -531,14 +548,26 @@ export function createChannelTransport({
     }
   }
 
-  function registerClient({ leadPid, cwd, passive = false, replaceToken = null, registrationId = null }) {
+  function registerClient({
+    leadPid,
+    cwd,
+    passive = false,
+    replaceToken = null,
+    registrationId = null,
+    restoreSessionId = null,
+  }) {
     const pid = parsePid(leadPid) ?? 0;
+    const restoreId = /^[A-Za-z0-9_-]+$/.test(String(restoreSessionId || ''))
+      ? String(restoreSessionId)
+      : null;
     const replacementToken = replaceToken ? String(replaceToken) : null;
     const replayId = passive && registrationId ? String(registrationId).slice(0, 200) : null;
     const existingReplay = replayId ? registrationReplays.get(replayId) : null;
     if (existingReplay) {
       if (existingReplay.leadPid === pid && existingReplay.cwd === (cwd || null) &&
-          existingReplay.replaceToken === replacementToken && clients.has(existingReplay.token)) {
+          existingReplay.replaceToken === replacementToken
+          && existingReplay.restoreSessionId === restoreId
+          && clients.has(existingReplay.token)) {
         armRegistrationReplay(replayId, existingReplay);
         log(`client reconnect replay token=${existingReplay.token} lead=${pid}`);
         return existingReplay.token;
@@ -559,6 +588,7 @@ export function createChannelTransport({
       pendingRemoteStateFrame: null,
       lastSeen: nowMs(),
       registeredAt: nowMs(),
+      restoreSessionId: restoreId,
     });
     everHadClient = true;
     cancelGrace();
@@ -575,6 +605,7 @@ export function createChannelTransport({
       if (!replayId) return freshToken;
       const replay = {
         token: freshToken, leadPid: pid, cwd: cwd || null, replaceToken: replacementToken,
+        restoreSessionId: restoreId,
         responseFinished: false, timer: null,
       };
       registrationReplays.set(replayId, replay);
@@ -596,6 +627,7 @@ export function createChannelTransport({
         replaced.pendingRemoteStateFrame = null;
       }
       if (replaced.remoteSessionId) fresh.remoteSessionId = replaced.remoteSessionId;
+      if (replaced.restoreSessionId) fresh.restoreSessionId = replaced.restoreSessionId;
       if (replacedWasPointer) pointerToken = token;
       removeClientRecord(replaced.token);
       log(`client reconnect replaced token=${replaced.token} -> ${token} lead=${pid}`);
@@ -685,6 +717,7 @@ export function createChannelTransport({
         const clientToken = registerClient({
           leadPid: body.leadPid, cwd: body.cwd, passive: body.passive === true,
           replaceToken: body.replaceToken, registrationId: body.registrationId,
+          restoreSessionId: body.restoreSessionId,
         });
         const replayId = body.passive === true && body.registrationId ? String(body.registrationId).slice(0, 200) : null;
         res.once('finish', () => markRegistrationResponseFinished(replayId, clientToken));
@@ -699,7 +732,13 @@ export function createChannelTransport({
           sendJson(res, { ok: true, cancelled: cancelled === 'cancelled' });
           return;
         }
-        if (body.token) dropClient(body.token, 'deregister');
+        if (body.token) {
+          const preserveRemoteIntent = body.preserveRemoteIntent === true;
+          dropClient(body.token, 'deregister', {
+            preserveRemoteIntent,
+            suppressDeactivate: preserveRemoteIntent,
+          });
+        }
         sendJson(res, { ok: true });
         return;
       }
