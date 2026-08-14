@@ -25,9 +25,11 @@ import {
 } from '../src/runtime/memory/lib/recall-format.mjs';
 import {
   collectToolOutcomeLines,
+  collectWorkingFileGroups,
   collectWorkingFiles,
   composeRecallHandoff,
   conversationLinesFromMemoryText,
+  fitRecallHandoffText,
 } from '../src/runtime/agent/orchestrator/session/compact/handoff.mjs';
 import { createQueryHandlers } from '../src/runtime/memory/lib/query-handlers.mjs';
 
@@ -121,6 +123,22 @@ console.log('compact file-reattach test passed \u2713');
     { role: 'assistant', toolCalls: [{ name: 'apply_patch', arguments: { patch: '*** Update File: src/b.mjs\n' } }] },
   ]);
   assert.deepEqual(files, ['src/b.mjs', 'src/a.mjs']);
+  const groupedFiles = collectWorkingFileGroups([
+    { role: 'assistant', createdAt: Date.parse('2026-01-03T00:00:00Z'), toolCalls: [{ name: 'apply_patch', arguments: { patch: '*** Update File: src/current.mjs\n' } }] },
+    { role: 'assistant', createdAt: Date.parse('2026-01-04T00:00:00Z'), toolCalls: [{ name: 'read', arguments: { path: 'src/current-ref.mjs' } }] },
+  ], 6, {
+    previousSummary: [
+      '## Working files',
+      '### Modified',
+      '- src/prior.mjs [editedAt=2026-01-01T00:00:00.000Z; seenAt=2026-01-01T00:00:00.000Z]',
+      '### Referenced',
+      '- logs/prior.log [seenAt=2026-01-02T00:00:00.000Z]',
+    ].join('\n'),
+  });
+  assert.deepEqual(groupedFiles.modified.map((entry) => entry.path), ['src/current.mjs', 'src/prior.mjs']);
+  assert.deepEqual(groupedFiles.referenced.map((entry) => entry.path), ['src/current-ref.mjs', 'logs/prior.log']);
+  assert.equal(groupedFiles.modified[0].editedAt, '2026-01-03T00:00:00.000Z');
+  assert.equal(groupedFiles.referenced[0].seenAt, '2026-01-04T00:00:00.000Z');
   const tools = collectToolOutcomeLines([
     { role: 'assistant', toolCalls: [{ id: 'p1', name: 'apply_patch', arguments: { patch: '*** Update File: src/b.mjs\n' } }] },
     { role: 'tool', toolCallId: 'p1', content: 'ok' },
@@ -136,13 +154,97 @@ console.log('compact file-reattach test passed \u2713');
     sessionId: 'sess_x',
     conversationLines: lines,
     toolLines: tools,
-    workingFiles: files,
+    workingFiles: groupedFiles,
   });
   assert.match(body, /## Previous conversation/);
   assert.match(body, /## Tool results/);
   assert.match(body, /## Working files/);
+  assert.match(body, /### Modified[\s\S]*src\/current\.mjs/);
+  assert.match(body, /### Referenced[\s\S]*src\/current-ref\.mjs/);
+  assert.match(body, /editedAt=2026-01-03T00:00:00\.000Z/);
+  assert.match(body, /seenAt=2026-01-04T00:00:00\.000Z/);
+  const manyWorkingFiles = {
+    modified: Array.from({ length: 20 }, (_, index) => ({
+      path: `src/modified-${index}.mjs`,
+      editedAt: '2026-01-05T00:00:00.000Z',
+      seenAt: '2026-01-05T00:00:00.000Z',
+    })),
+    referenced: Array.from({ length: 100 }, (_, index) => ({
+      path: `src/referenced-${index}.mjs`,
+      seenAt: '2026-01-05T00:00:00.000Z',
+    })),
+  };
+  const largeHandoff = composeRecallHandoff({
+    sessionId: 'sess_large_files',
+    conversationLines: ['u: preserve every modified file'],
+    workingFiles: manyWorkingFiles,
+  });
+  const fittedHandoff = fitRecallHandoffText(largeHandoff, 1200);
+  for (const entry of manyWorkingFiles.modified) {
+    assert.ok(fittedHandoff.includes(entry.path), `${entry.path} must not be capped`);
+  }
+  assert.match(fittedHandoff, /\+\d+ omitted/, 'referenced files report token-budget omissions');
+  assert.ok(estimateTokens(fittedHandoff) <= 1200, 'working-file handoff obeys its token budget');
   console.log('compact handoff shaping passed \u2713');
 }
+
+test('runner-level repeated compaction carries bounded prior context and working files', () => {
+    const readCall = (id, path) => ({
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id, name: 'read', arguments: JSON.stringify({ path }) }],
+    });
+    const toolResult = (id) => ({ role: 'tool', toolCallId: id, content: 'body' });
+    let messages = [{ role: 'system', content: 'rules' }];
+    let previousLatest = '';
+    const requirements = [];
+    const files = [];
+    for (let cycle = 0; cycle < 5; cycle += 1) {
+        const mid = `REQ-${cycle}-MID intervening requirement`;
+        const latest = `REQ-${cycle}-LATEST latest requirement`;
+        const file = `src/cycle-${cycle}.mjs`;
+        requirements.push(mid, latest);
+        files.push(file);
+        messages.push(
+            { role: 'user', content: mid },
+            { role: 'assistant', content: `mid ${cycle} ack` },
+            { role: 'user', content: latest },
+            readCall(`read-${cycle}`, file),
+            toolResult(`read-${cycle}`),
+            { role: 'assistant', content: `cycle ${cycle} done` },
+        );
+        const recallRows = [
+            `[2026-01-0${cycle + 1}] a: cycle ${cycle} done`,
+            `[2026-01-0${cycle + 1}] u: ${latest}`,
+            `[2026-01-0${cycle + 1}] u: ${mid}`,
+        ];
+        if (previousLatest) recallRows.push(`[2026-01-0${cycle + 1}] u: ${previousLatest}`);
+        const result = recallFastTrackCompactMessages(messages, 12_000, {
+            force: true,
+            recallText: recallRows.join('\n'),
+            allowEmptyRecall: false,
+            tailTurns: 1,
+            keepTokens: 1200,
+            cwd: 'C:/repo',
+            sessionId: 'sess_repeat',
+        });
+        const serialized = JSON.stringify(result.messages);
+        for (const requirement of requirements) {
+            assert.ok(serialized.includes(requirement), `cycle ${cycle} retained ${requirement}`);
+        }
+        for (const workingFile of files) {
+            assert.ok(serialized.includes(workingFile), `cycle ${cycle} retained ${workingFile}`);
+        }
+        const summary = result.messages.find((message) => (
+            typeof message.content === 'string' && message.content.includes('[context compacted')
+        ));
+        const summaryBody = String(summary?.content || '');
+        assert.equal((summaryBody.match(/<prior-compacted-context>/g) || []).length <= 1, true);
+        assert.equal((summaryBody.match(/## Working files/g) || []).length, 1);
+        messages = result.messages;
+        previousLatest = latest;
+    }
+});
 
 // ==== from compact-prior-context-flatten-test.mjs ====
 // Regression test for the repeated-compaction prior-context invariant: every

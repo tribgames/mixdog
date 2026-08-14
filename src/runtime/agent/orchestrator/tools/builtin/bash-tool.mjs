@@ -61,7 +61,7 @@ import {
 import { normalizeOutputPath } from './path-utils.mjs';
 import { normalizeErrorMessage } from './path-diagnostics.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
-import { scrubLoaderVars, scrubProviderSecrets, scrubRuntimeRootVars } from '../env-scrub.mjs';
+import { applyShellEgressPolicy, scrubLoaderVars, scrubProviderSecrets, scrubRuntimeRootVars } from '../env-scrub.mjs';
 import { resourceAdmission } from '../../../../shared/resource-admission.mjs';
 import {
     findPathExecutable,
@@ -549,6 +549,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         scrubProviderSecrets(spawnEnv);
         scrubLoaderVars(spawnEnv);
         scrubRuntimeRootVars(spawnEnv);
+        applyShellEgressPolicy(spawnEnv);
         let wrappedCommand;
         let _teePlan = null;
         let execShell = shell;

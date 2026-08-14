@@ -95,14 +95,12 @@ fn fuzzy_cache_bytes() -> usize {
 }
 
 fn aimd_target() -> Duration {
-    Duration::from_millis(
-        bounded_env_usize(
-            "MIXDOG_SEARCH_AIMD_TARGET_MS",
-            DEFAULT_AIMD_TARGET_MS,
-            10,
-            10_000,
-        ) as u64,
-    )
+    Duration::from_millis(bounded_env_usize(
+        "MIXDOG_SEARCH_AIMD_TARGET_MS",
+        DEFAULT_AIMD_TARGET_MS,
+        10,
+        10_000,
+    ) as u64)
 }
 
 fn aimd_increase_every() -> usize {
@@ -216,14 +214,14 @@ fn paths_storage_bytes(files: &[PathBuf]) -> usize {
 }
 
 fn fuzzy_storage_bytes(corpus: &FuzzyCorpus) -> usize {
-    corpus.paths.iter().fold(
-        std::mem::size_of::<FuzzyCorpus>(),
-        |total, indexed| {
+    corpus
+        .paths
+        .iter()
+        .fold(std::mem::size_of::<FuzzyCorpus>(), |total, indexed| {
             total
                 .saturating_add(std::mem::size_of::<FuzzyIndexedPath>())
                 .saturating_add(indexed.path.len().saturating_mul(5))
-        },
-    )
+        })
 }
 
 enum LiveState {
@@ -281,7 +279,9 @@ impl FileListStore {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .keys()
-            .filter(|root| paths.is_empty() || paths.iter().any(|path| Self::paths_overlap(root, path)))
+            .filter(|root| {
+                paths.is_empty() || paths.iter().any(|path| Self::paths_overlap(root, path))
+            })
             .cloned()
             .collect();
         if roots.is_empty() {
@@ -296,19 +296,35 @@ impl FileListStore {
         self.ready
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .retain(|key, _| !roots.iter().any(|root| Self::paths_overlap(&key.operand, root)));
+            .retain(|key, _| {
+                !roots
+                    .iter()
+                    .any(|root| Self::paths_overlap(&key.operand, root))
+            });
         self.fuzzy
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .retain(|key, _| !roots.iter().any(|root| Self::paths_overlap(&key.walk.operand, root)));
+            .retain(|key, _| {
+                !roots
+                    .iter()
+                    .any(|root| Self::paths_overlap(&key.walk.operand, root))
+            });
         let stale: Vec<Arc<LiveWalk>> = {
             let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
             let stale = live
                 .iter()
-                .filter(|(key, _)| roots.iter().any(|root| Self::paths_overlap(&key.operand, root)))
+                .filter(|(key, _)| {
+                    roots
+                        .iter()
+                        .any(|root| Self::paths_overlap(&key.operand, root))
+                })
                 .map(|(_, value)| Arc::clone(value))
                 .collect();
-            live.retain(|key, _| !roots.iter().any(|root| Self::paths_overlap(&key.operand, root)));
+            live.retain(|key, _| {
+                !roots
+                    .iter()
+                    .any(|root| Self::paths_overlap(&key.operand, root))
+            });
             stale
         };
         for live in stale {
@@ -326,29 +342,30 @@ impl FileListStore {
         let mut watcher = self.watcher.lock().unwrap_or_else(|e| e.into_inner());
         if watcher.is_none() {
             let weak: Weak<Self> = Arc::downgrade(self);
-            let created = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-                let Some(store) = weak.upgrade() else { return };
-                let changed = match event {
-                    Ok(event)
-                        if !matches!(
-                            event.kind,
-                            EventKind::Create(_)
-                                | EventKind::Modify(ModifyKind::Data(_) | ModifyKind::Name(_))
-                                | EventKind::Remove(_)
-                        ) =>
-                    {
-                        return;
+            let created =
+                notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                    let Some(store) = weak.upgrade() else { return };
+                    let changed = match event {
+                        Ok(event)
+                            if !matches!(
+                                event.kind,
+                                EventKind::Create(_)
+                                    | EventKind::Modify(ModifyKind::Data(_) | ModifyKind::Name(_))
+                                    | EventKind::Remove(_)
+                            ) =>
+                        {
+                            return;
+                        }
+                        Ok(event) => store.invalidate_paths(&event.paths),
+                        Err(_) => store.invalidate_paths(&[]),
+                    };
+                    if !changed.is_empty() {
+                        write_response(&serde_json::json!({
+                            "event": "invalidate",
+                            "paths": changed.iter().map(|path| wire_path(path)).collect::<Vec<_>>()
+                        }));
                     }
-                    Ok(event) => store.invalidate_paths(&event.paths),
-                    Err(_) => store.invalidate_paths(&[]),
-                };
-                if !changed.is_empty() {
-                    write_response(&serde_json::json!({
-                        "event": "invalidate",
-                        "paths": changed.iter().map(|path| wire_path(path)).collect::<Vec<_>>()
-                    }));
-                }
-            });
+                });
             let Ok(created) = created else { return };
             *watcher = Some(created);
         }
@@ -411,12 +428,9 @@ impl FileListStore {
         ready.remove(&key);
         while !ready.is_empty()
             && (ready.len() >= FILE_LIST_CACHE_MAX
-                || ready
-                    .values()
-                    .fold(estimated_bytes, |total, entry| {
-                        total.saturating_add(entry.estimated_bytes)
-                    })
-                    > bytes_limit)
+                || ready.values().fold(estimated_bytes, |total, entry| {
+                    total.saturating_add(entry.estimated_bytes)
+                }) > bytes_limit)
         {
             if let Some(oldest) = ready
                 .iter()
@@ -484,12 +498,9 @@ impl FileListStore {
         }
         while !fuzzy.is_empty()
             && (fuzzy.len() >= FILE_LIST_CACHE_MAX
-                || fuzzy
-                    .values()
-                    .fold(estimated_bytes, |total, entry| {
-                        total.saturating_add(entry.estimated_bytes)
-                    })
-                    > bytes_limit)
+                || fuzzy.values().fold(estimated_bytes, |total, entry| {
+                    total.saturating_add(entry.estimated_bytes)
+                }) > bytes_limit)
         {
             if let Some(oldest) = fuzzy
                 .iter()
@@ -550,12 +561,12 @@ impl FileListStore {
             LiveState::Abandoned
         } else {
             match result {
-            Ok(files) => {
-                self.remember(key, Arc::clone(&files), live.generation);
-                LiveState::Done(files)
-            }
-            Err(Some(err)) => LiveState::Failed(err),
-            Err(None) => LiveState::Abandoned,
+                Ok(files) => {
+                    self.remember(key, Arc::clone(&files), live.generation);
+                    LiveState::Done(files)
+                }
+                Err(Some(err)) => LiveState::Failed(err),
+                Err(None) => LiveState::Abandoned,
             }
         };
         live.cond.notify_all();
@@ -650,7 +661,9 @@ impl PathFilter {
                 .case_insensitive(true)
                 .map_err(|error| format!("iglob: {error}"))?;
             for glob in &parsed.iglobs {
-                builder.add(glob).map_err(|error| format!("iglob: {error}"))?;
+                builder
+                    .add(glob)
+                    .map_err(|error| format!("iglob: {error}"))?;
             }
             Some(builder.build().map_err(|error| format!("iglob: {error}"))?)
         };
@@ -664,7 +677,11 @@ impl PathFilter {
             }
             Some(builder.build().map_err(|error| format!("type: {error}"))?)
         };
-        Ok(Self { globs, iglobs, types })
+        Ok(Self {
+            globs,
+            iglobs,
+            types,
+        })
     }
 
     fn allows(&self, path: &Path) -> bool {
@@ -830,11 +847,7 @@ struct CancelSink<'a, S> {
 impl<S: Sink> Sink for CancelSink<'_, S> {
     type Error = S::Error;
 
-    fn matched(
-        &mut self,
-        searcher: &Searcher,
-        mat: &SinkMatch<'_>,
-    ) -> Result<bool, Self::Error> {
+    fn matched(&mut self, searcher: &Searcher, mat: &SinkMatch<'_>) -> Result<bool, Self::Error> {
         if self.cancelled.load(Ordering::Relaxed) {
             return Ok(false);
         }
@@ -873,11 +886,7 @@ impl<S: Sink> Sink for CancelSink<'_, S> {
         self.inner.begin(searcher)
     }
 
-    fn finish(
-        &mut self,
-        searcher: &Searcher,
-        finish: &SinkFinish,
-    ) -> Result<(), Self::Error> {
+    fn finish(&mut self, searcher: &Searcher, finish: &SinkFinish) -> Result<(), Self::Error> {
         self.inner.finish(searcher, finish)
     }
 }
@@ -1313,10 +1322,7 @@ fn start_live_walk(
                         if collected.files.len().saturating_sub(collected.published)
                             >= publish_batch
                         {
-                            publish_live_files(
-                                live,
-                                &collected.files[collected.published..],
-                            );
+                            publish_live_files(live, &collected.files[collected.published..]);
                             collected.published = collected.files.len();
                         }
                     }
@@ -1406,11 +1412,7 @@ fn complete_operand_files(
             Ok(Some(files)) => return Ok((files, true)),
             Ok(None) => continue,
             Err(reason) if reason == SOFT_TIMEOUT => {
-                let snapshot = live
-                    .files
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clone();
+                let snapshot = live.files.lock().unwrap_or_else(|e| e.into_inner()).clone();
                 return Ok((Arc::new(snapshot), false));
             }
             Err(reason) => return Err(reason),
@@ -1739,11 +1741,9 @@ fn handle(
                     let mut cursor = 0usize;
                     'inventory: loop {
                         let batch = {
-                            let mut files =
-                                live.files.lock().unwrap_or_else(|e| e.into_inner());
+                            let mut files = live.files.lock().unwrap_or_else(|e| e.into_inner());
                             while cursor >= files.len() {
-                                let state =
-                                    live.state.lock().unwrap_or_else(|e| e.into_inner());
+                                let state = live.state.lock().unwrap_or_else(|e| e.into_inner());
                                 match &*state {
                                     LiveState::Done(_) => break 'inventory,
                                     LiveState::Abandoned => {
@@ -1761,9 +1761,7 @@ fn handle(
                                 if cancelled.load(Ordering::Relaxed) {
                                     return Err(CANCELLED.to_string());
                                 }
-                                if deadline_at
-                                    .is_some_and(|deadline| Instant::now() >= deadline)
-                                {
+                                if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
                                     timed_out = true;
                                     break 'inventory;
                                 }
@@ -1827,8 +1825,10 @@ fn handle(
         } else {
             cwd.join(operand)
         };
-        let use_prefix =
-            parsed.with_filename || parsed.files_with_matches || multi_target || operand_path.is_dir();
+        let use_prefix = parsed.with_filename
+            || parsed.files_with_matches
+            || multi_target
+            || operand_path.is_dir();
         let filter = PathFilter::new(&operand_path, &parsed)?;
         if collect_until != usize::MAX {
             let (reached_limit, operand_timed_out) = scan_limited_operand(
@@ -2408,8 +2408,7 @@ fn dispatch_searches(inner: Arc<SchedulerInner>) {
                     total_inflight += 1;
                     ready.push((SearchClass::Interactive, search));
                 }
-                while state.fuzzy_inflight < inner.fuzzy_limit
-                    && total_inflight < inner.total_limit
+                while state.fuzzy_inflight < inner.fuzzy_limit && total_inflight < inner.total_limit
                 {
                     let Some(search) = state.fuzzy.pop_front() else {
                         break;
@@ -2419,8 +2418,7 @@ fn dispatch_searches(inner: Arc<SchedulerInner>) {
                     ready.push((SearchClass::Fuzzy, search));
                 }
                 let current_bulk_limit = adaptive_bulk_limit(inner.bulk_limit, &state);
-                while state.bulk_inflight < current_bulk_limit
-                    && total_inflight < inner.total_limit
+                while state.bulk_inflight < current_bulk_limit && total_inflight < inner.total_limit
                 {
                     let Some(search) = state.bulk.pop_front() else {
                         break;
@@ -2499,12 +2497,7 @@ fn execute_scheduled_search(
                 state.bulk_inflight = state.bulk_inflight.saturating_sub(1);
             }
         }
-        observe_scheduler_latency(
-            &mut state,
-            queue_elapsed,
-            handler_elapsed,
-            inner.bulk_limit,
-        );
+        observe_scheduler_latency(&mut state, queue_elapsed, handler_elapsed, inner.bulk_limit);
         let telemetry = scheduler_telemetry(&inner, &state);
         inner.changed.notify_all();
         telemetry
@@ -2661,9 +2654,9 @@ pub fn run() {
                     .ok()
                     .and_then(|map| map.get(&cancel).cloned())
                     .is_some_and(|flag| {
-                    flag.store(true, Ordering::Relaxed);
-                    true
-                });
+                        flag.store(true, Ordering::Relaxed);
+                        true
+                    });
                 let removed = scheduler.cancel_queued(cancel);
                 if removed || !running {
                     if let Ok(mut map) = cancellations.lock() {
@@ -2814,7 +2807,10 @@ mod tests {
         let source = std::io::Cursor::new(vec![b'x'; search_reader_chunk_bytes() * 2]);
         let mut reader = CancellableReader::new(source, &cancelled, None);
         let mut buffer = vec![0u8; search_reader_chunk_bytes() * 2];
-        assert_eq!(reader.read(&mut buffer).unwrap(), search_reader_chunk_bytes());
+        assert_eq!(
+            reader.read(&mut buffer).unwrap(),
+            search_reader_chunk_bytes()
+        );
         cancelled.store(true, Ordering::Relaxed);
         assert_eq!(
             reader.read(&mut buffer).unwrap_err().kind(),
@@ -2829,12 +2825,7 @@ mod tests {
         observe_scheduler_latency(&mut state, target * 2, Duration::from_millis(1), 4);
         assert_eq!(state.bulk_window, 2);
         for _ in 0..aimd_increase_every() {
-            observe_scheduler_latency(
-                &mut state,
-                Duration::ZERO,
-                Duration::from_millis(1),
-                4,
-            );
+            observe_scheduler_latency(&mut state, Duration::ZERO, Duration::from_millis(1), 4);
         }
         assert_eq!(state.bulk_window, 3);
     }

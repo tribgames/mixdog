@@ -90,6 +90,8 @@ function createJsonLifecycle({
   effort,
   fast,
   cwd,
+  webSearch = false,
+  memory = false,
 }) {
   let threadId = `exec_${randomUUID().replace(/-/g, '')}`;
   const turnId = 'turn_1';
@@ -143,6 +145,8 @@ function createJsonLifecycle({
         tool_mode: 'full',
         approval_mode: 'implicit',
         delegation: false,
+        web_search: webSearch === true,
+        memory: memory === true,
       },
     }, turnStartedAt);
     emit({
@@ -540,6 +544,8 @@ export async function runHeadlessExec({
   model,
   effort,
   fast,
+  webSearch = false,
+  memory = false,
   json = false,
   cwd = process.cwd(),
   write = (text) => stdout.write(text),
@@ -571,6 +577,8 @@ export async function runHeadlessExec({
     effort,
     fast,
     cwd,
+    webSearch,
+    memory,
   }) : null;
   let boundary = null;
   let runtime = null;
@@ -602,6 +610,12 @@ export async function runHeadlessExec({
     const createRuntime = runtimeFactory || (
       await import('./mixdog-session-runtime.mjs')
     ).createMixdogSessionRuntime;
+    // Headless defaults: web research and memory tools stay OFF unless the
+    // caller opts in via --web-search / --memory. Delegation is already
+    // disallowed below, completing the solo surface. The per-process
+    // MIXDOG_FEATURE_* overrides are the runtime's canonical switches.
+    process.env.MIXDOG_FEATURE_WEB_SEARCH = webSearch === true ? '1' : '0';
+    process.env.MIXDOG_FEATURE_MEMORY = memory === true ? '1' : '0';
     runtime = await createRuntime({
       provider,
       model,

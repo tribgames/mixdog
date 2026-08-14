@@ -75,6 +75,33 @@ const SECRET_EXACT = new Set([
 export function scrubLoaderVars(env) {
     if (!env || typeof env !== 'object') return env;
     for (const k of LOADER_VARS) delete env[k];
+    return _continueScrubLoaderVars(env);
+}
+
+// Headless "web off" reaches shell children too: `mixdog exec` pins
+// MIXDOG_FEATURE_WEB_SEARCH=0 (default; --web-search opts back in) and every
+// model-spawned subprocess then receives the standard proxy variables pointed
+// at a dead loopback endpoint. curl/wget/git-http/pip/apt honor these and
+// fail fast on public hosts, while NO_PROXY keeps loopback traffic
+// (task-local servers) working. Raw-socket clients bypass proxy variables —
+// this is a uniform egress policy for the common tooling path, not a sandbox.
+// The runtime's own provider calls are unaffected: this mutates only the
+// child spawn env, never process.env.
+const SHELL_EGRESS_DEAD_PROXY = 'http://127.0.0.1:1';
+const SHELL_EGRESS_PROXY_VARS = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'FTP_PROXY', 'RSYNC_PROXY'];
+export function applyShellEgressPolicy(env) {
+    if (!env || typeof env !== 'object') return env;
+    if (String(process.env.MIXDOG_FEATURE_WEB_SEARCH ?? '') !== '0') return env;
+    for (const name of SHELL_EGRESS_PROXY_VARS) {
+        env[name] = SHELL_EGRESS_DEAD_PROXY;
+        env[name.toLowerCase()] = SHELL_EGRESS_DEAD_PROXY;
+    }
+    env.NO_PROXY = 'localhost,127.0.0.1,::1';
+    env.no_proxy = env.NO_PROXY;
+    return env;
+}
+
+function _continueScrubLoaderVars(env) {
     // Wildcard sweep: the exact-name list covers the common loader vars but
     // the DYLD_/LD_ families have many siblings (DYLD_FRAMEWORK_PATH,
     // DYLD_FALLBACK_LIBRARY_PATH, LD_AUDIT, LD_BIND_NOW, …). Delete every
