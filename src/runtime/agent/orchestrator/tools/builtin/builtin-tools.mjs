@@ -75,7 +75,7 @@ export const BUILTIN_TOOLS = [
         inputSchema: {
             type: 'object',
             properties: {
-                command: { type: 'string', description: `Command.${_shellSyntaxCheat}` },
+                command: { type: 'string', description: `Command. Never route file inspection through cat/Get-Content/head/tail/ls/dir/find/grep/rg/Select-String/sed/awk here — the dedicated file tools cover those.${_shellSyntaxCheat}` },
                 timeout_ms: {
                     type: 'integer',
                     minimum: 0,
@@ -105,7 +105,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Grep',
         annotations: { title: 'Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Search file contents for literal or regex matches; contextual path:line blocks are directly usable—read only omitted lines. Replaces grep/rg.',
+        description: 'Search file contents for literal or regex matches; contextual path:line blocks are directly usable—read only omitted lines. Ripgrep-dialect regex (e.g. "log.*Error"; escape literal braces; patterns match within one line). Batch independent searches in one message. Replaces grep/rg.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -134,7 +134,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Glob',
         annotations: { title: 'Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Return wildcard-matching paths under a known base when those paths are needed. Replaces find -name.',
+        description: 'Return wildcard-matching paths under a known base when those paths are needed. Newest first by default. Replaces find -name.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -146,6 +146,7 @@ export const BUILTIN_TOOLS = [
                     type: 'string',
                     description: 'Base dir.',
                 },
+                sort: { type: 'string', enum: ['natural', 'mtime'], description: 'mtime default (newest first); natural = raw walk order, cheaper on huge trees.' },
                 limit: { type: 'integer', minimum: 0, description: 'Max entries; default 100; 0 unlimited.' },
                 offset: { type: 'integer', minimum: 0, description: 'Entry offset.' },
             },

@@ -1535,7 +1535,10 @@ export async function executeGlobTool(args, workDir, options = {}) {
     }
     const offset = offsetCoerced === null || offsetCoerced === 0 ? 0 : offsetCoerced;
     const rawSort = typeof args.sort === 'string' ? args.sort.trim() : '';
-    const sortMode = rawSort === 'mtime' ? 'mtime' : 'natural';
+    // Newest-first is the default: recently-touched files are almost always
+    // the relevant ones. sort:'natural' opts back into raw walk order, which
+    // keeps early windowing and skips the stat phase on huge trees.
+    const sortMode = rawSort === 'natural' ? 'natural' : 'mtime';
     // Internal-only ignore extension (see normalizeGlobArgs). Caller (e.g.
     // ai-wrapped-dispatch broad-cwd preflight) appends basename ignore globs
     // so head_limit bounds SOURCE entries rather than artifact noise.
@@ -1677,17 +1680,25 @@ export async function executeGlobTool(args, workDir, options = {}) {
     const unique = Array.from(new Set(allFiles));
     let orderedPaths;
     if (sortMode === 'mtime') {
-        // Opt-in mtime sorting is intentionally slower: it stats every match.
-        // Bound the post-rg stat phase so a hung mount cannot pin glob until
-        // the agent stall watchdog fires.
+        // Default mtime sorting stats every match. Bound the post-rg stat
+        // phase so a hung mount cannot pin glob until the agent stall
+        // watchdog fires.
         const withStatAll = await statPathsForMtime(unique, workDir, 64, { deadlineMs: 5000 });
-        const withStat = withStatAll.filter((entry) => entry?.stat != null);
-        withStat.sort((a, b) => {
+        const statted = [];
+        const unstatted = [];
+        for (const entry of withStatAll) {
+            if (!entry) continue;
+            if (entry.stat != null) statted.push(entry);
+            else unstatted.push(entry);
+        }
+        statted.sort((a, b) => {
             const dm = b.mtime - a.mtime;
             if (dm !== 0) return dm;
             return globMtimeTiePath(a).localeCompare(globMtimeTiePath(b));
         });
-        orderedPaths = withStat.map((entry) => entry.full || resolveAgainstCwd(entry.path, workDir));
+        // A deadline-expired or failed stat degrades ORDERING only, never
+        // completeness: unsortable entries keep their walk order at the tail.
+        orderedPaths = [...statted, ...unstatted].map((entry) => entry.full || resolveAgainstCwd(entry.path, workDir));
     } else {
         orderedPaths = unique.map((entry) => isAbsolute(entry) ? resolve(entry) : resolveAgainstCwd(entry, workDir));
     }
