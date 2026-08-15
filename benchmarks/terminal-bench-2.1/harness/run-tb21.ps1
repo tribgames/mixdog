@@ -197,8 +197,39 @@ for ($i = 0; $i -lt ($displayArgs.Count - 1); $i++) {
 }
 "harbor $($displayArgs -join ' ')"
 if (-not $DryRun) {
-    harbor @harborArgs
-    $harborExitCode = $LASTEXITCODE
+    # Progress heartbeat: harbor's rich progress bar is invisible through a
+    # non-TTY pipe, so a long run looks hung. A detached pwsh inherits this
+    # console/pipe (-NoNewWindow) and prints trial counts + last file activity
+    # from the run's result.json every 30s. Task-neutral: counts only, no
+    # task names or hints reach the agent (separate process, stdout only).
+    $heartbeat = $null
+    try {
+        $hbJobs = $JobsDir.Replace("'", "''")
+        $hbCommand = "`$jobs = '$hbJobs'; while (`$true) { Start-Sleep -Seconds 30; try { " +
+            "`$run = Get-ChildItem -LiteralPath `$jobs -Directory -ErrorAction Stop | Sort-Object Name | Select-Object -Last 1; " +
+            "if (`$null -eq `$run) { continue }; " +
+            "`$rp = Join-Path `$run.FullName 'result.json'; " +
+            "if (-not (Test-Path -LiteralPath `$rp)) { continue }; " +
+            "`$s = (Get-Content -Raw -LiteralPath `$rp | ConvertFrom-Json).stats; " +
+            "`$last = Get-ChildItem -LiteralPath `$run.FullName -Recurse -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1; " +
+            "`$age = if (`$last) { [int]([DateTime]::Now - `$last.LastWriteTime).TotalSeconds } else { -1 }; " +
+            "Write-Host ('[progress {0:HH:mm:ss}] completed={1} running={2} pending={3} errors={4} last-activity={5}s ago' -f (Get-Date), `$s.n_completed_trials, `$s.n_running_trials, `$s.n_pending_trials, `$s.n_errored_trials, `$age) " +
+            "} catch { } }"
+        $hbEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($hbCommand))
+        $heartbeat = Start-Process (Get-Command pwsh.exe).Source `
+            -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', $hbEncoded) `
+            -NoNewWindow -PassThru
+    } catch {
+        Write-Warning "progress heartbeat unavailable: $($_.Exception.Message)"
+    }
+    try {
+        harbor @harborArgs
+        $harborExitCode = $LASTEXITCODE
+    } finally {
+        if ($heartbeat -and -not $heartbeat.HasExited) {
+            Stop-Process -Id $heartbeat.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 }
 finally {

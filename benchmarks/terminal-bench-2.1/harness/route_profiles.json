@@ -604,6 +604,40 @@
         "effort": "high",
         "fast": false
       }
+    },
+    "grok46-high": {
+      "routes": {
+        "lead": {
+          "provider": "grok-oauth",
+          "model": "grok-4.6",
+          "effort": "high",
+          "fast": true
+        },
+        "worker": {
+          "provider": "grok-oauth",
+          "model": "grok-4.6",
+          "effort": "high",
+          "fast": true
+        },
+        "heavy-worker": {
+          "provider": "grok-oauth",
+          "model": "grok-4.6",
+          "effort": "high",
+          "fast": true
+        },
+        "reviewer": {
+          "provider": "grok-oauth",
+          "model": "grok-4.6",
+          "effort": "high",
+          "fast": true
+        },
+        "debugger": {
+          "provider": "grok-oauth",
+          "model": "grok-4.6",
+          "effort": "high",
+          "fast": true
+        }
+      }
     }
   }
 }
