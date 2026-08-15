@@ -748,7 +748,9 @@ class MixdogAgent(BaseInstalledAgent):
             environment,
             command=(
                 "set -eu; "
-                'PACKAGE="$(npm root -g)/mixdog"; '
+                'MIXDOG_BIN="$(readlink -f "$(command -v mixdog)")"; '
+                'PACKAGE="$(dirname "$(dirname "$MIXDOG_BIN")")"; '
+                'test -f "$PACKAGE/package.json"; '
                 'STAGING="$PACKAGE/.src-local-snapshot"; '
                 'BACKUP="$PACKAGE/.src-installed-backup"; '
                 'cleanup_src_swap() { '
@@ -784,7 +786,8 @@ class MixdogAgent(BaseInstalledAgent):
                 environment,
                 command=(
                     "set -u; export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; "
-                    'export MIXDOG_SRC="$(npm root -g)/mixdog/src"; '
+                    'MIXDOG_BIN="$(readlink -f "$(command -v mixdog)")"; '
+                    'export MIXDOG_SRC="$(dirname "$(dirname "$MIXDOG_BIN")")/src"; '
                     "timeout 120s node --input-type=module -e "
                     "'const { pathToFileURL } = await import(\"node:url\"); "
                     'await import(pathToFileURL(process.env.MIXDOG_SRC + "/mixdog-session-runtime.mjs"));\' '
@@ -815,6 +818,8 @@ class MixdogAgent(BaseInstalledAgent):
             # instead of consuming its single-use rotating refresh token.
             "MIXDOG_ANTHROPIC_OAUTH_REFRESH_DISABLED": "1",
             "MIXDOG_USAGE_LOG": "/logs/agent/usage.json",
+            "MIXDOG_SESSION_TRANSCRIPT_LOG": "/logs/agent/session-transcript.json",
+            "MIXDOG_AGENT_TRACE_PATH": "/logs/agent/agent-trace.jsonl",
             # Credential-agnostic boot: model catalogs come from uploaded
             # caches and no unrelated provider is touched at startup.
             "MIXDOG_DISABLE_PROVIDER_WARMUP": "1",

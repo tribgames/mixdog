@@ -404,11 +404,13 @@ export function normalizeSearchRouteConfig(routeLike, fallback = {}) {
   }
   const fast = routeLike?.fast ?? fallback.fast;
   const toolType = clean(routeLike?.toolType || fallback.toolType);
+  const modelParameters = routeLike?.modelParameters ?? fallback.modelParameters;
   return {
     provider,
     model,
     ...(effort ? { effort } : {}),
     ...(fast === true ? { fast: true } : {}),
+    ...(modelParameters && typeof modelParameters === 'object' ? { modelParameters: { ...modelParameters } } : {}),
     ...(toolType ? { toolType } : {}),
   };
 }
@@ -423,11 +425,13 @@ export function normalizeWorkflowRoute(routeLike, fallback = {}) {
   if (!isLikelyRawModelId(model)) return null;
   const effort = normalizeEffortInput(routeLike?.effort ?? fallback.effort);
   const fast = routeLike?.fast ?? fallback.fast;
+  const modelParameters = routeLike?.modelParameters ?? fallback.modelParameters;
   return {
     provider,
     model,
     ...(effort ? { effort } : {}),
     ...(fast === true ? { fast: true } : {}),
+    ...(modelParameters && typeof modelParameters === 'object' ? { modelParameters: { ...modelParameters } } : {}),
   };
 }
 
@@ -443,6 +447,7 @@ export function upsertWorkflowPreset(presets, slot, routeLike) {
     model: route.model,
     ...(route.effort ? { effort: route.effort } : {}),
     ...(route.fast === true ? { fast: true } : {}),
+    ...(route.modelParameters ? { modelParameters: route.modelParameters } : {}),
     tools: 'full',
   };
   const next = (Array.isArray(presets) ? presets : []).filter((p) => clean(p?.id) !== id && clean(p?.name) !== preset.name);

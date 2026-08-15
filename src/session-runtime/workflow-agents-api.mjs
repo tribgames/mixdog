@@ -433,10 +433,18 @@ export function createWorkflowAgentsApi(deps) {
         fast: requested.fast !== undefined
           ? selectedRoute.fast === true
           : (sameModel && stored.fast === true),
+        modelParameters: requested.modelParameters !== undefined
+          ? selectedRoute.modelParameters
+          : (sameModel ? (stored.modelParameters || {}) : {}),
       };
       await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
       const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
-      const fastCapable = fastCapableFor(selectedRoute.provider, modelMeta);
+      const fastCapable = fastCapableFor(
+        selectedRoute.provider,
+        modelMeta,
+        selectedRoute.effort,
+        selectedRoute.modelParameters,
+      );
       selectedRoute = { ...selectedRoute, fast: fastCapable ? selectedRoute.fast === true : false };
 
       const routeToSave = normalizeWorkflowRoute(selectedRoute);

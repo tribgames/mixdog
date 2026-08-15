@@ -78,7 +78,7 @@ export function toolKind(tool) {
   if (name.startsWith('skill:') || tool?.annotations?.mixdogKind === 'skill') return 'skill';
   if (name === 'Skill' || name.startsWith('skill_') || name === 'skills_list' || name === 'skill_view') return 'skill';
   if (tool?.annotations?.agentHidden) return 'control';
-  if (['apply_patch', 'shell'].includes(name)) return 'mutation';
+  if (['edit', 'apply_patch', 'shell'].includes(name)) return 'mutation';
   return 'tool';
 }
 
@@ -90,7 +90,7 @@ export function toolSchemaBucket(tool) {
   if (name === 'memory' || name === 'recall' || name.includes('memory')) return 'memory';
   if (name === 'search' || name === 'web_fetch') return 'web';
   if (['read', 'grep', 'find', 'glob', 'list', 'code_graph'].includes(name)) return 'code';
-  if (['shell', 'apply_patch'].includes(name)) return 'mutation';
+  if (['shell', 'edit', 'apply_patch'].includes(name)) return 'mutation';
   if (name === 'agent' || name === 'delegate') return 'agents';
   if (name === 'session_manage') return 'session';
   if (name.includes('channel') || name.includes('discord') || name.includes('webhook')) return 'channels';

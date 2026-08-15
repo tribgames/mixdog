@@ -81,10 +81,21 @@ fn manifest_files_walk_and_search_remain_jsonl() {
     for symbol in symbols {
         let object = symbol.as_object().unwrap();
         assert_eq!(
-            object.keys().map(String::as_str).collect::<std::collections::BTreeSet<_>>(),
-            ["endCol", "endLine", "kind", "line", "name", "startCol", "startLine"]
-                .into_iter()
-                .collect()
+            object
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>(),
+            [
+                "endCol",
+                "endLine",
+                "kind",
+                "line",
+                "name",
+                "startCol",
+                "startLine"
+            ]
+            .into_iter()
+            .collect()
         );
         assert!(symbol["name"].is_string() && symbol["kind"].is_string());
         for field in ["line", "endLine", "startLine", "startCol", "endCol"] {
@@ -170,7 +181,97 @@ fn manifest_files_walk_and_search_remain_jsonl() {
 
     let hits = run(&root, &["answer"], None);
     assert_eq!(hits.len(), 3);
-    assert!(hits.iter().all(|v| v["rel"].as_str().unwrap().ends_with(".ts")));
+    assert!(hits
+        .iter()
+        .all(|v| v["rel"].as_str().unwrap().ends_with(".ts")));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn rust_python_tsconfig_and_hash_imports_resolve() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("mixdog-graph-holes-{nonce}"));
+    fs::create_dir_all(root.join("src/pkg")).unwrap();
+    fs::create_dir_all(root.join("src/nested")).unwrap();
+    fs::create_dir_all(root.join("apps/web")).unwrap();
+
+    fs::write(root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").unwrap();
+    fs::write(
+        root.join("src/lib.rs"),
+        "mod helper;\nuse crate::helper;\nuse crate::{helper as h, nested};\n",
+    )
+    .unwrap();
+    fs::write(root.join("src/helper.rs"), "pub fn go() {}\n").unwrap();
+    fs::write(root.join("src/nested/mod.rs"), "pub fn n() {}\n").unwrap();
+    fs::write(root.join("src/nested/child.rs"), "use super::n;\n").unwrap();
+
+    fs::write(root.join("src/pkg/__init__.py"), "x = 1\n").unwrap();
+    fs::write(root.join("src/pkg/mod.py"), "from pkg import x\n").unwrap();
+    fs::write(root.join("app.py"), "import pkg.mod\n").unwrap();
+
+    fs::write(
+        root.join("tsconfig.base.json"),
+        r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["src/*"] } } }"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("apps/web/tsconfig.json"),
+        r#"{ "extends": "../../tsconfig.base.json" }"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/util.ts"), "export const n = 1;\n").unwrap();
+    fs::write(
+        root.join("apps/web/app.ts"),
+        "import { n } from '@/util';\n",
+    )
+    .unwrap();
+
+    fs::write(
+        root.join("package.json"),
+        r##"{"name":"demo","imports":{"#lib/*":"./src/*"}}"##,
+    )
+    .unwrap();
+    fs::write(root.join("src/hash.ts"), "import { n } from '#lib/util';\n").unwrap();
+
+    fs::write(root.join("src/types.pyi"), "def typed() -> int: ...\n").unwrap();
+    fs::write(root.join("src/box.hh"), "struct Box;\n").unwrap();
+
+    let walk = run(&root, &[], None);
+    let find = |rel: &str| {
+        walk.iter()
+            .find(|v| v["rel"] == rel)
+            .unwrap_or_else(|| panic!("missing {rel} in {walk:?}"))
+    };
+
+    let lib_imports = find("src/lib.rs")["resolvedImports"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(lib_imports.contains(&"src/helper.rs"), "{lib_imports:?}");
+    assert!(
+        lib_imports.contains(&"src/nested/mod.rs"),
+        "{lib_imports:?}"
+    );
+    assert_eq!(
+        find("app.py")["resolvedImports"],
+        serde_json::json!(["src/pkg/mod.py"])
+    );
+    assert_eq!(
+        find("apps/web/app.ts")["resolvedImports"],
+        serde_json::json!(["src/util.ts"])
+    );
+    assert_eq!(
+        find("src/hash.ts")["resolvedImports"],
+        serde_json::json!(["src/util.ts"])
+    );
+    assert!(walk.iter().any(|v| v["rel"] == "src/types.pyi"));
+    assert!(walk.iter().any(|v| v["rel"] == "src/box.hh"));
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -246,7 +347,9 @@ fn serve_search_limited_grep_returns_window_without_full_scan() {
     assert_eq!(response["id"], 7);
     let lines = response["lines"].as_array().unwrap();
     assert_eq!(lines.len(), 3);
-    assert!(lines.iter().all(|line| line.as_str().unwrap().contains("needle")));
+    assert!(lines
+        .iter()
+        .all(|line| line.as_str().unwrap().contains("needle")));
     assert_eq!(response["complete"], false);
     assert!(response["totalSeen"].as_u64().unwrap() >= 3);
     fs::remove_dir_all(root).unwrap();
@@ -278,9 +381,8 @@ fn serve_search_inventory_can_include_directories() {
             .is_some_and(|line| line.ends_with("src") || line.ends_with("src/"))
     }));
     assert!(lines.iter().any(|line| {
-        line.as_str().is_some_and(|line| {
-            line.ends_with("src/nested") || line.ends_with(r"src\nested")
-        })
+        line.as_str()
+            .is_some_and(|line| line.ends_with("src/nested") || line.ends_with(r"src\nested"))
     }));
     fs::remove_dir_all(root).unwrap();
 }
@@ -335,16 +437,32 @@ fn serve_search_reuses_file_list_across_requests() {
     assert_eq!(second_json["id"], 2);
     assert!(first_json["lines"].as_array().unwrap().len() >= 6);
     assert_eq!(second_json["lines"].as_array().unwrap().len(), 2);
-    assert!(first_json["lines"].as_array().unwrap().iter().all(|line| line.as_str().unwrap().contains("needle")));
-    assert!(second_json["lines"].as_array().unwrap().iter().all(|line| line.as_str().unwrap().contains("other")));
+    assert!(first_json["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|line| line.as_str().unwrap().contains("needle")));
+    assert!(second_json["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|line| line.as_str().unwrap().contains("other")));
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn serve_search_shared_inventory_preserves_request_globs() {
     let root = fixture();
-    fs::write(root.join("src/filter-hit.rs"), "const needle: bool = true;\n").unwrap();
-    fs::write(root.join("src/filter-hit.ts"), "export const needle = true;\n").unwrap();
+    fs::write(
+        root.join("src/filter-hit.rs"),
+        "const needle: bool = true;\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/filter-hit.ts"),
+        "export const needle = true;\n",
+    )
+    .unwrap();
     let response = serve_search(
         &root,
         serde_json::json!({
@@ -417,8 +535,14 @@ fn serve_search_embedded_ripgrep_modes_preserve_contracts() {
     fs::write(root.join("src/engine.rs"), "needle rust\n").unwrap();
     let request = |id: u64, extra: &[&str], pattern: &str| {
         let mut args = vec![
-            "--color", "never", "--hidden", "--no-heading", "-H", "--line-number",
-            "--max-columns=500", "--max-columns-preview",
+            "--color",
+            "never",
+            "--hidden",
+            "--no-heading",
+            "-H",
+            "--line-number",
+            "--max-columns=500",
+            "--max-columns-preview",
         ];
         args.extend_from_slice(extra);
         args.extend_from_slice(&["-e", pattern, "--", "."]);
@@ -435,13 +559,16 @@ fn serve_search_embedded_ripgrep_modes_preserve_contracts() {
     };
 
     let only = request(20, &["--only-matching"], "needle");
-    assert!(only["lines"].as_array().unwrap().iter().all(|line| {
-        line.as_str().unwrap().ends_with(":needle")
-    }));
+    assert!(only["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|line| { line.as_str().unwrap().ends_with(":needle") }));
 
     let count = request(21, &["--count"], "needle");
     assert!(count["lines"].as_array().unwrap().iter().any(|line| {
-        line.as_str().is_some_and(|line| line.ends_with("engine.ts:2"))
+        line.as_str()
+            .is_some_and(|line| line.ends_with("engine.ts:2"))
     }));
 
     let typed = request(22, &["--type", "typescript"], "needle");
@@ -452,12 +579,14 @@ fn serve_search_embedded_ripgrep_modes_preserve_contracts() {
 
     let multiline = request(23, &["-U", "--multiline-dotall"], "multi start.*multi end");
     assert!(multiline["lines"].as_array().unwrap().iter().any(|line| {
-        line.as_str().is_some_and(|line| line.contains("multi start"))
+        line.as_str()
+            .is_some_and(|line| line.contains("multi start"))
     }));
 
     let pcre = request(24, &["-P"], "(?<=needle )value");
     assert!(pcre["lines"].as_array().unwrap().iter().any(|line| {
-        line.as_str().is_some_and(|line| line.contains("needle value"))
+        line.as_str()
+            .is_some_and(|line| line.contains("needle value"))
     }));
     fs::remove_dir_all(root).unwrap();
 }
@@ -493,7 +622,11 @@ fn serve_search_preserves_regex_parse_errors_for_native_recovery() {
 #[test]
 fn serve_search_accepts_internal_find_files_glob_order() {
     let root = fixture();
-    fs::write(root.join("src/engine-target.ts"), "export const needle = true;\n").unwrap();
+    fs::write(
+        root.join("src/engine-target.ts"),
+        "export const needle = true;\n",
+    )
+    .unwrap();
     fs::write(root.join("src/other.ts"), "export const other = true;\n").unwrap();
     let response = serve_search(
         &root,
@@ -662,11 +795,10 @@ fn serve_search_watcher_invalidates_the_shared_inventory() {
                 continue;
             }
             assert_eq!(response["id"], id);
-            found = response["matches"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|path| path.as_str().is_some_and(|path| path.ends_with("watcher-created.rs")));
+            found = response["matches"].as_array().unwrap().iter().any(|path| {
+                path.as_str()
+                    .is_some_and(|path| path.ends_with("watcher-created.rs"))
+            });
             break;
         }
         id += 1;
@@ -796,7 +928,10 @@ fn serve_search_parallel_load_keeps_one_server_responsive() {
     queue_ms.sort_unstable();
     let p95 = queue_ms[(queue_ms.len() * 95 / 100).min(queue_ms.len() - 1)];
     assert!(p95 < 10_000, "queue p95 too high: {p95}ms");
-    assert!(child.try_wait().unwrap().is_none(), "search server exited under load");
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "search server exited under load"
+    );
     assert!(
         cancel_elapsed.unwrap() < std::time::Duration::from_secs(1),
         "cancel acknowledgement exceeded 1s"
@@ -805,5 +940,260 @@ fn serve_search_parallel_load_keeps_one_server_responsive() {
     drop(stdin);
     let status = child.wait().unwrap();
     assert!(status.success());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn convention_imports_resolve_across_languages() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("mixdog-graph-langs-{nonce}"));
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("lib/foo")).unwrap();
+    fs::create_dir_all(root.join("lib")).unwrap();
+    fs::create_dir_all(root.join("Sources/Foo")).unwrap();
+    fs::create_dir_all(root.join("com/acme")).unwrap();
+
+    fs::write(
+        root.join("composer.json"),
+        r#"{"autoload":{"psr-4":{"App\\":"src/"}}}"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/User.php"), "<?php\nclass User {}\n").unwrap();
+    fs::write(
+        root.join("src/boot.php"),
+        "<?php\nuse App\\User;\nrequire './User.php';\n",
+    )
+    .unwrap();
+
+    fs::write(root.join("pubspec.yaml"), "name: demo\n").unwrap();
+    fs::create_dir_all(root.join("lib")).unwrap();
+    fs::write(root.join("lib/a.dart"), "class A {}\n").unwrap();
+    fs::write(root.join("lib/b.dart"), "import 'package:demo/a.dart';\n").unwrap();
+
+    fs::write(root.join("lib/foo/bar.ex"), "defmodule Foo.Bar do\nend\n").unwrap();
+    fs::write(
+        root.join("lib/foo/use.ex"),
+        "defmodule Foo.Use do\n  alias Foo.Bar\nend\n",
+    )
+    .unwrap();
+
+    fs::write(root.join("util.zig"), "pub const n = 1;\n").unwrap();
+    fs::write(
+        root.join("main.zig"),
+        "const util = @import(\"util.zig\");\n",
+    )
+    .unwrap();
+
+    fs::write(root.join("Foo.h"), "@interface Foo\n@end\n").unwrap();
+    fs::write(root.join("main.m"), "#import \"Foo.h\"\n").unwrap();
+
+    fs::write(root.join("Sources/Foo/Foo.swift"), "public struct Foo {}\n").unwrap();
+    fs::write(root.join("Sources/Foo/Use.swift"), "import Foo\n").unwrap();
+
+    fs::write(
+        root.join("com/acme/User.scala"),
+        "package com.acme\nclass User\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("com/acme/Use.scala"),
+        "package com.acme\nimport com.acme.User\n",
+    )
+    .unwrap();
+
+    let walk = run(&root, &[], None);
+    let find = |rel: &str| walk.iter().find(|v| v["rel"] == rel).unwrap();
+
+    assert_eq!(
+        find("src/boot.php")["resolvedImports"],
+        serde_json::json!(["src/User.php"])
+    );
+    assert_eq!(
+        find("lib/b.dart")["resolvedImports"],
+        serde_json::json!(["lib/a.dart"])
+    );
+    assert_eq!(
+        find("lib/foo/use.ex")["resolvedImports"],
+        serde_json::json!(["lib/foo/bar.ex"])
+    );
+    assert_eq!(
+        find("main.zig")["resolvedImports"],
+        serde_json::json!(["util.zig"])
+    );
+    assert_eq!(
+        find("main.m")["resolvedImports"],
+        serde_json::json!(["Foo.h"])
+    );
+    assert!(find("Sources/Foo/Use.swift")["resolvedImports"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "Sources/Foo/Foo.swift"));
+    assert_eq!(
+        find("com/acme/Use.scala")["resolvedImports"],
+        serde_json::json!(["com/acme/User.scala"])
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn everyday_aliases_mods_headers_and_brace_use_resolve() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("mixdog-graph-polish-{nonce}"));
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("include/acme")).unwrap();
+    fs::create_dir_all(root.join("packages/util")).unwrap();
+
+    fs::write(
+        root.join("tsconfig.json"),
+        r#"{
+          "compilerOptions": {
+            "baseUrl": ".",
+            "paths": { "@/*": ["src/*"] }
+          }
+        }"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/util.ts"), "export const n = 1;\n").unwrap();
+    fs::write(root.join("src/app.ts"), "import { n } from '@/util';\n").unwrap();
+
+    fs::write(
+        root.join("packages/util/package.json"),
+        r#"{"name":"@demo/util","main":"index.ts"}"#,
+    )
+    .unwrap();
+    fs::write(root.join("packages/util/index.ts"), "export const k = 2;\n").unwrap();
+    fs::write(root.join("src/pkg.ts"), "import { k } from '@demo/util';\n").unwrap();
+
+    fs::write(root.join("src/lib.rs"), "mod helper;\n").unwrap();
+    fs::write(root.join("src/helper.rs"), "pub fn go() {}\n").unwrap();
+
+    fs::write(root.join("include/acme/box.h"), "struct Box;\n").unwrap();
+    fs::write(root.join("src/box.c"), "#include <acme/box.h>\n").unwrap();
+
+    fs::write(
+        root.join("composer.json"),
+        r#"{"autoload":{"psr-4":{"App\\":"src/"}}}"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/User.php"), "<?php\nclass User {}\n").unwrap();
+    fs::write(root.join("src/Post.php"), "<?php\nclass Post {}\n").unwrap();
+    fs::write(
+        root.join("src/models.php"),
+        "<?php\nuse App\\{User, Post};\n",
+    )
+    .unwrap();
+
+    let walk = run(&root, &[], None);
+    let find = |rel: &str| walk.iter().find(|v| v["rel"] == rel).unwrap();
+
+    assert_eq!(
+        find("src/app.ts")["resolvedImports"],
+        serde_json::json!(["src/util.ts"])
+    );
+    assert_eq!(
+        find("src/pkg.ts")["resolvedImports"],
+        serde_json::json!(["packages/util/index.ts"])
+    );
+    assert_eq!(
+        find("src/lib.rs")["resolvedImports"],
+        serde_json::json!(["src/helper.rs"])
+    );
+    assert_eq!(
+        find("src/box.c")["resolvedImports"],
+        serde_json::json!(["include/acme/box.h"])
+    );
+    let php = find("src/models.php")["resolvedImports"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert!(php.contains(&"src/User.php".to_string()), "{php:?}");
+    assert!(php.contains(&"src/Post.php".to_string()), "{php:?}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn go_relative_elixir_braces_and_deep_tsconfig_resolve() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("mixdog-graph-last-{nonce}"));
+    fs::create_dir_all(root.join("cmd")).unwrap();
+    fs::create_dir_all(root.join("cmd/util")).unwrap();
+    fs::create_dir_all(root.join("lib/foo")).unwrap();
+    fs::create_dir_all(root.join("apps/web/app")).unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+
+    fs::write(
+        root.join("cmd/main.go"),
+        "package main\nimport \"./util\"\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("cmd/util/help.go"),
+        "package util\nfunc Help() {}\n",
+    )
+    .unwrap();
+
+    fs::write(root.join("lib/foo/bar.ex"), "defmodule Foo.Bar do\nend\n").unwrap();
+    fs::write(root.join("lib/foo/baz.ex"), "defmodule Foo.Baz do\nend\n").unwrap();
+    fs::write(
+        root.join("lib/foo/use.ex"),
+        "defmodule Foo.Use do\n  alias Foo.{Bar, Baz}\nend\n",
+    )
+    .unwrap();
+
+    fs::write(
+        root.join("tsconfig.base.json"),
+        r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["src/*"] } } }"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("apps/web/app/tsconfig.json"),
+        r#"{ "extends": "../../../tsconfig.base.json" }"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/util.ts"), "export const n = 1;\n").unwrap();
+    fs::write(
+        root.join("apps/web/app/main.ts"),
+        "import { n } from '@/util';\n",
+    )
+    .unwrap();
+
+    let walk = run(&root, &[], None);
+    let find = |rel: &str| {
+        walk.iter()
+            .find(|v| v["rel"] == rel)
+            .unwrap_or_else(|| panic!("missing {rel}"))
+    };
+
+    assert_eq!(
+        find("cmd/main.go")["resolvedImports"],
+        serde_json::json!(["cmd/util/help.go"])
+    );
+    let elixir = find("lib/foo/use.ex")["resolvedImports"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert!(elixir.contains(&"lib/foo/bar.ex".to_string()), "{elixir:?}");
+    assert!(elixir.contains(&"lib/foo/baz.ex".to_string()), "{elixir:?}");
+    assert_eq!(
+        find("apps/web/app/main.ts")["resolvedImports"],
+        serde_json::json!(["src/util.ts"])
+    );
+
     fs::remove_dir_all(root).unwrap();
 }

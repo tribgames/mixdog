@@ -129,13 +129,13 @@ try {
 
   // ── Phase D: cancellation under load ─────────────────────────────────────
   const bg = await timed('shell-async', /task_id/, () => executeBuiltinTool('shell', {
-    command: 'node -e "setTimeout(()=>{}, 30000)"', run_in_background: true, timeout_ms: 60_000,
+    command: 'node -e "setTimeout(()=>{}, 30000)"',
   }, root, { sessionId: 'stress-cancel' }));
   const bgId = (/task_id:\s*(\S+)/.exec(String(bg)) || [])[1];
   if (!bgId) failures.push('async shell did not return task_id');
   else {
     await timed('task-cancel', /cancelled/, () => executeBuiltinTool('task', { action: 'cancel', task_id: bgId }, root, { sessionId: 'stress-cancel' }));
-    const st = await timed('task-status', /cancelled|failed/, () => executeBuiltinTool('task', { action: 'status', task_id: bgId }, root, { sessionId: 'stress-cancel' }));
+    const st = await timed('task-status', /cancelled|failed/, () => executeBuiltinTool('task', { action: 'read', task_id: bgId }, root, { sessionId: 'stress-cancel' }));
     if (!/cancelled/.test(String(st))) failures.push(`cancelled task not reported cancelled: ${String(st).slice(0, 120)}`);
   }
 } finally {

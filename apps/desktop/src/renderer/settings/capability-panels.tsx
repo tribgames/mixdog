@@ -513,6 +513,7 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
   const flowId = String(flow?.flowId || '');
   const flowState = String(flow?.state || '');
   const manualCodeFlow = providerId === 'anthropic-oauth';
+  const loginLabel = providerId === 'cursor-oauth' ? 'Cursor OAuth' : `${providerLabel(provider)} OAuth`;
   const status = settingsStatus(flowState || 'pending');
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
   useEffect(() => { runRef.current = run; }, [run]);
@@ -530,7 +531,9 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
       );
       if (cancelled) return;
       if (!next) {
-        setError('OAuth status could not be checked.');
+        setError(providerId === 'cursor-oauth'
+          ? 'Cursor OAuth status could not be checked.'
+          : 'OAuth status could not be checked.');
         return;
       }
       const nextFlow = record(next);
@@ -585,11 +588,11 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
       if (event.target === event.currentTarget) close();
     }}><section className="settings-oauth-dialog" role="dialog" aria-modal="true" data-settings-nested-dialog
       aria-labelledby={`settings-oauth-title-${providerId}`} aria-describedby={`settings-oauth-description-${providerId}`}>
-      <header><div><h3 id={`settings-oauth-title-${providerId}`}>{providerLabel(provider)} OAuth</h3>
+      <header><div><h3 id={`settings-oauth-title-${providerId}`}>{loginLabel}</h3>
         <p id={`settings-oauth-description-${providerId}`}>{manualCodeFlow
           ? t('Complete the browser login, then paste the authorization code.')
           : t('Finish signing in in your browser. This window updates automatically.')}</p></div>
-        <button type="button" aria-label={t('Close OAuth login')} data-settings-nested-close autoFocus onClick={close}>
+        <button type="button" aria-label={t(providerId === 'cursor-oauth' ? 'Close Cursor OAuth' : 'Close OAuth login')} data-settings-nested-close autoFocus onClick={close}>
           <X aria-hidden="true" size={16} />
         </button></header>
       <div className="settings-oauth-body">

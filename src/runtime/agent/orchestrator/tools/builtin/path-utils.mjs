@@ -1,5 +1,6 @@
 import { homedir } from 'os';
 import { isAbsolute, relative, resolve } from 'path';
+import { statSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { isWSL } from '../../../../shared/wsl.mjs';
 import { statCacheSet } from './cache-layers.mjs';
@@ -316,6 +317,29 @@ export function coerceReadFamilyPathArg(path, workDir = null) {
                 statSync(resolved);
                 return path;
             } catch { /* not a literal bracket path — allow JSON coercion */ }
+        }
+    }
+    // Grok occasionally wraps a scalar path with the empty JSON-array fragment
+    // `[""]` (prefix, suffix, or both). Recover only when the literal wrapped
+    // path is absent and the unwrapped target exists, so a real filename is
+    // never rewritten speculatively.
+    if (typeof path === 'string' && typeof workDir === 'string' && workDir) {
+        const trimmed = path.trim();
+        let unwrapped = trimmed;
+        if (unwrapped.startsWith('[""]')) unwrapped = unwrapped.slice(4);
+        if (unwrapped.endsWith('[""]')) unwrapped = unwrapped.slice(0, -4);
+        if (unwrapped !== trimmed && unwrapped) {
+            try {
+                statSync(resolveAgainstCwd(normalizeInputPath(trimmed), workDir));
+                return path;
+            } catch { /* wrapped literal is absent — test the scalar target */ }
+            try {
+                const normalized = normalizeInputPath(unwrapped);
+                const full = resolveAgainstCwd(normalized, workDir);
+                const st = statSync(full);
+                statCacheSet(full, st);
+                return normalized;
+            } catch { /* target is not provably real — preserve the original */ }
         }
     }
     // Absorb: a truncated JSON path array ('["C:\\a\\b.mjs' — a streamed

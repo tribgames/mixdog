@@ -126,6 +126,7 @@ class RoutingProfileTests(unittest.TestCase):
                 "sol-high",
                 "sol-xhigh-nofast",
                 "sol-luna-terra-max",
+                "grok46-xhigh",
                 "opus5-solo",
                 "opus5-solo-med",
                 "opus48-solo",
@@ -1381,6 +1382,14 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             captured[0]["MIXDOG_ANTHROPIC_OAUTH_REFRESH_DISABLED"], "1"
         )
         self.assertEqual(captured[0]["MIXDOG_USAGE_LOG"], "/logs/agent/usage.json")
+        self.assertEqual(
+            captured[0]["MIXDOG_SESSION_TRANSCRIPT_LOG"],
+            "/logs/agent/session-transcript.json",
+        )
+        self.assertEqual(
+            captured[0]["MIXDOG_AGENT_TRACE_PATH"],
+            "/logs/agent/agent-trace.jsonl",
+        )
         self.assertNotIn("MIXDOG_DRIVER_DEADLINE_MS", captured[0])
         self.assertEqual(captured[0]["MIXDOG_DISABLE_MCP"], "1")
         self.assertEqual(captured[0]["MIXDOG_DISABLE_SKILLS"], "1")
@@ -1989,6 +1998,8 @@ INSTALLER
             [(snapshot.archive_path, module.CONTAINER_SRC_SNAPSHOT)],
         )
         self.assertEqual(len(commands), 1)
+        self.assertIn('readlink -f "$(command -v mixdog)"', commands[0])
+        self.assertNotIn("npm root -g", commands[0])
         self.assertIn("trap cleanup_src_swap EXIT", commands[0])
         self.assertIn("trap 'exit 1' HUP INT TERM", commands[0])
         self.assertIn('mv "$PACKAGE/src" "$BACKUP"', commands[0])

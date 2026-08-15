@@ -27,6 +27,10 @@ import {
     permissionFromToolSpec,
 } from './tool-resolution.mjs';
 import {
+    filterModelEditToolNames,
+    filterModelEditTools,
+} from '../../../../shared/edit-tool-dialect.mjs';
+import {
     positiveContextWindow,
     preserveBufferConfigFields,
     resolveSessionContextMeta,
@@ -167,6 +171,11 @@ export function createSession(opts) {
         ? (opts.effort || null)
         : (presetObj?.effort || null);
     const fast = presetObj?.fast === true || opts.fast === true;
+    const modelParameters = opts.modelParameters && typeof opts.modelParameters === 'object'
+        ? { ...opts.modelParameters }
+        : (presetObj?.modelParameters && typeof presetObj.modelParameters === 'object'
+            ? { ...presetObj.modelParameters }
+            : {});
     if (!providerName)
         throw new Error('createSession: provider is required');
     if (!modelName)
@@ -263,6 +272,7 @@ export function createSession(opts) {
     let toolsForRouting = resolveSessionTools(toolSpec, skills, {
         ownerIsAgentSession: ownerIsAgent,
         mcpScopeId: opts.mcpScopeId || null,
+        modelName,
     });
     // Fail-closed permission intersection: when a session declares an explicit
     // object-form permission, intersect the
@@ -352,7 +362,9 @@ export function createSession(opts) {
     if (resolvedAgent && process.env.MIXDOG_DEBUG_SESSION_LOG) {
         process.stderr.write(`[session] agent=${resolvedAgent} permission=${permission || 'full'} toolPermission=${toolPermission || 'full'} tools=${tools.length}\n`);
     }
-    const contextMeta = resolveSessionContextMeta(provider, modelName);
+    const contextMeta = resolveSessionContextMeta(provider, modelName, {
+        selectedContextWindow: opts.selectedContextWindow,
+    });
     const session = {
         id,
         provider: providerName,
@@ -374,6 +386,8 @@ export function createSession(opts) {
         presetName: presetObj?.name || null,
         effort,
         fast,
+        modelParameters,
+        selectedContextWindow: opts.selectedContextWindow || null,
         agent: opts.agent,
         owner: opts.owner || 'user',
         bp3CoreContext: sessionMarkerCore,
@@ -451,9 +465,17 @@ export function updateSessionRoute(id, route = {}) {
     if (route.model) session.model = route.model;
     if (Object.prototype.hasOwnProperty.call(route, 'fast')) session.fast = route.fast === true;
     if (Object.prototype.hasOwnProperty.call(route, 'effort')) session.effort = route.effort || null;
+    if (Object.prototype.hasOwnProperty.call(route, 'modelParameters')) {
+        session.modelParameters = route.modelParameters && typeof route.modelParameters === 'object'
+            ? { ...route.modelParameters }
+            : {};
+    }
+    if (Object.prototype.hasOwnProperty.call(route, 'selectedContextWindow')) {
+        session.selectedContextWindow = Number(route.selectedContextWindow) || null;
+    }
     const provider = session.provider ? getProvider(session.provider) : null;
     if (provider && session.model) {
-        const contextMeta = resolveSessionContextMeta(provider, session.model);
+        const contextMeta = resolveSessionContextMeta(provider, session.model, session);
         session.contextWindow = contextMeta.contextWindow;
         session.rawContextWindow = contextMeta.rawContextWindow;
         session.effectiveContextWindowPercent = contextMeta.effectiveContextWindowPercent;
@@ -488,6 +510,19 @@ export function updateSessionRoute(id, route = {}) {
         session.lastContextTokensUpdatedAt = now;
         session.lastContextTokensStaleAfterCompact = false;
         session.providerState = undefined;
+        const prepared = _prepareResumeTools(session, session.preset || 'full');
+        session.tools = prepared.tools;
+        session.toolSpec = prepared.toolSpec;
+        if (Array.isArray(session.deferredToolCatalog)) {
+            session.deferredToolCatalog = filterModelEditTools(session.deferredToolCatalog, session.model);
+        }
+        if (Array.isArray(session.deferredLateToolCatalog)) {
+            session.deferredLateToolCatalog = filterModelEditTools(session.deferredLateToolCatalog, session.model);
+        }
+        for (const key of ['deferredSelectedTools', 'deferredCallableTools', 'deferredDefaultTools', 'deferredDiscoveredTools']) {
+            if (Array.isArray(session[key])) session[key] = filterModelEditToolNames(session[key], session.model);
+        }
+        _preparedResumes.delete(id);
     }
     session.updatedAt = Date.now();
     setLiveSession(session);
@@ -526,6 +561,7 @@ function _prepareResumeTools(session, preset) {
     let toolsForRouting = resolveSessionTools(toolSpec, skills, {
         ownerIsAgentSession: ownerIsAgent,
         mcpScopeId: session.mcpScopeId || null,
+        modelName: session.model,
     });
     if (ownerIsAgent) {
         toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, session.toolPermission, session.agent || null);

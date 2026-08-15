@@ -469,19 +469,6 @@ function uniqueExactSequenceStart(sourceLines, pattern) {
   return found;
 }
 
-// Last-resort already-applied guard: old-side is gone, but the full new-side
-// exists at exactly one place. Skip that hunk instead of failing a resend.
-function skipIfAlreadyApplied(sourceLines, newLines) {
-  const at = uniqueExactSequenceStart(sourceLines, newLines);
-  if (at < 0) return null;
-  if (_v4aAmbiguityNotices.size < V4A_AMBIGUITY_NOTICE_CAP) {
-    _v4aAmbiguityNotices.add(
-      `hunk already present at line ${at + 1}; skipped (no-op).`,
-    );
-  }
-  return { skip: true, alreadyApplied: true, oldStartIdx: at };
-}
-
 function trimLeadingWs(value) {
   return String(value ?? '').replace(/^[\t ]*/, '');
 }
@@ -629,8 +616,6 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
     // stale bodies retain the hard anchor miss instead of choosing a target.
     const uniqueBody = fuzzy ? uniqueExactSequenceStart(sourceLines, stats.oldLines) : -1;
     if (uniqueBody < 0) {
-      const already = skipIfAlreadyApplied(sourceLines, stats.newLines);
-      if (already) return already;
       const msg = `V4A hunk anchor not found: ${formatV4AHunkLocator(hunk)};${formatV4AAnchorMissHint(sourceLines, hunk)}`;
       return { error: msg };
     }
@@ -868,8 +853,6 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
     }
   }
   if (oldStartIdx < 0) {
-    const already = skipIfAlreadyApplied(sourceLines, newLinesPattern);
-    if (already) return already;
     const msg = `V4A hunk context not found: ${formatV4AHunkLocator(hunk)};${formatV4AContextMissHint(sourceLines, stats, anchorLine)}`;
     return { error: msg };
   }

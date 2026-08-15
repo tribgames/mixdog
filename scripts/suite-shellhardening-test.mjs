@@ -144,8 +144,12 @@ test('shell execution policy matches sync-first background-task parity', () => {
     assert.equal(DEFAULT_SHELL_AUTO_BACKGROUND_MS, 10_000);
     const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
     assert.deepEqual(Object.keys(shellTool.inputSchema.properties), ['command', 'timeout_ms']);
-    assert.equal(shellTool.inputSchema.properties.timeout_ms.description, 'Optional total deadline.');
-    assert.match(shellTool.description, /After 10s.*task_id.*notification/i);
+    assert.equal(
+        shellTool.inputSchema.properties.timeout_ms.description,
+        'Hard total deadline in milliseconds; omit or use 0 to allow unlimited runtime after task promotion.',
+    );
+    assert.match(shellTool.description, /after 10s.*continues.*task_id.*notification/i);
+    assert.match(shellTool.description, /omit timeout_ms.*hard total deadline/i);
     const taskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
     assert.equal(taskTool.title, 'Task');
     assert.match(taskTool.description, /List shell tasks.*snapshot.*cancel.*notification/i);
@@ -531,7 +535,7 @@ test('B: POSIX host is a strict no-op', () => {
 test('C: shell surface keeps execution contract separate from the platform command cheat', (t) => {
     const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
     assert.ok(shellTool, 'shell tool must exist');
-    assert.match(shellTool.description, /^Run programs and runtime\/state operations;/);
+    assert.match(shellTool.description, /^Run programs, runtime\/state operations,/);
     assert.doesNotMatch(shellTool.description, /Shell startup environment:|available=|unavailable=/);
     assert.equal(shellTool.inputSchema?.properties?.shell, undefined);
     assert.equal(shellTool.inputSchema?.properties?.cwd, undefined);

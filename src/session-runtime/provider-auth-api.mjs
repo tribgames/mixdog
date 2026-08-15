@@ -37,7 +37,7 @@ export function createProviderAuthApi({
   function refreshProviderCatalogsSoon() {
     if (typeof refreshProviderCatalogs !== 'function') return;
     try {
-      void Promise.resolve(refreshProviderCatalogs())
+      void Promise.resolve(refreshProviderCatalogs({ force: true }))
         .then(() => {
           invalidateProviderCaches();
           warmProviderModelCache();
@@ -126,16 +126,18 @@ export function createProviderAuthApi({
           }
           return completed;
         }),
-        completeCode: async (code) => {
-          const completed = await result.completeCode(code);
-          await awaitKeychainPrewarm();
-          reloadFullConfig();
-          invalidateProviderCaches();
-          releaseAdmissionCooldowns();
-          refreshProviderCatalogsSoon();
-          warmProviderModelCache();
-          return completed;
-        },
+        ...(typeof result.completeCode === 'function' ? {
+          completeCode: async (code) => {
+            const completed = await result.completeCode(code);
+            await awaitKeychainPrewarm();
+            reloadFullConfig();
+            invalidateProviderCaches();
+            releaseAdmissionCooldowns();
+            refreshProviderCatalogsSoon();
+            warmProviderModelCache();
+            return completed;
+          },
+        } : {}),
       };
     },
     saveProviderApiKey(providerId, secret) {

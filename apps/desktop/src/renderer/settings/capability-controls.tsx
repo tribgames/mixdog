@@ -10,7 +10,7 @@ import type {
 import { FastModeToggle } from '../FastModeToggle';
 import { ModelPicker } from '../ModelPicker';
 import { OpenSelect } from '../OpenSelect';
-import { modelDisplayName, modelOptionLabel, providerDisplayName } from '../provider-display';
+import { modelDisplayName, modelFastAvailable, modelOptionLabel, preferredModelParameters, providerDisplayName } from '../provider-display';
 // The primitives translate their OWN string props: every settings panel that
 // renders through Group/Rows/ActionButton gets localized titles without each
 // call site wrapping literals. Dynamic values (model names, provider labels)
@@ -105,15 +105,29 @@ export function routeOption(value: RecordValue): DesktopModelOption {
   const savedEffort = String(value.savedEffort || '');
   const savedFast = typeof value.savedFast === 'boolean' ? value.savedFast : undefined;
   const fastCapable = value.fastCapable === true;
+  const fastEfforts = Array.isArray(value.fastEfforts)
+    ? value.fastEfforts.map((entry) => String(entry || '').trim().toLowerCase())
+    : undefined;
+  const modelParameterOptions = Array.isArray(value.modelParameterOptions)
+    ? value.modelParameterOptions as DesktopModelOption['modelParameterOptions']
+    : [];
   return {
     provider: String(value.provider || ''),
     model,
     display: String(value.display || value.name || model),
     effortOptions,
     fastCapable,
+    ...(fastEfforts ? { fastEfforts } : {}),
     fastPreferred: fastCapable && (value.fastPreferred === true || savedFast === true),
     ...(savedEffort ? { savedEffort } : {}),
     ...(savedFast === undefined ? {} : { savedFast }),
+    ...(value.supportsVision === true ? { supportsVision: true } : {}),
+    ...(value.defaultEffort ? { defaultEffort: String(value.defaultEffort) } : {}),
+    ...(value.defaultFast === true ? { defaultFast: true } : {}),
+    modelParameterOptions,
+    parameterVariants: Array.isArray(value.parameterVariants) ? value.parameterVariants as Array<Record<string, string>> : [],
+    defaultModelParameters: record(value.defaultModelParameters) as Record<string, string>,
+    savedModelParameters: record(value.savedModelParameters) as Record<string, string>,
   };
 }
 
@@ -121,6 +135,9 @@ export function preferredEffort(model: DesktopModelOption | undefined): string |
   if (!model?.effortOptions.length) return undefined;
   if (model.savedEffort && model.effortOptions.some((entry) => entry.value === model.savedEffort)) {
     return model.savedEffort;
+  }
+  if (model.defaultEffort && model.effortOptions.some((entry) => entry.value === model.defaultEffort)) {
+    return model.defaultEffort;
   }
   for (const value of ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra']) {
     if (model.effortOptions.some((entry) => entry.value === value)) return value;
@@ -150,17 +167,24 @@ export function RouteEditor({ title, description: _description, route, models, d
   const effort = selected?.effortOptions.some((entry) => entry.value === route.effort)
     ? String(route.effort)
     : preferredEffort(selected);
-  const fast = selected?.fastCapable
-    ? (typeof route.fast === 'boolean' ? route.fast === true : selected.fastPreferred)
+  const modelParameters = preferredModelParameters(selected, record(route.modelParameters) as Record<string, string>);
+  const fastAvailable = modelFastAvailable(selected, effort, modelParameters);
+  const fast = fastAvailable
+    ? (typeof route.fast === 'boolean' ? route.fast === true : selected?.fastPreferred === true)
     : false;
   const selectionFor = (model: DesktopModelOption, patch: Partial<DesktopModelSelection> = {}): DesktopModelSelection => {
     const nextEffort = patch.effort ?? (model === selected ? effort : preferredEffort(model));
     const nextFast = patch.fast ?? (model === selected ? fast : model.fastPreferred);
+    const nextModelParameters = preferredModelParameters(model, patch.modelParameters || modelParameters);
+    const nextFastAvailable = modelFastAvailable(model, nextEffort, nextModelParameters);
     return {
       provider: model.provider,
       model: model.model,
       ...(nextEffort ? { effort: nextEffort } : {}),
-      ...(model.fastCapable ? { fast: nextFast === true } : {}),
+      ...(model.fastCapable ? { fast: nextFastAvailable && nextFast === true } : {}),
+      ...(model.modelParameterOptions?.length
+        ? { modelParameters: nextModelParameters }
+        : {}),
     };
   };
   const modelSelect = <ModelPicker models={models}
@@ -186,9 +210,19 @@ export function RouteEditor({ title, description: _description, route, models, d
       {selected?.fastCapable && <div className="mixdog-settings__row"><div className="mixdog-settings__copy">
         <span className="mixdog-settings__row-title">{t('Fast mode')}</span>
       </div><div className="settings-row-control"><div className="fast-control">
-        <FastModeToggle enabled={fast} disabled={disabled}
+        <FastModeToggle enabled={fast} disabled={disabled || !fastAvailable}
           onChange={(enabled) => onChange(selectionFor(selected, { fast: enabled }))} />
       </div></div></div>}
+      {selected?.modelParameterOptions?.map((parameter) =>
+        <QuietSelectRow key={parameter.id} title={parameter.label} kind="fast"
+          value={modelParameters[parameter.id] || parameter.options[0]?.value || ''} disabled={disabled}
+          options={parameter.options}
+          onChange={(value) => onChange(selectionFor(selected, {
+            modelParameters: { ...modelParameters, [parameter.id]: value },
+            ...(parameter.id === 'context' && !modelFastAvailable(selected, effort, { ...modelParameters, [parameter.id]: value })
+              ? { fast: false }
+              : {}),
+          }))} />)}
     </>;
   }
   return <div className="settings-route-editor compact">
@@ -200,9 +234,19 @@ export function RouteEditor({ title, description: _description, route, models, d
           onChange={(value) => onChange(selectionFor(selected, { effort: value }))} />
       </div>}
       {selected?.fastCapable && <div className="fast-control">
-        <FastModeToggle ariaLabel={`${title} fast mode`} enabled={fast} disabled={disabled}
+        <FastModeToggle ariaLabel={`${title} fast mode`} enabled={fast} disabled={disabled || !fastAvailable}
           onChange={(enabled) => onChange(selectionFor(selected, { fast: enabled }))} />
       </div>}
+      {selected?.modelParameterOptions?.map((parameter) =>
+        <div className="effort-control" key={parameter.id}><OpenSelect variant="route"
+          ariaLabel={`${title} ${parameter.label}`} value={modelParameters[parameter.id] || parameter.options[0]?.value || ''}
+          disabled={disabled} options={parameter.options}
+          onChange={(value) => onChange(selectionFor(selected, {
+            modelParameters: { ...modelParameters, [parameter.id]: value },
+            ...(parameter.id === 'context' && !modelFastAvailable(selected, effort, { ...modelParameters, [parameter.id]: value })
+              ? { fast: false }
+              : {}),
+          }))} /></div>)}
     </div>
   </div>;
 }

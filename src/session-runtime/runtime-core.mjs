@@ -1483,7 +1483,8 @@ export async function createMixdogSessionRuntime({
     hasProviderSetupCached,
     invalidateProviderCaches,
     warmProviderModelCache,
-    refreshProviderCatalogs: () => ensureProvidersReady(rt.config.providers || {}).then(() => reg.refreshCatalogs()),
+    refreshProviderCatalogs: (options = {}) => ensureProvidersReady(rt.config.providers || {})
+      .then(() => reg.refreshCatalogs(options)),
     cachedProviderSetup,
     getUsageDashboard,
     consumeCodexRateLimitResetCredit,
@@ -1762,6 +1763,9 @@ export async function createMixdogSessionRuntime({
     },
     get fastCapable() {
       return rt.route.fastCapable === true;
+    },
+    get modelParameters() {
+      return rt.route.modelParameters || {};
     },
     get effortOptions() {
       return rt.route.effortOptions || [];

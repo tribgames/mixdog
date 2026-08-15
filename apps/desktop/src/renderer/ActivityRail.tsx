@@ -31,6 +31,7 @@ import {
   subscribeUsageDashboard,
   type UsageApi,
 } from "./usage-dashboard-store";
+import { displayUsagePercent } from "./usage-percent";
 
 /** Pin mode survives restarts: the rail button keeps showing the per-brand
  *  usage stack until the pin is switched off again (user: 핀 온오프). */
@@ -243,7 +244,7 @@ export function ActivityRail({
         {usagePinRows.length
           ? <span className="rail-usage-pin-stack" aria-hidden="true">
             {usagePinRows.map((entry) => {
-              const percent = Math.round(entry.percent);
+              const percent = displayUsagePercent(entry.percent) ?? 0;
               // Glanceable readout (user: 프로그래스 중간에): icon, then the
               // flyout's meter grammar in miniature, then the number — bar
               // and number reflect the provider's final quota window.

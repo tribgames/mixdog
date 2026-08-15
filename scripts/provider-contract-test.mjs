@@ -33,6 +33,7 @@ import {
     isInclusiveProvider,
 } from '../src/runtime/shared/llm/cost.mjs';
 import { createProviderAuthApi } from '../src/session-runtime/provider-auth-api.mjs';
+import { providerSetup } from '../src/standalone/provider-admin.mjs';
 import { createProviderModels } from '../src/session-runtime/provider-models.mjs';
 import { createQuickModelRows } from '../src/session-runtime/quick-model-rows.mjs';
 import {
@@ -40,6 +41,7 @@ import {
     sortProviderModels,
 } from '../src/session-runtime/model-recency.mjs';
 import { createProviderUsage } from '../src/session-runtime/provider-usage.mjs';
+import { createUsageDashboard } from '../src/standalone/usage-dashboard.mjs';
 import {
     _withLoadedProviderCtorForTest,
     _withRegisteredProviderForTest,
@@ -93,6 +95,11 @@ test('startup provider catalog refresh runs once for every session runtime in th
     await _withRegisteredProviderForTest('catalog-startup-test', new CatalogProvider(), () => refreshCatalogs());
     assert.equal(refreshes, 1);
     assert.equal(providerCatalogRevision(), before + 1);
+    await _withRegisteredProviderForTest('catalog-startup-test', new CatalogProvider(), () => (
+        refreshCatalogs({ force: true })
+    ));
+    assert.equal(refreshes, 2);
+    assert.equal(providerCatalogRevision(), before + 2);
 });
 
 test('session runtimes share one provider catalog read and rebuild only their local preferences', async () => {
@@ -390,6 +397,18 @@ test('provider setup refresh waits for keychain readiness and bypasses stale set
     assert.deepEqual(calls, ['prewarm', 'reload', ['setup', { force: true }]]);
 });
 
+test('provider setup exposes Cursor OAuth fourth and OpenCode Go fifth without a separate Cursor API row', async () => {
+    const setup = await providerSetup({}, { detectLocal: false, checkSecrets: false });
+    assert.deepEqual(setup.oauth.map((provider) => provider.id), [
+        'openai-oauth',
+        'anthropic-oauth',
+        'grok-oauth',
+        'cursor-oauth',
+    ]);
+    assert.equal(setup.api[0].id, 'opencode-go');
+    assert.equal([...setup.oauth, ...setup.api].some((provider) => provider.id === 'cursor-api'), false);
+});
+
 test('forced provider setup waits for an in-flight snapshot and then rebuilds it', async () => {
     let releaseFirst;
     let builds = 0;
@@ -639,6 +658,57 @@ test('Codex usage uses backend-api endpoints and preserves an embedded reset cre
     } finally {
         globalThis.fetch = originalFetch;
     }
+});
+
+test('Cursor account usage flows through the OAuth cache into the usage dashboard', async () => {
+    const snapshot = {
+        source: 'cursor-dashboard',
+        balance: {
+            source: 'cursor-dashboard',
+            remainingUsd: 350,
+            usedUsd: 50,
+            limitUsd: 400,
+        },
+        quotaWindows: [{
+            label: 'Basic',
+            source: 'cursor-dashboard',
+            usedPct: 10,
+            resetAt: Date.now() + 30 * 24 * 60 * 60_000,
+        }, {
+            label: 'API',
+            source: 'cursor-dashboard',
+            usedPct: 12.5,
+            resetAt: Date.now() + 30 * 24 * 60 * 60_000,
+        }],
+    };
+    const dashboard = await createUsageDashboard({}, {
+        refresh: true,
+        setup: {
+            api: [],
+            oauth: [{
+                id: 'cursor-oauth',
+                name: 'Cursor Account Login',
+                authenticated: true,
+            }],
+            local: [],
+        },
+        getProvider: () => ({
+            async getUsageSnapshot() {
+                return snapshot;
+            },
+        }),
+        log: () => {},
+    });
+    const row = dashboard.rows.find((entry) => entry.id === 'cursor-oauth');
+    assert.equal(row.status, 'ok');
+    assert.equal(row.remainingUsd, 350);
+    assert.equal(row.usedUsd, 50);
+    assert.equal(row.limitUsd, 400);
+    assert.equal(row.source, 'cursor-dashboard');
+    assert.deepEqual(row.windows.map((window) => [window.label, window.usedPct]), [
+        ['Basic', 10],
+        ['API', 12.5],
+    ]);
 });
 
 test('provider auth waits for keychain readiness before consuming a Codex reset', async () => {

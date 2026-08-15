@@ -62,6 +62,24 @@ try {
     'apply_patch add did not write the expected created.txt contents',
   );
 
+  writeFileSync(join(tmp, 'decorated.txt'), 'before decorated\n', 'utf8');
+  const decoratedResult = await executePatchTool('apply_patch', {
+    base_path: tmp,
+    patch: `*** Begin Patch ***
+*** Update File: decorated.txt ***
+@@
+-before decorated
++after decorated
+*** End of File ***
+*** End Patch ***
+`,
+  }, tmp, {});
+  assertOk('apply_patch decorated control markers', decoratedResult);
+  assert(
+    readFileSync(join(tmp, 'decorated.txt'), 'utf8') === 'after decorated\n',
+    'apply_patch treated trailing marker punctuation as part of the file path',
+  );
+
   const deleteResult = await executePatchTool('apply_patch', {
     base_path: tmp,
     patch: `*** Begin Patch
@@ -123,23 +141,42 @@ try {
 *** End Patch
 `,
   }, tmp, {});
-  assert(/^Error[\s:]/.test(String(partialResult)), `partial-apply precondition patch unexpectedly passed:\n${partialResult}`);
-  assert(/stopped at section 3\/3/i.test(String(partialResult))
-    && /committed/i.test(String(partialResult))
-    && /Retry only the failed and skipped sections/i.test(String(partialResult)),
-  `partial-apply result did not report the committed prefix and economical retry scope:\n${partialResult}`);
+  assert(/^Error[\s:]/.test(String(partialResult)), `atomic prevalidation patch unexpectedly passed:\n${partialResult}`);
+  assert(/context not found|hunk rejected/i.test(String(partialResult))
+    && !/committed|sequence stopped/i.test(String(partialResult)),
+  `apply_patch must reject the complete patch before writing:\n${partialResult}`);
   assert(
-    readFileSync(join(tmp, 'target.txt'), 'utf8') === 'alpha\ntemporary\ngamma\n',
-    'apply_patch failure did not preserve the earlier committed update',
+    readFileSync(join(tmp, 'target.txt'), 'utf8') === 'alpha\nbravo\ngamma\n',
+    'apply_patch prevalidation failure changed an earlier target',
   );
   assert(
-    readFileSync(join(tmp, 'rollback-created.txt'), 'utf8') === 'must survive\n',
-    'apply_patch failure did not preserve the earlier committed add',
+    !existsSync(join(tmp, 'rollback-created.txt')),
+    'apply_patch prevalidation failure created an earlier target',
   );
   assert(
     readFileSync(join(tmp, 'partial-blocker.txt'), 'utf8') === 'present\n',
     'apply_patch failure changed the failing target',
   );
+
+  const duplicateTargetResult = await executePatchTool('apply_patch', {
+    base_path: tmp,
+    patch: `*** Begin Patch
+*** Update File: target.txt
+@@
+-bravo
++first
+*** Update File: target.txt
+@@
+-bravo
++second
+*** End Patch
+`,
+  }, tmp, {});
+  assert(/^Error[\s:]/.test(String(duplicateTargetResult))
+    && /multiple operations target/i.test(String(duplicateTargetResult)),
+  `apply_patch must reject duplicate target operations:\n${duplicateTargetResult}`);
+  assert(readFileSync(join(tmp, 'target.txt'), 'utf8') === 'alpha\nbravo\ngamma\n',
+    'duplicate-target rejection changed the file');
 
   const canonicalDir = join(tmp, 'actual', 'nested');
   mkdirSync(canonicalDir, { recursive: true });

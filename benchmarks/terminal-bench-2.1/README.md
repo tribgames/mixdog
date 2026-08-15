@@ -49,6 +49,7 @@ retain `cache_write_tokens`, so its recorded **$97.54** is a lower bound.
 
 ## Contents
 - `results.md` / `results.json` — per-task outcomes of the published runs
+- `presets.json` / `run.ps1` — model presets and the synchronous benchmark runner
 - `harness/` — Harbor installed-agent adapter, Lead driver, launcher
 - `analysis/` — metric scripts that recompute every published number from raw artifacts
 - `tb21-opus-vs-claude-code.svg` — Opus comparison graph
@@ -67,22 +68,45 @@ each archived `config.json`).
 Prereqs: Docker + [Harbor](https://github.com/laude-institute/harbor), and
 your own provider auth configured through mixdog on the host.
 
-### mixdog (the two published runs)
+### mixdog presets
 ```powershell
 cd benchmarks/terminal-bench-2.1
-.\harness\run-tb21.ps1 -JobsDir jobs-opus5 -Concurrent 8 `
-  -RouteProfile opus5-solo
-.\harness\run-tb21.ps1 -JobsDir jobs-sol -Concurrent 8 `
-  -RouteProfile sol-xhigh
+.\run.ps1 -Preset sol-xhigh
+.\run.ps1 -Preset grok46-xhigh
+.\run.ps1 -Preset opus5-solo
+
+# Full-suite equivalents used for published comparisons
+.\run.ps1 -Preset full-opus5-solo
+.\run.ps1 -Preset full-sol-xhigh
 ```
-The launcher auto-retries infra errors only — agent timeouts and verifier
-failures are never retried. `-DryRun` prints the resolved routes and the
-exact Harbor command without launching anything.
+Each preset pins its task suite, complete model route, concurrency, and repeat
+count. The runner auto-retries infra errors only — agent timeouts and verifier
+failures are never retried. At completion it synchronously writes
+`report.json` / `report.md`, prints the score, time, tokens, and reduction
+metrics, ranks the run against clean equal-score runs with the exact same
+preset fingerprint (including explicitly verified archived runs), reports the
+largest per-task timing regression, then returns immediately. Full Sol and Opus presets also
+pair every completed task with the pinned Codex CLI and Claude Code runs,
+respectively, reporting score flips, speed, tokens, priced cost, and final
+context. `-DryRun` prints the resolved preset, routes, and exact Harbor command
+without launching anything.
+
+Read a live run without starting a watcher or changing its state:
+```powershell
+.\run.ps1 -Preset full-sol-xhigh -Status
+.\run.ps1 -JobsDir jobs-full-sol-xhigh-YYYYMMDD-HHmmss -Status
+```
+Status returns an immediate snapshot and uses settled shared tasks for a
+provisional pair comparison. The completion report replaces it with the full
+89-task comparison.
+Benchmark runs also retain the session transcript and reduction trace under
+each Harbor trial's `agent/` directory, so final-context and reduction metrics
+remain reproducible.
 
 ### Baselines (native harnesses)
 ```powershell
 $env:PYTHONPATH = (Get-Location).Path
-# Claude Code — prebaked pinned binary + host OAuth token (see full-run-cc-n8.ps1)
+# Claude Code — prebaked pinned binary + host OAuth token
 harbor run -d terminal-bench/terminal-bench-2-1 `
   --agent-import-path harness.claude_code_prebaked:ClaudeCodePrebaked `
   -m claude-opus-5 --ak reasoning_effort=high `

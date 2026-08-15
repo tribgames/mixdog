@@ -36,14 +36,22 @@ export function findPreset(config, key) {
   }) || null;
 }
 
+function cleanModelParameters(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value)
+    .map(([key, entry]) => [clean(key), clean(entry)])
+    .filter(([key, entry]) => key && entry));
+}
+
 export function makeResolveRoute(resolveDefaultProvider) {
-  return function resolveRoute(config, { provider, model, effort, fast } = {}) {
+  return function resolveRoute(config, { provider, model, effort, fast, modelParameters } = {}) {
     const explicitProvider = clean(provider);
     const explicitModel = clean(model);
     const hasExplicitEffort = effort !== undefined;
     const explicitEffort = hasExplicitEffort ? normalizeEffortInput(effort) : undefined;
     const hasExplicitFast = fast !== undefined;
     const explicitFast = fast === true;
+    const hasExplicitModelParameters = modelParameters !== undefined;
 
     if (explicitModel && !explicitProvider) {
       const preset = findPreset(config, explicitModel);
@@ -58,6 +66,9 @@ export function makeResolveRoute(resolveDefaultProvider) {
             preset,
             effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort ?? preset.effort),
             fast: hasExplicitFast ? explicitFast : (hasOwn(saved, 'fast') ? saved.fast === true : (preset.fast === true || fastPreferenceFor(config, p, m))),
+            modelParameters: hasExplicitModelParameters
+              ? cleanModelParameters(modelParameters)
+              : cleanModelParameters(saved.modelParameters ?? preset.modelParameters),
           };
         }
       }
@@ -77,6 +88,9 @@ export function makeResolveRoute(resolveDefaultProvider) {
             preset,
             effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort ?? preset.effort),
             fast: hasExplicitFast ? explicitFast : (hasOwn(saved, 'fast') ? saved.fast === true : (preset.fast === true || fastPreferenceFor(config, p, m))),
+            modelParameters: hasExplicitModelParameters
+              ? cleanModelParameters(modelParameters)
+              : cleanModelParameters(saved.modelParameters ?? preset.modelParameters),
           };
         }
       }
@@ -91,6 +105,9 @@ export function makeResolveRoute(resolveDefaultProvider) {
       preset: null,
       effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort),
       fast: hasExplicitFast ? explicitFast : (hasOwn(saved, 'fast') ? saved.fast === true : fastPreferenceFor(config, p, m)),
+      modelParameters: hasExplicitModelParameters
+        ? cleanModelParameters(modelParameters)
+        : cleanModelParameters(saved.modelParameters),
     };
   };
 }

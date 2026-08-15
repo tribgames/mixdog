@@ -134,6 +134,7 @@ const LANE_PRESENTATION_FIELDS: ReadonlyArray<keyof Snapshot> = [
   "effort",
   "fast",
   "fastCapable",
+  "modelParameters",
   "workflow",
   "currentProject",
   "project",
@@ -206,6 +207,10 @@ export function laneFrameWithRetainedRoute(prior: Snapshot | null, next: Snapsho
     }
     if (typeof next.fastCapable !== "boolean" && typeof prior.fastCapable === "boolean") {
       merged.fastCapable = prior.fastCapable;
+      changed = true;
+    }
+    if (!next.modelParameters && prior.modelParameters) {
+      merged.modelParameters = prior.modelParameters;
       changed = true;
     }
   }

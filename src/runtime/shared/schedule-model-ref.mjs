@@ -1,13 +1,16 @@
 // schedule.model wire format shared by the channels-worker scheduler and the
 // engine-side run-now dispatch: either a config.presets id/name (legacy) or a
-// direct "provider/model[@effort][+fast]" route string written by the desktop
-// schedule editor. Slash-form values become {provider,model,effort?,fast?}
+// direct "provider/model[@effort][+fast][?parameter=value]" route string written
+// by the desktop schedule editor. Slash-form values become a direct route
 // route objects, which agent-dispatch consumes without a presets lookup.
 export function parseScheduleModelRef(ref) {
   const raw = String(ref || '');
-  const slash = raw.indexOf('/');
+  const queryAt = raw.indexOf('?');
+  const routeRef = queryAt >= 0 ? raw.slice(0, queryAt) : raw;
+  const query = queryAt >= 0 ? raw.slice(queryAt + 1) : '';
+  const slash = routeRef.indexOf('/');
   if (slash <= 0) return raw;
-  let rest = raw.slice(slash + 1);
+  let rest = routeRef.slice(slash + 1);
   let fast = false;
   if (rest.endsWith('+fast')) {
     fast = true;
@@ -20,9 +23,10 @@ export function parseScheduleModelRef(ref) {
     rest = rest.slice(0, at);
   }
   return {
-    provider: raw.slice(0, slash),
+    provider: routeRef.slice(0, slash),
     model: rest,
     ...(effort ? { effort } : {}),
     ...(fast ? { fast: true } : {}),
+    ...(query ? { modelParameters: Object.fromEntries(new URLSearchParams(query)) } : {}),
   };
 }

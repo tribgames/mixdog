@@ -14,6 +14,7 @@ const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   gemini: "Gemini API",
   "gemini-api": "Gemini API",
   "grok-oauth": "Grok OAuth",
+  "cursor-oauth": "Cursor OAuth",
   lmstudio: "LM Studio",
   ollama: "Ollama",
   openai: "OpenAI API",
@@ -29,6 +30,7 @@ const PROVIDER_RANKS: Readonly<Record<string, number>> = {
   "openai-oauth": 10,
   "anthropic-oauth": 20,
   "grok-oauth": 30,
+  "cursor-oauth": 32,
   "opencode-go": 35,
   openai: 40,
   "openai-api": 40,
@@ -160,6 +162,36 @@ export function normalizeModelOptions(models: readonly DesktopModelOption[]): De
   return normalized;
 }
 
+export function modelFastAvailable(
+  model: DesktopModelOption | undefined,
+  effort?: string,
+  modelParameters: Record<string, string> = {},
+): boolean {
+  if (!model?.fastCapable) return false;
+  if (Array.isArray(model.parameterVariants) && model.parameterVariants.length) {
+    return model.parameterVariants.some((variant) =>
+      variant.fast === 'true'
+      && (!effort || !variant.effort || variant.effort === effort)
+      && Object.entries(modelParameters).every(([key, value]) => !variant[key] || variant[key] === value));
+  }
+  if (!Array.isArray(model.fastEfforts) || model.fastEfforts.length === 0) return true;
+  return model.fastEfforts.includes(String(effort || '').trim().toLowerCase());
+}
+
+export function preferredModelParameters(
+  model: DesktopModelOption | undefined,
+  current: Record<string, string> = {},
+): Record<string, string> {
+  if (!model) return {};
+  const defaults = { ...(model.defaultModelParameters || {}), ...(model.savedModelParameters || {}), ...current };
+  return Object.fromEntries((model.modelParameterOptions || []).flatMap((definition) => {
+    const value = defaults[definition.id];
+    if (value && definition.options.some((option) => option.value === value)) return [[definition.id, value]];
+    const fallback = definition.options[0]?.value;
+    return fallback ? [[definition.id, fallback]] : [];
+  }));
+}
+
 export function modelContextWindow(model: DesktopModelOption): number {
   const value = Number(model.contextWindow);
   const explicit = Number.isFinite(value) && value > 0 ? value : 0;
@@ -194,11 +226,25 @@ export function formatContextWindow(tokens: number): string {
 }
 
 export function modelOptionDescription(model: DesktopModelOption): string {
-  // Prefer provider-authoritative limits, then the provider's own description.
-  // An unknown secondary field stays absent instead of rendering a naked "-".
+  // Keep provider-authoritative limits and the provider's own description
+  // together. Cursor tooltips often repeat the context window as one dot
+  // segment, so remove only that duplicate before composing the secondary line.
   const context = formatContextWindow(modelContextWindow(model));
-  const primary = context || String(model.description || "").trim();
-  return [primary, model.fastCapable ? t("Fast Available") : ""].filter(Boolean).join(" · ");
+  const description = String(model.description || "")
+    .replace(/<br\s*\/?>/gi, " · ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[*_`]+/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/\s*·\s*/g, " · ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" · ")
+    .filter((part) => !/^\d+(?:\.\d+)?\s*[km]\s+context window$/i.test(part))
+    .join(" · ");
+  return [context, description, model.fastCapable ? t("Fast Available") : ""]
+    .filter(Boolean).join(" · ");
 }
 
 export function modelDetailTooltip(model: DesktopModelOption): string {
@@ -267,10 +313,10 @@ function canonicalModelDisplay(model: string) {
 }
 
 export function modelDisplayName(model: string | null | undefined, provider = "", displayHint = "") {
-  void provider;
   const raw = String(model || "").trim();
   const id = raw.includes("/") ? raw.split("/").filter(Boolean).at(-1) || raw : raw;
   const hint = String(displayHint || "").trim();
+  if (String(provider || "").toLowerCase() === "cursor-oauth" && hint) return hint;
   if (id) {
     const canonical = canonicalModelDisplay(id);
     if (canonical && canonical !== id) return canonical;
@@ -284,10 +330,12 @@ export function modelOptionLabel(model: { provider: string; model: string; displ
   return `${display} · ${providerDisplayName(model.provider)}`;
 }
 
-type ProviderIconKind = "openai" | "anthropic" | "xai" | "google" | "synthetic";
+type ProviderIconKind = "openai" | "anthropic" | "xai" | "google" | "cursor" | "opencode" | "synthetic";
 
 function providerIconKind(provider: string): ProviderIconKind {
   const normalized = provider.toLowerCase();
+  if (normalized === "cursor-oauth") return "cursor";
+  if (normalized === "opencode-go") return "opencode";
   if (normalized.includes("openai") || normalized.includes("codex")) return "openai";
   if (normalized.includes("anthropic") || normalized.includes("claude")) return "anthropic";
   if (normalized.includes("xai") || normalized.includes("grok")) return "xai";
@@ -304,6 +352,15 @@ export function ProviderIcon({ provider, ...props }: SVGProps<SVGSVGElement> & {
       {kind === "anthropic" && <path fill="currentColor" d="M26.96 9.88h-4.83l8.65 21.9h4.71l-8.53-21.9Zm-13.93 0L4.49 31.78h4.83l1.91-4.6h8.99l1.79 4.49h4.83L18.08 9.88h-5.05Zm-.45 13.26 2.92-7.75 3.03 7.75h-5.95Z" />}
       {kind === "xai" && <path fill="currentColor" d="m12.46 15.6 13.69 19.4h-6.08L6.37 15.6h6.09Zm-.01 10.78 3.05 4.31L12.46 35H6.36l6.09-8.62ZM33.64 7.16V35h-4.99V14.22l4.99-7.06Zm0-2.16L20.07 24.22l-3.05-4.31L27.55 5h6.09Z" />}
       {kind === "google" && <path fill="currentColor" d="M37 20.03C27.88 20.58 20.58 27.88 20.03 37h-.06C19.42 27.88 12.12 20.58 3 20.03v-.06C12.12 19.42 19.42 12.12 19.97 3h.06C20.58 12.12 27.88 19.42 37 19.97v.06Z" />}
+      {kind === "cursor" && <g transform="translate(3.8 3.8) scale(1.35)">
+        <path fill="currentColor" opacity=".45" d="m11.925 24 10.425-6-10.425-6L1.5 18l10.425 6Z" />
+        <path fill="currentColor" opacity=".7" d="M22.35 18V6L11.925 0v12l10.425 6Z" />
+        <path fill="currentColor" d="M11.925 0 1.5 6v12l10.425-6V0Zm10.425 6L11.925 24V12L22.35 6Zm0 0-10.425 6L1.5 6h20.85Z" />
+      </g>}
+      {kind === "opencode" && <g transform="scale(.078125)">
+        <path fill="currentColor" opacity=".45" d="M320 224v128H192V224h128Z" />
+        <path fill="currentColor" fillRule="evenodd" d="M384 416H128V96h256v320Zm-64-256H192v192h128V160Z" clipRule="evenodd" />
+      </g>}
       {kind === "synthetic" && <path fill="currentColor" d="m20 4 2.24 7.76L30 14l-7.76 2.24L20 24l-2.24-7.76L10 14l7.76-2.24L20 4Zm10 18 1.12 3.88L35 27l-3.88 1.12L30 32l-1.12-3.88L25 27l3.88-1.12L30 22ZM11 24l1.4 4.6L17 30l-4.6 1.4L11 36l-1.4-4.6L5 30l4.6-1.4L11 24Z" />}
     </svg>
   );

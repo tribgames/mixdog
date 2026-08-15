@@ -13,8 +13,8 @@
 //    "namespaceName": "...", "goPackageName": "...",
 //    "topLevelTypes": [...]}
 //
-// Per-file errors are silent — Node-side keeps its own JS fallback for
-// any language Rust skipped. Exits 0 regardless of partial failures.
+// Per-file errors are silent — a skipped file is omitted from the graph.
+// There is no JS parse fallback. Exits 0 regardless of partial failures.
 
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -30,7 +30,10 @@ use sha2::{Digest, Sha256};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Parser, Query, QueryCursor};
 
+mod lang;
 mod serve_search;
+
+use lang::{comment_family, lang_for, lang_static, CommentFamily};
 
 // Mirrors CODE_GRAPH_MAX_FILES on the Node side. --walk caps parse work
 // here so large repos don't pay full parse cost before truncation.
@@ -84,35 +87,6 @@ struct ReusedMeta {
     top_level_types: Vec<String>,
 }
 
-// Map a language NAME (as sent by JS, e.g. "java") to the interned
-// &'static str the resolvers/index switch on. Unknown names map to "".
-fn lang_static(name: &str) -> &'static str {
-    match name {
-        "javascript" => "javascript",
-        "typescript" => "typescript",
-        "python" => "python",
-        "go" => "go",
-        "rust" => "rust",
-        "java" => "java",
-        "kotlin" => "kotlin",
-        "csharp" => "csharp",
-        "ruby" => "ruby",
-        "php" => "php",
-        "swift" => "swift",
-        "c" => "c",
-        "cpp" => "cpp",
-        "scala" => "scala",
-        "bash" => "bash",
-        "lua" => "lua",
-        "dart" => "dart",
-        "objc" => "objc",
-        "elixir" => "elixir",
-        "zig" => "zig",
-        "r" => "r",
-        _ => "",
-    }
-}
-
 // Build a lightweight FileRecord from a reused-node meta: carries just
 // enough (rel/lang/imports/package/types) for GraphIndex construction and
 // import resolution. tokens/symbols stay empty — they aren't re-emitted.
@@ -134,36 +108,6 @@ fn record_from_reused(meta: ReusedMeta) -> FileRecord {
     }
 }
 
-fn lang_for(ext: &str) -> Option<&'static str> {
-    match ext {
-        "js" | "mjs" | "cjs" | "jsx" => Some("javascript"),
-        "ts" | "tsx" | "mts" | "cts" => Some("typescript"),
-        "py" => Some("python"),
-        "go" => Some("go"),
-        "rs" => Some("rust"),
-        "java" => Some("java"),
-        "kt" | "kts" => Some("kotlin"),
-        "cs" => Some("csharp"),
-        "rb" => Some("ruby"),
-        "php" => Some("php"),
-        "swift" => Some("swift"),
-        "c" | "h" => Some("c"),
-        "cpp" | "cc" | "cxx" | "hpp" | "hxx" => Some("cpp"),
-        "scala" | "sc" => Some("scala"),
-        "sh" | "bash" | "zsh" => Some("bash"),
-        "lua" => Some("lua"),
-        "dart" => Some("dart"),
-        // Objective-C `.m` / Objective-C++ `.mm`.
-        "m" | "mm" => Some("objc"),
-        "ex" | "exs" => Some("elixir"),
-        "zig" => Some("zig"),
-        // lang_for receives the raw extension (no case normalization), so the
-        // uppercase `.R` form must be matched explicitly alongside `.r`.
-        "r" | "R" => Some("r"),
-        _ => None,
-    }
-}
-
 struct Patterns {
     token: Regex,
     js_import: Regex,
@@ -172,11 +116,13 @@ struct Patterns {
     go_import_block: Regex,
     go_import_quoted: Regex,
     rust_use: Regex,
+    rust_mod: Regex,
     java_kotlin_import: Regex,
     csharp_using: Regex,
     c_cpp_include: Regex,
     ruby_require: Regex,
     php_use: Regex,
+    php_require: Regex,
     swift_import: Regex,
     scala_import: Regex,
     bash_source: Regex,
@@ -202,16 +148,21 @@ impl Patterns {
         .unwrap();
         let py_from_import = Regex::new(r"(?m)^\s*from\s+([.\w]+)\s+import\s+").unwrap();
         let py_import = Regex::new(r"(?m)^\s*import\s+([A-Za-z0-9_., ]+)").unwrap();
-        let go_import_block =
-            Regex::new(r#"(?ms)import\s*(?:\(([\s\S]*?)\)|"([^"]+)")"#).unwrap();
+        let go_import_block = Regex::new(r#"(?ms)import\s*(?:\(([\s\S]*?)\)|"([^"]+)")"#).unwrap();
         let go_import_quoted = Regex::new(r#""([^"]+)""#).unwrap();
         let rust_use = Regex::new(r"(?m)^\s*use\s+([^;]+);").unwrap();
+        let rust_mod =
+            Regex::new(r"(?m)^\s*(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;")
+                .unwrap();
         let java_kotlin_import = Regex::new(r"(?m)^\s*import\s+([^\n;]+);?$").unwrap();
         let csharp_using = Regex::new(r"(?m)^\s*using\s+([^;]+);$").unwrap();
-        let c_cpp_include = Regex::new(r#"(?m)^\s*#include\s+"([^"]+)""#).unwrap();
+        let c_cpp_include = Regex::new(r#"(?m)^\s*#include\s+(?:"([^"]+)"|<([^>]+)>)"#).unwrap();
         let ruby_require =
             Regex::new(r#"(?m)^\s*require(?:_relative)?\s+["']([^"']+)["']"#).unwrap();
         let php_use = Regex::new(r"(?m)^\s*use\s+([^;]+);$").unwrap();
+        let php_require =
+            Regex::new(r#"(?m)^\s*(?:require|include)(?:_once)?\s*(?:\(?\s*)["']([^"']+)["']"#)
+                .unwrap();
         // Swift: `import Foo` / `import Foo.Bar` / `import class Foo.Bar`.
         let swift_import = Regex::new(
             r"(?m)^\s*import\s+(?:typealias\s+|struct\s+|class\s+|enum\s+|protocol\s+|let\s+|var\s+|func\s+)?([A-Za-z_][A-Za-z0-9_.]*)",
@@ -219,27 +170,18 @@ impl Patterns {
         .unwrap();
         // Scala: `import x.y.z`, `import x.y.{a, b}`, `import x.y._`. Capture
         // the dotted prefix; selector braces/wildcard are dropped downstream.
-        let scala_import =
-            Regex::new(r"(?m)^\s*import\s+([A-Za-z_][A-Za-z0-9_.]*)").unwrap();
+        let scala_import = Regex::new(r"(?m)^\s*import\s+([A-Za-z_][A-Za-z0-9_.]*)").unwrap();
         // Bash: `source path` or `. path` (POSIX dot-include).
-        let bash_source = Regex::new(
-            r#"(?m)^\s*(?:source|\.)\s+["']?([^\s"';]+)["']?"#,
-        )
-        .unwrap();
+        let bash_source = Regex::new(r#"(?m)^\s*(?:source|\.)\s+["']?([^\s"';]+)["']?"#).unwrap();
         // Lua: `require("x")`, `require 'x'`, `require[[x]]`.
-        let lua_require = Regex::new(
-            r#"require\s*(?:\(\s*)?["']([^"']+)["']"#,
-        )
-        .unwrap();
+        let lua_require = Regex::new(r#"require\s*(?:\(\s*)?["']([^"']+)["']"#).unwrap();
         // Dart: `import 'package:x/y.dart';` / `import './local.dart';`
         // (also export/part). Capture the quoted uri. `part of 'lib.dart'` is
         // deliberately NOT captured: it points BACK to the owning library, and
         // the forward `part 'x.dart'` edge already records the library→part
         // pair, so the reverse edge would be redundant.
-        let dart_import = Regex::new(
-            r#"(?m)^\s*(?:import|export|part)\s+["']([^"']+)["']"#,
-        )
-        .unwrap();
+        let dart_import =
+            Regex::new(r#"(?m)^\s*(?:import|export|part)\s+["']([^"']+)["']"#).unwrap();
         // Objective-C: `#import <Foo/Bar.h>` / `#import "Bar.h"` and the
         // module form `@import UIKit;`. Capture whichever spec form matched.
         let objc_import = Regex::new(
@@ -249,14 +191,11 @@ impl Patterns {
         // Elixir: `import`/`alias`/`require`/`use Foo.Bar`. Capture the dotted
         // module alias (begins with an uppercase letter).
         let elixir_import = Regex::new(
-            r"(?m)^\s*(?:import|alias|require|use)\s+([A-Z][A-Za-z0-9_.]*)",
+            r"(?m)^\s*(?:import|alias|require|use)\s+([A-Z][A-Za-z0-9_.]*(?:\{[^}]+\})?)",
         )
         .unwrap();
         // Zig: `@import("std")` / `@import("./x.zig")`. Capture the quoted spec.
-        let zig_import = Regex::new(
-            r#"@import\s*\(\s*"([^"]+)"\s*\)"#,
-        )
-        .unwrap();
+        let zig_import = Regex::new(r#"@import\s*\(\s*"([^"]+)"\s*\)"#).unwrap();
         // R: `library(x)` / `require(x)` (bare or quoted name) and
         // `source("path.R")` (quoted path). Capture whichever form matched.
         let r_require = Regex::new(
@@ -267,14 +206,12 @@ impl Patterns {
             Regex::new(r"(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;?\s*$").unwrap();
         let csharp_namespace =
             Regex::new(r"(?m)^\s*namespace\s+([A-Za-z_][A-Za-z0-9_.]*)\s*[;{]").unwrap();
-        let go_package =
-            Regex::new(r"(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_]*)\s*$").unwrap();
+        let go_package = Regex::new(r"(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_]*)\s*$").unwrap();
         let type_decl_jks = Regex::new(
             r"\b(?:class|interface|enum|record|object|struct)\s+([A-Za-z_][A-Za-z0-9_]*)",
         )
         .unwrap();
-        let go_type =
-            Regex::new(r"(?m)^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
+        let go_type = Regex::new(r"(?m)^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
         Patterns {
             token,
             js_import,
@@ -283,11 +220,13 @@ impl Patterns {
             go_import_block,
             go_import_quoted,
             rust_use,
+            rust_mod,
             java_kotlin_import,
             csharp_using,
             c_cpp_include,
             ruby_require,
             php_use,
+            php_require,
             swift_import,
             scala_import,
             bash_source,
@@ -512,36 +451,19 @@ fn extract_raw_imports(text: &str, lang: &str, p: &Patterns) -> Vec<String> {
     // commented-out imports don't appear as live dependencies. JS-style
     // // + /* */ for the curly-brace family; # for Python/Ruby/shell.
     let cleaned: String;
-    let scan_text: &str = match lang {
-        "javascript" | "typescript" | "java" | "kotlin" | "csharp"
-        | "c" | "cpp" | "rust" | "go" | "php" | "scala"
-        // Dart/Obj-C/Zig share the `//` + `/* */` comment family. Their import
-        // specs live in quoted strings (dart uri, objc header, zig @import),
-        // so keep string bodies verbatim (mask_strings = false) like JS.
-        | "dart" | "objc" | "zig" => {
-            cleaned = strip_comments_curly(text, false);
+    let scan_text: &str = match comment_family(lang, false) {
+        CommentFamily::Curly { mask_strings } => {
+            cleaned = strip_comments_curly(text, mask_strings);
             cleaned.as_str()
         }
-        // Swift imports are never inside string literals (unlike JS, where a
-        // module spec lives in a quoted string), so mask string bodies to
-        // stop a literal `import Foo` inside a multiline string from matching.
-        // LIMITATION: strip_comments_curly does not track nested block
-        // comments, so Swift's nested `/* /* */ */` closes at the first `*/`;
-        // a stray `import` in the still-open outer comment tail could match.
-        // Acceptable for import detection (rare, and only over-reports a dep).
-        "swift" => {
-            cleaned = strip_comments_curly(text, true);
-            cleaned.as_str()
-        }
-        "python" | "ruby" | "bash" | "elixir" | "r" => {
+        CommentFamily::Hash => {
             cleaned = strip_comments_hash(text);
             cleaned.as_str()
         }
-        "lua" => {
+        CommentFamily::Lua => {
             cleaned = strip_comments_lua(text);
             cleaned.as_str()
         }
-        _ => text,
     };
     match lang {
         "javascript" | "typescript" => {
@@ -592,6 +514,11 @@ fn extract_raw_imports(text: &str, lang: &str, p: &Patterns) -> Vec<String> {
                     push(m.as_str());
                 }
             }
+            for cap in p.rust_mod.captures_iter(scan_text) {
+                if let Some(m) = cap.get(1) {
+                    push(&format!("mod::{}", m.as_str()));
+                }
+            }
         }
         "java" | "kotlin" => {
             for cap in p.java_kotlin_import.captures_iter(scan_text) {
@@ -609,8 +536,9 @@ fn extract_raw_imports(text: &str, lang: &str, p: &Patterns) -> Vec<String> {
         }
         "c" | "cpp" => {
             for cap in p.c_cpp_include.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    push(m.as_str());
+                let spec = cap.get(1).or_else(|| cap.get(2)).map(|m| m.as_str());
+                if let Some(s) = spec {
+                    push(s);
                 }
             }
         }
@@ -623,6 +551,13 @@ fn extract_raw_imports(text: &str, lang: &str, p: &Patterns) -> Vec<String> {
         }
         "php" => {
             for cap in p.php_use.captures_iter(scan_text) {
+                if let Some(m) = cap.get(1) {
+                    for spec in expand_php_use_spec(m.as_str()) {
+                        push(&spec);
+                    }
+                }
+            }
+            for cap in p.php_require.captures_iter(scan_text) {
                 if let Some(m) = cap.get(1) {
                     push(m.as_str());
                 }
@@ -689,7 +624,9 @@ fn extract_raw_imports(text: &str, lang: &str, p: &Patterns) -> Vec<String> {
         "elixir" => {
             for cap in p.elixir_import.captures_iter(scan_text) {
                 if let Some(m) = cap.get(1) {
-                    push(m.as_str());
+                    for spec in expand_elixir_alias_spec(m.as_str()) {
+                        push(&spec);
+                    }
                 }
             }
         }
@@ -774,8 +711,8 @@ fn extract_top_level_types(text: &str, lang: &str, p: &Patterns) -> Vec<String> 
     out
 }
 
-// Tree-sitter symbol extraction across every supported language
-// (js/ts/py/go/rs/java/c/cpp/cs/ruby/php). The parser knows real token
+// Tree-sitter symbol extraction across every language in lang.rs.
+// The parser knows real token
 // boundaries, so comments, string literals, and control-flow keywords
 // (`if`, `for`, ...) are never mistaken for declarations.
 #[derive(Serialize)]
@@ -822,8 +759,28 @@ fn extract_source_symbols(text: &str, lang: &str) -> Vec<SymbolInfo> {
             (function_expression name: (identifier) @name) @def
             (generator_function name: (identifier) @name) @def
             (class name: (type_identifier) @name) @def
+            (internal_module name: (identifier) @name) @def
+            (module name: (identifier) @name) @def
             "#,
-            &["function", "function", "class", "class", "interface", "type", "enum", "method", "binding", "binding", "binding", "binding", "function", "function", "class"][..],
+            &[
+                "function",
+                "function",
+                "class",
+                "class",
+                "interface",
+                "type",
+                "enum",
+                "method",
+                "binding",
+                "binding",
+                "binding",
+                "binding",
+                "function",
+                "function",
+                "class",
+                "namespace",
+                "namespace",
+            ][..],
         ),
         "javascript" => (
             tree_sitter_javascript::LANGUAGE.into(),
@@ -839,7 +796,10 @@ fn extract_source_symbols(text: &str, lang: &str) -> Vec<SymbolInfo> {
             (generator_function name: (identifier) @name) @def
             (class name: (identifier) @name) @def
             "#,
-            &["function", "class", "method", "binding", "binding", "binding", "binding", "function", "function", "class"][..],
+            &[
+                "function", "class", "method", "binding", "binding", "binding", "binding",
+                "function", "function", "class",
+            ][..],
         ),
         "python" => (
             tree_sitter_python::LANGUAGE.into(),
@@ -867,8 +827,13 @@ fn extract_source_symbols(text: &str, lang: &str) -> Vec<SymbolInfo> {
             (trait_item name: (type_identifier) @name) @def
             (mod_item name: (identifier) @name) @def
             (const_item name: (identifier) @name) @def
+            (type_item name: (type_identifier) @name) @def
+            (static_item name: (identifier) @name) @def
+            (macro_definition name: (identifier) @name) @def
             "#,
-            &["function", "struct", "enum", "trait", "module", "const"][..],
+            &[
+                "function", "struct", "enum", "trait", "module", "const", "type", "static", "macro",
+            ][..],
         ),
         "java" => (
             tree_sitter_java::LANGUAGE.into(),
@@ -880,7 +845,14 @@ fn extract_source_symbols(text: &str, lang: &str) -> Vec<SymbolInfo> {
             (constructor_declaration name: (identifier) @name) @def
             (record_declaration name: (identifier) @name) @def
             "#,
-            &["class", "interface", "enum", "method", "constructor", "record"][..],
+            &[
+                "class",
+                "interface",
+                "enum",
+                "method",
+                "constructor",
+                "record",
+            ][..],
         ),
         "c" => (
             tree_sitter_c::LANGUAGE.into(),
@@ -899,8 +871,12 @@ fn extract_source_symbols(text: &str, lang: &str) -> Vec<SymbolInfo> {
             (function_definition declarator: (pointer_declarator declarator: (function_declarator declarator: (identifier) @name))) @def
             (class_specifier name: (type_identifier) @name) @def
             (struct_specifier name: (type_identifier) @name) @def
+            (function_definition declarator: (function_declarator declarator: (field_identifier) @name)) @def
+            (function_definition declarator: (function_declarator declarator: (qualified_identifier name: (identifier) @name))) @def
             "#,
-            &["function", "function", "class", "struct"][..],
+            &[
+                "function", "function", "class", "struct", "method", "function",
+            ][..],
         ),
         "csharp" => (
             tree_sitter_c_sharp::LANGUAGE.into(),
@@ -914,7 +890,16 @@ fn extract_source_symbols(text: &str, lang: &str) -> Vec<SymbolInfo> {
             (local_function_statement name: (identifier) @name) @def
             (record_declaration name: (identifier) @name) @def
             "#,
-            &["class", "interface", "struct", "method", "enum", "constructor", "local-function", "record"][..],
+            &[
+                "class",
+                "interface",
+                "struct",
+                "method",
+                "enum",
+                "constructor",
+                "local-function",
+                "record",
+            ][..],
         ),
         "ruby" => (
             tree_sitter_ruby::LANGUAGE.into(),
@@ -934,8 +919,10 @@ fn extract_source_symbols(text: &str, lang: &str) -> Vec<SymbolInfo> {
             (class_declaration name: (name) @name) @def
             (method_declaration name: (name) @name) @def
             (interface_declaration name: (name) @name) @def
+            (trait_declaration name: (name) @name) @def
+            (enum_declaration name: (name) @name) @def
             "#,
-            &["function", "class", "method", "interface"][..],
+            &["function", "class", "method", "interface", "trait", "enum"][..],
         ),
         "kotlin" => (
             tree_sitter_kotlin_ng::LANGUAGE.into(),
@@ -1021,7 +1008,17 @@ fn extract_source_symbols(text: &str, lang: &str) -> Vec<SymbolInfo> {
             (method_declaration signature: (method_signature (setter_signature name: (identifier) @name))) @def
             (method_declaration signature: (method_signature (operator_signature operator: (binary_operator) @name))) @def
             "#,
-            &["class", "mixin", "enum", "extension", "function", "method", "method", "method", "method"][..],
+            &[
+                "class",
+                "mixin",
+                "enum",
+                "extension",
+                "function",
+                "method",
+                "method",
+                "method",
+                "method",
+            ][..],
         ),
         "objc" => (
             tree_sitter_objc::LANGUAGE.into(),
@@ -1251,15 +1248,10 @@ fn run_search(root: &Path, symbol: &str) {
             }
             // Mask comments/strings so identifiers inside them don't
             // produce false call-sites. Per-language family.
-            let masked: String = match lang {
-                "javascript" | "typescript" | "java" | "kotlin" | "csharp"
-                | "c" | "cpp" | "rust" | "go" | "php" | "swift" | "scala"
-                | "dart" | "objc" | "zig" => {
-                    strip_comments_curly(&text, true)
-                }
-                "python" | "ruby" | "bash" | "elixir" | "r" => strip_comments_hash(&text),
-                "lua" => strip_comments_lua(&text),
-                _ => text.clone(),
+            let masked: String = match comment_family(lang, true) {
+                CommentFamily::Curly { mask_strings } => strip_comments_curly(&text, mask_strings),
+                CommentFamily::Hash => strip_comments_hash(&text),
+                CommentFamily::Lua => strip_comments_lua(&text),
             };
             let mut out = Vec::new();
             // Scan masked text line-by-line; emit corresponding
@@ -1382,20 +1374,36 @@ fn parse_file_from(src: &SrcFile, patterns: &Patterns) -> Option<FileRecord> {
 // Stat-and-parse a single path (used by --files, where paths come from the
 // caller, not the walk). One metadata read, then parse_file_from.
 fn parse_file(path: &Path, root: &Path, patterns: &Patterns) -> Option<FileRecord> {
-    let lang = path.extension().and_then(|s| s.to_str()).and_then(lang_for)?;
+    let lang = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .and_then(lang_for)?;
     let meta = fs::metadata(path).ok()?;
     let size = meta.len();
     if size > 2 * 1024 * 1024 {
         return None;
     }
-    let rel = path.strip_prefix(root).ok()?.to_string_lossy().replace('\\', "/");
+    let rel = path
+        .strip_prefix(root)
+        .ok()?
+        .to_string_lossy()
+        .replace('\\', "/");
     let mtime_ms = meta
         .modified()
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    parse_file_from(&SrcFile { path: path.to_path_buf(), rel, lang, size, mtime_ms }, patterns)
+    parse_file_from(
+        &SrcFile {
+            path: path.to_path_buf(),
+            rel,
+            lang,
+            size,
+            mtime_ms,
+        },
+        patterns,
+    )
 }
 
 fn emit_records(records: &[FileRecord]) {
@@ -1428,7 +1436,10 @@ fn collect_source_files(root: &Path) -> Vec<SrcFile> {
         .filter(|d| d.file_type().map(|t| t.is_file()).unwrap_or(false))
         .filter_map(|d| {
             let path = d.path();
-            let lang = path.extension().and_then(|s| s.to_str()).and_then(lang_for)?;
+            let lang = path
+                .extension()
+                .and_then(|s| s.to_str())
+                .and_then(lang_for)?;
             Some((path.to_path_buf(), lang))
         })
         .collect();
@@ -1441,14 +1452,24 @@ fn collect_source_files(root: &Path) -> Vec<SrcFile> {
             if size > 2 * 1024 * 1024 {
                 return None;
             }
-            let rel = path.strip_prefix(root).ok()?.to_string_lossy().replace('\\', "/");
+            let rel = path
+                .strip_prefix(root)
+                .ok()?
+                .to_string_lossy()
+                .replace('\\', "/");
             let mtime_ms = meta
                 .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0);
-            Some(SrcFile { path: path.clone(), rel, lang, size, mtime_ms })
+            Some(SrcFile {
+                path: path.clone(),
+                rel,
+                lang,
+                size,
+                mtime_ms,
+            })
         })
         .collect();
     files.sort_by(|a, b| a.path.cmp(&b.path));
@@ -1543,27 +1564,37 @@ fn resolve_js_like(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<
         return None;
     }
     let base = path_join_norm(rel_dir(rel), spec);
-    let base_no_ext = strip_js_ext(&base);
+    resolve_js_base(&base, file_set)
+}
+
+fn resolve_js_base(base: &str, file_set: &HashSet<String>) -> Option<String> {
+    let base_no_ext = strip_js_ext(base);
     let candidates = [
-        base.clone(),
-        format!("{}.ts", base),
-        format!("{}.tsx", base),
-        format!("{}.js", base),
-        format!("{}.jsx", base),
-        format!("{}.mjs", base),
-        format!("{}.cjs", base),
-        format!("{}.ts", base_no_ext),
-        format!("{}.tsx", base_no_ext),
-        format!("{}.js", base_no_ext),
-        format!("{}.jsx", base_no_ext),
-        format!("{}.mjs", base_no_ext),
-        format!("{}.cjs", base_no_ext),
-        path_join_norm(&base, "index.ts"),
-        path_join_norm(&base, "index.tsx"),
-        path_join_norm(&base, "index.js"),
-        path_join_norm(&base, "index.jsx"),
-        path_join_norm(&base, "index.mjs"),
-        path_join_norm(&base, "index.cjs"),
+        base.to_string(),
+        format!("{base}.ts"),
+        format!("{base}.tsx"),
+        format!("{base}.mts"),
+        format!("{base}.cts"),
+        format!("{base}.js"),
+        format!("{base}.jsx"),
+        format!("{base}.mjs"),
+        format!("{base}.cjs"),
+        format!("{base_no_ext}.ts"),
+        format!("{base_no_ext}.tsx"),
+        format!("{base_no_ext}.mts"),
+        format!("{base_no_ext}.cts"),
+        format!("{base_no_ext}.js"),
+        format!("{base_no_ext}.jsx"),
+        format!("{base_no_ext}.mjs"),
+        format!("{base_no_ext}.cjs"),
+        path_join_norm(base, "index.ts"),
+        path_join_norm(base, "index.tsx"),
+        path_join_norm(base, "index.mts"),
+        path_join_norm(base, "index.cts"),
+        path_join_norm(base, "index.js"),
+        path_join_norm(base, "index.jsx"),
+        path_join_norm(base, "index.mjs"),
+        path_join_norm(base, "index.cjs"),
     ];
     candidates.into_iter().find(|p| file_set.contains(p))
 }
@@ -1588,11 +1619,29 @@ fn resolve_py(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<Strin
     } else {
         path_join_norm("", &spec.replace('.', "/"))
     };
-    let candidates = [
-        format!("{}.py", target),
-        path_join_norm(&target, "__init__.py"),
-    ];
-    candidates.into_iter().find(|p| file_set.contains(p))
+    let mut prefixes = vec![String::new()];
+    if !spec.starts_with('.') {
+        prefixes.push("src".to_string());
+        prefixes.push("lib".to_string());
+    }
+    for prefix in prefixes {
+        let path = if prefix.is_empty() {
+            target.clone()
+        } else {
+            path_join_norm(&prefix, &target)
+        };
+        for cand in [
+            format!("{path}.py"),
+            format!("{path}.pyi"),
+            path_join_norm(&path, "__init__.py"),
+            path_join_norm(&path, "__init__.pyi"),
+        ] {
+            if file_set.contains(&cand) {
+                return Some(cand);
+            }
+        }
+    }
+    None
 }
 
 // JS `_resolveInclude` (c/cpp). Tries file-relative then root-relative.
@@ -1606,7 +1655,13 @@ fn resolve_include(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<
     if file_set.contains(&root_candidate) {
         return Some(root_candidate);
     }
-    None
+    let suffix = format!("/{norm}");
+    let mut hits: Vec<&String> = file_set
+        .iter()
+        .filter(|path| path.ends_with(&suffix) || *path == &norm)
+        .collect();
+    hits.sort();
+    hits.into_iter().next().cloned()
 }
 
 // JS `_resolveRubyImport`.
@@ -1647,10 +1702,7 @@ fn resolve_lua_require(spec: &str, file_set: &HashSet<String>) -> Option<String>
         return None;
     }
     let base = path_join_norm("", &norm.replace('.', "/"));
-    let candidates = [
-        format!("{}.lua", base),
-        path_join_norm(&base, "init.lua"),
-    ];
+    let candidates = [format!("{}.lua", base), path_join_norm(&base, "init.lua")];
     candidates.into_iter().find(|p| file_set.contains(p))
 }
 
@@ -1712,6 +1764,896 @@ fn resolve_r_source(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option
     None
 }
 
+fn file_stem_rel(rel: &str) -> Option<&str> {
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    name.rsplit_once('.')
+        .map(|(stem, _)| stem)
+        .filter(|s| !s.is_empty())
+}
+
+fn expand_php_use_spec(spec: &str) -> Vec<String> {
+    let spec = spec.trim();
+    let Some(open) = spec.find('{') else {
+        return vec![spec.to_string()];
+    };
+    let prefix = spec[..open].trim().trim_end_matches('\\');
+    let inner = spec[open + 1..].trim().trim_end_matches('}').trim();
+    inner
+        .split(',')
+        .filter_map(|part| {
+            let mut name = part.trim();
+            if let Some(idx) = name.find(" as ") {
+                name = name[..idx].trim();
+            }
+            if name.is_empty() || name == "*" {
+                return None;
+            }
+            Some(if prefix.is_empty() {
+                name.to_string()
+            } else {
+                format!("{prefix}\\{name}")
+            })
+        })
+        .collect()
+}
+
+fn expand_elixir_alias_spec(spec: &str) -> Vec<String> {
+    let spec = spec.trim();
+    let Some(open) = spec.find('{') else {
+        return vec![spec.to_string()];
+    };
+    let prefix = spec[..open].trim().trim_end_matches('.');
+    let inner = spec[open + 1..].trim().trim_end_matches('}').trim();
+    inner
+        .split(',')
+        .filter_map(|part| {
+            let name = part.trim();
+            if name.is_empty() || name == "*" {
+                return None;
+            }
+            Some(if prefix.is_empty() {
+                name.to_string()
+            } else {
+                format!("{prefix}.{name}")
+            })
+        })
+        .collect()
+}
+
+fn resolve_go_relative(rel: &str, spec: &str, file_set: &HashSet<String>) -> Vec<String> {
+    if !spec.starts_with('.') {
+        return Vec::new();
+    }
+    let dir = path_join_norm(rel_dir(rel), spec);
+    let prefix = if dir.is_empty() {
+        String::new()
+    } else {
+        format!("{dir}/")
+    };
+    let mut hits: Vec<String> = file_set
+        .iter()
+        .filter(|path| {
+            if !path.ends_with(".go") {
+                return false;
+            }
+            if dir.is_empty() {
+                !path.contains('/')
+            } else {
+                path.starts_with(&prefix) && !path[prefix.len()..].contains('/')
+            }
+        })
+        .cloned()
+        .collect();
+    hits.sort();
+    hits
+}
+
+fn resolve_php_require(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<String> {
+    let norm = normalize_import_spec(spec);
+    if norm.is_empty() || norm.starts_with('/') {
+        return None;
+    }
+    if !norm.ends_with(".php") && !norm.starts_with('.') {
+        return None;
+    }
+    let rel_base = path_join_norm(rel_dir(rel), &norm);
+    let root_base = path_join_norm("", &norm);
+    [
+        rel_base.clone(),
+        format!("{rel_base}.php"),
+        root_base.clone(),
+        format!("{root_base}.php"),
+    ]
+    .into_iter()
+    .find(|p| file_set.contains(p))
+}
+
+fn resolve_zig(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<String> {
+    let norm = normalize_import_spec(spec);
+    if norm.is_empty() || matches!(norm.as_str(), "std" | "builtin" | "root" | "c") {
+        return None;
+    }
+    let with_ext = if norm.ends_with(".zig") {
+        norm.clone()
+    } else {
+        format!("{norm}.zig")
+    };
+    let rel_c = path_join_norm(rel_dir(rel), &with_ext);
+    if file_set.contains(&rel_c) {
+        return Some(rel_c);
+    }
+    let root_c = path_join_norm("", &with_ext);
+    file_set.contains(&root_c).then_some(root_c)
+}
+
+fn resolve_rust_mod(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<String> {
+    let name = spec.strip_prefix("mod::")?;
+    if name.is_empty() {
+        return None;
+    }
+    let dir = rel_dir(rel);
+    let stem = file_stem_rel(rel).unwrap_or("");
+    let parent = if stem == "mod" || stem == "lib" || stem == "main" {
+        dir.to_string()
+    } else if dir.is_empty() {
+        stem.to_string()
+    } else {
+        format!("{dir}/{stem}")
+    };
+    [
+        path_join_norm(&parent, &format!("{name}.rs")),
+        path_join_norm(&parent, &format!("{name}/mod.rs")),
+    ]
+    .into_iter()
+    .find(|path| file_set.contains(path))
+}
+
+fn parse_pubspec_name(text: &str) -> Option<String> {
+    for line in text.lines() {
+        let t = line.trim();
+        let Some(rest) = t.strip_prefix("name:") else {
+            continue;
+        };
+        let name = rest.trim().trim_matches('"').trim_matches('\'');
+        if !name.is_empty() && !name.contains(char::is_whitespace) {
+            return Some(name.to_string());
+        }
+    }
+    None
+}
+
+fn load_dart_packages(root: &Path) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let mut consider = |yaml: PathBuf, lib_dir: String| {
+        if let Ok(text) = fs::read_to_string(&yaml) {
+            if let Some(name) = parse_pubspec_name(&text) {
+                out.insert(name, lib_dir);
+            }
+        }
+    };
+    consider(root.join("pubspec.yaml"), "lib".to_string());
+    let Ok(entries) = fs::read_dir(root) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().replace('\\', "/");
+        let yaml = path.join("pubspec.yaml");
+        if yaml.is_file() {
+            consider(yaml, format!("{name}/lib"));
+        }
+        let Ok(inner) = fs::read_dir(&path) else {
+            continue;
+        };
+        for child in inner.flatten() {
+            let yaml = child.path().join("pubspec.yaml");
+            if yaml.is_file() {
+                let rel = format!("{name}/{}", child.file_name().to_string_lossy());
+                consider(yaml, format!("{rel}/lib"));
+            }
+        }
+    }
+    out
+}
+
+fn parse_composer_psr4(text: &str) -> Vec<(String, String)> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for key in ["autoload", "autoload-dev"] {
+        let Some(map) = value
+            .get(key)
+            .and_then(|item| item.get("psr-4"))
+            .and_then(|item| item.as_object())
+        else {
+            continue;
+        };
+        for (ns, path) in map {
+            let dirs: Vec<String> = match path {
+                serde_json::Value::String(s) => vec![s.clone()],
+                serde_json::Value::Array(arr) => arr
+                    .iter()
+                    .filter_map(|item| item.as_str().map(String::from))
+                    .collect(),
+                _ => continue,
+            };
+            for dir in dirs {
+                let dir = dir.replace('\\', "/").trim_start_matches("./").to_string();
+                out.push((ns.replace("\\\\", "\\"), dir));
+            }
+        }
+    }
+    out
+}
+
+fn load_php_psr4(root: &Path) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut consider = |path: PathBuf, base: String| {
+        let Ok(text) = fs::read_to_string(&path) else {
+            return;
+        };
+        for (ns, dir) in parse_composer_psr4(&text) {
+            let joined = if base.is_empty() {
+                dir
+            } else {
+                path_join_norm(&base, &dir)
+            };
+            let dir = if joined.is_empty() || joined.ends_with('/') {
+                joined
+            } else {
+                format!("{joined}/")
+            };
+            out.push((ns, dir));
+        }
+    };
+    consider(root.join("composer.json"), String::new());
+    if let Ok(entries) = fs::read_dir(root) {
+        for entry in entries.flatten() {
+            let path = entry.path().join("composer.json");
+            if path.is_file() {
+                consider(path, entry.file_name().to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    out
+}
+
+fn visit_shallow_files(root: &Path, names: &[&str], mut on_file: impl FnMut(PathBuf, String)) {
+    fn walk(
+        dir: &Path,
+        rel: &str,
+        depth: usize,
+        names: &[&str],
+        on_file: &mut dyn FnMut(PathBuf, String),
+    ) {
+        for name in names {
+            let path = dir.join(name);
+            if path.is_file() {
+                on_file(path, rel.to_string());
+            }
+        }
+        if depth == 0 {
+            return;
+        }
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().replace('\\', "/");
+            if name.starts_with('.')
+                || name == "node_modules"
+                || name == "target"
+                || name == "dist"
+                || name == "vendor"
+            {
+                continue;
+            }
+            let child_rel = if rel.is_empty() {
+                name
+            } else {
+                format!("{rel}/{name}")
+            };
+            walk(&path, &child_rel, depth - 1, names, on_file);
+        }
+    }
+    walk(root, "", 3, names, &mut on_file);
+}
+
+fn parse_tsconfig_raw(
+    text: &str,
+) -> Option<(Option<String>, Option<String>, Vec<(String, Vec<String>)>)> {
+    let cleaned = strip_comments_curly(text, false);
+    let value: serde_json::Value = serde_json::from_str(&cleaned).ok()?;
+    let extends = value
+        .get("extends")
+        .and_then(|item| item.as_str())
+        .map(|s| s.to_string());
+    let opts = value.get("compilerOptions");
+    let base_url = opts
+        .and_then(|item| item.get("baseUrl"))
+        .and_then(|item| item.as_str())
+        .map(|s| s.replace('\\', "/"));
+    let mut aliases = Vec::new();
+    if let Some(paths) = opts
+        .and_then(|item| item.get("paths"))
+        .and_then(|item| item.as_object())
+    {
+        for (pattern, targets) in paths {
+            let prefix = pattern.trim_end_matches('*').to_string();
+            if prefix.is_empty() {
+                continue;
+            }
+            let mapped: Vec<String> = match targets {
+                serde_json::Value::String(s) => vec![s.trim_end_matches('*').replace('\\', "/")],
+                serde_json::Value::Array(arr) => arr
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .map(|s| s.trim_end_matches('*').replace('\\', "/"))
+                    .collect(),
+                _ => continue,
+            };
+            if !mapped.is_empty() {
+                aliases.push((prefix, mapped));
+            }
+        }
+    }
+    Some((extends, base_url, aliases))
+}
+
+fn load_ts_configs(root: &Path) -> Vec<TsConfigScope> {
+    let mut out = Vec::new();
+    let mut files = Vec::new();
+    visit_shallow_files(
+        root,
+        &["tsconfig.json", "jsconfig.json", "tsconfig.base.json"],
+        |path, dir| files.push((dir, path)),
+    );
+    fn resolve_one(
+        path: &Path,
+        dir: &str,
+        root: &Path,
+        stack: &mut Vec<PathBuf>,
+    ) -> Option<TsConfigScope> {
+        if stack.iter().any(|seen| seen == path) {
+            return None;
+        }
+        let text = fs::read_to_string(path).ok()?;
+        let (extends, base_url, paths) = parse_tsconfig_raw(&text)?;
+        stack.push(path.to_path_buf());
+        let mut scope = TsConfigScope {
+            dir: dir.to_string(),
+            base_url: base_url.clone().unwrap_or_else(|| ".".to_string()),
+            aliases: paths.clone(),
+        };
+        if let Some(ext) = extends {
+            if !ext.starts_with('@') {
+                let file = if ext.ends_with(".json") {
+                    ext.clone()
+                } else {
+                    format!("{ext}.json")
+                };
+                let parent_path = path.parent().unwrap_or(root).join(file);
+                let parent_dir = parent_path
+                    .strip_prefix(root)
+                    .ok()
+                    .and_then(|rel| rel.parent())
+                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_default();
+                if let Some(parent) = resolve_one(&parent_path, &parent_dir, root, stack) {
+                    if paths.is_empty() {
+                        scope.aliases = parent.aliases;
+                        scope.dir = parent.dir;
+                        if base_url.is_none() {
+                            scope.base_url = parent.base_url;
+                        }
+                    }
+                }
+            }
+        }
+        stack.pop();
+        scope.aliases.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        Some(scope)
+    }
+    for (dir, path) in files {
+        if let Some(scope) = resolve_one(&path, &dir, root, &mut Vec::new()) {
+            if !scope.aliases.is_empty() || scope.base_url != "." {
+                out.push(scope);
+            }
+        }
+    }
+    out.sort_by(|a, b| b.dir.len().cmp(&a.dir.len()));
+    out
+}
+
+fn parse_js_package(text: &str, dir: String) -> Option<(String, JsPackage)> {
+    let cleaned = strip_comments_curly(text, false);
+    let value: serde_json::Value = serde_json::from_str(&cleaned).ok()?;
+    let name = value.get("name")?.as_str()?.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let mut main = value
+        .get("main")
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
+        .replace('\\', "/");
+    if let Some(exports) = value.get("exports") {
+        let entry = exports.get(".").or(Some(exports)).and_then(|item| {
+            item.as_str()
+                .or_else(|| item.get("import").and_then(|v| v.as_str()))
+                .or_else(|| item.get("default").and_then(|v| v.as_str()))
+                .or_else(|| item.get("require").and_then(|v| v.as_str()))
+        });
+        if let Some(entry) = entry {
+            if main.is_empty() {
+                main = entry.trim_start_matches("./").replace('\\', "/");
+            }
+        }
+    }
+    Some((
+        name.to_string(),
+        JsPackage {
+            dir,
+            main: main.trim_start_matches("./").to_string(),
+            imports: parse_js_imports_field(&value),
+        },
+    ))
+}
+
+fn load_js_packages(root: &Path) -> Vec<(String, JsPackage)> {
+    let mut out = Vec::new();
+    visit_shallow_files(root, &["package.json"], |path, dir| {
+        if dir == "node_modules" || dir.starts_with("node_modules/") {
+            return;
+        }
+        if let Ok(text) = fs::read_to_string(&path) {
+            if let Some(entry) = parse_js_package(&text, dir) {
+                out.push(entry);
+            }
+        }
+    });
+    out.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    out
+}
+
+fn parse_js_imports_field(value: &serde_json::Value) -> Vec<(String, String)> {
+    let Some(map) = value.get("imports").and_then(|item| item.as_object()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (pattern, target) in map {
+        let prefix = pattern.trim_end_matches('*').to_string();
+        if prefix.is_empty() {
+            continue;
+        }
+        let mapped = match target {
+            serde_json::Value::String(s) => s
+                .trim_end_matches('*')
+                .trim_start_matches("./")
+                .replace('\\', "/"),
+            serde_json::Value::Object(obj) => obj
+                .get("import")
+                .or_else(|| obj.get("default"))
+                .or_else(|| obj.get("require"))
+                .and_then(|item| item.as_str())
+                .unwrap_or("")
+                .trim_end_matches('*')
+                .trim_start_matches("./")
+                .replace('\\', "/"),
+            _ => continue,
+        };
+        if !mapped.is_empty() {
+            out.push((prefix, mapped));
+        }
+    }
+    out.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    out
+}
+
+fn load_rust_crate_srcs(root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    visit_shallow_files(root, &["Cargo.toml"], |_, dir| {
+        out.push(if dir.is_empty() {
+            "src".to_string()
+        } else {
+            format!("{dir}/src")
+        });
+    });
+    if !out.iter().any(|src| src == "src") {
+        out.push("src".to_string());
+    }
+    out
+}
+
+fn rust_crate_src_for(rel: &str, crate_srcs: &[String]) -> String {
+    let dir = rel_dir(rel);
+    let mut best = "src".to_string();
+    let mut best_len = 0usize;
+    for src in crate_srcs {
+        let crate_root = dirname_str(src);
+        let matches = dir == src
+            || dir.starts_with(&format!("{src}/"))
+            || (!crate_root.is_empty()
+                && (dir == crate_root || dir.starts_with(&format!("{crate_root}/"))));
+        if matches && src.len() >= best_len {
+            best_len = src.len();
+            best = src.clone();
+        }
+    }
+    best
+}
+
+fn expand_rust_use_spec(spec: &str) -> Vec<String> {
+    let spec = spec.trim();
+    let spec = if !spec.contains('{') {
+        spec.split(" as ").next().unwrap_or(spec).trim()
+    } else {
+        spec
+    };
+    let Some(open) = spec.find('{') else {
+        return vec![spec.to_string()];
+    };
+    let prefix = spec[..open].trim();
+    let inner = spec[open + 1..].trim().trim_end_matches('}').trim();
+    if inner.contains('{') {
+        return vec![prefix.trim_end_matches(':').to_string()];
+    }
+    inner
+        .split(',')
+        .filter_map(|part| {
+            let mut name = part.trim();
+            if let Some(idx) = name.find(" as ") {
+                name = name[..idx].trim();
+            }
+            if name.is_empty() {
+                return None;
+            }
+            if name == "*" {
+                return Some(prefix.trim_end_matches(':').to_string());
+            }
+            Some(format!("{prefix}{name}"))
+        })
+        .collect()
+}
+
+fn rust_mod_candidates(base: &str, parts: &[&str]) -> Vec<String> {
+    if parts.is_empty() {
+        return vec![
+            path_join_norm(base, "lib.rs"),
+            path_join_norm(base, "mod.rs"),
+            format!("{base}.rs"),
+        ];
+    }
+    let sub = parts.join("/");
+    vec![
+        path_join_norm(base, &format!("{sub}.rs")),
+        path_join_norm(base, &format!("{sub}/mod.rs")),
+        path_join_norm(base, &format!("{sub}/lib.rs")),
+    ]
+}
+
+fn resolve_rust_use_path(
+    rel: &str,
+    spec: &str,
+    file_set: &HashSet<String>,
+    crate_src: &str,
+) -> Option<String> {
+    let segs: Vec<&str> = spec
+        .split("::")
+        .map(str::trim)
+        .filter(|seg| !seg.is_empty() && *seg != "*")
+        .collect();
+    if segs.is_empty() {
+        return None;
+    }
+    let (base, rest): (String, &[&str]) = if segs[0] == "crate" {
+        (crate_src.to_string(), &segs[1..])
+    } else if segs[0] == "super" || segs[0] == "self" {
+        let stem = file_stem_rel(rel).unwrap_or("");
+        let mut dir = if stem == "mod" || stem == "lib" || stem == "main" {
+            rel_dir(rel).to_string()
+        } else if rel_dir(rel).is_empty() {
+            stem.to_string()
+        } else {
+            format!("{}/{}", rel_dir(rel), stem)
+        };
+        let mut i = 0usize;
+        while i < segs.len() {
+            match segs[i] {
+                "self" => i += 1,
+                "super" => {
+                    dir = dirname_str(&dir);
+                    i += 1;
+                }
+                _ => break,
+            }
+        }
+        (dir, &segs[i..])
+    } else {
+        (crate_src.to_string(), segs.as_slice())
+    };
+    rust_mod_candidates(&base, rest)
+        .into_iter()
+        .find(|path| file_set.contains(path))
+        .or_else(|| {
+            if rest.is_empty() {
+                return None;
+            }
+            rust_mod_candidates(&base, &rest[..rest.len() - 1])
+                .into_iter()
+                .find(|path| file_set.contains(path))
+        })
+}
+
+fn resolve_ts_alias(
+    rel: &str,
+    spec: &str,
+    file_set: &HashSet<String>,
+    index: &GraphIndex,
+) -> Option<String> {
+    if spec.starts_with('.') {
+        return None;
+    }
+    let importer_dir = rel_dir(rel);
+    for scope in &index.ts_configs {
+        let in_scope = scope.dir.is_empty()
+            || importer_dir == scope.dir
+            || importer_dir.starts_with(&format!("{}/", scope.dir));
+        if !in_scope {
+            continue;
+        }
+        for (prefix, targets) in &scope.aliases {
+            let Some(rest) = spec.strip_prefix(prefix.as_str()) else {
+                continue;
+            };
+            for target in targets {
+                let mapped = format!("{target}{rest}");
+                let base = path_join_norm(&scope.dir, &path_join_norm(&scope.base_url, &mapped));
+                if let Some(hit) = resolve_js_base(&base, file_set) {
+                    return Some(hit);
+                }
+            }
+        }
+        if scope.aliases.is_empty() {
+            let base = path_join_norm(&scope.dir, &path_join_norm(&scope.base_url, spec));
+            if let Some(hit) = resolve_js_base(&base, file_set) {
+                return Some(hit);
+            }
+        }
+    }
+    None
+}
+
+fn resolve_js_hash_import(
+    rel: &str,
+    spec: &str,
+    file_set: &HashSet<String>,
+    index: &GraphIndex,
+) -> Option<String> {
+    if !spec.starts_with('#') {
+        return None;
+    }
+    let importer_dir = rel_dir(rel);
+    let mut pkgs: Vec<&JsPackage> = index
+        .js_packages
+        .iter()
+        .map(|(_, pkg)| pkg)
+        .filter(|pkg| {
+            pkg.dir.is_empty()
+                || importer_dir == pkg.dir
+                || importer_dir.starts_with(&format!("{}/", pkg.dir))
+        })
+        .collect();
+    pkgs.sort_by_key(|pkg| std::cmp::Reverse(pkg.dir.len()));
+    for pkg in pkgs {
+        for (prefix, target) in &pkg.imports {
+            let Some(rest) = spec.strip_prefix(prefix.as_str()) else {
+                continue;
+            };
+            let base = path_join_norm(&pkg.dir, &format!("{target}{rest}"));
+            if let Some(hit) = resolve_js_base(&base, file_set) {
+                return Some(hit);
+            }
+        }
+    }
+    None
+}
+
+fn resolve_js_package(
+    spec: &str,
+    file_set: &HashSet<String>,
+    index: &GraphIndex,
+) -> Option<String> {
+    if spec.starts_with('.') {
+        return None;
+    }
+    for (name, pkg) in &index.js_packages {
+        let rest = if spec == name {
+            ""
+        } else if let Some(tail) = spec.strip_prefix(&format!("{name}/")) {
+            tail
+        } else {
+            continue;
+        };
+        if rest.is_empty() {
+            if !pkg.main.is_empty() {
+                let main = path_join_norm(&pkg.dir, &pkg.main);
+                if let Some(hit) = resolve_js_base(&main, file_set) {
+                    return Some(hit);
+                }
+            }
+            for index_base in ["index", "src/index", "lib/index"] {
+                let base = path_join_norm(&pkg.dir, index_base);
+                if let Some(hit) = resolve_js_base(&base, file_set) {
+                    return Some(hit);
+                }
+            }
+        } else {
+            let base = path_join_norm(&pkg.dir, rest);
+            if let Some(hit) = resolve_js_base(&base, file_set) {
+                return Some(hit);
+            }
+        }
+    }
+    None
+}
+
+fn elixir_module_from_rel(rel: &str) -> Option<String> {
+    let lower = rel.to_ascii_lowercase();
+    let tail = if let Some(idx) = lower.find("/lib/") {
+        &rel[idx + 5..]
+    } else if lower.starts_with("lib/") {
+        &rel[4..]
+    } else {
+        return None;
+    };
+    let without_ext = tail
+        .strip_suffix(".ex")
+        .or_else(|| tail.strip_suffix(".exs"))?;
+    let module = without_ext
+        .split('/')
+        .filter(|seg| !seg.is_empty())
+        .map(|seg| {
+            seg.split('_')
+                .map(|part| {
+                    let mut chars = part.chars();
+                    match chars.next() {
+                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                        None => String::new(),
+                    }
+                })
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join(".");
+    (!module.is_empty()).then_some(module)
+}
+
+fn resolve_php_use(spec: &str, file_set: &HashSet<String>, index: &GraphIndex) -> Vec<String> {
+    let mut cleaned = spec
+        .trim()
+        .trim_start_matches(['\\', '/'])
+        .replace('/', "\\");
+    for prefix in ["function ", "const "] {
+        if let Some(rest) = cleaned.strip_prefix(prefix) {
+            cleaned = rest.trim().to_string();
+        }
+    }
+    if let Some(idx) = cleaned.find(" as ") {
+        cleaned = cleaned[..idx].trim().to_string();
+    }
+    if cleaned.contains('{') {
+        return Vec::new();
+    }
+    let mut best: Option<(usize, String)> = None;
+    for (ns, dir) in &index.php_psr4 {
+        if cleaned.starts_with(ns.as_str())
+            && ns.len() >= best.as_ref().map(|(len, _)| *len).unwrap_or(0)
+        {
+            let tail = cleaned[ns.len()..].replace('\\', "/");
+            best = Some((ns.len(), format!("{dir}{tail}.php")));
+        }
+    }
+    if let Some((_, cand)) = best {
+        let cand = cand.replace('\\', "/");
+        if file_set.contains(&cand) {
+            return vec![cand];
+        }
+    }
+    let path = cleaned.replace('\\', "/");
+    for cand in [
+        format!("{path}.php"),
+        format!("src/{path}.php"),
+        format!("app/{path}.php"),
+    ] {
+        if file_set.contains(&cand) {
+            return vec![cand];
+        }
+    }
+    Vec::new()
+}
+
+fn resolve_dart_package(
+    spec: &str,
+    file_set: &HashSet<String>,
+    index: &GraphIndex,
+) -> Option<String> {
+    let rest = spec.strip_prefix("package:")?;
+    let (pkg, path) = rest.split_once('/')?;
+    let lib = index.dart_packages.get(pkg)?;
+    let cand = path_join_norm(lib, path);
+    file_set.contains(&cand).then_some(cand)
+}
+
+fn resolve_elixir(spec: &str, index: &GraphIndex) -> Vec<String> {
+    let mut name = spec.trim().to_string();
+    while name.contains('.') {
+        if let Some(hits) = index.elixir_modules.get(&name) {
+            return hits.clone();
+        }
+        match name.rfind('.') {
+            Some(idx) => name = name[..idx].to_string(),
+            None => break,
+        }
+    }
+    index.elixir_modules.get(&name).cloned().unwrap_or_default()
+}
+
+fn resolve_swift(spec: &str, index: &GraphIndex) -> Vec<String> {
+    let head = spec.split('.').next().unwrap_or(spec).trim();
+    if head.is_empty() {
+        return Vec::new();
+    }
+    index.swift_modules.get(head).cloned().unwrap_or_default()
+}
+
+fn resolve_scala(spec: &str, index: &GraphIndex) -> Vec<String> {
+    let mut name = spec.trim().trim_end_matches('.').to_string();
+    while !name.is_empty() {
+        if let Some(hits) = index.scala_types.get(&name) {
+            return hits.clone();
+        }
+        match name.rfind('.') {
+            Some(idx) => name = name[..idx].to_string(),
+            None => break,
+        }
+    }
+    Vec::new()
+}
+
+fn resolve_objc_header(
+    rel: &str,
+    spec: &str,
+    file_set: &HashSet<String>,
+    index: &GraphIndex,
+) -> Vec<String> {
+    let norm = normalize_import_spec(spec);
+    if norm.is_empty() || (!norm.contains('.') && !norm.contains('/')) {
+        return Vec::new();
+    }
+    let rel_c = path_join_norm(rel_dir(rel), &norm);
+    if file_set.contains(&rel_c) {
+        return vec![rel_c];
+    }
+    if let Some(hits) = index.objc_headers.get(&norm) {
+        return hits.clone();
+    }
+    if let Some(base) = norm.rsplit('/').next() {
+        if let Some(hits) = index.objc_headers.get(base) {
+            return hits.clone();
+        }
+    }
+    Vec::new()
+}
+
 // JS `_resolveGraphImport` dispatch (the direct, fileSet-backed leg).
 fn resolve_graph_import(
     rel: &str,
@@ -1728,16 +2670,9 @@ fn resolve_graph_import(
         "lua" => resolve_lua_require(spec, file_set),
         "dart" => resolve_dart_import(rel, spec, file_set),
         "r" => resolve_r_source(rel, spec, file_set),
-        // Obj-C `#import`/`@import`, Elixir `import/alias/...`, and Zig
-        // `@import` of the std/package graph name modules/frameworks/SDK
-        // headers, not repo-relative file paths (Obj-C header includes that DO
-        // map to a path are out of scope here), so there is no fileSet target.
-        // Documented unsupported — never a silent fallthrough.
-        "objc" | "elixir" | "zig" => None,
-        // Swift/scala module-system resolution (SwiftPM/Gradle module graphs,
-        // package-name → file mapping) is out of scope; their imports name
-        // modules, not file paths, so there is no fileSet target to resolve.
-        "swift" | "scala" => None,
+        "php" => resolve_php_require(rel, spec, file_set),
+        "zig" => resolve_zig(rel, spec, file_set),
+        "rust" => resolve_rust_mod(rel, spec, file_set),
         _ => None,
     }
 }
@@ -1832,13 +2767,34 @@ fn go_import_path(
     joined.trim_end_matches('/').to_string()
 }
 
+struct TsConfigScope {
+    dir: String,
+    base_url: String,
+    aliases: Vec<(String, Vec<String>)>,
+}
+
+struct JsPackage {
+    dir: String,
+    main: String,
+    imports: Vec<(String, String)>,
+}
+
 // In-memory analogue of JS `_buildGraphIndex` for the indexed resolvers
-// (go/java/kotlin/csharp). Values are repo-relative rels.
+// (go/java/kotlin/csharp plus convention indexes). Values are repo-relative rels.
 struct GraphIndex {
     package_members: HashMap<String, Vec<String>>,
     type_by_fqcn: HashMap<String, Vec<String>>,
     csharp_namespaces: HashMap<String, Vec<String>>,
     go_import_paths: HashMap<String, Vec<String>>,
+    dart_packages: HashMap<String, String>,
+    php_psr4: Vec<(String, String)>,
+    elixir_modules: HashMap<String, Vec<String>>,
+    swift_modules: HashMap<String, Vec<String>>,
+    scala_types: HashMap<String, Vec<String>>,
+    objc_headers: HashMap<String, Vec<String>>,
+    ts_configs: Vec<TsConfigScope>,
+    js_packages: Vec<(String, JsPackage)>,
+    rust_crate_srcs: Vec<String>,
 }
 
 fn push_index_set(map: &mut HashMap<String, Vec<String>>, key: &str, value: &str) {
@@ -1857,6 +2813,15 @@ fn build_graph_index(records: &[FileRecord], root: &Path) -> GraphIndex {
         type_by_fqcn: HashMap::new(),
         csharp_namespaces: HashMap::new(),
         go_import_paths: HashMap::new(),
+        dart_packages: load_dart_packages(root),
+        php_psr4: load_php_psr4(root),
+        elixir_modules: HashMap::new(),
+        swift_modules: HashMap::new(),
+        scala_types: HashMap::new(),
+        objc_headers: HashMap::new(),
+        ts_configs: load_ts_configs(root),
+        js_packages: load_js_packages(root),
+        rust_crate_srcs: load_rust_crate_srcs(root),
     };
     let mut go_mod_cache: HashMap<String, Option<(String, String)>> = HashMap::new();
     for rec in records {
@@ -1874,14 +2839,54 @@ fn build_graph_index(records: &[FileRecord], root: &Path) -> GraphIndex {
                     push_index_set(&mut index.type_by_fqcn, &fqcn, &rec.rel);
                 }
             }
-            "csharp"
-                if !rec.namespace_name.is_empty() => {
-                    push_index_set(&mut index.csharp_namespaces, &rec.namespace_name, &rec.rel);
-                }
+            "csharp" if !rec.namespace_name.is_empty() => {
+                push_index_set(&mut index.csharp_namespaces, &rec.namespace_name, &rec.rel);
+            }
             "go" => {
                 let gip = go_import_path(&rec.rel, root, &mut go_mod_cache);
                 if !gip.is_empty() {
                     push_index_set(&mut index.go_import_paths, &gip, &rec.rel);
+                }
+            }
+            "elixir" => {
+                if let Some(module) = elixir_module_from_rel(&rec.rel) {
+                    push_index_set(&mut index.elixir_modules, &module, &rec.rel);
+                }
+            }
+            "swift" => {
+                if let Some(stem) = file_stem_rel(&rec.rel) {
+                    push_index_set(&mut index.swift_modules, stem, &rec.rel);
+                }
+                let parts: Vec<&str> = rec.rel.split('/').collect();
+                if let Some(i) = parts.iter().position(|part| *part == "Sources") {
+                    if let Some(module) = parts.get(i + 1) {
+                        push_index_set(&mut index.swift_modules, module, &rec.rel);
+                    }
+                }
+            }
+            "scala" => {
+                if let Some(without) = rec
+                    .rel
+                    .strip_suffix(".scala")
+                    .or_else(|| rec.rel.strip_suffix(".sc"))
+                {
+                    push_index_set(&mut index.scala_types, &without.replace('/', "."), &rec.rel);
+                }
+            }
+            "objc" | "c" => {
+                if let Some(name) = rec.rel.rsplit('/').next() {
+                    if name.ends_with(".h") || name.ends_with(".m") || name.ends_with(".mm") {
+                        push_index_set(&mut index.objc_headers, name, &rec.rel);
+                        if let Some((parent, _)) = rec.rel.rsplit_once('/') {
+                            if let Some(dir) = parent.rsplit('/').next() {
+                                push_index_set(
+                                    &mut index.objc_headers,
+                                    &format!("{dir}/{name}"),
+                                    &rec.rel,
+                                );
+                            }
+                        }
+                    }
                 }
             }
             _ => {}
@@ -1919,11 +2924,23 @@ fn resolve_indexed_graph_import(
     }
 
     match rec.lang {
-        "go" => index
-            .go_import_paths
-            .get(&normalized)
-            .cloned()
-            .unwrap_or_default(),
+        "javascript" | "typescript" => resolve_ts_alias(&rec.rel, &normalized, file_set, index)
+            .or_else(|| resolve_js_hash_import(&rec.rel, &normalized, file_set, index))
+            .or_else(|| resolve_js_package(&normalized, file_set, index))
+            .into_iter()
+            .collect(),
+        "go" => {
+            let relative = resolve_go_relative(&rec.rel, &normalized, file_set);
+            if !relative.is_empty() {
+                relative
+            } else {
+                index
+                    .go_import_paths
+                    .get(&normalized)
+                    .cloned()
+                    .unwrap_or_default()
+            }
+        }
         "java" | "kotlin" => {
             let mut cleaned = normalize_java_like_import(&normalized, index);
             if cleaned.ends_with(".*") {
@@ -1942,31 +2959,21 @@ fn resolve_indexed_graph_import(
             Vec::new()
         }
         "rust" => {
-            let mut mod_path = normalized.clone();
-            if let Some(stripped) = mod_path.strip_prefix("crate::") {
-                mod_path = stripped.to_string();
+            if normalized.starts_with("mod::") {
+                return resolve_rust_mod(&rec.rel, &normalized, file_set)
+                    .into_iter()
+                    .collect();
             }
-            if let Some(stripped) = mod_path.strip_prefix("::") {
-                mod_path = stripped.to_string();
-            }
-            let parts: Vec<&str> = mod_path
-                .split("::")
-                .filter(|p| !p.is_empty() && *p != "*" && *p != "self" && *p != "super")
-                .collect();
-            if parts.is_empty() {
-                return Vec::new();
-            }
-            for i in (1..=parts.len()).rev() {
-                let sub = parts[..i].join("/");
-                let candidates = [
-                    path_join_norm("", &format!("{}.rs", sub)),
-                    path_join_norm(&sub, "mod.rs"),
-                ];
-                if let Some(hit) = candidates.into_iter().find(|p| file_set.contains(p)) {
-                    return vec![hit];
+            let crate_src = rust_crate_src_for(&rec.rel, &index.rust_crate_srcs);
+            let mut out = Vec::new();
+            for one in expand_rust_use_spec(&normalized) {
+                if let Some(hit) = resolve_rust_use_path(&rec.rel, &one, file_set, &crate_src) {
+                    if !out.contains(&hit) {
+                        out.push(hit);
+                    }
                 }
             }
-            Vec::new()
+            out
         }
         "csharp" => {
             let mut cleaned = strip_static_prefix(&normalized).trim().to_string();
@@ -2003,18 +3010,15 @@ fn resolve_indexed_graph_import(
         // bash/lua resolve entirely via the direct fileSet leg above
         // (resolve_graph_import); they have no index-backed fallback.
         "bash" | "lua" => Vec::new(),
-        // Dart/R resolve entirely via the direct fileSet leg above
-        // (resolve_graph_import: dart relative import, r source path); they
-        // have no index-backed fallback.
-        "dart" | "r" => Vec::new(),
-        // Obj-C / Elixir / Zig name frameworks/modules/std packages, not
-        // repo-relative file targets — out of scope. Documented unsupported
-        // rather than a silent fallthrough.
-        "objc" | "elixir" | "zig" => Vec::new(),
-        // Swift/scala module-system resolution (SwiftPM/Gradle package graphs)
-        // is out of scope — no fileSet/index target — so report unresolved
-        // rather than silently falling through.
-        "swift" | "scala" => Vec::new(),
+        "r" => Vec::new(),
+        "dart" => resolve_dart_package(&normalized, file_set, index)
+            .into_iter()
+            .collect(),
+        "php" => resolve_php_use(&normalized, file_set, index),
+        "elixir" => resolve_elixir(&normalized, index),
+        "objc" => resolve_objc_header(&rec.rel, &normalized, file_set, index),
+        "swift" => resolve_swift(&normalized, index),
+        "scala" => resolve_scala(&normalized, index),
         _ => Vec::new(),
     }
 }
@@ -2030,7 +3034,7 @@ fn resolve_and_link(records: &mut [FileRecord], root: &Path, file_set: &HashSet<
             let mut seen = HashSet::new();
             for spec in &rec.raw_imports {
                 for dep in resolve_indexed_graph_import(rec, spec, file_set, &index) {
-                    if seen.insert(dep.clone()) {
+                    if dep != rec.rel && seen.insert(dep.clone()) {
                         out.push(dep);
                     }
                 }
@@ -2151,10 +3155,7 @@ fn run_manifest(root: &Path) {
     // huge repos stay cheap, and the Node side hashes the full set for the
     // change-detect signature.
     let files = collect_source_files(root);
-    let records: Vec<FileRecord> = files
-        .par_iter()
-        .map(parse_meta_from)
-        .collect();
+    let records: Vec<FileRecord> = files.par_iter().map(parse_meta_from).collect();
     emit_records(&records);
 }
 

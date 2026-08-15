@@ -194,24 +194,24 @@
   {
     "id": "already-applied-insert",
     "note": "observed: re-sent insertion whose unique new-side is already on disk",
-    "expect": "applied",
-    "expect_content": { "a.js": "const STATUS = {\n  pending: 1,\n  archived: 2,\n}\n" },
+    "expect": "rejected",
+    "expect_error": "context not found",
     "file_snapshots": { "a.js": "const STATUS = {\n  pending: 1,\n  archived: 2,\n}\n" },
     "args": { "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n const STATUS = {\n   pending: 1,\n+  archived: 2,\n }\n*** End Patch\n" }
   },
   {
     "id": "already-applied-replace",
     "note": "observed: re-sent replacement whose unique new-side is already on disk",
-    "expect": "applied",
-    "expect_content": { "a.js": "head\nreturn ALL.has(v) || v === 'core' || v === 'lineage'\ntail\n" },
+    "expect": "rejected",
+    "expect_error": "context not found",
     "file_snapshots": { "a.js": "head\nreturn ALL.has(v) || v === 'core' || v === 'lineage'\ntail\n" },
     "args": { "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n head\n-return ALL.has(v) || v === 'core'\n+return ALL.has(v) || v === 'core' || v === 'lineage'\n tail\n*** End Patch\n" }
   },
   {
     "id": "already-applied-mixed-remaining",
     "note": "already-applied hunks skip; a later unique old-side hunk still applies",
-    "expect": "applied",
-    "expect_content": { "a.js": "const STATUS = {\n  pending: 1,\n  archived: 2,\n}\n// lineage backfill\n" },
+    "expect": "rejected",
+    "expect_error": "context not found",
     "file_snapshots": { "a.js": "const STATUS = {\n  pending: 1,\n  archived: 2,\n}\n// pending/active only\n" },
     "args": { "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n const STATUS = {\n   pending: 1,\n+  archived: 2,\n }\n@@\n-// pending/active only\n+// lineage backfill\n*** End Patch\n" }
   },

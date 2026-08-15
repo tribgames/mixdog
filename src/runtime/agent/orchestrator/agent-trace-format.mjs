@@ -140,7 +140,7 @@ const TOOL_ARG_KEYS = {
     code_graph: ['mode', 'file', 'files', 'symbol', 'symbols', 'body', 'language', 'limit', 'depth', 'page', 'cwd'],
     shell: ['command', 'timeout_ms'],
     task: ['action', 'task_id'],
-    edit: ['path', 'replace_all', 'edits'],
+    edit: ['file_path', 'replace_all'],
     edit_many: ['edits'],
     write: ['path'],
     apply_patch: ['base_path', 'dry_run'],

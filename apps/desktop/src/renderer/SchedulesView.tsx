@@ -16,7 +16,7 @@ import {
   attachmentsFromRecords,
   type AutomationAttachment,
 } from './automation-attachments';
-import { modelDisplayName, normalizeModelOptions } from './provider-display';
+import { modelDisplayName, modelFastAvailable, normalizeModelOptions, preferredModelParameters } from './provider-display';
 import { SidebarPanelAction } from './session-sidebar';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { acquireTitleBarDim } from './titlebar-dim';
@@ -185,8 +185,11 @@ function scheduleDraft(schedule: RecordValue | undefined, defaultChannel: string
 
 // schedule.model wire format: "provider/model[@effort][+fast]" — the same
 // string the scheduler parses back into a dispatch route.
-function parseModelRef(ref: string): { route: string; effort: string; fast: boolean } {
-  let route = String(ref || '');
+function parseModelRef(ref: string): { route: string; effort: string; fast: boolean; modelParameters: Record<string, string> } {
+  const raw = String(ref || '');
+  const queryAt = raw.indexOf('?');
+  let route = queryAt >= 0 ? raw.slice(0, queryAt) : raw;
+  const modelParameters = queryAt >= 0 ? Object.fromEntries(new URLSearchParams(raw.slice(queryAt + 1))) : {};
   let fast = false;
   if (route.endsWith('+fast')) {
     fast = true;
@@ -201,13 +204,16 @@ function parseModelRef(ref: string): { route: string; effort: string; fast: bool
       route = route.slice(0, at);
     }
   }
-  return { route, effort, fast };
+  return { route, effort, fast, modelParameters };
 }
 
 function preferredEffort(option?: DesktopModelOption): string {
   if (!option?.effortOptions.length) return '';
   if (option.savedEffort && option.effortOptions.some((entry) => entry.value === option.savedEffort)) {
     return option.savedEffort;
+  }
+  if (option.defaultEffort && option.effortOptions.some((entry) => entry.value === option.defaultEffort)) {
+    return option.defaultEffort;
   }
   for (const value of ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra']) {
     if (option.effortOptions.some((entry) => entry.value === value)) return value;
@@ -232,6 +238,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
   const [model, setModel] = useState(initialModel.route);
   const [effort, setEffort] = useState(initialModel.effort);
   const [fast, setFast] = useState(initialModel.fast);
+  const [modelParameters, setModelParameters] = useState(initialModel.modelParameters);
   const [cwd, setCwd] = useState(draft.cwd);
   const [workflow, setWorkflow] = useState(draft.workflow);
   const [delivery, setDelivery] = useState(draft.delivery);
@@ -245,6 +252,8 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
   const effortValue = selected?.effortOptions.some((entry) => entry.value === effort)
     ? effort
     : preferredEffort(selected);
+  const selectedModelParameters = preferredModelParameters(selected, modelParameters);
+  const fastAvailable = modelFastAvailable(selected, effortValue, selectedModelParameters);
   const projectOptions = [
     { value: '__none__', label: 'No project' },
     ...projects.map((project) => ({
@@ -295,7 +304,10 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
         };
         setFormError('');
         const effortSuffix = selected && effortValue ? `@${effortValue}` : '';
-        const fastSuffix = selected?.fastCapable && fast ? '+fast' : '';
+        const fastSuffix = fastAvailable && fast ? '+fast' : '';
+        const parameterSuffix = Object.keys(selectedModelParameters).length
+          ? `?${new URLSearchParams(selectedModelParameters).toString()}`
+          : '';
         onSave({
           name: editing ? draft.name : text('schedule-name'),
           description: draft.description,
@@ -303,7 +315,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
             ? { at: text('schedule-at') }
             : { time: buildCron() }),
           delivery,
-          model: `${model}${effortSuffix}${fastSuffix}`,
+          model: `${model}${effortSuffix}${fastSuffix}${parameterSuffix}`,
           ...(cwd ? { cwd } : {}),
           ...(workflow ? { workflow } : {}),
           ...(attachments.length ? { attachments } : {}),
@@ -330,17 +342,30 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
               triggerLabel={modelLabel} ariaLabel={t("Schedule model")}
               triggerClassName="model-trigger schedules-model-trigger" disabled={busy}
               onSelect={(option) => {
+                const nextEffort = preferredEffort(option);
                 setModel(`${option.provider}/${option.model}`);
-                setEffort(preferredEffort(option));
-                setFast(option.fastCapable ? option.fastPreferred : false);
+                setEffort(nextEffort);
+                setFast(modelFastAvailable(option, nextEffort) ? option.fastPreferred : false);
+                setModelParameters(preferredModelParameters(option));
                 setFormError('');
               }} />
             {selected && selected.effortOptions.length > 0 && <OpenSelect variant="route"
               ariaLabel={t("Schedule reasoning effort")}
               value={effortValue} disabled={busy} localizeLabels={false}
-              options={selected.effortOptions} onChange={setEffort} />}
+              options={selected.effortOptions} onChange={(value) => {
+                setEffort(value);
+                if (!modelFastAvailable(selected, value, selectedModelParameters)) setFast(false);
+              }} />}
             {selected?.fastCapable && <FastModeToggle ariaLabel={t("Schedule fast mode")}
-              enabled={fast} disabled={busy} onChange={setFast} />}
+              enabled={fastAvailable && fast} disabled={busy || !fastAvailable} onChange={setFast} />}
+            {selected?.modelParameterOptions?.map((parameter) => <OpenSelect key={parameter.id}
+              ariaLabel={t(`Schedule ${parameter.label}`)}
+              value={selectedModelParameters[parameter.id] || parameter.options[0]?.value || ''} disabled={busy}
+              options={parameter.options} onChange={(value) => {
+                const next = { ...selectedModelParameters, [parameter.id]: value };
+                setModelParameters(next);
+                if (!modelFastAvailable(selected, effortValue, next)) setFast(false);
+              }} />)}
             {/* Same flat, right-aligned workflow control as the chat
                 composer (effort-control/workflow-control skin). */}
             <div className="effort-control workflow-control">

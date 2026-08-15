@@ -6,12 +6,11 @@ import {
   reportBootSurfaceStage,
 } from "./boot-metrics";
 import { type RecordValue } from "./desktop-types";
-import { FastModeToggle } from "./FastModeToggle";
 import { t } from "./i18n";
 import { readCachedModelCatalog, writeCachedModelCatalog } from "./model-catalog-cache";
-import { ModelPicker } from "./ModelPicker";
+import { RouteEditor } from "./RouteEditor";
 import { OpenSelect } from "./OpenSelect";
-import { modelDisplayName } from "./provider-display";
+import { modelDisplayName, modelFastAvailable, preferredModelParameters } from "./provider-display";
 import { shouldShowFastControl } from "./renderer-logic.mjs";
 import { type SettingsSection } from "./slash-commands";
 import { asRecord } from "./text-format";
@@ -183,7 +182,7 @@ export const WorkflowSelect = memo(function WorkflowSelect({
 });
 
 export const ModelSelector = memo(function ModelSelector({
-  provider, model, effort, fast, fastCapable, modelDisabled, tuningDisabled,
+  provider, model, effort, fast, fastCapable, modelParameters, modelDisabled, tuningDisabled,
   invokeResult, applySnapshot, onOpenSettings, onDraftSelection,
   onFastPreferenceApplied, sessionId,
 }: {
@@ -192,6 +191,7 @@ export const ModelSelector = memo(function ModelSelector({
   effort: string;
   fast: boolean;
   fastCapable: boolean;
+  modelParameters?: Record<string, string>;
   modelDisabled: boolean;
   tuningDisabled: boolean;
   /** The pane's session. Route changes address it directly, so a background
@@ -218,11 +218,6 @@ export const ModelSelector = memo(function ModelSelector({
   const catalogInFlight = useRef<Promise<void> | null>(null);
   const routingGuard = useRef(false);
   const restoreAfterRoute = useRef<HTMLElement | null>(null);
-  const restoreFastAfterDisabled = useRef(false);
-  const fastWasDisabled = useRef(false);
-  const fastFocusMovedWhileDisabled = useRef(false);
-  const effortControl = useRef<HTMLDivElement>(null);
-  const fastControl = useRef<HTMLDivElement>(null);
   const modelBootKey = `${provider || "none"}:${model || "none"}`;
   beginBootSurface("model-controls", modelBootKey);
   const modelUnavailable = modelDisabled || routing;
@@ -249,12 +244,14 @@ export const ModelSelector = memo(function ModelSelector({
   // 모델이 그대로 표기되게). The RAW catalog answers those cases.
   const known = selected || models.find((option) =>
     option.provider === provider && option.model === model);
-  const fastAvailable = shouldShowFastControl(fastCapable, known?.fastCapable);
+  const selectedModelParameters = preferredModelParameters(known, modelParameters || {});
+  const fastControlVisible = shouldShowFastControl(fastCapable, known?.fastCapable);
+  const fastAvailable = fastControlVisible
+    && modelFastAvailable(known, effort, selectedModelParameters);
   const selectableModels = useMemo(() => {
     if (providerSetup == null || providerSetupError) return catalogModels;
     return catalogModels.filter((option) => providerSetupState(providerSetup, option.provider).configured);
   }, [catalogModels, providerSetup, providerSetupError]);
-  const selectedEffort = known?.effortOptions.find((option) => option.value === effort);
   // A route the loaded catalog does not know at all stays "Select model": an
   // unknown/retired persisted id must never read as a selectable model.
   const triggerModel = known
@@ -344,32 +341,6 @@ export const ModelSelector = memo(function ModelSelector({
     target.focus({ preventScroll: true });
   }, [routing]);
 
-  useEffect(() => {
-    if (tuningDisabled) {
-      fastWasDisabled.current = true;
-      fastFocusMovedWhileDisabled.current = false;
-      const trackFocus = (event: FocusEvent) => {
-        // Disabling the focused button can move focus to the document body
-        // without user intent. Preserve the restore request for that browser
-        // fallback, but respect any explicit move to another control.
-        if (event.target !== document.body
-          && event.target !== document.documentElement
-          && event.target !== fastControl.current?.querySelector('button')) {
-          fastFocusMovedWhileDisabled.current = true;
-        }
-      };
-      document.addEventListener('focusin', trackFocus, true);
-      return () => document.removeEventListener('focusin', trackFocus, true);
-    }
-    if (!fastWasDisabled.current) return;
-    fastWasDisabled.current = false;
-    if (!restoreFastAfterDisabled.current) return;
-    if (!fastFocusMovedWhileDisabled.current) {
-      fastControl.current?.querySelector('button')?.focus({ preventScroll: true });
-    }
-    restoreFastAfterDisabled.current = false;
-  }, [tuningDisabled]);
-
   const route = async (selection: DesktopModelSelection, restoreTarget: HTMLElement | null = null) => {
     if (modelUnavailable || routingGuard.current) return false;
     if (onDraftSelection) {
@@ -403,18 +374,23 @@ export const ModelSelector = memo(function ModelSelector({
       : option.savedEffort && values.includes(option.savedEffort)
         ? option.savedEffort
         : ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra'].find((value) => values.includes(value)) || values[0];
-    const nextFast = option.fastCapable
+    const requestedFast = option.fastCapable
       ? sameModel
         ? displayedFast
         : typeof option.savedFast === 'boolean'
           ? option.savedFast
           : option.fastPreferred
       : undefined;
+    const nextModelParameters = preferredModelParameters(option, sameModel ? selectedModelParameters : {});
+    const nextFast = requestedFast === undefined
+      ? undefined
+      : modelFastAvailable(option, nextEffort, nextModelParameters) && requestedFast;
     return route({
       provider: option.provider,
       model: option.model,
       ...(nextEffort ? { effort: nextEffort } : {}),
       ...(nextFast === undefined ? {} : { fast: nextFast }),
+      ...(option.modelParameterOptions?.length ? { modelParameters: nextModelParameters } : {}),
     });
   };
   const changeFast = async (enabled: boolean) => {
@@ -450,17 +426,30 @@ export const ModelSelector = memo(function ModelSelector({
   };
   const changeEffort = async (effort: string) => {
     if (tuningUnavailable || routingGuard.current) return;
+    const nextFast = fastCapable
+      ? modelFastAvailable(known, effort, selectedModelParameters) && displayedFast
+      : undefined;
     if (onDraftSelection && provider && model) {
       onDraftSelection({
         provider,
         model,
         effort,
-        ...(fastCapable ? { fast: displayedFast } : {}),
+        ...(nextFast === undefined ? {} : { fast: nextFast }),
+        ...(Object.keys(selectedModelParameters).length ? { modelParameters: selectedModelParameters } : {}),
+      });
+      return;
+    }
+    if (nextFast === false && displayedFast) {
+      await route({
+        provider,
+        model,
+        effort,
+        fast: false,
+        ...(Object.keys(selectedModelParameters).length ? { modelParameters: selectedModelParameters } : {}),
       });
       return;
     }
     routingGuard.current = true;
-    restoreAfterRoute.current = effortControl.current?.querySelector('button') || null;
     setRouting(true);
     try {
       const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<string>({
@@ -476,31 +465,17 @@ export const ModelSelector = memo(function ModelSelector({
   };
 
   return <div className="route-controls">
-    <ModelPicker models={selectableModels} provider={provider} model={model}
-      triggerLabel={triggerModel} disabled={modelUnavailable}
+    <RouteEditor models={selectableModels} provider={provider} model={model}
+      triggerModel={triggerModel} effort={effort}
+      effortOptions={known?.effortOptions || []}
+      fast={displayedFast} fastVisible={fastControlVisible} fastAvailable={fastAvailable}
       catalogLoaded={catalogLoaded} catalogRefreshing={catalogRefreshing}
       catalogError={catalogError} providerSetupError={providerSetupError}
+      modelDisabled={modelUnavailable} tuningDisabled={tuningUnavailable}
       tooltip={catalogLoaded && selectableModels.length === 0 ? t("Add a provider to load models") : t("Choose model")}
-      onSelect={chooseModel}
+      onSelectModel={chooseModel}
+      onChangeEffort={(value) => void changeEffort(value)}
+      onChangeFast={(enabled) => void changeFast(enabled)}
       onOpenProviders={() => onOpenSettings("providers")} />
-    {known && known.effortOptions.length > 0 && (
-      <div ref={effortControl} className="effort-control">
-        <OpenSelect variant="route" ariaLabel={t("Reasoning effort")}
-          disabled={tuningUnavailable} value={selectedEffort?.value || ""}
-          localizeLabels={false}
-          onChange={(value) => void changeEffort(value)} options={[
-            ...(!selectedEffort ? [{ value: '', label: 'Effort', disabled: true }] : []),
-            ...known.effortOptions,
-          ]} />
-      </div>
-    )}
-    {fastAvailable && (
-      <div ref={fastControl} className="fast-control"
-        aria-busy={optimisticFast !== null || undefined}
-        onFocusCapture={() => { restoreFastAfterDisabled.current = true; }}>
-        <FastModeToggle enabled={displayedFast} disabled={tuningUnavailable}
-          onChange={(enabled) => void changeFast(enabled)} />
-      </div>
-    )}
   </div>;
 });

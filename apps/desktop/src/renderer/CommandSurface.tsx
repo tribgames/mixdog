@@ -8,6 +8,7 @@ import { acquireModalLayer } from './modal-layer';
 import { showDesktopToast } from './notifications';
 import { ContextBody } from './ContextBody';
 import { PaneSurfaceGate } from './PaneSurfaceGate';
+import { displayUsagePercent } from './usage-percent';
 import './settings/settings.css';
 
 export { ContextBody } from './ContextBody';
@@ -300,7 +301,8 @@ function usageTone(window: Row): string {
 // billing-style windows that report no percentage.
 function usageWindowValue(window: Row): string {
   const percent = usageNumber(window.usedPct);
-  if (percent !== null) return `${Math.round(percent)}%`;
+  const displayedPercent = displayUsagePercent(percent);
+  if (displayedPercent !== null) return `${displayedPercent}%`;
   const remainingUsd = usageNumber(window.remainingUsd);
   if (remainingUsd !== null) return usageMoney(remainingUsd);
   const usedUsd = usageNumber(window.usedUsd);

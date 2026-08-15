@@ -17,11 +17,13 @@ import { atomicWrite } from './atomic-write.mjs';
 import { assertPathsReachable } from './fs-reachability.mjs';
 import { normalizeInputPath, resolveAgainstCwd, normalizeOutputPath } from './path-utils.mjs';
 import { isUncPath, isWindowsDevicePath, hasUnsafeWin32Component, isBlockedDevicePath, isSpecialFileStat } from './device-paths.mjs';
+import { getReadSnapshot, isSnapshotStale, recordReadSnapshot } from './read-snapshot-runtime.mjs';
 import { executeBashTool } from './bash-tool.mjs';
+import { runServerEdit } from '../patch/native-server.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { markCodeGraphDirtyPaths } from '../code-graph-state.mjs';
 
-const STR_REPLACE_NAMES = new Set(['strreplace', 'str_replace', 'str_replace_editor', 'search_replace']);
+const STR_REPLACE_NAMES = new Set(['edit', 'strreplace', 'str_replace', 'str_replace_editor', 'search_replace']);
 const WRITE_NAMES = new Set(['write', 'create_file', 'createfile']);
 // 'bash'/'Bash' explicitly request the posix/git-bash shell kind; the
 // run/runcommand/terminal/run_terminal_cmd family leaves `shell` unset so
@@ -127,6 +129,21 @@ function invalidateAfterWrite(fullPath) {
     try { markCodeGraphDirtyPaths([fullPath]); } catch { /* best-effort */ }
 }
 
+function editScope(options) {
+    return options?.readStateScope || options?.sessionId || null;
+}
+
+function recordEditSnapshot(fullPath, options, contentHash = null) {
+    try {
+        recordReadSnapshot(fullPath, statSync(fullPath), editScope(options), {
+            source: 'edit',
+            isPartialView: false,
+            replaceExisting: true,
+            ...(contentHash ? { contentHash } : {}),
+        });
+    } catch { /* best-effort */ }
+}
+
 function countOccurrences(haystack, needle) {
     let count = 0;
     let idx = -1;
@@ -138,13 +155,31 @@ async function adaptStrReplace(args, workDir, options) {
     const oldStr = args?.old_string;
     const newStr = args?.new_string;
     if (typeof oldStr !== 'string' || typeof newStr !== 'string') return null;
-    // Empty old_string would loop forever in countOccurrences (indexOf('', i)
-    // never returns -1) and has no meaningful replace semantics anyway.
-    if (oldStr.length === 0) return 'Error: old_string must be a non-empty string';
+    if (oldStr === newStr) return 'Error: old_string and new_string are exactly the same';
+    const replaceAll = args?.replace_all === true
+        || String(args?.replace_all || '').toLowerCase() === 'true';
     const target = await resolveTargetPath(args, workDir);
     if (!target) return null;
     if (target.error) return target.error;
     const fullPath = target.full;
+    if (oldStr.length === 0 && !existsSync(fullPath)) {
+        try { mkdirSync(dirname(fullPath), { recursive: true }); } catch { /* surfaced by atomicWrite */ }
+        try {
+            await atomicWrite(fullPath, newStr, {
+                sessionId: editScope(options),
+                signal: options?.signal,
+                expectedTargetSnapshot: { exists: false },
+            });
+        } catch (err) {
+            if (err?.code === 'ESTALE_TARGET') {
+                return `Error: ${fullPath} was created concurrently; read it before editing`;
+            }
+            throw err;
+        }
+        invalidateAfterWrite(fullPath);
+        recordEditSnapshot(fullPath, options);
+        return `Created ${fullPath} (${Buffer.byteLength(newStr, 'utf8')} bytes)`;
+    }
     let content;
     let statBefore = null;
     try {
@@ -153,35 +188,44 @@ async function adaptStrReplace(args, workDir, options) {
     } catch (err) {
         return `Error: cannot read ${fullPath} (${err?.message || err})`;
     }
-    const matchCount = countOccurrences(content, oldStr);
-    if (matchCount === 0) return `Error: old_string not found in ${fullPath}`;
-    if (matchCount > 1) return `Error: old_string is ambiguous: ${matchCount} matches in ${fullPath}`;
-    const first = content.indexOf(oldStr);
-    const updated = content.slice(0, first) + newStr + content.slice(first + oldStr.length);
-    // Lost-update guard: hand the pre-read stat to atomicWrite as an expected
-    // target snapshot — it re-stats immediately before EACH rename attempt and
-    // aborts with ESTALE_TARGET when another writer (parallel tool call,
-    // interleaved apply_patch) changed the file after our read. This closes
-    // the check-then-write race a pre-write mtime comparison here would leave.
-    try {
-        await atomicWrite(fullPath, updated, {
-            sessionId: options?.readStateScope || options?.sessionId,
-            expectedTargetSnapshot: statBefore ? {
-                exists: true,
-                size: statBefore.size,
-                mtimeMs: statBefore.mtimeMs,
-                ctimeMs: statBefore.ctimeMs,
-                ino: statBefore.ino,
-            } : undefined,
-        });
-    } catch (err) {
-        if (err?.code === 'ESTALE_TARGET') {
-            return `Error: ${fullPath} changed on disk during the replace; re-read and retry`;
-        }
-        throw err;
+    const priorSnapshot = getReadSnapshot(fullPath, editScope(options));
+    if (priorSnapshot && statBefore && isSnapshotStale(statBefore, priorSnapshot, fullPath)) {
+        return `Error: ${fullPath} has been modified since it was read; read it again before editing`;
     }
+    if (oldStr.length === 0) {
+        if (content.length > 0) return `Error: cannot create ${fullPath}: file already exists and is not empty`;
+        try {
+            await atomicWrite(fullPath, newStr, {
+                sessionId: editScope(options),
+                signal: options?.signal,
+                expectedTargetSnapshot: {
+                    exists: true,
+                    size: statBefore.size,
+                    mtimeMs: statBefore.mtimeMs,
+                    ctimeMs: statBefore.ctimeMs,
+                    ino: statBefore.ino,
+                },
+            });
+        } catch (err) {
+            if (err?.code === 'ESTALE_TARGET') {
+                return `Error: ${fullPath} changed on disk during the edit; read it again`;
+            }
+            throw err;
+        }
+        invalidateAfterWrite(fullPath);
+        recordEditSnapshot(fullPath, options);
+        return `Updated ${fullPath} (filled empty file)`;
+    }
+    const result = await runServerEdit({
+        fullPath,
+        oldBuf: Buffer.from(oldStr, 'utf8'),
+        newBuf: Buffer.from(newStr, 'utf8'),
+        replaceAll,
+        signal: options?.signal || null,
+    });
     invalidateAfterWrite(fullPath);
-    return `Updated ${fullPath} (1 replacement)`;
+    recordEditSnapshot(fullPath, options, result.contentHash);
+    return `Updated ${fullPath} (${result.replacements} replacement${result.replacements === 1 ? '' : 's'})`;
 }
 
 async function adaptWrite(args, workDir, options) {

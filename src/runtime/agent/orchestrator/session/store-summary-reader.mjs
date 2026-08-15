@@ -690,6 +690,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
         model: session.model || '',
         effort: session.effort || '',
         fast: session.fast === true,
+        modelParameters: session.modelParameters || {},
         cwd: session.cwd || '',
         desktopSession: desktopSession(session.desktopSession, session.cwd),
         workflow: session.workflow || null,

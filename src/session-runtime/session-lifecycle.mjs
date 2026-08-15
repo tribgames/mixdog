@@ -97,7 +97,16 @@ export function createSessionLifecycle({
       ? targetRoute.effort
       : (targetRoute.preset?.effort || null);
     const effectiveEffort = coerceEffortFor(targetRoute.provider, modelMeta, requested);
-    const fastCapable = fastCapableFor(targetRoute.provider, modelMeta);
+    const fastCapable = fastCapableFor(
+      targetRoute.provider,
+      modelMeta,
+      effectiveEffort,
+      targetRoute.modelParameters,
+    );
+    const contextValue = clean(targetRoute.modelParameters?.context);
+    const contextOption = (modelMeta?.modelParameterOptions || [])
+      .find((option) => option?.id === 'context')?.options
+      ?.find((option) => clean(option?.value) === contextValue);
     // Carry the catalog display name onto the route so the statusline shows a
     // human label (e.g. "Claude Fable 5") for preset-less direct models instead
     // of the raw id. `name` is only trusted when it differs from the raw model
@@ -113,6 +122,7 @@ export function createSessionLifecycle({
       fastCapable,
       effectiveEffort,
       effortOptions: effortItemsFor(rt.route.provider, modelMeta, effectiveEffort),
+      ...(Number(contextOption?.contextWindow) > 0 ? { selectedContextWindow: Number(contextOption.contextWindow) } : {}),
       ...(modelDisplay ? { modelDisplay } : {}),
     };
     return rt.route;
@@ -247,6 +257,8 @@ export function createSessionLifecycle({
         workflow,
         workflowContext,
         fast: rt.route.fast === true,
+        modelParameters: rt.route.modelParameters || {},
+        selectedContextWindow: rt.route.selectedContextWindow || null,
         compaction: rt.config.compaction && typeof rt.config.compaction === 'object'
           ? normalizeCompactionConfig(rt.config.compaction)
           : undefined,

@@ -89,7 +89,7 @@ function createToolDispatch({
                 ]);
                 const agentConfig = loadConfig();
                 await initProviders(agentConfig.providers || {});
-                await refreshCatalogs();
+                await refreshCatalogs({ force: true });
                 agentReloadMsg = ", agent providers/presets/maintenance";
               } catch (err) {
                 process.stderr.write(`[reload_config] agent reload failed: ${err?.message || String(err)}\n`);

@@ -82,3 +82,17 @@ export function hasGrokOAuthCredentials() {
     });
   });
 }
+
+export function hasCursorOAuthCredentials() {
+  return memoProbe('cursor-oauth', () => {
+    if (process.env.CURSOR_ACCESS_TOKEN) return true;
+    const paths = [
+      process.env.CURSOR_OAUTH_CREDENTIALS_PATH,
+      join(resolvePluginData(), 'cursor-oauth.json'),
+    ].filter(Boolean);
+    return paths.some((path) => {
+      const own = readJsonIfExists(path);
+      return Boolean(own?.access_token);
+    });
+  });
+}

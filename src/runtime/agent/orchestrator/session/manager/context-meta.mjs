@@ -150,7 +150,8 @@ export function resolveSessionContextMeta(provider, model, seed = {}) {
         ? provider.getCachedModelInfo(model)
         : null;
     const catalogInfo = getModelMetadataSync(model, providerNameOf(provider));
-    const rawContextWindow = providerRawContextWindow(info, catalogInfo)
+    const rawContextWindow = positiveContextWindow(seed.selectedContextWindow)
+        || providerRawContextWindow(info, catalogInfo)
         || positiveContextWindow(catalogInfo?.contextWindow)
         || positiveContextWindow(catalogInfo?.maxContextWindow)
         || positiveContextWindow(catalogInfo?.context_window)

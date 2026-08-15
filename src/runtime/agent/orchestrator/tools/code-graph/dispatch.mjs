@@ -67,6 +67,7 @@ function _outlineLanguageForPath(file) {
   if (['js', 'mjs', 'cjs', 'jsx'].includes(ext)) return 'javascript';
   if (['ts', 'tsx', 'mts', 'cts'].includes(ext)) return 'typescript';
   if (ext === 'py') return 'python';
+  if (ext === 'pyi') return 'python';
   if (ext === 'go') return 'go';
   if (ext === 'rs') return 'rust';
   if (ext === 'java') return 'java';
@@ -77,6 +78,7 @@ function _outlineLanguageForPath(file) {
   if (ext === 'swift') return 'swift';
   if (ext === 'c' || ext === 'h') return 'c';
   if (['cpp', 'cc', 'cxx', 'hpp', 'hxx'].includes(ext)) return 'cpp';
+  if (ext === 'hh') return 'cpp';
   if (ext === 'scala' || ext === 'sc') return 'scala';
   if (ext === 'sh' || ext === 'bash' || ext === 'zsh') return 'bash';
   if (ext === 'lua') return 'lua';
@@ -408,7 +410,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
         ...(Array.isArray(args?.symbols) ? args.symbols : []),
         args?.symbol,
       ].map((s) => String(s || '').trim()).filter(Boolean);
-      const KNOWN_SRC_EXT = /\.(mjs|cjs|js|jsx|mts|cts|ts|tsx|json|py|go|rb|rs|java|kt|c|h|cc|cpp|hpp|cs|php|swift|scala|sh)$/i;
+      const KNOWN_SRC_EXT = /\.(mjs|cjs|js|jsx|mts|cts|ts|tsx|json|py|pyi|go|rb|rs|java|kt|kts|c|h|cc|cpp|cxx|hpp|hxx|hh|cs|php|swift|scala|sc|sh|bash|zsh|lua|dart|m|mm|ex|exs|zig|r)$/i;
       // (2) Symbol lookup FIRST — dotted names (e.g. obj.method) resolve here
       // before any path classification.
       for (const s of symCandidates) {

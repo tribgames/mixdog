@@ -63,7 +63,10 @@ export function createToolSurface({
 
   function buildPreSessionSurface() {
     const previewTools = typeof mgr.previewSessionTools === 'function'
-      ? mgr.previewSessionTools(toolSpecForMode(mode), [], { mcpScopeId: getMcpScopeId() })
+      ? mgr.previewSessionTools(toolSpecForMode(mode), [], {
+        mcpScopeId: getMcpScopeId(),
+        modelName: getRoute().model,
+      })
       : [];
     const tools = filterDisallowedTools(previewTools, [
       ...LEAD_DISALLOWED_TOOLS,
@@ -73,6 +76,7 @@ export function createToolSurface({
     const surface = { tools: Array.isArray(tools) ? tools.slice() : [], mcpScopeId: getMcpScopeId() };
     applyDeferredToolSurface(surface, deferredSurfaceModeForLead(mode), modelStandaloneTools(), {
       provider: getRoute().provider,
+      model: getRoute().model,
     });
     return surface;
   }

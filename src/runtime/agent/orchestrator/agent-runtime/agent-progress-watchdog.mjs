@@ -49,8 +49,9 @@ function isAgentProgressWatchdogAbortError(err) {
     return typeof msg === 'string' && WATCHDOG_ABORT_RE.test(msg);
 }
 
-// Tools that enforce their own execution deadline: 'shell' kills the process
-// at its configured timeout. These are NOT blanket-exempted from the
+// Tools that enforce their own execution deadline: shell kills the process
+// only when the caller supplied a positive timeout_ms. These are NOT
+// blanket-exempted from the
 // tool-running watchdog — if their own
 // deadline timer dies the session would otherwise hang forever. Instead the
 // watchdog raises the tool-running ceiling to their self-deadline + a grace
@@ -60,10 +61,6 @@ const SELF_DEADLINE_TOOLS = new Set(['shell']);
 // Grace added on top of a tool's own deadline before the watchdog steps in, so
 // the tool's in-process kill always fires first under normal operation.
 const TOOL_SELF_DEADLINE_GRACE_MS = 60_000;
-// Fallback deadline matching the shell implementation's 120s foreground
-// timeout.
-const SHELL_DEFAULT_TIMEOUT_MS = 120_000;
-
 function bareToolName(toolName) {
     if (typeof toolName !== 'string' || !toolName) return '';
     // Strip any MCP/server prefix (e.g. 'server__shell' or 'server.shell').
@@ -80,17 +77,16 @@ function isSelfDeadlineTool(toolName) {
  * recorded into the progress snapshot at dispatch time. Returns a positive
  * number when the tool enforces its own deadline, or null when unknown/missing
  * (caller then falls back to the plain toolRunningMs ceiling).
- *   - shell: explicit `timeout` (ms) if positive, else the 120s default.
+ *   - shell: explicit positive `timeout_ms`; omitted/0 has no self-deadline.
  */
 export function resolveToolSelfDeadlineMs(toolName, args) {
     if (!isSelfDeadlineTool(toolName)) return null;
     const bare = bareToolName(toolName);
     const a = (args && typeof args === 'object') ? args : {};
     if (bare === 'shell') {
-        const t = Number(a.timeout);
+        const t = Number(a.timeout_ms);
         if (Number.isFinite(t) && t > 0) return t;
-        const envDefault = parseInt(process.env.BASH_DEFAULT_TIMEOUT_MS ?? '', 10);
-        return envDefault > 0 ? envDefault : SHELL_DEFAULT_TIMEOUT_MS;
+        return null;
     }
     return null;
 }

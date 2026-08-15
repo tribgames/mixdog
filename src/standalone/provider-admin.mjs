@@ -27,20 +27,28 @@ import {
   beginOAuthLogin as beginGrokOAuthLogin,
   loginOAuth as loginGrokOAuth,
 } from '../runtime/agent/orchestrator/providers/grok-oauth.mjs';
+import {
+  beginCursorOAuthLogin,
+  describeCursorOAuthCredentials,
+  forgetCursorOAuthCredentials,
+  hasCursorOAuthCredentials,
+  loginCursorOAuth,
+} from '../runtime/agent/orchestrator/providers/cursor-auth.mjs';
 
 const API_PROVIDERS = Object.freeze([
+  Object.freeze({ id: 'opencode-go', name: 'OpenCode Go API', env: 'OPENCODE_API_KEY', url: 'https://opencode.ai' }),
   Object.freeze({ id: 'openai', name: 'OpenAI API', env: 'OPENAI_API_KEY', url: 'https://platform.openai.com/api-keys' }),
   Object.freeze({ id: 'anthropic', name: 'Anthropic API', env: 'ANTHROPIC_API_KEY', url: 'https://console.anthropic.com/settings/keys' }),
   Object.freeze({ id: 'gemini', name: 'Gemini API', env: 'GEMINI_API_KEY', url: 'https://aistudio.google.com/apikey' }),
   Object.freeze({ id: 'deepseek', name: 'DeepSeek API', env: 'DEEPSEEK_API_KEY', url: 'https://platform.deepseek.com/api_keys' }),
   Object.freeze({ id: 'xai', name: 'xAI API', env: 'XAI_API_KEY', url: 'https://console.x.ai' }),
-  Object.freeze({ id: 'opencode-go', name: 'OpenCode Go API', env: 'OPENCODE_API_KEY', url: 'https://opencode.ai' }),
 ]);
 
 const OAUTH_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'openai-oauth', name: 'OpenAI OAuth', desc: 'Mixdog OAuth credentials', has: hasOpenAIOAuthCredentials, describe: describeOpenAIOAuthCredentials, forget: forgetOpenAIOAuthCredentials, begin: beginOpenAIOAuthLogin, login: loginOpenAIOAuth }),
   Object.freeze({ id: 'anthropic-oauth', name: 'Anthropic OAuth', desc: 'Mixdog OAuth credentials', has: hasAnthropicOAuthCredentials, describe: describeAnthropicOAuthCredentials, forget: forgetAnthropicOAuthCredentials, begin: beginAnthropicOAuthLogin, login: loginAnthropicOAuth }),
   Object.freeze({ id: 'grok-oauth', name: 'Grok OAuth', desc: 'Mixdog OAuth credentials (Grok Build)', has: hasGrokOAuthCredentials, describe: describeGrokOAuthCredentials, forget: forgetGrokOAuthCredentials, begin: beginGrokOAuthLogin, login: loginGrokOAuth }),
+  Object.freeze({ id: 'cursor-oauth', name: 'Cursor OAuth', desc: 'Sign in with your Cursor account', has: hasCursorOAuthCredentials, describe: describeCursorOAuthCredentials, forget: forgetCursorOAuthCredentials, begin: beginCursorOAuthLogin, login: loginCursorOAuth }),
 ]);
 
 export const LOCAL_PROVIDERS = Object.freeze([
@@ -283,9 +291,11 @@ export async function beginOAuthProviderLogin(cfgMod, provider) {
     manualUrl: started.manualUrl || null,
     waitForCallback: started.waitForCallback?.then(finish),
     cancel: started.cancel,
-    completeCode: async (code) => {
-      return await finish(await started.completeCode(code));
-    },
+    ...(typeof started.completeCode === 'function' ? {
+      completeCode: async (code) => {
+        return await finish(await started.completeCode(code));
+      },
+    } : {}),
   };
 }
 

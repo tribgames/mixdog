@@ -3,6 +3,7 @@ import {
     hasAnthropicOAuthCredentials,
     hasOpenAIOAuthCredentials,
     hasGrokOAuthCredentials,
+    hasCursorOAuthCredentials,
 } from './oauth-credential-probes.mjs';
 import { refreshCatalog as refreshMetadataCatalog, warmModelMetadataCatalogs } from './model-catalog.mjs';
 import { wrapProviderAdmission } from './admission-scheduler.mjs';
@@ -109,6 +110,8 @@ async function loadProviderCtor(name, signal = null) {
     if (name === 'openai-oauth') return loadProviderExport('openai-oauth', './openai-oauth.mjs', 'OpenAIOAuthProvider', signal);
     if (name === 'anthropic-oauth') return loadProviderExport('anthropic-oauth', './anthropic-oauth.mjs', 'AnthropicOAuthProvider', signal);
     if (name === 'grok-oauth') return loadProviderExport('grok-oauth', './grok-oauth.mjs', 'GrokOAuthProvider', signal);
+    if (name === 'cursor-oauth') return loadProviderExport('cursor-oauth', './cursor.mjs', 'CursorOAuthProvider', signal);
+    if (name === 'cursor-api') return loadProviderExport('cursor-api', './cursor.mjs', 'CursorApiProvider', signal);
     if (name === 'openai') return loadProviderExport('openai', './openai-ws.mjs', 'OpenAIDirectProvider', signal);
     if (name === 'opencode-go') return loadProviderExport('opencode-go', './opencode-go.mjs', 'OpenCodeGoProvider', signal);
     if (Object.prototype.hasOwnProperty.call(OPENAI_COMPAT_PRESETS, name)) {
@@ -221,7 +224,7 @@ async function _initProvidersUnsynchronized(config, signal = null) {
     // `Provider "anthropic-oauth" not found or not enabled` for the rest of
     // its lifetime even though the credential file is fine again. Carry
     // forward the prior instance instead.
-    for (const name of ['anthropic-oauth', 'openai-oauth', 'grok-oauth']) {
+    for (const name of ['anthropic-oauth', 'openai-oauth', 'grok-oauth', 'cursor-oauth']) {
         if (!next.has(name) && providers.has(name)) {
             next.set(name, providers.get(name));
             if (signatures.has(name)) nextSignatures.set(name, signatures.get(name));
@@ -263,6 +266,14 @@ export function getProvider(name) {
     }
     if (name === 'grok-oauth' && hasGrokOAuthCredentials()) {
         const Ctor = providerCtors.get('grok-oauth');
+        if (!Ctor) return undefined;
+        const inst = wrapProviderAdmission(new Ctor({}), name);
+        providers.set(name, inst);
+        _providerCatalogRevision += 1;
+        return inst;
+    }
+    if (name === 'cursor-oauth' && hasCursorOAuthCredentials()) {
+        const Ctor = providerCtors.get('cursor-oauth');
         if (!Ctor) return undefined;
         const inst = wrapProviderAdmission(new Ctor({}), name);
         providers.set(name, inst);
@@ -412,11 +423,11 @@ export function refreshProviderCatalogsOnStartup() {
 }
 
 // Refresh the complete catalog at most once per 24h process window. The timer
-// above calls this automatically when the window expires; manual/UI callers
-// inside the window receive the current epoch without network work.
-export function refreshCatalogs() {
+// above calls this automatically when the window expires; callers may bypass
+// that window after an explicit auth/config/model-refresh action.
+export function refreshCatalogs(options = {}) {
     if (_catalogRefreshPromise) return _catalogRefreshPromise;
-    if (Date.now() < _catalogRefreshNotBefore) {
+    if (options?.force !== true && Date.now() < _catalogRefreshNotBefore) {
         if (!_catalogRefreshTimer) {
             armNextCatalogRefresh(_catalogRefreshNotBefore - CATALOG_REFRESH_INTERVAL_MS);
         }

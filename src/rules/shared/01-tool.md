@@ -53,17 +53,18 @@
   mutate only when the deliverable requires it, first preserving evidence
   at risk. Never mutate merely to clear an obstacle or unexpected state;
   unrecoverably lost evidence ends its search — report best effort.
- - Before `apply_patch`, use only already obtained hunk text. Never infer
-   patch context from another file, a sample, or expected text. Never
-   reopen a path to refresh patch context or to confirm a successful
-   apply_patch. Apply all determined edits in one cohesive `apply_patch`
-   call.
-  Hand-authored text is edited only with `apply_patch`. Use `shell` for program
+ - Before the exposed file-editing tool, use only already obtained exact source
+   text. Never infer edit context from another file, a sample, or expected text.
+   For context patches, include exact unchanged lines around each change and use
+   a class/function locator when that context is not unique.
+   Never reopen a path merely to refresh context or confirm a successful edit.
+   Apply all determined changes in the fewest safe calls the active tool supports.
+  Hand-authored text is edited only with the exposed file-editing tool. Use `shell` for program
   execution, runtime/state operations, calculations, data transformation, file
   generation, or formats unsupported by file tools. Do not use `shell` instead
   of an available file tool for ordinary file-content inspection.
 - Shell commands start in the foreground. If still running after 10 seconds,
-  the call returns a tracked `task_id` and completion arrives by notification.
+  the command continues as a tracked `task_id`; completion arrives by notification.
   Only when the request explicitly requires
   a service to survive after the run exits, detach it at shell level (for
   example, `nohup ... &`); never detach ordinary jobs merely to avoid tracking.
@@ -73,5 +74,6 @@
   to return the current status and output snapshot. If it is still running,
   await the completion notification; do not
   call `task` again unless the user explicitly asks for another snapshot.
-  Omit timeout by default, including for long jobs; set it only for a real total
-  deadline, since it kills even async jobs.
+  Omit `timeout_ms` by default, including for long jobs. A positive value is a
+  hard total deadline that kills the command even after task promotion; `0`
+  means no deadline.

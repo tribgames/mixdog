@@ -120,8 +120,13 @@ export function createModelRouteApi(deps) {
       // config.searchRoute. The shared config.modelSettings[provider/model]
       // bucket belongs to the MAIN route alone, so a search-model pick that
       // happens to match Main must not rewrite Main's saved effort/fast.
-      const fastCapable = fastCapableFor(selectedRoute.provider, modelMeta);
       const effort = coerceEffortFor(selectedRoute.provider, modelMeta, selectedRoute.effort);
+      const fastCapable = fastCapableFor(
+        selectedRoute.provider,
+        modelMeta,
+        effort,
+        selectedRoute.modelParameters,
+      );
       selectedRoute = {
         ...selectedRoute,
         ...(effort ? { effort } : {}),
@@ -159,7 +164,12 @@ export function createModelRouteApi(deps) {
         && !getModelMetadataSync(selectedRoute.model, selectedRoute.provider)) {
         throw new Error(`unknown model: ${selectedRoute.provider}/${selectedRoute.model}`);
       }
-      const fastCapable = fastCapableFor(selectedRoute.provider, modelMeta);
+      const fastCapable = fastCapableFor(
+        selectedRoute.provider,
+        modelMeta,
+        selectedRoute.effort,
+        selectedRoute.modelParameters,
+      );
       selectedRoute = { ...selectedRoute, fast: fastCapable ? selectedRoute.fast === true : false };
       adoptConfig(saveModelSettings(cfgMod, selectedRoute, { fastCapable, baseConfig: getConfig() }), { hasSecrets: getConfigHasSecrets() });
       const leadRoute = persistAdoptedModelSettings(selectedRoute);
@@ -212,12 +222,13 @@ export function createModelRouteApi(deps) {
         // session, so update it in place instead of closing A and silently
         // materializing B before the first prompt.
         const route = getRoute();
-        rebuildDeferredToolSurfaceForProvider(session, route.provider);
         const updated = mgr.updateSessionRoute?.(session.id, {
           provider: route.provider,
           model: route.model,
           fast: route.fast === true,
           effort: route.effectiveEffort || null,
+          modelParameters: route.modelParameters || {},
+          selectedContextWindow: route.selectedContextWindow || null,
         });
         if (updated) setSession(updated);
         else {
@@ -225,7 +236,10 @@ export function createModelRouteApi(deps) {
           session.model = route.model;
           session.fast = route.fast === true;
           session.effort = route.effectiveEffort || null;
+          session.modelParameters = route.modelParameters || {};
+          session.selectedContextWindow = route.selectedContextWindow || null;
         }
+        rebuildDeferredToolSurfaceForProvider(getSession(), route.provider);
         writeStatuslineRoute(statusRoutes, getSession(), route);
         invalidateContextStatusCache();
       }
@@ -234,11 +248,22 @@ export function createModelRouteApi(deps) {
     async setFast(value) {
       const enabled = value === true;
       const modelMeta = await lookupModelMeta(getRoute().provider, getRoute().model);
-      const fastCapable = fastCapableFor(getRoute().provider, modelMeta);
+      const fastCapable = fastCapableFor(
+        getRoute().provider,
+        modelMeta,
+        getRoute().effectiveEffort || getRoute().effort,
+        getRoute().modelParameters,
+      );
       if (enabled && !fastCapable) {
         throw new Error(`fast mode is not available for ${getRoute().provider}/${getRoute().model}`);
       }
-      setRouteState(resolveRoute(getConfig(), { provider: getRoute().provider, model: getRoute().model, effort: getRoute().effort, fast: fastCapable ? enabled : false }));
+      setRouteState(resolveRoute(getConfig(), {
+        provider: getRoute().provider,
+        model: getRoute().model,
+        effort: getRoute().effort,
+        fast: fastCapable ? enabled : false,
+        modelParameters: getRoute().modelParameters,
+      }));
       adoptConfig(saveModelSettings(cfgMod, getRoute(), { fastCapable, baseConfig: getConfig() }), { hasSecrets: getConfigHasSecrets() });
       const leadRoute = persistAdoptedModelSettings(getRoute());
       if (leadRoute) setRouteState(resolveRoute(getConfig(), { model: workflowPresetId('lead') }));
@@ -260,7 +285,12 @@ export function createModelRouteApi(deps) {
       const normalized = normalizeEffortInput(value);
       setRouteState({ ...getRoute(), effort: normalized });
       const modelMeta = await lookupModelMeta(getRoute().provider, getRoute().model);
-      const fastCapable = fastCapableFor(getRoute().provider, modelMeta);
+      const fastCapable = fastCapableFor(
+        getRoute().provider,
+        modelMeta,
+        normalized,
+        getRoute().modelParameters,
+      );
       adoptConfig(saveModelSettings(cfgMod, getRoute(), { fastCapable, baseConfig: getConfig() }), { hasSecrets: getConfigHasSecrets() });
       const leadRoute = persistAdoptedModelSettings(getRoute());
       if (leadRoute) {
@@ -270,6 +300,7 @@ export function createModelRouteApi(deps) {
       const session = getSession();
       if (session) {
         const route = getRoute();
+        session.fast = route.fast === true;
         session.effort = route.effectiveEffort || null;
         writeStatuslineRoute(statusRoutes, session, route);
         invalidateContextStatusCache();

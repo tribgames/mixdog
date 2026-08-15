@@ -109,6 +109,17 @@ export function providerModelCacheRow(name, m, searchCapableFor) {
     reasoningLevels: Array.isArray(m.reasoningLevels) ? m.reasoningLevels : undefined,
     reasoningOptions: Array.isArray(m.reasoningOptions) ? m.reasoningOptions : [],
     reasoningContentField: m.reasoningContentField || null,
+    fastCapable: m.fastCapable === true,
+    fastEfforts: Array.isArray(m.fastEfforts) ? m.fastEfforts : undefined,
+    modelParameterOptions: Array.isArray(m.modelParameterOptions) ? m.modelParameterOptions : [],
+    parameterVariants: Array.isArray(m.parameterVariants) ? m.parameterVariants : [],
+    defaultModelParameters: m.defaultModelParameters && typeof m.defaultModelParameters === 'object'
+      ? m.defaultModelParameters
+      : {},
+    defaultEffort: m.defaultEffort || null,
+    defaultFast: m.defaultFast === true,
+    defaultEffort: m.defaultEffort || null,
+    defaultFast: m.defaultFast === true,
     mode: m.mode || null,
   };
 }
