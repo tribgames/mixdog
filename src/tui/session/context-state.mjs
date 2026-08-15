@@ -38,6 +38,7 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     effortOptions: runtime.effortOptions,
     fast: runtime.fast,
     fastCapable: runtime.fastCapable,
+    modelParameters: runtime.modelParameters || {},
     contextWindow: runtime.contextWindow,
     rawContextWindow: runtime.rawContextWindow,
     effectiveContextWindowPercent: runtime.effectiveContextWindowPercent,

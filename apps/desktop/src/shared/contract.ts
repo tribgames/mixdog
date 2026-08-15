@@ -278,6 +278,7 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   progressHint?: { text?: string; tone?: string } | null;
   fast?: boolean;
   fastCapable?: boolean;
+  modelParameters?: Readonly<Record<string, string>>;
   desktopSessionTitle?: string;
   agentWorkers?: DesktopAgentWorker[];
   agentJobs?: DesktopAgentJob[];
@@ -365,6 +366,13 @@ export interface DesktopModelEffortOption {
   label: string;
 }
 
+export interface DesktopModelParameterOption {
+  id: string;
+  label: string;
+  kind: 'boolean' | 'enum';
+  options: Array<{ value: string; label: string; contextWindow?: number }>;
+}
+
 export interface DesktopModelOption {
   provider: string;
   model: string;
@@ -376,11 +384,19 @@ export interface DesktopModelOption {
   latest?: boolean;
   /** Free-form secondary line; media lanes use it for the provider name. */
   description?: string;
+  supportsVision?: boolean;
   effortOptions: DesktopModelEffortOption[];
   fastCapable: boolean;
+  fastEfforts?: string[];
   fastPreferred: boolean;
   savedEffort?: string;
   savedFast?: boolean;
+  defaultEffort?: string;
+  defaultFast?: boolean;
+  modelParameterOptions?: DesktopModelParameterOption[];
+  parameterVariants?: Array<Record<string, string>>;
+  defaultModelParameters?: Record<string, string>;
+  savedModelParameters?: Record<string, string>;
 }
 
 export interface DesktopModelCatalogOptions {
@@ -394,6 +410,7 @@ export interface DesktopModelSelection {
   model: string;
   effort?: string;
   fast?: boolean;
+  modelParameters?: Record<string, string>;
 }
 
 export interface DesktopPromptTextPart {

@@ -8,6 +8,7 @@ import { PATCH_TOOL_DEFS } from '../../tools/patch-tool-defs.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../../tools/code-graph-tool-defs.mjs';
 import { buildSkillToolDefs } from '../../context/collect.mjs';
 import { getHiddenAgent } from '../../internal-agents.mjs';
+import { filterModelEditTools } from '../../../../shared/edit-tool-dialect.mjs';
 
 // Merge externally-connected MCP tools with the plugin's in-process tools
 // (registered by agent's toolExecutor adapter). Internal tools are exposed
@@ -51,6 +52,7 @@ const SESSION_ROUTE_TOOL_ORDER = [
     'grep',
     'code_graph',
     'read',
+    'edit',
     'apply_patch',
     'shell',
     'task',
@@ -63,6 +65,7 @@ const FILESYSTEM_TOOL_NAMES = new Set([
     'list',
     'grep',
     'read',
+    'edit',
     'apply_patch',
 ]);
 const READONLY_TOOL_NAMES = new Set([
@@ -128,6 +131,7 @@ const AGENT_STRING_PERMISSION_READ_WRITE_ALLOW = Object.freeze([
     'list',
     'grep',
     'read',
+    'edit',
     'apply_patch',
     'shell',
     'task',
@@ -207,14 +211,21 @@ const ALL_BUILTIN_SESSION_TOOLS = orderSessionTools(_dedupByName([
     ...CODE_GRAPH_TOOL_DEFS,
 ]));
 
-export function resolveSessionTools(toolSpec, skills, { ownerIsAgentSession = false, mcpScopeId = null } = {}) {
+export function resolveSessionTools(toolSpec, skills, {
+    ownerIsAgentSession = false,
+    mcpScopeId = null,
+    modelName = null,
+} = {}) {
     const mcp = _getMcpTools(mcpScopeId);
     // Agent sessions freeze the skill meta-tool into the schema
     // unconditionally — concrete skill resolution is cwd-scoped at tool-call
     // time (loop.mjs), so the schema bytes stay bit-identical across roles /
     // cwds and the provider cache shard does not fragment.
     const skillTools = buildSkillToolDefs(skills, { ownerIsAgentSession });
-    return _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession });
+    return filterModelEditTools(
+        _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession }),
+        modelName,
+    );
 }
 
 export function previewSessionTools(toolSpec, skills = [], options = {}) {

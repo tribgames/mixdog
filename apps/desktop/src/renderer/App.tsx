@@ -414,6 +414,7 @@ const draftModelSelectionFromSnapshot = (snapshot: Snapshot): DesktopModelSelect
     model,
     ...(effort ? { effort } : {}),
     ...(typeof snapshot.fast === "boolean" ? { fast: snapshot.fast } : {}),
+    ...(snapshot.modelParameters ? { modelParameters: { ...snapshot.modelParameters } } : {}),
   };
 };
 let settingsViewModulePromise: Promise<typeof import("./settings/SettingsView")> | null = null;
@@ -1144,7 +1145,7 @@ export function App() {
     () => selection.kind === "new" && !String(snapshot.sessionId || "")
       ? draftModelSelectionFromSnapshot(snapshot)
       : null,
-    [selection.kind, snapshot.sessionId, snapshot.effort, snapshot.fast, snapshot.model,
+    [selection.kind, snapshot.sessionId, snapshot.effort, snapshot.fast, snapshot.modelParameters, snapshot.model,
       snapshot.provider],
   );
   const inheritedDraftPrefs = useCallback((): DraftPanePrefs => {

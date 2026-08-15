@@ -68,6 +68,7 @@ export type Snapshot = RecordValue & {
   effort?: string;
   fast?: boolean;
   fastCapable?: boolean;
+  modelParameters?: Record<string, string>;
   thinking?: unknown;
   spinner?: RecordValue | null;
   commandStatus?: RecordValue | null;

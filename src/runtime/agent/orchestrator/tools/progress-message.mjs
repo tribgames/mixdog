@@ -26,6 +26,8 @@ export function formatToolStartProgress(name, args = {}) {
         // ── builtin: files / shell ───────────────────────────────────────
         case 'read':
             return a.symbol ? `reading symbol ${_t(a.symbol)}` : `reading ${_t(a.path)}`;
+        case 'edit':
+            return `editing ${_t(a.file_path || 'file')}`;
         case 'apply_patch':
             return a.dry_run ? 'validating patch' : 'applying patch';
         case 'shell':

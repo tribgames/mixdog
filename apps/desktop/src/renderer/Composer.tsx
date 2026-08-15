@@ -102,6 +102,7 @@ export const Composer = memo(function Composer({
   effort,
   fast,
   fastCapable,
+  modelParameters,
   draftMode,
   onDraftModelSelection,
   onFastPreferenceApplied,
@@ -139,6 +140,7 @@ export const Composer = memo(function Composer({
   effort: string;
   fast: boolean;
   fastCapable: boolean;
+  modelParameters?: Record<string, string>;
   draftMode?: boolean;
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
   onFastPreferenceApplied?: (selection: DesktopModelSelection) => void;
@@ -1114,6 +1116,7 @@ export const Composer = memo(function Composer({
           model,
           effort: String(args[0] || effort),
           ...(fastCapable ? { fast } : {}),
+          ...(modelParameters && Object.keys(modelParameters).length ? { modelParameters } : {}),
         });
         return String(args[0] || effort) as T;
       }
@@ -1222,13 +1225,19 @@ export const Composer = memo(function Composer({
         return false;
       }
       if (draftMode && onDraftModelSelection && provider && model) {
-        onDraftModelSelection({ provider, model, effort, fast: nextFast });
+        onDraftModelSelection({
+          provider, model, effort, fast: nextFast,
+          ...(modelParameters && Object.keys(modelParameters).length ? { modelParameters } : {}),
+        });
       } else {
         const next = await invokeResult(() => window.mixdogDesktop.setFast(nextFast, sessionId || undefined));
         if (next === undefined) return false;
         applySnapshot(next);
         if (provider && model) {
-          onFastPreferenceApplied?.({ provider, model, effort, fast: nextFast });
+          onFastPreferenceApplied?.({
+            provider, model, effort, fast: nextFast,
+            ...(modelParameters && Object.keys(modelParameters).length ? { modelParameters } : {}),
+          });
         }
       }
       showComposerNotice(`Fast mode ${nextFast ? 'on' : 'off'}`);
@@ -1954,6 +1963,7 @@ export const Composer = memo(function Composer({
         <button type="button" className="composer-tool" disabled={transitioning} aria-label={t("Attach files")} data-tooltip={t("Attach images, PDFs, or text files")} data-tooltip-side="top"
         onClick={() => fileInput.current?.click()}><MxIcon name="plus" size={16} /></button>
         <ModelSelector provider={provider} model={model} effort={effort} fast={fast} fastCapable={fastCapable}
+          modelParameters={modelParameters}
           sessionId={sessionId}
           modelDisabled={commandBusy || transitioning}
           // Effort/Fast stay live during a turn: the running turn already

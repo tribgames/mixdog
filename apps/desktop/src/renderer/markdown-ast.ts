@@ -6,7 +6,10 @@ import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 
-import { trimTrailingCodeNewline } from "./markdown-plugins";
+import {
+  repairAdjacentStrongPunctuation,
+  trimTrailingCodeNewline,
+} from "./markdown-plugins";
 
 export interface MarkdownAstNode {
   type: "root" | "element" | "text";
@@ -100,6 +103,7 @@ function normalizeAstNode(node: SyntaxNode): MarkdownAstNode {
 
 const markdownProcessor = unified()
   .use(remarkParse)
+  .use(repairAdjacentStrongPunctuation)
   .use(remarkGfm, { singleTilde: false })
   // singleDollarTextMath:false — shell/price prose ("$PATH and $5") must never
   // flip into inline math; only explicit $$…$$ math is intentional enough.

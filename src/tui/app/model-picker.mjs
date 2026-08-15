@@ -121,6 +121,7 @@ export function createModelPicker({
       model: state.model,
       effort: state.effort,
       fast: state.fast,
+      modelParameters: state.modelParameters,
     };
     const renderModelPicker = (renderOptions = {}) => {
       if (renderOptions.highlightProvider) {
@@ -148,6 +149,7 @@ export function createModelPicker({
           if (currentRoute?.provider === model.provider && currentRoute?.model === model.id && currentRoute.effort && values.includes(currentRoute.effort)) return currentRoute.effort;
           if (model.provider === state.provider && model.id === state.model && state.effort && values.includes(state.effort)) return state.effort;
           if (model.savedEffort && values.includes(model.savedEffort)) return model.savedEffort;
+          if (model.defaultEffort && values.includes(model.defaultEffort)) return model.defaultEffort;
           return preferredEffort(values);
         };
         const selectedEfforts = new Map();
@@ -165,8 +167,38 @@ export function createModelPicker({
           selectedEfforts.set(modelKey(model), effort || null);
         };
         const selectedFast = new Map();
-        const modelDefaultFast = (model) => {
+        const selectedModelParameters = new Map();
+        const modelParametersFor = (model) => {
+          const key = modelKey(model);
+          if (selectedModelParameters.has(key)) return selectedModelParameters.get(key);
+          const currentRoute = options.currentRoute || null;
+          const current = currentRoute?.provider === model.provider && currentRoute?.model === model.id
+            ? currentRoute.modelParameters
+            : null;
+          const saved = model.savedModelParameters || {};
+          const defaults = { ...(model.defaultModelParameters || {}), ...saved, ...(current || {}) };
+          const values = Object.fromEntries((model.modelParameterOptions || []).flatMap((parameter) => {
+            const selected = parameter.options?.some((option) => option.value === defaults[parameter.id])
+              ? defaults[parameter.id]
+              : parameter.options?.[0]?.value;
+            return selected ? [[parameter.id, selected]] : [];
+          }));
+          selectedModelParameters.set(key, values);
+          return values;
+        };
+        const fastAvailableFor = (model, effort = getSelectedEffort(model)) => {
           if (!model?.fastCapable) return false;
+          if (Array.isArray(model.parameterVariants) && model.parameterVariants.length) {
+            const parameters = modelParametersFor(model);
+            return model.parameterVariants.some((variant) => variant.fast === 'true'
+              && (!effort || !variant.effort || variant.effort === effort)
+              && Object.entries(parameters).every(([key, value]) => !variant[key] || variant[key] === value));
+          }
+          const fastEfforts = Array.isArray(model.fastEfforts) ? model.fastEfforts : [];
+          return fastEfforts.length === 0 || fastEfforts.includes(effort || '');
+        };
+        const modelDefaultFast = (model) => {
+          if (!fastAvailableFor(model)) return false;
           const currentRoute = options.currentRoute || null;
           if (currentRoute?.provider === model.provider && currentRoute?.model === model.id && typeof currentRoute.fast === 'boolean') return currentRoute.fast;
           if (model.provider === state.provider && model.id === state.model && typeof state.fast === 'boolean') return state.fast;
@@ -174,7 +206,7 @@ export function createModelPicker({
           return model.fastPreferred === true;
         };
         const getSelectedFast = (model) => {
-          if (!model) return false;
+          if (!model || !fastAvailableFor(model)) return false;
           const key = modelKey(model);
           if (selectedFast.has(key)) return selectedFast.get(key) === true;
           const fast = modelDefaultFast(model);
@@ -182,7 +214,7 @@ export function createModelPicker({
           return fast;
         };
         const toggleFast = (model) => {
-          if (!model?.fastCapable) return;
+          if (!fastAvailableFor(model)) return;
           selectedFast.set(modelKey(model), !getSelectedFast(model));
           renderProviderModels();
         };
@@ -221,14 +253,20 @@ export function createModelPicker({
         const modelFooter = (model = null) => {
           const items = model ? effortItemsFor(model) : providerEffortItems();
           const values = items.map((effort) => effort.value).filter(Boolean);
-          const fastCapable = model?.fastCapable === true;
+          const fastCapable = fastAvailableFor(model);
           const fastOn = fastCapable && getSelectedFast(model);
           const fastLine = fastCapable
             ? { glyph: fastOn ? '●' : '○', color: fastOn ? theme.fastMode : theme.inactive, text: `${fastDisplayLabel(fastOn)} · Tab Toggle` }
             : null;
-          if (!values.length) {
-            return fastLine ? [fastLine] : '';
-          }
+          const parameterLines = (model?.modelParameterOptions || []).map((parameter) => {
+            const value = modelParametersFor(model)[parameter.id] || '';
+            return {
+              glyph: '◇',
+              color: theme.inactive,
+              text: `${parameter.label}: ${parameter.options?.find((option) => option.value === value)?.label || value} · ${parameter.id === 'thinking' ? 'T' : 'C'} Toggle`,
+            };
+          });
+          if (!values.length) return [...(fastLine ? [fastLine] : []), ...parameterLines];
           let selectedEffort = getSelectedEffort(model);
           if (!values.includes(selectedEffort)) {
             selectedEffort = modelDefaultEffort(model);
@@ -239,7 +277,7 @@ export function createModelPicker({
             color: effortColor(selectedEffort),
             text: `${effortLabel(selectedEffort)} Effort ←/→ To Adjust`,
           };
-          return fastLine ? [effortLine, fastLine] : [effortLine];
+          return [...(fastLine ? [effortLine, fastLine] : [effortLine]), ...parameterLines];
         };
         const coerceEffort = (model) => {
           const values = modelEffortValues(model);
@@ -261,11 +299,13 @@ export function createModelPicker({
           if (!selected) return;
           modelPickerClosed = true;
           const effort = coerceEffort(selected);
+          const fastCapable = fastAvailableFor(selected, effort);
           const routeInput = {
             provider: selected.provider,
             model: selected.id,
             ...(effort ? { effort } : {}),
-            ...(selected.fastCapable ? { fast: getSelectedFast(selected) } : {}),
+            ...(selected.fastCapable ? { fast: fastCapable && getSelectedFast(selected) } : {}),
+            ...((selected.modelParameterOptions || []).length ? { modelParameters: modelParametersFor(selected) } : {}),
           };
           if (typeof options.onSelectRoute === 'function') {
             const savePromise = Promise.resolve(options.onSelectRoute(routeInput, selected, effort));
@@ -310,8 +350,8 @@ export function createModelPicker({
             description: options.modelDescription || 'Select a model. Adjust Effort with ←/→.',
             footer: (item) => modelFooter(item?._model),
             help: returnOnNestedCancel && returnTo
-              ? `↑/↓ Select · ←/→ Effort · Tab Fast · Enter Save · Esc ${returnLabel}`
-              : '↑/↓ Select · ←/→ Effort · Tab Fast · Enter Save · Esc Back',
+              ? `↑/↓ Select · ←/→ Effort · Tab Fast · C Context · T Thinking · Enter Save · Esc ${returnLabel}`
+              : '↑/↓ Select · ←/→ Effort · Tab Fast · C Context · T Thinking · Enter Save · Esc Back',
             indexMode: 'always',
             initialIndex: providerModelInitialIndex,
             pickerKey: `model-picker:provider-models:${provider}`,
@@ -325,6 +365,19 @@ export function createModelPicker({
             },
             onTab: (item) => {
               if (item?._model) toggleFast(item._model);
+            },
+            onKey: (input, _key, item) => {
+              const model = item?._model;
+              if (!model || !['c', 'C', 't', 'T'].includes(input)) return;
+              const wanted = input.toLowerCase() === 't' ? 'thinking' : 'context';
+              const definition = (model.modelParameterOptions || []).find((parameter) => parameter.id === wanted);
+              if (!definition?.options?.length) return;
+              const parameters = modelParametersFor(model);
+              const current = Math.max(0, definition.options.findIndex((option) => option.value === parameters[wanted]));
+              parameters[wanted] = definition.options[(current + 1) % definition.options.length].value;
+              selectedModelParameters.set(modelKey(model), { ...parameters });
+              if (!fastAvailableFor(model)) selectedFast.set(modelKey(model), false);
+              renderProviderModels();
             },
             onCancel: () => {
               if (returnOnNestedCancel && returnTo) cancelModelPicker();

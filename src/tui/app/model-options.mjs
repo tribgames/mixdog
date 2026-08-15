@@ -158,6 +158,7 @@ export const providerDisplayName = (provider) => {
   if (key === 'openai-oauth') return 'OpenAI OAuth';
   if (key === 'anthropic-oauth') return 'Anthropic OAuth';
   if (key === 'grok-oauth') return 'Grok OAuth';
+  if (key === 'cursor-oauth') return 'Cursor OAuth';
   if (key === 'openai' || key === 'openai-api') return 'OpenAI API';
   if (key === 'anthropic' || key === 'anthropic-api') return 'Anthropic API';
   if (key === 'gemini' || key === 'gemini-api') return 'Gemini API';
@@ -177,6 +178,7 @@ export const providerDisplayRank = (provider) => {
     'openai-oauth': 10,
     'anthropic-oauth': 20,
     'grok-oauth': 30,
+    'cursor-oauth': 32,
     'opencode-go': 35,
     openai: 40,
     'openai-api': 40,

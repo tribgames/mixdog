@@ -432,6 +432,16 @@ export async function runServerEdit({ fullPath, oldBuf, newBuf, replaceAll = fal
     // The dead instance was refused before any byte went out; the getter
     // respawns because the previous one is marked exited.
     return getNativeEditServer().edit(fullPath, oldBuf, newBuf, { replaceAll, dryRun, signal });
+  } finally {
+    if (!nativePatchPersistent() && _nativeEditServer) {
+      if (process.versions?.bun) {
+        const server = _nativeEditServer;
+        _nativeEditServer = null;
+        void server.close().catch(() => {});
+      } else {
+        _nativeEditServer.unref();
+      }
+    }
   }
 }
 

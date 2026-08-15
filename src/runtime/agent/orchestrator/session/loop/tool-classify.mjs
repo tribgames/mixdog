@@ -12,8 +12,11 @@ export function _isReadTool(name) {
     return _stripMcpPrefix(name) === 'read';
 }
 export function _isMutationTool(name) {
-    const n = _stripMcpPrefix(name);
-    return n === 'apply_patch';
+    const n = String(_stripMcpPrefix(name) || '').toLowerCase();
+    return n === 'apply_patch' || n === 'edit';
+}
+export function _isEditTool(name) {
+    return String(_stripMcpPrefix(name) || '').toLowerCase() === 'edit';
 }
 const SCOPED_CACHEABLE_TOOLS = new Set([
     'code_graph',
@@ -45,6 +48,25 @@ export function _canonicalArgs(args) {
         return JSON.stringify(sorted);
     } catch { return String(args); }
 }
+
+function _argShape(value) {
+    if (value === null) return 'null';
+    if (Array.isArray(value)) return `array[${value.map(_argShape).join(',')}]`;
+    if (typeof value !== 'object') return typeof value;
+    return `{${Object.keys(value).sort().map((key) => `${key}:${_argShape(value[key])}`).join(',')}}`;
+}
+
+export function _argShapeSig(name, args) {
+    return `${name}:${_argShape(args)}`;
+}
+
+export function _isToolArgShapeFailure(resultText) {
+    const first = String(resultText ?? '').split(/\r?\n/).find((line) => line.trim()) || '';
+    return /\b(?:arg(?:ument)?s?|builtin arg)\b.*\b(?:invalid|must|required|requires|expected)\b/i.test(first)
+        || /\b(?:requires|required)\b.*\b(?:arg(?:ument)?|pattern|path|query|command|task_id)\b/i.test(first)
+        || /\binvalid json\b/i.test(first);
+}
+
 export function _intraTurnSig(name, args) {
     return `${name}:${_canonicalArgs(args)}`;
 }

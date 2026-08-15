@@ -52,6 +52,10 @@ mkdir -p /opt/mixdog-v8-cache
 NODE_COMPILE_CACHE=/opt/mixdog-v8-cache node --input-type=module -e "await import('$MIXDOG_PKG/src/mixdog-session-runtime.mjs'); console.log('runtime import ok after prune')"
 (cd "$MIXDOG_PKG" && node --input-type=module -e "await Promise.all([import('@anthropic-ai/sdk'),import('openai'),import('sharp'),import('tiktoken')]); console.log('provider/native imports ok after prune')")
 chmod -R a+rwX /opt/mixdog-v8-cache
+# Package managers are needed only while building this archive. Runtime source
+# overlay locates the installed package through the mixdog executable itself.
+rm -rf /usr/lib/node_modules/npm /usr/lib/node_modules/corepack
+rm -f /usr/bin/npm /usr/bin/npx /usr/bin/corepack
 # Static curl + CA bundle ride the tar so trials never pay the apt leg (the
 # apt-get update on curl-less task images was the 18-20s setup critical
 # path). Verified executable here before packing; install() only uses it
@@ -75,7 +79,7 @@ rm -f /tmp/uv-install.sh
 # docker-cp of that tar dominated (75s avg). ~3x smaller upload wins even
 # with the in-container gunzip cost.
 tar -C / -czf /out/mixdog-node-prebake.tar.gz \
-  usr/bin/node usr/bin/npm usr/bin/npx usr/bin/mixdog usr/bin/rg usr/lib/node_modules \
+  usr/bin/node usr/bin/mixdog usr/bin/rg usr/lib/node_modules \
   root/.local/bin opt/mixdog-v8-cache opt/static-curl
 echo "prebake tar written"
 # zstd variant: ~same upload size at -19 but decompresses multi-threaded in
@@ -84,7 +88,7 @@ echo "prebake tar written"
 # but not necessarily the CLI); install() prefers this pair and falls back
 # to the .tar.gz when either file is missing or the binary refuses to run.
 tar -C / -I 'zstd -T0 -19' -cf /out/mixdog-node-prebake.tar.zst \
-  usr/bin/node usr/bin/npm usr/bin/npx usr/bin/mixdog usr/bin/rg usr/lib/node_modules \
+  usr/bin/node usr/bin/mixdog usr/bin/rg usr/lib/node_modules \
   root/.local/bin opt/mixdog-v8-cache opt/static-curl
 cp /usr/bin/zstd /out/zstd-amd64
 echo "prebake zst written"

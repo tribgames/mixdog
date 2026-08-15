@@ -377,40 +377,44 @@ export function createProviderSetupPicker({
         };
         void store.beginOAuthProviderLogin(providerItem._providerId)
           .then((login) => {
-            setPicker(null);
-            const manualUrl = login?.manualUrl || '';
-            setProviderPrompt({
-              kind: 'oauth-code',
-              providerId: providerItem._providerId,
-              providerName,
-              label: `${providerName} OAuth code`,
-              hint: manualUrl
-                ? 'If the browser callback does not finish, open the URL below manually and paste code#state.'
-                : `Paste the authorization code or full redirect URL for ${providerName}.`,
-              // Shown inside the live panel only — never written to the
-              // transcript, so it cannot linger in scrollback after the flow.
-              detail: manualUrl,
-              login,
-              afterSave: returnTo,
-              successReturn: () => {
-                showOAuthResult(true, `${providerName} login complete.`);
-              },
-              failureReturn: (e) => {
-                showOAuthResult(false, `${providerName} code failed: ${e?.message || e}`);
-              },
-              cancelReturn: () => {
-                openOAuthProviderActions(providerItem);
-              },
-            });
-            store.pushNotice(`browser opened for ${providerName}; paste code/redirect here if callback does not finish`, 'info');
+            if (typeof login?.completeCode === 'function') {
+              setPicker(null);
+              const manualUrl = login?.manualUrl || '';
+              setProviderPrompt({
+                kind: 'oauth-code',
+                providerId: providerItem._providerId,
+                providerName,
+                label: `${providerName} OAuth code`,
+                hint: manualUrl
+                  ? 'If the browser callback does not finish, open the URL below manually and paste code#state.'
+                  : `Paste the authorization code or full redirect URL for ${providerName}.`,
+                // Shown inside the live panel only — never written to the
+                // transcript, so it cannot linger in scrollback after the flow.
+                detail: manualUrl,
+                login,
+                afterSave: returnTo,
+                successReturn: () => {
+                  showOAuthResult(true, `${providerName} login complete.`);
+                },
+                failureReturn: (e) => {
+                  showOAuthResult(false, `${providerName} code failed: ${e?.message || e}`);
+                },
+                cancelReturn: () => {
+                  openOAuthProviderActions(providerItem);
+                },
+              });
+              store.pushNotice(`browser opened for ${providerName}; paste code/redirect here if callback does not finish`, 'info');
+            } else {
+              store.pushNotice(`browser opened for ${providerName}; finish signing in there`, 'info');
+            }
             login.waitForCallback
               ?.then((result) => {
                 if (result && !oauthSubmitRef.current) finish(true, `${providerName} login complete`);
               })
-              .catch((e) => finish(false, `oauth login failed: ${e?.message || e}`));
+              .catch((e) => finish(false, `${providerName} login failed: ${e?.message || e}`));
           })
           .catch((e) => {
-            store.pushNotice(`oauth login failed: ${e?.message || e}`, 'error');
+            store.pushNotice(`${providerName} login failed: ${e?.message || e}`, 'error');
             openOAuthProviderActions(providerItem);
           });
         return;

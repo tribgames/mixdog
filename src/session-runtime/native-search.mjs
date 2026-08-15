@@ -213,6 +213,7 @@ export function createNativeSearch({
               toolChoice: candidate.provider === 'gemini' ? 'auto' : 'required',
               ...(candidate.effort ? { effort: candidate.effort } : {}),
               fast: candidate.fast === true,
+              modelParameters: candidate.modelParameters || {},
               onStageChange: () => {},
               onStreamDelta: () => {},
             },

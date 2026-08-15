@@ -27,6 +27,7 @@ function scheduleRouteFromModelRef(modelRef, config = null) {
     model: preset.model,
     ...(preset.effort ? { effort: preset.effort } : {}),
     ...(preset.fast === true ? { fast: true } : {}),
+    ...(preset.modelParameters ? { modelParameters: { ...preset.modelParameters } } : {}),
   };
 }
 
@@ -53,6 +54,7 @@ export async function runScheduleSession(schedule, { config = null, prompt: prom
     model: route.model,
     ...(route.effort ? { effort: route.effort } : {}),
     ...(route.fast === true ? { fast: true } : {}),
+    ...(route.modelParameters ? { modelParameters: route.modelParameters } : {}),
     owner: 'user',
     sourceType: 'schedule',
     sourceName: schedule.name,

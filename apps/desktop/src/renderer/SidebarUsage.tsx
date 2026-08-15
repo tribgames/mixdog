@@ -20,6 +20,7 @@ import {
   type UsageApi,
   type UsageRecord,
 } from "./usage-dashboard-store";
+import { displayUsagePercent } from "./usage-percent";
 
 /** The cache key is owned by the shared store; this alias keeps the historical
  *  import site for the sidebar surface. */
@@ -31,6 +32,7 @@ const SUBSCRIPTIONS = [
   { key: "codex", label: "Codex", provider: "openai-oauth" },
   { key: "claude", label: "Claude", provider: "anthropic-oauth" },
   { key: "grok", label: "Grok", provider: "grok-oauth" },
+  { key: "cursor", label: "Cursor", provider: "cursor-oauth" },
   { key: "opencode-go", label: "OpenCode Go", provider: "opencode-go" },
 ] as const;
 
@@ -67,6 +69,9 @@ function subscriptionRow(dashboard: unknown, subscription: Subscription): UsageR
     const group = String(row.group || "").toLowerCase();
     if (subscription.key === "opencode-go") {
       return id === "opencode-go" || label.includes("opencode go");
+    }
+    if (subscription.key === "cursor") {
+      return id === "cursor-oauth" || label.includes("cursor oauth");
     }
     if (group !== "oauth") return false;
     if (subscription.key === "codex") return /openai|codex/.test(`${id} ${label}`);
@@ -106,8 +111,8 @@ function usedPercent(window: UsageRecord): number | null {
 
 /** Rail pin mode (user: 핀모드): one entry per brand that has quota data —
  *  its icon plus the final quota window's usage, picked by longest period:
- *  monthly (M) → weekly (7D/W) → daily/hourly. Unknown windows fall back
- *  to the provider's final entry. */
+ *  monthly (M) → weekly (7D/W) → daily/hourly. Cursor pins its overall Basic
+ *  meter; other unknown windows fall back to the provider's final entry. */
 export interface UsagePinEntry {
   key: string;
   label: string;
@@ -121,12 +126,16 @@ const PIN_WINDOW_PRIORITY = [
   /^(?:\d+H|\d+D|D|DAY|DAILY)$/i,
 ];
 
-function pinPercent(windows: UsageRecord[]): number | null {
+function pinPercent(windows: UsageRecord[], preferredLabel = ""): number | null {
   const candidates = windows.flatMap((window) => {
     const percent = usedPercent(window);
     return percent === null ? [] : [{ label: String(window.label || "").trim(), percent }];
   });
   if (!candidates.length) return null;
+  if (preferredLabel) {
+    const preferred = candidates.find((candidate) => candidate.label.toLowerCase() === preferredLabel.toLowerCase());
+    if (preferred) return preferred.percent;
+  }
   for (const pattern of PIN_WINDOW_PRIORITY) {
     const hit = candidates.find((candidate) => pattern.test(candidate.label));
     if (hit) return hit.percent;
@@ -136,7 +145,10 @@ function pinPercent(windows: UsageRecord[]): number | null {
 
 export function usagePinEntries(dashboard: unknown): UsagePinEntry[] {
   return SUBSCRIPTIONS.flatMap((subscription) => {
-    const percent = pinPercent(quotaWindows(subscriptionRow(dashboard, subscription)));
+    const percent = pinPercent(
+      quotaWindows(subscriptionRow(dashboard, subscription)),
+      subscription.provider === "cursor-oauth" ? "Basic" : "",
+    );
     if (percent === null) return [];
     return [{
       key: subscription.key,
@@ -410,13 +422,14 @@ export function SidebarUsage({
             <span className="sidebar-usage-meters">
               {windows.map((window, index) => {
                 const percent = usedPercent(window);
+                const displayedPercent = displayUsagePercent(percent);
                 const tone = percent !== null && percent >= 90 ? " tone-danger"
                   : percent !== null && percent >= 70 ? " tone-warning" : "";
                 return <span className={`sidebar-usage-meter${tone}`}
                   key={quotaWindowKey(window, index)}>
                   <small>{windowLabel(window)}</small>
                   <i><i style={{ width: `${percent ?? 0}%` }} /></i>
-                  <b>{percent === null ? "—" : `${Math.round(percent)}%`}</b>
+                  <b>{displayedPercent === null ? "—" : `${displayedPercent}%`}</b>
                 </span>;
               })}
               {windows.length === 0 && <span className="sidebar-usage-meter sidebar-usage-meter-empty">

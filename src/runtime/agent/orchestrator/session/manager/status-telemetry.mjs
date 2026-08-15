@@ -26,6 +26,7 @@ function standaloneStatusRouteInfo(session) {
         modelDisplay: session.modelDisplay || session.displayName || session.model,
         effort: session.effort || '',
         fast: session.fast === true,
+        modelParameters: session.modelParameters || {},
         contextWindow: session.contextWindow || null,
         rawContextWindow: session.rawContextWindow || session.contextWindow || null,
         effectiveContextWindowPercent: session.effectiveContextWindowPercent || null,

@@ -9,6 +9,7 @@ import {
     hasAnthropicOAuthCredentials,
     hasOpenAIOAuthCredentials,
     hasGrokOAuthCredentials,
+    hasCursorOAuthCredentials,
 } from './providers/oauth-credential-probes.mjs';
 
 // Thin wrapper around resolvePluginData so callers in this orchestrator tree
@@ -155,6 +156,9 @@ function buildDefaultConfig(options = {}) {
     // stored in mixdog-config.json — enabled at runtime from the presence of
     // Mixdog-owned credentials.
     providers['grok-oauth'] = { enabled: detectCredentials ? hasGrokOAuthCredentials() : false };
+    // Experimental direct Cursor wire provider. It remains disabled unless a
+    // Mixdog-owned login or CURSOR_ACCESS_TOKEN is present.
+    providers['cursor-oauth'] = { enabled: detectCredentials ? hasCursorOAuthCredentials() : false };
     // Local providers — opt-in via setup UI after HTTP ping confirms server is running
     providers.ollama = { enabled: false, baseURL: 'http://localhost:11434/v1' };
     providers.lmstudio = { enabled: false, baseURL: 'http://localhost:1234/v1' };
@@ -479,6 +483,9 @@ export function loadConfig(options = {}) {
                     if (kc) mergedProviders[name] = { ...(mergedProviders[name] || {}), apiKey: kc, enabled: true };
                 }
             }
+            // Cursor account access is OAuth-only. The dashboard's "API"
+            // meter is a quota bucket on that account, not a separate provider.
+            delete mergedProviders['cursor-api'];
             // Drop unknown maintenance keys (e.g. truly legacy slot names from
             // pre-removal installs). Every valid fallback slot lives in
             // DEFAULT_MAINTENANCE, so the allow-list below is the single
@@ -799,6 +806,8 @@ const FAST_CAPABLE_PRESET_PROVIDERS = new Set([
     'anthropic-oauth',
     'openai',
     'openai-oauth',
+    'cursor-oauth',
+    'cursor-api',
 ]);
 function normalizeAgentProviderId(provider) {
     const id = String(provider || '').trim();

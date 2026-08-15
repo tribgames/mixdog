@@ -17,6 +17,7 @@ import { focusTrapIndex } from './renderer-logic.mjs';
 import {
   modelDisplayName,
   modelOptionDescription,
+  ProviderIcon,
   providerDisplayName,
   providerDisplayRank,
 } from './provider-display';
@@ -96,6 +97,9 @@ interface ModelPickerProps {
   onOpen?: () => void;
   onSelect(option: DesktopModelOption): unknown;
   onOpenProviders?: () => void;
+  /** Catalog list only — parent owns the trigger and positioning. */
+  embedded?: boolean;
+  onClose?: () => void;
 }
 
 export function ModelPicker({
@@ -115,6 +119,8 @@ export function ModelPicker({
   onOpen,
   onSelect,
   onOpenProviders,
+  embedded = false,
+  onClose,
 }: ModelPickerProps) {
   const generatedId = useId().replace(/:/g, '');
   const dialogId = popoverId || `model-selector-${generatedId}`;
@@ -135,6 +141,10 @@ export function ModelPicker({
   const clickGuard = useImmediateOverlayClickGuard();
 
   const close = useCallback((restoreFocus = false) => {
+    if (embedded) {
+      onClose?.();
+      return;
+    }
     setOpen(false);
     setQuery('');
     setActiveRowKey('');
@@ -142,15 +152,15 @@ export function ModelPicker({
     if (restoreFocus) {
       window.setTimeout(() => trigger.current?.focus({ preventScroll: true }), 0);
     }
-  }, []);
+  }, [embedded, onClose]);
 
   useEffect(() => {
-    if (!open || openModels.length > 0 || models.length === 0) return;
+    if ((!embedded && !open) || openModels.length > 0 || models.length === 0) return;
     setOpenModels(models);
-  }, [models, open, openModels.length]);
+  }, [embedded, models, open, openModels.length]);
 
   useEffect(() => {
-    if (!open) return;
+    if (embedded || !open) return;
     const backgrounds = [
       document.querySelector<HTMLElement>('.app-shell'),
       trigger.current?.closest<HTMLElement>('.mixdog-settings'),
@@ -191,21 +201,25 @@ export function ModelPicker({
       document.removeEventListener('keydown', onKeyDown, true);
       layer.release();
     };
-  }, [close, open]);
+  }, [close, embedded, open]);
 
   useLayoutEffect(() => {
-    if (!open || !modelList.current) return;
+    if ((!embedded && !open) || !modelList.current) return;
     modelList.current.scrollTop = 0;
-  }, [open, query]);
+  }, [embedded, open, query]);
 
   useEffect(() => {
-    if (disabled && open) close();
-  }, [close, disabled, open]);
+    if (!embedded && disabled && open) close();
+  }, [close, disabled, embedded, open]);
   useEffect(() => {
     if (disabled || !restoreFocusPending.current) return;
     restoreFocusPending.current = false;
     trigger.current?.focus({ preventScroll: true });
   }, [disabled]);
+  useEffect(() => {
+    if (!embedded) return;
+    search.current?.focus({ preventScroll: true });
+  }, [embedded]);
 
   const providerEntries = useMemo(() => {
     const entries = new Map<string, DesktopModelOption[]>();
@@ -239,7 +253,7 @@ export function ModelPicker({
     || models.find((option) => option.provider === provider && option.model === model);
 
   useEffect(() => {
-    if (!open) return;
+    if (!embedded && !open) return;
     const recent = recentModels.find((option) =>
       option.provider === provider && option.model === model);
     if (recent) {
@@ -250,7 +264,7 @@ export function ModelPicker({
     const preferred = visibleModels.find((option) =>
       option.provider === provider && option.model === model) || visibleModels[0];
     setActiveRowKey(preferred ? modelKey(preferred) : '');
-  }, [model, normalizedQuery, open, openModels, provider, recentModelKeys]);
+  }, [embedded, model, normalizedQuery, open, openModels, provider, recentModelKeys]);
 
   const focusRow = (index: number) => {
     const options = Array.from(dialog.current?.querySelectorAll<HTMLButtonElement>(
@@ -299,17 +313,20 @@ export function ModelPicker({
     ].slice(0, RECENT_MODELS_LIMIT);
     setRecentModelKeys(nextRecentModelKeys);
     writeRecentModelKeys(nextRecentModelKeys);
-    close();
+    if (!embedded) close();
     try {
       const selected = await onSelect(option);
       if (selected === false) {
         setRecentModelKeys(previousRecentModelKeys);
         writeRecentModelKeys(previousRecentModelKeys);
+        return;
       }
     } catch {
       setRecentModelKeys(previousRecentModelKeys);
       writeRecentModelKeys(previousRecentModelKeys);
+      return;
     } finally {
+      if (embedded) close();
       restoreFocusPending.current = true;
       queueMicrotask(() => {
         if (trigger.current?.disabled !== false) return;
@@ -340,6 +357,7 @@ export function ModelPicker({
     </button>;
   };
   const togglePicker = () => {
+    if (embedded) return;
     if (open) {
       close();
       return;
@@ -350,6 +368,77 @@ export function ModelPicker({
     setOpenModels(models);
     setOpen(true);
   };
+
+  const catalogBody = (
+    <div className="model-picker-body" data-slot="dialog-body">
+      <PaneSurfaceGate ready={catalogLoaded || openModels.length > 0} label={t('Loading models…')}>
+      <div className="model-picker-list" data-component="list">
+        <div className="model-search-wrapper" data-slot="list-search-wrapper">
+          <div className="model-search" data-slot="list-search">
+            <div className="model-search-container" data-slot="list-search-container">
+              <Search size={16} aria-hidden="true" />
+              <input ref={search} type="text" value={query} data-slot="list-search-input"
+                placeholder={t('Search models…')}
+                aria-label={t('Search models')}
+                autoComplete="off" spellCheck={false}
+                onInput={(event) => setQuery(event.currentTarget.value)}
+                onKeyDown={(event) => navigateRows(event, true)} />
+            </div>
+            {query && <button type="button" data-component="icon-button"
+              onClick={() => { setQuery(''); search.current?.focus(); }} aria-label={t('Clear picker search')}>
+              <X size={14} />
+            </button>}
+          </div>
+          {embedded && onOpenProviders && <button type="button" className="model-provider-add" aria-label={t('Add provider')}
+            data-tooltip={t('Add provider')} onClick={() => {
+              close();
+              onOpenProviders();
+            }}>
+            <Plus size={16} aria-hidden="true" />
+          </button>}
+        </div>
+        <div ref={modelList} className="model-list" data-slot="list-scroll" role="listbox"
+          aria-label={t('Available models')}>
+          {catalogError && <p className="model-notice model-notice--error" role="alert">
+            {t('Model catalog unavailable: {{error}}', { error: catalogError })}
+          </p>}
+          {providerSetupError && <p className="model-notice" role="status">
+            {t('Provider status is temporarily unavailable. Try again.')}
+          </p>}
+          {renderedKeys.length === 0 && <p className="model-empty">
+            {catalogRefreshing || !catalogLoaded
+              ? t('Loading models…')
+              : normalizedQuery ? t('No matching models.') : t('No connected provider models.')}
+          </p>}
+          {recentModels.length > 0 && <section className="model-group model-group--recent">
+            <h3>RECENT</h3>
+            <div className="model-items" data-slot="list-items">
+              {recentModels.map((option) => renderModelOption(option, 'recent:'))}
+            </div>
+          </section>}
+          {visibleProviderEntries.map(([entryProvider, options]) =>
+            <section className="model-group model-group--provider" key={entryProvider}>
+              <h3><span className="model-provider-heading">
+                <ProviderIcon provider={entryProvider} />
+                <span>{providerDisplayName(entryProvider)}</span>
+              </span></h3>
+              <div className="model-items" data-slot="list-items">
+                {options.map((option) => renderModelOption(option))}
+              </div>
+            </section>)}
+        </div>
+      </div>
+      </PaneSurfaceGate>
+    </div>
+  );
+
+  if (embedded) {
+    return <section ref={dialog} id={dialogId} className="model-catalog-panel"
+      data-component="dialog" role="dialog" aria-modal="false"
+      aria-label={t('Select model')} tabIndex={-1}>
+      {catalogBody}
+    </section>;
+  }
 
   return <>
     <button ref={trigger} type="button" className={triggerClassName}
@@ -403,56 +492,7 @@ export function ModelPicker({
               </button>
             </div>
           </header>
-          <div className="model-picker-body" data-slot="dialog-body">
-            <PaneSurfaceGate ready={catalogLoaded || openModels.length > 0} label={t('Loading models…')}>
-            <div className="model-picker-list" data-component="list">
-              <div className="model-search-wrapper" data-slot="list-search-wrapper">
-                <div className="model-search" data-slot="list-search">
-                  <div className="model-search-container" data-slot="list-search-container">
-                    <Search size={16} aria-hidden="true" />
-                    <input ref={search} type="text" value={query} data-slot="list-search-input"
-                      placeholder={t('Search models…')}
-                      aria-label={t('Search models')}
-                      autoComplete="off" spellCheck={false}
-                      onInput={(event) => setQuery(event.currentTarget.value)}
-                      onKeyDown={(event) => navigateRows(event, true)} />
-                  </div>
-                  {query && <button type="button" data-component="icon-button"
-                    onClick={() => { setQuery(''); search.current?.focus(); }} aria-label={t('Clear picker search')}>
-                    <X size={14} />
-                  </button>}
-                </div>
-              </div>
-              <div ref={modelList} className="model-list" data-slot="list-scroll" role="listbox"
-                aria-label={t('Available models')}>
-                {catalogError && <p className="model-notice model-notice--error" role="alert">
-                  {t('Model catalog unavailable: {{error}}', { error: catalogError })}
-                </p>}
-                {providerSetupError && <p className="model-notice" role="status">
-                  {t('Provider status is temporarily unavailable. Try again.')}
-                </p>}
-                {renderedKeys.length === 0 && <p className="model-empty">
-                  {catalogRefreshing || !catalogLoaded
-                    ? t('Loading models…')
-                    : normalizedQuery ? t('No matching models.') : t('No connected provider models.')}
-                </p>}
-                {recentModels.length > 0 && <section className="model-group model-group--recent">
-                  <h3>RECENT</h3>
-                  <div className="model-items" data-slot="list-items">
-                    {recentModels.map((option) => renderModelOption(option, 'recent:'))}
-                  </div>
-                </section>}
-                {visibleProviderEntries.map(([entryProvider, options]) =>
-                  <section className="model-group model-group--provider" key={entryProvider}>
-                    <h3>{providerDisplayName(entryProvider)}</h3>
-                    <div className="model-items" data-slot="list-items">
-                      {options.map((option) => renderModelOption(option))}
-                    </div>
-                  </section>)}
-              </div>
-            </div>
-            </PaneSurfaceGate>
-          </div>
+          {catalogBody}
         </section>
       </div>,
       document.body,

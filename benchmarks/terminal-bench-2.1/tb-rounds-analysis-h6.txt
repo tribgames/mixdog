@@ -1,0 +1,52 @@
+== code-from-image reward=1 rounds=3
+   1 [1] read(code.png)
+   2 [1] shell(python3 - <<'PY' from hashlib import sha256 f)
+   3 [1] FINAL
+== db-wal-recovery reward=1 rounds=5
+   1 [1] list(/app)
+   2 [1] read(/app/main.db,/app/main.db-wal)
+   3 [1] shell(python3 - <<'PY' from pathlib import Path imp)
+   4 [1] shell(python3 - <<'PY' from pathlib import Path imp)
+   5 [1] FINAL
+== fix-code-vulnerability reward=1 rounds=6
+   1 [3] list() | code_graph() | grep(except (ValueError, TypeError),except ValueEr)
+   2 [4] grep(parse_range_header,Range,range_header,HTTP_RA) | grep(raise BottleException,raise ValueError,raise ) | read([object Object],[object Object],[object Objec) 
+   3 [4] read(bottle.py) | grep(Header names must not contain control charact) | grep(_hkey(,_hval() | grep(class HeaderDict,class WSGIHeaderDict,class B)
+   4 [1] apply_patch(*** Begin Patch *** Update File: bottle.py @@)
+   5 [1] shell(python -m py_compile bottle.py && python -c ')
+   6 [1] FINAL
+== git-leak-recovery reward=1 rounds=7
+   1 [1] shell(set -euo pipefail printf 'root='; git rev-par)
+   2 [1] shell(set -euo pipefail for x in perl ruby node php)
+   3 [1] shell(set -euo pipefail while read -r oid type size)
+   4 [1] find(secret.txt)
+   5 [1] shell(set -euo pipefail umask 077 blob=52d18a091cd9)
+   6 [1] shell(set -euo pipefail expected_head=c6d99979c3ef7)
+   7 [1] FINAL
+== log-summary-date-ranges reward=1 rounds=6
+   1 [1] glob(*.log)
+   2 [1] read(logs/2025-08-12_app.log)
+   3 [1] shell(python - <<'PY' from collections import Count)
+   4 [1] read(logs/2025-07-03_api.log)
+   5 [1] shell(python - <<'PY' from collections import Count)
+   6 [1] FINAL
+== multi-source-data-merger reward=1 rounds=4
+   1 [1] shell(python - <<'PY' import json from pathlib impo)
+   2 [1] shell(python - <<'PY' import json import os from da)
+   3 [1] shell(python - <<'PY' import json import re from pa)
+   4 [1] FINAL
+== polyglot-c-py reward=1 rounds=7
+   1 [1] list(polyglot)
+   2 [1] apply_patch(*** Begin Patch *** Add File: polyglot/main.p)
+   3 [1] shell(gcc polyglot/main.py.c -o polyglot/cmain && f)
+   4 [1] apply_patch(*** Begin Patch *** Update File: polyglot/mai)
+   5 [2] grep(0 and 0//0;,""") | shell(printf 'PATH=%s\n' "$PATH"; for candidate in )
+   6 [1] shell(gcc /app/polyglot/main.py.c -o /app/polyglot/)
+   7 [1] FINAL
+== prove-plus-comm reward=1 rounds=5
+   1 [1] find(plus_comm.v)
+   2 [1] read(plus_comm.v)
+   3 [1] apply_patch(*** Begin Patch *** Update File: plus_comm.v )
+   4 [1] shell(coqc plus_comm.v && test -f plus_comm.vo)
+   5 [1] FINAL
+TOTAL rounds=43

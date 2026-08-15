@@ -10,7 +10,10 @@ import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 
 import { markdownComponents, type MarkdownCopyControl } from "./markdown-components";
-import { trimTrailingCodeNewline } from "./markdown-plugins";
+import {
+  repairAdjacentStrongPunctuation,
+  trimTrailingCodeNewline,
+} from "./markdown-plugins";
 
 export default function MarkdownBody({ text, copyControl }: {
   text: string;
@@ -22,6 +25,7 @@ export default function MarkdownBody({ text, copyControl }: {
   // flip into inline math; only explicit $$…$$ math is intentional enough.
   return <ReactMarkdown
     remarkPlugins={[
+      repairAdjacentStrongPunctuation,
       [remarkGfm, { singleTilde: false }],
       [remarkMath, { singleDollarTextMath: false }],
     ]}

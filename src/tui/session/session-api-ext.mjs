@@ -420,6 +420,7 @@ export function createSessionApiB(bag) {
             model: String(opts.model).trim(),
             ...(opts.effort ? { effort: opts.effort } : {}),
             ...(opts.fast === true ? { fast: true } : {}),
+            ...(opts.modelParameters ? { modelParameters: { ...opts.modelParameters } } : {}),
             ...(opts.toolType ? { toolType: opts.toolType } : {}),
           }
         : null;
@@ -1043,6 +1044,7 @@ export function createSessionApiB(bag) {
         model: session.model || '',
         effort: session.effort || '',
         fast: session.fast === true,
+        modelParameters: session.modelParameters || {},
         cwd: session.cwd || '',
         desktopSession: session.desktopSession || null,
         workflow: session.workflow || null,

@@ -16,7 +16,7 @@ import {
   attachmentsFromRecords,
   type AutomationAttachment,
 } from './automation-attachments';
-import { modelDisplayName, normalizeModelOptions } from './provider-display';
+import { modelDisplayName, modelFastAvailable, normalizeModelOptions, preferredModelParameters } from './provider-display';
 import { SidebarPanelAction } from './session-sidebar';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { acquireTitleBarDim } from './titlebar-dim';
@@ -53,8 +53,11 @@ function rows(value: unknown): RecordValue[] {
 }
 
 // webhook.model wire format matches schedules: "provider/model[@effort][+fast]".
-function parseModelRef(ref: string): { route: string; effort: string; fast: boolean } {
-  let route = String(ref || '');
+function parseModelRef(ref: string): { route: string; effort: string; fast: boolean; modelParameters: Record<string, string> } {
+  const raw = String(ref || '');
+  const queryAt = raw.indexOf('?');
+  let route = queryAt >= 0 ? raw.slice(0, queryAt) : raw;
+  const modelParameters = queryAt >= 0 ? Object.fromEntries(new URLSearchParams(raw.slice(queryAt + 1))) : {};
   let fast = false;
   if (route.endsWith('+fast')) {
     fast = true;
@@ -69,13 +72,16 @@ function parseModelRef(ref: string): { route: string; effort: string; fast: bool
       route = route.slice(0, at);
     }
   }
-  return { route, effort, fast };
+  return { route, effort, fast, modelParameters };
 }
 
 function preferredEffort(option?: DesktopModelOption): string {
   if (!option?.effortOptions.length) return '';
   if (option.savedEffort && option.effortOptions.some((entry) => entry.value === option.savedEffort)) {
     return option.savedEffort;
+  }
+  if (option.defaultEffort && option.effortOptions.some((entry) => entry.value === option.defaultEffort)) {
+    return option.defaultEffort;
   }
   for (const value of ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra']) {
     if (option.effortOptions.some((entry) => entry.value === value)) return value;
@@ -205,6 +211,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
   const [model, setModel] = useState(initialModel.route);
   const [effort, setEffort] = useState(initialModel.effort);
   const [fast, setFast] = useState(initialModel.fast);
+  const [modelParameters, setModelParameters] = useState(initialModel.modelParameters);
   const [formError, setFormError] = useState('');
   const slash = model.indexOf('/');
   const modelProvider = slash > 0 ? model.slice(0, slash) : '';
@@ -214,6 +221,8 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
   const effortValue = selected?.effortOptions.some((entry) => entry.value === effort)
     ? effort
     : preferredEffort(selected);
+  const selectedModelParameters = preferredModelParameters(selected, modelParameters);
+  const fastAvailable = modelFastAvailable(selected, effortValue, selectedModelParameters);
   const projectOptions = [
     { value: '__none__', label: 'No project' },
     ...projects.map((project) => ({
@@ -250,6 +259,9 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
         setFormError('');
         const effortSuffix = selected && effortValue ? `@${effortValue}` : '';
         const fastSuffix = selected?.fastCapable && fast ? '+fast' : '';
+        const parameterSuffix = Object.keys(selectedModelParameters).length
+          ? `?${new URLSearchParams(selectedModelParameters).toString()}`
+          : '';
         // A NEW webhook persists the displayed pre-minted secret; an EDIT
         // sends a secret only after an explicit Regenerate (the store
         // preserves the existing secret on plain overwrite).
@@ -261,7 +273,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
           // Session-only delivery (user decision, schedules parity): every
           // webhook fire runs as a fresh New-task session — no channel
           // target, so saving a legacy channel webhook converts it.
-          ...(model ? { model: `${model}${effortSuffix}${fastSuffix}` } : {}),
+          ...(model ? { model: `${model}${effortSuffix}${fastSuffix}${parameterSuffix}` } : {}),
           ...(cwd ? { cwd } : {}),
           ...(workflow ? { workflow } : {}),
           delivery,
@@ -294,13 +306,25 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
                 setModel(`${option.provider}/${option.model}`);
                 setEffort(preferredEffort(option));
                 setFast(option.fastCapable ? option.fastPreferred : false);
+                setModelParameters(preferredModelParameters(option));
                 setFormError('');
               }} />
             {selected && selected.effortOptions.length > 0 && <OpenSelect ariaLabel={t("Webhook reasoning effort")}
               value={effortValue} disabled={busy} localizeLabels={false}
-              options={selected.effortOptions} onChange={setEffort} />}
+              options={selected.effortOptions} onChange={(value) => {
+                setEffort(value);
+                if (!modelFastAvailable(selected, value, selectedModelParameters)) setFast(false);
+              }} />}
             {selected?.fastCapable && <FastModeToggle ariaLabel={t("Webhook fast mode")}
-              enabled={fast} disabled={busy} onChange={setFast} />}
+              enabled={fastAvailable && fast} disabled={busy || !fastAvailable} onChange={setFast} />}
+            {selected?.modelParameterOptions?.map((parameter) => <OpenSelect key={parameter.id}
+              ariaLabel={t(`Webhook ${parameter.label}`)}
+              value={selectedModelParameters[parameter.id] || parameter.options[0]?.value || ''} disabled={busy}
+              options={parameter.options} onChange={(value) => {
+                const next = { ...selectedModelParameters, [parameter.id]: value };
+                setModelParameters(next);
+                if (!modelFastAvailable(selected, effortValue, next)) setFast(false);
+              }} />)}
             {/* Same flat, right-aligned workflow control as the chat
                 composer (effort-control/workflow-control skin). */}
             <div className="effort-control workflow-control">

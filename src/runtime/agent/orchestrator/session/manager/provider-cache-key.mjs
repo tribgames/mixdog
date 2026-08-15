@@ -14,6 +14,8 @@ const PROVIDER_ALIAS = {
     'gemini': 'gemini',
     'deepseek': 'deepseek',
     'xai': 'xai',
+    'cursor-oauth': 'cursor',
+    'cursor-api': 'cursor',
 };
 export function providerCacheKey(provider, override) {
     if (override) return String(override);

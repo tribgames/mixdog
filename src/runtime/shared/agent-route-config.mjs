@@ -38,6 +38,9 @@ function routeFromGeneratedPreset(preset) {
   const effort = String(preset?.effort || '').trim();
   if (effort) route.effort = effort;
   if (preset?.fast === true) route.fast = true;
+  if (preset?.modelParameters && typeof preset.modelParameters === 'object') {
+    route.modelParameters = { ...preset.modelParameters };
+  }
   return route;
 }
 

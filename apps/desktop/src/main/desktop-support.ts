@@ -106,6 +106,18 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
       ? row.savedEffort
       : undefined;
     const savedFast = typeof row.savedFast === 'boolean' ? row.savedFast : undefined;
+    const modelParameterOptions = Array.isArray(row.modelParameterOptions)
+      ? row.modelParameterOptions as DesktopModelOption['modelParameterOptions']
+      : [];
+    const parameterVariants = Array.isArray(row.parameterVariants)
+      ? row.parameterVariants as Array<Record<string, string>>
+      : [];
+    const defaultModelParameters = row.defaultModelParameters && typeof row.defaultModelParameters === 'object'
+      ? row.defaultModelParameters as Record<string, string>
+      : {};
+    const savedModelParameters = row.savedModelParameters && typeof row.savedModelParameters === 'object'
+      ? row.savedModelParameters as Record<string, string>
+      : {};
     return [{
       provider,
       model,
@@ -116,11 +128,18 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
       ...(family ? { family } : {}),
       ...(row.latest === true ? { latest: true } : {}),
       ...(description ? { description } : {}),
+      ...(row.supportsVision === true ? { supportsVision: true } : {}),
       effortOptions,
       fastCapable,
       fastPreferred: fastCapable && (row.fastPreferred === true || row.savedFast === true),
       ...(savedEffort ? { savedEffort } : {}),
       ...(savedFast === undefined ? {} : { savedFast }),
+      ...(typeof row.defaultEffort === 'string' && row.defaultEffort ? { defaultEffort: row.defaultEffort } : {}),
+      ...(row.defaultFast === true ? { defaultFast: true } : {}),
+      modelParameterOptions,
+      parameterVariants,
+      defaultModelParameters,
+      savedModelParameters,
     }];
   });
 }

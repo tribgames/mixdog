@@ -1053,6 +1053,8 @@ export function Conversation({
           effort={String(draftModelSelection?.effort ?? routeSnapshot.effort ?? "")}
           fast={draftModelSelection?.fast ?? Boolean(routeSnapshot.fast)}
           fastCapable={Boolean(routeSnapshot.fastCapable)}
+          modelParameters={draftModelSelection?.modelParameters
+            || routeSnapshot.modelParameters as Record<string, string> | undefined}
           draftMode={draftMode}
           onDraftModelSelection={onDraftModelSelection}
           onFastPreferenceApplied={onFastPreferenceApplied}

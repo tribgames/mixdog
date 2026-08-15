@@ -10,6 +10,53 @@ interface HastLikeNode {
   children?: HastLikeNode[];
 }
 
+const adjacentStrongPunctuation =
+  /(\*\*(?!\s)([^*\n]*?[^\s\p{L}\p{N}*])\*\*|__(?!\s)([^_\n]*?[^\s\p{L}\p{N}_])__)(?=[\p{L}\p{N}])/gu;
+
+// CommonMark does not close `**0.118%**이며` because punctuation immediately
+// precedes the closing delimiter and a Korean suffix immediately follows it.
+// Repair that natural-language boundary in mdast text nodes; code and already
+// parsed emphasis remain untouched, and both desktop markdown pipelines share
+// the same result.
+export function repairAdjacentStrongPunctuation() {
+  return (tree: HastLikeNode) => {
+    const visit = (node: HastLikeNode) => {
+      if (node.type === "strong" || node.type === "code" || node.type === "inlineCode") return;
+      const children = node.children;
+      if (!children) return;
+      const repaired: HastLikeNode[] = [];
+      for (const child of children) {
+        if (child.type !== "text" || typeof child.value !== "string") {
+          visit(child);
+          repaired.push(child);
+          continue;
+        }
+        adjacentStrongPunctuation.lastIndex = 0;
+        let cursor = 0;
+        for (let match = adjacentStrongPunctuation.exec(child.value);
+          match;
+          match = adjacentStrongPunctuation.exec(child.value)) {
+          if (match.index > cursor) {
+            repaired.push({ type: "text", value: child.value.slice(cursor, match.index) });
+          }
+          repaired.push({
+            type: "strong",
+            children: [{ type: "text", value: match[2] ?? match[3] ?? "" }],
+          });
+          cursor = match.index + match[0].length;
+        }
+        if (cursor === 0) {
+          repaired.push(child);
+        } else if (cursor < child.value.length) {
+          repaired.push({ type: "text", value: child.value.slice(cursor) });
+        }
+      }
+      node.children = repaired;
+    };
+    visit(tree);
+  };
+}
+
 // mdast-util-to-hast terminates every fenced block with "\n". The code
 // renderer keeps the highlighted child spans instead of re-printing a
 // trimmed string, so that terminator would paint an empty closing line in

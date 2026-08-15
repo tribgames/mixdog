@@ -9,6 +9,8 @@ import { classifyResultKind } from './result-classification.mjs';
 import { isInvalidToolArgsMarker } from '../providers/openai-compat-stream.mjs';
 import {
     _intraTurnSig,
+    _argShapeSig,
+    _isEditTool,
     _isMutationTool,
     _isReadTool,
     _isScopedCacheableTool,
@@ -41,6 +43,9 @@ export function createEagerDispatcher({
         // assistant turn. Patches remain path-parallel with each other; a later
         // shell waits for all of them and is skipped if any patch failed.
         let patchBarrier = Promise.resolve({ failedPatchIds: [] });
+        // Exact-string edits are single-replacement calls. Serialize them so
+        // multiple edits to one file in the same model turn observe prior writes.
+        let editBarrier = Promise.resolve();
         // Streaming-time intra-turn dedup. When the LLM emits two
         // tool_use blocks with identical (name, args) signatures in
         // sequence, the provider's onToolCall fires for both BEFORE
@@ -78,6 +83,10 @@ export function createEagerDispatcher({
             {
                 const _rfg = sessionRef?._repeatFailGuard;
                 if (_rfg && _rfg.sig === _sig && _rfg.count >= repeatFailLimit) return null;
+            }
+            {
+                const _afg = sessionRef?._repeatArgShapeFailGuard;
+                if (_afg && _afg.sig === _argShapeSig(call.name, call.arguments) && _afg.count >= repeatFailLimit) return null;
             }
             // Cross-turn dedup also gates eager dispatch (mirror of the
             // repeat-failure guard above): a read-only call whose (name,args)
@@ -123,16 +132,18 @@ export function createEagerDispatcher({
                 resultTelemetry: {},
             };
             const precedingPatches = _isShellTool(call.name) ? patchBarrier : null;
+            const precedingEdits = _isEditTool(call.name) ? editBarrier : null;
             if (_dedupEligible) _eagerInFlightSigs.set(_sig, call.id);
             entry.promise = (async () => {
                 try {
+                    if (precedingEdits) await precedingEdits;
                     if (precedingPatches) {
                         const patchState = await precedingPatches;
                         if (patchState.failedPatchIds.length > 0) {
                             return {
                                 ok: true,
                                 skipped: true,
-                                value: `[patch-dependency-guard] \`${call.name}\` was not executed because earlier apply_patch call(s) failed in this assistant turn: ${patchState.failedPatchIds.join(', ')}. Fix the failed patch before verification.`,
+                                value: `[patch-dependency-guard] \`${call.name}\` was not executed because earlier file-edit call(s) failed in this assistant turn: ${patchState.failedPatchIds.join(', ')}. Fix the failed edit before verification.`,
                             };
                         }
                     }
@@ -201,6 +212,9 @@ export function createEagerDispatcher({
                     return settled;
                 });
             pending.set(call.id, entry);
+            if (_isEditTool(call.name)) {
+                editBarrier = entry.promise.then(() => undefined, () => undefined);
+            }
             if (_isMutationTool(call.name)) {
                 const precedingPatchState = patchBarrier;
                 const currentPatch = entry.promise;

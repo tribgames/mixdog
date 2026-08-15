@@ -4,7 +4,9 @@
 // never collides with a sync mixdog-config lock (ELOCKCONTENDED).
 import { clean, hasOwn } from './session-text.mjs';
 
-const FAST_CAPABLE_PROVIDERS = new Set(['anthropic', 'anthropic-oauth', 'openai', 'openai-oauth']);
+const FAST_CAPABLE_PROVIDERS = new Set([
+  'anthropic', 'anthropic-oauth', 'openai', 'openai-oauth', 'cursor-oauth', 'cursor-api',
+]);
 export const LAZY_SECRET_PROVIDERS = new Set(['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'ollama', 'lmstudio']);
 
 export function routeFastKey(provider, model) {
@@ -76,9 +78,22 @@ function anthropicModelMetaSupportsFast(model) {
   return /^claude-(opus|sonnet)/.test(id);
 }
 
-export function fastCapableFor(provider, model) {
+export function fastCapableFor(provider, model, effort = null, modelParameters = {}) {
   const p = clean(provider);
   if (!FAST_CAPABLE_PROVIDERS.has(p)) return false;
+  if (p === 'cursor-oauth' || p === 'cursor-api') {
+    const fastEfforts = Array.isArray(model?.fastEfforts) ? model.fastEfforts.map(clean) : [];
+    if (model?.fastCapable !== true && fastEfforts.length === 0) return false;
+    const selectedEffort = clean(effort);
+    if (Array.isArray(model?.parameterVariants) && model.parameterVariants.length) {
+      const parameters = modelParameters && typeof modelParameters === 'object' ? modelParameters : {};
+      return model.parameterVariants.some((variant) => variant?.fast === 'true'
+        && (!selectedEffort || !variant.effort || clean(variant.effort) === selectedEffort)
+        && Object.entries(parameters).every(([key, value]) =>
+          !variant?.[key] || clean(variant[key]) === clean(value)));
+    }
+    return !selectedEffort || fastEfforts.length === 0 || fastEfforts.includes(selectedEffort);
+  }
   if (p === 'openai') return openAiDirectModelSupportsFast(model);
   if (p === 'openai-oauth') return openAiModelMetaSupportsFast(model);
   if (p === 'anthropic' || p === 'anthropic-oauth') return anthropicModelMetaSupportsFast(model);
@@ -120,6 +135,13 @@ export function saveModelSettings(cfgMod, route, { fastCapable = true, baseConfi
   else delete nextSetting.effort;
   if (fastCapable) nextSetting.fast = route.fast === true;
   else nextSetting.fast = false;
+  if (route.modelParameters && typeof route.modelParameters === 'object') {
+    nextSetting.modelParameters = Object.fromEntries(Object.entries(route.modelParameters)
+      .map(([key, value]) => [clean(key), clean(value)])
+      .filter(([key, value]) => key && value));
+  } else {
+    delete nextSetting.modelParameters;
+  }
   modelSettings[key] = nextSetting;
 
   // modelSettings is the single source of truth for the fast preference; the

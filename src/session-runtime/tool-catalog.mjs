@@ -26,6 +26,7 @@ import {
   READONLY_TOOL_NAMES,
 } from './tool-catalog-data.mjs';
 import { toolKind, measuredToolUsage, parseToolSelection, parseToolSearchQuerySelection, routeToolRank, sortedCatalogByMeasuredUsage, activeToolForSurface, deferredProviderMode, nativeProviderFamily } from './tool-catalog-schema.mjs';
+import { filterModelEditTools } from '../runtime/shared/edit-tool-dialect.mjs';
 export { toolKind, toolSchemaBucket, estimateToolSchemaBreakdown, measuredToolUsage, parseToolSelection, parseToolSearchQuerySelection, sortedCatalogByMeasuredUsage } from './tool-catalog-schema.mjs';
 export { resolveProviderRequestTools, snapshotProviderRequestTools } from './provider-request-snapshot.mjs';
 export {
@@ -271,7 +272,11 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   if (!session || !Array.isArray(session.tools)) return session;
   const providerMode = deferredProviderMode(options.provider || session.provider);
   const byName = new Map();
-  for (const tool of [...session.tools, ...(extraTools || [])]) {
+  const candidates = filterModelEditTools(
+    [...session.tools, ...(extraTools || [])],
+    options.model || session.model,
+  );
+  for (const tool of candidates) {
     const name = clean(tool?.name);
     if (!name || byName.has(name)) continue;
     byName.set(name, activeToolForSurface(tool));

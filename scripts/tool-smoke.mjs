@@ -62,6 +62,7 @@ import { resolveHiddenRoleSchemaAllowedTools } from '../src/runtime/agent/orches
 import { assertCodeGraphDescriptionContract } from './code-graph-description-contract.mjs';
 import { getHiddenAgent, resolveAgentSessionPermission } from '../src/runtime/agent/orchestrator/internal-agents.mjs';
 import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
+import { _argShapeSig, _isToolArgShapeFailure } from '../src/runtime/agent/orchestrator/session/loop/tool-classify.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const localGraphBin = join(
@@ -872,6 +873,28 @@ const readStringifiedLineErr = validateBuiltinArgs('read', readStringifiedLineAr
 if (readStringifiedLineErr || readStringifiedLineArgs.path[0].offset !== 7 || readStringifiedLineArgs.path[0].limit !== 5) {
   throw new Error(`read guard must losslessly convert legacy line/context inside stringified arrays to offset/limit: err=${readStringifiedLineErr} args=${JSON.stringify(readStringifiedLineArgs)}`);
 }
+const readEchoedPathArgs = {
+  file_path: 'scripts/smoke.mjs',
+  offset: '307 ├──path──scripts/smoke.mjs',
+  limit: '30usepath?scripts/smoke.mjs',
+};
+const readEchoedPathErr = validateBuiltinArgs('read', readEchoedPathArgs);
+if (readEchoedPathErr || readEchoedPathArgs.offset !== 307 || readEchoedPathArgs.limit !== 30) {
+  throw new Error(`read guard must absorb exact echoed-path integer annotations: err=${readEchoedPathErr} args=${JSON.stringify(readEchoedPathArgs)}`);
+}
+const readEmptyArrayWrapperOut = await executeBuiltinTool('read', {
+  path: '[""]scripts/smoke.mjs[""]',
+  limit: 1,
+}, root);
+if (!/1→import \{ spawnSync \}/.test(String(readEmptyArrayWrapperOut))) {
+  throw new Error(`read must recover an empty-array-fragment wrapped scalar path:\n${readEmptyArrayWrapperOut}`);
+}
+if (_argShapeSig('grep', { path: 'a', mode: 'content' }) !== _argShapeSig('grep', { path: 'b', mode: 'files' })
+  || _argShapeSig('read', { file_path: 'x', offset: 'bad' }) === _argShapeSig('read', { file_path: 'x', offset: 1 })
+  || !_isToolArgShapeFailure('Error: grep requires pattern (or alias query/regex/needle) or glob.')
+  || _isToolArgShapeFailure('Error: path does not exist: missing')) {
+  throw new Error('repeat argument-shape guard classification contract failed');
+}
 
 // Absorb shape 1: region array + top-level offset/limit → top-level becomes
 // the default window for regions that lack their own; no hard error.
@@ -1028,6 +1051,52 @@ const patchOut = await executePatchTool('apply_patch', {
 }, root);
 assertOk('apply_patch dry_run', patchOut, /checked|validated|dry|OK/i);
 
+{
+  const editTmp = mkdtempSync(join(tmpdir(), 'mixdog-edit-tool-'));
+  try {
+    const target = join(editTmp, 'target.txt');
+    writeFileSync(target, 'alpha beta alpha\n', 'utf8');
+    const replaceAllOut = await executeBuiltinTool('edit', {
+      file_path: 'target.txt',
+      old_string: 'alpha',
+      new_string: 'omega',
+      replace_all: true,
+    }, editTmp, { sessionId: `tool-smoke-edit-${process.pid}` });
+    assertOk('edit replace_all', replaceAllOut, /2 replacements/);
+    if (readFileSync(target, 'utf8') !== 'omega beta omega\n') {
+      throw new Error('edit replace_all must replace every occurrence');
+    }
+    const ambiguousOut = await executeBuiltinTool('edit', {
+      file_path: 'target.txt',
+      old_string: 'omega',
+      new_string: 'alpha',
+    }, editTmp, { sessionId: `tool-smoke-edit-${process.pid}` });
+    if (!/^Error[\s:[]/.test(String(ambiguousOut)) || !/found 2 times|ambiguous/i.test(String(ambiguousOut))) {
+      throw new Error(`edit must reject ambiguous old_string:\n${ambiguousOut}`);
+    }
+    const createOut = await executeBuiltinTool('edit', {
+      file_path: 'created.txt',
+      old_string: '',
+      new_string: 'created\n',
+    }, editTmp, { sessionId: `tool-smoke-edit-${process.pid}` });
+    assertOk('edit create', createOut, /Created/);
+    if (readFileSync(join(editTmp, 'created.txt'), 'utf8') !== 'created\n') {
+      throw new Error('edit empty old_string must create a missing file');
+    }
+    const noOpOut = await executeBuiltinTool('edit', {
+      file_path: 'target.txt',
+      old_string: 'omega',
+      new_string: 'omega',
+      replace_all: true,
+    }, editTmp, { sessionId: `tool-smoke-edit-${process.pid}` });
+    if (!/^Error[\s:[]/.test(String(noOpOut)) || !/exactly the same/i.test(String(noOpOut))) {
+      throw new Error(`edit must reject no-op replacements:\n${noOpOut}`);
+    }
+  } finally {
+    rmSync(editTmp, { recursive: true, force: true });
+  }
+}
+
 const stalePatchOut = await executePatchTool('apply_patch', {
   base_path: root,
   dry_run: true,
@@ -1127,8 +1196,18 @@ const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
 const shellDescription = shellTool?.description || '';
 if (!/Run programs, runtime\/state operations/i.test(shellDescription)
     || !/calculations, transformations, file generation/i.test(shellDescription)
-    || !/After 10s.*task_id.*notification/i.test(shellDescription)) {
+    || !/after 10s.*continues.*task_id.*notification/i.test(shellDescription)
+    || !/omit timeout_ms.*hard total deadline/i.test(shellDescription)) {
   throw new Error(`shell description must use ordinary execution/computation/file-role concepts: ${shellDescription}`);
+}
+const editTool = BUILTIN_TOOLS.find((tool) => tool.name === 'edit');
+const editProps = editTool?.inputSchema?.properties || {};
+if (!editTool
+  || JSON.stringify(editTool.inputSchema?.required) !== JSON.stringify(['file_path', 'old_string', 'new_string'])
+  || editProps.replace_all?.default !== false
+  || editTool.inputSchema?.additionalProperties !== false
+  || !/exact string replacements/i.test(editTool.description || '')) {
+  throw new Error(`edit tool must preserve the exact-string contract: ${JSON.stringify(editTool)}`);
 }
 const shellProps = shellTool?.inputSchema?.properties || {};
 if (JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms'])) {
@@ -1141,11 +1220,12 @@ for (const retired of ['timeout', 'cwd', 'workdir', 'mode', 'shell', 'persistent
   }
 }
 const shellTimeoutDescription = shellTool?.inputSchema?.properties?.timeout_ms?.description || '';
-if (shellTimeoutDescription !== 'Optional total deadline.') {
+if (shellTimeoutDescription !== 'Hard total deadline in milliseconds; omit or use 0 to allow unlimited runtime after task promotion.') {
   throw new Error(`shell timeout_ms contract must use the approved optional deadline description: ${shellTimeoutDescription}`);
 }
-if (shellTool?.inputSchema?.properties?.timeout_ms?.minimum !== undefined) {
-  throw new Error('shell timeout_ms must follow CC by treating 0 as omitted instead of advertising a positive minimum');
+if (shellTool?.inputSchema?.properties?.timeout_ms?.type !== 'integer'
+  || shellTool?.inputSchema?.properties?.timeout_ms?.minimum !== 0) {
+  throw new Error('shell timeout_ms schema must expose its non-negative integer contract, including the 0 sentinel');
 }
 const shellZeroTimeoutErr = validateBuiltinArgs('shell', { command: 'node --version', timeout_ms: 0 });
 const shellNegativeTimeoutErr = validateBuiltinArgs('shell', { command: 'node --version', timeout_ms: -1 });
@@ -1436,8 +1516,8 @@ const smokeCatalog = [
 ].filter(Boolean);
 
 const fullDefaults = defaultDeferredToolNames(smokeCatalog, 'full');
-if (fullDefaults.size !== 9) {
-  throw new Error(`full default surface should stay 9 tools, got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`);
+if (fullDefaults.size !== 10) {
+  throw new Error(`full default catalog should contain both edit dialects (10 tools), got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`);
 }
 for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'apply_patch', 'Skill', 'load_tool']) {
   assertHas(fullDefaults, name);
@@ -1447,8 +1527,8 @@ for (const name of ['shell', 'task', 'agent', 'recall', 'search', 'web_fetch', '
 }
 
 const leadDefaults = defaultDeferredToolNames(smokeCatalog, 'lead');
-if (leadDefaults.size !== 14) {
-  throw new Error(`lead default surface should stay 14 tools for this static catalog, got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
+if (leadDefaults.size !== 15) {
+  throw new Error(`lead default catalog should contain both edit dialects (15 tools), got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
 }
 for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'shell', 'task', 'apply_patch', 'agent', 'recall', 'search', 'Skill', 'load_tool']) {
   assertHas(leadDefaults, name);
@@ -1833,8 +1913,27 @@ setInternalToolsProvider({
       if (!skillToolNames.includes('Skill')) {
         throw new Error(`lead skill manifest session must expose Skill loader: ${skillToolNames.join(', ')}`);
       }
+      if (!skillToolNames.includes('edit') || skillToolNames.includes('apply_patch')) {
+        throw new Error(`non-GPT sessions must expose edit only: ${skillToolNames.join(', ')}`);
+      }
     } finally {
       closeSession(skillSession.id, 'tool-smoke');
+    }
+    const gptEditSession = createSession({
+      provider: 'openai-oauth',
+      model: 'gpt-5.5',
+      owner: 'cli',
+      agent: 'lead',
+      cwd: skillManifestTmp,
+      permission: 'read-write',
+    });
+    try {
+      const names = (gptEditSession.tools || []).map((tool) => tool?.name).filter(Boolean);
+      if (!names.includes('apply_patch') || names.includes('edit')) {
+        throw new Error(`GPT sessions must expose apply_patch only: ${names.join(', ')}`);
+      }
+    } finally {
+      closeSession(gptEditSession.id, 'tool-smoke');
     }
     const agentSkillSession = createSession({
       provider: 'openai-oauth',
@@ -1964,7 +2063,7 @@ setInternalToolsProvider({
     // No terminal-action tool is registered: a no-tool assistant message ends
     // the turn, so the schema carries capabilities only.
     const expectedReadTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
-    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'apply_patch', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
+    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'edit', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
     if (JSON.stringify(readTools) !== JSON.stringify(expectedReadTools)) {
       throw new Error(`read agent schema must be fixed allow-list: expected=${expectedReadTools.join(', ')} actual=${readTools.join(', ')}`);
     }
@@ -1974,15 +2073,15 @@ setInternalToolsProvider({
     if (readTools.includes('load_tool') || writeTools.includes('load_tool')) {
       throw new Error(`agent session fixed schemas must omit load_tool: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
     }
-    if (readTools.includes('apply_patch')) {
-      throw new Error(`read agent schema must omit apply_patch: read=${readTools.join(', ')}`);
+    if (readTools.includes('apply_patch') || readTools.includes('edit')) {
+      throw new Error(`read agent schema must omit file-edit tools: read=${readTools.join(', ')}`);
     }
     for (const name of ['shell', 'task']) {
       if (!readTools.includes(name)) {
         throw new Error(`read agent schema must carry verification tool ${name}: read=${readTools.join(', ')}`);
       }
     }
-    for (const name of ['apply_patch', 'shell', 'task']) {
+    for (const name of ['edit', 'shell', 'task']) {
       if (!writeTools.includes(name)) {
         throw new Error(`read-write agent schema must preserve ${name}: write=${writeTools.join(', ')}`);
       }
@@ -2011,7 +2110,7 @@ setInternalToolsProvider({
   try {
     const resumed = await resumeSession(resumeAgentSession.id, 'full');
     const resumedTools = (resumed?.tools || []).map((tool) => tool?.name).filter(Boolean);
-    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'apply_patch', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
+    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'edit', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
     if (JSON.stringify(resumedTools) !== JSON.stringify(expectedWriteTools)) {
       throw new Error(`resumed read-write agent schema must keep fixed allow-list: expected=${expectedWriteTools.join(', ')} actual=${resumedTools.join(', ')}`);
     }
@@ -2116,37 +2215,31 @@ setInternalToolsProvider({
 const patchTool = PATCH_TOOL_DEFS[0];
 const patchDescription = patchTool?.inputSchema?.properties?.patch?.description || '';
 // The JSON schema is the fallback for providers that cannot carry a custom
-// freeform tool. It exposes the patch plus an explicit base for callers whose
-// provider cannot carry the grammar's inline Root directive.
-if (!/V4A patch/i.test(patchDescription)) {
-  throw new Error('apply_patch JSON fallback must describe the OAI V4A patch string');
+// freeform tool. It keeps one patch string and the same Codex grammar.
+if (!/Complete Codex apply_patch text/i.test(patchDescription)) {
+  throw new Error('apply_patch JSON fallback must describe the Codex patch string');
 }
-if (Object.keys(patchTool?.inputSchema?.properties || {}).join(',') !== 'patch,root'
+if (Object.keys(patchTool?.inputSchema?.properties || {}).join(',') !== 'patch'
     || JSON.stringify(patchTool?.inputSchema?.required || []) !== '["patch"]') {
-  throw new Error(`apply_patch JSON fallback must expose patch and optional root: ${JSON.stringify(patchTool?.inputSchema)}`);
+  throw new Error(`apply_patch JSON fallback must expose only patch: ${JSON.stringify(patchTool?.inputSchema)}`);
 }
-if (!/optional \*\*\* Root: <path>/i.test(patchTool?.description || '')) {
-  throw new Error(`apply_patch must expose the inline out-of-session Root contract: ${patchTool?.description}`);
+if (/\*\*\* Root:|root_line/.test(JSON.stringify(patchTool))) {
+  throw new Error(`apply_patch model contract must not expose non-Codex Root extensions: ${JSON.stringify(patchTool)}`);
 }
-if (!/Each section starts with exactly one:.*Add File.*Delete File.*Update File/s.test(patchTool?.description || '')
-    || !/V4A patch/i.test(patchDescription)) {
-  throw new Error(`apply_patch JSON fallback must expose its multi-file/hunk shape: ${JSON.stringify(patchTool)}`);
-}
-if (/followed by a shell|post-patch verification|same response/i.test(patchTool?.description || '')) {
-  throw new Error(`apply_patch JSON fallback must not duplicate cross-tool batching policy: ${JSON.stringify(patchTool)}`);
-}
-if (/exact current context|roll ?back/i.test(JSON.stringify(patchTool))) {
-  throw new Error(`apply_patch contract must not carry context/rollback model guidance: ${JSON.stringify(patchTool)}`);
+if (!/one file operation per target path/i.test(patchTool?.description || '')
+    || !/exact current lines.*3 unchanged lines/i.test(patchTool?.description || '')
+    || !/Add File.*Delete File.*Update File/s.test(patchTool?.description || '')) {
+  throw new Error(`apply_patch JSON fallback must expose Codex target and context rules: ${JSON.stringify(patchTool)}`);
 }
 const OAI_V4A_APPLY_PATCH_FREEFORM_DESCRIPTION =
-  'OAI V4A patch: *** Begin Patch, Add/Delete/Update File sections, *** End Patch. Add File creates parents. FREEFORM input; no JSON.';
+  'The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.';
 if (patchTool?.freeformDescription !== OAI_V4A_APPLY_PATCH_FREEFORM_DESCRIPTION
     || patchTool?.freeform?.type !== 'grammar'
     || patchTool?.freeform?.syntax !== 'lark') {
   throw new Error(`apply_patch must expose freeform grammar metadata: ${JSON.stringify(patchTool)}`);
 }
 for (const requiredGrammarLine of [
-  'start: begin_patch root_line? hunk+ end_patch',
+  'start: begin_patch hunk+ end_patch',
   'begin_patch: "*** Begin Patch" LF',
   'add_hunk: "*** Add File: " filename LF add_line+',
   'change_move: "*** Move to: " filename LF',
@@ -2238,17 +2331,17 @@ if (/line\+context/i.test(readDescription) || !/Known-file contents or line rang
 }
 if (readProps.file_path?.type !== 'string'
   || readProps.file_path?.anyOf
-  || readProps.file_path?.description !== 'Known file path.'
+  || readProps.file_path?.description !== 'Known file path as plain text; not a JSON array or annotated path.'
   || readProps.path
   || JSON.stringify(readSchema.required) !== JSON.stringify(['file_path'])) {
   throw new Error('read schema must expose only the canonical scalar file_path');
 }
 if (readProps.offset?.type !== 'integer'
   || readProps.offset?.minimum !== 0
-  || readProps.offset?.description !== '1-based start line; default 1.'
+  || readProps.offset?.description !== '1-based start line as a bare integer; default 1.'
   || readProps.limit?.type !== 'integer'
   || readProps.limit?.minimum !== 1
-  || readProps.limit?.description !== 'Maximum lines to return; default 800.') {
+  || readProps.limit?.description !== 'Maximum line count as a bare integer; default 800.') {
   throw new Error('read range args must use the CC scalar integer contract with Mixdog descriptions');
 }
 if (Object.keys(readProps).some((key) => !['file_path', 'offset', 'limit'].includes(key))
@@ -2351,7 +2444,7 @@ if (!/Source-file structure/i.test(codeGraphDescription)
 if (!/File modes use files\[\]/i.test(codeGraphDescription) || !/symbol modes use symbols\[\]/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must keep its per-mode files[]/symbols[] target contract');
 }
-if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/project-relative source file path/i.test(codeGraphProps.files?.description || '')) {
+if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/project-relative source path/i.test(codeGraphProps.files?.description || '')) {
   throw new Error('code_graph schema must keep compact, repo-local field descriptions');
 }
 if (!/Explicit root outside the project/i.test(codeGraphProps.cwd?.description || '') || !/omit for project root/i.test(codeGraphProps.cwd?.description || '')) {
@@ -2643,14 +2736,14 @@ if (nativePatchTool?.type !== 'custom' || nativePatchTool?.format?.syntax !== 'l
 if (nativePatchTool.defer_loading === true || nativePatchTool.parameters) {
   throw new Error(`native tool_search custom apply_patch must not be downgraded to deferred function schema: ${JSON.stringify(nativePatchTool)}`);
 }
-const grokCanonicalSession = { provider: 'grok-oauth', tools: [], messages: [] };
+const grokCanonicalSession = { provider: 'grok-oauth', model: 'grok-code-fast-1', tools: [], messages: [] };
 applyDeferredToolSurface(grokCanonicalSession, 'full', smokeCatalog, { provider: 'grok-oauth' });
 const grokCanonicalJson = JSON.stringify(grokCanonicalSession.tools);
-const grokLoadResult = JSON.parse(__renderToolSearchForTest({ names: ['apply_patch'] }, grokCanonicalSession, 'full'));
+const grokLoadResult = JSON.parse(__renderToolSearchForTest({ names: ['edit'] }, grokCanonicalSession, 'full'));
 if (grokCanonicalSession.deferredNativeTools
   || grokLoadResult.nativeToolSearch
   || JSON.stringify(grokCanonicalSession.tools) !== grokCanonicalJson
-  || !grokLoadResult.alreadyActive.includes('apply_patch')) {
+  || !grokLoadResult.alreadyActive.includes('edit')) {
   throw new Error(`Grok must use a fixed canonical ordinary-function surface: ${JSON.stringify(grokLoadResult)}`);
 }
 // Native query-select explicitly loads onto the active surface; aliases expand.
@@ -2782,8 +2875,11 @@ if (grepTool?.inputSchema?.properties?.pattern?.type !== 'string'
     || grepTool?.inputSchema?.properties?.path?.anyOf
     || grepTool?.inputSchema?.properties?.glob?.type !== 'string'
     || grepTool?.inputSchema?.properties?.glob?.anyOf
-    || !/Text\/regex/i.test(grepPatternDescription)
-    || !/File\/dir scope/i.test(grepPathDescription)) {
+    || grepTool?.inputSchema?.properties?.limit?.type !== 'integer'
+    || grepTool?.inputSchema?.properties?.offset?.type !== 'integer'
+    || grepTool?.inputSchema?.properties?.context?.type !== 'integer'
+    || !/literal text or regex/i.test(grepPatternDescription)
+    || !/plain file or directory scope/i.test(grepPathDescription)) {
   throw new Error('grep schema must expose scalar pattern/path/glob guidance');
 }
 if (!/\bSearch file contents for literal or regex matches\b/i.test(grepTool?.description || '')
@@ -2811,6 +2907,17 @@ const globTool = BUILTIN_TOOLS.find((tool) => tool.name === 'glob');
 const findTool = BUILTIN_TOOLS.find((tool) => tool.name === 'find');
 const listTool = BUILTIN_TOOLS.find((tool) => tool.name === 'list');
 const findLimitDescription = findTool?.inputSchema?.properties?.limit?.description || '';
+for (const [label, schema] of [
+  ['glob.limit', globTool?.inputSchema?.properties?.limit],
+  ['glob.offset', globTool?.inputSchema?.properties?.offset],
+  ['find.limit', findTool?.inputSchema?.properties?.limit],
+  ['list.limit', listTool?.inputSchema?.properties?.limit],
+  ['list.offset', listTool?.inputSchema?.properties?.offset],
+  ['code_graph.limit', codeGraphProps.limit],
+  ['code_graph.depth', codeGraphProps.depth],
+]) {
+  if (schema?.type !== 'integer') throw new Error(`${label} must expose integer schema: ${JSON.stringify(schema)}`);
+}
 if (!/wildcard-matching paths under a known base/i.test(globTool?.description || '')
     || !/when those paths are needed/i.test(globTool?.description || '')) {
   throw new Error('glob description must state its known-base wildcard path contract');

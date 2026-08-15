@@ -1,0 +1,52 @@
+== code-from-image reward=1 rounds=3
+   1 [1] read(code.png)
+   2 [1] shell(python3 - <<'PY' from hashlib import sha256 f)
+   3 [1] FINAL
+== db-wal-recovery reward=1 rounds=6
+   1 [1] list(/app)
+   2 [2] shell(python3 - <<'PY' import sqlite3 p='/app/main.) | shell(python3 - <<'PY' from pathlib import Path imp)
+   3 [1] shell(python3 - <<'PY' from pathlib import Path imp)
+   4 [1] shell(python3 - <<'PY' from pathlib import Path imp)
+   5 [1] shell(python3 - <<'PY' from pathlib import Path imp)
+   6 [1] FINAL
+== fix-code-vulnerability reward=1 rounds=5
+   1 [5] list() | grep(\r|,ValueError,except Exception,except:,inval) | glob(test*.py,test/**/*.py,tests/**/*.py,**/*secur) | code_graph() | shell(git status --short && 
+   2 [4] read([object Object],[object Object],[object Objec) | grep(_hkey,_hval,HeaderDict,HeaderProperty,control) | shell(git diff -- bottle.py) | read(pyproject.toml)
+   3 [1] apply_patch(*** Begin Patch *** Update File: bottle.py @@)
+   4 [1] shell(python - <<'PY' import json import bottle wit)
+   5 [1] FINAL
+== git-leak-recovery reward=1 rounds=7
+   1 [1] list(/app)
+   2 [1] shell(set -euo pipefail printf '%s\n' '== repositor)
+   3 [1] shell(set -euo pipefail for cmd in python python3 p)
+   4 [1] shell(set -euo pipefail node <<'JS' const {execFile)
+   5 [2] shell(git fsck --full --unreachable --no-reflogs) | shell(git fsck --full --unreachable)
+   6 [1] shell(set -euo pipefail git reflog expire --expire=)
+   7 [1] FINAL
+== log-summary-date-ranges reward=1 rounds=6
+   1 [1] glob(logs/*.log)
+   2 [1] shell(python3 - <<'PY' from collections import Coun)
+   3 [1] read([object Object])
+   4 [1] shell(python3 - <<'PY' from collections import Coun)
+   5 [1] shell(python3 - <<'PY' from collections import Coun)
+   6 [1] FINAL
+== multi-source-data-merger reward=1 rounds=2
+   1 [1] shell(python - <<'PY' import csv import json import)
+   2 [1] FINAL
+== polyglot-c-py reward=0 rounds=10
+   1 [2] list(/app) | glob(main.py.c)
+   2 [1] shell(mkdir -p /app/polyglot)
+   3 [1] apply_patch(*** Begin Patch *** Add File: /app/polyglot/m)
+   4 [1] shell(gcc -std=c11 -Wall -Wextra -pedantic /app/pol)
+   5 [2] shell(command -v python || true; command -v python3) | read(/app/polyglot/main.py.c)
+   6 [1] glob(python*)
+   7 [1] apply_patch(*** Begin Patch *** Update File: /app/polyglo)
+   8 [1] read(/app/polyglot/main.py.c)
+   9 [1] shell(gcc -std=c11 -Wall -Wextra -pedantic /app/pol)
+  10 [1] FINAL
+== prove-plus-comm reward=1 rounds=4
+   1 [1] read(plus_comm.v)
+   2 [1] apply_patch(*** Begin Patch *** Update File: plus_comm.v )
+   3 [1] shell(coqc plus_comm.v && test -f plus_comm.vo)
+   4 [1] FINAL
+TOTAL rounds=43

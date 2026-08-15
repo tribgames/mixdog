@@ -627,6 +627,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 agentLoop(provider, outgoing, session.model, session.tools, _trackedOnToolCall, effectiveCwd, {
                     effort: session.effort || null,
                     fast: session.fast === true,
+                    modelParameters: session.modelParameters || {},
                     sessionId,
                     onTextDelta: _trackTextDelta,
                     onTextReset: _trackTextReset,

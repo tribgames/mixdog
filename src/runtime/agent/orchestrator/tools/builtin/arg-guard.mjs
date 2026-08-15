@@ -156,6 +156,26 @@ function coerceIntegerString(v) {
     return n;
 }
 
+function comparableEchoPath(value) {
+    const normalized = String(value ?? '').trim().replace(/\\/g, '/');
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+// Grok sometimes appends a rendered `path` annotation to an otherwise valid
+// integer field. Strip only the two observed delimiters and only when the
+// echoed suffix exactly matches this read call's scalar path.
+function absorbReadEchoedPathInteger(a, field) {
+    const value = a?.[field];
+    if (typeof value !== 'string') return;
+    const match = /^(\d+)(?:\s+├──path──|\s*usepath\?)(.+)$/s.exec(value.trim());
+    if (!match) return;
+    const target = typeof a.file_path === 'string'
+        ? a.file_path
+        : (typeof a.path === 'string' ? a.path : '');
+    if (!target || comparableEchoPath(match[2]) !== comparableEchoPath(target)) return;
+    a[field] = Number(match[1]);
+}
+
 // Range-shaped strings ("1,40", "1-40", "1:40") are a common model mistake
 // when trying to pass a line range through a single-integer field. They are
 // not coerced (ambiguous which bound is intended); instead the rejection
@@ -544,6 +564,8 @@ function guardRead(a) {
     if (hasOwn(a, 'path')) {
         a.path = coerceReadFamilyPathArg(a.path);
     }
+    absorbReadEchoedPathInteger(a, 'offset');
+    absorbReadEchoedPathInteger(a, 'limit');
     // Absorb: parallel/JSON-stringified offset+limit arrays paired with a
     // path[] batch — zip them into per-file region objects before validation.
     maybeZipPathWindowArrays(a);

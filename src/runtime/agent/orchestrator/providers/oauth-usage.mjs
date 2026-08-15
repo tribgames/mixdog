@@ -779,7 +779,7 @@ async function fetchGrokUsage(providerObj, routeInfo) {
 
 export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () => {}, options = {}) {
   const provider = providerKey(routeInfo);
-  if (!provider.includes('oauth')) return null;
+  if (!provider.includes('oauth') && provider !== 'cursor-api') return null;
   const key = routeKey(routeInfo);
   const providerOnly = providerKey(routeInfo);
   const force = options?.force === true;
@@ -800,6 +800,9 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
         snapshot = await fetchAnthropicUsage(providerObj);
       } else if (provider === 'grok-oauth') {
         snapshot = await fetchGrokUsage(providerObj, routeInfo);
+      } else if ((provider === 'cursor-oauth' || provider === 'cursor-api')
+        && typeof providerObj?.getUsageSnapshot === 'function') {
+        snapshot = await providerObj.getUsageSnapshot();
       }
     } catch (err) {
       if (provider === 'anthropic-oauth') snapshot = latestClaudeStatuslineUsage();

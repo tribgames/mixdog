@@ -20,17 +20,17 @@ export const BUILTIN_TOOLS = [
             properties: {
                 file_path: {
                     type: 'string',
-                    description: 'Known file path.',
+                    description: 'Known file path as plain text; not a JSON array or annotated path.',
                 },
                 offset: {
                     type: 'integer',
                     minimum: 0,
-                    description: '1-based start line; default 1.',
+                    description: '1-based start line as a bare integer; default 1.',
                 },
                 limit: {
                     type: 'integer',
                     minimum: 1,
-                    description: 'Maximum lines to return; default 800.',
+                    description: 'Maximum line count as a bare integer; default 800.',
                 },
             },
             required: ['file_path'],
@@ -38,17 +38,48 @@ export const BUILTIN_TOOLS = [
         },
     },
     {
+        name: 'edit',
+        title: 'Edit',
+        annotations: { title: 'Edit', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, compressible: false, compressibleLossless: true },
+        description: 'Performs exact string replacements in files. old_string must identify exactly one occurrence unless replace_all is true. An empty old_string creates a missing file or fills an empty file; it never overwrites a non-empty file.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                file_path: {
+                    type: 'string',
+                    description: 'Path to the file to modify.',
+                },
+                old_string: {
+                    type: 'string',
+                    description: 'The exact text to replace.',
+                },
+                new_string: {
+                    type: 'string',
+                    description: 'The replacement text; must differ from old_string.',
+                },
+                replace_all: {
+                    type: 'boolean',
+                    default: false,
+                    description: 'Replace all occurrences of old_string; default false.',
+                },
+            },
+            required: ['file_path', 'old_string', 'new_string'],
+            additionalProperties: false,
+        },
+    },
+    {
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: 'Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. After 10s, a running command returns task_id and completes by notification.',
+        description: 'Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. Commands start in the foreground; after 10s, a still-running command continues as a tracked task_id and completes by notification. Omit timeout_ms normally; a positive value is a hard total deadline that also applies after task promotion.',
         inputSchema: {
             type: 'object',
             properties: {
                 command: { type: 'string', description: `Command.${_shellSyntaxCheat}` },
                 timeout_ms: {
-                    type: 'number',
-                    description: 'Optional total deadline.',
+                    type: 'integer',
+                    minimum: 0,
+                    description: 'Hard total deadline in milliseconds; omit or use 0 to allow unlimited runtime after task promotion.',
                 },
             },
             required: ['command'],
@@ -80,20 +111,20 @@ export const BUILTIN_TOOLS = [
             properties: {
                 pattern: {
                     type: 'string',
-                    description: 'Text/regex.',
+                    description: 'Required literal text or regex to search for.',
                 },
                 path: {
                     type: 'string',
-                    description: 'File/dir scope.',
+                    description: 'One plain file or directory scope.',
                 },
                 glob: {
                     type: 'string',
-                    description: 'Glob filter.',
+                    description: 'Optional file-path glob filter, not search text.',
                 },
                 mode: { type: 'string', enum: ['content', 'files', 'count'], description: 'content default; files lists matching paths; count totals all patterns together per file.' },
-                limit: { type: 'number', minimum: 0, description: 'Max results; default 250; 0 unlimited.' },
-                offset: { type: 'number', minimum: 0, description: 'Result offset.' },
-                context: { type: 'number', minimum: 0, description: 'Omit for automatic context; 0 for matches only.' },
+                limit: { type: 'integer', minimum: 0, description: 'Max results; default 250; 0 unlimited.' },
+                offset: { type: 'integer', minimum: 0, description: 'Result offset.' },
+                context: { type: 'integer', minimum: 0, description: 'Omit for automatic context; 0 for matches only.' },
             },
             required: ['pattern'],
             additionalProperties: false,
@@ -115,8 +146,8 @@ export const BUILTIN_TOOLS = [
                     type: 'string',
                     description: 'Base dir.',
                 },
-                limit: { type: 'number', description: 'Max entries; default 100; 0 unlimited.' },
-                offset: { type: 'number', minimum: 0, description: 'Entry offset.' },
+                limit: { type: 'integer', minimum: 0, description: 'Max entries; default 100; 0 unlimited.' },
+                offset: { type: 'integer', minimum: 0, description: 'Entry offset.' },
             },
             required: ['pattern'],
             additionalProperties: false,
@@ -135,7 +166,7 @@ export const BUILTIN_TOOLS = [
                     description: 'Filename or directory path fragments matched against path strings.',
                 },
                 path: { type: 'string', description: 'Base path.' },
-                limit: { type: 'number', description: 'Max paths; default 25; 0 unlimited.' },
+                limit: { type: 'integer', minimum: 0, description: 'Max paths; default 25; 0 unlimited.' },
                 include_noise: { type: 'boolean', description: 'Also search gitignored/dependency trees.' },
             },
             required: ['query'],
@@ -152,12 +183,12 @@ export const BUILTIN_TOOLS = [
             properties: {
                 path: {
                     type: 'string',
-                    description: 'Directory.',
+                    description: 'Known directory; defaults to the project root.',
                 },
                 hidden: { type: 'boolean', description: 'Include dotfiles.' },
                 meta: { type: 'boolean', description: 'Per-entry size bytes, UTC mtime, octal mode.' },
-                limit: { type: 'number', description: 'Max entries; default 200; 0 unlimited.' },
-                offset: { type: 'number', description: 'Entry offset.' },
+                limit: { type: 'integer', minimum: 0, description: 'Max entries; default 200; 0 unlimited.' },
+                offset: { type: 'integer', minimum: 0, description: 'Entry offset.' },
             },
             required: [],
             additionalProperties: false,

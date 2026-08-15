@@ -676,7 +676,7 @@ export function appendPostPatchExcerpts(outputText, patchStr, requestedFormat, b
   }
 }
 
-const APPLY_PATCH_SCHEMA_KEYS = new Set(['patch', 'format', 'base_path', 'root', 'dry_run', 'reject_partial', 'fuzzy', 'sequence', 'mode']);
+const APPLY_PATCH_SCHEMA_KEYS = new Set(['patch', 'format', 'base_path', 'dry_run', 'reject_partial', 'fuzzy', 'sequence', 'mode']);
 function salvageShatteredV4APatchArgs(args) {
   if (!args || typeof args !== 'object') return args;
   const rawPatch = typeof args.patch === 'string' ? args.patch : '';
@@ -696,42 +696,23 @@ function salvageShatteredV4APatchArgs(args) {
   return cleaned;
 }
 
-function extractInlinePatchRoot(patchText) {
-  const text = String(patchText || '');
-  const match = /^(\*\*\* Begin Patch\r?\n)\*\*\* Root:[ \t]*(.*?)\r?\n/.exec(text);
-  if (!match) return { patch: text, root: null };
-  const root = String(match[2] || '').trim();
-  if (!root) throw new Error('apply_patch: "*** Root:" requires a containing directory');
-  return {
-    patch: `${match[1]}${text.slice(match[0].length)}`,
-    root,
-  };
-}
-
-function isFilesystemRootSpecifier(value, cwd) {
-  const raw = String(value || '').trim();
-  if (!raw) return false;
-  // Keep Windows semantics testable on every host and reject the ambiguous
-  // drive-relative spelling (`C:`) alongside an actual drive root.
-  if (/^[A-Za-z]:(?:[\\/]?)$/.test(raw)) return true;
-  const resolved = resolveBasePath(cwd, raw);
-  return pathDirname(resolved) === resolved;
+function assertUniqueV4ASectionTargets(sections, basePath) {
+  const seen = new Set();
+  for (const section of sections || []) {
+    if (!section || typeof section.path !== 'string' || !section.path) continue;
+    const fullPath = resolveV4AEntryPath(basePath, section.path);
+    const key = process.platform === 'win32' ? fullPath.toLowerCase() : fullPath;
+    if (seen.has(key)) {
+      throw new Error(`apply_patch: multiple operations target ${normalizeOutputPath(section.path)}`);
+    }
+    seen.add(key);
+  }
 }
 
 async function apply_patch(args, cwd, options = {}) {
   args = salvageShatteredV4APatchArgs(args);
   let patchStr = typeof args?.patch === 'string' ? args.patch : '';
   patchStr = salvageV4AOpening(patchStr);
-  const inlineRoot = extractInlinePatchRoot(patchStr);
-  patchStr = inlineRoot.patch;
-  if (inlineRoot.root) {
-    const argumentRoot = typeof args?.root === 'string' ? args.root.trim() : '';
-    if (argumentRoot
-        && pathResolve(resolveBasePath(cwd, argumentRoot)) !== pathResolve(resolveBasePath(cwd, inlineRoot.root))) {
-      throw new Error('apply_patch: root argument conflicts with the "*** Root:" directive');
-    }
-    args = { ...(args || {}), root: inlineRoot.root };
-  }
   if (!patchStr.trim()) {
     throw new Error('apply_patch: "patch" is required (unified diff or V4A patch string)');
   }
@@ -755,30 +736,11 @@ async function apply_patch(args, cwd, options = {}) {
   if (abortSignal?.aborted) {
     throw new Error(abortSignal.reason?.message || abortSignal.reason || 'apply_patch aborted');
   }
-  // `root` is an optional coordinate frame for relative section paths, not a
-  // write boundary. Absolute paths and parent traversal are allowed so a
-  // session cwd mismatch cannot block an explicitly targeted patch.
-  const explicitRoot = typeof args?.root === 'string' && args.root.trim() ? args.root.trim() : null;
-  if (explicitRoot && isFilesystemRootSpecifier(explicitRoot, cwd)) {
-    throw new Error(`apply_patch: refusing filesystem root as write root: ${normalizeOutputPath(explicitRoot)}`);
-  }
-  // An internal `base_path` overrides the root coordinate frame.
-  const basePath = resolveBasePath(cwd, args?.base_path || explicitRoot);
+  const basePath = resolveBasePath(cwd, args?.base_path);
   try {
     await assertPathReachable(basePath);
   } catch (err) {
     return `Error: ${err?.message || String(err)}`;
-  }
-  if (explicitRoot) {
-    const explicitRootPath = resolveBasePath(cwd, explicitRoot);
-    try {
-      await assertPathReachable(explicitRootPath);
-      if (!statSync(explicitRootPath).isDirectory()) {
-        throw new Error(`not a directory — ${normalizeOutputPath(explicitRootPath)}`);
-      }
-    } catch (err) {
-      throw new Error(`apply_patch: invalid root ${normalizeOutputPath(explicitRootPath)}: ${err?.message || String(err)}`);
-    }
   }
   const rejectPartial = args?.reject_partial !== false;
   const dryRun = args?.dry_run === true;
@@ -807,14 +769,13 @@ async function apply_patch(args, cwd, options = {}) {
   // the move as its own section.
   const modelSurfaceRenameOnly = preParsedV4ASections?.length === 1
     && isV4ARenameSection(preParsedV4ASections[0]);
-  // Default ordered mode mirrors Codex's lower executor: apply sections in
-  // listed order, stop at the first failure, and keep the committed prefix.
-  // Legacy bulk/atomic rollback remains an internal escape hatch.
+  // The model-visible default matches Codex: validate the complete patch before
+  // writing and reject duplicate targets. Ordered partial application remains
+  // an internal compatibility mode only.
   const patchMode = String(args?.mode || '').toLowerCase();
-  const legacyBulkMode = args?.sequence === false
-    || ['atomic', 'bulk'].includes(patchMode)
-    || modelSurfaceRenameOnly;
-  if (!legacyBulkMode) {
+  const orderedSequenceMode = args?.sequence === true
+    || ['ordered', 'sequence'].includes(patchMode);
+  if (orderedSequenceMode && !modelSurfaceRenameOnly) {
     const seqOut = await applyPatchSequence(patchStr, requestedFormat, basePath, {
       v4aConvertOpts, dryRun, fuzz, fuzzy, rejectPartial,
       readStateScope, abortSignal, mutationPlan,
@@ -831,6 +792,7 @@ async function apply_patch(args, cwd, options = {}) {
           basePath,
           readStateScope,
         );
+      assertUniqueV4ASectionTargets(allSections, basePath);
       v4aRenamePlan = await planV4ARenameSections(allSections, basePath);
       inputPatchStr = await convertV4ASectionsToUnifiedPatch(v4aRenamePlan.remainingSections, basePath, v4aConvertOpts);
       if (v4aRenamePlan.renameSections.length > 0) {
@@ -887,10 +849,7 @@ async function apply_patch(args, cwd, options = {}) {
   if (!v4aRenameOnly && (!Array.isArray(parsed) || parsed.length === 0)) {
     return 'Error: patch contained no file sections';
   }
-  // Split duplicate modify-target blocks into sequential waves: occurrence i
-  // of a path lands in wave i so each duplicate applies against the prior
-  // wave's on-disk result. Non-duplicate patches yield exactly one wave, so
-  // single-target behavior is unchanged.
+  // Validate Codex's one-operation-per-target rule and build one batch.
   let parsedWaves = v4aRenameOnly ? [] : [parsed];
   if (!v4aRenameOnly) {
     try {
@@ -930,7 +889,7 @@ async function apply_patch(args, cwd, options = {}) {
     }),
   ];
 
-  const runLegacyBulkBatch = async () => {
+  const runCodexBatch = async () => {
     let v4aRenameResults = [];
     if (v4aRenamePlan?.renameSections?.length) {
       v4aRenameResults = await applyV4ARenameSections(v4aRenamePlan.renameSections, basePath, v4aConvertOpts);
@@ -944,43 +903,10 @@ async function apply_patch(args, cwd, options = {}) {
     // JS split). Returns { executor, text } on success or { executor, error }.
     const applyWave = (wave) => applyParsedWave(wave, basePath, { fuzz, rejectPartial, dryRun, fuzzy, readStateScope, abortSignal });
 
-    // Duplicate-target blocks were split into contiguous sequential groups
-    // (listed order preserved); apply them in order, each against the prior
-    // group's on-disk result.
-    const waveTexts = [];
-    let executor = 'native-patch';
-    // dry_run never writes, so a later group would validate against unchanged
-    // disk and false-fail on any block that depends on an earlier edit. Only
-    // the first group is validated under dry_run; the rest are reported as
-    // unsimulated below (no false failures).
-    const groupCount = (dryRun && waveDispatch.length > 1) ? 1 : waveDispatch.length;
-    for (let w = 0; w < groupCount; w++) {
-      const res = await applyWave(waveDispatch[w]);
-      executor = res.executor;
-      if (res.error) {
-        if (w === 0) return wrapPatchMutationOutput(res.error, mutationPlan, { executor });
-        // A later group failed. rejectPartial makes each group all-or-nothing,
-        // so every block in groups 1..w is fully committed to disk and left in
-        // place. List them all so the caller knows the true on-disk state.
-        const failMsg = res.error.replace(/^Error:\s*/, '');
-        const note = [
-          `Error: apply_patch: a block failed in sequential group ${w + 1}/${waveDispatch.length}; every edit listed below was already applied to disk (writes committed) and left in place:`,
-          waveTexts.join('\n'),
-          '--- failing block ---',
-          failMsg,
-        ].join('\n');
-        return wrapPatchMutationOutput(note, mutationPlan, { executor });
-      }
-      waveTexts.push(res.text);
-    }
-
-    let combined = waveTexts.join('\n');
-    if (dryRun && waveDispatch.length > 1) {
-      const skipped = [...new Set(
-        waveDispatch.slice(1).flatMap((wd) => wd.entries.map((e) => e.displayPath)),
-      )];
-      combined += `\n(dry_run: only the first sequential group was validated against disk; blocks depending on earlier edits were not simulated: ${skipped.join(', ')})`;
-    }
+    const res = await applyWave(waveDispatch[0]);
+    const executor = res.executor;
+    if (res.error) return wrapPatchMutationOutput(res.error, mutationPlan, { executor });
+    let combined = res.text;
     const renameLines = formatV4ARenameSuccessLines(v4aRenameResults);
     if (renameLines.length > 0 && !isPatchErrorText(combined)) {
       combined = `${renameLines.join('\n')}\n${combined}`;
@@ -998,8 +924,8 @@ async function apply_patch(args, cwd, options = {}) {
 
   return withBuiltinPathLocks(_lockPaths, () =>
     withAdvisoryLocks(_lockPaths, async () => {
-      // Legacy bulk/atomic mode applies every wave in one shot, and a wave that
-      // mixes native (in-base) with JS (out-of-base) entries commits the native
+      // Codex mode applies the validated batch in one shot. A batch that mixes
+      // native (in-base) with JS (out-of-base) entries commits the native
       // writes before the JS entries run. Snapshot every touched path up front
       // and restore it whenever the batch fails — by returned Error text OR by
       // a thrown error (V4A rename, persistence) — so mode:"atomic" really is
@@ -1025,7 +951,7 @@ async function apply_patch(args, cwd, options = {}) {
       };
       let outcome;
       try {
-        outcome = await runLegacyBulkBatch();
+        outcome = await runCodexBatch();
       } catch (err) {
         // A thrown failure (e.g. V4A rename) took the same path to disk as a
         // returned one, so it takes the same path back out.

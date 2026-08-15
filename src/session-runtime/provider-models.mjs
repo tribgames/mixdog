@@ -145,13 +145,17 @@ export function createProviderModels({
 
   function hydrateProviderModelRow(row) {
     const cfg = config();
+    const saved = modelSettingsFor(cfg, row.provider, row.id);
     return {
       ...row,
       effortOptions: effortItemsFor(row.provider, row, null),
       fastCapable: fastCapableFor(row.provider, row),
-      fastPreferred: fastPreferenceFor(cfg, row.provider, row.id),
-      savedEffort: modelSettingsFor(cfg, row.provider, row.id).effort || null,
-      savedFast: modelSettingsFor(cfg, row.provider, row.id).fast === true,
+      fastPreferred: Object.prototype.hasOwnProperty.call(saved, 'fast')
+        ? saved.fast === true
+        : (row.defaultFast === true || fastPreferenceFor(cfg, row.provider, row.id)),
+      savedEffort: saved.effort || null,
+      savedFast: Object.prototype.hasOwnProperty.call(saved, 'fast') ? saved.fast === true : undefined,
+      savedModelParameters: saved.modelParameters || {},
     };
   }
 
@@ -241,7 +245,7 @@ export function createProviderModels({
       await reg().refreshProviderCatalogsOnStartup();
     }
     if (forceRefresh && typeof reg().refreshCatalogs === 'function') {
-      await reg().refreshCatalogs();
+      await reg().refreshCatalogs({ force: true });
     }
     syncCatalogRevision();
     const catalogEntries = await sharedProviderCatalog(reg());

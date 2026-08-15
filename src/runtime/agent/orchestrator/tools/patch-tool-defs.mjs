@@ -1,6 +1,5 @@
-const APPLY_PATCH_LARK_GRAMMAR = `start: begin_patch root_line? hunk+ end_patch
+const APPLY_PATCH_LARK_GRAMMAR = `start: begin_patch hunk+ end_patch
 begin_patch: "*** Begin Patch" LF
-root_line: "*** Root: " filename LF
 end_patch: "*** End Patch" LF?
 
 hunk: add_hunk | delete_hunk | update_hunk
@@ -20,8 +19,8 @@ eof_line: "*** End of File" LF
 %import common.LF
 `;
 
-// Public contract: apply_patch is the PRIMARY edit tool and takes
-// a raw freeform V4A patch (no JSON envelope) on providers that support custom
+// GPT-family contract: apply_patch takes a raw freeform V4A patch
+// (no JSON envelope) on providers that support custom
 // grammar tools. No extra fetch once the target body is already obtained —
 // send the patch as soon as the target and content are known. The JSON schema below is only the
 // fallback for providers that cannot carry freeform/custom tools, so it exposes
@@ -30,24 +29,23 @@ eof_line: "*** End of File" LF
 // Batching stays a rules-level policy: every new edit goes in one patch, with
 // one file block per target.
 const APPLY_PATCH_FREEFORM_DESCRIPTION =
-  'OAI V4A patch: *** Begin Patch, Add/Delete/Update File sections, *** End Patch. Add File creates parents. FREEFORM input; no JSON.';
+  'The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.';
 
-// JSON-schema fallback providers (Anthropic and other non-grammar surfaces)
-// get the full V4A instructions inline: without a grammar the model has
+// JSON-schema fallback providers get the Codex patch instructions inline:
+// without a grammar the model has
 // no format signal beyond this description, and the dominant one-shot failure
 // modes (missing section headers, retyped context, marker resubmission) are
 // exactly what these rules preempt. The grammar is restated below for the
 // JSON `patch` argument.
 const APPLY_PATCH_JSON_DESCRIPTION = [
-  'Edit files with this V4A patch:',
+  'The `apply_patch` tool can be used to edit files. Pass one complete Codex patch in `patch`; do not JSON-encode it again.',
+  'Every patch uses this envelope:',
   '*** Begin Patch',
-  '[optional *** Root: <path> for out-of-session writes]',
-  '[file sections]',
+  '[one or more Add/Delete/Update File sections]',
   '*** End Patch',
-  'Each section starts with exactly one: *** Add File: <path> (+ lines; creates parents), *** Delete File: <path> (header only), or *** Update File: <path> (optional *** Move to: <new path>).',
-  'Hunks start with @@ or @@ <symbol|1-based line>; lines start space, -, or +; every Update hunk needs >=1 +/- line; optional *** End of File.',
-  'Use 3 verbatim context lines from already obtained text (post-edit = pre-image plus this patch; a failed excerpt is current for the lines it quotes). Avoid overlap; stack @@ only if ambiguous.',
-  '+ prefixes every added line. Never send compacted-history markers; recover live lines from already obtained text.',
+  'Use exactly one file operation per target path: *** Add File: <path> (+ lines), *** Delete File: <path>, or *** Update File: <path> (optionally followed by *** Move to: <new path>).',
+  'Update hunks start with @@ or @@ <class/function locator>. Every hunk line starts with space, -, or +. Use exact current lines, normally 3 unchanged lines around each change; use the @@ locator when more uniqueness is needed.',
+  'Prefix every Add File content line with +. End with *** End Patch. Never send compacted-history markers.',
 ].join('\n');
 
 export const PATCH_TOOL_DEFS = [
@@ -65,8 +63,7 @@ export const PATCH_TOOL_DEFS = [
     inputSchema: {
       type: 'object',
       properties: {
-        patch: { type: 'string', description: 'OAI V4A patch.' },
-        root: { type: 'string', description: 'Explicit patch base directory.' },
+        patch: { type: 'string', description: 'Complete Codex apply_patch text, from *** Begin Patch through *** End Patch.' },
       },
       required: ['patch'],
       additionalProperties: false,

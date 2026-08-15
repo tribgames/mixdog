@@ -400,28 +400,41 @@ impl FileListStore {
             let Ok(created) = created else { return };
             *watcher = Some(created);
         }
-        let mut roots = self.watched_roots.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(touched) = roots.get_mut(&root) {
-            *touched = Instant::now();
-            return;
-        }
-        if roots.len() >= WATCH_ROOT_MAX {
-            if let Some(oldest) = roots
-                .iter()
-                .min_by_key(|(_, touched)| **touched)
-                .map(|(path, _)| path.clone())
-            {
-                roots.remove(&oldest);
-                if let Some(watcher) = watcher.as_mut() {
-                    let _ = watcher.unwatch(&oldest);
-                }
+        // Never hold watched_roots across the OS watch/unwatch calls. Windows
+        // may synchronously emit an initial notify callback from watch(); that
+        // callback re-enters affected_roots/invalidate_paths and needs this
+        // mutex. Holding it here deadlocked every concurrent directory search
+        // until the outer 20s deadline killed the resident server.
+        let evicted = {
+            let mut roots = self.watched_roots.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(touched) = roots.get_mut(&root) {
+                *touched = Instant::now();
+                return;
             }
+            if roots.len() >= WATCH_ROOT_MAX {
+                let oldest = roots
+                    .iter()
+                    .min_by_key(|(_, touched)| **touched)
+                    .map(|(path, _)| path.clone());
+                if let Some(oldest) = oldest.as_ref() {
+                    roots.remove(oldest);
+                }
+                oldest
+            } else {
+                None
+            }
+        };
+        if let (Some(watcher), Some(oldest)) = (watcher.as_mut(), evicted.as_ref()) {
+            let _ = watcher.unwatch(oldest);
         }
-        if watcher
+        let watched = watcher
             .as_mut()
-            .is_some_and(|watcher| watcher.watch(&root, RecursiveMode::Recursive).is_ok())
-        {
-            roots.insert(root, Instant::now());
+            .is_some_and(|watcher| watcher.watch(&root, RecursiveMode::Recursive).is_ok());
+        if watched {
+            self.watched_roots
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(root, Instant::now());
         }
     }
 

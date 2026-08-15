@@ -21,7 +21,13 @@ function webhookRoute(modelRef) {
   const cfg = loadConfig({ secrets: false });
   const maintenance = cfg?.maintenance?.webhook;
   if (maintenance?.provider && maintenance?.model) {
-    return { provider: maintenance.provider, model: maintenance.model };
+    return {
+      provider: maintenance.provider,
+      model: maintenance.model,
+      ...(maintenance.effort ? { effort: maintenance.effort } : {}),
+      ...(maintenance.fast === true ? { fast: true } : {}),
+      ...(maintenance.modelParameters ? { modelParameters: { ...maintenance.modelParameters } } : {}),
+    };
   }
   throw new Error('webhook run has no model: set one on the endpoint or configure maintenance.webhook');
 }
@@ -38,6 +44,7 @@ export async function runWebhookSession({ name, model = null, prompt, cwd = null
     model: route.model,
     ...(route.effort ? { effort: route.effort } : {}),
     ...(route.fast === true ? { fast: true } : {}),
+    ...(route.modelParameters ? { modelParameters: route.modelParameters } : {}),
     owner: 'user',
     sourceType: 'webhook',
     sourceName: endpoint,

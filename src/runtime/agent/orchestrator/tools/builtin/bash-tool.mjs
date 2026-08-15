@@ -448,25 +448,20 @@ export async function executeBashTool(args, workDir, options = {}) {
     } catch (err) {
         return formatShellToolFailure(normalizeErrorMessage(err instanceof Error ? err.message : String(err)));
     }
-    // Keep foreground commands on a long tool-owned timeout. The MCP dispatch
-    // layer must not add a shorter fallback ceiling when timeout is omitted.
-    // Reference-CLI parity: sync-first, no hard
-    // upper ceiling on a caller-provided total timeout. Default 120 s (2 min)
-    // when omitted; BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS env overrides
-    // bound the blocking window when timeout promotion is available.
-    const _envDefaultTimeout = parseInt(process.env.BASH_DEFAULT_TIMEOUT_MS ?? '', 10);
-    const DEFAULT_BASH_TIMEOUT_MS = _envDefaultTimeout > 0 ? _envDefaultTimeout : 120_000;
+    // timeout_ms is a caller-requested HARD total deadline, not a foreground
+    // wait budget. Omitted/0 means no deadline: the command starts foreground,
+    // then the 10 s coordination budget promotes it without shortening its
+    // lifetime. This matches the public schema and avoids accidental kills
+    // caused by callers guessing how long a build might take.
     const _envMaxTimeout = parseInt(process.env.BASH_MAX_TIMEOUT_MS ?? '', 10);
-    // Foreground blocking cap when timeout promotion is available. 600s let a
+    // Foreground blocking cap when timeout promotion is available. 120s avoids
     // caller-supplied 10-15 min timeout hold the conversation synchronously
     // for its whole span (user: sync calls hanging 10-20 minutes); 120s (the
-    // omitted-timeout default) keeps quick builds inline while anything longer
-    // detaches as a tracked job with the REMAINDER of the explicit timeout as
-    // its background deadline (user decision: 2 minutes).
-    const MAX_BASH_TIMEOUT_MS = Math.max(_envMaxTimeout > 0 ? _envMaxTimeout : 120_000, DEFAULT_BASH_TIMEOUT_MS);
-    const defaultTimeoutMs = DEFAULT_BASH_TIMEOUT_MS;
+    // default cap keeps anything longer detached with the REMAINDER of the
+    // explicit timeout as its background deadline (user decision: 2 minutes).
+    const MAX_BASH_TIMEOUT_MS = _envMaxTimeout > 0 ? _envMaxTimeout : 120_000;
     const hasExplicitTimeout = typeof args.timeout_ms === 'number' && args.timeout_ms > 0;
-    const timeoutMs = hasExplicitTimeout ? args.timeout_ms : defaultTimeoutMs;
+    const timeoutMs = hasExplicitTimeout ? args.timeout_ms : 0;
     const backgroundOnTimeout = !_bgTasksDisabled;
     // Explicit caller timeout remains the total deadline. When promotion is
     // available, cap only its foreground blocking portion at MAX.
@@ -508,7 +503,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     // Gate on backgroundOnTimeout so disabled background tasks remain foreground.
     const autoBackgroundMs = (!backgroundOnTimeout || DEFAULT_AUTO_BACKGROUND_MS <= 0)
       ? 0
-      : Math.min(DEFAULT_AUTO_BACKGROUND_MS, timeout);
+      : (timeout > 0 ? Math.min(DEFAULT_AUTO_BACKGROUND_MS, timeout) : DEFAULT_AUTO_BACKGROUND_MS);
 
     try {
         const { shell, shellArg, shellArgs, shellType } = resolvedSpec;

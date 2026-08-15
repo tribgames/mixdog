@@ -133,7 +133,16 @@ function localBudget(providerCfg = {}) {
 
 function snapshotRemaining(snapshot) {
   const balanceRemaining = num(snapshot?.balance?.remainingUsd ?? snapshot?.balance?.remaining_usd, null);
-  if (balanceRemaining !== null) return { remainingUsd: round(balanceRemaining, 4), source: clean(snapshot?.balance?.source) || clean(snapshot?.source) || 'provider-api' };
+  if (balanceRemaining !== null) {
+    const usedUsd = num(snapshot?.balance?.usedUsd ?? snapshot?.balance?.used_usd, null);
+    const limitUsd = num(snapshot?.balance?.limitUsd ?? snapshot?.balance?.limit_usd, null);
+    return {
+      remainingUsd: round(balanceRemaining, 4),
+      ...(usedUsd !== null ? { usedUsd: round(usedUsd, 4) } : {}),
+      ...(limitUsd !== null ? { limitUsd: round(limitUsd, 4) } : {}),
+      source: clean(snapshot?.balance?.source) || clean(snapshot?.source) || 'provider-api',
+    };
+  }
   const windows = normaliseWindows(snapshot?.quotaWindows, clean(snapshot?.source) || 'provider-api');
   const usd = windows.filter(w => num(w.remainingUsd, null) !== null);
   if (usd.length === 1) return { remainingUsd: usd[0].remainingUsd, source: usd[0].source || clean(snapshot?.source) || 'provider-api' };
@@ -315,6 +324,7 @@ function providerRank(row) {
     'openai-oauth': 10,
     'anthropic-oauth': 20,
     'grok-oauth': 30,
+    'cursor-oauth': 35,
     'opencode-go': 40,
     openai: 50,
     anthropic: 60,

@@ -173,6 +173,9 @@ function maintenanceRouteToPreset(routeOrName, agent) {
     const effort = String(routeOrName.effort || '').trim();
     if (effort) out.effort = effort;
     if (routeOrName.fast === true) out.fast = true;
+    if (routeOrName.modelParameters && typeof routeOrName.modelParameters === 'object') {
+        out.modelParameters = { ...routeOrName.modelParameters };
+    }
     return out;
 }
 

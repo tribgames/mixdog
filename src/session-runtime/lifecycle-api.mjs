@@ -548,7 +548,13 @@ export function createLifecycleApi(deps) {
       const resumeEffort = resumed.effort || (hasOwn(route, 'effort') ? route.effort : undefined);
       const resumedRoute = resolveRoute(
         getConfig(),
-        { provider: resumed.provider, model: resumed.model, effort: resumeEffort },
+        {
+          provider: resumed.provider,
+          model: resumed.model,
+          effort: resumeEffort,
+          fast: resumed.fast === true,
+          modelParameters: resumed.modelParameters || {},
+        },
       );
       setRoute(resumedRoute);
       const finishRoutePreparation = async () => {

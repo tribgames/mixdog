@@ -29,7 +29,7 @@ import {
 import { isInvalidToolArgsMarker, formatInvalidToolArgsResult } from '../providers/openai-compat-stream.mjs';
 import {
     _stripMcpPrefix, _isReadTool, _isMutationTool, _isScopedCacheableTool,
-    _isShellTool, _intraTurnSig,
+    _isShellTool, _intraTurnSig, _argShapeSig, _isToolArgShapeFailure,
 } from './loop/tool-classify.mjs';
 import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
@@ -58,6 +58,7 @@ export async function processToolBatch(ctx) {
     const executeToolFn = typeof ctx.executeToolFn === 'function' ? ctx.executeToolFn : executeTool;
     let dedupStubTotal = ctx.dedupStubTotal;
     let editCount = ctx.editCount;
+    const turnModel = assistantTurnMsg?.meta?.transcript?.model || sessionRef?.model || null;
         // Execute each tool and append results.
         //
         // Intra-turn duplicate suppression: when an LLM emits two tool_use
@@ -180,6 +181,7 @@ export async function processToolBatch(ctx) {
             // round-trip until the hard iteration cap. Steer it to change
             // approach instead.
             const _repeatFailSig = _intraTurnSig(call.name, call.arguments);
+            const _repeatArgShapeSig = _argShapeSig(call.name, call.arguments);
             {
                 const _rfg = sessionRef?._repeatFailGuard;
                 if (_rfg && _rfg.sig === _repeatFailSig && _rfg.count >= repeatFailLimit) {
@@ -195,6 +197,19 @@ export async function processToolBatch(ctx) {
                         toolKind: 'error',
                         // …but nothing was dispatched, so this skip is not a real
                         // tool failure and must never ARM the stop hook either.
+                        guardSkip: true,
+                    });
+                    continue;
+                }
+            }
+            {
+                const _afg = sessionRef?._repeatArgShapeFailGuard;
+                if (_afg && _afg.sig === _repeatArgShapeSig && _afg.count >= repeatFailLimit) {
+                    _stageToolResultMessage({
+                        role: 'tool',
+                        content: `[repeat-argument-shape-guard] This \`${call.name}\` argument shape has already failed validation ${_afg.count} times in a row; not re-executing another equivalent malformed call. Correct the argument types/required fields or use a different tool.`,
+                        toolCallId: call.id,
+                        toolKind: 'error',
                         guardSkip: true,
                     });
                     continue;
@@ -407,6 +422,13 @@ export async function processToolBatch(ctx) {
                 } else {
                     sessionRef._repeatFailGuard = null;
                 }
+                if (_failed && _isToolArgShapeFailure(result)) {
+                    sessionRef._repeatArgShapeFailGuard = (sessionRef._repeatArgShapeFailGuard?.sig === _repeatArgShapeSig)
+                        ? { sig: _repeatArgShapeSig, count: sessionRef._repeatArgShapeFailGuard.count + 1 }
+                        : { sig: _repeatArgShapeSig, count: 1 };
+                } else {
+                    sessionRef._repeatArgShapeFailGuard = null;
+                }
             }
             // A failed executed call keeps its FULL argument body in history so the
             // model can retry against the original (a large apply_patch `patch`
@@ -596,7 +618,7 @@ export async function processToolBatch(ctx) {
                     toolMs: toolEndedAt - toolStartedAt,
                     toolArgs: call.arguments,
                     agent: sessionRef?.agent || null,
-                    model: sessionRef?.model || null,
+                    model: turnModel,
                     resultKind: _resultKind,
                     resultText: result,
                     localSearchTelemetry: completed.localSearchTelemetry,
@@ -682,7 +704,7 @@ export async function processToolBatch(ctx) {
                     toolMs: toolEndedAt && toolStartedAt ? toolEndedAt - toolStartedAt : null,
                     toolArgs: call.arguments,
                     agent: sessionRef?.agent || null,
-                    model: sessionRef?.model || null,
+                    model: turnModel,
                     cwd,
                     resultText: _postMsg,
                     resultKind: 'error',

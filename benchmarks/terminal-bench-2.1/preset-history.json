@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "runs": [
+    {
+      "preset": "sol-xhigh",
+      "fingerprint": "sha256:5e532a39bb765fb41bf82749dc674cc1646e778e984ce2ad7e4dd4b910ee8ade",
+      "runDir": "jobs-lossless-output-fast8-solxhigh-20260815/2026-08-15__02-00-03",
+      "verified": {
+        "concurrent": 8,
+        "attempts": 1,
+        "maxRetries": 2
+      }
+    },
+    {
+      "preset": "sol-xhigh",
+      "fingerprint": "sha256:5e532a39bb765fb41bf82749dc674cc1646e778e984ce2ad7e4dd4b910ee8ade",
+      "runDir": "jobs-lossless-output-r2-fast8-solxhigh-20260815/2026-08-15__02-06-48",
+      "verified": {
+        "concurrent": 8,
+        "attempts": 1,
+        "maxRetries": 2
+      }
+    }
+  ]
+}

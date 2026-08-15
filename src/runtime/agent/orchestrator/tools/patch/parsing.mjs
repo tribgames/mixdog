@@ -114,6 +114,10 @@ export function canFallbackCountedUnified(patchStr, requestedFormat, err) {
 function stripPatchPathMetadata(rawPath) {
   let text = String(rawPath || '').trim();
   if (!text) return '';
+  // Models often decorate every control line symmetrically and emit
+  // `*** Update File: path ***`. The suffix is marker punctuation, not part of
+  // a valid cross-platform path; strip it before lock/path resolution.
+  text = text.replace(/\s+\*{3}\s*$/, '').trimEnd();
   const tabIdx = text.indexOf('\t');
   if (tabIdx !== -1) text = text.slice(0, tabIdx).trimEnd();
   const quote = text[0];

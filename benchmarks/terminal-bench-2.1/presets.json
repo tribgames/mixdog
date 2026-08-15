@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "dataset": "terminal-bench/terminal-bench-2-1",
+  "defaults": {
+    "concurrent": 8,
+    "attempts": 1,
+    "maxRetries": 2
+  },
+  "suites": {
+    "core": [
+      "code-from-image",
+      "db-wal-recovery",
+      "fix-code-vulnerability",
+      "git-leak-recovery",
+      "log-summary-date-ranges",
+      "multi-source-data-merger",
+      "polyglot-c-py",
+      "prove-plus-comm"
+    ],
+    "full": []
+  },
+  "baselines": {
+    "codex-gpt56-sol": {
+      "label": "Codex CLI · GPT-5.6 Sol xhigh",
+      "jobsDir": "jobs-full-codex/2026-08-02__12-19-11",
+      "harness": "codex",
+      "model": "gpt-5.6-sol",
+      "finalContextMedianTokens": 33454,
+      "costLowerBound": true
+    },
+    "claude-code-opus5": {
+      "label": "Claude Code · Claude Opus 5 high",
+      "jobsDir": "jobs-full-cc-n8/2026-08-02__19-20-02",
+      "harness": "claude-code",
+      "model": "claude-opus-5",
+      "finalContextMedianTokens": 38177,
+      "costDetails": "cc-baseline-plus.json",
+      "costLowerBound": false
+    }
+  },
+  "presets": {
+    "sol-xhigh": {
+      "suite": "core",
+      "routeProfile": "sol-xhigh"
+    },
+    "grok46-xhigh": {
+      "suite": "core",
+      "routeProfile": "grok46-xhigh"
+    },
+    "opus5-solo": {
+      "suite": "core",
+      "routeProfile": "opus5-solo"
+    },
+    "full-sol-xhigh": {
+      "suite": "full",
+      "routeProfile": "sol-xhigh",
+      "compareTo": "codex-gpt56-sol"
+    },
+    "full-opus5-solo": {
+      "suite": "full",
+      "routeProfile": "opus5-solo",
+      "compareTo": "claude-code-opus5"
+    }
+  }
+}

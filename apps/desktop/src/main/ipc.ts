@@ -125,7 +125,7 @@ const SUBMIT_OPTION_KEYS = new Set([
 const ABORT_OPTION_KEYS = new Set(['restorePrompt', 'submissionId']);
 const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId', 'remote']);
 const CAPABILITY_REQUEST_KEYS = new Set(['capability', 'args', 'sessionId']);
-const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast']);
+const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast', 'modelParameters']);
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh']);
 const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason']);
@@ -493,17 +493,23 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
   requireAllowedKeys(selection, MODEL_SELECTION_KEYS, 'model selection');
   const effort = selection.effort;
   const fast = selection.fast;
+  const modelParameters = selection.modelParameters;
   if (effort !== undefined && typeof effort !== 'string') {
     throw new TypeError('selection.effort must be a string.');
   }
   if (fast !== undefined && typeof fast !== 'boolean') {
     throw new TypeError('selection.fast must be a boolean.');
   }
+  if (modelParameters !== undefined && (!modelParameters || typeof modelParameters !== 'object' || Array.isArray(modelParameters)
+    || Object.entries(modelParameters).some(([key, value]) => !key || typeof value !== 'string'))) {
+    throw new TypeError('selection.modelParameters must be a string map.');
+  }
   return {
     provider: requiredString(selection.provider, 'selection.provider', 256),
     model: requiredString(selection.model, 'selection.model', 512),
     ...(effort === undefined ? {} : { effort: requiredString(effort, 'selection.effort', 64) }),
     ...(fast === undefined ? {} : { fast }),
+    ...(modelParameters === undefined ? {} : { modelParameters: { ...modelParameters as Record<string, string> } }),
   };
 }
 
