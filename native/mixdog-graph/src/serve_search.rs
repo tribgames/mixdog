@@ -1072,6 +1072,7 @@ fn scan_standard<M: Matcher>(
     cancelled: &AtomicBool,
     deadline_at: Option<Instant>,
     match_limit: Option<usize>,
+    scan_errors: &AtomicUsize,
 ) -> Option<Vec<String>> {
     let mut printer_builder = StandardBuilder::new();
     printer_builder
@@ -1082,7 +1083,17 @@ fn scan_standard<M: Matcher>(
         .max_columns_preview(true);
     let mut printer = printer_builder.build_no_color(Vec::new());
     let mut searcher = searcher(p);
-    let reader = CancellableReader::new(File::open(path).ok()?, cancelled, deadline_at);
+    // An unreadable file must not read as "no matches in this file": count it
+    // so the response downgrades to partial (rg reports the same condition on
+    // stderr and exits 2).
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(_) => {
+            scan_errors.fetch_add(1, Ordering::Relaxed);
+            return None;
+        }
+    };
+    let reader = CancellableReader::new(file, cancelled, deadline_at);
     let result = if prefix.is_empty() {
         let inner = printer.sink(matcher);
         let mut sink = CancelSink {
@@ -1103,7 +1114,16 @@ fn scan_standard<M: Matcher>(
         };
         searcher.search_reader(matcher, reader, &mut sink)
     };
-    if result.is_err() || cancelled.load(Ordering::Relaxed) {
+    if cancelled.load(Ordering::Relaxed) {
+        return None;
+    }
+    if result.is_err() {
+        // Either the soft deadline fired mid-scan (surfaced by the response-
+        // level deadline re-check) or a real read error. Count only the
+        // latter so a genuine I/O failure downgrades the response to partial.
+        if !deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
+            scan_errors.fetch_add(1, Ordering::Relaxed);
+        }
         return None;
     }
     output_lines(printer.into_inner().into_inner())
@@ -1116,6 +1136,7 @@ fn scan_summary<M: Matcher>(
     p: &ParsedArgs,
     cancelled: &AtomicBool,
     deadline_at: Option<Instant>,
+    scan_errors: &AtomicUsize,
 ) -> Option<Vec<String>> {
     let kind = if p.files_with_matches {
         SummaryKind::PathWithMatch
@@ -1129,7 +1150,15 @@ fn scan_summary<M: Matcher>(
         .exclude_zero(true);
     let mut printer = printer_builder.build_no_color(Vec::new());
     let mut searcher = searcher(p);
-    let reader = CancellableReader::new(File::open(path).ok()?, cancelled, deadline_at);
+    // Same unreadable-file accounting as scan_standard.
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(_) => {
+            scan_errors.fetch_add(1, Ordering::Relaxed);
+            return None;
+        }
+    };
+    let reader = CancellableReader::new(file, cancelled, deadline_at);
     let result = if prefix.is_empty() {
         let inner = printer.sink(matcher);
         let mut sink = CancelSink {
@@ -1150,7 +1179,14 @@ fn scan_summary<M: Matcher>(
         };
         searcher.search_reader(matcher, reader, &mut sink)
     };
-    if result.is_err() || cancelled.load(Ordering::Relaxed) {
+    if cancelled.load(Ordering::Relaxed) {
+        return None;
+    }
+    if result.is_err() {
+        // Same deadline-vs-real-error split as scan_standard.
+        if !deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
+            scan_errors.fetch_add(1, Ordering::Relaxed);
+        }
         return None;
     }
     output_lines(printer.into_inner().into_inner())
@@ -1164,11 +1200,12 @@ fn scan_file(
     cancelled: &AtomicBool,
     deadline_at: Option<Instant>,
     match_limit: Option<usize>,
+    scan_errors: &AtomicUsize,
 ) -> Option<Vec<String>> {
     macro_rules! scan {
         ($matcher:expr) => {
             if parsed.files_with_matches || parsed.count {
-                scan_summary(path, prefix, $matcher, parsed, cancelled, deadline_at)
+                scan_summary(path, prefix, $matcher, parsed, cancelled, deadline_at, scan_errors)
             } else {
                 scan_standard(
                     path,
@@ -1178,6 +1215,7 @@ fn scan_file(
                     cancelled,
                     deadline_at,
                     match_limit,
+                    scan_errors,
                 )
             }
         };
@@ -1216,6 +1254,8 @@ fn append_scanned_matches(
     all_lines: &mut Vec<String>,
     emitted_blocks: &mut usize,
     collect_until: usize,
+    scan_errors: &AtomicUsize,
+    files_scanned: &AtomicUsize,
 ) -> bool {
     if files.is_empty() || all_lines.len() >= collect_until {
         return all_lines.len() >= collect_until;
@@ -1234,6 +1274,7 @@ fn append_scanned_matches(
             } else {
                 String::new()
             };
+            files_scanned.fetch_add(1, Ordering::Relaxed);
             scan_file(
                 file,
                 &prefix,
@@ -1242,6 +1283,7 @@ fn append_scanned_matches(
                 cancelled,
                 deadline_at,
                 (collect_until != usize::MAX).then_some(collect_until),
+                scan_errors,
             )
         })
         .collect();
@@ -1275,6 +1317,8 @@ fn append_scanned_matches_unordered(
     all_lines: &mut Vec<String>,
     emitted_blocks: &mut usize,
     collect_until: usize,
+    scan_errors: &AtomicUsize,
+    files_scanned: &AtomicUsize,
 ) -> bool {
     let remaining = collect_until.saturating_sub(all_lines.len());
     if files.is_empty() || remaining == 0 {
@@ -1295,6 +1339,7 @@ fn append_scanned_matches_unordered(
         } else {
             String::new()
         };
+        files_scanned.fetch_add(1, Ordering::Relaxed);
         let Some(block) = scan_file(
             file,
             &prefix,
@@ -1303,6 +1348,7 @@ fn append_scanned_matches_unordered(
             cancelled,
             deadline_at,
             Some(remaining),
+            scan_errors,
         ) else {
             return;
         };
@@ -1597,6 +1643,8 @@ fn scan_limited_operand(
     all_lines: &mut Vec<String>,
     emitted_blocks: &mut usize,
     collect_until: usize,
+    scan_errors: &AtomicUsize,
+    files_scanned: &AtomicUsize,
 ) -> Result<(bool, bool), String> {
     store.watch_root(operand_path);
     if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
@@ -1617,6 +1665,8 @@ fn scan_limited_operand(
             all_lines,
             emitted_blocks,
             collect_until,
+            scan_errors,
+            files_scanned,
         );
         let timed_out = deadline_at.is_some_and(|deadline| Instant::now() >= deadline);
         return Ok((reached_limit, timed_out));
@@ -1680,6 +1730,8 @@ fn scan_limited_operand(
             all_lines,
             emitted_blocks,
             collect_until,
+            scan_errors,
+            files_scanned,
         );
         if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
             return Ok((reached_limit, true));
@@ -1982,6 +2034,12 @@ fn handle(
     let mut all_lines: Vec<String> = Vec::new();
     let mut emitted_blocks = 0usize;
     let mut timed_out = false;
+    let scan_errors = AtomicUsize::new(0);
+    // Observability for silent-empty diagnosis: how many files the scan loops
+    // actually opened. An empty result with filesScanned=0 on a scope that
+    // demonstrably contains files is a server-state anomaly, not a no-match
+    // (observed once in the wild; JS retries that signature once).
+    let files_scanned = AtomicUsize::new(0);
     let chunk_size = rayon::current_num_threads().max(4);
     'operands: for operand in &parsed.targets {
         if cancelled.load(Ordering::Relaxed) {
@@ -2017,6 +2075,8 @@ fn handle(
                 &mut all_lines,
                 &mut emitted_blocks,
                 collect_until,
+                &scan_errors,
+                &files_scanned,
             )?;
             if operand_timed_out {
                 timed_out = true;
@@ -2059,6 +2119,8 @@ fn handle(
                 &mut all_lines,
                 &mut emitted_blocks,
                 collect_until,
+                &scan_errors,
+                &files_scanned,
             ) {
                 break 'operands;
             }
@@ -2068,6 +2130,19 @@ fn handle(
             break;
         }
     }
+    // scan_standard/scan_summary swallow a mid-file soft-deadline expiry: the
+    // CancellableReader's TimedOut error surfaces as `None`, indistinguishable
+    // from "no matches in this file", and the between-chunks deadline checks
+    // never run again after the LAST file. Re-check the deadline once after
+    // every scan loop so that expiry is reported as a partial, timed-out
+    // response instead of a silent (possibly empty) complete one — observed
+    // in the wild as a false "(no matches)" under 8-way host saturation.
+    let timed_out = timed_out
+        || deadline_at.is_some_and(|deadline| Instant::now() >= deadline);
+    // Files that failed to open/read mid-walk were skipped, not searched:
+    // surface the count so the caller can distinguish "no matches" from
+    // "not fully searched" (rg's stderr + exit-2 contract, JSONL-shaped).
+    let scan_error_count = scan_errors.load(Ordering::Relaxed);
     let total_after_offset = all_lines.len().saturating_sub(req.offset);
     let window: Vec<&String> = all_lines
         .iter()
@@ -2075,6 +2150,7 @@ fn handle(
         .take(if req.limit > 0 { req.limit } else { usize::MAX })
         .collect();
     let complete = !timed_out
+        && scan_error_count == 0
         && all_lines.len() < collect_until
         && (req.limit == 0 || total_after_offset <= req.limit);
     Ok(serde_json::json!({
@@ -2082,8 +2158,10 @@ fn handle(
         "lines": window,
         "complete": complete,
         "totalSeen": total_after_offset,
-        "partial": timed_out,
+        "partial": timed_out || scan_error_count > 0,
         "timeout": timed_out,
+        "scanErrors": scan_error_count,
+        "filesScanned": files_scanned.load(Ordering::Relaxed),
     }))
 }
 
@@ -3017,6 +3095,62 @@ mod tests {
             .unwrap_err(),
             SOFT_TIMEOUT
         );
+    }
+
+    #[test]
+    fn unreadable_file_counts_a_scan_error_instead_of_silent_no_match() {
+        let parsed = parse_args(&request(&["-e", "x", "."], 10).args).unwrap();
+        let matcher = build_matcher(&parsed).unwrap();
+        let cancelled = AtomicBool::new(false);
+        let scan_errors = AtomicUsize::new(0);
+        // A file that vanished (or is unreadable) between the walk and the
+        // scan: the scan yields None, but the error counter must record that
+        // this file was skipped rather than searched-and-empty.
+        let missing = std::env::temp_dir().join("mg-vanished-during-walk.txt");
+        std::fs::remove_file(&missing).ok();
+        assert!(scan_file(
+            &missing,
+            "",
+            &matcher,
+            &parsed,
+            &cancelled,
+            None,
+            None,
+            &scan_errors,
+        )
+        .is_none());
+        assert_eq!(scan_errors.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn expired_deadline_never_reports_a_silent_complete_empty_result() {
+        let dir = std::env::temp_dir().join(format!("mg-deadline-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("sample.py");
+        std::fs::write(&file, "raise ValueError\n").unwrap();
+        let store = Arc::new(FileListStore::new());
+        let cancelled = AtomicBool::new(false);
+        let mut req = request(
+            &[
+                "--no-heading",
+                "--line-number",
+                "-e",
+                "raise",
+                "--",
+                &file.to_string_lossy(),
+            ],
+            50,
+        );
+        req.cwd = dir.to_string_lossy().into_owned();
+        // scan_standard swallows a mid-scan TimedOut read error into `None`
+        // ("no matches in this file"); the response-level deadline re-check
+        // must still surface partial/timeout instead of complete-empty.
+        let expired = Some(Instant::now() - Duration::from_millis(1));
+        let response = handle(&req, &cancelled, &store, expired).unwrap();
+        assert_eq!(response["timeout"], true);
+        assert_eq!(response["partial"], true);
+        assert_eq!(response["complete"], false);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
