@@ -46,6 +46,16 @@ test('shared tool rules omit disabled search and memory routes', () => {
   assert.match(omitted, /`find`/);
 });
 
+test('shared tool rules keep parallel-default and shell-boundary anchors', () => {
+  // Advisory drift check: these phrases carry the routing policy that field
+  // failures traced to (serial batching, shell-as-explorer). Update the
+  // phrase here when the rule text intentionally changes.
+  const full = buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
+  assert.match(full, /independent calls share one batch by default/i);
+  assert.match(full, /never instead of an\s+available file tool/i);
+  assert.match(full, /environment variable or the home directory\s+are resolved locations/i);
+});
+
 test('toSessionWorkflowMeta keeps delegatesAgents for Solo packs', () => {
   const meta = toSessionWorkflowMeta({
     id: 'solo',

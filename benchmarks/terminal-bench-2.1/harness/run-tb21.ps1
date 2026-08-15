@@ -144,7 +144,7 @@ $harborArgs = @(
     "--retry-exclude", "AgentTimeoutError",
     "--retry-exclude", "VerifierOutputParseError",
     "--retry-exclude", "RewardFileEmptyError",
-    "-q", "-y"
+    "-y"
 )
 # Accept both array and comma-joined string; task names need the
 # "terminal-bench/" prefix to match the dataset registry names.

@@ -63,6 +63,9 @@ import { assertCodeGraphDescriptionContract } from './code-graph-description-con
 import { getHiddenAgent, resolveAgentSessionPermission } from '../src/runtime/agent/orchestrator/internal-agents.mjs';
 import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
 import { _argShapeSig, _isToolArgShapeFailure } from '../src/runtime/agent/orchestrator/session/loop/tool-classify.mjs';
+import { compactSettledToolCallBodies } from '../src/runtime/agent/orchestrator/session/loop/stored-tool-args.mjs';
+import { crossTurnDedupStub } from '../src/runtime/agent/orchestrator/session/loop/completion-guards.mjs';
+import { toolCompletionInstruction } from '../src/runtime/shared/tool-execution-contract.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const localGraphBin = join(
@@ -90,6 +93,47 @@ function assertOk(name, result, pattern = null) {
     throw new Error(`${name} returned unexpected output:\n${text.slice(0, 1000)}`);
   }
   return text;
+}
+
+{
+  const longPatch = `*** Begin Patch\n*** Add File: compacted.txt\n+${'x'.repeat(11_000)}\n*** End Patch\n`;
+  const messages = [
+    { role: 'assistant', toolCalls: [{ id: 'call_compacted', name: 'apply_patch', arguments: { patch: longPatch } }] },
+    { role: 'tool', toolCallId: 'call_compacted', toolKind: 'normal', content: 'Applied 1 File (Native)' },
+  ];
+  assert(compactSettledToolCallBodies(messages), 'settled mutation body should compact');
+  const marker = messages[0].toolCalls[0].arguments.patch;
+  assert(/already applied to compacted\.txt; do not copy or repeat/i.test(marker),
+    `compacted mutation marker must stay status-only: ${marker}`);
+  assert(!/re-?read|fresh patch|write a patch/i.test(marker),
+    `compacted mutation marker must not instruct another read/edit: ${marker}`);
+  const completion = toolCompletionInstruction({
+    surface: 'shell',
+    id: 'job-1',
+    status: 'completed',
+    detail: 'exit 0',
+  });
+  assert(/Final result follows; do not recheck\.$/.test(completion),
+    `completion instruction must close status polling: ${completion}`);
+  assert(/No new evidence; use the existing result or report it unresolved\.$/.test(
+    crossTurnDedupStub('read', 2, true),
+  ), 'cross-turn dedup reminder must stay evidence-neutral');
+  const steeringSources = [
+    'src/runtime/agent/orchestrator/session/agent-loop.mjs',
+    'src/runtime/agent/orchestrator/session/tool-batch.mjs',
+    'src/runtime/agent/orchestrator/session/eager-dispatch.mjs',
+    'src/runtime/agent/orchestrator/session/loop/stored-tool-args.mjs',
+    'src/runtime/agent/orchestrator/tools/patch/orchestrator.mjs',
+  ].map((file) => readFileSync(join(root, file), 'utf8')).join('\n');
+  for (const banned of [
+    're-read those files and write a fresh patch',
+    'Re-run the fixed action (or a verifying tool)',
+    'Fix the failed edit before verification',
+    'Correct the argument types/required fields or use a different tool',
+    'continue with tool calls',
+  ]) {
+    assert(!steeringSources.includes(banned), `conflicting injected instruction remains: ${banned}`);
+  }
 }
 
 {
@@ -1167,8 +1211,8 @@ for (const [label, patch] of compactedGuardCases) {
   const out = await executePatchTool('apply_patch', { base_path: root, dry_run: true, fuzzy: false, patch }, root);
   if (!/^Error[\s:[]/.test(String(out))
       || !/compacted-history placeholder/i.test(String(out))
-      || !/re-read the current target file contents now/i.test(String(out))
-      || !/fresh full patch/i.test(String(out))) {
+      || !/submit real patch text/i.test(String(out))
+      || /re-read|fresh full patch/i.test(String(out))) {
     throw new Error(`apply_patch must reject compacted placeholder (${label}):\n${out}`);
   }
 }
@@ -1196,7 +1240,7 @@ const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
 const shellDescription = shellTool?.description || '';
 if (!/Run programs, runtime\/state operations/i.test(shellDescription)
     || !/calculations, transformations, file generation/i.test(shellDescription)
-    || !/after 10s.*continues.*task_id.*notification/i.test(shellDescription)
+    || !/after 15s.*continues.*task_id.*notification/i.test(shellDescription)
     || !/omit timeout_ms.*hard total deadline/i.test(shellDescription)) {
   throw new Error(`shell description must use ordinary execution/computation/file-role concepts: ${shellDescription}`);
 }

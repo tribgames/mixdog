@@ -555,6 +555,7 @@
   "Mixdog will close while the update is installed, then reopen automatically.": "Mixdog sẽ đóng trong khi cài bản cập nhật rồi tự mở lại.",
   "Model": "Mô hình",
   "Model catalog unavailable: {{error}}": "Danh mục mô hình không khả dụng: {{error}}",
+  "Provider status is temporarily unavailable. Try again.": "Trạng thái nhà cung cấp tạm thời không khả dụng. Hãy thử lại.",
   "Models": "Người mẫu",
   "Moonwalking": "Đi dạo trên mặt trăng",
   "Moseying": "Moseying",

@@ -216,7 +216,6 @@ import {
   TOOL_SEARCH_TOOL,
   CWD_TOOL,
   SKILL_TOOL,
-  SESSION_MANAGE_TOOL,
   LEAD_DISALLOWED_TOOLS,
   applyStandaloneToolDefaults,
 } from './tool-defs.mjs';
@@ -534,9 +533,6 @@ export async function createMixdogSessionRuntime({
   rt.sessionCreatePromise = null;
   rt.currentCwd = cwd;
   rt.sessionNeedsCwdRefresh = false;
-  // session_manage tool: reset request scheduled by the model mid-turn,
-  // consumed by the TUI engine at turn end ('clear' | 'compact_clear').
-  rt.pendingSessionReset = null;
   rt.closeRequested = false;
   const warmupTimers = {
     providerSetupWarmupTimer: null,
@@ -828,7 +824,6 @@ export async function createMixdogSessionRuntime({
     TOOL_SEARCH_TOOL,
     ...(envFlag('MIXDOG_DISABLE_SKILLS') ? [] : [SKILL_TOOL]),
     CWD_TOOL,
-    SESSION_MANAGE_TOOL,
     ...searchRuntimeTools.filter((tool) => tool?.public !== false),
     ...(memoryToolDefs?.TOOL_DEFS || []).filter((tool) => tool?.name === 'recall' || tool?.name === 'memory'),
     ...(channelToolDefs?.TOOL_DEFS || []).filter((tool) => channels.isChannelTool(tool?.name)),
@@ -932,29 +927,6 @@ export async function createMixdogSessionRuntime({
           throw new Error(`cwd: unknown action "${action}"`);
         }
         return JSON.stringify({ cwd: rt.currentCwd, sessionId: rt.session?.id || null }, null, 2);
-      }
-      if (name === 'session_manage') {
-        // Lead/owner sessions only: an agent worker resetting its own
-        // transcript mid-task would corrupt the delegation contract, and it
-        // must never reach the owner conversation either.
-        const callerSessionId = callerCtx?.callerSessionId || null;
-        if (callerSessionId && rt.session?.id && callerSessionId !== rt.session.id) {
-          throw new Error('session_manage: only the lead session may reset the conversation');
-        }
-        if (!rt.session?.id) throw new Error('session_manage: no active session');
-        const action = clean(args?.action).toLowerCase();
-        if (action !== 'clear' && action !== 'compact_clear') {
-          throw new Error(`session_manage: unknown action "${action}" (use clear | compact_clear)`);
-        }
-        // Never clear mid-turn — the loop is still reading the transcript.
-        // Schedule and let the TUI engine consume it at turn end (same
-        // boundary the idle auto-clear uses).
-        // Pin to the current session id so a resume/new-session between
-        // scheduling and consumption can never clear the wrong conversation.
-        rt.pendingSessionReset = { action, sessionId: rt.session.id };
-        return action === 'clear'
-          ? 'Session reset scheduled: full clear will run when this turn ends. All prior context will be gone.'
-          : 'Session reset scheduled: the conversation will be summarized (compact) and cleared when this turn ends; key context carries forward in the summary.';
       }
       if (name === 'Skill') {
         return skillToolContent(args?.name);
@@ -1660,8 +1632,6 @@ export async function createMixdogSessionRuntime({
     codeGraphPrewarmLazy,
     getRemoteEnabled: () => rt.remoteEnabled,
     getCloseRequested: () => rt.closeRequested,
-    getPendingSessionReset: () => rt.pendingSessionReset,
-    setPendingSessionReset: (v) => { rt.pendingSessionReset = v; },
     getTranscriptWriter: () => remoteTranscript.transcriptWriter,
     getTwKey: () => remoteTranscript.transcriptKey,
     getLastAppendedAssistant: () => rt._lastAppendedAssistant,

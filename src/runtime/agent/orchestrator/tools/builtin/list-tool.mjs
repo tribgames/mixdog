@@ -1035,7 +1035,7 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     if (rgTruncated) lines.push('... [warning] rg stdout truncated at 20MB cap; broad ranking incomplete (exact-name hits still merged)');
     if (rgPartial && !rgTruncated) lines.push('... [warning] rg exit 2 (partial results); broad ranking may be incomplete');
     if (!targetedProbeRan && headLimit > 0 && passOneRanked.length >= headLimit) {
-        lines.push('[gitignored trees not searched; retry with include_noise:true]');
+        lines.push('[gitignored trees not searched; include_noise:true is available only if those trees are required]');
     }
     const result = lines.join('\n');
     // Do not cache a truncated/partial enumeration — the broad ranking is

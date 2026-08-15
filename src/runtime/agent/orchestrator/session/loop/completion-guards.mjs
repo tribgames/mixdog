@@ -42,7 +42,7 @@ export function isEditProgressTool(name, isEager) {
 // 5th+ dedup stub in the session.
 export function crossTurnDedupStub(name, firstIteration, stuck) {
     let s = `[cross-turn-dedup] \`${name}\` already ran in iteration ${firstIteration}; result unchanged, already in context.`;
-    if (stuck) s += ` You appear stuck — use what you have or report blocked.`;
+    if (stuck) s += ` No new evidence; use the existing result or report it unresolved.`;
     return s;
 }
 

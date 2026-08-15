@@ -36,6 +36,7 @@ import {
 import { DESKTOP_IPC, type DesktopRemoteAccessInfo, type DesktopSettings } from '../shared/contract';
 import { persistWindowState, readWindowState } from './window-state';
 import {
+  normalizeRendererComposerActionDiagnostic,
   normalizeRendererDiagnostic,
   normalizeRendererLongTaskDiagnostic,
   rendererRecoveryDecision,
@@ -704,10 +705,11 @@ async function createWindow(): Promise<void> {
     if (window.isDestroyed()
       || event.sender !== window.webContents
       || event.senderFrame !== window.webContents.mainFrame) return;
-    const longTask = normalizeRendererLongTaskDiagnostic(payload);
+    const composerAction = normalizeRendererComposerActionDiagnostic(payload);
+    const longTask = composerAction ? null : normalizeRendererLongTaskDiagnostic(payload);
     diagnostics?.write(
-      longTask ? 'renderer-long-task' : 'renderer-error',
-      longTask ?? normalizeRendererDiagnostic(payload),
+      composerAction ? 'renderer-composer-action' : (longTask ? 'renderer-long-task' : 'renderer-error'),
+      composerAction ?? longTask ?? normalizeRendererDiagnostic(payload),
     );
   };
   ipcMain.on(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);

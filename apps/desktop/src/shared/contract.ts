@@ -1077,9 +1077,23 @@ export interface DesktopRendererLongTaskDiagnostic {
   durationMs: number;
 }
 
+export interface DesktopRendererComposerActionDiagnostic {
+  kind: 'composer-action';
+  action: 'submit' | 'restore-queue';
+  source: 'keyboard-enter' | 'form-submit' | 'slash-keyboard' | 'slash-click'
+    | 'escape' | 'arrow-up' | 'queue-row';
+  turnBusy: boolean;
+  queueCount: number;
+  draftLength: number;
+  composing: boolean;
+  uptimeMs: number;
+  targeted?: boolean;
+}
+
 export type DesktopRendererDiagnostic =
   | DesktopRendererFailureDiagnostic
-  | DesktopRendererLongTaskDiagnostic;
+  | DesktopRendererLongTaskDiagnostic
+  | DesktopRendererComposerActionDiagnostic;
 
 export interface DesktopBootContext {
   bootId: string;

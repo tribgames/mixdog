@@ -34,8 +34,8 @@ export const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
 ]);
 export const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
   'find', 'glob', 'list', 'grep', 'code_graph', 'read',
-  // cwd / session_manage / web_fetch demoted to the deferred manifest 2026-08:
-  // 0 / 0 / 10 calls in a 3-day 7.6k-call trace window; they auto-load on
+  // cwd / web_fetch demoted to the deferred manifest 2026-08:
+  // 0 / 10 calls in a 3-day 7.6k-call trace window; they auto-load on
   // first direct call.
   'edit', 'apply_patch', 'shell', 'task', 'agent', 'recall', 'search',
   'Skill', 'load_tool',

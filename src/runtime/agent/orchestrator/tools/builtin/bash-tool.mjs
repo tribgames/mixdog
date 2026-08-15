@@ -63,8 +63,11 @@ import {
 import { planDirectExeSpawn } from './shell-direct-exe.mjs';
 
 // Commands start in the foreground. Only work still running after the
-// 10 s coordination budget is promoted to a tracked background task.
-export const DEFAULT_SHELL_AUTO_BACKGROUND_MS = 10_000;
+// 15 s coordination budget is promoted to a tracked background task.
+// Raised from 10 s (2026-08-15): repo verification units (node --test +
+// tool-smoke) cluster at 10.7-11.2 s, so every routine check crossed the
+// budget by a hair and cost a notification round-trip.
+export const DEFAULT_SHELL_AUTO_BACKGROUND_MS = 15_000;
 
 // Post-exec drift detection. After a foreground shell command, compare the
 // live mtime+size of files mixdog has already read this session against their
@@ -450,7 +453,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     }
     // timeout_ms is a caller-requested HARD total deadline, not a foreground
     // wait budget. Omitted/0 means no deadline: the command starts foreground,
-    // then the 10 s coordination budget promotes it without shortening its
+    // then the 15 s coordination budget promotes it without shortening its
     // lifetime. This matches the public schema and avoids accidental kills
     // caused by callers guessing how long a build might take.
     const _envMaxTimeout = parseInt(process.env.BASH_MAX_TIMEOUT_MS ?? '', 10);
@@ -490,7 +493,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     const mergeStderr = true;
     // Main-agent blocking budget. A timeout is the command's total deadline,
     // not permission to hold the conversation open for that whole duration:
-    // after 10 s a still-running command becomes a tracked background task and
+    // after 15 s a still-running command becomes a tracked background task and
     // completion is pushed to the owner. Explicit timeouts keep their remaining
     // deadline after promotion.
     // MIXDOG_SHELL_AUTO_BACKGROUND_MS overrides; an explicit 0 disables.

@@ -153,7 +153,7 @@ export function parseModelVisibleCompletionWrapper(text) {
   const split = /\n\nResult:\n/.exec(value);
   if (!split) return null;
   const preamble = value.slice(0, split.index).trim();
-  if (!/^The async \S+ task \S+ has finished\b[\s\S]*review this result in your next step\.?$/i.test(preamble)
+  if (!/^The async \S+ task \S+ has finished\b[\s\S]*review this result in your next step\.?(?: Final result follows; do not recheck\.)?$/i.test(preamble)
       && !/^Async \S+.* finished\.$/i.test(preamble)) {
     return null;
   }

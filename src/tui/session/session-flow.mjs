@@ -263,24 +263,6 @@ export function createSessionFlow(bag) {
         // A deferred cleared-session UI sync (from a late-settling abandoned
         // compacting clear) applies here now that this turn has settled.
         flushDeferredClearedSessionUi();
-        // session_manage tool: the model scheduled a reset during this turn.
-        // Run it now, at the turn boundary — same clear body as auto-clear.
-        // Cancelled/interrupted turns drop the reset (consume + discard): the
-        // user aborted the turn that asked for it, so the destructive clear
-        // must not fire. commandBusy guards against a concurrent session
-        // command (resume/new) racing the async clear.
-        const scheduledReset = runtime.consumePendingSessionReset?.();
-        if ((scheduledReset === 'clear' || scheduledReset === 'compact_clear')
-          && turnStatus !== 'cancelled'
-          && !getState().commandBusy) {
-          await performSessionClear({
-            verb: scheduledReset === 'clear' ? 'Clearing conversation' : 'Compacting and clearing conversation',
-            doneLabel: scheduledReset === 'clear' ? 'Session cleared' : 'Session compacted and cleared',
-            skipLabel: 'Session reset skipped',
-            surface: 'session-manage',
-            useCompaction: scheduledReset === 'compact_clear',
-          });
-        }
         // If the user re-submits the reclaimed prompt while the cancelled turn
         // is still unwinding, enqueue() cannot start another drain because this
         // drain loop is still active. Continue when pending work appeared during
@@ -395,13 +377,41 @@ export function createSessionFlow(bag) {
     const livePersistIds = new Set(
       pending.map((entry) => entry?.steeringPersistId).filter(Boolean),
     );
+    // Crash-consumed dedup: a row whose text already landed in the session
+    // transcript was consumed before the restart — only its disk drop was
+    // lost (drop is an async fire-and-forget write). Re-queuing it silently
+    // re-injects a stale prompt into the next turn (user report: surprise
+    // self-injection after a process restart). A recent-window substring
+    // match against user messages defines "already delivered"; substring
+    // (not equality) because steering delivery may wrap the raw text.
+    const recentUserTexts = [];
+    {
+      const messages = Array.isArray(runtime.session?.messages) ? runtime.session.messages : [];
+      for (let i = messages.length - 1, seen = 0; i >= 0 && seen < 80; i -= 1) {
+        const m = messages[i];
+        if (m?.role !== 'user') continue;
+        seen += 1;
+        const text = typeof m.content === 'string'
+          ? m.content
+          : Array.isArray(m.content)
+            ? m.content.map((part) => (typeof part?.text === 'string' ? part.text : '')).join('\n')
+            : '';
+        if (text.trim()) recentUserTexts.push(text);
+      }
+    }
+    const alreadyDelivered = (text) => recentUserTexts.some((body) => body.includes(text));
     const restored = [];
+    let droppedDelivered = 0;
     for (const row of rows) {
       const text = String(row?.text || '').trim();
       if (!text) continue;
       // Live enqueue already holds this row (id assigned before the async
       // disk write). Replaying it is the classic double-booked queue.
       if (row.steeringPersistId && livePersistIds.has(row.steeringPersistId)) continue;
+      if (alreadyDelivered(text)) {
+        droppedDelivered += 1;
+        continue;
+      }
       const entry = makeQueueEntry(row.text, {
         id: row.submissionId || undefined,
         submittedAt: row.submittedAt || undefined,
@@ -414,6 +424,9 @@ export function createSessionFlow(bag) {
       if (isQueuedEntryVisible(entry)) restored.push(entry);
     }
     if (restored.length > 0) set({ queued: [...getState().queued, ...restored] });
+    if (droppedDelivered > 0) {
+      try { process.stderr.write(`[tui] skipped ${droppedDelivered} already-delivered steering row(s) on restore\n`); } catch { /* best effort */ }
+    }
     // Recovery must not create a user turn by itself. An idle reconnect leaves
     // the restored rows visible/editable in the queue; a real active-turn
     // boundary or later submit will invoke the normal drain path.
@@ -466,7 +479,7 @@ export function createSessionFlow(bag) {
     });
   }
 
-  // Shared clear body for idle auto-clear and the session_manage tool.
+  // Shared session-clear body.
   // useCompaction=true mirrors auto-clear (summarize via configured
   // compactType, context carries forward); false is a plain /clear wipe.
   async function performSessionClear({

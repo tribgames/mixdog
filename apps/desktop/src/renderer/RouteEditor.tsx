@@ -1,5 +1,5 @@
 import { Check, ChevronDown, ChevronRight } from 'lucide-react';
-import { useCallback, useEffect, useId, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopModelOption } from '../shared/contract';
@@ -7,48 +7,26 @@ import { t } from './i18n';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { ModelPicker } from './ModelPicker';
 import { useSurfaceActive } from './surface-activity';
-import { routeSheetRows, type RouteSheetPane } from './route-editor-logic';
+import {
+  ROUTE_PANEL_PADDING,
+  ROUTE_SHEET_ROW_HEIGHT,
+  routeFlyoutBox,
+  routeSheetBox,
+  routeSheetRows,
+  type RoutePanelBox,
+  type RouteSheetPane,
+} from './route-editor-logic';
 
 export { routeSheetRows } from './route-editor-logic';
 
-type Box = CSSProperties & { width: number; maxHeight: number };
-
-function placeSheet(trigger: DOMRect): Box {
-  const edge = 8;
-  const gap = 6;
-  const width = 228;
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const left = Math.max(edge, Math.min(trigger.right - width, viewportWidth - width - edge));
-  const spaceAbove = trigger.top - edge;
-  const spaceBelow = viewportHeight - trigger.bottom - edge;
-  const openAbove = spaceAbove >= 120 || spaceAbove > spaceBelow;
-  const maxHeight = Math.min(280, Math.max(88, (openAbove ? spaceAbove : spaceBelow) - gap));
-  return {
-    left,
-    width,
-    maxHeight,
-    ...(openAbove
-      ? { bottom: viewportHeight - trigger.top + gap }
-      : { top: trigger.bottom + gap }),
-  };
+function currentViewport() {
+  return { width: window.innerWidth, height: window.innerHeight };
 }
 
-function placeFlyout(sheet: DOMRect, preferredWidth: number, preferredHeight: number): Box {
-  const edge = 8;
-  const gap = 6;
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const width = Math.min(preferredWidth, viewportWidth - edge * 2);
-  const spaceLeft = sheet.left - edge - gap;
-  const spaceRight = viewportWidth - sheet.right - edge - gap;
-  const placeLeft = spaceLeft >= Math.min(240, width) || spaceLeft >= spaceRight;
-  const left = placeLeft
-    ? Math.max(edge, sheet.left - width - gap)
-    : Math.min(viewportWidth - width - edge, sheet.right + gap);
-  const maxHeight = Math.min(preferredHeight, viewportHeight - edge * 2);
-  const top = Math.min(Math.max(edge, sheet.top), viewportHeight - edge - Math.min(maxHeight, 160));
-  return { left, top, width, maxHeight };
+function preferredFlyoutHeight(pane: RouteSheetPane, effortCount: number): number {
+  if (pane === 'model') return 380;
+  if (pane === 'effort') return Math.min(260, Math.max(44, effortCount * ROUTE_SHEET_ROW_HEIGHT + 8));
+  return 80;
 }
 
 export function RouteEditor({
@@ -96,11 +74,12 @@ export function RouteEditor({
 }) {
   const [open, setOpen] = useState(false);
   const [pane, setPane] = useState<RouteSheetPane | null>(null);
-  const [sheetBox, setSheetBox] = useState<Box | null>(null);
-  const [flyoutBox, setFlyoutBox] = useState<Box | null>(null);
+  const [sheetBox, setSheetBox] = useState<RoutePanelBox | null>(null);
+  const [flyoutBox, setFlyoutBox] = useState<RoutePanelBox | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const sheet = useRef<HTMLDivElement>(null);
   const flyout = useRef<HTMLDivElement>(null);
+  const rowButtons = useRef<Partial<Record<RouteSheetPane, HTMLButtonElement | null>>>({});
   const clickGuard = useImmediateOverlayClickGuard();
   const surfaceActive = useSurfaceActive();
   const sheetId = useId().replace(/:/g, '');
@@ -112,6 +91,8 @@ export function RouteEditor({
     effortCount: effortOptions.length,
     fastVisible,
   });
+  const sheetHeight = rows.length * ROUTE_SHEET_ROW_HEIGHT + ROUTE_PANEL_PADDING * 2;
+  const paneRowIndex = pane ? rows.indexOf(pane) : -1;
   const visible = open && surfaceActive;
 
   const closeAll = useCallback((restoreFocus = false) => {
@@ -124,22 +105,35 @@ export function RouteEditor({
     }
   }, []);
 
+  const closePane = useCallback((closedPane: RouteSheetPane, restoreFocus = false) => {
+    setPane(null);
+    setFlyoutBox(null);
+    if (restoreFocus) {
+      window.setTimeout(() => rowButtons.current[closedPane]?.focus({ preventScroll: true }), 0);
+    }
+  }, []);
+
   const layout = useCallback(() => {
     const triggerRect = trigger.current?.getBoundingClientRect();
     if (!triggerRect) return;
-    const nextSheet = placeSheet(triggerRect);
+    const viewport = currentViewport();
+    const nextSheet = routeSheetBox(triggerRect, sheetHeight, viewport);
     setSheetBox(nextSheet);
-    const sheetRect = sheet.current?.getBoundingClientRect();
-    if (!sheetRect || !pane) {
+    if (!pane || paneRowIndex < 0) {
       setFlyoutBox(null);
       return;
     }
-    setFlyoutBox(placeFlyout(sheetRect, pane === 'model' ? 320 : 220, pane === 'model' ? 380 : 260));
-  }, [pane]);
+    setFlyoutBox(routeFlyoutBox(
+      nextSheet,
+      paneRowIndex,
+      preferredFlyoutHeight(pane, effortOptions.length),
+      viewport,
+    ));
+  }, [effortOptions.length, pane, paneRowIndex, sheetHeight]);
 
   const show = () => {
     const triggerRect = trigger.current?.getBoundingClientRect();
-    if (triggerRect) setSheetBox(placeSheet(triggerRect));
+    if (triggerRect) setSheetBox(routeSheetBox(triggerRect, sheetHeight, currentViewport()));
     setPane(null);
     setOpen(true);
   };
@@ -151,7 +145,16 @@ export function RouteEditor({
 
   const openPane = (next: RouteSheetPane) => {
     if (next !== 'model' && tuningDisabled) return;
-    setPane((current) => current === next ? null : next);
+    const rowIndex = rows.indexOf(next);
+    if (sheetBox && rowIndex >= 0) {
+      setFlyoutBox(routeFlyoutBox(
+        sheetBox,
+        rowIndex,
+        preferredFlyoutHeight(next, effortOptions.length),
+        currentViewport(),
+      ));
+    }
+    setPane(next);
   };
 
   useEffect(() => {
@@ -172,7 +175,7 @@ export function RouteEditor({
       if (event.key !== 'Escape') return;
       event.preventDefault();
       event.stopPropagation();
-      if (pane) setPane(null);
+      if (pane) closePane(pane, true);
       else closeAll(true);
     };
     const onViewport = () => layout();
@@ -186,7 +189,7 @@ export function RouteEditor({
       window.removeEventListener('resize', onViewport);
       window.removeEventListener('scroll', onViewport, true);
     };
-  }, [closeAll, layout, pane, visible]);
+  }, [closeAll, closePane, layout, pane, visible]);
 
   useEffect(() => {
     if (!visible || !pane) return;
@@ -194,8 +197,12 @@ export function RouteEditor({
   }, [layout, pane, visible]);
 
   const row = (id: RouteSheetPane, label: string, value: string, disabled = false) => (
-    <button type="button" className="route-sheet-row" role="menuitem"
+    <button ref={(node) => { rowButtons.current[id] = node; }} type="button"
+      className="route-sheet-row" role="menuitem"
       aria-haspopup="menu" aria-expanded={pane === id} disabled={disabled}
+      onPointerEnter={(event) => {
+        if (event.pointerType !== 'touch') openPane(id);
+      }}
       onClick={() => openPane(id)}>
       <span className="route-sheet-label">{label}</span>
       <span className="route-sheet-value">{value}</span>
@@ -241,7 +248,7 @@ export function RouteEditor({
           catalogLoaded={catalogLoaded} catalogRefreshing={catalogRefreshing}
           catalogError={catalogError} providerSetupError={providerSetupError}
           onSelect={onSelectModel}
-          onClose={() => setPane(null)}
+          onClose={() => closePane('model', true)}
           onOpenProviders={() => {
             closeAll();
             onOpenProviders();
@@ -258,7 +265,7 @@ export function RouteEditor({
             aria-checked={selected} disabled={tuningDisabled}
             onClick={() => {
               if (option.value !== effort) onChangeEffort(option.value);
-              setPane(null);
+              closePane('effort', true);
             }}>
             <span>{option.label}</span>
             {selected && <Check size={14} aria-hidden="true" />}
@@ -276,7 +283,7 @@ export function RouteEditor({
             aria-checked={selected} disabled={disabled}
             onClick={() => {
               if (option.value !== fast) onChangeFast(option.value);
-              setPane(null);
+              closePane('speed', true);
             }}>
             <span>{option.label}</span>
             {selected && <Check size={14} aria-hidden="true" />}

@@ -144,6 +144,20 @@ function recordEditSnapshot(fullPath, options, contentHash = null) {
     } catch { /* best-effort */ }
 }
 
+// UI diff parity with apply_patch: register the before/after pair on the
+// shared per-call side channel so tool cards render edit results with the
+// same diff markup. Lazy import breaks the orchestrator→builtin→adapters
+// module cycle; failures never affect the edit result.
+async function recordEditUiDiff(options, workDir, fullPath, before, after) {
+    const callId = options?.toolCallId;
+    const sessionId = options?.sessionId || options?.readStateScope;
+    if (!callId || !sessionId) return;
+    try {
+        const { registerEditToolUiDiff } = await import('../patch/orchestrator.mjs');
+        registerEditToolUiDiff({ callId, sessionId, basePath: workDir, fullPath, before, after });
+    } catch { /* best-effort display channel */ }
+}
+
 function countOccurrences(haystack, needle) {
     let count = 0;
     let idx = -1;
@@ -178,6 +192,7 @@ async function adaptStrReplace(args, workDir, options) {
         }
         invalidateAfterWrite(fullPath);
         recordEditSnapshot(fullPath, options);
+        await recordEditUiDiff(options, workDir, fullPath, null, newStr);
         return `Created ${fullPath} (${Buffer.byteLength(newStr, 'utf8')} bytes)`;
     }
     let content;
@@ -214,7 +229,47 @@ async function adaptStrReplace(args, workDir, options) {
         }
         invalidateAfterWrite(fullPath);
         recordEditSnapshot(fullPath, options);
+        await recordEditUiDiff(options, workDir, fullPath, content, newStr);
         return `Updated ${fullPath} (filled empty file)`;
+    }
+    // Batch sequential occupation (tool-batch `_editSeqGroups`): this call is
+    // the next member of a same-anchor edit batch and exactly `expected`
+    // occurrences of old_string must remain. Deterministically consume the
+    // FIRST remaining occurrence (document order == call order, the contract
+    // apply_patch hunks already have). Exact byte matching only; any count
+    // drift falls through to the native engine's strict ambiguity reject.
+    const _occupation = options?.editOccurrence;
+    if (_occupation && !replaceAll && Number.isInteger(_occupation.expected) && _occupation.expected >= 2) {
+        const positions = [];
+        for (let at = content.indexOf(oldStr); at !== -1; at = content.indexOf(oldStr, at + oldStr.length)) {
+            positions.push(at);
+        }
+        if (positions.length === _occupation.expected) {
+            const at = positions[0];
+            const next = `${content.slice(0, at)}${newStr}${content.slice(at + oldStr.length)}`;
+            try {
+                await atomicWrite(fullPath, next, {
+                    sessionId: editScope(options),
+                    signal: options?.signal,
+                    expectedTargetSnapshot: statBefore ? {
+                        exists: true,
+                        size: statBefore.size,
+                        mtimeMs: statBefore.mtimeMs,
+                        ctimeMs: statBefore.ctimeMs,
+                        ino: statBefore.ino,
+                    } : { exists: false },
+                });
+            } catch (err) {
+                if (err?.code === 'ESTALE_TARGET') {
+                    return `Error: ${fullPath} changed on disk during the edit; read it again`;
+                }
+                throw err;
+            }
+            invalidateAfterWrite(fullPath);
+            recordEditSnapshot(fullPath, options);
+            await recordEditUiDiff(options, workDir, fullPath, content, next);
+            return `Updated ${fullPath} (1 replacement)`;
+        }
     }
     const result = await runServerEdit({
         fullPath,
@@ -225,6 +280,11 @@ async function adaptStrReplace(args, workDir, options) {
     });
     invalidateAfterWrite(fullPath);
     recordEditSnapshot(fullPath, options, result.contentHash);
+    {
+        let after = null;
+        try { after = readFileSync(fullPath, 'utf8'); } catch { /* diff omitted */ }
+        if (typeof after === 'string') await recordEditUiDiff(options, workDir, fullPath, content, after);
+    }
     return `Updated ${fullPath} (${result.replacements} replacement${result.replacements === 1 ? '' : 's'})`;
 }
 

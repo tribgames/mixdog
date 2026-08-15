@@ -1815,7 +1815,9 @@ fn locate_invariant_safe_spans(
             // starting one char later still counts as a collision.
             let overlap = count_aligned_overlapping(&view, &needle);
             if overlap > 1 {
-                return Err(format!("old_string found {} times", overlap));
+                return Err(format!(
+                    "old_string found {overlap} times; add surrounding lines to make it unique, or set replace_all to true to change every occurrence"
+                ));
             }
         }
         let chosen: &[usize] = if replace_all { &matches } else { &matches[..1] };
@@ -1825,7 +1827,33 @@ fn locate_invariant_safe_spans(
             .collect();
         return Ok((tier, spans));
     }
-    Err("old_string not found".to_string())
+    Err(format!(
+        "old_string not found{}",
+        nearest_line_hint(source, old)
+    ))
+}
+
+/// Recovery hint for a failed match: locate the first file line containing the
+/// longest token from old_string's first line, so the model can re-anchor
+/// without a full re-read (whitespace drift is the usual culprit).
+fn nearest_line_hint(source: &str, old: &str) -> String {
+    let keyword = old
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .and_then(|line| line.split_whitespace().max_by_key(|token| token.len()))
+        .unwrap_or("");
+    if keyword.chars().count() < 4 {
+        return String::new();
+    }
+    for (index, line) in source.lines().enumerate() {
+        if line.contains(keyword) {
+            let trimmed = line.trim();
+            let content: String = trimmed.chars().take(120).collect();
+            let ellipsis = if trimmed.chars().count() > 120 { "…" } else { "" };
+            return format!("; nearest match on line {}: {content}{ellipsis}", index + 1);
+        }
+    }
+    String::new()
 }
 
 fn apply_invariant_safe_edit_to_path(
@@ -1853,7 +1881,10 @@ fn apply_invariant_safe_edit_to_path(
     let t = Instant::now();
     let (tier, mut spans) = locate_invariant_safe_spans(source, old, replace_all)?;
     if spans.is_empty() {
-        return Err("old_string not found".to_string());
+        return Err(format!(
+            "old_string not found{}",
+            nearest_line_hint(source, old)
+        ));
     }
 
     // code-10 size gate (JS parity): reject a large non-exact (fold) match

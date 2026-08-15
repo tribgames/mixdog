@@ -86,7 +86,7 @@ export function createSessionApiA(bag) {
   const submit = (text, options = {}) => {
     const intake = submission(text, options);
     if (!intake) return false;
-    // A running clear (idle auto-clear or session_manage) sets commandBusy;
+    // A running idle auto-clear sets commandBusy;
     // queue the prompt instead of dropping it — it drains after the clear.
     if (flags.autoClearRunning) {
       return enqueueSubmission(intake) !== false;

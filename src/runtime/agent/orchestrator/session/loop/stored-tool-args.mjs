@@ -28,10 +28,10 @@ const STORED_TOOL_ARG_LIMIT = 10_000;
 const STORED_TOOL_ARG_PREVIEW_HEAD = 360;
 const STORED_TOOL_ARG_PREVIEW_TAIL = 160;
 
-// File paths a compacted patch touched, so the marker itself tells the model
-// WHICH files to re-read instead of replaying the marker as patch input
-// (measured: the compacted-placeholder resubmission was 39% of apply_patch
-// failures). Marker contract: the returned text may not contain ']' or a
+// File paths a compacted patch touched, so the marker identifies the already
+// applied mutation without exposing copyable patch fragments (measured:
+// compacted-placeholder resubmission was 39% of apply_patch failures). Marker
+// contract: the returned text may not contain ']' or a
 // newline, so bracket characters are stripped from paths.
 function _compactedPatchTargets(value) {
     const seen = new Set();
@@ -63,14 +63,13 @@ function compactStoredToolArgString(value, key = '', opts = {}) {
     // sweep callers can tag the resulting prefix-cache break.
     try { opts.onCompacted?.(); } catch { /* observability only */ }
     const hash = createHash('sha256').update(value).digest('hex').slice(0, 16);
-    // Body markers carry the recovery instruction inline: the compaction
-    // detectors only require the `[mixdog compacted ...]` shape (no ']' or
-    // newline inside), so the longer text stays fully compatible.
+    // Body markers are status-only. Recovery policy belongs to the shared
+    // rules; embedding an action here made models re-read successful edits.
     const targets = /^patch$/i.test(key) ? _compactedPatchTargets(value) : '';
     const marker = isBody
         ? (targets
-            ? `[mixdog compacted ${key}: ${value.length} chars, sha256:${hash}; already applied to ${targets} - do not copy; re-read those files and write a fresh patch]`
-            : `[mixdog compacted ${key}: ${value.length} chars, sha256:${hash}; already applied - do not copy; re-read the file and write a fresh patch]`)
+            ? `[mixdog compacted ${key}: ${value.length} chars, sha256:${hash}; already applied to ${targets}; do not copy or repeat]`
+            : `[mixdog compacted ${key}: ${value.length} chars, sha256:${hash}; already applied; do not copy or repeat]`)
         : `[mixdog compacted ${key || 'string'}: ${value.length} chars, sha256:${hash}; do not copy]`;
     // Body args (patch / old_string / new_string / content / rewrite) are
     // apply_patch / edit inputs. Keeping a head/tail preview leaves real patch

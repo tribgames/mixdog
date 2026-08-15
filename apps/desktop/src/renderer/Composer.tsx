@@ -1,7 +1,7 @@
 import { ArrowUp, Command, Mic, X } from "lucide-react";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import type { DesktopAbortOptions, DesktopCapability, DesktopModelSelection, DesktopPastedText, DesktopPromptAttachment, DesktopPromptContent, DesktopSubmitOptions, SessionSnapshot } from "../shared/contract";
+import type { DesktopAbortOptions, DesktopCapability, DesktopModelSelection, DesktopPastedText, DesktopPromptAttachment, DesktopPromptContent, DesktopRendererComposerActionDiagnostic, DesktopSubmitOptions, SessionSnapshot } from "../shared/contract";
 import { type RecordValue } from "./desktop-types";
 import {
   absolutePathsForDragPayload,
@@ -85,6 +85,10 @@ function submissionRetryKey(text: string, attachments: readonly ComposerAttachme
     text,
     attachments.map((attachment) => String(attachment.id)),
   ]);
+}
+
+function reportComposerAction(diagnostic: DesktopRendererComposerActionDiagnostic): void {
+  try { window.mixdogDesktop?.rendererDiagnostic?.(diagnostic); } catch { /* diagnostics only */ }
 }
 
 export const Composer = memo(function Composer({
@@ -929,8 +933,22 @@ export const Composer = memo(function Composer({
     return nextText;
   }, [attachmentPolicyError]);
 
-  const restoreQueue = async (queuedId = '') => {
+  const restoreQueue = async (
+    queuedId = '',
+    source: DesktopRendererComposerActionDiagnostic['source'] = 'queue-row',
+  ) => {
     if (restoring || queueRestoreInFlightRef.current) return undefined;
+    reportComposerAction({
+      kind: 'composer-action',
+      action: 'restore-queue',
+      source,
+      turnBusy,
+      queueCount: Array.isArray(queued) ? queued.length : 0,
+      draftLength: draftRef.current.length,
+      composing: composingRef.current,
+      uptimeMs: performance.now(),
+      ...(queuedId ? { targeted: true } : {}),
+    });
     // Capture the projection before the daemon round trip. A newly queued
     // prompt that arrives while restore settles must not be retired with the
     // older entries the user actually reclaimed.
@@ -1293,7 +1311,10 @@ export const Composer = memo(function Composer({
     return true;
   };
 
-  const send = async (slashOverride = '') => {
+  const send = async (
+    slashOverride = '',
+    source: DesktopRendererComposerActionDiagnostic['source'] = 'form-submit',
+  ) => {
     const submittedDraft = textarea.current?.value ?? draftRef.current;
     const submittedAttachments = [...attachmentsRef.current];
     const text = (slashOverride || submittedDraft).trim();
@@ -1304,6 +1325,16 @@ export const Composer = memo(function Composer({
       draftMode,
       slashCommand: text.startsWith('/'),
     })) return;
+    reportComposerAction({
+      kind: 'composer-action',
+      action: 'submit',
+      source,
+      turnBusy,
+      queueCount: Array.isArray(queued) ? queued.length : 0,
+      draftLength: text.length,
+      composing: composingRef.current,
+      uptimeMs: performance.now(),
+    });
     if (serializedSubmit) {
       submittingRef.current = true;
       setSubmitting(true);
@@ -1450,7 +1481,7 @@ export const Composer = memo(function Composer({
       }
     }
   };
-  const onSubmit = (event: FormEvent) => { event.preventDefault(); void send(); };
+  const onSubmit = (event: FormEvent) => { event.preventDefault(); void send('', 'form-submit'); };
   const insertNewline = (element: HTMLTextAreaElement) => {
     const start = element.selectionStart;
     const end = element.selectionEnd;
@@ -1628,7 +1659,7 @@ export const Composer = memo(function Composer({
       !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault();
       const command = slashCommands[slashIndex];
-      void send(`/${paletteCommandToken(command)}`);
+      void send(`/${paletteCommandToken(command)}`, 'slash-keyboard');
       return;
     }
     if (event.key === 'Escape') {
@@ -1661,7 +1692,7 @@ export const Composer = memo(function Composer({
         window.setTimeout(() => element.setSelectionRange(end, end), 0);
       } else if (escape.action === 'restore-queue') {
         event.preventDefault();
-        void restoreQueue();
+        void restoreQueue('', 'escape');
       } else if (escape.action === 'arm-clear') {
         event.preventDefault();
         showComposerNotice('Esc again to clear', PROMPT_ESCAPE_HINT_TIMEOUT_MS);
@@ -1700,7 +1731,7 @@ export const Composer = memo(function Composer({
     if (event.key === 'ArrowUp' && historyIntent && !event.altKey &&
       queueAvailable) {
       event.preventDefault();
-      void restoreQueue();
+      void restoreQueue('', 'arrow-up');
       return;
     }
     if (event.key === 'ArrowUp' && historyIntent && history.length) {
@@ -1748,7 +1779,7 @@ export const Composer = memo(function Composer({
       if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
         insertNewline(event.currentTarget);
       } else {
-        void send();
+        void send('', 'keyboard-enter');
       }
     }
   };
@@ -1802,7 +1833,7 @@ export const Composer = memo(function Composer({
   return (
     <>
       <QueueList queued={visibleQueued} restoring={restoring}
-        onEdit={(id) => void restoreQueue(id)}
+        onEdit={(id) => void restoreQueue(id, 'queue-row')}
         onSteer={(id) => void steerQueuedNow(id)}
         onRemove={(id) => void discardQueued(id)} />
       {/* Error/notice banners float ABOVE the input card (user-flagged: they
@@ -1851,7 +1882,7 @@ export const Composer = memo(function Composer({
               id={`composer-slash-option-${index}`}
               onMouseDown={(event) => event.preventDefault()}
               onMouseEnter={() => setSlashIndex(index)}
-              onClick={() => { void send(`/${paletteCommandToken(command)}`); }}>
+              onClick={() => { void send(`/${paletteCommandToken(command)}`, 'slash-click'); }}>
               <code>{command.usage || `/${command.name}`}{command.params ? ` ${command.params}` : ''}</code>
               <span>{desktopSlashCommandDescription(command)}</span>
             </button>

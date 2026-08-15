@@ -555,6 +555,7 @@
   "Mixdog will close while the update is installed, then reopen automatically.": "安装更新时 Mixdog 将关闭，随后自动重新打开。",
   "Model": "模型",
   "Model catalog unavailable: {{error}}": "模型目录不可用：{{error}}",
+  "Provider status is temporarily unavailable. Try again.": "暂时无法获取提供商状态。请重试。",
   "Models": "型号",
   "Moonwalking": "月球漫步",
   "Moseying": "莫西英",
