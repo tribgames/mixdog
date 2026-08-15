@@ -70,6 +70,69 @@ function getParentPid(pid) {
     return null;
   }
 }
+// ── PID-reuse guard ─────────────────────────────────────────────────────────
+// A session pointer file is keyed by pid (sessions/<pid>.json). When that
+// process dies and the OS later hands the same pid to an unrelated process,
+// isPidAlive() alone reports the stale pointer as a LIVE session — discovery
+// then anchors the channel forwarder to a dead transcript (observed 2026-08-15:
+// a July CLI pointer matched the relaunched desktop host's pid and silenced
+// all Discord outbound). The invariant: the owning process must have STARTED
+// before it last wrote its own record. A process born after the record's last
+// write is a pid-reuse impostor.
+const PID_REUSE_SLACK_MS = 120_000;
+const processStartCache = new Map(); // pid -> { value: ms|null, expiresAt: number|null }
+const NULL_START_TTL_MS = 30_000;
+
+function processStartTimeMs(pid) {
+  const cached = processStartCache.get(pid);
+  if (cached && (cached.expiresAt === null || cached.expiresAt > Date.now())) return cached.value;
+  let value = null;
+  try {
+    if (process.platform === "win32") {
+      // Same spawn hygiene as getParentPid above (windowsHide, no
+      // -WindowStyle token). Start time is immutable for a live pid, so a
+      // resolved value is cached forever; null (lookup failure) gets a TTL.
+      const out = execFileSync("powershell.exe", [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `(Get-Process -Id ${pid}).StartTime.ToUniversalTime().ToString('o')`
+      ], { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] }).trim();
+      const parsed = Date.parse(out);
+      value = Number.isFinite(parsed) ? parsed : null;
+    } else if (process.platform === "linux") {
+      value = statSync(`/proc/${pid}`).mtimeMs || null;
+    } else {
+      const out = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true
+      }).trim();
+      const parsed = Date.parse(out);
+      value = Number.isFinite(parsed) ? parsed : null;
+    }
+  } catch {
+    value = null;
+  }
+  processStartCache.set(pid, { value, expiresAt: value === null ? Date.now() + NULL_START_TTL_MS : null });
+  return value;
+}
+
+/** Pure verdict, unit-testable: does the live process look like a pid-reuse
+ *  impostor for this session record? Unknown start time fails open (false) —
+ *  the guard only ever demotes when the evidence is affirmative. */
+function sessionPidLooksReused(session, startMs) {
+  if (!Number.isFinite(startMs) || startMs <= 0) return false;
+  const lastOwned = Math.max(session?.startedAt || 0, session?.updatedAt || 0);
+  if (lastOwned <= 0) return false;
+  return startMs > lastOwned + PID_REUSE_SLACK_MS;
+}
+
+function isSessionPidOriginal(session) {
+  if (!session || !Number.isFinite(session.pid)) return true;
+  return !sessionPidLooksReused(session, processStartTimeMs(session.pid));
+}
+
 function readSessionRecord(pid) {
   const sessionFile = join(mixdogHome(), "sessions", `${pid}.json`);
   try {
@@ -148,5 +211,7 @@ export {
   cwdToProjectSlug,
   discoverCurrentClaudeSession,
   listInteractiveClaudeSessions,
-  getLatestInteractiveClaudeSession
+  getLatestInteractiveClaudeSession,
+  isSessionPidOriginal,
+  sessionPidLooksReused
 };

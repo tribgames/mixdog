@@ -28,3 +28,12 @@ test('route flyout falls back to the left only when the right side is too narrow
   assert.equal(box.left + box.width, 694);
   assert.equal(box.top, 104);
 });
+
+test('route flyout stacks above the sheet when both sides are too narrow', () => {
+  const sheet = { left: 8, top: 400, width: 264, height: 116, maxHeight: 116 };
+  const box = routeFlyoutBox(sheet, 0, 380, { width: 280, height: 800 });
+
+  assert.equal(box.left, 8);
+  assert.equal(box.top, 14);
+  assert.equal(box.height, 380);
+});
