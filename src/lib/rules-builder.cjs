@@ -211,9 +211,6 @@ function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR, includeLeadBrief = true }
   const general = readOptional(path.join(LEAD_DIR, '01-general.md'));
   const parts = [];
 
-  const toolLead = readOptional(path.join(LEAD_DIR, 'lead-tool.md'));
-  if (toolLead) parts.push(toolLead);
-
   if (includeLeadBrief) {
     const briefLead = readOptional(path.join(LEAD_DIR, 'lead-brief.md'));
     if (briefLead) parts.push(briefLead);

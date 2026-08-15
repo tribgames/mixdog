@@ -28,6 +28,7 @@ const median = (values) => {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 };
 const sum = (rows, read) => rows.reduce((total, row) => total + finite(read(row)), 0);
+const inline = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 
 const RATES = [
   [/luna/, { input: 0.2, cached: 0.02, write: 0.25, output: 1.2, family: 'openai' }],
@@ -95,6 +96,60 @@ function findRunDir(jobsDir) {
   return children.at(-1) ?? jobsDir;
 }
 
+function compactTraceArgs(value) {
+  let text = '';
+  try { text = JSON.stringify(value ?? {}); } catch { return ''; }
+  return text.length > 320 ? `${text.slice(0, 319)}…` : text;
+}
+
+function traceDiagnostics(trialDir) {
+  const path = join(trialDir, 'agent', 'agent-trace.jsonl');
+  if (!existsSync(path)) return null;
+  const tools = [];
+  const failures = [];
+  const toolCounts = new Map();
+  const tokens = { input: 0, cached: 0, cacheWrite: 0, output: 0 };
+  let providerRequests = 0;
+  for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let row;
+    try { row = JSON.parse(line); } catch { continue; }
+    if (row?.kind === 'usage_raw') {
+      providerRequests += 1;
+      tokens.input += finite(row.input_tokens);
+      tokens.cached += finite(row.cached_tokens);
+      tokens.cacheWrite += finite(row.cache_write_tokens);
+      tokens.output += finite(row.output_tokens);
+      continue;
+    }
+    if (row?.kind !== 'tool') continue;
+    const tool = inline(row.tool_name) || 'unknown';
+    toolCounts.set(tool, (toolCounts.get(tool) ?? 0) + 1);
+    const call = {
+      iteration: optionalNumber(row.iteration),
+      tool,
+      resultKind: row.result_kind ?? null,
+      errorCategory: row.result_error_category ?? null,
+      error: row.result_error_first_line ?? null,
+      argsSummary: compactTraceArgs(row.tool_args_summary ?? row.tool_args),
+    };
+    tools.push(call);
+    if ((row.result_kind && row.result_kind !== 'normal') || row.result_error_first_line) {
+      failures.push(call);
+    }
+  }
+  return {
+    providerRequests,
+    toolCalls: tools.length,
+    tokens,
+    toolCounts: Object.fromEntries(
+      [...toolCounts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
+    ),
+    failures,
+    lastCalls: tools.slice(-3),
+  };
+}
+
 function loadCostDetails(config, historyRoot) {
   if (!config?.costDetails) return {};
   const source = tryReadJson(resolve(historyRoot, config.costDetails)) ?? {};
@@ -125,6 +180,7 @@ function collectTrials(runDir, costDetails = {}) {
     const rawTranscript = tryReadJson(join(trialDir, 'agent', 'session-transcript.json'));
     const transcript = Array.isArray(rawTranscript) ? rawTranscript[0] : rawTranscript;
     const usage = usageMetrics(trialDir, transcript);
+    const trace = traceDiagnostics(trialDir);
     const directCost = optionalNumber(result?.agent_result?.cost_usd);
     let resultEvent = null;
     try {
@@ -179,17 +235,25 @@ function collectTrials(runDir, costDetails = {}) {
           : finite(resultEvent.duration_api_ms) / 1000,
       },
       activity: {
-        providerRequests: finite(resultEvent?.provider_requests),
-        toolCalls: finite(resultEvent?.tool_calls, finite(usage?.toolCallCountApprox)),
+        providerRequests: optionalNumber(resultEvent?.provider_requests)
+          ?? finite(trace?.providerRequests),
+        toolCalls: optionalNumber(resultEvent?.tool_calls)
+          ?? optionalNumber(usage?.toolCallCountApprox)
+          ?? finite(trace?.toolCalls),
       },
       tokens: {
-        input: finite(result?.agent_result?.n_input_tokens),
-        cached: finite(result?.agent_result?.n_cache_tokens),
-        cacheWrite: usage.cacheWrite,
-        output: finite(result?.agent_result?.n_output_tokens),
+        input: optionalNumber(result?.agent_result?.n_input_tokens)
+          ?? finite(trace?.tokens?.input),
+        cached: optionalNumber(result?.agent_result?.n_cache_tokens)
+          ?? finite(trace?.tokens?.cached),
+        cacheWrite: optionalNumber(usage.cacheWrite)
+          ?? finite(trace?.tokens?.cacheWrite),
+        output: optionalNumber(result?.agent_result?.n_output_tokens)
+          ?? finite(trace?.tokens?.output),
       },
       costUsd: optionalNumber(costDetails[task]) ?? directCost ?? usage.costUsd,
       finalContextTokens: optionalNumber(transcript?.lastContextTokens),
+      trace: result?.exception_info || trace?.failures?.length ? trace : null,
     });
   }
   return rows.sort((a, b) => a.task.localeCompare(b.task));
@@ -523,10 +587,10 @@ export function generateRunReport({ jobsDir, historyRoot }) {
       toolCalls: sum(trials, (trial) => trial.activity?.toolCalls),
     },
     tokens: {
-      input: finite(stats.n_input_tokens, tokenFallback.input),
-      cached: finite(stats.n_cache_tokens, tokenFallback.cached),
+      input: clean ? finite(stats.n_input_tokens, tokenFallback.input) : tokenFallback.input,
+      cached: clean ? finite(stats.n_cache_tokens, tokenFallback.cached) : tokenFallback.cached,
       cacheWrite: tokenFallback.cacheWrite,
-      output: finite(stats.n_output_tokens, tokenFallback.output),
+      output: clean ? finite(stats.n_output_tokens, tokenFallback.output) : tokenFallback.output,
     },
     cost: knownCost(trials),
     finalContext: {
@@ -546,11 +610,10 @@ export function generateRunReport({ jobsDir, historyRoot }) {
   };
 
   const historical = historyReports(resolve(historyRoot), manifest.fingerprint, absoluteJobsDir);
-  const comparable = historical
-    .filter((report) => report?.result?.clean
-      && report.result.passed === passed
-      && report.result.total === total)
+  const priorClean = historical
+    .filter((report) => report?.result?.clean && report.result.total === total)
     .sort((a, b) => String(a?.timing?.finishedAt).localeCompare(String(b?.timing?.finishedAt)));
+  const comparable = priorClean.filter((report) => report.result.passed === passed);
   if (clean) {
     const cohort = [...comparable, current];
     current.comparison = {
@@ -564,20 +627,24 @@ export function generateRunReport({ jobsDir, historyRoot }) {
       },
       previous: null,
     };
-    const previous = comparable.at(-1);
-    if (previous) {
-      current.comparison.previous = {
-        jobsDir: previous.paths.jobsDir,
-        finishedAt: previous.timing.finishedAt,
-        deltas: {
-          agentTotalSeconds: metricDelta(current, previous, ['timing', 'agentTotalSeconds']),
-          wallSeconds: metricDelta(current, previous, ['timing', 'wallSeconds']),
-          inputTokens: metricDelta(current, previous, ['tokens', 'input']),
-          outputTokens: metricDelta(current, previous, ['tokens', 'output']),
-        },
-      };
-      current.bottlenecks = buildBottlenecks(current, previous);
-    }
+  } else {
+    current.comparison.provisional = true;
+    current.comparison.cohortSize = priorClean.length;
+  }
+  const previous = clean ? comparable.at(-1) : priorClean.at(-1);
+  if (previous) {
+    current.comparison.previous = {
+      provisional: !clean,
+      jobsDir: previous.paths.jobsDir,
+      finishedAt: previous.timing.finishedAt,
+      deltas: {
+        agentTotalSeconds: metricDelta(current, previous, ['timing', 'agentTotalSeconds']),
+        wallSeconds: metricDelta(current, previous, ['timing', 'wallSeconds']),
+        inputTokens: metricDelta(current, previous, ['tokens', 'input']),
+        outputTokens: metricDelta(current, previous, ['tokens', 'output']),
+      },
+    };
+    current.bottlenecks = buildBottlenecks(current, previous);
   }
   current.pair = buildPairComparison({
     manifest,
@@ -628,6 +695,26 @@ export function formatRunReport(report) {
       `- Final-context reduction: **${percent(pair.ratios.finalContextReduction)}**`,
     );
   }
+  const diagnostics = report.tasks.filter((task) => task.error || task.trace?.failures?.length);
+  if (diagnostics.length) {
+    lines.push('', '## Diagnostics', '');
+    for (const task of diagnostics) {
+      const errorType = inline(task.error?.exception_type);
+      const errorMessage = inline(task.error?.exception_message);
+      lines.push(`- **${task.task}**: ${errorType || `${task.trace.failures.length} tool failure(s)`}${errorMessage ? ` — ${errorMessage}` : ''}`);
+      if (!task.trace) continue;
+      const counts = Object.entries(task.trace.toolCounts)
+        .map(([name, count]) => `${name} ${count}`)
+        .join(', ');
+      lines.push(`  - Trace: ${task.trace.providerRequests} requests, ${task.trace.toolCalls} tools${counts ? ` (${counts})` : ''}`);
+      if (task.trace.failures.length) {
+        lines.push(`  - Tool failures: ${task.trace.failures.map((failure) => `${failure.tool}/${failure.errorCategory || failure.resultKind || 'error'}`).join(', ')}`);
+      }
+      if (task.trace.lastCalls.length) {
+        lines.push(`  - Last calls: ${task.trace.lastCalls.map((call) => `${call.tool} ${call.argsSummary}`).join(' → ')}`);
+      }
+    }
+  }
   lines.push('', '| Task | Pass | Agent seconds |', '|---|---:|---:|');
   for (const task of report.tasks) {
     lines.push(`| ${task.task} | ${task.passed ? 'yes' : 'no'} | ${number(task.agentSeconds)} |`);
@@ -674,6 +761,9 @@ function outputSummary(report, paths = null) {
     + `time agent=${number(report.timing.agentTotalSeconds)}s rank=${agentRank} wall=${number(report.timing.wallSeconds)}s rank=${wallRank}\n`
     + `tokens input=${report.tokens.input} cached=${report.tokens.cached} output=${report.tokens.output}\n`
     + `reduction saved=${report.reduction.totalSavedBytes}B artifact_reads=${report.reduction.activity.artifactReads}\n`;
+  for (const task of report.tasks.filter((row) => row.error || row.trace?.failures?.length)) {
+    output += `diagnostic task=${task.task} error=${inline(task.error?.exception_type) || 'none'} requests=${task.trace?.providerRequests ?? 0} tools=${task.trace?.toolCalls ?? 0} tool_failures=${task.trace?.failures?.length ?? 0} last=${task.trace?.lastCalls?.at(-1)?.tool ?? 'none'}\n`;
+  }
   if (report.bottlenecks?.slowestTask) {
     const slow = report.bottlenecks.slowestTask;
     output += `bottleneck task=${slow.task} agent_delta=${number(slow.agentSeconds)}s api_delta=${number(slow.apiSeconds)}s requests_delta=${slow.providerRequests}\n`;

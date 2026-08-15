@@ -234,7 +234,12 @@ enum LiveState {
 struct LiveWalk {
     files: Mutex<Vec<PathBuf>>,
     state: Mutex<LiveState>,
+    // `cond` pairs exclusively with the `state` mutex and `files_cond` with the
+    // `files` mutex. std::sync::Condvar panics when one condvar is waited on
+    // with two different mutexes, which killed searches whenever a streaming
+    // consumer and a complete-inventory waiter shared one walk.
     cond: Condvar,
+    files_cond: Condvar,
     waiters: AtomicUsize,
     cancelled: AtomicBool,
     keep_warm: AtomicBool,
@@ -568,6 +573,10 @@ impl FileListStore {
     }
 
     fn begin_live(&self, key: WalkKey, keep_warm: bool) -> (Arc<LiveWalk>, bool) {
+        // Read the generation before taking the live-map lock; generation()
+        // locks the generations mutex and nesting it under `live` invites
+        // lock-order inversions with invalidation.
+        let generation = self.generation(&key.operand);
         let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = live.get(&key) {
             if keep_warm {
@@ -580,10 +589,11 @@ impl FileListStore {
             files: Mutex::new(Vec::new()),
             state: Mutex::new(LiveState::Running),
             cond: Condvar::new(),
+            files_cond: Condvar::new(),
             waiters: AtomicUsize::new(1),
             cancelled: AtomicBool::new(false),
             keep_warm: AtomicBool::new(keep_warm),
-            generation: self.generation(&key.operand),
+            generation,
         });
         live.insert(key, Arc::clone(&created));
         (created, true)
@@ -631,6 +641,10 @@ impl FileListStore {
         live: &Arc<LiveWalk>,
         result: Result<Arc<Vec<PathBuf>>, Option<String>>,
     ) -> bool {
+        // Same ordering rule as begin_live: never lock generations under the
+        // live-map lock. remember() re-checks the current generation, so a
+        // racing invalidation still prevents caching a stale inventory.
+        let current_generation = self.generation(&key.operand);
         let cacheable = {
             let mut live_map = self.live.lock().unwrap_or_else(|e| e.into_inner());
             let same = live_map
@@ -639,7 +653,7 @@ impl FileListStore {
             if same {
                 live_map.remove(&key);
             }
-            same && self.generation(&key.operand) == live.generation
+            same && current_generation == live.generation
         };
         let mut state = live.state.lock().unwrap_or_else(|e| e.into_inner());
         *state = match result {
@@ -653,6 +667,7 @@ impl FileListStore {
             Err(None) => LiveState::Abandoned,
         };
         live.cond.notify_all();
+        live.files_cond.notify_all();
         cacheable
     }
 }
@@ -1322,7 +1337,7 @@ fn publish_live_files(live: &LiveWalk, files: &[PathBuf]) {
     if let Ok(mut guard) = live.files.lock() {
         guard.extend(files.iter().cloned());
     }
-    live.cond.notify_all();
+    live.files_cond.notify_all();
 }
 
 fn inventory_parallelism() -> usize {
@@ -1637,7 +1652,7 @@ fn scan_limited_operand(
                 }
                 drop(state);
                 let waited = live
-                    .cond
+                    .files_cond
                     .wait_timeout(files, Duration::from_millis(10))
                     .unwrap_or_else(|e| e.into_inner());
                 files = waited.0;
@@ -1910,7 +1925,7 @@ fn handle(
                                 }
                                 drop(state);
                                 files = live
-                                    .cond
+                                    .files_cond
                                     .wait_timeout(files, Duration::from_millis(10))
                                     .unwrap_or_else(|e| e.into_inner())
                                     .0;
@@ -2967,6 +2982,7 @@ mod tests {
             files: Mutex::new(Vec::new()),
             state: Mutex::new(LiveState::Running),
             cond: Condvar::new(),
+            files_cond: Condvar::new(),
             waiters: AtomicUsize::new(0),
             cancelled: AtomicBool::new(false),
             keep_warm: AtomicBool::new(false),
@@ -2985,6 +3001,7 @@ mod tests {
             files: Mutex::new(Vec::new()),
             state: Mutex::new(LiveState::Running),
             cond: Condvar::new(),
+            files_cond: Condvar::new(),
             waiters: AtomicUsize::new(0),
             cancelled: AtomicBool::new(false),
             keep_warm: AtomicBool::new(false),
@@ -3078,6 +3095,50 @@ mod tests {
         ));
         assert!(store.take_ready(&key).is_none());
         store.release_live(&key, &live);
+    }
+
+    #[test]
+    fn streaming_and_complete_waiters_share_one_walk_without_panicking() {
+        let store = FileListStore::new();
+        let parsed = parse_args(&request(&["--files", "."], 20).args).unwrap();
+        let key = walk_key(Path::new("shared"), &parsed);
+        let (live, owner) = store.begin_live(key.clone(), false);
+        assert!(owner);
+
+        // Complete-inventory waiter binds `cond` to the state mutex on its own
+        // thread while this thread streams via `files_cond`/`files`. Before the
+        // condvars were split this combination panicked and the search died.
+        let complete = std::thread::spawn({
+            let live = Arc::clone(&live);
+            move || {
+                let cancelled = AtomicBool::new(false);
+                wait_live_complete(&live, &cancelled, None)
+            }
+        });
+        std::thread::sleep(Duration::from_millis(30));
+
+        publish_live_files(&live, &[PathBuf::from("streamed.rs")]);
+        {
+            let files = live.files.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(files.len(), 1);
+            let (files, _) = live
+                .files_cond
+                .wait_timeout(files, Duration::from_millis(10))
+                .unwrap_or_else(|e| e.into_inner());
+            assert_eq!(files.len(), 1);
+        }
+
+        assert!(store.finish_live(
+            key,
+            &live,
+            Ok(Arc::new(vec![PathBuf::from("streamed.rs")])),
+        ));
+        let completed = complete
+            .join()
+            .expect("complete waiter must not panic")
+            .expect("walk must finish")
+            .expect("walk must produce files");
+        assert_eq!(completed.len(), 1);
     }
 
     #[test]

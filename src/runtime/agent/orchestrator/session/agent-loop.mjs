@@ -50,7 +50,6 @@ import {
     crossTurnDedupStub,
     ITERATION_CAP_REFUSAL_STUB,
 } from './loop/completion-guards.mjs';
-import { STOP_HOOK_SOURCE, createToolFailureStopHook } from './loop/stop-hooks.mjs';
 import { isEditProgressTool } from './loop/completion-guards.mjs';
 import { agentContextOverflowError } from './loop/context-overflow.mjs';
 import { positiveTokenInt } from './loop/env.mjs';
@@ -235,17 +234,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     if (compactSettledToolCallBodies(messages) && !opts.cacheBreakIntent) {
         opts.cacheBreakIntent = 'deferred_body_compaction';
     }
-    // ---- Turn stop hook ----------------------------------------------------
-    // A no-tool assistant message is TERMINAL. Only a structured provider
-    // follow-up signal (end_turn=false / pause_turn), pending input, tool
-    // calls/results, or a stop hook that blocks with a continuation prompt keep
-    // sampling alive. The single hook below is structural: after an unresolved
-    // real tool failure it blocks the first terminal message ONCE, records the
-    // continuation prompt, and then stays inactive for the rest of the turn.
-    const _toolFailureStopHook = createToolFailureStopHook();
     const pushToolResultMessage = (message) => {
         messages.push(message);
-        _toolFailureStopHook.observeToolResult(message);
         try { opts.onToolResult?.(message); } catch {}
     };
     const drainSteeringIntoMessages = (stage = 'mid-turn', options = {}) => {
@@ -970,17 +960,16 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 }
                 let nudgeMsg;
                 if (isIncompleteStop) {
-                    nudgeMsg = `[mixdog-runtime] Previous turn ended mid-synthesis (stopReason=${stopReason}) with empty content. Continue — emit your final handoff (fragments, file:line) with your synthesis so far, or call more tools to finish.`;
+                    nudgeMsg = `[mixdog-runtime] Empty truncated continuation (stopReason=${stopReason}). Return the remaining final handoff; use tools only for required evidence still missing.`;
                 } else {
-                    nudgeMsg = `[mixdog-runtime] Your previous response was empty (no handoff text and no tool call) — attempt ${_emptyNudgeStreak}/${EMPTY_NUDGE_MAX}. Either emit your final handoff text now, or continue with tool calls. Do not return an empty turn.`;
+                    nudgeMsg = `[mixdog-runtime] Empty response (${_emptyNudgeStreak}/${EMPTY_NUDGE_MAX}). Return final text, or use tools only for required evidence still missing.`;
                 }
                 messages.push({ role: 'user', content: nudgeMsg });
                 continue;
             }
-            // Pending-input rule: queued user input is
-            // folded into needs_follow_up and evaluated BEFORE the stop hooks,
-            // so real steering always wins over a synthetic continuation prompt.
-            // Commit the terminal text first (beforeAppend), then resume.
+            // Pending-input rule: queued user input is folded into
+            // needs_follow_up before terminal completion. Commit the terminal
+            // text first (beforeAppend), then resume.
             if (!_capFinalToolsDisabled && drainSteeringIntoMessages('terminal', {
                 maxPriority: 'next',
                 beforeAppend: () => {
@@ -992,34 +981,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 _emptyNudgeStreak = 0;
                 continue;
             }
-            // This no-tool message ends the turn
-            // unless a stop hook blocks it. The unresolved-tool-failure hook may
-            // block exactly once — commit the assistant text, record the
-            // structural continuation prompt, resume sampling. Skipped on the
-            // hard-cap final turn (tool use is already forbidden) and for hidden
-            // roles, whose own role rules define a text-only terminal contract.
-            if (!_capFinalToolsDisabled && !isHidden) {
-                const _hookPrompt = _toolFailureStopHook.takeContinuationPrompt();
-                if (_hookPrompt) {
-                    pushIntermediateAssistantResponse(response);
-                    if (hasContent && !suppressMidTurnText) _committedTextParts.push(response.content);
-                    messages.push({
-                        role: 'user',
-                        content: _hookPrompt,
-                        meta: { source: STOP_HOOK_SOURCE, tool: _toolFailureStopHook.lastFailedTool || null },
-                    });
-                    try {
-                        appendAgentTrace({
-                            sessionId,
-                            iteration: iterations,
-                            kind: 'steer',
-                            payload: { tag: 'tool_failure_stop_hook', tool: _toolFailureStopHook.lastFailedTool || null },
-                            agent: sessionAgent || null,
-                        });
-                    } catch { /* best-effort */ }
-                    continue;
-                }
-            }
+            // A no-tool message ends the turn. Unresolved tool failures remain
+            // visible in history and can be reported directly without a
+            // synthetic continuation turn.
             if (_committedTextParts.length > 0) {
                 const terminalSegment = typeof response.content === 'string' ? response.content : '';
                 response = {
@@ -1138,8 +1102,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             pushToolResultMessage, throwIfAborted,
             repeatFailLimit: REPEAT_FAIL_LIMIT,
         }));
-        // Settle the stop hook on the batch that actually executed.
-        _toolFailureStopHook.endBatch(_callsToExecute);
         const _toolsEndedAt = Date.now();
         try {
             opts.onToolPhaseCompleted?.({

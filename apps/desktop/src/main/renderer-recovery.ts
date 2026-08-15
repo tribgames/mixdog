@@ -89,3 +89,32 @@ export function normalizeRendererLongTaskDiagnostic(input: unknown): Record<stri
     durationMs: Math.min(60_000, Math.round(durationMs)),
   };
 }
+
+export function normalizeRendererComposerActionDiagnostic(input: unknown): Record<string, unknown> | null {
+  const record = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  if (record.kind !== "composer-action") return null;
+  const actions = new Set(["submit", "restore-queue"]);
+  const sources = new Set([
+    "keyboard-enter", "form-submit", "slash-keyboard", "slash-click",
+    "escape", "arrow-up", "queue-row",
+  ]);
+  const action = String(record.action || "");
+  const source = String(record.source || "");
+  if (!actions.has(action) || !sources.has(source)) return null;
+  const metric = (value: unknown, max: number) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.min(max, Math.max(0, Math.round(numeric))) : 0;
+  };
+  return {
+    action,
+    source,
+    turnBusy: record.turnBusy === true,
+    queueCount: metric(record.queueCount, 10_000),
+    draftLength: metric(record.draftLength, 10_000_000),
+    composing: record.composing === true,
+    uptimeMs: metric(record.uptimeMs, 1_000_000_000),
+    ...(record.targeted === true ? { targeted: true } : {}),
+  };
+}

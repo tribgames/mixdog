@@ -1,7 +1,7 @@
 // Owner/worker completion-notification helpers, extracted from the agent-tool
 // facade as a factory so the mgr-bound closures stay per agent instance.
 // Behavior-preserving: bodies identical to the originals; deps injected.
-import { modelVisibleToolCompletionMessage } from '../../runtime/shared/tool-execution-contract.mjs';
+import { modelVisibleToolCompletionMessage, toolCompletionInstruction } from '../../runtime/shared/tool-execution-contract.mjs';
 import { renderBackgroundTask, sanitizeTaskMeta, setBackgroundTaskEnqueueFallback } from '../../runtime/shared/background-tasks.mjs';
 import { markCompletionEntry } from '../../runtime/agent/orchestrator/session/manager/pending-messages.mjs';
 import { isDeliveredCompletion, logDuplicateSkip } from '../../runtime/agent/orchestrator/session/manager/delivered-completions.mjs';
@@ -109,7 +109,11 @@ export function createNotify(mgr) {
       execution_surface: 'agent',
       execution_id: job.taskId || null,
       status: earlyStatus,
-      instruction: `The async agent task ${job.taskId || ''} has finished (${earlyStatus}) - review this result in your next step.`,
+      instruction: toolCompletionInstruction({
+        surface: 'agent',
+        id: job.taskId || '',
+        status: earlyStatus,
+      }),
       ...(ownerSessionId ? { caller_session_id: ownerSessionId } : {}),
     };
     let delivered = false;

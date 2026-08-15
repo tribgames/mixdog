@@ -505,6 +505,25 @@ export function takeApplyPatchUiDiff(callId) {
   return value;
 }
 
+// Edit-tool UI diff: a successful single-file str-replace edit records the
+// same turn-review change entry and per-call UI diff side channel that a
+// committed apply_patch gets, so desktop/TUI tool cards render both edit
+// dialects identically. Side channel only — never affects edit semantics.
+export function registerEditToolUiDiff({ callId, sessionId, basePath, fullPath, before, after }) {
+  if (!callId || !sessionId || typeof fullPath !== 'string') return;
+  try {
+    const turnDiff = recordTurnDiffChanges(sessionId, [{
+      path: fullPath,
+      displayPath: patchHeaderPathForResolved(basePath || '', fullPath),
+      before: typeof before === 'string' ? before : null,
+      after: typeof after === 'string' ? after : null,
+    }]);
+    registerApplyPatchUiDiff(callId, turnDiff);
+  } catch {
+    // best-effort display channel
+  }
+}
+
 function snapshotByPath(snapshots) {
   return new Map((snapshots || []).map((snapshot) => [
     patchPathKey(snapshot.fullPath),
@@ -717,7 +736,7 @@ async function apply_patch(args, cwd, options = {}) {
     throw new Error('apply_patch: "patch" is required (unified diff or V4A patch string)');
   }
   if (isCompactedPlaceholderPatch(patchStr)) {
-    throw new Error('patch body is a compacted-history placeholder ([mixdog compacted …]), not real patch content and cannot be executed. Re-read the current target file contents now, then construct and submit a fresh full patch from those contents. Do not reuse the marker, omit the patch argument, or reconstruct the old patch from history.');
+    throw new Error('patch body is a compacted-history placeholder ([mixdog compacted …]), not patch content. Submit real patch text; do not reuse or reconstruct the marker.');
   }
   const patchByteLen = Buffer.byteLength(patchStr, 'utf8');
   if (patchByteLen > APPLY_PATCH_MAX_BYTES) {

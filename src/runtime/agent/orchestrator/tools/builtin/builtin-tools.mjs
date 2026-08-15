@@ -41,7 +41,7 @@ export const BUILTIN_TOOLS = [
         name: 'edit',
         title: 'Edit',
         annotations: { title: 'Edit', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, compressible: false, compressibleLossless: true },
-        description: 'Performs exact string replacements in files. old_string must identify exactly one occurrence unless replace_all is true. An empty old_string creates a missing file or fills an empty file; it never overwrites a non-empty file.',
+        description: 'Performs exact string replacements in files. old_string must identify exactly one occurrence; if it appears more than once, add surrounding lines to make it unique or set replace_all to change every occurrence. An empty old_string creates a missing file or fills an empty file; it never overwrites a non-empty file. Use exact text already in context — never re-open the file to build old_string from visible spans or to verify a successful edit.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -71,7 +71,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: 'Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. Commands start in the foreground; after 10s, a still-running command continues as a tracked task_id and completes by notification. Omit timeout_ms normally; a positive value is a hard total deadline that also applies after task promotion.',
+        description: 'Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. Not for path lookup, directory listing, or file reading/searching a dedicated tool covers. Commands start in the foreground; after 15s, a still-running command continues as a tracked task_id and completes by notification. Omit timeout_ms normally; a positive value is a hard total deadline that also applies after task promotion.',
         inputSchema: {
             type: 'object',
             properties: {

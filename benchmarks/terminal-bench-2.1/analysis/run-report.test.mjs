@@ -26,13 +26,14 @@ function fixture(root, name, fingerprint, start, agentSeconds, options = {}) {
     },
     comparison: options.comparison ?? null,
   }));
+  const errorIndex = Number.isInteger(options.errorIndex) ? options.errorIndex : null;
   writeFileSync(join(runDir, 'result.json'), JSON.stringify({
     started_at: start,
     finished_at: new Date(new Date(start).getTime() + 60_000).toISOString(),
     n_total_trials: 2,
     stats: {
       n_completed_trials: 2,
-      n_errored_trials: 0,
+      n_errored_trials: errorIndex == null ? 0 : 1,
       n_running_trials: 0,
       n_pending_trials: 0,
       n_cancelled_trials: 0,
@@ -47,20 +48,38 @@ function fixture(root, name, fingerprint, start, agentSeconds, options = {}) {
     mkdirSync(trialDir);
     const agentStart = new Date(new Date(start).getTime() + index * 1_000);
     const agentFinish = new Date(agentStart.getTime() + agentSeconds[index] * 1_000);
+    const failed = index === errorIndex;
+    const reward = options.rewards && Object.hasOwn(options.rewards, index)
+      ? options.rewards[index]
+      : 1;
     writeFileSync(join(trialDir, 'result.json'), JSON.stringify({
       task_id: { name: task },
-      verifier_result: { rewards: { reward: options.rewards?.[index] ?? 1 } },
+      ...(reward == null ? {} : { verifier_result: { rewards: { reward } } }),
+      ...(failed ? {
+        exception_info: {
+          exception_type: 'AgentTimeoutError',
+          exception_message: 'Agent execution timed out after 900.0 seconds',
+        },
+      } : {}),
       agent_execution: {
         started_at: agentStart.toISOString(),
         finished_at: agentFinish.toISOString(),
       },
-      agent_result: {
+      ...(!failed ? { agent_result: {
         n_input_tokens: 50,
         n_cache_tokens: 25,
         n_output_tokens: 10,
         cost_usd: options.costs?.[index] ?? 1,
-      },
+      } } : {}),
     }));
+    if (failed && Array.isArray(options.traceRows)) {
+      const agentDir = join(trialDir, 'agent');
+      mkdirSync(agentDir);
+      writeFileSync(
+        join(agentDir, 'agent-trace.jsonl'),
+        `${options.traceRows.map((row) => JSON.stringify(row)).join('\n')}\n`,
+      );
+    }
   }
   return jobsDir;
 }
@@ -92,6 +111,63 @@ test('ranks only clean equal-score runs with the same preset fingerprint', () =>
     assert.equal(current.bottlenecks.slowestTask.agentSeconds, 5);
     assert.match(readFileSync(join(currentDir, 'report.md'), 'utf8'), /rank 2\/2/);
     assert.equal(JSON.parse(readFileSync(join(currentDir, 'report.json'), 'utf8')).preset.fingerprint, fingerprint);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('diagnoses dirty runs and compares them provisionally with the latest clean run', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-tb-dirty-report-'));
+  try {
+    const fingerprint = 'sha256:dirty';
+    const olderDir = fixture(root, 'jobs-old', fingerprint, '2026-08-15T00:00:00.000Z', [10, 20]);
+    writeRunReport(generateRunReport({ jobsDir: olderDir, historyRoot: root }));
+    const currentDir = fixture(root, 'jobs-current', fingerprint, '2026-08-15T00:04:00.000Z', [900, 25], {
+      errorIndex: 0,
+      rewards: [null, 1],
+      traceRows: [
+        {
+          kind: 'usage_raw',
+          input_tokens: 123,
+          cached_tokens: 100,
+          cache_write_tokens: 0,
+          output_tokens: 5,
+        },
+        {
+          kind: 'tool',
+          iteration: 1,
+          tool_name: 'shell',
+          tool_args_summary: { command: 'inspect' },
+          result_kind: 'normal',
+        },
+        {
+          kind: 'tool',
+          iteration: 2,
+          tool_name: 'glob',
+          tool_args_summary: { pattern: '**/*', path: '/' },
+          result_kind: 'error',
+          result_error_category: 'timeout/abort',
+          result_error_first_line: 'timed out',
+        },
+      ],
+    });
+    const report = generateRunReport({ jobsDir: currentDir, historyRoot: root });
+    const failed = report.tasks.find((task) => task.task === 'a');
+
+    assert.equal(report.result.clean, false);
+    assert.equal(report.comparison.eligible, false);
+    assert.equal(report.comparison.provisional, true);
+    assert.equal(report.comparison.previous.provisional, true);
+    assert.match(report.comparison.previous.jobsDir, /jobs-old/);
+    assert.equal(report.bottlenecks.slowestTask.task, 'a');
+    assert.deepEqual(report.activity, { providerRequests: 1, toolCalls: 2 });
+    assert.deepEqual(report.tokens, { input: 173, cached: 125, cacheWrite: 0, output: 15 });
+    assert.equal(failed.trace.providerRequests, 1);
+    assert.deepEqual(failed.trace.toolCounts, { glob: 1, shell: 1 });
+    assert.equal(failed.trace.failures[0].errorCategory, 'timeout/abort');
+    assert.equal(failed.trace.lastCalls.at(-1).tool, 'glob');
+    assert.match(formatReport(report), /## Diagnostics/);
+    assert.match(formatReport(report), /AgentTimeoutError/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

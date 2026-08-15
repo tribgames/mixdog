@@ -143,7 +143,7 @@ export function createEagerDispatcher({
                             return {
                                 ok: true,
                                 skipped: true,
-                                value: `[patch-dependency-guard] \`${call.name}\` was not executed because earlier file-edit call(s) failed in this assistant turn: ${patchState.failedPatchIds.join(', ')}. Fix the failed edit before verification.`,
+                                value: `[patch-dependency-guard] \`${call.name}\` skipped because earlier file-edit call(s) failed: ${patchState.failedPatchIds.join(', ')}; no verification ran.`,
                             };
                         }
                     }

@@ -27,7 +27,7 @@ export function splitToolStatusCounts(rows) {
   };
 }
 
-// Turn execution (ask) + session-manage/tool-surface/agent surfaces. Extracted
+// Turn execution (ask) + tool-surface/agent surfaces. Extracted
 // verbatim from the runtime API object; stateless helpers are imported directly
 // and the runtime injects live getters/setters for the mutable session/mode/
 // turn-counter/transcript-writer locals plus the closure callbacks.
@@ -37,7 +37,6 @@ export function createSessionTurnApi(deps) {
     getActiveTurnCount, setActiveTurnCount, isFirstTurnCompleted, setFirstTurnCompleted,
     getCodeGraphFirstTurnPrewarmDone, setCodeGraphFirstTurnPrewarmDone,
     getRemoteEnabled, getCloseRequested,
-    getPendingSessionReset, setPendingSessionReset,
     getTranscriptWriter, getTwKey, getLastAppendedAssistant, setLastAppendedAssistant,
     scheduleCodeGraphPrewarm, scheduleToolRuntimeWarmup, scheduleSearchRuntimeWarmup, refreshSessionForCwdIfNeeded, createCurrentSession,
     ensureSessionTranscriptWriter, ensureRemoteTranscriptWriter, channelsEnabled, invokeChannelStart, channels,
@@ -483,17 +482,6 @@ export function createSessionTurnApi(deps) {
       setSession(mgr.getSession(session.id) || session);
       invalidateContextStatusCache();
       return result;
-    },
-    // session_manage tool handoff: the engine polls this at turn end and, if
-    // set, runs the same clear path the idle auto-clear uses. One-shot read.
-    consumePendingSessionReset() {
-      const pending = getPendingSessionReset();
-      setPendingSessionReset(null);
-      if (!pending) return null;
-      const session = getSession();
-      // Session changed since scheduling (resume / new session) — drop it.
-      if (!session?.id || pending.sessionId !== session.id) return null;
-      return pending.action;
     },
     async compact(options = {}) {
       const session = getSession();

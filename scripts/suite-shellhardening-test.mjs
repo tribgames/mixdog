@@ -141,14 +141,14 @@ test('auto-background partial output shares one strict UTF-8 byte budget', () =>
 });
 
 test('shell execution policy matches sync-first background-task parity', () => {
-    assert.equal(DEFAULT_SHELL_AUTO_BACKGROUND_MS, 10_000);
+    assert.equal(DEFAULT_SHELL_AUTO_BACKGROUND_MS, 15_000);
     const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
     assert.deepEqual(Object.keys(shellTool.inputSchema.properties), ['command', 'timeout_ms']);
     assert.equal(
         shellTool.inputSchema.properties.timeout_ms.description,
         'Hard total deadline in milliseconds; omit or use 0 to allow unlimited runtime after task promotion.',
     );
-    assert.match(shellTool.description, /after 10s.*continues.*task_id.*notification/i);
+    assert.match(shellTool.description, /after 15s.*continues.*task_id.*notification/i);
     assert.match(shellTool.description, /omit timeout_ms.*hard total deadline/i);
     const taskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
     assert.equal(taskTool.title, 'Task');

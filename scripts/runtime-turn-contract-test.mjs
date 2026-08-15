@@ -357,7 +357,7 @@ test('fallback shell completion wrapper remains renderable as one UI card', () =
     'done',
   ].join('\n');
   const wrapper = [
-    'The async shell task shell-fallback-1 has finished (completed, exit 0) - review this result in your next step.',
+    'The async shell task shell-fallback-1 has finished (completed, exit 0) - review this result in your next step. Final result follows; do not recheck.',
     '',
     'Result:',
     ...background.split('\n').map((line) => `> ${line}`),

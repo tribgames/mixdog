@@ -67,34 +67,6 @@ export const SKILL_TOOL = {
   },
 };
 
-// Owner-directed session reset tool. `clear` mirrors /clear (full wipe);
-// `compact_clear` mirrors the auto-clear path (summarize via the configured
-// compactType, then reset — context carries forward in the summary). The
-// reset is SCHEDULED: it runs when the current turn ends, never mid-turn,
-// because the live transcript is still feeding the loop. Lead-session only;
-// the runtime executor rejects agent-worker callers.
-export const SESSION_MANAGE_TOOL = {
-  name: 'session_manage',
-  title: 'Session Manage',
-  annotations: {
-    title: 'Session Manage',
-    readOnlyHint: false,
-    destructiveHint: true,
-    idempotentHint: false,
-    openWorldHint: false,
-    agentHidden: true,
-  },
-  description: 'Schedule conversation reset at current-turn end.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      action: { type: 'string', enum: ['clear', 'compact_clear'], description: 'clear = full wipe; compact_clear = summarize then reset.' },
-    },
-    required: ['action'],
-    additionalProperties: false,
-  },
-};
-
 export const LEAD_DISALLOWED_TOOLS = Object.freeze([]);
 const AGENT_HIDDEN_WRAPPER_TOOLS = new Set([]);
 

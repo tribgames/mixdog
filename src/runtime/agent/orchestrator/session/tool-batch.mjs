@@ -48,6 +48,13 @@ function classifyToolReturn(value) {
     return classifyResultKind(normalized.result, normalized.explicitSuccess);
 }
 
+// Tools that publish the per-call mutation UI diff side channel (see
+// takeApplyPatchUiDiff): apply_patch plus the edit dialect and its foreign
+// str-replace aliases adapted by external-tool-adapters.
+const _MUTATION_UI_DIFF_TOOLS = new Set([
+    'apply_patch', 'edit', 'strreplace', 'str_replace', 'str_replace_editor', 'search_replace',
+]);
+
 export async function processToolBatch(ctx) {
     const {
         calls, messages, tools, cwd, sessionId, sessionRef, signal, opts,
@@ -88,6 +95,43 @@ export async function processToolBatch(ctx) {
                 }
             }
         }
+        // One-shot sequential occupation for same-anchor edit batches: when
+        // one assistant turn issues N `edit` calls with the SAME
+        // file_path+old_string (replace_all=false) and N DISTINCT new_strings,
+        // the batch as a whole is unambiguous — deterministic intent is
+        // "k-th call → k-th occurrence in document order", the same contract
+        // apply_patch hunks already have. Members are serialized by the eager
+        // editBarrier; the serial body below re-executes an ambiguity-rejected
+        // member with the remaining-occurrence count and the str-replace
+        // adapter consumes the FIRST remaining occurrence. A single ambiguous
+        // call (no batch siblings) keeps the strict reject.
+        const _editSeqGroups = new Map();
+        {
+            const _counts = new Map();
+            for (const c of calls) {
+                if (!isBuiltinTool(c?.name) || canonicalizeBuiltinToolName(c.name) !== 'edit') continue;
+                const a = c?.arguments;
+                if (!a || typeof a.file_path !== 'string' || typeof a.old_string !== 'string') continue;
+                const _replaceAll = a.replace_all === true || String(a.replace_all || '').toLowerCase() === 'true';
+                if (!a.old_string || _replaceAll) continue;
+                const key = `${a.file_path}\u0000${a.old_string}`;
+                const group = _counts.get(key) || { total: 0, newStrings: new Set() };
+                group.total += 1;
+                group.newStrings.add(String(a.new_string ?? ''));
+                _counts.set(key, group);
+            }
+            for (const [key, group] of _counts) {
+                if (group.total >= 2 && group.newStrings.size === group.total) {
+                    _editSeqGroups.set(key, { total: group.total, applied: 0 });
+                }
+            }
+        }
+        const _editSeqGroupFor = (c) => {
+            if (_editSeqGroups.size === 0 || c?.name !== 'edit') return null;
+            const a = c?.arguments;
+            if (!a || typeof a.file_path !== 'string' || typeof a.old_string !== 'string') return null;
+            return _editSeqGroups.get(`${a.file_path}\u0000${a.old_string}`) || null;
+        };
         // R15: per-turn scalar read-count Map. Lifetime = this turn's tool-call batch.
         // Declared between the duplicate-detection block and the for-loop so it resets
         // Per-batch buffer for the general `newMessages` tool-result channel.
@@ -178,8 +222,7 @@ export async function processToolBatch(ctx) {
             // (name,args) call that has already failed repeatFailLimit times
             // in a row across iterations, stop re-executing — the result will
             // not change, and each retry burns a full (often slow) LLM
-            // round-trip until the hard iteration cap. Steer it to change
-            // approach instead.
+            // round-trip until the hard iteration cap.
             const _repeatFailSig = _intraTurnSig(call.name, call.arguments);
             const _repeatArgShapeSig = _argShapeSig(call.name, call.arguments);
             {
@@ -187,17 +230,11 @@ export async function processToolBatch(ctx) {
                 if (_rfg && _rfg.sig === _repeatFailSig && _rfg.count >= repeatFailLimit) {
                     _stageToolResultMessage({
                         role: 'tool',
-                        content: `[repeat-failure-guard] This exact \`${call.name}\` call (identical arguments) has already failed ${_rfg.count} times in a row; not re-executing because the result will not change. Change approach: use different arguments, a different tool, or skip this step.`,
+                        content: `[repeat-failure-guard] Identical \`${call.name}\` call failed ${_rfg.count} times; not re-executed. Retry only after its inputs or subject change; otherwise leave it unresolved.`,
                         toolCallId: call.id,
-                        // The call is still UNRESOLVED — the guard only skips the
-                        // re-execution. Tagging it as an error keeps it a failure
-                        // for every downstream consumer, notably the turn stop
-                        // hook (a skip must never read as a success that resolves
-                        // an earlier failure).
+                        // The call is still unresolved; the guard only skips
+                        // re-execution and must not read as success.
                         toolKind: 'error',
-                        // …but nothing was dispatched, so this skip is not a real
-                        // tool failure and must never ARM the stop hook either.
-                        guardSkip: true,
                     });
                     continue;
                 }
@@ -207,10 +244,9 @@ export async function processToolBatch(ctx) {
                 if (_afg && _afg.sig === _repeatArgShapeSig && _afg.count >= repeatFailLimit) {
                     _stageToolResultMessage({
                         role: 'tool',
-                        content: `[repeat-argument-shape-guard] This \`${call.name}\` argument shape has already failed validation ${_afg.count} times in a row; not re-executing another equivalent malformed call. Correct the argument types/required fields or use a different tool.`,
+                        content: `[repeat-argument-shape-guard] Equivalent malformed \`${call.name}\` arguments failed validation ${_afg.count} times; not re-executed. Correct required fields or types before retrying.`,
                         toolCallId: call.id,
                         toolKind: 'error',
-                        guardSkip: true,
                     });
                     continue;
                 }
@@ -363,6 +399,48 @@ export async function processToolBatch(ctx) {
                 toolEndedAt = Date.now();
                 result = `Error: ${err instanceof Error ? err.message : String(err)}`;
                 _resultKind = 'error';
+            }
+            // Same-anchor batch occupation retry (_editSeqGroups above): an
+            // ambiguity-rejected member of a known batch group re-executes once
+            // in call order. With 2+ occurrences remaining it passes the
+            // remaining count so the adapter deterministically consumes the
+            // first one; with exactly 1 remaining (earlier members already
+            // consumed theirs) a plain re-run resolves through the normal
+            // unique path. The eager results being retried were computed
+            // before earlier members applied, so re-execution is safe: a
+            // rejected edit had no side effects.
+            if (_resultKind === 'error' && typeof result === 'string'
+                && /old_string found \d+ times/.test(result)) {
+                const _group = _editSeqGroupFor(call);
+                const _remaining = _group ? _group.total - _group.applied : 0;
+                if (_group && _remaining >= 1) {
+                    try {
+                        const _retry = await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, {
+                            toolCallId: call.id,
+                            signal,
+                            notifyFn: opts.notifyFn,
+                            toolApprovalHook: opts.onToolApproval,
+                            iteration: iterations,
+                            localSearchTelemetry: _localSearchTelemetry || {},
+                            resultTelemetry: _resultTelemetry,
+                            ...(_remaining >= 2 ? { editOccurrence: { expected: _remaining } } : {}),
+                        });
+                        if (classifyToolReturn(_retry) !== 'error') {
+                            result = _retry;
+                            _resultKind = 'normal';
+                            _executeOk = true;
+                            toolEndedAt = Date.now();
+                            // Mirror the eager mutation epoch: later read-only
+                            // eager results computed against pre-edit content
+                            // must re-execute.
+                            epoch.mutation += 1;
+                        }
+                    } catch { /* keep the original ambiguity error */ }
+                }
+            }
+            if (_executeOk && _resultKind !== 'skipped') {
+                const _group = _editSeqGroupFor(call);
+                if (_group) _group.applied += 1;
             }
             // CENTRAL ENVELOPE NORMALIZE (general newMessages channel).
             // executeTool (serial + eager) and cache/error paths above all
@@ -651,7 +729,10 @@ export async function processToolBatch(ctx) {
                 if (_scopedCacheHit === null && _isScopedCacheableTool(call.name)) {
                     _outcomeMap?.delete(call.id);
                 }
-                const _applyPatchUiDiff = _stripMcpPrefix(call.name) === 'apply_patch'
+                // Both edit dialects publish the same per-call UI diff side
+                // channel: apply_patch via registerCommittedPatchUiDiff, edit
+                // (and its foreign str-replace aliases) via recordEditUiDiff.
+                const _applyPatchUiDiff = _MUTATION_UI_DIFF_TOOLS.has(_stripMcpPrefix(call.name))
                     ? takeApplyPatchUiDiff(call.id)
                     : null;
                 const resultCompletedAt = Date.now();

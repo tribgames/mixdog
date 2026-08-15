@@ -555,6 +555,7 @@
   "Mixdog will close while the update is installed, then reopen automatically.": "更新のインストール中にMixdogは終了し、自動的に再起動します。",
   "Model": "モデル",
   "Model catalog unavailable: {{error}}": "モデルカタログを利用できません: {{error}}",
+  "Provider status is temporarily unavailable. Try again.": "プロバイダーの状態を一時的に確認できません。もう一度お試しください。",
   "Models": "モデル",
   "Moonwalking": "ムーンウォーク",
   "Moseying": "モゼイン",

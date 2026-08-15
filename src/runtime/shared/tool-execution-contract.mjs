@@ -132,7 +132,7 @@ export function toolCompletionInstruction({ surface = 'tool', id, status, detail
       ? 'agent task'
       : `${surface} execution`;
   const statusText = status ? ` (${status}${detail ? `, ${detail}` : ''})` : '';
-  return `The async ${label} ${id || ''} has finished${statusText} - review this result in your next step.`;
+  return `The async ${label} ${id || ''} has finished${statusText} - review this result in your next step. Final result follows; do not recheck.`;
 }
 
 function toolCompletionMeta({
