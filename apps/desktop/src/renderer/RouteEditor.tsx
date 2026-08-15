@@ -76,10 +76,13 @@ export function RouteEditor({
   const [pane, setPane] = useState<RouteSheetPane | null>(null);
   const [sheetBox, setSheetBox] = useState<RoutePanelBox | null>(null);
   const [flyoutBox, setFlyoutBox] = useState<RoutePanelBox | null>(null);
+  const [modelCatalogReady, setModelCatalogReady] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const sheet = useRef<HTMLDivElement>(null);
-  const flyout = useRef<HTMLDivElement>(null);
+  const modelFlyout = useRef<HTMLDivElement>(null);
+  const optionFlyout = useRef<HTMLDivElement>(null);
   const rowButtons = useRef<Partial<Record<RouteSheetPane, HTMLButtonElement | null>>>({});
+  const hoverLock = useRef<RouteSheetPane | null>(null);
   const clickGuard = useImmediateOverlayClickGuard();
   const surfaceActive = useSurfaceActive();
   const sheetId = useId().replace(/:/g, '');
@@ -96,16 +99,19 @@ export function RouteEditor({
   const visible = open && surfaceActive;
 
   const closeAll = useCallback((restoreFocus = false) => {
+    hoverLock.current = null;
     setOpen(false);
     setPane(null);
     setSheetBox(null);
     setFlyoutBox(null);
+    setModelCatalogReady(false);
     if (restoreFocus) {
       window.setTimeout(() => trigger.current?.focus({ preventScroll: true }), 0);
     }
   }, []);
 
   const closePane = useCallback((closedPane: RouteSheetPane, restoreFocus = false) => {
+    hoverLock.current = closedPane;
     setPane(null);
     setFlyoutBox(null);
     if (restoreFocus) {
@@ -133,8 +139,10 @@ export function RouteEditor({
 
   const show = () => {
     const triggerRect = trigger.current?.getBoundingClientRect();
+    hoverLock.current = null;
     if (triggerRect) setSheetBox(routeSheetBox(triggerRect, sheetHeight, currentViewport()));
     setPane(null);
+    setModelCatalogReady(false);
     setOpen(true);
   };
 
@@ -145,6 +153,8 @@ export function RouteEditor({
 
   const openPane = (next: RouteSheetPane) => {
     if (next !== 'model' && tuningDisabled) return;
+    hoverLock.current = null;
+    if (next === 'model') setModelCatalogReady(true);
     const rowIndex = rows.indexOf(next);
     if (sheetBox && rowIndex >= 0) {
       setFlyoutBox(routeFlyoutBox(
@@ -168,7 +178,8 @@ export function RouteEditor({
       const target = event.target as Node;
       if (trigger.current?.contains(target)
         || sheet.current?.contains(target)
-        || flyout.current?.contains(target)) return;
+        || modelFlyout.current?.contains(target)
+        || optionFlyout.current?.contains(target)) return;
       closeAll();
     };
     const onKeyDown = (event: KeyboardEvent) => {
@@ -201,9 +212,16 @@ export function RouteEditor({
       className="route-sheet-row" role="menuitem"
       aria-haspopup="menu" aria-expanded={pane === id} disabled={disabled}
       onPointerEnter={(event) => {
-        if (event.pointerType !== 'touch') openPane(id);
+        if (event.pointerType === 'touch' || hoverLock.current === id) return;
+        openPane(id);
       }}
-      onClick={() => openPane(id)}>
+      onPointerLeave={() => {
+        if (hoverLock.current === id) hoverLock.current = null;
+      }}
+      onClick={() => {
+        if (pane === id) closePane(id);
+        else openPane(id);
+      }}>
       <span className="route-sheet-label">{label}</span>
       <span className="route-sheet-value">{value}</span>
       <ChevronRight size={14} aria-hidden="true" />
@@ -241,10 +259,12 @@ export function RouteEditor({
       </div>,
       document.body,
     )}
-    {visible && pane === 'model' && flyoutBox && createPortal(
-      <div ref={flyout} className="route-sheet-flyout route-sheet-flyout--model" style={flyoutBox}>
+    {visible && modelCatalogReady && createPortal(
+      <div ref={modelFlyout} className="route-sheet-flyout route-sheet-flyout--model"
+        hidden={pane !== 'model'}
+        style={pane === 'model' && flyoutBox ? flyoutBox : { display: 'none' }}>
         <ModelPicker models={models} provider={provider} model={model}
-          triggerLabel={triggerModel} embedded
+          triggerLabel={triggerModel} embedded active={pane === 'model'}
           catalogLoaded={catalogLoaded} catalogRefreshing={catalogRefreshing}
           catalogError={catalogError} providerSetupError={providerSetupError}
           onSelect={onSelectModel}
@@ -257,7 +277,7 @@ export function RouteEditor({
       document.body,
     )}
     {visible && pane === 'effort' && flyoutBox && createPortal(
-      <div ref={flyout} className="route-sheet-flyout" role="menu" aria-label={t('Reasoning effort')}
+      <div ref={optionFlyout} className="route-sheet-flyout" role="menu" aria-label={t('Reasoning effort')}
         style={flyoutBox}>
         {effortOptions.map((option) => {
           const selected = option.value === effort;
@@ -275,7 +295,7 @@ export function RouteEditor({
       document.body,
     )}
     {visible && pane === 'speed' && flyoutBox && createPortal(
-      <div ref={flyout} className="route-sheet-flyout" role="menu" aria-label={t('Speed')} style={flyoutBox}>
+      <div ref={optionFlyout} className="route-sheet-flyout" role="menu" aria-label={t('Speed')} style={flyoutBox}>
         {([{ value: false, label: t('Standard') }, { value: true, label: t('Fast') }] as const).map((option) => {
           const selected = option.value === fast;
           const disabled = tuningDisabled || (option.value && !fastAvailable);

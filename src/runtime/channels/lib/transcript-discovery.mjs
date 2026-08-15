@@ -3,6 +3,7 @@ import { basename, join, resolve } from "path";
 import {
   cwdToProjectSlug,
   discoverCurrentClaudeSession,
+  isSessionPidOriginal,
   listInteractiveClaudeSessions
 } from "./session-discovery.mjs";
 import { mixdogHome } from "../../shared/plugin-paths.mjs";
@@ -100,7 +101,9 @@ function sessionTranscriptCandidate(session, source) {
   const bound = resolveTranscriptForSession(session);
   if (!bound?.transcriptPath) return null;
   const stat = bound.exists ? transcriptStat(bound.transcriptPath) : null;
-  const active = isPidAlive(session.pid);
+  // PID-reuse guard: a pointer whose pid now belongs to a process born after
+  // the record's last write is an impostor, not a live self session.
+  const active = isPidAlive(session.pid) && isSessionPidOriginal(session);
   const cwdMatches = sameResolvedPath(session.cwd, process.cwd());
   return {
     ...bound,

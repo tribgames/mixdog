@@ -52,7 +52,7 @@ test('shared tool rules keep parallel-default and shell-boundary anchors', () =>
   // phrase here when the rule text intentionally changes.
   const full = buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
   assert.match(full, /independent calls share one batch by default/i);
-  assert.match(full, /never instead of an\s+available file tool/i);
+  assert.match(full, /Investigation defaults to the dedicated search\/file tools/i);
   assert.match(full, /environment variable or the home directory\s+are resolved locations/i);
 });
 

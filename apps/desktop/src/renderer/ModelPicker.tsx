@@ -99,6 +99,8 @@ interface ModelPickerProps {
   onOpenProviders?: () => void;
   /** Catalog list only — parent owns the trigger and positioning. */
   embedded?: boolean;
+  /** When embedded, keep the catalog mounted while the parent hides it. */
+  active?: boolean;
   onClose?: () => void;
 }
 
@@ -120,6 +122,7 @@ export function ModelPicker({
   onSelect,
   onOpenProviders,
   embedded = false,
+  active = true,
   onClose,
 }: ModelPickerProps) {
   const generatedId = useId().replace(/:/g, '');
@@ -217,9 +220,9 @@ export function ModelPicker({
     trigger.current?.focus({ preventScroll: true });
   }, [disabled]);
   useEffect(() => {
-    if (!embedded) return;
+    if (!embedded || !active) return;
     search.current?.focus({ preventScroll: true });
-  }, [embedded]);
+  }, [active, embedded]);
 
   const providerEntries = useMemo(() => {
     const entries = new Map<string, DesktopModelOption[]>();

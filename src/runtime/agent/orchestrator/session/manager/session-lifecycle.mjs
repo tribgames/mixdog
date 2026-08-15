@@ -44,6 +44,7 @@ import {
     workflowContextForApprovalMode,
 } from '../approval-mode.mjs';
 import { describeShellStartupPolicy } from '../../tools/builtin/runtime-capabilities.mjs';
+import { captureOriginalUserCwd } from '../../../../shared/user-cwd.mjs';
 
 function buildSessionProviderCacheOpts(providerName, sessionId, agent = null) {
     // Keep this in sync with createSession's provider-cache policy: only
@@ -298,7 +299,15 @@ export function createSession(opts) {
     // Preserve the exact pre-layout environment payload: Lead carried the
     // shell preference in Profile Preferences, while any routing surface with
     // shell carried the startup capability line in BP1.
+    // opts.cwd is the session's explicit Project root. Raw callers that omit
+    // it still get a location line via captureOriginalUserCwd(), which
+    // resolves explicit session signals first and never leaks the daemon's
+    // install root (user-cwd.mjs safe fallback chain).
+    const sessionCwdLine = opts.cwd || captureOriginalUserCwd();
     const shellEnvironmentContext = [
+        sessionCwdLine
+            ? `- Cwd: ${sessionCwdLine} — the active Project root; relative paths and shell commands resolve here.`
+            : '',
         !ownerIsAgent
             ? `- Shell: ${process.platform === 'win32' ? 'PowerShell' : 'Bash'}. Use ${process.platform === 'win32' ? 'PowerShell' : 'Bash'} syntax unless the user specifies otherwise.`
             : '',
