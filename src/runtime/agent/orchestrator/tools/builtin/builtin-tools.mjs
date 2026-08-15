@@ -75,7 +75,7 @@ export const BUILTIN_TOOLS = [
         inputSchema: {
             type: 'object',
             properties: {
-                command: { type: 'string', description: `Command. Never route file inspection through cat/Get-Content/head/tail/ls/dir/find/grep/rg/Select-String/sed/awk here, and never create files via heredoc or echo/Set-Content redirection — edit with an empty old_string creates files; the dedicated file tools cover the rest.${_shellSyntaxCheat}` },
+                command: { type: 'string', description: `Command. Never route file inspection through cat/Get-Content/head/tail/ls/dir/find/grep/rg/Select-String/sed/awk here, and never create files via heredoc or echo/Set-Content redirection — the file-editing tool creates files (empty old_string, or an Add File patch); the dedicated file tools cover the rest.${_shellSyntaxCheat}` },
                 timeout_ms: {
                     type: 'integer',
                     minimum: 0,
