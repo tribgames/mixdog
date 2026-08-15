@@ -457,33 +457,63 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
   const deadlineMs = Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
     ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
     : REQUEST_TIMEOUT_MS;
-  const response = await requestNativeWithRestart(
-    (server, remaining) => ({
-      id: ++server.sequence,
-      cwd: String(execOptions.cwd || process.cwd()),
-      args: argsList.map(String),
-      offset: Math.max(0, Math.floor(Number(opts.offset) || 0)),
-      limit: Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0
-        ? Math.floor(Number(opts.limit))
-        : 0,
-      deadlineMs: softDeadlineMs(remaining),
-      keepWarm: opts.keepWarm === true,
-    }),
-    execOptions,
-    deadlineMs,
-  );
+  const buildRequest = (server, remaining) => ({
+    id: ++server.sequence,
+    cwd: String(execOptions.cwd || process.cwd()),
+    args: argsList.map(String),
+    offset: Math.max(0, Math.floor(Number(opts.offset) || 0)),
+    limit: Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0
+      ? Math.floor(Number(opts.limit))
+      : 0,
+    deadlineMs: softDeadlineMs(remaining),
+    keepWarm: opts.keepWarm === true,
+  });
+  let response = await requestNativeWithRestart(buildRequest, execOptions, deadlineMs);
+  // Deadline-swallow defense (binaries before the serve_search response-level
+  // deadline re-check): a server under host saturation can burn the whole
+  // soft deadline queued+scanning and return complete-but-EMPTY with the
+  // mid-scan timeout swallowed — indistinguishable from a real no-match and
+  // observed as a false "(no matches)". When an empty "complete" answer's
+  // queue+handler time consumed its deadline budget, re-ask ONCE; the retry
+  // (served from a now-warm server) returns either the real matches or a
+  // fast, trustworthy empty.
+  if (
+    Array.isArray(response.lines) && response.lines.length === 0
+    && response.complete === true && response.partial !== true
+    && (
+      (Number(response.queueMs) || 0) + (Number(response.handlerMs) || 0)
+        >= Math.max(500, softDeadlineMs(deadlineMs) - 250)
+      // filesScanned===0 on an empty "complete" answer: the scan loops never
+      // opened a single file. Either the scope truly has no eligible files
+      // (retry returns the same answer in ~ms) or the server's file list was
+      // transiently wrong (observed once: a file-scope grep answered empty in
+      // 0ms while the file demonstrably matched). One re-ask disambiguates.
+      || Number(response.filesScanned) === 0
+    )
+  ) {
+    try {
+      response = await requestNativeWithRestart(buildRequest, execOptions, deadlineMs);
+    } catch { /* keep the first response */ }
+  }
   if (response.unsupported || response.error) {
     const rejected = new Error(String(response.error || response.unsupported));
     rejected.code = response.error ? 'NATIVE_SEARCH_ERROR' : 'NATIVE_SEARCH_UNSUPPORTED';
     throw rejected;
   }
   if (!Array.isArray(response.lines)) return null;
+  const scanErrors = Math.max(0, Math.floor(Number(response.scanErrors) || 0));
   return {
     lines: response.lines,
     complete: response.complete === true,
     totalSeen: Math.max(0, Math.floor(Number(response.totalSeen) || 0)),
     partial: response.partial === true,
     timeout: response.timeout === true,
+    // Unreadable/half-read files the native scanner skipped: route the count
+    // through the existing rg-exit-2 partial phrasing in search-tool.mjs so
+    // the model sees WHY the result may be missing matches.
+    ...(scanErrors > 0
+      ? { rgStderr: `${scanErrors} file(s) could not be read (permission or I/O error); matches from those files are missing` }
+      : {}),
     queueMs: Math.max(0, Number(response.queueMs) || 0),
     handlerMs: Math.max(0, Number(response.handlerMs) || 0),
     requestClass: response.class === 'bulk' ? 'bulk' : 'interactive',

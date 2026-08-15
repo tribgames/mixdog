@@ -968,6 +968,13 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         return msg + finalizeReadFamilyEnoentTail(hint, searchPath, err?.code);
     }
     const filenameOmitted = forceGrepFilename ? false : grepStat.isFile();
+    // Single-FILE scope: a positive glob filter can only re-filter the one
+    // explicitly targeted file — either a no-op (basename matches) or a
+    // mistake that silently turns an explicit file search into
+    // "(no matches)". The explicit operand wins; drop the filter.
+    if (grepStat.isFile() && normalizedGlobPatterns.length > 0) {
+        normalizedGlobPatterns.length = 0;
+    }
 
     // rg builds --glob overrides rooted at its process cwd and relativizes each
     // candidate against it with a CASE-SENSITIVE prefix strip; workDir is
