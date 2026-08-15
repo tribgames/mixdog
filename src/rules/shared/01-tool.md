@@ -45,7 +45,10 @@
   prior results. Evidence that determines the answer, edit, or deliverable
   ends retrieval — patch if needed.
 - Parallel batching: independent calls share one batch by default — one
-  best-routed call per facet. Serialize two calls only when the later call's
+  best-routed call per facet. Cost is counted in rounds, not calls: a batch
+  of N calls in one message is one round, so a call-count saving never
+  justifies folding work into a single worse-routed call.
+  Serialize two calls only when the later call's
   inputs are actually produced by the earlier result; the mere possibility
   that a result could reshape later work never defers an independent call.
   Before each batch, deduplicate the remaining necessary facets and route
