@@ -25,6 +25,7 @@
     "update:dev": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-update-windows.ps1 -ViaUpdater",
     "update:dev:updater": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-update-windows.ps1 -ViaUpdater",
     "update:dev:fast": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-update-windows.ps1 -FastDirect",
+    "update:dev:runtime": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-update-windows.ps1 -RuntimeOnly",
     "update:dev:reinstall": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-update-windows.ps1",
     "update:dev:plan": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-update-windows.ps1 -ViaUpdater -DryRun",
     "verify:live-layout": "node scripts/cdp-layout-probe.mjs --port=9342 --repair --exercise-panel",

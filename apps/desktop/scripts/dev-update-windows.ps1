@@ -29,6 +29,7 @@ param(
   [switch]$ViaUpdater,
   [switch]$FastDirect,
   [switch]$FastDirectWorker,
+  [switch]$RuntimeOnly,
   [switch]$NoLaunch,
   [switch]$KeepDaemon,
   [switch]$DryRun,
@@ -468,9 +469,12 @@ $targetVersion = if ($ViaUpdater) {
 if ($ViaUpdater -and $FastDirect) {
   throw 'ViaUpdater and FastDirect are mutually exclusive.'
 }
+if ($RuntimeOnly -and ($ViaUpdater -or $FastDirect)) {
+  throw 'RuntimeOnly cannot be combined with ViaUpdater or FastDirect.'
+}
 
 Write-Host ''
-Write-Host "mode            : $(if ($ViaUpdater) { 'via updater (local feed)' } elseif ($FastDirect) { 'fast direct' } else { 'reinstall' })"
+Write-Host "mode            : $(if ($ViaUpdater) { 'via updater (local feed)' } elseif ($FastDirect) { 'fast direct' } elseif ($RuntimeOnly) { 'runtime.asar only' } else { 'reinstall' })"
 Write-Host "repo root       : $repoRoot"
 Write-Host "install dir     : $InstallDir"
 Write-Host "installer       : $installer$(if (Test-Path -LiteralPath $installer) { '' } else { '  (missing - will be built)' })"
@@ -489,6 +493,90 @@ if ($DryRun) {
 
 if (-not (Test-Path -LiteralPath $InstallDir)) {
   throw "No installed build at $InstallDir. Install one first (npm run build:win, then run the installer)."
+}
+
+if ($RuntimeOnly) {
+  # runtime.asar-only swap: only the session daemon restarts; the app window,
+  # renderer, and native tools stay untouched. Valid ONLY while the installed
+  # desktop shell (app.asar) still matches this working tree — a runtime swap
+  # on top of shell drift would run new runtime code against an old shell.
+  $runtimeArtifact = Join-Path $desktopDir '.runtime\runtime.asar'
+  $runtimeSidecarArtifact = "$runtimeArtifact.unpacked"
+  $installedResources = Join-Path $InstallDir 'resources'
+  $installedAppAsar = Join-Path $installedResources 'app.asar'
+  if (-not (Test-Path -LiteralPath $installedAppAsar -PathType Leaf)) {
+    throw "No installed app.asar at $installedAppAsar - run a full FastDirect deploy first."
+  }
+  $shellBuiltAt = (Get-Item -LiteralPath $installedAppAsar).LastWriteTimeUtc
+  $shellInputs = @(
+    (Join-Path $desktopDir 'src'),
+    (Join-Path $desktopDir 'package.json'),
+    (Join-Path $desktopDir 'electron.vite.config.ts')
+  ) | Where-Object { Test-Path -LiteralPath $_ }
+  $newestShellChange = ($shellInputs | ForEach-Object {
+    Get-ChildItem -LiteralPath $_ -Recurse -File -ErrorAction SilentlyContinue
+  } | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
+  if ($newestShellChange -and $newestShellChange -gt $shellBuiltAt) {
+    throw "Desktop shell sources changed after the installed build ($newestShellChange > $shellBuiltAt). Run update:dev:fast instead."
+  }
+
+  if (-not $SkipBuild) {
+    Write-Step 'building runtime.asar only'
+    Push-Location $desktopDir
+    try {
+      & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
+      if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
+    } finally {
+      Pop-Location
+    }
+  }
+  if (-not (Test-Path -LiteralPath $runtimeArtifact -PathType Leaf)) {
+    throw "Runtime artifact missing: $runtimeArtifact"
+  }
+
+  Write-Step 'stopping the session daemon (the app window stays up)'
+  Stop-Daemon
+  $installedRuntime = Join-Path $installedResources 'runtime.asar'
+  $installedRuntimeUnpacked = Join-Path $installedResources 'runtime.asar.unpacked'
+  $backupDir = Join-Path $env:TEMP ("mixdog-runtime-backup-" + [guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+  $swapped = $false
+  try {
+    Write-Step 'swapping resources\runtime.asar'
+    if (Test-Path -LiteralPath $installedRuntime -PathType Leaf) {
+      Move-Item -LiteralPath $installedRuntime -Destination (Join-Path $backupDir 'runtime.asar') -Force
+    }
+    if (Test-Path -LiteralPath $installedRuntimeUnpacked -PathType Container) {
+      Move-Item -LiteralPath $installedRuntimeUnpacked -Destination (Join-Path $backupDir 'runtime.asar.unpacked') -Force
+    }
+    Copy-Item -LiteralPath $runtimeArtifact -Destination $installedRuntime -Force
+    if (Test-Path -LiteralPath $runtimeSidecarArtifact -PathType Container) {
+      Copy-Item -LiteralPath $runtimeSidecarArtifact -Destination $installedRuntimeUnpacked -Recurse -Force
+    }
+    $swapped = $true
+  } catch {
+    $failure = $_
+    Write-Step 'runtime swap failed; restoring the previous runtime archive'
+    if (Test-Path -LiteralPath (Join-Path $backupDir 'runtime.asar') -PathType Leaf) {
+      Remove-Item -LiteralPath $installedRuntime -Force -ErrorAction SilentlyContinue
+      Move-Item -LiteralPath (Join-Path $backupDir 'runtime.asar') -Destination $installedRuntime -Force
+    }
+    if (Test-Path -LiteralPath (Join-Path $backupDir 'runtime.asar.unpacked') -PathType Container) {
+      Remove-Item -LiteralPath $installedRuntimeUnpacked -Recurse -Force -ErrorAction SilentlyContinue
+      Move-Item -LiteralPath (Join-Path $backupDir 'runtime.asar.unpacked') -Destination $installedRuntimeUnpacked -Force
+    }
+    Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
+    throw $failure
+  }
+
+  Write-Step 'waiting for the app to respawn a fresh daemon'
+  $daemonAfterSwap = Wait-ForFreshDaemon -Previous $daemonBefore -TimeoutSeconds 45
+  Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
+  Write-Host ''
+  Write-Host 'result' -ForegroundColor Green
+  Write-Host "  runtime.asar      : swapped ($([math]::Round((Get-Item -LiteralPath $installedRuntime).Length / 1MB, 1)) MB)"
+  Write-Host "  session daemon    : $(if ($daemonAfterSwap) { "pid=$($daemonAfterSwap.pid) port=$($daemonAfterSwap.port)" } else { 'respawns on the next app action' })"
+  exit 0
 }
 
 if (-not $SkipBuild) {
