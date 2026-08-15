@@ -47,6 +47,10 @@
       "suite": "core",
       "routeProfile": "grok46-xhigh"
     },
+    "grok46-high": {
+      "suite": "core",
+      "routeProfile": "grok46-high"
+    },
     "opus5-solo": {
       "suite": "core",
       "routeProfile": "opus5-solo"
