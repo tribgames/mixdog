@@ -21,6 +21,14 @@ export type TurnFailureModel = {
 
 export function mergeTranscript<T>(items: T[] | undefined, streamingTail: T | null | undefined): T[];
 export function transcriptTurnKeys<T>(items: T[] | undefined): string[];
+export function turnReviewScope<T extends {
+  id?: string | number;
+  kind?: string;
+}>(items: T[] | undefined): {
+  startIndex: number;
+  key: string;
+  hasActivity: boolean;
+};
 export function shouldShowFastControl(
   routeFastCapable: boolean,
   selectedModelFastCapable: boolean | undefined,

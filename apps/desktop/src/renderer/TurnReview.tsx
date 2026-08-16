@@ -4,7 +4,7 @@ import { t } from "./i18n";
 import { GitDiffBody } from "./ReviewPane";
 import { findPatch, PATCH_CACHE_LIMIT } from "./TranscriptView";
 import { REVIEW_DIFF_STYLE_KEY, type TranscriptItem } from "./desktop-types";
-import { parseUnifiedDiff } from "./renderer-logic.mjs";
+import { parseUnifiedDiff, turnReviewScope } from "./renderer-logic.mjs";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { classifyToolCategory, parseLineDelta, parseToolArgs, summarizeToolResult } from "../../../../src/runtime/shared/tool-surface.mjs";
 
@@ -277,14 +277,10 @@ function toolPublishesPatch(item: TranscriptItem): boolean {
   return classifyToolCategory(String(item.name || ""), item.args) === "Patch";
 }
 
-function summarizeTurnReviewOperations(items: TranscriptItem[]) {
-  let lastUser = -1;
-  for (let index = items.length - 1; index >= 0; index--) {
-    if (items[index]?.kind === "user") { lastUser = index; break; }
-  }
+function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart: number) {
   let additions = 0;
   let deletions = 0;
-  for (let index = lastUser + 1; index < items.length; index++) {
+  for (let index = turnStart + 1; index < items.length; index++) {
     const item = items[index];
     if (!item || item.kind !== "tool" || !toolPublishesPatch(item)) continue;
     const count = Math.max(1, Number(item.count || 1));
@@ -347,14 +343,8 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     window.addEventListener("pointerdown", closeOnOutsidePointer, true);
     return () => window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
   }, [confirmAll, expanded]);
-  const turnScopeKey = useMemo(() => {
-    let lastUser = -1;
-    for (let index = items.length - 1; index >= 0; index--) {
-      if (items[index]?.kind === "user") { lastUser = index; break; }
-    }
-    const turnId = lastUser >= 0 ? String(items[lastUser]?.id ?? lastUser) : "none";
-    return `${String(sessionId || "draft")}:${turnId}`;
-  }, [items, sessionId]);
+  const reviewScope = useMemo(() => turnReviewScope(items), [items]);
+  const turnScopeKey = `${String(sessionId || "draft")}:${reviewScope.key}`;
   const activeScope = useRef(turnScopeKey);
   activeScope.current = turnScopeKey;
   const [agentReviewState, setAgentReviewState] = useState<{
@@ -413,13 +403,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   }, [turnScopeKey]);
   // Only probe once the transcript shows turn activity: a fresh/empty session
   // has no child review and passive mounts must not fire capability calls.
-  const hasTurnActivity = useMemo(() => {
-    for (let index = items.length - 1; index >= 0; index--) {
-      if (items[index]?.kind === "user") return false;
-      if (items[index]) return true;
-    }
-    return false;
-  }, [items]);
+  const hasTurnActivity = reviewScope.hasActivity;
   const refreshAgentReviews = useCallback(async (refreshWorktree = false) => {
     const api = window.mixdogDesktop as {
       invokeCapability?: (request: {
@@ -584,13 +568,9 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     try { window.localStorage.setItem(REVIEW_DIFF_STYLE_KEY, diffStyle); } catch { /* persistence only */ }
   }, [diffStyle]);
   const transcriptSummary = useMemo(() => {
-    let lastUser = -1;
-    for (let index = items.length - 1; index >= 0; index--) {
-      if (items[index]?.kind === "user") { lastUser = index; break; }
-    }
     const patches: string[] = [];
     let latestUiDiff: string | null = null;
-    for (let index = lastUser + 1; index < items.length; index++) {
+    for (let index = reviewScope.startIndex + 1; index < items.length; index++) {
       const item = items[index];
       if (!item || item.kind !== "tool") continue;
       if (Object.hasOwn(item, "uiDiff")) {
@@ -625,6 +605,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     authoritativeLeadPatch,
     authoritativeWorktreeSnapshot,
     items,
+    reviewScope.startIndex,
   ]);
   const agentSources = useMemo(() => agentReviews.flatMap((review, index) => {
     const reviewSummary = summarizeTurnReviewPatch(review.patch);
@@ -648,7 +629,10 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
       : mergeTurnReviewSummaries([transcriptSummary, agentSummary]),
     [transcriptSummary, agentSummary, authoritativeWorktreeSnapshot],
   );
-  const operationSummary = useMemo(() => summarizeTurnReviewOperations(items), [items]);
+  const operationSummary = useMemo(
+    () => summarizeTurnReviewOperations(items, reviewScope.startIndex),
+    [items, reviewScope.startIndex],
+  );
   // The file set and expanded rows remain the authoritative turn-start → current
   // diff. The collapsed headline mirrors the activity cards' edit workload so
   // replaced/deleted intermediate lines do not disappear into a net +N count.

@@ -32,6 +32,34 @@ export function transcriptTurnKeys(items) {
   return keys;
 }
 
+export function turnReviewScope(items) {
+  const transcript = Array.isArray(items) ? items : [];
+  let activeStart = -1;
+  let latestStart = -1;
+  for (let index = 0; index < transcript.length; index += 1) {
+    const item = transcript[index];
+    if (item?.kind === 'user' && activeStart < 0) {
+      activeStart = index;
+      latestStart = index;
+    }
+    if (item?.kind === 'turndone') activeStart = -1;
+  }
+  const startIndex = activeStart >= 0 ? activeStart : latestStart;
+  let hasActivity = false;
+  for (let index = startIndex + 1; index < transcript.length; index += 1) {
+    const item = transcript[index];
+    if (item && item.kind !== 'user') {
+      hasActivity = true;
+      break;
+    }
+  }
+  return {
+    startIndex,
+    key: startIndex >= 0 ? stableItemKey(transcript[startIndex], startIndex) : 'none',
+    hasActivity,
+  };
+}
+
 export function shouldShowFastControl(routeFastCapable, selectedModelFastCapable) {
   return routeFastCapable === true || selectedModelFastCapable === true;
 }

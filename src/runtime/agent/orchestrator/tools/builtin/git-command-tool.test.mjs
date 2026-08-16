@@ -4,7 +4,7 @@ import { mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
-import { executeGitTool, GIT_TOOL_DEF } from './git-command-tool.mjs';
+import { executeGitTool, GIT_TOOL_DEF, _gitCommandInternals } from './git-command-tool.mjs';
 
 function parseOk(result) {
     assert.doesNotMatch(String(result), /^Error:/, String(result));
@@ -29,6 +29,14 @@ test('git command tool preserves shell syntax, compacts output, and gates destru
     assert.equal(parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root)).summary, 'initialized');
     parseOk(await git(repo, 'config user.name "Mixdog Test"'));
     parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+    assert.match(String(await git(repo, 'config --global user.name')), /outside the local repository scope/);
+    assert.match(String(await git(repo, 'config --system user.name')), /outside the local repository scope/);
+    assert.match(String(await git(repo, 'config --file ..\/outside user.name')), /outside the local repository scope/);
+    assert.match(String(await git(repo, 'config -f..\/outside user.name')), /outside the local repository scope/);
+    assert.equal(
+        _gitCommandInternals.creationTarget(_gitCommandInternals.parseCommand(`git clone origin ${quote(join(root, 'target'))}`, root)),
+        join(root, 'target'),
+    );
 
     writeFileSync(join(repo, 'base.txt'), 'base\n');
     const staged = parseOk(await git(repo, 'add --all'));

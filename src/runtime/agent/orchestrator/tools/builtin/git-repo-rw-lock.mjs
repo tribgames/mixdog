@@ -26,12 +26,16 @@ function drain(key, state) {
     if (state.readers === 0 && state.queue[0].mode === 'write') {
         const entry = state.queue.shift();
         state.writer = true;
+        entry.granted = true;
+        entry.signal?.removeEventListener?.('abort', entry.onAbort);
         entry.resolve(releaseFor(key, state, 'write'));
         return;
     }
     while (state.queue[0]?.mode === 'read' && !state.writer) {
         const entry = state.queue.shift();
         state.readers++;
+        entry.granted = true;
+        entry.signal?.removeEventListener?.('abort', entry.onAbort);
         entry.resolve(releaseFor(key, state, 'read'));
     }
 }
@@ -47,28 +51,46 @@ function releaseFor(key, state, mode) {
     };
 }
 
-function acquire(repo, mode) {
+function abortError(signal) {
+    if (signal?.reason instanceof Error) return signal.reason;
+    return Object.assign(new Error('git repository lock aborted'), { name: 'AbortError', code: 'ABORT_ERR' });
+}
+
+function acquire(repo, mode, signal) {
+    if (signal?.aborted) return Promise.reject(abortError(signal));
     const key = keyFor(repo);
     const state = stateFor(key);
-    return new Promise((resolveLock) => {
-        state.queue.push({ mode, resolve: resolveLock });
+    return new Promise((resolveLock, rejectLock) => {
+        const entry = { mode, resolve: resolveLock, reject: rejectLock, signal, onAbort: null, granted: false };
+        entry.onAbort = () => {
+            if (entry.granted) return;
+            const index = state.queue.indexOf(entry);
+            if (index >= 0) state.queue.splice(index, 1);
+            signal?.removeEventListener?.('abort', entry.onAbort);
+            rejectLock(abortError(signal));
+            drain(key, state);
+        };
+        state.queue.push(entry);
+        signal?.addEventListener?.('abort', entry.onAbort, { once: true });
         drain(key, state);
     });
 }
 
-async function withLock(repo, mode, fn) {
-    const release = await acquire(repo, mode);
+async function withLock(repo, mode, fn, options = {}) {
+    const signal = options?.signal || null;
+    const release = await acquire(repo, mode, signal);
     try {
+        if (signal?.aborted) throw abortError(signal);
         return await fn();
     } finally {
         release();
     }
 }
 
-export function withGitRepoReadLock(repo, fn) {
-    return withLock(repo, 'read', fn);
+export function withGitRepoReadLock(repo, fn, options = {}) {
+    return withLock(repo, 'read', fn, options);
 }
 
-export function withGitRepoWriteLock(repo, fn) {
-    return withLock(repo, 'write', fn);
+export function withGitRepoWriteLock(repo, fn, options = {}) {
+    return withLock(repo, 'write', fn, options);
 }

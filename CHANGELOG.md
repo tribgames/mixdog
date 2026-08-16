@@ -5,6 +5,13 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Provider-only evidence projection now aliases repeated typed file paths
+  within mutation epochs, preserving exact tool envelopes and reconstructable
+  paths while reducing cumulative context in long sessions.
+- Git execution now shares one mutation policy across orchestration and
+  evidence projection, serializes repository-wide writes against file edits,
+  uses tree-owned native processes, and makes queued locks abortable.
+
 ## v0.9.132 - 2026-08-16
 
 - Tool execution now exposes complete shell exit status, adds a dedicated Git

@@ -13,7 +13,7 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "typecheck:renderer": "tsc -p tsconfig.renderer.json",
     "test:renderer": "node --import ./scripts/test-env.mjs --import tsx --test --test-concurrency=1 src/main/folder-explorer.test.mjs src/main/git-cli.test.mjs",
-    "test:spec-advisory": "node --import ./scripts/test-env.mjs --import tsx --test --test-concurrency=1 src/renderer/product-spec.test.mjs src/renderer/agent-activity.test.mjs src/renderer/queue-actions.test.mjs",
+    "test:spec-advisory": "node --import ./scripts/test-env.mjs --import tsx --test --test-concurrency=1 src/renderer/product-spec.test.mjs src/renderer/agent-activity.test.mjs src/renderer/queue-actions.test.mjs src/renderer/turn-review.test.mjs",
     "test:settings": "node --import ./scripts/test-env.mjs --import tsx --test --test-concurrency=1 src/main/settings-store.test.mjs src/main/commit-message.test.mjs src/renderer/settings/git-preference-save.test.mjs",
     "test:packaging": "node scripts/build-daemon.mjs && node --import tsx --test src/main/packaging.test.mjs scripts/verify-update-metadata.test.mjs",
     "test:session-transport": "node scripts/build-daemon.mjs && node --import ./scripts/test-env.mjs --import tsx --test src/main/desktop-service-client.test.mjs src/main/session-transport.test.mjs src/main/daemon.e2e.test.mjs src/main/remote-e2ee.test.mjs",
