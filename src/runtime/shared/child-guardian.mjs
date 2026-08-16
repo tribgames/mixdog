@@ -153,6 +153,12 @@ export function _sharedBrokerPidForTest() {
   return sharedBroker?.pid || null;
 }
 
+// Test-only: label every still-registered target so a spec that expects the
+// broker to wind down can DIAGNOSE which owner is legitimately keeping it up.
+export function _brokerTargetsForTest() {
+  return [...brokerTargets.values()].map((t) => ({ id: t.id, childPid: t.childPid, label: t.label || null }));
+}
+
 function sendBrokerMessage(message) {
   try {
     if (!sharedBroker?.stdin?.writable) return false;
@@ -257,6 +263,7 @@ export function startChildGuardian({
   const target = {
     type: 'add',
     id,
+    label: String(label || 'child'),
     parentPid: parent,
     childPid: child,
     childGroupPid: positiveInt(childGroupPid) || child,

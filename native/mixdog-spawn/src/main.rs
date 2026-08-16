@@ -28,6 +28,22 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const DEFAULT_OUTPUT_LIMIT: usize = 100 * 1024 * 1024;
 const TAIL_LIMIT: usize = 64 * 1024;
 
+#[cfg(unix)]
+fn signal_name(signal: i32) -> String {
+    match signal {
+        1 => "SIGHUP",
+        2 => "SIGINT",
+        3 => "SIGQUIT",
+        6 => "SIGABRT",
+        9 => "SIGKILL",
+        13 => "SIGPIPE",
+        14 => "SIGALRM",
+        15 => "SIGTERM",
+        _ => return format!("SIG{signal}"),
+    }
+    .to_string()
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -585,11 +601,18 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
         managed.done.store(true, Ordering::Release);
     }
     let root_code = status.as_ref().ok().and_then(|exit| exit.code());
+    #[cfg(unix)]
+    let root_signal = status.as_ref().ok().and_then(|exit| {
+        use std::os::unix::process::ExitStatusExt;
+        exit.signal().map(signal_name)
+    });
+    #[cfg(not(unix))]
+    let root_signal: Option<String> = None;
     emit(&json!({
         "id": id,
         "event": "root_exit",
         "code": root_code,
-        "signal": Option::<String>::None,
+        "signal": root_signal,
     }));
     for _ in 0..200 {
         if out_done.load(Ordering::Acquire) && err_done.load(Ordering::Acquire) {
@@ -612,17 +635,36 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
         match status {
             Ok(exit) => {
                 state.exit_code = exit.code();
+                // Unix: a signal death has code()==None; surface the signal
+                // name so the JS contract (killed => result.signal) holds.
+                #[cfg(unix)]
+                {
+                    use std::os::unix::process::ExitStatusExt;
+                    if state.signal.is_none() {
+                        if let Some(signal) = exit.signal() {
+                            state.signal = Some(signal_name(signal));
+                        }
+                    }
+                }
                 if state.timed_out {
                     state.status = "failed".to_string();
                     state.exit_code = Some(124);
                 } else if state.status == "cancelled" {
                     state.exit_code = Some(137);
+                    #[cfg(unix)]
+                    if state.signal.is_none() {
+                        state.signal = Some("SIGKILL".to_string());
+                    }
                 } else if state.error.is_some() {
                     state.status = "failed".to_string();
                     state.exit_code = Some(137);
                 } else if state.killed {
                     state.status = "cancelled".to_string();
                     state.exit_code = Some(137);
+                    #[cfg(unix)]
+                    if state.signal.is_none() {
+                        state.signal = Some("SIGKILL".to_string());
+                    }
                 } else {
                     state.status = if exit.success() {
                         "completed".to_string()
