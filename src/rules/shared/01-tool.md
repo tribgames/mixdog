@@ -61,9 +61,10 @@
   facet across tools, mutate merely to widen retrieval, reserve known work,
   or cap fanout. Applying one analysis to many targets is a single
   parameterized call over all targets, not one call per target.
-  Enumerating sibling directories or same-kind files is one wildcard call
-  (`glob`, or `read` with a glob for content sampling), never a
-  directory-by-directory `list` walk or one `read` per file.
+  Enumerating sibling directories or same-kind files is one wildcard call —
+  `glob`, `grep` in files_with_matches mode with a `glob` filter, or `read`
+  with a glob for content sampling — never a directory-by-directory `list`
+  walk or one `read` per file.
 - Blocking checks cover only essential integrity, security, compatibility,
   and buildability invariants. Treat mutable behavior, UX, exact text,
   snapshots, and implementation shape as advisory specifications; update them
