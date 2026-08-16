@@ -901,8 +901,10 @@ test('openai-compat/xai Responses: freeform apply_patch downgrades to function s
     assert.equal(patch.format, undefined);
     assert.equal(patch.parameters?.properties?.patch?.type, 'string');
     assert.deepEqual(patch.parameters?.required, ['patch']);
-    assert.deepEqual(Object.keys(patch.parameters?.properties || {}), ['patch', 'root']);
-    for (const requiredText of ['Edit files with this V4A patch', 'Begin Patch', 'Add File', 'Delete File', 'Update File', 'End Patch']) {
+    // `root` was intentionally dropped with the out-of-session Root: line
+    // (a2ae023e); the JSON fallback carries the single `patch` argument.
+    assert.deepEqual(Object.keys(patch.parameters?.properties || {}), ['patch']);
+    for (const requiredText of ['edit files', 'Begin Patch', 'Add File', 'Delete File', 'Update File', 'End Patch']) {
         assert.match(patch.description, new RegExp(requiredText, 'i'));
     }
     assert.doesNotMatch(JSON.stringify(patch), /exact current context|roll ?back/i);
