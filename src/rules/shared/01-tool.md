@@ -48,6 +48,11 @@
   best-routed call per facet. Cost is counted in rounds, not calls: a batch
   of N calls in one message is one round, so a call-count saving never
   justifies folding work into a single worse-routed call.
+  The opening round is a one-shot sweep: every facet knowable from the
+  request alone — enumeration, content probes, file samples — launches in
+  that single first batch. Each later round exists only for facets the
+  previous round's results created; a facet no result produced belonged in
+  the round before it.
   Serialize two calls only when the later call's
   inputs are actually produced by the earlier result; the mere possibility
   that a result could reshape later work never defers an independent call.
