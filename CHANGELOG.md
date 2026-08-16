@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.132 - 2026-08-16
+
 - Tool execution now exposes complete shell exit status, adds a dedicated Git
   surface, strengthens atomic patch creation and diagnostics, and improves
   search, list, code-graph, and native graph integrity under concurrent load.
