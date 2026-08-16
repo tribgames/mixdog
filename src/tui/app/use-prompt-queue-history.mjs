@@ -123,7 +123,7 @@ export function usePromptQueueHistory({
       }
       return true;
     };
-    // Match Claude Code's local queue: paint the published projection before
+    // Paint the published local-queue projection before
     // asking the daemon to retire it, then reconcile attachments/text on ack.
     let restored;
     try {

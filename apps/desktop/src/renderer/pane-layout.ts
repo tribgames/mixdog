@@ -16,7 +16,7 @@ export interface PaneLeaf {
   readonly tabs: readonly WorkspaceSelection[];
   /** navigationKey of the active tab; always one of `tabs`' keys. */
   readonly activeKey: string;
-  /** At most one unpinned preview editor per group, matching VS Code. */
+  /** At most one unpinned preview editor per group. */
   readonly previewKey?: string;
 }
 
@@ -193,6 +193,62 @@ export function filterPaneLayoutSessions(
     };
   };
   return filter(root);
+}
+
+/** Retire the old read-only agent-session tab identity. Agent activity now
+ * opens the same normal session surface as the Sessions list. Prefer an
+ * already-open normal session, convert agent-only tabs, and keep one owner. */
+export function normalizePaneLayoutSessions(root: PaneNode): PaneNode | null {
+  const normalIds = new Set(
+    paneLeaves(root).flatMap((leaf) =>
+      leaf.tabs.flatMap((tab) => tab.kind === "session" ? [tab.id] : [])),
+  );
+  const seen = new Set<string>();
+  const normalize = (node: PaneNode): PaneNode | null => {
+    if (node.type === "split") {
+      const first = normalize(node.first);
+      const second = normalize(node.second);
+      if (!first) return second;
+      if (!second) return first;
+      return first === node.first && second === node.second
+        ? node
+        : { ...node, first, second };
+    }
+    const tabs: WorkspaceSelection[] = [];
+    for (const tab of node.tabs) {
+      if (tab.kind === "agent-session" && normalIds.has(tab.id)) continue;
+      const next: WorkspaceSelection = tab.kind === "agent-session"
+        ? { kind: "session", id: tab.id, title: tab.title }
+        : tab;
+      if (next.kind === "session") {
+        if (seen.has(next.id)) continue;
+        seen.add(next.id);
+      }
+      tabs.push(next);
+    }
+    if (tabs.length === 0) return null;
+    const keys = new Set(tabs.map((tab) => navigationKey(tab)));
+    const activeSessionId = node.activeKey.startsWith("agent-session:")
+      ? node.activeKey.slice("agent-session:".length)
+      : "";
+    const migratedActiveKey = activeSessionId ? `session:${activeSessionId}` : node.activeKey;
+    const activeKey = keys.has(migratedActiveKey)
+      ? migratedActiveKey
+      : navigationKey(tabs[0]);
+    const previewSessionId = node.previewKey?.startsWith("agent-session:")
+      ? node.previewKey.slice("agent-session:".length)
+      : "";
+    const migratedPreviewKey = previewSessionId ? `session:${previewSessionId}` : node.previewKey;
+    return {
+      ...node,
+      tabs,
+      activeKey,
+      ...(migratedPreviewKey && keys.has(migratedPreviewKey)
+        ? { previewKey: migratedPreviewKey }
+        : { previewKey: undefined }),
+    };
+  };
+  return normalize(root);
 }
 
 export function findPaneLeaf(node: PaneNode, leafId: string): PaneLeaf | null {
@@ -437,8 +493,7 @@ export function closePaneLeaf(root: PaneNode, leafId: string): PaneNode | null {
 
 /** Merge an entire source editor group into a target group. The source
  *  collapses out of the tree and its active tab remains active in the merged
- *  target, matching VS Code's group-header drop. `insertIndex` splices the
- *  incoming tabs at that strip position (VS Code mergeGroup { index }). */
+ *  target. `insertIndex` splices incoming tabs at that strip position. */
 export function mergePaneLeaf(
   root: PaneNode,
   sourceLeafId: string,
@@ -874,7 +929,11 @@ function parsedSelection(value: unknown): WorkspaceSelection | null {
         : null;
     case "session":
       return typeof record.id === "string" && record.id
-        ? { kind: "session", id: record.id }
+        ? {
+          kind: "session",
+          id: record.id,
+          ...(typeof record.title === "string" && record.title ? { title: record.title } : {}),
+        }
         : null;
     case "agent-session":
       return typeof record.id === "string" && record.id

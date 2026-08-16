@@ -234,11 +234,6 @@ async function readAllCapabilitySettings(
     })(),
     api.getSnapshot?.().then((snapshot) => publish('snapshot', snapshot || null))
       .catch(() => publish('snapshot', previous?.data.snapshot || null)) || Promise.resolve(),
-    api.invokeCapability?.({
-      capability: 'memoryControl',
-      args: [{ action: 'core', op: 'list', project_id: '*' }, { silent: true }],
-    }).then((result) => publish('coreMemory', result.value))
-      .catch(() => publish('coreMemory', previous?.data.coreMemory)) || Promise.resolve(),
   ]);
   // One bounded retry for whatever failed while the engine was still coming up,
   // so a transient boot error never leaves a section permanently "empty".

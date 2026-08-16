@@ -1,10 +1,10 @@
 // THE workbench keymap. One table, resolved in the CAPTURE phase, so every
 // surface (xterm, Monaco, composer, Studio prompt) obeys the same bindings
-// instead of swallowing them (VS Code terminal.integrated.commandsToSkipShell;
+// instead of swallowing them;
 // user: 단축키는 우리 걸로 다 인터셉트해서 먼저 처리). Only an open modal
 // outranks the table. User-tuned bindings:
 // mod+N new task · ctrl+Tab MRU switcher · ctrl+PageUp/PageDown cycle ·
-// mod+Left/Right tab cycle · alt+arrows pane focus ·
+// mod+Left/Right tab traversal, crossing pane boundaries in visual order ·
 // mod+P Quick Open · shift+mod+P Command Palette ·
 // mod+, settings · mod+B left sidebar · alt+mod+B right utility dock ·
 // mod+J panel · ctrl+` and mod+T toggle the terminal panel ·
@@ -26,10 +26,10 @@ export interface WorkspaceShortcutActions {
   openQuickAccess: () => void;
   openCommandPalette: () => void;
   openFindInFiles: () => void;
-  /** Ctrl+Tab: open/advance the MRU tab switcher (VS Code grammar). */
+  /** Ctrl+Tab: open or advance the MRU tab switcher. */
   openTabSwitcher: (offset: number) => void;
-  /** Alt+arrows: move focus through pane groups along the requested axis. */
-  focusSiblingPane: (offset: number, axis: "horizontal" | "vertical") => void;
+  /** Move focus to the previous/next pane in visual row-major order. */
+  focusSiblingPane: (offset: number) => void;
   navigateBack: () => void;
   navigateForward: () => void;
 }
@@ -41,12 +41,16 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
   actionsRef.current = actions;
 
   useEffect(() => {
-    const cycleTab = (offset: number) => {
+    const cycleTab = (offset: number, crossPaneBoundary = false) => {
       const { tabs, activeTabKey, navigateTab } = actionsRef.current;
-      if (tabs.length < 2) return;
       const index = tabs.findIndex((tab) => tab.key === activeTabKey);
-      const next = tabs[(index + offset + tabs.length) % tabs.length];
+      if (index < 0) return;
+      const nextIndex = index + offset;
+      const next = crossPaneBoundary
+        ? tabs[nextIndex]
+        : tabs[(nextIndex + tabs.length) % tabs.length];
       if (next) navigateTab(next);
+      else if (crossPaneBoundary) actionsRef.current.focusSiblingPane(offset);
     };
     const closeActiveTab = () => {
       // The workspace handles keyboard and pointer close through one path.
@@ -55,24 +59,12 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
     /** The keymap itself: returns the command for an event, or null. */
     const resolve = (event: globalThis.KeyboardEvent) => {
       const mod = event.ctrlKey || event.metaKey;
-      // Alt+arrows move PANE focus (user: PANE 이동은 알트, 라벨 이동은
-      // 컨트롤); horizontal and vertical traversal keep independent orders.
-      if (event.altKey && !mod && !event.shiftKey
-        && (event.key === "ArrowLeft" || event.key === "ArrowRight"
-          || event.key === "ArrowUp" || event.key === "ArrowDown")) {
-        const horizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
-        const offset = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
-        return () => actionsRef.current.focusSiblingPane(
-          offset,
-          horizontal ? "horizontal" : "vertical",
-        );
-      }
       if (!mod) return null;
       const key = event.key.toLowerCase();
       const plain = !event.shiftKey && !event.altKey;
       if (plain && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
         const offset = event.key === "ArrowLeft" ? -1 : 1;
-        return () => cycleTab(offset);
+        return () => cycleTab(offset, true);
       }
       if (plain && (event.key === "PageUp" || event.key === "PageDown")) {
         const offset = event.key === "PageDown" ? 1 : -1;

@@ -6,7 +6,7 @@ import {
   _resetNativeSearchClientForTest,
 } from './native-search-client.mjs';
 
-test('native search timeout recovery recycles server first and shard on a 30s recurrence', () => {
+test('native search keeps the server on a first timeout and marks the shard on a 30s recurrence', () => {
   _resetNativeSearchClientForTest();
   const startedAt = 1_000_000;
   const firstServer = {};

@@ -12,6 +12,13 @@ test('agent pool lists living idle workers and drops dead ones', () => {
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = root;
   try {
+    mkdirSync(join(root, 'sessions'));
+    writeFileSync(join(root, 'sessions', 'child-a.json'), JSON.stringify({
+      id: 'child-a',
+      title: 'Review dependency update',
+      ownerSessionId: 'lead-a',
+      agent: 'reviewer',
+    }));
     writeFileSync(join(root, 'agent-workers.json'), JSON.stringify({
       workers: {
         a: {
@@ -43,6 +50,7 @@ test('agent pool lists living idle workers and drops dead ones', () => {
     const rows = listStoredAgentWorkers();
     assert.deepEqual(rows.map((row) => row.sessionId).sort(), ['child-a', 'child-b']);
     assert.equal(rows.find((row) => row.sessionId === 'child-a')?.status, 'idle');
+    assert.equal(rows.find((row) => row.sessionId === 'child-a')?.title, 'Review dependency update');
   } finally {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;
@@ -177,6 +185,59 @@ test('Lead lifecycle uses only lead-workers.json and removes the idle lease on r
     stored = JSON.parse(readFileSync(join(root, 'lead-workers.json'), 'utf8'));
     assert.deepEqual(stored.workers, {});
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Lead boot recovery settles a running row whose runtime died, and keeps a live one', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-lead-recover-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    mkdirSync(join(root, 'sessions'));
+    const now = Date.now();
+    writeFileSync(join(root, 'lead-workers.json'), JSON.stringify({
+      workers: {
+        crashed: {
+          sessionId: 'crashed',
+          agent: 'lead',
+          status: 'running',
+          stage: 'running',
+          // Inside the freshness window: only the dead runtime proves it stopped.
+          runtimePid: 0x7fffffff,
+          turnStartedAt: new Date(now - 5_000).toISOString(),
+          updatedAt: new Date(now - 5_000).toISOString(),
+          reapAt: new Date(now + 600_000).toISOString(),
+        },
+        live: {
+          sessionId: 'live',
+          agent: 'lead',
+          status: 'running',
+          stage: 'running',
+          runtimePid: process.pid,
+          turnStartedAt: new Date(now - 5_000).toISOString(),
+          updatedAt: new Date(now - 5_000).toISOString(),
+          reapAt: new Date(now + 600_000).toISOString(),
+        },
+      },
+    }));
+    createLeadWorkerIndex({
+      dataDir: root,
+      cfgMod: { loadConfig: () => ({}) },
+      workerRowFromSession: (session, tag, extra) => ({ tag, sessionId: session.id, ...extra }),
+    });
+    const stored = JSON.parse(readFileSync(join(root, 'lead-workers.json'), 'utf8'));
+    assert.equal(stored.workers.crashed.status, 'idle');
+    assert.equal(stored.workers.crashed.stage, 'idle');
+    assert.equal(stored.workers.crashed.turnStartedAt, null);
+    assert.equal(stored.workers.live.status, 'running');
+
+    const pool = listStoredAgentWorkers();
+    assert.equal(pool.find((row) => row.sessionId === 'crashed')?.status, 'idle');
+    assert.equal(pool.find((row) => row.sessionId === 'live')?.status, 'running');
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
     rmSync(root, { recursive: true, force: true });
   }
 });

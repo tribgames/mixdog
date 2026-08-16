@@ -532,7 +532,6 @@ const _actionHandlers = createMemoryActionHandlers({
   startCycle1Run: _startCycle1Run,
   finalizeCycle2Run: _finalizeCycle2Run,
   finalizeCycle3Run: _finalizeCycle3Run,
-  requestCycle3Review: _cycleScheduler.requestCycle3Review,
   refreshCoreMemoryFile: refreshCoreMemorySnapshot,
   getSchedulerCycle1InFlight: () => _cycleScheduler.getCycle1InFlight(),
   getCycle2CallLlm,

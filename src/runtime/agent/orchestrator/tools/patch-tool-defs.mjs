@@ -29,7 +29,7 @@ eof_line: "*** End of File" LF
 // Batching stays a rules-level policy: every new edit goes in one patch, with
 // one file block per target.
 const APPLY_PATCH_FREEFORM_DESCRIPTION =
-  'The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON. Use one file operation block per target path; put multiple @@ hunks for that path in the same Update File block. Use exact current lines already in context. Add File atomically creates the file and missing parent directories, but fails without changing anything if the target already exists; call it directly without a prior read, list, or mkdir.';
+  'The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON. Use one file operation block per target path; put multiple @@ hunks for that path in the same Update File block. Use exact current lines already in context. Add File atomically creates the file and missing parent directories, but fails without changing anything if the target already exists; call it directly without a prior read, list, or mkdir. A multi-file patch commits valid files and reports stale files; retry only rejected files.';
 
 // JSON-schema fallback providers get the Codex patch instructions inline:
 // without a grammar the model has
@@ -47,7 +47,8 @@ const APPLY_PATCH_JSON_DESCRIPTION = [
   'Add File atomically creates the file and missing parent directories, but fails without changing anything if the target already exists; call it directly without a prior read, list, or mkdir.',
   'Update hunks start with @@ or @@ <class/function locator>. Every hunk line starts with space, -, or +. Use exact current lines, normally 3 unchanged lines around each change; use the @@ locator when more uniqueness is needed.',
   'Prefix every Add File content line with +. End with *** End Patch. Never send compacted-history markers.',
-  'Use exact current lines already in context — never re-open the file to build context or verify a successful patch.',
+  'Use exact current lines already in context. After a successful patch, including one with a placement warning, reconstruct the new state from the applied hunk and result instead of re-opening the file. After a failed patch, read only the missing context once, then retry with a unique class/function @@ anchor.',
+  'A multi-file patch commits valid files and leaves rejected files unchanged. Retry only rejected files; never resend files reported as committed.',
 ].join('\n');
 
 export const PATCH_TOOL_DEFS = [

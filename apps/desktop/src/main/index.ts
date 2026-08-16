@@ -1,10 +1,10 @@
 import { existsSync, statSync } from 'node:fs';
 import * as nodeModule from 'node:module';
-import { constants as osConstants, setPriority } from 'node:os';
+import { constants as osConstants, freemem, setPriority, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, powerMonitor, powerSaveBlocker, screen, session, shell } from 'electron';
+import { app, BrowserWindow, crashReporter, dialog, ipcMain, nativeImage, powerMonitor, powerSaveBlocker, screen, session, shell } from 'electron';
 
 import type { DesktopService } from './desktop-service-contract';
 import { DesktopServiceClient } from './desktop-service-client';
@@ -77,6 +77,24 @@ if (process.env.MIXDOG_DESKTOP_USER_DATA) {
 } else if (!app.isPackaged) {
   app.setName(PACKAGED_USER_DATA_DIRECTORY);
   app.setPath('userData', join(app.getPath('appData'), PACKAGED_USER_DATA_DIRECTORY));
+}
+
+let crashReporterStatus = process.platform === 'win32' ? 'start-failed' : 'not-required';
+let crashReporterErrorName = '';
+if (process.platform === 'win32') {
+  try {
+    // Keep reports local: the handler must exist before any renderer starts,
+    // but Mixdog never uploads a user's dump without an explicit future policy.
+    crashReporter.start({
+      uploadToServer: false,
+      productName: 'Mixdog',
+      globalExtra: { bootId: desktopBootId },
+    });
+    crashReporterStatus = 'local';
+  } catch (error) {
+    crashReporterErrorName = error instanceof Error ? error.name : typeof error;
+    console.warn('Mixdog desktop crash handler failed to start:', error);
+  }
 }
 
 if (app.isPackaged) {
@@ -366,6 +384,18 @@ function currentProcessMemory() {
   } catch {
     return [];
   }
+}
+
+function currentSystemMemory() {
+  const freeBytes = freemem();
+  const totalBytes = totalmem();
+  return {
+    freeKb: Math.round(freeBytes / 1024),
+    totalKb: Math.round(totalBytes / 1024),
+    pressurePercent: totalBytes > 0
+      ? Math.round((1 - freeBytes / totalBytes) * 1_000) / 10
+      : 0,
+  };
 }
 
 const DIAGNOSTICS_EVENT_LOOP_INTERVAL_MS = 1_000;
@@ -751,6 +781,8 @@ async function createWindow(): Promise<void> {
       exitCode: details.exitCode,
       recovery: recovery.action,
       processes: currentProcessMemory(),
+      systemMemory: currentSystemMemory(),
+      crashReporterStatus,
     });
     if (recovery.action === 'reload') {
       setTimeout(reloadRenderer, 250);
@@ -949,6 +981,8 @@ if (!app.requestSingleInstanceLock()) {
       nodeVersion: process.versions.node,
       sessionProcess: 'daemon',
       gpuRendering: softwareRenderingThisLaunch ? 'software-fallback' : 'hardware',
+      crashReporterStatus,
+      ...(crashReporterErrorName ? { crashReporterErrorName } : {}),
       ...(gpuFallbackMarker
         ? { gpuFallbackCrashes: gpuFallbackMarker.crashesInWindow }
         : {}),
@@ -974,7 +1008,10 @@ if (!app.requestSingleInstanceLock()) {
       void host.invokeDesktopOperation('remoteAccessResume', []).catch(() => {});
     });
     diagnosticsMemoryTimer = setInterval(() => {
-      diagnostics?.write('process-memory', { processes: currentProcessMemory() });
+      diagnostics?.write('process-memory', {
+        processes: currentProcessMemory(),
+        systemMemory: currentSystemMemory(),
+      });
     }, 5 * 60 * 1000);
     diagnosticsMemoryTimer.unref();
     app.on('child-process-gone', (_event, details) => {

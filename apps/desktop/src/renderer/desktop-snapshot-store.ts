@@ -132,7 +132,9 @@ function shellJobsEqual(left: Snapshot, right: Snapshot): boolean {
   const next = right.shellJobs;
   if (previous === next) return true;
   return Number(previous?.count || 0) === Number(next?.count || 0)
-    && String(previous?.elapsedLabel || "") === String(next?.elapsedLabel || "");
+    && String(previous?.elapsedLabel || "") === String(next?.elapsedLabel || "")
+    && (previous?.jobs || []).map((job) => String(job.taskId || job.task_id || "")).join("\0")
+      === (next?.jobs || []).map((job) => String(job.taskId || job.task_id || "")).join("\0");
 }
 
 // App-owned navigation/chrome excludes transcript text and live counters. A

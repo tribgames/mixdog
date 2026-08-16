@@ -2,7 +2,7 @@
 // resolution, route-effort refresh, and createCurrentSession (provider
 // session construction with MCP wiring and reset handling). Shared mutable
 // runtime state flows through the rt bag.
-import { ensureProviderEnabled, normalizeCompactionConfig } from './config-helpers.mjs';
+import { ensureProviderEnabled, modelMetaLooksResolved, normalizeCompactionConfig } from './config-helpers.mjs';
 import { clean, hasOwn } from './session-text.mjs';
 import { coerceEffortFor, deferredSurfaceModeForLead, effortItemsFor, toolSpecForMode } from './effort.mjs';
 import { fastCapableFor } from './model-capabilities.mjs';
@@ -20,6 +20,31 @@ import { createPrewarmSchedulers } from './prewarm.mjs';
 import { hasActiveAutomation } from '../standalone/channel-admin.mjs';
 import { createRemoteTranscript } from './remote-transcript.mjs';
 import { runAbortable, throwIfAborted } from '../runtime/shared/abort-race.mjs';
+
+export function resolveRouteEffortState(targetRoute = {}, modelMeta = null) {
+  const requested = hasOwn(targetRoute, 'effort')
+    ? targetRoute.effort
+    : (targetRoute.preset?.effort || null);
+  const metadataResolved = modelMetaLooksResolved(modelMeta);
+  // A cold runtime initially has only `{ id, provider }`. Treating that
+  // placeholder as authoritative erased a persisted effort and disabled a
+  // persisted Fast route before the provider catalog finished warming.
+  // Preserve the already-validated route until real capability metadata is
+  // available; the provider still validates the exact variant before send.
+  const effectiveEffort = metadataResolved
+    ? coerceEffortFor(targetRoute.provider, modelMeta, requested)
+    : (requested || null);
+  const fastCapable = metadataResolved
+    ? fastCapableFor(
+      targetRoute.provider,
+      modelMeta,
+      effectiveEffort,
+      targetRoute.modelParameters,
+    )
+    : targetRoute.fast === true;
+  return { effectiveEffort, fastCapable, metadataResolved };
+}
+
 export function createSessionLifecycle({
   rt,
   collectProviderModels,
@@ -93,16 +118,7 @@ export function createSessionLifecycle({
     // A rapid second resume/model change can replace the route while provider
     // metadata is loading. Never let the older completion overwrite it.
     if (expectedRoute && rt.route !== expectedRoute) return null;
-    const requested = hasOwn(targetRoute, 'effort')
-      ? targetRoute.effort
-      : (targetRoute.preset?.effort || null);
-    const effectiveEffort = coerceEffortFor(targetRoute.provider, modelMeta, requested);
-    const fastCapable = fastCapableFor(
-      targetRoute.provider,
-      modelMeta,
-      effectiveEffort,
-      targetRoute.modelParameters,
-    );
+    const { effectiveEffort, fastCapable } = resolveRouteEffortState(targetRoute, modelMeta);
     const contextValue = clean(targetRoute.modelParameters?.context);
     const contextOption = (modelMeta?.modelParameterOptions || [])
       .find((option) => option?.id === 'context')?.options

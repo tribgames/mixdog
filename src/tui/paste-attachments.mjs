@@ -71,23 +71,16 @@ export function imageReferenceIds(input) {
 }
 
 // --- Large pasted-text folding ------------------------------------------
-// A big paste is replaced in the prompt by a compact token so the editor does
-// not choke on thousands of raw characters; the original text is stored in an
-// App-level map (mirroring pastedImages) and expanded back on submit.
-const PASTE_TOKEN_MIN_LINES = 3;
-const PASTE_TOKEN_MIN_CHARS = 200;
-
-export function shouldFoldPastedText(text) {
-  const value = String(text ?? '');
-  if (!value) return false;
-  const lineCount = value.split('\n').length;
-  return lineCount >= PASTE_TOKEN_MIN_LINES || value.length > PASTE_TOKEN_MIN_CHARS;
-}
-
-export function formatPastedTextRef(id, text) {
-  const lines = String(text ?? '').split('\n').length;
-  return `[Pasted text #${id} +${lines} lines]`;
-}
+// The thresholds and the fold/label helpers live in paste-text-policy.mjs so
+// the desktop composer (which cannot import this node-only module) shares one
+// definition instead of a copied constant pair.
+export {
+  formatPastedTextRef,
+  pastedTextLineCount,
+  PASTE_TOKEN_MIN_CHARS,
+  PASTE_TOKEN_MIN_LINES,
+  shouldFoldPastedText,
+} from './paste-text-policy.mjs';
 
 export function pastedTextReferenceIds(input) {
   const re = /\[Pasted text #(\d+) \+\d+ lines\]/g;

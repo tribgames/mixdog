@@ -182,16 +182,19 @@ function WorkflowEditorDialog({ pack, deletable, busy, error = '', onCancel, onS
           body,
         });
       }}>
-        <label className="schedules-field">{t('Name')}
+        <label className="schedules-field"><span>{t('Name')}</span>
+          <small>{t('Shown in workflow lists and the composer.')}</small>
           <input name="workflow-name" defaultValue={String(pack?.name || '')}
             placeholder={t("Workflow name")} required autoFocus={!editing} disabled={busy} maxLength={64} />
         </label>
-        <label className="schedules-field" data-i18n-skip>When to use
-          <input name="workflow-description" defaultValue={String(pack?.description || '')}
-            placeholder="When Mixdog should use this" disabled={busy} maxLength={160} />
+        <label className="schedules-field"><span>{t('When to use')}</span>
+          <small>{t('When Mixdog should use this workflow.')}</small>
+          <input name="workflow-description" data-i18n-skip defaultValue={String(pack?.description || '')}
+            placeholder={t('When Mixdog should use this')} disabled={busy} maxLength={160} />
         </label>
         <div className="schedules-field">
           <span>{t('Agents')}</span>
+          <small>{t('Whether this workflow can delegate to agents.')}</small>
           <div className="workflows-agent-mode-field">
             <OpenSelect ariaLabel={t('Agents')} value={delegates ? 'allow' : 'none'} disabled={busy}
               options={[
@@ -199,12 +202,10 @@ function WorkflowEditorDialog({ pack, deletable, busy, error = '', onCancel, onS
                 { value: 'none', label: t('Use no agents') },
               ]}
               onChange={(value) => setDelegates(value === 'allow')} />
-            <p className="workflows-agent-empty">{delegates
-              ? t('Every defined agent is available to this workflow.')
-              : t('No agents — this workflow delegates to none.')}</p>
           </div>
         </div>
-        <label className="schedules-field workflows-md-field">WORKFLOW.md
+        <label className="schedules-field workflows-md-field"><span data-i18n-skip>WORKFLOW.md</span>
+          <small>{t('Instructions that define how this workflow works.')}</small>
           <textarea name="workflow-body" defaultValue={String(pack?.body || (editing ? '' : NEW_WORKFLOW_BODY))}
             required spellCheck={false} disabled={busy} aria-label="WORKFLOW.md body" />
         </label>
@@ -276,22 +277,26 @@ function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCance
           body,
         });
       }}>
-        <label className="schedules-field">{t('Name')}
+        <label className="schedules-field"><span>{t('Name')}</span>
+          <small>{t('Shown in agent lists and delegation menus.')}</small>
           <input name="agent-name" defaultValue={String(agent?.name || '')}
             placeholder={t("Agent name")} required autoFocus={!editing} disabled={busy} maxLength={64} />
         </label>
-        <label className="schedules-field" data-i18n-skip>When to use
-          <input name="agent-description" defaultValue={String(agent?.description || '')}
-            placeholder="When Mixdog should use this" disabled={busy} maxLength={160} />
+        <label className="schedules-field"><span>{t('When to use')}</span>
+          <small>{t('When Mixdog should delegate to this agent.')}</small>
+          <input name="agent-description" data-i18n-skip defaultValue={String(agent?.description || '')}
+            placeholder={t('When Mixdog should use this')} disabled={busy} maxLength={160} />
         </label>
         <div className="schedules-field">
           <span>{t('Model')}</span>
+          <small>{t('Model used when this agent runs.')}</small>
           <div className="workflows-dialog-route">
             <RouteControls label={t("Agent model")} route={route} models={models} disabled={busy}
               onChange={(selection) => setRoute(selection as unknown as RecordValue)} />
           </div>
         </div>
-        <label className="schedules-field workflows-md-field">AGENT.md
+        <label className="schedules-field workflows-md-field"><span data-i18n-skip>AGENT.md</span>
+          <small>{t('Instructions that define how this agent works.')}</small>
           <textarea name="agent-body" defaultValue={String(agent?.body || (editing ? '' : NEW_AGENT_BODY))}
             required spellCheck={false} disabled={busy} aria-label="AGENT.md body" />
         </label>
@@ -346,15 +351,18 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
         onSave(route);
       }}>
         {target.readOnlyDefinition && <>
-          <label className="schedules-field">{t('Name')}
+          <label className="schedules-field"><span>{t('Name')}</span>
+            <small>{t('Built-in name. This cannot be changed.')}</small>
             <input value={t(target.label)} readOnly disabled tabIndex={-1} />
           </label>
-          <label className="schedules-field" title={t(target.description)}>{t('When to use')}
+          <label className="schedules-field" title={t(target.description)}><span>{t('When to use')}</span>
+            <small>{t('When Mixdog uses this built-in agent. This cannot be changed.')}</small>
             <input value={t(target.description)} readOnly disabled tabIndex={-1} />
           </label>
         </>}
         <div className="schedules-field">
           <span>{t('Model')}</span>
+          <small>{t('Model used when this built-in agent runs.')}</small>
           <div className="workflows-dialog-route">
             <RouteControls label={`${target.label} model`} route={route} models={models} disabled={busy}
               onChange={(selection) => setRoute(selection as unknown as RecordValue)} />

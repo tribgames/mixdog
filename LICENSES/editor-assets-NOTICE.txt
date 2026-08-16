@@ -1,0 +1,11 @@
+Editor compatibility data and icon tables include material derived from:
+
+Visual Studio Code
+Copyright (c) 2015 - present Microsoft Corporation
+https://github.com/microsoft/vscode
+Licensed under the MIT License. See LICENSES/MIT.txt.
+
+Seti UI
+Copyright (c) 2014 Jesse Weed
+https://github.com/jesseweed/seti-ui
+Licensed under the MIT License. See LICENSES/MIT.txt.

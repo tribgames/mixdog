@@ -92,7 +92,7 @@ def validate_profile_document(document: Any) -> dict[str, Any]:
     if not isinstance(profiles, dict) or not profiles:
         raise RouteProfileError("routing profile document needs a non-empty profiles object")
 
-    expected_roles = set(PROFILE_ROLES)
+    known_roles = set(PROFILE_ROLES)
     for profile_name, profile in profiles.items():
         if not _nonempty_string(profile_name):
             raise RouteProfileError("routing profile names must be non-empty strings")
@@ -108,15 +108,20 @@ def validate_profile_document(document: Any) -> dict[str, Any]:
         if "leadFallback" in profile:
             _validate_route(profile_name, "leadFallback", profile["leadFallback"])
         routes = profile["routes"]
-        if not isinstance(routes, dict) or set(routes) != expected_roles:
-            missing = sorted(expected_roles - set(routes)) if isinstance(routes, dict) else []
-            extra = sorted(set(routes) - expected_roles) if isinstance(routes, dict) else []
+        if (
+            not isinstance(routes, dict)
+            or "lead" not in routes
+            or not set(routes) <= known_roles
+        ):
+            missing = ["lead"] if isinstance(routes, dict) and "lead" not in routes else []
+            extra = sorted(set(routes) - known_roles) if isinstance(routes, dict) else []
             raise RouteProfileError(
-                f"profile {profile_name!r} must define exactly {list(PROFILE_ROLES)!r}; "
+                f"profile {profile_name!r} must define lead and only known roles; "
                 f"missing={missing!r}, extra={extra!r}"
             )
         for role in PROFILE_ROLES:
-            _validate_route(profile_name, role, routes[role])
+            if role in routes:
+                _validate_route(profile_name, role, routes[role])
     return document
 
 
@@ -178,6 +183,7 @@ def build_benchmark_config(
             "agents": {
                 config_key: copy.deepcopy(routes[role])
                 for role, config_key in AGENT_CONFIG_KEYS.items()
+                if role in routes
             },
             "modelSettings": {
                 f"{lead_route['provider']}/{lead_route['model']}": {
@@ -210,7 +216,7 @@ def reject_profile_conflicts(
 def merge_route_profile(
     host_config: Any, profile: dict[str, Any]
 ) -> dict[str, Any]:
-    """Return a copied config with only the six benchmark routes replaced."""
+    """Return a copied config with only the declared benchmark routes."""
     if not isinstance(host_config, dict):
         raise RouteProfileError("host mixdog config must be an object")
     agent = host_config.get("agent")
@@ -282,7 +288,10 @@ def merge_route_profile(
     }
 
     for role, config_key in AGENT_CONFIG_KEYS.items():
-        agent_routes[config_key] = copy.deepcopy(routes[role])
+        if role in routes:
+            agent_routes[config_key] = copy.deepcopy(routes[role])
+        else:
+            agent_routes.pop(config_key, None)
     return merged
 
 
@@ -290,6 +299,8 @@ def format_resolved_routes(profile_name: str, profile: dict[str, Any]) -> str:
     """Produce stable, audit-friendly resolved-route logging."""
     parts = []
     for role in PROFILE_ROLES:
+        if role not in profile["routes"]:
+            continue
         route = profile["routes"][role]
         parts.append(
             f"{role}={route['provider']}/{route['model']} "

@@ -41,7 +41,7 @@ export function draftStateEqual(a, b) {
 // Recognize a MODIFIED Enter delivered via the kitty keyboard protocol
 // (\x1b[13;<mod>u) or modifyOtherKeys (\x1b[27;<mod>;13~). The xterm modifier
 // param is (1 + bitmask) where the bitmask bits are shift=1, alt=2, ctrl=4. We
-// treat Shift+Enter, Alt/Meta+Enter, and Ctrl+Enter as newline chords. Claude
+// treat Shift+Enter, Alt/Meta+Enter, and Ctrl+Enter as newline chords. Some
 // Code maps Shift/Meta+Enter to newline; Ctrl+Enter remains a compatible Mixdog
 // extension. Ctrl+J is handled separately as the protocol-independent fallback.
 const MODIFIED_ENTER_NEWLINE = 1 | 2 | 4;

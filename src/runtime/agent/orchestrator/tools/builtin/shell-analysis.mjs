@@ -641,6 +641,8 @@ export function hasPowerShellOnlySyntax(command) {
 const INLINE_SCRIPT_RE = /\b(node(?:\.exe)?|python3?|py)((?:\s+--?[\w-]+(?:=[^\s"']+)?)*)\s+(-e|--eval|-c)\s+"((?:[^"\\]|\\.)*)"/;
 const INLINE_UNSAFE_BODY = /[$`\\]/;
 const INLINE_FILE_RELATIVE = /(?:require|import)\s*\(\s*['"]\.{1,2}\/|from\s+['"]\.{1,2}\/|import\.meta|__dirname|__filename|argv\s*\[\s*1\s*\]/;
+const WINDOWS_INLINE_COMMAND_FILE_THRESHOLD = 24_000;
+const LONG_INLINE_SCRIPT_RE = /\b(node(?:\.exe)?|python3?|py)((?:\s+--?[\w-]+(?:=[^\s"']+)?)*)\s+(-e|--eval|-c)\s+(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)')/i;
 
 export function planInlineScriptHoist(command) {
     const text = String(command || '');
@@ -662,6 +664,43 @@ export function planInlineScriptHoist(command) {
         extension,
         body,
         replace: (filePath) => text.replace(whole, `${exe}${keptFlags} "${filePath}"`),
+    };
+}
+
+// CreateProcess caps every native child command line near 32K UTF-16 code
+// units. Wrapping only the outer shell is insufficient: that shell would still
+// spawn `node -e <huge body>` and hit the same limit. Extract the body itself
+// into a script file and replace only that invocation, preserving any
+// surrounding shell sequencing while the native child receives a short path.
+export function planLongInlineScriptFileTransport(command, {
+    platform = process.platform,
+    shellType = 'powershell',
+} = {}) {
+    const text = String(command || '');
+    if (platform !== 'win32' || text.length < WINDOWS_INLINE_COMMAND_FILE_THRESHOLD) return null;
+    const match = text.match(LONG_INLINE_SCRIPT_RE);
+    if (!match) return null;
+    const [whole, exe, rawFlags, , doubleBody, singleBody] = match;
+    const flags = String(rawFlags || '');
+    const isNode = /^node/i.test(exe);
+    const esm = /--input-type=module/.test(flags);
+    const extension = isNode ? (esm ? '.mjs' : '.cjs') : '.py';
+    const keptFlags = flags.replace(/\s+--input-type=\w+/g, '');
+    let body = doubleBody;
+    if (body === undefined) {
+        body = String(singleBody || '');
+        body = String(shellType || '').toLowerCase() === 'powershell'
+            ? body.replace(/''/g, "'")
+            : body.replace(/''/g, '');
+    }
+    return {
+        command: text,
+        extension,
+        body,
+        replace(filePath) {
+            const normalized = String(filePath || '').replace(/\\/g, '/');
+            return text.replace(whole, `${exe}${keptFlags} "${normalized}"`);
+        },
     };
 }
 

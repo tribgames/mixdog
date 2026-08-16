@@ -14,6 +14,7 @@ import type {
   DesktopGitGlobalConfig,
 } from '../../shared/contract';
 import { showDesktopToast } from '../notifications';
+import { t } from '../i18n';
 
 import { ActionButton, FormRow, Group, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
 import {
@@ -303,12 +304,12 @@ export function GitPanel() {
       </p>}
     </Group>
     <Group title="Commit messages"
-      description="Choose how manual commit hints and AI-generated messages should be written.">
+      description={t('Choose how manual commit hints and AI-generated messages should be written.')}>
       <SelectRow title="Format" value={preset} disabled={preferenceBusy.preset === true}
         options={[
-          { value: 'none', label: 'Plain' },
-          { value: 'conventional', label: 'Conventional Commits' },
-          { value: 'custom', label: 'Custom instructions' },
+          { value: 'none', label: t('Plain') },
+          { value: 'conventional', label: t('Conventional Commits') },
+          { value: 'custom', label: t('Custom instructions') },
         ]}
         onChange={(next) => {
           const value = next as DesktopGitCommitPreset;
@@ -317,7 +318,7 @@ export function GitPanel() {
           void preferenceSaver.save('preset', { commitPreset: value });
         }} />
       {preferenceBusy.preset && <p className="settings-git-inline-status" role="status">
-        Saving format…
+        {t('Saving format…')}
       </p>}
       <ToggleRow title="Auto commit message"
         description="Committing with an empty summary writes the message from the included changes (maintenance model), then commits."
@@ -328,25 +329,25 @@ export function GitPanel() {
           void preferenceSaver.save('auto', { autoCommitMessage: enabled });
         }} />
       {preferenceBusy.auto && <p className="settings-git-inline-status" role="status">
-        Saving auto-message setting…
+        {t('Saving auto-message setting…')}
       </p>}
       {preset === 'none' && <div className="settings-commit-rule-card">
-        <b>Plain</b>
-        <p>Write any summary and optional description. No format validation is applied.</p>
+        <b>{t('Plain')}</b>
+        <p>{t('Write any summary and optional description. No format validation is applied.')}</p>
         <code>Improve settings save recovery</code>
       </div>}
       {preset === 'conventional' && <div className="settings-commit-rule-grid">
-        <article><b>Format</b><code>type(scope)!: description</code></article>
-        <article><b>Types</b><p>feat, fix, docs, refactor, test, build, ci, chore, revert, or a custom lowercase type.</p></article>
-        <article><b>Scope and breaking changes</b><p>Scope is optional. Add <code>!</code> before <code>:</code> for a breaking change.</p></article>
-        <article><b>Body</b><p>Optional details start after one blank line. Manual messages warn but remain committable.</p></article>
-        <article className="settings-commit-rule-preview"><b>Actual preview</b>
+        <article><b>{t('Format')}</b><code>type(scope)!: description</code></article>
+        <article><b>{t('Types')}</b><p>{t('feat, fix, docs, refactor, test, build, ci, chore, revert, or a custom lowercase type.')}</p></article>
+        <article><b>{t('Scope and breaking changes')}</b><p>{t('Scope is optional. Add')} <code>!</code> {t('before')} <code>:</code> {t('for a breaking change.')}</p></article>
+        <article><b>{t('Body')}</b><p>{t('Optional details start after one blank line. Manual messages warn but remain committable.')}</p></article>
+        <article className="settings-commit-rule-preview"><b>{t('Actual preview')}</b>
           <code>feat(settings)!: preserve saves during daemon recovery{'\n\n'}Keep unrelated inputs editable while reconnecting.</code>
         </article>
       </div>}
-      {preset === 'custom' && <FormRow title="Custom instructions"
+      {preset === 'custom' && <FormRow title={t('Custom instructions')}
         status={preferenceBusy.custom
-          ? 'Saving'
+          ? t('Saving')
           : exampleDraft === exampleSaved && instructionsDraft === instructionsSaved
             ? undefined : 'Unsaved'}
         onSubmit={() => {
@@ -357,26 +358,26 @@ export function GitPanel() {
           });
         }}>
         <div className="settings-commit-custom-fields">
-          <label><span>Example commit message</span>
-            <textarea name="commitExample" aria-label="Example commit message" rows={2}
+          <label><span>{t('Example commit message')}</span>
+            <textarea name="commitExample" aria-label={t('Example commit message')} rows={2}
               value={exampleDraft} placeholder={CONVENTIONAL_PATTERN}
               onChange={(event) => setExampleDraft(event.currentTarget.value)} />
           </label>
-          <label><span>AI instructions</span>
-            <textarea name="commitInstructions" aria-label="AI commit message instructions" rows={4}
+          <label><span>{t('AI instructions')}</span>
+            <textarea name="commitInstructions" aria-label={t('AI commit message instructions')} rows={4}
               value={instructionsDraft}
-              placeholder="Describe the tone, structure, and details the AI should include."
+              placeholder={t('Describe the tone, structure, and details the AI should include.')}
               onChange={(event) => setInstructionsDraft(event.currentTarget.value)} />
           </label>
           <button disabled={preferenceBusy.custom
             || (exampleDraft === exampleSaved && instructionsDraft === instructionsSaved)}>
-            {preferenceBusy.custom ? 'Saving…' : 'Save'}
+            {preferenceBusy.custom ? t('Saving…') : t('Save')}
           </button>
         </div>
       </FormRow>}
       {preset === 'custom' && <div className="settings-commit-rule-card">
-        <b>Actual preview</b>
-        <code>{exampleDraft.trim() || 'Your example commit message appears here.'}</code>
+        <b>{t('Actual preview')}</b>
+        <code>{exampleDraft.trim() || t('Your example commit message appears here.')}</code>
       </div>}
     </Group>
   </>;

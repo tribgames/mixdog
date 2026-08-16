@@ -204,14 +204,12 @@ export function listStoredAgentWorkers() {
         const tag = cleanValue(row.tag);
         if (!sessionId || !tag || !/^[A-Za-z0-9_-]+$/.test(sessionId)) continue;
         let session = null;
-        if (!cleanValue(row.ownerSessionId || row.parentSessionId)) {
-            try {
-                session = JSON.parse(readFileSync(
-                    join(dataDir(), 'sessions', `${sessionId}.json`),
-                    'utf8',
-                ));
-            } catch { /* a new row may precede its first session save */ }
-        }
+        try {
+            session = JSON.parse(readFileSync(
+                join(dataDir(), 'sessions', `${sessionId}.json`),
+                'utf8',
+            ));
+        } catch { /* a new row may precede its first session save */ }
         bySessionId.set(sessionId, {
             tag,
             sessionId,
@@ -219,6 +217,7 @@ export function listStoredAgentWorkers() {
                 row.ownerSessionId || row.parentSessionId
                 || session?.ownerSessionId || session?.parentSessionId,
             ) || null,
+            title: cleanValue(row.title || session?.title) || null,
             agent: cleanValue(row.agent || session?.agent) || null,
             provider: cleanValue(row.provider || session?.provider) || null,
             model: cleanValue(row.model || session?.model) || null,
@@ -230,6 +229,9 @@ export function listStoredAgentWorkers() {
             turnStartedAt: row.turnStartedAt || null,
             createdAt: row.createdAt || session?.createdAt || null,
             updatedAt: row.updatedAt || session?.updatedAt || null,
+            idleSince: WORKING_AGENT_STATUS.test(cleanValue(row.stage || row.status))
+                ? null
+                : (row.finishedAt || row.updatedAt || session?.updatedAt || null),
             cwd: cleanValue(row.cwd || session?.cwd) || null,
             clientHostPid: positiveNumber(row.clientHostPid || session?.clientHostPid, 0) || null,
             taskId: cleanValue(row.task_id || row.taskId) || null,
@@ -261,6 +263,7 @@ export function listStoredAgentWorkers() {
                 || `${agent || 'agent'}:${sessionId}`,
             sessionId,
             ownerSessionId,
+            title: cleanValue(session?.title) || current.title || null,
             agent: agent || current.agent || null,
             provider: cleanValue(session?.provider) || current.provider || null,
             model: cleanValue(session?.model) || current.model || null,
@@ -319,7 +322,8 @@ export function listStoredAgentWorkers() {
             startedAt: row.startedAt || row.createdAt || null,
             turnStartedAt: working ? (row.turnStartedAt || null) : null,
             createdAt: row.createdAt || null,
-            updatedAt: heartbeatAt || row.updatedAt || null,
+            updatedAt: working ? (heartbeatAt || row.updatedAt || null) : (row.updatedAt || null),
+            idleSince: working ? null : (row.finishedAt || row.updatedAt || null),
             cwd: cleanValue(row.cwd) || null,
             clientHostPid: positiveNumber(row.clientHostPid, 0) || null,
             taskId: cleanValue(row.task_id || row.taskId) || null,

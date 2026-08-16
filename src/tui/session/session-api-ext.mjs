@@ -8,7 +8,7 @@ import { parseSyntheticAgentMessage } from './agent-envelope.mjs';
 import { flushTuiSteeringPersist } from './tui-steering-persist.mjs';
 import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
 import { createSessionOAuthFlowRegistry } from './oauth-flows.mjs';
-import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, summarizeToolResult } from '../../runtime/shared/tool-surface.mjs';
+import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, summarizeToolResult, toolLoadingTargets } from '../../runtime/shared/tool-surface.mjs';
 import { aggregateBucketForCategory, aggregateRawResult, failureDetailText, shellCommandExitCode } from './tool-result-status.mjs';
 import { isInternalTranscriptDisplayText } from '../../runtime/shared/tool-execution-contract.mjs';
 import { toolResultTerminalStatus } from '../../runtime/shared/tool-status.mjs';
@@ -161,11 +161,19 @@ function buildRestoredAggregateItem(members) {
     .find((item) => Object.hasOwn(item || {}, 'uiDiff'));
   const first = members[0].item;
   const last = members[members.length - 1].item;
+  const loadingTargetGroups = calls.map((call) => toolLoadingTargets(call.name, call.args));
+  const loadingTargets = loadingTargetGroups.length > 0
+    && loadingTargetGroups.every((targets) => targets.length > 0)
+    ? [...new Set(loadingTargetGroups.flat())]
+    : [];
   return {
     kind: 'tool',
     id: first.id,
     name: '__aggregate__',
-    args: { categoryOrder },
+    args: {
+      categoryOrder,
+      ...(loadingTargets.length > 0 ? { loadingTargets } : {}),
+    },
     aggregate: true,
     categories: Object.fromEntries(categories),
     doneCategories: aggregateDoneCategories(calls),

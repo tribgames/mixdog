@@ -5,7 +5,7 @@
 import { Unplug } from "lucide-react";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { ActiveTasksIndicator } from "./ActiveAgentsIndicator";
+import { ActiveAgentsIndicator, ActiveShellsIndicator } from "./ActiveAgentsIndicator";
 import {
   beginBootSurface,
   reportBootSurfaceReady,
@@ -40,7 +40,7 @@ import {
   conversationMarkdownPending,
 } from "./first-submit-stability";
 import { readTranscriptVirtualSnapshot } from "./transcript-virtual-cache";
-import { ContextUsageIndicator, LiveWorkStatus, TranscriptRow } from "./TranscriptView";
+import { ContextUsageIndicator, TranscriptRow } from "./TranscriptView";
 import { UtilityDock } from "./UtilityDock";
 
 export const selectDesktopSnapshot = (snapshot: Snapshot) => snapshot;
@@ -273,9 +273,6 @@ export const PaneConversation = memo(function PaneConversation({
       transcriptPending={timelinePending}
       reviewActive={focused && !hidden}
       warmPaintHandoff={warmDraftHandoff}
-      liveWork={<PaneLiveWork
-        sessionId={sessionId}
-        hidden={hidden} />}
       streamingTailSlot={<PaneStreamingTail
         sessionId={sessionId}
         hidden={hidden} />}
@@ -361,36 +358,13 @@ export function PaneHeaderStatus({
     ? EMPTY_SNAPSHOT
     : lane ?? EMPTY_SNAPSHOT;
   return <>
-    {onOpenAgents && <ActiveTasksIndicator snapshot={visibleSnapshot} onOpen={onOpenAgents} />}
+    {onOpenAgents && <ActiveAgentsIndicator snapshot={visibleSnapshot} onOpen={onOpenAgents} />}
+    <ActiveShellsIndicator snapshot={visibleSnapshot} />
     <ContextUsageIndicator snapshot={visibleSnapshot} onOpen={onOpen} />
     <RemoteToggleButton snapshot={visibleSnapshot}
       draftEnabled={draftRemoteEnabled}
       onChange={onRemoteChange} />
   </>;
-}
-
-// The activity band follows the same pane-local source as the transcript.
-// Focus changes interaction routing only; it never adds/removes UI chrome.
-export function PaneLiveWork({
-  sessionId,
-  hidden,
-}: {
-  sessionId: string;
-  hidden: boolean;
-}) {
-  const lane = useSessionLane(
-    sessionId,
-    defaultSessionLaneStore,
-    desktopHeaderSnapshotsEqual,
-    !hidden && Boolean(sessionId),
-  ) as Snapshot | null;
-  useEffect(() => {
-    if (!hidden && sessionId && !lane) requestSessionPeek(sessionId);
-  }, [hidden, lane, sessionId]);
-  const visibleSnapshot = lane ?? EMPTY_SNAPSHOT;
-  return <div className="chat-live-work">
-    <LiveWorkStatus snapshot={visibleSnapshot} />
-  </div>;
 }
 
 /** Child-agent transcript viewer. The child lane is refreshed independently
@@ -438,7 +412,6 @@ export const AgentSessionConversation = memo(function AgentSessionConversation({
       activeProjectPath=""
       activeProjectLabel=""
       onSelectProject={() => {}}
-      onChooseProject={() => {}}
       onOpenCommandSurface={() => {}} />
     {peekFailed && lane === null
       ? <div className="pane-surface-cover agent-session-unavailable" role="alert">

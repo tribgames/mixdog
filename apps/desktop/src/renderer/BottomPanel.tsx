@@ -1,4 +1,4 @@
-// VS Code-style bottom panel shell: toggleable, drag-resizable via a top
+// Bottom panel shell: toggleable, drag-resizable via a top
 // edge handle, with a small tab row (shell jobs / background tasks / logs are
 // mapped by the integration layer). Controlled component + a persistence
 // hook, so App owns when it exists and what the active tab renders.

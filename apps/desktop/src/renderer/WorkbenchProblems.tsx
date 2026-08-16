@@ -135,7 +135,7 @@ export const WorkbenchProblemsSeverityActions = memo(function WorkbenchProblemsS
       onClick={() => update({ showInfos: !filter.showInfos })}>
       <Info size={14} aria-hidden="true" /><span>{count(3) + count(4)}</span>
     </button>
-    {/* Low-frequency toggles live in one "…" menu, VS Code-style. */}
+    {/* Low-frequency toggles live in one "…" menu. */}
     <RowOverflowMenu label="More Problems actions" width={188} items={[
       {
         id: "active-file",

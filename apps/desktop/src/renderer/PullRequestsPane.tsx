@@ -1,4 +1,4 @@
-// Pull Requests dock surface — GitHub Desktop's compact filtered-list grammar
+// Pull Requests dock surface with a compact filtered list
 // for the dock, with the Orca-derived metadata and tab hierarchy in the editor.
 // Data and actions are backed by the gh CLI IPC chain.
 import {
@@ -207,7 +207,7 @@ export function PullRequestsPane({
   currentBranch: string;
   /** Guidance when a PR cannot be created yet (publish/push first). */
   createHint: string;
-  /** VS Code-style view/title action host owned by the utility dock header. */
+  /** View/title action host owned by the utility dock header. */
   headerSlot?: HTMLElement | null;
   /** Opens the extension-style overview or changes surface in an editor group. */
   onOpenPullRequest?: PullRequestOpenHandler;

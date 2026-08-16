@@ -46,6 +46,15 @@ function toCursorMessages(messages, providerName) {
     return output;
 }
 
+function toCursorToolChoice(toolChoice) {
+    if (typeof toolChoice === 'string') return toolChoice;
+    if (!toolChoice || typeof toolChoice !== 'object') return undefined;
+    const name = toolChoice.name || toolChoice.function?.name;
+    return typeof name === 'string' && name
+        ? { type: 'function', function: { name } }
+        : undefined;
+}
+
 async function responseError(response, label) {
     const text = await response.text().catch(() => '');
     let message = text;
@@ -432,7 +441,7 @@ class CursorProviderBase {
         if (!group) return { modelId: requested, parameters: [] };
         const isCanonical = requested === parsed.baseId || requested === 'auto';
         if (catalog.rawIds.has(requested) && !isCanonical && !sendOpts.effort && sendOpts.fast !== true) {
-            return requested;
+            return { modelId: requested, parameters: [] };
         }
         const selected = selectCursorVariant(group, {
             effort: sendOpts.effort || (isCanonical ? null : parsed.effort),
@@ -465,6 +474,9 @@ class CursorProviderBase {
                 stream: true,
                 stream_options: { include_usage: true },
                 ...(openAiTools ? { tools: openAiTools } : {}),
+                ...(toCursorToolChoice(sendOpts.toolChoice) !== undefined
+                    ? { tool_choice: toCursorToolChoice(sendOpts.toolChoice) }
+                    : {}),
             };
             try { sendOpts.onStageChange?.('requesting'); } catch {}
             try {
@@ -612,4 +624,5 @@ export const __cursorModelInternals = Object.freeze({
     selectCursorVariant,
     selectParameterizedCursorVariant,
     toCursorMessages,
+    toCursorToolChoice,
 });

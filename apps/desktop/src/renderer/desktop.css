@@ -102,12 +102,10 @@
   --mx-terminal-bg: #121215;
 
   /* ── Type scale ── */
-  /* One chrome ramp on FOUR real sizes — 11 badge · 12 meta · 13 row ·
-     15 heading (user: 계층별 통일). The old ramp packed seven tiers into
-     10-15px, so 62% of the shell rendered at <=12px and neighbouring tiers
-     differed by a single imperceptible pixel; the floor moved up one step
-     each so the rail ladder (header/category 15 > item title 13 > meta 12)
-     is what the tokens literally say.
+  /* One chrome ramp on FIVE real sizes — 11 badge · 12 meta · 13 item ·
+     14 category · 15 panel title. The semantic aliases below are the shared
+     contract for left, right, and bottom rails; local surfaces should not
+     collapse panel and category headings onto the same size.
      micro is RESERVED for counters/badges/pills — readable sentences,
      captions with names, and button labels start at meta. Content scales
      (markdown headings, onboarding hero, editor titles) stay literal. */
@@ -118,6 +116,10 @@
   --mx-font-ui: 13px;
   --mx-font-emphasis: 14px;
   --mx-font-body: 15px;
+  --mx-font-panel-title: var(--mx-font-body);
+  --mx-font-category: var(--mx-font-emphasis);
+  --mx-font-item: var(--mx-font-ui);
+  --mx-font-supporting: var(--mx-font-meta);
   /* Line-height ladder, default pair per font tier (dense rows may sit
      one step tighter on purpose; box-height centering keeps its px value
      through the token). 15/17/19/23 strays converged to the pair;
@@ -955,14 +957,10 @@ html[data-mixdog-remote] .titlebar-caption-space {
   color: currentColor;
   stroke-width: 1.75px;
 }
-/* Chrome type ramp: ONE 13px size for UI chrome — hierarchy comes from
-   weight (600 titles > 500 labels > 400 body) and ink, never from size
-   bumps (user: 탭/타이틀 크기가 제각각이라 위계가 안 잡힌다). The label tier
-   is 500, which this rule had been claiming in prose while rendering 400 —
-   next to the 500 status line the tabs read a step thin (user: 라벨 너무
-   얇은 것 같은데). Active and inactive share the weight; ink tells them
-   apart. */
-.workspace-tab-main span { font-size: var(--mx-font-ui); font-weight: var(--mx-weight-medium); line-height: var(--mx-line-ui); }
+/* Tabs stay on the shared 13px item tier. Selection adds the 500 label
+   weight; inactive tabs rest at 400 and remain readable through solid ink. */
+.workspace-tab-main span { font-size: var(--mx-font-item); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); }
+.workspace-tab.active .workspace-tab-main span { font-weight: var(--mx-weight-medium); }
 .workspace-tab-new {
   /* The HIT BOX fills the strip row and a full 34px column (user: +의
      상하좌우 패딩이 이상해서 누르기 힘들다 — a 28px box in the 35px row
@@ -1364,11 +1362,8 @@ html[data-mixdog-remote] .titlebar-caption-space {
   box-shadow: none;
   overflow: hidden;
 }
-/* Panel title: shares the workspace tab strip's exact 36px band — same
-   continuing hairline. TOP of the chrome ramp (user: 최상위는 키워도 된다):
-   one size above the 13px chrome scale, semibold, full ink. Everything
-   below steps down by ink first, size last. Full-bleed ::after keeps the
-   width contract. */
+/* Panel title: shares the workspace tab strip's exact 36px band and owns the
+   top 15px tier. Full-bleed ::after keeps the width contract. */
 .session-panel-header {
   position: relative;
   flex: 0 0 auto;
@@ -1378,7 +1373,7 @@ html[data-mixdog-remote] .titlebar-caption-space {
   height: 36px;
   padding: 0 4px 0 6px;
   color: var(--mx-text);
-  font-size: var(--mx-font-body);
+  font-size: var(--mx-font-panel-title);
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-emphasis);
   letter-spacing: 0;
@@ -1582,15 +1577,14 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--mx-rail-item-surface);
   box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
 }
-/* In-row ramp: NAME leads at 13/400 full ink — under the 15px category
-   heads — then description/meta at 12. */
+/* In-row ramp: NAME leads at 13/400 full ink, then description/meta at 12. */
 .session-sidebar-panels .schedules-row-copy b {
-  font-size: var(--mx-font-ui);
+  font-size: var(--mx-font-item);
   font-weight: var(--mx-weight-regular);
 }
 .session-sidebar-panels .schedules-row-copy small {
   color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
+  font-size: var(--mx-font-supporting);
 }
 /* Hover is a background wash only — bumping the inset ring to the -active
    tint made an outline flash in/out on every pass (user: 호버하면 불필요한
@@ -1648,6 +1642,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .utility-dock .agent-activity-page {
   width: 100%;
   max-width: 100%;
+  min-width: 0;
   min-height: 0;
   flex: 1;
   box-sizing: border-box;
@@ -1656,7 +1651,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   overflow-x: clip;
   overflow-y: auto;
   margin: 0;
-  padding: 0 var(--mx-rail-gap) 16px;
+  padding: 0 var(--mx-rail-gutter) 16px;
   gap: 6px;
 }
 .utility-dock .agent-activity-empty {
@@ -1698,10 +1693,17 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding-top: 0;
 }
 .utility-dock .agent-activity-status {
+  /* 80px is a FLOOR, not a cap: a fixed track clipped "작업 중 · 12m 47s" to
+     "작업 중 · 1m …" (user: 가끔 잘려서 ... 뜬다). The status text never
+     ellipsizes — the name/route copy beside it shrinks instead, and short
+     labels still land on the same right axis. */
+  min-width: 80px;
   flex: 0 0 auto;
-  display: flex;
+  display: grid;
+  /* Text-only status column (the row spinner is gone): ONE track, so every
+     card's state word lands on the same right axis. */
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  justify-content: flex-end;
   gap: 6px;
   color: var(--mx-icon-muted);
 }
@@ -1732,34 +1734,91 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .fast-mode-indicator svg { width: 12px; height: 12px; }
 .utility-dock .agent-activity-elapsed {
-  flex: 0 0 auto;
-  max-width: 104px;
-  overflow: hidden;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-supporting);
   font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
+  text-align: right;
   white-space: nowrap;
 }
+.utility-dock .agent-activity-elapsed[data-state="running"] {
+  color: var(--mx-text-soft);
+}
+/* Running rows flow like the thinking status (user: 띵킹 스피너에서 흐르는
+   것처럼). The sweep is one tier quieter than the transcript's — this is a
+   dock list of supporting rows, not the turn's headline — and the clock stays
+   static so the glint completes a full pass instead of restarting each tick. */
+.utility-dock .agent-activity-elapsed [data-component="text-shimmer"][data-active="true"]
+  [data-slot="text-shimmer-char"] {
+  background: linear-gradient(
+    90deg,
+    var(--mx-text-muted) 15%,
+    var(--mx-text) 48%,
+    var(--mx-text-muted) 82%
+  );
+  background-size: var(--text-shimmer-size) 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+.utility-dock .agent-activity-elapsed-meta { color: var(--mx-text-muted); }
+.utility-dock .agent-activity-elapsed-meta::before {
+  content: "\00B7";
+  margin: 0 4px;
+  color: var(--mx-text-faint);
+}
+/* Completion notice: an idle row whose session is still unseen carries the
+   Recent-dot meaning as ACCENTED TEXT (user: 닷 대용으로 완료알림). It fades
+   back to the muted idle tone the moment the session is opened. */
+.utility-dock .agent-activity-elapsed[data-state="done"] {
+  color: var(--mx-text-accent);
+  font-weight: 600;
+}
 /* Agents dock reuses the Workflows rail grammar. */
-.utility-dock .agent-activity-page .workflows-models { gap: 2px; }
+.utility-dock .agent-activity-page .workflows-models,
+.utility-dock .agent-activity-page .schedules-list,
+.utility-dock .agent-activity-page .schedules-row {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+/* The section is a grid, and an `auto` track sizes to its widest item — the
+   nowrap session heading. A long title therefore stretched the track past the
+   dock and the cards inherited that width, so the right gutter changed per
+   title (user: 제목에 따라 오른쪽 여백이 들쭉날쭉). minmax(0, 1fr) pins the
+   track to the dock width; the heading ellipsizes instead of pushing. */
+.utility-dock .agent-activity-page .workflows-models { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 .utility-dock .agent-activity-page .schedules-list { gap: 6px; }
 .utility-dock .agent-activity-page .schedules-row {
   gap: 8px;
-  padding: 10px 10px 10px 12px;
+  padding: 10px var(--mx-rail-gutter);
   border: 0;
   border-radius: var(--mx-radius-md);
   background: var(--mx-rail-item-surface);
   box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
 }
+.utility-dock .agent-activity-page .agent-pool-row {
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.utility-dock .agent-activity-page .agent-pool-row:disabled {
+  cursor: default;
+}
+.utility-dock .agent-activity-page .agent-pool-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .utility-dock .agent-activity-page .schedules-row:hover { background: var(--mx-hover); }
 .utility-dock .agent-activity-page .schedules-row-copy b {
-  font-size: var(--mx-font-ui);
+  font-size: var(--mx-font-item);
   font-weight: var(--mx-weight-regular);
 }
 .utility-dock .agent-activity-page .schedules-row-copy small {
   color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
+  font-size: var(--mx-font-supporting);
 }
 /* Workflow settings sub-sections read as sidebar section headings on the 6px line,
    with a real section break above each one. */
@@ -1776,11 +1835,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 0 var(--mx-rail-gutter);
   display: flex;
   align-items: center;
-  /* Same CATEGORY tier as the Sessions section headings — 15/600, FULL ink.
-     One section-title convention shell-wide (opencode's): a heading is
-     bigger and bolder than its rows, never dimmer than them. */
+  /* Shared CATEGORY tier: 14/600, between panel titles and rows. */
   color: var(--mx-text);
-  font-size: var(--mx-font-body);
+  font-size: var(--mx-font-category);
   font-weight: var(--mx-weight-semibold);
   letter-spacing: 0;
   line-height: var(--mx-line-ui);
@@ -2020,10 +2077,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    must center the 24px input inside its 36px height and keep the focus ring
    clear of the rail edges. */
 .session-row.editing {
-  padding: 0 var(--mx-rail-gutter);
+  padding: 0 var(--mx-rail-gutter) 0 0;
 }
 .session-sidebar .task-link,
-.session-sidebar .projects-link { font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); cursor: pointer; }
+.session-sidebar .projects-link { font-size: var(--mx-font-item); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); cursor: pointer; }
 .session-sidebar .task-link:hover,
 .session-sidebar .projects-link:hover,
 .session-sidebar .session-row:hover {
@@ -2091,8 +2148,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   /* Full ink like the model trigger — muted read as a weaker tier than the
      controls around it (user: Recent looks washed). */
   color: var(--mx-text);
-  /* CATEGORY tier: 15/600, same size as the panel title. */
-  font-size: var(--mx-font-body);
+  /* CATEGORY tier: 14/600, one step below the panel title. */
+  font-size: var(--mx-font-category);
   font-weight: var(--mx-weight-semibold);
   letter-spacing: 0;
   line-height: var(--mx-line-ui);
@@ -2114,8 +2171,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .sidebar-recent-heading.session-list-more:hover { color: var(--mx-text); }
 /* AFTER the base heading rules on purpose: the collapsible variant must win
-   order-dependent overrides. Same CATEGORY tier as the base heading above
-   (15/600, full ink). */
+   order-dependent overrides. Same CATEGORY tier as the base heading above. */
 .sidebar-recent-heading.sidebar-heading-toggle {
   height: 32px;
   justify-content: flex-start;
@@ -2126,7 +2182,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border: 0;
   background: transparent;
   font-family: inherit;
-  font-size: var(--mx-font-body);
+  font-size: var(--mx-font-category);
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-ui);
   letter-spacing: 0;
@@ -2183,7 +2239,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    ladder forbids. */
 .sidebar-section-toggle { color: var(--mx-text); }
 .sidebar-section-toggle > span {
-  font-size: var(--mx-font-body);
+  font-size: var(--mx-font-category);
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-ui);
   letter-spacing: 0;
@@ -2202,7 +2258,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   min-width: 0;
   overflow: hidden;
   color: inherit;
-  font-size: var(--mx-font-ui);
+  font-size: var(--mx-font-category);
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-ui);
   letter-spacing: 0;
@@ -2255,8 +2311,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .session-sidebar .recent-session-list .sidebar-section-empty { padding-left: 8px; }
 /* Titles start at the compact rail inset; the trailing working status overlays
    the existing fade instead of reserving a permanent leading column. */
-.session-sidebar .project-group .session-row { padding-left: 22px; }
-.session-sidebar .standalone-session-list .session-row { padding-left: 6px; }
+/* No leading indent anywhere in the rail: session titles share the heading's
+   left line instead of stepping in per group (user: 들여쓰기 없이 붙이자). */
+.session-sidebar .project-group .session-row,
+.session-sidebar .standalone-session-list .session-row { padding-left: 0; }
 /* Session rows sit tighter than the 36px nav links: 31px keeps the 14px title
    comfortable while the list stops reading airy (user request). */
 .session-sidebar .session-row { height: 31px; min-height: 31px; }
@@ -2596,7 +2654,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   height: 28px;
   padding: 0;
   color: var(--mx-text);
-  font-size: var(--mx-font-body);
+  font-size: var(--mx-font-category);
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-ui);
   letter-spacing: 0;
@@ -2614,7 +2672,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   /* ITEM tier (chrome ramp): 13px full ink. 14px rows crowded the 14/600
      category headings — Korean titles especially read a size class larger
      than the latin automation group names (user: 왜 세션네임은 크지). */
-  font-size: var(--mx-font-ui);
+  font-size: var(--mx-font-item);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
   letter-spacing: 0;
@@ -2757,7 +2815,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   gap: 8px;
 }
 /* Conversation title is important info: one step up from tab chrome. */
-.session-header h1 { color: var(--mx-text); font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-emphasis); letter-spacing: 0; }
+.session-header h1 { color: var(--mx-text); font-size: var(--mx-font-panel-title); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-emphasis); letter-spacing: 0; }
 .session-title-mode {
   min-width: 0;
   max-width: 100%;
@@ -4483,6 +4541,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   align-items: center;
   gap: 8px;
 }
+.model-row-source {
+  margin-left: 2px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+}
 .model-row-copy strong {
   min-width: 0;
   overflow: hidden;
@@ -4542,6 +4607,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   letter-spacing: var(--mx-tracking-wide);
   text-transform: uppercase;
 }
+.model-group h3 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+}
 .model-group h3::after {
   content: "";
   flex: 1;
@@ -4558,7 +4628,16 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   justify-content: space-between;
   align-self: stretch;
   margin: 0;
-  background: var(--mx-bg-base);
+  background: transparent;
+}
+.model-provider-add {
+  background: transparent;
+  box-shadow: none;
+}
+.model-provider-add:hover,
+.model-provider-add:focus-visible {
+  background: var(--mx-hover);
+  box-shadow: none;
 }
 .model-provider-heading {
   display: inline-flex;
@@ -4654,31 +4733,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 
 /* TUI L2 activity lives beside Context in the session header. */
 .composer-region { position: relative; }
-/* Background activity overlays the RIGHT edge of the 20px thinking/tool
-   status row. The thread's fixed 20px bottom pad places that row exactly
-   20px above the composer; matching that offset keeps the chip on the same
-   baseline without adding layout height or pushing any transcript row. */
-.chat-live-work {
-  position: absolute;
-  right: var(--pane-chrome-inset);
-  bottom: calc(100% + 20px);
-  z-index: 5;
-  display: flex;
-  justify-content: flex-end;
-}
-.chat-live-work:empty { display: none; }
-.chat-live-work .live-work-status {
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-regular);
-  /* Same 20px line as the thinking/tool status row (.live-activity-status)
-     so the two read on one baseline (user request). */
-  height: 20px;
-  padding: 0 4px;
-}
-.chat-live-work .live-work-status:hover,
-.chat-live-work .live-work-status:focus { color: var(--mx-text); }
-.chat-live-work .live-work-popover { top: auto; bottom: calc(100% + 6px); }
 /* Aggregate activity chip (user decision): spinner + count, breakdown in a
    hover/focus popover — the header stays quiet. */
 .live-work-status {
@@ -4697,7 +4751,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-meta);
 }
-.live-work-status:hover, .live-work-status:focus { background: var(--mx-hover); outline: 0; }
+.live-work-status:hover, .live-work-status:focus {
+  background: color-mix(in srgb, var(--mx-text) 4%, transparent);
+  outline: 0;
+}
 /* Digit centers on the spinner box exactly (user: count sat low). */
 .live-work-count {
   display: inline-flex;
@@ -4719,6 +4776,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border: .5px solid var(--mx-border-strong);
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
+  /* Detail popovers must mask transcript text beneath them; translucency
+     belongs to the Task header's control frame, not this content surface. */
   background: var(--mx-bg-base);
   box-shadow: var(--mx-floating);
   opacity: 0;
@@ -6553,7 +6612,19 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border-radius: var(--mx-radius-xl);
   background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 60%), var(--mx-bg-layer-1);
   box-shadow: var(--mx-floating), inset 0 0 0 .5px var(--mx-border-muted);
-  animation: mx-menu-in 120ms ease-out;
+  /* Chat-composer parity: the panel scales out of the expanding pill. */
+  transform-origin: bottom left;
+  animation: route-sheet-morph-in 160ms cubic-bezier(.22, 1, .36, 1) both;
+}
+.studio-model-panel > * { animation: route-sheet-content-in 140ms ease-out 40ms both; }
+/* Codex-style pill: expands to the panel width while open. */
+.studio-model-trigger[data-morph] {
+  max-width: none;
+  justify-content: space-between;
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+  transition: width 110ms cubic-bezier(.22, 1, .36, 1);
 }
 .studio-model-panel section + section {
   margin-top: 6px;
@@ -6590,17 +6661,18 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   outline: 0;
   background: var(--mx-hover);
 }
+/* Flat rows (chat catalog parity): the neutral check alone marks selection. */
 .studio-model-panel button.active {
-  background: var(--mx-bg-layer-2);
-  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  background: transparent;
+  box-shadow: none;
   font-weight: var(--mx-weight-regular);
 }
 .studio-model-panel button.active:hover,
 .studio-model-panel button.active:focus-visible {
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-layer-2);
+  background: var(--mx-hover);
 }
 .studio-model-panel button.active svg {
-  color: var(--mx-success);
+  color: var(--mx-text);
 }
 /* The panel is portalled to the viewport, so on a phone it must fit one:
    the component clamps its left edge, this caps the box itself. */
@@ -7098,6 +7170,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 16px 20px 20px;
 }
 .schedules-field { display: grid; gap: 6px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); }
+.schedules-field > span,
+.projects-edit-field > div > span {
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+}
 .schedules-dialog input {
   box-sizing: border-box;
   height: 32px;
@@ -7306,11 +7384,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   transform-origin: center;
   animation: spin 1.1s linear infinite;
 }
-.schedules-row-copy { min-width: 0; flex: 1; display: grid; gap: 2px; }
+/* Single column pinned to the copy box: a bare `auto` track let a long name
+   or route line size the column past the row and shove the trailing status. */
+.schedules-row-copy { min-width: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
 .schedules-row-copy b {
   overflow: hidden;
   color: var(--mx-text);
-  font-size: var(--mx-font-ui);
+  font-size: var(--mx-font-item);
   font-weight: var(--mx-weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -7510,7 +7590,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .workflows-agent-remove:hover { color: var(--mx-danger); background: var(--mx-hover); }
-.workflows-agent-empty { margin: 0; color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
 .workflows-agent-mode-field { display: grid; justify-items: start; gap: 6px; }
 .workflows-agent-mode-field .mx-select-root { min-width: 180px; }
 .workflows-agent-mode-field .mx-select-trigger { width: 100%; height: 32px; border-radius: var(--mx-radius-md); }
@@ -7578,8 +7657,121 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .schedules-dialog.projects-add-dialog { width: min(520px, calc(100vw - 32px)); }
 /* Per-project edit dialog (rename + instructions + remove): the destructive
    action sits alone on the footer's left edge, away from Cancel/Save. */
-.schedules-dialog.projects-edit-dialog { width: min(520px, calc(100vw - 32px)); }
+.schedules-dialog.projects-edit-dialog { width: min(680px, calc(100vw - 32px)); }
 .projects-edit-dialog footer button.danger { margin-right: auto; }
+/* Field note grammar (user: 팝업 제목 아래 설명을 메모리 쪽과 맞춰): every
+   dialog field title may carry one muted meta-sized line under it. */
+.schedules-field > small,
+.projects-edit-field > small,
+.projects-edit-field > div > small {
+  display: block;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+}
+.projects-memory-editor { min-width: 0; display: grid; gap: 6px; }
+.projects-memory-editor > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-regular);
+}
+.projects-memory-editor > header > div { min-width: 0; display: grid; gap: 3px; }
+.projects-memory-add-trigger {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-icon-muted);
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+.projects-memory-add-trigger:hover:not(:disabled),
+.projects-memory-add-trigger:focus-visible { color: var(--mx-icon); background: var(--mx-hover); }
+.projects-memory-add-trigger:focus-visible { outline: 1px solid var(--mx-focus); }
+.projects-memory-add-trigger:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.projects-memory-viewport {
+  min-height: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  border-radius: var(--mx-radius-lg);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.projects-memory-viewport.is-empty {
+  min-height: 96px;
+  display: grid;
+  place-items: center;
+}
+.projects-memory-empty {
+  margin: 0;
+  padding: 16px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+  text-align: center;
+}
+.projects-memory-editor .core-memory-list {
+  padding: 0 12px;
+  background: transparent;
+  box-shadow: none;
+}
+.projects-memory-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: .5px solid var(--mx-border);
+}
+.projects-memory-editor .core-memory-edit,
+.projects-memory-editor .core-memory-row {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 12px;
+}
+.projects-memory-edit-fields { min-width: 0; display: grid; gap: 8px; }
+.projects-memory-edit-fields > label {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+}
+.projects-memory-edit-fields select {
+  box-sizing: border-box;
+  min-width: 0;
+  height: 32px;
+  padding: 0 28px 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background-color: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  font: inherit;
+}
+.projects-memory-editor .core-memory-copy span {
+  overflow-wrap: anywhere;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+}
+.projects-memory-editor .projects-memory-edit-fields,
+.projects-memory-editor .core-memory-copy { grid-column: 1; }
+.projects-memory-editor .core-memory-actions { grid-column: 2; }
 .projects-folder-row { display: flex; align-items: center; gap: 8px; }
 .projects-folder-row code {
   min-width: 0;
@@ -9098,10 +9290,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     margin: 0;
     padding: 2px;
     border-radius: var(--mx-radius-pill);
-    /* Overlay voice: translucent sheet + blur so transcript text scrolling
-       underneath stays legible without a hard band. */
-    background: color-mix(in srgb, var(--mx-workspace-sheet) 50%, transparent);
-    backdrop-filter: blur(8px);
+    /* Frame removed: the cluster floats chromeless over the transcript. */
+    background: transparent;
+    border: 0;
+    backdrop-filter: none;
   }
 .workspace-tabs-shell .workspace-tabs {
   width: auto;
@@ -9751,10 +9943,58 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   --route-popover-x: -4px;
   transform-origin: top left;
 }
+.route-sheet-flyout[data-state="open"][data-placement="above"] {
+  transform-origin: bottom center;
+  animation-name: route-flyout-in-above;
+}
+.route-sheet-flyout[data-state="open"][data-placement="below"] {
+  transform-origin: top center;
+  animation-name: route-flyout-in-below;
+}
 .route-sheet[data-state="closing"],
 .route-sheet-flyout[data-state="closing"] {
   pointer-events: none;
   animation: route-popover-out 110ms cubic-bezier(.4, 0, 1, 1) both;
+}
+/* Codex-style pill morph: the sheet grows OUT of the trigger pill, expanding
+   in both axes from the pill's size (vars set inline per open), and shrinks
+   back into it on close. Content fades in slightly after the surface. */
+.route-sheet {
+  animation: route-sheet-morph-in 180ms cubic-bezier(.22, 1, .36, 1) both;
+}
+.route-sheet[data-state="open"] > * {
+  animation: route-sheet-content-in 140ms ease-out 45ms both;
+}
+.route-sheet[data-state="closing"] { animation-name: route-sheet-morph-out; }
+/* The sheet anchors to the pill's LEFT edge, so it grows rightwards with it. */
+.route-sheet[data-placement="above"] { transform-origin: bottom left; }
+.route-sheet[data-placement="below"] { transform-origin: top left; }
+/* Codex-style pill: while the sheet is open the trigger expands to the sheet
+   width (inline width per frame drives the transition); the chevron slides
+   to the pill's right edge. */
+.route-editor > .model-trigger[data-morph] {
+  max-width: none;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  /* Codex-style: the open pill reads as a framed control tied to the sheet. */
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+  transition: width 110ms cubic-bezier(.22, 1, .36, 1);
+}
+@keyframes route-sheet-morph-in {
+  from { opacity: .35; transform: scale(var(--route-morph-sx, .9), var(--route-morph-sy, .7)); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes route-sheet-morph-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: scale(var(--route-morph-sx, .9), var(--route-morph-sy, .7)); }
+}
+@keyframes route-sheet-content-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 @keyframes route-popover-in {
   from { opacity: 0; transform: translate(var(--route-popover-x), var(--route-popover-y)) scale(.97); }
@@ -9763,6 +10003,14 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 @keyframes route-popover-out {
   from { opacity: 1; transform: none; }
   to { opacity: 0; transform: translate(var(--route-popover-x), var(--route-popover-y)) scale(.99); }
+}
+@keyframes route-flyout-in-above {
+  from { opacity: 0; transform: translateY(7px) scaleX(.985) scaleY(.92); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes route-flyout-in-below {
+  from { opacity: 0; transform: translateY(-7px) scaleX(.985) scaleY(.92); }
+  to { opacity: 1; transform: none; }
 }
 .route-sheet-row,
 .route-sheet-option {
@@ -9786,7 +10034,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   min-height: 36px;
   flex: 0 0 36px;
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr) 14px;
+  /* Codex-style: short labels take only their own width so the value
+     (model name) gets the remaining room instead of truncating early. */
+  grid-template-columns: max-content minmax(0, 1fr) 14px;
   column-gap: 8px;
 }
 .route-sheet-row:hover,
@@ -9810,6 +10060,57 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .route-sheet-row svg,
 .route-sheet-option svg { flex: 0 0 auto; color: var(--mx-text-muted); }
 .route-sheet-option span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.route-selection-check,
+.route-sheet-option .route-selection-check {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: grid;
+  place-items: center;
+  overflow: visible;
+  color: var(--mx-text);
+}
+.route-selection-check svg,
+.route-sheet-option .route-selection-check svg {
+  width: 14px;
+  height: 14px;
+  color: currentColor;
+  stroke-width: 2;
+}
+/* Codex-style submenu header + two-line speed options. */
+.route-sheet-flyout-title {
+  flex: 0 0 auto;
+  padding: 6px 10px 4px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
+.route-sheet-option--rich { min-height: 48px; padding-block: 5px; }
+.route-sheet-option .route-sheet-option-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  white-space: normal;
+}
+.route-sheet-option-copy > span,
+.route-sheet-option-copy > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.route-sheet-option-copy > small { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+/* Studio duration slider pane (continuous ranges have no discrete options). */
+.route-sheet-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 2px 10px 6px;
+}
+.route-sheet-slider input { flex: 1; min-width: 0; }
+.route-sheet-slider span { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
 .route-sheet,
 .route-sheet-flyout { overflow: auto; overscroll-behavior: contain; }
 .route-sheet-flyout--model { overflow: hidden; padding: 0; }
@@ -9828,7 +10129,51 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .model-catalog-panel .model-picker-list { gap: 8px; padding: 8px; }
 .model-catalog-panel .model-search { min-height: 32px; padding: 6px 8px; }
 .model-catalog-panel .model-list { min-height: 0; flex: 1 1 auto; overflow: auto; gap: 10px; padding: 0; }
-.model-catalog-panel .model-option-row { min-height: 44px; padding: 6px 8px; }
+/* Codex-style embedded catalog: flat single-line rows — no cards, no
+   descriptions; the check mark alone marks the active route. */
+.model-catalog-panel .model-list { gap: 6px; }
+.model-catalog-panel .model-group { gap: 2px; }
+.model-catalog-panel .model-items { gap: 1px; }
+.model-catalog-panel .model-group h3 { min-height: 26px; padding: 4px 4px 2px; }
+/* Keep compact brand headers pinned, but paint the flyout surface beneath
+   them so scrolling rows never show through the header. */
+.model-catalog-panel .model-group--provider h3 {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--mx-bg-layer-1);
+}
+.model-catalog-panel .model-option-row {
+  min-height: 32px;
+  padding: 5px 8px;
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  box-shadow: none;
+}
+.model-catalog-panel .model-option-row:hover,
+.model-catalog-panel .model-option-row:focus-visible,
+.model-catalog-panel .model-option-row[data-active="true"],
+.model-catalog-panel .model-option-row[aria-selected="true"]:hover,
+.model-catalog-panel .model-option-row[aria-selected="true"][data-active="true"] {
+  background: var(--mx-hover);
+  box-shadow: none;
+}
+.model-catalog-panel .model-option-row[aria-selected="true"] {
+  background: transparent;
+  box-shadow: none;
+}
+.model-catalog-panel .model-row-copy strong {
+  font-weight: var(--mx-weight-regular);
+  padding-bottom: 0;
+}
+.model-catalog-panel .model-row-copy > small { display: none; }
+.model-catalog-panel .list-item-selected-icon {
+  width: auto;
+  height: auto;
+  color: var(--mx-text);
+  background: transparent;
+  box-shadow: none;
+}
 .model-catalog-panel .model-provider-add {
   width: 28px;
   height: 28px;
@@ -10102,6 +10447,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   gap: 4px;
   flex: 0 1 auto;
   margin-left: auto;
+  padding: 2px;
+  border: .5px solid color-mix(in srgb, var(--mx-border-strong) 5%, transparent);
+  border-radius: var(--mx-radius-pill);
+  background: color-mix(in srgb, var(--mx-bg-base) 4%, transparent);
   overflow: visible;
 }
 /* Dock toggle rides the session header, in the sidebar-toggle voice: same
@@ -10129,13 +10478,14 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex: 0 0 auto;
 }
 .session-agents-indicator > button {
+  position: relative;
+  width: 28px;
   height: 28px;
   min-width: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  padding: 0 5px;
+  padding: 0;
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
@@ -10143,15 +10493,35 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .session-agents-indicator > button:hover,
-.session-agents-indicator > button:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: none; }
+.session-agents-indicator > button:focus-visible {
+  color: var(--mx-text);
+  background: color-mix(in srgb, var(--mx-text) 4%, transparent);
+  outline: none;
+}
 .session-agents-count {
-  font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-regular);
+  position: absolute;
+  top: 1px;
+  right: -2px;
+  min-width: 12px;
+  height: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 2px;
+  border-radius: 999px;
+  color: var(--mx-bg-base);
+  background: var(--mx-text);
+  font-size: 8px;
+  font-weight: var(--mx-weight-medium);
   font-variant-numeric: tabular-nums;
   line-height: 1;
+  box-sizing: border-box;
+  pointer-events: none;
 }
 .session-agents-indicator:hover .live-work-popover,
-.session-agents-indicator:focus-within .live-work-popover { opacity: 1; visibility: visible; }
+.session-agents-indicator:focus-within .live-work-popover,
+/* Shell chip: the click-pinned list survives the pointer leaving the chip. */
+.session-agents-indicator[data-open="true"] .live-work-popover { opacity: 1; visibility: visible; }
 .session-context-indicator {
   position: relative;
   width: 28px;
@@ -10320,13 +10690,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .context-mix [data-context-key="messages"] { --ctx-color: #a091d6; }
 .context-mix [data-context-key="tools"] { --ctx-color: #7fae7f; }
 .context-mix [data-context-key="mcp"] { --ctx-color: #c493b8; }
+.context-mix [data-context-key="agents"] { --ctx-color: #b58bc3; }
 .context-mix [data-context-key="skills"] { --ctx-color: #cfa963; }
 .context-mix [data-context-key="memory"] { --ctx-color: #74a6bd; }
-.context-mix [data-context-key="session"] { --ctx-color: #bd8674; }
-.context-mix [data-context-key="workflow"] { --ctx-color: #94ad70; }
 .context-mix [data-context-key="system"] { --ctx-color: #8f8a81; }
-.context-mix [data-context-key="tool-io"] { --ctx-color: #b8a377; }
-.context-mix [data-context-key="request"] { --ctx-color: #7a756c; }
+.context-mix [data-context-key="free"] { --ctx-color: #6f777d; }
+.context-mix [data-context-key="autocompact"] { --ctx-color: #7a756c; }
 @media (max-width: 640px) {
   .context-mix-grid { grid-template-columns: 1fr; }
   .context-usage-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
@@ -10443,7 +10812,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: flex;
   align-items: center;
   overflow: hidden;
-  font-size: var(--mx-font-body);
+  font-size: var(--mx-font-panel-title);
   line-height: var(--mx-line-ui);
 }
 .utility-dock-title b,
@@ -14980,7 +15349,7 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
 .session-panel-section-title,
 .sidebar-section-title {
   color: var(--mx-text);
-  font-size: var(--mx-font-body);
+  font-size: var(--mx-font-category);
   font-weight: var(--mx-weight-semibold);
 }
 /* ── Rail gutter ───────────────────────────────────────────────────────────
@@ -15017,14 +15386,24 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
 .session-sidebar .session-group h2,
 .session-sidebar .sidebar-section-heading,
 .session-sidebar .project-group-heading { padding-inline: 0; }
-.session-sidebar .session-row,
+/* Recent/Automations/Remote/Archived rows all start flush on the heading
+   line; only the trailing gutter stays for the spinner/unread column. */
+.session-sidebar .session-row { padding-inline: 0 var(--mx-rail-gutter); }
 .session-sidebar-panels .session-row,
 .utility-dock .session-row { padding-inline: var(--mx-rail-gutter); }
 .session-sidebar-panels .schedules-row,
 .utility-dock .schedules-row { padding: 12px var(--mx-rail-gutter); }
 .session-sidebar-panels .workflows-section-head { padding: 6px 0 0; }
 .utility-dock .workflows-section-head { padding: 6px var(--mx-rail-gutter) 0; }
-.utility-dock .agent-activity-page .workflows-section-head { padding-inline: 0; }
+/* min-width:0 keeps the heading row inside its grid area (default `auto`
+   floors a grid item at its min-content width, which nowrap text makes the
+   full title). Without it the head still overflowed the pinned track. */
+.utility-dock .agent-activity-page .workflows-section-head {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding-inline: 0;
+}
 .session-sidebar-panels .workflows-section-head h2,
 .utility-dock .workflows-section-head h2 { padding: 0; }
 .session-sidebar-panels .workflows-models h2 { padding: 0; }
@@ -15036,19 +15415,21 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
 .session-sidebar-panels .schedules-list,
 .utility-dock .schedules-list { gap: var(--mx-rail-gap); }
 /* ── Rail type ramp ──────────────────────────────────────────────────────
-   ONE descending ladder on BOTH rails (user: 헤더 → 카테고리 → 아이템
-   폰트 → 항목 순서로 정렬돼야지 — 헤더가 아이템 제목보다 작으면 안 된다):
-   panel title 15/600 full ink = category/section heads 15/600 full ink >
-   item titles 13/400 full ink > meta 12/400 muted. Size separates heading
-   from row; weight separates heading from meta. Text walks the 12px gutter,
-   trailing actions land on the shared right column. */
-.utility-dock-title { font-size: var(--mx-font-body); }
+   Shared left/right/bottom ladder: panel 15 > category 14 > item/tab/group
+   13 > meta 12. Text walks the 12px gutter; trailing actions land on the
+   shared right column. */
 .session-sidebar .sidebar-recent-heading { padding-inline: 0; }
 .session-sidebar-panels .workflows-section-head h2,
 .utility-dock .workflows-section-head h2 {
-  font-size: var(--mx-font-body);
+  font-size: var(--mx-font-category);
   font-weight: var(--mx-weight-semibold);
   color: var(--mx-text);
+}
+/* Agent groups are session entities, not categories. Semibold distinguishes
+   the group label from its 13/400 agent cards without promoting it to 14px. */
+.utility-dock .agent-activity-page .agent-session-heading h2 {
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-semibold);
 }
 
 /* ── Color roles ───────────────────────────────────────────────────────────

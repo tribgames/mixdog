@@ -42,11 +42,7 @@ const PROGRAMMATIC_WINDOW_MS = 1_500;
 const PROGRAMMATIC_MEMORY = 12;
 
 /**
- * Content-commit bottom rule, shared by all three reference implementations:
- * Claude Code (`render-node-to-output.ts`: `sticky || (grew && scrollTop >=
- * prevMaxScroll)`), opencode (`session.tsx`: `distance < 10 + max(0, delta)`)
- * and Codex (`pager_overlay.rs`: snapshot `is_scrolled_to_bottom()` BEFORE the
- * mutation, re-pin after). All three answer ONE question — was the viewport at
+ * Content-commit bottom rule: was the viewport at
  * the bottom BEFORE this growth? — and they answer it from a SNAPSHOT taken
  * before the mutation, never from the distance the mutation left behind.
  *
@@ -575,8 +571,8 @@ export function useTranscriptFollow({
         return;
       }
       if (!followingRef.current) {
-        // Reference parity (CC sticky restore, Codex `follow_bottom`): a commit
-        // that GREW while the viewport still sat at the previous bottom means
+        // A growing commit while the viewport still sat at the previous bottom
+        // means
         // the reader never left the tail, so the flag is restored and the new
         // bottom is taken. A turn that opens with a tool card and no preamble
         // lands its whole card in one commit, which is precisely the case the

@@ -322,10 +322,17 @@ export async function editCore(dataDir, id, patch) {
   const db = _getDb(dataDir)
   const cur = (await db.query(`SELECT * FROM core_entries WHERE id = $1`, [numId])).rows[0]
   if (!cur) throw new Error(`no entry with id=${numId}`)
+  if (Object.prototype.hasOwnProperty.call(patch, 'expectedProjectId')
+      && (patch.expectedProjectId ?? null) !== (cur.project_id ?? null)) {
+    throw new Error(`entry id=${numId} is not in project ${patch.expectedProjectId ?? 'COMMON'}`)
+  }
   const incoming = normalizeCoreInput(patch)
   const newElement = incoming.element ?? cur.element
   const newSummary = incoming.summary ?? cur.summary
   const newCategory = incoming.suppliedCategory ? incoming.category : cur.category
+  const newProjectId = Object.prototype.hasOwnProperty.call(patch, 'targetProjectId')
+    ? (patch.targetProjectId ?? null)
+    : (cur.project_id ?? null)
   const { errors } = normalizeCoreInput({
     element: newElement,
     summary: newSummary,
@@ -336,12 +343,14 @@ export async function editCore(dataDir, id, patch) {
     requireCategory: true,
   })
   if (errors.length) throw new Error(errors.join('; '))
-  if (newElement === cur.element && newSummary === cur.summary && newCategory === cur.category) {
+  if (newElement === cur.element && newSummary === cur.summary && newCategory === cur.category
+      && newProjectId === (cur.project_id ?? null)) {
     throw new Error('no change')
   }
   const now = Date.now()
   const textChanged = newElement !== cur.element || newSummary !== cur.summary
-  if (!textChanged) {
+  const projectChanged = newProjectId !== (cur.project_id ?? null)
+  if (!textChanged && !projectChanged) {
     await db.query(
       `UPDATE core_entries SET category = $1, updated_at = $2 WHERE id = $3`,
       [newCategory, now, numId],
@@ -355,17 +364,24 @@ export async function editCore(dataDir, id, patch) {
   try {
     await client.query('BEGIN')
     await client.query(`SET LOCAL lock_timeout = '5s'`)
-    const poolKey = `core:${cur.project_id == null ? 'COMMON' : cur.project_id}`
-    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [poolKey])
-    const candidates = await _findTopKCore(client, cur.project_id, embedding, numId, { forUpdate: true })
+    const poolKeys = [
+      `core:${cur.project_id == null ? 'COMMON' : cur.project_id}`,
+      `core:${newProjectId == null ? 'COMMON' : newProjectId}`,
+    ].sort()
+    for (const poolKey of new Set(poolKeys)) {
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [poolKey])
+    }
+    const candidates = await _findTopKCore(client, newProjectId, embedding, numId, { forUpdate: true })
     const mergeTarget = await _resolveMergeTarget(candidates, { element: newElement, summary: newSummary })
     if (mergeTarget) {
       const r = await client.query(
         `UPDATE core_entries
-         SET element = $1, summary = $2, category = $3, embedding = $4::halfvec, updated_at = $5
-         WHERE id = $6
+         SET element = $1, summary = $2, category = $3, project_id = $4,
+             embedding = $5::halfvec, updated_at = $6
+         WHERE id = $7
          RETURNING id, element, summary, category, project_id, created_at, updated_at`,
-        [newElement, newSummary, newCategory, embedding ? embeddingToSql(embedding) : null, now, mergeTarget.id],
+        [newElement, newSummary, newCategory, newProjectId,
+          embedding ? embeddingToSql(embedding) : null, now, mergeTarget.id],
       )
       await client.query(`DELETE FROM core_entries WHERE id = $1`, [numId])
       await client.query('COMMIT')
@@ -373,11 +389,22 @@ export async function editCore(dataDir, id, patch) {
       return { ...row, merged_from: numId, merged_with: mergeTarget.id, sim: Number(mergeTarget.sim).toFixed(3) }
     }
     await client.query(
-      `UPDATE core_entries SET element = $1, summary = $2, category = $3, embedding = $4::halfvec, updated_at = $5 WHERE id = $6`,
-      [newElement, newSummary, newCategory, embedding ? embeddingToSql(embedding) : null, now, numId],
+      `UPDATE core_entries
+       SET element = $1, summary = $2, category = $3, project_id = $4,
+           embedding = $5::halfvec, updated_at = $6
+       WHERE id = $7`,
+      [newElement, newSummary, newCategory, newProjectId,
+        embedding ? embeddingToSql(embedding) : null, now, numId],
     )
     await client.query('COMMIT')
-    return { ...cur, element: newElement, summary: newSummary, category: newCategory, updated_at: now }
+    return {
+      ...cur,
+      element: newElement,
+      summary: newSummary,
+      category: newCategory,
+      project_id: newProjectId,
+      updated_at: now,
+    }
   } catch (err) {
     try { await client.query('ROLLBACK') } catch {}
     throw err

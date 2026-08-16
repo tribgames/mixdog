@@ -66,6 +66,20 @@ function agentActivityIdentity(snapshot: Snapshot): string {
   }).join("\0");
 }
 
+function shellActivityCount(snapshot: Snapshot): number {
+  return Math.max(
+    Math.max(0, Number(snapshot.shellJobs?.count) || 0),
+    Math.max(0, Number(snapshot.activeTools?.shell?.count) || 0),
+  );
+}
+
+function surfacedToolActivityIdentity(snapshot: Snapshot): string {
+  return (["agent", "search", "shell"] as const).map((field) => {
+    const activity = snapshot.activeTools?.[field];
+    return `${field}:${Math.max(0, Number(activity?.count) || 0)}:${Number(activity?.startedAt) || 0}`;
+  }).join("\0");
+}
+
 function laneUpdateIsUrgent(previous: Snapshot | null, next: Snapshot | null): boolean {
   if (!previous || !next) return true;
   return previous.sessionId !== next.sessionId
@@ -74,7 +88,9 @@ function laneUpdateIsUrgent(previous: Snapshot | null, next: Snapshot | null): b
     || previous.commandStatus !== next.commandStatus
     || previous.toolApproval !== next.toolApproval
     || queuedIdentity(previous) !== queuedIdentity(next)
-    || agentActivityIdentity(previous) !== agentActivityIdentity(next);
+    || agentActivityIdentity(previous) !== agentActivityIdentity(next)
+    || surfacedToolActivityIdentity(previous) !== surfacedToolActivityIdentity(next)
+    || shellActivityCount(previous) !== shellActivityCount(next);
 }
 
 // Only the transcript's completeness is reconciled here:

@@ -41,7 +41,7 @@
   "presets": {
     "sol-xhigh": {
       "suite": "core",
-      "routeProfile": "sol-xhigh"
+      "routeProfile": "sol-xhigh-nofast"
     },
     "grok46-xhigh": {
       "suite": "core",

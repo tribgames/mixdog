@@ -180,7 +180,7 @@ export function PromptInput({
   };
 
   // Keep prompt echo on the same leading+trailing immediate cadence while a
-  // turn is active. Claude Code keeps mid-turn typing responsive; suppressing
+  // turn is active. Mid-turn typing stays responsive; suppressing
   // this path made the draft visibly trail the keyboard under streaming load.
   const scheduleImmediateFlush = () => {
     schedulePromptImmediateFlush({
@@ -872,7 +872,7 @@ export function PromptInput({
         return;
       }
       // Empty draft + conversation history: first press arms, the second
-      // opens the message selector (Claude Code's jump-back list).
+      // opens the message selector.
       if (escape.action === 'arm-select') {
         onEscape?.('', { phase: 'select-arm' });
         return;

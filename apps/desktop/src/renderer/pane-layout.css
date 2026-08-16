@@ -194,8 +194,8 @@
   gap: 2px;
   flex: 0 0 auto;
   height: 36px;
-  /* Header tier: the panel destinations title the whole surface, so they
-     share the 15/600 rail-header scale instead of tiny utility-caption text. */
+  /* Bottom-rail tabs use the shared 13px item tier; the panel band itself is
+     structural chrome, not another 15px panel title. */
   padding: 0 8px 0 4px;
   border-bottom: 1px solid var(--mx-border-muted);
 }
@@ -225,8 +225,8 @@
   opacity: var(--mx-op-secondary);
   font: inherit;
   height: 36px;
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-semibold);
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-regular);
   padding: 0 8px;
   text-transform: none;
   white-space: nowrap;
@@ -249,6 +249,7 @@
 }
 .bottom-panel-tab.is-active {
   opacity: 1;
+  font-weight: var(--mx-weight-medium);
 }
 .bottom-panel-tabs-spacer {
   flex: 0 0 0;

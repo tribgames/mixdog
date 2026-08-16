@@ -8,7 +8,7 @@ export function mergeQueuedRestoreText(queuedText = '', currentText = '') {
 }
 
 /**
- * Claude Code inserts reclaimed queued commands before the current input while
+ * Reclaimed queued commands are inserted before the current input while
  * preserving the caret's position inside that input. Keep the same invariant
  * when a daemon-backed restore settles after further local editing.
  */

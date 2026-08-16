@@ -22,7 +22,11 @@ import type {
   DesktopSessionSummary
 } from "../shared/contract";
 import { sessionSummaryTitle } from "../shared/session-title.mjs";
-import { DESKTOP_SIDEBAR_MIN_WIDTH } from "../shared/window-layout";
+import {
+  clampDesktopPanelWidth,
+  DESKTOP_SIDEBAR_DEFAULT_WIDTH,
+  DESKTOP_SIDEBAR_MIN_WIDTH,
+} from "../shared/window-layout";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { t } from "./i18n";
 
@@ -52,15 +56,13 @@ export function projectIdentity(path: string | null | undefined) {
 }
 
 
-// Wider default rail (user: 사이드탭이 너무 좁다): the project/session cards
-// need room for a two-line row plus the 12px gutters.
-const DEFAULT_SIDEBAR_WIDTH = 300;
+const DEFAULT_SIDEBAR_WIDTH = DESKTOP_SIDEBAR_DEFAULT_WIDTH;
 const MIN_SIDEBAR_WIDTH = DESKTOP_SIDEBAR_MIN_WIDTH;
 const MAX_SIDEBAR_WIDTH = 420;
 const SIDEBAR_WIDTH_KEY = "mixdog:session-sidebar-width";
 
 function clampSidebarWidth(value: number) {
-  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(value)));
+  return clampDesktopPanelWidth(value, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
 }
 
 function storedSidebarWidth() {
@@ -444,7 +446,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         flexShrink: open ? 1 : 0,
       } as React.CSSProperties}
     >
-      {/* VS Code side-bar grammar: the panel titles itself; every primary
+      {/* The panel titles itself; every primary
           navigation control lives on the Activity Rail to the left. */}
       <header className="session-panel-header">
         <span className="session-panel-title">{panelActive ? t(panelTitle) : t("Sessions")}</span>

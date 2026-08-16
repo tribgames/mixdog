@@ -133,7 +133,7 @@ export const FilesRootPane = memo(function FilesRootPane({
       .then((entries) => patch(rel, { entries: entries ?? [] }))
       .catch((reason) => patch(rel, { entries: [], error: reason instanceof Error ? reason.message : String(reason) }));
   }, [api, projectPath, patch]);
-  // Selection / focus / clipboard state (VS Code multi-select list grammar).
+  // Selection, focus, and clipboard state for the multi-select list.
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [focusedRel, setFocusedRel] = useState("");
   const anchorRel = useRef("");

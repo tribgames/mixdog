@@ -1,7 +1,7 @@
 /**
  * src/tui/session/turn.mjs - lead TUI turn session runtime (createRunTurn). Extracted from session-local.mjs.
  */
-import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, summarizeToolResult } from '../../runtime/shared/tool-surface.mjs';
+import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, summarizeToolResult, toolLoadingTargets } from '../../runtime/shared/tool-surface.mjs';
 import { applyUsageDelta } from './session-stats.mjs';
 import { pickVerb, pickDoneVerb, compactEventLabel, compactEventDetail } from './labels.mjs';
 import { toolResultText, toolErrorDisplay, stripShellExitHeader } from './tool-result-text.mjs';
@@ -400,9 +400,16 @@ export function createRunTurn(bag) {
 
     const syncAggregateHeader = (aggregate) => {
       if (!aggregate?.itemId) return;
+      const loadingTargetGroups = [...aggregate.calls.values()]
+        .map((call) => toolLoadingTargets(call.name, call.args));
+      const loadingTargets = loadingTargetGroups.length > 0
+        && loadingTargetGroups.every((targets) => targets.length > 0)
+        ? [...new Set(loadingTargetGroups.flat())]
+        : [];
       const patch = {
         args: {
           categoryOrder: aggregate.categoryOrder.slice(),
+          ...(loadingTargets.length > 0 ? { loadingTargets } : {}),
           ...(aggregate.verifyShell ? { verifyShell: true } : {}),
         },
         count: aggregate.calls.size,
@@ -1100,7 +1107,7 @@ export function createRunTurn(bag) {
           if (String(chunk ?? '')) {
             if (!markTurnProgress('reasoning-delta')) return;
           }
-          // Reasoning is NOT a commit boundary (Claude Code parity): a turn
+          // Reasoning is not a commit boundary: a turn
           // interrupted while it is still thinking produced no model-visible
           // message, so Esc must hand the prompt back to the input box. Text,
           // tool calls and turn end still commit it below.

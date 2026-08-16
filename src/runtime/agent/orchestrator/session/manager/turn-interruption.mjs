@@ -81,7 +81,7 @@ function finalizeInterruptedTurn({
     // aborts without a closeReason enum); named non-user reasons preserve.
     const userCancelled = abortReason == null
         || USER_CANCEL_ABORT_REASONS.has(abortReason);
-    // Claude Code parity: a turn cancelled while the model was only THINKING
+    // A turn cancelled while the model was only thinking
     // produced no model-visible message, so the provisional user turn is
     // rewound and the prompt goes back to the input box. Anything the model
     // actually said or did — committed messages from this turn, buffered text,

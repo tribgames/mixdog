@@ -2,7 +2,7 @@ import { loadConfig } from '../config.mjs';
 import { getProvider, initProviders } from '../providers/registry.mjs';
 import { resolveMaintenanceRoute } from './maintenance-route.mjs';
 
-export const TITLE_SYSTEM_PROMPT = "Create a concise session title from the provided message or conversation. Output only one title on one line, at most 32 characters; no quotes, markdown, or trailing period.";
+export const TITLE_SYSTEM_PROMPT = "Create a concise, natural session title of 3-7 words that captures the main topic or goal of the provided message or conversation. Output only one title on one line, at most 32 characters; no quotes, markdown, or trailing period.";
 
 export function titleSystemPrompt(locale = '') {
     const systemLocale = String(locale || '').trim();

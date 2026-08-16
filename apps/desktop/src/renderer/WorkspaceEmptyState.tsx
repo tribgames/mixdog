@@ -30,7 +30,6 @@ export function WorkspaceEmptyState(): React.JSX.Element {
         <div className="welcome-shortcuts" aria-label={t("Keyboard shortcuts")}>
           <div><span>{t("New task")}</span><span className="welcome-keys"><kbd>Ctrl</kbd><i>+</i><kbd>N</kbd></span></div>
           <div><span>{t("Switch tab")}</span><span className="welcome-keys"><kbd>Ctrl</kbd><i>+</i><kbd>←</kbd><i>/</i><kbd>→</kbd></span></div>
-          <div><span>{t("Switch pane")}</span><span className="welcome-keys"><kbd>Alt</kbd><i>+</i><kbd>←</kbd><i>/</i><kbd>→</kbd></span></div>
           <div><span>{t("Sidebar")}</span><span className="welcome-keys"><kbd>Ctrl</kbd><i>+</i><kbd>B</kbd></span></div>
           <div><span>{t("Settings")}</span><span className="welcome-keys"><kbd>Ctrl</kbd><i>+</i><kbd>,</kbd></span></div>
         </div>

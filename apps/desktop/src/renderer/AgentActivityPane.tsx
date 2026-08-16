@@ -1,5 +1,5 @@
 import { Bot } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
 import {
@@ -13,7 +13,7 @@ import { FastModeIndicator } from './FastModeToggle';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 import { modelDisplayName } from './provider-display';
-import { formatWorkElapsed, timeMs } from './TranscriptView';
+import { formatWorkElapsed, TextShimmer, timeMs } from './TranscriptView';
 
 type RecordValue = Record<string, unknown>;
 
@@ -169,72 +169,161 @@ function poolOwnerId(agent: DesktopAgentPoolRow): string {
   return String(agent.ownerSessionId || agent.sessionId || '').trim();
 }
 
+/** Ordering signal for the dock: the moment an agent LAST WENT IDLE (user
+ *  decision: 유휴시간으로만). A working agent has no idle stamp, so it keeps
+ *  its previous position and the list only reshuffles when work actually
+ *  settles — the session catalog's activityAt reordered rows mid-turn. */
+function poolRowIdleAt(agent: DesktopAgentPoolRow): number {
+  const idle = timeMs(agent.idleSince);
+  if (idle) return idle;
+  // A working row has NO idle stamp, and its updatedAt is the live heartbeat:
+  // ranking on it made every running session climb on each tick, so cards
+  // leapfrogged mid-turn (user: 위아래로 튄다). The turn/start stamps are
+  // frozen for the whole turn, so a live row holds its place until it stops.
+  return timeMs(agent.turnStartedAt)
+    || timeMs(agent.startedAt)
+    || timeMs(agent.createdAt);
+}
+
+/** Sticky ordering stamp for one owner group. The pool decides `working` from
+ *  a 2-minute heartbeat freshness window, so `idleSince` can vanish and come
+ *  back mid-turn and a raw ranking swapped rows on every flip (user: 하트비트
+ *  때문에 뒤죽박죽). A group's stamp therefore only ever ADVANCES, and only
+ *  when a genuinely newer turn start or idle moment lands. */
+export function stickyGroupOrder(
+  previous: ReadonlyMap<string, number>,
+  ownerId: string,
+  agents: readonly DesktopAgentPoolRow[],
+): number {
+  const prior = previous.get(ownerId) || 0;
+  // Two moments move a group, and both are FROZEN values: the turn it started
+  // and the moment it went idle (user decision: 작업 시작 시 1회, 완료 시 1회).
+  // The live heartbeat in updatedAt stays out of the ranking, so a running
+  // session climbs once and then holds its slot for the whole turn.
+  const moment = Math.max(
+    0,
+    ...agents.map((agent) => Math.max(timeMs(agent.idleSince), timeMs(agent.turnStartedAt))),
+  );
+  if (moment > prior) return moment;
+  if (prior) return prior;
+  // First sighting while still working: seed from the frozen turn/start stamps
+  // so a new group lands in a sane slot instead of the bottom.
+  return Math.max(0, ...agents.map(poolRowIdleAt));
+}
+
+export function visibleAgentActivityRow(agent: DesktopAgentPoolRow): boolean {
+  const identity = String(agent.agent || String(agent.tag || '').split(':')[0] || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-');
+  return identity !== 'maintainer' && identity !== 'web-search' && identity !== 'websearch';
+}
+
 function AgentPoolRow({
   agent,
   clock,
   ownerSessionId,
+  unread = false,
+  onOpenLeadSession,
   onOpenSession,
 }: {
   agent: DesktopAgentPoolRow;
   clock: number;
   ownerSessionId: string;
+  /** The owner session has unseen activity: this rest is a FINISHED turn, not
+   *  an idle sit — the row carries the completion notice the Recent dot does. */
+  unread?: boolean;
+  onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }): React.ReactElement {
   const queued = isQueuedDesktopAgentEntry(agent);
   const running = isActiveDesktopAgentEntry(agent) && !queued;
   const role = agentRoleLabel(agent.agent || agent.tag);
+  const sessionId = String(agent.sessionId || '').trim();
+  const lead = Boolean(sessionId) && sessionId === ownerSessionId;
+  const tag = String(agent.tag || '').trim();
+  const sessionTitle = String(agent.title || '').trim();
+  const name = !lead && tag && tag.toLowerCase() !== role.toLowerCase()
+    ? `${role} · ${tag}`
+    : role;
   const elapsedBase = timeMs(agent.turnStartedAt) || timeMs(agent.startedAt);
-  const idleBase = timeMs(agent.finishedAt) || timeMs(agent.updatedAt);
-  const idleElapsed = idleBase ? formatWorkElapsed(clock - idleBase) || '0s' : '';
+  // Idle duration carries no information (user: 대기중인데 왜 시간 표기하냐):
+  // a resting agent's card says only that it rests. Time belongs to work.
+  const done = !queued && !running && unread;
+  const workMeta = elapsedBase
+    ? formatWorkElapsed(clock - elapsedBase) || '0s'
+    : desktopAgentStatus(agent);
   const elapsed = queued
     ? t('Queued')
     : running
-      ? (elapsedBase ? formatWorkElapsed(clock - elapsedBase) || '0s' : desktopAgentStatus(agent))
-      : [t('Idle'), idleElapsed].filter(Boolean).join(' · ');
+      ? [t('Working'), workMeta].filter(Boolean).join(' · ')
+      : done
+        ? t('Completed')
+        : t('Idle');
   const modelLabel = modelDisplayName(String(agent.model || ''), String(agent.provider || ''));
   const effortValue = String(agent.effort || '').trim();
   const effortLabel = effortValue
     ? `${effortValue.slice(0, 1).toLocaleUpperCase()}${effortValue.slice(1)}`
     : '';
   const routeLabel = [modelLabel, effortLabel].filter(Boolean).join(' · ');
-  const sessionId = String(agent.sessionId || '').trim();
-  return <div className="schedules-row workflows-agent-summary-row">
-    <button type="button" className="schedules-row-copy projects-row-open"
-      data-agent-tag={agent.tag || undefined}
-      data-agent-session-id={sessionId || undefined}
-      aria-label={agent.tag || role}
-      disabled={!sessionId}
-      onClick={() => {
-        if (sessionId) onOpenSession?.(sessionId, agent.tag || role, ownerSessionId);
-      }}>
-      <b>{role}</b>
+  return <button type="button"
+    className="schedules-row workflows-agent-summary-row agent-pool-row"
+    data-agent-tag={agent.tag || undefined}
+    data-agent-session-id={sessionId || undefined}
+    aria-label={name}
+    disabled={!sessionId}
+    onClick={() => {
+      if (!sessionId) return;
+      if (lead) onOpenLeadSession?.(ownerSessionId);
+      else onOpenSession?.(sessionId, sessionTitle || role, ownerSessionId);
+    }}>
+    <span className="schedules-row-copy">
+      <b className="agent-pool-name">{name}</b>
       <small className="agent-route-summary" title={String(agent.model || '') || undefined}>
         <span>{routeLabel}</span>
         {agent.fast === true && <FastModeIndicator />}
       </small>
-    </button>
-    <span className="agent-activity-status">
-      {running && <ProgressSpinner size={16} role="status"
-        aria-label={t('{{name}} is running', { name: role })} />}
-      <time className="agent-activity-elapsed">{elapsed}</time>
     </span>
-  </div>;
+    {/* A per-row spinner spun on every visible card at once and carried no
+        information the label lacks (user: 스피너 차라리 없는게 좋을거같다).
+        The status word plus elapsed time says the same thing, quietly. */}
+    <span className="agent-activity-status">
+      {/* Live work borrows the transcript's thinking grammar: the VERB carries
+          the sweep and the clock stays static beside it. A shimmer over the
+          ticking time would remount every second (TextShimmer keys on its
+          text) and restart the glint before it ever crossed the phrase. */}
+      <time className="agent-activity-elapsed" aria-label={elapsed}
+        data-state={queued ? 'queued' : running ? 'running' : done ? 'done' : 'idle'}>
+        {running
+          ? <>
+            <TextShimmer text={t('Working')} />
+            {workMeta && <span className="agent-activity-elapsed-meta">{workMeta}</span>}
+          </>
+          : elapsed}
+      </time>
+    </span>
+  </button>;
 }
 
 export function AgentActivityPane({
   active,
   sessions,
+  unreadSessionIds,
   onOpenLeadSession,
   onOpenSession,
 }: {
   active: boolean;
   sessions: readonly DesktopSessionSummary[];
   activeSessionIds?: readonly string[];
+  /** Recent-list unread set: an idle row whose session is unseen reads as
+   *  "완료" until the session is actually opened. */
+  unreadSessionIds?: ReadonlySet<string>;
   onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }): React.ReactElement {
   const [agents, setAgents] = useState<DesktopAgentPoolRow[] | null>(null);
   const [clock, setClock] = useState(() => Date.now());
+  const orderRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     const host = window.mixdogDesktop;
     if (typeof host?.listAgentPool !== 'function') {
@@ -262,16 +351,22 @@ export function AgentActivityPane({
   const groups = useMemo(() => {
     const byOwner = new Map<string, {
       ownerId: string;
-      session?: DesktopSessionSummary;
+      session: DesktopSessionSummary;
       agents: DesktopAgentPoolRow[];
     }>();
     const sessionById = new Map(sessions.map((session) => [session.id, session]));
     for (const agent of agents || []) {
+      if (!visibleAgentActivityRow(agent)) continue;
       const ownerId = poolOwnerId(agent);
       if (!ownerId) continue;
+      const session = sessionById.get(ownerId);
+      // Internal control reservations and abandoned pre-submit runtimes are
+      // resident pool entries, not user tasks. A real Lead is visible only
+      // once its owner has a resumable session-catalog row.
+      if (!session) continue;
       let group = byOwner.get(ownerId);
       if (!group) {
-        group = { ownerId, session: sessionById.get(ownerId), agents: [] };
+        group = { ownerId, session, agents: [] };
         byOwner.set(ownerId, group);
       }
       group.agents.push(agent);
@@ -283,9 +378,16 @@ export function AgentActivityPane({
         return leftLead - rightLead;
       });
     }
+    // Rebuilt each pass so departed sessions drop out; surviving groups carry
+    // their stamp forward, which is what keeps live rows from shuffling.
+    const order = new Map<string, number>();
+    for (const group of byOwner.values()) {
+      order.set(group.ownerId, stickyGroupOrder(orderRef.current, group.ownerId, group.agents));
+    }
+    orderRef.current = order;
     return [...byOwner.values()].sort((left, right) => {
-      const leftTime = Number(left.session?.activityAt || left.session?.updatedAt) || 0;
-      const rightTime = Number(right.session?.activityAt || right.session?.updatedAt) || 0;
+      const leftTime = order.get(left.ownerId) || 0;
+      const rightTime = order.get(right.ownerId) || 0;
       return rightTime - leftTime || left.ownerId.localeCompare(right.ownerId);
     });
   }, [agents, sessions]);
@@ -313,7 +415,7 @@ export function AgentActivityPane({
   </div>;
   return <div className="schedules-page agent-activity-page">
     {groups.map((group) => {
-      const title = group.session ? sessionSummaryTitle(group.session) : group.ownerId;
+      const title = sessionSummaryTitle(group.session);
       return <section key={group.ownerId} className="workflows-models"
         data-agent-owner-session-id={group.ownerId}>
         <div className="workflows-section-head">
@@ -329,6 +431,9 @@ export function AgentActivityPane({
             agent={agent}
             clock={clock}
             ownerSessionId={group.ownerId}
+            unread={unreadSessionIds?.has(group.ownerId) === true
+              || unreadSessionIds?.has(String(agent.sessionId || '')) === true}
+            onOpenLeadSession={onOpenLeadSession}
             onOpenSession={onOpenSession} />)}
         </div>
       </section>;

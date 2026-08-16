@@ -127,6 +127,8 @@ class RoutingProfileTests(unittest.TestCase):
                 "sol-xhigh-nofast",
                 "sol-luna-terra-max",
                 "grok46-xhigh",
+                "grok46-high",
+                "grokbuild",
                 "opus5-solo",
                 "opus5-solo-med",
                 "opus48-solo",
@@ -399,12 +401,11 @@ class RoutingProfileTests(unittest.TestCase):
             fable_opus_workers_profile["routes"]["heavy-worker"],
         )
         sol_profile = load_route_profile("sol-xhigh")
-        self.assertEqual(tuple(sol_profile["routes"]), PROFILE_ROLES)
+        self.assertEqual(tuple(sol_profile["routes"]), ("lead",))
         self.assertNotIn("leadFallback", sol_profile)
         self.assertEqual(
             sol_profile["routes"],
             {
-                **opus_profile["routes"],
                 "lead": {
                     "provider": "openai-oauth",
                     "model": "gpt-5.6-sol",
@@ -413,6 +414,17 @@ class RoutingProfileTests(unittest.TestCase):
                 },
             },
         )
+        for profile_name in (
+            "sol-xhigh-nofast",
+            "grok46-xhigh",
+            "grok46-high",
+            "opus5-solo",
+            "grokbuild",
+        ):
+            with self.subTest(profile=profile_name):
+                self.assertEqual(
+                    tuple(load_route_profile(profile_name)["routes"]), ("lead",)
+                )
 
     def test_schema_rejects_malformed_documents(self) -> None:
         cases = []
@@ -423,8 +435,13 @@ class RoutingProfileTests(unittest.TestCase):
         boolean_version["schemaVersion"] = True
         cases.append(boolean_version)
         missing_role = copy.deepcopy(self.document)
-        del missing_role["profiles"]["fable-xhigh"]["routes"]["reviewer"]
+        del missing_role["profiles"]["fable-xhigh"]["routes"]["lead"]
         cases.append(missing_role)
+        unknown_role = copy.deepcopy(self.document)
+        unknown_role["profiles"]["sol-xhigh"]["routes"]["unknown"] = copy.deepcopy(
+            unknown_role["profiles"]["sol-xhigh"]["routes"]["lead"]
+        )
+        cases.append(unknown_role)
         invalid_effort = copy.deepcopy(self.document)
         invalid_effort["profiles"]["fable-xhigh"]["routes"]["lead"]["effort"] = "ultra"
         cases.append(invalid_effort)
@@ -573,6 +590,34 @@ class RoutingProfileTests(unittest.TestCase):
             "outputStyle",
         ):
             self.assertNotIn(f'"{personal_key}"', serialized)
+
+    def test_lead_only_profile_omits_subagent_routes(self) -> None:
+        profile = load_route_profile("sol-xhigh-nofast")
+        config = build_benchmark_config(profile, "default")
+        self.assertEqual(config["agent"]["agents"], {})
+        self.assertEqual(
+            format_resolved_routes("sol-xhigh-nofast", profile),
+            "route-profile sol-xhigh-nofast: "
+            "lead=openai-oauth/gpt-5.6-sol effort=xhigh fast=false",
+        )
+
+        host = {
+            "agent": {
+                "workflowRoutes": {},
+                "agents": {
+                    "worker": {"provider": "old", "model": "old"},
+                    "maintenance": {"provider": "keep", "model": "keep"},
+                },
+                "presets": [],
+                "modelSettings": {},
+            }
+        }
+        merged = merge_route_profile(host, profile)
+        self.assertNotIn("worker", merged["agent"]["agents"])
+        self.assertEqual(
+            merged["agent"]["agents"]["maintenance"],
+            host["agent"]["agents"]["maintenance"],
+        )
 
     def test_real_runtime_helpers_resolve_merged_lead_and_agent_routes(self) -> None:
         if shutil.which("node") is None:

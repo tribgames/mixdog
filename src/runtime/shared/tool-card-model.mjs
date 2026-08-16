@@ -19,6 +19,7 @@ import {
   formatToolSurface,
   summarizeAgentSurfaceBrief,
   summarizeToolResult,
+  toolLoadingTargets,
 } from './tool-surface.mjs';
 import { backgroundTaskFailureStatusLabel, isBackgroundErrorOnlyBody } from './err-text.mjs';
 import { normalizeToolTerminalStatus, toolResultTerminalStatus } from './tool-status.mjs';
@@ -607,10 +608,17 @@ export function deriveToolCardModel(input = {}, options = {}) {
     );
     const displayDone = hasDoneCounts ? normalizedDone : displayCategories;
     const headerOrder = Array.isArray(args?.categoryOrder) ? args.categoryOrder : null;
-    const labelText = safeInlineText(formatAggregateHeader(
-      (headerPending ? displayCategories : displayDone) || {},
-      { pending: headerPending, order: headerOrder },
-    ));
+    const aggregateLoadingTargets = [...new Set(
+      (Array.isArray(args?.loadingTargets) ? args.loadingTargets : [])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean),
+    )];
+    const labelText = safeInlineText(aggregateLoadingTargets.length
+      ? `${headerPending ? 'Loading' : 'Loaded'} ${aggregateLoadingTargets.join(', ')}`
+      : formatAggregateHeader(
+          (headerPending ? displayCategories : displayDone) || {},
+          { pending: headerPending, order: headerOrder },
+        ));
     const detailText = hasResult ? safeInlineText(rt) : '';
     const terminalStatus = pending
       ? 'running'
@@ -755,7 +763,10 @@ export function deriveToolCardModel(input = {}, options = {}) {
   const summaryIsHeaderCount = rawSummaryText
     && /^\d+\s+\S+$/.test(rawSummaryText)
     && labelText.endsWith(rawSummaryText);
-  const summaryText = summaryIsHeaderCount ? '' : rawSummaryText;
+  const loadingTargets = toolLoadingTargets(normalizedName, parsedArgs);
+  const summaryIsLoadingTargets = loadingTargets.length > 0
+    && rawSummaryText === loadingTargets.join(', ');
+  const summaryText = summaryIsHeaderCount || summaryIsLoadingTargets ? '' : rawSummaryText;
 
   return {
     aggregate: false, pending, headerPending, groupCount, doneCount, elapsed,

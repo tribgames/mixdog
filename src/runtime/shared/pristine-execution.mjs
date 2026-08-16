@@ -247,7 +247,7 @@ export function createPristineExecutionBoundary({
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   let cleaned = false;
   let restoreAuthBindings = () => {};
-  const cleanup = () => {
+  const cleanup = ({ preserveRoot = false } = {}) => {
     if (cleaned) return;
     cleaned = true;
     for (const [name, value] of originalEnv) {
@@ -255,7 +255,7 @@ export function createPristineExecutionBoundary({
       else env[name] = value;
     }
     restoreAuthBindings();
-    rmSync(rootDir, { recursive: true, force: true });
+    if (!preserveRoot) rmSync(rootDir, { recursive: true, force: true });
   };
 
   try {

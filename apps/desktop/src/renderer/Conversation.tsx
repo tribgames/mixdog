@@ -169,8 +169,8 @@ export function promptWaitsBehindActiveTurn(
   draftMode: boolean,
   snapshot: Pick<Snapshot, "busy" | "queued">,
 ): boolean {
-  // OpenCode/Codex/Claude Code parity: a new thread's first prompt belongs to
-  // the new thread, never to the active/queued state of the previously viewed
+  // A new thread's first prompt belongs to the new thread, never to the
+  // active or queued state of the previously viewed
   // session. Existing sessions still expose follow-ups through the queue.
   return !draftMode && (Boolean(snapshot.busy)
     || (Array.isArray(snapshot.queued) && snapshot.queued.length > 0));
@@ -216,15 +216,13 @@ export function Conversation({
   activeProjectPath,
   activeProjectLabel,
   onSelectProject,
-  onChooseProject,
   draftMode = false,
   draftModelSelection,
   draftWorkflow,
   onDraftModelSelection,
-  onFastPreferenceApplied,
+  onRoutePreferenceApplied,
   onDraftWorkflow,
   onOpenCommandSurface,
-  liveWork,
   streamingTailSlot,
   runtimeProgressSlot,
   readOnly = false,
@@ -256,17 +254,13 @@ export function Conversation({
   activeProjectPath: string;
   activeProjectLabel: string;
   onSelectProject: (path: string) => void;
-  onChooseProject: () => void;
   draftMode?: boolean;
   draftModelSelection?: DesktopModelSelection | null;
   draftWorkflow?: DesktopWorkflowState | null;
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
-  onFastPreferenceApplied?: (selection: DesktopModelSelection) => void;
+  onRoutePreferenceApplied?: (selection: DesktopModelSelection) => void;
   onDraftWorkflow?: (workflow: DesktopWorkflowState) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
-  /** Background-activity chip rendered right above the composer (own
-   *  snapshot subscription — the conversation memo ignores agent workers). */
-  liveWork?: ReactNode;
   /** Selector-driven live row; keeps token publications out of this shell. */
   streamingTailSlot?: ReactNode;
   /** Selector-driven runtime status; progress publications do not rerender the
@@ -953,8 +947,8 @@ export function Conversation({
         onClick={handleTranscriptInteraction}
         onKeyDown={handleTranscriptKeyDown}>
         <div className="thread">
-          {/* An EMPTY draft carries ONLY the centered brand watermark (user:
-              VS Code grammar — shortcuts live solely on the fully empty
+          {/* An empty draft carries only the centered brand watermark;
+              shortcuts live solely on the fully empty
               workspace; secondary surfaces keep the quiet letterpress).
               Sessions and transitions never show it. */}
           {(((draftMode || (!routeSnapshot.sessionId && Boolean(activeProjectPath)))
@@ -1013,15 +1007,12 @@ export function Conversation({
           <ProjectContextSelector projects={projects}
             activePath={activeProjectPath} activeLabel={activeProjectLabel}
             disabled={transitioning || Boolean(snapshot.busy)}
-            onClear={onClearProject} onSelect={onSelectProject} onChoose={onChooseProject} />
+            onClear={onClearProject} onSelect={onSelectProject} />
           <WorkflowSelect workflow={(draftWorkflow || routeSnapshot.workflow as RecordValue | null) ?? null}
             disabled={transitioning || (!draftMode && Boolean(routeSnapshot.busy || routeSnapshot.commandBusy))}
             invokeResult={composerInvokeResult} applySnapshot={composerApplySnapshot}
             onDraftChange={onDraftWorkflow} />
         </div>}
-        {/* Absolute background-activity overlay aligns with the transcript's
-            final 20px thinking/tool status band without consuming layout. */}
-        {liveWork}
         <InlineErrors messages={errors} />
         {/* Review sits attached ABOVE the input (user: 채팅창 위에 붙어야 한다).
             It is not a timeline row: as scroll content it read as a detached
@@ -1057,7 +1048,7 @@ export function Conversation({
             || routeSnapshot.modelParameters as Record<string, string> | undefined}
           draftMode={draftMode}
           onDraftModelSelection={onDraftModelSelection}
-          onFastPreferenceApplied={onFastPreferenceApplied}
+          onRoutePreferenceApplied={onRoutePreferenceApplied}
           queued={composerQueued}
           hiddenQueueIds={pendingPromptIds}
           pendingSubmissionIds={pendingPromptIds}

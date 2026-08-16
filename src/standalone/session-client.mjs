@@ -80,7 +80,7 @@ const URGENT_CALLS = new Set([
 ]);
 const EVENT_STREAM_RECONNECT_BASE_MS = 1_000;
 const EVENT_STREAM_RECONNECT_MAX_MS = 30_000;
-// Claude Code transport parity: keepalive silence is detected independently
+// Keepalive silence is detected independently
 // from TCP close, and a continuously failing reconnect storm is bounded.
 const EVENT_STREAM_LIVENESS_TIMEOUT_MS = 45_000;
 const EVENT_STREAM_RECONNECT_BUDGET_MS = 10 * 60_000;

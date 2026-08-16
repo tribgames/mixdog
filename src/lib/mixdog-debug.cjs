@@ -10,15 +10,9 @@ function isTruthyEnv(value) {
   return s === '1' || s === 'true' || s === 'yes' || s === 'on';
 }
 
-/**
- * Ship-mode gate: verbose hook/daemon tracing. Default OFF.
- * MIXDOG_DEBUG_SESSION_START remains a legacy alias.
- */
+/** Ship-mode gate: verbose hook/daemon tracing. Default OFF. */
 function isMixdogDebugEnabled() {
-  return (
-    isTruthyEnv(process.env.MIXDOG_DEBUG) ||
-    isTruthyEnv(process.env.MIXDOG_DEBUG_SESSION_START)
-  );
+  return isTruthyEnv(process.env.MIXDOG_DEBUG);
 }
 
 // ---------------------------------------------------------------------------

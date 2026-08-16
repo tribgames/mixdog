@@ -8,8 +8,7 @@ export const DEFAULT_DESKTOP_EDITOR_SETTINGS: DesktopEditorSettings = Object.fre
   wordWrapColumn: 80,
   renderWhitespace: "selection",
   minimapEnabled: true,
-  // VS Code default parity (user: 코드 편집 UI/UX는 VS Code와 일치):
-  // sticky scroll ships ON and bracket-pair guides ship OFF upstream — the
+  // Sticky scroll defaults on and bracket-pair guides default off; the
   // "active" default drew a line box around the cursor's block (user: 선이
   // 붙는다). Both remain per-workspace settings.
   stickyScrollEnabled: true,

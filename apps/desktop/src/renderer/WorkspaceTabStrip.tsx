@@ -1,4 +1,4 @@
-// Per-pane workspace tab strip (VS Code editor-group title control). This is
+// Per-pane workspace tab strip. This is
 // the former titlebar strip moved verbatim into a reusable component: every
 // pane group mounts one, so the Chrome-parity layout/animation model and the
 // drag gestures (reorder inside the strip, drag below it to split/move) keep
@@ -46,11 +46,11 @@ export interface WorkspaceTabStripProps {
   focused?: boolean;
   /** Owning pane leaf id, stamped on published drag frames. */
   paneId?: string;
-  /** Right-edge controls (VS Code editor actions): status, review, panel. */
+  /** Right-edge controls: status, review, panel. */
   trailing?: React.ReactNode;
   onSelectTab(tab: WorkspaceTab): void;
   onCloseTab(tab: WorkspaceTab): void;
-  /** Numeric target = VS Code drop index (tab half rule, container = end). */
+  /** Numeric target is the drop index (tab half rule, container = end). */
   onReorderTab(sourceKey: string, target: string | number): void;
   onPinTab?(tab: WorkspaceTab): void;
   onNewTask(): void;
@@ -173,7 +173,7 @@ export function WorkspaceTabStrip({
     lastY: number;
     deltaX: number;
     deltaY: number;
-    /** Pending VS Code drop index while the pointer stays in the strip. */
+    /** Pending drop index while the pointer stays in the strip. */
     dropIndex: number | null;
   } | null>(null);
   const pointerMoveFrameKey = useRef({});
@@ -218,7 +218,7 @@ export function WorkspaceTabStrip({
     const rect = element.getBoundingClientRect();
     setTabSwitcher((current) => current ? null : { left: rect.left, top: rect.bottom + 4 });
   };
-  // VS Code-parity tab context menu (Close / Close Others / Close to the
+  // Tab context menu (Close / Close Others / Close to the
   // Right / Keep Open) with standard outside-click dismissal.
   useEffect(() => {
     if (!tabMenu) return undefined;
@@ -277,7 +277,7 @@ export function WorkspaceTabStrip({
   // Menus can anchor hard against the window's right edge; the measured box
   // is what keeps them on screen.
   useLayoutEffect(() => { clampOverlayIntoView(tabMenuNode.current); }, [tabMenu]);
-  // VS Code fixed sizing mode freezes each tab's current width while the
+  // Fixed sizing freezes each tab's width while the
   // pointer remains over the strip, allowing rapid repeated closes without
   // any width animation or timer.
   const [fixedTabWidths, setFixedTabWidths] =
@@ -311,7 +311,7 @@ export function WorkspaceTabStrip({
     if (!appended) return;
 
     setFixedTabWidths(new Map());
-    // VS Code redraw({ forceRevealActiveTab: true }): a newly appended active
+    // Reveal a newly appended active
     // tab and the attached add-tab control are revealed before paint.
     if (tabStrip.current) tabStrip.current.scrollLeft = tabStrip.current.scrollWidth;
   }, [tabs]);
@@ -957,9 +957,8 @@ function useWorkspaceTabCommands({
   onCloseTab,
 }: Pick<WorkspaceTabStripProps, "tabs" | "activeKey" | "onSelectTab" | "onCloseTab">) {
   return useCallback((event: KeyboardEvent<HTMLElement>) => {
-    // Strip-scoped commands only. Arrows are owned globally (Ctrl+←/→ cycles
-    // tabs, Alt+←/→ moves pane focus) and Ctrl+T opens the terminal panel, so
-    // no Alt-modified binding may live here.
+    // Strip-scoped commands only. Ctrl+←/→ is owned globally and traverses
+    // tabs before crossing pane boundaries; Ctrl+T opens the terminal panel.
     if ((!event.metaKey && !event.ctrlKey) || event.shiftKey || event.altKey) return;
     const activeIndex = tabs.findIndex((tab) => tab.key === activeKey);
     const select = (index: number) => {

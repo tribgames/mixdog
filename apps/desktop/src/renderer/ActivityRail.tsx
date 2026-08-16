@@ -1,4 +1,4 @@
-// VS Code-style global Activity Bar: the 48px left rail is a stable landmark
+// The 48px global activity rail is a stable landmark
 // on every surface (chat and code alike). It contains only destinations that
 // swap the adjacent panel; creation actions live in the Sessions panel header.
 // Usage and Settings live at the rail foot; the updater badge moved to the
@@ -107,7 +107,7 @@ export function ActivityRail({
       onOpen: onOpenUtilities, onPrefetch: onPrefetchUtilities },
   ] as const).filter((surface) => desktopSidebarDestinationEnabled(surface.id));
   // Subscription usage moved off the session panel (user decision): the rail
-  // hosts a VS Code account-style toggle and the panel stays a pure session
+  // hosts an account toggle and the panel stays a pure session
   // list. Only the dashboard MARKUP is flyout-scoped; its data lives in the
   // shared store below so the first open never starts from nothing.
   const [usageOpen, setUsageOpen] = useState(false);

@@ -139,6 +139,10 @@ try {
   const partialResult = await executePatchTool('apply_patch', {
     base_path: tmp,
     patch: `*** Begin Patch
+*** Update File: partial-blocker.txt
+@@
+-missing
++replacement
 *** Update File: target.txt
 @@
  alpha
@@ -147,24 +151,21 @@ try {
  gamma
 *** Add File: rollback-created.txt
 +must survive
-*** Update File: partial-blocker.txt
-@@
--missing
-+replacement
 *** End Patch
 `,
   }, tmp, {});
-  assert(/^Error[\s:]/.test(String(partialResult)), `atomic prevalidation patch unexpectedly passed:\n${partialResult}`);
-  assert(/context not found|hunk rejected/i.test(String(partialResult))
-    && !/committed|sequence stopped/i.test(String(partialResult)),
-  `apply_patch must reject the complete patch before writing:\n${partialResult}`);
+  assert(/^Error[\s:]/.test(String(partialResult)), `file-level partial patch unexpectedly passed:\n${partialResult}`);
+  assert(/file-level partial/i.test(String(partialResult))
+    && /Retry only the rejected files/i.test(String(partialResult))
+    && /current file lines/i.test(String(partialResult)),
+  `apply_patch must report committed and rejected files with current context:\n${partialResult}`);
   assert(
-    readFileSync(join(tmp, 'target.txt'), 'utf8') === 'alpha\nbravo\ngamma\n',
-    'apply_patch prevalidation failure changed an earlier target',
+    readFileSync(join(tmp, 'target.txt'), 'utf8') === 'alpha\ntemporary\ngamma\n',
+    'apply_patch did not commit a valid file after an earlier stale file',
   );
   assert(
-    !existsSync(join(tmp, 'rollback-created.txt')),
-    'apply_patch prevalidation failure created an earlier target',
+    readFileSync(join(tmp, 'rollback-created.txt'), 'utf8') === 'must survive\n',
+    'apply_patch did not commit a valid Add File after an earlier stale file',
   );
   assert(
     readFileSync(join(tmp, 'partial-blocker.txt'), 'utf8') === 'present\n',
@@ -186,7 +187,7 @@ try {
 `,
   }, tmp, {});
   assertOk('apply_patch repeated plain Update File sections', duplicateTargetResult);
-  assert(readFileSync(join(tmp, 'target.txt'), 'utf8') === 'aleph\nbravo\ndelta\n',
+  assert(readFileSync(join(tmp, 'target.txt'), 'utf8') === 'aleph\ntemporary\ndelta\n',
     'repeated plain Update File sections were not merged');
 
   const conflictingTargetResult = await executePatchTool('apply_patch', {
@@ -203,7 +204,7 @@ try {
   assert(/^Error[\s:]/.test(String(conflictingTargetResult))
     && /conflicting operations target/i.test(String(conflictingTargetResult)),
   `apply_patch must reject conflicting operations for one target:\n${conflictingTargetResult}`);
-  assert(readFileSync(join(tmp, 'target.txt'), 'utf8') === 'aleph\nbravo\ndelta\n',
+  assert(readFileSync(join(tmp, 'target.txt'), 'utf8') === 'aleph\ntemporary\ndelta\n',
     'conflicting-target rejection changed the file');
 
   const canonicalDir = join(tmp, 'actual', 'nested');

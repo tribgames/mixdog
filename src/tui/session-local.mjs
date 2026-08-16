@@ -334,11 +334,12 @@ export async function createLocalSessionRuntime({
     stats: createSessionStats(),
     // Incremental derivations published by the session runtime so App does not scan all
     // transcript items on every change:
-    //  - activeToolSummary: running web-search count + earliest
-    //    startedAt for the prompt-line status (replaces App.jsx O(n) items scan).
+    //  - activeToolSummary/activeTools: running Shell, Agent, and web-search
+    //    counts + earliest starts for status surfaces.
     //  - promptHistoryList: newest-first deduped user-prompt history, rebuilt
     //    only when a user item is appended (replaces the per-change rescan).
     activeToolSummary: null,
+    activeTools: null,
     // Seed from the persisted cwd-scoped store so up-arrow history is available
     // on a fresh start, before any bulk swap / first submit republishes it.
     promptHistoryList: buildMergedPromptHistory([], loadPromptHistory(runtimeCwd)),
@@ -489,6 +490,7 @@ export async function createLocalSessionRuntime({
           ? state.promptHistoryList
           : buildMergedPromptHistory(recomputePromptHistory(nextItems), loadPromptHistory(state.cwd)),
         activeToolSummary: null,
+        activeTools: null,
         transcriptViewItems: nextTranscriptView,
         transcriptViewRevision: preserveTranscriptView
           ? state.transcriptViewRevision + (transcriptViewChanged ? 1 : 0)
@@ -514,36 +516,43 @@ export async function createLocalSessionRuntime({
   // state.promptHistoryList. Pure derivation now lives in
   // ./session/prompt-history.mjs (recomputePromptHistory); callers still pass the
   // NEW items array explicitly and publish via set().
-  // --- Active web-search summary maintained incrementally ---
-  // App previously scanned every transcript item on every change to derive the
-  // prompt-line web-search status. Instead the tool lifecycle
-  // below tracks per-callId category + started-at in activeToolCalls and derives
-  // the small summary from it, publishing state.activeToolSummary only when the
-  // aggregate (counts + earliest start) actually changes.
+  // --- Active surfaced-tool summary maintained incrementally ---
+  // Status surfaces must react at tool start, before a shell is backgrounded
+  // or an agent worker heartbeat exists. Track the three surfaced categories
+  // directly; background shell records and worker rows later dedupe by max.
   const activeToolCalls = new Map(); // callKey -> { category, count, startedAt }
   const recomputeActiveToolSummary = () => {
+    let shellCount = 0, shellStart = 0;
     let searchCount = 0, searchStart = 0;
+    let agentCount = 0, agentStart = 0;
     for (const rec of activeToolCalls.values()) {
       if (!rec) continue;
       const c = Math.max(1, Number(rec.count || 1));
       const started = Number(rec.startedAt || 0);
-      if (rec.category === 'Web Research') {
-        // L2 "Web Searching" segment tracks WEB searches (search/web_fetch —
-        // category 'Web Research'), not local file search ('Search' =
-        // grep/find/glob/list). Local search is routine transcript noise and
-        // is intentionally NOT surfaced on the statusline.
+      if (rec.category === 'Shell') {
+        shellCount += c;
+        if (started > 0 && (shellStart === 0 || started < shellStart)) shellStart = started;
+      } else if (rec.category === 'Web Research') {
         searchCount += c;
         if (started > 0 && (searchStart === 0 || started < searchStart)) searchStart = started;
+      } else if (rec.category === 'Agent') {
+        agentCount += c;
+        if (started > 0 && (agentStart === 0 || started < agentStart)) agentStart = started;
       }
     }
-    const next = searchCount
-      ? `0:0:${searchCount}:${searchStart}`
+    const next = shellCount || searchCount || agentCount
+      ? `${shellCount}:${shellStart}:${searchCount}:${searchStart}:${agentCount}:${agentStart}`
       : '';
+    const activeTools = next ? {
+      ...(shellCount ? { shell: { count: shellCount, startedAt: shellStart } } : {}),
+      ...(searchCount ? { search: { count: searchCount, startedAt: searchStart } } : {}),
+      ...(agentCount ? { agent: { count: agentCount, startedAt: agentStart } } : {}),
+    } : null;
     const prev = state.activeToolSummary || '';
-    if (next !== prev) set({ activeToolSummary: next || null });
+    if (next !== prev) set({ activeToolSummary: next || null, activeTools });
   };
   const markToolCallActive = (callKey, category, count, startedAt) => {
-    if (!callKey || category !== 'Web Research') return;
+    if (!callKey || !['Shell', 'Web Research', 'Agent'].includes(category)) return;
     activeToolCalls.set(callKey, { category, count: Math.max(1, Number(count || 1)), startedAt: Number(startedAt || Date.now()) });
     recomputeActiveToolSummary();
   };
@@ -553,9 +562,9 @@ export async function createLocalSessionRuntime({
     recomputeActiveToolSummary();
   };
   const clearActiveToolSummary = () => {
-    if (activeToolCalls.size === 0 && !state.activeToolSummary) return;
+    if (activeToolCalls.size === 0 && !state.activeToolSummary && !state.activeTools) return;
     activeToolCalls.clear();
-    if (state.activeToolSummary) set({ activeToolSummary: null });
+    if (state.activeToolSummary || state.activeTools) set({ activeToolSummary: null, activeTools: null });
   };
   const transcriptRouteMetadata = (at = Date.now()) => {
     const route = routeState();

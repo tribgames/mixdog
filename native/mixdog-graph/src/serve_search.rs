@@ -135,6 +135,39 @@ struct WalkKey {
     no_require_git: bool,
     max_depth: Option<usize>,
     directories: bool,
+    // Negative globs are applied DURING the walk (directory pruning), so two
+    // requests with different exclusions cannot share one inventory. Positive
+    // globs stay out of the key: they only filter an already-built inventory.
+    prune: Vec<String>,
+}
+
+/// Directory basenames that are never worth enumerating. Mirrors the JS
+/// `NOISE_DIR_NAMES` list so walker pruning and tool-side filtering agree.
+const NOISE_SEGMENTS: &[&str] = &[
+    "node_modules",
+    ".git",
+    ".next",
+    ".nuxt",
+    ".svelte-kit",
+    ".cache",
+    ".parcel-cache",
+    ".turbo",
+    "venv",
+    ".venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".gradle",
+];
+
+fn path_has_segment(path: &Path, segment: &str) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == segment)
+}
+
+fn is_noise_path(path: &Path) -> bool {
+    NOISE_SEGMENTS
+        .iter()
+        .any(|segment| path_has_segment(path, segment))
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -162,6 +195,56 @@ fn wire_path(path: &Path) -> String {
     value.into_owned()
 }
 
+/// Exclusion globs that the walker itself can honor. Only negations qualify:
+/// a positive glob may not prune a directory (its children can still match),
+/// while `!**/node_modules/**` makes the whole subtree dead weight. Each
+/// `!<dir>/**` gains a `!<dir>` companion so the directory entry is rejected
+/// before it is descended. `.git` is always pruned — matching ripgrep's
+/// practical behavior — unless the caller deliberately targets a path inside
+/// it.
+fn prune_globs(operand: &Path, parsed: &ParsedArgs) -> Vec<String> {
+    let mut prune: Vec<String> = Vec::new();
+    for glob in &parsed.globs {
+        let Some(rest) = glob.strip_prefix('!') else {
+            continue;
+        };
+        if rest.is_empty() {
+            continue;
+        }
+        prune.push(glob.clone());
+        if let Some(dir) = rest.strip_suffix("/**") {
+            prune.push(format!("!{dir}"));
+        }
+    }
+    if !path_has_segment(operand, ".git") {
+        prune.push("!**/.git".to_string());
+        prune.push("!**/.git/**".to_string());
+    }
+    prune.sort();
+    prune.dedup();
+    prune
+}
+
+fn prune_overrides(operand: &Path, prune: &[String]) -> Option<Override> {
+    if prune.is_empty() {
+        return None;
+    }
+    let root = if operand.is_file() {
+        operand.parent().unwrap_or(operand)
+    } else {
+        operand
+    };
+    let mut builder = OverrideBuilder::new(root);
+    for glob in prune {
+        // A malformed exclusion must never abort the walk; the post-walk
+        // PathFilter still rejects the same paths.
+        if builder.add(glob).is_err() {
+            return None;
+        }
+    }
+    builder.build().ok()
+}
+
 fn walk_key(operand: &Path, parsed: &ParsedArgs) -> WalkKey {
     WalkKey {
         operand: normalized_operand(operand),
@@ -170,6 +253,7 @@ fn walk_key(operand: &Path, parsed: &ParsedArgs) -> WalkKey {
         no_require_git: parsed.no_require_git,
         max_depth: parsed.max_depth,
         directories: parsed.directories,
+        prune: prune_globs(operand, parsed),
     }
 }
 
@@ -300,6 +384,14 @@ impl FileListStore {
         left == right || left.starts_with(right) || right.starts_with(left)
     }
 
+    fn has_noise_root(&self) -> bool {
+        self.watched_roots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .any(|root| is_noise_path(root))
+    }
+
     fn affected_roots(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
         self.watched_roots
             .lock()
@@ -418,7 +510,28 @@ impl FileListStore {
                             else {
                                 return;
                             };
-                            (event.paths, inventory_changed)
+                            let raw_paths = event.paths;
+                            let had_paths = !raw_paths.is_empty();
+                            // Writes inside pruned directories (.git objects,
+                            // node_modules installs, build caches) cannot alter
+                            // any served result, so they must not invalidate the
+                            // inventory — that churn used to force a full
+                            // re-walk on every request.
+                            let paths: Vec<PathBuf> = raw_paths
+                                .iter()
+                                .filter(|path| !is_noise_path(path))
+                                .cloned()
+                                .collect();
+                            if had_paths && paths.is_empty() {
+                                // A root deliberately opened inside a noise
+                                // directory still needs its own events.
+                                if !store.has_noise_root() {
+                                    return;
+                                }
+                                (raw_paths, inventory_changed)
+                            } else {
+                                (paths, inventory_changed)
+                            }
                         }
                         Err(_) => {
                             store.watcher_healthy.store(false, Ordering::Release);
@@ -1614,6 +1727,13 @@ fn start_live_walk(
             if let Some(max_depth) = parsed.max_depth {
                 walk.max_depth(Some(max_depth));
             }
+            // Prune excluded directories while walking. Without this the
+            // inventory descends into .git/node_modules on every request and
+            // only discards them later, at scan time.
+            let prune = prune_globs(&operand, &parsed);
+            if let Some(overrides) = prune_overrides(&operand, &prune) {
+                walk.overrides(overrides);
+            }
             let collected = Mutex::new(CollectedWalk { files: Vec::new() });
             let publish_batch = inventory_publish_batch();
             walk.build_parallel().run(|| {
@@ -1714,6 +1834,12 @@ fn complete_operand_files(
     keep_warm: bool,
 ) -> Result<(Arc<Vec<PathBuf>>, bool, usize, Vec<String>, bool), String> {
     let watched = store.watch_root(operand_path);
+    // A walk abandoned by cache invalidation restarts from scratch. Under
+    // continuous writes under the root that can repeat until the request
+    // deadline, so cap it: after one restart the partial snapshot is served
+    // instead of burning the whole budget on re-walks.
+    const MAX_WALK_RESTARTS: usize = 1;
+    let mut restarts = 0usize;
     loop {
         let key = walk_key(operand_path, parsed);
         if let Some(hit) = store.take_ready(&key) {
@@ -1743,7 +1869,20 @@ fn complete_operand_files(
                     live.cacheable.load(Ordering::Acquire),
                 ))
             }
-            Ok(None) => continue,
+            Ok(None) => {
+                restarts += 1;
+                if restarts > MAX_WALK_RESTARTS {
+                    let snapshot = live.files.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                    return Ok((
+                        Arc::new(snapshot),
+                        false,
+                        live.walk_errors.load(Ordering::Acquire),
+                        live_walk_error_details(&live),
+                        false,
+                    ));
+                }
+                continue;
+            }
             Err(reason) if reason == SOFT_TIMEOUT => {
                 let snapshot = live.files.lock().unwrap_or_else(|e| e.into_inner()).clone();
                 return Ok((
@@ -3252,6 +3391,43 @@ mod tests {
         let second = parse_args(&second.args).unwrap();
         assert!(walk_key(Path::new("."), &first) == walk_key(Path::new("."), &second));
         assert!(fuzzy_key(Path::new("."), &first) != fuzzy_key(Path::new("."), &second));
+    }
+
+    #[test]
+    fn negative_globs_prune_the_walk_and_split_the_inventory_key() {
+        let plain = parse_args(&request(&["--files", "."], 20).args).unwrap();
+        let excluded = parse_args(
+            &request(
+                &["--files", "--glob", "!**/node_modules/**", "."],
+                20,
+            )
+            .args,
+        )
+        .unwrap();
+        let prune = prune_globs(Path::new("."), &excluded);
+        // The directory entry itself must be rejected, otherwise the walker
+        // descends into node_modules before discarding its contents.
+        assert!(prune.iter().any(|glob| glob == "!**/node_modules"));
+        assert!(prune.iter().any(|glob| glob == "!**/node_modules/**"));
+        assert!(walk_key(Path::new("."), &plain) != walk_key(Path::new("."), &excluded));
+        assert!(prune_overrides(Path::new("."), &prune).is_some());
+    }
+
+    #[test]
+    fn git_directory_is_pruned_unless_the_caller_targets_it() {
+        let parsed = parse_args(&request(&["--files", "."], 20).args).unwrap();
+        let prune = prune_globs(Path::new("."), &parsed);
+        assert!(prune.iter().any(|glob| glob == "!**/.git"));
+        assert!(prune.iter().any(|glob| glob == "!**/.git/**"));
+        let inside = prune_globs(Path::new("repo/.git"), &parsed);
+        assert!(inside.is_empty());
+    }
+
+    #[test]
+    fn noise_writes_do_not_invalidate_the_inventory() {
+        assert!(is_noise_path(Path::new("repo/.git/objects/ab/cdef")));
+        assert!(is_noise_path(Path::new("repo/node_modules/pkg/index.js")));
+        assert!(!is_noise_path(Path::new("repo/src/main.rs")));
     }
 
     #[test]

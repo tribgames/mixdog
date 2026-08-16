@@ -4,10 +4,11 @@
 // native engine's strict ambiguity reject.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { tryExecuteExternalToolAdapter } from './external-tool-adapters.mjs';
+import { recordReadSnapshot } from './read-snapshot-runtime.mjs';
 import { closeNativePatchServerForTests } from '../patch/native-server.mjs';
 
 const ANCHOR = '#if 0\n"""\n#endif';
@@ -53,4 +54,26 @@ test('count drift falls through to the strict ambiguity reject', async (t) => {
         new_string: 'changed',
     }, dir, { editOccurrence: { expected: 2 } });
     assert.match(String(result), /old_string found 3 times/);
+    assert.match(String(result), /current file excerpt lines/);
+});
+
+test('stale read snapshot does not block a still-unique current old_string', async (t) => {
+    const { dir, file } = makeTempFile('alpha\nkeep\n');
+    const sessionId = `edit-stale-safe-${process.pid}`;
+    t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests?.(); });
+    recordReadSnapshot(file, statSync(file), sessionId, {
+        source: 'read',
+        isPartialView: false,
+        replaceExisting: true,
+    });
+    writeFileSync(file, 'external\nalpha\nkeep\n', 'utf8');
+
+    const result = await tryExecuteExternalToolAdapter('edit', {
+        file_path: file,
+        old_string: 'alpha',
+        new_string: 'omega',
+    }, dir, { sessionId });
+
+    assert.match(String(result), /^Updated /);
+    assert.equal(readFileSync(file, 'utf8'), 'external\nomega\nkeep\n');
 });

@@ -5,8 +5,8 @@ export const ROUTE_SHEET_ROW_HEIGHT = 36;
 
 const ROUTE_PANEL_EDGE = 8;
 const ROUTE_PANEL_GAP = 6;
-const ROUTE_PANEL_WIDTH = 264;
-const ROUTE_MIN_SIDE_PANEL_WIDTH = 180;
+// Codex-scale panel: the pill expands to this same width, so it stays modest.
+export const ROUTE_PANEL_WIDTH = 224;
 
 export interface RoutePanelBox {
   left: number;
@@ -67,63 +67,63 @@ export function routeSheetBox(
 
 export function routeFlyoutBox(
   sheet: RoutePanelBox,
-  rowIndex: number,
   preferredHeight: number,
   viewport: RouteViewport,
-  requestedWidth = ROUTE_PANEL_WIDTH,
+  anchorTop?: number,
+  preferredWidth?: number,
+  preferredSide: 'left' | 'right' | null = null,
 ): RoutePanelBox {
   const viewportLeft = viewport.left ?? 0;
   const viewportTop = viewport.top ?? 0;
   const viewportRight = viewportLeft + viewport.width;
   const viewportBottom = viewportTop + viewport.height;
-  const preferredWidth = Math.min(
-    requestedWidth,
+  // Open the submenu beside the sheet, top-aligned with the row that
+  // spawned it (clamped into the viewport). Stacking above/below is only the
+  // fallback for viewports too narrow to fit a second column.
+  const sideWidth = Math.min(
+    preferredWidth ?? sheet.width,
     Math.max(1, viewport.width - ROUTE_PANEL_EDGE * 2),
   );
-  const sheetRight = sheet.left + sheet.width;
-  const sheetBottom = sheet.top + sheet.height;
-  const spaceLeft = sheet.left - viewportLeft - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP;
-  const spaceRight = viewportRight - sheetRight - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP;
-  const placeLeft = spaceRight < ROUTE_MIN_SIDE_PANEL_WIDTH
-    && spaceLeft >= ROUTE_MIN_SIDE_PANEL_WIDTH;
-  const sideSpace = placeLeft ? spaceLeft : spaceRight;
-
-  if (sideSpace < ROUTE_MIN_SIDE_PANEL_WIDTH) {
-    const spaceAbove = sheet.top - viewportTop - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP;
-    const spaceBelow = viewportBottom - sheetBottom - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP;
-    const openAbove = spaceAbove >= preferredHeight || spaceAbove > spaceBelow;
-    const height = Math.min(preferredHeight, Math.max(1, openAbove ? spaceAbove : spaceBelow));
-    const top = openAbove ? sheet.top - ROUTE_PANEL_GAP - height : sheetBottom + ROUTE_PANEL_GAP;
+  const spaceLeft = Math.max(0, sheet.left - viewportLeft - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP);
+  const spaceRight = Math.max(
+    0,
+    viewportRight - (sheet.left + sheet.width) - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP,
+  );
+  const canOpenLeft = spaceLeft >= sideWidth;
+  const canOpenRight = spaceRight >= sideWidth;
+  if (canOpenLeft || canOpenRight) {
+    const openLeft = preferredSide === 'right'
+      ? !canOpenRight && canOpenLeft
+      : canOpenLeft;
+    const height = Math.min(preferredHeight, Math.max(1, viewport.height - ROUTE_PANEL_EDGE * 2));
     return {
-      left: clamp(
-        sheetRight - preferredWidth,
-        viewportLeft + ROUTE_PANEL_EDGE,
-        viewportRight - preferredWidth - ROUTE_PANEL_EDGE,
+      left: openLeft
+        ? sheet.left - ROUTE_PANEL_GAP - sideWidth
+        : sheet.left + sheet.width + ROUTE_PANEL_GAP,
+      top: clamp(
+        anchorTop ?? sheet.top,
+        viewportTop + ROUTE_PANEL_EDGE,
+        viewportBottom - height - ROUTE_PANEL_EDGE,
       ),
-      top: clamp(top, viewportTop + ROUTE_PANEL_EDGE, viewportBottom - height - ROUTE_PANEL_EDGE),
-      width: preferredWidth,
+      width: sideWidth,
       height,
       maxHeight: height,
-      placement: openAbove ? 'above' : 'below',
+      placement: openLeft ? 'left' : 'right',
     };
   }
-
-  const width = Math.min(preferredWidth, sideSpace);
-  const height = Math.min(preferredHeight, Math.max(1, viewport.height - ROUTE_PANEL_EDGE * 2));
-  const left = placeLeft ? sheet.left - ROUTE_PANEL_GAP - width : sheetRight + ROUTE_PANEL_GAP;
-  const anchorTop = sheet.top + ROUTE_PANEL_PADDING + rowIndex * ROUTE_SHEET_ROW_HEIGHT;
-  const top = clamp(
-    anchorTop,
-    viewportTop + ROUTE_PANEL_EDGE,
-    viewportBottom - ROUTE_PANEL_EDGE - height,
-  );
+  const sheetBottom = sheet.top + sheet.height;
+  const spaceAbove = Math.max(1, sheet.top - viewportTop - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP);
+  const spaceBelow = Math.max(1, viewportBottom - sheetBottom - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP);
+  const openAbove = spaceAbove >= preferredHeight || spaceAbove > spaceBelow;
+  const height = Math.min(preferredHeight, openAbove ? spaceAbove : spaceBelow);
+  const top = openAbove ? sheet.top - ROUTE_PANEL_GAP - height : sheetBottom + ROUTE_PANEL_GAP;
   return {
-    left,
-    top,
-    width,
+    left: sheet.left,
+    top: clamp(top, viewportTop + ROUTE_PANEL_EDGE, viewportBottom - height - ROUTE_PANEL_EDGE),
+    width: sheet.width,
     height,
     maxHeight: height,
-    placement: placeLeft ? 'left' : 'right',
+    placement: openAbove ? 'above' : 'below',
   };
 }
 

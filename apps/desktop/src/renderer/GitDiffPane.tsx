@@ -16,7 +16,7 @@ import { navigationKey } from "./text-format";
 
 type GitDiffSelection = Extract<WorkspaceSelection, { kind: "diff" }>;
 
-// Monaco DiffEditor renderer (VS Code diff parity) loads on first use only.
+// Monaco DiffEditor loads on first use only.
 const MonacoGitDiff = lazy(() => import("./MonacoGitDiff.lazy"));
 
 export function GitDiffPane({

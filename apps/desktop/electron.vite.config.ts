@@ -6,6 +6,15 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import type { Plugin } from 'vite';
 
+const selectedBuildTargets = new Set(
+  String(process.env.MIXDOG_ELECTRON_BUILD_TARGETS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
+const buildTargetEnabled = (target: 'main' | 'preload' | 'renderer'): boolean =>
+  selectedBuildTargets.size === 0 || selectedBuildTargets.has(target);
+
 // Every bundled face (Inter/Geist/JetBrains Mono + Pretendard's ~93 Hangul
 // subset slices) ships with font-display:swap, so text created AFTER first
 // paint — menu/tab navigation, new session rows — painted fallback glyphs and
@@ -25,7 +34,7 @@ const localFontDisplayBlock: Plugin = {
 };
 
 export default defineConfig({
-  main: {
+  main: buildTargetEnabled('main') ? {
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
@@ -35,8 +44,8 @@ export default defineConfig({
         },
       },
     },
-  },
-  preload: {
+  } : undefined,
+  preload: buildTargetEnabled('preload') ? {
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
@@ -48,8 +57,8 @@ export default defineConfig({
         },
       },
     },
-  },
-  renderer: {
+  } : undefined,
+  renderer: buildTargetEnabled('renderer') ? {
     // The relay/VPS serves this renderer as an installable web app. Keep the
     // manifest, icon and network-only service worker at stable root paths.
     publicDir: resolve(__dirname, 'src/renderer/public'),
@@ -127,5 +136,5 @@ export default defineConfig({
     server: {
       host: '127.0.0.1',
     },
-  },
+  } : undefined,
 });

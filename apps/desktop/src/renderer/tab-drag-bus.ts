@@ -1,6 +1,6 @@
 // Bridge between the titlebar tab strip and the split-pane workspace: when a
 // tab drag leaves the strip band, the strip publishes pointer frames here and
-// the workspace turns them into split drop zones (VS Code/orca drag-to-split).
+// the workspace turns them into split drop zones.
 // A tiny module-level bus keeps the strip and the workspace decoupled — the
 // titlebar knows nothing about panes, the workspace nothing about the strip.
 import type { WorkspaceSelection } from "./nav-types";

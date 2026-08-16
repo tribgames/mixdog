@@ -11,7 +11,30 @@
  */
 import { writeFileSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
-import type { BrowserWindow, NativeImage } from 'electron';
+import type { BrowserWindow } from 'electron';
+import {
+  assistantMarkdown,
+  coldHistoryItems,
+  paragraph,
+  probeItems,
+} from './jitter-probe-fixtures';
+import {
+  beginPaintFrameProbe,
+  contentMotion,
+  summarizeWarmPaint,
+  type PaintProbeBounds,
+  type PaintFrameSample,
+  type RowSample,
+} from './jitter-probe-metrics';
+import {
+  WIDTH_TRACE_COLLECT_SCRIPT,
+  WIDTH_TRACE_INSTALL_SCRIPT,
+} from './jitter-probe-width-scripts';
+import { dragProbeSash, readProbeSash } from './jitter-probe-sash';
+import {
+  clickProbeSession,
+  COLLECT_SWITCH_FRAMES_SCRIPT,
+} from './jitter-probe-session';
 
 interface ProbeDeps {
   window: BrowserWindow;
@@ -23,290 +46,6 @@ interface ProbeDeps {
   ): void;
   prepareColdResume(snapshot: Record<string, unknown>): void;
   outPath: string;
-}
-
-const WORDS = ['transcript', 'virtualizer', 'anchors', 'the', 'bottom', 'while',
-  'markdown', 'reflows', 'and', 'tool', 'cards', 'append', 'mid', 'stream'];
-
-function paragraph(seed: number, sentences: number): string {
-  let out = '';
-  for (let s = 0; s < sentences; s++) {
-    const length = 6 + ((seed * 7 + s * 13) % 14);
-    const words: string[] = [];
-    for (let w = 0; w < length; w++) words.push(WORDS[(seed + s * 5 + w * 3) % WORDS.length]);
-    out += `${words.join(' ')}. `;
-  }
-  return out.trim();
-}
-
-function assistantMarkdown(seed: number): string {
-  // Vary shape hard so row-height ESTIMATES are wrong in both directions:
-  // short one-liners, long prose, lists, and code fences.
-  const kind = seed % 4;
-  if (kind === 0) return paragraph(seed, 1);
-  if (kind === 1) return `${paragraph(seed, 4)}\n\n${paragraph(seed + 1, 5)}`;
-  if (kind === 2) {
-    return `${paragraph(seed, 2)}\n\n${Array.from({ length: 5 }, (_, i) => `- item ${i}: ${paragraph(seed + i, 1)}`).join('\n')}`;
-  }
-  // Real sessions carry multi-hundred-line highlighted code answers; every
-  // 7th fenced row goes big so the scroll-to-top pass pays realistic mount
-  // costs instead of toy paragraphs.
-  const codeLines = 8 + (seed % 9) + (seed % 7 === 0 ? 220 : 0);
-  return `${paragraph(seed, 2)}\n\n\`\`\`ts\n${Array.from({ length: codeLines }, (_, i) => `const line${i} = probe(${seed}, ${i});`).join('\n')}\n\`\`\``;
-}
-
-function probeItems(count: number): Array<Record<string, unknown>> {
-  const items: Array<Record<string, unknown>> = [];
-  for (let i = 0; i < count; i += 2) {
-    items.push({ id: `probe-user-${i}`, kind: 'user', text: `probe question ${i}: ${paragraph(i, 1)}` });
-    items.push({ id: `probe-assistant-${i}`, kind: 'assistant', text: assistantMarkdown(i) });
-  }
-  return items;
-}
-
-// A COLD history session: ids/text never seen by the running renderer, so no
-// measured-height cache entry exists for any row. This is the "enter a
-// session that already has history" case — the entry pass must settle
-// without moving the visible rows (user: 최초 진입 시 상하로 크게 출렁임).
-function coldHistoryItems(count: number, stamp: number): Array<Record<string, unknown>> {
-  const items: Array<Record<string, unknown>> = [];
-  const startedAt = Date.now() - 60_000;
-  for (let i = 0; i < count; i += 3) {
-    items.push({
-      id: `cold-${stamp}-user-${i}`,
-      kind: 'user',
-      text: `cold entry question ${i}: ${paragraph(i + stamp, 1)}`,
-    });
-    items.push({
-      id: `cold-${stamp}-tool-${i}`,
-      kind: 'tool',
-      name: 'shell',
-      args: { command: `npm run probe -- case-${i}` },
-      result: `probe tool output ${i}\n${paragraph(i + stamp + 3, 2)}`,
-      count: 1,
-      startedAt,
-      completedAt: startedAt + 1_200 + i,
-    });
-    items.push({
-      id: `cold-${stamp}-assistant-${i}`,
-      kind: 'assistant',
-      text: `${assistantMarkdown(i + stamp)}
-
-세션을 처음 열 때 한글 글꼴과 코드가 준비되어도 화면이 위아래로 움직이지 않아야 합니다.`,
-    });
-  }
-  // Trailing tool card: the pinned toggle pass needs a card that is visible
-  // while the transcript sits at the bottom.
-  items.push({
-    id: `cold-${stamp}-tool-tail`,
-    kind: 'tool',
-    name: 'shell',
-    args: { command: 'npm run probe -- tail' },
-    result: `probe tail output\n${paragraph(stamp + 11, 2)}`,
-    count: 1,
-    startedAt,
-    completedAt: startedAt + 2_400,
-  });
-  return items;
-}
-
-interface RowSample {
-  t: number;
-  st: number;
-  sh?: number;
-  ch?: number;
-  space?: number;
-  dist: number;
-  following?: boolean;
-  bands?: number[];
-  plain?: number;
-  queueHeight?: number;
-  review?: {
-    height: number;
-    overlap: number;
-    thinkingGap: number | null;
-    composerGap: number | null;
-  } | null;
-  subject?: {
-    open: boolean;
-    rowHeight: number;
-    cardHeight: number;
-  } | null;
-  rows: Array<{ i: number; top: number }>;
-}
-
-interface ContentMotion {
-  frames: number;
-  maxRowShift: number;
-  totalTravel: number;
-  movingFrames: number;
-  reversals: number;
-  maxDistance: number;
-  offBottomFrames: number;
-  settleMs: number;
-}
-
-interface PaintProbeBounds {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  viewportWidth: number;
-  viewportHeight: number;
-}
-
-interface PaintFrameSample {
-  t: number;
-  phase: string;
-  luma: number;
-}
-
-function sampledFrameLuma(image: NativeImage, bounds: PaintProbeBounds): number | null {
-  const size = image.getSize();
-  if (size.width <= 0 || size.height <= 0
-    || bounds.viewportWidth <= 0 || bounds.viewportHeight <= 0) return null;
-  const bitmap = image.toBitmap();
-  if (bitmap.length < size.width * size.height * 4) return null;
-  const scaleX = size.width / bounds.viewportWidth;
-  const scaleY = size.height / bounds.viewportHeight;
-  const left = Math.max(0, Math.min(size.width - 1, Math.floor(bounds.left * scaleX)));
-  const top = Math.max(0, Math.min(size.height - 1, Math.floor(bounds.top * scaleY)));
-  const right = Math.max(left + 1, Math.min(
-    size.width,
-    Math.ceil((bounds.left + bounds.width) * scaleX),
-  ));
-  const bottom = Math.max(top + 1, Math.min(
-    size.height,
-    Math.ceil((bounds.top + bounds.height) * scaleY),
-  ));
-  let total = 0;
-  let count = 0;
-  const columns = 16;
-  const rows = 10;
-  for (let row = 0; row < rows; row += 1) {
-    const y = Math.min(bottom - 1, top + Math.floor(((row + 0.5) / rows) * (bottom - top)));
-    for (let column = 0; column < columns; column += 1) {
-      const x = Math.min(right - 1, left
-        + Math.floor(((column + 0.5) / columns) * (right - left)));
-      const offset = (y * size.width + x) * 4;
-      total += (bitmap[offset] + bitmap[offset + 1] + bitmap[offset + 2]) / (3 * 255);
-      count += 1;
-    }
-  }
-  return count > 0 ? Math.round((total / count) * 10_000) / 10_000 : null;
-}
-
-function beginPaintFrameProbe(window: BrowserWindow, bounds: PaintProbeBounds) {
-  const startedAt = performance.now();
-  const samples: PaintFrameSample[] = [];
-  let phase = 'session';
-  window.webContents.beginFrameSubscription(false, (image) => {
-    if (samples.length >= 240) return;
-    const luma = sampledFrameLuma(image, bounds);
-    if (luma === null) return;
-    samples.push({
-      t: Math.round((performance.now() - startedAt) * 10) / 10,
-      phase,
-      luma,
-    });
-  });
-  return {
-    mark(nextPhase: string) {
-      phase = nextPhase;
-    },
-    stop(): PaintFrameSample[] {
-      window.webContents.endFrameSubscription();
-      return samples;
-    },
-  };
-}
-
-function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0
-    ? (sorted[middle - 1] + sorted[middle]) / 2
-    : sorted[middle];
-}
-
-function summarizeWarmPaint(samples: PaintFrameSample[]) {
-  const phaseLuma = (phase: string) => samples
-    .filter((sample) => sample.phase === phase)
-    .map((sample) => sample.luma);
-  const sessionLuma = median(phaseLuma('session'));
-  const newTaskLuma = median(phaseLuma('new-task'));
-  const reentry = samples.filter((sample) => sample.phase === 'reentry');
-  const low = Math.min(sessionLuma ?? 0, newTaskLuma ?? sessionLuma ?? 0);
-  const high = Math.max(sessionLuma ?? 0, newTaskLuma ?? sessionLuma ?? 0);
-  const brightnessExcursion = reentry.reduce((peak, sample) => Math.max(
-    peak,
-    sample.luma < low ? low - sample.luma
-      : sample.luma > high ? sample.luma - high
-        : 0,
-  ), 0);
-  const stableTolerance = 0.025;
-  const firstStableIndex = sessionLuma === null
-    ? -1
-    : reentry.findIndex((sample) => Math.abs(sample.luma - sessionLuma) <= stableTolerance);
-  return {
-    frames: samples.length,
-    sessionFrames: phaseLuma('session').length,
-    newTaskFrames: phaseLuma('new-task').length,
-    reentryFrames: reentry.length,
-    sessionLuma,
-    newTaskLuma,
-    maxBrightnessExcursion: Math.round(brightnessExcursion * 10_000) / 10_000,
-    firstStablePaintFrame: firstStableIndex < 0 ? null : firstStableIndex + 1,
-    samples,
-  };
-}
-
-// Per-frame motion of the rows that stayed mounted between two samples. A
-// settled transcript keeps every shared row at the same offset, so any
-// non-zero shift IS the visible bounce the user reports.
-function contentMotion(samples: RowSample[], shiftThreshold = 4): ContentMotion {
-  let maxRowShift = 0;
-  let totalTravel = 0;
-  let movingFrames = 0;
-  let reversals = 0;
-  let lastDirection = 0;
-  let settleAt = samples.length > 0 ? samples[0].t : 0;
-  for (let index = 1; index < samples.length; index += 1) {
-    const previous = new Map(samples[index - 1].rows.map((row) => [row.i, row.top]));
-    const deltas: number[] = [];
-    for (const row of samples[index].rows) {
-      const before = previous.get(row.i);
-      if (before === undefined) continue;
-      deltas.push(row.top - before);
-    }
-    if (deltas.length === 0) continue;
-    deltas.sort((a, b) => a - b);
-    const median = deltas[Math.floor(deltas.length / 2)];
-    const peak = Math.max(...deltas.map((value) => Math.abs(value)));
-    maxRowShift = Math.max(maxRowShift, peak);
-    totalTravel += Math.abs(median);
-    if (peak > shiftThreshold) {
-      movingFrames += 1;
-      settleAt = samples[index].t;
-    }
-    if (Math.abs(median) > shiftThreshold) {
-      const direction = Math.sign(median);
-      if (lastDirection !== 0 && direction !== lastDirection) reversals += 1;
-      lastDirection = direction;
-    }
-  }
-  const distances = samples.map((sample) => sample.dist);
-  return {
-    frames: samples.length,
-    maxRowShift,
-    totalTravel: Math.round(totalTravel),
-    movingFrames,
-    reversals,
-    maxDistance: distances.length ? Math.max(...distances) : 0,
-    offBottomFrames: distances.filter((value) => value > 8).length,
-    settleMs: samples.length ? Math.max(0, settleAt - samples[0].t) : 0,
-  };
 }
 
 export async function runJitterProbe({
@@ -431,208 +170,7 @@ export async function runJitterProbe({
       }))()`);
       throw new Error(`width probe: transcript never rendered ${JSON.stringify(ready)} dom=${JSON.stringify(dom)}`);
     }
-    const install = `(() => {
-      const w = window;
-      const transcript = [...document.querySelectorAll('.transcript')]
-        .find((node) => node.getBoundingClientRect().height > 0
-          && node.querySelectorAll('.transcript-virtual-row').length > 3);
-      if (!transcript) return { error: 'no transcript' };
-      const sessionKey = transcript.getAttribute('data-session-key') || '';
-      if (!w.__widthTraceInstalled) {
-        w.__widthTraceInstalled = true;
-        const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
-        Object.defineProperty(Element.prototype, 'scrollTop', {
-          configurable: true,
-          get() { return descriptor.get.call(this); },
-          set(value) {
-            const trace = w.__widthTrace;
-            if (trace && this.classList && this.classList.contains('transcript')) {
-              trace.writes.push({
-                t: Math.round(performance.now()),
-                from: Math.round(descriptor.get.call(this)),
-                to: Math.round(Number(value) || 0),
-                bottom: Math.round(this.scrollHeight - this.clientHeight),
-                width: Math.round(this.clientWidth),
-                stack: String(new Error().stack || '').split('\\n').slice(2, 5)
-                  .map((line) => line.trim().replace(/^at\\s+/, '')).join(' <- '),
-              });
-            }
-            descriptor.set.call(this, value);
-          },
-        });
-      }
-      w.__widthTrace = { writes: [], samples: [], raf: 0 };
-      const sample = () => {
-        const node = [...document.querySelectorAll('.transcript')]
-          .find((candidate) => candidate.getAttribute('data-session-key') === sessionKey);
-        if (node) {
-          const box = node.getBoundingClientRect();
-          const rows = [...node.querySelectorAll('.transcript-virtual-row')]
-            .map((row) => ({ row, rect: row.getBoundingClientRect() }))
-            .filter((entry) => entry.rect.bottom > box.top + 1)
-            .sort((a, b) => a.rect.top - b.rect.top);
-          const top = rows[0];
-          const tail = rows[rows.length - 1];
-          const frame = node.querySelector(
-            '.transcript-virtual-row-content[data-tag="AssistantPart"],'
-              + '.transcript-virtual-row-content[data-tag="UserMessage"]',
-          );
-          const frameBox = frame?.getBoundingClientRect();
-          const frameStyle = frame ? getComputedStyle(frame) : null;
-          const paddingLeft = Number.parseFloat(frameStyle?.paddingLeft || '0') || 0;
-          const paddingRight = Number.parseFloat(frameStyle?.paddingRight || '0') || 0;
-          const pane = node.closest('.workspace');
-          const composer = pane?.querySelector('.composer-region');
-          const header = pane?.querySelector('.session-header-content');
-          const composerBox = composer?.getBoundingClientRect();
-          const headerBox = header?.getBoundingClientRect();
-          w.__widthTrace.samples.push({
-            t: Math.round(performance.now()),
-            width: Math.round(box.width),
-            paneWidth: Math.round(pane?.getBoundingClientRect().width || box.width),
-            scrollTop: Math.round(node.scrollTop),
-            bottom: Math.round(node.scrollHeight - node.clientHeight),
-            distance: Math.round(node.scrollHeight - node.clientHeight - node.scrollTop),
-            following: node.getAttribute('data-following'),
-            index: top ? Number(top.row.getAttribute('data-index')) : null,
-            offset: top ? Math.round(top.rect.top - box.top) : null,
-            tailIndex: tail ? Number(tail.row.getAttribute('data-index')) : null,
-            tailOffset: tail ? Math.round(tail.rect.bottom - box.bottom) : null,
-            frameWidth: frameBox ? Math.round(frameBox.width) : null,
-            framePadding: Math.round((paddingLeft + paddingRight) * 10) / 10,
-            textWidth: frameBox ? Math.round((frameBox.width - paddingLeft - paddingRight) * 10) / 10 : null,
-            composerWidth: composerBox ? Math.round(composerBox.width) : null,
-            headerWidth: headerBox ? Math.round(headerBox.width) : null,
-            space: Math.round(node.querySelector('.transcript-virtual-space')?.getBoundingClientRect().height || 0),
-          });
-        }
-        w.__widthTrace.raf = requestAnimationFrame(sample);
-      };
-      w.__widthTrace.raf = requestAnimationFrame(sample);
-      return {
-        rows: transcript.querySelectorAll('.transcript-virtual-row').length,
-        scrollHeight: transcript.scrollHeight,
-        clientHeight: transcript.clientHeight,
-      };
-    })()`;
-    const collect = `(() => {
-      const w = window;
-      cancelAnimationFrame(w.__widthTrace.raf);
-      const trace = w.__widthTrace;
-      const byIndex = new Map();
-      const byTailIndex = new Map();
-      const byPaneWidth = new Map();
-      for (const sample of trace.samples) {
-        if (sample.index !== null && sample.offset !== null) {
-          const bucket = byIndex.get(sample.index) || [];
-          bucket.push(sample.offset);
-          byIndex.set(sample.index, bucket);
-        }
-        if (sample.tailIndex !== null && sample.tailOffset !== null) {
-          const bucket = byTailIndex.get(sample.tailIndex) || [];
-          bucket.push(sample.tailOffset);
-          byTailIndex.set(sample.tailIndex, bucket);
-        }
-        if (sample.paneWidth !== null) {
-          const bucket = byPaneWidth.get(sample.paneWidth) || [];
-          bucket.push(sample);
-          byPaneWidth.set(sample.paneWidth, bucket);
-        }
-      }
-      let worstDrift = 0;
-      for (const offsets of byIndex.values()) {
-        worstDrift = Math.max(worstDrift, Math.max(...offsets) - Math.min(...offsets));
-      }
-      let worstTailDrift = 0;
-      for (const offsets of byTailIndex.values()) {
-        worstTailDrift = Math.max(worstTailDrift, Math.max(...offsets) - Math.min(...offsets));
-      }
-      let sameWidthFrameRange = 0;
-      let sameWidthPaddingRange = 0;
-      const widthProfile = [];
-      for (const [paneWidth, samples] of [...byPaneWidth.entries()].sort((a, b) => a[0] - b[0])) {
-        const values = (key) => samples.map((sample) => sample[key]).filter(Number.isFinite);
-        const frames = values('frameWidth');
-        const paddings = values('framePadding');
-        const texts = values('textWidth');
-        if (frames.length) sameWidthFrameRange = Math.max(sameWidthFrameRange, Math.max(...frames) - Math.min(...frames));
-        if (paddings.length) sameWidthPaddingRange = Math.max(sameWidthPaddingRange, Math.max(...paddings) - Math.min(...paddings));
-        widthProfile.push({
-          paneWidth,
-          frameWidth: frames.length ? frames[frames.length - 1] : null,
-          framePadding: paddings.length ? paddings[paddings.length - 1] : null,
-          textWidth: texts.length ? texts[texts.length - 1] : null,
-        });
-      }
-      let maxFrameWidthRegression = 0;
-      let maxTextWidthRegression = 0;
-      for (let index = 1; index < widthProfile.length; index += 1) {
-        const previous = widthProfile[index - 1];
-        const current = widthProfile[index];
-        if (previous.frameWidth !== null && current.frameWidth !== null) {
-          maxFrameWidthRegression = Math.max(maxFrameWidthRegression, previous.frameWidth - current.frameWidth);
-        }
-        if (previous.textWidth !== null && current.textWidth !== null) {
-          maxTextWidthRegression = Math.max(maxTextWidthRegression, previous.textWidth - current.textWidth);
-        }
-      }
-      const tops = trace.samples.map((sample) => sample.scrollTop);
-      let reversals = 0;
-      for (let i = 2; i < tops.length; i++) {
-        const a = tops[i - 1] - tops[i - 2];
-        const b = tops[i] - tops[i - 1];
-        if (Math.abs(a) > 8 && Math.abs(b) > 8 && Math.sign(a) !== Math.sign(b)) reversals += 1;
-      }
-      const jumps = trace.writes
-        .map((write) => ({ ...write, delta: write.to - write.from, offBottom: write.to - write.bottom }))
-        .filter((write) => Math.abs(write.delta) > 8);
-      let maxFrameAnchorJump = 0;
-      let maxFrameTailJump = 0;
-      let maxFrameScrollJump = 0;
-      for (let i = 1; i < trace.samples.length; i++) {
-        const previous = trace.samples[i - 1];
-        const current = trace.samples[i];
-        maxFrameScrollJump = Math.max(maxFrameScrollJump, Math.abs(current.scrollTop - previous.scrollTop));
-        if (current.index === null || previous.index === null) continue;
-        if (current.index === previous.index) {
-          maxFrameAnchorJump = Math.max(maxFrameAnchorJump, Math.abs(current.offset - previous.offset));
-        }
-        if (current.tailIndex === previous.tailIndex
-          && current.tailOffset !== null && previous.tailOffset !== null) {
-          maxFrameTailJump = Math.max(maxFrameTailJump, Math.abs(current.tailOffset - previous.tailOffset));
-        }
-      }
-      return {
-        frames: trace.samples.length,
-        writes: trace.writes.length,
-        worstAnchorDrift: worstDrift,
-        worstTailDrift,
-        maxFrameAnchorJump,
-        maxFrameTailJump,
-        maxFrameScrollJump,
-        maxBottomDistance: trace.samples.length
-          ? Math.max(...trace.samples.map((sample) => Math.abs(sample.distance)))
-          : 0,
-        maxNarrowBottomDistance: trace.samples.length
-          ? Math.max(0, ...trace.samples
-              .filter((sample) => sample.paneWidth <= 520)
-              .map((sample) => Math.abs(sample.distance)))
-          : 0,
-        sameWidthFrameRange,
-        sameWidthPaddingRange,
-        maxFrameWidthRegression,
-        maxTextWidthRegression,
-        widthProfile: widthProfile.filter((sample, index) =>
-          index === 0
-            || index === widthProfile.length - 1
-            || sample.framePadding !== widthProfile[index - 1].framePadding
-            || sample.frameWidth !== widthProfile[index - 1].frameWidth),
-        scrollReversals: reversals,
-        scrollRange: tops.length ? Math.max(...tops) - Math.min(...tops) : 0,
-        biggestWrites: jumps.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 8),
-        writeStacks: [...new Set(trace.writes.map((write) => write.stack))].slice(0, 8),
-      };
-    })()`;
+    const install = WIDTH_TRACE_INSTALL_SCRIPT;
     const sweep = async (label: string, prepare: string) => {
       await window.webContents.executeJavaScript(prepare);
       await sleep(400);
@@ -654,7 +192,7 @@ export async function runJitterProbe({
       }
       window.setBounds(bounds);
       await sleep(400);
-      const report = await window.webContents.executeJavaScript(collect);
+      const report = await window.webContents.executeJavaScript(WIDTH_TRACE_COLLECT_SCRIPT);
       return { label, setup, ...(report as Record<string, unknown>) };
     };
     const reading = await sweep('reading', `(() => {
@@ -696,148 +234,17 @@ export async function runJitterProbe({
       modifiers: ['control'],
     });
     await sleep(800);
-    type SashGeometry = { x: number; y: number; minX: number; maxX: number };
-    const readSash = async (): Promise<SashGeometry | null> =>
-      window.webContents.executeJavaScript(`(() => {
-        const transcript = [...document.querySelectorAll('.transcript')]
-          .find((candidate) => candidate.getBoundingClientRect().height > 0
-            && candidate.querySelectorAll('.transcript-virtual-row').length > 3);
-        const handle = document.querySelector('.pane-split-row > .pane-resize-handle');
-        const split = handle?.parentElement;
-        if (!transcript || !handle || !split) return null;
-        const handleBox = handle.getBoundingClientRect();
-        const splitBox = split.getBoundingClientRect();
-        return {
-          x: handleBox.left + handleBox.width / 2,
-          y: handleBox.top + handleBox.height / 2,
-          minX: Math.round(splitBox.left + 324),
-          maxX: Math.round(splitBox.right - 324),
-        };
-      })()`) as Promise<SashGeometry | null>;
-    const initialSash = await readSash();
+    const initialSash = await readProbeSash(window);
     if (!initialSash || initialSash.maxX - initialSash.minX < 480) {
       throw new Error(`width probe: real pane sash unavailable ${JSON.stringify(initialSash)}`);
     }
-    const dragSash = async () => {
-      // CDP dispatches the browser's real mouse/pointer sequence. Electron's
-      // sendInputEvent mouseDown does not start React's pointer-capture path
-      // consistently, which leaves the sash visually present but stationary.
-      // Re-acquire the one-pixel handle for each 12px segment: Chromium can
-      // end synthetic pointer capture when the flex preview moves that handle
-      // under a debugger-driven pointer, and a stale starting coordinate then
-      // exercises the pane surface instead of the product's resize path.
-      const debug = window.webContents.debugger;
-      const wasAttached = debug.isAttached();
-      if (!wasAttached) debug.attach('1.3');
-      try {
-        const start = (await readSash())?.x;
-        if (start === undefined) throw new Error('width probe: pane sash disappeared before drag');
-        const moveTo = async (targetX: number) => {
-          let geometry = await readSash();
-          while (geometry && Math.abs(targetX - geometry.x) > 1) {
-            const direction = Math.sign(targetX - geometry.x);
-            let next: SashGeometry | null = null;
-            let requested = geometry.x;
-            for (let attempt = 0; attempt < 3; attempt += 1) {
-              const current = await readSash();
-              if (!current) break;
-              geometry = current;
-              const step = Math.max(4, 12 - attempt * 4);
-              requested = direction > 0
-                ? Math.min(targetX, geometry.x + step)
-                : Math.max(targetX, geometry.x - step);
-              // Move onto the freshly measured one-pixel handle before the
-              // press. A renderer commit can otherwise leave CDP's pointer on
-              // the adjacent pane even though the next press uses the new x.
-              await debug.sendCommand('Input.dispatchMouseEvent', {
-                type: 'mouseMoved',
-                x: geometry.x,
-                y: geometry.y,
-                button: 'none',
-                buttons: 0,
-                pointerType: 'mouse',
-              });
-              await sleep(8);
-              await debug.sendCommand('Input.dispatchMouseEvent', {
-                type: 'mousePressed',
-                x: geometry.x,
-                y: geometry.y,
-                button: 'left',
-                buttons: 1,
-                clickCount: 1,
-                pointerType: 'mouse',
-              });
-              await sleep(8);
-              await debug.sendCommand('Input.dispatchMouseEvent', {
-                type: 'mouseMoved',
-                x: requested,
-                y: geometry.y,
-                button: 'left',
-                buttons: 1,
-                pointerType: 'mouse',
-              });
-              await debug.sendCommand('Input.dispatchMouseEvent', {
-                type: 'mouseReleased',
-                x: requested,
-                y: geometry.y,
-                button: 'left',
-                buttons: 0,
-                clickCount: 1,
-                pointerType: 'mouse',
-              });
-              await sleep(30);
-              next = await readSash();
-              if (next && Math.abs(next.x - geometry.x) >= 1) break;
-            }
-            if (!next || Math.abs(next.x - geometry.x) < 1) {
-              // pane-layout clamps against the 4px model handle while the CSS
-              // sash consumes one visual pixel. At the far floor this leaves
-              // the synthetic target up to 4px beyond the reachable center.
-              if (Math.abs(targetX - geometry.x) <= 4.5) break;
-              throw new Error(`width probe: pane sash stalled ${JSON.stringify({
-                from: geometry.x,
-                requested,
-                actual: next?.x,
-              })}`);
-            }
-            geometry = next;
-          }
-          if (!geometry) throw new Error('width probe: pane sash disappeared during drag');
-        };
-        await moveTo(initialSash.minX);
-        await moveTo(initialSash.maxX);
-        await moveTo(start);
-        const restored = await readSash();
-        if (!restored || Math.abs(restored.x - start) > 2) {
-          throw new Error(`width probe: pane sash did not restore ${JSON.stringify({ start, restored })}`);
-        }
-        /*
-         * One final no-op move leaves CDP's mouse position on the restored
-         * handle without creating another product gesture.
-         */
-        if (restored) {
-          await debug.sendCommand('Input.dispatchMouseEvent', {
-            type: 'mouseMoved',
-            x: restored.x,
-            y: restored.y,
-            button: 'none',
-            buttons: 0,
-            pointerType: 'mouse',
-          });
-        }
-      } finally {
-        if (!wasAttached) {
-          try { debug.detach(); } catch { /* target closed with the probe */ }
-        }
-      }
-      await sleep(400);
-    };
+    const dragSash = () => dragProbeSash(window, initialSash, sleep);
     const sashSweep = async (label: string, prepare: string) => {
       await window.webContents.executeJavaScript(prepare);
       await sleep(400);
       const setup = await window.webContents.executeJavaScript(install);
       await dragSash();
-      const report = await window.webContents.executeJavaScript(collect);
+      const report = await window.webContents.executeJavaScript(WIDTH_TRACE_COLLECT_SCRIPT);
       return { label, setup, ...(report as Record<string, unknown>) };
     };
     const sashReading = await sashSweep('sash-reading', `(() => {
@@ -905,15 +312,8 @@ export async function runJitterProbe({
   }
 
   if (switchMode) {
-    const clickSession = async (id: string, waitMs: number) => {
-      await window.webContents.executeJavaScript(`(async () => {
-        const row = document.querySelector('[data-session-id="${id}"]');
-        if (!(row instanceof HTMLElement)) throw new Error('Missing switch probe row: ${id}');
-        row.click();
-        await new Promise((resolve) => setTimeout(resolve, ${waitMs}));
-        return true;
-      })()`);
-    };
+    const clickSession = (id: string, waitMs: number) =>
+      clickProbeSession(window, id, waitMs);
     // Warm B into the renderer snapshot cache, leave for A, then start a
     // delayed B resume and choose C before it settles. The old defect painted
     // cached B under C's title for up to 90ms.
@@ -945,10 +345,9 @@ export async function runJitterProbe({
       await new Promise((resolve) => setTimeout(resolve, 700));
       return true;
     })()`);
-    const switchFrames = await window.webContents.executeJavaScript(`(() => {
-      cancelAnimationFrame(window.__switchProbe.raf);
-      return window.__switchProbe.frames;
-    })()`) as Array<{ t: number; title: string; transcript: string }>;
+    const switchFrames = await window.webContents.executeJavaScript(
+      COLLECT_SWITCH_FRAMES_SCRIPT,
+    ) as Array<{ t: number; title: string; transcript: string }>;
     const wrongSessionFrames = switchFrames.filter((frame) => {
       const title = /Switch ([ABC])/.exec(frame.title)?.[1] || '';
       const transcript = /Switch ([ABC]) transcript/.exec(frame.transcript)?.[1] || '';

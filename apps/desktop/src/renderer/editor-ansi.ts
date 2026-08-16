@@ -1,4 +1,4 @@
-// VS Code output parity for editable log files. The text model keeps every
+// ANSI output handling for editable log files. The text model keeps every
 // source byte; this parser only describes which CSI sequences Monaco hides and
 // which styles it paints over the remaining text.
 export interface EditorAnsiStyle {
@@ -39,7 +39,7 @@ export interface EditorAnsiDecorationPlan extends EditorAnsiParseResult {
   cssText: string;
 }
 
-// Defaults copied from VS Code's terminalColorRegistry.ts.
+// Default ANSI palette. Attribution is recorded under LICENSES.
 const ANSI_DARK = [
   "#000000", "#cd3131", "#0dbc79", "#e5e510",
   "#2472c8", "#bc3fbc", "#11a8cd", "#e5e5e5",

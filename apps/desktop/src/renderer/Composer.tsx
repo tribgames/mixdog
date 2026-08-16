@@ -15,6 +15,8 @@ import { MxIcon } from "./MxIcon";
 import { ProgressSpinner } from "./ProgressSpinner";
 import {
   hasSendablePromptContent,
+  isComposerNewlineChord,
+  nextComposerShiftLatch,
   shouldBlockPromptSubmit,
   shouldInterruptPrompt,
   shouldNavigatePromptHistory,
@@ -38,6 +40,8 @@ import {
   queuedRestoreProjection,
   replaceQueuedRestorePrefix,
 } from "../../../../src/tui/components/prompt-input/restore-policy.mjs";
+// @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
+import { pastedTextLineCount, shouldFoldPastedText } from "../../../../src/tui/paste-text-policy.mjs";
 
 
 // Project-context pill, attachment budget, prompt history and the queued
@@ -48,7 +52,6 @@ import {
   MAX_PERSISTED_PROMPT_HISTORY,
   MAX_SUBMIT_TEXT_LENGTH,
   PROJECT_CONTEXT_LOCAL,
-  PROJECT_CONTEXT_OPEN,
   ProjectContextSelector,
   QueueList,
   promptHistoryStorageKey,
@@ -64,28 +67,19 @@ import {
   attachmentPolicyError,
   isSupportedComposerImagePath,
 } from "./composer-attachments";
+import {
+  insertComposerToken,
+  nextComposerSubmissionId,
+  submissionRetryKey,
+} from "./composer-draft";
+import { useComposerDictation } from "./use-composer-dictation";
 export {
   PROJECT_CONTEXT_LOCAL,
-  PROJECT_CONTEXT_OPEN,
   ProjectContextSelector,
   promptHistoryStorageKey,
   queuedFollowupPreview,
   readPromptHistory
 };
-
-let composerSubmissionSequence = 0;
-
-function nextComposerSubmissionId(): string {
-  const uuid = globalThis.crypto?.randomUUID?.();
-  return `desktop-submit-${uuid || `${Date.now()}-${++composerSubmissionSequence}`}`;
-}
-
-function submissionRetryKey(text: string, attachments: readonly ComposerAttachment[]): string {
-  return JSON.stringify([
-    text,
-    attachments.map((attachment) => String(attachment.id)),
-  ]);
-}
 
 function reportComposerAction(diagnostic: DesktopRendererComposerActionDiagnostic): void {
   try { window.mixdogDesktop?.rendererDiagnostic?.(diagnostic); } catch { /* diagnostics only */ }
@@ -109,7 +103,7 @@ export const Composer = memo(function Composer({
   modelParameters,
   draftMode,
   onDraftModelSelection,
-  onFastPreferenceApplied,
+  onRoutePreferenceApplied,
   queued,
   hiddenQueueIds,
   pendingSubmissionIds,
@@ -147,7 +141,7 @@ export const Composer = memo(function Composer({
   modelParameters?: Record<string, string>;
   draftMode?: boolean;
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
-  onFastPreferenceApplied?: (selection: DesktopModelSelection) => void;
+  onRoutePreferenceApplied?: (selection: DesktopModelSelection) => void;
   queued?: unknown[];
   hiddenQueueIds?: Array<string | number>;
   pendingSubmissionIds?: Array<string | number>;
@@ -178,14 +172,6 @@ export const Composer = memo(function Composer({
   const submissionRetryRef = useRef<{ key: string; id: string } | null>(null);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState('');
-  const [dictationState, setDictationState] = useState<'idle' | 'recording' | 'transcribing'>('idle');
-  const dictationSession = useRef<{
-    recorder: MediaRecorder;
-    stream: MediaStream;
-    chunks: Blob[];
-    cancelled: boolean;
-    stopTimer: number;
-  } | null>(null);
   const [composerNotice, setComposerNotice] = useState('');
   // Composer notices are transient helpers (mic errors, etc.): auto-dismiss
   // after a beat instead of pinning to the composer forever (user-flagged).
@@ -208,8 +194,7 @@ export const Composer = memo(function Composer({
   const [mentionDismissed, setMentionDismissed] = useState('');
   const [restoring, setRestoring] = useState(false);
   const [locallyHiddenQueueIds, setLocallyHiddenQueueIds] = useState<string[]>([]);
-  // Esc-Esc message selector (TUI/Claude Code parity): pick a previous prompt,
-  // rewind the conversation to it, and edit it in the composer.
+  // Esc-Esc selects a previous prompt, rewinds to it, and restores it for edit.
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [selectorIndex, setSelectorIndex] = useState(0);
   const [draggingFiles, setDraggingFiles] = useState(false);
@@ -220,6 +205,9 @@ export const Composer = memo(function Composer({
   // every IME event ordering, so keep the explicit composition lifecycle too.
   const composingRef = useRef(false);
   const suppressImeLineBreakRef = useRef(false);
+  // True while the current Shift hold has already produced a character ('?' is
+  // Shift+/), so the Enter that follows is a send, not a newline chord.
+  const shiftLatchRef = useRef(false);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const escapeClearAtRef = useRef(0);
@@ -260,6 +248,13 @@ export const Composer = memo(function Composer({
   const composerPaintSamplePending = useRef(false);
   const transitioningRef = useRef(transitioning);
   transitioningRef.current = transitioning;
+  const { dictationState, toggleDictation } = useComposerDictation({
+    transitioningRef,
+    textarea,
+    setDraft,
+    invokeResult,
+    showNotice: showComposerNotice,
+  });
   const wasTransitioning = useRef(transitioning);
   const historyNavigation = useRef({ index: -1, seed: '' });
   const historySeedAttachments = useRef<ComposerAttachment[]>([]);
@@ -551,21 +546,16 @@ export const Composer = memo(function Composer({
       return true;
     }
     setDraft((current) => {
-      const rawStart = element?.selectionStart ?? current.length;
-      const rawEnd = element?.selectionEnd ?? rawStart;
-      const start = Math.max(0, Math.min(rawStart, current.length));
-      const end = Math.max(start, Math.min(rawEnd, current.length));
-      const before = current.slice(0, start);
-      const after = current.slice(end);
-      const leading = before && !/\s$/.test(before) ? ' ' : '';
-      const trailing = after && !/^\s/.test(after) ? ' ' : ' ';
-      const inserted = `${leading}${attachment.token}${trailing}`;
-      const caret = before.length + inserted.length;
+      const { next, caret } = insertComposerToken(
+        current,
+        element?.selectionStart,
+        element?.selectionEnd,
+        attachment.token,
+      );
       window.setTimeout(() => {
         textarea.current?.focus();
         textarea.current?.setSelectionRange(caret, caret);
       }, 0);
-      const next = `${before}${inserted}${after}`;
       draftRef.current = next;
       return next;
     });
@@ -620,17 +610,12 @@ export const Composer = memo(function Composer({
     if (!mentions.length) return;
     const element = textarea.current;
     setDraft((current) => {
-      const rawStart = element?.selectionStart ?? current.length;
-      const rawEnd = element?.selectionEnd ?? rawStart;
-      const start = Math.max(0, Math.min(rawStart, current.length));
-      const end = Math.max(start, Math.min(rawEnd, current.length));
-      const before = current.slice(0, start);
-      const after = current.slice(end);
-      const leading = before && !/\s$/.test(before) ? ' ' : '';
-      const trailing = after && !/^\s/.test(after) ? ' ' : ' ';
-      const inserted = `${leading}${mentions.join(' ')}${trailing}`;
-      const next = `${before}${inserted}${after}`;
-      const caret = before.length + inserted.length;
+      const { next, caret } = insertComposerToken(
+        current,
+        element?.selectionStart,
+        element?.selectionEnd,
+        mentions.join(" "),
+      );
       draftRef.current = next;
       window.setTimeout(() => {
         textarea.current?.focus();
@@ -648,17 +633,12 @@ export const Composer = memo(function Composer({
     if (!tokens.length) return;
     const element = textarea.current;
     setDraft((current) => {
-      const rawStart = element?.selectionStart ?? current.length;
-      const rawEnd = element?.selectionEnd ?? rawStart;
-      const start = Math.max(0, Math.min(rawStart, current.length));
-      const end = Math.max(start, Math.min(rawEnd, current.length));
-      const before = current.slice(0, start);
-      const after = current.slice(end);
-      const leading = before && !/\s$/.test(before) ? ' ' : '';
-      const trailing = after && !/^\s/.test(after) ? ' ' : ' ';
-      const inserted = `${leading}${tokens.join(' ')}${trailing}`;
-      const next = `${before}${inserted}${after}`;
-      const caret = before.length + inserted.length;
+      const { next, caret } = insertComposerToken(
+        current,
+        element?.selectionStart,
+        element?.selectionEnd,
+        tokens.join(" "),
+      );
       draftRef.current = next;
       window.setTimeout(() => {
         textarea.current?.focus();
@@ -757,97 +737,6 @@ export const Composer = memo(function Composer({
       dragDepth.current = 0;
     };
   }, [attachFiles, attachLocalPaths, attachProjectPaths, dropTargetRef, projectScope]);
-
-  // Push-to-talk dictation: record locally, transcribe through the engine's
-  // managed whisper.cpp runtime, and append the transcript to the draft.
-  const toggleDictation = useCallback(async () => {
-    if (dictationState === 'transcribing' || transitioningRef.current) return;
-    const active = dictationSession.current;
-    if (active) {
-      try { active.recorder.stop(); } catch { /* recorder already stopped */ }
-      return;
-    }
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      if (!devices.some((device) => device.kind === 'audioinput')) {
-        showComposerNotice('No microphone was detected. Connect one and try again.');
-        return;
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : 'audio/webm';
-      const recorder = new MediaRecorder(stream, { mimeType });
-      const session = { recorder, stream, chunks: [] as Blob[], cancelled: false, stopTimer: 0 };
-      dictationSession.current = session;
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) session.chunks.push(event.data);
-      };
-      recorder.onstop = () => {
-        void (async () => {
-          window.clearTimeout(session.stopTimer);
-          dictationSession.current = null;
-          for (const track of session.stream.getTracks()) track.stop();
-          if (session.cancelled || session.chunks.length === 0) {
-            setDictationState('idle');
-            return;
-          }
-          setDictationState('transcribing');
-          try {
-            const blob = new Blob(session.chunks, { type: recorder.mimeType || 'audio/webm' });
-            const dataUrl = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onerror = () => reject(reader.error || new Error('Recorded audio could not be read.'));
-              reader.onload = () => resolve(String(reader.result || ''));
-              reader.readAsDataURL(blob);
-            });
-            const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
-            const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<string>({
-              capability: 'transcribeAudio',
-              args: [{ data: base64, mimeType: blob.type }],
-            }));
-            const text = String(result?.value ?? '').trim();
-            if (text) {
-              setDraft((current) => current
-                ? `${current}${/\s$/.test(current) ? '' : ' '}${text}`
-                : text);
-              window.setTimeout(() => textarea.current?.focus(), 0);
-            }
-          } finally {
-            setDictationState('idle');
-          }
-        })();
-      };
-      recorder.start();
-      // Dictation is sentence-scale; bound runaway recordings.
-      session.stopTimer = window.setTimeout(() => {
-        try { recorder.stop(); } catch { /* already stopped */ }
-      }, 120_000);
-      setDictationState('recording');
-    } catch (reason) {
-      // Raw DOMException names ("NotAllowedError") read as broken UI; map the
-      // three real-world failures to actionable notices (keep the same
-      // taxonomy across dictation errors).
-      const name = reason instanceof DOMException ? reason.name : '';
-      showComposerNotice(name === 'NotAllowedError'
-        ? ((window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer
-          ? 'Microphone access is blocked. Allow microphone access for this site in your browser settings and reload.'
-          : 'Microphone access is blocked. Allow microphone access for desktop apps in Windows Settings → Privacy & security → Microphone.')
-        : name === 'NotFoundError' || name === 'OverconstrainedError'
-          ? 'No microphone was detected. Connect one and try again.'
-          : name === 'NotReadableError'
-            ? 'The microphone is busy in another app. Close it and try again.'
-            : reason instanceof Error ? reason.message : String(reason));
-      setDictationState('idle');
-    }
-  }, [dictationState, invokeResult, showComposerNotice]);
-  useEffect(() => () => {
-    const session = dictationSession.current;
-    if (!session) return;
-    session.cancelled = true;
-    try { session.recorder.stop(); } catch { /* teardown */ }
-    for (const track of session.stream.getTracks()) track.stop();
-  }, []);
 
   const restoredAttachments = useCallback((value: RecordValue, restoredText: string): {
     attachments: ComposerAttachment[];
@@ -1252,7 +1141,7 @@ export const Composer = memo(function Composer({
         if (next === undefined) return false;
         applySnapshot(next);
         if (provider && model) {
-          onFastPreferenceApplied?.({
+          onRoutePreferenceApplied?.({
             provider, model, effort, fast: nextFast,
             ...(modelParameters && Object.keys(modelParameters).length ? { modelParameters } : {}),
           });
@@ -1298,6 +1187,7 @@ export const Composer = memo(function Composer({
       const next = await invokeResult(() => window.mixdogDesktop.setModelRoute(selection, sessionId));
       if (next === undefined) return false;
       applySnapshot(next);
+      onRoutePreferenceApplied?.(selection);
     } else if (name === 'model') {
       onOpenSettings('model');
     } else if (name === 'usage') {
@@ -1598,8 +1488,29 @@ export const Composer = memo(function Composer({
     setSelectorIndex(move);
     return true;
   };
+  const onKeyUp = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    shiftLatchRef.current = nextComposerShiftLatch(shiftLatchRef.current, {
+      type: 'keyup',
+      key: event.key,
+      shiftKey: event.shiftKey,
+    });
+  };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Escape') escapeClearAtRef.current = 0;
+    const shiftLatched = shiftLatchRef.current;
+    shiftLatchRef.current = nextComposerShiftLatch(shiftLatched, {
+      type: 'keydown',
+      key: event.key,
+      shiftKey: event.shiftKey,
+    });
+    const newlineChord = isComposerNewlineChord({
+      key: event.key,
+      shiftKey: event.shiftKey,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      altKey: event.altKey,
+      shiftLatched,
+    });
     const composing = event.nativeEvent.isComposing || composingRef.current ||
       event.nativeEvent.keyCode === 229;
     // If the previous composing Enter produced no native newline, its one-shot
@@ -1614,8 +1525,7 @@ export const Composer = memo(function Composer({
     // swallowed by the commit: the composition ends and NOTHING breaks the
     // line (user: 개행이 안돼). Let the commit land, then insert the break the
     // user asked for — unless the platform already inserted one.
-    if (composing && event.key === 'Enter' &&
-      (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey)) {
+    if (composing && newlineChord) {
       const element = event.currentTarget;
       window.setTimeout(() => {
         const caret = element.selectionStart;
@@ -1776,7 +1686,7 @@ export const Composer = memo(function Composer({
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+      if (newlineChord) {
         insertNewline(event.currentTarget);
       } else {
         void send('', 'keyboard-enter');
@@ -1953,10 +1863,11 @@ export const Composer = memo(function Composer({
       }} onFocus={() => setComposerFocused(true)} onBlur={() => {
         composingRef.current = false;
         suppressImeLineBreakRef.current = false;
+        shiftLatchRef.current = false;
         setComposerFocused(false);
       }}
         onPointerDown={() => { escapeClearAtRef.current = 0; }}
-        onSelect={(event) => setCaretOffset(event.currentTarget.selectionStart)} onKeyDown={onKeyDown}
+        onSelect={(event) => setCaretOffset(event.currentTarget.selectionStart)} onKeyDown={onKeyDown} onKeyUp={onKeyUp}
         onPaste={(event) => {
           const itemFiles = Array.from(event.clipboardData.items || [])
             .filter((item) => item.kind === 'file')
@@ -1969,9 +1880,9 @@ export const Composer = memo(function Composer({
             return;
           }
           const text = event.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
-          if (text.length > 200 || text.split(/\r?\n/).length >= 3) {
+          if (shouldFoldPastedText(text)) {
             const id = attachmentSequence.current++;
-            const lines = text.split('\n').length;
+            const lines = pastedTextLineCount(text);
             const inserted = insertAttachment({
               id, name: `Pasted text · ${lines} lines`, kind: 'text', mimeType: 'text/plain', data: text,
               token: `[Pasted text #${id} +${lines} lines]`, source: 'paste', chipOnly: true,
@@ -2004,7 +1915,7 @@ export const Composer = memo(function Composer({
           tuningDisabled={commandBusy || transitioning}
           invokeResult={invokeResult} applySnapshot={applySnapshot}
           onOpenSettings={onOpenSettings} onDraftSelection={onDraftModelSelection}
-          onFastPreferenceApplied={onFastPreferenceApplied} />
+          onRoutePreferenceApplied={onRoutePreferenceApplied} />
         <button type="button"
           className={`composer-tool composer-mic ${dictationState !== 'idle' ? `is-${dictationState}` : ''}`.trim()}
           disabled={transitioning || dictationState === 'transcribing'}

@@ -238,6 +238,8 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
     v4aConvertOpts, dryRun, fuzz, fuzzy, rejectPartial,
     readStateScope, abortSignal, mutationPlan,
     toolCallId, sessionId,
+    continueAfterFailure = false,
+    coalesceByFile = false,
   } = ctx;
 
   // Build the ordered section "units". Each unit resolves its own parsed
@@ -283,11 +285,14 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
   if (isV4APatchInput(patchStr, requestedFormat)) {
     let allSections;
     try {
-      allSections = rewriteV4AReadRedirects(
+      const parsedSections = rewriteV4AReadRedirects(
         parseV4APatch(patchStr),
         basePath,
         readStateScope,
       );
+      allSections = coalesceByFile
+        ? coalesceCompatibleV4ASections(parsedSections, basePath)
+        : parsedSections;
     } catch (err) {
       throw new Error(`apply_patch: V4A parse failed — ${err?.message || String(err)}`);
     }
@@ -374,23 +379,30 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
       }
       const applied = [];
       const skipped = [];
+      const failures = [];
       let failed = null;
       let failedIndex = -1;
       let executor = 'native-patch';
+      const noteFailure = (unit, index, error) => {
+        const row = { displayPath: unit.displayPath, error, index };
+        failures.push(row);
+        if (!continueAfterFailure) {
+          failed = row;
+          failedIndex = index;
+        }
+      };
       for (let i = 0; i < units.length; i++) {
         const unit = units[i];
         if (failed) { skipped.push(unit.displayPath); continue; }
         if (abortSignal?.aborted) {
-          failed = { displayPath: unit.displayPath, error: 'Error: apply_patch aborted' };
-          failedIndex = i;
+          noteFailure(unit, i, 'Error: apply_patch aborted');
           continue;
         }
         let parsed;
         try {
           parsed = await unit.buildParsed();
         } catch (err) {
-          failed = { displayPath: unit.displayPath, error: `Error: ${err?.message || String(err)}` };
-          failedIndex = i;
+          noteFailure(unit, i, `Error: ${err?.message || String(err)}`);
           continue;
         }
         if (!Array.isArray(parsed) || parsed.length === 0) {
@@ -404,15 +416,13 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
           const { entries, headerRewrites } = await preValidateNativeBatch(parsed, basePath);
           wave = { parsed, entries, headerRewrites };
         } catch (err) {
-          failed = { displayPath: unit.displayPath, error: `Error: ${err?.message || String(err)}` };
-          failedIndex = i;
+          noteFailure(unit, i, `Error: ${err?.message || String(err)}`);
           continue;
         }
         const res = await applyParsedWave(wave, basePath, waveOpts);
         executor = res.executor;
         if (res.error) {
-          failed = { displayPath: unit.displayPath, error: res.error };
-          failedIndex = i;
+          noteFailure(unit, i, res.error);
           continue;
         }
         applied.push({ displayPath: unit.displayPath, text: res.text });
@@ -435,6 +445,34 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
           ...rejected.map((r) => `  REJECT ${r.file || '(unknown)'} — ${String(r.reason || '').split(';')[0].trim()}`),
         ].join('\n')
         : '';
+      if (continueAfterFailure && failures.length > 0) {
+        if (!dryRun && uiBeforeSnapshots.length > 0 && applied.length > 0) {
+          registerCommittedPatchUiDiff({
+            callId: toolCallId,
+            sessionId,
+            basePath,
+            beforeSnapshots: uiBeforeSnapshots,
+            paths: lockPaths,
+          });
+        }
+        const committedPhrase = dryRun
+          ? `${applied.length}/${units.length} file section(s) validated`
+          : `${applied.length}/${units.length} file(s) applied to disk (committed)`;
+        const lines = [
+          `Error: apply_patch file-level partial: ${committedPhrase}; ${failures.length} file(s) rejected and left unchanged.`,
+          'Retry only the rejected files; do not resend committed files.',
+        ];
+        if (appliedTexts) {
+          lines.push(`--- ${dryRun ? 'validated' : 'applied (committed to disk)'} ---`, appliedTexts);
+        }
+        for (const failure of failures) {
+          lines.push(
+            `--- rejected file ${failure.index + 1}/${units.length}: ${failure.displayPath} ---`,
+            failure.error.replace(/^Error:\s*/, ''),
+          );
+        }
+        return wrapPatchMutationOutput(lines.join('\n') + dryNote + rejectedTail, mutationPlan, { executor });
+      }
       if (!failed) {
         if (!dryRun && uiBeforeSnapshots.length > 0) {
           registerCommittedPatchUiDiff({
@@ -819,18 +857,26 @@ async function apply_patch(args, cwd, options = {}) {
   // the move as its own section.
   const modelSurfaceRenameOnly = preParsedV4ASections?.length === 1
     && isV4ARenameSection(preParsedV4ASections[0]);
+  const modelSurfaceFilePartial = Array.isArray(preParsedV4ASections)
+    && !preParsedV4ASections.some(isV4ARenameSection)
+    && new Set(preParsedV4ASections.map((section) => {
+      const fullPath = resolveV4AEntryPath(basePath, section.path);
+      return process.platform === 'win32' ? fullPath.toLowerCase() : fullPath;
+    })).size > 1;
   // The model-visible default matches Codex: validate the complete patch before
   // writing and reject duplicate targets. Ordered partial application remains
   // an internal compatibility mode only.
   const patchMode = String(args?.mode || '').toLowerCase();
   const orderedSequenceMode = args?.sequence === true
     || ['ordered', 'sequence'].includes(patchMode);
-  if (orderedSequenceMode && !modelSurfaceRenameOnly) {
+  if ((orderedSequenceMode || modelSurfaceFilePartial) && !modelSurfaceRenameOnly) {
     const seqOut = await applyPatchSequence(patchStr, requestedFormat, basePath, {
       v4aConvertOpts, dryRun, fuzz, fuzzy, rejectPartial,
       readStateScope, abortSignal, mutationPlan,
       toolCallId: options?.toolCallId || null,
       sessionId: options?.sessionId || null,
+      continueAfterFailure: modelSurfaceFilePartial && !orderedSequenceMode,
+      coalesceByFile: modelSurfaceFilePartial && !orderedSequenceMode,
     });
     return dryRun ? seqOut : appendPostPatchExcerpts(seqOut, patchStr, requestedFormat, basePath, readStateScope);
   }

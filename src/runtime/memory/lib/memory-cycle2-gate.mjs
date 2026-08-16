@@ -10,6 +10,12 @@ import { listCore } from './core-memory-store.mjs'
 import { __mixdogMemoryLog, throwIfAborted, resourceDir } from './memory-cycle2-shared.mjs'
 
 export const CYCLE2_ACTIVE_TARGET_CAP = 100
+const CYCLE2_PACKET_MATERIAL_CAP = 50
+const CYCLE2_MAX_PACKETS = 4
+const CYCLE2_PACKET_CONCURRENCY = 4
+const CYCLE2_LINEAGE_PER_ROW = 6
+const CYCLE2_LINEAGE_QUERY_BATCH = 8
+const CYCLE2_PROMPT_MAX_BYTES = 160_000
 
 // Default active-row floor for cycle2. It is zero so rolling active rechecks
 // always run; protection from archive verdicts is opt-in via
@@ -83,81 +89,145 @@ function formatUserCoreForPrompt(rows, pidMap) {
   }).join('\n')
 }
 
-async function loadLineageCandidates(db, rows) {
+async function loadLineageCandidates(db, rows, options = {}) {
   const ids = rows.map(r => Number(r.id)).filter(Number.isFinite)
   if (ids.length === 0) return new Map()
-  const result = await db.query(`
-    SELECT newer.id AS newer_id,
-           older.id AS older_id,
-           older.ts AS older_ts,
-           older.element AS older_element,
-           older.summary AS older_summary,
-           older.concept_id AS older_concept_id,
-           older.sim,
-           older.lex,
-           older.source
-    FROM entries newer
-    CROSS JOIN LATERAL (
-      WITH lexical_query AS (
-        SELECT to_tsquery('simple', string_agg(quote_literal(term), ' | ')) AS query
-        FROM (
-          SELECT term
-          FROM unnest(tsvector_to_array(newer.search_tsv)) AS term
-          WHERE length(term) >= 3
-          ORDER BY length(term) DESC, term
-          LIMIT 24
-        ) terms
-      ), candidates AS (
-        (
-          SELECT prior.id, prior.ts, prior.element, prior.summary, prior.concept_id,
-                 1 - (newer.embedding <=> prior.embedding)::float8 AS sim,
-                 0::float8 AS lex,
-                 'dense'::text AS source
-          FROM entries prior
-          WHERE prior.is_root = 1
-            AND prior.embedding IS NOT NULL
-            AND prior.id != newer.id
-            AND (prior.ts < newer.ts OR (prior.ts = newer.ts AND prior.id < newer.id))
-            AND prior.project_id IS NOT DISTINCT FROM newer.project_id
-          ORDER BY prior.embedding <=> newer.embedding
-          LIMIT 8
-        )
-        UNION ALL
-        (
-          SELECT prior.id, prior.ts, prior.element, prior.summary, prior.concept_id,
-                 CASE WHEN prior.embedding IS NULL THEN 0
-                      ELSE 1 - (newer.embedding <=> prior.embedding)::float8 END AS sim,
-                 ts_rank_cd(prior.search_tsv, lexical_query.query)::float8 AS lex,
-                 'lexical'::text AS source
-          FROM entries prior
-          CROSS JOIN lexical_query
-          WHERE lexical_query.query IS NOT NULL
-            AND prior.is_root = 1
-            AND prior.id != newer.id
-            AND (prior.ts < newer.ts OR (prior.ts = newer.ts AND prior.id < newer.id))
-            AND prior.project_id IS NOT DISTINCT FROM newer.project_id
-            AND prior.search_tsv @@ lexical_query.query
-          ORDER BY lex DESC, prior.ts DESC, prior.id DESC
-          LIMIT 12
-        )
-      )
-      SELECT DISTINCT ON (id)
-             id, ts, element, summary, concept_id, sim, lex, source
-      FROM candidates
-      WHERE sim >= 0.55 OR lex > 0
-      ORDER BY id, lex DESC, sim DESC
-    ) older
-    WHERE newer.id = ANY($1::bigint[])
-      AND newer.embedding IS NOT NULL
-    ORDER BY newer.id, older.lex DESC, older.sim DESC, older.ts DESC
-  `, [ids])
   const out = new Map()
-  for (const row of result.rows ?? []) {
-    const id = Number(row.newer_id)
-    if (!out.has(id)) out.set(id, [])
-    out.get(id).push(row)
+  const perRowLimit = Math.min(
+    CYCLE2_LINEAGE_PER_ROW,
+    Math.max(1, Number(options.perRowLimit) || CYCLE2_LINEAGE_PER_ROW),
+  )
+  const queryBatchSize = Math.min(
+    CYCLE2_LINEAGE_QUERY_BATCH,
+    Math.max(1, Number(options.queryBatchSize) || CYCLE2_LINEAGE_QUERY_BATCH),
+  )
+  for (let offset = 0; offset < ids.length; offset += queryBatchSize) {
+    const batchIds = ids.slice(offset, offset + queryBatchSize)
+    const result = await db.query(`
+      SELECT newer.id AS newer_id,
+             older.id AS older_id,
+             older.ts AS older_ts,
+             older.element AS older_element,
+             older.summary AS older_summary,
+             older.concept_id AS older_concept_id,
+             older.sim,
+             older.lex,
+             older.source
+      FROM entries newer
+      CROSS JOIN LATERAL (
+        WITH lexical_query AS (
+          SELECT to_tsquery('simple', string_agg(quote_literal(term), ' | ')) AS query
+          FROM (
+            SELECT term
+            FROM unnest(tsvector_to_array(newer.search_tsv)) AS term
+            WHERE length(term) >= 3
+            ORDER BY length(term) DESC, term
+            LIMIT 24
+          ) terms
+        ), candidates AS (
+          (
+            SELECT prior.id, prior.ts, prior.element, prior.summary, prior.concept_id,
+                   1 - (newer.embedding <=> prior.embedding)::float8 AS sim,
+                   0::float8 AS lex,
+                   'dense'::text AS source
+            FROM entries prior
+            WHERE prior.is_root = 1
+              AND prior.embedding IS NOT NULL
+              AND prior.id != newer.id
+              AND (prior.ts < newer.ts OR (prior.ts = newer.ts AND prior.id < newer.id))
+              AND prior.project_id IS NOT DISTINCT FROM newer.project_id
+            ORDER BY prior.embedding <=> newer.embedding
+            LIMIT 8
+          )
+          UNION ALL
+          (
+            SELECT prior.id, prior.ts, prior.element, prior.summary, prior.concept_id,
+                   CASE WHEN prior.embedding IS NULL THEN 0
+                        ELSE 1 - (newer.embedding <=> prior.embedding)::float8 END AS sim,
+                   ts_rank_cd(prior.search_tsv, lexical_query.query)::float8 AS lex,
+                   'lexical'::text AS source
+            FROM entries prior
+            CROSS JOIN lexical_query
+            WHERE lexical_query.query IS NOT NULL
+              AND prior.is_root = 1
+              AND prior.id != newer.id
+              AND (prior.ts < newer.ts OR (prior.ts = newer.ts AND prior.id < newer.id))
+              AND prior.project_id IS NOT DISTINCT FROM newer.project_id
+              AND prior.search_tsv @@ lexical_query.query
+            ORDER BY lex DESC, prior.ts DESC, prior.id DESC
+            LIMIT 12
+          )
+        )
+        SELECT *
+        FROM (
+          SELECT DISTINCT ON (id)
+                 id, ts, element, summary, concept_id, sim, lex, source
+          FROM candidates
+          WHERE sim >= 0.55 OR lex > 0
+          ORDER BY id, lex DESC, sim DESC
+        ) deduped
+        ORDER BY lex DESC, sim DESC, ts DESC
+        LIMIT $2
+      ) older
+      WHERE newer.id = ANY($1::bigint[])
+        AND newer.embedding IS NOT NULL
+      ORDER BY newer.id, older.lex DESC, older.sim DESC, older.ts DESC
+    `, [batchIds, perRowLimit])
+    for (const row of result.rows ?? []) {
+      const id = Number(row.newer_id)
+      if (!out.has(id)) out.set(id, [])
+      out.get(id).push(row)
+    }
   }
   return out
+}
+
+export function packUnifiedGatePackets(rows, candidates, options = {}) {
+  const materialCap = Math.min(
+    CYCLE2_PACKET_MATERIAL_CAP,
+    Math.max(1, Number(options.materialCap) || CYCLE2_PACKET_MATERIAL_CAP),
+  )
+  const maxPackets = Math.min(
+    CYCLE2_MAX_PACKETS,
+    Math.max(1, Number(options.maxPackets) || CYCLE2_MAX_PACKETS),
+  )
+  const packets = []
+  const deferredIds = []
+  let current = null
+  for (const row of rows ?? []) {
+    const id = Number(row.id)
+    const prior = (candidates.get(id) ?? []).slice(0, Math.max(0, materialCap - 1))
+    const weight = 1 + prior.length
+    if (!current || current.materialCount + weight > materialCap) {
+      if (packets.length >= maxPackets) {
+        deferredIds.push(id)
+        continue
+      }
+      current = { rows: [], candidates: new Map(), materialCount: 0 }
+      packets.push(current)
+    }
+    current.rows.push(row)
+    if (prior.length > 0) current.candidates.set(id, prior)
+    current.materialCount += weight
+  }
+  return { packets, deferredIds }
+}
+
+function createSemaphore(limit) {
+  const cap = Math.max(1, Number(limit) || 1)
+  let active = 0
+  const queue = []
+  const release = () => {
+    active -= 1
+    const next = queue.shift()
+    if (next) next()
+  }
+  return async (fn) => {
+    if (active >= cap) await new Promise(resolve => queue.push(resolve))
+    active += 1
+    try { return await fn() }
+    finally { release() }
+  }
 }
 
 function formatLineageCandidates(rows, candidates) {
@@ -450,22 +520,18 @@ function requiredCoreIdForAction(action) {
 
 // ─── Unified gate ────────────────────────────────────────────────────────────
 
-// Single LLM pass over rows whose status is in {pending, active}.
+// Single ephemeral LLM pass over one bounded packet.
 // Returns { actions, rejected, parseOk } following parseUnifiedFormat shape.
-export async function runUnifiedGate(db, rows, activeContext, config = {}, options = {}) {
+async function runUnifiedGatePacket(db, rows, activeContext, config = {}, options = {}) {
   const signal = options?.signal
   throwIfAborted(signal)
   if (!rows || rows.length === 0) return { actions: [], rejected: new Set(), parseOk: true }
-  const promptPath = join(resourceDir(), 'defaults', 'memory-promote-prompt.md')
-  if (!existsSync(promptPath)) {
-    throw new Error(`runCycle2: prompt file missing at ${promptPath}`)
-  }
-  const template = readFileSync(promptPath, 'utf8')
-  const userCoreRows = options.dataDir ? await listCore(options.dataDir, '*').catch(() => []) : []
-  const lineageCandidates = await loadLineageCandidates(db, rows)
+  const template = options.template
+  const userCoreRows = options.userCoreRows ?? []
+  const lineageCandidates = options.lineageCandidates ?? new Map()
   throwIfAborted(signal)
   const sharedPidMap = buildPidMap([activeContext ?? [], rows ?? [], userCoreRows ?? []])
-  const rulesDigest = loadCurrentRulesDigest() || '(no current rules digest available)'
+  const rulesDigest = options.rulesDigest || '(no current rules digest available)'
   const activeCount = activeContext?.length ?? 0
   const activeCap = options.activeCap ?? CYCLE2_ACTIVE_TARGET_CAP
 
@@ -477,6 +543,14 @@ export async function runUnifiedGate(db, rows, activeContext, config = {}, optio
     .replace('{{LINEAGE_CANDIDATES}}', formatLineageCandidates(rows, lineageCandidates))
     .replace('{{ACTIVE_COUNT}}', String(activeCount))
     .replace('{{ACTIVE_CAP}}', String(activeCap))
+
+  const promptBytes = Buffer.byteLength(prompt, 'utf8')
+  const promptMaxBytes = Math.max(20_000, Number(options.promptMaxBytes) || CYCLE2_PROMPT_MAX_BYTES)
+  const packetLabel = Number(options.packetIndex ?? 0) + 1
+  if (promptBytes > promptMaxBytes) {
+    __mixdogMemoryLog(`[cycle2] packet=${packetLabel} prompt budget exceeded bytes=${promptBytes} max=${promptMaxBytes}\n`)
+    return { actions: null, rejected: new Set(), parseOk: false, error: 'prompt_budget_exceeded' }
+  }
 
   const preset = options.preset || resolveMaintenancePreset('memory')
   const timeout = Number(config?.cycle2?.timeout ?? 600000)
@@ -507,7 +581,7 @@ export async function runUnifiedGate(db, rows, activeContext, config = {}, optio
     ordinalToId = null
   }
 
-  __mixdogMemoryLog(`[cycle2-diag] unified prompt=${prompt.length} bytes; rows=${rows.length}\n`)
+  __mixdogMemoryLog(`[cycle2-diag] packet=${packetLabel} prompt=${promptBytes} bytes; rows=${rows.length}\n`)
 
   let raw
   try {
@@ -597,6 +671,82 @@ export async function runUnifiedGate(db, rows, activeContext, config = {}, optio
     parseOk: true,
     missingIds: quality?.missingVerdictIds || [],
     lineageCandidateIds: [...lineageCandidates.keys()],
+  }
+}
+
+// A cycle selects candidate roots once, then packs each root together with its
+// lineage material into at most four isolated, disposable agent calls.
+export async function runUnifiedGate(db, rows, activeContext, config = {}, options = {}) {
+  const signal = options?.signal
+  throwIfAborted(signal)
+  if (!rows || rows.length === 0) return { actions: [], rejected: new Set(), parseOk: true }
+  const promptPath = join(resourceDir(), 'defaults', 'memory-promote-prompt.md')
+  if (!existsSync(promptPath)) {
+    throw new Error(`runCycle2: prompt file missing at ${promptPath}`)
+  }
+  const template = readFileSync(promptPath, 'utf8')
+  const userCoreRows = options.dataDir ? await listCore(options.dataDir, '*').catch(() => []) : []
+  const rulesDigest = loadCurrentRulesDigest() || '(no current rules digest available)'
+  const lineageCandidates = await loadLineageCandidates(db, rows, {
+    perRowLimit: config?.lineage_per_row,
+    queryBatchSize: config?.lineage_query_batch,
+  })
+  throwIfAborted(signal)
+  const { packets, deferredIds } = packUnifiedGatePackets(rows, lineageCandidates, {
+    materialCap: config?.packet_material_cap,
+    maxPackets: config?.max_packets,
+  })
+  const concurrency = Math.min(
+    CYCLE2_PACKET_CONCURRENCY,
+    Math.max(1, Number(config?.agent_concurrency ?? config?.concurrency) || CYCLE2_PACKET_CONCURRENCY),
+  )
+  const promptMaxBytes = Math.max(20_000, Number(config?.prompt_max_bytes) || CYCLE2_PROMPT_MAX_BYTES)
+  const sem = createSemaphore(Math.min(Math.max(1, packets.length), concurrency))
+  const settled = await Promise.allSettled(packets.map((packet, packetIndex) => sem(() =>
+    runUnifiedGatePacket(db, packet.rows, activeContext, config, {
+      ...options,
+      template,
+      userCoreRows,
+      rulesDigest,
+      lineageCandidates: packet.candidates,
+      promptMaxBytes,
+      packetIndex,
+    })
+  )))
+  const rejectedRun = settled.find(item => item.status === 'rejected')
+  if (rejectedRun) throw rejectedRun.reason
+
+  const actions = []
+  const rejected = new Set()
+  const missingIds = []
+  const failedIds = []
+  const lineageCandidateIds = []
+  let parseOk = true
+  settled.forEach((item, packetIndex) => {
+    const result = item.value
+    const packet = packets[packetIndex]
+    if (result.parseOk === false) {
+      parseOk = false
+      failedIds.push(...packet.rows.map(row => Number(row.id)).filter(Number.isFinite))
+      return
+    }
+    actions.push(...(result.actions ?? []))
+    for (const id of result.rejected ?? []) rejected.add(id)
+    missingIds.push(...(result.missingIds ?? []))
+    lineageCandidateIds.push(...(result.lineageCandidateIds ?? []))
+  })
+  if (deferredIds.length > 0) {
+    __mixdogMemoryLog(`[cycle2] deferred roots=${deferredIds.length} after packet cap=${packets.length}\n`)
+  }
+  return {
+    actions,
+    rejected,
+    parseOk,
+    missingIds: uniqueIds(missingIds),
+    failedIds: uniqueIds(failedIds),
+    deferredIds: uniqueIds(deferredIds),
+    lineageCandidateIds: uniqueIds(lineageCandidateIds),
+    packets: packets.length,
   }
 }
 

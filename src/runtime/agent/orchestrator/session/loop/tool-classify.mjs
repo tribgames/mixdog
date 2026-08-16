@@ -1,4 +1,5 @@
 import { gitCommandMutates } from '../../tools/builtin/git-command-policy.mjs';
+import { isAbsolute, normalize, resolve } from 'node:path';
 
 // Tool-name classification + intra-turn signature helpers, extracted from
 // loop.mjs. These drive cross-turn read dedup, scoped caching, shell routing,
@@ -71,6 +72,71 @@ export function _isToolArgShapeFailure(resultText) {
     return /\b(?:arg(?:ument)?s?|builtin arg)\b.*\b(?:invalid|must|required|requires|expected)\b/i.test(first)
         || /\b(?:requires|required)\b.*\b(?:arg(?:ument)?|pattern|path|query|command|task_id)\b/i.test(first)
         || /\binvalid json\b/i.test(first);
+}
+
+const FAILURE_PATH_KEYS = new Set([
+    'base_path', 'cwd', 'dir', 'dir_path', 'directory',
+    'file_path', 'files', 'path', 'paths',
+]);
+
+function _normalizeFailurePath(value, cwd) {
+    if (typeof value !== 'string' || value.length === 0 || /^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+        return value;
+    }
+    const base = typeof cwd === 'string' && cwd.length > 0 ? cwd : process.cwd();
+    let out = isAbsolute(value) ? normalize(value) : resolve(base, value);
+    if (process.platform === 'win32') out = out.toLowerCase();
+    return out.replace(/\\/g, '/');
+}
+
+function _canonicalFailureValue(value, key, cwd) {
+    if (typeof value === 'string') {
+        return FAILURE_PATH_KEYS.has(String(key || '').toLowerCase())
+            ? _normalizeFailurePath(value, cwd)
+            : value;
+    }
+    if (Array.isArray(value)) {
+        return value.map((entry) => _canonicalFailureValue(entry, key, cwd));
+    }
+    if (value && typeof value === 'object') {
+        const sorted = {};
+        for (const childKey of Object.keys(value).sort()) {
+            sorted[childKey] = _canonicalFailureValue(value[childKey], childKey, cwd);
+        }
+        return sorted;
+    }
+    return value;
+}
+
+export function _repeatFailureSig(name, args, cwd) {
+    try {
+        return `${_stripMcpPrefix(name)}:${JSON.stringify(_canonicalFailureValue(args, '', cwd))}`;
+    } catch {
+        return _intraTurnSig(_stripMcpPrefix(name), args);
+    }
+}
+
+// History contains executed failures only. Return the cycle length when the
+// proposed signature would continue a 1..5-call pattern that has already
+// repeated repeatLimit times; otherwise return 0.
+export function _repeatFailurePatternWouldContinue(history, signature, repeatLimit = 3) {
+    if (!Array.isArray(history) || typeof signature !== 'string' || repeatLimit < 1) return 0;
+    const n = history.length;
+    for (let cycleLength = 1; cycleLength <= 5; cycleLength++) {
+        const required = cycleLength * repeatLimit;
+        if (n < required) continue;
+        const start = n - required;
+        const cycle = history.slice(start, start + cycleLength);
+        let matches = true;
+        for (let i = 0; i < required; i++) {
+            if (history[start + i] !== cycle[i % cycleLength]) {
+                matches = false;
+                break;
+            }
+        }
+        if (matches && signature === cycle[0]) return cycleLength;
+    }
+    return 0;
 }
 
 export function _intraTurnSig(name, args) {

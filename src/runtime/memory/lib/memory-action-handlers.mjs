@@ -54,7 +54,6 @@ export function createMemoryActionHandlers({
   startCycle1Run,
   finalizeCycle2Run,
   finalizeCycle3Run,
-  requestCycle3Review,
   getSchedulerCycle1InFlight,
   getCycle2CallLlm,
   getCycle3CallLlm,
@@ -65,15 +64,6 @@ export function createMemoryActionHandlers({
   refreshCoreMemoryFile = async () => {},
 }) {
   const DATA_DIR = dataDir
-
-  async function queueCoreReview(reason) {
-    if (typeof requestCycle3Review !== 'function') return
-    try {
-      await requestCycle3Review(reason)
-    } catch (err) {
-      log?.(`[core-memory] follow-up review queue failed: ${err?.message || err}\n`)
-    }
-  }
 
   // Whole-action backfill mutex. memory-cycle1's _cycle1InFlight only protects
   // cycle1; ingest workers (memory-ops-policy.mjs) and cycle2 can still overlap
@@ -654,7 +644,6 @@ export function createMemoryActionHandlers({
           if (op === 'promote') {
             const entry = await promoteCoreCandidate(coreDataDir, args.id, { ...args, scope })
             await refreshCoreMemoryFile('core-promote')
-            await queueCoreReview('core-promote')
             const mergeNote = entry.merged_with ? ` (merged into core id=${entry.merged_with}, sim=${entry.sim})` : ''
             return { text: `core promoted candidate id=${args.id} → core id=${entry.id}${mergeNote}: ${entry.element}` }
           }
@@ -734,13 +723,24 @@ export function createMemoryActionHandlers({
         if (op === 'add') {
           const entry = await addCoreImpl(coreDataDir, args, projectId)
           await refreshCoreMemoryFile('core-add')
-          await queueCoreReview('core-add')
           return { text: `core added (id=${entry.id}): ${entry.element} — ${entry.summary.slice(0, 200)}` }
         }
         if (op === 'edit') {
-          const entry = await editCoreImpl(coreDataDir, args.id, args)
+          const hasTargetProjectId = Object.prototype.hasOwnProperty.call(args, 'target_project_id')
+          const targetProjectId = hasTargetProjectId
+            ? (() => {
+                const value = String(args.target_project_id ?? '').trim()
+                return !value || value.toLowerCase() === 'common' ? null : value
+              })()
+            : typeof args.target_cwd === 'string' && args.target_cwd
+              ? resolveProjectScope(args.target_cwd)
+              : projectId
+          const entry = await editCoreImpl(coreDataDir, args.id, {
+            ...args,
+            expectedProjectId: projectId,
+            targetProjectId,
+          })
           await refreshCoreMemoryFile('core-edit')
-          await queueCoreReview('core-edit')
           return { text: `core edited (id=${entry.id}): ${entry.element} — ${entry.summary.slice(0, 200)}` }
         }
         if (op === 'delete') {

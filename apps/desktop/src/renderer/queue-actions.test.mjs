@@ -8,6 +8,8 @@ import { JSDOM } from "jsdom";
 import { QueueList } from "./composer-support.tsx";
 import {
   hasSendablePromptContent,
+  isComposerNewlineChord,
+  nextComposerShiftLatch,
   shouldBlockPromptSubmit,
   shouldInterruptPrompt,
   shouldNavigatePromptHistory,
@@ -309,4 +311,28 @@ test("PANE prewarm includes restored inactive session tabs with active sessions 
     "left-active",
     "left-inactive",
   ]);
+});
+
+test("COMPOSER Enter sends when Shift was spent typing a character", () => {
+  // Typing '?' (Shift+/) then Enter before Shift is physically released.
+  let latch = nextComposerShiftLatch(false, { type: "keydown", key: "Shift", shiftKey: true });
+  assert.equal(latch, false);
+  latch = nextComposerShiftLatch(latch, { type: "keydown", key: "?", shiftKey: true });
+  assert.equal(latch, true);
+  assert.equal(isComposerNewlineChord({ key: "Enter", shiftKey: true, shiftLatched: latch }), false);
+
+  // Releasing Shift re-arms the real Shift+Enter newline chord.
+  latch = nextComposerShiftLatch(latch, { type: "keyup", key: "Shift", shiftKey: false });
+  assert.equal(latch, false);
+  assert.equal(isComposerNewlineChord({ key: "Enter", shiftKey: true, shiftLatched: latch }), true);
+
+  // A lost keyup still recovers on the next unshifted keydown.
+  latch = nextComposerShiftLatch(true, { type: "keydown", key: "a", shiftKey: false });
+  assert.equal(latch, false);
+
+  // Other chords and plain Enter keep their meaning regardless of the latch.
+  assert.equal(isComposerNewlineChord({ key: "Enter", ctrlKey: true, shiftLatched: true }), true);
+  assert.equal(isComposerNewlineChord({ key: "Enter", altKey: true, shiftLatched: true }), true);
+  assert.equal(isComposerNewlineChord({ key: "Enter" }), false);
+  assert.equal(isComposerNewlineChord({ key: "a", shiftKey: true }), false);
 });

@@ -39,7 +39,7 @@ import {
 import { GitPanel } from './git-panel';
 import type { SettingsCategory } from './settings-items';
 
-import { ActionButton, AutoSaveRow, Empty, FormRow, Group, ListEmpty, ResourceRow, SelectRow, settingsStatus, ToggleRow } from "./capability-controls";
+import { ActionButton, AutoSaveRow, FormRow, Group, ListEmpty, ResourceRow, SelectRow, settingsStatus, ToggleRow } from "./capability-controls";
 import { durationTextInput, formatDuration, label, providerLabel, record, rows, sectionError, sectionLoaded, type CapabilityApi, type PanelContext, type RecordValue } from "./capability-data";
 
 export function CategoryPanel({ category, context }: {
@@ -71,8 +71,7 @@ const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [s
     ['Ctrl+Shift+P', 'Command Palette'],
     ['Ctrl+W', 'Close tab'],
     ['Ctrl+Tab / Ctrl+Shift+Tab', 'Next / previous tab'],
-    ['Ctrl+← / →', 'Switch tab'],
-    ['Alt+← / →', 'Switch pane'],
+    ['Ctrl+← / →', 'Switch tab / pane'],
     ['Ctrl+B', 'Toggle left side bar'],
     ['Ctrl+Alt+B', 'Toggle right utility panel'],
     ['Ctrl+` / Ctrl+T', 'Toggle terminal panel'],
@@ -532,8 +531,8 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
       if (cancelled) return;
       if (!next) {
         setError(providerId === 'cursor-oauth'
-          ? 'Cursor OAuth status could not be checked.'
-          : 'OAuth status could not be checked.');
+          ? t('Cursor OAuth status could not be checked.')
+          : t('OAuth status could not be checked.'));
         return;
       }
       const nextFlow = record(next);
@@ -709,7 +708,7 @@ function HooksPanel({ data, pending, run }: PanelContext) {
 
 // Context management (user decision): ONE page owns how a session's context
 // evolves — auto-compact, idle auto-clear, and the memory that carries over.
-function ContextPanel({ data, pending, run, confirm }: PanelContext) {
+function ContextPanel({ data, pending, run }: PanelContext) {
   const autoClear = record(data.autoClear);
   const compaction = record(data.compaction);
   const providerDefaults = rows(autoClear.providerDefaults);
@@ -729,123 +728,7 @@ function ContextPanel({ data, pending, run, confirm }: PanelContext) {
           { provider: entry.provider, resetProvider: true },
         ], `autoclear-reset-${entry.provider}`)}>Reset</ActionButton>} />)}
     </Group>
-    <section className="settings-group core-memory-section">
-      <header><h3>{t('Core memories')}</h3><p>{t('User-curated memories shared across Mixdog sessions.')}</p></header>
-      <CoreMemoryManager initialValue={data.coreMemory} pending={pending} run={run} confirm={confirm} />
-    </section>
   </>;
-}
-
-type CoreMemoryEntry = {
-  id: number;
-  projectId: string | null;
-  element: string;
-  summary: string;
-  singleSentence: boolean;
-};
-
-function parseCoreMemoryEntries(value: unknown): CoreMemoryEntry[] {
-  let projectId: string | null = null;
-  const entries: CoreMemoryEntry[] = [];
-  for (const line of String(value || '').split('\n').map((entry) => entry.trim()).filter(Boolean)) {
-    if (line.endsWith(':') && !line.includes('id=')) {
-      const scope = line.slice(0, -1);
-      projectId = scope === 'COMMON' ? null : scope;
-      continue;
-    }
-    const match = line.match(/^id=(\d+)\s+(.+?)(?:\s+—\s+(.+))?$/);
-    if (!match) continue;
-    const element = match[2];
-    const rawSummary = match[3] || '';
-    entries.push({
-      id: Number(match[1]),
-      projectId,
-      element,
-      summary: rawSummary || element,
-      singleSentence: element === rawSummary,
-    });
-  }
-  return entries.sort((left, right) => right.id - left.id);
-}
-
-function memoryResultError(value: unknown): string {
-  const text = String(value || '').trim();
-  return /^(?:core (?:add|edit|delete|promote|dismiss)(?::| failed)|core:.*(?:not initialized|failed|error)|(?:error|failed)\b)/i.test(text)
-    ? text
-    : '';
-}
-
-function CoreMemoryManager({ initialValue, pending, run, confirm }: {
-  initialValue: unknown;
-  pending: string;
-  run: PanelContext['run'];
-  confirm: PanelContext['confirm'];
-}) {
-  const [entries, setEntries] = useState<CoreMemoryEntry[]>(() => parseCoreMemoryEntries(initialValue));
-  const [error, setError] = useState('');
-  const [editing, setEditing] = useState<number | null>(null);
-  const loaded = useRef(false);
-  const refresh = async () => {
-    const result = await run<unknown>('memoryControl', [
-      { action: 'core', op: 'list', project_id: '*' }, { silent: true },
-    ], 'core-memory-list', false);
-    if (result !== undefined) setEntries(parseCoreMemoryEntries(result));
-  };
-  useEffect(() => {
-    if (loaded.current) return;
-    loaded.current = true;
-    if (initialValue === undefined) void refresh();
-  }, []);
-  useEffect(() => {
-    if (initialValue !== undefined) setEntries(parseCoreMemoryEntries(initialValue));
-  }, [initialValue]);
-  const mutate = async (input: RecordValue) => {
-    setError('');
-    const result = await run<unknown>('memoryControl', [input, { silent: true }], `core-${input.op}`, false);
-    const failure = memoryResultError(result);
-    if (failure) {
-      setError(failure);
-      return false;
-    }
-    if (result !== undefined) await refresh();
-    return result !== undefined;
-  };
-  return <div className="core-memory-manager">
-    <section className="core-memory-add-card">
-      <header><b>{t('Add memory')}</b><small>{t('Save a durable fact or preference for future sessions.')}</small></header>
-      <form className="core-memory-add" onSubmit={(event) => {
-        event.preventDefault();
-        const form = event.currentTarget;
-        const sentence = String(new FormData(form).get('sentence') || '').trim();
-        if (!sentence) return;
-        void mutate({ action: 'core', op: 'add', project_id: 'common', element: sentence, summary: sentence })
-          .then((ok) => { if (ok) form.reset(); });
-      }}><input name="sentence" aria-label={t('Memory to add')} placeholder={t('What should Mixdog remember?')} maxLength={2000} required />
-        <button disabled={Boolean(pending)}>{t('Add memory')}</button></form>
-    </section>
-    {entries.length ? <div className="core-memory-list">
-      {entries.map((entry) => editing === entry.id ? <form className="core-memory-edit" key={entry.id} onSubmit={(event) => {
-        event.preventDefault();
-        const summary = String(new FormData(event.currentTarget).get('summary') || '').trim();
-        if (!summary) return;
-        const payload: RecordValue = { action: 'core', op: 'edit', id: entry.id, project_id: entry.projectId, summary };
-        if (entry.singleSentence) payload.element = summary;
-        void mutate(payload).then((ok) => { if (ok) setEditing(null); });
-      }}><input name="summary" aria-label={t('Memory text')} defaultValue={entry.summary} maxLength={2000} required autoFocus />
-        <span className="core-memory-scope">{entry.projectId || t('Common')}</span>
-        <div className="core-memory-actions"><button disabled={Boolean(pending)}>{t('Save')}</button>
-          <button type="button" onClick={() => setEditing(null)}>{t('Cancel')}</button></div></form>
-        : <div className="core-memory-row" key={entry.id}><div className="core-memory-copy"><b>{entry.summary}</b></div>
-          <span className="core-memory-scope">{entry.projectId || t('Common')}</span>
-          <div className="core-memory-actions"><button disabled={Boolean(pending)} onClick={() => setEditing(entry.id)}>{t('Edit')}</button>
-          <button className="danger" disabled={Boolean(pending)} onClick={() => {
-            confirm({ title: 'Delete memory?', description: t('Memory #{{id}} will be removed permanently.', { id: entry.id }),
-              confirmLabel: 'Delete', danger: true,
-              onConfirm: () => void mutate({ action: 'core', op: 'delete', id: entry.id, project_id: entry.projectId }) });
-          }}>{t('Delete')}</button></div></div>)}
-    </div> : <div className="core-memory-list core-memory-list--empty"><Empty text="No core memories yet." /></div>}
-    {error && <p className="settings-field-error">{error}</p>}
-  </div>;
 }
 
 function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {

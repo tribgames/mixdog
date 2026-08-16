@@ -165,6 +165,25 @@ test('Cursor parameterized catalog preserves model options and sends RequestedMo
     assert.deepEqual(request.runRequest.requestedModel.parameters, selection.parameters);
     assert.equal(request.runRequest.modelDetails, undefined);
     assert.deepEqual(request.runRequest.action.userMessageAction.userMessage.selectedContext, {});
+
+    const bodies = [];
+    const provider = new CursorOAuthProvider({
+        accessToken: 'cursor-oauth-access',
+        runtime: {
+            async getCursorModels() { return raw; },
+            async handleChatCompletion(body) {
+                bodies.push(body);
+                return sseResponse([{ choices: [{ delta: {}, finish_reason: 'stop' }] }]);
+            },
+        },
+    });
+    await provider.send(
+        [{ role: 'user', content: 'hello' }],
+        'claude-opus-5',
+        [],
+        { effort: 'low', modelParameters: { thinking: 'true', context: '1m' } },
+    );
+    assert.deepEqual(bodies[0].mixdog_model_parameters, selection.parameters);
 });
 
 test('Cursor developer messages retain system precedence', () => {
@@ -175,6 +194,50 @@ test('Cursor developer messages retain system precedence', () => {
     assert.deepEqual(parsed.systems, ['developer rule']);
     assert.equal(parsed.history.length, 0);
     assert.equal(parsed.userText, 'hello');
+});
+
+test('Cursor request controls preserve exact models, tool choice, and parameter values', async () => {
+    assert.deepEqual(__cursorModelInternals.toCursorToolChoice({ name: 'read' }), {
+        type: 'function',
+        function: { name: 'read' },
+    });
+    const tools = [
+        { function: { name: 'read' } },
+        { function: { name: 'grep' } },
+    ];
+    assert.deepEqual(__cursorWireInternals.selectToolsForChoice(tools, 'none'), []);
+    assert.deepEqual(
+        __cursorWireInternals.selectToolsForChoice(tools, { type: 'function', function: { name: 'grep' } }),
+        [tools[1]],
+    );
+    assert.deepEqual(__cursorWireInternals.requestModelParameters({
+        mixdog_model_parameters: [{ id: 'effort', value: 'high' }, { id: '', value: 'ignored' }],
+    }), [{ id: 'effort', value: 'high' }]);
+
+    let body = null;
+    const provider = new CursorOAuthProvider({
+        accessToken: 'cursor-oauth-access',
+        runtime: {
+            async getCursorModels() {
+                return [
+                    { id: 'gpt-5.6-sol-high', name: 'GPT-5.6 Sol High' },
+                    { id: 'gpt-5.6-sol-low', name: 'GPT-5.6 Sol Low' },
+                ];
+            },
+            async handleChatCompletion(nextBody) {
+                body = nextBody;
+                return sseResponse([{ choices: [{ delta: {}, finish_reason: 'stop' }] }]);
+            },
+        },
+    });
+    await provider.send(
+        [{ role: 'user', content: 'hello' }],
+        'gpt-5.6-sol-high',
+        [{ name: 'read', description: 'Read', inputSchema: { type: 'object' } }],
+        { toolChoice: 'none' },
+    );
+    assert.equal(body.model, 'gpt-5.6-sol-high');
+    assert.equal(body.tool_choice, 'none');
 });
 
 test('Cursor route parameters survive automation refs and constrain Fast', () => {
@@ -685,6 +748,29 @@ test('Cursor wire codec round-trips the Mixdog-facing protocol subset', () => {
     assert.equal(Buffer.from(rewritten).includes(Buffer.from([0x98, 0x06, 0x07])), true);
 });
 
+test('Cursor request context prefers the Mixdog tool bridge', () => {
+    const writes = [];
+    const tools = [{
+        name: 'read',
+        inputSchemaObject: { type: 'object', properties: { file_path: { type: 'string' } } },
+    }];
+    __cursorWireInternals.handleExecMessage({
+        write(bytes) { writes.push(bytes); },
+    }, {
+        id: 18,
+        execId: 'exec-context',
+        requestContextArgs: {},
+    }, tools, 'mixdog rule', () => {});
+    const frames = [];
+    __cursorWireInternals.createFrameParser((bytes) => frames.push(bytes), () => {})(writes[0]);
+    const result = __cursorWireInternals.decodeMessage('AgentClientMessage', frames[0]);
+    const context = result.execClientMessage.requestContextResult.success.requestContext;
+    assert.equal(context.cloudRule, 'mixdog rule');
+    assert.equal(context.mcpInstructions.length, 1);
+    assert.equal(context.mcpInstructions[0].serverName, 'mixdog');
+    assert.match(context.mcpInstructions[0].instructions, /mcp_mixdog_.*specialized Mixdog tool/);
+});
+
 test('Cursor Connect parser handles split frames without losing protobuf bytes', () => {
     const payload = __cursorWireInternals.encodeMessage('AgentServerMessage', {
         interactionUpdate: { textDelta: { text: 'hello' }, tokenDelta: { tokens: 3 } },
@@ -839,9 +925,36 @@ test('Cursor rejects unregistered tools and deduplicates repeated tool ids', asy
     }
     bridge.emit(toolMessage);
     bridge.emit(toolMessage);
+    bridge.emit(__cursorWireInternals.connectFrame(
+        __cursorWireInternals.encodeMessage('AgentServerMessage', {
+            execServerMessage: {
+                id: 11,
+                execId: 'exec-second',
+                mcpArgs: {
+                    name: 'echo_value',
+                    toolName: 'echo_value',
+                    toolCallId: 'call-second',
+                    args: { value: __cursorWireInternals.encodeJsonValue('second') },
+                },
+            },
+        }),
+    ));
+    const batchBoundary = __cursorWireInternals.connectFrame(
+        __cursorWireInternals.encodeMessage('AgentServerMessage', {
+            interactionUpdate: { stepCompleted: {} },
+        }),
+    );
+    const trailingFrame = __cursorWireInternals.connectFrame(
+        __cursorWireInternals.encodeMessage('AgentServerMessage', {
+            interactionUpdate: { tokenDelta: { tokens: 1 } },
+        }),
+    );
+    bridge.emit(Buffer.concat([batchBoundary, trailingFrame.subarray(0, 4)]));
+    bridge.emit(trailingFrame.subarray(4));
     const text = await response.text();
     assert.equal((text.match(/call-echo/g) || []).length, 1);
-    assert.equal(__cursorWireInternals.activeRunPendingCount(key), 1);
+    assert.equal((text.match(/call-second/g) || []).length, 1);
+    assert.equal(__cursorWireInternals.activeRunPendingCount(key), 2);
     bridge.close();
     assert.equal(__cursorWireInternals.activeRunPendingCount(key), 0);
 
@@ -859,30 +972,144 @@ test('Cursor rejects unregistered tools and deduplicates repeated tool ids', asy
             missingClose?.(error);
         },
     };
-    const missingResponse = __cursorWireInternals.resumeRun({
+    const partialActive = {
         bridge: missingBridge,
         heartbeat: setInterval(() => {}, 10_000),
         conversation: { blobs: new Map(), checkpoint: null },
         tools: [],
         cloudRule: undefined,
-        pending: [{
-            exec: { id: 12, execId: 'exec-no-result' },
-            toolCallId: 'call-no-result',
-            toolName: 'echo_value',
-            decodedArgs: '{}',
-        }],
-    }, [], '', 'composer-2.5', 'missing-result-key');
+        pending: [
+            {
+                exec: { id: 12, execId: 'exec-done' },
+                toolCallId: 'call-done',
+                toolName: 'echo_value',
+                decodedArgs: '{}',
+            },
+            {
+                exec: { id: 13, execId: 'exec-no-result' },
+                toolCallId: 'call-no-result',
+                toolName: 'echo_value',
+                decodedArgs: '{}',
+            },
+        ],
+    };
+    const missingResponse = __cursorWireInternals.resumeRun(
+        partialActive,
+        [{ toolCallId: 'call-done', content: 'done', media: [], isError: false }],
+        '',
+        'composer-2.5',
+        'missing-result-key',
+    );
     const missingFrames = [];
     __cursorWireInternals.createFrameParser((bytes) => missingFrames.push(bytes), () => {})(missingWrites[0]);
-    const missingResult = __cursorWireInternals.decodeMessage('AgentClientMessage', missingFrames[0]);
-    assert.match(missingResult.execClientMessage.mcpResult.error.error, /Tool result not provided/);
+    const firstResult = __cursorWireInternals.decodeMessage('AgentClientMessage', missingFrames[0]);
+    assert.ok(firstResult.execClientMessage.mcpResult.success);
+    const replayText = await missingResponse.text();
+    assert.match(replayText, /call-no-result/);
+    assert.equal(partialActive.pending.length, 1);
+    assert.equal(missingWrites.length, 1);
+
+    const finalResponse = __cursorWireInternals.resumeRun(
+        partialActive,
+        [{ toolCallId: 'call-no-result', content: 'recovered', media: [], isError: false }],
+        '',
+        'composer-2.5',
+        'missing-result-key',
+    );
+    const finalFrames = [];
+    __cursorWireInternals.createFrameParser((bytes) => finalFrames.push(bytes), () => {})(missingWrites[1]);
+    const finalResult = __cursorWireInternals.decodeMessage('AgentClientMessage', finalFrames[0]);
+    assert.ok(finalResult.execClientMessage.mcpResult.success);
     missingData(__cursorWireInternals.connectFrame(
         __cursorWireInternals.encodeMessage('AgentServerMessage', {
             interactionUpdate: { turnEnded: {} },
         }),
     ));
     missingData(__cursorWireInternals.connectFrame(new TextEncoder().encode('{}'), 2));
-    await missingResponse.text();
+    await finalResponse.text();
+});
+
+test('Cursor native shell redirects omit unsupported workingDirectory', () => {
+    const tools = [{
+        name: 'shell',
+        inputSchemaObject: {
+            type: 'object',
+            properties: {
+                command: { type: 'string' },
+                timeout_ms: { type: 'number' },
+            },
+        },
+    }];
+    for (const [caseName, resultType] of [
+        ['shellArgs', 'shellResult'],
+        ['shellStreamArgs', 'shellStreamResult'],
+    ]) {
+        let pending = null;
+        __cursorWireInternals.handleExecMessage({ write() {} }, {
+            id: caseName === 'shellArgs' ? 21 : 22,
+            execId: `exec-${caseName}`,
+            [caseName]: {
+                command: 'npm test',
+                workingDirectory: 'C:\\Project\\mixdog\\apps\\desktop',
+                timeout: 30_000,
+                toolCallId: `call-${caseName}`,
+            },
+        }, tools, undefined, (value) => { pending = value; });
+        assert.ok(pending);
+        assert.equal(pending.native.resultType, resultType);
+        assert.deepEqual(JSON.parse(pending.decodedArgs), {
+            command: 'npm test',
+            timeout_ms: 30_000,
+        });
+    }
+});
+
+test('Cursor clean end-stream flushes pending tool calls as a recoverable batch', async () => {
+    let dataHandler = null;
+    let closeHandler = null;
+    const bridge = {
+        alive: true,
+        onData(handler) { dataHandler = handler; },
+        onClose(handler) { closeHandler = handler; },
+        write() {},
+        close(error = null) {
+            if (!this.alive) return;
+            this.alive = false;
+            closeHandler?.(error);
+        },
+        emit(bytes) { dataHandler?.(bytes); },
+    };
+    const key = 'end-stream-pending-fixture';
+    const response = __cursorWireInternals.createStreamResponse({
+        bridge,
+        heartbeat: setInterval(() => {}, 10_000),
+        conversation: { blobs: new Map(), checkpoint: null },
+        tools: [{ name: 'echo_value', inputSchemaObject: { type: 'object' } }],
+        cloudRule: undefined,
+        model: 'composer-2.5',
+        key,
+    });
+    bridge.emit(__cursorWireInternals.connectFrame(
+        __cursorWireInternals.encodeMessage('AgentServerMessage', {
+            execServerMessage: {
+                id: 14,
+                execId: 'exec-end-stream',
+                mcpArgs: {
+                    name: 'echo_value',
+                    toolName: 'echo_value',
+                    toolCallId: 'call-end-stream',
+                    args: {},
+                },
+            },
+        }),
+    ));
+    bridge.emit(__cursorWireInternals.connectFrame(new TextEncoder().encode('{}'), 2));
+    const text = await response.text();
+    assert.match(text, /call-end-stream/);
+    assert.match(text, /"finish_reason":"tool_calls"/);
+    assert.equal(__cursorWireInternals.activeRunPendingCount(key), 1);
+    bridge.close();
+    assert.equal(__cursorWireInternals.activeRunPendingCount(key), 0);
 });
 
 test('Cursor clean end-stream closes both SSE and its transport', async () => {

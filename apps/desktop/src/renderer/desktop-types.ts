@@ -83,6 +83,8 @@ export type Snapshot = RecordValue & {
   activeTools?: {
     explore?: { count?: number; startedAt?: number };
     search?: { count?: number; startedAt?: number };
+    shell?: { count?: number; startedAt?: number };
+    agent?: { count?: number; startedAt?: number };
   } | null;
   shellJobs?: {
     count?: number;

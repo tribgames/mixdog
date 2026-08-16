@@ -1,5 +1,5 @@
 // Window title bar: a clean drag band. The workspace tab strips moved into
-// the panes themselves (VS Code editor groups - WorkspaceTabStrip); the bar
+// the panes themselves (WorkspaceTabStrip); the bar
 // keeps the draggable run, the updater badge plus the three global layout
 // toggles on its right edge, and the Windows caption reserve.
 import { ArrowDown, PanelBottom, PanelLeft, PanelRight } from "lucide-react";
@@ -58,7 +58,7 @@ export function DesktopTitlebar({
           the navigation cluster and stays the drag band. */}
       {/* LEFT cluster: the sidebar toggle only — the ◀ ▶ pane-cycle pair
           was dropped (user: 좌우 이동 버튼 의미 없는 듯, 지우자); pane
-          focus stays on Alt+Left/Right. */}
+          focus now follows Ctrl+Left/Right at tab boundaries. */}
       <div className="titlebar-leading titlebar-nav" aria-label={t("Navigation")}>
         <button
           type="button"

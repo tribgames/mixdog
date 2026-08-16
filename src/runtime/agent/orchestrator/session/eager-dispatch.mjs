@@ -16,6 +16,8 @@ import {
     _isReadTool,
     _isScopedCacheableTool,
     _isShellTool,
+    _repeatFailurePatternWouldContinue,
+    _repeatFailureSig,
     _stripMcpPrefix,
 } from './loop/tool-classify.mjs';
 import { tryReadCached, tryScopedToolCached } from './read-dedup.mjs';
@@ -86,7 +88,13 @@ export function createEagerDispatcher({
             // lets the serial body push the [repeat-failure-guard] stub.
             {
                 const _rfg = sessionRef?._repeatFailGuard;
-                if (_rfg && _rfg.sig === _sig && _rfg.count >= repeatFailLimit) return null;
+                const _repeatSig = _repeatFailureSig(call.name, call.arguments, cwd);
+                if (_rfg && _rfg.sig === _repeatSig && _rfg.count >= repeatFailLimit) return null;
+                if (_repeatFailurePatternWouldContinue(
+                    sessionRef?._repeatFailHistory,
+                    _repeatSig,
+                    repeatFailLimit,
+                ) > 0) return null;
             }
             {
                 const _afg = sessionRef?._repeatArgShapeFailGuard;

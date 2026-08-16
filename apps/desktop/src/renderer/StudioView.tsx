@@ -13,10 +13,9 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
 import { t } from './i18n';
-import { StudioModelMenu, type StudioModelEntry } from './StudioModelMenu';
+import { StudioRouteMenu, type StudioModelEntry } from './StudioRouteMenu';
 import { BrandTile } from './WorkspaceEmptyState';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
 import { useForegroundMedia } from './media-lifecycle';
@@ -1135,17 +1134,23 @@ export function StudioPane({
     return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
   };
 
-  const controlPill = (
+  // Raw lane vocabulary ("auto", "1k") reads as noise next to the model
+  // name, so rows show a cased label while the value stays native.
+  const optionRow = (
+    id: string,
     label: string,
     values: readonly string[],
     current: string,
     onPick: (value: string) => void,
-  ) => <OpenSelect
-    className="studio-pill-select" ariaLabel={label}
-    // Raw lane vocabulary ("auto", "1k") reads as noise next to the model
-    // name, so the pill shows a cased label while the value stays native.
-    options={values.map((value) => ({ value, label: pillLabel(value) }))}
-    value={current} disabled={disabled} onChange={onPick} />;
+  ) => ({
+    id,
+    label,
+    options: values.map((value) => ({ value, label: pillLabel(value) })),
+    value: current,
+    valueLabel: pillLabel(current),
+    disabled,
+    onPick,
+  });
 
   return <div className="studio-root stable-surface-preserved" ref={studioRootRef}
     data-surface-active={active ? 'true' : 'false'}
@@ -1231,7 +1236,7 @@ export function StudioPane({
         onScroll={handleResultsScroll}>
         {visibleAssets.length === 0 && pendingJobs.length === 0 && !loading
           && <div className="studio-blank">
-          {/* Quiet brand watermark (user: VS Code grammar — empty secondary
+          {/* Quiet brand watermark: empty secondary
               surfaces carry only the centered letterpress). The provider gap
               stays visible because it is a blocker, not canvas guidance. */}
           <span className="welcome-logo" aria-hidden="true"><BrandTile crop /></span>
@@ -1451,49 +1456,50 @@ export function StudioPane({
                 sideways on a phone, so the model picker is never clipped —
                 the chat composer keeps its route strip the same way. */}
             <div className="studio-composer-controls">
-              {/* Anchored menu like every other control (user): the model list
-                  is a dropdown, not a centered dialog. The lane rides along. */}
-              <StudioModelMenu entries={modelEntries} lane={lane?.id || ''} model={activeModel}
+              {/* Unified menu: the model
+                  AND every lane option live inside one expanding pill. */}
+              <StudioRouteMenu entries={modelEntries} lane={lane?.id || ''} model={activeModel}
+                rows={[
+                  ...(controls.aspectRatio?.length
+                    ? [optionRow('aspectRatio', t('Aspect'), controls.aspectRatio, options.aspectRatio,
+                      (value) => setOptions((current) => ({ ...current, aspectRatio: value })))]
+                    : []),
+                  ...(controls.resolution?.length
+                    ? [optionRow('resolution', t('Resolution'), controls.resolution,
+                      options.resolution || controls.resolution[0],
+                      (value) => setOptions((current) => ({ ...current, resolution: value })))]
+                    : []),
+                  ...(controls.size?.length
+                    ? [optionRow('size', t('Size'), controls.size, options.size,
+                      (value) => setOptions((current) => ({ ...current, size: value })))]
+                    : []),
+                  ...(controls.quality?.length
+                    ? [optionRow('quality', t('Quality'), controls.quality, options.quality,
+                      (value) => setOptions((current) => ({ ...current, quality: value })))]
+                    : []),
+                  ...(kind === 'video' && controls.durations?.length
+                    ? [optionRow('duration', t('Duration'),
+                      controls.durations.map((value) => `${value}s`), `${options.duration}s`,
+                      (value) => setOptions((current) => ({
+                        ...current,
+                        duration: Number.parseInt(value, 10) || current.duration,
+                      })))]
+                    : []),
+                ]}
+                slider={kind === 'video' && !controls.durations?.length && controls.durationRange
+                  ? {
+                    label: t('Duration'),
+                    min: controls.durationRange[0] ?? 1,
+                    max: controls.durationRange[1] ?? 15,
+                    value: options.duration,
+                    disabled,
+                    onChange: (next) => setOptions((current) => ({ ...current, duration: next })),
+                  }
+                  : null}
                 onSelect={(entry) => {
                   setLaneId(entry.lane);
                   setModel(entry.model);
                 }} />
-              {controls.aspectRatio?.length
-                ? controlPill('Aspect', controls.aspectRatio, options.aspectRatio,
-                  (value) => setOptions((current) => ({ ...current, aspectRatio: value })))
-                : null}
-              {controls.resolution?.length
-                ? controlPill('Resolution', controls.resolution, options.resolution || controls.resolution[0],
-                  (value) => setOptions((current) => ({ ...current, resolution: value })))
-                : null}
-              {controls.size?.length
-                ? controlPill('Size', controls.size, options.size,
-                  (value) => setOptions((current) => ({ ...current, size: value })))
-                : null}
-              {controls.quality?.length
-                ? controlPill('Quality', controls.quality, options.quality,
-                  (value) => setOptions((current) => ({ ...current, quality: value })))
-                : null}
-              {/* The duration slot is always laid out: letting it appear only
-                  in video mode shifted every control on each toggle (user). */}
-              <span className="studio-duration-slot"
-                data-empty={kind === 'video' && (controls.durations?.length || controls.durationRange) ? undefined : 'true'}>
-                {controls.durations?.length
-                  ? controlPill('Duration', controls.durations.map((value) => `${value}s`), `${options.duration}s`,
-                    (value) => setOptions((current) => ({ ...current, duration: Number.parseInt(value, 10) || current.duration })))
-                  : <label className="studio-duration">
-                    <input type="range" min={controls.durationRange?.[0] ?? 1} max={controls.durationRange?.[1] ?? 15}
-                      value={options.duration} disabled={disabled} aria-label={t('Duration seconds')}
-                      onChange={(event) => {
-                        // Read the value BEFORE the state updater runs: React
-                        // has already cleared currentTarget by then, and the
-                        // null deref crashed the renderer (window went black).
-                        const next = Number(event.currentTarget.value);
-                        setOptions((current) => ({ ...current, duration: next }));
-                      }} />
-                    <span>{options.duration}s</span>
-                  </label>}
-              </span>
             </div>
             <span className="studio-composer-spacer" />
             {/* Never flips to a disabled spinner: each press queues another run

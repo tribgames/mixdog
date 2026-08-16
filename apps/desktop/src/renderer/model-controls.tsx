@@ -5,6 +5,7 @@ import {
   reportBootSurfaceReady,
   reportBootSurfaceStage,
 } from "./boot-metrics";
+import { routePreferenceStore } from "./app-route-preference";
 import { type RecordValue } from "./desktop-types";
 import { t } from "./i18n";
 import { readCachedModelCatalog, writeCachedModelCatalog } from "./model-catalog-cache";
@@ -184,7 +185,7 @@ export const WorkflowSelect = memo(function WorkflowSelect({
 export const ModelSelector = memo(function ModelSelector({
   provider, model, effort, fast, fastCapable, modelParameters, modelDisabled, tuningDisabled,
   invokeResult, applySnapshot, onOpenSettings, onDraftSelection,
-  onFastPreferenceApplied, sessionId,
+  onRoutePreferenceApplied, sessionId,
 }: {
   provider: string;
   model: string;
@@ -201,7 +202,7 @@ export const ModelSelector = memo(function ModelSelector({
   applySnapshot: (snapshot: SessionSnapshot | null) => void;
   onOpenSettings: (section?: SettingsSection | null) => void;
   onDraftSelection?: (selection: DesktopModelSelection) => void;
-  onFastPreferenceApplied?: (selection: DesktopModelSelection) => void;
+  onRoutePreferenceApplied?: (selection: DesktopModelSelection) => void;
 }) {
   const [cachedCatalog] = useState(readCachedModelCatalog);
   const [models, setModels] = useState<DesktopModelOption[]>(cachedCatalog.models);
@@ -358,6 +359,7 @@ export const ModelSelector = memo(function ModelSelector({
       );
       if (next !== undefined) {
         applySnapshot(next);
+        onRoutePreferenceApplied?.(selection);
         applied = true;
       }
     } finally {
@@ -369,19 +371,27 @@ export const ModelSelector = memo(function ModelSelector({
   const chooseModel = (option: DesktopModelOption) => {
     const values = option.effortOptions.map((entry) => entry.value);
     const sameModel = option.provider === provider && option.model === model;
+    const remembered = routePreferenceStore.get(option.provider, option.model);
     const nextEffort = sameModel && effort && values.includes(effort)
       ? effort
+      : remembered?.effort && values.includes(remembered.effort)
+        ? remembered.effort
       : option.savedEffort && values.includes(option.savedEffort)
         ? option.savedEffort
         : ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra'].find((value) => values.includes(value)) || values[0];
     const requestedFast = option.fastCapable
       ? sameModel
         ? displayedFast
+        : typeof remembered?.fast === 'boolean'
+          ? remembered.fast
         : typeof option.savedFast === 'boolean'
           ? option.savedFast
           : option.fastPreferred
       : undefined;
-    const nextModelParameters = preferredModelParameters(option, sameModel ? selectedModelParameters : {});
+    const nextModelParameters = preferredModelParameters(
+      option,
+      sameModel ? selectedModelParameters : remembered?.modelParameters || {},
+    );
     const nextFast = requestedFast === undefined
       ? undefined
       : modelFastAvailable(option, nextEffort, nextModelParameters) && requestedFast;
@@ -411,7 +421,7 @@ export const ModelSelector = memo(function ModelSelector({
       if (next !== undefined) {
         applySnapshot(next);
         if (provider && model) {
-          onFastPreferenceApplied?.({
+          onRoutePreferenceApplied?.({
             provider,
             model,
             ...(effort ? { effort } : {}),
@@ -457,7 +467,16 @@ export const ModelSelector = memo(function ModelSelector({
         args: [effort],
         ...(sessionId ? { sessionId } : {}),
       }));
-      if (result !== undefined) applySnapshot(result.snapshot);
+      if (result !== undefined) {
+        applySnapshot(result.snapshot);
+        onRoutePreferenceApplied?.({
+          provider,
+          model,
+          effort,
+          ...(nextFast === undefined ? {} : { fast: nextFast }),
+          ...(Object.keys(selectedModelParameters).length ? { modelParameters: selectedModelParameters } : {}),
+        });
+      }
     } finally {
       routingGuard.current = false;
       setRouting(false);

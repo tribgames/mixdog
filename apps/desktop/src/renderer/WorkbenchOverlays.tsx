@@ -129,7 +129,7 @@ export function WorkbenchQuickAccess({
   const commandMode = mode === "commands" || /^\s*>/.test(query);
   const commandQuery = query.replace(/^\s*>\s*/, "").trim();
   const fileQuery = parseQuickOpenQuery(query);
-  // VS Code quick-open prefixes: `@` document symbols and `:` go to line in
+  // Quick-open prefixes: `@` finds document symbols and `:` goes to a line in
   // the active editor (`>` command routing already lives in commandMode).
   const language = useSyncExternalStore(
     subscribeEditorLanguageStore,

@@ -22,7 +22,6 @@ export const SETTINGS_ITEMS = [
   { value: 'autocompact', label: 'Auto-compact', description: 'Compact when context is high.', kind: 'toggle' },
   { value: 'compact-type', label: 'Compact type', description: 'Uses Memory recall to rebuild context faster on large histories.', kind: 'static' },
   { value: 'autoclear', label: 'Auto-clear', description: 'Idle auto-clear disabled. Enter for options.', kind: 'toggle' },
-  { value: 'memory', label: 'Core memories', description: 'List and edit user-curated core memories.', kind: 'open' },
   { value: 'providers', label: 'Providers', description: 'Auth, API keys, OAuth, local.', kind: 'open' },
   { value: 'mcp', label: 'MCP servers', description: '0/0 connected', kind: 'open' },
   { value: 'plugins', label: 'Plugins', description: '0 detected', kind: 'open' },
@@ -59,13 +58,13 @@ export const SETTINGS_CATEGORIES = [
     group: 'Mixdog',
     items: ['profile', 'theme', 'web-search-enabled', 'memory-enabled'],
   },
-  // Context owns session lifecycle plus the core-memory editor. The Memory
-  // master itself lives once in General.
+  // Context owns session lifecycle. The Memory master itself lives once in
+  // General; curated memories are managed with their project.
   {
     value: 'context',
     label: 'Context',
     group: 'Mixdog',
-    items: ['autocompact', 'compact-type', 'autoclear', 'memory'],
+    items: ['autocompact', 'compact-type', 'autoclear'],
   },
   {
     value: 'providers',

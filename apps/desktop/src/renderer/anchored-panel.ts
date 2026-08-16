@@ -1,8 +1,6 @@
 /** Anchored overlay geometry for the Source Control dropdowns.
  *
- *  GitHub Desktop can hard-code its foldout widths (app/styles/ui/_branches.scss:3-16
- *  pins the branch list at 365px) because its toolbar spans a full window. Our
- *  dock floors at DESKTOP_UTILITY_DOCK_MIN_WIDTH (shared/window-layout.ts) and
+ *  The dock floors at DESKTOP_UTILITY_DOCK_MIN_WIDTH (shared/window-layout.ts) and
  *  sits against the window's right edge, so every panel has to align to its
  *  trigger, then be clamped — shifted or flipped — into the allowed bounds and
  *  capped to the space that is actually there. Same grammar as the shared

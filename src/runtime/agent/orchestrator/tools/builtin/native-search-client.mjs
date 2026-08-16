@@ -20,6 +20,7 @@ const SERVER_READY_TIMEOUT_MS = 1_000;
 const CANCEL_GRACE_MS = 1_000;
 const PROCESS_FAILURES_BEFORE_BACKOFF = 2;
 const SEARCH_TIMEOUT_RECYCLE_WINDOW_MS = 30_000;
+const SEARCH_TIMEOUT_BURST_MS = 1_000;
 
 let _server = null; // { child, pending: Map, sequence }
 let _binaryPath = undefined; // undefined = unresolved, null = unavailable
@@ -93,14 +94,16 @@ function clearProcessFailures() {
 }
 
 function noteSearchTimeout(server, now = Date.now()) {
-  if (server && _lastTimedOutServer === server) return 'none';
+  const sincePrevious = _lastTimeoutRecycleAt > 0 ? now - _lastTimeoutRecycleAt : Infinity;
   _lastTimedOutServer = server || null;
-  if (_lastTimeoutRecycleAt > 0 && now - _lastTimeoutRecycleAt <= SEARCH_TIMEOUT_RECYCLE_WINDOW_MS) {
-    _lastTimeoutRecycleAt = now;
-    return 'shard';
-  }
   _lastTimeoutRecycleAt = now;
-  return 'server';
+  // Requests issued as one batch time out together; that burst is a single
+  // event, not a streak.
+  if (sincePrevious <= SEARCH_TIMEOUT_BURST_MS) return 'none';
+  // The server is no longer recycled on a first timeout, so a recurrence
+  // within the window — on this server or its replacement — is what marks the
+  // shard unhealthy.
+  return sincePrevious <= SEARCH_TIMEOUT_RECYCLE_WINDOW_MS ? 'shard' : 'server';
 }
 
 function subscribeAbortSignal(signal, callback) {
@@ -443,13 +446,16 @@ async function requestNative(server, request, execOptions, deadlineMs) {
         : noteSearchTimeout(server);
       settle(null, true, error);
       if (action === 'none') return;
-      if (action === 'shard') {
-        reportShardUnhealthy({
-          reason: 'native search timed out again after server recycle',
-          code: 'NATIVE_SEARCH_TIMEOUT_STREAK',
-          subsystem: 'native-search',
-        });
-      }
+      // A single timeout no longer recycles the server: `settle(cancel=true)`
+      // already told it to stop, and the cancellation watchdog tears it down
+      // if it does not comply. Killing it here also destroyed every warm
+      // inventory, so the next call re-walked from cold and timed out again.
+      if (action !== 'shard') return;
+      reportShardUnhealthy({
+        reason: 'native search timed out again after server recycle',
+        code: 'NATIVE_SEARCH_TIMEOUT_STREAK',
+        subsystem: 'native-search',
+      });
       queueMicrotask(() => {
         if (_server === server) {
           _teardown(error, { countFailure: false, detail: 'repeated request timeouts' });

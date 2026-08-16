@@ -601,7 +601,7 @@ export function createSessionFlow(bag) {
     };
   }
 
-  // Claude Code `now` parity: promote one visible queued prompt ahead of its
+  // `now` promotes one visible queued prompt ahead of its
   // siblings. The desktop follows this configure call with the normal abort
   // lane, so interruption keeps the existing recovery/requeue guarantees.
   function prioritizeQueued(selectedId = '') {
