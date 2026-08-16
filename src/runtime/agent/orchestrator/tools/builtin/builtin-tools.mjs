@@ -14,7 +14,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Read',
         annotations: { title: 'Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Known-file contents or line ranges. Images render for viewing; not directories. Replaces cat/head/tail.',
+        description: 'Known-file contents or line ranges. Images render for viewing; not directories. Replaces cat/head/tail. Never re-open spans grep or code_graph already returned.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -71,11 +71,11 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: 'Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. Not for path lookup, directory listing, or file reading/searching a dedicated tool covers. Commands start in the foreground; after 15s, a still-running command continues as a tracked task_id and completes by notification. Omit timeout_ms normally; a positive value is a hard total deadline that also applies after task promotion.',
+        description: 'Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. Commands start in the foreground; after 15s, a still-running command continues as a tracked task_id and completes by notification.',
         inputSchema: {
             type: 'object',
             properties: {
-                command: { type: 'string', description: `Command. Never route file inspection through cat/Get-Content/head/tail/ls/dir/find/grep/rg/Select-String/sed/awk here, and never create files via heredoc or echo/Set-Content redirection — the file-editing tool creates files (empty old_string, or an Add File patch); the dedicated file tools cover the rest.${_shellSyntaxCheat}` },
+                command: { type: 'string', description: `Command. Unless a dedicated tool verifiably cannot do the job, never run cat/Get-Content/head/tail (read covers them), ls/dir (list), find (find/glob), grep/rg/Select-String (grep), or sed/awk (edit); never create files via heredoc or echo/Set-Content redirection — the file-editing tool creates files (empty old_string, or an Add File patch); never echo/printf text meant for the user — answer directly.${_shellSyntaxCheat}` },
                 timeout_ms: {
                     type: 'integer',
                     minimum: 0,
@@ -158,7 +158,7 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Find Files',
         annotations: { title: 'Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Fuzzy filename/directory path lookup when the location itself is unknown; returns paths only. No source-content, symbol, value, or line search.',
+        description: 'Fuzzy filename/directory path lookup when the location itself is unknown; returns paths only. No content or symbol search.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -178,7 +178,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'List Directory',
         annotations: { title: 'List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: "Return a known directory's immediate entries (path + type) when the entry list itself is needed; not a prerequisite for another tool on that directory. No wildcard; meta:true adds size/mtime/mode.",
+        description: "Return a known directory's immediate entries (path + type) when the entry list itself is needed; not a prerequisite for another tool on that directory — tree walks go to glob, name hunts to find. No wildcard; meta:true adds size/mtime/mode.",
         inputSchema: {
             type: 'object',
             properties: {

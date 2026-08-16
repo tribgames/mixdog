@@ -1238,10 +1238,11 @@ const shellFailOutPromise = executeBuiltinTool('shell', {
 
 const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
 const shellDescription = shellTool?.description || '';
+// The timeout contract is anchored on the timeout_ms argument description
+// below — the tool description no longer duplicates it.
 if (!/Run programs, runtime\/state operations/i.test(shellDescription)
     || !/calculations, transformations, file generation/i.test(shellDescription)
-    || !/after 15s.*continues.*task_id.*notification/i.test(shellDescription)
-    || !/omit timeout_ms.*hard total deadline/i.test(shellDescription)) {
+    || !/after 15s.*continues.*task_id.*notification/i.test(shellDescription)) {
   throw new Error(`shell description must use ordinary execution/computation/file-role concepts: ${shellDescription}`);
 }
 const editTool = BUILTIN_TOOLS.find((tool) => tool.name === 'edit');
