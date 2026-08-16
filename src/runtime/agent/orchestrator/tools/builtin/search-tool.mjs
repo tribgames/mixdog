@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createHash } from 'crypto';
 import { isAbsolute, resolve } from 'path';
@@ -439,9 +440,18 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         .flatMap(splitGlobString)
         .map(normalizeInputPath));
     if (hasGlobMagic(searchPath)) {
-        const { baseDir, relativePattern } = extractGlobBaseDirectory(searchPath);
-        searchPath = baseDir || '.';
-        rawGlobs.unshift(relativePattern.replace(/^\//, ''));
+        // Literal-first: {slug}.md and [id].tsx are REAL filenames in web
+        // projects. A magic-looking path that stats as-is IS the target —
+        // reinterpreting it as base+glob silently searched the parent with a
+        // brace-expanded filter and returned "(no matches)" for an existing
+        // file. Only a non-existent magic path is split into base + glob.
+        let literalExists = false;
+        try { await statReachable(resolveSearchScope(searchPath, workDir)); literalExists = true; } catch { /* fall through to glob split */ }
+        if (!literalExists) {
+            const { baseDir, relativePattern } = extractGlobBaseDirectory(searchPath);
+            searchPath = baseDir || '.';
+            rawGlobs.unshift(relativePattern.replace(/^\//, ''));
+        }
     }
     const grepResolvedPath = resolveSearchScope(searchPath, workDir);
     if (isUncOrSmbPath(searchPath) || isUncOrSmbPath(grepResolvedPath)) {
@@ -1498,6 +1508,13 @@ export async function executeGlobTool(args, workDir, options = {}) {
     // fold the magic suffix into each pattern under that root.
     const baseEntries = basePaths.map((basePath) => {
         if (typeof basePath !== 'string' || !hasGlobMagic(basePath)) return { root: basePath, prefix: '' };
+        // Literal-first (same contract as grep's path handling): a directory
+        // literally named e.g. "cache{v2}" is the root, not a pattern.
+        try {
+            if (statSync(resolveAgainstCwd(basePath, workDir)).isDirectory()) {
+                return { root: basePath, prefix: '' };
+            }
+        } catch { /* not a literal dir — treat as base+glob below */ }
         const { baseDir, relativePattern } = extractGlobBaseDirectory(canonicalizeGlobSlashes(basePath));
         // A trailing pure-`*` segment ("cache/*") means "the children" — the
         // pattern itself supplies the leaf match, so nesting it one level
