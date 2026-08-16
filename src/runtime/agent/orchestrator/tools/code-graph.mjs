@@ -9,7 +9,7 @@
 //   _pruneCodeGraphMemoryCache, _pruneCodeGraphManifestForBudget,
 //   drainCodeGraphCache, prewarmCodeGraph, prewarmCodeGraphSymbols,
 //   prewarmCodeGraphIfProject, buildCodeGraphAsync, _lookupCandidateNodes,
-//   _buildCodeGraph (worker-only), resolveSymbolReadSpan,
+//   _buildCodeGraph (worker-only),
 //   executeCodeGraphTool, isCodeGraphTool.
 //
 // NOTE: code-graph-prewarm-worker.mjs imports { _buildCodeGraph } from THIS
@@ -34,7 +34,6 @@ export {
   _postCodeGraphWorkerSuccess,
 } from './code-graph/build.mjs';
 export {
-  resolveSymbolReadSpan,
   executeCodeGraphTool,
   isCodeGraphTool,
 } from './code-graph/dispatch.mjs';

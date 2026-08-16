@@ -594,56 +594,6 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
     }
     if (typeof args.path === 'string') {
         args.path = normalizeInputPath(args.path);
-        // Symbol reads are span-driven. Models (notably gpt-5.5) co-send the whole
-        // schema filled with placeholder/zero values (offset:0, limit:0, line:0,
-        // context:0, pages:'', mode) alongside symbol, which
-        // otherwise makes the symbol branch think a window was requested and falls
-        // back to a 0-window read. Treat those zero/empty/mode params as
-        // absent so the whole symbol body returns in ONE call; a MEANINGFUL window
-        // (offset>0 / limit>0 / non-empty pages / real line) is kept and overrides.
-        if (typeof args.symbol === 'string' && args.symbol.trim()) {
-            if (args.offset === 0) delete args.offset;
-            if (args.limit === 0) delete args.limit;
-            if (args.line === 0) delete args.line;
-            if (args.pages === '') delete args.pages;
-            if (args.mode !== undefined) delete args.mode;
-        }
-        const sym = typeof args.symbol === 'string' ? args.symbol.trim() : '';
-        if (sym) {
-            const hasOffset = args.offset !== undefined && args.offset !== null;
-            const hasLimit = args.limit !== undefined && args.limit !== null;
-            const hasPages = args.pages !== undefined && args.pages !== null;
-            const disambigLine = parseReadLineNumberArg(args.line);
-            const pathHasLine = hasLineCoordinate(args.path);
-            const explicitLineWindow = pathHasLine || (disambigLine != null && (
-                (args.context !== undefined && args.context !== null)
-                || (args.limit !== undefined && args.limit !== null)
-            ));
-            if (!hasPages && !explicitLineWindow) {
-                const { resolveSymbolReadSpan } = await import('../code-graph.mjs');
-                const span = await resolveSymbolReadSpan(workDir, {
-                    symbol: sym,
-                    path: args.path,
-                    language: typeof args.language === 'string' ? args.language.trim() || null : null,
-                    line: disambigLine,
-                });
-                if (span.error) return `Error: ${span.error}`;
-                // offset/limit COMPOSE INSIDE the symbol body ("lines N..M of
-                // the definition"). The previous behavior silently dropped
-                // symbol= whenever a window arg was present, so
-                // `symbol:X, limit:15` returned the FILE's first 15 lines —
-                // a wasted call that looks like a successful read.
-                const innerOffset = hasOffset ? Math.max(0, Math.trunc(Number(args.offset)) || 0) : 0;
-                const spanRemaining = span.limit - innerOffset;
-                if (spanRemaining <= 0) {
-                    return `Error: offset ${innerOffset} is beyond symbol "${sym}" body (${span.limit} lines)`;
-                }
-                args.offset = span.offset + innerOffset;
-                const innerLimit = hasLimit ? Math.max(1, Math.trunc(Number(args.limit)) || 1) : spanRemaining;
-                args.limit = Math.min(innerLimit, spanRemaining);
-                if (span.note) args._symbolReadNote = `symbol ${sym}: ${span.note}`;
-            }
-        }
         // A window (offset/limit or a path:line coordinate) beats a glance
         // mode (head/tail/summary), which would otherwise read from a file end and
         // silently drop the window. Drop the glance mode BEFORE path:line

@@ -179,19 +179,27 @@ function restorePatchRollbackState(snapshots, readStateScope) {
 // semantics.
 async function applyParsedWave({ parsed: wparsed, entries: wentries, headerRewrites: whr }, basePath, opts) {
   const { fuzz, rejectPartial, dryRun, fuzzy, readStateScope, abortSignal } = opts;
-  const insideEntries = wentries.filter((entry) => !isResolvedPathOutsideBase(entry.fullPath, basePath));
-  const outsideEntries = wentries.filter((entry) => isResolvedPathOutsideBase(entry.fullPath, basePath));
-  const parsedInside = (wparsed || []).filter(
-    (entry) => !isResolvedPathOutsideBase(parsedEntryResolvedPath(entry, basePath), basePath),
+  // Create entries use the JS atomic writer even inside the base path. Its
+  // expected-absent snapshot makes Add File create-only under external races;
+  // the native patch engine intentionally supports overwrite-style additions.
+  const nativeEntries = wentries.filter(
+    (entry) => entry.kind !== 'create' && !isResolvedPathOutsideBase(entry.fullPath, basePath),
   );
-  const executor = outsideEntries.length > 0
-    ? (insideEntries.length > 0 ? 'native+js-patch' : 'js-patch')
+  const jsEntries = wentries.filter(
+    (entry) => entry.kind === 'create' || isResolvedPathOutsideBase(entry.fullPath, basePath),
+  );
+  const parsedInside = (wparsed || []).filter(
+    (entry) => classifyEntry(entry) !== 'create'
+      && !isResolvedPathOutsideBase(parsedEntryResolvedPath(entry, basePath), basePath),
+  );
+  const executor = jsEntries.length > 0
+    ? (nativeEntries.length > 0 ? 'native+js-patch' : 'js-patch')
     : 'native-patch';
   const resultParts = [];
-  if (insideEntries.length > 0) {
+  if (nativeEntries.length > 0) {
     const nativePatchStr = rewriteHeaderPaths(renderParsedUnifiedPatch(parsedInside), whr);
     const nativeResult = await dispatchNativePatch({
-      entries: insideEntries,
+      entries: nativeEntries,
       basePath,
       nativePatchStr,
       fuzz,
@@ -204,11 +212,11 @@ async function applyParsedWave({ parsed: wparsed, entries: wentries, headerRewri
     if (isPatchErrorText(nativeResult)) return { executor, error: nativeResult };
     resultParts.push(nativeResult);
   }
-  if (outsideEntries.length > 0) {
-    // Out-of-base targets are applied via the JS dispatcher (no base-path
-    // confinement); write permission is enforced at the hook layer.
+  if (jsEntries.length > 0) {
+    // Create-only and out-of-base targets use the JS dispatcher. Out-of-base
+    // write permission is enforced at the hook layer.
     const jsResult = await dispatchJsPatchEntries({
-      rows: outsideEntries,
+      rows: jsEntries,
       parsed: wparsed,
       basePath,
       dryRun,
@@ -715,17 +723,40 @@ function salvageShatteredV4APatchArgs(args) {
   return cleaned;
 }
 
-function assertUniqueV4ASectionTargets(sections, basePath) {
-  const seen = new Set();
+function coalesceCompatibleV4ASections(sections, basePath) {
+  const out = [];
+  const indexByPath = new Map();
   for (const section of sections || []) {
-    if (!section || typeof section.path !== 'string' || !section.path) continue;
+    if (!section || typeof section.path !== 'string' || !section.path) {
+      out.push(section);
+      continue;
+    }
     const fullPath = resolveV4AEntryPath(basePath, section.path);
     const key = process.platform === 'win32' ? fullPath.toLowerCase() : fullPath;
-    if (seen.has(key)) {
-      throw new Error(`apply_patch: multiple operations target ${normalizeOutputPath(section.path)}`);
+    const priorIndex = indexByPath.get(key);
+    if (priorIndex == null) {
+      indexByPath.set(key, out.length);
+      out.push({
+        ...section,
+        hunks: Array.isArray(section.hunks) ? [...section.hunks] : [],
+        lines: Array.isArray(section.lines) ? [...section.lines] : [],
+      });
+      continue;
     }
-    seen.add(key);
+    const prior = out[priorIndex];
+    const mergeable = prior?.kind === 'update'
+      && section.kind === 'update'
+      && !prior.movePath
+      && !section.movePath;
+    if (!mergeable) {
+      throw new Error(
+        `apply_patch: conflicting operations target ${normalizeOutputPath(section.path)}; `
+        + 'only repeated plain Update File sections can be merged',
+      );
+    }
+    prior.hunks.push(...(Array.isArray(section.hunks) ? section.hunks : []));
   }
+  return out;
 }
 
 async function apply_patch(args, cwd, options = {}) {
@@ -806,12 +837,12 @@ async function apply_patch(args, cwd, options = {}) {
   let v4aRenamePlan = null;
   if (isV4APatchInput(patchStr, requestedFormat)) {
     try {
-      const allSections = preParsedV4ASections || rewriteV4AReadRedirects(
+      const parsedSections = preParsedV4ASections || rewriteV4AReadRedirects(
           parseV4APatch(patchStr),
           basePath,
           readStateScope,
         );
-      assertUniqueV4ASectionTargets(allSections, basePath);
+      const allSections = coalesceCompatibleV4ASections(parsedSections, basePath);
       v4aRenamePlan = await planV4ARenameSections(allSections, basePath);
       inputPatchStr = await convertV4ASectionsToUnifiedPatch(v4aRenamePlan.remainingSections, basePath, v4aConvertOpts);
       if (v4aRenamePlan.renameSections.length > 0) {

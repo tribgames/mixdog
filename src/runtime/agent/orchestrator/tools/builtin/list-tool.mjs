@@ -47,10 +47,38 @@ import {
 } from './local-search-telemetry.mjs';
 import { assertPathReachable } from './fs-reachability.mjs';
 import { listGuardPath, normalizeListHeadLimit, readFamilyPathEnoentOrError } from './lib/list-helpers.mjs';
+import {
+    recordShardDirectoryReadSuccess,
+    reportShardDirectoryReadFailure,
+} from '../../../../shared/session-shard-health.mjs';
 
 const FIND_WALK_TIMEOUT_MS = 20_000;
 const LIST_WALK_TIMEOUT_MS = 20_000;
 const LIST_ABSOLUTE_CAP = 50_000;
+
+function directoryReadFailureLine(failure, warning = false) {
+    const code = String(failure?.error?.code || 'UNKNOWN').toUpperCase();
+    const path = normalizeOutputPath(failure?.dir || '');
+    return `${warning ? '[warning] ' : 'Error: '}readdir failed (${code}): ${path}`;
+}
+
+function throwIfDirectoryWalkAborted(signal, walkResult, label) {
+    if (!signal?.aborted && !walkResult?.aborted) return;
+    if (signal?.reason instanceof Error) throw signal.reason;
+    const error = new Error(String(signal?.reason || `${label} aborted`));
+    error.name = 'AbortError';
+    throw error;
+}
+
+function recordDirectoryWalkTelemetry(options, status, walkResult, warningCount = 0) {
+    if (!options?.resultTelemetry || typeof options.resultTelemetry !== 'object') return;
+    options.resultTelemetry.integrity = {
+        kind: 'directory-walk',
+        status,
+        entriesVisited: Math.max(0, Number(walkResult?.entriesVisited) || 0),
+        warnings: Math.max(0, Number(warningCount) || 0),
+    };
+}
 
 // A/B override surface for the default result caps (stock: list/tree 200,
 // fuzzy find 25). Env-gated so bench variants can match competitor-style
@@ -148,7 +176,10 @@ export async function executeListTool(args, workDir, options = {}) {
                 workDir,
                 { ...options, signal, _listSingleFlightKey: cacheKey },
             ),
-            { signal: options?.signal || options?.abortSignal || null },
+            {
+                signal: options?.signal || options?.abortSignal || null,
+                scopes: [fullPath],
+            },
         );
     }
     let _preStat;
@@ -183,12 +214,15 @@ export async function executeListTool(args, workDir, options = {}) {
     // accumulator stops growing once the cap or timeout trips. Small dirs
     // never hit either bound, so normal behavior is unchanged.
     let truncatedByCap = false;
+    const walkWarnings = [];
     const walkDeadline = Date.now() + LIST_WALK_TIMEOUT_MS;
-    await walkDir(fullPath, {
+    const walkResult = await walkDir(fullPath, {
         hidden,
         maxDepth: depth,
         excludeDirNames: includeNoise ? null : NOISE_DIR_NAMES,
         signal: options.signal,
+        readdirImpl: options.readdirImpl,
+        onWarn: (dir, error, context) => walkWarnings.push({ dir, error, root: Boolean(context?.root) }),
         visit: (ent, entPath) => {
             if (Date.now() > walkDeadline) { truncatedByCap = true; return false; }
             const isDir = ent.isDirectory();
@@ -213,6 +247,15 @@ export async function executeListTool(args, workDir, options = {}) {
             // window depends on traversal order rather than sort order.
         },
     });
+    throwIfDirectoryWalkAborted(options.signal, walkResult, 'list walk');
+    const rootFailure = walkWarnings.find((warning) => warning.root);
+    if (rootFailure) {
+        reportShardDirectoryReadFailure(fullPath, rootFailure.error);
+        recordDirectoryWalkTelemetry(options, 'failed', walkResult, walkWarnings.length);
+        if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
+        return directoryReadFailureLine(rootFailure);
+    }
+    recordShardDirectoryReadSuccess();
 
     if (needsGlobalStat && rows.length > 0) {
         // lstat: symlinks should report own metadata, not the target's.
@@ -253,6 +296,7 @@ export async function executeListTool(args, workDir, options = {}) {
         : `${displayRelPath(r.path, fullPath)}\t${r.type}`);
     if (windowed.length > sliced.length) lines.push(`... [entries ${offset + 1}-${offset + sliced.length} of ${rows.length}; pass offset:${offset + sliced.length} to continue]`);
     if (truncatedByCap) lines.push(`... walk truncated at ${LIST_ABSOLUTE_CAP} rows or ${LIST_WALK_TIMEOUT_MS}ms timeout; narrow the path or lower depth for a complete listing`);
+    for (const warning of walkWarnings) lines.push(directoryReadFailureLine(warning, true));
     let emptyMsg = '(empty directory)';
     if (lines.length === 0 && offset > 0 && rows.length > 0) {
         // Offset past the end is a windowing condition, not a filter one —
@@ -273,10 +317,18 @@ export async function executeListTool(args, workDir, options = {}) {
         emptyMsg = `(no entries match filter) ${filterParts.join(', ')} path=${inputPath}`;
     }
     const out = lines.join('\n') || emptyMsg;
-    if (options?.scopedCacheOutcome && (truncatedByCap || windowed.length > sliced.length)) {
+    recordDirectoryWalkTelemetry(
+        options,
+        walkWarnings.length > 0
+            ? 'partial'
+            : (walkResult.entriesVisited === 0 ? 'empty' : (rows.length === 0 ? 'filtered-empty' : 'complete')),
+        walkResult,
+        walkWarnings.length,
+    );
+    if (options?.scopedCacheOutcome && (truncatedByCap || windowed.length > sliced.length || walkWarnings.length > 0)) {
         markScopedCacheIncomplete(options.scopedCacheOutcome);
     }
-    cacheSet(cacheKey, out, { scopes: [fullPath] });
+    if (walkWarnings.length === 0) cacheSet(cacheKey, out, { scopes: [fullPath] });
     // ② completion progress (claude "Found N" parity). Best-effort, no-op
     // when onProgress is absent (no progressToken).
     if (typeof options?.onProgress === 'function') {
@@ -327,11 +379,14 @@ export async function executeTreeTool(args, workDir, options = {}) {
     const lines = [`${normalizeOutputPath(fullPath)}/`];
     const prefixStack = [''];
     const TREE_BRANCH_LINE_CAP = 500;
-    await walkDir(fullPath, {
+    const walkWarnings = [];
+    const walkResult = await walkDir(fullPath, {
         hidden,
         maxDepth: depth,
         excludeDirNames: includeNoise ? null : NOISE_DIR_NAMES,
         signal: options.signal,
+        readdirImpl: options.readdirImpl,
+        onWarn: (dir, error, context) => walkWarnings.push({ dir, error, root: Boolean(context?.root) }),
         sort: (a, b) => {
             const ad = a.isDirectory(), bd = b.isDirectory();
             if (ad !== bd) return ad ? -1 : 1;
@@ -357,6 +412,15 @@ export async function executeTreeTool(args, workDir, options = {}) {
             }
         },
     });
+    throwIfDirectoryWalkAborted(options.signal, walkResult, 'tree walk');
+    const rootFailure = walkWarnings.find((warning) => warning.root);
+    if (rootFailure) {
+        reportShardDirectoryReadFailure(fullPath, rootFailure.error);
+        recordDirectoryWalkTelemetry(options, 'failed', walkResult, walkWarnings.length);
+        if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
+        return directoryReadFailureLine(rootFailure);
+    }
+    recordShardDirectoryReadSuccess();
     const root = lines[0];
     const body = lines.slice(1);
     const windowed = offset > 0 ? body.slice(offset) : body;
@@ -374,6 +438,7 @@ export async function executeTreeTool(args, workDir, options = {}) {
         const totalLabel = body.length >= gatherCap ? `${body.length}+` : `${body.length}`;
         outLines.push(`... [entries ${offset + 1}-${offset + sliced.length} of ${totalLabel}; pass offset:${offset + sliced.length} to continue]`);
     }
+    for (const warning of walkWarnings) outLines.push(directoryReadFailureLine(warning, true));
     const TREE_OUTPUT_CHAR_CAP = TOOL_OUTPUT_MAX_BYTES;
     let out = outLines.join('\n');
     let outputCharTruncated = false;
@@ -381,10 +446,18 @@ export async function executeTreeTool(args, workDir, options = {}) {
         outputCharTruncated = true;
         out = out.slice(0, TREE_OUTPUT_CHAR_CAP) + `\n... [output truncated at ${Math.round(TREE_OUTPUT_CHAR_CAP/1024)} KB; narrow path or lower depth]`;
     }
-    if (options?.scopedCacheOutcome && (windowed.length > sliced.length || outputCharTruncated)) {
+    recordDirectoryWalkTelemetry(
+        options,
+        walkWarnings.length > 0
+            ? 'partial'
+            : (walkResult.entriesVisited === 0 ? 'empty' : 'complete'),
+        walkResult,
+        walkWarnings.length,
+    );
+    if (options?.scopedCacheOutcome && (windowed.length > sliced.length || outputCharTruncated || walkWarnings.length > 0)) {
         markScopedCacheIncomplete(options.scopedCacheOutcome);
     }
-    cacheSet(cacheKey, out, { scopes: [fullPath] });
+    if (walkWarnings.length === 0) cacheSet(cacheKey, out, { scopes: [fullPath] });
     return out;
 }
 
@@ -910,7 +983,10 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
                 const lines = matches.length === 0
                     ? [`(no fuzzy match yet for "${query}")`]
                     : matches;
-                lines.push('... [search timed out; partial results shown — narrow path/query for a complete result]');
+                lines.push(served.scanErrors > 0
+                    ? `... [warning] ${served.scanErrors} path(s) could not be enumerated; partial results shown`
+                        + (served.walkErrorDetails?.length ? `: ${served.walkErrorDetails.join('; ')}` : '')
+                    : '... [search timed out; partial results shown — narrow path/query for a complete result]');
                 if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
                 return capFindResult(lines.join('\n'));
             }

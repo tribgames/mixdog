@@ -797,7 +797,7 @@ test('openai-oauth request allows one mixed custom-patch/function-shell batch', 
     assert.equal(patch.type, 'custom');
     assert.equal(shell.type, 'function');
     assert.ok(typeof shell.description === 'string' && shell.description.length > 0);
-    assert.doesNotMatch(shell.description, /apply_patch|verification|PowerShell:/i);
+    assert.doesNotMatch(shell.description, /verification|PowerShell:/i);
 });
 
 test('openai-oauth reasoning replay defaults on, honors kill switch, declares all-turn context', () => {

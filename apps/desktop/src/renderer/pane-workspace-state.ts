@@ -12,7 +12,6 @@ import {
   canSplitPaneSize,
   closePaneLeaf,
   closeTabInPaneLeaf,
-  createEmptyPaneLeaf,
   createPaneLeaf,
   distributePaneRatiosAlong,
   filterPaneLayoutSessions,
@@ -65,6 +64,30 @@ export interface PaneWorkspaceState {
 
 type StorageLike = Pick<Storage, "getItem">;
 
+function createNewTaskPaneLeaf(id?: string): PaneLeaf {
+  return createPaneLeaf({ kind: "new" }, id);
+}
+
+function fillEmptyPaneLeaves(layout: PaneNode): PaneNode {
+  if (layout.type === "leaf") {
+    return layout.tabs.length === 0
+      ? createNewTaskPaneLeaf(layout.id)
+      : layout;
+  }
+  const first = fillEmptyPaneLeaves(layout.first);
+  const second = fillEmptyPaneLeaves(layout.second);
+  return first === layout.first && second === layout.second
+    ? layout
+    : { ...layout, first, second };
+}
+
+function isSoleNewTaskPane(layout: PaneNode, leafId: string): boolean {
+  return layout.type === "leaf"
+    && layout.id === leafId
+    && layout.tabs.length === 1
+    && layout.tabs[0].kind === "new";
+}
+
 function safeLocalStorage(): Storage | null {
   try {
     return window.localStorage;
@@ -80,8 +103,9 @@ export function readStoredPaneLayout(storage: StorageLike | null): PaneWorkspace
     const raw = storage?.getItem(PANE_LAYOUT_KEY);
     if (!raw) return null;
     const record = JSON.parse(raw) as Record<string, unknown>;
-    const layout = parsePaneLayout(record?.layout);
-    if (!layout) return null;
+    const parsedLayout = parsePaneLayout(record?.layout);
+    if (!parsedLayout) return null;
+    const layout = fillEmptyPaneLeaves(parsedLayout);
     const leaves = paneLeaves(layout);
     const focusedLeafId = typeof record.focusedLeafId === "string"
       && leaves.some((leaf) => leaf.id === record.focusedLeafId)
@@ -121,9 +145,8 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     if (restorePlan.stored && !restorePlan.requiresSessionValidation) {
       return restorePlan.stored;
     }
-    // A fresh install starts EMPTY (VS Code/Orca): panes are created by the
-    // first task, not preallocated.
-    const leaf = initialSelection ? createPaneLeaf(initialSelection) : createEmptyPaneLeaf();
+    // A fresh install starts on a New Task pane without creating a session.
+    const leaf = initialSelection ? createPaneLeaf(initialSelection) : createNewTaskPaneLeaf();
     return { layout: leaf, focusedLeafId: leaf.id };
   });
 
@@ -155,7 +178,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
         // address. Non-session tabs remain available.
       }
       if (cancelled) return;
-      const layout = filtered ?? createEmptyPaneLeaf();
+      const layout = filtered ?? createNewTaskPaneLeaf();
       const leaves = paneLeaves(layout);
       setState({
         layout,
@@ -331,6 +354,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     setState((prev) => {
       const target = findPaneLeaf(prev.layout, leafId);
       if (!target) return prev;
+      if (isSoleNewTaskPane(prev.layout, leafId)) return prev;
       const collapsing = target.tabs.length === 1;
       const fallback = collapsing ? neighborPaneLeafId(prev.layout, leafId) : null;
       const collapseDirection = collapsing
@@ -339,8 +363,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
       const collapsedLayout = closeTabInPaneLeaf(prev.layout, leafId, key);
       if (collapsedLayout === prev.layout) return prev;
       if (!collapsedLayout) {
-        // The last tab closed: back to the EMPTY workspace guidance screen.
-        const leaf = createEmptyPaneLeaf();
+        const leaf = createNewTaskPaneLeaf(target.id);
         return { layout: leaf, focusedLeafId: leaf.id };
       }
       const layout = rebalancePaneAxes(collapsedLayout, collapseDirection);
@@ -357,6 +380,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     setState((prev) => {
       let layout: PaneNode | null = prev.layout;
       let focusedLeafId = prev.focusedLeafId;
+      if (isSoleNewTaskPane(prev.layout, prev.focusedLeafId)) return prev;
       for (const leaf of paneLeaves(prev.layout)) {
         if (!layout) break;
         if (!findPaneLeaf(layout, leaf.id)) continue;
@@ -376,7 +400,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
       }
       if (layout === prev.layout) return prev;
       if (!layout) {
-        const leaf = createEmptyPaneLeaf();
+        const leaf = createNewTaskPaneLeaf(prev.focusedLeafId);
         return { layout: leaf, focusedLeafId: leaf.id };
       }
       if (!findPaneLeaf(layout, focusedLeafId)) focusedLeafId = paneLeaves(layout)[0].id;
@@ -410,13 +434,13 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
 
   const closeLeaf = useCallback((leafId: string) => {
     setState((prev) => {
+      if (isSoleNewTaskPane(prev.layout, leafId)) return prev;
       const fallback = neighborPaneLeafId(prev.layout, leafId);
       const collapseDirection = paneLeafParentDirection(prev.layout, leafId);
       const collapsedLayout = closePaneLeaf(prev.layout, leafId);
       if (collapsedLayout === prev.layout) return prev;
       if (!collapsedLayout) {
-        // Closing the last pane lands on the empty workspace.
-        const leaf = createEmptyPaneLeaf();
+        const leaf = createNewTaskPaneLeaf(leafId);
         return { layout: leaf, focusedLeafId: leaf.id };
       }
       const layout = rebalancePaneAxes(collapsedLayout, collapseDirection);

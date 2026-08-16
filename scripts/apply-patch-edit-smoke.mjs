@@ -61,6 +61,19 @@ try {
     readFileSync(join(tmp, 'created.txt'), 'utf8') === 'created by apply_patch smoke\nsecond line\n',
     'apply_patch add did not write the expected created.txt contents',
   );
+  const nestedAdd = await executePatchTool('apply_patch', {
+    base_path: tmp,
+    patch: `*** Begin Patch
+*** Add File: missing/parents/direct-created.txt
++created without preflight
+*** End Patch
+`,
+  }, tmp, {});
+  assertOk('apply_patch direct nested Add File', nestedAdd);
+  assert(
+    readFileSync(join(tmp, 'missing', 'parents', 'direct-created.txt'), 'utf8') === 'created without preflight\n',
+    'Add File did not create its missing parent directories',
+  );
 
   writeFileSync(join(tmp, 'decorated.txt'), 'before decorated\n', 'utf8');
   const decoratedResult = await executePatchTool('apply_patch', {
@@ -163,20 +176,35 @@ try {
     patch: `*** Begin Patch
 *** Update File: target.txt
 @@
--bravo
-+first
+-alpha
++aleph
 *** Update File: target.txt
 @@
--bravo
-+second
+-gamma
++delta
 *** End Patch
 `,
   }, tmp, {});
-  assert(/^Error[\s:]/.test(String(duplicateTargetResult))
-    && /multiple operations target/i.test(String(duplicateTargetResult)),
-  `apply_patch must reject duplicate target operations:\n${duplicateTargetResult}`);
-  assert(readFileSync(join(tmp, 'target.txt'), 'utf8') === 'alpha\nbravo\ngamma\n',
-    'duplicate-target rejection changed the file');
+  assertOk('apply_patch repeated plain Update File sections', duplicateTargetResult);
+  assert(readFileSync(join(tmp, 'target.txt'), 'utf8') === 'aleph\nbravo\ndelta\n',
+    'repeated plain Update File sections were not merged');
+
+  const conflictingTargetResult = await executePatchTool('apply_patch', {
+    base_path: tmp,
+    patch: `*** Begin Patch
+*** Update File: target.txt
+@@
+-bravo
++temporary
+*** Delete File: target.txt
+*** End Patch
+`,
+  }, tmp, {});
+  assert(/^Error[\s:]/.test(String(conflictingTargetResult))
+    && /conflicting operations target/i.test(String(conflictingTargetResult)),
+  `apply_patch must reject conflicting operations for one target:\n${conflictingTargetResult}`);
+  assert(readFileSync(join(tmp, 'target.txt'), 'utf8') === 'aleph\nbravo\ndelta\n',
+    'conflicting-target rejection changed the file');
 
   const canonicalDir = join(tmp, 'actual', 'nested');
   mkdirSync(canonicalDir, { recursive: true });
@@ -233,9 +261,10 @@ try {
 *** End Patch
 `,
   }, tmp, {});
-  assertOk('apply_patch Add File overwrite', overwriteAdd);
-  assert(readFileSync(overwriteTarget, 'utf8') === 'new add content\n',
-    'Add File did not atomically replace an existing regular file');
+  assert(/^Error[\s:]/.test(String(overwriteAdd)) && /Add File target already exists/i.test(String(overwriteAdd)),
+    `Add File unexpectedly replaced an existing target:\n${overwriteAdd}`);
+  assert(readFileSync(overwriteTarget, 'utf8') === 'old add content\n',
+    'Add File changed an existing regular file');
 
   // A native server that died between requests (idle watchdog, panic, external
   // kill) must never take THIS process down: an unhandled EPIPE on the child's

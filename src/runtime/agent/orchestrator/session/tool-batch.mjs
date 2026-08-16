@@ -700,6 +700,7 @@ export async function processToolBatch(ctx) {
                     resultKind: _resultKind,
                     resultText: result,
                     localSearchTelemetry: completed.localSearchTelemetry,
+                    resultTelemetry: completed.resultTelemetry,
                     cwd,
                 });
                 // Deferred writes that predate a later mutation are skipped;

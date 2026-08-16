@@ -14,6 +14,7 @@ import {
     jitterDelayMs,
 } from '../providers/retry-classifier.mjs';
 import {
+    persistenceMessagesForConfirmedImageRejection,
     promptHasInlineImages,
     shouldStripImagesForRetry,
     stripInlineImages,
@@ -506,7 +507,14 @@ export async function sendWithRecovery(ctx) {
                         0,
                         'image_strip',
                     );
-                    return { action: 'retry_image_strip', messages: stripped.messages };
+                    return {
+                        action: 'retry_image_strip',
+                        messages: stripped.messages,
+                        persistMessages: persistenceMessagesForConfirmedImageRejection(
+                            sendErr,
+                            recoveryMessages,
+                        ),
+                    };
                 }
             } else
             // Context-window-exceeded is a deterministic refusal from the API.

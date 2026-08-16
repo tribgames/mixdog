@@ -12,6 +12,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{self, BufRead, Read, Write};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
@@ -49,6 +50,8 @@ const DEFAULT_FILE_LIST_CACHE_BYTES: usize = 64 * 1_024 * 1_024;
 const DEFAULT_FUZZY_CACHE_BYTES: usize = 64 * 1_024 * 1_024;
 const DEFAULT_AIMD_TARGET_MS: usize = 250;
 const DEFAULT_AIMD_INCREASE_EVERY: usize = 8;
+const WALK_ERROR_DETAIL_MAX: usize = 8;
+const WALK_ERROR_DETAIL_CHARS: usize = 300;
 
 fn bounded_env_usize(name: &str, default: usize, min: usize, max: usize) -> usize {
     std::env::var(name)
@@ -243,6 +246,9 @@ struct LiveWalk {
     waiters: AtomicUsize,
     cancelled: AtomicBool,
     keep_warm: AtomicBool,
+    cacheable: AtomicBool,
+    walk_errors: AtomicUsize,
+    walk_error_details: Mutex<Vec<String>>,
     generation: u64,
 }
 
@@ -252,6 +258,7 @@ struct FileListStore {
     fuzzy: Mutex<HashMap<FuzzyKey, FuzzyEntry>>,
     generations: Mutex<HashMap<PathBuf, u64>>,
     watcher: Mutex<Option<RecommendedWatcher>>,
+    watcher_healthy: AtomicBool,
     watched_roots: Mutex<HashMap<PathBuf, Instant>>,
 }
 
@@ -275,6 +282,7 @@ impl FileListStore {
             fuzzy: Mutex::new(HashMap::new()),
             generations: Mutex::new(HashMap::new()),
             watcher: Mutex::new(None),
+            watcher_healthy: AtomicBool::new(false),
             watched_roots: Mutex::new(HashMap::new()),
         }
     }
@@ -309,9 +317,17 @@ impl FileListStore {
         if roots.is_empty() {
             return roots;
         }
+        self.invalidate_roots(&roots);
+        roots
+    }
+
+    fn invalidate_roots(&self, roots: &[PathBuf]) {
+        if roots.is_empty() {
+            return;
+        }
         {
             let mut generations = self.generations.lock().unwrap_or_else(|e| e.into_inner());
-            for root in &roots {
+            for root in roots {
                 *generations.entry(root.clone()).or_insert(0) += 1;
             }
         }
@@ -363,14 +379,33 @@ impl FileListStore {
                 live.cond.notify_all();
             }
         }
-        roots
     }
 
-    fn watch_root(self: &Arc<Self>, operand: &Path) {
-        if !operand.is_dir() {
-            return;
+    fn watch_root(self: &Arc<Self>, operand: &Path) -> bool {
+        let watch_operand = if operand.is_file() {
+            operand.parent().unwrap_or(operand)
+        } else {
+            operand
+        };
+        if !watch_operand.is_dir() {
+            return false;
         }
-        let root = normalized_operand(operand);
+        let root = normalized_operand(watch_operand);
+        if !self.watcher_healthy.load(Ordering::Acquire) {
+            let stale_roots = {
+                let mut watcher = self.watcher.lock().unwrap_or_else(|e| e.into_inner());
+                if self.watcher_healthy.load(Ordering::Acquire) {
+                    Vec::new()
+                } else {
+                    *watcher = None;
+                    let mut roots = self.watched_roots.lock().unwrap_or_else(|e| e.into_inner());
+                    roots.drain().map(|(path, _)| path).collect::<Vec<_>>()
+                }
+            };
+            if !stale_roots.is_empty() {
+                self.invalidate_roots(&stale_roots);
+            }
+        }
         let mut watcher = self.watcher.lock().unwrap_or_else(|e| e.into_inner());
         if watcher.is_none() {
             let weak: Weak<Self> = Arc::downgrade(self);
@@ -385,7 +420,10 @@ impl FileListStore {
                             };
                             (event.paths, inventory_changed)
                         }
-                        Err(_) => (Vec::new(), true),
+                        Err(_) => {
+                            store.watcher_healthy.store(false, Ordering::Release);
+                            (Vec::new(), true)
+                        }
                     };
                     let changed = if inventory_changed {
                         store.invalidate_paths(&paths)
@@ -402,8 +440,9 @@ impl FileListStore {
                         }));
                     }
                 });
-            let Ok(created) = created else { return };
+            let Ok(created) = created else { return false };
             *watcher = Some(created);
+            self.watcher_healthy.store(true, Ordering::Release);
         }
         // Never hold watched_roots across the OS watch/unwatch calls. Windows
         // may synchronously emit an initial notify callback from watch(); that
@@ -414,7 +453,7 @@ impl FileListStore {
             let mut roots = self.watched_roots.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(touched) = roots.get_mut(&root) {
                 *touched = Instant::now();
-                return;
+                return self.watcher_healthy.load(Ordering::Acquire);
             }
             if roots.len() >= WATCH_ROOT_MAX {
                 let oldest = roots
@@ -429,8 +468,15 @@ impl FileListStore {
                 None
             }
         };
-        if let (Some(watcher), Some(oldest)) = (watcher.as_mut(), evicted.as_ref()) {
-            let _ = watcher.unwatch(oldest);
+        if let Some(oldest) = evicted.as_ref() {
+            if let Some(watcher) = watcher.as_mut() {
+                let _ = watcher.unwatch(oldest);
+            }
+            self.invalidate_roots(std::slice::from_ref(oldest));
+            write_response(&serde_json::json!({
+                "event": "invalidate",
+                "paths": [wire_path(oldest)],
+            }));
         }
         let watched = watcher
             .as_mut()
@@ -441,6 +487,7 @@ impl FileListStore {
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(root, Instant::now());
         }
+        watched
     }
 
     fn take_ready(&self, key: &WalkKey) -> Option<Arc<Vec<PathBuf>>> {
@@ -593,6 +640,9 @@ impl FileListStore {
             waiters: AtomicUsize::new(1),
             cancelled: AtomicBool::new(false),
             keep_warm: AtomicBool::new(keep_warm),
+            cacheable: AtomicBool::new(true),
+            walk_errors: AtomicUsize::new(0),
+            walk_error_details: Mutex::new(Vec::new()),
             generation,
         });
         live.insert(key, Arc::clone(&created));
@@ -654,6 +704,8 @@ impl FileListStore {
                 live_map.remove(&key);
             }
             same && current_generation == live.generation
+                && live.cacheable.load(Ordering::Acquire)
+                && live.walk_errors.load(Ordering::Acquire) == 0
         };
         let mut state = live.state.lock().unwrap_or_else(|e| e.into_inner());
         *state = match result {
@@ -1205,7 +1257,15 @@ fn scan_file(
     macro_rules! scan {
         ($matcher:expr) => {
             if parsed.files_with_matches || parsed.count {
-                scan_summary(path, prefix, $matcher, parsed, cancelled, deadline_at, scan_errors)
+                scan_summary(
+                    path,
+                    prefix,
+                    $matcher,
+                    parsed,
+                    cancelled,
+                    deadline_at,
+                    scan_errors,
+                )
             } else {
                 scan_standard(
                     path,
@@ -1442,6 +1502,50 @@ struct WorkerWalkBatch<'a> {
     capacity: usize,
 }
 
+fn contain_search_panic<T, F>(label: &str, run: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String>,
+{
+    catch_unwind(AssertUnwindSafe(run))
+        .unwrap_or_else(|_| Err(format!("{label} panicked; request isolated")))
+}
+
+fn record_walk_error(live: &LiveWalk, detail: impl ToString) {
+    live.walk_errors.fetch_add(1, Ordering::Relaxed);
+    let mut details = live
+        .walk_error_details
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if details.len() >= WALK_ERROR_DETAIL_MAX {
+        return;
+    }
+    details.push(
+        detail
+            .to_string()
+            .chars()
+            .take(WALK_ERROR_DETAIL_CHARS)
+            .collect(),
+    );
+}
+
+fn live_walk_error_details(live: &LiveWalk) -> Vec<String> {
+    live.walk_error_details
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+fn append_walk_error_details(target: &mut Vec<String>, details: Vec<String>) {
+    for detail in details {
+        if target.len() >= WALK_ERROR_DETAIL_MAX {
+            break;
+        }
+        if !target.contains(&detail) {
+            target.push(detail);
+        }
+    }
+}
+
 impl<'a> WorkerWalkBatch<'a> {
     fn new(collected: &'a Mutex<CollectedWalk>, live: &'a LiveWalk, capacity: usize) -> Self {
         Self {
@@ -1487,7 +1591,7 @@ fn start_live_walk(
     parsed: ParsedArgs,
 ) {
     inventory_pool().spawn(move || {
-        let result = (|| -> Result<Arc<Vec<PathBuf>>, String> {
+        let result = contain_search_panic("native inventory worker", || {
             if operand.is_file() {
                 let files = vec![operand];
                 publish_live_files(&live, &files);
@@ -1521,16 +1625,26 @@ fn start_live_walk(
                     if live.cancelled.load(Ordering::Acquire) {
                         return ignore::WalkState::Quit;
                     }
-                    let Ok(entry) = entry else {
-                        return ignore::WalkState::Continue;
+                    let entry = match entry {
+                        Ok(entry) => entry,
+                        Err(error) => {
+                            record_walk_error(live, error);
+                            return ignore::WalkState::Continue;
+                        }
                     };
-                    let Some(kind) = entry.file_type() else {
-                        return ignore::WalkState::Continue;
+                    let (is_file, is_dir) = if let Some(kind) = entry.file_type() {
+                        (kind.is_file(), kind.is_dir())
+                    } else {
+                        match entry.metadata() {
+                            Ok(metadata) => (metadata.is_file(), metadata.is_dir()),
+                            Err(error) => {
+                                record_walk_error(live, error);
+                                return ignore::WalkState::Continue;
+                            }
+                        }
                     };
-                    if !kind.is_file()
-                        && !(parsed.directories
-                            && kind.is_dir()
-                            && entry.path() != operand.as_path())
+                    if !is_file
+                        && !(parsed.directories && is_dir && entry.path() != operand.as_path())
                     {
                         return ignore::WalkState::Continue;
                     }
@@ -1548,7 +1662,7 @@ fn start_live_walk(
             let mut files = collected.files;
             files.sort();
             Ok(Arc::new(files))
-        })();
+        });
         match result {
             Ok(files) => {
                 store.finish_live(key, &live, Ok(files));
@@ -1598,14 +1712,17 @@ fn complete_operand_files(
     cancelled: &AtomicBool,
     deadline_at: Option<Instant>,
     keep_warm: bool,
-) -> Result<(Arc<Vec<PathBuf>>, bool), String> {
-    store.watch_root(operand_path);
+) -> Result<(Arc<Vec<PathBuf>>, bool, usize, Vec<String>, bool), String> {
+    let watched = store.watch_root(operand_path);
     loop {
         let key = walk_key(operand_path, parsed);
         if let Some(hit) = store.take_ready(&key) {
-            return Ok((hit, true));
+            return Ok((hit, true, 0, Vec::new(), watched));
         }
         let (live, owner) = store.begin_live(key.clone(), keep_warm);
+        if !watched {
+            live.cacheable.store(false, Ordering::Release);
+        }
         let _waiter = store.waiter_guard(key.clone(), Arc::clone(&live));
         if owner {
             start_live_walk(
@@ -1617,11 +1734,25 @@ fn complete_operand_files(
             );
         }
         match wait_live_complete(&live, cancelled, deadline_at) {
-            Ok(Some(files)) => return Ok((files, true)),
+            Ok(Some(files)) => {
+                return Ok((
+                    files,
+                    true,
+                    live.walk_errors.load(Ordering::Acquire),
+                    live_walk_error_details(&live),
+                    live.cacheable.load(Ordering::Acquire),
+                ))
+            }
             Ok(None) => continue,
             Err(reason) if reason == SOFT_TIMEOUT => {
                 let snapshot = live.files.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                return Ok((Arc::new(snapshot), false));
+                return Ok((
+                    Arc::new(snapshot),
+                    false,
+                    live.walk_errors.load(Ordering::Acquire),
+                    live_walk_error_details(&live),
+                    false,
+                ));
             }
             Err(reason) => return Err(reason),
         }
@@ -1645,10 +1776,10 @@ fn scan_limited_operand(
     collect_until: usize,
     scan_errors: &AtomicUsize,
     files_scanned: &AtomicUsize,
-) -> Result<(bool, bool), String> {
-    store.watch_root(operand_path);
+) -> Result<(bool, bool, bool, Vec<String>), String> {
+    let watched = store.watch_root(operand_path);
     if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
-        return Ok((false, true));
+        return Ok((false, true, watched, Vec::new()));
     }
     let key = walk_key(operand_path, parsed);
     if let Some(files) = store.take_ready(&key) {
@@ -1669,9 +1800,12 @@ fn scan_limited_operand(
             files_scanned,
         );
         let timed_out = deadline_at.is_some_and(|deadline| Instant::now() >= deadline);
-        return Ok((reached_limit, timed_out));
+        return Ok((reached_limit, timed_out, watched, Vec::new()));
     }
     let (live, owner) = store.begin_live(key.clone(), keep_warm);
+    if !watched {
+        live.cacheable.store(false, Ordering::Release);
+    }
     let _waiter = store.waiter_guard(key.clone(), Arc::clone(&live));
     if owner {
         start_live_walk(
@@ -1683,19 +1817,37 @@ fn scan_limited_operand(
         );
     }
     let mut cursor = 0usize;
+    let account_walk_errors = || {
+        let count = live.walk_errors.load(Ordering::Acquire);
+        if count > 0 {
+            scan_errors.fetch_add(count, Ordering::Relaxed);
+        }
+    };
+    let outcome = |reached_limit, timed_out| {
+        (
+            reached_limit,
+            timed_out,
+            live.cacheable.load(Ordering::Acquire),
+            live_walk_error_details(&live),
+        )
+    };
     loop {
         if cancelled.load(Ordering::Relaxed) {
             return Err(CANCELLED.to_string());
         }
         if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
-            return Ok((false, true));
+            account_walk_errors();
+            return Ok(outcome(false, true));
         }
         let batch = {
             let mut files = live.files.lock().unwrap_or_else(|e| e.into_inner());
             while cursor >= files.len() {
                 let state = live.state.lock().unwrap_or_else(|e| e.into_inner());
                 match &*state {
-                    LiveState::Done(_) => return Ok((false, false)),
+                    LiveState::Done(_) => {
+                        account_walk_errors();
+                        return Ok(outcome(false, false));
+                    }
                     LiveState::Abandoned => return Err(CANCELLED.to_string()),
                     LiveState::Failed(error) => return Err(error.clone()),
                     LiveState::Running => {}
@@ -1710,7 +1862,8 @@ fn scan_limited_operand(
                     return Err(CANCELLED.to_string());
                 }
                 if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
-                    return Ok((false, true));
+                    account_walk_errors();
+                    return Ok(outcome(false, true));
                 }
             }
             let batch = files[cursor..].to_vec();
@@ -1734,10 +1887,12 @@ fn scan_limited_operand(
             files_scanned,
         );
         if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
-            return Ok((reached_limit, true));
+            account_walk_errors();
+            return Ok(outcome(reached_limit, true));
         }
         if reached_limit {
-            return Ok((true, false));
+            account_walk_errors();
+            return Ok(outcome(true, false));
         }
     }
 }
@@ -1807,8 +1962,9 @@ fn handle_fuzzy(
     let root = Path::new(&req.cwd);
     let key = fuzzy_key(root, &parsed);
     let filter = PathFilter::new(root, &parsed)?;
-    let (files, inventory_complete) =
+    let (files, walk_complete, walk_errors, walk_error_details, cache_safe) =
         complete_operand_files(store, root, &parsed, cancelled, deadline_at, req.keep_warm)?;
+    let inventory_complete = walk_complete && walk_errors == 0;
     let corpus = if inventory_complete {
         store.fuzzy_corpus(&key, &files, root, &filter)
     } else {
@@ -1837,7 +1993,7 @@ fn handle_fuzzy(
     let mut matches = BinaryHeap::with_capacity(limit + 1);
     let mut total_matches = 0usize;
     let mut total_seen = 0usize;
-    let mut timed_out = !inventory_complete;
+    let mut timed_out = !walk_complete;
     for (index, indexed) in corpus.paths.iter().enumerate() {
         if index & 1023 == 0 {
             if cancelled.load(Ordering::Relaxed) {
@@ -1884,8 +2040,12 @@ fn handle_fuzzy(
         "totalMatches": total_matches,
         "totalSeen": total_seen,
         "complete": inventory_complete && !timed_out,
-        "partial": timed_out,
+        "partial": timed_out || walk_errors > 0,
         "timeout": timed_out,
+        "scanErrors": walk_errors,
+        "walkErrorDetails": walk_error_details,
+        "inventoryChecked": inventory_complete,
+        "cacheSafe": cache_safe,
     }))
 }
 
@@ -1910,6 +2070,9 @@ fn handle(
         let cwd = Path::new(&req.cwd);
         let mut all_lines: Vec<String> = Vec::new();
         let mut timed_out = false;
+        let mut scan_error_count = 0usize;
+        let mut walk_error_details = Vec::new();
+        let mut cache_safe = true;
         for operand in &parsed.targets {
             if cancelled.load(Ordering::Relaxed) {
                 return Err(CANCELLED.to_string());
@@ -1923,17 +2086,22 @@ fn handle(
             } else {
                 cwd.join(operand)
             };
-            store.watch_root(&operand_path);
+            let watched = store.watch_root(&operand_path);
+            cache_safe &= watched;
             let filter = PathFilter::new(&operand_path, &parsed)?;
             if collect_until == usize::MAX {
-                let (files, complete) = complete_operand_files(
-                    store,
-                    &operand_path,
-                    &parsed,
-                    cancelled,
-                    deadline_at,
-                    req.keep_warm,
-                )?;
+                let (files, complete, walk_errors, details, operand_cache_safe) =
+                    complete_operand_files(
+                        store,
+                        &operand_path,
+                        &parsed,
+                        cancelled,
+                        deadline_at,
+                        req.keep_warm,
+                    )?;
+                cache_safe &= operand_cache_safe;
+                scan_error_count = scan_error_count.saturating_add(walk_errors);
+                append_walk_error_details(&mut walk_error_details, details);
                 for file in files.iter().filter(|file| filter.allows(file)) {
                     all_lines.push(display_path(operand, &operand_path, file));
                 }
@@ -1951,6 +2119,9 @@ fn handle(
                     }
                 } else {
                     let (live, owner) = store.begin_live(key.clone(), req.keep_warm);
+                    if !watched {
+                        live.cacheable.store(false, Ordering::Release);
+                    }
                     let _waiter = store.waiter_guard(key.clone(), Arc::clone(&live));
                     if owner {
                         start_live_walk(
@@ -2004,6 +2175,13 @@ fn handle(
                             break 'inventory;
                         }
                     }
+                    scan_error_count =
+                        scan_error_count.saturating_add(live.walk_errors.load(Ordering::Acquire));
+                    cache_safe &= live.cacheable.load(Ordering::Acquire);
+                    append_walk_error_details(
+                        &mut walk_error_details,
+                        live_walk_error_details(&live),
+                    );
                 }
             }
             if timed_out || all_lines.len() >= collect_until {
@@ -2017,6 +2195,7 @@ fn handle(
             .take(if req.limit > 0 { req.limit } else { usize::MAX })
             .collect();
         let complete = !timed_out
+            && scan_error_count == 0
             && all_lines.len() < collect_until
             && (req.limit == 0 || total_after_offset <= req.limit);
         return Ok(serde_json::json!({
@@ -2024,8 +2203,12 @@ fn handle(
             "lines": window,
             "complete": complete,
             "totalSeen": total_after_offset,
-            "partial": timed_out,
+            "partial": timed_out || scan_error_count > 0,
             "timeout": timed_out,
+            "scanErrors": scan_error_count,
+            "walkErrorDetails": walk_error_details,
+            "inventoryChecked": complete,
+            "cacheSafe": cache_safe,
         }));
     }
     let matcher = build_matcher(&parsed)?;
@@ -2040,6 +2223,8 @@ fn handle(
     // demonstrably contains files is a server-state anomaly, not a no-match
     // (observed once in the wild; JS retries that signature once).
     let files_scanned = AtomicUsize::new(0);
+    let mut walk_error_details = Vec::new();
+    let mut cache_safe = true;
     let chunk_size = rayon::current_num_threads().max(4);
     'operands: for operand in &parsed.targets {
         if cancelled.load(Ordering::Relaxed) {
@@ -2060,24 +2245,27 @@ fn handle(
             || operand_path.is_dir();
         let filter = PathFilter::new(&operand_path, &parsed)?;
         if collect_until != usize::MAX {
-            let (reached_limit, operand_timed_out) = scan_limited_operand(
-                store,
-                operand,
-                &operand_path,
-                &parsed,
-                &filter,
-                &matcher,
-                cancelled,
-                deadline_at,
-                req.keep_warm,
-                chunk_size,
-                use_prefix,
-                &mut all_lines,
-                &mut emitted_blocks,
-                collect_until,
-                &scan_errors,
-                &files_scanned,
-            )?;
+            let (reached_limit, operand_timed_out, operand_cache_safe, details) =
+                scan_limited_operand(
+                    store,
+                    operand,
+                    &operand_path,
+                    &parsed,
+                    &filter,
+                    &matcher,
+                    cancelled,
+                    deadline_at,
+                    req.keep_warm,
+                    chunk_size,
+                    use_prefix,
+                    &mut all_lines,
+                    &mut emitted_blocks,
+                    collect_until,
+                    &scan_errors,
+                    &files_scanned,
+                )?;
+            cache_safe &= operand_cache_safe;
+            append_walk_error_details(&mut walk_error_details, details);
             if operand_timed_out {
                 timed_out = true;
                 break 'operands;
@@ -2090,7 +2278,7 @@ fn handle(
             }
             continue;
         }
-        let (files, complete) = complete_operand_files(
+        let (files, complete, walk_errors, details, operand_cache_safe) = complete_operand_files(
             store,
             &operand_path,
             &parsed,
@@ -2098,6 +2286,11 @@ fn handle(
             deadline_at,
             req.keep_warm,
         )?;
+        cache_safe &= operand_cache_safe;
+        append_walk_error_details(&mut walk_error_details, details);
+        if walk_errors > 0 {
+            scan_errors.fetch_add(walk_errors, Ordering::Relaxed);
+        }
         for file_chunk in files.chunks(chunk_size) {
             if cancelled.load(Ordering::Relaxed) {
                 return Err(CANCELLED.to_string());
@@ -2137,8 +2330,7 @@ fn handle(
     // every scan loop so that expiry is reported as a partial, timed-out
     // response instead of a silent (possibly empty) complete one — observed
     // in the wild as a false "(no matches)" under 8-way host saturation.
-    let timed_out = timed_out
-        || deadline_at.is_some_and(|deadline| Instant::now() >= deadline);
+    let timed_out = timed_out || deadline_at.is_some_and(|deadline| Instant::now() >= deadline);
     // Files that failed to open/read mid-walk were skipped, not searched:
     // surface the count so the caller can distinguish "no matches" from
     // "not fully searched" (rg's stderr + exit-2 contract, JSONL-shaped).
@@ -2161,7 +2353,10 @@ fn handle(
         "partial": timed_out || scan_error_count > 0,
         "timeout": timed_out,
         "scanErrors": scan_error_count,
+        "walkErrorDetails": walk_error_details,
         "filesScanned": files_scanned.load(Ordering::Relaxed),
+        "inventoryChecked": complete,
+        "cacheSafe": cache_safe,
     }))
 }
 
@@ -2201,6 +2396,26 @@ fn queue_capacity() -> usize {
         1,
         MAX_SEARCH_QUEUE_CAPACITY,
     )
+}
+
+fn priority_queue_reserve(capacity: usize) -> usize {
+    if capacity <= 1 {
+        return 0;
+    }
+    bounded_env_usize(
+        "MIXDOG_SEARCH_PRIORITY_QUEUE_RESERVE",
+        capacity.div_ceil(8).clamp(1, 64),
+        1,
+        capacity - 1,
+    )
+}
+
+fn queue_admission_capacity(class: SearchClass, capacity: usize, priority_reserve: usize) -> usize {
+    if class == SearchClass::Bulk {
+        capacity.saturating_sub(priority_reserve).max(1)
+    } else {
+        capacity
+    }
 }
 
 fn response_queue_capacity() -> usize {
@@ -2424,6 +2639,7 @@ struct SchedulerTelemetry {
     bulk_window: usize,
     bulk_limit: usize,
     queue_capacity: usize,
+    priority_queue_reserve: usize,
     saturation_count: u64,
     queue_ewma_ms: u64,
     handler_ewma_ms: u64,
@@ -2443,6 +2659,7 @@ fn scheduler_telemetry(inner: &SchedulerInner, state: &SchedulerState) -> Schedu
         bulk_window: state.bulk_window,
         bulk_limit: inner.bulk_limit,
         queue_capacity: inner.queue_capacity,
+        priority_queue_reserve: inner.priority_queue_reserve,
         saturation_count: state.saturation_count,
         queue_ewma_ms: state.queue_ewma_us / 1_000,
         handler_ewma_ms: state.handler_ewma_us / 1_000,
@@ -2456,6 +2673,7 @@ fn telemetry_json(telemetry: SchedulerTelemetry) -> serde_json::Value {
         "bulkWindow": telemetry.bulk_window,
         "bulkLimit": telemetry.bulk_limit,
         "queueCapacity": telemetry.queue_capacity,
+        "priorityQueueReserve": telemetry.priority_queue_reserve,
         "saturationCount": telemetry.saturation_count,
         "queueEwmaMs": telemetry.queue_ewma_ms,
         "handlerEwmaMs": telemetry.handler_ewma_ms,
@@ -2474,6 +2692,7 @@ struct SchedulerInner {
     total_limit: usize,
     interactive_reserve: usize,
     queue_capacity: usize,
+    priority_queue_reserve: usize,
     file_lists: Arc<FileListStore>,
     cancellations: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>>,
 }
@@ -2493,6 +2712,7 @@ impl SearchScheduler {
         let interactive_limit = total_limit.saturating_add(interactive_reserve);
         let fuzzy_limit = total_limit;
         let bulk_limit = bulk_parallelism();
+        let queue_capacity = queue_capacity();
         let inner = Arc::new(SchedulerInner {
             state: Mutex::new(SchedulerState::new(bulk_limit)),
             changed: Condvar::new(),
@@ -2504,7 +2724,8 @@ impl SearchScheduler {
             bulk_limit,
             total_limit,
             interactive_reserve,
-            queue_capacity: queue_capacity(),
+            queue_capacity,
+            priority_queue_reserve: priority_queue_reserve(queue_capacity),
             file_lists,
             cancellations,
         });
@@ -2524,17 +2745,22 @@ impl SearchScheduler {
         if state.closed {
             return Err(search);
         }
-        if state
+        let class = search_class(&search.req);
+        let queue_depth = state
             .interactive
             .len()
             .saturating_add(state.fuzzy.len())
-            .saturating_add(state.bulk.len())
-            >= self.inner.queue_capacity
-        {
+            .saturating_add(state.bulk.len());
+        let admission_capacity = queue_admission_capacity(
+            class,
+            self.inner.queue_capacity,
+            self.inner.priority_queue_reserve,
+        );
+        if queue_depth >= admission_capacity {
             state.saturation_count = state.saturation_count.saturating_add(1);
             return Err(search);
         }
-        match search_class(&search.req) {
+        match class {
             SearchClass::Interactive => state.interactive.push_back(search),
             SearchClass::Fuzzy => state.fuzzy.push_back(search),
             SearchClass::Bulk => state.bulk.push_back(search),
@@ -2750,7 +2976,9 @@ fn execute_scheduled_search(
         let deadline_at = req
             .deadline_ms
             .map(|deadline_ms| queued_at + Duration::from_millis(deadline_ms));
-        let handled = handle(&req, &cancelled, &inner.file_lists, deadline_at);
+        let handled = contain_search_panic("native search handler", || {
+            handle(&req, &cancelled, &inner.file_lists, deadline_at)
+        });
         response_for_handler_result(req.id, handled, cancelled.load(Ordering::Relaxed))
     };
     let handler_elapsed = handler_started.elapsed();
@@ -3064,6 +3292,9 @@ mod tests {
             waiters: AtomicUsize::new(0),
             cancelled: AtomicBool::new(false),
             keep_warm: AtomicBool::new(false),
+            cacheable: AtomicBool::new(true),
+            walk_errors: AtomicUsize::new(0),
+            walk_error_details: Mutex::new(Vec::new()),
             generation: 0,
         };
         let cancelled = AtomicBool::new(true);
@@ -3083,6 +3314,9 @@ mod tests {
             waiters: AtomicUsize::new(0),
             cancelled: AtomicBool::new(false),
             keep_warm: AtomicBool::new(false),
+            cacheable: AtomicBool::new(true),
+            walk_errors: AtomicUsize::new(0),
+            walk_error_details: Mutex::new(Vec::new()),
             generation: 0,
         };
         let cancelled = AtomicBool::new(false);
@@ -3232,6 +3466,23 @@ mod tests {
     }
 
     #[test]
+    fn inventory_with_walk_errors_is_never_cached_as_complete() {
+        let store = FileListStore::new();
+        let parsed = parse_args(&request(&["--files", "."], 20).args).unwrap();
+        let key = walk_key(Path::new("partial"), &parsed);
+        let (live, owner) = store.begin_live(key.clone(), false);
+        assert!(owner);
+        live.walk_errors.store(1, Ordering::Release);
+        assert!(!store.finish_live(
+            key.clone(),
+            &live,
+            Ok(Arc::new(vec![PathBuf::from("partial/visible.rs")])),
+        ));
+        assert!(store.take_ready(&key).is_none());
+        assert_eq!(live.walk_errors.load(Ordering::Acquire), 1);
+    }
+
+    #[test]
     fn streaming_and_complete_waiters_share_one_walk_without_panicking() {
         let store = FileListStore::new();
         let parsed = parse_args(&request(&["--files", "."], 20).args).unwrap();
@@ -3262,11 +3513,7 @@ mod tests {
             assert_eq!(files.len(), 1);
         }
 
-        assert!(store.finish_live(
-            key,
-            &live,
-            Ok(Arc::new(vec![PathBuf::from("streamed.rs")])),
-        ));
+        assert!(store.finish_live(key, &live, Ok(Arc::new(vec![PathBuf::from("streamed.rs")])),));
         let completed = complete
             .join()
             .expect("complete waiter must not panic")
@@ -3289,10 +3536,24 @@ mod tests {
     fn adaptive_scheduler_reserves_interactive_capacity_and_throttles_bulk() {
         assert_eq!(interactive_dispatch_ceiling(4, 1, true), 5);
         assert_eq!(interactive_dispatch_ceiling(4, 1, false), 4);
+        assert_eq!(queue_admission_capacity(SearchClass::Bulk, 16, 2), 14);
+        assert_eq!(
+            queue_admission_capacity(SearchClass::Interactive, 16, 2),
+            16
+        );
         let mut state = SchedulerState::new(2);
         assert_eq!(adaptive_bulk_limit(2, &state), 2);
         state.interactive_inflight = 1;
         assert_eq!(adaptive_bulk_limit(2, &state), 1);
+    }
+
+    #[test]
+    fn handler_panics_are_isolated_as_request_errors() {
+        let result: Result<(), String> =
+            contain_search_panic("probe handler", || panic!("isolated panic"));
+        assert!(result
+            .unwrap_err()
+            .contains("probe handler panicked; request isolated"));
     }
 
     #[test]

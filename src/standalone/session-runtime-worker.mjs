@@ -10,14 +10,45 @@ process.env.MIXDOG_SESSION_SHARD = '1';
 process.env.MIXDOG_SESSION_SHARD_PID = String(process.pid);
 process.env.MIXDOG_QUIET_SESSION_LOG ??= '1';
 
+import { getEventListeners } from 'node:events';
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
 import { sanitizeForWire } from './session-service.mjs';
 import { disposeSessionRuntimeRecord } from './session-runtime-record.mjs';
 import { diffSessionState } from './session-state-patch.mjs';
+import {
+  reportShardAbortListenerPressure,
+  SESSION_SHARD_UNHEALTHY_EVENT,
+} from '../runtime/shared/session-shard-health.mjs';
 
 const records = new Map();
 let sessionModulePromise = null;
 let stopping = false;
+let unhealthyDetail = null;
+let unhealthyReported = false;
+const pendingAbortPressureChecks = new WeakSet();
+const ABORT_PRESSURE_RETENTION_CHECK_MS = 30_000;
+
+process.on(SESSION_SHARD_UNHEALTHY_EVENT, (detail) => {
+  if (stopping || unhealthyDetail) return;
+  unhealthyDetail = sanitizeForWire(detail) || { reason: 'session shard unhealthy' };
+  process.stderr.write(`[session-shard-health] ${unhealthyDetail.reason || 'unhealthy'}\n`);
+});
+
+process.on('warning', (warning) => {
+  if (warning?.name !== 'MaxListenersExceededWarning') return;
+  if (!/AbortSignal/i.test(String(warning?.message || ''))) return;
+  const target = warning?.target;
+  if ((!target || (typeof target !== 'object' && typeof target !== 'function'))
+    || pendingAbortPressureChecks.has(target)) return;
+  pendingAbortPressureChecks.add(target);
+  const timer = setTimeout(() => {
+    pendingAbortPressureChecks.delete(target);
+    let retained = 0;
+    try { retained = getEventListeners(target, 'abort').length; } catch {}
+    reportShardAbortListenerPressure(warning, Date.now(), retained);
+  }, ABORT_PRESSURE_RETENTION_CHECK_MS);
+  timer.unref?.();
+});
 
 function sessionModule() {
   sessionModulePromise ??= import('../tui/session-local.mjs');
@@ -192,6 +223,10 @@ process.on('message', (message) => {
     throw new Error(`unknown session shard message ${message.type}`);
   })().then((value) => {
     if (requestId) send({ type: 'response', requestId, ok: true, value: value ?? null });
+    if (message.type === 'call' && unhealthyDetail && !unhealthyReported) {
+      unhealthyReported = true;
+      send({ type: 'unhealthy', detail: unhealthyDetail });
+    }
     if (message.type === 'shutdown') setImmediate(() => process.exit(0));
   }).catch((error) => {
     if (requestId) send({ type: 'response', requestId, ok: false, error: errorBody(error) });

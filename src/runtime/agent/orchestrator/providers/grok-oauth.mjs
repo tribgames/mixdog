@@ -364,6 +364,16 @@ export class GrokOAuthProvider {
         });
         const inner = this._ensureInner(tokens.access_token, useModel, requestHeaders);
         const grokTools = normalizeGrokToolSchemas(tools);
+        // Effort-less models (grok-build, composer): the service 400s on ANY
+        // reasoningEffort parameter, and pinned model settings can carry one
+        // (e.g. the bench harness pins effort per route). Strip it here so a
+        // saved effort never breaks a model that cannot accept it.
+        if (!_grokModelSupportsEffort(useModel) && sendOpts) {
+            // 'none' (not null) so the ?? fallback chain in the xai builder
+            // cannot fall through to a config/env effort; the normalizer maps
+            // it to "omit the parameter".
+            sendOpts = { ...sendOpts, effort: 'none', xaiReasoningEffort: 'none' };
+        }
         try {
             // Call _doSend directly, bypassing OpenAICompatProvider.send()'s
             // own 401 handler — that one reloads a static apiKey from config,

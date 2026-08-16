@@ -64,6 +64,10 @@
       "suite": "full",
       "routeProfile": "opus5-solo",
       "compareTo": "claude-code-opus5"
+    },
+    "grokbuild": {
+      "suite": "core",
+      "routeProfile": "grokbuild"
     }
   }
 }

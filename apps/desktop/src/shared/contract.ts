@@ -222,7 +222,7 @@ export interface DesktopAgentJob extends Readonly<Record<string, unknown>> {
   startedAt?: number | string;
 }
 
-/** One active row from the process-global agent-workers.json lifecycle pool. */
+/** One active row from the merged child/Lead lifecycle pools. */
 export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   tag: string;
   sessionId: string;
@@ -238,6 +238,7 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   turnStartedAt: number | string | null;
   createdAt: number | string | null;
   updatedAt: number | string | null;
+  reapAt?: number | string | null;
   cwd: string | null;
   clientHostPid: number | null;
   taskId: string | null;

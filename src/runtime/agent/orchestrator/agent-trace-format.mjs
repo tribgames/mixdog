@@ -130,7 +130,7 @@ function traceAgentCompact({
 }
 
 const TOOL_ARG_KEYS = {
-    read: ['path', 'offset', 'limit', 'line', 'context', 'symbol'],
+    read: ['path', 'offset', 'limit', 'line', 'context'],
     grep: ['pattern', 'path', 'glob', 'output_mode', 'head_limit', 'offset'],
     glob: ['pattern', 'path', 'head_limit', 'offset', 'sort'],
     find: ['query', 'path', 'head_limit'],
@@ -305,11 +305,10 @@ function classifyPatchFailure(text) {
     if (PATCH_COMMITTED_WRITES_RE.test(text)) return 'patch/partial-apply';
     // Resource guards (byte cap) are deliberate rejections, not tool defects.
     if (/patch too large|byte cap/.test(text)) return 'patch/limit';
-    if (/parse failed|invalid patch|malformed patch|missing \*\*\* (?:begin|end) patch|patch body is empty|unsupported patch format/.test(text)
-        // `patch contained no file sections` / `contains an empty file path`:
-        // the envelope parsed but produced nothing applicable — a patch-text
-        // defect, not a context miss.
-        || /contained no file sections|contains an empty file path/.test(text)) return 'patch/parse';
+    if (/(?:multiple|conflicting) operations target/.test(text)) return 'patch/duplicate-target';
+    // Inspect the nested cause before the outer `V4A parse failed` wrapper.
+    // Conversion-time context misses are edit-evidence failures, not malformed
+    // patch envelopes.
     if (/hunk rejected|context not found|context mismatch|anchor not found|expected first old(?:\/context| line)/.test(text)) {
         // Stale context requires REAL evidence that the region exists but has
         // moved/changed (nearest line, divergent line, rejected hunk). The
@@ -319,10 +318,16 @@ function classifyPatchFailure(text) {
             ? 'patch/stale-context'
             : 'patch/context';
     }
+    if (/parse failed|invalid patch|malformed patch|missing \*\*\* (?:begin|end) patch|patch body is empty|unsupported patch format/.test(text)
+        // `patch contained no file sections` / `contains an empty file path`:
+        // the envelope parsed but produced nothing applicable — a patch-text
+        // defect, not a context miss.
+        || /contained no file sections|contains an empty file path/.test(text)) return 'patch/parse';
+    if (/target\(s\) fall outside the write root/.test(text)) return 'path/outside-root';
     // Missing/unreadable targets are path problems even when a preflight
     // wrapper reports them; fall through to the generic path rules.
     if (/enoent|no such file|target unreadable|source (?:missing or )?unreadable|destination unreadable|cannot find/.test(text)) return null;
-    if (/preflight rejected|does not support|cannot be combined|only one v4a rename|missing parsed entry|internal js dispatch|rollback snapshot target/.test(text)) return 'patch/verification';
+    if (/preflight rejected|does not support|cannot be combined|only one v4a rename|missing parsed entry|internal js dispatch|rollback snapshot target|refusing hunkless delete/.test(text)) return 'patch/verification';
     return null;
 }
 
@@ -368,6 +373,7 @@ function classifyToolFailure(resultText, toolName) {
         || /must be|schema|required|old_string is .*>?=/.test(text)) return 'schema/args';
     if (/not in allow-list|not allowed/.test(text)) return 'permission';
     if (String(toolName || '') === 'shell' || /^\s*\[exit code:\s*\d+\]/i.test(raw)) return 'command-exit';
+    if (String(toolName || '') === 'glob' && /enoent|path does not exist|directory does not exist/.test(text)) return 'navigation/miss';
     if (/enoent|cannot find|not found at this path|path does not exist|no such file|file not found in graph|unreadable/.test(text)) return 'path/enoent';
     if (/timed out|timeout|interrupted|aborted/.test(text)) return 'timeout/abort';
     if (/unknown tool|tool.*not.*available|missing.*tool/.test(text)) return 'tool-surface';
@@ -414,7 +420,7 @@ function traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolM
     }
 }
 
-function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, agent, resultKind, model, resultText, localSearchTelemetry = null, cwd }) {
+function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, agent, resultKind, model, resultText, localSearchTelemetry = null, resultTelemetry = null, cwd }) {
     const nextCallCount = countJsonNextCalls(resultText);
     const resultBytesEst = typeof resultText === 'string' ? Buffer.byteLength(resultText, 'utf8') : 0;
     const resultLinesEst = typeof resultText === 'string' && resultText.length > 0 ? resultText.split('\n').length : 0;
@@ -465,6 +471,9 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
         local_search: localSearchTelemetry && Object.keys(localSearchTelemetry).length > 0
             ? { ...localSearchTelemetry }
             : null,
+        payload: resultTelemetry?.integrity
+            ? { integrity: { ...resultTelemetry.integrity } }
+            : {},
         cwd: cwd || null,
     });
     if (

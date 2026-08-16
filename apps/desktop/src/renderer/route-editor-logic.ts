@@ -14,6 +14,7 @@ export interface RoutePanelBox {
   width: number;
   height: number;
   maxHeight: number;
+  placement?: 'above' | 'below' | 'left' | 'right';
 }
 
 interface RouteAnchorRect {
@@ -24,6 +25,8 @@ interface RouteAnchorRect {
 }
 
 interface RouteViewport {
+  left?: number;
+  top?: number;
   width: number;
   height: number;
 }
@@ -37,19 +40,28 @@ export function routeSheetBox(
   preferredHeight: number,
   viewport: RouteViewport,
 ): RoutePanelBox {
+  const viewportLeft = viewport.left ?? 0;
+  const viewportTop = viewport.top ?? 0;
+  const viewportRight = viewportLeft + viewport.width;
+  const viewportBottom = viewportTop + viewport.height;
   const width = Math.min(ROUTE_PANEL_WIDTH, Math.max(1, viewport.width - ROUTE_PANEL_EDGE * 2));
-  const left = clamp(trigger.right - width, ROUTE_PANEL_EDGE, viewport.width - width - ROUTE_PANEL_EDGE);
-  const spaceAbove = Math.max(1, trigger.top - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP);
-  const spaceBelow = Math.max(1, viewport.height - trigger.bottom - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP);
+  const left = clamp(
+    trigger.right - width,
+    viewportLeft + ROUTE_PANEL_EDGE,
+    viewportRight - width - ROUTE_PANEL_EDGE,
+  );
+  const spaceAbove = Math.max(1, trigger.top - viewportTop - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP);
+  const spaceBelow = Math.max(1, viewportBottom - trigger.bottom - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP);
   const openAbove = spaceAbove >= preferredHeight || spaceAbove > spaceBelow;
   const height = Math.min(preferredHeight, openAbove ? spaceAbove : spaceBelow);
   const top = openAbove ? trigger.top - ROUTE_PANEL_GAP - height : trigger.bottom + ROUTE_PANEL_GAP;
   return {
     left,
-    top: clamp(top, ROUTE_PANEL_EDGE, viewport.height - height - ROUTE_PANEL_EDGE),
+    top: clamp(top, viewportTop + ROUTE_PANEL_EDGE, viewportBottom - height - ROUTE_PANEL_EDGE),
     width,
     height,
     maxHeight: height,
+    placement: openAbove ? 'above' : 'below',
   };
 }
 
@@ -58,35 +70,41 @@ export function routeFlyoutBox(
   rowIndex: number,
   preferredHeight: number,
   viewport: RouteViewport,
+  requestedWidth = ROUTE_PANEL_WIDTH,
 ): RoutePanelBox {
+  const viewportLeft = viewport.left ?? 0;
+  const viewportTop = viewport.top ?? 0;
+  const viewportRight = viewportLeft + viewport.width;
+  const viewportBottom = viewportTop + viewport.height;
   const preferredWidth = Math.min(
-    ROUTE_PANEL_WIDTH,
+    requestedWidth,
     Math.max(1, viewport.width - ROUTE_PANEL_EDGE * 2),
   );
   const sheetRight = sheet.left + sheet.width;
   const sheetBottom = sheet.top + sheet.height;
-  const spaceLeft = sheet.left - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP;
-  const spaceRight = viewport.width - sheetRight - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP;
+  const spaceLeft = sheet.left - viewportLeft - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP;
+  const spaceRight = viewportRight - sheetRight - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP;
   const placeLeft = spaceRight < ROUTE_MIN_SIDE_PANEL_WIDTH
     && spaceLeft >= ROUTE_MIN_SIDE_PANEL_WIDTH;
   const sideSpace = placeLeft ? spaceLeft : spaceRight;
 
   if (sideSpace < ROUTE_MIN_SIDE_PANEL_WIDTH) {
-    const spaceAbove = sheet.top - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP;
-    const spaceBelow = viewport.height - sheetBottom - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP;
+    const spaceAbove = sheet.top - viewportTop - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP;
+    const spaceBelow = viewportBottom - sheetBottom - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP;
     const openAbove = spaceAbove >= preferredHeight || spaceAbove > spaceBelow;
     const height = Math.min(preferredHeight, Math.max(1, openAbove ? spaceAbove : spaceBelow));
     const top = openAbove ? sheet.top - ROUTE_PANEL_GAP - height : sheetBottom + ROUTE_PANEL_GAP;
     return {
       left: clamp(
         sheetRight - preferredWidth,
-        ROUTE_PANEL_EDGE,
-        viewport.width - preferredWidth - ROUTE_PANEL_EDGE,
+        viewportLeft + ROUTE_PANEL_EDGE,
+        viewportRight - preferredWidth - ROUTE_PANEL_EDGE,
       ),
-      top: clamp(top, ROUTE_PANEL_EDGE, viewport.height - height - ROUTE_PANEL_EDGE),
+      top: clamp(top, viewportTop + ROUTE_PANEL_EDGE, viewportBottom - height - ROUTE_PANEL_EDGE),
       width: preferredWidth,
       height,
       maxHeight: height,
+      placement: openAbove ? 'above' : 'below',
     };
   }
 
@@ -94,8 +112,19 @@ export function routeFlyoutBox(
   const height = Math.min(preferredHeight, Math.max(1, viewport.height - ROUTE_PANEL_EDGE * 2));
   const left = placeLeft ? sheet.left - ROUTE_PANEL_GAP - width : sheetRight + ROUTE_PANEL_GAP;
   const anchorTop = sheet.top + ROUTE_PANEL_PADDING + rowIndex * ROUTE_SHEET_ROW_HEIGHT;
-  const top = clamp(anchorTop, ROUTE_PANEL_EDGE, viewport.height - ROUTE_PANEL_EDGE - height);
-  return { left, top, width, height, maxHeight: height };
+  const top = clamp(
+    anchorTop,
+    viewportTop + ROUTE_PANEL_EDGE,
+    viewportBottom - ROUTE_PANEL_EDGE - height,
+  );
+  return {
+    left,
+    top,
+    width,
+    height,
+    maxHeight: height,
+    placement: placeLeft ? 'left' : 'right',
+  };
 }
 
 export function routeSheetRows(input: {

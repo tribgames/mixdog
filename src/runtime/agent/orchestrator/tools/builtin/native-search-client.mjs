@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { hiddenSpawnOpts } from '../../../../shared/spawn-flags.mjs';
+import { reportShardUnhealthy } from '../../../../shared/session-shard-health.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { getPluginData } from '../../config.mjs';
 import { ensureGraphBinary } from '../graph-binary-fetcher.mjs';
@@ -18,6 +19,7 @@ const REQUEST_TIMEOUT_MS = 20_000;
 const SERVER_READY_TIMEOUT_MS = 1_000;
 const CANCEL_GRACE_MS = 1_000;
 const PROCESS_FAILURES_BEFORE_BACKOFF = 2;
+const SEARCH_TIMEOUT_RECYCLE_WINDOW_MS = 30_000;
 
 let _server = null; // { child, pending: Map, sequence }
 let _binaryPath = undefined; // undefined = unresolved, null = unavailable
@@ -26,6 +28,9 @@ let _lastFailure = null;
 let _consecutiveProcessFailures = 0;
 let _binaryResolveStarted = false;
 let _warmPromise = null;
+let _lastTimeoutRecycleAt = 0;
+let _lastTimedOutServer = null;
+const _abortSignalSubscribers = new WeakMap();
 
 function codedError(code, message, cause = null) {
   const error = new Error(message);
@@ -85,6 +90,44 @@ function clearProcessFailures() {
   _lastFailure = null;
   _lastFailureAt = 0;
   _consecutiveProcessFailures = 0;
+}
+
+function noteSearchTimeout(server, now = Date.now()) {
+  if (server && _lastTimedOutServer === server) return 'none';
+  _lastTimedOutServer = server || null;
+  if (_lastTimeoutRecycleAt > 0 && now - _lastTimeoutRecycleAt <= SEARCH_TIMEOUT_RECYCLE_WINDOW_MS) {
+    _lastTimeoutRecycleAt = now;
+    return 'shard';
+  }
+  _lastTimeoutRecycleAt = now;
+  return 'server';
+}
+
+function subscribeAbortSignal(signal, callback) {
+  if (!signal?.addEventListener || typeof callback !== 'function') return () => {};
+  let state = _abortSignalSubscribers.get(signal);
+  if (!state) {
+    const callbacks = new Set();
+    const listener = () => {
+      _abortSignalSubscribers.delete(signal);
+      const pending = [...callbacks];
+      callbacks.clear();
+      for (const fn of pending) {
+        try { fn(); } catch {}
+      }
+    };
+    state = { callbacks, listener };
+    _abortSignalSubscribers.set(signal, state);
+    signal.addEventListener('abort', listener, { once: true });
+  }
+  state.callbacks.add(callback);
+  return () => {
+    if (!state.callbacks.delete(callback) || state.callbacks.size > 0) return;
+    if (_abortSignalSubscribers.get(signal) === state) {
+      _abortSignalSubscribers.delete(signal);
+      try { signal.removeEventListener('abort', state.listener); } catch {}
+    }
+  };
 }
 
 function unavailableError() {
@@ -377,6 +420,7 @@ async function requestNative(server, request, execOptions, deadlineMs) {
   const response = await new Promise((resolve, reject) => {
     let settled = false;
     let onAbort = null;
+    let unsubscribeAbort = null;
     const cancelServerWork = () => {
       try { server.child.stdin.write(`${JSON.stringify({ cancel: request.id })}\n`); } catch {}
       armNativeCancellationWatchdog(server, request);
@@ -385,18 +429,36 @@ async function requestNative(server, request, execOptions, deadlineMs) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (onAbort) {
-        try { execOptions.signal?.removeEventListener?.('abort', onAbort); } catch {}
-        onAbort = null;
-      }
+      try { unsubscribeAbort?.(); } catch {}
+      unsubscribeAbort = null;
+      onAbort = null;
       if (cancel) cancelServerWork();
       if (error) reject(error);
       else resolve(value);
       if (server.pending.size === 0) _setServerReferenced(server, false);
     };
+    const settleTimeout = (error) => {
+      const action = requestKind(request) === 'process snapshot'
+        ? 'none'
+        : noteSearchTimeout(server);
+      settle(null, true, error);
+      if (action === 'none') return;
+      if (action === 'shard') {
+        reportShardUnhealthy({
+          reason: 'native search timed out again after server recycle',
+          code: 'NATIVE_SEARCH_TIMEOUT_STREAK',
+          subsystem: 'native-search',
+        });
+      }
+      queueMicrotask(() => {
+        if (_server === server) {
+          _teardown(error, { countFailure: false, detail: 'repeated request timeouts' });
+        }
+      });
+    };
     const timer = setTimeout(() => {
       server.pending.delete(request.id);
-      settle(null, true, timeoutError(request, deadlineMs));
+      settleTimeout(timeoutError(request, deadlineMs));
     }, deadlineMs);
     timer.unref?.();
     server.pending.set(request.id, {
@@ -405,17 +467,22 @@ async function requestNative(server, request, execOptions, deadlineMs) {
     });
     onAbort = () => {
       server.pending.delete(request.id);
-      settle(
-        null,
-        true,
-        codedError('NATIVE_SEARCH_ABORTED', `native ${requestKind(request)} search aborted`),
-      );
+      const reason = execOptions.signal?.reason;
+      if (reason?.code === 'READ_ONLY_IO_TIMEOUT') {
+        settleTimeout(timeoutError(request, deadlineMs));
+      } else {
+        settle(
+          null,
+          true,
+          codedError('NATIVE_SEARCH_ABORTED', `native ${requestKind(request)} search aborted`),
+        );
+      }
     };
     if (execOptions.signal?.aborted) {
       onAbort();
       return;
     }
-    execOptions.signal?.addEventListener?.('abort', onAbort, { once: true });
+    unsubscribeAbort = subscribeAbortSignal(execOptions.signal, onAbort);
     try {
       server.child.stdin.write(`${JSON.stringify(request)}\n`);
     } catch (error) {
@@ -430,6 +497,7 @@ async function requestNative(server, request, execOptions, deadlineMs) {
 }
 
 export {
+  noteSearchTimeout as _noteSearchTimeoutForTest,
   requestNative as _requestNativeForTest,
   softDeadlineMs as _softDeadlineMsForTest,
 };
@@ -477,9 +545,10 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
   // queue+handler time consumed its deadline budget, re-ask ONCE; the retry
   // (served from a now-warm server) returns either the real matches or a
   // fast, trustworthy empty.
-  if (
+  const legacySuspectEmpty = (
     Array.isArray(response.lines) && response.lines.length === 0
     && response.complete === true && response.partial !== true
+    && response.inventoryChecked !== true
     && (
       (Number(response.queueMs) || 0) + (Number(response.handlerMs) || 0)
         >= Math.max(500, softDeadlineMs(deadlineMs) - 250)
@@ -490,10 +559,36 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
       // 0ms while the file demonstrably matched). One re-ask disambiguates.
       || Number(response.filesScanned) === 0
     )
-  ) {
+  );
+  if (legacySuspectEmpty) {
+    if (_server) {
+      _teardown(
+        codedError('NATIVE_SEARCH_INTEGRITY', 'native search returned an unverified empty result'),
+        { countFailure: false, detail: 'unverified empty response' },
+      );
+    }
     try {
       response = await requestNativeWithRestart(buildRequest, execOptions, deadlineMs);
-    } catch { /* keep the first response */ }
+    } catch (error) {
+      throw codedError(
+        'NATIVE_SEARCH_INTEGRITY',
+        'native search could not verify an empty result with a fresh server',
+        error,
+      );
+    }
+    const retryConsumedDeadline = Array.isArray(response.lines)
+      && response.lines.length === 0
+      && response.complete === true
+      && response.partial !== true
+      && response.inventoryChecked !== true
+      && (Number(response.queueMs) || 0) + (Number(response.handlerMs) || 0)
+        >= Math.max(500, softDeadlineMs(deadlineMs) - 250);
+    if (retryConsumedDeadline) {
+      throw codedError(
+        'NATIVE_SEARCH_INTEGRITY',
+        'native search returned an unverified empty result after a fresh-server retry',
+      );
+    }
   }
   if (response.unsupported || response.error) {
     const rejected = new Error(String(response.error || response.unsupported));
@@ -502,6 +597,9 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
   }
   if (!Array.isArray(response.lines)) return null;
   const scanErrors = Math.max(0, Math.floor(Number(response.scanErrors) || 0));
+  const walkErrorDetails = Array.isArray(response.walkErrorDetails)
+    ? response.walkErrorDetails.map(String).slice(0, 8)
+    : [];
   return {
     lines: response.lines,
     complete: response.complete === true,
@@ -512,11 +610,17 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
     // through the existing rg-exit-2 partial phrasing in search-tool.mjs so
     // the model sees WHY the result may be missing matches.
     ...(scanErrors > 0
-      ? { rgStderr: `${scanErrors} file(s) could not be read (permission or I/O error); matches from those files are missing` }
+      ? {
+          rgStderr: `${scanErrors} file(s) could not be read (permission or I/O error); matches from those files are missing`
+            + (walkErrorDetails.length > 0 ? `; ${walkErrorDetails.join('; ')}` : ''),
+        }
       : {}),
     queueMs: Math.max(0, Number(response.queueMs) || 0),
     handlerMs: Math.max(0, Number(response.handlerMs) || 0),
     requestClass: response.class === 'bulk' ? 'bulk' : 'interactive',
+    inventoryChecked: response.inventoryChecked === true,
+    cacheSafe: response.cacheSafe !== false,
+    walkErrorDetails,
     served: true,
   };
 }
@@ -569,6 +673,12 @@ export async function tryServeFuzzySearch(args, execOptions = {}) {
     complete: response.complete === true,
     partial: response.partial === true,
     timeout: response.timeout === true,
+    scanErrors: Math.max(0, Math.floor(Number(response.scanErrors) || 0)),
+    walkErrorDetails: Array.isArray(response.walkErrorDetails)
+      ? response.walkErrorDetails.map(String).slice(0, 8)
+      : [],
+    inventoryChecked: response.inventoryChecked === true,
+    cacheSafe: response.cacheSafe !== false,
     queueMs: Math.max(0, Number(response.queueMs) || 0),
     handlerMs: Math.max(0, Number(response.handlerMs) || 0),
     requestClass: response.class === 'fuzzy' ? 'fuzzy' : 'bulk',
@@ -584,4 +694,6 @@ export function _resetNativeSearchClientForTest() {
   _consecutiveProcessFailures = 0;
   _binaryResolveStarted = false;
   _warmPromise = null;
+  _lastTimeoutRecycleAt = 0;
+  _lastTimedOutServer = null;
 }

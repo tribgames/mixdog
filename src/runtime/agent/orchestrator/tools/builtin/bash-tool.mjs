@@ -3,7 +3,6 @@ import { accessSync, constants as fsConstants, readdirSync, unlinkSync, writeFil
 import { constants as osConstants, tmpdir } from 'node:os';
 import { delimiter as pathDelimiter } from 'node:path';
 import { join as pathJoin } from 'node:path';
-import { isLegitimateShellExit } from '../../session/result-classification.mjs';
 import { makeToolEnvelope } from '../../session/tool-envelope.mjs';
 import { execShellCommand, stripAnsi } from '../shell-command.mjs';
 import { wrapCommandWithSnapshot } from '../shell-snapshot.mjs';
@@ -204,16 +203,25 @@ function _prependDestructiveWarning(command, text) {
     return `${warnings.map((w) => `⚠️ ${w}`).join('\n')}\n${text}`;
 }
 
+export function _placeDestructiveWarningsAfterStatus(command, text) {
+    const warnings = getDedupedDestructiveWarnings(command);
+    if (!warnings.length) return text;
+    const warningBlock = warnings.map((w) => `⚠️ ${w}`).join('\n');
+    const firstBreak = text.indexOf('\n');
+    if (firstBreak < 0) return `${text}\n${warningBlock}`;
+    return `${text.slice(0, firstBreak)}\n${warningBlock}${text.slice(firstBreak)}`;
+}
+
 export function formatShellToolFailure(message) {
     const text = String(message ?? '').replace(/^Error:\s*/i, '').trim() || 'shell tool failed';
     return `Error: [shell-tool-failed] ${text}`;
 }
 
-// A completed non-zero process exit keeps its `[exit code: N]` marker but is
+// Every observed process completion keeps its `[exit code: N]` marker and is
 // not a TOOL failure. The explicit-success envelope preserves that structural
-// distinction even when command output itself looks like an error.
-function _finalizeShellResult(legitExit, text) {
-    return legitExit ? makeToolEnvelope(text, [], { explicitSuccess: true }) : text;
+// distinction even when command output itself starts with "Error:".
+function _finalizeShellResult(completedExit, text) {
+    return completedExit ? makeToolEnvelope(text, [], { explicitSuccess: true }) : text;
 }
 
 export function _shellFailureStatus(result, timeout) {
@@ -234,7 +242,9 @@ export function _shellFailureStatus(result, timeout) {
             ? `[timeout: ${timeout}ms${signalDetail || ' signal: unknown'}${causeDetail}]${timeoutHint}`
             : (signal
                 ? `[signal: ${signal}${causeDetail}]`
-                : (exitCode !== 0 && exitCode !== null ? `[exit code: ${exitCode}]${_exitClassDiagnostic(exitCode, result.stderr)}` : '')));
+                : (Number.isInteger(exitCode)
+                    ? `[exit code: ${exitCode}]${exitCode !== 0 ? _exitClassDiagnostic(exitCode, result.stderr) : ''}`
+                    : '[missing exit status]')));
     return { signal, exitCode, shellToolFailed, statusDetail };
 }
 
@@ -655,19 +665,15 @@ export async function executeBashTool(args, workDir, options = {}) {
         }
         const failureStatus = _shellFailureStatus(result, timeout);
         const { signal, exitCode, shellToolFailed } = failureStatus;
-        // The shell tool succeeded once it spawned and observed the process to
-        // completion. A non-zero process exit is command data — regardless of
-        // stderr or failure banners — and never a tool/control-plane failure.
-        const legitExit = !shellToolFailed
-            && isLegitimateShellExit({
-                exitCode,
-                signal,
-                timedOut: result.timedOut,
-                stdout,
-                stderr,
-            });
+        // Every integer exit status is an observed process completion.
+        // stdout/stderr wording never overrides that fact: even an exit-0
+        // payload beginning with "Error:" remains an explicit success.
+        const completedExit = !shellToolFailed
+            && !signal
+            && !result.timedOut
+            && Number.isInteger(exitCode);
         const shellRunFailed = !shellToolFailed
-            && (!!signal || result.timedOut);
+            && (!!signal || result.timedOut || !Number.isInteger(exitCode));
         const isReallyErrored = shellToolFailed || shellRunFailed;
         // Filter-swallow rescue: the tee file is ALWAYS consumed (deleted)
         // here; its tail is attached only when the run failed with an empty
@@ -692,12 +698,12 @@ export async function executeBashTool(args, workDir, options = {}) {
         const statusDetail = failureStatus.statusDetail;
         const statusMarker = shellToolFailed
             ? `[shell-tool-failed] ${statusDetail}`
-            : (shellRunFailed ? `[shell-run-failed] ${statusDetail}` : (legitExit ? statusDetail : ''));
+            : (shellRunFailed ? `[shell-run-failed] ${statusDetail}` : (completedExit ? statusDetail : ''));
         const errorPrefix = isReallyErrored ? 'Error: ' : '';
         // Three outcomes: TOOL/control-plane failure, interrupted execution,
         // and a process that completed (zero or non-zero). Completed non-zero
         // exits keep their code but never carry Error:/shell-run-failed.
-        const completionNote = legitExit
+        const completionNote = completedExit && exitCode !== 0
             ? '\n[completed: shell executed the command; its non-zero exit code and output are command results, not a tool failure]'
             : '';
         let spillBlock = '';
@@ -735,7 +741,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         if (mergeStderr) {
             const merged = visibleStdout + visibleStderr;
             const compactBlock = compactHint ? `\n\n${compactHint}` : '';
-            if (statusMarker) return _finalizeShellResult(legitExit, _prependDestructiveWarning(command, errorPrefix + `${statusMarker}${completionNote}\n\n${merged || '(no output)'}` + compactBlock + _rescueNote + _driftNote));
+            if (statusMarker) return _finalizeShellResult(completedExit, _placeDestructiveWarningsAfterStatus(command, errorPrefix + `${statusMarker}${completionNote}\n\n${merged || '(no output)'}` + compactBlock + _rescueNote + _driftNote));
             return _prependDestructiveWarning(command, (merged || '(no output)') + compactBlock + _driftNote);
         }
         const compactedStdout = visibleStdout;
@@ -744,7 +750,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         const compactedStderrBlock = compactedStderr ? `\n\n[stderr]\n${compactedStderr}` : '';
         const compactBlock = compactHint ? `\n\n${compactHint}` : '';
         const payload = `${compactedBody}${compactedStderrBlock}${spillBlock}${compactBlock}${_rescueNote}${_driftNote}`;
-        if (statusMarker) return _finalizeShellResult(legitExit, _prependDestructiveWarning(command, _composeShellFailure(`${statusMarker}${completionNote}`, errorPrefix, warningBlock, payload)));
+        if (statusMarker) return _finalizeShellResult(completedExit, _placeDestructiveWarningsAfterStatus(command, _composeShellFailure(`${statusMarker}${completionNote}`, errorPrefix, warningBlock, payload)));
         return _prependDestructiveWarning(command, warningBlock ? `${warningBlock}\n${payload}` : payload);
     }
     finally {

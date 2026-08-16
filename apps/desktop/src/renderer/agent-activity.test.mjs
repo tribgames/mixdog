@@ -151,6 +151,7 @@ test("Agents groups every active session and renders each session's live agents"
           agent: "reviewer",
           status: "idle",
           stage: "idle",
+          updatedAt: new Date(Date.now() - 65_000).toISOString(),
           sessionId: "child-b",
           ownerSessionId: "lead-b",
           model: "gpt-5.6",
@@ -198,6 +199,12 @@ test("Agents groups every active session and renders each session's live agents"
     assert.ok(document.querySelector('[data-agent-session-id="lead-a"]'));
     assert.ok(document.querySelector('[data-agent-session-id="child-a"]'));
     assert.ok(document.querySelector('[data-agent-session-id="child-b"]'));
+    assert.equal(document.querySelectorAll(".workflows-agent-summary-row .projects-row-icon").length, 0);
+    const runningRow = document.querySelector('[data-agent-session-id="lead-a"]').closest(".schedules-row");
+    assert.ok(runningRow.querySelector(".agent-activity-status [role=status]"));
+    assert.equal(runningRow.lastElementChild.className, "agent-activity-status");
+    const idleRow = document.querySelector('[data-agent-session-id="child-b"]').closest(".schedules-row");
+    assert.match(idleRow.querySelector(".agent-activity-elapsed").textContent, /^Idle · 1m /);
 
     await act(async () => document.querySelector('[data-lead-session-id="lead-a"]').click());
     await act(async () => document.querySelector('[data-agent-session-id="child-b"]').click());

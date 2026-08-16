@@ -169,9 +169,9 @@
   },
   {
     "id": "add-overwrite-crlf",
-    "note": "Add File overwrite of an existing CRLF file must keep CRLF",
-    "expect": "applied",
-    "expect_content": { "a.txt": "NEW\r\n" },
+    "note": "Add File must reject an existing file without changing its CRLF content",
+    "expect": "rejected",
+    "expect_error": "Add File target already exists",
     "file_snapshots": { "a.txt": "old\r\n" },
     "args": { "patch": "*** Begin Patch\n*** Add File: a.txt\n+NEW\n*** End Patch\n" }
   },

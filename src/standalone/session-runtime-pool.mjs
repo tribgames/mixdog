@@ -130,6 +130,7 @@ class SessionShard {
     this.sequence = 0;
     this.closed = false;
     this.recovery = null;
+    this.recycling = null;
     this.failedChildren = new WeakSet();
     this.lastActivityAt = Date.now();
     this.coolingDown = null; // in-flight coolDown promise
@@ -183,6 +184,10 @@ class SessionShard {
     }
     if (message.type === 'spawn-release') {
       this.settleSpawnLease(String(message.leaseId || ''));
+      return;
+    }
+    if (message.type === 'unhealthy') {
+      this.recycleUnhealthy(child, message.detail);
       return;
     }
     if (message.type === 'state') {
@@ -266,6 +271,18 @@ class SessionShard {
     return false;
   }
 
+  recycleUnhealthy(child, detail = null) {
+    if (this.closed || child !== this.child || this.recycling) return;
+    const reason = String(detail?.reason || 'session shard reported unhealthy');
+    this.log(`session shard ${this.index} unhealthy; recycling pid=${child.pid || 'unknown'}: ${reason}`);
+    this.recycling = this.stopChild(`unhealthy: ${reason}`)
+      .catch((error) => {
+        this.log(`session shard ${this.index} unhealthy recycle failed: ${error?.message || error}`);
+        try { child.kill?.(); } catch {}
+      })
+      .finally(() => { this.recycling = null; });
+  }
+
   requestRaw(type, payload = {}, timeoutMs = 10 * 60_000) {
     this.lastActivityAt = Date.now();
     const child = this.ensureChild();
@@ -295,6 +312,7 @@ class SessionShard {
   }
 
   async request(type, payload = {}, timeoutMs = 10 * 60_000) {
+    if (this.recycling) await this.recycling.catch(() => {});
     if (this.recovery) await this.recovery;
     if (this.coolingDown) await this.coolingDown.catch(() => {});
     return this.requestRaw(type, payload, timeoutMs);
@@ -410,7 +428,7 @@ class SessionShard {
         new Promise((resolve) => setTimeout(resolve, 2_000)),
       ]);
     }
-    this.child = null;
+    if (this.child === child) this.child = null;
   }
 
   get status() {
@@ -419,6 +437,7 @@ class SessionShard {
       pid: this.child?.pid || null,
       runtimes: this.proxies.size,
       pending: this.pending.size,
+      recycling: Boolean(this.recycling),
     };
   }
 }
@@ -559,7 +578,7 @@ export function createSessionRuntimePool({
       const now = Date.now();
       for (const shard of shards) {
         if (shard.index === 0) continue; // first-session shard stays warm
-        if (!shard.child || shard.child.killed || shard.coolingDown) continue;
+        if (!shard.child || shard.child.killed || shard.coolingDown || shard.recycling) continue;
         if (shard.proxies.size > 0 || shard.pending.size > 0) continue;
         if (now - shard.lastActivityAt < COLD_DOWN_MS) continue;
         void shard.coolDown().then((cooled) => {
@@ -583,7 +602,7 @@ export function createSessionRuntimePool({
   // agents never accumulates every new session on its own event loop.
   function shardPlacementInfo() {
     return shards.map((shard) => {
-      const alive = Boolean(shard.child && !shard.child.killed && !shard.coolingDown);
+      const alive = Boolean(shard.child && !shard.child.killed && !shard.coolingDown && !shard.recycling);
       let busy = 0;
       if (alive) {
         for (const proxy of shard.proxies.values()) {

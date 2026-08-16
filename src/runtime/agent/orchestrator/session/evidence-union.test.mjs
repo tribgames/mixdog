@@ -81,16 +81,21 @@ test('keeps tiny exact results when a reference would be larger', () => {
     assert.equal(projected.stats.exactResultRefs, 0);
 });
 
-test('apply_patch and shell batches invalidate all earlier evidence', () => {
+test('apply_patch, shell, and mutating git batches invalidate all earlier evidence', () => {
     const same = `same ${'s'.repeat(160)}`;
     const listing = Array.from({ length: 24 }, (_, index) => `src/item-${index}.mjs`).join('\n');
-    for (const mutationName of ['apply_patch', 'shell']) {
+    for (const [mutationName, mutationArgs] of [
+        ['apply_patch', {}],
+        ['shell', {}],
+        ['git', { command: 'git commit -m test' }],
+        ['git', { command: "git reflog delete 'HEAD@{1}'", confirm: true }],
+    ]) {
         const messages = [
             call('read_1', 'read', { file_path: 'src/a.mjs' }),
             result('read_1', `2→${same}`),
             call('list_1', 'list'),
             result('list_1', listing),
-            call('mut_1', mutationName),
+            call('mut_1', mutationName, mutationArgs),
             result('mut_1', 'ok'),
             call('read_2', 'read', { file_path: 'src/a.mjs' }),
             result('read_2', `2→${same}`),
@@ -102,6 +107,22 @@ test('apply_patch and shell batches invalidate all earlier evidence', () => {
         assert.equal(projected.stats.reusedRows, 0, mutationName);
         assert.equal(projected.stats.exactResultRefs, 0, mutationName);
     }
+});
+
+test('read-only git operations preserve earlier evidence', () => {
+    const beta = `beta ${'b'.repeat(96)}`;
+    const gamma = `gamma ${'g'.repeat(96)}`;
+    const messages = [
+        call('read_1', 'read', { file_path: 'src/a.mjs' }),
+        result('read_1', `1→alpha\n2→${beta}\n3→${gamma}\n[lines 1-3]`),
+        call('git_1', 'git', { command: 'git status' }),
+        result('git_1', '{"ok":true}'),
+        call('read_2', 'read', { file_path: 'src/a.mjs' }),
+        result('read_2', `2→${beta}\n3→${gamma}\n4→delta\n[lines 2-4]`),
+    ];
+    const projected = projectProviderEvidence(messages);
+    assert.equal(projected.stats.reusedRows, 2);
+    assert.match(projected.messages[5].content, /tool_call_id="read_1"/);
 });
 
 test('deduplicates deterministic grep context rows while preserving the tool envelope', () => {

@@ -26,6 +26,8 @@ export function supplementalUiTranslations(language: string): Record<string, str
     return {
       ...Object.fromEntries(keys.map((key, index) => [key, ko[index] || key])),
       "% used": "% 사용",
+      // Keep English: this key is the folder details size AND effort "medium".
+      Medium: "Medium",
     };
   }
   const values = shared[language];

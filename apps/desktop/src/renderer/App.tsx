@@ -3997,8 +3997,7 @@ export function App() {
     }
   };
   const paneStripFor = (leaf: PaneLeaf) => {
-    // The empty workspace has no strip at all (VS Code/Orca): the guidance
-    // screen owns the whole surface until the first task opens.
+    // Startup and last-pane close always retain a New Task tab.
     if (leaf.tabs.length === 0) return null;
     const leafTabs = leaf.tabs.map((selection) => {
       const key = navigationKey(selection);
@@ -4685,8 +4684,8 @@ export function App() {
                   renderUtilityTabs={paneUtilityTabs}
                   onFocusSelection={activatePaneSurface}
                   onOpenDroppedPaths={openDroppedPaths}
-                  // An empty focused group renders the guidance screen — no
-                  // composer, no chat chrome — until a task pane exists.
+                  // Defensive fallback for malformed external state; normal
+                  // startup and close paths always retain a New Task pane.
                   renderActive={(leaf) => leaf.tabs.length === 0
                     ? <WorkspaceEmptyState />
                     : workspaceSurface}

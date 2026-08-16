@@ -1,7 +1,6 @@
 // Tool dispatch layer: codeGraph (mode router), findSymbolTool,
-// resolveSymbolReadSpan, executeCodeGraphTool (entry with cwd re-rooting +
-// batch fan-out + abort race), isCodeGraphTool. Extracted verbatim from
-// code-graph.mjs.
+// executeCodeGraphTool (entry with cwd re-rooting + batch fan-out + abort
+// race), isCodeGraphTool. Extracted verbatim from code-graph.mjs.
 import { resolve as pathResolve, isAbsolute, relative as pathRelative, basename as pathBasename, extname } from 'node:path';
 import { homedir as osHomedir } from 'node:os';
 import { existsSync, statSync } from 'node:fs';
@@ -22,7 +21,6 @@ import {
   _collectCheapSymbols,
   _capGraphList,
 } from './symbol-index.mjs';
-import { _inferSpanEndByIndent } from './span.mjs';
 import {
   _PROJECT_ROOT_SENTINELS,
   _resolveFileProjectRoot,
@@ -55,7 +53,6 @@ import {
   _formatCallerReferences,
   _formatTransitiveCallers,
   _augmentNoHitDiagnostic,
-  _pickCalleeDeclHit,
 } from './search.mjs';
 
 const CODE_GRAPH_BATCHABLE_MODES = new Set(['symbol', 'find_symbol', 'symbol_search', 'callers', 'callees', 'references']);
@@ -711,85 +708,6 @@ async function findSymbolTool(args, cwd, signal = null, options = {}) {
     );
   }
   return _findSymbolAcrossGraph(graph, symbol, cwd, { language, limit, fileRel, body: args?.body !== false });
-}
-
-/**
- * Resolve a symbol name to a 1-based [startLine, endLine] declaration span for read().
- * Returns `{ offset, limit, startLine, endLine, rel, note? }` or `{ error }`.
- */
-export async function resolveSymbolReadSpan(cwd, { symbol, path = null, language = null, line = null } = {}) {
-  const cleanSymbol = String(symbol || '').trim();
-  if (!cleanSymbol) return { error: 'symbol is required' };
-  let graph;
-  try {
-    graph = await buildCodeGraphAsync(cwd);
-  } catch (err) {
-    return { error: `symbol read: code graph unavailable (${err?.message || err})` };
-  }
-  if (!graph) return { error: 'symbol read: code graph could not be built for cwd' };
-
-  const normFile = path ? normalizeInputPath(path) : null;
-  const abs = normFile ? (isAbsolute(normFile) ? pathResolve(normFile) : pathResolve(cwd, normFile)) : null;
-  const fileRel = abs ? _graphRel(abs, cwd) : null;
-  if (fileRel && !graph.nodes.get(fileRel)) {
-    return { error: `symbol '${cleanSymbol}' not found — file not indexed: ${path}; use find_symbol` };
-  }
-
-  let hits = _findSymbolHits(graph, cleanSymbol, { language });
-  if (fileRel) hits = hits.filter((h) => h.rel === fileRel);
-  if (!hits.length) {
-    const scope = fileRel ? ` in ${fileRel}` : '';
-    return { error: `symbol '${cleanSymbol}' not found${scope}; use find_symbol to locate it` };
-  }
-
-  const disambigLine = Number(line);
-  let primary;
-  if (Number.isFinite(disambigLine) && disambigLine > 0) {
-    const onLine = hits.filter((h) => h.line === disambigLine);
-    primary = _pickCalleeDeclHit(onLine.length ? onLine : hits, fileRel);
-  } else {
-    primary = _pickCalleeDeclHit(hits, fileRel);
-  }
-  if (!primary) return { error: `symbol '${cleanSymbol}' not found; use find_symbol` };
-
-  const startLine = Number(primary.line);
-  let endLine = Number(primary.endLine);
-  let approximate = false;
-  if (!Number.isFinite(startLine) || startLine < 1) {
-    return { error: `symbol '${cleanSymbol}' has no valid declaration line; use find_symbol` };
-  }
-  if (!Number.isFinite(endLine) || endLine < startLine) {
-    const node = graph.nodes.get(primary.rel);
-    await _prewarmSourceTextNodes(graph, [node].filter(Boolean));
-    const srcText = node ? _getSourceTextForNode(graph, node) : null;
-    const inferred = srcText ? _inferSpanEndByIndent(srcText.split('\n'), startLine) : null;
-    if (inferred) {
-      endLine = inferred;
-    } else {
-      endLine = startLine + 79;
-      approximate = true;
-    }
-  }
-  const declCount = hits.filter((h) => h.declarationLike).length;
-  const notes = [];
-  if (approximate) notes.push('end line unknown — approximate range from declaration line');
-  if (!fileRel && (hits.length > 1 || declCount > 1)) {
-    notes.push('other matches exist — pass path= (and line= to disambiguate) to scope');
-  } else if (fileRel && declCount > 1) {
-    notes.push(
-      `${declCount} declarations of '${cleanSymbol}' in this file — reading the first; pass line= to pick another`,
-    );
-  }
-
-  return {
-    rel: primary.rel,
-    startLine,
-    endLine,
-    offset: startLine - 1,
-    limit: endLine - startLine + 1,
-    approximate,
-    note: notes.length ? notes.join('; ') : undefined,
-  };
 }
 
 async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options = {}) {

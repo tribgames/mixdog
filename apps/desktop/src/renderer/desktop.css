@@ -1656,7 +1656,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   overflow-x: clip;
   overflow-y: auto;
   margin: 0;
-  padding: 0 0 16px;
+  padding: 0 var(--mx-rail-gap) 16px;
   gap: 6px;
 }
 .utility-dock .agent-activity-empty {
@@ -1697,10 +1697,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   margin-top: -6px;
   padding-top: 0;
 }
-.utility-dock .agent-activity-state {
+.utility-dock .agent-activity-status {
   flex: 0 0 auto;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
   color: var(--mx-icon-muted);
 }
 .agent-route-summary {
@@ -1731,8 +1733,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .fast-mode-indicator svg { width: 12px; height: 12px; }
 .utility-dock .agent-activity-elapsed {
   flex: 0 0 auto;
-  align-self: center;
-  max-width: 72px;
+  max-width: 104px;
   overflow: hidden;
   color: var(--mx-text-faint);
   font-size: var(--mx-font-meta);
@@ -1742,7 +1743,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 /* Agents dock reuses the Workflows rail grammar. */
 .utility-dock .agent-activity-page .workflows-models { gap: 2px; }
-.utility-dock .agent-activity-page .projects-row-icon { display: grid; }
 .utility-dock .agent-activity-page .schedules-list { gap: 6px; }
 .utility-dock .agent-activity-page .schedules-row {
   gap: 8px;
@@ -8915,6 +8915,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .mx-menu, .mx-toast, .model-picker-dialog, .slash-palette,
+  .route-sheet, .route-sheet-flyout,
   .live-activity span, .stream-cursor { animation: none; }
   .message-actions { transition: none; }
 }
@@ -9702,7 +9703,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   overflow: hidden;
 }
 .route-trigger-model,
-.route-trigger-effort {
+.route-trigger-effort,
+.route-trigger-fast {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -9710,9 +9712,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .route-trigger-model { flex: 1 1 auto; }
 .route-trigger-effort { max-width: 96px; flex: 0 0 auto; color: var(--mx-text-muted); }
+.route-trigger-fast { flex: 0 0 auto; color: var(--mx-text-accent); }
 .route-editor > .model-trigger > svg { flex: 0 0 auto; }
 .route-sheet,
 .route-sheet-flyout {
+  --route-popover-x: 0;
+  --route-popover-y: 0;
   position: fixed;
   z-index: 10010;
   box-sizing: border-box;
@@ -9725,6 +9730,39 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 60%), var(--mx-bg-layer-1);
   box-shadow: var(--mx-floating), inset 0 0 0 .5px var(--mx-border-muted);
+  animation: route-popover-in 160ms cubic-bezier(.22, 1, .36, 1) both;
+  will-change: transform, opacity;
+}
+.route-sheet[data-placement="above"],
+.route-sheet-flyout[data-placement="above"] {
+  --route-popover-y: 4px;
+  transform-origin: bottom right;
+}
+.route-sheet[data-placement="below"],
+.route-sheet-flyout[data-placement="below"] {
+  --route-popover-y: -4px;
+  transform-origin: top right;
+}
+.route-sheet-flyout[data-placement="left"] {
+  --route-popover-x: 4px;
+  transform-origin: top right;
+}
+.route-sheet-flyout[data-placement="right"] {
+  --route-popover-x: -4px;
+  transform-origin: top left;
+}
+.route-sheet[data-state="closing"],
+.route-sheet-flyout[data-state="closing"] {
+  pointer-events: none;
+  animation: route-popover-out 110ms cubic-bezier(.4, 0, 1, 1) both;
+}
+@keyframes route-popover-in {
+  from { opacity: 0; transform: translate(var(--route-popover-x), var(--route-popover-y)) scale(.97); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes route-popover-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translate(var(--route-popover-x), var(--route-popover-y)) scale(.99); }
 }
 .route-sheet-row,
 .route-sheet-option {
@@ -14986,6 +15024,7 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
 .utility-dock .schedules-row { padding: 12px var(--mx-rail-gutter); }
 .session-sidebar-panels .workflows-section-head { padding: 6px 0 0; }
 .utility-dock .workflows-section-head { padding: 6px var(--mx-rail-gutter) 0; }
+.utility-dock .agent-activity-page .workflows-section-head { padding-inline: 0; }
 .session-sidebar-panels .workflows-section-head h2,
 .utility-dock .workflows-section-head h2 { padding: 0; }
 .session-sidebar-panels .workflows-models h2 { padding: 0; }

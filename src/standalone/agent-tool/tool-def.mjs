@@ -7,6 +7,7 @@ export const PRESET_ALIASES = new Map([
 ]);
 
 export const WORKER_INDEX_FILE = 'agent-workers.json';
+export const LEAD_WORKER_INDEX_FILE = 'lead-workers.json';
 
 export const ACTIVE_STAGES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'running', 'cancelling']);
 

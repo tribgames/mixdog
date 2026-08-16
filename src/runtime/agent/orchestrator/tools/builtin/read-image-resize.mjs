@@ -5,7 +5,9 @@
 //
 // sharp is a direct runtime dependency. Entry points still degrade to `null`
 // when a platform-native binding cannot load so a damaged install reports the
-// existing bounded fallback instead of crashing the whole daemon.
+// existing bounded fallback instead of crashing the whole daemon. A loaded
+// sharp rejecting the bytes is different: corrupt images must never fall
+// through to raw provider pass-through.
 
 import { createHash } from 'node:crypto';
 
@@ -29,6 +31,16 @@ const imageResizeCache = new Map();
 let imageResizeCacheBytes = 0;
 let imageResizeCacheHits = 0;
 let imageResizeCacheMisses = 0;
+
+export class InvalidImageDataError extends Error {
+    constructor(cause = null) {
+        const detail = cause instanceof Error && cause.message ? `: ${cause.message}` : '';
+        super(`invalid or corrupt image data${detail}`);
+        this.name = 'InvalidImageDataError';
+        this.code = 'INVALID_IMAGE_DATA';
+        if (cause) this.cause = cause;
+    }
+}
 
 export function imageProfileForProvider(provider) {
     const value = String(provider || '').trim().toLowerCase();
@@ -155,8 +167,8 @@ export function imageMetadataText(dims, sourcePath) {
 //   4. still over budget -> 400x400 jpeg q20 hard fallback.
 //
 // Returns { data (base64), mimeType ("image/..."), dimensions } on success,
-// or null when sharp is unavailable OR any sharp op threw (caller falls back
-// to legacy pass-through-with-cap).
+// null only when sharp is unavailable, and throws InvalidImageDataError when
+// the decoder rejects the bytes.
 export async function resizeImageBuffer(buffer, ext, {
     maxTokens = DEFAULT_IMAGE_MAX_TOKENS,
     profile = 'anthropic',
@@ -176,6 +188,13 @@ export async function resizeImageBuffer(buffer, ext, {
     if (!sharp) return null;
     try {
         const meta = await sharp(buffer).metadata();
+        // metadata() only parses headers; libpng can still reject a corrupt
+        // IDAT stream later. Force one full pixel decode before any original
+        // bytes are allowed through unchanged.
+        await sharp(buffer, {
+            sequentialRead: true,
+            limitInputPixels: 64 * 1024 * 1024,
+        }).raw().toBuffer();
         const fmt = normalizeFmt(meta.format || ext);
         const originalWidth = meta.width;
         const originalHeight = meta.height;
@@ -258,10 +277,10 @@ export async function resizeImageBuffer(buffer, ext, {
         };
         rememberResizeResult(cacheKey, result);
         return result;
-    } catch {
-        // sharp present but processing failed (corrupt header, unsupported
-        // format, OOM). Signal fallback rather than throwing.
-        return null;
+    } catch (error) {
+        // A present decoder rejected the payload. Passing the original bytes
+        // through poisons the conversation and makes every later request 400.
+        throw new InvalidImageDataError(error);
     }
 }
 
@@ -270,7 +289,13 @@ export async function resizeImageBuffer(buffer, ext, {
 // the notebook reader to embed cell-output images.
 export async function imageBlocksFromBuffer(buffer, mimeType, { sourcePath, maxTokens } = {}) {
     const ext = (mimeType || '').split('/')[1] || 'png';
-    const resized = await resizeImageBuffer(buffer, ext, maxTokens ? { maxTokens } : {});
+    let resized;
+    try {
+        resized = await resizeImageBuffer(buffer, ext, maxTokens ? { maxTokens } : {});
+    } catch (error) {
+        if (error?.code === 'INVALID_IMAGE_DATA') return null;
+        throw error;
+    }
     if (!resized) return null;
     const metaText = imageMetadataText(resized.dimensions, sourcePath);
     return {
