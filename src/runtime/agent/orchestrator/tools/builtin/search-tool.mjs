@@ -999,6 +999,37 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         if (grepStat.isDirectory()) rgSpawnCwd = searchPath;
     }
 
+    // Cased-letter hint shared by EVERY no-match body (context modes
+    // included): a zero-match single-pattern search whose pattern carries
+    // cased letters may have failed only on case. ONE case-insensitive
+    // files_with_matches probe; non-empty output nudges toward `-i`.
+    // Skipped for pattern arrays and when `-i` is already set.
+    const caseHintSuffix = async () => {
+        const caseInsensitive = args['-i'] === true;
+        if (caseInsensitive || patterns.length !== 1 || !/[A-Za-z]/.test(patterns[0])) return '';
+        try {
+            const probeArgs = buildGrepRgArgs({
+                patterns,
+                searchPath,
+                globPatterns: normalizedGlobPatterns,
+                outputMode: 'files_with_matches',
+                caseInsensitive: true,
+                showLineNumbers: false,
+                beforeN: null,
+                afterN: null,
+                contextN: null,
+                multilineMode,
+                fileType,
+                onlyMatching: false,
+            });
+            const probeOut = await runRg(probeArgs, { cwd: rgSpawnCwd, signal: options.signal });
+            if (String(probeOut).split('\n').some(Boolean)) {
+                return ' (case-insensitive would match — try -i)';
+            }
+        } catch { /* best-effort hint */ }
+        return '';
+    };
+
     // Fan-out prefilter scoping: a parent multi-pattern grep already ran one
     // combined --files-with-matches walk and passed the COMPLETE candidate
     // list; every rg below searches only those files (no directory walk).
@@ -1108,6 +1139,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                         const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
                         const pathInfo = grepStat.isDirectory() ? 'path exists (dir)' : 'path exists (file)';
                         ctxBody = `(no matches) pattern=${patternStr} path=${searchPath}${globStr}; ${pathInfo}`;
+                        if (offset === 0 && ctx.total === 0) ctxBody += await caseHintSuffix();
                     }
                     const ctxOut = patternCapNote + ctxBody + ctxPartialSuffix;
                     if (options?.scopedCacheOutcome && (!ctxTotalKnown || ctx.omitted > 0 || !ctx.sourceComplete)) {
@@ -1165,6 +1197,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                 const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
                 const pathInfo = grepStat.isDirectory() ? 'path exists (dir)' : 'path exists (file)';
                 ctxBody = `(no matches) pattern=${patternStr} path=${searchPath}${globStr}; ${pathInfo}`;
+                if (offset === 0 && ctx.total === 0) ctxBody += await caseHintSuffix();
             }
             const ctxOut = patternCapNote + ctxBody + ctxPartialSuffix;
             if (options?.scopedCacheOutcome && (!ctxTotalKnown || ctx.omitted > 0)) {
@@ -1243,36 +1276,11 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             const patternStr = patterns.length === 1 ? JSON.stringify(patterns[0]) : JSON.stringify(patterns);
             const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
             body = `(no matches) pattern=${patternStr} path=${searchPath}${globStr}; ${pathInfo}`;
-            // Cased-letter hint: a no-match single-pattern search whose pattern
-            // carries cased letters may have failed only on case. Run ONE
-            // case-insensitive probe; if it would match, nudge toward `-i`.
-            // Skipped for arrays (single-pattern support is enough) and when
-            // `-i` is already set or the pattern has no cased letters. Also
-            // require a true zero-match search: an empty body with offset>0 (or
-            // pre-offset matches) just means the window skipped past real
-            // case-sensitive hits, so the hint would be misleading.
-            const trueZeroMatch = offset === 0 && totalWindowed === 0;
-            if (trueZeroMatch && !caseInsensitive && patterns.length === 1 && /[A-Za-z]/.test(patterns[0])) {
-                try {
-                    const probeArgs = buildGrepRgArgs({
-                        patterns,
-                        searchPath,
-                        globPatterns: normalizedGlobPatterns,
-                        outputMode: 'files_with_matches',
-                        caseInsensitive: true,
-                        showLineNumbers: false,
-                        beforeN: null,
-                        afterN: null,
-                        contextN: null,
-                        multilineMode,
-                        fileType,
-                        onlyMatching: false,
-                    });
-                    const probeOut = await runRg(probeArgs, { cwd: rgSpawnCwd, signal: options.signal });
-                    if (String(probeOut).split('\n').some(Boolean)) {
-                        body += ' (case-insensitive would match — try -i)';
-                    }
-                } catch { /* best-effort hint */ }
+            // True zero-match only: an empty body with offset>0 (or pre-offset
+            // matches) just means the window skipped past real case-sensitive
+            // hits, so the hint would be misleading.
+            if (offset === 0 && totalWindowed === 0) {
+                body += await caseHintSuffix();
             }
         }
         const out = patternCapNote + body + rgPartialSuffix;
