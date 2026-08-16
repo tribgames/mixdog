@@ -149,7 +149,8 @@ test('shell execution policy matches sync-first background-task parity', () => {
         'Hard total deadline in milliseconds; omit or use 0 to allow unlimited runtime after task promotion.',
     );
     assert.match(shellTool.description, /after 15s.*continues.*task_id.*notification/i);
-    assert.match(shellTool.description, /omit timeout_ms.*hard total deadline/i);
+    // The timeout contract is anchored on the timeout_ms argument description
+    // above — the tool description no longer duplicates it.
     const taskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
     assert.equal(taskTool.title, 'Task');
     assert.match(taskTool.description, /List shell tasks.*snapshot.*cancel.*notification/i);

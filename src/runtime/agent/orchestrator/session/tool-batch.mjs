@@ -660,6 +660,43 @@ export async function processToolBatch(ctx) {
                     ? Buffer.byteLength(completed.result, 'utf8')
                     : 0;
                 result = _offloadStates[completedIndex]?.result;
+                // Enumeration-stride hint (recovery-hint class, prompt-only):
+                // a session that walks sibling directories with one `list`
+                // per directory, or samples same-kind files with one `read`
+                // per file, gets ONE result-attached nudge toward the single
+                // wildcard round (glob / read-with-glob). Uniform across
+                // models and tasks; never blocks or rewrites the call.
+                if (typeof result === 'string' && _executeOk && sessionRef && _resultKind !== 'skipped') {
+                    try {
+                        const _hs = sessionRef._enumHintState ||= { listed: new Set(), reads: [], hintedList: false, hintedRead: false };
+                        const _cname = isBuiltinTool(call.name) ? canonicalizeBuiltinToolName(call.name) : call.name;
+                        if (_cname === 'list' && typeof call.arguments?.path === 'string') {
+                            const _full = resolvePath(cwd || '.', call.arguments.path).replace(/\\/g, '/').replace(/\/+$/, '');
+                            const _parent = _full.slice(0, _full.lastIndexOf('/')) || _full;
+                            if (!_hs.hintedList && _hs.listed.has(_parent)
+                                && [..._hs.listed].some((d) => d !== _full && d.startsWith(`${_parent}/`))) {
+                                _hs.hintedList = true;
+                                result += `\n[hint] sibling directories are one wildcard round: glob pattern "${_parent}/**" (or read "${_parent}/*/<name-glob>" for content) instead of one list per directory.`;
+                            }
+                            _hs.listed.add(_full);
+                            if (_hs.listed.size > 64) _hs.listed.delete(_hs.listed.values().next().value);
+                        } else if (_cname === 'read') {
+                            const _rp = String(call.arguments?.file_path || call.arguments?.path || '');
+                            if (_rp && !/[*?{[]/.test(_rp)) {
+                                const _fullR = resolvePath(cwd || '.', _rp).replace(/\\/g, '/');
+                                const _dir = _fullR.slice(0, _fullR.lastIndexOf('/'));
+                                const _ext = (/\.[A-Za-z0-9]{1,8}$/.exec(_fullR) || [''])[0];
+                                if (!_hs.hintedRead && _ext
+                                    && _hs.reads.filter((r) => r.dir === _dir && r.ext === _ext).length >= 2) {
+                                    _hs.hintedRead = true;
+                                    result += `\n[hint] same-kind files are one call: read "${_dir}/*${_ext}" fans out per file (cap 10, newest first) instead of one read per file.`;
+                                }
+                                _hs.reads.push({ dir: _dir, ext: _ext });
+                                if (_hs.reads.length > 64) _hs.reads.shift();
+                            }
+                        }
+                    } catch { /* hint is best-effort; never fail the result */ }
+                }
                 const _offloaded = isOffloadedToolResultText(result);
                 const _postOffloadBytes = typeof result === 'string'
                     ? Buffer.byteLength(result, 'utf8')
