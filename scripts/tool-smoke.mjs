@@ -2376,7 +2376,7 @@ if (/line\+context/i.test(readDescription) || !/Known-file contents or line rang
 }
 if (readProps.file_path?.type !== 'string'
   || readProps.file_path?.anyOf
-  || readProps.file_path?.description !== 'Known file path as plain text; not a JSON array or annotated path.'
+  || readProps.file_path?.description !== 'Known file path as plain text; not a JSON array or annotated path. A glob (e.g. "logs/*.log") fans out to per-file results (cap 10, newest first); literal-named files win over expansion.'
   || readProps.path
   || JSON.stringify(readSchema.required) !== JSON.stringify(['file_path'])) {
   throw new Error('read schema must expose only the canonical scalar file_path');
