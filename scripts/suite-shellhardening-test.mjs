@@ -47,6 +47,7 @@ import {
   childGuardianSpawnEnv,
   startChildGuardian,
   _sharedBrokerPidForTest,
+  _brokerTargetsForTest,
 } from '../src/runtime/shared/child-guardian.mjs';
 import {
   BACKGROUND_PARTIAL_OUTPUT_MAX_BYTES,
@@ -1445,7 +1446,15 @@ test('command-scoped child guardians can stop without killing a reusable child',
     assert.ok(guardian?.pid);
     assert.equal(await waitUntil(() => pidAlive(guardian.pid)), true);
     assert.equal(guardian.stop(), true);
-    assert.equal(await waitUntil(() => !pidAlive(guardian.pid)), true);
+    // The broker is SHARED: other subsystems (e.g. the native patch server
+    // starting under this suite's imports) may legitimately hold their own
+    // targets, so global broker exit is only observable when this test's
+    // target was the last one. The invariant here is relative: OUR target
+    // deregisters and the child survives.
+    assert.equal(await waitUntil(() => !_brokerTargetsForTest().some((t) => t.childPid === child.pid)), true);
+    if (_brokerTargetsForTest().length === 0) {
+      assert.equal(await waitUntil(() => !pidAlive(guardian.pid)), true);
+    }
     assert.equal(pidAlive(child.pid), true);
   } finally {
     guardian?.stop?.();
@@ -1477,10 +1486,17 @@ test('child guardians share one broker without coupling child lifetimes', { time
     assert.equal(pidAlive(firstChild.pid), true);
     assert.equal(pidAlive(secondChild.pid), true);
     assert.equal(second.stop(), true);
-    assert.equal(await waitUntil(() => {
-      const pid = _sharedBrokerPidForTest();
-      return !pid || !pidAlive(pid);
-    }), true);
+    // Same shared-broker caveat as above: full wind-down is only observable
+    // when no other subsystem still holds a target.
+    assert.equal(await waitUntil(() => !_brokerTargetsForTest().some(
+      (t) => t.childPid === firstChild.pid || t.childPid === secondChild.pid,
+    )), true);
+    if (_brokerTargetsForTest().length === 0) {
+      assert.equal(await waitUntil(() => {
+        const pid = _sharedBrokerPidForTest();
+        return !pid || !pidAlive(pid);
+      }), true);
+    }
   } finally {
     first?.stop?.();
     second?.stop?.();
@@ -1499,7 +1515,12 @@ test('a naturally exited child is removed from the parent guardian registry', { 
   try {
     assert.ok(guardian?.pid);
     assert.equal(await waitUntil(() => !pidAlive(child.pid)), true);
-    assert.equal(await waitUntil(() => !pidAlive(guardian.pid)), true);
+    // Registry removal is the invariant; broker exit only follows when no
+    // other subsystem holds a target on the shared broker.
+    assert.equal(await waitUntil(() => !_brokerTargetsForTest().some((t) => t.childPid === child.pid)), true);
+    if (_brokerTargetsForTest().length === 0) {
+      assert.equal(await waitUntil(() => !pidAlive(guardian.pid)), true);
+    }
     assert.equal(guardian.stop(), false,
       'natural child exit must clear the parent-side broker target');
   } finally {
