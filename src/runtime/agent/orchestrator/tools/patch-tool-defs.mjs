@@ -29,7 +29,7 @@ eof_line: "*** End of File" LF
 // Batching stays a rules-level policy: every new edit goes in one patch, with
 // one file block per target.
 const APPLY_PATCH_FREEFORM_DESCRIPTION =
-  'The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.';
+  'The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON. Use one file operation block per target path; put multiple @@ hunks for that path in the same Update File block. Use exact current lines already in context. Add File atomically creates the file and missing parent directories, but fails without changing anything if the target already exists; call it directly without a prior read, list, or mkdir.';
 
 // JSON-schema fallback providers get the Codex patch instructions inline:
 // without a grammar the model has
@@ -44,6 +44,7 @@ const APPLY_PATCH_JSON_DESCRIPTION = [
   '[one or more Add/Delete/Update File sections]',
   '*** End Patch',
   'Use exactly one file operation per target path: *** Add File: <path> (+ lines), *** Delete File: <path>, or *** Update File: <path> (optionally followed by *** Move to: <new path>).',
+  'Add File atomically creates the file and missing parent directories, but fails without changing anything if the target already exists; call it directly without a prior read, list, or mkdir.',
   'Update hunks start with @@ or @@ <class/function locator>. Every hunk line starts with space, -, or +. Use exact current lines, normally 3 unchanged lines around each change; use the @@ locator when more uniqueness is needed.',
   'Prefix every Add File content line with +. End with *** End Patch. Never send compacted-history markers.',
   'Use exact current lines already in context — never re-open the file to build context or verify a successful patch.',

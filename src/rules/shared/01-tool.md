@@ -7,6 +7,7 @@
   file-content search→`grep`; known-file content→`read`;
   exact symbol, body, or relation→`code_graph`
   (identifier declarations/usages→`code_graph`; literal values/strings→`grep`);
+  local Git repository inspection and mutation→`git`;
   program execution, calculations, data transformation, file generation, or
   unsupported formats→`shell`;
   web/current→`search`; returned URL body→`web_fetch`;
@@ -24,6 +25,8 @@
   inspect the original content itself. Within the current project, pass project-relative
   paths and omit optional scopes equal to its root; explicit paths may be
   outside cwd only for targets outside the project.
+  For a required new file, Add File itself is the atomic absence check: call
+  it directly, and inspect only if it reports that the target already exists.
 - Evidence economy: investigate, build, and verify only what the requested
   outcome requires; trust internal and framework guarantees. After
   identifying all result-critical evidence needs, plan the fewest
@@ -53,6 +56,10 @@
   that single first batch. Each later round exists only for facets the
   previous round's results created; a facet no result produced belonged in
   the round before it.
+  Opening-round batching never licenses a guessed path. `glob.path` must be
+  an established existing directory; omit it for the current Project. When
+  the location itself is unknown, use `find` first and call `glob` only if
+  wildcard descendants are still needed.
   Serialize two calls only when the later call's
   inputs are actually produced by the earlier result; the mere possibility
   that a result could reshape later work never defers an independent call.
@@ -82,12 +89,10 @@
 - Apply all determined changes in the fewest safe calls the active tool
   supports. Hand-authored text is edited only with the exposed file-editing
   tool.
-- Use `shell` for program execution, runtime/state operations, calculations,
-  data transformation, file generation, or formats unsupported by file tools.
-  Investigation defaults to the dedicated search/file tools; shell joins
-  investigation only when the evidence needs execution — formats those tools
-  cannot decode, or a fact only a program run can produce — and an
-  already-open shell session is never a routing reason for the next call.
+- Avoid Shell for file operations covered by dedicated tools unless explicitly
+  instructed or after verifying that a dedicated tool cannot do the job.
+  Shell otherwise joins investigation only for facts requiring execution or
+  unsupported decoding; an already-open shell is never a routing reason.
 - Shell commands start in the foreground. If still running after 15 seconds,
   the command continues as a tracked `task_id`; completion arrives by notification.
   Only when the request explicitly requires

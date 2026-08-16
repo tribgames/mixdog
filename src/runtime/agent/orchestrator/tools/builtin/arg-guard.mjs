@@ -536,9 +536,7 @@ function maybeCapUnboundedRead(a) {
     }
     if (pathStrs === null) return;
     if (a.full === true) return;
-    // symbol (and any similar body-selector) composes its own window inside the
-    // matched body — a read({path,symbol}) must never be window-truncated.
-    for (const k of ['offset', 'limit', 'line', 'context', 'n', 'mode', 'pages', 'symbol']) {
+    for (const k of ['offset', 'limit', 'line', 'context', 'n', 'mode', 'pages']) {
         if (isPresent(a, k)) return;
     }
     // Any #Lx / :line coordinate opts the whole call out: the injected limit

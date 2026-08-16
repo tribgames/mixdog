@@ -951,7 +951,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         return cached;
     }
 
-    return await runResultCacheInFlight(cacheKey, async () => {
+    return await runResultCacheInFlight(cacheKey, async ({ signal: sharedSignal }) => {
     let grepStat;
     try { grepStat = await statReachable(grepResolvedPath); }
     catch (err) {
@@ -1022,7 +1022,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                 fileType,
                 onlyMatching: false,
             });
-            const probeOut = await runRg(probeArgs, { cwd: rgSpawnCwd, signal: options.signal });
+            const probeOut = await runRg(probeArgs, { cwd: rgSpawnCwd, signal: sharedSignal });
             if (String(probeOut).split('\n').some(Boolean)) {
                 return ' (case-insensitive would match — try -i)';
             }
@@ -1100,7 +1100,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                 let ctxPartialSuffix = '';
                 const streamed = await runRgWindowedLines(
                     anchorArgs,
-                    { cwd: rgSpawnCwd, signal: options.signal },
+                    { cwd: rgSpawnCwd, signal: sharedSignal },
                     { offset: 0, limit: anchorCap, summaryLimit: 0 },
                 );
                 let ctxTotalKnown = streamed.complete;
@@ -1130,7 +1130,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                     patterns,
                     caseInsensitive,
                     charBudget: callContextCharBudget,
-                    signal: options.signal,
+                    signal: sharedSignal,
                 });
                 if (ctx.total > 0 || streamed.lines.length === 0) {
                     let ctxBody = ctx.text;
@@ -1145,7 +1145,8 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                     if (options?.scopedCacheOutcome && (!ctxTotalKnown || ctx.omitted > 0 || !ctx.sourceComplete)) {
                         markScopedCacheIncomplete(options.scopedCacheOutcome);
                     }
-                    if (ctxTotalKnown && ctx.omitted === 0 && ctx.sourceComplete) {
+                    if (ctxTotalKnown && ctx.omitted === 0 && ctx.sourceComplete
+                        && streamed.cacheSafe !== false) {
                         cacheSet(cacheKey, ctxOut, { scopes: [grepResolvedPath] });
                     }
                     if (typeof options?.onProgress === 'function') {
@@ -1168,7 +1169,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                 ? GREP_CONTEXT_LINE_HARD_CAP
                 : Math.min(GREP_CONTEXT_LINE_HARD_CAP, Math.max(200, blockBudget * Math.max(1, perBlock) + 8));
             let ctxPartialSuffix = '';
-            const streamed = await runRgWindowedLines(rgArgs, { cwd: rgSpawnCwd, signal: options.signal }, { offset: 0, limit: lineCap, summaryLimit: 0 });
+            const streamed = await runRgWindowedLines(rgArgs, { cwd: rgSpawnCwd, signal: sharedSignal }, { offset: 0, limit: lineCap, summaryLimit: 0 });
             const allLines = streamed.lines;
             let ctxTotalKnown = streamed.complete;
             if (streamed.partial) {
@@ -1203,7 +1204,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             if (options?.scopedCacheOutcome && (!ctxTotalKnown || ctx.omitted > 0)) {
                 markScopedCacheIncomplete(options.scopedCacheOutcome);
             }
-            if (ctxTotalKnown && ctx.omitted === 0) {
+            if (ctxTotalKnown && ctx.omitted === 0 && streamed.cacheSafe !== false) {
                 cacheSet(cacheKey, ctxOut, { scopes: [grepResolvedPath] });
             }
             if (typeof options?.onProgress === 'function') {
@@ -1214,10 +1215,11 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         let windowed;
         let totalWindowed = 0;
         let totalKnown = true;
+        let resultCacheSafe = true;
         let rgPartialSuffix = '';
         if (effectiveHeadLimit !== Infinity) {
             const summaryLimit = outputMode === 'content' ? 120 : 0;
-            const streamed = await runRgWindowedLines(rgArgs, { cwd: rgSpawnCwd, signal: options.signal }, {
+            const streamed = await runRgWindowedLines(rgArgs, { cwd: rgSpawnCwd, signal: sharedSignal }, {
                 offset,
                 limit: effectiveHeadLimit,
                 summaryLimit,
@@ -1225,6 +1227,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             windowed = streamed.lines;
             totalWindowed = streamed.totalSeen;
             totalKnown = streamed.complete;
+            resultCacheSafe = streamed.cacheSafe !== false;
             if (streamed.partial) {
                 totalKnown = false;
                 rgPartialSuffix = streamed.timeout
@@ -1234,7 +1237,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                     : '\n[warning] rg exit 2 (partial results)';
             }
         } else {
-            const stdout = await runRg(rgArgs, { cwd: rgSpawnCwd, signal: options.signal });
+            const stdout = await runRg(rgArgs, { cwd: rgSpawnCwd, signal: sharedSignal });
             const allLines = String(stdout).split('\n').filter(Boolean);
             windowed = offset > 0 ? allLines.slice(offset) : allLines;
             totalWindowed = windowed.length;
@@ -1242,6 +1245,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             // tripped (rg-runner). Mark the result incomplete so formatGrepOutput
             // emits the truncation notice instead of presenting it as complete.
             if (typeof stdout === 'object' && stdout.truncated) totalKnown = false;
+            if (typeof stdout === 'object' && stdout.cacheSafe === false) resultCacheSafe = false;
             if (typeof stdout === 'object' && stdout.partial) {
                 totalKnown = false;
                 rgPartialSuffix = stdout.timeout
@@ -1290,7 +1294,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         if (options?.scopedCacheOutcome && (!totalKnown || remaining > 0)) {
             markScopedCacheIncomplete(options.scopedCacheOutcome);
         }
-        if (totalKnown && remaining === 0) {
+        if (totalKnown && remaining === 0 && resultCacheSafe) {
             cacheSet(cacheKey, out, { scopes: [grepResolvedPath] });
         }
         // ② completion progress (claude "Found N" parity). Best-effort,
@@ -1311,6 +1315,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         return out;
     }
     catch (err) {
+        if (sharedSignal?.aborted) throw err;
         if (isRgRegexParseError(err) && !multilineMode) {
             const fixedPatterns = uniqueStrings(patterns.flatMap(regexPatternToFixedTerms));
             if (fixedPatterns.length > 0) {
@@ -1340,7 +1345,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                     let totalKnown = true;
                     let rgPartialSuffix = '';
                     if (effectiveHeadLimit !== Infinity) {
-                        const streamed = await runRgWindowedLines(fallbackArgs, { cwd: rgSpawnCwd, signal: options.signal }, {
+                        const streamed = await runRgWindowedLines(fallbackArgs, { cwd: rgSpawnCwd, signal: sharedSignal }, {
                             offset,
                             limit: effectiveHeadLimit,
                             summaryLimit: outputMode === 'content' ? 120 : 0,
@@ -1357,7 +1362,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                                 : '\n[warning] rg exit 2 (partial fixed-string fallback results)';
                         }
                     } else {
-                        const stdout = await runRg(fallbackArgs, { cwd: rgSpawnCwd, signal: options.signal });
+                        const stdout = await runRg(fallbackArgs, { cwd: rgSpawnCwd, signal: sharedSignal });
                         const allLines = String(stdout).split('\n').filter(Boolean);
                         windowed = offset > 0 ? allLines.slice(offset) : allLines;
                         totalWindowed = windowed.length;
@@ -1402,6 +1407,9 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         const msg = stderr || err?.message || String(err);
         return `Error: ${msg.slice(0, 500)}`;
     }
+    }, {
+        signal: options?.signal || options?.abortSignal || null,
+        scopes: [grepResolvedPath],
     });
 }
 
@@ -1603,7 +1611,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
         return cached;
     }
 
-    return await runResultCacheInFlight(cacheKey, async () => {
+    return await runResultCacheInFlight(cacheKey, async ({ signal: sharedSignal }) => {
     const globGroups = [...groups.entries()];
 
     const allFiles = [];
@@ -1612,6 +1620,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
     let rgStdoutTruncated = false;
     let rgStdoutPartial = false;
     let rgWindowIncomplete = false;
+    let rgCacheUnsafe = false;
     const accumCap = 50000;
     const canWindowNatural = sortMode === 'natural' && headLimit !== Infinity;
     const groupRuns = await Promise.all(globGroups.map(async ([root, rels]) => {
@@ -1655,7 +1664,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
             if (canWindowNatural) {
                 const served = await runRgWindowedLines(
                     rgArgs,
-                    { cwd: rgCwd, signal: options.signal },
+                    { cwd: rgCwd, signal: sharedSignal },
                     { offset: 0, limit: offset + headLimit + 1 },
                 );
                 return {
@@ -1665,19 +1674,22 @@ export async function executeGlobTool(args, workDir, options = {}) {
                     stdoutTruncated: false,
                     stdoutPartial: served.partial === true,
                     windowIncomplete: served.complete !== true,
+                    cacheSafe: served.cacheSafe !== false,
                 };
             }
-            const stdout = await runRg(rgArgs, { cwd: rgCwd, signal: options.signal });
+            const stdout = await runRg(rgArgs, { cwd: rgCwd, signal: sharedSignal });
             const stdoutTruncated = Boolean(stdout && typeof stdout === 'object' && stdout.truncated);
             const stdoutPartial = Boolean(stdout && typeof stdout === 'object' && stdout.partial);
+            const cacheSafe = !(stdout && typeof stdout === 'object' && stdout.cacheSafe === false);
             const paths = [];
             for (const line of String(stdout).split('\n')) {
                 const trimmed = line.trim();
                 if (!trimmed) continue;
                 paths.push(isAbsolute(trimmed) ? trimmed : resolveAgainstCwd(trimmed, rgCwd));
             }
-            return { error: null, paths, stdoutTruncated, stdoutPartial };
+            return { error: null, paths, stdoutTruncated, stdoutPartial, cacheSafe };
         } catch (err) {
+            if (sharedSignal?.aborted) throw err;
             const stderr = String(err?.stderr || err?.message || err).trim().split('\n').slice(0, 3).join('; ');
             return {
                 error: `rg failed for ${normalizeOutputPath(root)}: ${stderr || 'unknown error'}`,
@@ -1697,6 +1709,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
         if (run.stdoutTruncated) rgStdoutTruncated = true;
         if (run.stdoutPartial) rgStdoutPartial = true;
         if (run.windowIncomplete) rgWindowIncomplete = true;
+        if (run.cacheSafe === false) rgCacheUnsafe = true;
         for (const p of run.paths) {
             allFiles.push(p);
             if (allFiles.length >= accumCap) {
@@ -1765,7 +1778,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
         markScopedCacheIncomplete(options.scopedCacheOutcome);
     }
     const globIncomplete = accumTruncated || rgStdoutTruncated || rgStdoutPartial || rgWindowIncomplete || remaining > 0;
-    if (!globIncomplete) {
+    if (!globIncomplete && !rgCacheUnsafe) {
         cacheSet(cacheKey, out, { scopes: [...groups.keys()].map((root) => resolvedForSearchRoot(root)) });
     }
     // ② completion progress (claude "Found N" parity). Best-effort, no-op
@@ -1774,5 +1787,8 @@ export async function executeGlobTool(args, workDir, options = {}) {
         try { options.onProgress(`found ${totalBeforeOffset} files`); } catch { /* best-effort */ }
     }
     return out;
+    }, {
+        signal: options?.signal || options?.abortSignal || null,
+        scopes: [...groups.keys()].map((root) => resolvedForSearchRoot(root)),
     });
 }

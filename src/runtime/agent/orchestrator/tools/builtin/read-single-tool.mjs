@@ -16,12 +16,6 @@ function snapshotBodyWasReturnedByRead(snapshot) {
     return String(snapshot?.source || '').startsWith('read');
 }
 
-function withSymbolReadNote(text, args) {
-    const note = typeof args?._symbolReadNote === 'string' ? args._symbolReadNote.trim() : '';
-    if (!note || typeof text !== 'string') return text;
-    return `${note}\n\n${text}`;
-}
-
 // BOM-only read-encoding detection. Mirrors CC fileRead.ts:34
 // (buffer[0]===0xff && buffer[1]===0xfe -> 'utf16le') / file.ts
 // detectFileEncoding. STRICTLY a leading-BOM rule — no content sniffing
@@ -408,10 +402,10 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             const _cachedVal = cachedEntry.value;
             if (typeof _cachedVal === 'string' && classifyResultKind(_cachedVal) !== 'error') {
                 if (_stubBodyAlreadySent && options?.suppressReadUnchangedStub !== true) {
-                    return withSymbolReadNote(`[file unchanged: ${normalizeOutputPath(filePath)}]`, args);
+                    return `[file unchanged: ${normalizeOutputPath(filePath)}]`;
                 }
             }
-            return withSymbolReadNote(_cachedVal, args);
+            return _cachedVal;
         }
         // Race detected — fall through to fresh read below.
     }
@@ -430,7 +424,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             try { _diskHash = _hashText(await readFile(fullPath, 'utf-8')); } catch {}
             if (_diskHash && _diskHash === _snap.contentHash) {
                 if (options?.suppressReadUnchangedStub !== true) {
-                    return withSymbolReadNote(`[file unchanged: ${normalizeOutputPath(filePath)}]`, args);
+                    return `[file unchanged: ${normalizeOutputPath(filePath)}]`;
                 }
             }
         }
@@ -503,7 +497,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             );
             _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
             _cacheSet(cacheKey, text, { paths: [fullPath], readSnapshotMeta: snapshotMeta });
-            return withSymbolReadNote(text, args);
+            return text;
         }
         try {
             const _streamRes = await streamReadRange(fullPath, offset, limit, st, {
@@ -545,7 +539,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             })();
             _cacheSet(cacheKey, out, { paths: [fullPath], readSnapshotMeta: snapshotMeta, contentPrefixHash: _streamPrefixHash });
             _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
-            return withSymbolReadNote(out, args);
+            return out;
         } catch (err) {
             return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
         }
@@ -569,7 +563,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             );
             _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
             _cacheSet(cacheKey, text, { paths: [fullPath], readSnapshotMeta: snapshotMeta });
-            return withSymbolReadNote(text, args);
+            return text;
         }
     }
     // Whole-file reads above READ_WHOLE_FILE_MAX_BYTES use stream smart-elide
@@ -603,7 +597,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
                 })();
                 _cacheSet(cacheKey, out, { paths: [fullPath], readSnapshotMeta: snapshotMeta, contentPrefixHash: _streamPrefixHash });
                 _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
-                return withSymbolReadNote(out, args);
+                return out;
             }
         } catch {
             // Fall through to the regular read path; it still enforces output caps.
@@ -638,7 +632,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             })();
             _cacheSet(cacheKey, out, { paths: [fullPath], readSnapshotMeta: snapshotMeta, contentPrefixHash: _streamPrefixHash });
             _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
-            return withSymbolReadNote(out, args);
+            return out;
         } catch (err) {
             return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
         }
@@ -813,7 +807,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
         _cacheSet(cacheKey, out, { paths: [fullPath], readSnapshotMeta: snapshotMeta, contentPrefixHash: _regPrefixHash });
         if (_readStableForRawCache) _rawContentCacheSet(fullPath, st, rawBuf);
         _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
-        return withSymbolReadNote(out, args);
+        return out;
     }
     catch (err) {
         return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;

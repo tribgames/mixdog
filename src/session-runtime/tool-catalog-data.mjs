@@ -2,7 +2,7 @@
 // locator → path → content → symbol → read → edit → execute.
 export const ROUTE_TOOL_ORDER = Object.freeze([
   'find', 'glob', 'list', 'grep', 'code_graph', 'read',
-  'edit', 'apply_patch', 'shell', 'task',
+  'edit', 'apply_patch', 'git', 'shell', 'task',
 ]);
 
 // Measured call counts (3-day trace window); orders the unrouted tail and
@@ -16,6 +16,7 @@ export const MEASURED_TOOL_USAGE = Object.freeze({
   list: 430,
   edit: 400,
   apply_patch: 400,
+  git: 0,
   agent: 330,
   shell: 81,
   cwd: 2,
@@ -37,7 +38,7 @@ export const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
   // cwd / web_fetch demoted to the deferred manifest 2026-08:
   // 0 / 10 calls in a 3-day 7.6k-call trace window; they auto-load on
   // first direct call.
-  'edit', 'apply_patch', 'shell', 'task', 'agent', 'recall', 'search',
+  'edit', 'apply_patch', 'git', 'shell', 'task', 'agent', 'recall', 'search',
   'Skill', 'load_tool',
 ]);
 
@@ -55,4 +56,5 @@ export const DEFERRED_SELECT_ALIASES = {
   graph: ['code_graph'],
   code: ['code_graph'],
   shell: ['shell', 'task'],
+  git: ['git'],
 };

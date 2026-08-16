@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
+import { classifyToolFailure } from '../src/runtime/agent/orchestrator/agent-trace-format.mjs';
 
 function argValue(name, fallback = null) {
   const idx = process.argv.indexOf(name);
@@ -87,9 +88,40 @@ function rowCategory(row) {
   return row.category || row.result_kind || row.resultKind || '(uncategorized)';
 }
 
+function rowErrorText(row) {
+  return row.error_preview || row.result || row.error || row.message || row.error_first_line || '';
+}
+
+function isKnownTestFixture(row) {
+  if (row.session_id !== 'no-session' || row.agent != null || row.model != null) return false;
+  const tool = rowTool(row);
+  if (tool === 'unknown_test_tool') return true;
+  return tool === 'apply_patch' && /^Error:\s*patch failed\s*$/i.test(String(rowErrorText(row)).trim());
+}
+
+function normalizeRowCategory(row) {
+  const storedCategory = rowCategory(row);
+  let category = storedCategory;
+  if (isKnownTestFixture(row)) {
+    category = 'expected-test';
+  } else if (rowTool(row) === 'apply_patch') {
+    const derived = classifyToolFailure(rowErrorText(row), 'apply_patch');
+    // Failure previews are bounded and may end before the nested cause. Never
+    // downgrade a stored specific category to the generic fallback merely
+    // because the historical preview lacks that tail.
+    if (derived !== 'runtime/failure' || storedCategory === 'runtime/failure') {
+      category = derived;
+    }
+  }
+  return category === storedCategory
+    ? row
+    : { ...row, stored_category: storedCategory, category };
+}
+
 const sinceTs = parseSince(sinceArg);
 const onlyArg = String(argValue('--only', 'all') || 'all').toLowerCase();
 const rows = files.flatMap(readRows)
+  .map(normalizeRowCategory)
   .filter((row) => sinceTs == null || Number(row.ts || 0) >= sinceTs)
   .filter((row) => !toolFilter || rowTool(row) === toolFilter)
   .filter((row) => !agentFilter || String(row.agent || '-') === agentFilter)
@@ -150,6 +182,8 @@ const actionableByFamily = tally(actionableRows, categoryFamily);
 const commandExitByTool = tally(commandExitRows, rowTool);
 const expectedByCategory = tally(expectedRows, rowCategory);
 const patchByCategory = tally(patchRows, rowCategory);
+const reclassifiedRows = rows.filter((row) => row.stored_category && row.stored_category !== rowCategory(row));
+const reclassifiedByCategory = tally(reclassifiedRows, (row) => `${row.stored_category} -> ${rowCategory(row)}`);
 
 if (jsonMode) {
   console.log(JSON.stringify({
@@ -160,6 +194,7 @@ if (jsonMode) {
     expected_absorbed: { shown: expectedRecent.length, matched: expectedRows.length },
     session_cancellations: { shown: 0, matched: cancellationRows.length },
     patch_failures: { matched: patchRows.length, categories: asObject(patchByCategory) },
+    reclassified: { matched: reclassifiedRows.length, categories: asObject(reclassifiedByCategory) },
     since: sinceTs ? new Date(sinceTs).toISOString() : null,
     filters: {
       tool: toolFilter,
@@ -200,6 +235,7 @@ console.log(`actionable families (matched): ${asText(actionableByFamily)}`);
 console.log(`patch failures (matched): ${patchRows.length} — ${asText(patchByCategory)}`);
 console.log(`command-exit tools (matched): ${asText(commandExitByTool)}`);
 console.log(`expected/absorbed categories (matched): ${asText(expectedByCategory)}`);
+console.log(`reclassified rows (matched): ${reclassifiedRows.length} — ${asText(reclassifiedByCategory)}`);
 console.log(`shown categories: ${asText(byCategory)}`);
 for (const row of recent) {
   const tool = rowTool(row);

@@ -4,15 +4,16 @@
 // readOnlyHint, destructiveHint, etc.). Descriptions carry the tool CONTRACT
 // only (behavior + argument shapes); usage policy lives in rules/shared/01-tool.md.
 // Platform-specific command syntax belongs next to the command argument.
+import { GIT_TOOL_DEF } from './git-command-tool.mjs';
 const _shellSyntaxCheat =
     process.platform === 'win32'
         ? ' PowerShell: use ; between independent commands; use if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent commands; single-quote inline scripts, avoid nested double quotes; /c/→C:\\; $PID is reserved.'
         : ' Bash: use && between dependent commands.';
-// Named replacements stay platform-honest: PowerShell aliases exist only on
-// win32; the POSIX surface must not carry them (CI-anchored).
-const _shellToolBans = process.platform === 'win32'
-    ? 'cat/Get-Content/head/tail (read covers them), ls/dir (list), find (find/glob), grep/rg/Select-String (grep), or sed/awk (edit); never create files via heredoc or echo/Set-Content redirection'
-    : 'cat/head/tail (read covers them), ls (list), find (find/glob), grep/rg (grep), or sed/awk (edit); never create files via heredoc or echo redirection';
+// Keep the routing map short and adjacent to the shell's primary description.
+// PowerShell aliases appear only on win32.
+const _shellToolRouting = process.platform === 'win32'
+    ? 'Use read, NOT cat/Get-Content/head/tail; list, NOT ls/dir; find/glob, NOT find; grep, NOT grep/rg/Select-String; edit/apply_patch, NOT sed/awk/heredocs/echo/Set-Content.'
+    : 'Use read, NOT cat/head/tail; list, NOT ls; find/glob, NOT find; grep, NOT grep/rg; edit/apply_patch, NOT sed/awk/heredocs/echo.';
 
 export const BUILTIN_TOOLS = [
     {
@@ -76,11 +77,11 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: 'Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. Commands start in the foreground; after 15s, a still-running command continues as a tracked task_id and completes by notification.',
+        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. Avoid file operations covered by dedicated tools unless explicitly instructed or after verifying that a dedicated tool cannot do the job. ${_shellToolRouting} Commands start in the foreground; after 15s, a still-running command continues as a tracked task_id and completes by notification.`,
         inputSchema: {
             type: 'object',
             properties: {
-                command: { type: 'string', description: `Command. Unless a dedicated tool verifiably cannot do the job, never run ${_shellToolBans} — the file-editing tool creates files (empty old_string, or an Add File patch); never echo/printf text meant for the user — answer directly.${_shellSyntaxCheat}` },
+                command: { type: 'string', description: `Command.${_shellSyntaxCheat}` },
                 timeout_ms: {
                     type: 'integer',
                     minimum: 0,
@@ -91,6 +92,7 @@ export const BUILTIN_TOOLS = [
             additionalProperties: false,
         },
     },
+    GIT_TOOL_DEF,
     {
         name: 'task',
         title: 'Task',
@@ -139,7 +141,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Glob',
         annotations: { title: 'Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Return wildcard-matching paths under a known base when those paths are needed. Newest first by default. Replaces find -name.',
+        description: 'Return wildcard-matching paths under a known base directory when those paths are needed. Omit path for the current Project; if the base location is unknown, use find first. Newest first by default. Replaces find -name.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -149,7 +151,7 @@ export const BUILTIN_TOOLS = [
                 },
                 path: {
                     type: 'string',
-                    description: 'Base dir.',
+                    description: 'Known existing base directory; omit for the current Project; unknown location → find.',
                 },
                 sort: { type: 'string', enum: ['natural', 'mtime'], description: 'mtime default (newest first); natural = raw walk order, cheaper on huge trees.' },
                 limit: { type: 'integer', minimum: 0, description: 'Max entries; default 100; 0 unlimited.' },

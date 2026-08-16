@@ -92,6 +92,7 @@ import {
 import { runPreSendCompactPass } from './pre-send-compact.mjs';
 import { createEagerDispatcher } from './eager-dispatch.mjs';
 import { sendWithRecovery } from './send-with-recovery.mjs';
+import { stripInlineImages } from './image-strip-recovery.mjs';
 import { processToolBatch } from './tool-batch.mjs';
 import { snapshotProviderRequestTools } from '../../../../session-runtime/tool-catalog.mjs';
 import {
@@ -411,6 +412,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // a long turn leave every later iteration with zero replays.
     let _transportRetriesUsed = 0;
     let _imageStripUsed = false;
+    let _imageStripActive = false;
+    let _pendingImageStripPersistMessages = null;
     let _sendMessages = null;
     // Queued prompt/task notifications are attached after a
     // tool batch, before the continuation provider send. Normal batches drain
@@ -640,6 +643,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         const toolResumeMs = _lastToolBatchEndedAt
             ? sendStartedAt - _lastToolBatchEndedAt
             : null;
+        if (_imageStripActive && !_sendMessages) {
+            _sendMessages = stripInlineImages(messages).messages;
+        }
         const _providerMessageSource = _sendMessages || messages;
         const _evidenceUnionDisabled = /^(?:1|true|yes|on)$/i.test(
             String(process.env.MIXDOG_DISABLE_EVIDENCE_UNION || '').trim(),
@@ -703,13 +709,21 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         if (_sendResult.action === 'retry_image_strip') {
             _transportRetriesUsed += 1;
             _imageStripUsed = true;
+            _imageStripActive = true;
+            _pendingImageStripPersistMessages = Array.isArray(_sendResult.persistMessages)
+                ? _sendResult.persistMessages
+                : null;
             if (Array.isArray(_sendResult.messages)) {
-                messages.splice(0, messages.length, ..._sendResult.messages);
-                _sendMessages = null;
+                _sendMessages = _sendResult.messages;
             }
             continue;
         }
         response = _sendResult.response;
+        if (_imageStripActive && Array.isArray(_pendingImageStripPersistMessages)) {
+            messages.splice(0, messages.length, ..._pendingImageStripPersistMessages);
+            _imageStripActive = false;
+            _pendingImageStripPersistMessages = null;
+        }
         opts.onToolCall = undefined;
         delete opts.cacheBreakIntent;
         contextOverflowRetryUsed = false;

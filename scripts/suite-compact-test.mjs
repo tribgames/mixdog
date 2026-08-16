@@ -1,9 +1,12 @@
 // Consolidated suite; sources: compact-file-reattach-test.mjs, compact-prior-context-flatten-test.mjs, compact-recall-digest-test.mjs
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { parse } from 'acorn';
+import { analyze } from 'eslint-scope';
 import { recallFastTrackCompactMessages, semanticCompactMessages } from '../src/runtime/agent/orchestrator/session/compact.mjs';
+import { runSessionCompaction } from '../src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs';
 import {
   buildPostCompactFileAttachment,
   MAX_REATTACH_FILES,
@@ -32,6 +35,89 @@ import {
   fitRecallHandoffText,
 } from '../src/runtime/agent/orchestrator/session/compact/handoff.mjs';
 import { createQueryHandlers } from '../src/runtime/memory/lib/query-handlers.mjs';
+
+test('compaction runner has no unresolved non-global identifiers', () => {
+  const source = readFileSync(
+    new URL('../src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs', import.meta.url),
+    'utf8',
+  );
+  const ast = parse(source, {
+    ecmaVersion: 'latest',
+    sourceType: 'module',
+    ranges: true,
+  });
+  const scopeManager = analyze(ast, { ecmaVersion: 2022, sourceType: 'module' });
+  const unresolved = [...new Set(
+    scopeManager.globalScope.through
+      .map((reference) => reference.identifier.name)
+      .filter((name) => !(name in globalThis)),
+  )].sort();
+  assert.deepEqual(unresolved, []);
+});
+
+test('manual manager recall-fasttrack succeeds locally after Memory browse', async () => {
+  const sessionId = 'compact-manager-recall-success';
+  const session = {
+    id: sessionId,
+    provider: 'compact-manager-recall-test',
+    model: 'fake-model',
+    contextWindow: 20_000,
+    compactBoundaryTokens: 20_000,
+    messages: [
+      { role: 'system', content: 'system rules stay mandatory' },
+      { role: 'user', content: 'older request that Memory already stored' },
+      { role: 'assistant', content: 'older answer with implementation context' },
+      { role: 'user', content: 'current request stays verbatim' },
+    ],
+    tools: [],
+    compaction: {
+      type: 'recall-fasttrack',
+      compactType: 'recall-fasttrack',
+      tailTurns: 1,
+    },
+  };
+  let memoryCalls = 0;
+  let providerCalls = 0;
+  const result = await runSessionCompaction(session, {
+    mode: 'manual',
+    force: true,
+    sessionId,
+    provider: {
+      name: 'compact-manager-recall-test',
+      async send() {
+        providerCalls += 1;
+        throw new Error('semantic fallback must not run');
+      },
+    },
+    executeInternalToolFn: async (toolName, args, callerCtx) => {
+      memoryCalls += 1;
+      assert.equal(toolName, 'memory');
+      assert.equal(args.action, 'search');
+      assert.equal(args.compactHandoff, true);
+      assert.equal(args.sessionId, sessionId);
+      assert.equal(callerCtx.callerSessionId, sessionId);
+      return {
+        text: [
+          '[2026-08-16 10:00] u: older request that Memory already stored',
+          '[2026-08-16 10:01] a: older answer with implementation context',
+        ].join('\n'),
+      };
+    },
+  });
+  const summary = session.messages.find((message) => (
+    message?.role === 'user'
+    && typeof message.content === 'string'
+    && message.content.startsWith('A previous model worked on this task')
+  ));
+  assert.equal(memoryCalls, 1);
+  assert.equal(providerCalls, 0);
+  assert.equal(result.error, undefined);
+  assert.equal(result.recallFastTrack, true);
+  assert.equal(result.semanticCompact, false);
+  assert.ok(summary);
+  assert.ok(summary.content.includes(`[context compacted — session ${sessionId}]`));
+  assert.ok(session.messages.some((message) => message.content === 'current request stays verbatim'));
+});
 
 // ==== from compact-file-reattach-test.mjs ====
 const dir = mkdtempSync(join(tmpdir(), 'reattach-'));

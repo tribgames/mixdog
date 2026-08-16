@@ -638,6 +638,40 @@
           "fast": true
         }
       }
+    },
+    "grokbuild": {
+      "routes": {
+        "lead": {
+          "provider": "grok-oauth",
+          "model": "grok-build",
+          "effort": "high",
+          "fast": false
+        },
+        "worker": {
+          "provider": "grok-oauth",
+          "model": "grok-build",
+          "effort": "high",
+          "fast": false
+        },
+        "heavy-worker": {
+          "provider": "grok-oauth",
+          "model": "grok-build",
+          "effort": "high",
+          "fast": false
+        },
+        "reviewer": {
+          "provider": "grok-oauth",
+          "model": "grok-build",
+          "effort": "high",
+          "fast": false
+        },
+        "debugger": {
+          "provider": "grok-oauth",
+          "model": "grok-build",
+          "effort": "high",
+          "fast": false
+        }
+      }
     }
   }
 }

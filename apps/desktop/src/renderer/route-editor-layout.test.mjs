@@ -37,3 +37,20 @@ test('route flyout stacks above the sheet when both sides are too narrow', () =>
   assert.equal(box.top, 14);
   assert.equal(box.height, 380);
 });
+
+test('route panels stay inside an offset pane instead of using the whole window', () => {
+  const viewport = { left: 600, top: 200, width: 520, height: 560 };
+  const sheet = routeSheetBox(
+    { left: 900, right: 1040, top: 680, bottom: 712 },
+    116,
+    viewport,
+  );
+  const flyout = routeFlyoutBox(sheet, 0, 380, viewport, 296);
+
+  assert.ok(sheet.left >= 608);
+  assert.ok(sheet.left + sheet.width <= 1112);
+  assert.ok(flyout.left >= 608);
+  assert.ok(flyout.left + flyout.width <= 1112);
+  assert.ok(flyout.top >= 208);
+  assert.ok(flyout.top + flyout.height <= 752);
+});

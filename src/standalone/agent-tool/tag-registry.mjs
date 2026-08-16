@@ -6,6 +6,7 @@
 import { agentTagOf, clean, clearAgentStatuslineRoute, positiveInt, rowMatchesContext, sessionMatchesContext } from './helpers.mjs';
 import { TAG_TOMBSTONE_TTL_MS, isLeadPoolAgent, isTerminalWorkerStatus, tagTombstoneKey, workerRowTime, workerRowToSession } from './worker-rows.mjs';
 import { resolveAgentTerminalReapMs } from '../../session-runtime/config-helpers.mjs';
+import { createLeadWorkerIndex } from './lead-worker-index.mjs';
 import { createWorkerIndex } from './worker-index.mjs';
 export function createTagRegistry({
   dataDir,
@@ -26,12 +27,17 @@ export function createTagRegistry({
     readWorkerRows,
     writeWorkerRows,
     flushWorkerIndexMutations,
+    workerRowFromSession,
     upsertWorkerSession,
     upsertWorkerSessionDeferred,
-    upsertLeadSession,
     removeWorkerRow,
     refreshTagsFromIndex,
   } = createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCwds });
+  const { upsertLeadSession } = createLeadWorkerIndex({
+    dataDir,
+    cfgMod,
+    workerRowFromSession,
+  });
 
   function wantsSessionScan(args = {}) {
     return args.recover === true || args.scanSessions === true || args.scan_sessions === true;

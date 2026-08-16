@@ -14,7 +14,6 @@ import {
   applyWorkerRowUpsert,
   isDeadWorkerStatus,
   isLeadPoolAgent,
-  leadPoolTag,
   normalizeTagTombstones,
   tagTombstoneKey,
   workerRowKey,
@@ -79,7 +78,8 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
         messages: positiveInt(row.messages) || 0,
         tools: positiveInt(row.tools) || 0,
       }))
-      .filter(keepWorkerRow);
+      .filter((row) => !isLeadPoolAgent(row.agent))
+      .filter((row) => !isLeadPoolAgent(row.agent) && keepWorkerRow(row));
   }
 
   function invalidateCache() {
@@ -256,15 +256,6 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     return upsertWorkerRow(workerRowFromSession(session, fallbackTag, extra), { defer: true });
   }
 
-  function upsertLeadSession(session, extra = {}) {
-    if (!session?.id) return false;
-    return upsertWorkerRow(workerRowFromSession(session, leadPoolTag(session.id), {
-      agent: 'lead',
-      ownerSessionId: session.id,
-      ...extra,
-    }), { defer: true });
-  }
-
   function removeWorkerRow({ tag = '', sessionId = '' } = {}) {
     const targetTag = clean(tag);
     const targetSessionId = clean(sessionId);
@@ -314,7 +305,6 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     upsertWorkerRow,
     upsertWorkerSession,
     upsertWorkerSessionDeferred,
-    upsertLeadSession,
     removeWorkerRow,
     refreshTagsFromIndex,
   };

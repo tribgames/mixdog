@@ -10,8 +10,10 @@ import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import {
   DEFAULT_SHELL_AUTO_BACKGROUND_MS,
+  _placeDestructiveWarningsAfterStatus,
   _exitClassDiagnostic,
   _isBenignSearchExitOne,
+  executeBashTool,
 } from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
 import { preflightPowerShellHygiene } from '../src/runtime/agent/orchestrator/tools/builtin/shell-analysis.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
@@ -29,7 +31,8 @@ import {
 } from '../src/runtime/agent/orchestrator/agent-trace-format.mjs';
 import { ExecResult, execShellCommand } from '../src/runtime/agent/orchestrator/tools/shell-command.mjs';
 import { _composeShellFailure, _shellFailureStatus } from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
-import { isShellFailureResult } from '../src/runtime/agent/orchestrator/session/result-classification.mjs';
+import { classifyResultKind, isShellFailureResult } from '../src/runtime/agent/orchestrator/session/result-classification.mjs';
+import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
 import { shellCommandExitCode } from '../src/tui/session/tool-result-status.mjs';
 import { stripShellExitHeader } from '../src/tui/session/tool-result-text.mjs';
 import { spawn } from 'node:child_process';
@@ -539,6 +542,10 @@ test('C: shell surface keeps execution contract separate from the platform comma
     const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
     assert.ok(shellTool, 'shell tool must exist');
     assert.match(shellTool.description, /^Run programs, runtime\/state operations,/);
+    assert.match(shellTool.description, /unless explicitly instructed or after verifying that a dedicated tool cannot do the job/);
+    assert.match(shellTool.description, /Use read, NOT cat/);
+    assert.match(shellTool.description, /list, NOT ls/);
+    assert.match(shellTool.description, /grep, NOT grep\/rg/);
     assert.doesNotMatch(shellTool.description, /Shell startup environment:|available=|unavailable=/);
     assert.equal(shellTool.inputSchema?.properties?.shell, undefined);
     assert.equal(shellTool.inputSchema?.properties?.cwd, undefined);
@@ -547,11 +554,14 @@ test('C: shell surface keeps execution contract separate from the platform comma
     assert.deepEqual(shellTool.inputSchema?.required, ['command']);
     const commandDescription = shellTool.inputSchema?.properties?.command?.description || '';
     assert.doesNotMatch(commandDescription, /PATH (?:available|unavailable)|Startup environment:/);
+    assert.doesNotMatch(commandDescription, /Use read|Get-Content|cat\/head/);
     if (process.platform !== 'win32') {
-        assert.equal(/Select-String/.test(commandDescription), false,
-            'non-win32 must NOT carry the PS cheat');
+        assert.equal(/Select-String/.test(shellTool.description), false,
+            'non-win32 must NOT carry PowerShell routing aliases');
         return;
     }
+    assert.match(shellTool.description, /Get-Content/);
+    assert.match(shellTool.description, /Select-String/);
     assert.match(commandDescription, /PowerShell:/);
     assert.match(commandDescription, /\$PID is reserved/);
 });
@@ -727,7 +737,41 @@ test('shell outcome is read from status markers, never a leading Error: line', (
   assert.equal(isShellFailureResult('ok\n'), false);
 });
 
+test('foreground shell completion always leads with exit status and preserves explicit success', async () => {
+  const zero = normalizeToolEnvelope(await executeBashTool(
+    { command: `node -e 'process.stderr.write("warning: diagnostic\\\\n")'`, timeout_ms: 10_000 },
+    process.cwd(),
+  ));
+  assert.equal(zero.explicitSuccess, true);
+  assert.match(zero.result, /^\[exit code: 0\]\n\nwarning: diagnostic/);
+  assert.equal(classifyResultKind(zero.result, zero.explicitSuccess), 'normal');
+
+  const errorText = normalizeToolEnvelope(await executeBashTool(
+    { command: `node -e 'process.stdout.write("Error: diagnostic")'`, timeout_ms: 10_000 },
+    process.cwd(),
+  ));
+  assert.equal(errorText.explicitSuccess, true);
+  assert.match(errorText.result, /^\[exit code: 0\]\n\nError: diagnostic/);
+  assert.equal(classifyResultKind(errorText.result, errorText.explicitSuccess), 'normal');
+
+  const nonzero = normalizeToolEnvelope(await executeBashTool(
+    { command: `node -e 'process.exit(7)'`, timeout_ms: 10_000 },
+    process.cwd(),
+  ));
+  assert.equal(nonzero.explicitSuccess, true);
+  assert.match(nonzero.result, /^\[exit code: 7\]\n\[completed:/);
+});
+
+test('foreground shell status remains first when destructive warnings are present', () => {
+  const rendered = _placeDestructiveWarningsAfterStatus(
+    'rm -rf ./concrete-test-output',
+    '[exit code: 0]\n\n(no output)',
+  );
+  assert.match(rendered, /^\[exit code: 0\]\n⚠️ /);
+});
+
 test('TUI renders new and legacy completed command exits as Exit N', () => {
+  assert.equal(shellCommandExitCode('[exit code: 0]\n\nwarning: diagnostic'), 0);
   assert.equal(shellCommandExitCode('[exit code: 7]\n[completed: command result]\n\nboom'), 7);
   assert.equal(shellCommandExitCode('Error: [shell-run-failed] [exit code: 2]\n\nboom'), 2);
   assert.equal(shellCommandExitCode('[session: s1]\n[exit code: 3]\n[closed]\n\nboom'), 3);
@@ -789,6 +833,13 @@ test('shell trace classification uses only the leading status marker', () => {
   ), 'schema/args');
 });
 
+test('glob missing bases are navigation misses, not runtime failures', () => {
+  assert.equal(classifyToolFailure(
+    'Error: path does not exist: C:/missing (ENOENT)',
+    'glob',
+  ), 'navigation/miss');
+});
+
 test('apply_patch taxonomy separates parse, context, verification, path and resource guards', () => {
   const patch = (text) => classifyToolFailure(text, 'apply_patch');
   assert.equal(patch(
@@ -824,6 +875,23 @@ test('apply_patch taxonomy separates parse, context, verification, path and reso
     'Error: apply_patch preflight rejected section 1/1 (x.mjs); no files were written.\n'
     + 'apply_patch: V4A parse failed — V4A patch contained no file sections',
   ), 'patch/parse');
+  assert.equal(patch(
+    'Error: apply_patch: V4A parse failed — V4A hunk x.mjs: context not found: (no anchor); '
+    + 'expected first old line: "const a = 1;"; nearest line 8: "const a = 1;"; '
+    + 'first divergent line: old[2] expected "x" vs file line 9 actual "y"',
+  ), 'patch/stale-context');
+  assert.equal(patch(
+    'Error: apply_patch: V4A parse failed — apply_patch: multiple operations target src/x.mjs',
+  ), 'patch/duplicate-target');
+  assert.equal(patch(
+    'Error: apply_patch: V4A parse failed — apply_patch: conflicting operations target src/x.mjs',
+  ), 'patch/duplicate-target');
+  assert.equal(patch(
+    'Error: apply_patch: 1 target(s) fall outside the write root C:/Project/mixdog: C:/tmp/x.mjs',
+  ), 'path/outside-root');
+  assert.equal(patch(
+    'Error: native patch failed — refusing hunkless delete: x.mjs is non-empty',
+  ), 'patch/verification');
   assert.equal(patch(
     'Error: apply_patch preflight rejected section 1/2 (x.mjs); no files were written.\n'
     + 'apply_patch: only one V4A rename (*** Move to:) per patch is supported; split into separate patches.',
@@ -1131,6 +1199,70 @@ test('tool-failures report separates patch failures from command exits and absor
     const scoped = JSON.parse(onlyActionable.stdout);
     assert.equal(scoped.rows.length, 2);
     assert.deepEqual(scoped.command_exits, { shown: 0, matched: 3 });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('tool-failures reclassifies historical patch rows without rewriting the source log', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-tool-failure-reclassify-test-'));
+  try {
+    const history = join(dir, 'history');
+    mkdirSync(history);
+    const rows = [
+      {
+        ts: 1,
+        tool_name: 'apply_patch',
+        category: 'patch/parse',
+        error_preview: 'Error: apply_patch: V4A parse failed — V4A hunk x.mjs: context not found; nearest line 8',
+      },
+      {
+        ts: 2,
+        tool_name: 'apply_patch',
+        category: 'patch/parse',
+        error_first_line: 'Error: apply_patch: V4A parse failed — apply_patch: multiple operations target x.mjs',
+      },
+      {
+        ts: 3,
+        tool_name: 'apply_patch',
+        category: 'runtime/failure',
+        error_first_line: 'Error: apply_patch: 1 target(s) fall outside the write root C:/Project/mixdog: C:/tmp/x.mjs',
+      },
+      {
+        ts: 4,
+        session_id: 'no-session',
+        tool_name: 'apply_patch',
+        category: 'runtime/failure',
+        agent: null,
+        model: null,
+        error_first_line: 'Error: patch failed',
+      },
+      {
+        ts: 5,
+        tool_name: 'apply_patch',
+        category: 'patch/stale-context',
+        error_preview: 'Error: apply_patch sequence stopped after rollback; nested failure detail was truncated',
+      },
+    ];
+    writeFileSync(join(history, 'tool-failures.jsonl'), `${rows.map(JSON.stringify).join('\n')}\n`);
+    const script = resolve('scripts/tool-failures.mjs');
+    const run = spawnSync(process.execPath, [script, '--data-dir', dir, '--limit', '10', '--json'], { encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr);
+    const report = JSON.parse(run.stdout);
+    assert.deepEqual(report.actionable_failures, { shown: 4, matched: 4 });
+    assert.deepEqual(report.expected_absorbed, { shown: 1, matched: 1 });
+    assert.deepEqual(report.patch_failures, {
+      matched: 3,
+      categories: { 'patch/stale-context': 2, 'patch/duplicate-target': 1 },
+    });
+    assert.deepEqual(report.actionable_categories, {
+      'patch/stale-context': 2,
+      'patch/duplicate-target': 1,
+      'path/outside-root': 1,
+    });
+    assert.equal(report.reclassified.matched, 4);
+    assert.ok(report.rows.filter((row) => row.ts <= 4).every((row) => row.stored_category));
+    assert.equal(report.rows.find((row) => row.ts === 5)?.stored_category, undefined);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

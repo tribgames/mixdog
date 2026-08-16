@@ -129,20 +129,22 @@ const MAX_WALK_ENTRIES = 200_000;
 // Unified directory walk used by list / tree / find_files. The visitor
 // callback owns the "should I record this entry?" decision; returning
 // literal false aborts the whole walk.
-// `onWarn(dir, err)` (optional) is invoked for any readdir failure so
+// `onWarn(dir, err, { root, depth })` (optional) is invoked for any readdir failure so
 // callers can surface skipped paths instead of silently dropping them.
-export async function walkDir(root, { hidden = false, maxDepth = Infinity, visit, sort, excludeDirNames, onWarn, maxEntries = MAX_WALK_ENTRIES, signal } = {}) {
+export async function walkDir(root, { hidden = false, maxDepth = Infinity, visit, sort, excludeDirNames, onWarn, maxEntries = MAX_WALK_ENTRIES, signal, readdirImpl = readdir } = {}) {
     // Windows filesystems are case-insensitive — match exclusion names the
     // same way so e.g. Node_Modules is pruned like node_modules.
     const _exclCI = process.platform === 'win32' && excludeDirNames && excludeDirNames.size > 0
         ? new Set([...excludeDirNames].map((n) => n.toLowerCase()))
         : null;
     let truncated = false;
+    let aborted = false;
     const cap = maxEntries;
     let entriesVisited = 0;
     const _walk = async (dir, depth) => {
         if (signal?.aborted) {
             truncated = true;
+            aborted = true;
             return false;
         }
         if (entriesVisited >= cap) {
@@ -151,10 +153,10 @@ export async function walkDir(root, { hidden = false, maxDepth = Infinity, visit
         }
         if (depth > maxDepth) return true;
         let entries;
-        try { entries = await readdir(dir, { withFileTypes: true }); }
+        try { entries = await readdirImpl(dir, { withFileTypes: true }); }
         catch (err) {
             if (typeof onWarn === 'function') {
-                try { onWarn(dir, err); } catch { /* warning sink must not abort */ }
+                try { onWarn(dir, err, { root: depth === 1, depth }); } catch { /* warning sink must not abort */ }
             }
             return true;
         }
@@ -169,6 +171,7 @@ export async function walkDir(root, { hidden = false, maxDepth = Infinity, visit
         for (let i = 0; i < total; i++) {
             if (signal?.aborted) {
                 truncated = true;
+                aborted = true;
                 return false;
             }
             if (entriesVisited >= cap) {
@@ -188,5 +191,5 @@ export async function walkDir(root, { hidden = false, maxDepth = Infinity, visit
         return true;
     };
     await _walk(root, 1);
-    return { truncated, entriesVisited };
+    return { truncated, aborted, entriesVisited };
 }

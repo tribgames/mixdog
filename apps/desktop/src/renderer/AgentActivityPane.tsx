@@ -1,4 +1,4 @@
-import { Bot, Clock3 } from 'lucide-react';
+import { Bot } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
@@ -9,7 +9,6 @@ import {
   isQueuedDesktopAgentEntry,
 } from '../shared/agent-activity';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
-import { agentIcon } from './agent-icons';
 import { FastModeIndicator } from './FastModeToggle';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
@@ -184,13 +183,14 @@ function AgentPoolRow({
   const queued = isQueuedDesktopAgentEntry(agent);
   const running = isActiveDesktopAgentEntry(agent) && !queued;
   const role = agentRoleLabel(agent.agent || agent.tag);
-  const Icon = agentIcon(String(agent.agent || '').toLowerCase());
   const elapsedBase = timeMs(agent.turnStartedAt) || timeMs(agent.startedAt);
+  const idleBase = timeMs(agent.finishedAt) || timeMs(agent.updatedAt);
+  const idleElapsed = idleBase ? formatWorkElapsed(clock - idleBase) || '0s' : '';
   const elapsed = queued
     ? t('Queued')
     : running
       ? (elapsedBase ? formatWorkElapsed(clock - elapsedBase) || '0s' : desktopAgentStatus(agent))
-      : t('Idle');
+      : [t('Idle'), idleElapsed].filter(Boolean).join(' · ');
   const modelLabel = modelDisplayName(String(agent.model || ''), String(agent.provider || ''));
   const effortValue = String(agent.effort || '').trim();
   const effortLabel = effortValue
@@ -199,14 +199,6 @@ function AgentPoolRow({
   const routeLabel = [modelLabel, effortLabel].filter(Boolean).join(' · ');
   const sessionId = String(agent.sessionId || '').trim();
   return <div className="schedules-row workflows-agent-summary-row">
-    <span className="projects-row-icon agent-activity-state">
-      {queued
-        ? <Clock3 size={16} aria-label={t('Queued')} />
-        : running
-          ? <ProgressSpinner size={16} role="status"
-              aria-label={t('{{name}} is running', { name: role })} />
-          : <Icon size={16} aria-label={t('Idle')} />}
-    </span>
     <button type="button" className="schedules-row-copy projects-row-open"
       data-agent-tag={agent.tag || undefined}
       data-agent-session-id={sessionId || undefined}
@@ -221,7 +213,11 @@ function AgentPoolRow({
         {agent.fast === true && <FastModeIndicator />}
       </small>
     </button>
-    <time className="agent-activity-elapsed">{elapsed}</time>
+    <span className="agent-activity-status">
+      {running && <ProgressSpinner size={16} role="status"
+        aria-label={t('{{name}} is running', { name: role })} />}
+      <time className="agent-activity-elapsed">{elapsed}</time>
+    </span>
   </div>;
 }
 
@@ -293,8 +289,7 @@ export function AgentActivityPane({
       return rightTime - leftTime || left.ownerId.localeCompare(right.ownerId);
     });
   }, [agents, sessions]);
-  const hasLiveClock = (agents || []).some((agent) =>
-    isActiveDesktopAgentEntry(agent) || isQueuedDesktopAgentEntry(agent));
+  const hasLiveClock = (agents || []).length > 0;
   useEffect(() => {
     if (!active || !hasLiveClock) return undefined;
     setClock(Date.now());
@@ -305,10 +300,8 @@ export function AgentActivityPane({
   if (agents === null) return <div className="schedules-page agent-activity-page">
     <div className="schedules-list">
       <div className="schedules-row workflows-agent-summary-row" role="status">
-        <span className="projects-row-icon agent-activity-state">
-          <ProgressSpinner size={16} />
-        </span>
         <span className="schedules-row-copy">{t('Loading activity…')}</span>
+        <span className="agent-activity-status"><ProgressSpinner size={16} /></span>
       </div>
     </div>
   </div>;

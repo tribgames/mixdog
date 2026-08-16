@@ -20,6 +20,8 @@ const DEAD_AGENT_STATUS =
     /^(?:done|complete|completed|success|closed|error|fail|failed|cancelled|canceled|killed|timeout)$/i;
 const LIVING_AGENT_STATUS =
     /^(?:idle|connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
+const WORKING_AGENT_STATUS =
+    /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
 const AGENT_POOL_HEARTBEAT_FRESH_MS = 2 * 60 * 1000;
 
 // Mirror of lifecycle-api.mjs listLeadSessions visibility: the cold catalog
@@ -174,46 +176,16 @@ export function storedAgentWorkerIndexPath() {
     return join(dataDir(), 'agent-workers.json');
 }
 
-function mergeLeadSessionsIntoPool(bySessionId, now) {
-    let summaries = [];
-    try { summaries = listStoredSessionSummaries(); }
-    catch { return; }
-    for (const row of summaries) {
-        const sessionId = cleanValue(row?.id);
-        if (!sessionId || !/^[A-Za-z0-9_-]+$/.test(sessionId)) continue;
-        const current = bySessionId.get(sessionId);
-        const currentAgent = cleanValue(current?.agent).toLowerCase();
-        if (current && currentAgent && currentAgent !== 'lead') continue;
-        const heartbeatAt = positiveNumber(row.heartbeatAt, 0);
-        const running = heartbeatAt > 0 && now - heartbeatAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
-        const status = running ? 'running' : 'idle';
-        bySessionId.set(sessionId, {
-            tag: cleanValue(current?.tag) || `lead:${sessionId}`,
-            sessionId,
-            ownerSessionId: sessionId,
-            agent: 'lead',
-            provider: cleanValue(row.provider || current?.provider) || null,
-            model: cleanValue(row.model || current?.model) || null,
-            effort: cleanValue(row.effort || current?.effort) || null,
-            fast: row.fast === true || current?.fast === true,
-            status,
-            stage: status,
-            startedAt: row.createdAt || current?.startedAt || null,
-            turnStartedAt: running ? (current?.turnStartedAt || heartbeatAt) : null,
-            createdAt: row.createdAt || current?.createdAt || null,
-            updatedAt: row.updatedAt || current?.updatedAt || heartbeatAt || null,
-            cwd: cleanValue(row.cwd || current?.cwd) || null,
-            clientHostPid: positiveNumber(row.clientHostPid || current?.clientHostPid, 0) || null,
-            taskId: cleanValue(current?.taskId) || null,
-        });
-    }
+export function storedLeadWorkerIndexPath() {
+    return join(dataDir(), 'lead-workers.json');
 }
 
 /** Process-global active agent pool. Fresh child heartbeat sidecars are the
  * cross-process running source even when their durable session is detached
  * (`closed`) and a terminal reaper has already removed the worker-index row.
- * The index remains additive for living rows (running or idle) published before
- * the heartbeat or by runtimes without a sidecar. No runtime starts. */
+ * The child and Lead indexes remain additive for living rows (running or idle)
+ * published before the heartbeat or by runtimes without a sidecar. No runtime
+ * starts and durable session history is never projected into either pool. */
 export function listStoredAgentWorkers() {
     let parsed = null;
     try {
@@ -227,6 +199,7 @@ export function listStoredAgentWorkers() {
     const bySessionId = new Map();
     for (const row of source) {
         if (!row || typeof row !== 'object' || !activeAgentWorker(row)) continue;
+        if (cleanValue(row.agent).toLowerCase() === 'lead') continue;
         const sessionId = cleanValue(row.sessionId);
         const tag = cleanValue(row.tag);
         if (!sessionId || !tag || !/^[A-Za-z0-9_-]+$/.test(sessionId)) continue;
@@ -263,7 +236,8 @@ export function listStoredAgentWorkers() {
         });
     }
     const now = Date.now();
-    for (const [sessionId, heartbeatAt] of sessionHeartbeatMtimes()) {
+    const heartbeatMtimes = sessionHeartbeatMtimes();
+    for (const [sessionId, heartbeatAt] of heartbeatMtimes) {
         if (now - heartbeatAt > AGENT_POOL_HEARTBEAT_FRESH_MS) continue;
         let session;
         try {
@@ -307,7 +281,50 @@ export function listStoredAgentWorkers() {
                 || current.taskId || null,
         });
     }
-    mergeLeadSessionsIntoPool(bySessionId, now);
+    let leadParsed = null;
+    try {
+        leadParsed = JSON.parse(readFileSync(storedLeadWorkerIndexPath(), 'utf8'));
+    } catch { /* no resident Lead pool */ }
+    const leadSource = Array.isArray(leadParsed?.workers)
+        ? leadParsed.workers
+        : leadParsed?.workers && typeof leadParsed.workers === 'object'
+            ? Object.values(leadParsed.workers)
+            : [];
+    for (const row of leadSource) {
+        if (!row || typeof row !== 'object') continue;
+        const sessionId = cleanValue(row.sessionId);
+        if (!sessionId || !/^[A-Za-z0-9_-]+$/.test(sessionId)) continue;
+        const heartbeatAt = heartbeatMtimes.get(sessionId) || 0;
+        const heartbeatFresh = heartbeatAt > 0
+            && now - heartbeatAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
+        const updatedAt = Date.parse(cleanValue(row.updatedAt)) || 0;
+        const recentlyUpdated = updatedAt > 0
+            && now - updatedAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
+        const declaredStatus = cleanValue(row.stage || row.status) || 'idle';
+        const working = WORKING_AGENT_STATUS.test(declaredStatus)
+            && (heartbeatFresh || recentlyUpdated);
+        const reapAt = Date.parse(cleanValue(row.reapAt)) || 0;
+        if (!heartbeatFresh && reapAt > 0 && now >= reapAt) continue;
+        bySessionId.set(sessionId, {
+            tag: `lead:${sessionId}`,
+            sessionId,
+            ownerSessionId: sessionId,
+            agent: 'lead',
+            provider: cleanValue(row.provider) || null,
+            model: cleanValue(row.model) || null,
+            effort: cleanValue(row.effort) || null,
+            fast: row.fast === true,
+            status: working ? declaredStatus : 'idle',
+            stage: working ? declaredStatus : 'idle',
+            startedAt: row.startedAt || row.createdAt || null,
+            turnStartedAt: working ? (row.turnStartedAt || null) : null,
+            createdAt: row.createdAt || null,
+            updatedAt: heartbeatAt || row.updatedAt || null,
+            cwd: cleanValue(row.cwd) || null,
+            clientHostPid: positiveNumber(row.clientHostPid, 0) || null,
+            taskId: cleanValue(row.task_id || row.taskId) || null,
+        });
+    }
     const rows = [...bySessionId.values()];
     return rows.sort((left, right) => {
         const leftTime = Date.parse(String(left.startedAt || '')) || 0;

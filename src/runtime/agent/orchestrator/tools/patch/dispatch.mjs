@@ -2,7 +2,7 @@
 // verbatim from patch.mjs; native protocol, cache/snapshot side effects, and
 // output formatting are unchanged.
 
-import { readFileSync, lstatSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, lstatSync, mkdirSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { dirname as pathDirname } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -329,15 +329,14 @@ function lstatRegularPatchFile(fullPath, displayPath) {
   return st;
 }
 
-function existingRegularAddTarget(fullPath, displayPath) {
+function assertAddTargetAbsent(fullPath, displayPath) {
   try {
-    const st = lstatSync(fullPath);
-    if (!st.isFile() || st.isSymbolicLink()) {
-      throw new Error(`apply_patch: Add File target is not a regular file: ${normalizeOutputPath(displayPath)}`);
-    }
-    return st;
+    lstatSync(fullPath);
+    throw new Error(
+      `apply_patch: Add File target already exists: ${normalizeOutputPath(displayPath)}; read it and use Update File instead`,
+    );
   } catch (err) {
-    if (err?.code === 'ENOENT') return null;
+    if (err?.code === 'ENOENT') return;
     if (/^apply_patch:/.test(err?.message || '')) throw err;
     throw new Error(`apply_patch: create target unreadable: ${normalizeOutputPath(displayPath)} (${err?.code || err?.message || String(err)})`);
   }
@@ -357,25 +356,31 @@ async function applyJsParsedEntry(entry, basePath, { dryRun, fuzzy, readStateSco
   const fullPath = resolveEntryPath(basePath, headerName);
   const displayPath = normalizeOutputPath(stripDiffPrefix(headerName));
   if (kind === 'create') {
-    // Add File is a full-content declaration: create an absent target or
-    // atomically replace an existing regular file. Directories, devices and
-    // symlinks remain hard failures so the declaration cannot change target
-    // identity by following an occupied non-file path.
-    const existing = existingRegularAddTarget(fullPath, displayPath);
+    // Add File is create-only. atomicWrite checks the absent-target
+    // expectation again so a file appearing after preflight is not replaced.
+    assertAddTargetAbsent(fullPath, displayPath);
     const addedLines = [];
     for (const hunk of entry.hunks || []) {
       for (const line of hunk.lines || []) {
         if (line.startsWith('+')) addedLines.push(line.slice(1));
       }
     }
-    if (existing) {
-      try { addedLines.eol = detectDominantEol(readFileSync(fullPath, 'utf8')); } catch { /* keep LF */ }
-    }
     const content = joinTextLinesForPatch(addedLines);
     if (!dryRun) {
       mkdirSync(pathDirname(fullPath), { recursive: true });
-      if (existing) await atomicWrite(fullPath, content, { sessionId: readStateScope });
-      else writeFileSync(fullPath, content);
+      try {
+        await atomicWrite(fullPath, content, {
+          sessionId: readStateScope,
+          expectedTargetSnapshot: { exists: false },
+        });
+      } catch (err) {
+        if (err?.code === 'ESTALE_TARGET') {
+          throw new Error(
+            `apply_patch: Add File target appeared during creation: ${normalizeOutputPath(displayPath)}; read it and use Update File instead`,
+          );
+        }
+        throw err;
+      }
       invalidateBuiltinResultCache([fullPath]);
       markCodeGraphDirtyPaths([fullPath]);
       recordReadSnapshotForPath(fullPath, readStateScope, { source: 'apply_patch_js', isPartialView: false });

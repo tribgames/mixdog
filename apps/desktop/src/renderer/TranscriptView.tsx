@@ -4,10 +4,7 @@ import { resolveContextDisplayUsage } from "./context-usage";
 import { type Snapshot, type TranscriptItem } from "./desktop-types";
 import { t } from "./i18n";
 import { DiffView } from "./lazy-widgets";
-import {
-  containsFencedCodeMarkdown,
-  MarkdownSourceFallback,
-} from "./MarkdownSourceFallback";
+import { MarkdownSourceFallback } from "./MarkdownSourceFallback";
 import { MxIcon } from "./MxIcon";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { normalizeApplyPatch, parseUnifiedDiff } from "./renderer-logic.mjs";
@@ -565,24 +562,7 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
 }) {
   const markdownCache = useRef(createStreamingMarkdownCache());
   const workerPipeline = useRef(streaming);
-  const fencedScriptGeometryLocked = useRef(false);
-  // The geometry lock belongs to the fenced chunk alone. Applying it to the
-  // whole response froze every following heading/list/bold block as raw
-  // markdown source until the row remounted (user: 트랜스크립트 출력 도중에
-  // 마크다운 포맷이 안 먹는다).
-  const fencedChunks = useRef<Map<string, boolean>>(new Map());
   if (streaming) workerPipeline.current = true;
-  if (streaming && containsFencedCodeMarkdown(text)) {
-    fencedScriptGeometryLocked.current = true;
-  }
-  const chunkDefersPromotion = (key: string, chunk: string): boolean => {
-    if (!fencedScriptGeometryLocked.current) return false;
-    const cached = fencedChunks.current.get(key);
-    if (cached !== undefined) return cached;
-    const fenced = containsFencedCodeMarkdown(chunk);
-    fencedChunks.current.set(key, fenced);
-    return fenced;
-  };
   // Renderer snapshots are already frame-coalesced. Adding another rAF here
   // commits DOM growth after the current ResizeObserver delivery and leaves
   // one painted frame off-bottom. Each arriving delta is projected
@@ -593,7 +573,6 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
       key={markdownParts.stableChunkKeys[index]}>
       {workerPipeline.current
         ? <StreamingMarkdownBody text={chunk}
-            deferAsyncPromotion={chunkDefersPromotion(markdownParts.stableChunkKeys[index], chunk)}
             copyControl={CopyControl} />
         : <StableMarkdownBody text={chunk} />}
     </Suspense>
@@ -604,8 +583,6 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
     const unstableParseText = streaming
       ? healStreamingMarkdownTail(markdownParts.unstableText)
       : markdownParts.unstableText;
-    const unstableDefers = fencedScriptGeometryLocked.current
-      && containsFencedCodeMarkdown(markdownParts.unstableText);
     renderedChunks.push(
       <Suspense
         fallback={<MarkdownSourceFallback text={markdownParts.unstableText} copyControl={CopyControl} />}
@@ -615,7 +592,6 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
               text={markdownParts.unstableText}
               parseText={unstableParseText}
               parse={markdownParts.parseUnstable}
-              deferAsyncPromotion={unstableDefers}
               copyControl={CopyControl} />
           : <StableMarkdownBody text={markdownParts.unstableText} />}
       </Suspense>,

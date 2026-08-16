@@ -33,9 +33,10 @@ export function imageMimeForPath(p) {
 // recompress -> emit a metadata text block ("[Image: WxH, displayed at ...]")
 // followed by the image block.
 //
-// sharp absent / resize failed: GRACEFUL fallback to the legacy
-// pass-through-with-cap behaviour (refuse over-cap originals with an isError
-// text result, else emit the raw base64 image block). No throw on missing sharp.
+// sharp absent: GRACEFUL fallback to the legacy pass-through-with-cap
+// behaviour (refuse over-cap originals with an isError text result, else emit
+// the raw base64 image block). Decoder rejection is an explicit tool error;
+// corrupt bytes must never enter model history.
 export async function readImageAsContent(fullPath, displayPath, preflightStat = null) {
   const mimeType = imageMimeForPath(fullPath);
   if (!mimeType) return null;
@@ -54,7 +55,19 @@ export async function readImageAsContent(fullPath, displayPath, preflightStat = 
   // sharp path: resize / downsample / token-budget. Returns null when sharp is
   // absent or processing failed, in which case we drop to the legacy cap path.
   const ext = mimeType.split('/')[1] || 'png';
-  const resized = await resizeImageBuffer(buf, ext);
+  let resized;
+  try {
+    resized = await resizeImageBuffer(buf, ext);
+  } catch (error) {
+    if (error?.code !== 'INVALID_IMAGE_DATA') throw error;
+    return {
+      content: [{
+        type: 'text',
+        text: `Error: image "${displayPath}" is invalid or corrupt and was not attached.`,
+      }],
+      isError: true,
+    };
+  }
   if (resized) {
     const metaText = imageMetadataText(resized.dimensions, displayPath);
     const content = [];

@@ -108,15 +108,15 @@ const RECALL_COLD_START_TIMEOUT_MS = 15_000;
 function isTimeoutError(err) {
     return typeof err?.message === 'string' && err.message.includes('timed out after');
 }
-async function callMemoryColdStart(args, callerCtx, timeoutMs) {
+async function callMemoryColdStart(args, callerCtx, timeoutMs, executeMemory) {
     try {
-        return await callMemoryBounded(args, callerCtx, timeoutMs);
+        return await callMemoryBounded(args, callerCtx, timeoutMs, executeMemory);
     } catch (err) {
         if (!isTimeoutError(err) || callerCtx?.signal?.aborted) throw err;
         const coldMs = Math.max(timeoutMs, RECALL_COLD_START_TIMEOUT_MS);
         if (coldMs <= timeoutMs) throw err;
         try { process.stderr.write(`[session] recall-fasttrack ${args?.action || 'call'} cold-start retry (${timeoutMs}ms -> ${coldMs}ms)\n`); } catch {}
-        return await callMemoryBounded(args, callerCtx, coldMs);
+        return await callMemoryBounded(args, callerCtx, coldMs, executeMemory);
     }
 }
 // Semantic-compact timeout scales with transcript size (clear/manual path):
@@ -129,7 +129,7 @@ function semanticCompactTimeoutMs(session, messageTokens) {
     const scaled = Math.ceil((messageTokens || 0) / 25_000) * 10_000;
     return Math.min(120_000, Math.max(30_000, scaled));
 }
-async function callMemoryBounded(args, callerCtx, timeoutMs) {
+async function callMemoryBounded(args, callerCtx, timeoutMs, executeMemory = executeInternalTool) {
     const ac = new AbortController();
     const outer = callerCtx?.signal;
     const onOuterAbort = () => { try { ac.abort(); } catch {} };
@@ -147,7 +147,7 @@ async function callMemoryBounded(args, callerCtx, timeoutMs) {
     });
     try {
         return await Promise.race([
-            executeInternalTool('memory', args, { ...callerCtx, signal: ac.signal }),
+            executeMemory('memory', args, { ...callerCtx, signal: ac.signal }),
             timeout,
         ]);
     } finally {
@@ -157,8 +157,7 @@ async function callMemoryBounded(args, callerCtx, timeoutMs) {
         try { outer?.removeEventListener?.('abort', onOuterAbort); } catch {}
     }
 }
-async function runRecallFastTrackForSession(session, messages, opts = {}) {
-    const sessionId = opts.sessionId || session?.id || null;
+async function runRecallFastTrackForSession(session, sessionId, opts = {}) {
     if (!sessionId) throw new Error('recall-fasttrack requires a session id');
     const query = `session:${sessionId}:all-chunks`;
     const querySha = createHash('sha256').update(query).digest('hex').slice(0, 16);
@@ -170,6 +169,9 @@ async function runRecallFastTrackForSession(session, messages, opts = {}) {
         signal: opts.signal || null,
     };
     const memoryTimeoutMs = recallMemoryTimeoutMs(session);
+    const executeMemory = typeof opts.executeInternalToolFn === 'function'
+        ? opts.executeInternalToolFn
+        : executeInternalTool;
     // The transcript watcher already persists this session incrementally.
     // Manual/clear compaction reads those rows directly instead of sending the
     // entire live message array through the memory RPC again.
@@ -182,7 +184,7 @@ async function runRecallFastTrackForSession(session, messages, opts = {}) {
             includeMembers: true,
             includeRaw: true,
             compactHandoff: true,
-        }, callerCtx, memoryTimeoutMs);
+        }, callerCtx, memoryTimeoutMs, executeMemory);
         recallText = typeof browsed === 'string' ? browsed : String(browsed?.text ?? browsed ?? '');
         if (!isUsableRecallDigestText(recallText)) {
             throw new Error('memory has no stored history for this session');
@@ -221,6 +223,7 @@ function messagesChanged(before, after) {
 }
 export async function runSessionCompaction(session, opts = {}) {
     if (!session || session.closed === true) return null;
+    const resolvedSessionId = opts.sessionId || session.id || null;
     const mode = opts.mode === 'auto' ? 'auto' : 'manual';
     const force = opts.force === true || mode === 'manual';
     if (mode === 'auto' && session.compaction?.auto === false) return null;
@@ -296,7 +299,7 @@ export async function runSessionCompaction(session, opts = {}) {
     let recallFastTrackError = null;
     if (compactTypeIsRecallFastTrack(compactType)) {
         try {
-            const recallPayload = await runRecallFastTrackForSession(session, messages, opts);
+            const recallPayload = await runRecallFastTrackForSession(session, resolvedSessionId, opts);
             const contextWindow = positiveContextWindow(session.contextWindow) || boundary;
             const recallTokenCap = Math.max(
                 RECALL_TOKEN_CAP_FLOOR_TOKENS,
@@ -316,7 +319,7 @@ export async function runSessionCompaction(session, opts = {}) {
                 keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
                 preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),
                 recallTokenCap,
-                sessionId,
+                sessionId: resolvedSessionId,
             });
             if (Array.isArray(recallFastTrackResult?.messages)) {
                 compacted = recallFastTrackResult.messages;
@@ -343,7 +346,7 @@ export async function runSessionCompaction(session, opts = {}) {
                         {
                             reserveTokens,
                             providerName: session.provider || provider?.name || null,
-                            sessionId: opts.sessionId || session.id || null,
+                            sessionId: resolvedSessionId,
                             cwd: session.cwd,
                             signal: opts.signal || null,
                             promptCacheKey: session.promptCacheKey || null,
@@ -388,7 +391,7 @@ export async function runSessionCompaction(session, opts = {}) {
                 {
                     reserveTokens,
                     providerName: session.provider || provider?.name || null,
-                    sessionId: opts.sessionId || session.id || null,
+                    sessionId: resolvedSessionId,
                     cwd: session.cwd,
                     signal: opts.signal || null,
                     promptCacheKey: session.promptCacheKey || null,
@@ -473,7 +476,7 @@ export async function runSessionCompaction(session, opts = {}) {
         // (post-turn/manual) compaction failure was previously invisible to
         // trace analytics.
         traceAgentCompact({
-            sessionId: opts.sessionId || session.id || null,
+            sessionId: resolvedSessionId,
             stage: mode === 'auto' ? 'post_turn' : 'manual',
             trigger: mode,
             compact_type: compactType,
@@ -532,7 +535,7 @@ export async function runSessionCompaction(session, opts = {}) {
     session.messages = compacted;
     // Best-effort GC only: the 10-minute mtime gate plus this idle-only guard
     // lets an in-flight turn's sidecars survive until a later compaction/close.
-    const pruneSessionId = opts.sessionId || session.id;
+    const pruneSessionId = resolvedSessionId;
     if (!isSessionCompactionBlocked(pruneSessionId)) {
         try {
             await pruneOffloadSession(pruneSessionId, () => [

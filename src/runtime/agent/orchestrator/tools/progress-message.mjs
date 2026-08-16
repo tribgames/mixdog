@@ -32,6 +32,8 @@ export function formatToolStartProgress(name, args = {}) {
             return a.dry_run ? 'validating patch' : 'applying patch';
         case 'shell':
             return a.command ? `running ${_t(a.command)}` : 'running shell';
+        case 'git':
+            return a.command ? `running ${_t(a.command)}` : 'running git';
         case 'task': {
             const action = a.action || (a.task_id ? 'status' : 'list');
             return action === 'list'

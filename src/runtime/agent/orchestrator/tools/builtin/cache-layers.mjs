@@ -184,27 +184,51 @@ async function subscribeResultCacheInFlight(entry, signal) {
 }
 
 export async function runResultCacheInFlight(key, compute, options = {}) {
-    const cached = cacheGet(key);
-    if (cached !== null) return cached;
-    let entry = RESULT_CACHE_INFLIGHT.get(key);
-    if (!entry) {
-        const controller = new AbortController();
-        entry = { promise: null, controller, subscribers: new Set(), settled: false };
-        const promise = Promise.resolve()
-            .then(() => compute({ signal: controller.signal }))
-            .finally(() => {
-                entry.settled = true;
-                if (RESULT_CACHE_INFLIGHT.get(key) === entry) {
-                    RESULT_CACHE_INFLIGHT.delete(key);
-                }
-            });
-        entry.promise = promise;
-        RESULT_CACHE_INFLIGHT.set(key, entry);
+    const subscriberSignal = options?.signal || options?.abortSignal || null;
+    for (;;) {
+        const cached = cacheGet(key);
+        if (cached !== null) return cached;
+        let entry = RESULT_CACHE_INFLIGHT.get(key);
+        if (entry?.controller?.signal?.aborted) {
+            if (RESULT_CACHE_INFLIGHT.get(key) === entry) RESULT_CACHE_INFLIGHT.delete(key);
+            entry = null;
+        }
+        if (!entry) {
+            const controller = new AbortController();
+            entry = {
+                promise: null,
+                controller,
+                subscribers: new Set(),
+                settled: false,
+                invalidated: false,
+                scopes: normalizeCacheMetaPaths(options?.scopes),
+            };
+            const promise = Promise.resolve()
+                .then(() => compute({ signal: controller.signal }))
+                .finally(() => {
+                    entry.settled = true;
+                    if (RESULT_CACHE_INFLIGHT.get(key) === entry) {
+                        RESULT_CACHE_INFLIGHT.delete(key);
+                    }
+                });
+            entry.promise = promise;
+            // An already-aborted first subscriber can release and cancel the
+            // compute before it attaches the normal await handlers below.
+            // Keep the shared promise rejection observed without changing it.
+            promise.catch(() => {});
+            RESULT_CACHE_INFLIGHT.set(key, entry);
+        } else if (Array.isArray(options?.scopes)) {
+            entry.scopes = normalizeCacheMetaPaths([...(entry.scopes || []), ...options.scopes]);
+        }
+        try {
+            return await subscribeResultCacheInFlight(entry, subscriberSignal);
+        } catch (error) {
+            // Watcher/patch invalidation can race an active read. That is a
+            // freshness retry, not a user-visible abort: start a new generation
+            // unless this subscriber itself was cancelled.
+            if (!entry.invalidated || subscriberSignal?.aborted) throw error;
+        }
     }
-    return await subscribeResultCacheInFlight(
-        entry,
-        options?.signal || options?.abortSignal || null,
-    );
 }
 
 export async function runRawContentInFlight(fullPath, loader = fsPromises.readFile) {
@@ -455,7 +479,10 @@ function runExtraInvalidationListeners(affectedPaths = null) {
 }
 
 function cacheInvalidateAll() {
-    for (const entry of RESULT_CACHE_INFLIGHT.values()) entry.controller?.abort();
+    for (const entry of RESULT_CACHE_INFLIGHT.values()) {
+        entry.invalidated = true;
+        entry.controller?.abort();
+    }
     RESULT_CACHE.clear();
     RESULT_CACHE_INFLIGHT.clear();
     RESULT_CACHE_BYTES = 0;
@@ -473,8 +500,15 @@ function cacheInvalidatePaths(paths) {
         cacheInvalidateAll();
         return;
     }
-    for (const entry of RESULT_CACHE_INFLIGHT.values()) entry.controller?.abort();
-    RESULT_CACHE_INFLIGHT.clear();
+    for (const [key, entry] of RESULT_CACHE_INFLIGHT) {
+        const scopes = Array.isArray(entry.scopes) ? entry.scopes : [];
+        if (scopes.length === 0
+            || scopes.some((scope) => affectedPaths.some((affected) => cachePathsOverlap(scope, affected)))) {
+            entry.invalidated = true;
+            entry.controller?.abort();
+            RESULT_CACHE_INFLIGHT.delete(key);
+        }
+    }
     for (const [key, entry] of RESULT_CACHE) {
         if (cacheEntryOverlapsPaths(entry, affectedPaths)) {
             resultCacheDelete(key);

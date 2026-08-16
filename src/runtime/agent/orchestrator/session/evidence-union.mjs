@@ -8,6 +8,8 @@
  * Any apply_patch/shell batch starts a fresh evidence epoch.
  */
 
+import { tokenizeDirectArgv } from '../tools/builtin/shell-direct-exe.mjs';
+
 const EXACT_RESULT_TOOLS = new Set(['find', 'find_files', 'glob', 'list']);
 
 function normalizeToolName(name) {
@@ -154,10 +156,79 @@ function evidenceKey(row) {
     return `${row.path}\0${row.line}\0${row.content}`;
 }
 
+const READ_ONLY_GIT_COMMANDS = new Set([
+    'blame', 'cat-file', 'check-attr', 'check-ignore', 'check-ref-format',
+    'cherry', 'count-objects', 'describe', 'diff', 'diff-files', 'diff-index',
+    'diff-tree', 'for-each-ref', 'fsck', 'grep', 'help', 'log', 'ls-files',
+    'ls-remote', 'ls-tree', 'merge-base', 'merge-tree', 'name-rev',
+    'range-diff', 'rev-list', 'rev-parse', 'shortlog', 'show', 'show-branch',
+    'show-ref', 'status', 'verify-commit', 'verify-pack', 'verify-tag',
+    'whatchanged',
+]);
+
+function parsedGitCommand(command) {
+    const tokens = tokenizeDirectArgv(command);
+    if (!tokens?.length || !/(^|[\\/])git(?:\.exe)?$/i.test(tokens[0])) return null;
+    let index = 1;
+    while (index < tokens.length) {
+        const token = tokens[index];
+        if (token === '-C' || token === '-c' || token === '--git-dir' || token === '--work-tree' || token === '--namespace') {
+            index += 2;
+            continue;
+        }
+        if (/^-C.+/.test(token) || /^--(?:git-dir|work-tree|namespace)=/.test(token)
+            || ['--no-pager', '--paginate', '--bare', '--literal-pathspecs', '--glob-pathspecs', '--noglob-pathspecs', '--icase-pathspecs'].includes(token)) {
+            index++;
+            continue;
+        }
+        break;
+    }
+    return index < tokens.length ? { command: tokens[index], args: tokens.slice(index + 1) } : null;
+}
+
+function firstGitArg(args) {
+    return args.find((value) => value !== '--' && !value.startsWith('-')) || '';
+}
+
+function gitCallMutates(call) {
+    let args = call?.arguments ?? call?.function?.arguments ?? {};
+    if (typeof args === 'string') {
+        try { args = JSON.parse(args); } catch { return true; }
+    }
+    const parsed = parsedGitCommand(args?.command);
+    if (!parsed) return true;
+    const operation = parsed.command;
+    const action = firstGitArg(parsed.args);
+    if (READ_ONLY_GIT_COMMANDS.has(operation)) return false;
+    if (operation === 'reflog') return ['delete', 'expire'].includes(action);
+    if (operation === 'branch' || operation === 'tag') {
+        return parsed.args.length > 0 && !parsed.args.some((value) => ['--list', '-l', '-a', '--all', '-r', '--remotes', '--show-current'].includes(value));
+    }
+    if (operation === 'worktree') return !['', 'list'].includes(action);
+    if (operation === 'stash') return !['list', 'show'].includes(action);
+    if (operation === 'remote') return !['', 'show', 'get-url'].includes(action);
+    if (operation === 'config') {
+        return !parsed.args.some((value) => ['--list', '-l', '--get', '--get-all', '--get-regexp', '--show-origin', '--show-scope'].includes(value))
+            && parsed.args.filter((value) => !value.startsWith('-')).length > 1;
+    }
+    if (operation === 'clean') return !parsed.args.some((value) => value === '-n' || value === '--dry-run');
+    if (operation === 'bundle') return !['list-heads', 'verify'].includes(action);
+    if (operation === 'notes') return !['', 'list', 'show'].includes(action);
+    if (operation === 'replace') return parsed.args.length > 0 && !parsed.args.includes('--list');
+    if (operation === 'sparse-checkout') return action !== 'list';
+    if (operation === 'submodule') return !['', 'status', 'summary'].includes(action);
+    if (operation === 'symbolic-ref') return parsed.args.filter((value) => !value.startsWith('-')).length > 1;
+    if (operation === 'hash-object') return parsed.args.includes('-w') || parsed.args.includes('--stdin-paths');
+    return true;
+}
+
 function mutationBatch(toolCalls) {
     return toolCalls.some((call) => {
         const name = normalizeToolName(call?.name || call?.function?.name);
-        return name === 'apply_patch' || name === 'shell' || name === 'bash_session';
+        return name === 'apply_patch'
+            || name === 'shell'
+            || name === 'bash_session'
+            || (name === 'git' && gitCallMutates(call));
     });
 }
 

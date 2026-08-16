@@ -5,6 +5,16 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Tool execution now exposes complete shell exit status, adds a dedicated Git
+  surface, strengthens atomic patch creation and diagnostics, and improves
+  search, list, code-graph, and native graph integrity under concurrent load.
+- Session compaction, provider/image recovery, evidence tracking, shard health,
+  and Lead runtime cleanup now preserve state across failures without masking
+  degraded workers or triggering unnecessary fallback work.
+- Desktop routing, agent activity, restored pane state, and streamed Markdown
+  rendering now remain responsive and visually consistent across live and
+  resumed conversations.
+
 ## v0.9.131 - 2026-08-14
 
 - Release gates now run automatically with incremental path selection, desktop

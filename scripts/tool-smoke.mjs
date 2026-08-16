@@ -62,12 +62,17 @@ import { resolveHiddenRoleSchemaAllowedTools } from '../src/runtime/agent/orches
 import { assertCodeGraphDescriptionContract } from './code-graph-description-contract.mjs';
 import { getHiddenAgent, resolveAgentSessionPermission } from '../src/runtime/agent/orchestrator/internal-agents.mjs';
 import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
+import { stripShellExitHeader } from '../src/tui/session/tool-result-text.mjs';
 import { _argShapeSig, _isToolArgShapeFailure } from '../src/runtime/agent/orchestrator/session/loop/tool-classify.mjs';
 import { compactSettledToolCallBodies } from '../src/runtime/agent/orchestrator/session/loop/stored-tool-args.mjs';
 import { crossTurnDedupStub } from '../src/runtime/agent/orchestrator/session/loop/completion-guards.mjs';
 import { toolCompletionInstruction } from '../src/runtime/shared/tool-execution-contract.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+// This suite intentionally drives malformed/stale apply_patch cases. Keep
+// those fixtures out of the user's production failure and replay histories.
+process.env.MIXDOG_TOOL_FAILURE_LOG_PATH = join(tmpdir(), `mixdog-tool-smoke-failures-${process.pid}.jsonl`);
+process.env.MIXDOG_PATCH_REPLAY_CAPTURE = '0';
 const localGraphBin = join(
   root,
   'native',
@@ -85,7 +90,7 @@ function assert(condition, message) {
 }
 
 function assertOk(name, result, pattern = null) {
-  const text = String(result || '');
+  const text = String(normalizeToolEnvelope(result).result || '');
   if (!text || /^Error[\s:[]/.test(text)) {
     throw new Error(`${name} failed:\n${text}`);
   }
@@ -210,6 +215,48 @@ function assertOk(name, result, pattern = null) {
   ]);
   assert(computes === 1, `in-flight result cache should compute once, computed ${computes}`);
   assert(a === 'shared-result' && b === 'shared-result', 'in-flight result cache should share the first result');
+}
+
+{
+  const key = `tool-smoke-inflight-subscriber-abort-${Date.now()}-${Math.random()}`;
+  const first = new AbortController();
+  const second = new AbortController();
+  let computeAborted = false;
+  const compute = ({ signal }) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve('survived-first-subscriber-abort'), 20);
+    signal.addEventListener('abort', () => {
+      computeAborted = true;
+      clearTimeout(timer);
+      reject(new Error('shared compute aborted'));
+    }, { once: true });
+  });
+  const a = runResultCacheInFlight(key, compute, { signal: first.signal, scopes: ['/scope/a'] });
+  const b = runResultCacheInFlight(key, compute, { signal: second.signal, scopes: ['/scope/a'] });
+  first.abort();
+  let firstError = null;
+  try { await a; } catch (error) { firstError = error; }
+  assert(/operation aborted/.test(String(firstError?.message || '')), 'aborted subscriber should reject');
+  assert(await b === 'survived-first-subscriber-abort', 'remaining subscriber should keep shared compute alive');
+  assert(!computeAborted, 'one subscriber abort must not cancel another subscriber');
+}
+
+{
+  const key = `tool-smoke-inflight-scope-${Date.now()}-${Math.random()}`;
+  let resolveCompute;
+  let computeAborted = false;
+  const compute = ({ signal }) => new Promise((resolve, reject) => {
+    resolveCompute = resolve;
+    signal.addEventListener('abort', () => {
+      computeAborted = true;
+      reject(new Error('scoped compute aborted'));
+    }, { once: true });
+  });
+  const pending = runResultCacheInFlight(key, compute, { scopes: ['/scope/kept'] });
+  await new Promise((resolve) => setImmediate(resolve));
+  invalidateBuiltinResultCache(['/scope/unrelated']);
+  resolveCompute('scope-survived');
+  assert(await pending === 'scope-survived', 'unrelated invalidation must not abort in-flight compute');
+  assert(!computeAborted, 'unrelated invalidation must preserve in-flight scope');
 }
 
 {
@@ -817,15 +864,20 @@ if (!/^Error[\s:[]/.test(String(readDirOut)) || !/read expects a file/i.test(Str
   try {
     const firstImage = join(imageBatchTmp, 'first.png');
     const secondImage = join(imageBatchTmp, 'second.png');
+    const corruptImage = join(imageBatchTmp, 'corrupt.png');
     const textFile = join(imageBatchTmp, 'note.txt');
     const binaryFile = join(imageBatchTmp, 'sample.bin');
     const missingImage = join(imageBatchTmp, 'missing.png');
     const onePixelPng = Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl8Y5sAAAAASUVORK5CYII=',
+      'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAGklEQVR42u3BAQEAAACCIP+vbkhAAQAAAO8GECAAAcm1w7EAAAAASUVORK5CYII=',
       'base64',
     );
     writeFileSync(firstImage, onePixelPng);
     writeFileSync(secondImage, onePixelPng);
+    writeFileSync(corruptImage, Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl8Y5sAAAAASUVORK5CYII=',
+      'base64',
+    ));
     writeFileSync(textFile, 'batch text body\n', 'utf8');
     writeFileSync(binaryFile, Buffer.from([0x41, 0x00, 0x42, 0x43]));
 
@@ -845,6 +897,13 @@ if (!/^Error[\s:[]/.test(String(readDirOut)) || !/read expects a file/i.test(Str
       .join('\n');
     if (!contentHasImage(twoImageBatch) || rawImageCount !== 2 || /read_hex|89504e47/i.test(renderedText)) {
       throw new Error(`read path[] must retain two visual image blocks instead of binary hex: ${JSON.stringify(twoImageBatch)}`);
+    }
+    const corruptImageRead = await executeBuiltinTool('read', { path: corruptImage }, root);
+    const corruptParts = Array.isArray(corruptImageRead?.content) ? corruptImageRead.content : [];
+    if (corruptImageRead?.isError !== true
+      || corruptParts.some((part) => part?.type === 'image')
+      || !/invalid or corrupt/.test(corruptParts.map((part) => part?.text || '').join('\n'))) {
+      throw new Error(`corrupt image must fail locally without an image payload: ${JSON.stringify(corruptImageRead)}`);
     }
     const providerImageCounts = {
       anthropic: normalizeContentForAnthropic(twoImageBatch).filter((part) => part?.type === 'image').length,
@@ -1308,7 +1367,7 @@ const shellLocalCdOut = await executeBuiltinTool('shell', {
     : 'cd scripts && pwd',
   timeout_ms: 30_000,
 }, root, { sessionId: shellProjectCwdSession });
-const shellLocalCdPath = String(normalizeToolEnvelope(shellLocalCdOut).result).trim();
+const shellLocalCdPath = stripShellExitHeader(String(normalizeToolEnvelope(shellLocalCdOut).result)).trim();
 if (resolve(shellLocalCdPath) !== resolve(root, 'scripts')) {
   throw new Error(`shell command-local cd did not enter scripts: ${shellLocalCdOut}`);
 }
@@ -1318,7 +1377,7 @@ const shellProjectResetOut = await executeBuiltinTool('shell', {
     : 'pwd',
   timeout_ms: 30_000,
 }, root, { sessionId: shellProjectCwdSession });
-const shellProjectResetPath = String(normalizeToolEnvelope(shellProjectResetOut).result).trim();
+const shellProjectResetPath = stripShellExitHeader(String(normalizeToolEnvelope(shellProjectResetOut).result)).trim();
 if (resolve(shellProjectResetPath) !== root) {
   throw new Error(`one-shot shell leaked command-local cwd instead of returning to the Project root: ${shellProjectResetOut}`);
 }
@@ -1399,7 +1458,8 @@ const shellShortOut = await executeBuiltinTool('shell', {
   command: 'node -e "setTimeout(() => console.log(\'tool-smoke-short-inline-done\'), 300)"',
   timeout_ms: 5000,
 }, root, shellShortNotifyOptions);
-if (!/tool-smoke-short-inline-done/.test(String(shellShortOut)) || shellTaskId(shellShortOut)) {
+const shellShortText = String(normalizeToolEnvelope(shellShortOut).result);
+if (!/tool-smoke-short-inline-done/.test(shellShortText) || shellTaskId(shellShortText)) {
   throw new Error(`short shell command must complete inline without task_id:\n${shellShortOut}`);
 }
 if (shellShortNotifyEvents.length !== 0) {
@@ -1572,10 +1632,10 @@ for (const name of ['shell', 'task', 'agent', 'recall', 'search', 'web_fetch', '
 }
 
 const leadDefaults = defaultDeferredToolNames(smokeCatalog, 'lead');
-if (leadDefaults.size !== 15) {
-  throw new Error(`lead default catalog should contain both edit dialects (15 tools), got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
+if (leadDefaults.size !== 16) {
+  throw new Error(`lead default catalog should contain both edit dialects and git (16 tools), got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'shell', 'task', 'apply_patch', 'agent', 'recall', 'search', 'Skill', 'load_tool']) {
+for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'git', 'shell', 'task', 'apply_patch', 'agent', 'recall', 'search', 'Skill', 'load_tool']) {
   assertHas(leadDefaults, name);
 }
 for (const name of ['web_fetch', 'cwd', 'session_manage']) {
@@ -2108,7 +2168,7 @@ setInternalToolsProvider({
     // No terminal-action tool is registered: a no-tool assistant message ends
     // the turn, so the schema carries capabilities only.
     const expectedReadTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
-    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'edit', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
+    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'edit', 'git', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
     if (JSON.stringify(readTools) !== JSON.stringify(expectedReadTools)) {
       throw new Error(`read agent schema must be fixed allow-list: expected=${expectedReadTools.join(', ')} actual=${readTools.join(', ')}`);
     }
@@ -2126,7 +2186,7 @@ setInternalToolsProvider({
         throw new Error(`read agent schema must carry verification tool ${name}: read=${readTools.join(', ')}`);
       }
     }
-    for (const name of ['edit', 'shell', 'task']) {
+    for (const name of ['edit', 'git', 'shell', 'task']) {
       if (!writeTools.includes(name)) {
         throw new Error(`read-write agent schema must preserve ${name}: write=${writeTools.join(', ')}`);
       }
@@ -2136,8 +2196,8 @@ setInternalToolsProvider({
         throw new Error(`read/read-write agent schema must not expose full-runtime internal tool ${name}: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
       }
     }
-    if (!fullTools.includes('shell')) {
-      throw new Error(`full agent schema must retain shell: full=${fullTools.join(', ')}`);
+    if (!fullTools.includes('shell') || !fullTools.includes('git')) {
+      throw new Error(`full agent schema must retain shell and git: full=${fullTools.join(', ')}`);
     }
   } finally {
     closeSession(readAgentSession.id, 'tool-smoke');
@@ -2155,7 +2215,7 @@ setInternalToolsProvider({
   try {
     const resumed = await resumeSession(resumeAgentSession.id, 'full');
     const resumedTools = (resumed?.tools || []).map((tool) => tool?.name).filter(Boolean);
-    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'edit', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
+    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'edit', 'git', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
     if (JSON.stringify(resumedTools) !== JSON.stringify(expectedWriteTools)) {
       throw new Error(`resumed read-write agent schema must keep fixed allow-list: expected=${expectedWriteTools.join(', ')} actual=${resumedTools.join(', ')}`);
     }
@@ -2276,9 +2336,9 @@ if (!/one file operation per target path/i.test(patchTool?.description || '')
     || !/Add File.*Delete File.*Update File/s.test(patchTool?.description || '')) {
   throw new Error(`apply_patch JSON fallback must expose Codex target and context rules: ${JSON.stringify(patchTool)}`);
 }
-const OAI_V4A_APPLY_PATCH_FREEFORM_DESCRIPTION =
-  'The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.';
-if (patchTool?.freeformDescription !== OAI_V4A_APPLY_PATCH_FREEFORM_DESCRIPTION
+if (!/^The `apply_patch` tool can be used to edit files\. This is a FREEFORM tool, so do not wrap the patch in JSON\./.test(patchTool?.freeformDescription || '')
+    || !/one file operation block per target path/i.test(patchTool?.freeformDescription || '')
+    || !/exact current lines already in context/i.test(patchTool?.freeformDescription || '')
     || patchTool?.freeform?.type !== 'grammar'
     || patchTool?.freeform?.syntax !== 'lark') {
   throw new Error(`apply_patch must expose freeform grammar metadata: ${JSON.stringify(patchTool)}`);
@@ -2316,7 +2376,7 @@ for (const requiredGrammarLine of [
   if (wirePatchTool?.type !== 'custom' || wirePatchTool?.format?.syntax !== 'lark') {
     throw new Error(`OpenAI Responses apply_patch must serialize as a custom grammar tool: ${JSON.stringify(wirePatchTool)}`);
   }
-  if (wirePatchTool.description !== OAI_V4A_APPLY_PATCH_FREEFORM_DESCRIPTION) {
+  if (wirePatchTool.description !== patchTool.freeformDescription) {
     throw new Error(`OpenAI Responses apply_patch must use freeform description: ${JSON.stringify(wirePatchTool)}`);
   }
   const customCall = body.input?.find((item) => item.type === 'custom_tool_call');
@@ -2964,7 +3024,10 @@ for (const [label, schema] of [
   if (schema?.type !== 'integer') throw new Error(`${label} must expose integer schema: ${JSON.stringify(schema)}`);
 }
 if (!/wildcard-matching paths under a known base/i.test(globTool?.description || '')
-    || !/when those paths are needed/i.test(globTool?.description || '')) {
+    || !/when those paths are needed/i.test(globTool?.description || '')
+    || !/Omit path for the current Project/i.test(globTool?.description || '')
+    || !/base location is unknown, use find first/i.test(globTool?.description || '')
+    || !/Known existing base directory/i.test(globTool?.inputSchema?.properties?.path?.description || '')) {
   throw new Error('glob description must state its known-base wildcard path contract');
 }
 if (globTool?.inputSchema?.properties?.pattern?.type !== 'string'

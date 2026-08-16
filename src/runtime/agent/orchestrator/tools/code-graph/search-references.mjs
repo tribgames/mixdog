@@ -33,6 +33,13 @@ import {
 
 import { _extractCallees, _formatCalleeRow, _cheapReferenceSearch, _formatSymbolHitLocation, _findSymbolHits, _augmentNoHitDiagnostic } from './search.mjs';
 
+export function _formatFullSymbolBody(srcText, startLine, endLine) {
+  const all = String(srcText || '').split('\n');
+  const start = Math.max(1, Number(startLine) || 1);
+  const end = Math.min(all.length, Math.max(start, Number(endLine) || start));
+  return all.slice(start - 1, end).map((line, index) => `${start + index}: ${line}`).join('\n');
+}
+
 function _parseReferenceEntries(referenceText) {
   if (typeof referenceText !== 'string' || !referenceText.trim() || referenceText === '(no references)') {
     return [];
@@ -219,21 +226,7 @@ export function _findSymbolAcrossGraph(graph, symbol, cwd, { language = null, li
         if (!Number.isFinite(end) || end < start) {
           end = _inferSpanEndByIndent(all, start) ?? start;
         }
-        end = Math.min(end, start + 299);
-        const BODY_FULL_MAX = 120;
-        const BODY_HEAD = 90;
-        const BODY_TAIL = 20;
-        const fmt = (i) => `${start + i}: ${all[start - 1 + i]}`;
-        const span = end - start + 1;
-        if (span > BODY_FULL_MAX) {
-          const head = Array.from({ length: BODY_HEAD }, (_, i) => fmt(i));
-          const tail = Array.from({ length: BODY_TAIL }, (_, i) => fmt(span - BODY_TAIL + i));
-          const elided = span - BODY_HEAD - BODY_TAIL;
-          head.push(`... [${elided} lines elided — full body: read ${primary.rel} symbol=${symbol}]`);
-          lines.push([...head, ...tail].join('\n'));
-        } else {
-          lines.push(all.slice(start - 1, end).map((l, i) => `${start + i}: ${l}`).join('\n'));
-        }
+        lines.push(_formatFullSymbolBody(srcText, start, end));
         bodyEmitted = true;
       }
     }

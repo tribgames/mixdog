@@ -54,6 +54,7 @@ const SESSION_ROUTE_TOOL_ORDER = [
     'read',
     'edit',
     'apply_patch',
+    'git',
     'shell',
     'task',
 ];
@@ -133,6 +134,7 @@ const AGENT_STRING_PERMISSION_READ_WRITE_ALLOW = Object.freeze([
     'read',
     'edit',
     'apply_patch',
+    'git',
     'shell',
     'task',
     'search',
@@ -276,12 +278,11 @@ function _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession = fa
                     addMany(ALL_BUILTIN_SESSION_TOOLS.filter(t => READONLY_TOOL_NAMES.has(t.name)));
                     break;
                 case 'tools:shell':
-                case 'tools:git':
                 case 'tools:analysis':
-                    // Shell-class toolset. `tools:git` / `tools:analysis` exist so
-                    // profile authors can name the intent (git workflows / data
-                    // analysis) without inventing new toolset ids.
                     addMany(ALL_BUILTIN_SESSION_TOOLS.filter(t => t.name === 'shell' || t.name === 'task'));
+                    break;
+                case 'tools:git':
+                    addMany(ALL_BUILTIN_SESSION_TOOLS.filter(t => t.name === 'git' || t.name === 'shell' || t.name === 'task'));
                     break;
                 case 'tools:mcp':
                     addMany(mcp);
