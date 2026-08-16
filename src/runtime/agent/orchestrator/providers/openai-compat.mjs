@@ -699,6 +699,10 @@ export class OpenAICompatProvider {
         if (previousResponseId) params.previous_response_id = previousResponseId;
         const nativeTools = nativeResponsesTools(opts);
         if (tools?.length || nativeTools.length) params.tools = [...nativeTools, ...toResponsesTools(tools || [], { provider: 'xai' })];
+        // Explicit parallel tool calls, matching the OpenAI Responses
+        // reference shape. Probe-verified accepted by api.x.ai (HTTP 200,
+        // 2026-08-16); absent, the service default decides per turn.
+        if (params.tools?.length) params.parallel_tool_calls = true;
         // SSE transport: report 'requesting' until the stream opens, then
         // per-chunk onStreamDelta feeds the agent stall watchdog.
         try { opts.onStageChange?.('requesting'); } catch { /* heartbeat best-effort */ }
@@ -911,6 +915,8 @@ export class OpenAICompatProvider {
         else if (instructions) params.instructions = instructions;
         const nativeTools = nativeResponsesTools(opts);
         if (tools?.length || nativeTools.length) params.tools = [...nativeTools, ...toResponsesTools(tools || [], { provider: 'xai' })];
+        // Same explicit parallel-tool-calls contract as the HTTP/SSE path.
+        if (params.tools?.length) params.parallel_tool_calls = true;
         const reasoningEffort = normalizeXaiReasoningEffort(opts.xaiReasoningEffort
             ?? opts.effort
             ?? this.config?.reasoningEffort
