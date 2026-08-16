@@ -254,7 +254,11 @@ export async function executeListTool(args, workDir, options = {}) {
     if (windowed.length > sliced.length) lines.push(`... [entries ${offset + 1}-${offset + sliced.length} of ${rows.length}; pass offset:${offset + sliced.length} to continue]`);
     if (truncatedByCap) lines.push(`... walk truncated at ${LIST_ABSOLUTE_CAP} rows or ${LIST_WALK_TIMEOUT_MS}ms timeout; narrow the path or lower depth for a complete listing`);
     let emptyMsg = '(empty directory)';
-    if (lines.length === 0 && (typeFilter !== 'any' || hidden === false)) {
+    if (lines.length === 0 && offset > 0 && rows.length > 0) {
+        // Offset past the end is a windowing condition, not a filter one —
+        // blaming hidden/type filters here misdirects the next call.
+        emptyMsg = `(no entries after offset=${offset}; total=${rows.length}) path=${inputPath}`;
+    } else if (lines.length === 0 && (typeFilter !== 'any' || hidden === false)) {
         const filterParts = [];
         if (typeFilter !== 'any') filterParts.push(`type=${typeFilter}`);
         if (hidden === false) {
