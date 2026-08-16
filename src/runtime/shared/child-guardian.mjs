@@ -146,6 +146,13 @@ let brokerRestartTimer = null;
 let brokerTargetSweepTimer = null;
 const brokerTargets = new Map();
 
+// Test-only: the broker may legitimately self-heal across a restart (an add
+// racing the empty-grace exit is respawned with every target re-sent), so
+// specs must assert against the CURRENT broker pid, not a captured one.
+export function _sharedBrokerPidForTest() {
+  return sharedBroker?.pid || null;
+}
+
 function sendBrokerMessage(message) {
   try {
     if (!sharedBroker?.stdin?.writable) return false;
