@@ -48,7 +48,6 @@ const MAX_PERSISTED_PROMPT_HISTORY_CHARS = 2_000_000;
 export const COMPOSER_PLACEHOLDERS = ['Ask anything…'] as const;
 
 export const PROJECT_CONTEXT_LOCAL = "__mixdog_local__";
-export const PROJECT_CONTEXT_OPEN = "__mixdog_open__";
 
 export function promptHistoryStorageKey(scope: string) {
   return `${PROMPT_HISTORY_STORAGE_PREFIX}${encodeURIComponent(scope || 'new-task')}`;
@@ -142,14 +141,13 @@ export async function fileLooksLikeText(file: File): Promise<boolean> {
   }
 }
 
-export function ProjectContextSelector({ projects, activePath, activeLabel, disabled, onClear, onSelect, onChoose }: {
+export function ProjectContextSelector({ projects, activePath, activeLabel, disabled, onClear, onSelect }: {
   projects: DesktopProjectSummary[];
   activePath: string;
   activeLabel: string;
   disabled: boolean;
   onClear(): void;
   onSelect(path: string): void;
-  onChoose(): void;
 }) {
   const normalized = activePath.replace(/[\\/]+/g, "/").toLocaleLowerCase();
   const activeProject = projects.find((project) =>
@@ -160,7 +158,6 @@ export function ProjectContextSelector({ projects, activePath, activeLabel, disa
       value: project.path,
       label: project.alias?.trim() || project.name?.trim() || displayProject(project.path).name || "Project",
     })),
-    { value: PROJECT_CONTEXT_OPEN, label: "Open folder…" },
   ];
   const value = activeProject?.path || PROJECT_CONTEXT_LOCAL;
   return <div className="composer-project-context">
@@ -168,8 +165,7 @@ export function ProjectContextSelector({ projects, activePath, activeLabel, disa
     <OpenSelect className="context-pill-select project-context-select" ariaLabel="Project context"
       value={value} displayValue={activeProject ? activeLabel || "Project" : "Project"} disabled={disabled}
       options={options} onChange={(next) => {
-        if (next === PROJECT_CONTEXT_OPEN) onChoose();
-        else if (next === PROJECT_CONTEXT_LOCAL) {
+        if (next === PROJECT_CONTEXT_LOCAL) {
           if (activeProject) onClear();
         } else if (next !== activeProject?.path) onSelect(next);
       }} />

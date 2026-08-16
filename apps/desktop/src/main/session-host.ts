@@ -153,6 +153,7 @@ export class SessionHost implements DesktopService {
   private readonly taskWorkspacePath: string;
   private shellSnapshot: SessionSnapshot = null;
   private controlSessionId = '';
+  private controlSessionPromise: Promise<string> | null = null;
   private rawSessionRows: Array<Record<string, unknown>> = [];
   private sessionCatalogLoaded = false;
   private sessionCatalogPromise: Promise<DesktopSessionSummary[]> | null = null;
@@ -443,14 +444,23 @@ export class SessionHost implements DesktopService {
 
   private async ensureControlSession(): Promise<string> {
     if (this.controlSessionId) return this.controlSessionId;
-    const result = await this.sessionClient.create({
-      cwd: await this.taskWorkspace(),
-      desktopSession: null,
-    }, this.callOptions(`service-control-create:${process.pid}:${randomUUID()}`));
-    const sessionId = sessionIdOf(result.sessionId);
-    this.controlSessionId = sessionId;
-    this.applySessionResult(sessionId, result, false);
-    return sessionId;
+    if (this.controlSessionPromise) return this.controlSessionPromise;
+    const pending = (async () => {
+      const result = await this.sessionClient.create({
+        cwd: await this.taskWorkspace(),
+        desktopSession: null,
+      }, this.callOptions(`service-control-create:${process.pid}:${randomUUID()}`));
+      const sessionId = sessionIdOf(result.sessionId);
+      this.controlSessionId = sessionId;
+      this.applySessionResult(sessionId, result, false);
+      return sessionId;
+    })();
+    this.controlSessionPromise = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.controlSessionPromise === pending) this.controlSessionPromise = null;
+    }
   }
 
   private async invokeControlResult(

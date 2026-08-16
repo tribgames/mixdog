@@ -432,6 +432,52 @@ export function PaneSurfaceCover({
   </div>;
 }
 
+type PersistentSurfaceScroll = { top: number; left: number };
+
+/**
+ * Relocate the portal host without losing the scroll/focus state its surfaces
+ * depend on. `appendChild` detaches the subtree first, which resets every
+ * scroller inside it to 0 and drops DOM focus — a moved pane's virtualized
+ * transcript then painted blank, because the viewport snapped to 0 while the
+ * virtual core kept rendering rows at its previous offset. `moveBefore` moves
+ * the subtree atomically where available; the explicit restore covers the
+ * fallback path and anything the atomic move does not carry.
+ */
+function movePersistentPaneHost(
+  host: HTMLElement,
+  target: HTMLElement,
+  scrollOffsets: Map<Element, PersistentSurfaceScroll>,
+): void {
+  const focused = document.activeElement;
+  const refocus = focused instanceof HTMLElement && host.contains(focused)
+    ? focused
+    : null;
+  const mover = target as HTMLElement & {
+    moveBefore?: (node: Node, child: Node | null) => void;
+  };
+  let moved = false;
+  if (host.isConnected && typeof mover.moveBefore === "function") {
+    try {
+      mover.moveBefore(host, null);
+      moved = true;
+    } catch {
+      // State-preserving moves are a fast path only.
+    }
+  }
+  if (!moved) target.appendChild(host);
+  for (const [element, offset] of scrollOffsets) {
+    if (!host.contains(element)) {
+      scrollOffsets.delete(element);
+      continue;
+    }
+    if (element.scrollTop !== offset.top) element.scrollTop = offset.top;
+    if (element.scrollLeft !== offset.left) element.scrollLeft = offset.left;
+  }
+  if (refocus && document.activeElement !== refocus) {
+    refocus.focus({ preventScroll: true });
+  }
+}
+
 /**
  * A fixed DOM host whose React subtree survives moving between pane slots.
  * Moving the host node mirrors Orca's terminal portal and avoids remounting
@@ -453,9 +499,28 @@ export function PersistentPanePortal({
     element.className = `persistent-pane-surface${className ? ` ${className}` : ""}`;
     return element;
   });
+  // Scroll offsets are recorded from the surfaces' own scroll events, so the
+  // relocation itself never has to force layout to read them back.
+  const [scrollOffsets] = useState(() => new Map<Element, PersistentSurfaceScroll>());
+  useLayoutEffect(() => {
+    const remember = (event: Event) => {
+      const element = event.target;
+      if (!(element instanceof Element) || !host.contains(element)) return;
+      scrollOffsets.set(element, {
+        top: element.scrollTop,
+        left: element.scrollLeft,
+      });
+    };
+    // scroll does not bubble; a capture listener on the host still sees every
+    // scroller inside the portal subtree.
+    host.addEventListener("scroll", remember, true);
+    return () => host.removeEventListener("scroll", remember, true);
+  }, [host, scrollOffsets]);
   useLayoutEffect(() => {
     const target = document.getElementById(targetId);
-    if (target && host.parentElement !== target) target.appendChild(host);
+    if (target && host.parentElement !== target) {
+      movePersistentPaneHost(host, target, scrollOffsets);
+    }
   });
   // React portal events follow the owner tree, not this host's physical DOM
   // ancestry. Listen on the host itself so clicking Studio/xterm/diff inside

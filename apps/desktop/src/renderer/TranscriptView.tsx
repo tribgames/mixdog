@@ -133,11 +133,15 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
     const startedAt = timeMs(job.startedAt);
     if (startedAt > 0) oldestAgentStart = Math.min(oldestAgentStart, startedAt);
   });
-  const runningCount = taggedRunningKeys.size + untaggedRunningCount;
+  const workerCount = taggedRunningKeys.size + untaggedRunningCount;
   const tools = snapshot.activeTools || {};
   const searchCount = Math.max(0, Number(tools.search?.count) || 0);
-  const shellCount = Math.max(0, Number(snapshot.shellJobs?.count) || 0);
-  const active = runningCount > 0 || searchCount > 0 || shellCount > 0;
+  const agentCount = Math.max(workerCount, Math.max(0, Number(tools.agent?.count) || 0));
+  const shellCount = Math.max(
+    Math.max(0, Number(snapshot.shellJobs?.count) || 0),
+    Math.max(0, Number(tools.shell?.count) || 0),
+  );
+  const active = agentCount > 0 || searchCount > 0 || shellCount > 0;
   useEffect(() => {
     if (fixedNow !== undefined || !active) return undefined;
     setClock(Date.now());
@@ -147,7 +151,7 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
   if (!active) return null;
   // Aggregate chip (user decision): ONE quiet spinner+count left of the
   // context gauge; the per-activity breakdown lives in a hover popover.
-  const total = runningCount + searchCount + shellCount;
+  const total = agentCount + searchCount + shellCount;
   const row = (key: string, label: string, elapsed: string) => <div className="live-work-row" key={key}>
     <span>{label}</span>
     {elapsed && <small>{elapsed}</small>}
@@ -159,12 +163,15 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
     <ProgressSpinner className="live-work-spinner" size={16} aria-hidden="true" />
     <span className="live-work-count">{total}</span>
     <div className="live-work-popover" role="tooltip">
-      {runningCount > 0 && row("agents", `${runningCount === 1 ? t("Agent") : t("Agents")} ${runningCount}`,
-        Number.isFinite(oldestAgentStart) ? formatWorkElapsed(clock - oldestAgentStart) : "")}
+      {agentCount > 0 && row("agents", `${agentCount === 1 ? t("Agent") : t("Agents")} ${agentCount}`,
+        Number.isFinite(oldestAgentStart)
+          ? formatWorkElapsed(clock - oldestAgentStart)
+          : tools.agent?.startedAt ? formatWorkElapsed(clock - Number(tools.agent.startedAt)) : "")}
       {searchCount > 0 && row("search", t("Web search"),
         tools.search?.startedAt ? formatWorkElapsed(clock - Number(tools.search.startedAt)) : "")}
       {shellCount > 0 && row("shells", `${t("Shell")} ${shellCount}`,
-        String(snapshot.shellJobs?.elapsedLabel || ""))}
+        String(snapshot.shellJobs?.elapsedLabel || "")
+          || (tools.shell?.startedAt ? formatWorkElapsed(clock - Number(tools.shell.startedAt)) : ""))}
     </div>
   </div>;
 }

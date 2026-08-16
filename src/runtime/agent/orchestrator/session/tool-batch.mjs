@@ -30,6 +30,7 @@ import { isInvalidToolArgsMarker, formatInvalidToolArgsResult } from '../provide
 import {
     _stripMcpPrefix, _isReadTool, _isMutationTool, _isScopedCacheableTool,
     _isShellTool, _intraTurnSig, _argShapeSig, _isToolArgShapeFailure,
+    _repeatFailureSig, _repeatFailurePatternWouldContinue,
 } from './loop/tool-classify.mjs';
 import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
@@ -223,14 +224,22 @@ export async function processToolBatch(ctx) {
             // in a row across iterations, stop re-executing — the result will
             // not change, and each retry burns a full (often slow) LLM
             // round-trip until the hard iteration cap.
-            const _repeatFailSig = _intraTurnSig(call.name, call.arguments);
+            const _repeatFailSig = _repeatFailureSig(call.name, call.arguments, cwd);
             const _repeatArgShapeSig = _argShapeSig(call.name, call.arguments);
             {
                 const _rfg = sessionRef?._repeatFailGuard;
-                if (_rfg && _rfg.sig === _repeatFailSig && _rfg.count >= repeatFailLimit) {
+                const _cycleLength = _repeatFailurePatternWouldContinue(
+                    sessionRef?._repeatFailHistory,
+                    _repeatFailSig,
+                    repeatFailLimit,
+                );
+                if ((_rfg && _rfg.sig === _repeatFailSig && _rfg.count >= repeatFailLimit) || _cycleLength > 0) {
+                    const _detail = _cycleLength > 1
+                        ? `A ${_cycleLength}-call normalized failure pattern repeated ${repeatFailLimit} times`
+                        : `Identical normalized \`${call.name}\` call failed ${_rfg?.count ?? repeatFailLimit} times`;
                     _stageToolResultMessage({
                         role: 'tool',
-                        content: `[repeat-failure-guard] Identical \`${call.name}\` call failed ${_rfg.count} times; not re-executed. Retry only after its inputs or subject change; otherwise leave it unresolved.`,
+                        content: `[repeat-failure-guard] ${_detail}; not re-executed. Retry only after its inputs or subject change; otherwise leave it unresolved.`,
                         toolCallId: call.id,
                         // The call is still unresolved; the guard only skips
                         // re-execution and must not read as success.
@@ -497,8 +506,15 @@ export async function processToolBatch(ctx) {
                     sessionRef._repeatFailGuard = (sessionRef._repeatFailGuard?.sig === _repeatFailSig)
                         ? { sig: _repeatFailSig, count: sessionRef._repeatFailGuard.count + 1 }
                         : { sig: _repeatFailSig, count: 1 };
+                    const _history = Array.isArray(sessionRef._repeatFailHistory)
+                        ? sessionRef._repeatFailHistory
+                        : [];
+                    _history.push(_repeatFailSig);
+                    if (_history.length > 25) _history.splice(0, _history.length - 25);
+                    sessionRef._repeatFailHistory = _history;
                 } else {
                     sessionRef._repeatFailGuard = null;
+                    sessionRef._repeatFailHistory = [];
                 }
                 if (_failed && _isToolArgShapeFailure(result)) {
                     sessionRef._repeatArgShapeFailGuard = (sessionRef._repeatArgShapeFailGuard?.sig === _repeatArgShapeSig)

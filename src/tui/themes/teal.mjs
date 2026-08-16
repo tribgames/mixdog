@@ -3,7 +3,7 @@
  *
  * Values: accent teal #8abeb7, body text #d4d4d4, page bg #18181e,
  * green #b5bd68, red #cc6666, warning pure yellow #ffff00, blue #81a2be,
- * mdHeading #f0c674, gray #808080. Syntax uses a VS Code Dark+-style palette
+ * mdHeading #f0c674, gray #808080. Syntax uses a dark editor palette
  * (keyword #569CD6, string #CE9178, function #DCDCAA, etc.). Spreads
  * `basePalette` first so the full key set is always present.
  */

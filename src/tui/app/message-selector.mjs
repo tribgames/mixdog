@@ -1,5 +1,5 @@
 /**
- * app/message-selector.mjs — Claude Code's "jump back to a previous message"
+ * app/message-selector.mjs — jump back to a previous message
  * list, opened by a double Escape from an EMPTY prompt while idle.
  *
  * Selecting a row rewinds the conversation to just before that prompt and

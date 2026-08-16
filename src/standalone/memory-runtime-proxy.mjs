@@ -661,11 +661,26 @@ export function createStandaloneMemoryRuntime({
     }, { readOnlyRpc: true });
   }
 
-  async function stop() {
+  async function stop({ waitForExit = false, timeoutMs = 10_000 } = {}) {
     // Deregister this client so a shared daemon can reap itself within the
     // seconds-scale client grace once no clients remain, then detach. We never
     // hard-kill the daemon here — another tab/session may still be using it.
+    const ownedChild = child;
+    const childExit = waitForExit && ownedChild && ownedChild.exitCode == null
+      ? new Promise((resolveExit, rejectExit) => {
+          const onExit = () => {
+            clearTimeout(timer);
+            resolveExit(true);
+          };
+          const timer = setTimeout(() => {
+            ownedChild.off('exit', onExit);
+            rejectExit(new Error(`memory runtime did not exit within ${timeoutMs}ms`));
+          }, Math.max(1, Number(timeoutMs) || 10_000));
+          ownedChild.once('exit', onExit);
+        })
+      : null;
     await deregisterClient();
+    if (childExit) await childExit;
     try { child?.disconnect?.(); } catch {}
     try { child?.unref?.(); } catch {}
     child = null;
@@ -711,4 +726,23 @@ export function getStandaloneMemoryRuntime(options = {}) {
     sharedMemoryRuntimes.set(key, runtime);
   }
   return runtime;
+}
+
+export async function stopStandaloneMemoryRuntimesForProcess(options = {}) {
+  const failures = [];
+  let stopped = 0;
+  for (const [key, runtime] of [...sharedMemoryRuntimes]) {
+    try {
+      await runtime.stop(options);
+      if (sharedMemoryRuntimes.get(key) === runtime) sharedMemoryRuntimes.delete(key);
+      stopped += 1;
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'memory runtimes failed to stop');
+  }
+  return stopped;
 }

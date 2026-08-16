@@ -1,4 +1,4 @@
-// Monaco DiffEditor surface for the git diff tab (VS Code diff parity):
+// Monaco DiffEditor surface for the Git diff tab:
 // character-level inline highlights, margin revert arrows, and an editable
 // modified side for working-tree diffs (Ctrl+S saves through the CAS write).
 // Contents load here so the host pane stays patch-based for the text modes.

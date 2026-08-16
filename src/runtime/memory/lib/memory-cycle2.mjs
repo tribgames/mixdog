@@ -658,6 +658,21 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
     }
   }
 
+  // Packet-level failures cool down only the roots from failed packets.
+  // Successful packets from the same cycle remain applied; deferred roots were
+  // never dispatched and stay untouched for the next scheduled cycle.
+  const failedGateIds = [...new Set((gateResult.failedIds ?? []).map(Number).filter(Number.isFinite))]
+  if (failedGateIds.length > 0) {
+    try {
+      await db.query(
+        `UPDATE entries
+         SET error_count = COALESCE(error_count, 0) + 1, reviewed_at = $1
+         WHERE id = ANY($2::bigint[])`,
+        [sweepCursor, failedGateIds],
+      )
+    } catch {}
+  }
+
   // Rejected verb rows: advance reviewed_at + bump error_count so an all-reject
   // batch does not loop forever. error_count ASC sort pushes them to the back.
   if (gateResult.rejected && gateResult.rejected.size > 0) {

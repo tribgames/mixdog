@@ -151,8 +151,9 @@ function generateSigningSecret(): string {
   return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
 }
 
-function ConnectionRow({ label, value, placeholder, copied, onCopy }: {
+function ConnectionRow({ label, note, value, placeholder, copied, onCopy }: {
   label: string;
+  note: string;
   value: string;
   placeholder: string;
   copied: boolean;
@@ -160,6 +161,7 @@ function ConnectionRow({ label, value, placeholder, copied, onCopy }: {
 }) {
   return <div className="schedules-field webhook-connection-row">
     <span>{label}</span>
+    <small>{note}</small>
     <div className="webhook-connection-value">
       <code>{value || placeholder}</code>
       {/* Icon-only copy (user decision): the value itself is the label. */}
@@ -284,7 +286,8 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
           ...(editing ? { overwrite: true } : {}),
         });
       }}>
-        <label className="schedules-field">{t('Name')}
+        <label className="schedules-field"><span>{t('Name')}</span>
+          <small>{t('Used in the endpoint URL and webhook lists.')}</small>
           <input name="webhook-name" defaultValue={draft.name} placeholder="github-issues" required autoFocus
             disabled={busy || editing} maxLength={64}
             onChange={(event) => setUrlName(event.currentTarget.value)} />
@@ -336,6 +339,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
         </div>
         <div className="schedules-field">
           <span>{t('Project')}</span>
+          <small>{t('Project used for each run.')}</small>
           <div className="schedules-frequency">
             <OpenSelect ariaLabel={t("Webhook project")} value={cwd || '__none__'} disabled={busy}
               options={projectOptions} onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
@@ -343,6 +347,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
         </div>
         <div className="schedules-field">
           <span>{t('Delivery')}</span>
+          <small>{t('Where completed results are sent.')}</small>
           <div className="schedules-frequency">
             <OpenSelect ariaLabel={t("Webhook delivery")} value={delivery} disabled={busy}
               options={DELIVERY_OPTIONS} onChange={setDelivery} />
@@ -350,6 +355,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
         </div>
         <div className="schedules-field">
           <span>{t('Payload format')}</span>
+          <small>{t('How the request body is interpreted.')}</small>
           <div className="schedules-frequency">
             <OpenSelect ariaLabel={t("Webhook payload format")} value={parser} disabled={busy}
               options={PARSER_OPTIONS} onChange={setParser} />
@@ -359,7 +365,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
             visible; the signing secret shows only when freshly minted —
             create pre-mints it, edit offers Regenerate instead. */}
         <div className="webhook-connection" aria-label={t("Connection details")}>
-          <ConnectionRow label={t("Endpoint URL")}
+          <ConnectionRow label={t("Endpoint URL")} note={t("Call this URL to trigger the webhook.")}
             value={editing ? endpointUrl(publicBase, draft.name) : previewUrl}
             placeholder={publicBase
               ? t('Type a name to preview the endpoint URL')
@@ -369,12 +375,14 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
           {editing && !rotated
             ? <div className="schedules-field webhook-connection-row">
               <span>{t('Signing secret')}</span>
+              <small>{t('The saved secret stays hidden. Regenerate it to create a new one.')}</small>
               <div className="webhook-connection-value">
                 <button type="button" className="settings-action" disabled={busy}
                   onClick={() => setRotated(generateSigningSecret())}>{t('Regenerate secret')}</button>
               </div>
             </div>
-            : <ConnectionRow label={t("Signing secret")} value={editing ? rotated : secret}
+            : <ConnectionRow label={t("Signing secret")} note={t("Sign requests with this secret — copy it now.")}
+              value={editing ? rotated : secret}
               placeholder={t("Secret unavailable")}
               copied={copiedField === 'secret'}
               onCopy={() => copyField('secret', editing ? rotated : secret)} />}

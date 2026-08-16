@@ -16,8 +16,8 @@ export function useTranscriptActivity({ state }) {
     jobs: (state.agentJobs || []).map((j) => [j.task_id, j.status, j.tag, j.sessionId, j.startedAt, j.finishedAt, j.error]).slice(0, 20),
   }), [state.agentWorkers, state.agentJobs]);
 
-  // The L2 web-search segment is the MAIN session's own running
-  // tool cards (NOT agentWorkers/agentJobs). Derive pending counts + oldest
+  // Surface-tool activity is the MAIN session's own running tool cards.
+  // Derive pending counts + oldest
   // start time straight from the live transcript tool cards. A card is pending
   // until completedCount >= count. (Do NOT use completedAt as the terminal
   // signal: engine patchToolCardResult stamps completedAt on EVERY aggregate
@@ -36,8 +36,9 @@ export function useTranscriptActivity({ state }) {
     // only when the engine did not publish it (older snapshot).
     if (state.activeToolSummary !== undefined) return state.activeToolSummary || '';
     const items = state.items || [];
-    let searchCount = 0;
-    let searchStart = 0;
+    let shellCount = 0, shellStart = 0;
+    let searchCount = 0, searchStart = 0;
+    let agentCount = 0, agentStart = 0;
     for (const it of items) {
       if (!it || it.kind !== 'tool') continue;
       const count = Math.max(1, Number(it.count || 1));
@@ -53,31 +54,47 @@ export function useTranscriptActivity({ state }) {
         : Math.max(0, Math.min(count, Number(it.completedCount || (it.result == null ? 0 : count))));
       if (done >= count) continue; // resolved card (matches toolItemPendingForRows)
       const started = Number(it.startedAt || 0);
+      let shellHits = 0;
       let searchHits = 0;
+      let agentHits = 0;
       if (it.aggregate && it.categories && typeof it.categories === 'object') {
         for (const v of Object.values(it.categories)) {
           const cat = v && typeof v === 'object' ? v.category : null;
           const c = Math.max(1, Number(v && typeof v === 'object' ? v.count : 1) || 1);
+          if (cat === 'Shell') shellHits += c;
           if (cat === 'Web Research') searchHits += c;
+          if (cat === 'Agent') agentHits += c;
         }
       } else if (it.name) {
         const cat = classifyToolCategory(it.name, it.args || {});
+        if (cat === 'Shell') shellHits = count;
         if (cat === 'Web Research') searchHits = count;
+        if (cat === 'Agent') agentHits = count;
+      }
+      if (shellHits > 0) {
+        shellCount += shellHits;
+        if (started > 0 && (shellStart === 0 || started < shellStart)) shellStart = started;
       }
       if (searchHits > 0) {
         searchCount += searchHits;
         if (started > 0 && (searchStart === 0 || started < searchStart)) searchStart = started;
       }
+      if (agentHits > 0) {
+        agentCount += agentHits;
+        if (started > 0 && (agentStart === 0 || started < agentStart)) agentStart = started;
+      }
     }
-    if (!searchCount) return '';
-    return `0:0:${searchCount}:${searchStart}`;
+    if (!shellCount && !searchCount && !agentCount) return '';
+    return `${shellCount}:${shellStart}:${searchCount}:${searchStart}:${agentCount}:${agentStart}`;
   }, [state.activeToolSummary, state.items]);
 
   const activeTools = useMemo(() => {
     if (!activeToolsSignature) return null;
-    const [, , sc, ss] = activeToolsSignature.split(':').map((n) => Number(n) || 0);
+    const [hc, hs, sc, ss, ac, as] = activeToolsSignature.split(':').map((n) => Number(n) || 0);
     return {
-      search: { count: sc, startedAt: ss },
+      ...(hc ? { shell: { count: hc, startedAt: hs } } : {}),
+      ...(sc ? { search: { count: sc, startedAt: ss } } : {}),
+      ...(ac ? { agent: { count: ac, startedAt: as } } : {}),
     };
   }, [activeToolsSignature]);
 

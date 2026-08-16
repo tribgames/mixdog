@@ -13,6 +13,7 @@ import {
 } from './runtime/shared/pristine-execution.mjs';
 import { hasActiveBackgroundTasks } from './runtime/shared/background-tasks.mjs';
 import { installProcessSignalCleanup } from './runtime/shared/process-shutdown.mjs';
+import { stopStandaloneMemoryRuntimesForProcess } from './standalone/memory-runtime-proxy.mjs';
 import { applyUsageDelta, createSessionStats } from './ui/session-stats.mjs';
 
 function clean(value) {
@@ -553,6 +554,7 @@ export async function runHeadlessExec({
   usageLogPath = process.env.MIXDOG_USAGE_LOG,
   boundaryFactory = createPristineExecutionBoundary,
   runtimeFactory = null,
+  memoryRuntimeCleanup = stopStandaloneMemoryRuntimesForProcess,
   hasActiveTasks = hasActiveBackgroundTasks,
   installSignalCleanupFn = installProcessSignalCleanup,
   idlePollMs = 100,
@@ -591,11 +593,28 @@ export async function runHeadlessExec({
   let code = 1;
   const cleanup = (reason = 'exec-exit') => {
     cleanupPromise ??= (async () => {
+      const errors = [];
       try {
         if (runtime) await runtime.close(reason);
-      } finally {
-        boundary?.cleanup();
+      } catch (error) {
+        errors.push(error);
       }
+      let memoryCleanupFailed = false;
+      if (boundary) {
+        try {
+          await memoryRuntimeCleanup({ waitForExit: true, timeoutMs: 10_000 });
+        } catch (error) {
+          memoryCleanupFailed = true;
+          errors.push(error);
+        }
+      }
+      try {
+        boundary?.cleanup(memoryCleanupFailed ? { preserveRoot: true } : undefined);
+      } catch (error) {
+        errors.push(error);
+      }
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) throw new AggregateError(errors, 'headless shutdown failed');
     })();
     return cleanupPromise;
   };
@@ -604,7 +623,7 @@ export async function runHeadlessExec({
     boundary = boundaryFactory({ provider, model, effort, fast });
     signalCleanup = installSignalCleanupFn({
       name: 'mixdog-exec',
-      timeoutMs: 6500,
+      timeoutMs: 20_000,
       cleanup,
     });
     const createRuntime = runtimeFactory || (

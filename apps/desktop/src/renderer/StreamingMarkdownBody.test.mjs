@@ -64,7 +64,7 @@ test("an unfinished fenced script promotes while it is still streaming", async (
       }));
     });
     await waitForRichMarkdown();
-    assert.equal(document.querySelector(".markdown-code-fallback"), null);
+    assert.equal(Boolean(document.querySelector(".markdown-code-fallback")), false);
     assert.equal(document.body.textContent.includes("```"), false);
     assert.match(document.body.textContent, /const value = 1;/);
   } finally {

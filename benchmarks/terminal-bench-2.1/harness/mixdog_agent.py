@@ -369,6 +369,14 @@ class MixdogAgent(BaseInstalledAgent):
     def name() -> str:
         return "mixdog"
 
+    def _worker_route(self) -> dict:
+        route = self._route_profile["routes"].get("worker")
+        if route is None:
+            raise RuntimeError(
+                f"route profile {self._route_profile_name!r} has no worker route"
+            )
+        return route
+
     def get_version_command(self) -> str | None:
         # BaseInstalledAgent calls this after install(). Do not boot the full
         # Mixdog CLI a second time just to discover its version: resolve the
@@ -383,7 +391,7 @@ class MixdogAgent(BaseInstalledAgent):
     def _required_providers(self) -> set[str]:
         routes = self._route_profile["routes"]
         if self._mode == "worker":
-            return {routes["worker"]["provider"]}
+            return {self._worker_route()["provider"]}
         required = {route["provider"] for route in routes.values()}
         fallback = self._route_profile.get("leadFallback")
         if fallback:
@@ -583,7 +591,7 @@ class MixdogAgent(BaseInstalledAgent):
             )
         routes = self._route_profile["routes"]
         if self._mode == "worker":
-            required_providers = {routes["worker"]["provider"]}
+            required_providers = {self._worker_route()["provider"]}
         else:
             required_providers = {
                 route["provider"] for route in routes.values()
@@ -878,7 +886,7 @@ class MixdogAgent(BaseInstalledAgent):
                     instruction,
                     model,
                     base_env,
-                    worker_route=self._route_profile["routes"]["worker"],
+                    worker_route=self._worker_route(),
                 )
             else:
                 try:

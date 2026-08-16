@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   createPaneLeaf,
+  normalizePaneLayoutSessions,
   paneNodeAtPath,
   setPaneSplitRatio,
   splitPaneLeaf,
@@ -56,4 +57,47 @@ test("a 2x2 plus tall pane keeps the shared 2x2 line and leaves the tall pane fu
   assert.equal(mid.ratio, 0.3);
   assert.equal(tall?.type, "leaf");
   assert.equal(tall.id, "tall");
+});
+
+test("legacy agent tabs reuse normal sessions and preserve child titles", () => {
+  const normal = createPaneLeaf({ kind: "session", id: "lead", title: "Lead task" }, "normal");
+  const duplicate = createPaneLeaf({
+    kind: "agent-session",
+    id: "lead",
+    ownerSessionId: "lead",
+    title: "lead:sess_internal",
+  }, "duplicate");
+  const child = createPaneLeaf({
+    kind: "agent-session",
+    id: "child",
+    ownerSessionId: "lead",
+    title: "Review dependency update",
+  }, "child");
+  const normalized = normalizePaneLayoutSessions({
+    type: "split",
+    direction: "row",
+    ratio: 0.5,
+    first: duplicate,
+    second: {
+      type: "split",
+      direction: "column",
+      ratio: 0.5,
+      first: normal,
+      second: child,
+    },
+  });
+  assert.ok(normalized);
+  const leaves = [];
+  const visit = (node) => {
+    if (node.type === "leaf") leaves.push(node);
+    else {
+      visit(node.first);
+      visit(node.second);
+    }
+  };
+  visit(normalized);
+  assert.deepEqual(leaves.flatMap((entry) => entry.tabs), [
+    { kind: "session", id: "lead", title: "Lead task" },
+    { kind: "session", id: "child", title: "Review dependency update" },
+  ]);
 });

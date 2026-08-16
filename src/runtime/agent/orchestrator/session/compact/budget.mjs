@@ -146,7 +146,7 @@ export function pruneToolOutputs(messages, budgetTokens, opts = {}) {
     // replacing one message shifts the total by exactly that message's delta.
     // Re-estimating the WHOLE transcript after every pruned message was
     // O(candidates × transcript) and measured ~1.25s on a 2.5MB session.
-    // Parity: opencode's prune keeps the same running-total shape.
+    // Keep the same running-total shape during pruning.
     let total = estimateMessagesTokens(result);
     if (total <= budget) return result;
 

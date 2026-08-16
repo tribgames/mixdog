@@ -250,7 +250,11 @@ test('global capabilities recreate a stale service control session without expos
       executeCodeGraphTool: unsupported,
     });
 
-    await host.invokeCapability('getProviderSetup');
+    await Promise.all([
+      host.invokeCapability('getProviderSetup'),
+      host.invokeCapability('getProviderSetup'),
+      host.invokeCapability('getProviderSetup'),
+    ]);
     dead.add('control_1');
     hooks.onFatal?.('test transport loss');
     await host.invokeCapability('getProviderSetup');
@@ -261,7 +265,10 @@ test('global capabilities recreate a stale service control session without expos
     await host.invokeCapability('getProviderSetup');
 
     assert.equal(createCount, 4);
-    assert.deepEqual(reads, ['control_1', 'control_2', 'control_3', 'control_3', 'control_4']);
+    assert.deepEqual(reads, [
+      'control_1', 'control_1', 'control_1',
+      'control_2', 'control_3', 'control_3', 'control_4',
+    ]);
   } finally {
     await host?.dispose();
     await rm(userDataPath, { recursive: true, force: true });

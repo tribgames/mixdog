@@ -303,8 +303,8 @@ function currentMonacoColors(light: boolean): Record<string, string> {
     'editorSuggestWidget.selectedBackground': layer2,
     'editorHoverWidget.background': base,
     'editorHoverWidget.border': layer3,
-    // VS Code Dark Modern keeps context menus on the editor sheet rather than
-    // Monaco's legacy #3c3c3c select surface.
+    // Keep context menus on the editor sheet rather than Monaco's legacy
+    // #3c3c3c select surface.
     'menu.background': sheet,
     'menu.foreground': text,
     'menu.selectionBackground': focus,

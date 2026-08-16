@@ -146,7 +146,7 @@ export function usePromptDraftFlow({
   }, [slashCommands, slashIndex]);
 
   const cancelSlashPalette = useCallback((value = '') => {
-    // Claude Code's autocomplete:dismiss closes suggestions without changing
+    // autocomplete:dismiss closes suggestions without changing
     // the draft. Remember this exact value so the palette does not immediately
     // reopen; the next edit clears the marker in onPromptDraftChange.
     setSlashDismissedFor(String(value ?? ''));

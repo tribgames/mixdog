@@ -9,7 +9,7 @@ export type SidePanelFlipKind = "sidebar" | "dock";
 // from COMPOSITOR motion only: layout snaps once, then the opening panel
 // slides into its already-reserved space via transform. The per-kind html
 // class arms that slide for one settle window on OPEN; closes commit
-// instantly (VS Code grammar), and drag-resize never sees any class.
+// instantly, and drag-resize never sees any class.
 export function useSidePanelOpenFlip() {
   const mainPanel = useRef<HTMLElement | null>(null);
   const settleTimers = useRef<Record<string, number>>({});

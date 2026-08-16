@@ -137,7 +137,7 @@ export function partialHandoffTextFromSession(session, messageStartIndex = 0) {
 
 function resolveWatchdogAbortElapsedMs({ error, snapshot, policy, now, anchorTs, lastProgressAt }) {
     if (snapshot && policy) {
-        if (snapshot.waitingForFirstActivity) {
+        if (snapshot.waitingForFirstSemantic) {
             const startedAt = snapshot.modelRequestStartedAt || snapshot.askStartedAt;
             if (startedAt) return Math.max(0, now - startedAt);
         }
@@ -288,11 +288,11 @@ export function evaluateAgentWatchdogAbort(snapshot, now, policy) {
         && now - startedAt > firstTransportMs) {
         return new AgentStallAbortError(`agent first transport stale (${firstTransportMs}ms)`);
     }
-    if ((snapshot.waitingForFirstSemantic ?? snapshot.waitingForFirstActivity)
+    if (snapshot.waitingForFirstSemantic
         && firstSemanticMs > 0 && startedAt && now - startedAt > firstSemanticMs) {
         return new AgentStallAbortError(`agent first semantic response stale (${firstSemanticMs}ms)`);
     }
-    if (snapshot.waitingForFirstSemantic ?? snapshot.waitingForFirstActivity) {
+    if (snapshot.waitingForFirstSemantic) {
         return null;
     }
 

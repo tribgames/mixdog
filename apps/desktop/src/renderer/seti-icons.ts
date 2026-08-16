@@ -1,6 +1,5 @@
 // GENERATED FILE — do not edit by hand: run scripts/generate-seti-icons.mjs.
-// Glyph/colour tables from the VS Code built-in Seti file icon theme
-// (extensions/theme-seti), which packages Seti UI (c) 2014 Jesse Weed — MIT.
+// Attribution and license details live in LICENSES/editor-assets-NOTICE.txt.
 // See THIRD-PARTY-NOTICES.txt. Dark-theme colour set.
 
 export const SETI_DEFAULT_ID = "_default";

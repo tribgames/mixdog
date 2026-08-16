@@ -324,7 +324,8 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
           ...(editing ? { overwrite: true } : {}),
         });
       }}>
-        <label className="schedules-field">{t('Name')}
+        <label className="schedules-field"><span>{t('Name')}</span>
+          <small>{t('Shown in schedule lists and notifications.')}</small>
           <input name="schedule-name" defaultValue={draft.name} placeholder="daily-briefing" required autoFocus
             disabled={busy || editing} maxLength={64} />
         </label>
@@ -377,6 +378,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
         </div>
         <div className="schedules-field">
           <span>{t('Project')}</span>
+          <small>{t('Project used for each run.')}</small>
           <div className="schedules-frequency">
             <OpenSelect ariaLabel={t("Schedule project")} value={cwd || '__none__'} disabled={busy}
               options={projectOptions} onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
@@ -384,6 +386,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
         </div>
         <div className="schedules-field">
           <span>{t('Delivery')}</span>
+          <small>{t('Where completed results are sent.')}</small>
           <div className="schedules-frequency">
             <OpenSelect ariaLabel={t("Schedule delivery")} value={delivery} disabled={busy}
               options={DELIVERY_OPTIONS} onChange={setDelivery} />
@@ -391,6 +394,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
         </div>
         <div className="schedules-field">
           <span>{t('Frequency')}</span>
+          <small>{t('How often this schedule runs.')}</small>
           <div className="schedules-frequency">
             <OpenSelect ariaLabel={t("Schedule frequency")} value={frequency} disabled={busy}
               options={FREQUENCY_OPTIONS}

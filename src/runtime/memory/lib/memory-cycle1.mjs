@@ -254,6 +254,8 @@ function buildCycle1CorrectiveRules(metrics) {
 
 const CYCLE1_MIN_BATCH = 3
 const CYCLE1_SESSION_CAP = 10
+const CYCLE1_PACKET_MAX_ROWS = 50
+const CYCLE1_MAX_PACKETS = 4
 
 // Per-db SKIP gate — concurrent callers coalesce into a DB-backed dirty bit;
 // the lock holder drains it after the current run instead of making them wait.
@@ -292,6 +294,20 @@ function createSemaphore(limit) {
     try { return await fn() }
     finally { release() }
   }
+}
+
+export function packCycle1Windows(rowsBySession, packetSize = CYCLE1_PACKET_MAX_ROWS, maxPackets = CYCLE1_MAX_PACKETS) {
+  const size = Math.min(CYCLE1_PACKET_MAX_ROWS, Math.max(1, Number(packetSize) || CYCLE1_PACKET_MAX_ROWS))
+  const cap = Math.min(CYCLE1_MAX_PACKETS, Math.max(1, Number(maxPackets) || CYCLE1_MAX_PACKETS))
+  const windows = []
+  for (const sessionRowsDesc of rowsBySession.values()) {
+    const rowsAsc = sessionRowsDesc.slice().reverse()
+    for (let offset = 0; offset < rowsAsc.length && windows.length < cap; offset += size) {
+      windows.push(rowsAsc.slice(offset, offset + size))
+    }
+    if (windows.length >= cap) break
+  }
+  return windows
 }
 
 async function countPendingRows(db) {
@@ -482,7 +498,14 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
   const rawUnchunkedAtStart = await countRawUnchunkedRows(db)
   throwIfAborted(signal)
   const batchSize = Math.max(1, Number(config.batch_size ?? 100))
-  const windowSize = Math.max(1, Number(config.window_size ?? config.windowSize ?? batchSize))
+  const windowSize = Math.min(
+    CYCLE1_PACKET_MAX_ROWS,
+    Math.max(1, Number(config.window_size ?? config.windowSize ?? batchSize)),
+  )
+  const maxPackets = Math.min(
+    CYCLE1_MAX_PACKETS,
+    Math.max(1, Number(config.max_packets ?? config.maxPackets ?? CYCLE1_MAX_PACKETS)),
+  )
   const rowsPerSession = Math.max(windowSize, Number(
     config.rows_per_session
       ?? config.rowsPerSession
@@ -582,14 +605,7 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
     }
     rowsBySession.get(sid).push(row)
   }
-  const windows = []
-  for (const sessionRowsDesc of rowsBySession.values()) {
-    const rowsAsc = sessionRowsDesc.slice().reverse()
-    for (let offset = 0; offset < rowsAsc.length; offset += windowSize) {
-      throwIfAborted(signal)
-      windows.push(rowsAsc.slice(offset, offset + windowSize))
-    }
-  }
+  const windows = packCycle1Windows(rowsBySession, windowSize, maxPackets)
 
   async function processWindow(rows, windowIdx) {
     throwIfAborted(signal)
@@ -889,9 +905,9 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
   // Cap fan-out concurrency so a large batch (or a manual run) doesn't fire all
   // window LLM calls at once and spike the provider / collide with the global
   // agent-IPC limit. Small batches (<= cap) still run fully parallel.
-  const cycle1Concurrency = Math.max(1, Number(
-    config.cycle1_concurrency ?? config.concurrency ?? options.concurrency ?? options.maxConcurrent ?? 4,
-  ))
+  const cycle1Concurrency = Math.min(CYCLE1_MAX_PACKETS, Math.max(1, Number(
+    config.cycle1_concurrency ?? config.concurrency ?? options.concurrency ?? options.maxConcurrent ?? CYCLE1_MAX_PACKETS,
+  )))
   const sem = createSemaphore(Math.min(Math.max(1, windows.length), cycle1Concurrency))
   const settled = await Promise.allSettled(
     windows.map((rows, idx) => sem(() => {

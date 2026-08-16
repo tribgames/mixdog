@@ -1,5 +1,5 @@
 // GENERATED FILE — do not edit by hand: run scripts/generate-editor-languages.mjs.
-// VS Code built-in language contributions resolved onto Monaco PANE languages.
+// Built-in language contributions resolved onto Monaco pane languages.
 
 export type EditorLanguageClassification = "native" | "compatible" | "custom" | "plaintext";
 export interface EditorLanguageDecision {

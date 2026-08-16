@@ -300,7 +300,7 @@ export function createSpawnFlow({
     const spec = spawnSessionSpec(plan, args, context);
     const { session, effectiveCwd } = prepareAgentSession(spec);
     bindSpawnedSession(session, plan);
-    // Codex-parity spawn prewarm: open the worker's WS socket now, in
+    // Spawn prewarm opens the worker's WebSocket now, in
     // parallel with the remaining prep / first-prompt build, so the first
     // request skips the handshake. Fire-and-forget: failures fall back to the
     // lazy per-send handshake. MIXDOG_AGENT_SPAWN_WS_PREWARM=0 disables.

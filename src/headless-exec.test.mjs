@@ -17,6 +17,7 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
   let activeChecks = 0;
   let boundaryCleaned = false;
   let runtimeClosed = false;
+  const cleanupOrder = [];
   try {
     const code = await runHeadlessExec({
       message: 'fix it',
@@ -30,7 +31,10 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
       writeErr: (text) => errors.push(text),
       boundaryFactory: () => ({
         loadConfig: () => ({ providers: { 'openai-oauth': { enabled: true } } }),
-        cleanup: () => { boundaryCleaned = true; },
+        cleanup: () => {
+          boundaryCleaned = true;
+          cleanupOrder.push('boundary');
+        },
       }),
       runtimeFactory: async (options) => {
         runtimeOptions.push(options);
@@ -47,8 +51,14 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
             });
             return { result: { content: 'done' } };
           },
-          close: async () => { runtimeClosed = true; },
+          close: async () => {
+            runtimeClosed = true;
+            cleanupOrder.push('runtime');
+          },
         };
+      },
+      memoryRuntimeCleanup: async () => {
+        cleanupOrder.push('memory');
       },
       hasActiveTasks: (scope) => {
         activeScopes.push(scope);
@@ -70,6 +80,7 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
     });
     assert.equal(boundaryCleaned, true);
     assert.equal(runtimeClosed, true);
+    assert.deepEqual(cleanupOrder, ['runtime', 'memory', 'boundary']);
     const usage = JSON.parse(readFileSync(usageLogPath, 'utf8'));
     assert.deepEqual(usage.totals, {
       inputTokens: 11,

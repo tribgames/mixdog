@@ -1,15 +1,13 @@
 // Project navigation actions, extracted from App.tsx: entering a project,
 // starting a task inside one, and the registry edits the Projects page makes.
+// A Projects-panel row no longer opens anything (user: 클릭 없애 그냥), so the
+// NEW TASK draft staging that used to live here is gone.
 // Plain factory (no hooks): the actions are rebuilt each render exactly as the
 // inline closures were, so they always see current props/state.
 import type { DesktopProjectSummary, SessionSnapshot } from "../shared/contract";
 import type { NavigationSelection } from "./navigation";
 import type { Project, Snapshot } from "./desktop-types";
 import { displayProject } from "./text-format";
-
-function projectPathKey(value: string): string {
-  return value.trim().replace(/[\\/]+/g, "/").replace(/\/$/, "").toLocaleLowerCase();
-}
 
 export interface ProjectActionDeps {
   projects: DesktopProjectSummary[];
@@ -23,16 +21,13 @@ export interface ProjectActionDeps {
   refreshProjects: () => Promise<DesktopProjectSummary[]>;
   refreshSessionsBestEffort: (selectCurrent?: boolean) => void;
   beginNavigation: () => void;
-  stageNewTaskProject: (project: Project) => void;
-  focusComposer: () => void;
 }
 
 export function createProjectActions(deps: ProjectActionDeps) {
   const {
     projects, invoke, applySnapshot, activateSelection, synchronizeActualHost,
     closeSidebarForNavigation, refreshProjects, refreshSessionsBestEffort,
-    beginNavigation, stageNewTaskProject,
-    focusComposer,
+    beginNavigation,
   } = deps;
 
   // The engine may canonicalize the requested folder (symlinks, casing); the
@@ -65,14 +60,6 @@ export function createProjectActions(deps: ProjectActionDeps) {
     }
   });
 
-  /** Open a project as a fresh draft task rather than entering its workspace. */
-  const activateNewProjectContext = (project: Project) => {
-    beginNavigation();
-    stageNewTaskProject(project);
-    activateSelection({ kind: "new" }, "New task");
-    focusComposer();
-  };
-
   return {
     startProject(project: Project) {
       closeSidebarForNavigation();
@@ -89,28 +76,6 @@ export function createProjectActions(deps: ProjectActionDeps) {
         enterProject(await window.mixdogDesktop.startProjectTask(project), project);
         await refreshProjects();
         refreshSessionsBestEffort();
-      });
-    },
-    selectNewTaskProject(project: Project) {
-      closeSidebarForNavigation();
-      activateNewProjectContext(project);
-    },
-    chooseNewTaskProject() {
-      void invoke(async () => {
-        const selected = await window.mixdogDesktop.chooseProject();
-        if (!selected) return;
-        // Atomic submit accepts registered projects only. Register the chosen
-        // folder before staging it, then use the canonical registry spelling
-        // when it is directly matchable.
-        await window.mixdogDesktop.addProject(selected);
-        const refreshed = await refreshProjects();
-        const canonical = refreshed.find((project) =>
-          projectPathKey(project.path) === projectPathKey(selected))?.path || selected;
-        // The composer picker edits the draft that opened it. Activating the
-        // singleton `new` selection here would mint/switch to another New task
-        // tab when the focused draft has its own draftId.
-        stageNewTaskProject(canonical);
-        focusComposer();
       });
     },
     openProjectInExplorer(project: Project) {

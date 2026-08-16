@@ -138,11 +138,48 @@ export function shouldNavigatePromptHistory({
   return historyActive && text.indexOf('\n', end) === -1;
 }
 
+// A Shift hold that already produced a printable character ('?' is Shift+/, and
+// so are '"', ':', uppercase letters) belongs to that character, not to a
+// newline chord. Chromium keeps reporting shiftKey until the physical release,
+// so an Enter pressed before the user lifts Shift used to break the line
+// instead of sending (user bug: typing "?" then Enter inserted a newline).
+// Terminal references never hit this because terminals cannot even encode
+// Shift+Enter; a browser composer gets the exact modifier state and must decide
+// itself. Latch state is per Shift hold, never time-based: it arms on a shifted
+// printable keydown and clears on release (or on any unshifted keydown, which
+// proves the hold ended even if the keyup was lost to focus changes).
+export function nextComposerShiftLatch(latched = false, {
+  type = 'keydown',
+  key = '',
+  shiftKey = false,
+} = {}) {
+  if (type === 'keyup') return key === 'Shift' ? false : Boolean(latched);
+  if (!shiftKey) return false;
+  if (String(key).length === 1) return true;
+  return Boolean(latched);
+}
+
+// Enter grammar for the composer: Ctrl/Meta/Alt+Enter always break the line,
+// plain Enter always sends, and Shift+Enter breaks the line only when the Shift
+// hold has not already been spent on a character.
+export function isComposerNewlineChord({
+  key = '',
+  shiftKey = false,
+  ctrlKey = false,
+  metaKey = false,
+  altKey = false,
+  shiftLatched = false,
+} = {}) {
+  if (key !== 'Enter') return false;
+  if (ctrlKey || metaKey || altKey) return true;
+  return Boolean(shiftKey) && !shiftLatched;
+}
+
 export function shouldRestoreInterruptedPrompt({
   hasDraft = false,
   hasQueuedMessages = false,
 } = {}) {
-  // Claude Code parity: Esc while active cancels the current response. A
+  // Esc while active cancels the current response. A
   // queued follow-up owns the next turn, so the interrupted prompt must not be
   // resurrected into the editor ahead of it.
   return !hasDraft && !hasQueuedMessages;

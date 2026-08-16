@@ -418,9 +418,6 @@ export function getSessionProgressSnapshot(sessionId) {
         ),
         waitingForTransport,
         waitingForFirstSemantic,
-        // Backward-compatible alias for older status/watchdog consumers. It is
-        // semantic activity now, never generic transport.
-        waitingForFirstActivity: waitingForFirstSemantic,
     };
 }
 

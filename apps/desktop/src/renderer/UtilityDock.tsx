@@ -16,7 +16,11 @@ import type {
   DesktopWorkspaceTextFileResult,
   DesktopWorkspaceTextSearchOptions,
 } from "../shared/contract";
-import { DESKTOP_UTILITY_DOCK_MIN_WIDTH } from "../shared/window-layout";
+import {
+  clampDesktopPanelWidth,
+  DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH,
+  DESKTOP_UTILITY_DOCK_MIN_WIDTH,
+} from "../shared/window-layout";
 import { AgentActivityPane } from "./AgentActivityPane";
 import { OpenSelect } from "./OpenSelect";
 import { DesktopLoadingSurface } from "./RendererRecovery";
@@ -67,16 +71,17 @@ function DockPane({
 }
 
 export const DOCK_STATE_KEY = 'mixdog.desktop-utility-dock.v1';
-export const DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH = 320;
+export { DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH };
 export const DESKTOP_UTILITY_DOCK_MAX_WIDTH = 560;
 // The visible right-side order is Agents → Search → Source Control.
 // Pull Requests remains feature-locked as the optional fourth Git surface.
 export type UtilityDockTab = 'agents' | 'search' | 'source-control' | 'pull-requests';
 export function clampDockWidth(value: number): number {
-  return Math.min(DESKTOP_UTILITY_DOCK_MAX_WIDTH, Math.max(
+  return clampDesktopPanelWidth(
+    value,
     DESKTOP_UTILITY_DOCK_MIN_WIDTH,
-    Math.round(Number.isFinite(value) ? value : DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH),
-  ));
+    DESKTOP_UTILITY_DOCK_MAX_WIDTH,
+  );
 }
 export function readDockState(): { open: boolean; tab: UtilityDockTab; width: number } {
   try {
@@ -99,7 +104,7 @@ export function readDockState(): { open: boolean; tab: UtilityDockTab; width: nu
 }
 
 
-// ── Right utility dock (Cursor-style side panel) ─────────────────────────
+// ── Right utility dock ────────────────────────────────────────────────────
 const SearchPane = memo(function SearchPane({
   projectPath,
   gitStatus,
@@ -328,6 +333,7 @@ export const UtilityDock = memo(function UtilityDock({
   onOpenFileAt,
   sessions = [],
   activeSessionIds = [],
+  unreadSessionIds,
   onOpenLeadSession,
   onOpenAgentSession,
   entering = false,
@@ -346,6 +352,9 @@ export const UtilityDock = memo(function UtilityDock({
   snapshot: Snapshot;
   sessions?: readonly DesktopSessionSummary[];
   activeSessionIds?: readonly string[];
+  /** Recent-list unread sessions: the Agents pane shows their idle rows as
+   *  completed work instead of plain rest. */
+  unreadSessionIds?: ReadonlySet<string>;
   projectPath?: string;
   workspaceFolders?: readonly DesktopWorkspaceFolder[];
   /** Main App owns the shared Search / Source Control / Pull Requests
@@ -830,6 +839,7 @@ export const UtilityDock = memo(function UtilityDock({
       <AgentActivityPane active={paneActive("agents")}
         sessions={sessions}
         activeSessionIds={activeSessionIds}
+        unreadSessionIds={unreadSessionIds}
         onOpenLeadSession={onOpenLeadSession}
         onOpenSession={onOpenAgentSession} />
       </DockPane>}

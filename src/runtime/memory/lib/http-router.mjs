@@ -239,10 +239,6 @@ export function createHttpRouter({
         const body = await readBody(req)
         const projectId = normalizeCoreProjectId(body.project_id)
         const entry = await addCore(DATA_DIR, body, projectId)
-        if (typeof cycleScheduler?.requestCycle3Review === 'function') {
-          try { await cycleScheduler.requestCycle3Review('core-http-add') }
-          catch (err) { log?.(`[core-memory] HTTP follow-up review queue failed: ${err?.message || err}\n`) }
-        }
         sendJson(res, { ok: true, item: entry })
       } catch (e) { sendJson(res, { ok: false, error: e.message }, 500) }
       return

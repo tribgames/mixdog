@@ -27,7 +27,7 @@ export function formatAgentWatchdogSummary(policy, snapshot = null) {
     if (snapshot.waitingForTransport && transportMs > 0) {
       return `armed transport=${Math.round(transportMs / 1000)}s`;
     }
-    if ((snapshot.waitingForFirstSemantic ?? snapshot.waitingForFirstActivity) && semanticMs > 0) {
+    if (snapshot.waitingForFirstSemantic && semanticMs > 0) {
       return `armed semantic=${Math.round(semanticMs / 1000)}s`;
     }
     if (snapshot.stage === 'tool_running' && policy.toolRunningMs > 0) {
@@ -114,7 +114,7 @@ function cleanStage(value) {
 
 function describeLastProgress({ stage, snapshot, runtime, silentFor, lastToolCall, now }) {
   if (snapshot?.waitingForTransport) return 'awaiting model transport';
-  if (snapshot?.waitingForFirstSemantic ?? snapshot?.waitingForFirstActivity) {
+  if (snapshot?.waitingForFirstSemantic) {
     return 'transport active; awaiting first model event';
   }
   if (stage === 'tool_running') {
@@ -183,7 +183,7 @@ function describeAgentDiagnostic({
   }
 
   if (snapshot?.waitingForTransport) return 'waiting for model transport';
-  if (snapshot?.waitingForFirstSemantic ?? snapshot?.waitingForFirstActivity) {
+  if (snapshot?.waitingForFirstSemantic) {
     return 'transport healthy; waiting for first semantic model event';
   }
 

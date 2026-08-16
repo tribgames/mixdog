@@ -62,8 +62,8 @@ async function workspaceFiles(root: string, options: DesktopWorkspaceTextSearchO
   const include = globList(options.include);
   const exclude = globList(options.exclude);
   const files: string[] = [];
-  // Breadth-first walk that honors nested .gitignore files (VS Code parity:
-  // ripgrep-style ignore pruning). Rules accumulate down the tree so a child
+  // Breadth-first walk with nested .gitignore and ripgrep-style pruning.
+  // Rules accumulate down the tree so a child
   // directory inherits every ancestor's patterns; ignored directories are
   // pruned before descent, keeping build-output trees out of the scan/read
   // budget entirely instead of only out of the results.

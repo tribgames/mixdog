@@ -25,8 +25,6 @@
 //   cycleStateFile -> path to memory-cycle-state.json
 import fs from 'node:fs'
 
-const CYCLE1_HEALTH_OVERDUE_MS = 5 * 60_000
-const CYCLE1_AUTO_RESTART_COOLDOWN_MS = 5 * 60_000
 const CYCLE1_OMITTED_COOLDOWN_MS = 60 * 60 * 1000
 const BACKLOG_WARN_COOLDOWN_MS = 10 * 60_000
 const BACKLOG_WARN_PENDING = 500
@@ -39,6 +37,11 @@ function resolveCycle2CatchupPasses(config) {
   const raw = Number(config?.catchup_passes ?? CYCLE2_CATCHUP_PASSES)
   if (!Number.isFinite(raw)) return CYCLE2_CATCHUP_PASSES
   return Math.min(CYCLE2_CATCHUP_PASSES_MAX, Math.max(1, Math.floor(raw)))
+}
+
+export function periodicCycleDue(lastRun, cyclesStartedAt, intervalMs, now = Date.now()) {
+  const anchor = Math.max(Number(lastRun) || 0, Number(cyclesStartedAt) || 0)
+  return Number(intervalMs) > 0 && Number(now) - anchor >= Number(intervalMs)
 }
 
 export function createCycleScheduler(deps) {
@@ -90,7 +93,7 @@ export function createCycleScheduler(deps) {
   let _checkCyclesInFlight = false
   let _cyclesActive = false
   let _cycleInterval = null
-  let _startupTimeout = null
+  let _cyclesStartedAt = 0
 
   function _writeCycleStateFile() {
     try {
@@ -198,9 +201,10 @@ export function createCycleScheduler(deps) {
   function periodicCycle1Config() {
     return {
       min_batch: 20,
-      session_cap: 2,
+      session_cap: 4,
       batch_size: 50,
-      concurrency: 2,
+      max_packets: 4,
+      concurrency: 4,
       ...(getConfig()?.cycle1 || {}),
     }
   }
@@ -365,14 +369,6 @@ export function createCycleScheduler(deps) {
     }, retryConfig, signature)
   }
 
-  async function requestCycle3Review(reason = 'core-mutation') {
-    const config = getConfig() || readMainConfig() || {}
-    const signature = scheduledCycle3Signature(config)
-    const marked = await markCycleRequest(getDb(), 'cycle3', reason, signature)
-    if (marked) scheduleScheduledCycle3(config, signature)
-    return marked
-  }
-
   async function _finalizeCycle2Run(result) {
     if (result?.skippedInFlight) {
       log('[cycle2] skipped: in flight\n')
@@ -407,41 +403,15 @@ export function createCycleScheduler(deps) {
     const last = await getCycleLastRun()
 
     if (cyclesOn) {
-      const cycle1OverdueMs = last.cycle1 > 0
-        ? Math.max(0, now - last.cycle1 - cycle1Ms)
-        : 0
-      if (cycle1OverdueMs > CYCLE1_HEALTH_OVERDUE_MS) {
-        const lastSeen = last.cycle1 ? new Date(last.cycle1).toISOString() : 'never'
-        log(
-          `[cycle1] overdue by ${Math.floor(cycle1OverdueMs / 60_000)}min `
-          + `(last=${lastSeen}). Pool B Anthropic shard may be cold.\n`
-        )
-        const lastAutoRestart = last.cycle1_autoRestart || 0
-        if (now - lastAutoRestart >= CYCLE1_AUTO_RESTART_COOLDOWN_MS) {
-          await setCycleLastRun('cycle1_autoRestart_attempt', now)
-          try {
-            const result = await _awaitCycle1Run(periodicCycle1Config())
-            await setCycleLastRun('cycle1_autoRestart', Date.now())
-            log(
-              `[cycle1] auto-restart completed chunks=${result?.chunks ?? 0} processed=${result?.processed ?? 0}\n`
-            )
-            return
-          } catch (e) {
-            log(`[cycle1] auto-restart error: ${e.message}\n`)
-            return
-          }
-        }
-      }
-
-      if (now - last.cycle1 >= cycle1Ms) {
+      if (periodicCycleDue(last.cycle1, _cyclesStartedAt, cycle1Ms, now)) {
         await enqueueScheduledCycle1(cycle1Ms, 'scheduled')
       }
 
-      if (now - last.cycle2 >= cycle2Ms) {
+      if (periodicCycleDue(last.cycle2, _cyclesStartedAt, cycle2Ms, now)) {
         await enqueueScheduledCycle2(cycle2Ms, 'scheduled')
       }
 
-      if (now - last.cycle3 >= cycle3Ms) {
+      if (periodicCycleDue(last.cycle3, _cyclesStartedAt, cycle3Ms, now)) {
         await enqueueScheduledCycle3(cycle3Ms, 'scheduled')
       }
     }
@@ -474,16 +444,6 @@ export function createCycleScheduler(deps) {
           .catch((err) => log(`[embed] raw fallback flush failed: ${err?.message || err}\n`))
           .finally(() => { _rawEmbedFlushInFlight = false })
       }
-      const SELF_KICK_STALE_MS = 2 * 3600_000
-      const c1Stale = (_cycleHealth.cycle1.last_success_at || last.cycle1 || 0) < now - SELF_KICK_STALE_MS
-      const c2Stale = (_cycleHealth.cycle2.last_success_at || last.cycle2 || 0) < now - SELF_KICK_STALE_MS
-      if (cyclesOn && c1Stale && unchunked > BACKLOG_WARN_PENDING) {
-        _warnCycleHealth(`cycle1 self-kick: no success 2h+, unchunked=${unchunked}`)
-        await enqueueScheduledCycle1(0, 'self-kick')
-      } else if (cyclesOn && c2Stale && cycle2Pending > BACKLOG_WARN_PENDING) {
-        _warnCycleHealth(`cycle2 self-kick: no success 2h+, pending=${cycle2Pending}`)
-        await enqueueScheduledCycle2(0, 'self-kick')
-      }
     } catch { /* counts are best-effort; never fail the tick */ }
   }
 
@@ -511,6 +471,7 @@ export function createCycleScheduler(deps) {
   function startCycles() {
     if (_cyclesActive) return
     _cyclesActive = true
+    _cyclesStartedAt = Date.now()
     // Boot reset: a previous daemon that crashed mid-run leaves the state
     // file's `running` marker set, and the statusline keeps showing a
     // phantom "Memory cycle running" spinner until its 10-minute stale
@@ -529,13 +490,11 @@ export function createCycleScheduler(deps) {
       _writeCycleStateFile()
     }).catch(() => {})
     _scheduleNextCheck()
-    _startupTimeout = setTimeout(() => { void _runCheckCyclesGuarded() }, 30_000)
   }
 
   function stopCycles() {
     _cyclesActive = false
     if (_cycleInterval) { clearTimeout(_cycleInterval); _cycleInterval = null }
-    if (_startupTimeout) { clearTimeout(_startupTimeout); _startupTimeout = null }
   }
 
   // Full-shutdown reset — baseline stop() cleared these module-level flags so
@@ -548,6 +507,7 @@ export function createCycleScheduler(deps) {
     _checkCyclesInFlight = false
     _rawEmbedFlushInFlight = false
     _cycleRunning = null
+    _cyclesStartedAt = 0
   }
 
   return {
@@ -571,7 +531,6 @@ export function createCycleScheduler(deps) {
       markCycleDone('cycle3', true)
       await onCoreMemoryChanged('cycle3')
     },
-    requestCycle3Review,
     periodicCycle1Config,
     // lifecycle
     startCycles,

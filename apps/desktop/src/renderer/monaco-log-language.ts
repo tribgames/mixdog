@@ -1,6 +1,6 @@
 import type { languages } from "monaco-editor";
 
-/** Monaco counterpart of VS Code's built-in extensions/log TextMate grammar. */
+/** Monaco grammar for log files. */
 export const LOG_LANGUAGE_CONFIGURATION: languages.LanguageConfiguration = {
   comments: { lineComment: "#" },
   brackets: [["[", "]"], ["(", ")"], ["{", "}"]],

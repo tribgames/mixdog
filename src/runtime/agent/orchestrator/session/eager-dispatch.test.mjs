@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createEagerDispatcher } from './eager-dispatch.mjs';
+import {
+    _repeatFailurePatternWouldContinue,
+    _repeatFailureSig,
+} from './loop/tool-classify.mjs';
 
 function gate() {
     let release;
@@ -52,4 +56,18 @@ test('eager dispatch serializes Git mutations, file edits, and shell verificatio
         'apply_patch:start', 'apply_patch:end',
         'shell:start', 'shell:end',
     ]);
+});
+
+test('repeat failure signatures normalize paths and detect alternating cycles', () => {
+    const cwd = process.cwd();
+    const relative = _repeatFailureSig('read', { file_path: 'missing/file.txt' }, cwd);
+    const absolute = _repeatFailureSig('read', {
+        file_path: `${cwd}/missing/file.txt`,
+    }, cwd);
+    assert.equal(relative, absolute);
+
+    const other = _repeatFailureSig('read', { file_path: 'missing/other.txt' }, cwd);
+    const history = [relative, other, relative, other, relative, other];
+    assert.equal(_repeatFailurePatternWouldContinue(history, relative, 3), 2);
+    assert.equal(_repeatFailurePatternWouldContinue(history, other, 3), 0);
 });

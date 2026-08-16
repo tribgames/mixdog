@@ -823,7 +823,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     promptHistoryNavRef,
   });
 
-  // Double-Esc message selector (Claude Code parity): app/message-selector.mjs.
+  // Double-Esc message selector: app/message-selector.mjs.
   const { hasUserMessages, openMessageSelector } = useMessageSelector({
     store,
     state,

@@ -21,6 +21,10 @@ import {
     SHELL_JOB_OUTPUT_DISK_CAP,
 } from './lib/shell-job-insights.mjs';
 import {
+    publishShellJobRecord,
+    retireShellJobRecord,
+} from './lib/shell-job-records.mjs';
+import {
     renderShellCompletionEnvelope,
     shellCompletionInstruction,
 } from '../../../../shared/task-notification-envelope.mjs';
@@ -45,6 +49,24 @@ function demoteBackgroundShellPriority(pid) {
     if (process.env.MIXDOG_BG_PRIORITY === '0') return;
     if (!Number.isFinite(pid) || pid <= 0) return;
     try { os.setPriority(pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {}
+}
+
+// Live tasks exist only in the spawning process's memory, so every running job
+// also publishes a disk record for the out-of-process shell-count readers
+// (desktop pane chip, CLI statusline). The record is retired the moment the job
+// settles — completed, timed out, or killed.
+function trackShellJobRecord(task, options) {
+    const jobId = String(task?.jobId || '').trim();
+    if (!jobId) return;
+    publishShellJobRecord(task, options);
+    let unsubscribe = null;
+    const settle = (detail) => {
+        if (!detail || detail.status === 'running') return;
+        try { unsubscribe?.(); } catch {}
+        retireShellJobRecord(jobId);
+    };
+    unsubscribe = subscribeNativeTask(jobId, settle);
+    settle(getNativeTask(jobId) || task);
 }
 
 function releaseShellJobResourceLease(jobId) {
@@ -135,7 +157,7 @@ export async function startBackgroundShellJob(options = {}) {
         ...(Array.isArray(shellArgs) && shellArgs.length > 0 ? shellArgs : [shellArg]),
         command,
     ].filter((value) => value != null && String(value).length > 0);
-    return startNativeTask({
+    const task = await startNativeTask({
         program: shell,
         argv,
         cwd: workDir,
@@ -148,6 +170,8 @@ export async function startBackgroundShellJob(options = {}) {
         ownerSessionId,
         outputLimit: SHELL_JOB_OUTPUT_DISK_CAP,
     });
+    trackShellJobRecord(task, { ownerSessionId, clientHostPid });
+    return task;
 }
 
 export function attachShellJobResourceLease(jobId, lease) {
@@ -259,6 +283,7 @@ export async function adoptForegroundShellJob({
     });
     if (!native) return null;
     demoteBackgroundShellPriority(pid);
+    trackShellJobRecord(native, { ownerSessionId, clientHostPid });
     return native;
 }
 

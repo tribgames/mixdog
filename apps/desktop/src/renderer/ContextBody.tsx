@@ -1,4 +1,5 @@
 import { resolveContextDisplayUsage } from './context-usage';
+import { t } from './i18n';
 
 type Row = Record<string, unknown>;
 
@@ -51,46 +52,45 @@ export function ContextBody({ status, snapshot }: { status: unknown; snapshot: u
   });
   const used = usage.used;
   const windowTokens = usage.limit;
+  const rawWindowTokens = finite(context.rawContextWindow || state.contextWindow || context.contextWindow || windowTokens);
   const freeTokens = windowTokens ? Math.max(0, windowTokens - used) : 0;
   const usedPercent = contextPercent(used, windowTokens) || 0;
   const categories = [
-    { key: 'messages', label: 'Messages', tokens: tokenBuckets(semantic, ['chat', 'assistant']) },
-    { key: 'tools', label: 'Tools', tokens: tokenBuckets(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other', 'control', 'agents', 'session']) },
-    { key: 'mcp', label: 'MCP', tokens: tokenBuckets(schema, ['mcp']) },
-    { key: 'skills', label: 'Skills', tokens: tokenBuckets(schema, ['skills']) },
-    { key: 'memory', label: 'Memory', tokens: tokenBuckets(semantic, ['memory']) + tokenBuckets(schema, ['memory']) },
-    { key: 'session', label: 'Session', tokens: tokenBuckets(semantic, ['workspace', 'environment', 'other']) },
-    { key: 'workflow', label: 'Workflow', tokens: tokenBuckets(semantic, ['workflow']) },
-    { key: 'system', label: 'System', tokens: tokenBuckets(semantic, ['system']) },
-    { key: 'tool-io', label: 'Tool I/O', tokens: tokenBuckets(semantic, ['toolResults']) },
+    { key: 'system', label: t('System prompt'), tokens: tokenBuckets(semantic, ['system', 'workflow', 'workspace', 'environment', 'other']) },
+    { key: 'tools', label: t('System tools'), tokens: tokenBuckets(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other', 'control', 'session']) },
+    { key: 'mcp', label: t('MCP tools'), tokens: tokenBuckets(schema, ['mcp']) },
+    { key: 'agents', label: t('Custom agents'), tokens: tokenBuckets(schema, ['agents']) },
+    { key: 'memory', label: t('Memory files'), tokens: tokenBuckets(semantic, ['memory']) + tokenBuckets(schema, ['memory']) },
+    { key: 'skills', label: t('Skills'), tokens: tokenBuckets(schema, ['skills']) },
+    { key: 'messages', label: t('Messages'), tokens: tokenBuckets(semantic, ['chat', 'assistant', 'toolResults']) },
   ];
   const categorizedTokens = categories.reduce((sum, category) => sum + category.tokens, 0);
-  const requestOverheadTokens = Math.max(0, used - categorizedTokens);
-  if (requestOverheadTokens > 0) {
-    categories.push({ key: 'request', label: 'Overhead', tokens: requestOverheadTokens });
-  }
-  const categoryScale = categorizedTokens > used && used > 0
-    ? used / categorizedTokens
-    : 1;
+  const autoCompactBufferTokens = Math.max(0, rawWindowTokens - windowTokens);
+  const estimatedFreeTokens = Math.max(0, windowTokens - categorizedTokens);
+  const categoryWindowTokens = Math.max(rawWindowTokens, categorizedTokens + autoCompactBufferTokens);
+  categories.push(
+    { key: 'free', label: t('Free space'), tokens: estimatedFreeTokens },
+    { key: 'autocompact', label: t('Autocompact buffer'), tokens: autoCompactBufferTokens },
+  );
 
   return <div className="context-surface-view">
     <div className="context-card">
-      <section className="context-usage-overview" aria-label="Context usage">
+      <section className="context-usage-overview" aria-label={t('Context usage')}>
         <div className="context-usage-heading">
           <strong>{usage.percent}% used</strong>
           <span>{compactTokens(used)} / {compactTokens(windowTokens)} · {compactTokens(freeTokens)} free</span>
         </div>
         <div className="context-main-bar" role="img"
-          aria-label={`${usage.percent}% context used`}>
+          aria-label={t('{{percent}}% context used', { percent: usage.percent })}>
           <span style={{ width: `${usedPercent}%` }} />
         </div>
       </section>
       <section className="context-mix" aria-labelledby="context-mix-title">
-        <h3 id="context-mix-title">Context mix</h3>
-        <div className="context-stack-bar" role="img" aria-label="Context composition">
+        <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>
+        <div className="context-stack-bar" role="img" aria-label={t('Context composition')}>
           {categories.filter((category) => category.tokens > 0).map((category) => (
             <b key={category.key} data-context-key={category.key}
-              style={{ width: `${Math.max(0.75, contextPercent(category.tokens * categoryScale, windowTokens) || 0)}%` }} />
+              style={{ width: `${Math.max(0.75, contextPercent(category.tokens, categoryWindowTokens) || 0)}%` }} />
           ))}
         </div>
         <div className="context-mix-grid">

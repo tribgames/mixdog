@@ -5,16 +5,10 @@ import {
   ArrowUp,
   ArrowUpDown,
   Check,
-  ChevronDown,
   ChevronLeft,
-  CloudUpload,
   Copy,
-  FileText,
-  GitBranch,
   GitCommit,
-  GitMerge,
   Minus,
-  Plus,
   RefreshCw,
   Search,
   Undo2,
@@ -23,7 +17,6 @@ import {
 import React, {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -31,12 +24,6 @@ import React, {
 import { createPortal } from "react-dom";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from "./immediate-overlay";
-import {
-  anchoredPanelGeometry,
-  intersectRects,
-  rectFrom,
-  viewportRect,
-} from "./anchored-panel";
 import type {
   DesktopGitBranch,
   DesktopGitCommitDetails,
@@ -46,6 +33,7 @@ import type {
   DesktopGitStatus,
 } from "../shared/contract";
 import { isConventionalCommitMessage } from "../shared/commit-message-format";
+import { t } from "./i18n";
 import {
   PullRequestsPane,
   type PullRequestOpenHandler,
@@ -60,274 +48,47 @@ import {
   type ScmContextMenuState,
 } from "./ScmContextMenu";
 import { ScmPathText } from "./ScmPathText";
-import { ScmStatusIcon, scmStatusKind, type ScmStatusKind } from "./ScmStatusIcon";
+import { ScmStatusIcon, scmStatusKind } from "./ScmStatusIcon";
+import {
+  changedFileMenuItems,
+  SourceControlFileRow,
+} from "./source-control-file-row";
+import { sourceControlRemoteActions } from "./source-control-remote-actions";
+import { SourceControlBranchPicker } from "./source-control-branch-picker";
 import { useSurfaceActive } from "./surface-activity";
-
-export interface SourceControlDiffRequest {
-  source: "staged" | "unstaged" | "commit";
-  hash?: string;
-  untracked?: boolean;
-}
-
-/** The index already carries this file and the worktree has nothing further
- *  to add, so its diff is the STAGED one — the only place the index survives
- *  as a concept now that the list speaks GitHub Desktop's checkbox grammar. */
-const indexOnly = (file: DesktopGitFile): boolean =>
-  !file.conflicted && file.index !== " " && file.index !== "?" && file.worktree === " ";
-/** The index already carries (part of) this file. Conflicted entries are
- *  deliberately excluded: their index slots are the conflict stages, and
- *  `git reset -- <path>` on them silently resolves the file to the HEAD side. */
-const stagedInIndex = (file: DesktopGitFile): boolean =>
-  !file.conflicted && file.index !== " " && file.index !== "?";
-/** Staged content that differs from the working tree — committing through the
- *  checkbox model would replace it with the full working-tree version. */
-const partiallyStaged = (file: DesktopGitFile): boolean =>
-  stagedInIndex(file) && !file.untracked && file.worktree !== " ";
-const HISTORY_PAGE_SIZE = 40;
-/** The two dock lists are WINDOWED (see `useRowWindow`), which only works
- *  because both row grammars own a FIXED band: the changed-file row is
- *  GitHub Desktop's 29px band (desktop.css `.dock-scm-file`, height
- *  `--dock-scm-file-row`) and the history row the 46px commit band
- *  (`.dock-scm-commit-row`, `--dock-scm-commit-row`). Change either number
- *  here and in desktop.css together — the probe
- *  (scripts/scm-geometry-probe) measures the rendered band against them. */
-const SCM_FILE_ROW_HEIGHT = 29;
-const SCM_COMMIT_ROW_HEIGHT = 46;
-/** Rows mounted beyond each viewport edge, so a wheel tick never paints a
- *  gap and keyboard focus keeps a row to move onto. */
-const SCM_ROW_OVERSCAN = 6;
-/** How close to the end of the LOADED commits the window has to come before
- *  the next `gitLog` page is fetched — scrolling replaced the Load more
- *  button, so the fetch has to start before the user reaches the bottom. */
-const HISTORY_PREFETCH_ROWS = 8;
-/** Last-resort default-branch names. The real one is derived from the remote
- *  HEAD (see `loadDefaultBranch`); these only stand in when the repository has
- *  no remote HEAD to resolve. */
-const DEFAULT_BRANCH_NAMES = ["main", "master", "trunk"];
-
-/** The `code` the main side puts on a REFUSED dirty `--mixed` reset
- *  (main/git-cli.ts `GIT_RESET_DIRTY_CODE`). A custom Error property does not
- *  always survive the IPC boundary, so the message that refusal always carries
- *  is matched as well — it is the same refusal either way. */
-const GIT_RESET_DIRTY_CODE = "git-reset-dirty-worktree";
-export function isDirtyResetRefusal(reason: unknown): boolean {
-  if (typeof reason === "object" && reason !== null
-    && (reason as { code?: unknown }).code === GIT_RESET_DIRTY_CODE) return true;
-  const message = reason instanceof Error ? reason.message : String(reason);
-  return /--mixed reset rewrites the index/.test(message);
-}
-
-/** Actions that can CHANGE the repository and only THEN reject: a conflicted
- *  revert / cherry-pick / merge stops mid-way and leaves the operation state,
- *  the index and the file list behind, an interrupted pull, sync or stash pop
- *  does the same, and a multi-file discard can fail after discarding some of
- *  them. Their FAILURE has to re-read the surface exactly like their success,
- *  or the file list, the history and the Continue/Abort banner stay stale
- *  until the next poll. */
-function leavesStateBehind(key: string): boolean {
-  return /^(revert-commit|cherry-pick|reset|revert:|discard-all|resolve:|continue|abort-operation|branch-merge|pull|sync|stash)/
-    .test(key);
-}
-
-/** Orca-style hosted-review link: derive the web repo URL from a git remote. */
-export function gitRemoteWebUrl(remoteUrl: string): string {
-  const trimmed = remoteUrl.trim().replace(/\.git$/, "");
-  if (!trimmed) return "";
-  const ssh = /^(?:ssh:\/\/)?(?:git@)?([^:/]+)[:/](.+)$/i.exec(trimmed);
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  if (ssh && !trimmed.includes("://")) return `https://${ssh[1]}/${ssh[2]}`;
-  return "";
-}
-
-/** Create-PR compare URL for hosted GitHub/GitLab-style remotes. */
-export function pullRequestUrl(remoteUrl: string, branch: string): string {
-  const base = gitRemoteWebUrl(remoteUrl);
-  if (!base || !branch) return "";
-  const encoded = branch.split("/").map(encodeURIComponent).join("/");
-  if (/gitlab/i.test(base)) {
-    return `${base}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(branch)}`;
-  }
-  return `${base}/compare/${encoded}?expand=1`;
-}
-
-/** One status per row — GitHub Desktop's changed-file grammar
- *  (changed-file.tsx:54-55 `mapStatus`): the file's OVERALL state, never a
- *  separate index/worktree pair. The state is rendered as the reference's
- *  status ICON (ScmStatusIcon / status.ts:16-37), not a letter. */
-function statusKind(file: DesktopGitFile): ScmStatusKind {
-  if (file.conflicted) return "conflicted";
-  if (file.untracked) return "new";
-  const value = file.index !== " " && file.index !== "?" ? file.index : file.worktree;
-  return scmStatusKind(value);
-}
-
-function pathsFor(file: DesktopGitFile): string[] {
-  return file.oldPath ? [file.oldPath, file.path] : [file.path];
-}
-
-const SCM_SORT_KEY = "mixdog.desktop.scm-sort-key.v1";
-type ScmSortKey = "path" | "name" | "status";
-
-/** The select-all row's label, verbatim from GitHub Desktop's
- *  filter-changes-list.tsx:1263-1266 (`M of N changed files` while filtered). */
-export function changedFilesLabel(total: number, visible: number): string {
-  const prefix = visible !== total ? `${visible} of ` : "";
-  return `${prefix}${total} changed file${total === 1 ? "" : "s"}`;
-}
-
-/** commit-list-item.tsx:127-134 labels an empty commit message instead of
- *  rendering a blank line — which also keeps it distinct from "still loading". */
-const EMPTY_SUMMARY = "Empty commit message";
-const UNKNOWN_AUTHOR = "Unknown author";
-
-/** Pins an overlay to its trigger and clamps it into the allowed bounds.
- *  The dock is only DESKTOP_UTILITY_DOCK_MIN_WIDTH wide and hugs the window
- *  edge, so a CSS-anchored panel runs straight off-screen; geometry is
- *  measured instead (anchored-panel.ts). */
-function useAnchoredPanel(
-  open: boolean,
-  trigger: React.RefObject<HTMLElement | null>,
-  panel: React.RefObject<HTMLElement | null>,
-  options: {
-    preferredWidth: number;
-    minWidth?: number;
-    align?: "start" | "end";
-    placement?: "below" | "above";
-    boundary?: React.RefObject<HTMLElement | null>;
-  },
-): React.CSSProperties {
-  const { preferredWidth, minWidth, align, placement, boundary } = options;
-  const [style, setStyle] = useState<React.CSSProperties>({ position: "fixed" });
-  useLayoutEffect(() => {
-    if (!open) return undefined;
-    const measure = () => {
-      const anchor = trigger.current;
-      const surface = panel.current;
-      if (!anchor || !surface) return;
-      const viewport = viewportRect();
-      const boundaryElement = boundary?.current;
-      const bounds = boundaryElement
-        ? intersectRects(rectFrom(boundaryElement), viewport)
-        : viewport;
-      const geometry = anchoredPanelGeometry({
-        trigger: rectFrom(anchor),
-        bounds,
-        preferredWidth,
-        minWidth,
-        naturalHeight: surface.scrollHeight || surface.offsetHeight,
-        align,
-        placement,
-      });
-      setStyle({
-        position: "fixed",
-        left: geometry.left,
-        top: geometry.top,
-        width: geometry.width,
-        maxHeight: geometry.maxHeight,
-      });
-    };
-    measure();
-    window.addEventListener("resize", measure);
-    window.addEventListener("scroll", measure, true);
-    return () => {
-      window.removeEventListener("resize", measure);
-      window.removeEventListener("scroll", measure, true);
-    };
-  }, [align, boundary, minWidth, open, panel, placement, preferredWidth, trigger]);
-  return style;
-}
-
-/** The band of a fixed-height list the viewport can actually show.
- *  `leading`/`trailing` are the heights of everything NOT mounted, so the
- *  scroll container keeps the full list's scroll height and the scrollbar
- *  (and every scroll position) stays truthful. */
-export interface ScmRowWindow {
-  start: number;
-  end: number;
-  leading: number;
-  trailing: number;
-  /** A real viewport was measured — false under a layout-less DOM (jsdom) or
-   *  while the list is not mounted, where the whole list renders instead. */
-  measured: boolean;
-}
-
-/** Windowed rendering for the dock's FIXED-height lists (changed files at
- *  29px, commits at 46px). Only the rows intersecting the viewport plus
- *  `SCM_ROW_OVERSCAN` are mounted; two spacers carry the rest of the height.
- *  Rows keep their identity keys (path / hash), so recycling never moves
- *  focus or selection off the row the user is on.
- *
- *  Hand-rolled instead of the repo's @tanstack/react-virtual (Conversation's
- *  transcript): that virtualizer measures VARIABLE rows through a
- *  ResizeObserver, which this fixed 29/46px grammar does not need and which
- *  the layout-less DOM suites do not provide — here a missing measurement
- *  degrades to "render every row" instead of to an empty list. */
-function useRowWindow(
-  viewport: React.RefObject<HTMLElement | null>,
-  rowHeight: number,
-  count: number,
-  active: boolean,
-  /** Anything that returns the list to its top (project, filter, sort, the
-   *  commit search): the window is read FROM the container, so the container
-   *  is what has to move back. */
-  resetKey: string,
-): ScmRowWindow {
-  const [metrics, setMetrics] = useState({ top: 0, height: 0 });
-  useLayoutEffect(() => {
-    const node = viewport.current;
-    if (!node || !active) return undefined;
-    const measure = () => {
-      const top = node.scrollTop;
-      const height = node.clientHeight;
-      setMetrics((current) =>
-        current.top === top && current.height === height ? current : { top, height });
-    };
-    measure();
-    node.addEventListener("scroll", measure, { passive: true });
-    window.addEventListener("resize", measure);
-    // A dragged dock edge and a growing commit box resize the viewport
-    // without a scroll or a window resize; jsdom has no ResizeObserver, and
-    // without one the fallback above still renders every row.
-    const Observer = typeof window.ResizeObserver === "function" ? window.ResizeObserver : null;
-    const observer = Observer ? new Observer(measure) : null;
-    observer?.observe(node);
-    return () => {
-      node.removeEventListener("scroll", measure);
-      window.removeEventListener("resize", measure);
-      observer?.disconnect();
-    };
-  }, [active, count, rowHeight, viewport]);
-  useLayoutEffect(() => {
-    const node = viewport.current;
-    if (!node || !active) return;
-    node.scrollTop = 0;
-    setMetrics((current) => (current.top === 0 ? current : { ...current, top: 0 }));
-  }, [active, resetKey, viewport]);
-  return useMemo(() => {
-    const { top, height } = metrics;
-    // Nothing may be hidden that the viewport could have shown: without a
-    // measurement, and for a list that fits, the whole list renders.
-    if (height <= 0 || count * rowHeight <= height) {
-      return { start: 0, end: count, leading: 0, trailing: 0, measured: height > 0 };
-    }
-    const start = Math.max(0, Math.floor(top / rowHeight) - SCM_ROW_OVERSCAN);
-    const end = Math.min(count, Math.max(start,
-      Math.ceil((top + height) / rowHeight) + SCM_ROW_OVERSCAN));
-    return {
-      start,
-      end,
-      leading: start * rowHeight,
-      trailing: (count - end) * rowHeight,
-      measured: true,
-    };
-  }, [count, metrics, rowHeight]);
-}
-
-/** The spacers that stand in for the rows a window does not mount. */
-function RowSpacer({ height, edge }: { height: number; edge: "leading" | "trailing" }) {
-  return <div className="dock-scm-row-spacer" data-scm-spacer={edge}
-    aria-hidden="true" style={{ height }} />;
-}
+import {
+  changedFilesLabel,
+  DEFAULT_BRANCH_NAMES,
+  EMPTY_SUMMARY,
+  gitRemoteWebUrl,
+  HISTORY_PAGE_SIZE,
+  HISTORY_PREFETCH_ROWS,
+  indexOnly,
+  isDirtyResetRefusal,
+  leavesStateBehind,
+  partiallyStaged,
+  pathsFor,
+  pullRequestUrl,
+  RowSpacer,
+  SCM_COMMIT_ROW_HEIGHT,
+  SCM_FILE_ROW_HEIGHT,
+  SCM_SORT_KEY,
+  stagedInIndex,
+  statusKind,
+  UNKNOWN_AUTHOR,
+  useAnchoredPanel,
+  useRowWindow,
+  type ScmSortKey,
+  type SourceControlDiffRequest,
+} from "./source-control-support";
+export {
+  changedFilesLabel,
+  gitRemoteWebUrl,
+  isDirtyResetRefusal,
+  pullRequestUrl,
+  type ScmRowWindow,
+  type SourceControlDiffRequest,
+} from "./source-control-support";
 
 export function SourceControlDock({
   projectPath,
@@ -359,11 +120,9 @@ export function SourceControlDock({
   onOpenFile?(project: string, rel: string): void;
   onOpenDiff?(project: string, rel: string, request: SourceControlDiffRequest): void;
   onOpenPullRequest?: PullRequestOpenHandler;
-  /** The dock's own project picker, hosted as the toolbar's repository
-   *  section (GitHub Desktop's toolbar: repository | branch | push-pull). */
+  /** Project picker hosted in the toolbar's repository section. */
   projectSelect?: React.ReactNode;
-  /** 'changes' = the Git panel (Changes | History selector, Orca grammar);
-   *  'prs' = the split-out Pull Requests tab (user: PR은 완전히 분리). */
+  /** `changes` is the Git panel; `prs` is the separate pull-request panel. */
   surface?: "changes" | "prs";
 }) {
   const api = window.mixdogDesktop;
@@ -371,8 +130,7 @@ export function SourceControlDock({
   const [history, setHistory] = useState<DesktopGitLogEntry[]>([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  // GitHub Desktop's commit form is a summary + a description, never one
-  // blob (commit-message.tsx:1771-1852).
+  // Commit messages keep summary and description as separate fields.
   const [summary, setSummary] = useState("");
   const [description, setDescription] = useState("");
   /** Settings → Git commit format: a ghost-text placeholder only (user
@@ -406,10 +164,8 @@ export function SourceControlDock({
    *  this the same skip would be re-requested forever. */
   const autoPagedSkip = useRef(-1);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  /** Checkbox state in GitHub Desktop's grammar: every changed file is
-   *  INCLUDED in the next commit until it is unchecked
-   *  (changed-file.tsx:30-43), so only the exceptions are tracked and files
-   *  that show up later stay checked. */
+  /** Every changed file is included until unchecked, so only exclusions are
+   *  tracked and newly discovered files stay included. */
   const [excluded, setExcluded] = useState<Set<string>>(() => new Set());
   const [fileFilter, setFileFilter] = useState("");
   const [sortKey, setSortKey] = useState<ScmSortKey>(() => {
@@ -537,8 +293,8 @@ export function SourceControlDock({
     }
   }, [api, projectPath, status?.branch, status?.upstreamName]);
 
-  /** GitHub Desktop groups branches under the repository's DEFAULT branch
-   *  (branch-list.tsx:378-398). `gitBranches` drops symbolic refs, so the only
+  /** Branches are grouped under the repository's default branch.
+   *  `gitBranches` drops symbolic refs, so the only
    *  contract member that still carries the remote HEAD is the review base
    *  (main/git-cli.ts:806-819 resolves `refs/remotes/<remote>/HEAD`). Resolved
    *  once per project and cached; the conventional names stay as a fallback. */
@@ -752,8 +508,7 @@ export function SourceControlDock({
   const includableVisible = filteredFiles.filter((file) => !file.conflicted).length;
   const checkAllLabel = changedFilesLabel(files.length, filteredFiles.length);
   const selectedCount = selected.size;
-  // Commit message = summary, blank line, description (GitHub Desktop's
-  // ICommitMessage shape).
+  // Commit message = summary, blank line, description.
   const commitMessage = description.trim()
     ? `${summary.trim()}\n\n${description.trim()}`
     : summary.trim();
@@ -766,9 +521,8 @@ export function SourceControlDock({
   const visibleBranches = branches.filter((branch) =>
     !branchQuery.trim() || branch.name.toLocaleLowerCase()
       .includes(branchQuery.trim().toLocaleLowerCase()));
-  // GitHub Desktop's branch grouping (branch-list.tsx:378-398): the real
-  // default branch first, and only a conventional-name guess when the
-  // repository exposes no remote HEAD to resolve.
+  // Put the resolved default branch first; only guess from conventional names
+  // when the repository exposes no remote HEAD.
   const defaultBranch = (defaultBranchName
     ? visibleBranches.find((branch) => !branch.remote && branch.name === defaultBranchName)
       ?? visibleBranches.find((branch) => branch.name.endsWith(`/${defaultBranchName}`))
@@ -1043,9 +797,8 @@ export function SourceControlDock({
    *  commit it is about to touch (short SHA + subject). */
   const confirmCommit = (entry: DesktopGitLogEntry, question: string) =>
     window.confirm(`${question}\n\n${entry.shortHash}  ${commitTitle(entry)}`);
-  /** `git reset` with the reference's mode choice (GitHub Desktop asks which
-   *  reset it is before it runs one), then the confirmation. `hard` says what
-   *  it destroys. */
+  /** Ask for the reset mode before confirmation; `hard` states what it
+   *  destroys. */
   const resetToCommit = (entry: DesktopGitLogEntry) => {
     const answer = window.prompt(
       `Reset to ${entry.shortHash} — type the reset mode:\n\n`
@@ -1213,20 +966,9 @@ export function SourceControlDock({
     }
   };
 
-  /** One flat checkbox row per changed file — GitHub Desktop's
-   *  changed-file.tsx:30-43: checkbox (included in the next commit), dim
-   *  directory, file name, then the status glyph on the trailing edge. */
   const fileRow = (file: DesktopGitFile) => {
     const included = isIncluded(file);
     const rowSelected = selected.has(file.path);
-    const slash = file.path.lastIndexOf("/");
-    const fileName = slash >= 0 ? file.path.slice(slash + 1) : file.path;
-    const oldSlash = file.oldPath?.lastIndexOf("/") ?? -1;
-    const oldFileName = file.oldPath
-      ? oldSlash >= 0 ? file.oldPath.slice(oldSlash + 1) : file.oldPath
-      : "";
-    const displayName = file.oldPath ? `${oldFileName} → ${fileName}` : fileName;
-    const kind = statusKind(file);
     const actionFiles = selectedActionFiles(file);
     const openChange = () => onOpenDiff
       ? onOpenDiff(projectPath, file.path, {
@@ -1244,127 +986,43 @@ export function SourceControlDock({
       void run(`revert:${file.path}`, () => discardFiles(actionFiles),
         () => setSelected(new Set()));
     };
-    // The reference's file-list context menu (changed-file.tsx): discard, the
-    // three .gitignore entries, the two copy-path entries, then the OS ones.
-    const folder = slash >= 0 ? file.path.slice(0, slash) : "";
-    const dot = fileName.lastIndexOf(".");
-    const extension = dot > 0 ? fileName.slice(dot) : "";
-    const fileMenuItems = (): ScmContextMenuItem[] => [
-      {
-        id: "discard",
-        label: "Discard changes…",
-        danger: true,
-        disabled: Boolean(busy) || file.conflicted || !api?.gitRevert,
-        title: file.conflicted
-          ? "Resolve the conflict before discarding this file"
-          : !api?.gitRevert ? missingChannel("Discarding changes") : undefined,
-        // Guarded at EXECUTION time: this menu may have been built before the
-        // running action (or the in-progress operation) existed.
-        onSelect: () => guarded(discardActionFiles),
+    const fileMenuItems = () => changedFileMenuItems({
+      file,
+      busy: Boolean(busy),
+      canRevert: Boolean(api?.gitRevert),
+      canIgnore: Boolean(api?.gitIgnore),
+      canReveal: Boolean(api?.revealFile),
+      canOpenDefault: Boolean(api?.openFilePath),
+      missingChannel,
+      guarded,
+      onDiscard: discardActionFiles,
+      onIgnore: (path, scope) => {
+        const extension = scope ? path.slice(path.lastIndexOf(".")) : "";
+        void run(
+          scope ? `ignore-extension:${extension}` : `ignore:${path}`,
+          () => api?.gitIgnore?.(projectPath, path, scope),
+        );
       },
-      {
-        id: "ignore-file",
-        label: "Ignore file (add to .gitignore)",
-        separatorBefore: true,
-        disabled: Boolean(busy) || !api?.gitIgnore,
-        title: api?.gitIgnore ? undefined : missingChannel("Ignoring a file"),
-        onSelect: () => guarded(() => void run(`ignore:${file.path}`,
-          () => api?.gitIgnore?.(projectPath, file.path))),
-      },
-      {
-        id: "ignore-folder",
-        label: "Ignore folder (add to .gitignore)",
-        disabled: Boolean(busy) || !api?.gitIgnore || !folder,
-        title: folder
-          ? api?.gitIgnore ? undefined : missingChannel("Ignoring a folder")
-          : "This file sits at the repository root, so it has no folder to ignore",
-        onSelect: () => guarded(() => void run(`ignore:${folder}`,
-          () => api?.gitIgnore?.(projectPath, folder))),
-      },
-      {
-        id: "ignore-extension",
-        label: `Ignore all ${extension || "extensionless"} files (add to .gitignore)`,
-        // `scope: 'extension'` writes the UNANCHORED `*<ext>` rule from the
-        // path's own extension (contract.ts:984-988); the renderer never
-        // smuggles a pattern past the channel's escaping itself.
-        disabled: Boolean(busy) || !api?.gitIgnore || !extension,
-        title: extension
-          ? api?.gitIgnore ? undefined : missingChannel("Ignoring a file type")
-          : "This file has no extension, so there is no file type to ignore",
-        onSelect: () => guarded(() => void run(`ignore-extension:${extension}`,
-          () => api?.gitIgnore?.(projectPath, file.path, "extension"))),
-      },
-      {
-        id: "copy-file-path",
-        label: "Copy file path",
-        separatorBefore: true,
-        onSelect: () => void copyText(absoluteFilePath(file.path), "file path"),
-      },
-      {
-        id: "copy-relative-path",
-        label: "Copy relative file path",
-        onSelect: () => void copyText(file.path, "relative file path"),
-      },
-      {
-        id: "reveal",
-        label: "Show in Explorer",
-        separatorBefore: true,
-        disabled: !api?.revealFile,
-        title: api?.revealFile ? undefined : missingChannel("Showing a file in Explorer"),
-        onSelect: () => void api?.revealFile?.(projectPath, file.path),
-      },
-      {
-        id: "open-default",
-        label: "Open with default program",
-        disabled: !api?.openFilePath,
-        title: api?.openFilePath ? undefined : missingChannel("Opening a file"),
-        onSelect: () => void api?.openFilePath?.(projectPath, file.path),
-      },
-    ];
-    return <div className="dock-scm-file" data-selected={rowSelected || undefined}
-      data-conflicted={file.conflicted || undefined}
-      role="treeitem" aria-selected={rowSelected} key={file.path}
-      {...rowContextMenu(`Actions for ${file.path}`, fileMenuItems)}>
-      <input type="checkbox" className="dock-scm-file-check" checked={included}
-        disabled={file.conflicted || Boolean(busy)}
-        aria-label={`Include ${file.path} in the commit`}
-        onChange={(event) => setIncluded(file, event.currentTarget.checked)} />
-      <button type="button" className="dock-scm-file-main" title={file.path}
-        data-status={kind}
-        aria-label={`Open changes ${file.path}`}
-        onClick={(event) => {
-          const additive = event.ctrlKey || event.metaKey;
-          toggleSelected(file, additive);
-          if (!additive && !event.shiftKey) openChange();
-        }}>
-        {/* ONE continuous path sentence, dim directory + bright name
-            (path-text.tsx:318,345) — no second column, no second line. */}
-        <ScmPathText path={file.path} name={displayName} />
-      </button>
-      {/* Trailing status ICON at the row's right end (changed-file.tsx:30-43 →
-          iconForStatus, status.ts:16-37); its accessible name replaces the
-          letter the screen reader used to hear. */}
-      <ScmStatusIcon kind={kind} className="dock-scm-file-state" />
-      <div className="dock-scm-file-actions">
-        <button type="button" aria-label={`Open file ${file.path}`}
-          onClick={() => onOpenFile?.(projectPath, file.path)}>
-          <FileText size={14} aria-hidden="true" />
-        </button>
-        {/* Conflicted rows keep their resolve affordance; that is the only
-            place the index is still touched by hand. */}
-        {file.conflicted
-          ? <button type="button" aria-label={`Mark resolved ${file.path}`}
-              disabled={Boolean(busy)}
-              onClick={() => void run(`resolve:${file.path}`,
-                () => api?.gitStage?.(projectPath, pathsFor(file)))}>
-              <Check size={14} aria-hidden="true" />
-            </button>
-          : <button type="button" aria-label={`Discard changes ${file.path}`}
-              disabled={Boolean(busy)} onClick={discardActionFiles}>
-              <Undo2 size={14} aria-hidden="true" />
-            </button>}
-      </div>
-    </div>;
+      onCopyFilePath: () => { void copyText(absoluteFilePath(file.path), "file path"); },
+      onCopyRelativePath: () => { void copyText(file.path, "relative file path"); },
+      onReveal: () => { void api?.revealFile?.(projectPath, file.path); },
+      onOpenDefault: () => { void api?.openFilePath?.(projectPath, file.path); },
+    });
+    return <SourceControlFileRow key={file.path}
+      file={file}
+      included={included}
+      selected={rowSelected}
+      busy={Boolean(busy)}
+      contextMenuProps={rowContextMenu(`Actions for ${file.path}`, fileMenuItems)}
+      onSetIncluded={(next) => setIncluded(file, next)}
+      onToggleSelected={(additive) => toggleSelected(file, additive)}
+      onOpenChange={openChange}
+      onOpenFile={() => onOpenFile?.(projectPath, file.path)}
+      onResolve={() => {
+        void run(`resolve:${file.path}`,
+          () => api?.gitStage?.(projectPath, pathsFor(file)));
+      }}
+      onDiscard={discardActionFiles} />;
   };
 
   const discardAllChanges = () => {
@@ -1399,7 +1057,7 @@ export function SourceControlDock({
     if (!defaultBranchName) void loadDefaultBranch();
   };
   const createBranchFromFilter = () => {
-    // GitHub Desktop seeds the create-branch flow with the filter text.
+    // Seed the create-branch flow with the current filter text.
     const name = branchQuery.trim() || window.prompt("New branch name") || "";
     if (!name.trim()) return;
     void run("branch-create", () => api?.gitCreateBranch?.(projectPath, name.trim()),
@@ -1413,129 +1071,25 @@ export function SourceControlDock({
       setMergeMode(false);
     },
   );
-  /** GitHub Desktop's push/pull state ladder, in order
-   *  (toolbar/push-pull-button.tsx:435-510): publish repository → fetch on an
-   *  unborn tip → publish branch → fetch when level → pull when behind →
-   *  push. ONE button, one action, with the ahead/behind badge (:132-158). */
-  const remoteName = (status?.upstreamName || "").split("/")[0] || "origin";
-  const aheadCount = status?.ahead ?? 0;
-  const behindCount = status?.behind ?? 0;
-  // Both directions non-zero is the ONLY case that needs the ↑/↓ arrows: with
-  // one direction the button's own verb already carries it (`Push 3`).
-  const bothDirections = aheadCount > 0 && behindCount > 0;
-  // Label is split verb/target so the narrow dock can drop the remote NAME
-  // before it ever has to truncate the verb into a stub.
-  const fetchEntry = {
-    key: "fetch",
-    runKey: "fetch",
-    verb: "Fetch",
-    target: remoteName,
-    label: `Fetch ${remoteName}`,
-    reason: "",
-    blocked: false,
-    icon: <RefreshCw size={14} aria-hidden="true" />,
-    perform: () => void run("fetch", () => api?.gitFetch?.(projectPath)),
-  };
-  const publishEntry = (key: string, label: string) => ({
-    key,
-    runKey: "push",
-    verb: label,
-    target: "",
-    label,
-    reason: "",
-    blocked: false,
-    icon: <CloudUpload size={14} aria-hidden="true" />,
-    perform: () => void run("push", () => api?.gitPush?.(projectPath)),
+  const {
+    remoteName,
+    aheadCount,
+    behindCount,
+    bothDirections,
+    fetchEntry,
+    remoteEntry,
+    rowPushReason,
+    rowPushBlocked,
+    headerFetchReason,
+  } = sourceControlRemoteActions({
+    status,
+    busy,
+    canFetch: Boolean(api?.gitFetch),
+    missingChannel,
+    onFetch: () => void run("fetch", () => api?.gitFetch?.(projectPath)),
+    onPush: () => void run("push", () => api?.gitPush?.(projectPath)),
+    onPull: () => void run("pull", () => api?.gitPull?.(projectPath)),
   });
-  /** A rung that is on the ladder but cannot act (reference: the disabled
-   *  detached-HEAD button, push-pull-button.tsx:541-555). */
-  const blockedEntry = (key: string, label: string, reason: string) => ({
-    ...publishEntry(key, label),
-    reason,
-    blocked: true,
-    perform: () => {},
-  });
-  /** The push rung. When the ladder hands the button to Pull (behind > 0 wins
-   *  over ahead — push-pull-button.tsx:491-509) the push action stays reachable
-   *  through the commit form's split menu (Push / Sync) and through the History
-   *  rows' unpushed push button; the toolbar dropdown that used to carry it is
-   *  gone (the header owns Fetch now). */
-  const pushEntry = {
-    key: "push",
-    runKey: "push",
-    verb: "Push",
-    target: remoteName,
-    label: `Push ${remoteName}`,
-    reason: "",
-    blocked: false,
-    icon: <ArrowUp size={14} aria-hidden="true" />,
-    perform: () => void run("push", () => api?.gitPush?.(projectPath)),
-  };
-  const remoteEntry = !status ? null
-    : !status.remote
-      // Nothing to publish TO: the rung stays visible (ladder parity) but says
-      // why it cannot run instead of firing a push that must fail.
-      ? blockedEntry("publish-repository", "Publish repository",
-        "Add a remote before publishing this repository")
-      : status.unborn
-        ? fetchEntry
-        : status.detached
-          // push-pull-button.tsx:541-555.
-          ? blockedEntry("detached-head", "Publish branch",
-            status.operation === "rebase" ? "Rebase in progress" : "Cannot publish detached HEAD")
-        : !status.upstream
-          ? publishEntry("publish-branch", "Publish branch")
-          : aheadCount === 0 && behindCount === 0
-            ? fetchEntry
-            : behindCount > 0
-              ? {
-                key: "pull",
-                runKey: "pull",
-                verb: "Pull",
-                target: remoteName,
-                label: `Pull ${remoteName}`,
-                reason: "",
-                blocked: false,
-                icon: <ArrowDown size={14} aria-hidden="true" />,
-                perform: () => void run("pull", () => api?.gitPull?.(projectPath)),
-              }
-              : pushEntry;
-  /** The history row's push button IS the toolbar's push action, so it obeys
-   *  the toolbar's own rules (push-pull-button.tsx:435-555): never while
-   *  another git action or an in-progress operation runs, never without a
-   *  remote, never on a detached HEAD, and never without an upstream —
-   *  publishing a branch stays the toolbar's job. */
-  const rowPushReason = busy
-    ? "Another Git action is running"
-    : status?.operation
-      ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
-      : !status?.remote
-        ? "Add a remote before pushing"
-        : status.detached
-          ? "Cannot push a detached HEAD"
-          : !status.upstream
-            ? "Publish the branch from the toolbar before pushing"
-            : "";
-  const rowPushBlocked = Boolean(rowPushReason);
-  /** The panel header's ONE action: Fetch, pinned at the right end of the
-   *  `Source Control` title row. The toolbar's third section only OFFERS Fetch
-   *  while the branch is level (push-pull-button.tsx:435-510 hands it to Pull
-   *  or Push the moment there is anything to move), so a fetch that does not
-   *  depend on the ahead/behind state lives here and fires the SAME action the
-   *  rung does (`fetchEntry.perform`). The deleted "…" overflow menu does not
-   *  come back with it: View & Sort, Stage All / Unstage All / Discard All and
-   *  the stash pair are the `N changed files` header actions; Amend and Undo
-   *  commit live on the history rows; Commit, Pull/Push and Branch are owned by
-   *  the commit form, the toolbar's morphing button and the branch dropdown. */
-  const headerFetchReason = busy
-    ? "Another Git action is running"
-    : status?.operation
-      ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
-      : !api?.gitFetch
-        ? missingChannel("Fetching")
-        : !status?.remote
-          ? "Add a remote before fetching"
-          : "";
   const headerFetch = headerSlot && !prOnly
     ? createPortal(<button type="button" className="dock-scm-header-fetch"
       aria-label={`Fetch from ${remoteName}`}
@@ -1592,157 +1146,47 @@ export function SourceControlDock({
     {headerFetch}
     {/* ONE portaled context menu for every row grammar in the dock. */}
     <ScmContextMenu state={visibleContextMenu} onClose={closeContextMenu} />
-    {/* GitHub Desktop's top toolbar, three sections above the tab row:
-        repository selector, current branch dropdown, and ONE push/pull
-        button (toolbar/push-pull-button.tsx:435-510). */}
+    {/* Toolbar: repository selector, branch dropdown, and one push/pull button. */}
     {status && !prOnly && <div className="dock-scm-toolbar">
       {projectSelect
         ? <div className="dock-scm-toolbar-section dock-scm-toolbar-project">{projectSelect}</div>
         : null}
-      <div className="dock-scm-toolbar-section dock-scm-toolbar-branch" ref={branchPickerRef}>
-        <button type="button" className="dock-scm-branch-button" aria-haspopup="dialog"
-          ref={branchTriggerRef}
-          aria-expanded={branchPickerVisible} disabled={!api?.gitBranches}
-          title={status.upstreamName || status.branch}
-          onPointerDown={(event) => {
-            if (event.button !== 0) return;
-            branchPickerClickGuard.markPointerActivation();
-            commitImmediateOverlay(() => branchPickerVisible
-              ? setBranchPickerOpen(false)
-              : openBranchPicker());
-          }}
-          onClick={(event) => {
-            if (branchPickerClickGuard.consumePointerClick()) return;
-            if (event.detail !== 0) return;
-            commitImmediateOverlay(() => branchPickerVisible
-              ? setBranchPickerOpen(false)
-              : openBranchPicker());
-          }}
-          onPointerCancel={branchPickerClickGuard.clearPointerActivation}>
-          <GitBranch size={14} aria-hidden="true" />
-          <span>{status.detached ? "Detached HEAD" : status.branch || "No branch"}</span>
-          <ChevronDown size={12} aria-hidden="true" />
-        </button>
-        {branchPickerVisible && createPortal(<div className="dock-scm-branch-picker" role="dialog"
-          aria-label="Git branches" ref={branchPanelRef} style={branchPanelStyle}>
-          {/* branches-container.tsx:124-193: filter + list + a merge row that
-              always names the branch being merged INTO. */}
-          <header>
-            <input type="search" value={branchQuery} autoFocus
-              aria-label="Filter branches"
-              placeholder="Filter"
-              onInput={(event) => setBranchQuery(event.currentTarget.value)} />
-            <button type="button" className="dock-scm-branch-new"
-              disabled={Boolean(busy) || !api?.gitCreateBranch || Boolean(status.operation)}
-              title={status.operation
-                ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
-                : undefined}
-              onClick={createBranchFromFilter}>
-              <Plus size={12} aria-hidden="true" />
-              <span>New branch</span>
-            </button>
-          </header>
-          <div className="dock-scm-branch-list">
-            {branchLoading && <p>Loading branches…</p>}
-            {!branchLoading && visibleBranches.length === 0 && <p>No matching branches.</p>}
-            {([
-              ["Default branch", defaultBranch ? [defaultBranch] : []],
-              ["Other branches", otherBranches],
-            ] as Array<[string, DesktopGitBranch[]]>)
-              .map(([label, rows]) => rows.length > 0 && <section key={label}>
-              <h3>{label}</h3>
-              {rows.map((branch) => <div className="dock-scm-branch-row"
-                data-current={branch.current || undefined} key={`${branch.remote}:${branch.name}`}
-                {...rowContextMenu(`Actions for branch ${branch.name}`, () => [
-                  {
-                    id: "checkout",
-                    label: "Checkout",
-                    disabled: Boolean(busy) || branch.current || Boolean(status.operation)
-                      || !api?.gitCheckoutBranch,
-                    title: branch.current
-                      ? "This branch is already checked out"
-                      : status.operation
-                        ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
-                        : api?.gitCheckoutBranch ? undefined : missingChannel("Checkout"),
-                    onSelect: () => guarded(() => checkoutBranch(branch)),
-                  },
-                  {
-                    id: "rename",
-                    label: "Rename…",
-                    disabled: Boolean(busy) || branch.remote || !api?.gitRenameBranch,
-                    title: branch.remote
-                      ? "A remote branch cannot be renamed from here"
-                      : api?.gitRenameBranch ? undefined : missingChannel("Renaming a branch"),
-                    onSelect: () => guarded(() => renameBranch(branch)),
-                  },
-                  {
-                    id: "delete",
-                    label: "Delete…",
-                    danger: true,
-                    disabled: Boolean(busy) || branch.remote || branch.current
-                      || !api?.gitDeleteBranch,
-                    title: branch.current
-                      ? "The checked-out branch cannot be deleted"
-                      : branch.remote
-                        ? "A remote branch cannot be deleted from here"
-                        : api?.gitDeleteBranch ? undefined : missingChannel("Deleting a branch"),
-                    onSelect: () => guarded(() => deleteBranch(branch)),
-                  },
-                  {
-                    id: "merge",
-                    label: `Merge into ${status.branch}`,
-                    separatorBefore: true,
-                    disabled: Boolean(busy) || branch.current || Boolean(status.operation)
-                      || !api?.gitMergeBranch || !status.branch || status.detached,
-                    title: status.operation
-                      ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
-                      : api?.gitMergeBranch ? undefined : missingChannel("Merging a branch"),
-                    onSelect: () => guarded(() => mergeIntoCurrent(branch)),
-                  },
-                ])}>
-                <button type="button" className="dock-scm-branch-main"
-                  // The main process refuses checkout/merge mid-operation; the
-                  // UI must not offer it either.
-                  disabled={Boolean(busy) || branch.current || Boolean(status.operation)}
-                  title={status.operation
-                    ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
-                    : branch.name}
-                  onClick={() => mergeMode
-                    ? mergeIntoCurrent(branch)
-                    : checkoutBranch(branch)}>
-                  {branch.current
-                    ? <Check size={14} aria-hidden="true" />
-                    : <GitBranch size={14} aria-hidden="true" />}
-                  <span>{branch.name}</span>
-                  {/* Per-branch last-commit age, the reference's branch row
-                      metadata; falls back to the upstream when the main
-                      process has not shipped the age yet. */}
-                  {(branch.lastCommitRelative || (!branch.remote && branch.upstream)) &&
-                    <small>{branch.lastCommitRelative || branch.upstream}</small>}
-                </button>
-                {!branch.remote && <>
-                  <button type="button" className="dock-scm-branch-action"
-                    aria-label={`Rename branch ${branch.name}`} disabled={Boolean(busy)}
-                    onClick={() => renameBranch(branch)}>Rename</button>
-                  {!branch.current && <button type="button" className="dock-scm-branch-action danger"
-                    aria-label={`Delete branch ${branch.name}`} disabled={Boolean(busy)}
-                    onClick={() => deleteBranch(branch)}>Delete</button>}
-                </>}
-              </div>)}
-            </section>)}
-          </div>
-          {status.branch && !status.detached && <button type="button" className="dock-scm-merge-row"
-            aria-pressed={mergeMode}
-            disabled={Boolean(busy) || !api?.gitMergeBranch || Boolean(status.operation)}
-            title={status.operation
-              ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
-              : `Choose a branch to merge into ${status.branch}`}
-            onClick={() => setMergeMode((current) => !current)}>
-            <GitMerge size={14} aria-hidden="true" />
-            <span>Choose a branch to merge into <strong>{status.branch}</strong></span>
-          </button>}
-        </div>, document.body)}
-      </div>
+      <SourceControlBranchPicker
+        status={status}
+        busy={busy}
+        open={branchPickerVisible}
+        query={branchQuery}
+        loading={branchLoading}
+        visibleBranches={visibleBranches}
+        defaultBranch={defaultBranch}
+        otherBranches={otherBranches}
+        mergeMode={mergeMode}
+        capabilities={{
+          list: Boolean(api?.gitBranches),
+          create: Boolean(api?.gitCreateBranch),
+          checkout: Boolean(api?.gitCheckoutBranch),
+          rename: Boolean(api?.gitRenameBranch),
+          delete: Boolean(api?.gitDeleteBranch),
+          merge: Boolean(api?.gitMergeBranch),
+        }}
+        rootRef={branchPickerRef}
+        triggerRef={branchTriggerRef}
+        panelRef={branchPanelRef}
+        panelStyle={branchPanelStyle}
+        clickGuard={branchPickerClickGuard}
+        rowContextMenu={rowContextMenu}
+        missingChannel={missingChannel}
+        guarded={guarded}
+        onOpen={openBranchPicker}
+        onClose={() => setBranchPickerOpen(false)}
+        onQueryChange={setBranchQuery}
+        onCreate={createBranchFromFilter}
+        onCheckout={checkoutBranch}
+        onRename={renameBranch}
+        onDelete={deleteBranch}
+        onMerge={mergeIntoCurrent}
+        onToggleMergeMode={() => setMergeMode((current) => !current)}
+      />
       {/* ONE morphing action, no dropdown beside it — and the toolbar's THIRD
           EQUAL SECTION (desktop.css: all three are `flex: 1 1 0`), so it shows
           its verb instead of degrading to an icon stub. It IS Fetch only while
@@ -1818,11 +1262,9 @@ export function SourceControlDock({
         setView(next);
         setSelected(new Set());
       };
-      // Layout is GitHub Desktop's tab bar (repository.tsx:217-235 renders the
-      // two tabs through <TabBar>): two EQUAL halves spanning the panel width
-      // (_tab-bar.scss:33-52, `flex: 1` per item), the selection marked by the
-      // inset bottom bar (:59) and the Changes half carrying the counter
-      // bubble (:77-86). The SEMANTICS stay a radio group with roving tabindex.
+      // Two equal tabs span the panel; the selected tab owns the inset marker
+      // and the Changes tab carries the counter. Semantics remain a radio group
+      // with roving tabindex.
       return <div className="dock-scm-tab-bar" role="radiogroup"
         aria-label="Changes or history">
         {options.map((option, index) => <button type="button" role="radio" key={option.id}
@@ -1886,10 +1328,8 @@ export function SourceControlDock({
             ? "Finish the in-progress Git operation first."
             : "Pull requests need a pushed upstream branch."} />
     : view === "changes" ? <>
-      {/* GitHub Desktop's tri-state select-all row
-          (filter-changes-list.tsx:1235-1281), 29px tall
-          (styles/ui/changes/_changes-list.scss:14-20). The shared filter box
-          now lives in the view controls above Changes | History. */}
+      {/* Tri-state select-all row; the shared filter box lives in the view
+          controls above Changes | History. */}
       <div className="dock-scm-list-header">
         {/* The select-all row is also the list's ACTION header now: Stage All,
             Unstage All and Discard All moved here from the deleted "…" menu,
@@ -2023,8 +1463,7 @@ export function SourceControlDock({
           stage (never an overlay over the file list) and follows the chat
           composer grammar: textarea row, then an action row. */}
       {(() => {
-        // GitHub Desktop's commit form (commit-message.tsx:1771-1852): the
-        // primary button carries the whole action — verb, file count and the
+        // The primary button carries the whole action — verb, file count and the
         // target branch — and it is the form's ONLY control: the split-menu
         // chevron is gone. Commit & Push / Commit & Sync are the toolbar's
         // morphing button the moment the commit lands (it becomes Push /
@@ -2063,8 +1502,8 @@ export function SourceControlDock({
         const submitOnAccelerator = (
           event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
         ) => {
-          // GitHub Desktop commits on Ctrl/Cmd+Enter from either field — but
-          // only on a summary the user typed: an empty draft never starts
+          // Ctrl/Cmd+Enter submits from either field only when the user typed a
+          // summary; an empty draft never starts
           // auto generation or a commit from a stray accelerator.
           if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
           event.preventDefault();
@@ -2097,7 +1536,7 @@ export function SourceControlDock({
               onKeyDown={submitOnAccelerator} />
           </div>
           {conventionalWarning && <p className="dock-scm-commit-format-warning" role="status">
-            Expected <code>type(scope)!: description</code>. You can still commit this message.
+            {t("Expected {{format}}. You can still commit this message.", { format: "type(scope)!: description" })}
           </p>}
           <div className="dock-scm-commit-split">
             <button type="submit" className="dock-scm-commit-button"

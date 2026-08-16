@@ -138,7 +138,7 @@ function dropZoneStyle(preview: DropPreview): React.CSSProperties {
     case "right": return { left: left + width / 2, top, width: width / 2, height };
     case "top": return { left, top, width, height: height / 2 };
     case "bottom": return { left, top: top + height / 2, width, height: height / 2 };
-    // Center merge highlights the whole target group (VS Code grammar).
+  // Center merge highlights the whole target group.
     case "center": return { left, top, width, height };
     // Strip insertion caret: the rect IS the bar (VS Code tabs drop index).
     case "insert": return { left, top, width, height };
@@ -172,10 +172,10 @@ export function PaneWorkspace({
   observedSessionIds?: readonly string[];
   /** App's non-chat surface for an empty/project/file focused leaf. */
   renderActive: (leaf: PaneLeaf) => React.ReactNode;
-  /** Per-group tab strip (VS Code editor-group title control). */
+  /** Per-group tab strip. */
   renderStrip?: (leaf: PaneLeaf) => React.ReactNode;
   /** One permanently mounted chat surface per session/draft pane. Focus is a
-   *  prop change only, matching VS Code editor groups. */
+   *  prop change only. */
   renderConversation?: (
     selection: NavigationSelection,
     focused: boolean,
@@ -463,7 +463,7 @@ export function PaneWorkspace({
       setDropPreview(null);
       return;
     }
-    // VS Code parity: a drop that cannot move anything draws NO overlay at
+    // A drop that cannot move anything draws no overlay at
     // all — a group over its own pane, or a single-tab group over itself
     // (editorDropTarget hides the overlay for both instead of previewing a
     // silent no-op).

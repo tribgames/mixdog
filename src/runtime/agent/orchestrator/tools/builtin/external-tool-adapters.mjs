@@ -17,7 +17,7 @@ import { atomicWrite } from './atomic-write.mjs';
 import { assertPathsReachable } from './fs-reachability.mjs';
 import { normalizeInputPath, resolveAgainstCwd, normalizeOutputPath } from './path-utils.mjs';
 import { isUncPath, isWindowsDevicePath, hasUnsafeWin32Component, isBlockedDevicePath, isSpecialFileStat } from './device-paths.mjs';
-import { getReadSnapshot, isSnapshotStale, recordReadSnapshot } from './read-snapshot-runtime.mjs';
+import { recordReadSnapshot } from './read-snapshot-runtime.mjs';
 import { executeBashTool } from './bash-tool.mjs';
 import { runServerEdit } from '../patch/native-server.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
@@ -165,6 +165,46 @@ function countOccurrences(haystack, needle) {
     return count;
 }
 
+function formatEditFailureExcerpt(content, oldStr, errorText) {
+    const source = String(content ?? '').replace(/\r\n/g, '\n');
+    const lines = source.split('\n');
+    if (lines.length === 0) return '';
+    let center = -1;
+    const nearest = /nearest match on line (\d+)/i.exec(String(errorText || ''));
+    if (nearest) center = Math.max(0, Number(nearest[1]) - 1);
+    if (center < 0 && oldStr) {
+        const at = source.indexOf(oldStr);
+        if (at >= 0) center = source.slice(0, at).split('\n').length - 1;
+    }
+    if (center < 0) {
+        const keyword = String(oldStr || '')
+            .split('\n')
+            .find((line) => line.trim())
+            ?.split(/\s+/)
+            .sort((a, b) => b.length - a.length)[0];
+        if (keyword && keyword.length >= 4) center = lines.findIndex((line) => line.includes(keyword));
+    }
+    if (center < 0) return '';
+    const start = Math.max(0, center - 3);
+    const end = Math.min(lines.length, start + 10);
+    const rows = [];
+    let chars = 0;
+    for (let i = start; i < end; i++) {
+        const raw = lines[i];
+        const shown = raw.length > 240 ? `${raw.slice(0, 240)}…` : raw;
+        const row = `${String(i + 1).padStart(5, ' ')}| ${shown}`;
+        chars += row.length + 1;
+        if (chars > 3000) {
+            rows.push('     | …');
+            break;
+        }
+        rows.push(row);
+    }
+    return rows.length > 0
+        ? `\ncurrent file excerpt lines ${start + 1}-${start + rows.length} (use exact current text for retry):\n${rows.join('\n')}`
+        : '';
+}
+
 async function adaptStrReplace(args, workDir, options) {
     const oldStr = args?.old_string;
     const newStr = args?.new_string;
@@ -202,10 +242,6 @@ async function adaptStrReplace(args, workDir, options) {
         content = readFileSync(fullPath, 'utf8');
     } catch (err) {
         return `Error: cannot read ${fullPath} (${err?.message || err})`;
-    }
-    const priorSnapshot = getReadSnapshot(fullPath, editScope(options));
-    if (priorSnapshot && statBefore && isSnapshotStale(statBefore, priorSnapshot, fullPath)) {
-        return `Error: ${fullPath} has been modified since it was read; read it again before editing`;
     }
     if (oldStr.length === 0) {
         if (content.length > 0) return `Error: cannot create ${fullPath}: file already exists and is not empty`;
@@ -271,13 +307,24 @@ async function adaptStrReplace(args, workDir, options) {
             return `Updated ${fullPath} (1 replacement)`;
         }
     }
-    const result = await runServerEdit({
-        fullPath,
-        oldBuf: Buffer.from(oldStr, 'utf8'),
-        newBuf: Buffer.from(newStr, 'utf8'),
-        replaceAll,
-        signal: options?.signal || null,
-    });
+    let result;
+    try {
+        result = await runServerEdit({
+            fullPath,
+            oldBuf: Buffer.from(oldStr, 'utf8'),
+            newBuf: Buffer.from(newStr, 'utf8'),
+            replaceAll,
+            signal: options?.signal || null,
+        });
+    } catch (err) {
+        const message = err?.message || String(err);
+        if (/old_string (?:not found|found \d+ times)/i.test(message)) {
+            let latest = content;
+            try { latest = readFileSync(fullPath, 'utf8'); } catch { /* retain pre-dispatch content */ }
+            return `Error: edit failed (${message})${formatEditFailureExcerpt(latest, oldStr, message)}`;
+        }
+        throw err;
+    }
     invalidateAfterWrite(fullPath);
     recordEditSnapshot(fullPath, options, result.contentHash);
     {

@@ -111,8 +111,8 @@ function usedPercent(window: UsageRecord): number | null {
 
 /** Rail pin mode (user: 핀모드): one entry per brand that has quota data —
  *  its icon plus the final quota window's usage, picked by longest period:
- *  monthly (M) → weekly (7D/W) → daily/hourly. Cursor pins its overall Basic
- *  meter; other unknown windows fall back to the provider's final entry. */
+ *  monthly (M) → weekly (7D/W) → daily/hourly. Unknown windows fall back to
+ *  the provider's final entry. */
 export interface UsagePinEntry {
   key: string;
   label: string;
@@ -389,7 +389,7 @@ export function SidebarUsage({
           aria-label={pinned ? t("Unpin usage from the rail") : t("Pin usage to the rail")}
           title={pinned ? t("Unpin usage from the rail") : t("Pin usage to the rail")}
           onClick={onTogglePin}>
-          {/* VS Code-style DIAGONAL pushpin (user: 대각핀으로 가자) — the
+          {/* Diagonal pushpin; the
               tilt comes from the CSS rotate on .sidebar-usage-pin svg. */}
           <Pin size={14} aria-hidden="true" />
         </button>}
@@ -397,7 +397,7 @@ export function SidebarUsage({
       <PaneSurfaceGate ready={!awaitingFirstUsage} label={t("Loading usage…")}>
       <div className="sidebar-usage-content">
       <div id="sidebar-usage-list" className="sidebar-usage-list">
-        {/* Orca-style flat roster: header (icon · name · soonest reset) with
+        {/* Flat roster: header (icon · name · soonest reset) with
             EVERY quota window inline beneath — nothing left to drill into. */}
         {SUBSCRIPTIONS.map((subscription) => {
           const row = subscriptionRow(dashboard, subscription);

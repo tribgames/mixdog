@@ -142,7 +142,7 @@ export async function readProjectTextFileIn(root: string, relPath: string): Prom
   };
 }
 
-/** Editor tab: external-change polling (VSCode-style reload prompt). */
+/** Editor tab external-change polling. */
 export async function statProjectFileIn(root: string, relPath: string): Promise<{ mtimeMs: number; size: number }> {
   const info = await stat(projectEntryPathIn(root, relPath));
   return { mtimeMs: info.mtimeMs, size: info.size };
@@ -294,7 +294,7 @@ function explorerEntrySegments(name: string): string[] {
   return segments;
 }
 
-/** Files tree: create a file or directory. VS Code Explorer grammar — the
+/** Files tree: create a file or directory. The
  *  name may contain "a/b/c" segments; missing parent folders are created. */
 export async function createProjectEntryIn(root: string, relDir: string, name: string, dir: boolean): Promise<void> {
   const segments = explorerEntrySegments(name);

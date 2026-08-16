@@ -23,59 +23,57 @@ export function ProjectsPane({
   selectedProjectPath,
   onChooseFolder,
   onCreateProject,
-  onOpenProject,
   onRename,
   onRemove,
   instructionsSupported = false,
   onReadInstructions,
   onSaveInstructions,
+  onMemoryControl,
 }: {
   active?: boolean;
   projects: DesktopProjectSummary[];
   selectedProjectPath: string;
   onChooseFolder(): Promise<string | null>;
   onCreateProject(path: string, name: string): Promise<void>;
-  onOpenProject(path: string): void;
   onRename(path: string, alias: string): void;
   onRemove(path: string): void;
   /** Instructions editing needs the desktop bridge; the remote shim omits it. */
   instructionsSupported?: boolean;
   onReadInstructions?(projectPath: string | null): Promise<string>;
   onSaveInstructions?(projectPath: string | null, content: string): Promise<void>;
+  onMemoryControl?(input: Record<string, unknown>): Promise<unknown>;
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const [addPath, setAddPath] = useState('');
   const [addName, setAddName] = useState('');
   const [addError, setAddError] = useState('');
   const [addBusy, setAddBusy] = useState(false);
-  // Instructions editor (md plain text). target.path === null edits the common
-  // instructions file (data/instructions.md → "# Common Instructions" in BP3);
-  // a project path edits <project>/.mixdog/instructions.md (session-start block).
-  const [insTarget, setInsTarget] = useState<{ path: string | null; title: string } | null>(null);
-  const [insDraft, setInsDraft] = useState('');
-  const [insLoading, setInsLoading] = useState(false);
-  const [insBusy, setInsBusy] = useState(false);
-  const [insError, setInsError] = useState('');
-  // Per-project edit dialog (user: 공통지침과 동일하게 연필 버튼 하나 —
-  // 이름 변경/삭제/지침 수정을 그 안에서). editIns === null means the
+  // Project editor: name, instructions, and existing memories share the one
+  // pencil action. editIns === null means the
   // instructions never loaded (unsupported or failed) and stays untouched.
-  const [editTarget, setEditTarget] = useState<{ path: string; title: string } | null>(null);
+  const [editTarget, setEditTarget] = useState<{ path: string | null; title: string } | null>(null);
   const [editName, setEditName] = useState('');
   const [editIns, setEditIns] = useState<string | null>(null);
   const [editInsLoading, setEditInsLoading] = useState(false);
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState('');
   const [editConfirmRemove, setEditConfirmRemove] = useState(false);
+  const [memories, setMemories] = useState<CoreMemoryEntry[]>([]);
+  const [memoriesLoading, setMemoriesLoading] = useState(false);
+  const [memoryBusy, setMemoryBusy] = useState(false);
+  const [editingMemory, setEditingMemory] = useState<number | null>(null);
+  const [memoryDraft, setMemoryDraft] = useState('');
+  const [memoryTargetPath, setMemoryTargetPath] = useState('');
+  const [addingMemory, setAddingMemory] = useState(false);
+  const [addMemoryDraft, setAddMemoryDraft] = useState('');
+  const [addMemoryTargetPath, setAddMemoryTargetPath] = useState('');
+  const [confirmDeleteMemory, setConfirmDeleteMemory] = useState<number | null>(null);
   // The dialog scrims cannot dim the NATIVE caption band — hold the titlebar
   // claim while either portal is open (user: - ㅁ x 딤드 안 먹음).
   useEffect(() => {
     if (!(active && addOpen)) return;
     return acquireTitleBarDim();
   }, [active, addOpen]);
-  useEffect(() => {
-    if (!(active && insTarget)) return;
-    return acquireTitleBarDim();
-  }, [active, insTarget]);
   useEffect(() => {
     if (!(active && editTarget)) return;
     return acquireTitleBarDim();
@@ -88,35 +86,36 @@ export function ProjectsPane({
   useEffect(() => {
     publishSidebarProjects(projects);
   }, [projects]);
-  const openInstructions = (path: string | null, title: string) => {
-    if (!onReadInstructions) return;
-    setInsTarget({ path, title });
-    setInsDraft('');
-    setInsError('');
-    setInsLoading(true);
-    void onReadInstructions(path)
-      .then((text) => setInsDraft(String(text ?? '')))
-      .catch((reason) => setInsError(reason instanceof Error ? reason.message : String(reason)))
-      .finally(() => setInsLoading(false));
+  const memoryScope = (path: string | null) => path === null
+    ? { project_id: 'common' }
+    : { cwd: path };
+  const refreshMemories = async (path: string | null) => {
+    if (!onMemoryControl) return;
+    const value = await onMemoryControl({ action: 'core', op: 'list', ...memoryScope(path) });
+    setMemories(parseCoreMemoryEntries(value));
   };
-  const closeInstructions = () => {
-    if (insBusy) return;
-    setInsTarget(null);
-    setInsDraft('');
-    setInsError('');
-  };
-  const openEdit = (path: string, title: string) => {
+  const openEdit = (path: string | null, title: string) => {
     setEditTarget({ path, title });
     setEditName(title);
     setEditIns(null);
     setEditError('');
     setEditConfirmRemove(false);
+    setMemories([]);
+    setEditingMemory(null);
+    setAddingMemory(false);
+    setConfirmDeleteMemory(null);
     if (canEditInstructions && onReadInstructions) {
       setEditInsLoading(true);
       void onReadInstructions(path)
         .then((text) => setEditIns(String(text ?? '')))
         .catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
         .finally(() => setEditInsLoading(false));
+    }
+    if (onMemoryControl) {
+      setMemoriesLoading(true);
+      void refreshMemories(path)
+        .catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
+        .finally(() => setMemoriesLoading(false));
     }
   };
   const resetEdit = () => {
@@ -125,9 +124,17 @@ export function ProjectsPane({
     setEditIns(null);
     setEditError('');
     setEditConfirmRemove(false);
+    setMemories([]);
+    setEditingMemory(null);
+    setMemoryDraft('');
+    setMemoryTargetPath('');
+    setAddingMemory(false);
+    setAddMemoryDraft('');
+    setAddMemoryTargetPath('');
+    setConfirmDeleteMemory(null);
   };
   const closeEdit = () => {
-    if (editBusy) return;
+    if (editBusy || memoryBusy) return;
     resetEdit();
   };
   const closeAdd = () => {
@@ -144,9 +151,6 @@ export function ProjectsPane({
     setAddPath('');
     setAddName('');
     setAddError('');
-    setInsTarget(null);
-    setInsDraft('');
-    setInsError('');
     resetEdit();
   });
   // No search field (user: 프로젝트 목록은 짧다 — 서치창 제거).
@@ -187,13 +191,15 @@ export function ProjectsPane({
               .catch((reason) => setAddError(reason instanceof Error ? reason.message : String(reason)))
               .finally(() => setAddBusy(false));
           }}>
-            <label className="schedules-field">{t('Name')}
+            <label className="schedules-field"><span>{t('Name')}</span>
+              <small>{t('Shown in the Projects list.')}</small>
               <input name="project-name" value={addName} maxLength={120} autoFocus disabled={addBusy}
                 placeholder={t('my-project')}
                 onChange={(event) => setAddName(event.currentTarget.value)} />
             </label>
             <div className="schedules-field">
               <span>{t('Folder')}</span>
+              <small>{t('Folder opened for this project.')}</small>
               <div className="projects-folder-row">
                 <code>{addPath || t('No folder selected')}</code>
                 {/* Folder comes from the OS chooser only (user decision):
@@ -211,51 +217,6 @@ export function ProjectsPane({
               {addError && <p className="schedules-form-error" role="alert">{addError}</p>}
               <button type="button" disabled={addBusy} onClick={closeAdd}>{t('Cancel')}</button>
               <button type="submit" disabled={addBusy || !addPath}>{t('Add')}</button>
-            </footer>
-          </form>
-        </section>
-      </div>, document.body)}
-      {active && insTarget && createPortal(<div className="schedules-dialog-layer"
-        onMouseDown={(event) => { if (event.target === event.currentTarget) closeInstructions(); }}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            event.stopPropagation();
-            closeInstructions();
-          }
-        }}>
-        <section className="schedules-dialog projects-instructions-dialog" role="dialog" aria-modal="true"
-          aria-labelledby="projects-instructions-title">
-          <header>
-            <h2 id="projects-instructions-title">{insTarget.title}</h2>
-            <button type="button" aria-label={t('Close instructions editor')} onClick={closeInstructions}>
-              <X size={16} aria-hidden="true" /></button>
-          </header>
-          <form onSubmit={(event) => {
-            event.preventDefault();
-            if (insBusy || insLoading || !onSaveInstructions || !insTarget) return;
-            setInsBusy(true);
-            setInsError('');
-            void onSaveInstructions(insTarget.path, insDraft)
-              .then(() => { setInsBusy(false); setInsTarget(null); setInsDraft(''); })
-              .catch((reason) => {
-                setInsBusy(false);
-                setInsError(reason instanceof Error ? reason.message : String(reason));
-              });
-          }}>
-            {/* EXACT workflow-editor field grammar (user: 옵션창에서 쓰는
-                거로) — same label + bare textarea as the WORKFLOW.md body. */}
-            <label className="schedules-field workflows-md-field">{t('Instructions')}
-              <textarea aria-label={t('Instructions markdown')}
-                value={insLoading ? t('Loading…') : insDraft} disabled={insLoading || insBusy}
-                spellCheck={false} autoFocus
-                placeholder={t('Markdown instructions for the model…')}
-                onChange={(event) => setInsDraft(event.currentTarget.value)} />
-            </label>
-            <footer>
-              {insError && <p className="schedules-form-error" role="alert">{insError}</p>}
-              <button type="button" disabled={insBusy} onClick={closeInstructions}>{t('Cancel')}</button>
-              <button type="submit" disabled={insBusy || insLoading}>{t('Save')}</button>
             </footer>
           </form>
         </section>
@@ -278,7 +239,7 @@ export function ProjectsPane({
           </header>
           <form onSubmit={(event) => {
             event.preventDefault();
-            if (!editTarget || editBusy || editInsLoading) return;
+            if (!editTarget || editBusy || editInsLoading || memoryBusy) return;
             const { path, title } = editTarget;
             const alias = editName.trim();
             setEditBusy(true);
@@ -289,7 +250,7 @@ export function ProjectsPane({
               ? onSaveInstructions(path, editIns)
               : Promise.resolve();
             void save.then(() => {
-              if (alias && alias !== title) onRename(path, alias);
+              if (path !== null && alias && alias !== title) onRename(path, alias);
               setEditBusy(false);
               resetEdit();
             }).catch((reason) => {
@@ -297,12 +258,18 @@ export function ProjectsPane({
               setEditError(reason instanceof Error ? reason.message : String(reason));
             });
           }}>
-            <label className="schedules-field">{t('Name')}
+            {editTarget.path !== null && <label className="schedules-field projects-edit-field">
+              <span>{t('Name')}</span>
+              <small>{t('Changes the display name without renaming the folder.')}</small>
               <input name="project-alias" value={editName} maxLength={120} autoFocus
                 disabled={editBusy} aria-label={t('Project display name')}
                 onChange={(event) => setEditName(event.currentTarget.value)} />
-            </label>
-            {canEditInstructions && <label className="schedules-field workflows-md-field">{t('Instructions')}
+            </label>}
+            {canEditInstructions && <label className="schedules-field workflows-md-field projects-edit-field">
+              <span>{t('Instructions')}</span>
+              <small>{editTarget.path === null
+                ? t('Markdown instructions applied across all projects.')
+                : t('Markdown instructions applied when working in this project.')}</small>
               <textarea aria-label={t('Instructions markdown')}
                 value={editInsLoading ? t('Loading…') : (editIns ?? '')}
                 disabled={editInsLoading || editBusy || editIns === null}
@@ -310,20 +277,155 @@ export function ProjectsPane({
                 placeholder={t('Markdown instructions for the model…')}
                 onChange={(event) => setEditIns(event.currentTarget.value)} />
             </label>}
+            {onMemoryControl && <section className="projects-memory-editor">
+              <header className="projects-edit-field">
+                <div><span>{t('Memories')}</span>
+                  <small>{t('Create, edit, move, or delete project memories.')}</small></div>
+                <button type="button" className="projects-memory-add-trigger"
+                  disabled={memoryBusy || addingMemory}
+                  aria-label={t('Add memory')} data-tooltip={t('Add memory')}
+                  onClick={() => {
+                    setAddingMemory(true);
+                    setAddMemoryDraft('');
+                    setAddMemoryTargetPath(editTarget.path ?? '');
+                    setEditingMemory(null);
+                    setConfirmDeleteMemory(null);
+                  }}>
+                  <Plus size={15} aria-hidden="true" />
+                </button>
+              </header>
+              <div className={`projects-memory-viewport${memories.length || addingMemory ? '' : ' is-empty'}`}>
+              {addingMemory && <div className="projects-memory-add-row">
+                <div className="projects-memory-edit-fields">
+                  <input aria-label={t('Memory text')} value={addMemoryDraft} maxLength={2000} autoFocus
+                    disabled={memoryBusy} placeholder={t('What should Mixdog remember?')}
+                    onChange={(event) => setAddMemoryDraft(event.currentTarget.value)} />
+                  <label><span>{t('Project')}</span>
+                    <select value={addMemoryTargetPath} disabled={memoryBusy}
+                      onChange={(event) => setAddMemoryTargetPath(event.currentTarget.value)}>
+                      <option value="">{t('Common')}</option>
+                      {projects.map((project) => <option key={project.path} value={project.path}>
+                        {project.alias?.trim() || project.name?.trim() || displayProjectFolder(project.path)}
+                      </option>)}
+                    </select>
+                  </label>
+                </div>
+                <div className="core-memory-actions">
+                  <button type="button" disabled={memoryBusy || !addMemoryDraft.trim()} onClick={() => {
+                    if (!editTarget) return;
+                    const targetPath = addMemoryTargetPath || null;
+                    const summary = addMemoryDraft.trim();
+                    setMemoryBusy(true);
+                    setEditError('');
+                    void onMemoryControl({
+                      action: 'core', op: 'add', element: summary, summary, ...memoryScope(targetPath),
+                    }).then((value) => {
+                      const failure = memoryResultError(value);
+                      if (failure) throw new Error(failure);
+                      return refreshMemories(editTarget.path);
+                    }).then(() => {
+                      setAddingMemory(false);
+                      setAddMemoryDraft('');
+                      setAddMemoryTargetPath('');
+                    }).catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
+                      .finally(() => setMemoryBusy(false));
+                  }}>{t('Add')}</button>
+                  <button type="button" disabled={memoryBusy} onClick={() => {
+                    setAddingMemory(false);
+                    setAddMemoryDraft('');
+                    setAddMemoryTargetPath('');
+                  }}>{t('Cancel')}</button>
+                </div>
+              </div>}
+              {memoriesLoading ? <p className="projects-memory-empty">{t('Loading…')}</p>
+                : memories.length ? <div className="core-memory-list">{memories.map((entry) =>
+                  editingMemory === entry.id
+                    ? <div className="core-memory-edit" key={entry.id}>
+                      <div className="projects-memory-edit-fields">
+                        <input aria-label={t('Memory text')} value={memoryDraft} maxLength={2000} autoFocus
+                          disabled={memoryBusy} onChange={(event) => setMemoryDraft(event.currentTarget.value)} />
+                        <label><span>{t('Project')}</span>
+                          <select value={memoryTargetPath} disabled={memoryBusy}
+                            onChange={(event) => setMemoryTargetPath(event.currentTarget.value)}>
+                            <option value="">{t('Common')}</option>
+                            {projects.map((project) => <option key={project.path} value={project.path}>
+                              {project.alias?.trim() || project.name?.trim() || displayProjectFolder(project.path)}
+                            </option>)}
+                          </select>
+                        </label>
+                      </div>
+                      <div className="core-memory-actions">
+                        <button type="button" disabled={memoryBusy || !memoryDraft.trim()
+                          || (memoryDraft.trim() === entry.summary && memoryTargetPath === (editTarget.path ?? ''))} onClick={() => {
+                          if (!editTarget) return;
+                          setMemoryBusy(true);
+                          setEditError('');
+                          const summary = memoryDraft.trim();
+                          void onMemoryControl({
+                            action: 'core', op: 'edit', id: entry.id,
+                            element: entry.singleSentence ? summary : entry.element,
+                            summary, ...memoryScope(editTarget.path),
+                            ...(memoryTargetPath
+                              ? { target_cwd: memoryTargetPath }
+                              : { target_project_id: 'common' }),
+                          }).then((value) => {
+                            const failure = memoryResultError(value);
+                            if (failure) throw new Error(failure);
+                            return refreshMemories(editTarget.path);
+                          }).then(() => setEditingMemory(null))
+                            .catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
+                            .finally(() => setMemoryBusy(false));
+                        }}>{t('Save')}</button>
+                        <button type="button" disabled={memoryBusy} onClick={() => setEditingMemory(null)}>{t('Cancel')}</button>
+                      </div>
+                    </div>
+                    : <div className="core-memory-row" key={entry.id}>
+                      <div className="core-memory-copy"><span>{entry.summary}</span></div>
+                      <div className="core-memory-actions">
+                        <button type="button" disabled={memoryBusy} onClick={() => {
+                          setEditingMemory(entry.id);
+                          setMemoryDraft(entry.summary);
+                          setMemoryTargetPath(editTarget.path ?? '');
+                          setConfirmDeleteMemory(null);
+                        }}>{t('Edit')}</button>
+                        <button type="button" className="danger" disabled={memoryBusy} onClick={() => {
+                          if (confirmDeleteMemory !== entry.id) {
+                            setConfirmDeleteMemory(entry.id);
+                            return;
+                          }
+                          if (!editTarget) return;
+                          setMemoryBusy(true);
+                          setEditError('');
+                          void onMemoryControl({
+                            action: 'core', op: 'delete', id: entry.id, ...memoryScope(editTarget.path),
+                          }).then((value) => {
+                            const failure = memoryResultError(value);
+                            if (failure) throw new Error(failure);
+                            return refreshMemories(editTarget.path);
+                          }).then(() => setConfirmDeleteMemory(null))
+                            .catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
+                            .finally(() => setMemoryBusy(false));
+                        }}>{confirmDeleteMemory === entry.id ? t('Confirm delete') : t('Delete')}</button>
+                      </div>
+                    </div>)}</div>
+                  : <p className="projects-memory-empty">{t('No memories yet.')}</p>}
+              </div>
+            </section>}
             <footer>
               {editError && <p className="schedules-form-error" role="alert">{editError}</p>}
-              <button type="button" className="danger" disabled={editBusy}
+              {editTarget.path !== null && <button type="button" className="danger" disabled={editBusy || memoryBusy}
                 onClick={() => {
                   if (!editConfirmRemove) {
                     setEditConfirmRemove(true);
                     return;
                   }
                   const path = editTarget.path;
+                  if (path === null) return;
                   resetEdit();
                   onRemove(path);
-                }}>{editConfirmRemove ? t('Confirm remove') : t('Remove')}</button>
-              <button type="button" disabled={editBusy} onClick={closeEdit}>{t('Cancel')}</button>
-              <button type="submit" disabled={editBusy || editInsLoading}>{t('Save')}</button>
+                }}>{editConfirmRemove ? t('Confirm remove') : t('Remove')}</button>}
+              <button type="button" disabled={editBusy || memoryBusy} onClick={closeEdit}>{t('Cancel')}</button>
+              <button type="submit" disabled={editBusy || editInsLoading || memoryBusy || addingMemory || editingMemory !== null}>{t('Save')}</button>
             </footer>
           </form>
         </section>
@@ -332,13 +434,13 @@ export function ProjectsPane({
         <div className="schedules-row projects-row">
           <span className="projects-row-icon" aria-hidden="true"><NotebookPen size={16} /></span>
           <button type="button" className="schedules-row-copy projects-row-open"
-            onClick={() => openInstructions(null, 'Common Instructions')}>
+            onClick={() => openEdit(null, 'Common Instructions')}>
             <b>{t('Common Instructions')}</b>
-            <small>{t('Applies to all projects')}</small>
+            <small>{t('Used for every project.')}</small>
           </button>
           <button type="button" className="session-panel-action projects-instructions-edit"
             aria-label={t('Edit common instructions')} data-tooltip={t('Edit')}
-            onClick={() => openInstructions(null, 'Common Instructions')}>
+            onClick={() => openEdit(null, 'Common Instructions')}>
             <Pencil size={14} aria-hidden="true" />
           </button>
         </div>
@@ -348,12 +450,13 @@ export function ProjectsPane({
         const selected = projectIdentity(selectedProjectPath) === projectIdentity(project.path);
         return <div key={project.path} className={`schedules-row projects-row${selected ? ' selected' : ''}`}>
           <span className="projects-row-icon" aria-hidden="true"><Folder size={16} /></span>
-          <button type="button" className="schedules-row-copy projects-row-open"
-            aria-current={selected ? 'page' : undefined}
-            onClick={() => onOpenProject(project.path)}>
+          {/* The row is a read-only entry (user: 클릭 없애 그냥) — clicking a
+              project no longer mints a NEW TASK draft; only the pencil acts. */}
+          <div className="schedules-row-copy projects-row-label"
+            aria-current={selected ? 'page' : undefined}>
             <b>{title}</b>
             <small>{project.path}</small>
-          </button>
+          </div>
           {/* Same pencil grammar as the Common Instructions row (user: 공통
               지침과 동일하게) — every mutation lives in the edit dialog. */}
           <button type="button" className="session-panel-action projects-instructions-edit"
@@ -369,4 +472,35 @@ export function ProjectsPane({
         </div>}
     </div>
   </div>;
+}
+
+type CoreMemoryEntry = {
+  id: number;
+  element: string;
+  summary: string;
+  singleSentence: boolean;
+};
+
+function parseCoreMemoryEntries(value: unknown): CoreMemoryEntry[] {
+  const entries: CoreMemoryEntry[] = [];
+  for (const line of String(value || '').split('\n').map((entry) => entry.trim()).filter(Boolean)) {
+    const match = line.match(/^id=(\d+)\s+(.+?)(?:\s+—\s+(.+))?$/);
+    if (!match) continue;
+    const element = match[2];
+    const rawSummary = match[3] || '';
+    entries.push({
+      id: Number(match[1]),
+      element,
+      summary: rawSummary || element,
+      singleSentence: !rawSummary || element === rawSummary,
+    });
+  }
+  return entries.sort((left, right) => right.id - left.id);
+}
+
+function memoryResultError(value: unknown): string {
+  const text = String(value || '').trim();
+  return /^(?:core (?:add|edit|delete)(?::| failed)|core:.*(?:not initialized|failed|error)|(?:error|failed)\b)/i.test(text)
+    ? text
+    : '';
 }

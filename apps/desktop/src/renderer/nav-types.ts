@@ -1,7 +1,7 @@
 export type NavigationSelection =
   | { kind: "new"; draftId?: string }
   | { kind: "project"; path: string }
-  | { kind: "session"; id: string }
+  | { kind: "session"; id: string; title?: string }
   | { kind: "file"; project: string; rel: string; accessToken?: string };
 
 /** Pane-only surfaces do not participate in the focused chat engine route.

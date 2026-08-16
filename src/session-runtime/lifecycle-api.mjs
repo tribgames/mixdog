@@ -563,6 +563,7 @@ export function createLifecycleApi(deps) {
         if (!preparedRoute || getSession() !== resumed || getRoute() !== preparedRoute) return false;
         const activeSession = getSession();
         activeSession.effort = getRoute().effectiveEffort || null;
+        activeSession.fast = getRoute().fast === true;
         activeSession.cwd = getCurrentCwd();
         applyDeferredToolSurface(
           activeSession,

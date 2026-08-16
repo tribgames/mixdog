@@ -241,10 +241,10 @@ export async function disposeTerminalPane(id: string): Promise<void> {
   await window.mixdogDesktop.termDispose?.(id);
 }
 
-// Terminals stay DARK on both app themes (Cursor grammar): ANSI palettes —
+// Terminals stay dark on both app themes: ANSI palettes —
 // PSReadLine yellows included — assume a dark background, and a light sheet
 // made typed input and the cursor unreadable (user-flagged).
-// The 16 ANSI slots are pinned to the VS Code Dark+ set instead of xterm's
+// The 16 ANSI slots use the editor's dark palette instead of xterm's
 // built-in Tango defaults: Tango's blue (#3465a4) and bright black sit near
 // this canvas and made paths/prompts hard to read. Background stays in sync
 // with --mx-terminal-bg (desktop.css).

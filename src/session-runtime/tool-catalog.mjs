@@ -768,8 +768,13 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
   const alreadyActive = toolSelection.already || [];
   const missing = toolSelection.missing || [];
   const blocked = toolSelection.blocked || [];
+  // Native discovery is history-driven: an explicit re-selection must emit
+  // the tool reference/spec again even when the callable registry already has
+  // the name. Claude Code and Codex both treat repeated selection as a
+  // harmless reference refresh; suppressing it leaves declaration-gated
+  // harnesses with "already active" text but no callable schema.
   const nativeToolSearchBase = toolSelection.native
-    ? (toolSearchNativePayload(catalog, loaded, session?.provider) || {
+    ? (toolSearchNativePayload(catalog, [...loaded, ...alreadyActive], session?.provider) || {
         provider: clean(session?.provider).toLowerCase(),
         toolReferences: [],
         openaiTools: [],

@@ -29,6 +29,7 @@ import {
     extractShellApplyPatchInvocation,
     hasPowerShellOnlySyntax,
     planInlineScriptHoist,
+    planLongInlineScriptFileTransport,
     preflightPowerShellHygiene,
     shellSplitSegments,
     shellSplitPipelineSegments,
@@ -437,7 +438,11 @@ export async function executeBashTool(args, workDir, options = {}) {
     // quoting layer. planInlineScriptHoist refuses every case where file
     // semantics would differ, so this is a transport change only.
     let _inlineHoistPath = null;
-    const hoist = planInlineScriptHoist(command);
+    const hoist = planInlineScriptHoist(command)
+        || planLongInlineScriptFileTransport(command, {
+            platform: process.platform,
+            shellType: resolvedSpec.shellType,
+        });
     if (hoist) {
         try {
             const file = pathJoin(
@@ -521,6 +526,10 @@ export async function executeBashTool(args, workDir, options = {}) {
     try {
         const { shell, shellArg, shellArgs, shellType } = resolvedSpec;
         const spawnEnv = { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' };
+        if (process.platform === 'win32') {
+            if (spawnEnv.PYTHONUTF8 === undefined) spawnEnv.PYTHONUTF8 = '1';
+            if (spawnEnv.PYTHONIOENCODING === undefined) spawnEnv.PYTHONIOENCODING = 'utf-8';
+        }
         // R5/R11: same scrub as background/persistent spawn sites (env-scrub.mjs).
         scrubProviderSecrets(spawnEnv);
         scrubLoaderVars(spawnEnv);

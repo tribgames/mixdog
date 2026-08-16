@@ -163,13 +163,14 @@ function ContextUsageView({ detail, columns }) {
   const schema = request.toolSchemaBreakdown || {};
   const usedTokens = finiteNumber(usage.usedTokens);
   const windowTokens = finiteNumber(usage.windowTokens);
+  const rawWindowTokens = finiteNumber(usage.rawWindowTokens) || windowTokens;
   const freeTokens = windowTokens ? Math.max(0, windowTokens - usedTokens) : finiteNumber(usage.freeTokens);
   const usedPct = percent(usedTokens, windowTokens);
   const summaryText = `${formatTokens(usedTokens)} / ${formatTokens(windowTokens)} · ${formatTokens(freeTokens)} free`;
   const pctText = `${percentLabel(usedTokens, windowTokens)} used`;
   const barWidth = Math.max(12, Math.min(34, innerWidth - stringWidth(summaryText) - stringWidth(pctText) - 5));
-  const builtInToolTokens = bucketTokens(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other']);
-  const sessionTokens = semanticTokens(semantic, ['workspace', 'environment', 'other']);
+  const systemPromptTokens = semanticTokens(semantic, ['system', 'workflow', 'workspace', 'environment', 'other']);
+  const systemToolsTokens = bucketTokens(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other', 'control', 'session']);
   const compactionLine = metricValue([
     compaction.stage && compaction.stage !== 'pending' ? compaction.stage : '',
     compaction.state,
@@ -191,16 +192,21 @@ function ContextUsageView({ detail, columns }) {
     `cache ${cache.hitRate || 'N/A'}`,
   ]);
   const categories = [
-    { label: 'Messages', tokens: semanticTokens(semantic, ['chat', 'assistant']) },
-    { label: 'Tools', tokens: builtInToolTokens },
-    { label: 'MCP', tokens: bucketTokens(schema, ['mcp']) },
+    { label: 'System prompt', tokens: systemPromptTokens },
+    { label: 'System tools', tokens: systemToolsTokens },
+    { label: 'MCP tools', tokens: bucketTokens(schema, ['mcp']) },
+    { label: 'Custom agents', tokens: bucketTokens(schema, ['agents']) },
+    { label: 'Memory files', tokens: semanticTokens(semantic, ['memory']) + bucketTokens(schema, ['memory']) },
     { label: 'Skills', tokens: bucketTokens(schema, ['skills']) },
-    { label: 'Memory', tokens: semanticTokens(semantic, ['memory']) + bucketTokens(schema, ['memory']) },
-    { label: 'Session', tokens: sessionTokens },
-    { label: 'Workflow', tokens: semanticTokens(semantic, ['workflow']) + bucketTokens(schema, ['agents']) },
-    { label: 'System', tokens: semanticTokens(semantic, ['system']) },
-    { label: 'Tool I/O', tokens: semanticTokens(semantic, ['toolResults']) },
+    { label: 'Messages', tokens: semanticTokens(semantic, ['chat', 'assistant', 'toolResults']) },
   ];
+  const categorizedTokens = categories.reduce((sum, category) => sum + category.tokens, 0);
+  const autoCompactBufferTokens = Math.max(0, rawWindowTokens - windowTokens);
+  const categoryWindowTokens = Math.max(rawWindowTokens, categorizedTokens + autoCompactBufferTokens);
+  categories.push(
+    { label: 'Free space', tokens: Math.max(0, windowTokens - categorizedTokens) },
+    { label: 'Autocompact buffer', tokens: autoCompactBufferTokens },
+  );
 
   return (
     <Box flexDirection="column" width="100%">
@@ -217,9 +223,9 @@ function ContextUsageView({ detail, columns }) {
         <DetailLine label="API/cache" value={apiLine} columns={columns} />
       </Box>
       <Box marginTop={1} flexDirection="column" width="100%">
-        <Text color={theme.subtle}>Context mix</Text>
+        <Text color={theme.subtle}>Estimated usage by category</Text>
         <Box marginTop={1} flexDirection="column" width="100%">
-          <CategoryGrid categories={categories} columns={columns} total={windowTokens} />
+          <CategoryGrid categories={categories} columns={columns} total={categoryWindowTokens} />
         </Box>
       </Box>
     </Box>

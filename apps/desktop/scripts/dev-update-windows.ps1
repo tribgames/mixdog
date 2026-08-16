@@ -16,9 +16,9 @@
                   install -> relaunch) perform the swap. Same code the release
                   build runs, pointed at this working tree.
 
-    -FastDirect   build only win-unpacked, then atomically swap it into the
-                  installed location. Preserves the registered uninstaller,
-                  rolls back on a failed relaunch, and skips NSIS compression.
+    -FastDirect   fingerprint build inputs, rebuild only changed targets, then
+                  atomically swap only affected installed artifacts. Native or
+                  packaging changes fall back to win-unpacked.
 
   -DryRun prints the resolved plan and current process/daemon state and changes
   nothing — every other mode stops the running app and its session daemon.
@@ -36,6 +36,9 @@ param(
   [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\mixdog-desktop'),
   [string]$Version = '',
   [string]$ReceiptPath = '',
+  [string]$FastPlanPath = '',
+  [string]$FastStatePath = '',
+  [string]$FastArtifactDir = '',
   [int]$FeedPort = 9357
 )
 
@@ -51,6 +54,16 @@ $daemonDiscovery = Join-Path $runtimeRoot 'daemon.json'
 $mixdogDataDir = if ($env:MIXDOG_DATA_DIR) { $env:MIXDOG_DATA_DIR } else { Join-Path $env:USERPROFILE '.mixdog\data' }
 $tokenManifest = Join-Path $repoRoot 'native\mixdog-token\Cargo.toml'
 $tokenBuild = Join-Path $repoRoot 'native\mixdog-token\target\release\mixdog_token.dll'
+$fastDirectHelper = Join-Path $PSScriptRoot 'dev-fast-direct.mjs'
+if ([string]::IsNullOrWhiteSpace($FastPlanPath)) {
+  $FastPlanPath = Join-Path $desktopDir '.cache\dev-fast-direct-plan.json'
+}
+if ([string]::IsNullOrWhiteSpace($FastStatePath)) {
+  $FastStatePath = Join-Path $desktopDir '.cache\dev-fast-direct-state.json'
+}
+if ([string]::IsNullOrWhiteSpace($FastArtifactDir)) {
+  $FastArtifactDir = Join-Path $desktopDir '.cache\dev-fast-direct-artifact'
+}
 
 function Write-Step { param([string]$Text) Write-Host "==> $Text" -ForegroundColor Cyan }
 
@@ -85,6 +98,9 @@ function Start-FastDirectWorker {
   $workerCommand = "& $(& $quote $scriptPath) -FastDirect -FastDirectWorker -SkipBuild" `
     + " -InstallDir $(& $quote $InstallDir) -Version $(& $quote $targetVersion)" `
     + " -ReceiptPath $(& $quote $ReceiptPath)" `
+    + " -FastPlanPath $(& $quote $FastPlanPath)" `
+    + " -FastStatePath $(& $quote $FastStatePath)" `
+    + " -FastArtifactDir $(& $quote $FastArtifactDir)" `
     + $(if ($NoLaunch) { ' -NoLaunch' } else { '' })
   $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($workerCommand))
   $commandLine = "`"$pwsh`" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $encoded"
@@ -366,6 +382,61 @@ function Invoke-Build {
   }
 }
 
+function Get-FastDirectPlan {
+  $output = & node $fastDirectHelper --action=plan "--install-dir=$InstallDir" `
+    "--state=$FastStatePath" "--plan=$FastPlanPath"
+  if ($LASTEXITCODE -ne 0) { throw "FastDirect planning exited with $LASTEXITCODE" }
+  return ($output | Out-String | ConvertFrom-Json)
+}
+
+function Invoke-FastDirectIncrementalBuild {
+  param([object]$Plan)
+  $targets = @($Plan.targets)
+  if ($targets.Count -gt 0) {
+    Write-Step "building changed Electron target(s): $($targets -join ', ')"
+    Push-Location $desktopDir
+    try {
+      $previousTargets = $env:MIXDOG_ELECTRON_BUILD_TARGETS
+      $env:MIXDOG_ELECTRON_BUILD_TARGETS = $targets -join ','
+      & npx.cmd electron-vite build
+      if ($LASTEXITCODE -ne 0) { throw "electron-vite incremental build exited with $LASTEXITCODE" }
+    } finally {
+      if ($null -eq $previousTargets) {
+        Remove-Item Env:MIXDOG_ELECTRON_BUILD_TARGETS -ErrorAction SilentlyContinue
+      } else {
+        $env:MIXDOG_ELECTRON_BUILD_TARGETS = $previousTargets
+      }
+      Pop-Location
+    }
+  }
+  if ($Plan.daemon) {
+    Write-Step 'building changed desktop daemon'
+    Push-Location $desktopDir
+    try {
+      & node scripts/build-daemon.mjs
+      if ($LASTEXITCODE -ne 0) { throw "build-daemon exited with $LASTEXITCODE" }
+    } finally {
+      Pop-Location
+    }
+  }
+  if ($Plan.runtime) {
+    Write-Step 'preparing changed runtime'
+    Push-Location $desktopDir
+    try {
+      & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
+      if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
+    } finally {
+      Pop-Location
+    }
+  }
+  if ($targets.Count -gt 0 -or $Plan.daemon) {
+    Write-Step 'staging incremental app.asar'
+    & node $fastDirectHelper --action=stage-shell "--install-dir=$InstallDir" `
+      "--plan=$FastPlanPath" "--artifact=$FastArtifactDir"
+    if ($LASTEXITCODE -ne 0) { throw "FastDirect shell staging exited with $LASTEXITCODE" }
+  }
+}
+
 function Install-UnpackedBuild {
   if (-not (Test-Path -LiteralPath (Join-Path $unpackedDir 'Mixdog.exe') -PathType Leaf)) {
     throw "Unpacked desktop artifact missing: $unpackedDir"
@@ -448,6 +519,103 @@ function Install-UnpackedBuild {
         Move-WithRetry $backupResources $installedResources 'restore resources'
       }
     }
+    Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
+    if (-not $NoLaunch -and (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
+      Start-DetachedMixdogApp
+    }
+    throw $failure
+  }
+}
+
+function Install-IncrementalBuild {
+  param([object]$Plan)
+  $shellChanged = @($Plan.targets).Count -gt 0 -or $Plan.daemon
+  $runtimeChanged = [bool]$Plan.runtime
+  $installedResources = Join-Path $InstallDir 'resources'
+  $backupDir = Join-Path $env:TEMP ("mixdog-fast-incremental-backup-" + [guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+  $backedUp = [Collections.Generic.List[object]]::new()
+  function Backup-InstalledArtifact {
+    param([string]$Path, [string]$Name)
+    if (Test-Path -LiteralPath $Path) {
+      Move-Item -LiteralPath $Path -Destination (Join-Path $backupDir $Name) -Force
+      [void]$backedUp.Add(
+        [pscustomobject]@{ Path = $Path; Backup = (Join-Path $backupDir $Name) }
+      )
+    }
+  }
+  function Restore-IncrementalArtifacts {
+    foreach ($entry in @($backedUp)) {
+      Remove-Item -LiteralPath $entry.Path -Recurse -Force -ErrorAction SilentlyContinue
+      if (Test-Path -LiteralPath $entry.Backup) {
+        Move-Item -LiteralPath $entry.Backup -Destination $entry.Path -Force
+      }
+    }
+  }
+
+  try {
+    if ($shellChanged) {
+      Write-Step 'stopping the installed app'
+      Stop-MixdogApp
+    }
+    if ($runtimeChanged) {
+      Write-Step 'stopping the session daemon'
+      Stop-Daemon
+    }
+    if ($shellChanged) {
+      Write-Step 'waiting for every installed Mixdog process to release files'
+      Stop-InstalledMixdogProcess
+      Backup-InstalledArtifact (Join-Path $InstallDir 'Mixdog.exe') 'Mixdog.exe'
+      Backup-InstalledArtifact (Join-Path $installedResources 'app.asar') 'app.asar'
+      Backup-InstalledArtifact (Join-Path $installedResources 'app.asar.unpacked') 'app.asar.unpacked'
+      Copy-Item -LiteralPath (Join-Path $FastArtifactDir 'Mixdog.exe') `
+        -Destination (Join-Path $InstallDir 'Mixdog.exe') -Force
+      Copy-Item -LiteralPath (Join-Path $FastArtifactDir 'resources\app.asar') `
+        -Destination (Join-Path $installedResources 'app.asar') -Force
+      Copy-Item -LiteralPath (Join-Path $FastArtifactDir 'resources\app.asar.unpacked') `
+        -Destination (Join-Path $installedResources 'app.asar.unpacked') -Recurse -Force
+    }
+    if ($runtimeChanged) {
+      Backup-InstalledArtifact (Join-Path $installedResources 'runtime.asar') 'runtime.asar'
+      Backup-InstalledArtifact (Join-Path $installedResources 'runtime.asar.unpacked') 'runtime.asar.unpacked'
+      Copy-Item -LiteralPath (Join-Path $desktopDir '.runtime\runtime.asar') `
+        -Destination (Join-Path $installedResources 'runtime.asar') -Force
+      $runtimeSidecar = Join-Path $desktopDir '.runtime\runtime.asar.unpacked'
+      if (Test-Path -LiteralPath $runtimeSidecar -PathType Container) {
+        Copy-Item -LiteralPath $runtimeSidecar `
+          -Destination (Join-Path $installedResources 'runtime.asar.unpacked') -Recurse -Force
+      }
+    }
+
+    if (-not $NoLaunch) {
+      if ($shellChanged -or $appBefore.Count -eq 0) {
+        Write-Step 'starting the incrementally deployed app'
+        Start-DetachedMixdogApp
+      }
+      if ($runtimeChanged) {
+        $fresh = Wait-ForFreshDaemon -Previous $daemonBefore -RelaunchExe $installedExe -DetachedRelaunch
+        if (-not $fresh) { throw 'Incrementally deployed Mixdog did not publish a fresh daemon.' }
+        $script:daemonAfter = $fresh
+      } else {
+        if (-not (Wait-ForVisibleAppWindow -TimeoutSeconds 30)) {
+          throw 'Incrementally deployed Mixdog did not open a visible application window.'
+        }
+        $script:daemonAfter = Get-DaemonRecord
+      }
+    }
+    & node $fastDirectHelper --action=commit "--install-dir=$InstallDir" `
+      "--state=$FastStatePath" "--plan=$FastPlanPath"
+    if ($LASTEXITCODE -ne 0) { throw "FastDirect state commit exited with $LASTEXITCODE" }
+    Remove-Item -LiteralPath $backupDir -Recurse -Force
+  } catch {
+    $failure = $_
+    Write-Step 'incremental deploy failed; restoring the previous installation'
+    if ($shellChanged) {
+      Stop-MixdogApp
+      Stop-InstalledMixdogProcess
+    }
+    if ($runtimeChanged) { Stop-Daemon }
+    Restore-IncrementalArtifacts
     Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
     if (-not $NoLaunch -and (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
       Start-DetachedMixdogApp
@@ -579,14 +747,33 @@ if ($RuntimeOnly) {
   exit 0
 }
 
-if (-not $SkipBuild) {
-  Write-Step $(if ($FastDirect) { 'building win-unpacked from the full dev root' } else { 'building the installer from the dev root' })
-  Invoke-Build $targetVersion -DirectoryOnly:$FastDirect
+if ($FastDirect -and $SkipBuild) {
+  $fastPlan = Get-Content -LiteralPath $FastPlanPath -Raw | ConvertFrom-Json
 }
-if ($FastDirect) {
+if (-not $SkipBuild) {
+  if ($FastDirect) {
+    Write-Step 'fingerprinting FastDirect inputs'
+    $fastPlan = Get-FastDirectPlan
+    if ($fastPlan.full) {
+      Write-Step 'native/package inputs changed; building complete win-unpacked fallback'
+      Invoke-Build $targetVersion -DirectoryOnly
+    } else {
+      Invoke-FastDirectIncrementalBuild $fastPlan
+    }
+  } else {
+    Write-Step 'building the installer from the dev root'
+    Invoke-Build $targetVersion
+  }
+}
+if ($FastDirect -and $fastPlan.full) {
   if (-not (Test-Path -LiteralPath $unpackedDir)) { throw "Unpacked artifact missing: $unpackedDir" }
 } elseif (-not (Test-Path -LiteralPath $installer)) {
-  throw "Installer artifact missing: $installer"
+  if (-not $FastDirect) { throw "Installer artifact missing: $installer" }
+}
+if ($FastDirect -and -not $fastPlan.full -and @($fastPlan.targets).Count -eq 0 `
+    -and -not $fastPlan.daemon -and -not $fastPlan.runtime) {
+  Write-Host 'FastDirect inputs are unchanged; nothing to build, stop, or restart.' -ForegroundColor Green
+  exit 0
 }
 
 if ($FastDirect -and -not $FastDirectWorker) {
@@ -638,10 +825,18 @@ if ($ViaUpdater) {
     Stop-Daemon
     Write-Step 'waiting for every installed Mixdog process to release files'
     Stop-InstalledMixdogProcess
-    Write-Step 'installing the in-process Mixdog token addon'
-    Install-LocalTokenAddon
-    Write-Step 'atomically replacing the installed directory'
-    Install-UnpackedBuild
+    if ($fastPlan.full) {
+      Write-Step 'installing the in-process Mixdog token addon'
+      Install-LocalTokenAddon
+      Write-Step 'atomically replacing the installed directory'
+      Install-UnpackedBuild
+      & node $fastDirectHelper --action=commit "--install-dir=$InstallDir" `
+        "--state=$FastStatePath" "--plan=$FastPlanPath"
+      if ($LASTEXITCODE -ne 0) { throw "FastDirect state commit exited with $LASTEXITCODE" }
+    } else {
+      Write-Step 'atomically replacing changed installed artifacts'
+      Install-IncrementalBuild $fastPlan
+    }
     Write-FastDirectReceipt -Status 'completed'
   } catch {
     Write-FastDirectReceipt -Status 'failed' -Detail $_.Exception.Message

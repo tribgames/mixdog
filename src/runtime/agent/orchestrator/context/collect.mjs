@@ -208,7 +208,8 @@ function loadSkillContent(name, cwd) {
     const skill = skills.find(s => s.name === name);
     if (!skill)
         return null;
-    return readSafe(skill.filePath);
+    const content = readSafe(skill.filePath);
+    return content == null ? null : readMarkdownDocument(content).body;
 }
 
 /**
@@ -222,7 +223,11 @@ export function loadSkillResource(name, cwd) {
     const content = readSafe(skill.filePath);
     if (content == null)
         return null;
-    return { content, dir: dirname(skill.filePath), filePath: skill.filePath };
+    return {
+        content: readMarkdownDocument(content).body,
+        dir: dirname(skill.filePath),
+        filePath: skill.filePath,
+    };
 }
 
 function escapeSkillXmlText(value) {
@@ -275,27 +280,50 @@ export function buildSkillToolEnvelope(name, content, skillDir) {
     };
 }
 
-function compactSkillManifestText(value, max = 100) {
+// Listing entries are for MATCHING only (full SKILL.md arrives via Skill()),
+// but a mid-word cut at 100 chars ("...gamerscroll.c...") destroyed the very
+// trigger phrase the model matches on. Cap generously, cut on a word boundary.
+const SKILL_MANIFEST_DESC_MAX = 250;
+const SKILL_MANIFEST_DESC_MIN = 60;
+// Whole-manifest ceiling (~1% of a 200k-token window at 4 chars/token).
+const SKILL_MANIFEST_CHAR_BUDGET = 8_000;
+
+function compactSkillManifestText(value, max = SKILL_MANIFEST_DESC_MAX) {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
-    return text.length > max ? `${text.slice(0, Math.max(1, max - 3))}...` : text;
+    const limit = Math.max(1, Math.floor(max));
+    if (text.length <= limit) return text;
+    const head = text.slice(0, Math.max(1, limit - 1));
+    const space = head.lastIndexOf(' ');
+    const cut = space >= Math.floor(limit * 0.6) ? head.slice(0, space) : head;
+    return `${cut.replace(/[\s,.;:!?/\-]+$/, '')}...`;
 }
 
 /**
  * Build the compact skill manifest shown to the model.
  * Full SKILL.md content is still loaded only through Skill(name).
  */
-export function buildSkillManifest(skills, { limit = 80 } = {}) {
+export function buildSkillManifest(skills, { limit = 80, charBudget = SKILL_MANIFEST_CHAR_BUDGET } = {}) {
     if (skillsDisabled()) return '';
     const list = (Array.isArray(skills) ? skills : [])
         .map((skill) => ({
             name: String(skill?.name || '').trim(),
-            description: compactSkillManifestText(skill?.description || ''),
+            description: String(skill?.description || ''),
         }))
         .filter((skill) => skill.name)
         .sort((a, b) => a.name.localeCompare(b.name));
     if (!list.length) return '';
     const max = Math.max(1, Number(limit) || 80);
     const visible = list.slice(0, max);
+    // Names are never truncated; the shared budget only shrinks descriptions,
+    // evenly, down to the readable floor.
+    const budget = Math.max(1_000, Number(charBudget) || SKILL_MANIFEST_CHAR_BUDGET);
+    const nameOverhead = visible.reduce((sum, skill) => sum + skill.name.length + 4, 0);
+    const perEntry = Math.floor((budget - nameOverhead) / visible.length);
+    const descCap = Math.min(
+        SKILL_MANIFEST_DESC_MAX,
+        Math.max(SKILL_MANIFEST_DESC_MIN, Number.isFinite(perEntry) ? perEntry : SKILL_MANIFEST_DESC_MAX),
+    );
+    for (const skill of visible) skill.description = compactSkillManifestText(skill.description, descCap);
     const lines = [
         '# available-skills',
         'Call Skill({"name":"<skill-name>"}) when a skill description matches the task. Load the skill before following its workflow.',
@@ -344,7 +372,7 @@ export function buildDeferredToolManifest(entries) {
         seen.add(name);
         const description = typeof entry === 'string'
             ? ''
-            : compactSkillManifestText(String(entry?.description || '').replace(/[<>]/g, ''));
+            : compactSkillManifestText(String(entry?.description || '').replace(/[<>]/g, ''), 100);
         list.push({ name, description });
     }
     if (!list.length) return '';

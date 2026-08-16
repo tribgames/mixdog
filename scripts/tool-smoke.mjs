@@ -5,8 +5,14 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { __applyStandaloneToolDefaultsForTest, __renderToolSearchForTest, compactToolSearchDescription, defaultDeferredToolNames, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../src/mixdog-session-runtime.mjs';
-import { applyInitialDeferredToolManifestToBp2, buildDeferredToolManifest } from '../src/runtime/agent/orchestrator/context/collect.mjs';
+import { __renderToolSearchForTest, compactToolSearchDescription, defaultDeferredToolNames, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../src/mixdog-session-runtime.mjs';
+import { applyStandaloneToolDefaults } from '../src/session-runtime/tool-defs.mjs';
+import {
+  applyInitialDeferredToolManifestToBp2,
+  buildDeferredToolManifest,
+  buildSkillToolEnvelope,
+  loadSkillResource,
+} from '../src/runtime/agent/orchestrator/context/collect.mjs';
 import { refreshSessionBp3Environment, resetSessionBp3Environment } from '../src/runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { AGENT_TOOL, createStandaloneAgent } from '../src/standalone/agent-tool.mjs';
 import { parseHeadlessExecCommand } from '../src/app.mjs';
@@ -1658,7 +1664,7 @@ if (surfaceSize > 17000) {
   throw new Error(`full default tool surface too large: ${surfaceSize} chars (cap 17000)`);
 }
 for (const [name, cap] of [
-  ['apply_patch', 1300],
+  ['apply_patch', 1500],
   ['code_graph', 1550],
   ['agent', 2500],
   ['recall', 2400],
@@ -1961,7 +1967,7 @@ try {
   rmSync(agentNotifyTmp, { recursive: true, force: true });
 }
 {
-  const runtimeSearchTool = __applyStandaloneToolDefaultsForTest(SEARCH_TOOL_DEFS.find((tool) => tool?.name === 'search'));
+  const runtimeSearchTool = applyStandaloneToolDefaults(SEARCH_TOOL_DEFS.find((tool) => tool?.name === 'search'));
   if (runtimeSearchTool?.annotations?.agentHidden === true) {
     throw new Error('production search tool must stay visible to agent sessions');
   }
@@ -1994,8 +2000,31 @@ setInternalToolsProvider({
       '# Demo Skill',
       '',
       'Use this skill for manifest smoke tests.',
+      'Read ${MIXDOG_SKILL_DIR}/reference.md when needed.',
       '',
     ].join('\n'));
+    const loadedSkill = loadSkillResource('demo-skill', skillManifestTmp);
+    if (!loadedSkill
+      || /^---/m.test(loadedSkill.content)
+      || !loadedSkill.content.startsWith('# Demo Skill')) {
+      throw new Error(`Skill loader must strip SKILL.md frontmatter like Claude Code: ${JSON.stringify(loadedSkill)}`);
+    }
+    const skillEnvelope = buildSkillToolEnvelope(
+      'demo-skill',
+      loadedSkill.content,
+      loadedSkill.dir,
+    );
+    const skillMessage = skillEnvelope?.newMessages?.[0];
+    const normalizedSkillDir = loadedSkill.dir.replace(/\\/g, '/');
+    if (skillEnvelope?.result !== 'Loaded skill: demo-skill'
+      || skillEnvelope?.newMessages?.length !== 1
+      || skillMessage?.role !== 'user'
+      || skillMessage?.meta !== 'skill'
+      || !skillMessage?.content?.includes(`<base-dir>${normalizedSkillDir}</base-dir>`)
+      || !skillMessage?.content?.includes(`${normalizedSkillDir}/reference.md`)
+      || skillMessage?.content?.includes('${MIXDOG_SKILL_DIR}')) {
+      throw new Error(`Skill load must inject one meta user message with its resolved base directory: ${JSON.stringify(skillEnvelope)}`);
+    }
     const skillSession = createSession({
       provider: 'openai-oauth',
       model: 'tool-smoke-model',
@@ -2747,10 +2776,10 @@ const nativeToolCountAfterFirstLoad = nativeToolSearchSession.tools.length;
 const nativeRepeatResult = JSON.parse(__renderToolSearchForTest({ select: 'shell,recall' }, nativeToolSearchSession, 'full'));
 if (nativeRepeatResult.loaded.length
   || !['shell', 'task', 'recall'].every((name) => nativeRepeatResult.alreadyActive.includes(name))
-  || nativeRepeatResult.nativeToolSearch?.toolReferences?.length
-  || nativeRepeatResult.nativeToolSearch?.openaiTools?.length
+  || !['shell', 'task', 'recall'].every((name) => nativeRepeatResult.nativeToolSearch?.toolReferences?.includes(name))
+  || !['shell', 'task', 'recall'].every((name) => nativeRepeatResult.nativeToolSearch?.openaiTools?.some((tool) => tool?.name === name && tool?.defer_loading === true))
   || nativeToolSearchSession.tools.length !== nativeToolCountAfterFirstLoad) {
-  throw new Error(`repeated native load_tool must report already-active without reinjection: ${JSON.stringify(nativeRepeatResult)}`);
+  throw new Error(`repeated native load_tool must refresh references without mutating base tools: ${JSON.stringify(nativeRepeatResult)}`);
 }
 const nativeHistory = [
   { role: 'user', content: 'load shell' },

@@ -341,11 +341,33 @@ export function formatToolSurface(name, args, opts = {}) {
   };
 }
 
+export function toolLoadingTargets(name, args = {}) {
+  const normalized = normalizeToolName(name);
+  const parsed = parseToolArgs(args);
+  if (!parsed || typeof parsed !== 'object') return [];
+  let selected = [];
+  if (normalized === 'load_tool') {
+    selected = [
+      ...splitToolSearchSelection(parsed.names),
+      ...splitToolSearchSelection(parsed.select),
+    ].map(displayToolSearchTarget);
+  } else if (['skill', 'skill_execute', 'skill_view', 'use_skill'].includes(normalized)) {
+    selected = [
+      ...splitToolSearchSelection(parsed.names),
+      ...splitToolSearchSelection(parsed.name),
+      ...splitToolSearchSelection(parsed.skills),
+      ...splitToolSearchSelection(parsed.skill),
+      ...splitToolSearchSelection(parsed.skill_name),
+    ];
+  }
+  return [...new Set(selected.map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
 // ── Aggregate tool-card classification & formatting ──────────────
 
 const CATEGORY_ORDER = [
   'Read', 'Search', 'Load', 'MCP', 'Skill', 'Web Research', 'Memory',
-  'Patch', 'Shell', 'Agent', 'Task', 'Schedule', 'Channel', 'Setup', 'Other',
+  'Patch', 'Git', 'Shell', 'Agent', 'Task', 'Schedule', 'Channel', 'Setup', 'Other',
 ];
 
 const TOOL_CATEGORY = new Map([
@@ -378,6 +400,7 @@ const TOOL_CATEGORY = new Map([
   ['str_replace', 'Patch'],
   ['str_replace_editor', 'Patch'],
   ['search_replace', 'Patch'],
+  ['git', 'Git'],
   ['bash', 'Shell'],
   ['shell', 'Shell'],
   ['shell_command', 'Shell'],
@@ -418,6 +441,7 @@ const CATEGORY_COPY = new Map([
   ['Web Research', { active: 'Researching', done: 'Researched', noun: 'query', pluralNoun: 'queries' }],
   ['Memory', { active: 'Checking', done: 'Checked', noun: 'memory item' }],
   ['Patch', { active: 'Editing', done: 'Edited', noun: 'file' }],
+  ['Git', { active: 'Running', done: 'Ran', noun: 'Git command' }],
   ['Shell', { active: 'Running', done: 'Ran', noun: 'command' }],
   ['Agent', { active: 'Calling', done: 'Called', noun: 'agent' }],
   ['Task', { active: 'Checking', done: 'Checked', noun: 'task' }],
@@ -562,6 +586,8 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'shell_command':
     case 'job_wait':
       return unitDescriptor('Shell', { count: queryCount(a, 'command', 'commands', 'cmd') || 1, noun: 'command' });
+    case 'git':
+      return unitDescriptor('Git', { count: queryCount(a, 'command', 'commands') || 1, noun: 'Git command' });
     case 'agent':
     case 'bridge':
       return unitDescriptor('Agent', { count: queryCount(a, 'agents', 'roles', 'role', 'tag', 'task_id', 'sessionId') || 1, noun: 'agent' });
@@ -614,6 +640,10 @@ function lifecycleVerb(unit, pending, { stableVerbWidth = false } = {}) {
 }
 
 export function formatToolActionHeader(name, args = {}, { pending = false, count = 1, category = '', stableVerbWidth = false } = {}) {
+  const loadingTargets = toolLoadingTargets(name, args);
+  if (loadingTargets.length) {
+    return `${pending ? 'Loading' : 'Loaded'} ${loadingTargets.join(', ')}`;
+  }
   const unit = toolWorkUnit(name, args, category);
   const n = Math.max(1, Number(unit.count || count || 1));
   const verb = lifecycleVerb(unit, pending, { stableVerbWidth });

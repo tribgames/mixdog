@@ -161,6 +161,12 @@ export function ModelPicker({
     if ((!embedded && !open) || openModels.length > 0 || models.length === 0) return;
     setOpenModels(models);
   }, [embedded, models, open, openModels.length]);
+  useEffect(() => {
+    if (embedded ? !active : !open) return;
+    // Every pane owns a picker instance; refresh the shared MRU when this one
+    // opens so selections made in another pane are never stale here.
+    setRecentModelKeys(readRecentModelKeys());
+  }, [active, embedded, open]);
 
   useEffect(() => {
     if (embedded || !open) return;
@@ -223,6 +229,13 @@ export function ModelPicker({
     if (!embedded || !active) return;
     search.current?.focus({ preventScroll: true });
   }, [active, embedded]);
+  // Embedded catalog: bring the active route into view so the current
+  // selection is visible (and marked) the moment the pane opens.
+  useEffect(() => {
+    if (!embedded || !active) return;
+    modelList.current?.querySelector('[aria-selected="true"]')
+      ?.scrollIntoView({ block: 'center' });
+  }, [active, embedded, openModels]);
 
   const providerEntries = useMemo(() => {
     const entries = new Map<string, DesktopModelOption[]>();
@@ -350,12 +363,18 @@ export function ModelPicker({
       onClick={() => void choose(option)}>
       <span className="model-row-copy">
         <span className="model-row-title">
-          <strong>{modelDisplayName(option.model, option.provider, option.display)}</strong>
+          <strong>
+            {modelDisplayName(option.model, option.provider, option.display)}
+            {scope === 'recent:' && <span className="model-row-source">
+              {' (' + providerDisplayName(option.provider) + ')'}
+            </span>}
+          </strong>
         </span>
         {description && <small>{description}</small>}
       </span>
-      {active && <span className="list-item-selected-icon" data-slot="list-item-selected-icon">
-        <Check size={16} aria-hidden="true" />
+      {active && <span className={embedded ? 'route-selection-check' : 'list-item-selected-icon'}
+        data-slot="list-item-selected-icon">
+        <Check size={embedded ? 14 : 16} aria-hidden="true" />
       </span>}
     </button>;
   };

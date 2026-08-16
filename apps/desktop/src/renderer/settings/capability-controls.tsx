@@ -239,7 +239,7 @@ export function RouteEditor({ title, description: _description, route, models, d
       </div>}
       {selected?.modelParameterOptions?.map((parameter) =>
         <div className="effort-control" key={parameter.id}><OpenSelect variant="route"
-          ariaLabel={`${title} ${parameter.label}`} value={modelParameters[parameter.id] || parameter.options[0]?.value || ''}
+          ariaLabel={title + ' ' + parameter.label} value={modelParameters[parameter.id] || parameter.options[0]?.value || ''}
           disabled={disabled} options={parameter.options}
           onChange={(value) => onChange(selectionFor(selected, {
             modelParameters: { ...modelParameters, [parameter.id]: value },

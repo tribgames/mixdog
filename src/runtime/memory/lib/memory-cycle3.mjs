@@ -32,6 +32,10 @@ import { embedText } from './embedding-provider.mjs'
 import { searchRelevantHybrid } from './memory-recall-store.mjs'
 import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
 
+const CYCLE3_RELATED_PER_CORE = 6
+const CYCLE3_RELATED_PER_CORE_MAX = 8
+const CYCLE3_PROMPT_MAX_BYTES = 160_000
+
 // resourceDir comes from memory-cycle2-shared.mjs: prompts live under
 // <package>/src/defaults, and the local variant here resolved MIXDOG_ROOT
 // (the package root in standalone/desktop runs) WITHOUT the 'src' join, so
@@ -511,6 +515,10 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
 
   // Per-core related-memory recall.
   const blocks = []
+  const relatedLimit = Math.min(
+    CYCLE3_RELATED_PER_CORE_MAX,
+    Math.max(0, Number(config?.cycle3?.related_per_core ?? CYCLE3_RELATED_PER_CORE)),
+  )
   for (const core of cores) {
     throwIfAborted(signal)
     const queryText = `${core.element}\n${String(core.summary || '')}`.trim()
@@ -525,7 +533,7 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
         __mixdogMemoryLog(`[cycle3] embedding failed for core id=${core.id}: ${err.message}\n`)
       }
       related = await searchRelevantHybrid(db, queryText, {
-        limit: 8,
+        limit: relatedLimit,
         projectScope: scope,
         includeMembers: false,
         queryVector: Array.isArray(queryVector) ? queryVector : undefined,
@@ -538,7 +546,7 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
     throwIfAborted(signal)
     blocks.push(formatCoreBlock(core, related))
   }
-  const coreReview = blocks.join('\n\n')
+  let coreReview = blocks.join('\n\n')
 
   // Load + fill prompt template.
   const promptPath = join(resourceDir(), 'defaults', 'cycle3-review-prompt.md')
@@ -547,14 +555,35 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
   }
   const template = readFileSync(promptPath, 'utf8')
   const rulesDigest = loadCurrentRulesDigest() || '(no current rules digest available)'
-  const prompt = template
+  const fillPrompt = () => template
     .replace('{{CORE_REVIEW}}', coreReview)
     .replace('{{CURRENT_RULES}}', rulesDigest)
+  const promptMaxBytes = Math.max(40_000, Number(config?.cycle3?.prompt_max_bytes ?? CYCLE3_PROMPT_MAX_BYTES))
+  let prompt = fillPrompt()
+  let promptBytes = Buffer.byteLength(prompt, 'utf8')
+  if (promptBytes > promptMaxBytes) {
+    coreReview = cores.map(core => formatCoreBlock(core, [])).join('\n\n')
+    prompt = fillPrompt()
+    promptBytes = Buffer.byteLength(prompt, 'utf8')
+    __mixdogMemoryLog(`[cycle3] prompt trimmed to core-only bytes=${promptBytes} max=${promptMaxBytes}\n`)
+  }
+  if (promptBytes > promptMaxBytes) {
+    __mixdogMemoryLog(`[cycle3] prompt budget exceeded bytes=${promptBytes} max=${promptMaxBytes}\n`)
+    return {
+      reviewed: cores.length, kept: 0, updated: 0, merged: 0, deleted: 0,
+      proposed: { kept: 0, updated: 0, merged: 0, deleted: 0 },
+      held: { updated: 0, merged: 0, deleted: 0 },
+      applied: mutate,
+      applyMode,
+      details: [],
+      error: 'prompt_budget_exceeded',
+    }
+  }
 
   const timeout = Number(config?.cycle3?.timeout ?? 600000)
   const mode = 'cycle3-review'
 
-  __mixdogMemoryLog(`[cycle3-diag] prompt=${prompt.length} bytes; cores=${cores.length}\n`)
+  __mixdogMemoryLog(`[cycle3-diag] prompt=${promptBytes} bytes; cores=${cores.length}\n`)
 
   let raw
   try {

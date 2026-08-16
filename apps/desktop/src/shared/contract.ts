@@ -227,6 +227,7 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   tag: string;
   sessionId: string;
   ownerSessionId: string | null;
+  title?: string | null;
   agent: string | null;
   provider: string | null;
   model: string | null;
@@ -238,6 +239,7 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   turnStartedAt: number | string | null;
   createdAt: number | string | null;
   updatedAt: number | string | null;
+  idleSince?: number | string | null;
   reapAt?: number | string | null;
   cwd: string | null;
   clientHostPid: number | null;
@@ -284,8 +286,10 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   agentWorkers?: DesktopAgentWorker[];
   agentJobs?: DesktopAgentJob[];
   activeTools?: {
-    explore: DesktopActiveToolState;
-    search: DesktopActiveToolState;
+    explore?: DesktopActiveToolState;
+    search?: DesktopActiveToolState;
+    shell?: DesktopActiveToolState;
+    agent?: DesktopActiveToolState;
   } | null;
   shellJobs?: DesktopShellJobsState;
   /** Host-wide background shell totals (keep-awake). `shellJobs` above is the
@@ -1179,7 +1183,7 @@ export interface DesktopGitStashEntry {
   when: string;
 }
 
-/** GitHub CLI-backed pull request rows (VS Code PR extension grammar). */
+/** GitHub CLI-backed pull request rows. */
 export interface DesktopPullRequestChecks {
   total: number;
   passing: number;

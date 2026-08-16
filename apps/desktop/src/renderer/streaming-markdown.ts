@@ -21,8 +21,8 @@ export interface StreamingMarkdownParts {
   parseUnstable: boolean;
 }
 
-/* Safety valve, not a rendering mode. opencode's streaming projection
- * (markdown-stream.ts `stream`) has NO size cap at all: every projection
+/* Safety valve, not a rendering mode. The streaming projection normally has
+ * no size cap: every projection
  * re-lexes the whole response, freezes all but the last token, and heals that
  * last token so it is always parsed. Our 8 KiB cap fired on ordinary output —
  * one long list or an open fence has no stable boundary, so the whole tail
@@ -246,7 +246,7 @@ function markdownChunkKey(offset: number): string {
   return `chunk-${Math.max(0, Math.round(offset))}`;
 }
 
-/** Match VS Code's safe fast path: one literal line needs no GFM parser. */
+/** One literal line needs no GFM parser. */
 export function isPlainTextMarkdown(text: string): boolean {
   const value = String(text ?? "");
   return Boolean(value)

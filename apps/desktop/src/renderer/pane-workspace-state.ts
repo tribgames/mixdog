@@ -23,6 +23,7 @@ import {
   movePaneTabToNodeEdge,
   movePaneTabToRootEdge,
   neighborPaneLeafId,
+  normalizePaneLayoutSessions,
   openTabInPaneLeaf,
   paneActiveSelection,
   paneLeafParentDirection,
@@ -105,7 +106,9 @@ export function readStoredPaneLayout(storage: StorageLike | null): PaneWorkspace
     const record = JSON.parse(raw) as Record<string, unknown>;
     const parsedLayout = parsePaneLayout(record?.layout);
     if (!parsedLayout) return null;
-    const layout = fillEmptyPaneLeaves(parsedLayout);
+    const normalizedLayout = normalizePaneLayoutSessions(parsedLayout);
+    if (!normalizedLayout) return null;
+    const layout = fillEmptyPaneLeaves(normalizedLayout);
     const leaves = paneLeaves(layout);
     const focusedLeafId = typeof record.focusedLeafId === "string"
       && leaves.some((leaf) => leaf.id === record.focusedLeafId)
@@ -164,9 +167,15 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
       try {
         const listSessions = window.mixdogDesktop?.listSessions;
         if (typeof listSessions === "function") {
-          const rows = await listSessions();
+          const [rows, agents] = await Promise.all([
+            listSessions(),
+            window.mixdogDesktop?.listAgentPool?.() ?? Promise.resolve([]),
+          ]);
           const knownSessionIds = new Set(
-            (Array.isArray(rows) ? rows : []).map((row) => String(row.id || "")),
+            [
+              ...(Array.isArray(rows) ? rows : []),
+              ...(Array.isArray(agents) ? agents : []),
+            ].map((row) => String("id" in row ? row.id : row.sessionId || "")),
           );
           filtered = filterPaneLayoutSessions(
             restorePlan.stored!.layout,
@@ -408,7 +417,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     });
   }, []);
 
-  /** VS Code-style editor split: the focused pane keeps its cell, the new
+  /** Editor split: the focused pane keeps its cell, the new
    *  pane opens beside (row) or below (column) it and takes focus. */
   const splitFocused = useCallback((
     direction: PaneDirection,

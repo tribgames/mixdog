@@ -180,7 +180,9 @@ if ($hasRouteProfile) {
     $harborArgs += @("--ak", "route_profile=$RouteProfile")
     $routeParts = @()
     foreach ($role in @("lead", "worker", "heavy-worker", "reviewer", "debugger")) {
-        $route = $resolvedProfile.routes.$role
+        $routeProperty = $resolvedProfile.routes.PSObject.Properties[$role]
+        if ($null -eq $routeProperty) { continue }
+        $route = $routeProperty.Value
         $fast = if ($route.fast -eq $true) { "true" } else { "false" }
         $routeParts += "${role}=$($route.provider)/$($route.model) effort=$($route.effort) fast=$fast"
     }

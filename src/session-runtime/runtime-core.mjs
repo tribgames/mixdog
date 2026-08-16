@@ -289,11 +289,6 @@ export {
 // Re-exported for external consumers (scripts/tool-smoke.mjs) that imported
 // these from this module before the tool-defs extraction.
 export { TOOL_SEARCH_TOOL, SKILL_TOOL };
-// Back-compat test alias; delegates to the extracted helper.
-export function __applyStandaloneToolDefaultsForTest(tool) {
-  return applyStandaloneToolDefaults(tool);
-}
-
 const resolveDefaultProvider = makeResolveDefaultProvider(isKnownProvider);
 const resolveRoute = makeResolveRoute(resolveDefaultProvider);
 const searchCapableFor = makeSearchCapableFor(normalizeSearchProviderId, isSearchCapableProvider);
@@ -1812,10 +1807,6 @@ export async function createMixdogSessionRuntime({
     // Session-scoped remote: the owning session id (null when off/unassigned).
     getRemoteSessionId() {
       return rt.remoteSessionId;
-    },
-    // Back-compat alias for an explicit manual ON in the current session.
-    claimRemoteForCurrentSession() {
-      return startRemote();
     },
     // Subscribe to non-user-initiated remote flips (seat superseded). Returns
     // an unsubscribe function. TUI uses this to sync its Remote indicator and

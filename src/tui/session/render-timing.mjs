@@ -24,8 +24,6 @@ export const TUI_RENDER_FPS = 120;
 // Ink uses Math.ceil(1000 / maxFps); share that exact cadence with the store.
 export const TUI_FRAME_MS = Math.ceil(1000 / TUI_RENDER_FPS);
 
-// Back-compat alias: previously the fixed wait duration, now the fallback only.
-
 let pendingRenderAcks = [];
 let renderAckSeq = 0;
 let lastRenderFrameAt = 0;

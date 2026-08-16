@@ -13,29 +13,42 @@ test('route sheet aligns its right edge with the trigger', () => {
   assert.equal(box.left + box.width, 520);
 });
 
-test('route flyout prefers the right and aligns to the selected row', () => {
-  const sheet = { left: 200, top: 100, width: 264, height: 116, maxHeight: 116 };
-  const box = routeFlyoutBox(sheet, 1, 80, { width: 1000, height: 800 });
+test('route flyout opens on the left side of the sheet aligned to its row', () => {
+  const sheet = { left: 700, top: 300, width: 264, height: 116, maxHeight: 116 };
+  const box = routeFlyoutBox(sheet, 200, { width: 1000, height: 800 }, 336);
 
-  assert.equal(box.left, 470);
-  assert.equal(box.top, 140);
+  assert.equal(box.left, 700 - 6 - 264);
+  assert.equal(box.width, sheet.width);
+  assert.equal(box.top, 336);
+  assert.equal(box.height, 200);
+  assert.equal(box.placement, 'left');
 });
 
-test('route flyout falls back to the left only when the right side is too narrow', () => {
-  const sheet = { left: 700, top: 100, width: 264, height: 116, maxHeight: 116 };
-  const box = routeFlyoutBox(sheet, 0, 380, { width: 1000, height: 800 });
+test('route flyout falls to the right side when the left has no room', () => {
+  const sheet = { left: 20, top: 300, width: 264, height: 116, maxHeight: 116 };
+  const box = routeFlyoutBox(sheet, 200, { width: 1000, height: 800 }, 330);
 
-  assert.equal(box.left + box.width, 694);
-  assert.equal(box.top, 104);
+  assert.equal(box.left, 20 + 264 + 6);
+  assert.equal(box.width, sheet.width);
+  assert.equal(box.placement, 'right');
 });
 
-test('route flyout stacks above the sheet when both sides are too narrow', () => {
-  const sheet = { left: 8, top: 400, width: 264, height: 116, maxHeight: 116 };
-  const box = routeFlyoutBox(sheet, 0, 380, { width: 280, height: 800 });
+test('route flyout honors a right-side preference when both sides fit', () => {
+  const sheet = { left: 360, top: 300, width: 264, height: 116, maxHeight: 116 };
+  const box = routeFlyoutBox(sheet, 200, { width: 1000, height: 800 }, 330, undefined, 'right');
 
-  assert.equal(box.left, 8);
-  assert.equal(box.top, 14);
-  assert.equal(box.height, 380);
+  assert.equal(box.left, 360 + 264 + 6);
+  assert.equal(box.placement, 'right');
+});
+
+test('route flyout stacks above the sheet when neither side fits', () => {
+  const sheet = { left: 8, top: 500, width: 264, height: 116, maxHeight: 116 };
+  const box = routeFlyoutBox(sheet, 200, { width: 280, height: 800 }, 520);
+
+  assert.equal(box.left, sheet.left);
+  assert.equal(box.width, sheet.width);
+  assert.equal(box.top, 294);
+  assert.equal(box.placement, 'above');
 });
 
 test('route panels stay inside an offset pane instead of using the whole window', () => {
@@ -45,12 +58,13 @@ test('route panels stay inside an offset pane instead of using the whole window'
     116,
     viewport,
   );
-  const flyout = routeFlyoutBox(sheet, 0, 380, viewport, 296);
+  const flyout = routeFlyoutBox(sheet, 380, viewport);
 
   assert.ok(sheet.left >= 608);
   assert.ok(sheet.left + sheet.width <= 1112);
   assert.ok(flyout.left >= 608);
   assert.ok(flyout.left + flyout.width <= 1112);
+  assert.equal(flyout.width, sheet.width);
   assert.ok(flyout.top >= 208);
   assert.ok(flyout.top + flyout.height <= 752);
 });

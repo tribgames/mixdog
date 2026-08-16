@@ -207,7 +207,7 @@ export function usePromptHandlers({
   // ESC / Up handling (prompt input):
   // - prompt-local overlays such as the slash palette close first.
   // - active work is cancelled before queue/draft handling.
-  // - idle non-empty text uses Claude Code's "Esc again to clear" guard.
+  // - idle non-empty text uses an "Esc again to clear" guard.
   // - idle empty input restores queued editable messages, and a double press
   //   opens the message selector (jump back to a previous prompt).
   const handlePromptEscape = useCallback((text = '', meta = {}) => {
@@ -224,7 +224,7 @@ export function usePromptHandlers({
     }
     if (meta.phase === 'select') {
       clearPromptHint();
-      // Queue first (Claude Code order): a stale queue projection must not let
+      // Queue first: a stale queue projection must not let
       // the selector shadow an editable follow-up that is still waiting.
       if (restoreQueuedToPrompt({ restoreDraft: true, showHint: false, currentText: text })) return true;
       return openMessageSelector?.() === true;

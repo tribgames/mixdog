@@ -141,6 +141,7 @@ export function createLiveShare({
         ...(entry?.enqueuedAt ? { enqueuedAt: entry.enqueuedAt } : {}),
       })),
       activeToolSummary: st.activeToolSummary || null,
+      activeTools: st.activeTools || null,
       agentWorkers: Array.isArray(st.agentWorkers) ? st.agentWorkers : [],
       agentJobs: Array.isArray(st.agentJobs) ? st.agentJobs : [],
       ownerClientHostPid: Number(st.clientHostPid) || process.pid,
@@ -470,6 +471,7 @@ export function createLiveShare({
       commandBusy: live.commandBusy === true,
       queued: Array.isArray(live.queued) ? live.queued : [],
       activeToolSummary: live.activeToolSummary || null,
+      activeTools: live.activeTools || null,
       agentWorkers: Array.isArray(live.agentWorkers) ? live.agentWorkers : [],
       agentJobs: Array.isArray(live.agentJobs) ? live.agentJobs : [],
       ownerClientHostPid: Number(live.ownerClientHostPid) || 0,
@@ -491,7 +493,8 @@ export function createLiveShare({
     try {
       viewerApply?.set?.({
         busy: false, commandBusy: false, spinner: null, queued: [],
-        activeToolSummary: null, agentWorkers: [], agentJobs: [], ownerClientHostPid: 0,
+        activeToolSummary: null, activeTools: null,
+        agentWorkers: [], agentJobs: [], ownerClientHostPid: 0,
       });
     } catch { /* viewer store already disposed */ }
   };

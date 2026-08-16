@@ -1,6 +1,15 @@
 export const DESKTOP_SIDEBAR_MIN_WIDTH = 232;
 export const DESKTOP_WORKSPACE_MIN_WIDTH = 360;
 export const DESKTOP_UTILITY_DOCK_MIN_WIDTH = 300;
+export const DESKTOP_SIDEBAR_DEFAULT_WIDTH = DESKTOP_SIDEBAR_MIN_WIDTH;
+export const DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH = DESKTOP_UTILITY_DOCK_MIN_WIDTH;
+
+export function clampDesktopPanelWidth(value: number, minWidth: number, maxWidth: number): number {
+  return Math.min(maxWidth, Math.max(
+    minWidth,
+    Math.round(Number.isFinite(value) ? value : minWidth),
+  ));
+}
 
 /* Full-responsive shell (user decision): the desktop window narrows through
    the same bands the remote web surface uses — the dock becomes an

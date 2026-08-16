@@ -15,7 +15,10 @@ import {
   _isBenignSearchExitOne,
   executeBashTool,
 } from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
-import { preflightPowerShellHygiene } from '../src/runtime/agent/orchestrator/tools/builtin/shell-analysis.mjs';
+import {
+  planLongInlineScriptFileTransport,
+  preflightPowerShellHygiene,
+} from '../src/runtime/agent/orchestrator/tools/builtin/shell-analysis.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
 import {
     appendShellStartupPolicy,
@@ -131,6 +134,50 @@ test('A: exit!=1, a signal, or non-blank stderr are never benign', () => {
     assert.equal(_isBenignSearchExitOne('grep x file', 1, 'SIGTERM', ''), false);
     // node -e that happens to mention grep — head is `node`, not a search cmd.
     assert.equal(_isBenignSearchExitOne('node -e "process.exit(1); grep"', 1, null, ''), false);
+});
+
+test('long Windows inline scripts use a short file-backed shell loader', () => {
+    const body = `const slash = "\\\\"; /*${'x'.repeat(25_000)}*/ console.log("ok")`;
+    const command = `node -e '${body}'`;
+    const ps = planLongInlineScriptFileTransport(command, {
+        platform: 'win32',
+        shellType: 'powershell',
+    });
+    assert.ok(ps);
+    assert.equal(ps.command, command);
+    assert.equal(ps.extension, '.cjs');
+    assert.equal(ps.body, body);
+    assert.equal(
+        ps.replace("C:\\Temp\\it's-long-command.cjs"),
+        `node "C:/Temp/it's-long-command.cjs"`,
+    );
+    const bash = planLongInlineScriptFileTransport(command, {
+        platform: 'win32',
+        shellType: 'posix',
+    });
+    assert.equal(bash.extension, '.cjs');
+    assert.equal(bash.body, body);
+    assert.equal(planLongInlineScriptFileTransport(command.slice(0, 1_000), {
+        platform: 'win32',
+        shellType: 'powershell',
+    }), null);
+    assert.equal(planLongInlineScriptFileTransport(command, {
+        platform: 'linux',
+        shellType: 'posix',
+    }), null);
+});
+
+test('Windows executes oversized node inline bodies through a script file', {
+    skip: process.platform !== 'win32',
+}, async () => {
+    const body = `const slash = "\\\\"; /*${'x'.repeat(35_000)}*/ console.log("long-inline-ok")`;
+    const result = normalizeToolEnvelope(await executeBashTool(
+        { command: `node -e '${body}'`, timeout_ms: 10_000 },
+        process.cwd(),
+    ));
+    assert.equal(result.explicitSuccess, true);
+    assert.match(result.result, /^\[exit code: 0\]/);
+    assert.match(result.result, /long-inline-ok/);
 });
 
 test('auto-background partial output shares one strict UTF-8 byte budget', () => {

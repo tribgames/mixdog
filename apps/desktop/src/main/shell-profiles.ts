@@ -133,14 +133,13 @@ async function detectWindowsProfiles(): Promise<DetectedShellProfile[]> {
   return profiles;
 }
 
-/** Utility-VM distributions (Docker/Rancher/Podman back ends) are not user
- *  shells; VS Code hides them from its WSL profiles the same way. */
+/** Utility-VM distributions are not user shells. */
 export function hiddenWslDistribution(name: string): boolean {
   return /^(?:docker-desktop(?:-data)?|rancher-desktop(?:-data)?|podman-machine.*)$/i
     .test(String(name || '').trim());
 }
 
-/** OS-default profile id (VS Code parity): Windows prefers PowerShell 7
+/** OS-default profile id: Windows prefers PowerShell 7
  *  (pwsh) over Windows PowerShell over cmd; elsewhere $SHELL wins. */
 export function defaultShellProfileId(
   profiles: readonly Pick<DesktopShellProfileInfo, 'id' | 'path'>[],

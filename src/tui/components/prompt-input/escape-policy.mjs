@@ -2,7 +2,7 @@ export const PROMPT_ESCAPE_CLEAR_WINDOW_MS = 800;
 export const PROMPT_ESCAPE_HINT_TIMEOUT_MS = 1000;
 
 /**
- * Claude Code-compatible chat Escape priority after overlays have already had
+ * Chat Escape priority after overlays have already had
  * a chance to consume the key:
  * active turn -> interrupt immediately, selected draft -> collapse selection,
  * then (while idle) queued editable messages -> restore for editing, idle
@@ -31,7 +31,7 @@ export function classifyPromptEscape({
     && current - previous <= PROMPT_ESCAPE_CLEAR_WINDOW_MS;
   const armed = Number.isFinite(current) && current > 0 ? current : 1;
 
-  // Empty draft: Claude Code's double-press opens the message selector so a
+  // With an empty draft, a double press opens the message selector so a
   // previous prompt can be pulled back into the box (nothing to clear here).
   if (String(value ?? '') === '') {
     if (!hasMessages) return { action: 'idle', nextClearPressAt: 0 };

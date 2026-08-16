@@ -88,6 +88,16 @@ test('a closed stdio pipe cannot crash the main process', async () => {
   assert.match(main, /\[process\.stdout, process\.stderr\][\s\S]{0,120}?on\?\.\('error'/);
 });
 
+test('Windows Crashpad starts locally before any renderer can be created', async () => {
+  const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
+  const profileConfiguredAt = main.indexOf('const PACKAGED_USER_DATA_DIRECTORY');
+  const reporterStartedAt = main.indexOf('crashReporter.start(');
+  const instanceLockAt = main.indexOf('app.requestSingleInstanceLock()');
+  assert.ok(profileConfiguredAt >= 0 && profileConfiguredAt < reporterStartedAt);
+  assert.ok(reporterStartedAt < instanceLockAt);
+  assert.match(main.slice(reporterStartedAt, instanceLockAt), /uploadToServer:\s*false/);
+});
+
 test('production desktop uses only the packaged daemon service adapter', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'));
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
