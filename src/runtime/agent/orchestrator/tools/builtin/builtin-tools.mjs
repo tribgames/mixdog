@@ -20,7 +20,7 @@ export const BUILTIN_TOOLS = [
             properties: {
                 file_path: {
                     type: 'string',
-                    description: 'Known file path as plain text; not a JSON array or annotated path.',
+                    description: 'Known file path as plain text; not a JSON array or annotated path. A glob (e.g. "logs/*.log") fans out to per-file results (cap 10, newest first); literal-named files win over expansion.',
                 },
                 offset: {
                     type: 'integer',

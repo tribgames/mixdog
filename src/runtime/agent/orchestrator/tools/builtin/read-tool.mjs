@@ -5,7 +5,8 @@ import { readEntryCoalescedDiskWindow } from './read-batch.mjs';
 import { readPathStringGuardError } from './read-open.mjs';
 import { parseReadLineNumberArg } from './read-args.mjs';
 import { assertPathsReachable } from './fs-reachability.mjs';
-import { coerceReadFamilyPathArg } from './path-utils.mjs';
+import { existsSync } from 'fs';
+import { coerceReadFamilyPathArg, hasGlobMagic } from './path-utils.mjs';
 import { readIoAdmission } from '../../../../shared/tool-workload-gates.mjs';
 import { currentToolExecutionOwner } from '../../../../shared/tool-execution-owner.mjs';
 
@@ -174,6 +175,44 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
             options?._preflightStats?.get?.(_imgFull) || null,
         );
         if (_imgResult) return _imgResult;
+    }
+    // head-glob sampling: read "/app/logs/*.log" limit=5 fans out to the
+    // parallel per-file batch below — same semantics as `head -n5 *.log`,
+    // one result with per-file headers. Literal paths always win: a REAL
+    // file named "[id].tsx" or "{slug}.md" is read as itself; only a
+    // non-existent magic path expands. Cap 10 files (glob's mtime order,
+    // newest first); top-level offset/limit apply per file. Zero glob
+    // matches fall through to the single-read path so the raw pattern gets
+    // the standard ENOENT + suggestion machinery.
+    if (typeof args.path === 'string' && hasGlobMagic(args.path) && typeof executeChildBuiltinTool === 'function') {
+        const _globNorm = normalizeInputPath(args.path);
+        let _literalExists = false;
+        try { _literalExists = existsSync(resolveAgainstCwd(_stripLineCoordForReach(_globNorm), workDir)); } catch { /* treat as non-literal */ }
+        if (!_literalExists) {
+            const READ_GLOB_CAP = 10;
+            let _globOut = '';
+            try { _globOut = String(await executeChildBuiltinTool('glob', { pattern: _globNorm, head_limit: READ_GLOB_CAP + 1 }, workDir) || ''); }
+            catch { _globOut = ''; }
+            const _globFiles = _globOut.split('\n')
+                .map((l) => l.trim())
+                .filter((l) => l && !l.startsWith('(') && !l.startsWith('[') && !l.startsWith('...') && !l.startsWith('Error'));
+            if (_globFiles.length > 0) {
+                const _capped = _globFiles.slice(0, READ_GLOB_CAP);
+                const _capNote = _globFiles.length > READ_GLOB_CAP
+                    ? `\n[glob expansion capped at ${READ_GLOB_CAP} files (newest first); narrow the pattern for the rest]`
+                    : '';
+                const _expanded = await executeReadTool(
+                    { ...args, path: _capped, file_path: undefined },
+                    workDir, readStateScope, executeChildBuiltinTool, { ...options }, helpers,
+                );
+                if (!_capNote) return _expanded;
+                if (typeof _expanded === 'string') return _expanded + _capNote;
+                if (_expanded && typeof _expanded === 'object' && Array.isArray(_expanded.content)) {
+                    return { ..._expanded, content: [..._expanded.content, { type: 'text', text: _capNote.trim() }] };
+                }
+                return _expanded;
+            }
+        }
     }
     // Unified-read dispatch (v0.6.283+):
     //   reads: [{path, mode?, n?, offset?, limit?, full?}]
