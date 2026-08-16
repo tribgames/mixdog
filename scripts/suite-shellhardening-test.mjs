@@ -46,6 +46,7 @@ import { _runReadOnlyIoWithDeadlineForTest } from '../src/runtime/agent/orchestr
 import {
   childGuardianSpawnEnv,
   startChildGuardian,
+  _sharedBrokerPidForTest,
 } from '../src/runtime/shared/child-guardian.mjs';
 import {
   BACKGROUND_PARTIAL_OUTPUT_MAX_BYTES,
@@ -1464,11 +1465,22 @@ test('child guardians share one broker without coupling child lifetimes', { time
     assert.equal(second?.pid, first.pid);
     assert.equal(first.stop(), true);
     await delay(250);
-    assert.equal(pidAlive(first.pid), true, 'the broker remains for the second child');
+    // The broker may self-heal across a restart (an `add` racing the
+    // empty-grace exit of a previous broker respawns with targets re-sent),
+    // so assert that SOME broker keeps serving the second child — the pid
+    // captured at start may have been legitimately replaced.
+    const currentBrokerAlive = () => {
+      const pid = _sharedBrokerPidForTest();
+      return pid ? pidAlive(pid) : false;
+    };
+    assert.equal(await waitUntil(currentBrokerAlive), true, 'a broker remains for the second child');
     assert.equal(pidAlive(firstChild.pid), true);
     assert.equal(pidAlive(secondChild.pid), true);
     assert.equal(second.stop(), true);
-    assert.equal(await waitUntil(() => !pidAlive(first.pid)), true);
+    assert.equal(await waitUntil(() => {
+      const pid = _sharedBrokerPidForTest();
+      return !pid || !pidAlive(pid);
+    }), true);
   } finally {
     first?.stop?.();
     second?.stop?.();
