@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.133 - 2026-08-16
+
 - Provider-only evidence projection now aliases repeated typed file paths
   within mutation epochs, preserving exact tool envelopes and reconstructable
   paths while reducing cumulative context in long sessions.
