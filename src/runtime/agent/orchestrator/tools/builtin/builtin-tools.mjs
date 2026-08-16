@@ -8,6 +8,11 @@ const _shellSyntaxCheat =
     process.platform === 'win32'
         ? ' PowerShell: use ; between independent commands; use if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent commands; single-quote inline scripts, avoid nested double quotes; /c/→C:\\; $PID is reserved.'
         : ' Bash: use && between dependent commands.';
+// Named replacements stay platform-honest: PowerShell aliases exist only on
+// win32; the POSIX surface must not carry them (CI-anchored).
+const _shellToolBans = process.platform === 'win32'
+    ? 'cat/Get-Content/head/tail (read covers them), ls/dir (list), find (find/glob), grep/rg/Select-String (grep), or sed/awk (edit); never create files via heredoc or echo/Set-Content redirection'
+    : 'cat/head/tail (read covers them), ls (list), find (find/glob), grep/rg (grep), or sed/awk (edit); never create files via heredoc or echo redirection';
 
 export const BUILTIN_TOOLS = [
     {
@@ -75,7 +80,7 @@ export const BUILTIN_TOOLS = [
         inputSchema: {
             type: 'object',
             properties: {
-                command: { type: 'string', description: `Command. Unless a dedicated tool verifiably cannot do the job, never run cat/Get-Content/head/tail (read covers them), ls/dir (list), find (find/glob), grep/rg/Select-String (grep), or sed/awk (edit); never create files via heredoc or echo/Set-Content redirection — the file-editing tool creates files (empty old_string, or an Add File patch); never echo/printf text meant for the user — answer directly.${_shellSyntaxCheat}` },
+                command: { type: 'string', description: `Command. Unless a dedicated tool verifiably cannot do the job, never run ${_shellToolBans} — the file-editing tool creates files (empty old_string, or an Add File patch); never echo/printf text meant for the user — answer directly.${_shellSyntaxCheat}` },
                 timeout_ms: {
                     type: 'integer',
                     minimum: 0,
