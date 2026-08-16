@@ -81,6 +81,60 @@ test('keeps tiny exact results when a reference would be larger', () => {
     assert.equal(projected.stats.exactResultRefs, 0);
 });
 
+test('aliases repeated typed paths across same-turn glob and batch read results', () => {
+    const repeated = `src/${'deep/'.repeat(10)}feature.mjs`;
+    const first = result('glob_1', `${repeated}\nsrc/unique.mjs`);
+    const second = result('read_1', `read 1\n\n${repeated} [ok]\n1→export const value = 1;`);
+    const messages = [
+        {
+            role: 'assistant',
+            content: '',
+            toolCalls: [
+                { id: 'glob_1', name: 'glob', arguments: { pattern: '**/*.mjs' } },
+                { id: 'read_1', name: 'read', arguments: { file_path: '**/*.mjs' } },
+            ],
+        },
+        first,
+        second,
+    ];
+    const projected = projectProviderEvidence(messages);
+    const combined = `${projected.messages[1].content}\n${projected.messages[2].content}`;
+    assert.equal(projected.messages[1].toolCallId, 'glob_1');
+    assert.equal(projected.messages[2].toolCallId, 'read_1');
+    assert.equal(combined.split(repeated).length - 1, 1);
+    assert.match(projected.messages[1].content, /\[path-alias p1="/);
+    assert.match(projected.messages[1].content, /(?:^|\n)p1(?:\n|$)/);
+    assert.match(projected.messages[2].content, /(?:^|\n)p1 \[ok\](?:\n|$)/);
+    assert.equal(projected.stats.pathAliases, 1);
+    assert.equal(projected.stats.reusedPathFacts, 1);
+    assert.ok(projected.stats.pathAliasBytesSaved > 0);
+    assert.equal(messages[1], first);
+    assert.equal(messages[2], second);
+});
+
+test('keeps short repeated paths and resets path aliases across mutations', () => {
+    const shortMessages = [
+        call('glob_1', 'glob'),
+        result('glob_1', 'src/a.mjs'),
+        call('read_1', 'read'),
+        result('read_1', 'src/a.mjs [ok]\n1→a'),
+    ];
+    assert.equal(projectProviderEvidence(shortMessages).stats.pathAliases, 0);
+
+    const repeated = `src/${'nested/'.repeat(10)}a.mjs`;
+    const mutationMessages = [
+        call('glob_1', 'glob'),
+        result('glob_1', repeated),
+        call('patch_1', 'apply_patch'),
+        result('patch_1', 'ok'),
+        call('read_1', 'read'),
+        result('read_1', `${repeated} [ok]\n1→a`),
+    ];
+    const projected = projectProviderEvidence(mutationMessages);
+    assert.equal(projected.messages, mutationMessages);
+    assert.equal(projected.stats.pathAliases, 0);
+});
+
 test('apply_patch, shell, and mutating git batches invalidate all earlier evidence', () => {
     const same = `same ${'s'.repeat(160)}`;
     const listing = Array.from({ length: 24 }, (_, index) => `src/item-${index}.mjs`).join('\n');

@@ -1,8 +1,8 @@
 // Eager tool-dispatch controller, extracted from agent-loop.mjs. Owns the
 // per-turn pending promise map, the intra-turn in-flight signature set, and
 // the mutation epoch. Every valid call dispatches while the provider is still
-// streaming. Calls execute in parallel except that shell after apply_patch
-// waits for every earlier patch in the turn and runs only if all succeeded;
+// streaming. Calls execute in parallel except that repository-wide Git writes
+// serialize against file edits, while shell waits for every earlier mutation;
 // results are collected later in call order.
 import { normalizeToolEnvelope } from './tool-envelope.mjs';
 import { classifyResultKind } from './result-classification.mjs';
@@ -11,6 +11,7 @@ import {
     _intraTurnSig,
     _argShapeSig,
     _isEditTool,
+    _isGitMutationTool,
     _isMutationTool,
     _isReadTool,
     _isScopedCacheableTool,
@@ -46,6 +47,9 @@ export function createEagerDispatcher({
         // Exact-string edits are single-replacement calls. Serialize them so
         // multiple edits to one file in the same model turn observe prior writes.
         let editBarrier = Promise.resolve();
+        // Git mutations have repository-wide effects. They wait for earlier
+        // file edits, and later edits/shell verification wait for them.
+        let gitMutationBarrier = Promise.resolve();
         // Streaming-time intra-turn dedup. When the LLM emits two
         // tool_use blocks with identical (name, args) signatures in
         // sequence, the provider's onToolCall fires for both BEFORE
@@ -131,19 +135,23 @@ export function createEagerDispatcher({
                 localSearchTelemetry: {},
                 resultTelemetry: {},
             };
-            const precedingPatches = _isShellTool(call.name) ? patchBarrier : null;
+            const gitMutation = _isGitMutationTool(call.name, call.arguments);
+            const mutation = _isMutationTool(call.name, call.arguments);
+            const precedingPatches = (_isShellTool(call.name) || gitMutation) ? patchBarrier : null;
+            const precedingGitMutation = (_isShellTool(call.name) || mutation) ? gitMutationBarrier : null;
             const precedingEdits = _isEditTool(call.name) ? editBarrier : null;
             if (_dedupEligible) _eagerInFlightSigs.set(_sig, call.id);
             entry.promise = (async () => {
                 try {
                     if (precedingEdits) await precedingEdits;
+                    if (precedingGitMutation) await precedingGitMutation;
                     if (precedingPatches) {
                         const patchState = await precedingPatches;
                         if (patchState.failedPatchIds.length > 0) {
                             return {
                                 ok: true,
                                 skipped: true,
-                                value: `[patch-dependency-guard] \`${call.name}\` skipped because earlier file-edit call(s) failed: ${patchState.failedPatchIds.join(', ')}; no verification ran.`,
+                                value: `[mutation-dependency-guard] \`${call.name}\` skipped because earlier mutation call(s) failed: ${patchState.failedPatchIds.join(', ')}; no verification ran.`,
                             };
                         }
                     }
@@ -215,7 +223,7 @@ export function createEagerDispatcher({
             if (_isEditTool(call.name)) {
                 editBarrier = entry.promise.then(() => undefined, () => undefined);
             }
-            if (_isMutationTool(call.name)) {
+            if (_isMutationTool(call.name, call.arguments)) {
                 const precedingPatchState = patchBarrier;
                 const currentPatch = entry.promise;
                 patchBarrier = Promise.all([precedingPatchState, currentPatch]).then(([state, settled]) => ({
@@ -223,6 +231,9 @@ export function createEagerDispatcher({
                         ? [...state.failedPatchIds, call.id]
                         : state.failedPatchIds,
                 }));
+            }
+            if (gitMutation) {
+                gitMutationBarrier = entry.promise.then(() => undefined, () => undefined);
             }
             return entry;
         };

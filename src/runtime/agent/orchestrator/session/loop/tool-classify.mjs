@@ -1,3 +1,5 @@
+import { gitCommandMutates } from '../../tools/builtin/git-command-policy.mjs';
+
 // Tool-name classification + intra-turn signature helpers, extracted from
 // loop.mjs. These drive cross-turn read dedup, scoped caching, shell routing,
 // and duplicate-call detection. Strips the MCP prefix so direct calls and
@@ -11,9 +13,13 @@ export function _stripMcpPrefix(name) {
 export function _isReadTool(name) {
     return _stripMcpPrefix(name) === 'read';
 }
-export function _isMutationTool(name) {
+export function _isMutationTool(name, args = null) {
     const n = String(_stripMcpPrefix(name) || '').toLowerCase();
-    return n === 'apply_patch' || n === 'edit';
+    return n === 'apply_patch' || n === 'edit' || (n === 'git' && gitCommandMutates(args));
+}
+export function _isGitMutationTool(name, args = null) {
+    const n = String(_stripMcpPrefix(name) || '').toLowerCase();
+    return n === 'git' && gitCommandMutates(args);
 }
 export function _isEditTool(name) {
     return String(_stripMcpPrefix(name) || '').toLowerCase() === 'edit';

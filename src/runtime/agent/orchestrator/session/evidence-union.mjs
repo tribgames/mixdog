@@ -5,10 +5,10 @@
  * their toolCallId but omit exact file lines already visible in an earlier
  * result, replacing them with references to the earlier tool call and source
  * location. Exact repeated list/glob/find results use a whole-result reference.
- * Any apply_patch/shell batch starts a fresh evidence epoch.
+ * Any file, repository, or shell mutation starts a fresh evidence epoch.
  */
 
-import { tokenizeDirectArgv } from '../tools/builtin/shell-direct-exe.mjs';
+import { gitCommandMutates } from '../tools/builtin/git-command-policy.mjs';
 
 const EXACT_RESULT_TOOLS = new Set(['find', 'find_files', 'glob', 'list']);
 
@@ -156,70 +156,9 @@ function evidenceKey(row) {
     return `${row.path}\0${row.line}\0${row.content}`;
 }
 
-const READ_ONLY_GIT_COMMANDS = new Set([
-    'blame', 'cat-file', 'check-attr', 'check-ignore', 'check-ref-format',
-    'cherry', 'count-objects', 'describe', 'diff', 'diff-files', 'diff-index',
-    'diff-tree', 'for-each-ref', 'fsck', 'grep', 'help', 'log', 'ls-files',
-    'ls-remote', 'ls-tree', 'merge-base', 'merge-tree', 'name-rev',
-    'range-diff', 'rev-list', 'rev-parse', 'shortlog', 'show', 'show-branch',
-    'show-ref', 'status', 'verify-commit', 'verify-pack', 'verify-tag',
-    'whatchanged',
-]);
-
-function parsedGitCommand(command) {
-    const tokens = tokenizeDirectArgv(command);
-    if (!tokens?.length || !/(^|[\\/])git(?:\.exe)?$/i.test(tokens[0])) return null;
-    let index = 1;
-    while (index < tokens.length) {
-        const token = tokens[index];
-        if (token === '-C' || token === '-c' || token === '--git-dir' || token === '--work-tree' || token === '--namespace') {
-            index += 2;
-            continue;
-        }
-        if (/^-C.+/.test(token) || /^--(?:git-dir|work-tree|namespace)=/.test(token)
-            || ['--no-pager', '--paginate', '--bare', '--literal-pathspecs', '--glob-pathspecs', '--noglob-pathspecs', '--icase-pathspecs'].includes(token)) {
-            index++;
-            continue;
-        }
-        break;
-    }
-    return index < tokens.length ? { command: tokens[index], args: tokens.slice(index + 1) } : null;
-}
-
-function firstGitArg(args) {
-    return args.find((value) => value !== '--' && !value.startsWith('-')) || '';
-}
-
 function gitCallMutates(call) {
     let args = call?.arguments ?? call?.function?.arguments ?? {};
-    if (typeof args === 'string') {
-        try { args = JSON.parse(args); } catch { return true; }
-    }
-    const parsed = parsedGitCommand(args?.command);
-    if (!parsed) return true;
-    const operation = parsed.command;
-    const action = firstGitArg(parsed.args);
-    if (READ_ONLY_GIT_COMMANDS.has(operation)) return false;
-    if (operation === 'reflog') return ['delete', 'expire'].includes(action);
-    if (operation === 'branch' || operation === 'tag') {
-        return parsed.args.length > 0 && !parsed.args.some((value) => ['--list', '-l', '-a', '--all', '-r', '--remotes', '--show-current'].includes(value));
-    }
-    if (operation === 'worktree') return !['', 'list'].includes(action);
-    if (operation === 'stash') return !['list', 'show'].includes(action);
-    if (operation === 'remote') return !['', 'show', 'get-url'].includes(action);
-    if (operation === 'config') {
-        return !parsed.args.some((value) => ['--list', '-l', '--get', '--get-all', '--get-regexp', '--show-origin', '--show-scope'].includes(value))
-            && parsed.args.filter((value) => !value.startsWith('-')).length > 1;
-    }
-    if (operation === 'clean') return !parsed.args.some((value) => value === '-n' || value === '--dry-run');
-    if (operation === 'bundle') return !['list-heads', 'verify'].includes(action);
-    if (operation === 'notes') return !['', 'list', 'show'].includes(action);
-    if (operation === 'replace') return parsed.args.length > 0 && !parsed.args.includes('--list');
-    if (operation === 'sparse-checkout') return action !== 'list';
-    if (operation === 'submodule') return !['', 'status', 'summary'].includes(action);
-    if (operation === 'symbolic-ref') return parsed.args.filter((value) => !value.startsWith('-')).length > 1;
-    if (operation === 'hash-object') return parsed.args.includes('-w') || parsed.args.includes('--stdin-paths');
-    return true;
+    return gitCommandMutates(args);
 }
 
 function mutationBatch(toolCalls) {
@@ -271,6 +210,181 @@ function byteLength(value) {
     return Buffer.byteLength(String(value || ''), 'utf8');
 }
 
+const PATH_ONLY_TOOLS = new Set(['find', 'find_files', 'glob']);
+
+function pathOccurrenceForLine(toolName, line) {
+    const name = normalizeToolName(toolName);
+    if (PATH_ONLY_TOOLS.has(name)) {
+        if (!line || /^(?:\.\.\.|[[(#]|Error:)/.test(line)) return null;
+        return { path: line, start: 0, end: line.length };
+    }
+    if (name === 'list') {
+        const match = /^(.*)\t(?:file|dir|symlink|other)$/.exec(line);
+        return match?.[1]
+            ? { path: match[1], start: 0, end: match[1].length }
+            : null;
+    }
+    if (name === 'read') {
+        const match = /^(.+?)(?: \[[^\]]+\])? \[(?:ok|error)\](?: .*)?$/.exec(line);
+        return match?.[1]
+            ? { path: match[1], start: 0, end: match[1].length }
+            : null;
+    }
+    if (name === 'grep') {
+        const match = /^# (.+):\d+ \[lines \d+-\d+\]$/.exec(line);
+        return match?.[1]
+            ? { path: match[1], start: 2, end: 2 + match[1].length }
+            : null;
+    }
+    if (name === 'code_graph') {
+        const match = /^(.+):\d+-\d+:\d+ \([^)]+\)$/.exec(line);
+        return match?.[1]
+            ? { path: match[1], start: 0, end: match[1].length }
+            : null;
+    }
+    return null;
+}
+
+function projectProviderPathAliases(messages, { apply = true } = {}) {
+    const callById = new Map();
+    const occurrences = [];
+    let epoch = 0;
+    for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
+        const message = messages[messageIndex];
+        if (!message || typeof message !== 'object') continue;
+        if (message.role === 'assistant' && Array.isArray(message.toolCalls)) {
+            if (mutationBatch(message.toolCalls)) epoch += 1;
+            for (const call of message.toolCalls) {
+                const id = call?.id || call?.toolCallId;
+                if (!id) continue;
+                callById.set(id, {
+                    epoch,
+                    name: call?.name || call?.function?.name,
+                });
+            }
+            continue;
+        }
+        if (message.role !== 'tool' || typeof message.content !== 'string'
+            || message.toolKind === 'error' || message.isError === true) continue;
+        const call = callById.get(message.toolCallId);
+        if (!call) continue;
+        const lines = message.content.split('\n');
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+            const occurrence = pathOccurrenceForLine(call.name, lines[lineIndex]);
+            if (!occurrence?.path) continue;
+            occurrences.push({
+                ...occurrence,
+                epoch: call.epoch,
+                messageIndex,
+                lineIndex,
+            });
+        }
+    }
+
+    const groups = new Map();
+    for (const occurrence of occurrences) {
+        const key = `${occurrence.epoch}\0${occurrence.path}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(occurrence);
+    }
+    const repeated = [...groups.values()]
+        .filter((group) => group.length > 1)
+        .sort((left, right) => (
+            left[0].messageIndex - right[0].messageIndex
+            || left[0].lineIndex - right[0].lineIndex
+            || left[0].start - right[0].start
+        ));
+    const aliasesByEpoch = new Map();
+    const dictionaries = new Map();
+    const edits = new Map();
+    let pathAliases = 0;
+    let reusedPathFacts = 0;
+    for (const group of repeated) {
+        const first = group[0];
+        const nextAlias = (aliasesByEpoch.get(first.epoch) || 0) + 1;
+        const alias = `p${nextAlias}`;
+        const dictionary = `[path-alias ${alias}=${JSON.stringify(first.path)}]`;
+        const originalBytes = group.reduce((sum, item) => sum + byteLength(item.path), 0);
+        const projectedBytes = byteLength(dictionary) + 1
+            + group.reduce((sum) => sum + byteLength(alias), 0);
+        if (projectedBytes >= originalBytes) continue;
+        aliasesByEpoch.set(first.epoch, nextAlias);
+        pathAliases += 1;
+        reusedPathFacts += group.length - 1;
+        if (!dictionaries.has(first.messageIndex)) dictionaries.set(first.messageIndex, []);
+        dictionaries.get(first.messageIndex).push(dictionary);
+        for (const occurrence of group) {
+            if (!edits.has(occurrence.messageIndex)) edits.set(occurrence.messageIndex, new Map());
+            const byLine = edits.get(occurrence.messageIndex);
+            if (!byLine.has(occurrence.lineIndex)) byLine.set(occurrence.lineIndex, []);
+            byLine.get(occurrence.lineIndex).push({
+                start: occurrence.start,
+                end: occurrence.end,
+                replacement: alias,
+            });
+        }
+    }
+    if (pathAliases === 0) {
+        return {
+            messages,
+            stats: {
+                pathFacts: occurrences.length,
+                pathAliases: 0,
+                reusedPathFacts: 0,
+                pathAliasBytesSaved: 0,
+                changedIndexes: [],
+            },
+        };
+    }
+
+    const changedIndexes = new Set([...dictionaries.keys(), ...edits.keys()]);
+    const projected = messages.slice();
+    let beforeBytes = 0;
+    let afterBytes = 0;
+    for (const messageIndex of changedIndexes) {
+        const message = messages[messageIndex];
+        beforeBytes += byteLength(message.content);
+        const lines = message.content.split('\n');
+        const byLine = edits.get(messageIndex);
+        if (byLine) {
+            for (const [lineIndex, lineEdits] of byLine) {
+                let line = lines[lineIndex];
+                for (const edit of [...lineEdits].sort((a, b) => b.start - a.start)) {
+                    line = line.slice(0, edit.start) + edit.replacement + line.slice(edit.end);
+                }
+                lines[lineIndex] = line;
+            }
+        }
+        const dictionaryLines = dictionaries.get(messageIndex) || [];
+        const content = [...dictionaryLines, ...lines].join('\n');
+        afterBytes += byteLength(content);
+        if (apply) projected[messageIndex] = { ...message, content };
+    }
+    const saved = beforeBytes - afterBytes;
+    if (saved <= 0) {
+        return {
+            messages,
+            stats: {
+                pathFacts: occurrences.length,
+                pathAliases: 0,
+                reusedPathFacts: 0,
+                pathAliasBytesSaved: 0,
+                changedIndexes: [],
+            },
+        };
+    }
+    return {
+        messages: apply ? projected : messages,
+        stats: {
+            pathFacts: occurrences.length,
+            pathAliases,
+            reusedPathFacts,
+            pathAliasBytesSaved: saved,
+            changedIndexes: [...changedIndexes],
+        },
+    };
+}
+
 export function projectProviderEvidence(messages, options = {}) {
     if (!Array.isArray(messages) || options.enabled === false) {
         return {
@@ -284,6 +398,10 @@ export function projectProviderEvidence(messages, options = {}) {
                 changedToolResults: 0,
                 exactResultRefs: 0,
                 exactResultBytesSaved: 0,
+                pathFacts: 0,
+                pathAliases: 0,
+                reusedPathFacts: 0,
+                pathAliasBytesSaved: 0,
             },
         };
     }
@@ -292,6 +410,7 @@ export function projectProviderEvidence(messages, options = {}) {
     const callById = new Map();
     const seen = new Map();
     const seenExactResults = new Map();
+    const changedToolResultIndexes = new Set();
     let projected = null;
     const stats = {
         beforeBytes: 0,
@@ -302,6 +421,10 @@ export function projectProviderEvidence(messages, options = {}) {
         changedToolResults: 0,
         exactResultRefs: 0,
         exactResultBytesSaved: 0,
+        pathFacts: 0,
+        pathAliases: 0,
+        reusedPathFacts: 0,
+        pathAliasBytesSaved: 0,
     };
 
     for (let index = 0; index < messages.length; index += 1) {
@@ -341,6 +464,7 @@ export function projectProviderEvidence(messages, options = {}) {
                     stats.exactResultRefs += 1;
                     stats.exactResultBytesSaved += originalBytes - nextBytes;
                     stats.changedToolResults += 1;
+                    changedToolResultIndexes.add(index);
                     stats.afterBytes += nextBytes;
                     if (apply) {
                         if (!projected) projected = messages.slice();
@@ -394,11 +518,24 @@ export function projectProviderEvidence(messages, options = {}) {
         stats.reusedRows += duplicates.length;
         stats.referenceGroups += references.length;
         stats.changedToolResults += 1;
+        changedToolResultIndexes.add(index);
         stats.afterBytes += nextBytes;
         if (apply) {
             if (!projected) projected = messages.slice();
             projected[index] = { ...message, content: nextContent };
         }
+    }
+
+    const pathProjection = projectProviderPathAliases(projected || messages, { apply });
+    stats.pathFacts = pathProjection.stats.pathFacts;
+    stats.pathAliases = pathProjection.stats.pathAliases;
+    stats.reusedPathFacts = pathProjection.stats.reusedPathFacts;
+    stats.pathAliasBytesSaved = pathProjection.stats.pathAliasBytesSaved;
+    stats.afterBytes -= pathProjection.stats.pathAliasBytesSaved;
+    for (const index of pathProjection.stats.changedIndexes) changedToolResultIndexes.add(index);
+    stats.changedToolResults = changedToolResultIndexes.size;
+    if (apply && pathProjection.messages !== (projected || messages)) {
+        projected = pathProjection.messages;
     }
 
     return { messages: projected || messages, stats };

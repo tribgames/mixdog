@@ -587,7 +587,7 @@ export async function processToolBatch(ctx) {
                     clearScopedToolsForSession(sessionId);
                 }
             }
-            if (_isMutationTool(call.name)) {
+            if (_isMutationTool(call.name, call.arguments)) {
                 epoch.mutation += 1;
             }
             // Bash always clears scoped cache UNCONDITIONALLY — a mutating bash

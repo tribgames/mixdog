@@ -22,7 +22,6 @@ import { isInvalidToolArgsMarker, formatInvalidToolArgsResult } from '../provide
 import {
     _stripMcpPrefix,
     _isReadTool,
-    _isMutationTool,
     _isScopedCacheableTool,
     _isShellTool,
     _intraTurnSig,
@@ -659,7 +658,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         });
         const _providerMessages = _evidenceProjection.messages;
         if (_evidenceProjection.stats.reusedRows > 0
-            || _evidenceProjection.stats.exactResultRefs > 0) {
+            || _evidenceProjection.stats.exactResultRefs > 0
+            || _evidenceProjection.stats.pathAliases > 0) {
             try {
                 const _evidencePayload = {
                     shadow: _evidenceUnionShadow,
@@ -671,6 +671,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     changed_tool_results: _evidenceProjection.stats.changedToolResults,
                     exact_result_refs: _evidenceProjection.stats.exactResultRefs,
                     exact_result_bytes_saved: _evidenceProjection.stats.exactResultBytesSaved,
+                    path_facts: _evidenceProjection.stats.pathFacts,
+                    path_aliases: _evidenceProjection.stats.pathAliases,
+                    reused_path_facts: _evidenceProjection.stats.reusedPathFacts,
+                    path_alias_bytes_saved: _evidenceProjection.stats.pathAliasBytesSaved,
                 };
                 appendAgentTrace({
                     sessionId,

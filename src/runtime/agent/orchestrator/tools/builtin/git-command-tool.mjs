@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { basename, resolve } from 'node:path';
 import { tokenizeDirectArgv } from './shell-direct-exe.mjs';
 import { withBuiltinPathLocks } from './path-locks.mjs';
@@ -6,6 +5,8 @@ import { withAdvisoryLocks } from './advisory-lock.mjs';
 import { withGitRepoReadLock, withGitRepoWriteLock } from './git-repo-rw-lock.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { drainCodeGraphCache } from '../code-graph-state.mjs';
+import { ensureNativeSpawnServer, tryNativeSpawn } from '../lib/native-spawn-client.mjs';
+import { gitActionOf as actionOf, gitPlanIsReadOnly as isReadOnly } from './git-command-policy.mjs';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_CAPTURE_BYTES = 128 * 1024 * 1024;
@@ -23,15 +24,6 @@ const SUPPORTED = new Set([
     'show-ref', 'sparse-checkout', 'stash', 'status', 'submodule', 'switch',
     'symbolic-ref', 'tag', 'update-ref', 'verify-commit', 'verify-pack',
     'verify-tag', 'whatchanged', 'worktree', 'write-tree',
-]);
-const ALWAYS_READ = new Set([
-    'blame', 'cat-file', 'check-attr', 'check-ignore', 'check-ref-format',
-    'cherry', 'count-objects', 'describe', 'diff', 'diff-files', 'diff-index',
-    'diff-tree', 'for-each-ref', 'fsck', 'grep', 'help', 'log', 'ls-files',
-    'ls-remote', 'ls-tree', 'merge-base', 'merge-tree', 'name-rev',
-    'range-diff', 'rev-list', 'rev-parse', 'shortlog', 'show', 'show-branch',
-    'show-ref', 'status', 'verify-commit', 'verify-pack', 'verify-tag',
-    'whatchanged',
 ]);
 const PUSH_NOISE = [
     'Enumerating objects:', 'Counting objects:', 'Compressing objects:',
@@ -155,11 +147,14 @@ function parseCommand(command, workDir) {
     return { command: String(command), cwd, globalArgs, operation, args: tokens.slice(index + 1) };
 }
 
-function runProcess(program, argv, { cwd, signal, maxBytes = MAX_CAPTURE_BYTES } = {}) {
-    return new Promise((done) => {
-        let child;
-        try {
-            child = spawn(program, argv, {
+async function runProcess(program, argv, { cwd, signal, maxBytes = MAX_CAPTURE_BYTES } = {}) {
+    let child;
+    try {
+        await ensureNativeSpawnServer();
+        const native = tryNativeSpawn({
+            shell: program,
+            argv,
+            spawnOptions: {
                 cwd,
                 env: {
                     ...process.env,
@@ -169,14 +164,15 @@ function runProcess(program, argv, { cwd, signal, maxBytes = MAX_CAPTURE_BYTES }
                     GIT_SEQUENCE_EDITOR: 'true',
                     LC_ALL: 'C',
                 },
-                shell: false,
-                windowsHide: true,
-                stdio: ['ignore', 'pipe', 'pipe'],
-            });
-        } catch (error) {
-            done({ exitCode: null, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error, timedOut: false, aborted: false, overflow: false });
-            return;
-        }
+                outputLimit: maxBytes,
+            },
+        });
+        if (!native?.child) throw Object.assign(new Error('verified native spawn server unavailable'), { code: 'NATIVE_SPAWN_UNAVAILABLE' });
+        child = native.child;
+    } catch (error) {
+        return { exitCode: null, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error, timedOut: false, aborted: false, overflow: false };
+    }
+    return new Promise((done) => {
         const stdout = [], stderr = [];
         let bytes = 0, timedOut = false, aborted = false, overflow = false, settled = false;
         const stop = () => { try { child.kill('SIGKILL'); } catch {} };
@@ -226,42 +222,6 @@ function commandFailure(plan, result) {
 
 function runGit(plan, argv, options = {}) {
     return runProcess('git', [...plan.globalArgs, ...argv], { cwd: plan.cwd, signal: options.signal });
-}
-
-function actionOf(operation, args) {
-    const first = args.find((value) => value && !value.startsWith('-'));
-    if (operation === 'stash') return first || 'push';
-    if (operation === 'worktree') return first || 'list';
-    if (operation === 'remote') return first || 'list';
-    if (operation === 'reflog') return first || 'show';
-    return first || 'list';
-}
-
-function isReadOnly(plan) {
-    const { operation, args } = plan;
-    if (ALWAYS_READ.has(operation)) return true;
-    if (operation === 'reflog') return !['delete', 'expire'].includes(actionOf(operation, args));
-    if (operation === 'stash') return ['list', 'show'].includes(actionOf(operation, args));
-    if (operation === 'worktree') return actionOf(operation, args) === 'list';
-    if (operation === 'remote') return args.length === 0 || args.includes('-v') || ['get-url', 'show'].includes(actionOf(operation, args));
-    if (operation === 'clean') return args.some((value) => value === '-n' || value === '--dry-run' || /^-[^-]*n/.test(value));
-    if (operation === 'bundle') return ['list-heads', 'verify'].includes(actionOf(operation, args));
-    if (operation === 'notes') return ['', 'list', 'show'].includes(actionOf(operation, args));
-    if (operation === 'replace') return args.length === 0 || args.includes('--list');
-    if (operation === 'sparse-checkout') return actionOf(operation, args) === 'list';
-    if (operation === 'submodule') return ['', 'status', 'summary'].includes(actionOf(operation, args));
-    if (operation === 'symbolic-ref') return args.filter((value) => !value.startsWith('-')).length <= 1;
-    if (operation === 'hash-object') return !args.includes('-w') && !args.includes('--stdin-paths');
-    if (operation === 'branch' || operation === 'tag') {
-        if (args.length === 0 || args.some((value) => ['--list', '-l', '-a', '--all', '-r', '--remotes'].includes(value))) return true;
-        return false;
-    }
-    if (operation === 'config') {
-        const readFlag = args.some((value) => /^--(?:get|get-all|get-regexp|get-urlmatch|list|show-origin|show-scope)$/.test(value));
-        const positional = args.filter((value) => !value.startsWith('-'));
-        return readFlag || positional.length <= 1;
-    }
-    return false;
 }
 
 function destructiveReason(plan) {
@@ -544,8 +504,50 @@ async function resolveRepo(plan, signal) {
     return succeeded(result) ? cleanText(result.stdout) : null;
 }
 
-async function executeCreation(plan, limit, signal) {
-    return withBuiltinPathLocks([plan.cwd], () => withAdvisoryLocks([plan.cwd], async () => {
+function localizeConfigPlan(plan) {
+    if (plan.operation !== 'config') return plan;
+    const external = plan.args.find((value) => ['--global', '--system', '--file', '-f'].includes(value)
+        || value.startsWith('--file=')
+        || (/^-f./.test(value) && !value.startsWith('--')));
+    if (external) throw new Error(`git config ${external} is outside the local repository scope`);
+    if (plan.args.some((value) => value === '--local' || value === '--worktree')) return plan;
+    return { ...plan, args: ['--local', ...plan.args] };
+}
+
+function optionFreePositionals(args) {
+    const takesValue = new Set([
+        '-b', '--branch', '-c', '--config', '--depth', '-j', '--jobs', '-o',
+        '--origin', '--reference', '--reference-if-able', '--separate-git-dir',
+        '--template', '-u', '--upload-pack', '--filter', '--server-option',
+        '--shallow-since', '--shallow-exclude', '--bundle-uri', '--revision',
+        '--ref-format', '--object-format', '--initial-branch',
+    ]);
+    const out = [];
+    for (let index = 0; index < args.length; index++) {
+        const value = args[index];
+        if (value === '--') {
+            out.push(...args.slice(index + 1));
+            break;
+        }
+        if (takesValue.has(value)) { index++; continue; }
+        if (value.startsWith('-')) continue;
+        out.push(value);
+    }
+    return out;
+}
+
+function creationTarget(plan) {
+    const positional = optionFreePositionals(plan.args);
+    if (plan.operation === 'init') return resolve(plan.cwd, positional.at(-1) || '.');
+    if (plan.operation !== 'clone') return plan.cwd;
+    if (positional.length >= 2) return resolve(plan.cwd, positional.at(-1));
+    const source = String(positional[0] || '').replace(/[\\/]+$/, '');
+    const leaf = basename(source.includes(':') ? source.slice(source.lastIndexOf(':') + 1) : source).replace(/\.git$/i, '') || 'repo';
+    return resolve(plan.cwd, leaf);
+}
+
+async function executeCreation(plan, target, limit, signal) {
+    return withBuiltinPathLocks([target], () => withAdvisoryLocks([target], async () => {
         const result = await runGit(plan, [plan.operation, ...plan.args], { signal });
         if (!succeeded(result)) return commandFailure(plan, result);
         invalidateBuiltinResultCache();
@@ -557,7 +559,7 @@ async function executeCreation(plan, limit, signal) {
 export async function executeGitTool(input, workDir, options = {}) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) return fail('git requires an arguments object');
     let plan;
-    try { plan = parseCommand(input.command, workDir); }
+    try { plan = localizeConfigPlan(parseCommand(input.command, workDir)); }
     catch (error) { return fail(error.message); }
     if (plan.operation === 'archive' && !plan.args.some((value) => value === '-o' || value === '--output' || value.startsWith('--output='))) {
         return fail('git archive requires -o/--output; binary stdout is not returned');
@@ -568,7 +570,8 @@ export async function executeGitTool(input, workDir, options = {}) {
     if (reason && input.confirm !== true) return fail(`${reason} requires confirm:true`);
     const signal = options?.signal || options?.abortSignal || null;
     if (plan.operation === 'init' || plan.operation === 'clone') {
-        return withGitRepoWriteLock(plan.cwd, () => executeCreation(plan, limit, signal));
+        const target = creationTarget(plan);
+        return withGitRepoWriteLock(target, () => executeCreation(plan, target, limit, signal), { signal });
     }
     const repo = await resolveRepo(plan, signal);
     if (!repo) {
@@ -581,7 +584,7 @@ export async function executeGitTool(input, workDir, options = {}) {
             const result = await runGit(plan, prepared.argv, { signal });
             if (!succeeded(result)) return commandFailure(plan, result);
             return ok(formatRead(prepared, cleanText(result.stdout), cleanText(result.stderr), limit));
-        });
+        }, { signal });
     }
     return withGitRepoWriteLock(repo, () => withBuiltinPathLocks([repo], () => withAdvisoryLocks([repo], async () => {
         const before = await statusSnapshot(repo, signal);
@@ -591,5 +594,7 @@ export async function executeGitTool(input, workDir, options = {}) {
         drainCodeGraphCache();
         if (!succeeded(result)) return `${commandFailure(plan, result)}\n${JSON.stringify({ status: statusDelta(before, after, limit) })}`;
         return ok({ ...mutationData(plan, cleanText(result.stdout), cleanText(result.stderr), limit), status: statusDelta(before, after, limit) });
-    })));
+    })), { signal });
 }
+
+export const _gitCommandInternals = { creationTarget, localizeConfigPlan, parseCommand };

@@ -62,3 +62,22 @@ test('git repo writers on different repositories run in parallel', async () => {
     hold.release();
     await Promise.all([first, second]);
 });
+
+test('a queued git repo lock aborts without running or blocking later work', async () => {
+    const repo = `repo-abort-${Date.now()}-${Math.random()}`;
+    const hold = gate();
+    const writer = withGitRepoWriteLock(repo, () => hold.promise);
+    await Promise.resolve();
+
+    const controller = new AbortController();
+    let ran = false;
+    const queued = withGitRepoReadLock(repo, async () => { ran = true; }, { signal: controller.signal });
+    controller.abort();
+    await assert.rejects(queued, /abort/i);
+    assert.equal(ran, false);
+
+    hold.release();
+    await writer;
+    await withGitRepoReadLock(repo, async () => { ran = true; });
+    assert.equal(ran, true);
+});
