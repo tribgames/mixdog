@@ -60,6 +60,32 @@ export function stripAnsi(s) {
   return _stripAnsiImpl(s);
 }
 
+const UNSAFE_TEXT_CONTROL_RE = /[\u0001-\u0006\u0008\u000B\u000C\u000E-\u001A\u001C-\u001F\u007F]/g;
+
+export function inspectShellTextChunk(value, channel = 'stdout') {
+  const text = String(value ?? '');
+  if (!text) return { text: '', binary: false, bytes: 0 };
+  const bytes = Buffer.byteLength(text, 'utf8');
+  const nulCount = (text.match(/\u0000/g) || []).length;
+  const unsafeCount = (text.match(UNSAFE_TEXT_CONTROL_RE) || []).length;
+  const replacementCount = (text.match(/\uFFFD/g) || []).length;
+  const binary = nulCount > 0
+    || unsafeCount > Math.max(8, Math.floor(text.length * 0.1))
+    || replacementCount > Math.max(4, Math.floor(text.length * 0.02));
+  if (binary) {
+    return {
+      text: `[binary output detected on ${channel}; stream stopped after ${bytes} bytes]\n`,
+      binary: true,
+      bytes,
+    };
+  }
+  return {
+    text: text.replace(UNSAFE_TEXT_CONTROL_RE, ''),
+    binary: false,
+    bytes,
+  };
+}
+
 // Delegate process-tree termination to the native manager.
 export function treeKill(child) {
   if (!child?.__nativeSpawn || typeof child.kill !== 'function') return false;
@@ -126,6 +152,7 @@ export class TaskOutput {
     this.stdoutFileSize = 0;
     this.stderrFileSize = 0;
     this.writeError = null;
+    this.binaryOutput = null;
     // Direct-capture mode hands the spill files to the child as
     // stdio fds (no JS pipes). Sizes are then tracked via stat, not writes.
     this.direct = false;
@@ -238,6 +265,12 @@ export class TaskOutput {
 
   writeStdout(s) {
     if (!s) return;
+    if (this.binaryOutput) return;
+    const inspected = inspectShellTextChunk(s, 'stdout');
+    if (inspected.binary) {
+      this.binaryOutput = { channel: 'stdout', bytes: inspected.bytes };
+    }
+    s = inspected.text;
     if (this.spilled) {
       try {
         writeSync(this.stdoutFd, s);
@@ -254,6 +287,12 @@ export class TaskOutput {
 
   writeStderr(s) {
     if (!s) return;
+    if (this.binaryOutput) return;
+    const inspected = inspectShellTextChunk(s, 'stderr');
+    if (inspected.binary) {
+      this.binaryOutput = { channel: 'stderr', bytes: inspected.bytes };
+    }
+    s = inspected.text;
     if (this.spilled) {
       try {
         writeSync(this.stderrFd, s);

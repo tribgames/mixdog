@@ -7,8 +7,10 @@ import {
     CursorOAuthProvider,
 } from '../src/runtime/agent/orchestrator/providers/cursor.mjs';
 import {
+    describeCursorOAuthCredentials,
     exchangeCursorToken,
     generateCursorOAuthParams,
+    hasCursorOAuthCredentials,
 } from '../src/runtime/agent/orchestrator/providers/cursor-auth.mjs';
 import { __cursorWireInternals } from '../src/runtime/agent/orchestrator/providers/cursor-wire.mjs';
 import { providerDisplayName } from '../src/tui/app/model-options.mjs';
@@ -44,6 +46,23 @@ test('Cursor account login wraps the browser deep-link contract', () => {
 
 test('Cursor OAuth is the user-facing provider identity', () => {
     assert.equal(providerDisplayName('cursor-oauth'), 'Cursor OAuth');
+});
+
+test('Cursor OAuth reports an expired access-only credential as requiring reauthentication', (t) => {
+    const original = process.env.CURSOR_ACCESS_TOKEN;
+    t.after(() => {
+        if (original === undefined) delete process.env.CURSOR_ACCESS_TOKEN;
+        else process.env.CURSOR_ACCESS_TOKEN = original;
+    });
+    const payload = Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) - 60 })).toString('base64url');
+    process.env.CURSOR_ACCESS_TOKEN = `header.${payload}.signature`;
+    const status = describeCursorOAuthCredentials();
+    assert.equal(status.authenticated, false);
+    assert.equal(status.usable, false);
+    assert.equal(status.refreshable, false);
+    assert.equal(status.reauthRequired, true);
+    assert.equal(status.status, 'Reauth Required');
+    assert.equal(hasCursorOAuthCredentials(), false);
 });
 
 test('Cursor token exchange refuses redirects carrying a bearer token', async () => {

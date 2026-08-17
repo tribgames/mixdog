@@ -49,7 +49,19 @@ export function agentScope(args = {}, context = {}) {
   return context || {};
 }
 
+export function callerSessionForContext(context = {}) {
+  return clean(context?.callerSessionId || context?.routingSessionId) || null;
+}
+
+// Agents are session-owned: when the caller context carries a session id, the
+// scope is that OWNER SESSION, strictly — a shard/host process can run many
+// Lead sessions on one clientHostPid, so pid matching alone leaks siblings.
+// Without a caller session id (legacy/terminal contexts), pid scoping remains.
 export function sessionMatchesContext(session, context = {}) {
+  const wantedSession = callerSessionForContext(context);
+  if (wantedSession) {
+    return clean(session?.ownerSessionId || session?.parentSessionId) === wantedSession;
+  }
   const wantedPid = terminalPidForContext(context);
   if (!wantedPid) return true;
   const sessionPid = positiveInt(session?.clientHostPid);
@@ -57,6 +69,8 @@ export function sessionMatchesContext(session, context = {}) {
 }
 
 export function rowMatchesContext(row, context = {}) {
+  const wantedSession = callerSessionForContext(context);
+  if (wantedSession) return clean(row?.ownerSessionId) === wantedSession;
   const wantedPid = terminalPidForContext(context);
   if (!wantedPid) return true;
   const rowPid = positiveInt(row?.clientHostPid);

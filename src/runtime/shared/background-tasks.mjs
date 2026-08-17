@@ -110,6 +110,12 @@ function taskMatchesScope(task, options = {}, { includeUnattributed = true } = {
   const taskClientHostPid = task.clientHostPid || task.notifyContext?.clientHostPid || null;
   // Legacy/unattributed tasks remain visible so old async jobs are still recoverable.
   if (!taskSessionId && !taskClientHostPid) return includeUnattributed;
+  // Session identity dominates: tasks are session-owned, and one host process
+  // (shard/desktop) can run many sessions on the same clientHostPid — a pid
+  // match must never leak a sibling session's task into a session-scoped view.
+  if ((scope.callerSessionId || scope.routingSessionId) && taskSessionId) {
+    return taskSessionId === scope.callerSessionId || taskSessionId === scope.routingSessionId;
+  }
   if (scope.callerSessionId && taskSessionId === scope.callerSessionId) return true;
   if (scope.routingSessionId && taskSessionId === scope.routingSessionId) return true;
   if (scope.clientHostPid && taskClientHostPid === scope.clientHostPid) return true;

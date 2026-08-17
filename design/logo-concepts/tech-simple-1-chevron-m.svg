@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background -->
+    <linearGradient id="s1-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14151b"/>
+      <stop offset="50%" stop-color="#0b0c10"/>
+      <stop offset="100%" stop-color="#040406"/>
+    </linearGradient>
+
+    <!-- Border -->
+    <linearGradient id="s1-border" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0.3"/>
+    </linearGradient>
+
+    <!-- Linear Neon Cyan -> Electric Indigo -> Magenta -->
+    <linearGradient id="s1-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe"/>
+      <stop offset="40%" stop-color="#3b82f6"/>
+      <stop offset="80%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#ec4899"/>
+    </linearGradient>
+
+    <filter id="s1-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.75"/>
+    </filter>
+  </defs>
+
+  <!-- App Tile -->
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#s1-bg)" filter="url(#s1-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#s1-border)" stroke-width="1.5"/>
+
+  <!-- Concept 1: Precision Interlocking Chevron M (The Agent Execution Mark) -->
+  <g transform="translate(0, 0)">
+    <!-- Outer Ears / M Frame (Clean 45-degree Tech Chamfers) -->
+    <path d="M 128 356
+             V 204
+             L 188 144
+             L 248 204
+             L 256 196
+             L 264 204
+             L 324 144
+             L 384 204
+             V 356"
+          fill="none"
+          stroke="url(#s1-gradient)"
+          stroke-width="36"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+
+    <!-- Inner Terminal Prompt Execution Chevron (>_ Snout Vector) -->
+    <path d="M 196 280
+             L 256 340
+             L 316 280"
+          fill="none"
+          stroke="#ffffff"
+          stroke-width="32"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+  </g>
+</svg>

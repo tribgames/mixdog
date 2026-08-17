@@ -827,7 +827,10 @@ export async function createMixdogSessionRuntime({
   bootProfile('agent:ready', { ms: (performance.now() - agentToolStartedAt).toFixed(1) });
   const agentStatusState = () => {
     try {
-      const status = agentTool.getStatus?.({ clientHostPid: rt.session?.clientHostPid || process.pid }) || {};
+      const status = agentTool.getStatus?.({
+        callerSessionId: rt.session?.id || null,
+        clientHostPid: rt.session?.clientHostPid || process.pid,
+      }) || {};
       return {
         agentWorkers: Array.isArray(status.workers) ? status.workers : [],
         agentJobs: Array.isArray(status.jobs) ? status.jobs : [],

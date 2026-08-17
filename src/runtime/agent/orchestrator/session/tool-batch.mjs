@@ -44,9 +44,9 @@ import {
 } from './loop/tool-helpers.mjs';
 import { restoreToolCallBodyForId } from './loop/stored-tool-args.mjs';
 
-function classifyToolReturn(value) {
+function classifyToolReturn(value, toolName = '') {
     const normalized = normalizeToolEnvelope(value);
-    return classifyResultKind(normalized.result, normalized.explicitSuccess);
+    return classifyResultKind(normalized.result, normalized.explicitSuccess, toolName);
 }
 
 // Tools that publish the per-call mutation UI diff side channel (see
@@ -358,7 +358,7 @@ export async function processToolBatch(ctx) {
                         _resultKind = 'skipped';
                         _executeOk = false;
                     } else {
-                        const _eagerKind = classifyToolReturn(result);
+                        const _eagerKind = classifyToolReturn(result, call.name);
                         if (_eagerKind === 'error') {
                             _resultKind = 'error';
                             _executeOk = false;
@@ -391,7 +391,7 @@ export async function processToolBatch(ctx) {
                         // Boundary: tool-return string convention → structural kind.
                         // The only prefix check in this codebase; downstream layers
                         // operate on _resultKind.
-                        if (classifyToolReturn(result) === 'error') {
+                        if (classifyToolReturn(result, call.name) === 'error') {
                             _resultKind = 'error';
                             _executeOk = false;
                         } else {
@@ -434,7 +434,7 @@ export async function processToolBatch(ctx) {
                             resultTelemetry: _resultTelemetry,
                             ...(_remaining >= 2 ? { editOccurrence: { expected: _remaining } } : {}),
                         });
-                        if (classifyToolReturn(_retry) !== 'error') {
+                        if (classifyToolReturn(_retry, call.name) !== 'error') {
                             result = _retry;
                             _resultKind = 'normal';
                             _executeOk = true;

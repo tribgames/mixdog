@@ -1,4 +1,4 @@
-import { Bot } from 'lucide-react';
+import { Bot, ChevronDown, ChevronRight } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
@@ -315,6 +315,7 @@ export function AgentActivityPane({
 }): React.ReactElement {
   const [agents, setAgents] = useState<DesktopAgentPoolRow[] | null>(null);
   const [clock, setClock] = useState(() => Date.now());
+  const [collapsedOwnerIds, setCollapsedOwnerIds] = useState<Set<string>>(() => new Set());
   const orderRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     const host = window.mixdogDesktop;
@@ -432,23 +433,36 @@ export function AgentActivityPane({
   return <div className="schedules-page agent-activity-page">
     {groups.map((group) => {
       const title = sessionSummaryTitle(group.session);
+      const expanded = !collapsedOwnerIds.has(group.ownerId);
+      const visibleAgents = expanded
+        ? group.agents
+        : group.agents.filter((agent) =>
+          String(agent.sessionId || '').trim() === group.ownerId);
       return <section key={group.ownerId} className="workflows-models"
         data-agent-owner-session-id={group.ownerId}>
         <div className="workflows-section-head">
           <button type="button" className="agent-session-heading" aria-label={title}
+            aria-expanded={expanded}
             data-lead-session-id={group.ownerId}
-            onClick={() => onOpenLeadSession?.(group.ownerId)}>
+            onClick={() => setCollapsedOwnerIds((current) => {
+              const next = new Set(current);
+              if (next.has(group.ownerId)) next.delete(group.ownerId);
+              else next.add(group.ownerId);
+              return next;
+            })}>
             <h2>{title}</h2>
+            <span className="agent-session-chevron" aria-hidden="true">
+              {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            </span>
           </button>
         </div>
         <div className="schedules-list">
-          {group.agents.map((agent, index) => <AgentPoolRow
+          {visibleAgents.map((agent, index) => <AgentPoolRow
             key={poolRowKey(agent, index)}
             agent={agent}
             clock={clock}
             ownerSessionId={group.ownerId}
-            unread={unreadSessionIds?.has(group.ownerId) === true
-              || unreadSessionIds?.has(String(agent.sessionId || '')) === true}
+            unread={unreadSessionIds?.has(String(agent.sessionId || '').trim()) === true}
             onOpenLeadSession={onOpenLeadSession}
             onOpenSession={onOpenSession} />)}
         </div>

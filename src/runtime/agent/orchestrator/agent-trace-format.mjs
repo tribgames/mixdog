@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { countJsonNextCalls } from './tools/next-call-utils.mjs';
 import { parseGrepContextHeader, splitGrepLinePrefix } from './tools/builtin/grep-formatting.mjs';
+import { isReadOnlyNavigationMiss } from './session/result-classification.mjs';
 import {
     appendAgentTrace,
     normalizeSessionId,
@@ -362,18 +363,20 @@ function classifyToolFailure(resultText, toolName) {
     // that triggered it: the operator must inspect the tree before retrying,
     // and a "denied"/"lock held" word further down must not hide that.
     if (patchSurface && PATCH_COMMITTED_WRITES_RE.test(text)) return 'patch/partial-apply';
+    if (patchSurface && /add file target already exists/.test(text)) return 'expected-preflight';
     // Write-lock contention is a resource guard, not a timeout or a patch bug.
     if (/advisory lock (?:timeout|busy)|lock held by pid|\.mixdog-lock/.test(text)) return 'resource/lock';
     if (/eacces|eperm|permission|denied|forbidden|operation not permitted/.test(text)) return 'path/permission';
     if (patchSurface) {
         const patchCategory = classifyPatchFailure(text);
         if (patchCategory) return patchCategory;
+        if (/\bstat\b.*\bfor delete\b.*\(os error 2\)/.test(text)) return 'path/enoent';
     }
     if (/requires either|invalid arguments|unknown parameter|unknown memory action/.test(text)
         || /must be|schema|required|old_string is .*>?=/.test(text)) return 'schema/args';
     if (/not in allow-list|not allowed/.test(text)) return 'permission';
     if (String(toolName || '') === 'shell' || /^\s*\[exit code:\s*\d+\]/i.test(raw)) return 'command-exit';
-    if (String(toolName || '') === 'glob' && /enoent|path does not exist|directory does not exist/.test(text)) return 'navigation/miss';
+    if (isReadOnlyNavigationMiss(toolName, raw)) return 'navigation/miss';
     if (/enoent|cannot find|not found at this path|path does not exist|no such file|file not found in graph|unreadable/.test(text)) return 'path/enoent';
     if (/timed out|timeout|interrupted|aborted/.test(text)) return 'timeout/abort';
     if (/unknown tool|tool.*not.*available|missing.*tool/.test(text)) return 'tool-surface';

@@ -22,6 +22,7 @@ import { applySessionStatePatch } from './session-state-patch.mjs';
 const RUNTIME_METHODS = new Set([
   ...SESSION_READ_ACTIONS,
   ...SESSION_CONFIGURE_ACTIONS,
+  'readModelMessages',
   'reserveSession',
   'resume',
   'submitAsync',

@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 
 import { AGENT_POOL_RECONCILE_MS, AgentActivityPane } from "./AgentActivityPane.tsx";
 import { ActiveAgentsIndicator, ActiveShellsIndicator } from "./ActiveAgentsIndicator.tsx";
+import { PaneHeaderStatus } from "./app-snapshot-views.tsx";
 import { agentActivitySessionIds } from "./desktop-types.ts";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store.ts";
 
@@ -296,6 +297,46 @@ test("two session task indicators update independently without focus routing", a
   }
 });
 
+test("new task header ignores the previous session lane cache", async () => {
+  const dom = installDom();
+  const props = {
+    hidden: false,
+    onOpen() {},
+    onRemoteChange() {},
+  };
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(PaneHeaderStatus, {
+        ...props,
+        sessionId: "session-context",
+      }));
+    });
+    await act(async () => defaultSessionLaneStore.apply({
+      sessionId: "session-context",
+      frameSource: "live",
+      snapshot: {
+        sessionId: "session-context",
+        stats: { currentContextTokens: 516_956 },
+        displayContextWindow: 1_000_000,
+      },
+    }));
+    assert.match(document.body.textContent, /51%/);
+
+    await act(async () => {
+      dom.root.render(React.createElement(PaneHeaderStatus, {
+        ...props,
+        sessionId: "",
+      }));
+    });
+    assert.match(document.body.textContent, /0%/);
+    assert.doesNotMatch(document.body.textContent, /51%/);
+  } finally {
+    await act(async () => dom.root.unmount());
+    defaultSessionLaneStore.clear();
+    dom.close();
+  }
+});
+
 test("Agents groups every active session and renders each session's live agents", async () => {
   const dom = installDom();
   const opened = [];
@@ -407,6 +448,16 @@ test("Agents groups every active session and renders each session's live agents"
     assert.ok(document.querySelector('[data-agent-session-id="child-b"]'));
     assert.equal(document.querySelector('[data-agent-session-id="maintainer-a"]'), null);
     assert.equal(document.querySelector('[data-agent-session-id="search-a"]'), null);
+    const firstHeading = document.querySelector('[data-lead-session-id="lead-a"]');
+    assert.equal(firstHeading.getAttribute("aria-expanded"), "true");
+    await act(async () => firstHeading.click());
+    assert.equal(firstHeading.getAttribute("aria-expanded"), "false");
+    assert.ok(document.querySelector('[data-agent-session-id="lead-a"]'));
+    assert.equal(document.querySelector('[data-agent-session-id="child-a"]'), null);
+    assert.ok(document.querySelector('[data-agent-session-id="child-b"]'));
+    await act(async () => firstHeading.click());
+    assert.equal(firstHeading.getAttribute("aria-expanded"), "true");
+    assert.ok(document.querySelector('[data-agent-session-id="child-a"]'));
     assert.equal(document.querySelectorAll(".workflows-agent-summary-row .projects-row-icon").length, 0);
     const runningRow = document.querySelector('[data-agent-session-id="lead-a"]').closest(".schedules-row");
     assert.equal(runningRow.querySelector(".agent-activity-status [role=status]"), null);
@@ -425,6 +476,58 @@ test("Agents groups every active session and renders each session's live agents"
       ["lead", "lead-a"],
       ["agent", "child-b", "Review dependency update · legacy-session", "lead-b"],
     ]);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test("Agents keep sibling statuses independent under one owner", async () => {
+  const dom = installDom();
+  window.mixdogDesktop = {
+    async listAgentPool() {
+      return [
+        {
+          tag: "lead:lead-a", agent: "lead", status: "idle", stage: "idle",
+          sessionId: "lead-a", ownerSessionId: "lead-a",
+        },
+        {
+          tag: "running", agent: "researcher", status: "running", stage: "running",
+          startedAt: Date.now() - 2_000, sessionId: "child-running", ownerSessionId: "lead-a",
+        },
+        {
+          tag: "completed", agent: "reviewer", status: "idle", stage: "idle",
+          sessionId: "child-completed", ownerSessionId: "lead-a",
+        },
+        {
+          tag: "resting", agent: "worker", status: "idle", stage: "idle",
+          sessionId: "child-idle", ownerSessionId: "lead-a",
+        },
+      ];
+    },
+    subscribeAgentPool() {
+      return () => {};
+    },
+  };
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(AgentActivityPane, {
+        active: true,
+        sessions: [{
+          id: "lead-a", title: "Mixed states", preview: "", updatedAt: 1,
+          messageCount: 1, cwd: "C:\\a", classification: "task", projectPath: null,
+        }],
+        unreadSessionIds: new Set(["lead-a", "child-completed"]),
+      }));
+    });
+
+    const state = (sessionId) => document
+      .querySelector(`[data-agent-session-id="${sessionId}"] .agent-activity-elapsed`)
+      ?.getAttribute("data-state");
+    assert.equal(state("lead-a"), "done");
+    assert.equal(state("child-running"), "running");
+    assert.equal(state("child-completed"), "done");
+    assert.equal(state("child-idle"), "idle");
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();

@@ -131,7 +131,7 @@ const MAX_WALK_ENTRIES = 200_000;
 // literal false aborts the whole walk.
 // `onWarn(dir, err, { root, depth })` (optional) is invoked for any readdir failure so
 // callers can surface skipped paths instead of silently dropping them.
-export async function walkDir(root, { hidden = false, maxDepth = Infinity, visit, sort, excludeDirNames, onWarn, maxEntries = MAX_WALK_ENTRIES, signal, readdirImpl = readdir } = {}) {
+export async function walkDir(root, { hidden = false, maxDepth = Infinity, visit, sort, excludeDirNames, onWarn, maxEntries = MAX_WALK_ENTRIES, signal, readdirImpl = readdir, prefetchConcurrency = 8 } = {}) {
     // Windows filesystems are case-insensitive — match exclusion names the
     // same way so e.g. Node_Modules is pruned like node_modules.
     const _exclCI = process.platform === 'win32' && excludeDirNames && excludeDirNames.size > 0
@@ -141,6 +141,31 @@ export async function walkDir(root, { hidden = false, maxDepth = Infinity, visit
     let aborted = false;
     const cap = maxEntries;
     let entriesVisited = 0;
+    // Bounded readdir PREFETCH: visiting stays strictly serial (visit order,
+    // entriesVisited accounting, isLast/tree rendering and abort semantics are
+    // unchanged) — only the readdir I/O of soon-to-be-walked subdirectories
+    // overlaps. Rejections are boxed so an abandoned prefetch (visitor abort,
+    // entry cap) can never surface as an unhandled rejection.
+    const _prefetched = new Map(); // dirPath -> Promise<{ok}|{err}>
+    let _prefetchInFlight = 0;
+    const _prefetch = (dirPath) => {
+        if (_prefetchInFlight >= prefetchConcurrency || _prefetched.has(dirPath)) return;
+        _prefetchInFlight += 1;
+        _prefetched.set(dirPath, Promise.resolve()
+            .then(() => readdirImpl(dirPath, { withFileTypes: true }))
+            .then((ok) => ({ ok }), (err) => ({ err }))
+            .finally(() => { _prefetchInFlight -= 1; }));
+    };
+    const _readdir = async (dir) => {
+        const pending = _prefetched.get(dir);
+        if (pending) {
+            _prefetched.delete(dir);
+            const settled = await pending;
+            if (settled.err) throw settled.err;
+            return settled.ok;
+        }
+        return readdirImpl(dir, { withFileTypes: true });
+    };
     const _walk = async (dir, depth) => {
         if (signal?.aborted) {
             truncated = true;
@@ -153,7 +178,7 @@ export async function walkDir(root, { hidden = false, maxDepth = Infinity, visit
         }
         if (depth > maxDepth) return true;
         let entries;
-        try { entries = await readdirImpl(dir, { withFileTypes: true }); }
+        try { entries = await _readdir(dir); }
         catch (err) {
             if (typeof onWarn === 'function') {
                 try { onWarn(dir, err, { root: depth === 1, depth }); } catch { /* warning sink must not abort */ }
@@ -167,6 +192,13 @@ export async function walkDir(root, { hidden = false, maxDepth = Infinity, visit
                 : excludeDirNames.has(e.name))));
         }
         if (sort) entries.sort(sort);
+        // Post-filter/sort: children about to be recursed into are known —
+        // overlap their readdir I/O (only when recursion will actually run).
+        if (depth + 1 <= maxDepth) {
+            for (const e of entries) {
+                if (e.isDirectory()) _prefetch(join(dir, e.name));
+            }
+        }
         const total = entries.length;
         for (let i = 0; i < total; i++) {
             if (signal?.aborted) {

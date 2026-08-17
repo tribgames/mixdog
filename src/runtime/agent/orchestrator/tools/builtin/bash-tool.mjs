@@ -30,6 +30,7 @@ import {
     hasPowerShellOnlySyntax,
     planInlineScriptHoist,
     planLongInlineScriptFileTransport,
+    planLongShellScriptFileTransport,
     preflightPowerShellHygiene,
     shellSplitSegments,
     shellSplitPipelineSegments,
@@ -437,9 +438,15 @@ export async function executeBashTool(args, workDir, options = {}) {
     // file run, so the host shell never has to carry the script through its
     // quoting layer. planInlineScriptHoist refuses every case where file
     // semantics would differ, so this is a transport change only.
+    const _analysisCommand = command;
     let _inlineHoistPath = null;
+    let _inlineHoistBackgrounded = false;
     const hoist = planInlineScriptHoist(command)
         || planLongInlineScriptFileTransport(command, {
+            platform: process.platform,
+            shellType: resolvedSpec.shellType,
+        })
+        || planLongShellScriptFileTransport(command, {
             platform: process.platform,
             shellType: resolvedSpec.shellType,
         });
@@ -449,7 +456,11 @@ export async function executeBashTool(args, workDir, options = {}) {
                 tmpdir(),
                 `mixdog-inline-${process.pid}-${Date.now().toString(36)}${hoist.extension}`,
             );
-            writeFileSync(file, hoist.body, 'utf8');
+            // Windows PowerShell 5.1 interprets UTF-8 without BOM as the
+            // active ANSI codepage. Preserve non-ASCII command text when the
+            // transport changes a long command into a .ps1 file.
+            const fileBody = hoist.extension === '.ps1' ? `\uFEFF${hoist.body}` : hoist.body;
+            writeFileSync(file, fileBody, 'utf8');
             _inlineHoistPath = file;
             command = hoist.replace(file.replace(/\\/g, '/'));
         } catch { _inlineHoistPath = null; }
@@ -462,7 +473,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     let shellEffects;
     let combinedBashAbort = null;
     try {
-        shellEffects = await analyzeShellCommandEffects(command, bashWorkDir);
+        shellEffects = await analyzeShellCommandEffects(_analysisCommand, bashWorkDir);
     } catch (err) {
         return formatShellToolFailure(normalizeErrorMessage(err instanceof Error ? err.message : String(err)));
     }
@@ -615,6 +626,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             // the MCP onProgress label stream.
             onOutputTail: typeof options?.onOutputTail === 'function' ? options.onOutputTail : null,
         });
+        _inlineHoistBackgrounded = result.backgrounded === true;
         const stdout = stripAnsi(result.stdout || '');
         const stderr = stripAnsi(result.stderr || '');
         recordShellCaptureTelemetry(options?.resultTelemetry, result, stdout, stderr);
@@ -681,6 +693,8 @@ export async function executeBashTool(args, workDir, options = {}) {
             && !signal
             && !result.timedOut
             && Number.isInteger(exitCode);
+        const benignExit = completedExit
+            && _isBenignSearchExitOne(_analysisCommand, exitCode, signal, result.stderr);
         const shellRunFailed = !shellToolFailed
             && (!!signal || result.timedOut || !Number.isInteger(exitCode));
         const isReallyErrored = shellToolFailed || shellRunFailed;
@@ -715,6 +729,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         const completionNote = completedExit && exitCode !== 0
             ? '\n[completed: shell executed the command; its non-zero exit code and output are command results, not a tool failure]'
             : '';
+        const outcomeNote = benignExit ? '\n[outcome: no-match]' : '';
         let spillBlock = '';
         if (result.stdoutPath) {
             const sizeKb = Math.round((result.stdoutFileSize || 0) / 1024);
@@ -750,7 +765,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         if (mergeStderr) {
             const merged = visibleStdout + visibleStderr;
             const compactBlock = compactHint ? `\n\n${compactHint}` : '';
-            if (statusMarker) return _finalizeShellResult(completedExit, _placeDestructiveWarningsAfterStatus(command, errorPrefix + `${statusMarker}${completionNote}\n\n${merged || '(no output)'}` + compactBlock + _rescueNote + _driftNote));
+            if (statusMarker) return _finalizeShellResult(completedExit, _placeDestructiveWarningsAfterStatus(command, errorPrefix + `${statusMarker}${outcomeNote}${completionNote}\n\n${merged || '(no output)'}` + compactBlock + _rescueNote + _driftNote));
             return _prependDestructiveWarning(command, (merged || '(no output)') + compactBlock + _driftNote);
         }
         const compactedStdout = visibleStdout;
@@ -759,13 +774,16 @@ export async function executeBashTool(args, workDir, options = {}) {
         const compactedStderrBlock = compactedStderr ? `\n\n[stderr]\n${compactedStderr}` : '';
         const compactBlock = compactHint ? `\n\n${compactHint}` : '';
         const payload = `${compactedBody}${compactedStderrBlock}${spillBlock}${compactBlock}${_rescueNote}${_driftNote}`;
-        if (statusMarker) return _finalizeShellResult(completedExit, _placeDestructiveWarningsAfterStatus(command, _composeShellFailure(`${statusMarker}${completionNote}`, errorPrefix, warningBlock, payload)));
+        if (statusMarker) return _finalizeShellResult(completedExit, _placeDestructiveWarningsAfterStatus(command, _composeShellFailure(`${statusMarker}${outcomeNote}${completionNote}`, errorPrefix, warningBlock, payload)));
         return _prependDestructiveWarning(command, warningBlock ? `${warningBlock}\n${payload}` : payload);
     }
     finally {
         combinedBashAbort?.cleanup?.();
         if (_inlineHoistPath) {
-            scheduleInlineHoistCleanup(_inlineHoistPath);
+            if (_inlineHoistBackgrounded) scheduleInlineHoistCleanup(_inlineHoistPath);
+            else {
+                try { unlinkSync(_inlineHoistPath); } catch {}
+            }
         }
         if (shellEffects.mutationMode === 'paths') {
             invalidateBuiltinResultCache(shellEffects.paths);

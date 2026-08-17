@@ -5,6 +5,17 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Provider and tool integrations now include OAuth lifecycle and token recovery
+  across Anthropic, Cursor, Grok, and OpenAI, Grok-specific tool schema
+  normalization, and decomposed search and grep path/pattern fan-out.
+- Session orchestration and TUI workflows now enforce owner-session scoping,
+  preserve completed handoff and background completion cards across restores,
+  retain externalized queued prompts, and classify outcomes across command
+  failures, tool errors, and benign misses.
+- Desktop workspace navigation now preserves pane session titles during drag
+  interactions, adds cold-start workspace restoration retries that prevent
+  dropped tabs, and updates onboarding and capability configuration panels.
+
 ## v0.9.133 - 2026-08-16
 
 - Provider-only evidence projection now aliases repeated typed file paths

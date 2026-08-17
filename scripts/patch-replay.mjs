@@ -8,7 +8,8 @@
 //   node scripts/patch-replay.mjs --replay-all [--json]
 import { existsSync, readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 
 function argValue(name, fallback = null) {
@@ -37,12 +38,53 @@ function loadRecords() {
 
 function isErr(text) { return /^Error[\s:[]/.test(String(text || '').trimStart()); }
 
-async function replayOne(rec) {
+function resolveReplaySnapshotPath(root, rel) {
+  const text = String(rel || '');
+  const portableAbsolute = /^[A-Za-z]:[\\/]/.test(text) || /^[/\\]{2}/.test(text);
+  if (!text || text.includes('\0') || isAbsolute(text) || portableAbsolute
+    || text.split(/[\\/]+/).includes('..')) {
+    throw new Error(`unsafe snapshot path: ${text || '(empty)'}`);
+  }
+  const abs = resolve(root, text);
+  const fromRoot = relative(root, abs);
+  if (!fromRoot || fromRoot === '..' || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
+    throw new Error(`unsafe snapshot path: ${text}`);
+  }
+  return abs;
+}
+
+export function legacyPartialReplayReason(rec) {
+  const partial = rec?.outcome?.kind === 'partial'
+    || /apply_patch file-level partial/i.test(String(rec?.error_first_line || ''));
+  if (partial && rec?.snapshot_phase !== 'pre') {
+    return 'legacy partial capture has post-mutation snapshots; replay would not reproduce the original pre-state';
+  }
+  return null;
+}
+
+export async function replayOne(rec) {
+  const skipReason = legacyPartialReplayReason(rec);
+  if (skipReason) {
+    return { id: rec.id, ok: false, skipped: true, skipReason, before: rec.error_first_line, after: null };
+  }
   const tmp = mkdtempSync(join(tmpdir(), 'mixdog-patch-replay-'));
+  const previousCapture = process.env.MIXDOG_PATCH_REPLAY_CAPTURE;
+  process.env.MIXDOG_PATCH_REPLAY_CAPTURE = '0';
   try {
     for (const [rel, content] of Object.entries(rec.file_snapshots || {})) {
       if (content == null) continue;
-      const abs = join(tmp, rel);
+      let abs;
+      try {
+        abs = resolveReplaySnapshotPath(tmp, rel);
+      } catch (error) {
+        return {
+          id: rec.id,
+          ok: false,
+          skipped: false,
+          before: rec.error_first_line,
+          after: `Error: ${error?.message || String(error)}`,
+        };
+      }
       mkdirSync(dirname(abs), { recursive: true });
       writeFileSync(abs, content);
     }
@@ -50,41 +92,57 @@ async function replayOne(rec) {
     let result;
     try { result = await executePatchTool('apply_patch', args, tmp, {}); }
     catch (e) { result = `Error: ${e?.message || String(e)}`; }
-    return { id: rec.id, ok: !isErr(result), before: rec.error_first_line, after: String(result).split('\n')[0].slice(0, 200) };
+    return { id: rec.id, ok: !isErr(result), skipped: false, before: rec.error_first_line, after: String(result).split('\n')[0].slice(0, 200) };
   } finally {
+    if (previousCapture === undefined) delete process.env.MIXDOG_PATCH_REPLAY_CAPTURE;
+    else process.env.MIXDOG_PATCH_REPLAY_CAPTURE = previousCapture;
     try { rmSync(tmp, { recursive: true, force: true }); } catch {}
   }
 }
 
-const jsonMode = hasFlag('--json');
-const records = loadRecords();
+async function main() {
+  const jsonMode = hasFlag('--json');
+  const records = loadRecords();
 
-if (hasFlag('--list') || (!hasFlag('--replay-all') && !argValue('--replay'))) {
-  if (jsonMode) { console.log(JSON.stringify(records.map(({ file_snapshots, args, ...m }) => m), null, 2)); process.exit(0); }
-  console.log(`captured apply_patch failures: ${records.length}  (dir: ${replayDir()})`);
-  for (const r of records.slice(0, 50)) {
-    console.log(`- ${r.id}  targets=${(r.targets || []).length}  ${new Date(r.ts).toISOString()}`);
-    console.log(`    ${String(r.error_first_line || '').slice(0, 140)}`);
+  if (hasFlag('--list') || (!hasFlag('--replay-all') && !argValue('--replay'))) {
+    if (jsonMode) { console.log(JSON.stringify(records.map(({ file_snapshots, args, ...m }) => m), null, 2)); return; }
+    console.log(`captured apply_patch failures: ${records.length}  (dir: ${replayDir()})`);
+    for (const r of records.slice(0, 50)) {
+      const phase = r.snapshot_phase || 'legacy';
+      console.log(`- ${r.id}  targets=${(r.targets || []).length}  phase=${phase}  ${new Date(r.ts).toISOString()}`);
+      console.log(`    ${String(r.error_first_line || '').slice(0, 140)}`);
+    }
+    if (!records.length) console.log('(none - set MIXDOG_PATCH_REPLAY_CAPTURE=1 to capture)');
+    return;
   }
-  if (!records.length) console.log('(none - set MIXDOG_PATCH_REPLAY_CAPTURE=1 to capture)');
-  process.exit(0);
+
+  const one = argValue('--replay', null);
+  const targets = one ? records.filter((r) => r.id === one || r.id.startsWith(one)) : records;
+  if (!targets.length) {
+    console.error(one ? `no replay matched: ${one}` : 'no captured failures');
+    process.exitCode = 1;
+    return;
+  }
+
+  const results = [];
+  for (const rec of targets) results.push(await replayOne(rec));
+  const passed = results.filter((r) => r.ok).length;
+  const skipped = results.filter((r) => r.skipped).length;
+  const failed = results.length - passed - skipped;
+
+  if (jsonMode) {
+    console.log(JSON.stringify({ total: results.length, passed, failed, skipped, results }, null, 2));
+  } else {
+    console.log(`patch-replay: ${passed} passed · ${failed} still fail · ${skipped} legacy-skipped`);
+    for (const r of results) {
+      console.log(`- ${r.id}: ${r.skipped ? 'legacy-skip' : r.ok ? 'PASS' : 'still fails'}`);
+      if (r.skipped) console.log(`    skip: ${r.skipReason}`);
+      else if (!r.ok) console.log(`    after: ${r.after}`);
+    }
+  }
+  process.exitCode = failed > 0 ? 1 : 0;
 }
 
-const one = argValue('--replay', null);
-const targets = one ? records.filter((r) => r.id === one || r.id.startsWith(one)) : records;
-if (!targets.length) { console.error(one ? `no replay matched: ${one}` : 'no captured failures'); process.exit(1); }
-
-const results = [];
-for (const rec of targets) results.push(await replayOne(rec));
-const passed = results.filter((r) => r.ok).length;
-
-if (jsonMode) {
-  console.log(JSON.stringify({ total: results.length, passed, failed: results.length - passed, results }, null, 2));
-} else {
-  console.log(`patch-replay: ${passed}/${results.length} now succeed`);
-  for (const r of results) {
-    console.log(`- ${r.id}: ${r.ok ? 'PASS' : 'still fails'}`);
-    if (!r.ok) console.log(`    after: ${r.after}`);
-  }
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
 }
-process.exitCode = passed === results.length ? 0 : 1;

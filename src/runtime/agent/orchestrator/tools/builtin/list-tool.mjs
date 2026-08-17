@@ -38,7 +38,7 @@ import {
 } from './tool-output-limit.mjs';
 import { runRg, runRgWindowedLines } from './native-search-runner.mjs';
 import { tryServeFuzzySearch } from './native-search-client.mjs';
-import { fuzzyRank, prepareFuzzyItems } from './fuzzy-match.mjs';
+import { fuzzyRankMulti, prepareFuzzyItems, splitFuzzyQueryTokens } from './fuzzy-match.mjs';
 import {
     recordLocalSearchBackend,
     recordLocalSearchCacheHit,
@@ -557,7 +557,7 @@ function ensureFindEnumerationWatcher(root) {
         });
         record.watcher.unref?.();
         FIND_ENUM_WATCHERS.set(root, record);
-        if (FIND_ENUM_WATCHERS.size > 8) {
+        if (FIND_ENUM_WATCHERS.size > 16) {
             const oldest = [...FIND_ENUM_WATCHERS.entries()]
                 .filter(([candidate]) => candidate !== root)
                 .sort((a, b) => a[1].touchedAt - b[1].touchedAt)[0];
@@ -940,8 +940,15 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     const nativeFuzzyImpl = typeof options?.__tryServeFuzzySearch === 'function'
         ? options.__tryServeFuzzySearch
         : tryServeFuzzySearch;
+    // Space-separated fragments AND-match one path. The native fuzzy matcher
+    // scores the query as ONE string (paths contain no spaces, so it would
+    // always miss); multi-fragment queries go straight to the broad
+    // enumeration + fuzzyRankMulti path below.
+    const queryTokens = splitFuzzyQueryTokens(query);
+    const multiToken = queryTokens.length > 1;
     if (
         headLimit > 0
+        && !multiToken
         && (
             typeof options?.__runRg !== 'function'
             || typeof options?.__tryServeFuzzySearch === 'function'
@@ -1056,9 +1063,9 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     let rgTruncated = broadEnum.truncated;
     let rgPartial = broadEnum.partial;
     const passOneItems = broadEnum.items || prepareFuzzyItems(broadEnum.files);
-    const queryLower = query.toLowerCase();
+    const queryTokensLower = queryTokens.map((t) => t.toLowerCase());
     const rankLimit = headLimit > 0 ? headLimit + 1 : headLimit;
-    const passOneRanked = fuzzyRank(query, passOneItems, rankLimit);
+    const passOneRanked = fuzzyRankMulti(query, passOneItems, rankLimit);
     const passOneHasCandidate = passOneRanked.length > 0;
     let targetedProbeRan = false;
     let targetedPaths = [];
@@ -1068,7 +1075,7 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     if (rgTruncated || rgPartial || !passOneHasCandidate) {
         try {
             const targeted = await getTargetedFindEnumeration({
-                queries: [query],
+                queries: queryTokens.length > 0 ? queryTokens : [query],
                 root: fullPath,
                 hidden,
                 depth,
@@ -1078,7 +1085,12 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
             });
             rgTruncated ||= targeted.truncated;
             rgPartial ||= targeted.partial;
-            targetedPaths = targeted.files.filter((path) => path.toLowerCase().includes(queryLower));
+            // Every fragment must appear in the path (AND) — a single-fragment
+            // query keeps the prior substring behavior.
+            targetedPaths = targeted.files.filter((path) => {
+                const lower = path.toLowerCase();
+                return queryTokensLower.every((t) => lower.includes(t));
+            });
             targetedProbeRan = true;
         } catch {
             if (options.signal?.aborted) throw findEnumerationAbortError(options.signal);
@@ -1101,7 +1113,7 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
         items.push(item);
     }
     const rankedRaw = targetedPaths.length > 0
-        ? fuzzyRank(query, items, rankLimit)
+        ? fuzzyRankMulti(query, items, rankLimit)
         : passOneRanked;
     const hasMore = headLimit > 0 && rankedRaw.length > headLimit;
     const ranked = hasMore ? rankedRaw.slice(0, headLimit) : rankedRaw;

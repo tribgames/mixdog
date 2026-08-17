@@ -43,12 +43,12 @@ export function createToolCardResults({
   // A finalized/failed non-aggregate card must never carry an empty body:
   // an empty-body error card is classified fully-failed-with-no-body upstream
   // (transcript-tool-failures) and null-renders (card disappears). Stamp a
-  // minimal non-empty fallback, preferring meaningful text, then Exit N, then
+  // minimal non-empty fallback, preferring meaningful text, then exit status,
   // a bare Failed status.
   function finalizedErrorFallbackBody(body, text, exitCode) {
     if (String(body || '').trim()) return body;
     if (String(text || '').trim()) return text;
-    if (exitCode != null) return `Exit ${exitCode}`;
+    if (exitCode != null) return `Command failed (exit ${exitCode})`;
     return 'Failed';
   }
   function patchToolItem(id, patch) {
@@ -80,7 +80,10 @@ export function createToolCardResults({
     // Only a provider-marked invocation failure contributes to failure count,
     // red state, or Failed aggregate copy. Tool-reported HTTP/domain/status
     // outcomes remain successful calls with their raw/semantic result detail.
-    const { exitCode, isExitError, isCallError } = toolCallOutcome(message, rawText);
+    const { exitCode, isExitError, isCallError } = toolCallOutcome(
+      { ...message, toolName: card?.name },
+      rawText,
+    );
     const isError = isCallError;
     const text = isError
       ? toolErrorDisplay(rawText, card?.name || 'tool')
@@ -257,7 +260,7 @@ export function createToolCardResults({
         const succeeded = Math.max(0, completed - errors - exitErrors);
         const rawResult = aggregateRawResult(allCalls);
         // Collapsed detail carries the merged per-call count summary; real
-        // failures keep 'N Failed', shell command-exits show 'Exit N'/'Y Exit'.
+        // failures keep 'N Failed'; completed command failures stay warnings.
         // Raw is kept for ctrl+o.
         let displayDetail = errors > 0 || exitErrors > 0
           ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })

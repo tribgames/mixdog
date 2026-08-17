@@ -9,7 +9,7 @@ import { flushTuiSteeringPersist } from './tui-steering-persist.mjs';
 import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
 import { createSessionOAuthFlowRegistry } from './oauth-flows.mjs';
 import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, summarizeToolResult, toolLoadingTargets } from '../../runtime/shared/tool-surface.mjs';
-import { aggregateBucketForCategory, aggregateRawResult, failureDetailText, shellCommandExitCode } from './tool-result-status.mjs';
+import { aggregateBucketForCategory, aggregateRawResult, failureDetailText, toolCallOutcome } from './tool-result-status.mjs';
 import { isInternalTranscriptDisplayText } from '../../runtime/shared/tool-execution-contract.mjs';
 import { toolResultTerminalStatus } from '../../runtime/shared/tool-status.mjs';
 
@@ -104,11 +104,15 @@ function attachRestoredToolResult(message, pendingByCallId) {
   // Cancel/crash control bodies are not red failures — show Cancelled tone.
   if (toolResultTerminalStatus(text) === 'cancelled') {
     target.isError = false;
-  } else if (
-    message?.toolKind === 'error'
-    || /^\s*(?:error|\[error|failed\b)/i.test(text)
-  ) {
-    target.isError = true;
+    target.errorCount = 0;
+    target.callErrorCount = 0;
+    target.exitErrorCount = 0;
+  } else {
+    const { isCallError, isExitError } = toolCallOutcome({ ...message, toolName: target.name }, text);
+    target.isError = isCallError;
+    target.errorCount = isCallError ? 1 : 0;
+    target.callErrorCount = isCallError ? 1 : 0;
+    target.exitErrorCount = isExitError ? 1 : 0;
   }
 }
 
@@ -116,7 +120,7 @@ function attachRestoredToolResult(message, pendingByCallId) {
 // done aggregate item shaped exactly like the live turn's '__aggregate__'
 // card (turn.mjs completeAggregateVisual): merged category header counts,
 // per-call result summaries as the collapsed detail, raw bodies preserved
-// for expansion, failures/exits surfaced as 'N Ok · N Failed'/'Exit N'.
+// for expansion, tool failures and command failures surfaced separately.
 function buildRestoredAggregateItem(members) {
   const categories = new Map();
   const categoryOrder = [];
@@ -128,12 +132,12 @@ function buildRestoredAggregateItem(members) {
       categories.set(entry.key, { ...entry, count: Number(prev?.count || 0) + Number(entry.count || 1) });
     }
     const resultText = String(item.result ?? '');
-    // Mirror live outcome semantics: a plain non-zero shell exit is the
-    // neutral 'Exit N' state, not a red failure; only real call errors count.
-    const exitCode = shellCommandExitCode(resultText);
-    // Exit 0 is a completed success, never the neutral "Exit" bucket.
-    const isExitError = exitCode != null && exitCode !== 0;
-    const isCallError = !isExitError && item.isError === true;
+    // Mirror live outcome semantics, including explicit no-match/no-change
+    // markers and offloaded shell previews.
+    const { exitCode, isExitError, isCallError } = toolCallOutcome({
+      isError: item.isError === true,
+      toolName: item.name,
+    }, resultText);
     calls.push({
       name: item.name,
       args: item.args,

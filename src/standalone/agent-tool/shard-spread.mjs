@@ -85,9 +85,16 @@ export function remoteTurnHandoffReady({
   elapsedMs = 0,
   content = '',
 } = {}) {
-  const completionSignal = turnEnded || grew || elapsedMs > REMOTE_TURN_SETTLE_MS;
-  return completionSignal
-    && (Boolean(String(content || '').trim()) || elapsedMs > REMOTE_TURN_SETTLE_MS);
+  const hasContent = Boolean(String(content || '').trim());
+  // Content handoff: any completion signal closes the turn.
+  if (hasContent) return turnEnded || grew || elapsedMs > REMOTE_TURN_SETTLE_MS;
+  // Empty handoff: ONLY the runtime's own turndone marker (past the
+  // commit/save settle gap) may close a turn empty. Growth or elapsed time is
+  // never evidence — the submitted user prompt itself grows the transcript,
+  // and a queued/prepping turn can sit idle past any fixed window (observed:
+  // live workers cut at ~15s with 0 iterations). A genuinely stalled worker
+  // is the progress watchdog's job.
+  return turnEnded && elapsedMs > REMOTE_TURN_SETTLE_MS;
 }
 
 class RemoteWorkerHandle {
@@ -343,6 +350,7 @@ class RemoteWorkerHandle {
       acceptedMs = Date.now() - askStartedAt;
       this.facade.status = 'running';
       const submitAt = Date.now();
+      let lastStallResyncAt = 0;
       for (;;) {
         if (this.abortError) {
           try { await this.fetchMessages(); } catch { /* partial handoff best-effort */ }
@@ -380,6 +388,15 @@ class RemoteWorkerHandle {
           if (turnEnded || grew) {
             await this.waitChange(100);
             continue;
+          }
+          // Past the settle window without a turndone marker: the local
+          // projection may have missed frames (busy flip, turndone item).
+          // Refresh it (throttled) and keep waiting — a genuinely stalled
+          // worker is the progress watchdog's job, never an empty handoff.
+          if (!turnEnded && elapsedMs > REMOTE_TURN_SETTLE_MS
+            && Date.now() - lastStallResyncAt > 5_000) {
+            lastStallResyncAt = Date.now();
+            this.resync();
           }
         }
         await this.waitChange(REMOTE_WAIT_SLICE_MS);

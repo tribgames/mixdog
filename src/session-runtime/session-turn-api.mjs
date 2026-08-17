@@ -529,6 +529,16 @@ export function createSessionTurnApi(deps) {
     agentStatus() {
       return agentStatusState();
     },
+    // Raw model-message read for LIVE transcript consumers (remote agent
+    // handoff, daemon session.read). Answers from the in-memory session so a
+    // just-committed final turn is readable immediately — the debounced disk
+    // save can lag a finished turn past any remote waiter's window.
+    readModelMessages(messageStart = 0) {
+      const messages = getSession()?.messages;
+      const list = Array.isArray(messages) ? messages : [];
+      const start = Math.max(0, Number(messageStart) || 0);
+      return { messageCount: list.length, messages: list.slice(start) };
+    },
     onAgentStatusChange(listener) {
       return agentTool.onStatusChange?.(listener) || (() => {});
     },

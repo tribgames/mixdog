@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="c2-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#141419"/>
+      <stop offset="50%" stop-color="#0a0a0d"/>
+      <stop offset="100%" stop-color="#030305"/>
+    </linearGradient>
+
+    <!-- Border -->
+    <linearGradient id="c2-border" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.3"/>
+    </linearGradient>
+
+    <!-- Isometric Facet Gradients (Precision Light & Shadow) -->
+    <!-- Left Top Ear Facet -->
+    <linearGradient id="c2-left-ear-top" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+
+    <!-- Left Outer Stem -->
+    <linearGradient id="c2-left-stem" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+
+    <!-- Left Inner Slope (Light reflection) -->
+    <linearGradient id="c2-left-slope" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+
+    <!-- Right Top Ear Facet -->
+    <linearGradient id="c2-right-ear-top" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c084fc"/>
+      <stop offset="100%" stop-color="#9333ea"/>
+    </linearGradient>
+
+    <!-- Right Outer Stem -->
+    <linearGradient id="c2-right-stem" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2e1065"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+
+    <!-- Right Inner Slope -->
+    <linearGradient id="c2-right-slope" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+
+    <!-- Center Apex Plunge / Code Arrow Snout -->
+    <linearGradient id="c2-center-apex" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="50%" stop-color="#e2e8f0"/>
+      <stop offset="100%" stop-color="#94a3b8"/>
+    </linearGradient>
+
+    <!-- Nose / Core Amber Light -->
+    <linearGradient id="c2-nose" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#f97316"/>
+    </linearGradient>
+
+    <!-- Drop Shadow -->
+    <filter id="c2-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.75"/>
+    </filter>
+
+    <filter id="c2-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- App Tile Squircle -->
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#c2-bg)" filter="url(#c2-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#c2-border)" stroke-width="1.5"/>
+
+  <!-- Backlight Glow behind 3D Mesh -->
+  <circle cx="256" cy="256" r="140" fill="#6366f1" opacity="0.12" filter="url(#c2-glow)"/>
+
+  <!-- Isometric Faceted M-Hound Prism -->
+  <g id="faceted-hound" transform="translate(0, 0)">
+    <!-- 1. Left Outer Vertical Stem -->
+    <polygon points="120,210 170,140 170,320 120,360" fill="url(#c2-left-stem)"/>
+
+    <!-- 2. Left Dog Ear (Top Triangular Facet) -->
+    <polygon points="170,140 220,195 170,225" fill="url(#c2-left-ear-top)"/>
+
+    <!-- 3. Left Inner Diagonal Plunge -->
+    <polygon points="170,225 220,195 256,275 220,310" fill="url(#c2-left-slope)"/>
+
+    <!-- 4. Right Outer Vertical Stem -->
+    <polygon points="392,210 342,140 342,320 392,360" fill="url(#c2-right-stem)"/>
+
+    <!-- 5. Right Dog Ear (Top Triangular Facet) -->
+    <polygon points="342,140 292,195 342,225" fill="url(#c2-right-ear-top)"/>
+
+    <!-- 6. Right Inner Diagonal Plunge -->
+    <polygon points="342,225 292,195 256,275 292,310" fill="url(#c2-right-slope)"/>
+
+    <!-- 7. Center Arrow / Code Prompt Snout (Terminal Chevron Plunge) -->
+    <polygon points="220,310 256,275 292,310 256,360" fill="url(#c2-center-apex)"/>
+
+    <!-- 8. Precision Specular Highlights (Chamfer Lines) -->
+    <!-- Center Crease -->
+    <line x1="256" y1="275" x2="256" y2="360" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" opacity="0.8"/>
+    <!-- Left Ear Ridge -->
+    <line x1="170" y1="140" x2="220" y2="195" stroke="#bae6fd" stroke-width="2" opacity="0.9"/>
+    <!-- Right Ear Ridge -->
+    <line x1="342" y1="140" x2="292" y2="195" stroke="#f5d0fe" stroke-width="2" opacity="0.9"/>
+    <!-- Outer Left Edge -->
+    <line x1="120" y1="210" x2="170" y2="140" stroke="#7dd3fc" stroke-width="2" opacity="0.8"/>
+    <!-- Outer Right Edge -->
+    <line x1="392" y1="210" x2="342" y2="140" stroke="#e9d5ff" stroke-width="2" opacity="0.8"/>
+
+    <!-- 9. AI Amber Core / Nose Point -->
+    <polygon points="250,332 262,332 256,342" fill="url(#c2-nose)"/>
+    <circle cx="256" cy="335" r="2" fill="#ffffff"/>
+  </g>
+</svg>

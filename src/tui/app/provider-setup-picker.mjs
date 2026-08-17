@@ -89,10 +89,18 @@ export function createProviderSetupPicker({
         _type: 'continue',
       });
     }
+    const providerIsActive = (provider) => provider?.reauthRequired !== true && (
+      provider?.usable === true
+      || (provider?.usable == null && (
+        provider?.enabled
+        || provider?.authenticated
+        || provider?.detected
+      ))
+    );
     const providerFooter = (item) => {
       const provider = item?._provider;
       if (!provider) return '';
-      const active = provider.enabled || provider.authenticated || provider.detected;
+      const active = providerIsActive(provider);
       return [{
         glyph: active ? '●' : '○',
         color: active ? theme.success : theme.inactive,
@@ -165,8 +173,8 @@ export function createProviderSetupPicker({
       void openProviderSetupPicker(options);
     };
     const providerActionFooter = (provider) => provider ? [{
-      glyph: provider.enabled || provider.authenticated || provider.detected ? '●' : '○',
-      color: provider.enabled || provider.authenticated || provider.detected ? theme.success : theme.inactive,
+      glyph: providerIsActive(provider) ? '●' : '○',
+      color: providerIsActive(provider) ? theme.success : theme.inactive,
       text: [providerKindLabel(provider), providerStatusLabel(provider), providerDetailText(provider)].filter(Boolean).join(' · '),
     }] : '';
     const setApiKeyPrompt = (providerItem) => {
@@ -439,7 +447,7 @@ export function createProviderSetupPicker({
     const openOAuthProviderActions = (providerItem) => {
       rememberProviderSelection(providerItem);
       const provider = providerItem._provider || {};
-      const hasAuth = providerItem._authenticated || provider.authenticated;
+      const hasAuth = providerItem._authenticated || provider.authenticated || provider.reauthRequired === true;
       const oauthActions = [];
       oauthActions.push({
         value: 'login-oauth',

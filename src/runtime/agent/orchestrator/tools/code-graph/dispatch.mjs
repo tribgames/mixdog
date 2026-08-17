@@ -245,6 +245,28 @@ function _resolveAggregateFileProjectRoot(args, baseCwd) {
   return _outermostContainingRoot([...roots]);
 }
 
+export function _resolveBoundedSentinelFreeAggregateRootForTest(args, baseCwd) {
+  if (!_hasAggregateFileArgs(args)) return null;
+  const base = pathResolve(baseCwd);
+  if (_isFilesystemRootPath(base) || base === pathResolve(osHomedir())) return null;
+  try {
+    if (!statSync(base).isDirectory()) return null;
+  } catch {
+    return null;
+  }
+  if (_childProjectRoots(base, { cap: 2 }).length > 0) return null;
+  const files = _collectGraphFileList(args);
+  if (files.length === 0) return null;
+  for (const file of files) {
+    if (_AGGREGATE_FILE_WILDCARD_RE.test(file)) return null;
+    const abs = isAbsolute(file) ? pathResolve(file) : pathResolve(base, file);
+    if (!existsSync(abs)) return null;
+    const rel = pathRelative(base, abs);
+    if (rel.startsWith('..') || isAbsolute(rel)) return null;
+  }
+  return base;
+}
+
 // The candidate that contains (or equals) every other candidate, else null.
 // Only an EXISTING candidate can win: a bare common ancestor that has no
 // sentinel of its own is never adopted as a project root.
@@ -858,7 +880,8 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
     }
   }
   if (hasAggregateFileArgs && !baseProjectRoot) {
-    const aggregateRoot = _resolveAggregateFileProjectRoot(args, baseCwd);
+    const aggregateRoot = _resolveAggregateFileProjectRoot(args, baseCwd)
+      || (explicitCwdArg ? _resolveBoundedSentinelFreeAggregateRootForTest(args, baseCwd) : null);
     if (!aggregateRoot) {
       throw new Error(
         `${name}: cwd '${baseCwd}' is not inside a project and aggregate file anchors do not all `

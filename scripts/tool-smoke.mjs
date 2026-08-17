@@ -38,6 +38,7 @@ import {
 } from '../src/runtime/agent/orchestrator/agent-runtime/cache-strategy.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
 import { executeFuzzyFindTool } from '../src/runtime/agent/orchestrator/tools/builtin/list-tool.mjs';
+import { _resetNativeSearchClientForTest } from '../src/runtime/agent/orchestrator/tools/builtin/native-search-client.mjs';
 import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX, validateBuiltinArgs } from '../src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs';
 import { normaliseReadLineWindowArgs } from '../src/runtime/agent/orchestrator/tools/builtin/read-args.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
@@ -1532,12 +1533,20 @@ const legacyEscapedAlternationOut = await executeBuiltinTool('grep', {
   head_limit: 10,
 }, root);
 assertOk('grep legacy \\| alternation', legacyEscapedAlternationOut, /smoke\.mjs/);
+// pattern string[] is the supported independent fan-out shape (schema anyOf);
+// entries must still each be strings.
 const literalBackslashPipeArray = validateBuiltinArgs('grep', {
   pattern: ['contains \\\\|', 'conflicting window args'],
   path: root,
 });
-if (!/must be string/.test(String(literalBackslashPipeArray))) {
-  throw new Error(`grep pattern array must be rejected: ${literalBackslashPipeArray}`);
+if (literalBackslashPipeArray) {
+  throw new Error(`grep pattern string[] (fan-out) must be accepted: ${literalBackslashPipeArray}`);
+}
+// Scalar-coercible entries (numbers/booleans) are absorbed by design;
+// object entries have no string form and must still be rejected.
+const nonStringPatternEntry = validateBuiltinArgs('grep', { pattern: [{}], path: root });
+if (!/must be string/.test(String(nonStringPatternEntry))) {
+  throw new Error(`grep pattern array with object entry must be rejected: ${nonStringPatternEntry}`);
 }
 for (const [key, value] of [['path', [root]], ['glob', ['*.mjs']]]) {
   const args = { pattern: 'smoke', [key]: value };
@@ -1822,6 +1831,7 @@ const agentBadType = await agentSmoke.execute({ type: 'definitely_bad_type' }, {
 if (!/^Error[\s:[]/.test(String(agentBadType)) || !/unknown type/i.test(String(agentBadType))) {
   throw new Error(`agent unknown type must return Error result:\n${agentBadType}`);
 }
+agentSmoke.closeAll('tool-smoke-agent-errors-complete');
 
 async function waitForSmoke(predicate, label, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
@@ -1894,10 +1904,11 @@ try {
 }
 
 const agentNotifyTmp = mkdtempSync(join(tmpdir(), 'mixdog-agent-notify-'));
+let agentNotifySmoke = null;
 try {
   const ownerNotifications = [];
   const workerQueued = [];
-  const agentNotifySmoke = createStandaloneAgent({
+  agentNotifySmoke = createStandaloneAgent({
     cfgMod: {
       loadConfig: () => ({
         default: 'sonnet-high',
@@ -1934,16 +1945,16 @@ try {
     dataDir: agentNotifyTmp,
     cwd: root,
     defaultMode: 'async',
+    notifySessionCompletion: (sessionId, text, meta) => {
+      ownerNotifications.push({ sessionId, text, meta });
+      return true;
+    },
   });
   const notifyContext = {
     invocationSource: 'model-tool',
     callerCwd: root,
     callerSessionId: 'sess_owner_notify_smoke',
     clientHostPid: 424242,
-    notifyFn: (text, meta) => {
-      ownerNotifications.push({ text, meta });
-      return true;
-    },
   };
   const notifyStart = await agentNotifySmoke.execute({ type: 'spawn', agent: 'worker', tag: 'notify-smoke', prompt: 'notify smoke' }, notifyContext);
   if (!/agent task:/i.test(String(notifyStart)) || !/status: running/i.test(String(notifyStart))) {
@@ -1964,6 +1975,7 @@ try {
   }
   await agentNotifySmoke.execute({ type: 'cleanup', force: true }, notifyContext);
 } finally {
+  try { agentNotifySmoke?.closeAll('tool-smoke-agent-notify-complete'); } catch {}
   rmSync(agentNotifyTmp, { recursive: true, force: true });
 }
 {
@@ -3003,8 +3015,13 @@ const grepGlobDescription = grepTool?.inputSchema?.properties?.glob?.description
 const grepModeDescription = grepTool?.inputSchema?.properties?.mode?.description || '';
 const grepLimitDescription = grepTool?.inputSchema?.properties?.limit?.description || '';
 const grepContextDescription = grepTool?.inputSchema?.properties?.context?.description || '';
-if (grepTool?.inputSchema?.properties?.pattern?.type !== 'string'
-    || grepTool?.inputSchema?.properties?.pattern?.anyOf
+const grepPatternShapes = grepTool?.inputSchema?.properties?.pattern?.anyOf;
+const grepStringPatternShape = grepPatternShapes?.find((shape) => shape?.type === 'string');
+const grepArrayPatternShape = grepPatternShapes?.find((shape) => shape?.type === 'array');
+if (!grepStringPatternShape
+    || grepArrayPatternShape?.items?.type !== 'string'
+    || grepArrayPatternShape?.minItems !== 1
+    || grepTool?.inputSchema?.properties?.pattern?.type
     || grepTool?.inputSchema?.properties?.path?.type !== 'string'
     || grepTool?.inputSchema?.properties?.path?.anyOf
     || grepTool?.inputSchema?.properties?.glob?.type !== 'string'
@@ -3013,8 +3030,8 @@ if (grepTool?.inputSchema?.properties?.pattern?.type !== 'string'
     || grepTool?.inputSchema?.properties?.offset?.type !== 'integer'
     || grepTool?.inputSchema?.properties?.context?.type !== 'integer'
     || !/literal text or regex/i.test(grepPatternDescription)
-    || !/plain file or directory scope/i.test(grepPathDescription)) {
-  throw new Error('grep schema must expose scalar pattern/path/glob guidance');
+    || !/plain (?:existing )?file or directory scope/i.test(grepPathDescription)) {
+  throw new Error('grep schema must expose pattern fan-out and scalar path/glob guidance');
 }
 if (!/\bSearch file contents for literal or regex matches\b/i.test(grepTool?.description || '')
     || !/read only omitted lines/i.test(grepTool?.description || '')) {
@@ -3052,7 +3069,7 @@ for (const [label, schema] of [
 ]) {
   if (schema?.type !== 'integer') throw new Error(`${label} must expose integer schema: ${JSON.stringify(schema)}`);
 }
-if (!/wildcard-matching paths under a known base/i.test(globTool?.description || '')
+if (!/wildcard-matching (?:file )?paths under a known base/i.test(globTool?.description || '')
     || !/when those paths are needed/i.test(globTool?.description || '')
     || !/Omit path for the current Project/i.test(globTool?.description || '')
     || !/base location is unknown, use find first/i.test(globTool?.description || '')
@@ -3138,4 +3155,11 @@ if (longToolSearchText.length > 220 || /\n/.test(longToolSearchText)) {
   }
 }
 
-process.stdout.write(`tool smoke passed surface_chars=${surfaceSize}\n`);
+_resetNativeSearchClientForTest();
+await new Promise((resolveOutput, rejectOutput) => {
+  process.stdout.write(`tool smoke passed surface_chars=${surfaceSize}\n`, (error) => {
+    if (error) rejectOutput(error);
+    else resolveOutput();
+  });
+});
+process.exit(0);

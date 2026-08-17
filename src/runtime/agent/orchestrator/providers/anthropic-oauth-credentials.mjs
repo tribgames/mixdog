@@ -10,7 +10,7 @@ import { readFileSync, existsSync, statSync } from 'fs';
 import { join, resolve } from 'path';
 import { createServer } from 'http';
 import { randomBytes, createHash } from 'crypto';
-import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
+import { updateJsonAtomicSync, writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
@@ -131,6 +131,10 @@ export function _saveCredentialsFile(path, raw) {
     writeJsonAtomicSync(path, raw, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
 }
 
+function _updateCredentialsFile(path, mutator) {
+    return updateJsonAtomicSync(path, mutator, { fsyncDir: true, mode: 0o600, secret: true });
+}
+
 // Cheap stat-only probe so ensureAuth can detect Mixdog-updated credentials
 // without paying a full JSON read every call.
 export function _credentialsMaxMtime() {
@@ -159,14 +163,17 @@ export function loadCredentials() {
 export function hasAnthropicOAuthCredentials() {
     const creds = loadCredentials();
     if (!creds?.accessToken) return false;
-    return Array.isArray(creds.scopes) && creds.scopes.includes('user:inference');
+    const hasInferenceScope = Array.isArray(creds.scopes) && creds.scopes.includes('user:inference');
+    if (!hasInferenceScope) return false;
+    const expiresAt = Number(creds.expiresAt) || 0;
+    return expiresAt === 0 || expiresAt > Date.now() || Boolean(creds.refreshToken);
 }
 
 export function describeAnthropicOAuthCredentials() {
     try {
         const creds = loadCredentials();
         if (!creds?.accessToken) {
-            return { authenticated: false, status: 'Not Set', detail: 'Mixdog OAuth credentials' };
+            return { authenticated: false, usable: false, refreshable: false, reauthRequired: false, status: 'Not Set', detail: 'Mixdog OAuth credentials' };
         }
         const hasInferenceScope = Array.isArray(creds.scopes) && creds.scopes.includes('user:inference');
         const hasRefresh = Boolean(creds.refreshToken);
@@ -175,21 +182,24 @@ export function describeAnthropicOAuthCredentials() {
         const expired = expiresAt > 0 && expiresAt <= Date.now();
         const detail = creds.path || DEFAULT_CREDENTIALS_PATH;
         if (!hasInferenceScope) {
-            return { authenticated: false, status: 'Missing Scope', detail, expiresAt };
+            return { authenticated: false, usable: false, refreshable: false, reauthRequired: true, status: 'Missing Scope', detail, expiresAt };
         }
         if (!hasRefresh) {
             return {
                 authenticated: expiresAt === 0 || !expired,
+                usable: expiresAt === 0 || !expired,
+                refreshable: false,
+                reauthRequired: expired,
                 status: expired ? 'Reauth Required' : 'Access Only',
                 detail: `${detail}; no refresh token`,
                 expiresAt,
             };
         }
-        if (expired) return { authenticated: true, status: 'Refresh Required', detail, expiresAt };
-        if (expiring) return { authenticated: true, status: 'Refresh Soon', detail, expiresAt };
-        return { authenticated: true, status: 'Valid', detail, expiresAt };
+        if (expired) return { authenticated: true, usable: false, refreshable: true, reauthRequired: false, status: 'Refresh Required', detail, expiresAt };
+        if (expiring) return { authenticated: true, usable: true, refreshable: true, reauthRequired: false, status: 'Refresh Soon', detail, expiresAt };
+        return { authenticated: true, usable: true, refreshable: true, reauthRequired: false, status: 'Valid', detail, expiresAt };
     } catch (err) {
-        return { authenticated: false, status: 'Error', detail: String(err?.message || err).slice(0, 200) };
+        return { authenticated: false, usable: false, refreshable: false, reauthRequired: false, status: 'Error', detail: String(err?.message || err).slice(0, 200) };
     }
 }
 
@@ -198,12 +208,15 @@ export function forgetAnthropicOAuthCredentials() {
     for (const path of credentialCandidates()) {
         if (!existsSync(path)) continue;
         try {
-            const raw = JSON.parse(readFileSync(path, 'utf-8'));
-            if (raw?.claudeAiOauth) {
-                delete raw.claudeAiOauth;
-                _saveCredentialsFile(path, raw);
-                removed = true;
-            }
+            let deleted = false;
+            _updateCredentialsFile(path, (raw) => {
+                if (!raw?.claudeAiOauth) return undefined;
+                const next = { ...raw };
+                delete next.claudeAiOauth;
+                deleted = true;
+                return next;
+            });
+            removed = removed || deleted;
         } catch (err) {
             throw new Error(`Anthropic OAuth reset failed for ${path}: ${err?.message || err}`);
         }
@@ -323,15 +336,16 @@ async function _refreshOAuthCredentialsUnlocked(creds) {
         // invalid_grant.
         if (creds.path && existsSync(creds.path)) {
             try {
-                const raw = JSON.parse(readFileSync(creds.path, 'utf-8'));
-                raw.claudeAiOauth = {
-                    ...(raw.claudeAiOauth || {}),
-                    accessToken: refreshed.accessToken,
-                    refreshToken: refreshed.refreshToken,
-                    expiresAt: refreshed.expiresAt,
-                    scopes: refreshed.scopes,
-                };
-                _saveCredentialsFile(creds.path, raw);
+                _updateCredentialsFile(creds.path, (raw) => ({
+                    ...(raw && typeof raw === 'object' ? raw : {}),
+                    claudeAiOauth: {
+                        ...(raw?.claudeAiOauth || {}),
+                        accessToken: refreshed.accessToken,
+                        refreshToken: refreshed.refreshToken,
+                        expiresAt: refreshed.expiresAt,
+                        scopes: refreshed.scopes,
+                    },
+                }));
             } catch (err) {
                 process.stderr.write(`[anthropic-oauth] credential save failed: ${_scrubTokens(err?.message || String(err)).slice(0, 200)}\n`);
                 throw new Error(`[oauth] credentials save failed: ${err?.message ?? String(err)}`);
@@ -553,20 +567,21 @@ async function exchangeAuthorizationCode({ pkce, code, state, redirectUri }) {
         || (typeof json?.expires_in === 'number' ? Date.now() + json.expires_in * 1000 : 0);
     const scopes = _oauthParseScopeField(json?.scope);
     const credPath = _oauthCredentialsWritePath();
-    let raw = {};
-    if (existsSync(credPath)) {
-        raw = JSON.parse(readFileSync(credPath, 'utf-8'));
-    }
-    const existingOauth = raw.claudeAiOauth || {};
-    raw.claudeAiOauth = {
-        ...existingOauth,
-        accessToken,
-        refreshToken,
-        expiresAt,
-        scopes,
-        subscriptionType: existingOauth.subscriptionType ?? null,
-    };
-    _saveCredentialsFile(credPath, raw);
+    const raw = _updateCredentialsFile(credPath, (current) => {
+        const base = current && typeof current === 'object' ? current : {};
+        const existingOauth = base.claudeAiOauth || {};
+        return {
+            ...base,
+            claudeAiOauth: {
+                ...existingOauth,
+                accessToken,
+                refreshToken,
+                expiresAt,
+                scopes,
+                subscriptionType: existingOauth.subscriptionType ?? null,
+            },
+        };
+    });
     return {
         path: credPath,
         accessToken,

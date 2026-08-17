@@ -108,7 +108,7 @@ export function deriveToolOutcomeTone({
 export function displayTerminalStatus(value) {
   // 'exit' is a shell-only pseudo-status (command RAN but exited non-zero); it
   // is intentionally NOT a normalized terminal status so it never colors red.
-  if (String(value || '').trim().toLowerCase() === 'exit') return 'Exit';
+  if (String(value || '').trim().toLowerCase() === 'exit') return 'Command failed';
   const status = normalizeTerminalStatus(value);
   if (status === 'running') return 'Running';
   if (status === 'completed') return 'Finished';
@@ -176,9 +176,9 @@ export function shellDisplayStatus({ pending = false, failedCount = 0, exitFaile
   if (pending || /^(running|pending|queued)$/.test(status)) return 'running';
   if (/^cancel/.test(status)) return 'cancelled';
   if (/^(failed|error|killed|timeout)$/.test(status)) return 'failed';
-  // A command that RAN but exited non-zero is a command-exit, not a real
-  // failure: render the neutral "Exit" state unless there is ALSO a real
-  // tool-call/result failure in the group.
+  // A command that RAN but exited non-zero is a command failure, not a failed
+  // tool invocation: render the warning state unless a real tool failure also
+  // exists in the group.
   const realFailed = Math.max(0, Number(failedCount) - Number(exitFailedCount));
   if (realFailed > 0) return 'failed';
   if (Number(exitFailedCount) > 0) return 'exit';

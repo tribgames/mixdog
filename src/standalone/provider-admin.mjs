@@ -141,6 +141,9 @@ export async function providerSetup(config = {}, options = {}) {
       status: auth.status || (authenticated ? 'Set' : 'Not Set'),
       detail: auth.detail || p.desc,
       expiresAt: auth.expiresAt || null,
+      usable: auth.usable === true || (auth.usable == null && authenticated),
+      refreshable: auth.refreshable === true,
+      reauthRequired: auth.reauthRequired === true,
     };
   });
 
@@ -204,6 +207,9 @@ export function providerStatus(config = {}) {
       status: auth.status || (authenticated ? 'Set' : 'Not Set'),
       detail: auth.detail || p.desc,
       expiresAt: auth.expiresAt || null,
+      usable: auth.usable === true || (auth.usable == null && authenticated),
+      refreshable: auth.refreshable === true,
+      reauthRequired: auth.reauthRequired === true,
     });
   }
   for (const p of LOCAL_PROVIDERS) {

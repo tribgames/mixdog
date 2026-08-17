@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
-import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { openInBrowser } from '../../../shared/open-url.mjs';
 
@@ -67,19 +67,37 @@ function saveCredentials(tokens) {
 }
 
 export function hasCursorOAuthCredentials() {
-    return Boolean(loadStoredCredentials()?.access_token);
+    const tokens = loadStoredCredentials();
+    if (!tokens?.access_token) return false;
+    const expiresAt = Number(tokens.expires_at) || 0;
+    return expiresAt === 0 || expiresAt > Date.now() || Boolean(tokens.refresh_token);
 }
 
 export function describeCursorOAuthCredentials() {
     const tokens = loadStoredCredentials();
     if (!tokens?.access_token) {
-        return { authenticated: false, status: 'Not Set', detail: 'Mixdog token store or CURSOR_ACCESS_TOKEN' };
+        return {
+            authenticated: false,
+            usable: false,
+            refreshable: false,
+            reauthRequired: false,
+            status: 'Not Set',
+            detail: 'Mixdog token store or CURSOR_ACCESS_TOKEN',
+        };
     }
+    const expiresAt = Number(tokens.expires_at) || 0;
+    const expired = expiresAt > 0 && expiresAt <= Date.now();
+    const expiring = expiresAt > 0 && expiresAt <= Date.now() + REFRESH_SKEW_MS;
+    const refreshable = Boolean(tokens.refresh_token);
+    const reauthRequired = expired && !refreshable;
     return {
-        authenticated: true,
-        status: tokens.expires_at && tokens.expires_at <= Date.now() ? 'Expired' : 'Set',
+        authenticated: !reauthRequired,
+        usable: !expired,
+        refreshable,
+        reauthRequired,
+        status: reauthRequired ? 'Reauth Required' : expired ? 'Refresh Required' : expiring ? 'Refresh Soon' : refreshable ? 'Valid' : 'Access Only',
         detail: tokens.source || 'Cursor OAuth',
-        expiresAt: tokens.expires_at || null,
+        expiresAt: expiresAt || null,
     };
 }
 
@@ -197,14 +215,32 @@ export async function resolveCursorOAuthAccessToken({ forceRefresh = false, fetc
     if (!forceRefresh && !expiring) return tokens.access_token;
     if (!tokens.refresh_token) {
         if (!tokens.expires_at || tokens.expires_at > Date.now()) return tokens.access_token;
-        throw new Error('Cursor access token expired and has no refresh token');
+        throw new Error('Cursor access token expired and has no refresh token. Open /providers in Mixdog to sign in again.');
     }
     if (!refreshInFlight) {
-        refreshInFlight = exchangeCursorToken(tokens.refresh_token, { fetchFn, signal })
-            .then((next) => {
+        const startingTokens = tokens;
+        const refreshPath = credentialsPath();
+        refreshInFlight = withFileLock(`${refreshPath}.refresh.lock`, async () => {
+            const latest = loadStoredCredentials() || startingTokens;
+            const validAfter = Date.now() + (forceRefresh ? 0 : REFRESH_SKEW_MS);
+            const generationChanged = latest.access_token !== startingTokens.access_token
+                || latest.refresh_token !== startingTokens.refresh_token;
+            if (generationChanged && (!latest.expires_at || latest.expires_at > validAfter)) {
+                return latest;
+            }
+            if (!latest.refresh_token) {
+                throw new Error('Cursor OAuth refresh token is unavailable. Open /providers in Mixdog to sign in again.');
+            }
+            const next = await exchangeCursorToken(latest.refresh_token, { fetchFn, signal });
+            if (!process.env.CURSOR_ACCESS_TOKEN) {
                 saveCredentials(next);
-                return next;
-            })
+            }
+            return next;
+        }, {
+            timeoutMs: 120_000,
+            staleMs: 120_000,
+            secret: true,
+        })
             .finally(() => { refreshInFlight = null; });
     }
     tokens = await refreshInFlight;

@@ -125,7 +125,7 @@ export const BUILTIN_TOOLS = [
                 },
                 path: {
                     type: 'string',
-                    description: 'One plain file or directory scope.',
+                    description: 'One plain existing file or directory scope; if unsure, omit to search the project root.',
                 },
                 glob: {
                     type: 'string',
@@ -144,7 +144,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Glob',
         annotations: { title: 'Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Read-only; safe to batch in parallel. Return wildcard-matching paths under a known base directory when those paths are needed. Omit path for the current Project; if the base location is unknown, use find first. Newest first by default. Replaces find -name.',
+        description: 'Read-only; safe to batch in parallel. Return wildcard-matching file paths under a known base directory when those paths are needed. Directories never match; enumerate them with list. Omit path for the current Project; if the base location is unknown, use find first. Newest first by default. Replaces find -name.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -174,7 +174,7 @@ export const BUILTIN_TOOLS = [
             properties: {
                 query: {
                     type: 'string',
-                    description: 'Filename or directory path fragments matched against path strings.',
+                    description: 'Filename/path fragment; space-separated fragments AND-match within one path.',
                 },
                 path: { type: 'string', description: 'Base path.' },
                 limit: { type: 'integer', minimum: 0, description: 'Max paths; default 25; 0 unlimited.' },

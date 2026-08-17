@@ -137,7 +137,13 @@ export function mergePromptContents(entries) {
     parts.push({ type: 'text', text: '\n' });
   }
   while (parts.length && parts[parts.length - 1]?.type === 'text' && parts[parts.length - 1]?.text === '\n') parts.pop();
-  return parts.length === 1 && parts[0]?.type === 'text' ? parts[0].text : parts;
+  // Collapse to a plain string only for an INLINE text part. An externalized
+  // text part (attachmentRef, no .text — prompts over the 800B reference
+  // threshold) must stay a parts array; collapsing it returned `undefined`
+  // and the turn ran with an invisible prompt (silent empty worker turns).
+  return parts.length === 1 && parts[0]?.type === 'text' && typeof parts[0].text === 'string'
+    ? parts[0].text
+    : parts;
 }
 
 export function mergePastedImages(entries) {

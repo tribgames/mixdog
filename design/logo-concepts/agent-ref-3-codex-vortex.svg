@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background -->
+    <linearGradient id="codex-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#151821"/>
+      <stop offset="50%" stop-color="#0a0c10"/>
+      <stop offset="100%" stop-color="#020304"/>
+    </linearGradient>
+
+    <linearGradient id="codex-border" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.35"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.3"/>
+    </linearGradient>
+
+    <!-- Codex Emerald & Electric Mint Gradients -->
+    <linearGradient id="codex-blade-1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+
+    <linearGradient id="codex-blade-2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+
+    <linearGradient id="codex-core" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#a7f3d0"/>
+    </linearGradient>
+
+    <filter id="codex-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.8"/>
+    </filter>
+  </defs>
+
+  <!-- App Tile -->
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#codex-bg)" filter="url(#codex-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#codex-border)" stroke-width="1.5"/>
+
+  <!-- Codex Radial Symmetrical Topology forming M & Canine Ears -->
+  <g id="codex-vortex-mark" transform="translate(0, 0)">
+    <!-- Outer Ears (Angular Chamfer Wings) -->
+    <!-- Left Ear Petal -->
+    <path d="M 140 344 L 140 216 L 204 152 L 256 204 L 204 256 L 180 256 L 180 344 Z" fill="url(#codex-blade-2)"/>
+    
+    <!-- Right Ear Petal -->
+    <path d="M 372 344 L 372 216 L 308 152 L 256 204 L 308 256 L 332 256 L 332 344 Z" fill="url(#codex-blade-1)"/>
+
+    <!-- Center Intersecting Code Blades (Negative Interlock forming M) -->
+    <polygon points="204,256 256,204 308,256 256,308" fill="#1e293b"/>
+
+    <!-- Terminal Execution Chevron Snout -->
+    <path d="M 196 280 L 256 340 L 316 280"
+          fill="none"
+          stroke="url(#codex-core)"
+          stroke-width="26"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+
+    <!-- Codex Central Neural Core Dot -->
+    <circle cx="256" cy="256" r="8" fill="#10b981"/>
+    <circle cx="256" cy="256" r="3" fill="#ffffff"/>
+  </g>
+</svg>

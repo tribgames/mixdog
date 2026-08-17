@@ -58,6 +58,8 @@ export function shellJobPublicTaskResult(detail) {
         stderr_bytes: (typeof detail.stderrBytes === 'number') ? detail.stderrBytes : null,
         stdout_preview: detail.stdoutPreview || null,
         stderr_preview: detail.stderrPreview || null,
+        stdout_path: detail.stdoutPath || null,
+        stderr_path: detail.stderrPath || null,
         summary: detail.summary || null,
         summary_source: detail.summarySource || null,
         waited_ms: (typeof detail.waitedMs === 'number') ? detail.waitedMs : null,

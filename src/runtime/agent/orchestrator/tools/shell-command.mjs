@@ -413,10 +413,12 @@ export function execShellCommand({
 
     const _stdoutData = (chunk) => {
       taskOutput.writeStdout(chunk);
+      if (taskOutput.binaryOutput && !settled && !autoBackgrounded) _treeKillForceSettle('binary-output');
       if (taskOutput.writeError && !settled && !autoBackgrounded) _treeKillForceSettle('output-capture-error');
     };
     const _stderrData = (chunk) => {
       taskOutput.writeStderr(chunk);
+      if (taskOutput.binaryOutput && !settled && !autoBackgrounded) _treeKillForceSettle('binary-output');
       if (taskOutput.writeError && !settled && !autoBackgrounded) _treeKillForceSettle('output-capture-error');
     };
     if (child.stdout) {

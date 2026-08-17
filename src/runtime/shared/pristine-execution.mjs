@@ -247,7 +247,7 @@ export function createPristineExecutionBoundary({
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   let cleaned = false;
   let restoreAuthBindings = () => {};
-  const cleanup = ({ preserveRoot = false } = {}) => {
+  const cleanup = ({ preserveRoot = false, tolerateRootRemovalFailure = false } = {}) => {
     if (cleaned) return;
     cleaned = true;
     for (const [name, value] of originalEnv) {
@@ -255,7 +255,17 @@ export function createPristineExecutionBoundary({
       else env[name] = value;
     }
     restoreAuthBindings();
-    if (!preserveRoot) rmSync(rootDir, { recursive: true, force: true });
+    // Windows releases file handles (pg.log, sockets) a beat after the owning
+    // process exits; rmSync retries absorb that EBUSY/EPERM window.
+    if (!preserveRoot) {
+      try {
+        rmSync(rootDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      } catch (error) {
+        if (tolerateRootRemovalFailure) return { rootRemovalError: error };
+        throw error;
+      }
+    }
+    return null;
   };
 
   try {

@@ -57,3 +57,37 @@ test('non-wrapper internal rows stay suppressed on restore', () => {
   const items = Array.isArray(restored) ? restored : restored.items;
   assert.equal(items.filter((it) => it?.kind === 'user').length, 0);
 });
+
+test('restored shell results preserve command-failure and no-match taxonomy', () => {
+  const offload = `[tool output offloaded: shell → C:/safe/result.txt (60 KB, 900 lines, sha256 ${'a'.repeat(64)})]`;
+  const messages = [
+    {
+      role: 'assistant',
+      toolCalls: [{ id: 'call_fail', name: 'shell', arguments: { command: 'npm test' } }],
+    },
+    {
+      role: 'tool',
+      toolCallId: 'call_fail',
+      toolKind: 'error',
+      content: `${offload}\n\n[exit code: 2]\nfailed tests`,
+    },
+    {
+      role: 'assistant',
+      content: '다음 조회',
+      toolCalls: [{ id: 'call_probe', name: 'shell', arguments: { command: 'rg missing .' } }],
+    },
+    {
+      role: 'tool',
+      toolCallId: 'call_probe',
+      toolKind: 'error',
+      content: '[exit code: 1]\n[outcome: no-match]\n\n(no output)',
+    },
+  ];
+  const items = restoreTranscriptItems(messages, { sessionId: 'sess_shell_restore' });
+  const failed = items.find((item) => item?.args?.command === 'npm test');
+  const probe = items.find((item) => item?.args?.command === 'rg missing .');
+  assert.equal(failed?.isError, false);
+  assert.equal(failed?.exitErrorCount, 1);
+  assert.equal(probe?.isError, false);
+  assert.equal(probe?.exitErrorCount, 0);
+});

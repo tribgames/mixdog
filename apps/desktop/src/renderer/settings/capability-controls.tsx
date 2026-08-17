@@ -339,7 +339,7 @@ export function settingsStatus(value: string): { label: string; tone: SettingsSt
   const text = value.replace(/[_-]+/g, ' ').trim();
   const label = text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : 'Unknown';
   const normalized = label.toLowerCase();
-  if (/(failed|error|invalid|missing|rejected)/.test(normalized)) return { label, tone: 'danger' };
+  if (/(failed|error|invalid|missing|rejected|expired|reauth required)/.test(normalized)) return { label, tone: 'danger' };
   if (/(pending|installing|checking|starting|connecting|updating|running update)/.test(normalized)) {
     return { label, tone: 'warning' };
   }

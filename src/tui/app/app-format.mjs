@@ -181,12 +181,15 @@ export function providerSetupHasUsableProvider(setup = {}) {
     ...(Array.isArray(setup.oauth) ? setup.oauth : []),
     ...(Array.isArray(setup.local) ? setup.local : []),
   ];
-  return rows.some((row) => (
-    row?.authenticated === true
-    || row?.enabled === true
-    || row?.stored === true
-    || row?.env === true
-    || row?.detected === true
+  return rows.some((row) => row?.reauthRequired !== true && (
+    row?.usable === true
+    || (row?.usable == null && (
+      row?.authenticated === true
+      || row?.enabled === true
+      || row?.stored === true
+      || row?.env === true
+      || row?.detected === true
+    ))
   ));
 }
 
