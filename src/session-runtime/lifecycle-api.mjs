@@ -17,7 +17,7 @@ import {
 } from '../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs';
 import { SessionClosedError } from '../runtime/agent/orchestrator/session/manager/session-errors.mjs';
 
-export function resolveResumeCwd(session, currentCwd) {
+function resolveResumeCwd(session, currentCwd) {
   const desktop = session?.desktopSession;
   if (desktop?.classification === 'project') {
     return clean(desktop.projectPath) || session?.cwd || currentCwd;
@@ -52,8 +52,8 @@ export function createLifecycleApi(deps) {
     invalidateContextStatusCache, invalidatePreSessionToolSurface,
     applyResolvedCwd, resolveRoute, applyDeferredToolSurface, getStandaloneTools,
     beginRoutePreparation, clearRoutePreparation,
-    pushTranscriptRebind,
-    notificationListeners, remoteStateListeners, desktopSession,
+    pushTranscriptRebind, scheduleRemoteIntentRestore,
+    notificationListeners, clearRuntimeNotifications, remoteStateListeners,
     disposeSessionTitles, abortActiveTurns, getReservedSessionId,
   } = deps;
   const closeSurfaceSession = (session, reason, options) => {
@@ -309,7 +309,8 @@ export function createLifecycleApi(deps) {
         setSession(null);
       }
       invalidateContextStatusCache();
-      notificationListeners?.clear?.();
+      if (typeof clearRuntimeNotifications === 'function') clearRuntimeNotifications();
+      else notificationListeners?.clear?.();
       remoteStateListeners?.clear?.();
       const shellJobsStop = teardownReapsWork && globalThis.__mixdogShellJobsRuntimeLoaded === true
         ? import('../runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs')
@@ -481,30 +482,6 @@ export function createLifecycleApi(deps) {
     prefetchSession(id) {
       return mgr.prefetchSession?.(id, toolSpecForMode(getMode())) === true;
     },
-    // Read-only session peek (desktop split panes treat every visible pane as
-    // foreground): the parsed session object without resuming, attaching, or
-    // touching ownership/liveness. The current session returns live memory.
-    peekSession(id) {
-      const sessionId = clean(id);
-      if (!sessionId || !/^[A-Za-z0-9_-]+$/.test(sessionId)) return null;
-      const current = getSession();
-      if (current?.id === sessionId) return current;
-      // Visible desktop panes reconcile dead-owner checkpoints during their
-      // startup peek instead of waiting for a later click/resume. Older test
-      // or embedded managers retain the plain read-only fallback.
-      const session = typeof mgr.recoverSessionAfterProcessRestart === 'function'
-        ? mgr.recoverSessionAfterProcessRestart(sessionId)
-        : mgr.loadSession?.(sessionId);
-      // `closed` means the previous live owner released this durable session;
-      // it is still a valid historical transcript. Desktop pane peeks are
-      // ownership-neutral, so they may inspect it without resuming. Crash
-      // checkpoint reconciliation is the sole durable mutation here.
-      if (!session) return null;
-      return mgr.prepareSessionProjection?.(
-        session,
-        toolSpecForMode(getMode()),
-      ) || session;
-    },
     async resume(id) {
       clearRoutePreparation?.();
       const prev = getSession();
@@ -512,11 +489,8 @@ export function createLifecycleApi(deps) {
       const previousMessages = prev?.messages || null;
       const previousLive = prev?.liveTurnMessages || null;
       // A context switch can deliberately clear the desktop marker for legacy
-      // sessions. Fall back to the creation-time value only for callers that
-      // do not supply mutable context bindings.
-      const activeDesktopSession = typeof getDesktopSession === 'function'
-        ? getDesktopSession()
-        : desktopSession;
+      // sessions, so always read the live mutable context binding.
+      const activeDesktopSession = getDesktopSession();
       const resumeOptions = {
         ...(activeDesktopSession && typeof activeDesktopSession === 'object'
           ? { desktopSession: activeDesktopSession }
@@ -585,6 +559,14 @@ export function createLifecycleApi(deps) {
       // Session swapped to the resumed one: repoint the worker to the current
       // transcript instead of waiting for the next inbound steal.
       pushTranscriptRebind?.();
+      // Daemon-boot restore resumes the pinned session AFTER the runtime's
+      // one-shot boot probe may have fired with no session (it returns without
+      // re-arming). Re-check now that the session identity is final; the probe
+      // self-guards (intent match, one-shot, remote already on), so this is a
+      // no-op for every non-pinned resume. Without it the runtime stays
+      // non-remote after a restart: tool_use rows are never mirrored and the
+      // channel shows text without tool markers (user report).
+      scheduleRemoteIntentRestore?.(0);
       return {
         id: resumed.id,
         messages: resumed.messages || [],

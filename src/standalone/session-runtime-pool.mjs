@@ -442,6 +442,20 @@ class SessionShard {
   }
 }
 
+// Wire contract for shard runtime calls: the fork IPC link serializes frames
+// as JSON, which cannot represent `undefined` and would fabricate `null` in
+// its place — turning an omitted optional argument (e.g. `resume(id)`) into a
+// bogus `resume(id, null)` that bypasses callee default parameters. Trim
+// trailing `undefined` arguments before transport so an omitted argument stays
+// omitted on the wire and shard-side defaults apply exactly as in-process.
+// Interior `undefined` holes cannot be omitted positionally and keep their
+// pre-existing JSON behavior.
+function wireCallArgs(args) {
+  const out = Array.isArray(args) ? [...args] : [];
+  while (out.length > 0 && out[out.length - 1] === undefined) out.pop();
+  return out;
+}
+
 class SessionRuntimeProxy {
   constructor(id, shard, options) {
     this.id = id;
@@ -529,7 +543,7 @@ class SessionRuntimeProxy {
       const value = await this.shard.request('call', {
         runtimeId: this.id,
         method,
-        args,
+        args: wireCallArgs(args),
       }, method === 'abort' ? 15_000 : 10 * 60_000);
       if (method === 'dispose') this.shard.proxies.delete(this.id);
       return value;

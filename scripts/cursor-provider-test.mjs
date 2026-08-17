@@ -748,7 +748,7 @@ test('Cursor wire codec round-trips the Mixdog-facing protocol subset', () => {
     assert.equal(Buffer.from(rewritten).includes(Buffer.from([0x98, 0x06, 0x07])), true);
 });
 
-test('Cursor request context prefers the Mixdog tool bridge', () => {
+test('Cursor request context exposes tools without duplicating root prompt instructions', () => {
     const writes = [];
     const tools = [{
         name: 'read',
@@ -765,10 +765,12 @@ test('Cursor request context prefers the Mixdog tool bridge', () => {
     __cursorWireInternals.createFrameParser((bytes) => frames.push(bytes), () => {})(writes[0]);
     const result = __cursorWireInternals.decodeMessage('AgentClientMessage', frames[0]);
     const context = result.execClientMessage.requestContextResult.success.requestContext;
+    assert.equal(context.tools.length, 1);
+    assert.equal(context.tools[0].name, 'read');
+    // The Mixdog system prompt must reach Cursor's rules channel; an empty
+    // cloudRule leaves the server-side agent governed only by its own harness.
     assert.equal(context.cloudRule, 'mixdog rule');
-    assert.equal(context.mcpInstructions.length, 1);
-    assert.equal(context.mcpInstructions[0].serverName, 'mixdog');
-    assert.match(context.mcpInstructions[0].instructions, /mcp_mixdog_.*specialized Mixdog tool/);
+    assert.equal(context.mcpInstructions, undefined);
 });
 
 test('Cursor Connect parser handles split frames without losing protobuf bytes', () => {
