@@ -25,6 +25,7 @@ import {
   resolveTuiRuntimeNotificationDelivery,
 } from './notification-plan.mjs';
 import { shortTextFingerprint } from './queue-helpers.mjs';
+import { notifyTrace } from '../../runtime/shared/notify-trace.mjs';
 import { readImageAttachmentFromPath } from '../paste-attachments.mjs';
 import {
   isDeliveredCompletion,
@@ -311,6 +312,17 @@ export function createAgentJobFeed({
           rememberDisplayedExecutionNotificationKey(cardKey, true, executionId);
         }
         if (terminal) promoteExecutionDedupState(executionId);
+        notifyTrace('feed:execution-ui', {
+          exec: executionId,
+          status,
+          cardKey,
+          firstDelivery,
+          hasBody,
+          successfulPreview,
+          bodyAlreadyDisplayed,
+          willPush: Boolean(firstDelivery && !successfulPreview && !bodyAlreadyDisplayed),
+          textLen: text.length,
+        });
         if (firstDelivery && !successfulPreview && !bodyAlreadyDisplayed) {
           if (cardKey) rememberDisplayedExecutionNotificationKey(cardKey, terminal, executionId);
           if (executionId) rememberDisplayedExecutionResponseState(executionId, hasBody ? 'body' : 'preview', terminal);

@@ -282,8 +282,10 @@ export function buildSkillToolEnvelope(name, content, skillDir) {
 
 // Listing entries are for MATCHING only (full SKILL.md arrives via Skill()),
 // but a mid-word cut at 100 chars ("...gamerscroll.c...") destroyed the very
-// trigger phrase the model matches on. Cap generously, cut on a word boundary.
-const SKILL_MANIFEST_DESC_MAX = 250;
+// trigger phrase the model matches on. Skill descriptions lead with their
+// trigger phrase, so a 150-char word-boundary cap keeps the matching core
+// while trimming workflow detail the Skill() load supplies anyway.
+const SKILL_MANIFEST_DESC_MAX = 150;
 const SKILL_MANIFEST_DESC_MIN = 60;
 // Whole-manifest ceiling (~1% of a 200k-token window at 4 chars/token).
 const SKILL_MANIFEST_CHAR_BUDGET = 8_000;

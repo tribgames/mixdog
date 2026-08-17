@@ -728,6 +728,22 @@ export async function createMixdogSessionRuntime({
     mgr,
     onCompletionQueued: wakeQueuedCompletion,
   });
+  // Adopt a session as this runtime's identity wherever setSession is
+  // injected (lifecycle resume, model-route swap, workflow swap, turn api).
+  // Binding here closes the restored-session hole: reserveSessionId binds
+  // fresh daemon-addressed sessions, but a daemon-boot RESUME reaches the
+  // runtime with listeners subscribed before any session id existed —
+  // completion notifications then emitted into an empty session bucket and
+  // the transcript card never rendered while the queued model twin worked
+  // (2026-08-17 notify-trace: bus:completion listeners=0 on every restored
+  // session's background completion).
+  const adoptSession = (v) => {
+    rt.session = v;
+    if (v?.id) {
+      rt.reservedSessionId = null;
+      bindRuntimeNotificationSession(v.id);
+    }
+  };
 
   // Skill listing/loading/creation lives in skills-api.mjs; the facade only
   // supplies the mutable cwd and the context module.
@@ -1531,10 +1547,7 @@ export async function createMixdogSessionRuntime({
   });
   const lifecycleApi = createLifecycleApi({
     getSession: () => rt.session,
-    setSession: (v) => {
-      rt.session = v;
-      if (v?.id) rt.reservedSessionId = null;
-    },
+    setSession: adoptSession,
     getRoute: () => rt.route,
     setRoute: (v) => { rt.route = v; },
     getConfig: () => rt.config,
@@ -1613,10 +1626,7 @@ export async function createMixdogSessionRuntime({
     getRoute: () => rt.route,
     setRouteState: (v) => { rt.route = v; },
     getSession: () => rt.session,
-    setSession: (v) => {
-      rt.session = v;
-      if (v?.id) rt.reservedSessionId = null;
-    },
+    setSession: adoptSession,
     getConfigHasSecrets: () => rt.configHasSecrets,
     getSearchRouteState: () => rt.searchRoute,
     setSearchRouteState: (v) => { rt.searchRoute = v; },
@@ -1648,10 +1658,7 @@ export async function createMixdogSessionRuntime({
     getRoute: () => rt.route,
     setRouteState: (v) => { rt.route = v; },
     getSession: () => rt.session,
-    setSession: (v) => {
-      rt.session = v;
-      if (v?.id) rt.reservedSessionId = null;
-    },
+    setSession: adoptSession,
     cfgMod,
     mgr,
     STANDALONE_DATA_DIR,
@@ -1679,10 +1686,7 @@ export async function createMixdogSessionRuntime({
   });
   sessionTurnApi = createSessionTurnApi({
     getSession: () => rt.session,
-    setSession: (v) => {
-      rt.session = v;
-      if (v?.id) rt.reservedSessionId = null;
-    },
+    setSession: adoptSession,
     getCurrentCwd: () => rt.currentCwd,
     getMode: () => rt.mode,
     setMode: (v) => { rt.mode = v; },

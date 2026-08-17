@@ -20,7 +20,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Read',
         annotations: { title: 'Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Known-file contents or line ranges. Images render for viewing; not directories. Replaces cat/head/tail. Never re-open spans grep or code_graph already returned.',
+        description: 'Read-only; safe to batch in parallel. Known-file contents or line ranges. Images render for viewing; not directories. Replaces cat/head/tail. Never re-open spans grep or code_graph already returned.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -112,7 +112,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Grep',
         annotations: { title: 'Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Search file contents for literal or regex matches; contextual path:line blocks are directly usable—read only omitted lines. Ripgrep-dialect regex (e.g. "log.*Error"; escape literal braces; patterns match within one line). Batch independent searches in one message. Replaces grep/rg.',
+        description: 'Read-only; safe to batch in parallel. Search file contents for literal or regex matches; contextual path:line blocks are directly usable—read only omitted lines. Ripgrep-dialect regex (e.g. "log.*Error"; escape literal braces; patterns match within one line). Batch independent searches in one message. Replaces grep/rg.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -141,7 +141,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Glob',
         annotations: { title: 'Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Return wildcard-matching paths under a known base directory when those paths are needed. Omit path for the current Project; if the base location is unknown, use find first. Newest first by default. Replaces find -name.',
+        description: 'Read-only; safe to batch in parallel. Return wildcard-matching paths under a known base directory when those paths are needed. Omit path for the current Project; if the base location is unknown, use find first. Newest first by default. Replaces find -name.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -165,7 +165,7 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Find Files',
         annotations: { title: 'Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Fuzzy filename/directory path lookup when the location itself is unknown; returns paths only. No content or symbol search.',
+        description: 'Read-only; safe to batch in parallel. Fuzzy filename/directory path lookup when the location itself is unknown; returns paths only. No content or symbol search.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -185,7 +185,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'List Directory',
         annotations: { title: 'List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: "Return a known directory's immediate entries (path + type) when the entry list itself is needed; not a prerequisite for another tool on that directory — tree walks go to glob, name hunts to find. No wildcard; meta:true adds size/mtime/mode.",
+        description: "Read-only; safe to batch in parallel. Return a known directory's immediate entries (path + type) when the entry list itself is needed; not a prerequisite for another tool on that directory — tree walks go to glob, name hunts to find. No wildcard; meta:true adds size/mtime/mode.",
         inputSchema: {
             type: 'object',
             properties: {

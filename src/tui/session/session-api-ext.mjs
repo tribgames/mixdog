@@ -4,7 +4,7 @@
 import { listThemes, getThemeSetting, setThemeSetting } from '../theme.mjs';
 import { resetAllStreamingMarkdownStablePrefixes } from '../markdown/streaming-markdown.mjs';
 import { toolResultText } from './tool-result-text.mjs';
-import { parseSyntheticAgentMessage } from './agent-envelope.mjs';
+import { parseModelVisibleCompletionWrapper, parseSyntheticAgentMessage } from './agent-envelope.mjs';
 import { flushTuiSteeringPersist } from './tui-steering-persist.mjs';
 import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
 import { createSessionOAuthFlowRegistry } from './oauth-flows.mjs';
@@ -249,6 +249,36 @@ function restoredUserTranscriptItems(message, nextId) {
   const text = (typeof message?.content === 'string'
     ? message.content
     : toolResultText(message?.content)).trim();
+  // Persisted async-completion wrappers ("The async shell task ... Result:
+  // > ...") are the only durable record of a background completion — the live
+  // Response card is an event-time push that does not survive a transcript
+  // rebuild. Restore them as tool cards instead of dropping them with the
+  // internal-display suppression below (2026-08-17 field report: bench shell
+  // output permanently missing from the pane after rebuild).
+  const completion = parseModelVisibleCompletionWrapper(text);
+  if (completion) {
+    const completionLabel = completion.label || 'notification';
+    const completionAt = Number(message?.meta?.transcript?.at);
+    return [{
+      kind: 'tool',
+      id: nextId(),
+      name: completion.name || 'agent',
+      args: completion.args || {
+        type: completionLabel,
+        task_id: completion.taskId || undefined,
+        description: completion.summary || 'agent notification',
+      },
+      result: completion.result,
+      rawResult: completion.rawResult ?? text,
+      isError: completion.isError ?? /^(failed|error|timeout|killed|cancelled)$/i.test(completionLabel),
+      expanded: false,
+      count: 1,
+      completedCount: 1,
+      ...(Number.isFinite(completionAt)
+        ? { at: completionAt, startedAt: completionAt, completedAt: completionAt }
+        : {}),
+    }];
+  }
   if (isInternalTranscriptDisplayText(text)) return [];
   if (!text) return [];
   // Crash-recovery control row: keep the persisted marker for the next model

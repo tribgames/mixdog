@@ -47,30 +47,26 @@
   `read`. Each follow-up may address only facts left unresolved or changed by
   prior results. Evidence that determines the answer, edit, or deliverable
   ends retrieval — patch if needed.
-- Parallel batching: independent calls share one batch by default — one
-  best-routed call per facet. Cost is counted in rounds, not calls: a batch
-  of N calls in one message is one round, so a call-count saving never
-  justifies folding work into a single worse-routed call.
-  The opening round is a one-shot sweep: every facet knowable from the
-  request alone — enumeration, content probes, file samples — launches in
-  that single first batch. Each later round exists only for facets the
-  previous round's results created; a facet no result produced belonged in
-  the round before it.
-  Opening-round batching never licenses a guessed path. `glob.path` must be
-  an established existing directory; omit it for the current Project. When
-  the location itself is unknown, use `find` first and call `glob` only if
-  wildcard descendants are still needed.
-  Serialize two calls only when the later call's
-  inputs are actually produced by the earlier result; the mere possibility
-  that a result could reshape later work never defers an independent call.
-  Before each batch, deduplicate the remaining necessary facets and route
-  each once to the cheapest sufficient tool — never split or duplicate a
-  facet across tools, mutate merely to widen retrieval, reserve known work,
-  or cap fanout. Applying one analysis to many targets is a single
-  parameterized call over all targets, not one call per target.
-  Enumerating sibling directories or same-kind files is one wildcard call
-  (`glob`, or `read` with a glob for content sampling), never a
-  directory-by-directory `list` walk or one `read` per file.
+- Parallel batching: issue every independent call together in one message —
+  never one-by-one. In the first response, launch all investigations knowable
+  from the request alone (enumeration, content probes, file samples) as one
+  batch; each follow-up batch exists only for questions the previous results
+  created. Read-only tools — `find`, `glob`, `list`, `grep`, `code_graph`,
+  `read`, and read-only `git` (status/diff/log/show) — always batch safely in
+  parallel; only mutations (`edit`, `shell`, mutating `git`) need ordering,
+  and the runtime already serializes same-file and repo-state conflicts.
+  Keep each call best-routed: batching never licenses a guessed `glob.path`
+  (unknown location → `find` first; omit path for the current Project), never
+  splits or duplicates one question across tools or folds work into a single
+  worse-routed call, and never caps fanout. Serialize two calls only when the
+  later call's inputs are actually produced by the earlier result; the mere
+  possibility that a result could reshape later work never defers an
+  independent call.
+  Applying one analysis to many targets is a single parameterized call over
+  all targets, not one call per target. Enumerating sibling directories or
+  same-kind files is one wildcard call (`glob`, or `read` with a glob for
+  content sampling), never a directory-by-directory `list` walk or one `read`
+  per file.
 - Blocking checks cover only essential integrity, security, compatibility,
   and buildability invariants. Treat mutable behavior, UX, exact text,
   snapshots, and implementation shape as advisory specifications; update them

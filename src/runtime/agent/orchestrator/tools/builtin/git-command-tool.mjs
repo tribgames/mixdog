@@ -41,7 +41,7 @@ export const GIT_TOOL_DEF = {
         openWorldHint: true,
         compressible: true,
     },
-    description: 'Run one normal git command without a shell. Pipes, redirection, chaining, and substitution are rejected. Success output is compacted; destructive commands require confirm:true.',
+    description: 'Run one normal git command without a shell. Read subcommands (status/diff/log/show) are read-only and batch safely in parallel with other read tools. Pipes, redirection, chaining, and substitution are rejected. Success output is compacted; destructive commands require confirm:true.',
     inputSchema: {
         type: 'object',
         properties: {
