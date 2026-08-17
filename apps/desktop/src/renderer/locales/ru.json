@@ -1,4 +1,9 @@
 {
+  "Custom": "Пользовательский",
+  "Lead works alone.": "Лид работает в одиночку.",
+  "Parallel delegation.": "Параллельное делегирование.",
+  "Shown in workflow lists and included in the prompt.": "Отображается в списках рабочих процессов и включается в промпт.",
+  "What this workflow does": "Что делает этот процесс",
   "{{agentCount}} agents": "Агенты: {{agentCount}}",
   "{{connected}} connected · {{failed}} failed": "{{connected}} подключено · {{failed}} с ошибкой",
   "{{count}} available": "{{count}} доступно",

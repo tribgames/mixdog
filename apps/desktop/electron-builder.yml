@@ -7,6 +7,9 @@ asarUnpack:
   # adapter and remote UI assets readable without Electron's ASAR fs patch.
   - out/main/daemon.cjs
   - out/renderer/**
+  # daemon.cjs resolves this lazy native dependency relative to its unpacked
+  # location, so keep the package's JS, workers, and native bindings together.
+  - node_modules/@homebridge/node-pty-prebuilt-multiarch/**
 # Native modules ship as prebuilt binaries mirrored into runtime.asar.unpacked
 # by prepare-runtime.mjs; never rebuild them against Electron headers here.
 npmRebuild: false

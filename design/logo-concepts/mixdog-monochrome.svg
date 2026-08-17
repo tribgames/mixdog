@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-  <!-- M-Monogram & Dog Ears -->
-  <path d="M 68 184 V 104 C 68 80 88 66 104 80 L 128 100 L 152 80 C 168 66 188 80 188 104 V 184" stroke-width="22"/>
-  <!-- Prompt Snout Chevron -->
-  <path d="M 98 144 L 128 174 L 158 144" stroke-width="18"/>
-  <!-- Nose Point -->
-  <circle cx="128" cy="156" r="5" fill="currentColor" stroke="none"/>
-</svg>

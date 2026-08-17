@@ -1,5 +1,6 @@
 import { Check, ChevronDown, ChevronRight } from 'lucide-react';
 import {
+  Fragment,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
@@ -13,7 +14,7 @@ import { createPortal } from 'react-dom';
 import type { DesktopModelOption } from '../shared/contract';
 import { t } from './i18n';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
-import { ModelPicker } from './ModelPicker';
+import { ModelCatalog } from './model-catalog';
 import { formatContextWindow } from './provider-display';
 import { useSurfaceActive } from './surface-activity';
 import {
@@ -90,7 +91,7 @@ function sheetAnchor(
 function preferredFlyoutHeight(pane: RouteSheetPane, effortCount: number): number {
   if (pane === 'model') return 380;
   if (pane === 'effort') return Math.min(300, Math.max(44, effortCount * ROUTE_SHEET_ROW_HEIGHT + 34));
-  if (pane === 'context') return 132;
+  if (pane === 'context') return 100;
   return 132;
 }
 
@@ -116,6 +117,8 @@ export function RouteEditor({
   contextTokens,
   contextMaxTokens = 0,
   contextDefaultTokens = 0,
+  modelParameterOptions = [],
+  modelParameters = {},
   catalogLoaded,
   catalogRefreshing,
   catalogError,
@@ -127,6 +130,7 @@ export function RouteEditor({
   onChangeEffort,
   onChangeFast,
   onChangeContext,
+  onChangeModelParameter,
   onOpenProviders,
 }: {
   models: DesktopModelOption[];
@@ -144,6 +148,8 @@ export function RouteEditor({
   contextTokens: number;
   contextMaxTokens?: number;
   contextDefaultTokens?: number;
+  modelParameterOptions?: DesktopModelOption['modelParameterOptions'];
+  modelParameters?: Record<string, string>;
   catalogLoaded: boolean;
   catalogRefreshing: boolean;
   catalogError: string;
@@ -155,7 +161,8 @@ export function RouteEditor({
   onChangeEffort(value: string): void;
   onChangeFast(enabled: boolean): void;
   onChangeContext(percent: number): void;
-  onOpenProviders(): void;
+  onChangeModelParameter?(id: string, value: string): void;
+  onOpenProviders?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -193,6 +200,7 @@ export function RouteEditor({
     effortCount: effortOptions.length,
     contextVisible,
     fastVisible,
+    parameterIds: modelParameterOptions.map((parameter) => parameter.id),
   });
   const sheetHeight = rows.length * ROUTE_SHEET_ROW_HEIGHT + ROUTE_PANEL_PADDING * 2;
   const visible = open && surfaceActive;
@@ -205,6 +213,10 @@ export function RouteEditor({
       : contextMaxTokens
         ? Math.max(1, Math.floor(contextMaxTokens * shownContextPercent / 100))
         : contextTokens;
+  const defaultContextTokens = contextDefaultTokens
+    || (contextMaxTokens
+      ? Math.max(1, Math.floor(contextMaxTokens * contextDefaultPercent / 100))
+      : contextTokens);
   const commitContextDraft = () => {
     if (contextDraft === null || contextDraft === contextPercent) return;
     onChangeContext(contextDraft);
@@ -524,7 +536,17 @@ export function RouteEditor({
         data-state={closing ? 'closing' : 'open'}>
         {row('model', t('Model'), triggerModel)}
         {rows.includes('effort') && row('effort', t('Reasoning effort'), effortLabel || t('Reasoning effort'), tuningDisabled)}
-        {rows.includes('context') && row('context', t('Context'), `${contextPercent}%`, tuningDisabled)}
+        {rows.includes('context') && row('context', t('Context'),
+          formatContextWindow(contextTokens).replace(/ Context$/, ''), tuningDisabled)}
+        {modelParameterOptions.map((parameter) => row(
+          `parameter:${parameter.id}`,
+          parameter.label,
+          parameter.options.find((option) => option.value === modelParameters[parameter.id])?.label
+            || modelParameters[parameter.id]
+            || parameter.options[0]?.label
+            || '',
+          tuningDisabled,
+        ))}
         {rows.includes('speed') && row('speed', t('Speed'), speedLabel, tuningDisabled)}
       </div>,
       document.body,
@@ -534,15 +556,15 @@ export function RouteEditor({
         hidden={pane !== 'model'} data-placement={flyoutBox?.placement}
         data-state={closing ? 'closing' : 'open'}
         style={pane === 'model' && flyoutBox ? flyoutBox : { display: 'none' }}>
-        <ModelPicker models={models} provider={provider} model={model}
-          triggerLabel={triggerModel} embedded active={pane === 'model'}
+        <ModelCatalog models={models} provider={provider} model={model}
+          active={pane === 'model'}
           catalogLoaded={catalogLoaded} catalogRefreshing={catalogRefreshing}
           catalogError={catalogError} providerSetupError={providerSetupError}
           onSelect={onSelectModel}
           onClose={() => closePane('model', true)}
           onOpenProviders={() => {
             closeAll();
-            onOpenProviders();
+            onOpenProviders?.();
           }} />
       </div>,
       document.body,
@@ -613,30 +635,51 @@ export function RouteEditor({
       <div ref={optionFlyout} className="route-sheet-flyout" role="menu" aria-label={t('Context')}
         style={flyoutBox} data-placement={flyoutBox.placement} data-state={closing ? 'closing' : 'open'}>
         <div className="route-sheet-flyout-title" aria-hidden="true">{t('Context')}</div>
-        <div className="route-context-head" aria-hidden="true">
-          <strong>{shownContextPercent}%</strong>
-          <small>{formatContextWindow(shownContextTokens).replace(/ Context$/, '')}</small>
-          {shownContextPercent === contextDefaultPercent
-            && <span className="route-context-default">{t('Default')}</span>}
+        <div className="route-context-head">
+          <strong aria-hidden="true">{shownContextPercent}%</strong>
+          <small aria-hidden="true">
+            {formatContextWindow(shownContextTokens).replace(/ Context$/, '')}
+            {shownContextPercent === contextDefaultPercent ? ` · ${t('Default')}` : ''}
+          </small>
+          {shownContextPercent !== contextDefaultPercent && <button type="button"
+            className="route-context-reset" disabled={tuningDisabled}
+            aria-label={t('Reset to default ({{percent}}%)', { percent: contextDefaultPercent })}
+            onClick={() => { setContextDraft(null); onChangeContext(contextDefaultPercent); }}>
+            {formatContextWindow(defaultContextTokens).replace(/ Context$/, '')} · {t('Default')}
+          </button>}
         </div>
         <div className="route-context-slider">
           <input type="range" min={10} max={100} step={10}
             value={shownContextPercent} disabled={tuningDisabled}
             aria-label={t('Context')} aria-valuetext={`${shownContextPercent}%`}
-            list={`${sheetId}-context-ticks`}
             onChange={(event) => setContextDraft(Number(event.currentTarget.value))}
             onPointerUp={commitContextDraft}
             onKeyUp={commitContextDraft}
             onBlur={commitContextDraft} />
-          <datalist id={`${sheetId}-context-ticks`}>
-            <option value={contextDefaultPercent} />
-          </datalist>
         </div>
-        <button type="button" className="route-sheet-option route-context-reset"
-          disabled={tuningDisabled || shownContextPercent === contextDefaultPercent}
-          onClick={() => { setContextDraft(null); onChangeContext(contextDefaultPercent); }}>
-          {t('Reset to default ({{percent}}%)', { percent: contextDefaultPercent })}
-        </button>
+      </div>,
+      document.body,
+    )}
+    {mounted && pane?.startsWith('parameter:') && flyoutBox && createPortal(
+      <div ref={optionFlyout} className="route-sheet-flyout" role="menu"
+        aria-label={modelParameterOptions.find((entry) => `parameter:${entry.id}` === pane)?.label || ''}
+        style={flyoutBox} data-placement={flyoutBox.placement} data-state={closing ? 'closing' : 'open'}>
+        {modelParameterOptions.filter((entry) => `parameter:${entry.id}` === pane).map((parameter) => <Fragment key={parameter.id}>
+          <div className="route-sheet-flyout-title" aria-hidden="true">{parameter.label}</div>
+          {parameter.options.map((option) => {
+            const selected = option.value === modelParameters[parameter.id];
+            return <button type="button" key={option.value} className="route-sheet-option"
+              role="menuitemradio" aria-checked={selected} disabled={tuningDisabled}
+              onClick={() => {
+                if (!selected) onChangeModelParameter?.(parameter.id, option.value);
+              }}>
+              <span>{option.label}</span>
+              {selected && <span className="route-selection-check">
+                <Check size={14} aria-hidden="true" />
+              </span>}
+            </button>;
+          })}
+        </Fragment>)}
       </div>,
       document.body,
     )}

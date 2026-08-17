@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <defs>
-    <filter id="gl" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="9"/></filter>
-  </defs>
-  <rect width="256" height="256" rx="60" fill="#0a0c10"/>
-  <path fill="none" stroke="#6b7cff" stroke-width="10" stroke-linejoin="round" filter="url(#gl)" d="M60 188V92l68 74 68-74v96"/>
-  <path fill="none" stroke="#eef1f8" stroke-width="8" stroke-linejoin="round" d="M60 188V92l68 74 68-74v96"/>
-</svg>

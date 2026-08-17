@@ -5,6 +5,13 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Desktop now ships the selected brand mark, a unified model route editor with
+  model parameters and persisted list order, and unpacks node-pty beside the
+  packaged daemon.
+- Session compaction is hard-locked by owner: agent sessions stay semantic,
+  user sessions use recall-fasttrack. Settings no longer lists Core memories
+  (they live on the project), and the Windows acceptance inventory matches.
+
 ## v0.9.134 - 2026-08-17
 
 - Provider and tool integrations now include OAuth lifecycle and token recovery

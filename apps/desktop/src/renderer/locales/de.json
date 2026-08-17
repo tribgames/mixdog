@@ -1,4 +1,9 @@
 {
+  "Custom": "Benutzerdefiniert",
+  "Lead works alone.": "Lead arbeitet allein.",
+  "Parallel delegation.": "Parallele Delegation.",
+  "Shown in workflow lists and included in the prompt.": "Wird in Workflow-Listen angezeigt und in den Prompt aufgenommen.",
+  "What this workflow does": "Was dieser Workflow tut",
   "{{agentCount}} agents": "{{agentCount}} Agenten",
   "{{connected}} connected · {{failed}} failed": "{{connected}} verbunden · {{failed}} fehlgeschlagen",
   "{{count}} available": "{{count}} verfügbar",

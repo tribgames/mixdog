@@ -1,4 +1,9 @@
 {
+  "Custom": "Tùy chỉnh",
+  "Lead works alone.": "Lead làm việc một mình.",
+  "Parallel delegation.": "Ủy quyền song song.",
+  "Shown in workflow lists and included in the prompt.": "Hiển thị trong danh sách quy trình và được đưa vào prompt.",
+  "What this workflow does": "Quy trình này làm gì",
   "{{agentCount}} agents": "{{agentCount}} agent",
   "{{connected}} connected · {{failed}} failed": "{{connected}} đã kết nối · {{failed}} lỗi",
   "{{count}} available": "{{count}} khả dụng",

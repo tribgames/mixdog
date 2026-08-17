@@ -448,7 +448,7 @@ export async function readPhoneSettingsAssertions(window: BrowserWindow): Promis
         categoryLabelsSeparated = categoryLabelsSeparated
           && (!(first instanceof HTMLElement) || rect(first).right <= controlRect.left + 1);
         const fillTargets = Array.from(control.querySelectorAll(
-          '.settings-select.mx-select-root, .settings-model-trigger, .effort-control, '
+          '.settings-select.mx-select-root, .effort-control, '
           + '.fast-control, input:not([type="checkbox"])',
         )).filter((element) => element instanceof HTMLElement && visible(element));
         for (const target of fillTargets) {

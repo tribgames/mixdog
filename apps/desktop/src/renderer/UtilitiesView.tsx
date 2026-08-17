@@ -1,6 +1,7 @@
 import { ChevronRight, FolderTree, ImagePlay, SquareTerminal } from "lucide-react";
 
 import { t } from "./i18n";
+import { usePersistedListOrder } from "./use-persisted-list-order";
 
 export function UtilitiesPane({
   active = true,
@@ -33,15 +34,22 @@ export function UtilitiesPane({
       run: onOpenExplorer,
     },
   ] as const;
+  const order = usePersistedListOrder(
+    "mixdog.sidebar-order.utilities.v1",
+    items.map((item) => item.label),
+  );
+  const orderedItems = order.orderedIds
+    .map((id) => items.find((item) => item.label === id))
+    .filter((item): item is (typeof items)[number] => Boolean(item));
 
   return <div className="schedules-pane utilities-pane stable-surface-preserved stable-takeover-surface"
     data-surface-active={active ? "true" : "false"}
     inert={active ? undefined : true} aria-hidden={active ? undefined : true}>
     <div className="schedules-page">
       <div className="schedules-list utilities-list">
-        {items.map(({ label, description, icon: Icon, run }) => (
+        {orderedItems.map(({ label, description, icon: Icon, run }) => (
           <button type="button" className="schedules-row utilities-row"
-            key={label} onClick={run}>
+            key={label} onClick={run} {...order.getReorderProps(label)}>
             <span className="utilities-row-icon" aria-hidden="true"><Icon size={20} /></span>
             <span className="schedules-row-copy utilities-row-copy">
               <b>{t(label)}</b>

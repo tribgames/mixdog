@@ -4,10 +4,13 @@ import { fileURLToPath } from 'node:url';
 
 const iconSizes = [16, 24, 32, 48, 64, 128, 256];
 const supersample = 4;
-// Brand icon: near-black tile with a subtle vertical gradient and a white
-// continuous deep-V monogram M (rounded caps/joins) — matches BrandTile.
-const inkTop = [27, 26, 23];
-const inkBottom = [42, 41, 37];
+// 23-B OS mark: near-black tile, three titanium arcs, and a silver star core.
+const tile = [7, 8, 11];
+const titanium = [
+  [[255, 255, 255], [148, 163, 184], [255, 255, 255]],
+  [[203, 213, 225], [71, 85, 105], [203, 213, 225]],
+  [[148, 163, 184], [51, 65, 85], [148, 163, 184]],
+];
 
 let crcTable;
 function crc32(buffer) {
@@ -51,43 +54,58 @@ function encodePng(size, rgba) {
 }
 
 function insideRoundedSquare(x, y, size) {
-  const radius = size * 0.22;
+  const radius = size * (60 / 256);
   const inset = size / 2 - radius;
   const dx = Math.max(Math.abs(x - size / 2) - inset, 0);
   const dy = Math.max(Math.abs(y - size / 2) - inset, 0);
   return dx * dx + dy * dy <= radius * radius;
 }
 
-function insideStroke(x, y, ax, ay, bx, by, width) {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const lengthSquared = dx * dx + dy * dy;
-  // Capsule: clamp the projection so every stroke ends in a round cap.
-  const projection = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / lengthSquared));
-
-  const closestX = ax + projection * dx;
-  const closestY = ay + projection * dy;
-  const distanceX = x - closestX;
-  const distanceY = y - closestY;
-  return distanceX * distanceX + distanceY * distanceY <= (width / 2) ** 2;
+function rotatePoint(x, y, angle) {
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  return [
+    128 + (x - 128) * cosine + (y - 128) * sine,
+    128 - (x - 128) * sine + (y - 128) * cosine,
+  ];
 }
 
-function insideMonogram(x, y, size) {
+function arcSample(x, y, size, rotation) {
   const scale = size / 256;
-  const width = 30 * scale;
-  const left = 72 * scale;
-  const right = 184 * scale;
-  const top = 86 * scale;
-  const bottom = 178 * scale;
-  const center = 128 * scale;
-  const point = 166 * scale;
+  const [localX, localY] = rotatePoint(x / scale, y / scale, -rotation);
+  const dx = localX - 128;
+  const dy = localY - 128;
+  const angle = Math.atan2(dy, dx);
+  const start = -100 * Math.PI / 180;
+  const end = -20 * Math.PI / 180;
+  const radius = 68;
+  const halfWidth = 11;
+  const startX = 128 + radius * Math.cos(start);
+  const startY = 128 + radius * Math.sin(start);
+  const endX = 128 + radius * Math.cos(end);
+  const endY = 128 + radius * Math.sin(end);
+  const onCurve = angle >= start && angle <= end && Math.abs(Math.hypot(dx, dy) - radius) <= halfWidth;
+  const onStartCap = Math.hypot(localX - startX, localY - startY) <= halfWidth;
+  const onEndCap = Math.hypot(localX - endX, localY - endY) <= halfWidth;
+  if (!onCurve && !onStartCap && !onEndCap) return null;
+  return Math.max(0, Math.min(1, (localX + localY - 177) / 91));
+}
 
-  return (
-    insideStroke(x, y, left, top, left, bottom, width)
-    || insideStroke(x, y, right, top, right, bottom, width)
-    || insideStroke(x, y, left, top, center, point, width)
-    || insideStroke(x, y, center, point, right, top, width)
-  );
+function gradientColor(colors, position) {
+  const segment = position <= 0.5 ? position * 2 : (position - 0.5) * 2;
+  const from = position <= 0.5 ? colors[0] : colors[1];
+  const to = position <= 0.5 ? colors[1] : colors[2];
+  return from.map((channel, index) => Math.round(channel + (to[index] - channel) * segment));
+}
+
+function insidePolygon(x, y, points) {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
+    const [xi, yi] = points[i];
+    const [xj, yj] = points[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 function renderIcon(size) {
@@ -100,16 +118,21 @@ function renderIcon(size) {
       const iconY = (y + 0.5) / supersample;
       const offset = (y * highSize + x) * 4;
 
-      if (insideMonogram(iconX, iconY, size)) {
-        highPixels.set([255, 255, 255, 255], offset);
-      } else if (insideRoundedSquare(iconX, iconY, size)) {
-        const t = iconY / size;
-        highPixels.set([
-          Math.round(inkTop[0] + (inkBottom[0] - inkTop[0]) * t),
-          Math.round(inkTop[1] + (inkBottom[1] - inkTop[1]) * t),
-          Math.round(inkTop[2] + (inkBottom[2] - inkTop[2]) * t),
-          255,
-        ], offset);
+      if (insideRoundedSquare(iconX, iconY, size)) {
+        const scale = size / 256;
+        const pointX = iconX / scale;
+        const pointY = iconY / scale;
+        let color = tile;
+        for (let arc = 0; arc < 3; arc += 1) {
+          const sample = arcSample(iconX, iconY, size, arc * 120 * Math.PI / 180);
+          if (sample !== null) color = gradientColor(titanium[arc], sample);
+        }
+        const star = [[128, 112], [133, 123], [144, 128], [133, 133],
+          [128, 144], [123, 133], [112, 128], [123, 123]];
+        if (insidePolygon(pointX, pointY, star)) color = [203, 213, 225];
+        if (Math.hypot(pointX - 128, pointY - 128) <= 3.5) color = tile;
+        if (Math.hypot(pointX - 128, pointY - 128) <= 1.5) color = [255, 255, 255];
+        highPixels.set([...color, 255], offset);
       }
     }
   }
@@ -164,5 +187,5 @@ for (const [index, entry] of pngEntries.entries()) {
 const buildDir = fileURLToPath(new URL('../build/', import.meta.url));
 await mkdir(buildDir, { recursive: true });
 await writeFile(`${buildDir}/mixdog.ico`, Buffer.concat([ico, ...pngEntries.map(({ png }) => png)]));
-await writeFile(`${buildDir}/mixdog-icon-preview.png`, pngEntries.at(-1).png);
+await writeFile(`${buildDir}/mixdog.png`, pngEntries.at(-1).png);
 console.log(`BRAND_ICONS=Mixdog; ICO_BYTES=${offset}`);

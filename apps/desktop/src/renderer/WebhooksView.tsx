@@ -3,9 +3,9 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
-import { FastModeToggle } from './FastModeToggle';
 import { t } from './i18n';
-import { filterConfiguredModels, ModelPicker } from './ModelPicker';
+import { filterConfiguredModels } from './model-catalog';
+import { ModelRouteEditor } from './ModelRouteEditor';
 import { dismissDesktopToast, showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
@@ -16,7 +16,7 @@ import {
   attachmentsFromRecords,
   type AutomationAttachment,
 } from './automation-attachments';
-import { modelDisplayName, modelFastAvailable, normalizeModelOptions, preferredModelParameters } from './provider-display';
+import { modelDisplayName, normalizeModelOptions, preferredModelParameters } from './provider-display';
 import { SidebarPanelAction } from './session-sidebar';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { acquireTitleBarDim } from './titlebar-dim';
@@ -127,7 +127,13 @@ function webhookMeta(webhook: RecordValue): string {
   const ref = parseModelRef(String(webhook.model || ''));
   if (ref.route) {
     const slash = ref.route.indexOf('/');
-    parts.push(slash > 0 ? modelDisplayName(ref.route.slice(slash + 1), ref.route.slice(0, slash)) : ref.route);
+    const model = slash > 0
+      ? modelDisplayName(ref.route.slice(slash + 1), ref.route.slice(0, slash))
+      : ref.route;
+    const effort = ref.effort
+      ? `${ref.effort.slice(0, 1).toLocaleUpperCase()}${ref.effort.slice(1)}`
+      : '';
+    parts.push([model, effort, ref.fast ? t('Fast') : ''].filter(Boolean).join(' · '));
   }
   if (webhook.secretSet !== true) parts.push('secret missing');
   if (webhook.enabled === false) parts.push('paused');
@@ -218,13 +224,11 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
   const slash = model.indexOf('/');
   const modelProvider = slash > 0 ? model.slice(0, slash) : '';
   const modelId = slash > 0 ? model.slice(slash + 1) : '';
-  const modelLabel = model ? (slash > 0 ? modelDisplayName(modelId, modelProvider) : model) : 'Model';
   const selected = models.find((option) => option.provider === modelProvider && option.model === modelId);
   const effortValue = selected?.effortOptions.some((entry) => entry.value === effort)
     ? effort
     : preferredEffort(selected);
   const selectedModelParameters = preferredModelParameters(selected, modelParameters);
-  const fastAvailable = modelFastAvailable(selected, effortValue, selectedModelParameters);
   const projectOptions = [
     { value: '__none__', label: 'No project' },
     ...projects.map((project) => ({
@@ -302,32 +306,21 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
             <AutomationAttachButton attachments={attachments} disabled={busy}
               ariaLabel={t("Attach files to this webhook")}
               onChange={setAttachments} onError={setFormError} />
-            <ModelPicker models={models} provider={modelProvider} model={modelId}
-              triggerLabel={modelLabel} ariaLabel={t("Webhook model")}
-              triggerClassName="model-trigger schedules-model-trigger" disabled={busy}
-              onSelect={(option) => {
-                setModel(`${option.provider}/${option.model}`);
-                setEffort(preferredEffort(option));
-                setFast(option.fastCapable ? option.fastPreferred : false);
-                setModelParameters(preferredModelParameters(option));
+            <ModelRouteEditor models={models} disabled={busy} ariaLabel={t("Webhook model")}
+              value={{
+                provider: modelProvider,
+                model: modelId,
+                ...(effortValue ? { effort: effortValue } : {}),
+                fast,
+                modelParameters: selectedModelParameters,
+              }}
+              onChange={(selection) => {
+                setModel(`${selection.provider}/${selection.model}`);
+                setEffort(String(selection.effort || ''));
+                setFast(selection.fast === true);
+                setModelParameters(selection.modelParameters || {});
                 setFormError('');
               }} />
-            {selected && selected.effortOptions.length > 0 && <OpenSelect ariaLabel={t("Webhook reasoning effort")}
-              value={effortValue} disabled={busy} localizeLabels={false}
-              options={selected.effortOptions} onChange={(value) => {
-                setEffort(value);
-                if (!modelFastAvailable(selected, value, selectedModelParameters)) setFast(false);
-              }} />}
-            {selected?.fastCapable && <FastModeToggle ariaLabel={t("Webhook fast mode")}
-              enabled={fastAvailable && fast} disabled={busy || !fastAvailable} onChange={setFast} />}
-            {selected?.modelParameterOptions?.map((parameter) => <OpenSelect key={parameter.id}
-              ariaLabel={t(`Webhook ${parameter.label}`)}
-              value={selectedModelParameters[parameter.id] || parameter.options[0]?.value || ''} disabled={busy}
-              options={parameter.options} onChange={(value) => {
-                const next = { ...selectedModelParameters, [parameter.id]: value };
-                setModelParameters(next);
-                if (!modelFastAvailable(selected, effortValue, next)) setFast(false);
-              }} />)}
             {/* Same flat, right-aligned workflow control as the chat
                 composer (effort-control/workflow-control skin). */}
             <div className="effort-control workflow-control">

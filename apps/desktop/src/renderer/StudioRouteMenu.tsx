@@ -359,7 +359,7 @@ export function StudioRouteMenu({
         aria-label={pane === 'model' ? t('Model') : activeRow?.label || slider?.label || ''}
         style={flyoutBox} data-placement={flyoutBox.placement}
         data-state={closing ? 'closing' : 'open'}>
-        {pane === 'model' && <div className="model-picker-list">
+        {pane === 'model' && <div className="model-catalog-list">
           <div className="model-search-wrapper">
             <div className="model-search">
               <div className="model-search-container">

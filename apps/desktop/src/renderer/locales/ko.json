@@ -1,4 +1,9 @@
 {
+  "Custom": "사용자 지정",
+  "Lead works alone.": "Lead가 혼자 작업합니다.",
+  "Parallel delegation.": "병렬 위임.",
+  "Shown in workflow lists and included in the prompt.": "워크플로우 목록에 표시되고 프롬프트에도 포함됩니다.",
+  "What this workflow does": "이 워크플로우가 하는 일",
   "{{agentCount}} agents": "에이전트 {{agentCount}}명",
   "{{connected}} connected · {{failed}} failed": "{{connected}}개 연결됨 · {{failed}}개 실패",
   "{{count}} available": "{{count}}개 사용 가능",

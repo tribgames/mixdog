@@ -4,13 +4,10 @@ import {
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 
 import type {
-  DesktopModelOption,
-  DesktopModelSelection
+  DesktopModelOption
 } from '../../shared/contract';
-import { FastModeToggle } from '../FastModeToggle';
-import { ModelPicker } from '../ModelPicker';
 import { OpenSelect } from '../OpenSelect';
-import { modelDisplayName, modelFastAvailable, modelOptionLabel, preferredModelParameters, providerDisplayName } from '../provider-display';
+import { modelDisplayName, providerDisplayName } from '../provider-display';
 // The primitives translate their OWN string props: every settings panel that
 // renders through Group/Rows/ActionButton gets localized titles without each
 // call site wrapping literals. Dynamic values (model names, provider labels)
@@ -72,29 +69,6 @@ export function SelectRow({ title, description: _description, value, disabled, o
     options={normalized.map((entry) => ({ ...entry, label: t(entry.label) }))} onChange={onChange} /></div></div>;
 }
 
-export function QuietSelectRow({ title, value, disabled, options, kind, onChange }: {
-  title: string;
-  value: string;
-  disabled?: boolean;
-  options: ReadonlyArray<{ value: string; label: string }>;
-  kind: 'effort' | 'fast';
-  onChange(value: string): void;
-}) {
-  const normalized = options.some((entry) => entry.value === value)
-    ? options
-    : [{ value, label: value || t('Select…') }, ...options];
-  const displayTitle = t(title);
-  return <div className="mixdog-settings__row"><div className="mixdog-settings__copy">
-    <span className="mixdog-settings__row-title">{displayTitle}</span>
-  </div><div className="settings-row-control"><div className={`${kind}-control`}>
-    <OpenSelect ariaLabel={displayTitle} value={value} disabled={disabled}
-      localizeLabels={kind !== 'effort'}
-      options={kind === 'effort'
-        ? normalized
-        : normalized.map((entry) => ({ ...entry, label: t(entry.label) }))} onChange={onChange} />
-  </div></div></div>;
-}
-
 export function routeOption(value: RecordValue): DesktopModelOption {
   const model = String(value.id || value.model || '');
   const effortOptions = rows(value.effortOptions).flatMap((entry) => {
@@ -143,112 +117,6 @@ export function preferredEffort(model: DesktopModelOption | undefined): string |
     if (model.effortOptions.some((entry) => entry.value === value)) return value;
   }
   return model.effortOptions[0]?.value;
-}
-
-export function routeOptionLabel(model: DesktopModelOption): string {
-  return model.provider === 'default' && model.model === 'default'
-    ? 'Default · follows Main'
-    : modelOptionLabel(model);
-}
-
-export function RouteEditor({ title, description: _description, route, models, disabled, compact = false,
-  onChange, onOpenProviders }: {
-  title: string;
-  description?: string;
-  route: RecordValue;
-  models: DesktopModelOption[];
-  disabled?: boolean;
-  compact?: boolean;
-  onChange(selection: DesktopModelSelection): unknown;
-  onOpenProviders?: () => void;
-}) {
-  const currentKey = `${route.provider || ''}:${route.model || ''}`;
-  const selected = models.find((entry) => `${entry.provider}:${entry.model}` === currentKey);
-  const effort = selected?.effortOptions.some((entry) => entry.value === route.effort)
-    ? String(route.effort)
-    : preferredEffort(selected);
-  const modelParameters = preferredModelParameters(selected, record(route.modelParameters) as Record<string, string>);
-  const fastAvailable = modelFastAvailable(selected, effort, modelParameters);
-  const fast = fastAvailable
-    ? (typeof route.fast === 'boolean' ? route.fast === true : selected?.fastPreferred === true)
-    : false;
-  const selectionFor = (model: DesktopModelOption, patch: Partial<DesktopModelSelection> = {}): DesktopModelSelection => {
-    const nextEffort = patch.effort ?? (model === selected ? effort : preferredEffort(model));
-    const nextFast = patch.fast ?? (model === selected ? fast : model.fastPreferred);
-    const nextModelParameters = preferredModelParameters(model, patch.modelParameters || modelParameters);
-    const nextFastAvailable = modelFastAvailable(model, nextEffort, nextModelParameters);
-    return {
-      provider: model.provider,
-      model: model.model,
-      ...(nextEffort ? { effort: nextEffort } : {}),
-      ...(model.fastCapable ? { fast: nextFastAvailable && nextFast === true } : {}),
-      ...(model.modelParameterOptions?.length
-        ? { modelParameters: nextModelParameters }
-        : {}),
-    };
-  };
-  const modelSelect = <ModelPicker models={models}
-    provider={String(route.provider || '')} model={String(route.model || '')}
-    triggerLabel={selected
-      ? modelDisplayName(selected.model, selected.provider, selected.display)
-      : route.model ? modelDisplayName(String(route.model), String(route.provider || '')) : t('Select model…')}
-    ariaLabel={title} triggerClassName="model-trigger settings-model-trigger"
-    disabled={disabled} onSelect={(model) => onChange(selectionFor(model))}
-    onOpenProviders={onOpenProviders} />;
-  if (!compact) {
-    return <>
-      <div className="mixdog-settings__row settings-route-row">
-        <div className="mixdog-settings__copy">
-          <span className="mixdog-settings__row-title">{t('Model')}</span>
-        </div>
-        <div className="settings-row-control">{modelSelect}</div>
-      </div>
-      {selected && selected.effortOptions.length > 0 && <QuietSelectRow title="Effort" kind="effort"
-        value={effort || selected.effortOptions[0]?.value || 'auto'} disabled={disabled}
-        options={selected.effortOptions}
-        onChange={(value) => onChange(selectionFor(selected, { effort: value }))} />}
-      {selected?.fastCapable && <div className="mixdog-settings__row"><div className="mixdog-settings__copy">
-        <span className="mixdog-settings__row-title">{t('Fast mode')}</span>
-      </div><div className="settings-row-control"><div className="fast-control">
-        <FastModeToggle enabled={fast} disabled={disabled || !fastAvailable}
-          onChange={(enabled) => onChange(selectionFor(selected, { fast: enabled }))} />
-      </div></div></div>}
-      {selected?.modelParameterOptions?.map((parameter) =>
-        <QuietSelectRow key={parameter.id} title={parameter.label} kind="fast"
-          value={modelParameters[parameter.id] || parameter.options[0]?.value || ''} disabled={disabled}
-          options={parameter.options}
-          onChange={(value) => onChange(selectionFor(selected, {
-            modelParameters: { ...modelParameters, [parameter.id]: value },
-            ...(parameter.id === 'context' && !modelFastAvailable(selected, effort, { ...modelParameters, [parameter.id]: value })
-              ? { fast: false }
-              : {}),
-          }))} />)}
-    </>;
-  }
-  return <div className="settings-route-editor compact">
-    <div className="settings-route-controls">
-      {modelSelect}
-      {selected && selected.effortOptions.length > 0 && <div className="effort-control">
-        <OpenSelect variant="route" ariaLabel={`${title} effort`} value={effort} disabled={disabled}
-          localizeLabels={false} options={selected.effortOptions}
-          onChange={(value) => onChange(selectionFor(selected, { effort: value }))} />
-      </div>}
-      {selected?.fastCapable && <div className="fast-control">
-        <FastModeToggle ariaLabel={`${title} fast mode`} enabled={fast} disabled={disabled || !fastAvailable}
-          onChange={(enabled) => onChange(selectionFor(selected, { fast: enabled }))} />
-      </div>}
-      {selected?.modelParameterOptions?.map((parameter) =>
-        <div className="effort-control" key={parameter.id}><OpenSelect variant="route"
-          ariaLabel={title + ' ' + parameter.label} value={modelParameters[parameter.id] || parameter.options[0]?.value || ''}
-          disabled={disabled} options={parameter.options}
-          onChange={(value) => onChange(selectionFor(selected, {
-            modelParameters: { ...modelParameters, [parameter.id]: value },
-            ...(parameter.id === 'context' && !modelFastAvailable(selected, effort, { ...modelParameters, [parameter.id]: value })
-              ? { fast: false }
-              : {}),
-          }))} /></div>)}
-    </div>
-  </div>;
 }
 
 export function FormRow({ title, description: _description, status, children, resetOnSubmit = false, onSubmit }: {

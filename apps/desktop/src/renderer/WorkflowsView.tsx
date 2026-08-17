@@ -19,7 +19,8 @@ import type {
 import { agentIcon } from './agent-icons';
 import { FastModeIndicator } from './FastModeToggle';
 import { t } from './i18n';
-import { filterConfiguredModels } from './ModelPicker';
+import { filterConfiguredModels } from './model-catalog';
+import { ModelRouteEditor } from './ModelRouteEditor';
 import { dismissDesktopToast, showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import { modelDisplayName, normalizeModelOptions } from './provider-display';
@@ -30,10 +31,10 @@ import {
 } from './sidebar-reference-cache';
 import {
   preferredEffort,
-  RouteEditor,
   routeOption,
 } from './settings/capability-controls';
 import { acquireTitleBarDim } from './titlebar-dim';
+import { usePersistedListOrder } from './use-persisted-list-order';
 
 type RecordValue = Record<string, unknown>;
 export type WorkflowsApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels'>>;
@@ -121,7 +122,8 @@ function RouteControls({ label, route, models, disabled, onChange }: {
   onChange(selection: DesktopModelSelection): void;
 }) {
   return <div className="workflows-route-controls">
-    <RouteEditor title={label} route={route} models={models} disabled={disabled} compact onChange={onChange} />
+    <ModelRouteEditor ariaLabel={label} models={models} disabled={disabled}
+      value={route as unknown as DesktopModelSelection} onChange={onChange} />
   </div>;
 }
 
@@ -187,10 +189,10 @@ function WorkflowEditorDialog({ pack, deletable, busy, error = '', onCancel, onS
           <input name="workflow-name" defaultValue={String(pack?.name || '')}
             placeholder={t("Workflow name")} required autoFocus={!editing} disabled={busy} maxLength={64} />
         </label>
-        <label className="schedules-field"><span>{t('When to use')}</span>
-          <small>{t('When Mixdog should use this workflow.')}</small>
+        <label className="schedules-field"><span>{t('Description')}</span>
+          <small>{t('Shown in workflow lists and included in the prompt.')}</small>
           <input name="workflow-description" data-i18n-skip defaultValue={String(pack?.description || '')}
-            placeholder={t('When Mixdog should use this')} disabled={busy} maxLength={160} />
+            placeholder={t('What this workflow does')} disabled={busy} maxLength={160} />
         </label>
         <div className="schedules-field">
           <span>{t('Agents')}</span>
@@ -495,6 +497,29 @@ export function WorkflowsPane({
   const exploreAgent = agentRoster.find((agent) => agent.id === 'explore');
   const exploreRow = agents.find((agent) => String(agent.id || '') === 'explore');
   const editableAgents = agentRoster.filter((agent) => !DEFAULT_AGENT_IDS.has(agent.id));
+  const workflowOrder = usePersistedListOrder(
+    'mixdog.sidebar-order.workflows.v1',
+    workflows.map((workflow) => String(workflow.id || '')),
+  );
+  const orderedWorkflows = workflowOrder.orderedIds
+    .map((id) => workflows.find((workflow) => String(workflow.id || '') === id))
+    .filter((workflow): workflow is RecordValue => Boolean(workflow));
+  const defaultAgentIds = [
+    'web-search',
+    ...(exploreAgent ? [exploreAgent.id] : []),
+    ...(maintainerAgent ? [maintainerAgent.id] : []),
+  ];
+  const defaultAgentOrder = usePersistedListOrder(
+    'mixdog.sidebar-order.default-agents.v1',
+    defaultAgentIds,
+  );
+  const agentOrder = usePersistedListOrder(
+    'mixdog.sidebar-order.agents.v1',
+    editableAgents.map((agent) => agent.id),
+  );
+  const orderedEditableAgents = agentOrder.orderedIds
+    .map((id) => editableAgents.find((agent) => agent.id === id))
+    .filter((agent): agent is AgentSummary => Boolean(agent));
   const openAgentEditor = async (id: string, deletable: boolean) => {
     if (!api?.invokeCapability) return;
     try {
@@ -534,7 +559,8 @@ export function WorkflowsPane({
     const Icon = agentIcon(agent.id);
     const row = agents.find((entry) => String(entry.id) === agent.id);
     const route = record(row?.route);
-    return <div key={agent.id} className="schedules-row workflows-agent-summary-row">
+    return <div key={agent.id} className="schedules-row workflows-agent-summary-row"
+      {...agentOrder.getReorderProps(agent.id)}>
       <span className="projects-row-icon"><Icon size={16} aria-hidden="true" /></span>
       <button type="button" className="schedules-row-copy projects-row-open"
         title={agent.description || agent.label}
@@ -591,17 +617,17 @@ export function WorkflowsPane({
         </button>
       </div>
       {loading ? null
-        : workflows.length ? <div className="schedules-list">{workflows.map((workflow) => {
+        : workflows.length ? <div className="schedules-list">{orderedWorkflows.map((workflow) => {
           const id = String(workflow.id || '');
           const name = String(workflow.name || id);
           const custom = String(workflow.source || '') === 'user';
-          return <div key={id} className="schedules-row">
+          return <div key={id} className="schedules-row" {...workflowOrder.getReorderProps(id)}>
             <span className="projects-row-icon"><Layers3 size={16} aria-hidden="true" /></span>
             <button type="button" className="schedules-row-copy projects-row-open"
               aria-label={t("Edit workflow {{name}}", { name })}
               onClick={() => void openEditor(id, custom)}>
               <b>{name}</b>
-              <small>{[String(workflow.description || ''), custom ? 'Custom' : '']
+              <small>{[workflow.description ? t(String(workflow.description)) : '', custom ? t('Custom') : '']
                 .filter(Boolean).join(' · ')}</small>
             </button>
             <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
@@ -620,7 +646,9 @@ export function WorkflowsPane({
         <h2>{t('Default agents')}</h2>
         <p>{t('Shared models without editable agent definitions.')}</p>
         <div className="schedules-list">
-          <div className="schedules-row workflows-agent-summary-row workflows-default-agent-summary-row">
+          <div className="schedules-row workflows-agent-summary-row workflows-default-agent-summary-row"
+            style={{ order: defaultAgentOrder.orderedIds.indexOf('web-search') }}
+            {...defaultAgentOrder.getReorderProps('web-search')}>
             <span className="projects-row-icon"><Globe size={16} aria-hidden="true" /></span>
             <button type="button" className="schedules-row-copy projects-row-open"
               title={t('Use when Mixdog runs the search tool.')}
@@ -650,7 +678,9 @@ export function WorkflowsPane({
               <ChevronRight size={16} aria-hidden="true" />
             </button>
           </div>
-          {exploreAgent && <div className="schedules-row workflows-agent-summary-row workflows-default-agent-summary-row">
+          {exploreAgent && <div className="schedules-row workflows-agent-summary-row workflows-default-agent-summary-row"
+            style={{ order: defaultAgentOrder.orderedIds.indexOf(exploreAgent.id) }}
+            {...defaultAgentOrder.getReorderProps(exploreAgent.id)}>
             <span className="projects-row-icon"><Compass size={16} aria-hidden="true" /></span>
             <button type="button" className="schedules-row-copy projects-row-open"
               title={exploreAgent.description || exploreAgent.label}
@@ -680,7 +710,9 @@ export function WorkflowsPane({
               <ChevronRight size={16} aria-hidden="true" />
             </button>
           </div>}
-          {maintainerAgent && <div className="schedules-row workflows-agent-summary-row workflows-default-agent-summary-row">
+          {maintainerAgent && <div className="schedules-row workflows-agent-summary-row workflows-default-agent-summary-row"
+            style={{ order: defaultAgentOrder.orderedIds.indexOf(maintainerAgent.id) }}
+            {...defaultAgentOrder.getReorderProps(maintainerAgent.id)}>
             <span className="projects-row-icon"><Wrench size={16} aria-hidden="true" /></span>
             <button type="button" className="schedules-row-copy projects-row-open"
               title={maintainerAgent.description || maintainerAgent.label}
@@ -728,7 +760,7 @@ export function WorkflowsPane({
         </div>
             <p>{t('Starter and custom roles with editable definitions and models.')}</p>
         <div className="schedules-list">
-          {editableAgents.map(renderAgentRow)}
+          {orderedEditableAgents.map(renderAgentRow)}
         </div>
       </section>
     </div>

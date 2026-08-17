@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 260">
-  <rect width="420" height="260" rx="32" fill="#0c0d11"/>
-  <g transform="translate(130.6 24) scale(.62)">
-    <path fill="#f5f6f8" d="M60 96a32 32 0 0 1 32-32h20l16 30 16-30h20a32 32 0 0 1 32 32v68a32 32 0 0 1-32 32H92a32 32 0 0 1-32-32z"/>
-    <rect x="88" y="118" width="16" height="16" rx="4" fill="#0c0d11"/>
-    <rect x="152" y="118" width="16" height="16" rx="4" fill="#0c0d11"/>
-  </g>
-  <text x="210" y="212" text-anchor="middle" font-family="'Segoe UI', Inter, system-ui, sans-serif" font-size="42" font-weight="400" letter-spacing="7" fill="#f5f6f8">mixdog</text>
-</svg>

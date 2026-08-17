@@ -5,16 +5,18 @@ import React from "react";
 
 import { t } from "./i18n";
 
-// The brand path sits inset in its 256 viewBox (tile margins). Watermarks
-// crop to the glyph bounds so the visible mark fills the box like VS Code's
-// letterpress; chrome surfaces (titlebar) keep the inset tile framing.
+// 23-A is the high-contrast in-app mark. Watermarks crop to the glyph bounds
+// so the visible mark fills the box like VS Code's letterpress.
 export function BrandTile({ crop = false }: { crop?: boolean } = {}): React.JSX.Element {
   return (
-    <svg viewBox={crop ? "57 61 142 142" : "0 0 256 256"} role="presentation">
-      <path
-        d="M72 178V86L128 166L184 86V178"
-        fill="none" stroke="currentColor" strokeWidth="30"
-        strokeLinecap="round" strokeLinejoin="round" />
+    <svg viewBox={crop ? "45 45 166 166" : "0 0 256 256"} role="presentation">
+      <g fill="none" stroke="currentColor" strokeWidth="22" strokeLinecap="round">
+        <path d="M116.2 61A68 68 0 0 1 191.9 104.7" />
+        <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(120 128 128)" />
+        <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(240 128 128)" />
+      </g>
+      <polygon points="128,112 133,123 144,128 133,133 128,144 123,133 112,128 123,123"
+        fill="currentColor" />
     </svg>
   );
 }

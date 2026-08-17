@@ -467,7 +467,14 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         lastBeforeTokens: meta.beforeTokens ?? null,
         lastAfterTokens: meta.afterTokens ?? null,
         lastPressureTokens: meta.pressureTokens ?? null,
-        currentEstimatedTokens: meta.pressureTokens ?? prev.currentEstimatedTokens ?? null,
+        // A successful compact has already replaced the transcript. Publishing
+        // its pre-compact pressure here made persisted/UI state jump back to
+        // ~200k immediately after a 20k result and could be mistaken for a
+        // second trigger before contextStatus recomputed. Terminal mutations
+        // must expose the post-compact estimate.
+        currentEstimatedTokens: changed && meta.stage === 'pre_send'
+            ? (meta.afterTokens ?? meta.pressureTokens ?? prev.currentEstimatedTokens ?? null)
+            : (meta.pressureTokens ?? prev.currentEstimatedTokens ?? null),
         lastApiRequestTokens: positiveTokenInt(sessionRef?.lastContextTokens) || prev.lastApiRequestTokens || null,
         lastStage: meta.stage || prev.lastStage || null,
         lastChanged: changed,

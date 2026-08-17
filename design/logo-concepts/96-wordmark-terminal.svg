@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 160">
-  <rect width="560" height="160" rx="28" fill="#0b0d10"/>
-  <path d="M44 58l22 22-22 22" fill="none" stroke="#3ddc84" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="92" y="104" font-family="Consolas,'Cascadia Mono',monospace" font-size="72" letter-spacing="2" fill="#e8ecf2">mixdog</text>
-  <rect x="356" y="46" width="26" height="62" fill="#3ddc84"/>
-</svg>
