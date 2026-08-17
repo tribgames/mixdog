@@ -226,6 +226,15 @@ function runGit(plan, argv, options = {}) {
 
 function destructiveReason(plan) {
     const { operation, args } = plan;
+    // Dry-run previews mutate nothing: git either prints what WOULD happen or
+    // rejects the flag where unsupported, so the confirm gate only taxes safe
+    // inspection (2026-08-17 bench: `reflog expire --dry-run` was refused and
+    // the model paid a +56s workaround detour). `-n` short clusters count only
+    // for the subcommands where -n MEANS dry-run (clean/push/prune) — on
+    // e.g. `commit -n` it means --no-verify and must keep the gate.
+    if (args.includes('--dry-run')) return '';
+    if (['clean', 'push', 'prune'].includes(operation)
+        && args.some((value) => /^-[a-z]*n[a-z]*$/.test(value))) return '';
     if (operation === 'reset' && args.includes('--hard')) return 'git reset --hard';
     if (operation === 'clean' && args.some((value) => value === '--force' || /^-[^-]*f/.test(value))) return 'git clean --force';
     if (operation === 'gc' && args.some((value) => value === '--prune=now' || value === '--aggressive')) return `git gc ${args.find((value) => value.startsWith('--prune') || value === '--aggressive')}`;
