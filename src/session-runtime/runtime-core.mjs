@@ -19,11 +19,12 @@ import { writeLastSessionCwd } from '../runtime/shared/user-cwd.mjs';
 import { cancelBackgroundTasks } from '../runtime/shared/background-tasks.mjs';
 import { createTranscriptWriter } from '../runtime/shared/transcript-writer.mjs';
 import { mixdogHome } from '../runtime/shared/plugin-paths.mjs';
+import { remoteIntentMatchesSession } from '../runtime/shared/remote-intent.mjs';
 import { checkLatestVersion, localPackageVersion, isDevInstall } from '../runtime/shared/update-checker.mjs';
 import { spawnStagedInstall, runStagedInstall, isStagedComplete } from '../runtime/shared/staged-update.mjs';
 import {
   channelNotificationModelContent,
-  shouldMirrorChannelNotificationToPending,
+  channelNotificationSessionId,
 } from '../runtime/shared/channel-notification-routing.mjs';
 import {
   normalizeAgentPermissionOrNone,
@@ -174,7 +175,6 @@ import {
   SEARCH_DEFAULT_PROVIDER,
   SEARCH_DEFAULT_MODEL,
   workflowPresetId,
-  agentPresetSlot,
   normalizeAgentId,
   normalizeWorkflowId,
   DEFAULT_WORKFLOW_ID,
@@ -317,7 +317,7 @@ const {
   summarizeWorkflowRoutes,
   routeFromPreset,
   agentRouteFromConfig,
-} = createWorkflowRouteHelpers({ resolveDefaultProvider, findPreset });
+} = createWorkflowRouteHelpers({ findPreset });
 
 export async function createMixdogSessionRuntime({
   provider,
@@ -683,9 +683,50 @@ export async function createMixdogSessionRuntime({
 
   // Notification fan-out (listener broadcast + pending-queue mirroring of
   // terminal completions) lives in notification-bus.mjs.
-  const { emitRuntimeNotification, notifyFnForSession } = createNotificationBus({
+  let sessionTurnApi = null;
+  const completionWakeups = new Set();
+  const wakeQueuedCompletion = ({ sessionId, executionId, enqueuedAt } = {}) => {
+    const ownerSessionId = String(sessionId || '').trim();
+    if (!ownerSessionId || completionWakeups.has(ownerSessionId)) return false;
+    completionWakeups.add(ownerSessionId);
+    setImmediate(async () => {
+      const queuedAt = Number(enqueuedAt) || Date.now();
+      try {
+        const currentSessionId = String(rt.session?.id || rt.reservedSessionId || '').trim();
+        if (currentSessionId !== ownerSessionId || !sessionTurnApi) return;
+        const delayMs = Math.max(0, Date.now() - queuedAt);
+        if (delayMs >= 1_000) {
+          process.stderr.write(
+            `[notification] delayed completion wake sessionId=${ownerSessionId}`
+            + ` executionId=${executionId || 'unknown'} queuedMs=${delayMs}\n`,
+          );
+        }
+        await sessionTurnApi.ask('', { submittedAt: queuedAt });
+      } catch (err) {
+        try {
+          process.stderr.write(
+            `[notification] completion wake failed sessionId=${ownerSessionId}`
+            + ` executionId=${executionId || 'unknown'} err=${err?.message || err}\n`,
+          );
+        } catch {}
+      } finally {
+        completionWakeups.delete(ownerSessionId);
+      }
+    });
+    return true;
+  };
+  const {
+    emitRuntimeNotification,
+    notifySession,
+    notifyFnForSession,
+    notifySessionCompletion,
+    subscribeRuntimeNotification,
+    bindRuntimeNotificationSession,
+    clearRuntimeNotifications,
+  } = createNotificationBus({
     listeners: notificationListeners,
     mgr,
+    onCompletionQueued: wakeQueuedCompletion,
   });
 
   // Skill listing/loading/creation lives in skills-api.mjs; the facade only
@@ -753,6 +794,7 @@ export async function createMixdogSessionRuntime({
     mcpScopeId: rt.mcpScopeId,
     awaitKeychainPrewarm,
     isKeychainPrewarmReady: () => rt.keychainPrewarmWaitDone,
+    notifySessionCompletion,
     // SubagentStart/SubagentStop: bridge internal worker spawn/finish to the
     // standard hook bus. agent_type is passed top-level via hookCommonPayload
     // (added to hook-bus buildEventPayload passthrough). Best-effort.
@@ -788,7 +830,10 @@ export async function createMixdogSessionRuntime({
     // the daemon. Bind channel liveness to this runtime host, never that stale
     // inherited supervisor PID.
     leadPid: process.pid,
-    getSessionId: () => rt.session?.id || null,
+    // Sessions are lazy: a resumed session lives as a reserved id until its
+    // first turn. Registering with a null id would make the daemon skip the
+    // session-pinned channel-link restore for exactly the session that owns it.
+    getSessionId: () => rt.session?.id || rt.reservedSessionId || null,
     onNotify: (msg) => {
       // Single-holder remote: the worker reports it lost the bridge seat to a
       // newer remote session. Drop remote mode entirely on this session (no
@@ -805,10 +850,8 @@ export async function createMixdogSessionRuntime({
       const meta = params.meta && typeof params.meta === 'object' ? params.meta : {};
       const content = channelNotificationModelContent(params);
       if (!content) return;
-      const { handled } = emitRuntimeNotification(content, meta);
-      if (!handled && rt.session?.id && shouldMirrorChannelNotificationToPending(meta)) {
-        try { mgr.enqueuePendingMessage(rt.session.id, content); } catch {}
-      }
+      const targetSessionId = channelNotificationSessionId(rt.session, rt.reservedSessionId);
+      notifySession(targetSessionId, content, meta);
     },
   });
   bootProfile('channels:worker-ready', { ms: (performance.now() - channelsStartedAt).toFixed(1) });
@@ -1329,6 +1372,27 @@ export async function createMixdogSessionRuntime({
   // early /remote (startRemote clears it), stopRemote(), and close() all
   // cancel it through the existing clearTimeout paths. Runtime /remote calls
   // still start immediately (user-initiated, UI already painted).
+  // Reconnect restore: a session that owned the channel link before the app or
+  // daemon restarted reclaims it by itself. The durable intent used to be
+  // consumed only by the daemon's register-time restore, which never ran for a
+  // non-remote, automation-free session — so the link looked silently dropped
+  // until the user toggled Remote by hand.
+  let remoteIntentRestoreTimer = null;
+  function scheduleRemoteIntentRestore(delayMs = remoteAutoStartDelayMs) {
+    if (rt.agentSessionSpec || rt.remoteIntentRestoreDone) return;
+    if (rt.closeRequested || rt.remoteEnabled || remoteIntentRestoreTimer) return;
+    remoteIntentRestoreTimer = setTimeout(() => {
+      remoteIntentRestoreTimer = null;
+      if (rt.remoteIntentRestoreDone || rt.closeRequested || rt.remoteEnabled) return;
+      const sessionId = rt.session?.id || rt.reservedSessionId || null;
+      if (!sessionId || !remoteIntentMatchesSession(sessionId, rt.currentCwd)) return;
+      rt.remoteIntentRestoreDone = true;
+      bootProfile('channels:remote-intent-restore', { sessionId });
+      void startRemote();
+    }, delayMs);
+    remoteIntentRestoreTimer?.unref?.();
+  }
+
   if (rt.agentSessionSpec) {
     // Worker sessions never run channels or schedule automation probes.
   } else if (rt.remoteEnabled) {
@@ -1340,6 +1404,7 @@ export async function createMixdogSessionRuntime({
     }, remoteAutoStartDelayMs);
     prewarmTimers.channelStartTimer.unref?.();
   } else {
+    scheduleRemoteIntentRestore();
     // Automation decoupling (user decision): enabled schedules/webhooks boot
     // the worker on their own — no remote flag, no remote.autoStart, and no
     // messaging provider. A later explicit Remote ON promotes the same
@@ -1490,6 +1555,11 @@ export async function createMixdogSessionRuntime({
     channels,
     agentTool,
     pushTranscriptRebind,
+    // Post-resume remote-intent recheck (hoisted declaration below). The boot
+    // probe can fire before the daemon-driven resume has established
+    // rt.session/cwd and then never re-arms; a completed resume is the first
+    // moment the pinned session can actually reclaim its channel link.
+    scheduleRemoteIntentRestore,
     mcpClient,
     warmupTimers,
     prewarmTimers,
@@ -1512,7 +1582,7 @@ export async function createMixdogSessionRuntime({
     // Live getter: cwd-refresh session rebuilds must re-evaluate the
     // workflow's agent-tool gate, not reuse the boot-time array.
     getStandaloneTools: modelStandaloneTools,
-    desktopSession: rt.desktopSession,
+    clearRuntimeNotifications,
     disposeSessionTitles: () => sessionTitles.disposeAll(),
   });
   const resourceApi = createResourceApi({
@@ -1582,9 +1652,7 @@ export async function createMixdogSessionRuntime({
       rt.session = v;
       if (v?.id) rt.reservedSessionId = null;
     },
-    getConfigHasSecrets: () => rt.configHasSecrets,
     cfgMod,
-    reg,
     mgr,
     STANDALONE_DATA_DIR,
     resolveRoute,
@@ -1609,7 +1677,7 @@ export async function createMixdogSessionRuntime({
     invalidatePreSessionToolSurface,
     refreshEmptySessionToolPolicy,
   });
-  const sessionTurnApi = createSessionTurnApi({
+  sessionTurnApi = createSessionTurnApi({
     getSession: () => rt.session,
     setSession: (v) => {
       rt.session = v;
@@ -1647,6 +1715,7 @@ export async function createMixdogSessionRuntime({
     hookCommonPayload,
     mgr,
     notifyFnForSession,
+    subscribeRuntimeNotification,
     bootProfile,
     scheduleProviderWarmup,
     scheduleProviderModelWarmup,
@@ -1703,6 +1772,11 @@ export async function createMixdogSessionRuntime({
         throw new Error(`session ${rt.session.id} is already materialized`);
       }
       rt.reservedSessionId = id;
+      bindRuntimeNotificationSession(id);
+      // First moment this runtime knows WHICH session it is: re-check the
+      // channel-link intent, since the boot probe may have run before the
+      // daemon addressed this session.
+      scheduleRemoteIntentRestore();
       // Reservation is the earliest safe point to prepare keychain, memory,
       // provider metadata, hooks, and the provider transport. This starts no
       // model response and therefore incurs no inference/token usage. The first

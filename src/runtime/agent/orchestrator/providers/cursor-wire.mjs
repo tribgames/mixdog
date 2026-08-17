@@ -462,6 +462,11 @@ function buildRunRequest({ model, modelParameters = [], systems, history, userTe
             },
             mcpTools: { mcpTools: tools },
             conversationId: conversation.id,
+            // NOTE: AgentRunRequest.customSystemPrompt (field 8) is a dead
+            // channel on the current cloud endpoint: the server maps it to an
+            // internal `--system-prompt` agent flag its binary rejects with
+            // invalid_argument (400). Harness parity is carried by the
+            // requestContext cloudRule instead (see handleExecMessage).
         },
     });
 }
@@ -562,23 +567,17 @@ function decodeMcpArgs(args = {}) {
 }
 
 const UNAVAILABLE = 'Tool not available in this environment. Use a Mixdog tool instead.';
-const MIXDOG_TOOL_INSTRUCTIONS = [
-    'This environment exposes its tools through the Mixdog tool bridge.',
-    'Always prefer the available mcp_mixdog_* tools over Cursor built-in native tools.',
-    'Choose the specialized Mixdog tool that matches the task instead of defaulting to shell.',
-].join(' ');
-
 function handleExecMessage(bridge, exec, tools, cloudRule, onToolCall) {
     if (exec.requestContextArgs) {
         sendExecResult(bridge, exec, 'requestContextResult', {
             success: {
                 requestContext: {
                     tools,
-                    mcpInstructions: tools.length ? [{
-                        serverName: 'mixdog',
-                        instructions: MIXDOG_TOOL_INSTRUCTIONS,
-                    }] : [],
-                    cloudRule,
+                    mcpInstructions: [],
+                    // Cursor's rules channel: without it the server-side agent
+                    // treats the client as ruleless and applies only its own
+                    // harness policy (user report: policies ignored vs direct).
+                    ...(cloudRule ? { cloudRule } : {}),
                     fileContents: {},
                 },
             },
