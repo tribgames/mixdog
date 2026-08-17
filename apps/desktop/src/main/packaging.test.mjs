@@ -207,7 +207,7 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   assert.match(main, /app\.isPackaged \? \[join\(process\.resourcesPath,\s*'mixdog\.ico'\)\]/);
   assert.doesNotMatch(builder, /script:/);
   assert.match(iconGenerator, /writeFile\(`\$\{buildDir\}\/mixdog\.ico`/);
-  assert.doesNotMatch(iconGenerator, /mixdog\.png/);
+  assert.match(iconGenerator, /writeFile\(`\$\{buildDir\}\/mixdog\.png`/);
   assert.match(installer, /CreateWindowExW[\s\S]*msctls_progress32/);
   assert.match(installer,
     /wscript\.exe[\s\S]*progress-driver\.vbs[\s\S]*progress-driver\.ps1[\s\S]*"\$MixdogProgressParent" "\$MixdogProgressStock" "\$MixdogProgressBar"/);
